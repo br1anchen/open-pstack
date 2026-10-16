@@ -1,7 +1,7 @@
 class Context:
     """What a variant's pair.sh sets before it sources pair-core.sh."""
 
-    __slots__ = ('skill', 'skill_root', 'state_root', 'store_label', 'roles', 'store_dirs', 'slug_max', 'unfilled_re')
+    __slots__ = ('skill', 'skill_root', 'state_root', 'store_label', 'roles', 'store_dirs', 'slug_max', 'unfilled_re', '_variant')
 
     def __init__(self, skill, skill_root, state_root, store_label, roles, store_dirs, slug_max, unfilled_re):
         self.skill = skill
@@ -12,3 +12,12 @@ class Context:
         self.store_dirs = store_dirs
         self.slug_max = slug_max
         self.unfilled_re = unfilled_re
+        self._variant = None
+
+    @property
+    def variant(self):
+        """The skill's Variant, loaded on first use so a command that needs no hook pays for none."""
+        if self._variant is None:
+            from .variant import load_variant
+            self._variant = load_variant(self)
+        return self._variant

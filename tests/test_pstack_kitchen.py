@@ -1,5 +1,6 @@
 """kitchen.py against a throwaway repo: the kitchen.toml schema, classify,
 gate, policy, and doctor, end to end through the command line."""
+import importlib.util
 import json
 import os
 import re
@@ -1623,6 +1624,63 @@ esac
 
     def done(self, brief, head):
         (self.store / 'reports' / brief.name).write_text(f'# Report\n\nstatus: done\nhead: {head}\n')
+
+    def kitchen_variant(self):
+        spec = importlib.util.spec_from_file_location('kitchen_variant_under_test', skill / 'scripts/variant.py')
+        module = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(root / 'skills/pstack-pair/scripts'))
+        spec.loader.exec_module(module)
+        return module
+
+    def test_verify_job_matches_cksum(self):
+        module = self.kitchen_variant()
+        fn = re.search(r'^verify_job\(\) \{.*?^\}$', (skill / 'scripts/kitchen.sh').read_text(), re.MULTILINE | re.DOTALL).group(0)
+        blocks = {'empty': b'', 'no trailing newline': b'true', 'plain': b'python3 tests/run.py -k x\ngit diff --exit-code\n',
+                  'non-ascii': 'echo \u00e9 \u2192 \U0001F600\n'.encode(), 'over 4 KiB': b'echo ' + b'x' * 5000 + b'\n' + b'true\n' * 900}
+        for name, block in blocks.items():
+            brief = Path(self.tmp.name) / f'{name.replace(" ", "-")}-001-x.md'
+            brief.write_bytes(b'# Brief\n\n## Goal\n\ng\n\n## Verify\n' + block + b'\n## Forbidden\n\nnone\n')
+            sha = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
+            bash = subprocess.run(['bash', '-c', f'{fn}\nverify_job "$1" "$2" "$3"', 'x', '/store', str(brief), sha],
+                                  capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(module.verify_job('/store', str(brief), sha), bash, name)
+        bare = Path(self.tmp.name) / '002-y.md'
+        bare.write_bytes(b'# Brief\n\n## Verify\n\ntrue')
+        bash = subprocess.run(['bash', '-c', f'{fn}\nverify_job /store {bare} abc', 'x'], capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(module.verify_job('/store', str(bare), 'abc'), bash, 'a Verify block that ends the file')
+
+    def test_kitchen_report_ready_adds_the_verify_job_to_the_pairs_readiness(self):
+        # kitchen.sh cannot be sourced in a harness, so the why strings below are the literals of kitchen.sh report_ready.
+        module = self.kitchen_variant()
+        ready = lambda path: module.VARIANT().report_ready(None, str(self.store), str(path))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, 'true')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        head = self.commit('work')
+        report = self.store / 'reports' / b.name
+        self.done(b, head)
+        job = Path(module.verify_job(str(self.store), str(b), head))
+        short = f"the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them)"
+        got = ready(report)
+        self.assertEqual((got.ready, got.open, got.why), (False, '', short), 'rc missing')
+        job.mkdir(parents=True)
+        (job / 'rc').write_text('1\n')
+        self.assertEqual((ready(report).ready, ready(report).why), (False, short), 'rc 1')
+        (job / 'rc').write_text('0\n')
+        got = ready(report)
+        self.assertEqual((got.ready, got.open, got.why), (True, '', ''), 'rc 0')
+        self.done(b, 'f' * 40)
+        got = ready(report)
+        self.assertEqual((got.ready, got.why), (False, 'its head: is not a commit'), 'head not a commit')
+        other = self.store / 'reports/002-other.md'
+        other.write_text(f'# Report\n\nstatus: done\nhead: {head}\n')
+        self.assertTrue(ready(other).ready, 'not the dispatched unit\'s report')
+        self.done(b, head)
+        (self.store / 'notes').mkdir(exist_ok=True)
+        (self.store / 'notes/001-util-n1.md').write_text('# N\n\nstatus: blocking\n')
+        got = ready(report)
+        self.assertEqual((got.ready, got.open, got.why), (False, str(self.store / 'notes/001-util-n1.md'), 'open blocking notes n1'), 'the pair says no first')
 
     def test_kitchen_log_records_the_decision_and_a_master_log_event(self):
         self.run_sh('log', str(self.store), 'review', 'accept 001', 'diff clean', 'reviews/001', 'next')

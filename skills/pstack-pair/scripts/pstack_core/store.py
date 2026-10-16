@@ -135,6 +135,11 @@ def unit_name(path):
     return name[:-3] if name.endswith('.md') and name != '.md' else name
 
 
+def expected_report(store, brief):
+    """The report a message asks for: reports/<NNN-slug>.md, where an answer's -a<k> suffix names the brief it answers."""
+    return f'{store}/reports/{re.sub(r"-a[0-9]+$", "", unit_name(brief))}.md'
+
+
 def steer_number(path):
     m = re.fullmatch(r'.*-s([0-9]+)', unit_name(path), re.S)
     return m.group(1) if m else unit_name(path)

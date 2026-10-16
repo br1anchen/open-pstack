@@ -242,6 +242,83 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.git('commit', '-q', '-m', name)
         return self.git('rev-parse', 'HEAD')
 
+    def readiness_fixture(self):
+        """A repo with commits c1 < c2 < c3 and a store whose unit 001-x has steps up to c2."""
+        repo = self.git_repo()
+        c1, c2, c3 = self.commit('c1'), self.commit('c2'), self.commit('c3')
+        st = self.fixture_store('ready')
+        (st / 'pair.json').write_text(json.dumps({'git_root': str(repo), 'cwd': str(repo), 'dispatch': {'brief': f'{st}/briefs/001-x.md'}}))
+        (st / 'steps').mkdir()
+        (st / 'notes').mkdir()
+        return st, c1, c2, c3
+
+    def test_report_ready_matches_bash_on_every_branch(self):
+        st, c1, c2, c3 = self.readiness_fixture()
+        missing = 'f' * 40
+        both, tail_gone, no_tab = [(1, c1, ''), (2, c2, '')], [(1, c1, ''), (2, missing, '')], None
+        # name, steps rows (None: no file, []: empty file), blocking notes, report name, status, head
+        cases = [
+            ('not done', both, (), '001-x.md', 'partial', c3),
+            ('head contains the last step', both, (), '001-x.md', 'done', c3),
+            ('head is the last step', both, (), '001-x.md', 'done', c2),
+            ('head predates the last step', both, (), '001-x.md', 'done', c1),
+            ('head with a suffix', both, (), '001-x.md', 'done', c1[:7] + ' (after the fix)'),
+            ('steer stem', both, (), '001-x-s1.md', 'done', c1),
+            ('consult stem', both, (), '001-x-q2.md', 'done', c1),
+            ('head not a commit', both, (), '001-x.md', 'done', missing),
+            ('no head', both, (), '001-x.md', 'done', ''),
+            ('placeholder head', both, (), '001-x.md', 'done', '<sha>'),
+            ('last step not a commit', tail_gone, (), '001-x.md', 'done', c1),
+            ('empty steps file', [], (), '001-x.md', 'done', c1),
+            ('no steps file', None, (), '001-x.md', 'done', c1),
+            ('one open note', both, (1,), '001-x.md', 'done', c3),
+            ('two open notes', both, (1, 12), '001-x.md', 'done', c3),
+            ('notes resolved by a step', [(1, c1, 'n1,n12'), (2, c2, '')], (1, 12), '001-x.md', 'done', c1),
+        ]
+        ctx = Context('pstack-pair', str(root / 'skills/pstack-pair'), '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+        for name, rows, notes, report, status, head in cases:
+            steps = st / 'steps/001-x.tsv'
+            steps.unlink(missing_ok=True)
+            if rows is not None:
+                steps.write_text(''.join(f'{k}\t{sha}\ts\t{res}\n' for k, sha, res in rows))
+            for f in (st / 'notes').iterdir():
+                f.unlink()
+            for n in notes:
+                (st / f'notes/001-x-n{n}.md').write_text('# N\n\nstatus: blocking\n')
+            path = st / 'reports' / report
+            path.write_text(f'# R\n\nstatus: {status}\nhead: {head}\n')
+            got = ctx.variant.report_ready(ctx, str(st), str(path))
+            r = self.bash(f'rc=0; report_ready {st} {path} || rc=$?; printf "%s\\037%s\\037%s" "$rc" "$report_open" "$report_why"')
+            code, opened, why = r.split('\x1f')
+            self.assertEqual((int(not got.ready), got.open, got.why), (int(code), opened, why), name)
+        steps = st / 'steps/001-x.tsv'
+        steps.write_text(f'1\t{c1}\ts\t\n{c2}')
+        for f in (st / 'notes').iterdir():
+            f.unlink()
+        path = st / 'reports/001-x.md'
+        path.write_text(f'# R\n\nstatus: done\nhead: {c1}\n')
+        got = ctx.variant.report_ready(ctx, str(st), str(path))
+        r = self.bash(f'rc=0; report_ready {st} {path} || rc=$?; printf "%s\\037%s" "$rc" "$report_why"')
+        self.assertEqual((int(not got.ready), got.why), (int(r.split('\x1f')[0]), r.split('\x1f')[1]), 'a last step row without a tab')
+
+    def test_expected_report_matches_bash(self):
+        for brief in ('/s/briefs/001-x.md', '001-x-a2.md', '/s/briefs/001-x-a12', '/s/briefs/001-x-a.md', '/s/briefs/-a1.md', '.md', '/s/briefs/001-a1-x.md'):
+            self.assertEqual(store.expected_report('/s', brief), self.bash(f'expected_report /s {shlex.quote(brief)}').rstrip('\n'), brief)
+
+    def test_load_variant_is_lazy_and_picks_the_skills_class_by_path(self):
+        code = ('import sys; sys.path.insert(0, sys.argv[1]); import pstack_core.cli; '
+                'assert "pstack_core.variant" not in sys.modules; print("lazy")')
+        r = subprocess.run([sys.executable, '-I', '-c', code, str(scripts)], capture_output=True, text=True, check=False)
+        self.assertEqual((r.stdout, r.returncode), ('lazy\n', 0), r.stderr)
+        names = {}
+        for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen'):
+            ctx = Context(skill, str(root / 'skills' / skill), '/s', 'Pair', (), (), 21, '')
+            self.assertIsNone(ctx._variant)
+            names[skill] = [c.__name__ for c in type(ctx.variant).__mro__[:-1]]
+            self.assertIs(ctx.variant, ctx.variant)
+        self.assertEqual(names, {'pstack-pair': ['Variant'], 'pstack-pair-guided': ['Variant'],
+                                 'pstack-trio': ['TrioVariant', 'Variant'], 'pstack-kitchen': ['KitchenVariant', 'TrioVariant', 'Variant']})
+
     def test_trunk_ref_range_floor_and_review_base_match_bash(self):
         repo = self.git_repo('work')
         self.commit('c1')
@@ -932,7 +1009,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch')
     DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'pause_notice', 'steer_notice', 'open_steers', 'progress_path',
                   'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
-                  'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update')
+                  'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update',
+                  'report_ready', 'expected_report')
 
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
