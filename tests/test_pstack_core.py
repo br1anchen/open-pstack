@@ -268,7 +268,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             flag = ' --allow-head' if allow else ''
             out = self.bash(f'range_floor {repo} {c2} {c3}{flag}; printf "%s\\n%s\\n" "$range_floor_rev" "$range_floor_note"')
             self.assertEqual(f'{rev}\n{note}\n', out, allow)
-            self.assertEqual(bool(note), allow)
+            self.assertEqual((rev, note), (c3, f'recorded base {c2[:9]} is behind where its branch leaves heads/main; measuring from {c3[:9]}') if allow else (c2, ''))
 
     def test_require_filled_matches_bash(self):
         f = self.path / 'f.md'
