@@ -36,6 +36,9 @@ def core_args(skill_root='/nowhere/pstack-pair'):
             '--roles', 'sidekick', '--store-dirs', 'plans briefs', '--slug-max', '21', '--unfilled-re', '', '--']
 
 
+LEGACY_HEADER = 'ts\tepoch\tactor\tevent\tunit\tdetail'
+
+
 def mask(text):
     """events.tsv without its ts and epoch columns."""
     return [row.split('\t', 2)[2] for row in text.splitlines()]
@@ -714,7 +717,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
 
     def generated_events(self, seed):
-        """One events.tsv as event() writes it (no header), and a PAIR_METRICS_NOW, from a fixed seed."""
+        """One events.tsv behind a legacy header line, and a PAIR_METRICS_NOW, from a fixed seed.
+
+        The d06a932 awk program drops the first line as a header and event() never wrote one, so the oracle reads
+        a header it was written for. The first-event correction is exempt from the oracle: see the headerless tests."""
         rng = random.Random(seed)
         units = ['001-alpha', '002-beta', '002-beta-s1', '003-gamma-q2', '003-gamma', '004-delta-s2', '-']
         words = ['accepted', 'Accept', 'agreed', 'revise', 'rejected', 'REJECT', 'looks fine', '', 'Agreed with notes', 'revised']
@@ -758,7 +764,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if rng.randrange(60) == 0:
                 rows.append(rng.choice(['', 'short\trow', f'x\t{t}']))
         now = rng.choice([str(t - 100), str(t), str(t + 50), str(t + 5000), 'later'])
-        return '\n'.join(rows) + rng.choice(['\n', '']), now
+        return '\n'.join([LEGACY_HEADER, *rows]) + rng.choice(['\n', '']), now
 
     def metrics_oracle(self):
         """The generated stores and the awk program's output for each, from pair.sh as it was at d06a932, in one bash process."""
@@ -823,7 +829,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 elif name == 'header only':
                     log.write_text('ts\tepoch\n')
                 elif name == 'no trailing newline':
-                    log.write_text('x\t1\tm\tsend-brief\t001-a\t\nx\t5\tm\tsend-brief\t001-a\t')
+                    log.write_text(f'{LEGACY_HEADER}\nx\t1\tm\tsend-brief\t001-a\t\nx\t5\tm\tsend-brief\t001-a\t')
                 elif name == 'directory':
                     log.mkdir()
                     (log / 'f').write_text('x')
@@ -843,6 +849,26 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('is a directory: skipped', cases['port']['directory'][2])
         self.assertEqual(cases['port']['missing'][0], 1)
 
+
+    FIRST_EVENTS = ('2026-01-01T00:00:00Z\t100\tmaster\tsend-brief\t001-a\t\n'
+                    '2026-01-01T00:01:00Z\t160\tsidekick\treport\t001-a\t\n')
+
+    def metrics_of(self, text):
+        st = self.path / f'first-{len(list(self.path.iterdir()))}'
+        st.mkdir()
+        (st / 'events.tsv').write_text(text)
+        self.env['PAIR_METRICS_NOW'] = '200'
+        r = self.pair_py('metrics', str(st))
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        return r.stdout
+
+    def test_metrics_counts_the_first_event_of_a_headerless_store(self):
+        out = self.metrics_of(self.FIRST_EVENTS)
+        self.assertIn('sidekick: busy 1m (100% of wall), idle 0m across 0 gaps; 1 briefs (median 1m), 0 plan responses (0m)\n', out)
+        self.assertIn('  001-a 1m\n', out)
+
+    def test_metrics_gives_a_legacy_header_store_the_same_output_as_the_headerless_one(self):
+        self.assertEqual(self.metrics_of(LEGACY_HEADER + '\n' + self.FIRST_EVENTS), self.metrics_of(self.FIRST_EVENTS))
 
     PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch')
     DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'pause_notice', 'steer_notice', 'open_steers', 'progress_path',

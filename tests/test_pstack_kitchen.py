@@ -1684,8 +1684,7 @@ esac
         self.run_sh('scratch', str(self.store), '002-x-live', '--remove')
 
     def test_kitchen_metrics_reports_wall_time_and_review_latency_from_events_tsv(self):
-        rows = [('900', 'master', 'send-brief', '001-util', ''),
-                ('1000', 'master', 'send-brief', '001-util', ''),
+        rows = [('1000', 'master', 'send-brief', '001-util', ''),
                 ('1600', 'sidekick', 'report', '001-util', ''),
                 ('1700', 'master', 'wake', '001-util', 'report:done'),
                 ('1760', 'master', 'log', '-', 'review: accepted 001')]

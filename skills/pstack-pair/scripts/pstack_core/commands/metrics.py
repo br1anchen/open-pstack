@@ -239,8 +239,10 @@ def run(ctx, args):
             return 2
     if records and records[-1] == '':
         records.pop()
-    # The first row is skipped as if it were a header, though event() writes none (see reviews/002), so the first real event is dropped.
-    for row in records[1:]:
+    # event() writes no header; a store from an older build may start with one, and that line is skipped.
+    if records and records[0].startswith('ts\t'):
+        records = records[1:]
+    for row in records:
         metrics.record(row.split('\t'))
     sys.stdout.write(metrics.report())
     return 0
