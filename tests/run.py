@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 here = Path(__file__).resolve().parent
-SUITES = ['test_pstack_kitchen', 'test_pstack_pair', 'test_pstack_sync']
+SUITES = ['test_pstack_core', 'test_pstack_kitchen', 'test_pstack_pair', 'test_pstack_sync']
 
 
 def test_ids(suites):
