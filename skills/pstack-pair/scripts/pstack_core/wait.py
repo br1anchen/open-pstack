@@ -4,6 +4,7 @@ ready and steps_due. send_and_wait, stop and steer keep the bash closure."""
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -505,15 +506,33 @@ def wait_for_reply(ctx, store, name, timeout, now=None):
     return result
 
 
+def die_with_the_shell():
+    """End the way the bash does. A signal kills the process outright, with no Python traceback and the signal as the exit
+    status; and when the shell that ran it dies first (a SIGTERM to the shell alone), the wait goes too instead of running on
+    as an orphan."""
+    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(number, signal.SIG_DFL)
+    try:
+        import ctypes
+        ctypes.CDLL(None).prctl(1, int(signal.SIGTERM))
+    except (OSError, AttributeError):
+        pass
+
+
 def wait(ctx, args):
     from .commands.report import in_herdr
     in_herdr()
+    die_with_the_shell()
     if len(args) < 1:
         raise Die('usage: pair.sh wait <store> [--timeout MS | --every MIN]')
     store = args[0]
     timeout, interval, _, rest = wait_opts(args[1:])
     if rest:
         raise Die(f'unknown option {rest[0]}')
+    if not os.path.isfile(f'{store}/pair.json'):
+        # The bash goes on with an empty agent name and prints a pair of error lines for every field() it then reads; the
+        # first pair and the status are kept.
+        raise Exit(2, f'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n')
     pair = pair_json(store)
     name = jq_raw(alt(alt(pair.get('sidekick'), {}).get('name'), None))
     result = wait_for_reply(ctx, store, name, timeout)

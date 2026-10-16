@@ -6,7 +6,9 @@ import os
 import random
 import re
 import shlex
+import select
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -372,6 +374,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         if spec.get('report_after'):
             (fake / 'report-after').write_text(fill(spec['report_after']) + '\n')
         env.update(spec.get('env', {}))
+        if spec.get('busy'):
+            (fake / 'busy').mkdir(exist_ok=True)
+            (fake / 'busy' / 's1').write_text('')
         if spec.get('promptfail'):
             (fake / 'prompt-fail').write_text('')
         (st / 'events.tsv').write_text('2026-01-01T00:00:00Z\t1\tmaster\tinit\t-\tbefore\n')
@@ -379,7 +384,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def ab_run(self, label, skills, skill, spec):
         top, st, env, fill = self.ab_world(label, spec)
-        r = subprocess.run([str(skills / skill / 'scripts/pair.sh'), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env,
+        script = 'kitchen.sh' if skill == 'pstack-kitchen' else 'pair.sh'
+        r = subprocess.run([str(skills / skill / 'scripts' / script), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env, timeout=120,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, check=False)
         norm = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))
         files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
@@ -486,6 +492,195 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('rotation-required', ''.join(outcomes['devin done report asks for a rotation']['events']))
         self.assertIn('late steer', outcomes['late steer']['stdout'])
         self.assertEqual(outcomes['finish a done report without pair.json']['rc'], 2)
+
+    @staticmethod
+    def mask_minutes(text):
+        """The minutes a digest prints, which move when the base run and the port run fall on either side of a minute."""
+        return re.sub(r'(elapsed |last change |last |for )[0-9]+m', r'\1Nm', text)
+
+    @staticmethod
+    def collapse_polls(calls):
+        """The herdr call log with a poll that repeated (a wait, or a wait and the pane reads that follow it) kept once: how many
+        times it repeats depends on where the whole-second deadline falls, not on what the scripts decide."""
+        lines = re.sub(r'(agent wait \S+ --timeout )[0-9]+', r'\1N', calls).splitlines()
+        changed = True
+        while changed:
+            changed = False
+            for size in (1, 2, 3, 4):
+                i = 0
+                while i + 2 * size <= len(lines):
+                    if lines[i:i + size] == lines[i + size:i + 2 * size]:
+                        del lines[i + size:i + 2 * size]
+                        changed = True
+                    else:
+                        i += 1
+        return '\n'.join(lines)
+
+    def wait_ab_cases(self):
+        T = int(time.time())
+        at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(T - 20 * 60 - 30))
+        sent = {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1}
+        working = {'s1': 'working claude'}
+        done = '# R\n\nstatus: done\nhead: {c3}\n'
+        run = ['wait', '{st}', '--timeout', '20000']
+        short = ['wait', '{st}', '--timeout', '1000']
+        digest = {'sent': {**sent, 'epoch': T + 3600}, 'pending': ['{st}/briefs/001-x.md'], 'dispatch': {'brief': '{st}/briefs/001-x.md', 'at': at, 'head': '{c3}'}}
+        steps = {'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n2\t{c2}\t6\t\ttwo\n'}
+        brief = lambda risk: {'briefs/001-x.md': f'# Brief\n\nrisk: {risk}\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/**\n'}
+        log = {'progress/001-x.md': '10:00 one\n10:05 two\n'}
+        return {
+            'a report landing mid-wait': dict(args=run, agents=working, report_after='2 {st}/reports/001-x.md', pair={'sent': sent}),
+            'a pending report at once': dict(args=run, pair={'sent': sent, 'pending': ['{st}/briefs/001-x.md']}, files={'reports/001-x.md': done}),
+            'a reply to the last message at once': dict(args=run, pair={'sent': sent}, files={'reports/001-x.md': done}),
+            'a reply that is withheld': dict(args=short, pair={'sent': sent}, files={'reports/001-x.md': done, 'steps/001-x.tsv': '1\t{c2}\t5\t\tone\n2\t{c3}\t5\t\ttwo\n', 'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}),
+            'steps due': dict(args=run, pair={'sent': sent}, files=steps),
+            'steps due, noted through 1': dict(args=run, pair={'sent': sent}, files={**steps, 'notes/001-x-n1.md': '# N\n\nstatus: clear\n'}),
+            'steps already shown': dict(args=short, agents=working, pair={**digest, 'shown': {'001-x': 2}}, files={**steps, **log}),
+            'a digest at the interval': dict(args=short, agents=working, pair=digest, files={**log, **brief('routine')}),
+            'a digest with steers': dict(args=short, agents=working, pair=digest, files={**log, **brief('routine'), 'steers/001-x-s1.md': '# S\n\nkind: narrow\nscope effect: may write "extra/**"\n',
+                                                                                        'reports/001-x-s1.md': '# R\n\nstatus: object\n', 'progress/001-x.md': '10:00 steer s1 applied: ok\n'}),
+            'a digest with an objection': dict(args=short, agents=working, pair=digest, files={**log, **brief('routine'), 'steers/001-x-s1.md': '# S\n', 'reports/001-x-s1.md': '# R\n\nstatus: object\n'}),
+            'a blocked sidekick': dict(args=run, agents={'s1': 'blocked claude'}, screens={'s1': 'Error: rate limit reached\n'}, pair={**digest, 'sidekick': {'kind': 'claude', 'generation': 1, 'name': 's1', 'fallback': {'kind': 'devin'}}}, files=brief('routine')),
+            'a blocked sidekick with nothing to say': dict(args=run, agents={'s1': 'blocked claude'}, screens={'s1': 'a dialog\n'}, pair=digest),
+            'an idle sidekick with nothing to report': dict(args=run, agents={'s1': 'idle claude'}, screens={'s1': 'quiet\n'}, pair=digest, env={'PAIR_SETTLE_HOLD': '0'}),
+            'an idle sidekick that settles after a hold': dict(args=run, agents={'s1': 'idle claude'}, pair=digest, env={'PAIR_SETTLE_HOLD': '1', 'PAIR_SETTLE_POLL_S': '0.2'}),
+            'a settle while the pane is busy': dict(args=['wait', '{st}', '--timeout', '2000'], agents={'s1': 'idle claude'}, busy=True, pair=digest, env={'PAIR_BUSY_POLL': '1'}, files={**log, **brief('routine')}),
+            'a settled sidekick with a reply already shown': dict(args=run, agents={'s1': 'idle claude'}, pair={**digest, 'sent': {**digest['sent'], 'seen': '{st}/reports/001-x.md:1'}}, files={'reports/001-x.md': done}),
+            'a herdr timeout': dict(args=short, agents=working, pair=digest, files={**log, **brief('routine')}),
+            'a herdr error that is not a timeout': dict(args=short, agents={}, pair=digest, files=brief('routine')),
+            'a paused store': dict(args=run, pair={'sent': sent}, files={'reports/001-x.md': done, 'paused': 'lunch\n'}),
+            'a queued brief': dict(args=run, pair={'sent': sent}, files={'reports/001-x.md': done, 'queue': '{st}/briefs/002-y.md\n'}),
+            'send-only is accepted': dict(args=['wait', '{st}', '--send-only', '--timeout', '1000'], pair={'sent': sent}, files={'reports/001-x.md': done}),
+            'every instead of a timeout': dict(args=['wait', '{st}', '--every', '1'], pair={'sent': sent}, files={'reports/001-x.md': done}),
+            'an unknown option': dict(args=['wait', '{st}', '--bogus']),
+            'a missing timeout value': dict(args=['wait', '{st}', '--timeout']),
+            'a non-numeric timeout': dict(args=['wait', '{st}', '--timeout', 'abc']),
+            'a fractional every': dict(args=['wait', '{st}', '--every', '1.5']),
+            'an empty every': dict(args=['wait', '{st}', '--every', '']),
+            'a timeout of zero': dict(args=['wait', '{st}', '--timeout', '0'], agents=working, pair=digest, files={**log, **brief('routine')}),
+            'a negative timeout': dict(args=['wait', '{st}', '--timeout', '-5'], agents=working, pair=digest, files={**log, **brief('routine')}),
+            'no arguments': dict(args=['wait']),
+            'outside herdr': dict(args=run, noenv=True),
+            'without pair.json': dict(args=run, nopair=True),
+            'a null sidekick': dict(args=short, pair={'sidekick': None, 'sent': sent}, files={'reports/001-x.md': done}),
+        }
+
+    def wait_ab_compare(self, name, spec, skill='pstack-pair'):
+        spec = dict(spec)
+        for label in ('base', 'port'):
+            pass
+        want = self.ab_run(f'wbase-{len(list(self.path.iterdir()))}', self.base_skills(), skill, spec)
+        got = self.ab_run(f'wport-{len(list(self.path.iterdir()))}', root / 'skills', skill, spec)
+        return got, want
+
+    def test_wait_ab_matches_the_bash_at_the_base_commit(self):
+        mismatches = {}
+        results = {}
+        norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
+        for name, spec in self.wait_ab_cases().items():
+            got, want = self.wait_ab_compare(name, spec)
+            for side in (got, want):
+                side['stderr'] = norm_core(side['stderr'])
+                side['stdout'] = self.mask_minutes(re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', side['stdout']))
+                side['calls'] = self.collapse_polls(side['calls'])
+            results[name] = got
+            if name == 'without pair.json':
+                # Permitted difference: with no pair.json the bash goes on with an empty agent name and prints a pair of error lines
+                # for every field() it reads (some 40 lines, and a herdr call for the empty name); Python stops after the first pair.
+                self.assertEqual((got['rc'], got['stderr']), (want['rc'], want['stderr'][:len(got['stderr'])]))
+                self.assertTrue(want['stderr'].startswith('pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'))
+                continue
+            if got != want:
+                mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
+        self.maxDiff = None
+        self.assertEqual(mismatches, {})
+        self.wait_ab_results = results
+
+    def wait_ab_variant(self, skill, cases):
+        mismatches = {}
+        norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
+        outcomes = {}
+        for name, spec in cases.items():
+            got, want = self.wait_ab_compare(name, spec, skill)
+            for side in (got, want):
+                side['stderr'] = norm_core(side['stderr'])
+                side['stdout'] = self.mask_minutes(side['stdout'])
+                side['calls'] = self.collapse_polls(side['calls'])
+            outcomes[name] = got
+            if got != want:
+                mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
+        self.maxDiff = None
+        self.assertEqual(mismatches, {})
+        return outcomes
+
+    def test_wait_ab_kitchen_wakes_on_steps_only_for_an_escalated_brief(self):
+        T = int(time.time())
+        at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(T - 20 * 60 - 30))
+        sent = {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': T + 3600}
+        pair = {'sent': sent, 'pending': ['{st}/briefs/001-x.md'], 'dispatch': {'brief': '{st}/briefs/001-x.md', 'at': at, 'head': '{c3}'}}
+        steps = {'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n2\t{c2}\t6\t\ttwo\n', 'progress/001-x.md': '10:00 one\n'}
+        brief = lambda risk: {'briefs/001-x.md': f'# Brief\n\nrisk: {risk}\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/**\n'}
+        env = {'KITCHEN_QUIET_POLL_S': '0', 'KITCHEN_QUIET_MAX_S': '1'}
+        cases = {
+            'steps wake an escalated brief': dict(args=['wait', '{st}', '--timeout', '3000'], pair=pair, agents={'s1': 'working claude'}, files={**steps, **brief('escalated (a contract)')}, env=env),
+            'steps do not wake a routine brief': dict(args=['wait', '{st}', '--timeout', '1000'], pair=pair, agents={'s1': 'working claude'}, files={**steps, **brief('routine')}, env=env),
+            'a flagged digest is shown': dict(args=['wait', '{st}', '--timeout', '1000'], pair=pair, agents={'s1': 'working claude'}, files={'progress/001-x.md': '10:00 one\n', **brief('routine')},
+                                              env={**env, 'KITCHEN_QUIET_MAX_S': '3'}),
+            'a report at once': dict(args=['wait', '{st}', '--timeout', '3000'], pair={'sent': {**sent, 'epoch': 1}}, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', **brief('routine')}, env=env),
+            'a done report whose verify has not passed': dict(args=['wait', '{st}', '--timeout', '1000'], pair={'sent': {**sent, 'epoch': 1}, 'dispatch': {'brief': '{st}/briefs/001-x.md'}},
+                                                             files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', **brief('routine')}, env=env),
+        }
+        outcomes = self.wait_ab_variant('pstack-kitchen', cases)
+        self.assertIn('steps: 2 to review on 001-x', outcomes['steps wake an escalated brief']['stdout'])
+        self.assertNotIn('to review', outcomes['steps do not wake a routine brief']['stdout'])
+        self.assertIn("written but not ready: the brief's Verify commands have not passed", outcomes['a done report whose verify has not passed']['stdout'])
+
+    def test_wait_ab_matches_the_bash_in_the_other_variants(self):
+        cases = {name: spec for name, spec in self.wait_ab_cases().items() if name in (
+            'a report landing mid-wait', 'a digest at the interval', 'a blocked sidekick', 'steps due', 'a settled sidekick with a reply already shown', 'a herdr error that is not a timeout')}
+        for skill in ('pstack-pair-guided', 'pstack-trio'):
+            self.wait_ab_variant(skill, cases)
+
+    def wait_signalled(self, skills, number, group):
+        """Run `pair.sh wait`, signal it while it sits in herdr's wait (the fake herdr's once hook holds it there on a pipe), and give
+        (exit status, stdout, stderr). The hook is released afterwards so the fake herdr and its pipes close."""
+        top, st, env, fill = self.ab_world(f'sig-{len(list(self.path.iterdir()))}', {'agents': {'s1': 'working claude'}, 'pair': {'sent': {'file': '{st}/briefs/001-x.md', 'epoch': 1}}})
+        ready, release = top / 'ready', top / 'release'
+        os.mkfifo(ready)
+        os.mkfifo(release)
+        hook = top / 'fake/once/wait'
+        hook.parent.mkdir(exist_ok=True)
+        hook.write_text(f'#!/bin/sh\necho in >"{ready}"\nread x <"{release}"\n')
+        hook.chmod(0o755)
+        proc = subprocess.Popen([str(skills / 'pstack-pair/scripts/pair.sh'), 'wait', str(st), '--timeout', '20000'], cwd=top / 'repo', env=env, text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        self.addCleanup(lambda: proc.poll() is None and os.killpg(proc.pid, signal.SIGKILL))
+        with open(ready) as f:
+            f.read()
+        (os.killpg if group else os.kill)(proc.pid, number)
+        status = proc.wait()
+        try:
+            fd = os.open(release, os.O_WRONLY | os.O_NONBLOCK)
+            os.write(fd, b'x\n')
+            os.close(fd)
+        except OSError:
+            pass  # the signal reached the hook too (a process group), so nothing holds the pipe
+        # The pipe closes when everything that held it has ended: a Python wait left behind by a signal to the shell alone must follow
+        # its shell (PR_SET_PDEATHSIG) instead of running on to its timeout.
+        self.assertTrue(select.select([proc.stdout], [], [], 10)[0], 'the wait outlived its shell')
+        out, err = proc.stdout.read(), proc.stderr.read()
+        proc.stdout.close()
+        proc.stderr.close()
+        return status, out, err
+
+    def test_wait_ab_signals_end_the_command_as_they_end_the_bash(self):
+        # A SIGINT sent to the shell alone is not tested: the bash waits for herdr's call to end and then dies, but the shell around the
+        # Python wait waits for the whole wait. A terminal's Ctrl-C reaches the process group, which is tested.
+        for number, group in ((signal.SIGTERM, False), (signal.SIGTERM, True), (signal.SIGINT, True), (signal.SIGHUP, False), (signal.SIGHUP, True)):
+            want = self.wait_signalled(self.base_skills(), number, group)
+            got = self.wait_signalled(root / 'skills', number, group)
+            self.assertEqual(got, want, (number.name, group))
+            self.assertEqual(got, (-number, '', ''), (number.name, group))
 
     def test_finish_and_notify_match_the_bash_in_the_other_variants(self):
         self.mismatches = {}
@@ -1349,6 +1544,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             top, st, env, fill = self.ab_world(f'{name}-{label}', {'agents': {'s1': 'idle claude'}, **spec})
             ctx = Context('pstack-pair', str(root / 'skills/pstack-pair'), str(top / 'state'), 'Pair', ('sidekick',), ('plans',), 21, '')
             rep = fill(report)
+            for log in (st / 'progress').glob('*.md'):
+                os.utime(log, (self.FW_NOW - 600, self.FW_NOW - 600))
             if label == 'bash':
                 fake = self.path / f'fakedate-{self.FW_NOW}'
                 fake.mkdir(exist_ok=True)
@@ -2190,14 +2387,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(self.metrics_of(LEGACY_HEADER + '\n' + self.FIRST_EVENTS), self.metrics_of(self.FIRST_EVENTS))
 
     PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
-              'finish', 'notify', 'report', 'next')
+              'finish', 'notify', 'report', 'next', 'wait')
     DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'pause_notice', 'steer_notice', 'open_steers', 'progress_path',
                   'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
                   'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update',
                   'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
                   'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
                   'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
-                  'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait')
+                  'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply')
 
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}

@@ -2019,16 +2019,7 @@ prompt_sidekick() {
 	submit_typed "$name" "$(basename "${text##* }")"
 }
 
-cmd_wait() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh wait <store> [--timeout MS | --every MIN]"
-	local store="$1" timeout=540000 rest code out err ready
-	shift
-	wait_opts "$@"
-	no_extra_opts
-	wait_for_reply "$store" "$(field "$store" .sidekick.name)" "$timeout"
-	finish_wait "$store" "$code" "$out" "$err" "$(reply_mode)" "$ready"
-}
+cmd_wait() { pycore wait "$@"; }
 
 # The master's next brief, held for the sidekick to take the moment its
 # current report is written. One slot: more than one queued brief is a plan.

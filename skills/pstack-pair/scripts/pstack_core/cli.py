@@ -1,5 +1,6 @@
 import sys
 
+from . import wait
 from .commands import log, metrics, notes, pause, progress, report, scratch, status, templates
 from .context import Context
 from .errors import Die, Exit
@@ -7,7 +8,7 @@ from .errors import Die, Exit
 COMMANDS = {'log': log.run, 'new-plan': templates.new_plan, 'new-brief': templates.new_brief, 'new-steer': templates.new_steer,
             'pause': pause.pause, 'resume': pause.resume, 'progress': progress.run,
             'notes': notes.notes, 'note': notes.note, 'new-note': notes.new_note, 'status': status.run, 'scratch': scratch.run, 'metrics': metrics.run,
-            'finish': report.finish, 'notify': report.notify, 'report': report.report, 'next': report.next_brief}
+            'wait': wait.wait, 'finish': report.finish, 'notify': report.notify, 'report': report.report, 'next': report.next_brief}
 
 OPTIONS = ('--skill', '--skill-root', '--state-root', '--store-label', '--roles', '--store-dirs', '--slug-max', '--unfilled-re')
 
