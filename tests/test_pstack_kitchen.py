@@ -1353,7 +1353,7 @@ class PolicyRuleTests(unittest.TestCase):
     def test_repo_test_sleep_rule_refuses_blocking_waits_and_spares_test_helpers(self):
         rules = tomllib.loads((root / '.agents/kitchen.toml').read_text())['policy']['forbid']
         pattern = re.compile(next(r for r in rules if r['id'] == 'test-sleep')['pattern'])
-        refused = 'time.sleep(1)|sleep 5|threading.Event().wait(0.2)|Event().wait(timeout)|await asyncio.sleep(0.1)|select.select([], [], [], 0.5)'  # kitchen-allow: test-sleep samples of what the rule refuses
+        refused = 'time.sleep(1)|sleep 5|threading.Event().wait(0.2)|Event().wait(timeout)|await asyncio.sleep(0.1)|select.select([], [], [], 0.5)'  # kitchen-allow: test-sleep (samples of what the rule refuses)
         spared = ["out = self.wait(4)", "proc.wait(timeout=5)", "subprocess.Popen(['sleep', '30'])", "self.assertIn('x', self.wait(0))"]
         for line in refused.split('|'):
             self.assertTrue(pattern.search(line), line)
