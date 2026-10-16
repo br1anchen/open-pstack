@@ -181,6 +181,69 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertTrue((self.path / 'events.tsv').read_text().endswith('\tsidekick\tstep\t-\t\n'))
 
 
+    def run_pair(self, *args):
+        env = {**self.env, 'FAKE': str(self.path), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
+               'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}
+        return subprocess.run([str(scripts / 'pair.sh'), *args], env=env, capture_output=True, text=True, check=False)
+
+    def test_new_steer_counts_files_caps_fresh_steers_and_answers_objections(self):
+        self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
+        st = self.path / 'state/pstack/pair/demo'
+        out = lambda r: (r.returncode, r.stdout, r.stderr)
+        self.assertEqual(out(self.run_pair('new-steer', str(st), '001')), (1, '', 'pair.sh: no brief for unit 001\n'))
+        plan = self.run_pair('new-plan', str(st), 'p').stdout.strip()
+        self.assertEqual(plan, f'{st}/plans/001-p.md')
+        brief = self.run_pair('new-brief', str(st), 'one').stdout.strip()
+        self.assertEqual(brief, f'{st}/briefs/002-one.md')
+        self.assertEqual(out(self.run_pair('new-brief', str(st), 'Bad')), (1, '', 'pair.sh: brief slug must be lowercase [a-z0-9_-]\n'))
+        self.assertEqual(out(self.run_pair('new-plan', str(st))), (1, '', 'pair.sh: usage: pair.sh new-plan <store> <slug>\n'))
+        self.assertEqual(out(self.run_pair('new-steer', str(st), '002', '--bogus')), (1, '', 'pair.sh: unknown option --bogus\n'))
+        first = self.run_pair('new-steer', str(st), '002').stdout.strip()
+        second = self.run_pair('new-steer', str(st), '002').stdout.strip()
+        self.assertEqual((first, second), (f'{st}/steers/002-one-s1.md', f'{st}/steers/002-one-s2.md'))
+        text = Path(second).read_text()
+        self.assertIn('supersedes: none', text)
+        self.assertNotIn('{{SEQ}}', text)
+        self.assertEqual(out(self.run_pair('new-steer', str(st), '002')),
+                         (7, '', 'pair.sh: unit 002 already has two fresh steers; stop the unit and re-brief, or pass --force 7\n'))
+        self.assertEqual(self.run_pair('new-steer', str(st), '002', '--force').stdout.strip(), f'{st}/steers/002-one-s3.md')
+        self.assertEqual(out(self.run_pair('new-steer', str(st), '002', '--supersedes', first)),
+                         (1, '', 'pair.sh: no open objection on unit 002 to answer; send a fresh steer instead\n'))
+        (st / 'reports/002-one-s2.md').write_text('status: object\n')
+        answer = self.run_pair('new-steer', str(st), '002', '--supersedes', first).stdout.strip()
+        self.assertEqual(answer, f'{st}/steers/002-one-s4.md')
+        self.assertIn(f'supersedes: {first}', Path(answer).read_text())
+        self.assertEqual(out(self.run_pair('new-steer', str(st), '002', '--supersedes', str(st / 'nope.md'))),
+                         (1, '', f'pair.sh: superseded steer not found: {st}/nope.md\n'))
+
+    def test_pause_resume_and_progress_through_pair_sh(self):
+        self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
+        st = str(self.path / 'state/pstack/pair/demo')
+        r = self.run_pair('progress', st, 'x')
+        self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: no brief dispatched yet; progress belongs to a running brief\n'))
+        pair = json.loads(Path(st, 'pair.json').read_text())
+        pair['dispatch'] = {'brief': f'{st}/briefs/001-one.md'}
+        Path(st, 'pair.json').write_text(json.dumps(pair))
+        r = self.run_pair('progress', st, 'step one done')
+        self.assertEqual((r.returncode, r.stdout), (0, f'{st}/progress/001-one.md\n'))
+        self.assertRegex(Path(st, 'progress/001-one.md').read_text(), r'^\d\d:\d\d step one done\n$')
+        r = self.run_pair('pause', st, '--reason', 'lunch')
+        self.assertEqual((r.returncode, Path(st, 'paused').read_text()), (0, 'lunch\n'))
+        self.assertTrue(r.stdout.startswith(f'paused {st}: '))
+        self.assertTrue(self.run_pair('progress', st, 'again').stdout.splitlines()[1].startswith('PAUSE: lunch. This is your safe point'))
+        r = self.run_pair('resume', st)
+        self.assertEqual((r.returncode, r.stdout, Path(st, 'paused').exists()), (0, f'resumed {st}\n', False))
+        self.assertNotIn('PAUSE:', self.run_pair('progress', st, 'more').stdout)
+        r = self.run_pair('pause', st, '--bogus')
+        self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: unknown option --bogus\n'))
+        self.assertEqual(self.run_pair('pause', st).returncode, 0)
+        self.assertEqual(Path(st, 'paused').read_text(), 'paused by the human\n')
+        events = [row.split('\t')[2:] for row in Path(st, 'events.tsv').read_text().splitlines()]
+        self.assertIn(['master', 'pause', '-', 'lunch'], events)
+        self.assertIn(['master', 'resume', '-', ''], events)
+        self.assertIn(['sidekick', 'progress', '001-one', ''], events)
+
+
     def test_log_records_a_row_and_an_event_through_each_pair_entry_script(self):
         env = {**self.env, 'FAKE': str(self.path), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0',
                'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'), 'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}

@@ -1589,6 +1589,17 @@ esac
         out = self.run_sh('log', str(self.store), 'review', code=1)
         self.assertEqual(out, 'pair.sh: usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>\n')
 
+    def test_kitchen_new_plan_new_brief_and_new_steer_fill_the_kitchen_templates(self):
+        plan = self.run_sh('new-plan', str(self.store), 'shape').strip()
+        brief = self.run_sh('new-brief', str(self.store), 'shape').strip()
+        self.assertEqual((plan, brief), (f'{self.store}/plans/001-shape.md', f'{self.store}/briefs/002-shape.md'))
+        self.assertEqual(Path(plan).read_text().splitlines()[0], '# Plan 001: shape')
+        self.assertEqual(Path(brief).read_text().splitlines()[0], '# Brief 002: shape')
+        steer = self.run_sh('new-steer', str(self.store), '002').strip()
+        self.assertEqual(steer, f'{self.store}/steers/002-shape-s1.md')
+        self.assertEqual(Path(steer).read_text().splitlines()[:3],
+                         ['# Steer 002-s1: shape', '', f'brief: {self.store}/briefs/002-shape.md'])
+
     def test_init_puts_the_kitchen_in_the_standing_orders(self):
         orders = (self.store / 'standing-orders.md').read_text()
         self.assertIn('runs these skills on its diff and fixes what they find: no-comments', orders)

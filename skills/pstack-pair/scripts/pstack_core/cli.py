@@ -1,10 +1,10 @@
 import sys
 
-from .commands import log
+from .commands import log, templates
 from .context import Context
 from .errors import Die
 
-COMMANDS = {'log': log.run}
+COMMANDS = {'log': log.run, 'new-plan': templates.new_plan, 'new-brief': templates.new_brief, 'new-steer': templates.new_steer}
 
 OPTIONS = ('--skill', '--skill-root', '--state-root', '--store-label', '--roles', '--store-dirs', '--slug-max', '--unfilled-re')
 

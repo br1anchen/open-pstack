@@ -1807,15 +1807,9 @@ new_from_template() {
 	printf '%s\n' "$path"
 }
 
-cmd_new_plan() {
-	[ $# -eq 2 ] || die "usage: pair.sh new-plan <store> <slug>"
-	new_from_template "$1" "$2" plans plan-template.md
-}
+cmd_new_plan() { pycore new-plan "$@"; }
 
-cmd_new_brief() {
-	[ $# -eq 2 ] || die "usage: pair.sh new-brief <store> <slug>"
-	new_from_template "$1" "$2" briefs brief-template.md
-}
+cmd_new_brief() { pycore new-brief "$@"; }
 
 # Shared by discuss, dispatch, and answer: refuse unfilled files and a sidekick
 # that cannot take input, then prompt and wait.
@@ -2483,42 +2477,7 @@ cmd_progress() {
 
 # Fresh steers on a unit are capped at two; a steer that supersedes an objected
 # one is a discussion round and does not count.
-cmd_new_steer() {
-	[ $# -ge 2 ] || die "usage: pair.sh new-steer <store> <NNN> [--supersedes STEER | --force]"
-	local store="$1" seq="$2" force=0 supersedes=none brief slug k f fresh=0 path
-	shift 2
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--force) force=1; shift ;;
-		--supersedes) supersedes="$(readlink -f "$2")"; shift 2 ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	pair_file "$store" >/dev/null
-	brief="$(ls "$store"/briefs/"$seq"-*.md 2>/dev/null | head -1 || true)"
-	[ -n "$brief" ] || die "no brief for unit $seq"
-	slug="$(basename "$brief" .md | cut -c5-)"
-	k=0
-	for f in "$store"/steers/"$seq"-"$slug"-s[0-9]*.md; do
-		[ -e "$f" ] || continue
-		k=$((k + 1))
-		[ "$(header_field "$f" supersedes)" = none ] && fresh=$((fresh + 1))
-	done
-	k=$((k + 1))
-	if [ "$supersedes" != none ]; then
-		[ -f "$supersedes" ] || die "superseded steer not found: $supersedes"
-		[ "$(header_field "$(ls -t "$store"/reports/"$seq"-"$slug"-s[0-9]*.md 2>/dev/null | head -1 || true)" status 2>/dev/null)" = object ] \
-			|| die "no open objection on unit $seq to answer; send a fresh steer instead"
-	elif [ "$fresh" -ge 2 ] && [ "$force" -eq 0 ]; then
-		die "unit $seq already has two fresh steers; stop the unit and re-brief, or pass --force" 7
-	fi
-	mkdir -p "$store/steers"
-	path="$store/steers/$seq-$slug-s$k.md"
-	sed -e "s|{{SEQ}}|$seq|g" -e "s|{{SLUG}}|$slug|g" -e "s|{{K}}|$k|g" -e "s|{{STORE}}|$store|g" \
-		-e "s|{{SUPERSEDES}}|$supersedes|g" \
-		"$skill_root/references/steer-template.md" >"$path"
-	printf '%s\n' "$path"
-}
+cmd_new_steer() { pycore new-steer "$@"; }
 
 # A steer is the one message that may reach a working sidekick. It lands in
 # the agent's input queue, handed over between tool calls; the ack is a
