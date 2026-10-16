@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -18,7 +19,7 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import cli, dispatch, herdr, replies, review, store  # noqa: E402
+from pstack_core import checkin, cli, dispatch, herdr, replies, review, store  # noqa: E402
 from pstack_core.commands import metrics  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
@@ -540,6 +541,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for f in (a, b):
             self.assertEqual(replies.file_mtime(str(f)), int(self.bash_value(f'file_mtime {f}')[1]))
         self.assertEqual(self.bash_value(f'file_mtime {st}/reports/none.md')[0] != 0, True)
+        (st / 'reports/link.md').symlink_to(a)
+        (st / 'reports/dangling.md').symlink_to('nowhere')
+        os.utime(st / 'reports/link.md', (1_700_000_900, 1_700_000_900), follow_symlinks=False)
+        for name in ('link.md', 'dangling.md'):
+            self.assertEqual(replies.file_mtime(f'{st}/reports/{name}'), int(self.bash_value(f'file_mtime {st}/reports/{name}')[1]), name)
+        (st / 'reports/link.md').unlink()
+        (st / 'reports/dangling.md').unlink()
         with self.assertRaises(OSError):
             replies.file_mtime(f'{st}/reports/none.md')
         for want in ('', '001', '002', '003', '00'):
@@ -743,6 +751,289 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                                     ('empty steps', dict(rows=[], report='done'), True), ('no tab in the last row', dict(rows=[steps3[0], f'{c2}\n'], report='done', head='x'), True)):
             lay(**kw)
             self.assertEqual(replies.review_delta(str(st), str(st / 'reports/001-x.md')), self.bash_value(f'review_delta {st} {st}/reports/001-x.md')[1] + ('\n' if self.bash_value(f'review_delta {st} {st}/reports/001-x.md')[1] else ''), name)
+
+    def bash_at(self, snippet, now, extra=None):
+        """The harness with `date +%s` fixed at now, so the clock the bash reads is the clock the Python is given."""
+        fake = self.path / f'fakedate-{now}'
+        fake.mkdir(exist_ok=True)
+        (fake / 'date').write_text(f'#!/bin/sh\nif [ "$1" = "+%s" ]; then echo {now}; else exec {shutil.which("date")} "$@"; fi\n')
+        (fake / 'date').chmod(0o755)
+        return self.bash(snippet, env={'PATH': f'{fake}:{self.env["PATH"]}', **(extra or {})})
+
+    def test_checkin_case_match_agrees_with_bash_case(self):
+        pairs = [('dir/*', ['dir/a', 'dir/a/b', 'dir/', 'dir', 'xdir/a']), ('dir/**', ['dir/a/b', 'dir/', 'dir']), ('*.md', ['a.md', 'd/a.md', '.md', 'a.mdx']),
+                 ('a/*/b', ['a/x/b', 'a/x/y/b', 'a//b', 'a/b']), ('src/?.py', ['src/a.py', 'src/ab.py', 'src//.py']), ('tests/test_[ab]*.py', ['tests/test_a.py', 'tests/test_c.py', 'tests/test_b1.py']),
+                 ('f[!a]g', ['fag', 'fbg', 'f]g']), ('f[^a]g', ['fag', 'fbg']), ('f[]]g', ['f]g', 'fag']), ('f[a-c]g', ['fbg', 'fdg', 'f-g']), ('f[[:digit:]]g', ['f1g', 'fag']),
+                 ('a,b/c', ['a,b/c', 'a', 'b/c']), ('a b/*', ['a b/c', 'a/c']), ('{a,b}/x', ['{a,b}/x', 'a/x']), ('weird\\*name', ['weird*name', 'weirdXname']), ('[abc', ['[abc', 'a']),
+                 ('a[', ['a[', 'a']), ('', ['', 'a']), ('*', ['', 'a/b/c', '.hidden']), ('.*', ['.a', 'a']), ('dir/*/', ['dir/a/', 'dir/a']), ('é*', ['éa', 'ea']), ('a?c', ['a\u00e9c', 'ac']),
+                 ('f[a\\]]g', ['f]g', 'fag']), ('f[a-]g', ['f-g', 'fag']), ('[[:alpha:]]*', ['abc', '1bc'])]
+        script = ''.join(f'p={shlex.quote(pat)}; case {shlex.quote(text)} in $p) printf 1;; *) printf 0;; esac\n' for pat, texts in pairs for text in texts)
+        bash = self.bash(script)
+        ours = ''.join('1' if checkin.case_match(pat, text) else '0' for pat, texts in pairs for text in texts)
+        self.assertEqual(ours, bash)
+
+    def test_checkin_scope_entries_and_steer_scope_entries_match_bash(self):
+        st = self.replies_world('c2')
+        brief = st / 'briefs/001-x.md'
+        brief.write_text('\n'.join([
+            '# Brief', '', '## Scope', '', 'may write:', '- skills/a/** \u2014 the whole skill', '- `tests/x, y.py` (quoted comma path)', '- docs/ (the docs)', '- plain.md',
+            '-  spaced', '- a -- note', '- b \u2013 note', '- `unterminated', '- `a`b` tail', '- ', '- weird (note) (second)', 'not a bullet', '',
+            'must not write:', '- skills/b/**', '- `x/y`', '', '## Other', '', 'may write:', '- after/**', '', 'may write:', '- again/**', '- trailing.md']))
+        for want in ('may', 'mustnot', 'neither'):
+            self.assertEqual('\n'.join(checkin.scope_entries(str(brief), want)), self.bash_value(f'scope_entries {brief} {want}')[1], want)
+        self.assertEqual(checkin.scope_entries(str(st / 'briefs/none.md'), 'may'), [])
+        steers = st / 'steers'
+        steers.mkdir(exist_ok=True)
+        def steer(name, kind='narrow', effect='', sup='none'):
+            (steers / name).write_text(f'# S\n\nkind: {kind}\nsupersedes: {sup}\nscope effect: {effect}\n')
+        steer('001-x-s1.md', effect='may write "a/**" and `b/**` and "c d/**"')
+        steer('001-x-s2.md', effect='may write: `lib/**` (extra note)')
+        steer('001-x-s3.md', effect='may write')
+        steer('001-x-s4.md', effect='none')
+        steer('001-x-s5.md', effect='must not write: z/**')
+        steer('001-x-s6.md', kind='withdraw', sup=f'{steers}/001-x-s1.md note words')
+        steer('001-x-s7.md', effect='may write "e/**"', sup='001-x-s2.md')
+        steer('001-x-s8.md', kind='withdraw', sup='none')
+        steer('002-y-s1.md', effect='may write "other/**"')
+        (steers / '001-x-s9.md.draft').write_text('x')
+        steer('001-x-s10.md', effect='may write "oops')
+        steer('001-x-s0.md', effect='may write "first/**"')
+        self.assertEqual('\n'.join(checkin.steer_scope_entries(str(st), '001', errexit=False)), self.bash_value(f'steer_scope_entries {st} 001')[1])
+        self.assertEqual('\n'.join(checkin.steer_scope_entries(str(st), '009')), self.bash_value(f'steer_scope_entries {st} 009')[1])
+        # Under set -e a steer with a quote and no quoted string ends the function (the grep pipeline fails): s10 sorts before s2.
+        dies = self.bash(f'steer_scope_entries {st} 001', check=False)
+        self.assertEqual(''.join(f'{e}\n' for e in checkin.steer_scope_entries(str(st), '001')), dies.stdout)
+        self.assertNotEqual(dies.returncode, 0)
+
+    def test_checkin_status_paths_and_tree_activity_match_bash(self):
+        repo = self.git_repo()
+        base = self.commit('base')
+        for name in ('keep.txt', 'gone.txt', 'old name.txt', 'comma, file.txt'):
+            (repo / name).write_text(name)
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', 'files')
+        head = self.git('rev-parse', 'HEAD')
+        now = int(time.time())
+        self.assertEqual(checkin.status_paths(str(repo)), [])
+        self.assertEqual(checkin.tree_activity(str(repo), '', now), None)
+        self.assertEqual(self.bash_value(f'tree_activity {repo} ""')[1], '')
+        (repo / 'keep.txt').write_text('changed')
+        (repo / 'gone.txt').unlink()
+        self.git('mv', 'old name.txt', 'new name.txt')
+        (repo / 'comma, file.txt').write_text('edited')
+        (repo / 'sub dir').mkdir()
+        (repo / 'sub dir/new\u00e9.txt').write_text('x')
+        (repo / 'future.txt').write_text('x')
+        (repo / 'far.txt').write_text('x')
+        for name, delta in (('keep.txt', -500), ('comma, file.txt', -90), ('sub dir/new\u00e9.txt', -300), ('future.txt', 30), ('far.txt', 120), ('new name.txt', -1000)):
+            os.utime(repo / name, (now + delta, now + delta))
+        self.assertEqual('\n'.join(checkin.status_paths(str(repo))), self.bash_value(f'status_paths {repo}')[1])
+        for h in ('', head, base):
+            ours = checkin.tree_activity(str(repo), h, now)
+            self.assertEqual(str(ours or ''), self.bash_at(f'tree_activity {repo} {h!r}', now).strip(), h)
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', 'later')
+        for h in (head, base, 'nonsense'):
+            ours = checkin.tree_activity(str(repo), h, now)
+            self.assertEqual(str(ours or ''), self.bash_at(f'tree_activity {repo} {h!r}', now).strip(), h)
+        self.assertEqual(checkin.status_paths(str(self.path / 'not-a-repo')), [])
+
+    def test_checkin_busy_command_and_sidekick_activity_match_bash(self):
+        now = int(time.time())
+        pane = 'p-checkin'
+        envs = {'other-pane': {**self.env, 'HERDR_PANE_ID': 'p-other'}, 'shell': {**self.env, 'HERDR_PANE_ID': pane}, 'plain': {**self.env, 'HERDR_PANE_ID': pane}}
+        sock = str(self.path / 'herdr.sock')
+        procs = []
+        for kind, env in (('sleep-other', envs['other-pane']), ('sleep-pane', {**envs['plain'], 'HERDR_SOCKET_PATH': sock}), ('sleep-nosock', envs['plain']),
+                          ('sleep-othersock', {**envs['plain'], 'HERDR_SOCKET_PATH': '/elsewhere'})):
+            procs.append(subprocess.Popen(['sleep', '60'], env=env, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        sh = subprocess.Popen(['sh', '-c', 'sleep 60; true'], env={**envs['shell'], 'HERDR_SOCKET_PATH': sock}, start_new_session=True,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: [(os.killpg(p.pid, 9), p.wait()) for p in [*procs, sh]])
+        for since, sock_env in ((now - 3600, sock), (now - 3600, ''), (now + 5, sock), (now - 3600, '/elsewhere')):
+            extra = {'HERDR_SOCKET_PATH': sock_env}
+            ours = checkin.busy_command(pane, since, now + 130, env=extra)
+            bash = self.bash_at(f'busy_command {pane} {since}', now + 130, extra)
+            self.assertEqual(ours, bash, (since, sock_env))
+        self.assertTrue(ours == '' or ours.endswith('m'))
+        self.assertEqual(checkin.busy_command('', 0, now), self.bash_at('busy_command "" 0', now))
+        only_shell = subprocess.Popen(['sh', '-c', 'read x'], env={**self.env, 'HERDR_PANE_ID': 'p-only-shell'}, stdin=subprocess.PIPE, start_new_session=True,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: (os.killpg(only_shell.pid, 9), only_shell.wait()))
+        ours = checkin.busy_command('p-only-shell', now - 10, now + 200, env={})
+        self.assertEqual(ours, self.bash_at('busy_command p-only-shell ' + str(now - 10), now + 200, {'HERDR_SOCKET_PATH': ''}))
+        self.assertEqual(ours, 'sh for 0m')
+        st = self.replies_world('c4')
+        iso = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - 3600))
+        for pair_patch in ({'sidekick': {'pane_id': pane}, 'dispatch': {'brief': 'b', 'at': iso}}, {'sidekick': {'pane_id': pane}, 'dispatch': {'brief': 'b', 'at': 'garbage'}},
+                           {'sidekick': {}, 'dispatch': {'brief': 'b', 'at': iso}}, {'sidekick': {'pane_id': pane}, 'dispatch': {'brief': 'b'}}):
+            (st / 'pair.json').write_text(json.dumps(pair_patch))
+            self.assertEqual(checkin.sidekick_activity(str(st), now + 130), self.bash_at(f'sidekick_activity {st}', now + 130, {'HERDR_SOCKET_PATH': ''}), pair_patch)
+
+    def test_checkin_digest_matches_bash(self):
+        # The clock is fixed: bash runs with a `date` that answers +%s with NOW, and Python is given NOW, so the minutes
+        # in the digest are compared as they are, not masked.
+        ctx = self.replies_ctx()
+        st = self.replies_world('c5')
+        repo = self.replies_repo
+        c1, c2, c3 = self.replies_shas
+        now = int(time.time())
+        pane = 'p-digest'
+        iso = lambda t: time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t))
+        brief = st / 'briefs/001-x.md'
+        progress = st / 'progress/001-x.md'
+        seen = st / 'progress/001-x.md.seen'
+        scope = '\n'.join(['# Brief', '', 'playbook: feature', 'timebox: 45 minutes', '', '## Scope', '', 'may write:', '- src/** \u2014 the code', '- docs/ (the docs)',
+                            '- `my, file.txt`', '- *.md', '', 'must not write:', '- lib/**', '', '## Steps', '', '1. do'])
+        procs = []
+        self.addCleanup(lambda: [(os.killpg(p.pid, 9), p.wait()) for p in procs])
+
+        def reset():
+            self.git('reset', '-q', '--hard', c3)
+            self.git('clean', '-fdq')
+            for d in ('steers', 'reports', 'steps', 'notes'):
+                shutil.rmtree(st / d, ignore_errors=True)
+                (st / d).mkdir()
+            for f in (progress, seen):
+                f.unlink(missing_ok=True)
+            brief.write_text(scope + '\n')
+
+        def write(path, text='x', age=0):
+            f = repo / path
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text)
+            os.utime(f, (now - age, now - age))
+
+        def pair(head=c3, at=None, pane_id=pane):
+            (st / 'pair.json').write_text(json.dumps({'git_root': str(repo), 'cwd': str(repo), 'sidekick': {'pane_id': pane_id},
+                                                      'dispatch': {'brief': str(brief), 'at': at or iso(now - 20 * 60), 'head': head}}, indent=2) + '\n')
+
+        def log(lines, age_m, seen_value=None):
+            progress.write_text(''.join(f'{i:02d}:00 line {i}\n' for i in range(lines)))
+            os.utime(progress, (now - age_m * 60, now - age_m * 60))
+            if seen_value is not None:
+                seen.write_text(seen_value)
+
+        def sleeper():
+            procs.append(subprocess.Popen(['sleep', '60'], env={**self.env, 'HERDR_PANE_ID': pane}, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+
+        def steer(name, effect='', kind='narrow'):
+            (st / 'steers' / name).write_text(f'# S\n\nkind: {kind}\nsupersedes: none\nscope effect: {effect}\n')
+
+        def scenario_a():
+            write('src/a.py'), write('docs/n/b.md'), write('my, file.txt'), write('README.md'), write('lib/x.py'), write('top.txt'), log(3, 1)
+
+        def scenario_commits():
+            pair(head=c1)
+            write('src/new.py')
+            log(2, 2, '1\n')
+
+        def scenario_stale():
+            log(4, 30, '2\n')
+
+        def scenario_running():
+            sleeper()
+            log(4, 30, '0\n')
+
+        def scenario_fresh_run():
+            sleeper()
+            log(4, 1)
+
+        def scenario_editing():
+            write('src/hot.py', age=120)
+            log(4, 30)
+
+        def scenario_old_edit():
+            write('src/cold.py', age=3600)
+            log(4, 30)
+
+        def scenario_steers():
+            steer('001-x-s1.md', 'may write "extra/**" and "more/*.txt"')
+            steer('001-x-s2.md', 'may write: `other/**` (note)')
+            steer('001-x-s3.md', kind='withdraw')
+            (st / 'reports/001-x-s2.md').write_text('# R\n\nstatus: object\n')
+            write('extra/a.py'), write('more/b.txt'), write('other/c.py'), write('src/ok.py'), write('nope/z.py')
+            progress.write_text('00:01 steer s1 applied: ok\n00:02 steer s2 applied: ok\n00:03 plain\n')
+
+        def scenario_caps():
+            for i in range(35):
+                write(f'outside/f{i:02d}.txt')
+            log(30, 1, '0\n')
+
+        def scenario_no_log():
+            write('src/a.py')
+
+        def scenario_odd_seen():
+            log(5, 1, 'banana\n')
+
+        def scenario_big_seen():
+            log(5, 1, '99\n')
+
+        def scenario_steps():
+            (st / 'steps/001-x.tsv').write_text(f'1\t{c1}\t{now}\t\tone\n2\t{c2}\t{now}\tn1\ttwo\n\n')
+            (st / 'notes/001-x-n1.md').write_text('# N\n\nstatus: blocking\n')
+            (st / 'notes/001-x-n2.md').write_text('# N\n\nstatus: blocking\n')
+            log(2, 1)
+
+        def scenario_unbalanced():
+            steer('001-x-s1.md', 'may write "oops')
+            steer('001-x-s2.md', 'may write "later/**"')
+            write('later/a.py'), write('src/b.py')
+            log(1, 1)
+
+        def scenario_untimed():
+            brief.write_text('# Brief\n\n## Scope\n\nmay write:\n- src/**\n')
+            write('src/a.py')
+            log(1, 1)
+
+        def scenario_bad_at():
+            pair(at='yesterday')
+            write('src/a.py')
+            log(1, 1)
+
+        def scenario_no_head():
+            pair(head='')
+            write('src/a.py'), write('top.txt')
+            log(1, 1)
+
+        def scenario_rename():
+            self.git('mv', 'c1', 'src_moved')
+            write('src_moved', 'moved')
+            log(1, 1)
+
+        scenarios = [scenario_a, scenario_commits, scenario_stale, scenario_running, scenario_fresh_run, scenario_editing, scenario_old_edit, scenario_steers, scenario_caps,
+                     scenario_no_log, scenario_odd_seen, scenario_big_seen, scenario_steps, scenario_unbalanced, scenario_untimed, scenario_bad_at, scenario_no_head, scenario_rename]
+        outputs = {}
+        for build in scenarios:
+            for p in procs:
+                os.killpg(p.pid, 9), p.wait()
+            procs.clear()
+            reset()
+            pair()
+            build()
+            # Back-date the dispatch so the sleeper started just now counts as started since it.
+            progress_before = progress.read_bytes() if progress.exists() else None
+            seen_before = seen.read_bytes() if seen.exists() else None
+            self.git('status', '--porcelain')
+            r = self.bash_at(f'checkin {st} 9', now, {'HERDR_SOCKET_PATH': ''})
+            seen_bash = seen.read_text() if seen.exists() else None
+            if seen_before is None:
+                seen.unlink(missing_ok=True)
+            else:
+                seen.write_bytes(seen_before)
+            with mock.patch.dict(os.environ, {'HERDR_SOCKET_PATH': ''}):
+                ours = checkin.checkin(ctx, str(st), '9', now)
+            seen_py = seen.read_text() if seen.exists() else None
+            self.assertEqual(ours, r, build.__name__)
+            self.assertEqual(seen_py, seen_bash, build.__name__)
+            outputs[build.__name__] = ours
+        self.assertIn('STALE', outputs['scenario_stale'])
+        self.assertIn('running: sleep for', outputs['scenario_running'])
+        self.assertIn('editing: last change 2m ago', outputs['scenario_editing'])
+        self.assertIn('outside scope: 35', outputs['scenario_caps'])
+        self.assertIn('steers: 3 sent, 2 applied, 1 objected', outputs['scenario_steers'])
+        self.assertIn('2 commits since dispatch', outputs['scenario_commits'])
+        self.assertIn('elapsed ?m of 45m', outputs['scenario_bad_at'])
 
     def test_fresh_per_brief_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
@@ -1490,7 +1781,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                   'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
                   'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update',
                   'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
-                  'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due')
+                  'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
+                  'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin')
 
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}

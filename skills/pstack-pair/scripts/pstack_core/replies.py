@@ -11,8 +11,8 @@ from .commands.status import latest
 
 
 def file_mtime(path):
-    """stat -c %Y: whole seconds."""
-    return int(os.stat(path).st_mtime)
+    """stat -c %Y: whole seconds, of a symlink itself (stat does not follow it)."""
+    return int(os.lstat(path).st_mtime)
 
 
 def latest_report(store, want=''):
