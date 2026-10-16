@@ -1,0 +1,135 @@
+"""Sending a message to the sidekick and, for a brief or a plan, waiting for the reply: the helpers behind dispatch and discuss, and
+send_and_wait itself. The bash versions stay for guided's answer, steer, stop and the trio's discuss."""
+import glob
+import os
+import signal
+import subprocess
+import sys
+
+from .checkin import checkin
+from .dispatch import fresh_per_brief, record_dispatch
+from .errors import Die
+from .gates import check_scope
+from .herdr import agent_kind, agent_status
+from .replies import first3, pending, queued_brief
+from .review import jq_raw, require_filled
+from .store import alt, event, expected_report, pair_json, update
+from .wait import bash_sleep, finish_wait, jq_member, jq_run, reply_mode, truthy, wait_for_reply
+
+
+def section(pair, name):
+    value = pair.get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def prune_pending(store):
+    """Before the master dispatches, the sidekick is idle and every earlier brief has ended: drop those whose report or review exists,
+    since the master read them by some path, and only a brief still owed a report stays pending."""
+    keep = []
+    for brief in pending(store):
+        if os.path.isfile(expected_report(store, brief)):
+            continue
+        if glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(first3(brief)) + '-*.md')):
+            continue
+        keep.append(brief)
+    update(store, lambda doc: doc.__setitem__('pending', keep))
+
+
+def record_sent(store, file, kind, now=None):
+    """The message the sidekick is answering: its report is the one a wait looks for, even when a newer brief already sits in the queue."""
+    import time
+    stamp = time.time() if now is None else now
+    at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))
+    update(store, lambda doc: doc.__setitem__('sent', {'file': file, 'kind': kind, 'at': at, 'epoch': int(stamp)}))
+
+
+def require_fresh_session(store):
+    sidekick = section(pair_json(store), 'sidekick')
+    kind = jq_raw(sidekick.get('kind'))
+    if fresh_per_brief(kind) and (alt(sidekick.get('rotation_required'), False) is not False or alt(sidekick.get('bootstrap_pending'), False) is not False):
+        raise Die(f'the {kind} sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate {store} '
+                  'after a completed task. The queue is preserved.', 5)
+
+
+def visible_without_blanks(name):
+    """herdr agent read ... | tr -d '\\n │': tr works on bytes, so the three bytes of the bar are deleted one by one."""
+    r = subprocess.run(['herdr', 'agent', 'read', name, '--source', 'visible', '--lines', '12'], capture_output=True, check=False)
+    return r.stdout.translate(None, delete=b'\n \xe2\x94\x82')
+
+
+def submit_typed(name, marker):
+    """Herdr can report a fresh agent working while a prompt still sits typed in its input, so the pane is read too: while its last lines
+    still show the message's marker, Enter submits it, up to three times. A working Devin is left alone, since there Enter cancels the
+    running command. Returns the number of Enters sent."""
+    submitted = 0
+    kind = agent_kind(name)
+    tries = 0
+    while tries < 3:
+        bash_sleep(os.environ.get('PAIR_SUBMIT_CHECK_S') or '5')
+        if marker.encode('utf-8', 'surrogateescape') not in visible_without_blanks(name):
+            return submitted
+        if kind == 'devin' and agent_status(name) == 'working':
+            return submitted
+        subprocess.run(['herdr', 'agent', 'send-keys', name, 'enter'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        tries += 1
+        submitted = tries
+    return submitted
+
+
+def prompt_sidekick(name, text):
+    """Sends one message and confirms the sidekick took it. A narrow pane can hide the working state, so a timeout or stall here is not an
+    error; the wait that follows looks for the reply file either way."""
+    r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--until', 'working', '--timeout', '30000'],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)
+    if r.returncode != 0:
+        err = r.stderr.decode('utf-8', 'surrogateescape')
+        code = jq_run(err, lambda v: (lambda c: c if truthy(c) else None)(jq_member(jq_member(v, 'error'), 'code')), None)
+        if code not in ('timeout', 'agent_prompt_stalled'):
+            sys.stderr.write(err)
+            raise Die(f'herdr prompt failed for {name}', 2)
+    word = text.rsplit(' ', 1)[-1]
+    return submit_typed(name, os.path.basename(word.rstrip('/') or word))
+
+
+def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None):
+    """Shared by discuss, dispatch and answer: refuse unfilled files and a sidekick that cannot take input, then prompt and wait."""
+    require_filled(ctx, file)
+    pair = pair_json(store)
+    if kind != 'BRIEF':
+        pass
+    else:
+        check_scope(file, jq_raw(alt(pair.get('git_root'), pair.get('cwd'))))
+    require_fresh_session(store)
+    name = jq_raw(section(pair_json(store), 'sidekick').get('name'))
+    status = agent_status(name)
+    if status not in ('idle', 'done'):
+        if status == 'absent':
+            raise Die(f'sidekick {name} is not live; run: pair.sh spawn {store} --kind <kind>', 2)
+        if status == 'blocked':
+            raise Die(f'sidekick {name} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
+        raise Die(f'sidekick {name} is {status}; run: pair.sh wait {store}', 5)
+    # Delivery is not interruptible: a dispatch wrapped in a short timeout was killed after recording a brief and before sending it, and
+    # the store waited on a sidekick that never got it. TERM, INT and HUP wait until the message is in; the wait that follows may be cut
+    # short safely.
+    held = {number: signal.signal(number, signal.SIG_IGN) for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+    try:
+        if kind == 'BRIEF':
+            if queued_brief(store) == file:
+                try:
+                    os.unlink(f'{store}/queue')
+                except OSError:
+                    pass
+            prune_pending(store)
+            record_dispatch(store, file)
+        else:
+            record_sent(store, file, kind, now)
+        event(store, 'master', f'send-{kind.lower()}', file)
+        prompt_sidekick(name, f'{ctx.skill} {kind} {file}')
+    finally:
+        for number, previous in held.items():
+            signal.signal(number, previous)
+    if send_only:
+        print(f'sent: {kind} {file}; follow it with the wait command')
+        return 0
+    result = wait_for_reply(ctx, store, name, timeout, now)
+    return finish_wait(ctx, store, interval, result, reply_mode(result), result.ready, now)

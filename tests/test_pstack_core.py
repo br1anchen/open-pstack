@@ -21,7 +21,7 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import checkin, cli, dispatch, herdr, providers, replies, review, store, wait  # noqa: E402
+from pstack_core import checkin, cli, dispatch, herdr, providers, replies, review, send, store, wait  # noqa: E402
 from pstack_core.commands import metrics, step  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
@@ -373,10 +373,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for agent, text in spec.get('screens', {}).items():
             (fake / 'screen').mkdir(exist_ok=True)
             (fake / 'screen' / agent).write_text(fill(text))
-        for sub, script in spec.get('once', {}).items():
+        for subcommand, script in spec.get('once', {}).items():
             (fake / 'once').mkdir(exist_ok=True)
-            (fake / 'once' / sub).write_text(fill(script))
-            (fake / 'once' / sub).chmod(0o755)
+            (fake / 'once' / subcommand).write_text(script)
+            (fake / 'once' / subcommand).chmod(0o755)
         if spec.get('report_after'):
             (fake / 'report-after').write_text(fill(spec['report_after']) + '\n')
         env.update(spec.get('env', {}))
@@ -1065,6 +1065,106 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (st / 'steps/001-x.tsv').chmod(0o000)
         self.assertEqual(results[0][:3], (2, '', 'grep: <T>/st/steps/001-x.tsv: Permission denied\n'), results[0])
         self.assertEqual(results[1], results[0])
+
+    SEND_NOW = 1_800_000_321
+
+    def send_both(self, name, snippet, call, **spec):
+        """A helper of the send path in bash (the e6e83e3 core, `date` fixed at SEND_NOW) and in Python (given the same instant) on identical
+        worlds: (return code, stdout, stderr, store files, events added, herdr calls)."""
+        results = []
+        for label in ('bash', 'py'):
+            top, st, env, fill = self.ab_world(f'{name}-{label}', {'agents': {'s1': 'idle claude'}, **spec})
+            env = {**env, 'PAIR_SUBMIT_CHECK_S': '0'}
+            ctx = Context('pstack-pair', str(root / 'skills/pstack-pair'), str(top / 'state'), 'Pair', ('sidekick',), ('plans',), 21, '')
+            if label == 'bash':
+                fake = self.path / f'fakedate-{self.SEND_NOW}'
+                fake.mkdir(exist_ok=True)
+                (fake / 'date').write_text(f'#!/bin/sh\ncase "$1" in +%s) echo {self.SEND_NOW} ;; *) exec {shutil.which("date")} "$@" ;; esac\n')
+                (fake / 'date').chmod(0o755)
+                script = (f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
+                          f'. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\n{fill(snippet)}')
+                r = subprocess.run(['bash', '-c', script], env={**env, 'PATH': f'{fake}:{env["PATH"]}'}, cwd=top / 'repo', capture_output=True, text=True, check=False, timeout=120)
+                rc, so, se = r.returncode, r.stdout, r.stderr
+            else:
+                so_io, se_io = io.StringIO(), io.StringIO()
+                with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(so_io), contextlib.redirect_stderr(se_io):
+                    try:
+                        out = call(ctx, str(st), fill)
+                        rc = 0
+                        so_io.write(out or '')
+                    except Die as e:
+                        rc = e.code
+                        se_io.write(f'pair.sh: {e.message}\n')
+                so, se = so_io.getvalue(), se_io.getvalue()
+            norm = lambda text: re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>'))
+            files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
+            events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]]
+            calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
+            results.append((rc, norm(so), norm(se), files, events, calls))
+        self.assertEqual(results[0], results[1], name)
+        return results[1]
+
+    def test_send_helpers_prune_pending_and_record_sent_match_bash(self):
+        done = '# R\n\nstatus: done\nhead: {c3}\n'
+        pending = lambda *names: {'pending': [f'{{st}}/briefs/{n}' for n in names]}
+        for label, spec in {
+            'no pending key': dict(pair={}),
+            'an empty list': dict(pair=pending()),
+            'a null list': dict(pair={'pending': None}),
+            'one owed brief': dict(pair=pending('001-x.md')),
+            'a brief whose report exists': dict(pair=pending('001-x.md', '002-y.md'), files={'reports/001-x.md': done}),
+            'a brief with a review': dict(pair=pending('001-x.md', '002-y.md'), files={'reviews/002-notes.md': '# R\n'}),
+            'every brief answered': dict(pair=pending('001-x.md'), files={'reports/001-x.md': done}),
+            'an answer brief': dict(pair=pending('001-x-a2.md'), files={'reports/001-x.md': done}),
+            'a duplicate and an empty entry': dict(pair={'pending': ['{st}/briefs/001-x.md', '{st}/briefs/001-x.md', '']}),
+        }.items():
+            self.send_both('prune ' + label.replace(' ', '-'), 'prune_pending "$store"', lambda ctx, st, fill: send.prune_pending(st), **spec)
+        for kind in ('PLAN', 'ANSWER', 'BRIEF'):
+            self.send_both(f'sent-{kind}', f'record_sent "$store" {{st}}/plans/001-x.md {kind}', lambda ctx, st, fill, kind=kind: send.record_sent(st, fill('{st}/plans/001-x.md'), kind, self.SEND_NOW), pair={'sent': {'file': 'old', 'epoch': 1}})
+        self.send_both('sent-none', 'record_sent "$store" /f PLAN', lambda ctx, st, fill: send.record_sent(st, '/f', 'PLAN', self.SEND_NOW), pair={'sent': None})
+
+    def test_send_helpers_require_fresh_session_matches_bash(self):
+        for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex'):
+            for extra in ({}, {'rotation_required': True}, {'rotation_required': False}, {'bootstrap_pending': True}, {'bootstrap_pending': False}, {'rotation_required': 'x'},
+                          {'rotation_required': None, 'bootstrap_pending': None}, {'rotation_required': 0}):
+                self.send_both(f'fresh-{kind}-{sorted(extra.items())}'.replace(' ', '').replace("'", '').replace('[', '').replace(']', '').replace('(', '').replace(')', '').replace(',', '-'),
+                               'require_fresh_session "$store"', lambda ctx, st, fill: send.require_fresh_session(st),
+                               pair={'sidekick': {'kind': kind, 'name': 's1', 'generation': 1, **extra}})
+        self.send_both('fresh-null-sidekick', 'require_fresh_session "$store"', lambda ctx, st, fill: send.require_fresh_session(st), pair={'sidekick': None})
+
+    def test_send_helpers_submit_typed_and_prompt_sidekick_match_bash(self):
+        marker = '001-x.md'
+        screen = lambda text: {'screens': {'s1': text}}
+        typed = lambda n: ' '.join(['x'] * n)
+        call = lambda ctx, st, fill: f'submitted={send.submit_typed("s1", "001-x.md")}\n'
+        snippet = 'submit_typed s1 001-x.md; echo "submitted=$submitted"'
+        got = self.send_both('submit-not-visible', snippet, call, **screen('a quiet pane\n'))
+        self.assertEqual(got[1], 'submitted=0\n', 'submit-not-visible')
+        got = self.send_both('submit-visible-always', snippet, call, **screen('❯ PAIR BRIEF /s/briefs/001-x.md\n'))
+        self.assertEqual(got[1], 'submitted=3\n', 'submit-visible-always')
+        self.send_both('submit-visible-with-bars-and-blanks', snippet, call, **screen('│ ❯ PAIR  BRIEF\n│ /s/briefs/\n│ 001-x.md │\n'))
+        self.send_both('submit-box-drawing-bytes', snippet, call, **screen('─ 001-x.md ─\n'))
+        got = self.send_both('submit-typed-once', snippet, call, **screen('quiet\n'), once={'read': '#!/bin/sh\nmkdir -p "$FAKE/stalled" && printf "PAIR BRIEF /s/briefs/001-x.md" >"$FAKE/stalled/s1"\n'})
+        self.assertEqual(got[1], 'submitted=1\n', 'submit-typed-once')
+        got = self.send_both('submit-devin-working', snippet, call, agents={'s1': 'working devin'}, **screen('❯ 001-x.md\n'))
+        self.assertEqual(got[1], 'submitted=0\n', 'submit-devin-working')
+        self.send_both('submit-devin-idle', snippet, call, agents={'s1': 'idle devin'}, **screen('❯ 001-x.md\n'))
+        got = self.send_both('submit-codex-working', snippet, call, agents={'s1': 'working codex'}, **screen('❯ 001-x.md\n'))
+        self.assertEqual(got[1], 'submitted=3\n', 'submit-codex-working')
+        self.send_both('submit-no-agent', snippet, call, agents={'s1': ''}, **screen('❯ 001-x.md\n'))
+        text = 'PAIR BRIEF {st}/briefs/001-x.md'
+        pcall = lambda ctx, st, fill: f'submitted={send.prompt_sidekick("s1", fill(text))}\n'
+        psnip = 'prompt_sidekick s1 "PAIR BRIEF $store/briefs/001-x.md"; echo "submitted=$submitted"'
+        self.send_both('prompt-idle-times-out', psnip, pcall, agents={'s1': 'idle claude'})
+        self.send_both('prompt-working-takes-it', psnip, pcall, agents={'s1': 'working claude'})
+        got = self.send_both('prompt-fails', psnip, pcall, files={'../fake/prompt-fail': ''})
+        self.assertEqual(got[0], 2)
+        self.assertIn('prompt_failed', got[2])
+        self.send_both('prompt-stalls', psnip, pcall, agents={'s1': 'working claude'}, files={'../fake/prompt-drop': ''})
+        self.send_both('prompt-stalls-typed', psnip, pcall, agents={'s1': 'working claude'}, files={'../fake/stall': ''})
+        self.send_both('prompt-to-an-absent-agent', psnip, pcall, agents={'s1': ''})
+        self.send_both('prompt-path-with-a-space', 'prompt_sidekick s1 "PAIR BRIEF $store/briefs/a b.md"; echo "submitted=$submitted"',
+                       lambda ctx, st, fill: f'submitted={send.prompt_sidekick("s1", "PAIR BRIEF " + st + "/briefs/a b.md")}\n', agents={'s1': 'working claude'})
 
     def test_finish_and_notify_match_the_bash_in_the_other_variants(self):
         self.mismatches = {}
@@ -2948,7 +3048,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                   'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
                   'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
                   'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
-                  'require_agreed_plan')
+                  'require_agreed_plan', 'prune_pending', 'record_sent', 'require_fresh_session', 'submit_typed', 'prompt_sidekick')
 
     # Bash twins with no bash caller since the command that used them moved to Python. They stay in pair-core.sh until the unit that
     # deletes the bash twins, and keep their parity tests (test_paused_reason_and_pause_notice_match_bash, test_steer_notice_matches_bash).
