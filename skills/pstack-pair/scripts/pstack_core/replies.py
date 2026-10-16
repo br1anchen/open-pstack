@@ -6,7 +6,7 @@ import re
 
 from .collate import collate_key, glob_sorted
 from .review import jq_raw, noted_through, review_base, steps_file
-from .store import alt, cut_chars, expected_report, header_field, last_line, pair_json, read_text, unit_name, update
+from .store import alt, bash_int, cut_chars, expected_report, header_field, last_line, pair_json, read_text, unit_name, update
 from .commands.status import latest
 
 
@@ -85,10 +85,8 @@ def fresh_reply(ctx, store):
         if not os.path.isfile(f):
             continue
         t = file_mtime(f)
-        try:
-            if t < int(epoch):
-                continue
-        except ValueError:
+        floor = bash_int(epoch)
+        if floor is None or t < floor:
             continue
         if not ctx.variant.report_ready(ctx, store, f).ready:
             continue
@@ -136,10 +134,8 @@ def unreviewed_steps(ctx, store):
     report = expected_report(store, brief)
     if os.path.isfile(report):
         cols = last_line(file).split('\t')
-        try:
-            written_after = file_mtime(report) >= int(cols[2] if len(cols) > 2 else '')
-        except ValueError:
-            written_after = False
+        stamp = bash_int(cols[2] if len(cols) > 2 else '')
+        written_after = stamp is not None and file_mtime(report) >= stamp
         if written_after and ctx.variant.report_ready(ctx, store, report).ready:
             return None
     through = noted_through(store, brief)
@@ -160,10 +156,8 @@ def withheld_report(ctx, store):
         return None
     report = f'{store}/reports/{re.sub(r"-a[0-9]+$", "", unit_name(sent))}.md'
     epoch = sent_field(store, 'epoch') if sent_field(store, 'epoch') != '' else '0'
-    try:
-        if not (os.path.isfile(report) and file_mtime(report) >= int(epoch)):
-            return None
-    except ValueError:
+    floor = bash_int(epoch)
+    if floor is None or not (os.path.isfile(report) and file_mtime(report) >= floor):
         return None
     ready = ctx.variant.report_ready(ctx, store, report)
     return None if ready.ready else (report, ready.why)

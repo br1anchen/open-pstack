@@ -9,7 +9,7 @@ import time
 from .collate import collate_key, glob_sorted
 from .replies import dispatched, file_mtime
 from .review import jq_raw, noted_through, open_notes, range_floor, steps_file
-from .store import alt, cut_chars, header_field, pair_json, progress_path, read_text
+from .store import alt, bash_int, cut_chars, header_field, pair_json, progress_path, read_text
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 CLASSES = {'alpha': 'A-Za-z', 'digit': '0-9', 'alnum': '0-9A-Za-z', 'upper': 'A-Z', 'lower': 'a-z', 'space': ' \t\n\r\f\v',
@@ -73,11 +73,16 @@ def tree_activity(cwd, head, now):
 
 
 def iso_epoch(stamp):
-    """jq fromdateiso8601, or None when the stamp is not one the store writes."""
-    try:
-        return calendar.timegm(time.strptime(stamp, '%Y-%m-%dT%H:%M:%SZ'))
-    except ValueError:
+    """jq fromdateiso8601, or None where jq fails: C strptime("%Y-%m-%dT%H:%M:%SZ") with its leading blanks, one or two digits
+    a field and day 31 allowed in any month, then timegm, whose result -1 reads as an error. Anything after the Z must start with a blank."""
+    m = re.fullmatch(r'\s*(\d{1,4})-\s*(\d{1,2})-\s*(\d{1,2})T\s*(\d{1,2}):\s*(\d{1,2}):\s*(\d{1,2})Z(?:\s.*)?', stamp, re.DOTALL)
+    if not m:
         return None
+    year, month, day, hour, minute, second = map(int, m.groups())
+    if not (1 <= month <= 12 and 1 <= day <= 31 and hour <= 23 and minute <= 59 and second <= 61):
+        return None
+    epoch = calendar.timegm((year, month, day, hour, minute, second))
+    return None if epoch == -1 else epoch
 
 
 def busy_command(pane, since, now, env=None):
@@ -296,18 +301,13 @@ def checkin(ctx, store, interval='9', now=None):
         total = text.count('\n')
         seen = 0
         if os.path.isfile(f'{prog}.seen'):
-            try:
-                seen = int(read_text(f'{prog}.seen').rstrip('\n'))
-            except ValueError:
-                seen = 0
+            seen = bash_int(read_text(f'{prog}.seen').rstrip('\n'))
+            seen = 0 if seen is None else seen
         if seen > total:
             seen = 0
         new = total - seen
         age_m = tdiv(now - file_mtime(prog), 60)
-        try:
-            limit = int(interval)
-        except ValueError:
-            limit = None
+        limit = bash_int(str(interval))
         if limit is not None and age_m >= limit:
             if run:
                 stale = f'  running: {run}'

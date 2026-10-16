@@ -19,7 +19,7 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import checkin, cli, dispatch, herdr, providers, replies, review, store  # noqa: E402
+from pstack_core import checkin, cli, dispatch, herdr, providers, replies, review, store, wait  # noqa: E402
 from pstack_core.commands import metrics  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
@@ -357,6 +357,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (st / rel).write_text(fill(text))
         if spec.get('master', 'idle'):
             (fake / 'agents/m1').write_text(f'{spec.get("master", "idle")} claude\n')
+        for agent, state in spec.get('agents', {}).items():
+            (fake / 'agents' / agent).write_text(state + '\n')
+        if spec.get('panes'):
+            for pane, agent in spec['panes'].items():
+                (fake / 'panes' / pane).write_text(agent)
+        for agent, text in spec.get('screens', {}).items():
+            (fake / 'screen').mkdir(exist_ok=True)
+            (fake / 'screen' / agent).write_text(fill(text))
+        for sub, script in spec.get('once', {}).items():
+            (fake / 'once').mkdir(exist_ok=True)
+            (fake / 'once' / sub).write_text(fill(script))
+            (fake / 'once' / sub).chmod(0o755)
+        if spec.get('report_after'):
+            (fake / 'report-after').write_text(fill(spec['report_after']) + '\n')
+        env.update(spec.get('env', {}))
         if spec.get('promptfail'):
             (fake / 'prompt-fail').write_text('')
         (st / 'events.tsv').write_text('2026-01-01T00:00:00Z\t1\tmaster\tinit\t-\tbefore\n')
@@ -1276,6 +1291,164 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 return 0, out + '\n' if out else ''
             self.provider_both('err-' + name.replace(' ', '-'), call_bash2, call_py2, **kw)
 
+    def test_bash_int_matches_the_bash_integer_test(self):
+        inputs = [' 5', '5 ', ' 5 ', '+5', '-0', '-5', '5_0', '\u0665', '', '0x10', '010', '1e3', '1.0', '+', '-', '5 5', '5\n', '\t5', '99999999999999999999',
+                  '9223372036854775807', '9223372036854775808', '-9223372036854775808', '--5', '+-5', '00', '0 ', '1 \n', '\n1', '5\x0b', '\u0663', ' ', '8', '08', '٨']
+        for text in inputs:
+            rc = {}
+            for want in (0, 8):
+                r = subprocess.run(['bash', '-c', '[ "$1" -eq ' + str(want) + ' ]', '_', text], capture_output=True, check=False)
+                rc[want] = r.returncode
+            ours = store.bash_int(text)
+            self.assertEqual(ours is None, rc[0] == 2, repr(text))
+            if ours is not None:
+                self.assertEqual((ours == 0, ours == 8), (rc[0] == 0, rc[8] == 0), repr(text))
+        self.assertEqual((store.bash_int('010'), store.bash_int(' -7 '), store.bash_int('+5')), (10, -7, 5))
+
+    def test_wait_finish_iso_epoch_matches_bash(self):
+        for stamp in ('2026-10-16T11:39:33Z', '1970-01-01T00:00:00Z', '1969-12-31T23:59:59Z', '2026-02-29T00:00:00Z', '2024-02-29T12:00:00Z', '2026-10-16T11:39:33',
+                      '2026-10-16 11:39:33Z', '2026-1-1T0:0:0Z', 'garbage', '', '2026-10-16T11:39:33.5Z', ' 2026-10-16T11:39:33Z', '2026-13-01T00:00:00Z', '2026-10-16T25:00:00Z', '2026-10-16T11:39:33Z ', '2026-10-16T11:39:33Z junk', '2026-10-16T11:39:33Zjunk', '2026-04-31T00:00:00Z',
+                      '0001-01-01T00:00:00Z', '12345-01-01T00:00:00Z', '2026-0-1T00:00:00Z', '2026-10-16T11:39:62Z'):
+            r = self.bash(f'iso_epoch {shlex.quote(stamp)}', check=False)
+            ours = checkin.iso_epoch(stamp)
+            self.assertEqual((0, str(ours)) if ours is not None else (5, ''), (r.returncode, r.stdout.strip()), repr(stamp))
+
+    def test_wait_finish_opts_match_bash(self):
+        core = str(scripts / 'pair-core.sh')
+        mismatched = []
+        cases = [[], ['--timeout', '1000'], ['--every', '2'], ['--send-only'], ['--timeout', '5', '--every', '3'], ['--every', '3', '--timeout', '7'], ['--bogus'], ['x', '--timeout', '9', 'y'],
+                 ['--timeout'], ['--every'], ['--timeout', 'abc'], ['--every', 'abc'], ['--timeout', '1.5'], ['--every', '1.5'], ['--every', ''], ['--timeout', ''], ['--every', '0'],
+                 ['--timeout', '0'], ['--timeout', '-5'], ['--timeout', '0x10'], ['--every', '1x'], ['--timeout', ' 5 '], ['--every', '011'], ['--timeout', '2*3'], ['--timeout', '(5+1)*1000'],
+                 ['--timeout', '1000', '--bogus', '--every', '2'], ['--every', '07+08'], ['--timeout', '9999999999999'], ['--every', '2#101'], ['--timeout', '10 / 0'], ['--timeout', '5 5'],
+                 ['--timeout', '(5'], ['--timeout', '5)'], ['--timeout', '-1500000']]
+        for args in cases:
+            snippet = ('rest=(); timeout=540000; send_only=0; wait_opts "$@"; printf "%s\\037%s\\037%s" "$timeout" "$checkin_interval_m" "$send_only"; '
+                       'for r in ${rest[@]+"${rest[@]}"}; do printf "\\037%s" "$r"; done')
+            r = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root=/x; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n. {core}\n{snippet}', '_', *args],
+                               env=self.env, capture_output=True, text=True, check=False)
+            try:
+                timeout, interval, send_only, rest = wait.wait_opts(args)
+                ours = (0, '\x1f'.join([timeout, str(interval), '1' if send_only else '0']) + ''.join('\x1f' + x for x in rest), '')
+            except Exit as e:
+                ours = (e.code, '', e.stderr)
+            if ours != (r.returncode, r.stdout, r.stderr):
+                mismatched.append((args, ours[2].replace(core, '<core>'), r.stderr.replace(core, '<core>')))
+        self.assertEqual(mismatched, [])
+
+    def test_wait_finish_reply_mode_matches_bash(self):
+        for ready, steps_due in (('', False), ('', True), ('/r.md', False), ('/r.md', True)):
+            r = self.bash(f'ready={shlex.quote(ready)}; steps_due={int(steps_due)}; reply_mode')
+            self.assertEqual(wait.reply_mode(wait.WaitResult(0, '', '', ready, steps_due)), r.strip(), (ready, steps_due))
+
+    FW_NOW = 1_800_000_000
+
+    def finish_wait_both(self, name, mode='reply', code=0, out='', err='', report='', interval=9, **spec):
+        """finish_wait in bash and in Python on identical worlds: (return code, stdout, stderr, pair.json, files, events added)."""
+        results = []
+        for label in ('bash', 'py'):
+            top, st, env, fill = self.ab_world(f'{name}-{label}', {'agents': {'s1': 'idle claude'}, **spec})
+            ctx = Context('pstack-pair', str(root / 'skills/pstack-pair'), str(top / 'state'), 'Pair', ('sidekick',), ('plans',), 21, '')
+            rep = fill(report)
+            if label == 'bash':
+                fake = self.path / f'fakedate-{self.FW_NOW}'
+                fake.mkdir(exist_ok=True)
+                (fake / 'date').write_text(f'#!/bin/sh\nif [ "$1" = "+%s" ]; then echo {self.FW_NOW}; else exec {shutil.which("date")} "$@"; fi\n')
+                (fake / 'date').chmod(0o755)
+                script = (f'set -euo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
+                          f'. {scripts / "pair-core.sh"}\ncheckin_interval_m={interval}\nfinish_wait {st} {code} "$1" "$2" {mode} {shlex.quote(rep)}')
+                r = subprocess.run(['bash', '-c', script, '_', out, err], env={**env, 'PATH': f'{fake}:{env["PATH"]}'}, capture_output=True, text=True, check=False)
+                rc, so, se = r.returncode, r.stdout, r.stderr
+            else:
+                so_io, se_io = io.StringIO(), io.StringIO()
+                with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(so_io), contextlib.redirect_stderr(se_io):
+                    try:
+                        rc = wait.finish_wait(ctx, str(st), interval, wait.WaitResult(code, out, err.rstrip('\n'), rep, mode == 'steps'), mode, rep, now=self.FW_NOW)
+                    except Exit as e:
+                        rc = e.code
+                        se_io.write(e.stderr)
+                so, se = so_io.getvalue(), se_io.getvalue()
+            norm = lambda text: re.sub(r':1[0-9]{9}\b', ':<MTIME>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))
+            files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
+            events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]]
+            results.append((rc, norm(so), norm(se), files, events))
+        if results[0] != results[1]:
+            diff = {}
+            for i, k in enumerate(('rc', 'stdout', 'stderr', 'files', 'events')):
+                if results[0][i] != results[1][i]:
+                    diff[k] = ({f: (results[1][i].get(f), results[0][i].get(f)) for f in {*results[0][i], *results[1][i]} if results[0][i].get(f) != results[1][i].get(f)}
+                               if k == 'files' else (results[1][i], results[0][i]))
+            self.fw_mismatches[name] = diff
+        return results[1]
+
+    def test_wait_finish_matches_bash(self):
+        done = '# R\n\nstatus: done\nhead: {c3}\n'
+        sent = {'sent': {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1}, 'pending': ['{st}/briefs/001-x.md']}
+        rep = '{st}/reports/001-x.md'
+        working = {'s1': 'working claude'}
+        ok_out = '{"result":{"agent":{"agent_status":"idle"}}}'
+        T0 = self.FW_NOW
+        digest_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(T0 - 1230))
+        digest_pair = {**sent, 'dispatch': {'brief': '{st}/briefs/001-x.md', 'at': digest_at, 'head': '{c1}'}}
+        results = {}
+        self.fw_mismatches = {}
+        cases = {
+            'done report': dict(report=rep, out=ok_out, pair=sent, files={'reports/001-x.md': done}),
+            'done report, blocked state': dict(report=rep, out='{"result":{"agent":{"agent_status":"blocked"}}}', pair=sent, files={'reports/001-x.md': done}),
+            'partial report': dict(report=rep, out=ok_out, pair=sent, files={'reports/001-x.md': '# R\n\nstatus: partial\n'}),
+            'earlier report of a queued brief': dict(report='{st}/reports/001-x.md', out=ok_out, pair={'sent': {'file': '{st}/briefs/002-y.md', 'epoch': 1, 'seen': 'keep'}, 'pending': ['{st}/briefs/001-x.md', '{st}/briefs/002-y.md']},
+                                                      files={'reports/001-x.md': done, 'queue': '{st}/briefs/002-y.md\n'}),
+            'reply to a sent unit marks it shown': dict(report=rep, out='', pair={'sent': {'file': '{st}/briefs/001-x-a2.md', 'epoch': 1}}, files={'reports/001-x.md': done}),
+            'the report is gone when its time is read': dict(report='{st}/reports/009-x.md', out=ok_out, pair={'sent': {'file': '{st}/briefs/009-x.md', 'epoch': 1}}),
+            'no sent field': dict(report=rep, out=ok_out, pair={'sent': None}, files={'reports/001-x.md': done}),
+            'steps mode': dict(mode='steps', out=ok_out, pair=sent, files={'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n2\t{c2}\t6\t\ttwo\n3\t{c3}\t7\tn1\tthree\n'}),
+            'steps mode, nothing to review': dict(mode='steps', out=ok_out, pair=sent),
+            'steps mode, a step number that is not JSON': dict(mode='steps', out=ok_out, pair=sent, files={'steps/001-x.tsv': 'a\t{c1}\t5\t\tone\n'}),
+            'idle, reply already shown': dict(out=ok_out, pair={'sent': {'file': '{st}/briefs/001-x.md', 'epoch': 1, 'seen': '{st}/reports/001-x.md:1'}}, files={'reports/001-x.md': done}),
+            'report written but not ready': dict(out=ok_out, pair=sent, files={'reports/001-x.md': done, 'steps/001-x.tsv': '1\t{c2}\t5\t\tone\n2\t{c3}\t5\t\ttwo\n', 'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}),
+            'report missing, sidekick working': dict(out=ok_out, pair=digest_pair, agents=working, files={'progress/001-x.md': '10:00 one\n10:05 two\n', 'briefs/001-x.md': '# Brief\n\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/**\n'}),
+            'report missing, sidekick working, quiet': dict(out=ok_out, pair=digest_pair, agents=working, wait_env={'PAIR_QUIET_WAIT': '1'}, files={'progress/001-x.md': '10:00 one\n'}),
+            'report missing, sidekick idle': dict(out=ok_out, pair=digest_pair, agents={'s1': 'idle claude'}, screens={'s1': 'Error: rate limit hit\n'}, files={'briefs/001-x.md': '# Brief\n'}),
+            'report missing, sidekick idle, nothing to say': dict(out=ok_out, pair=digest_pair, agents={'s1': 'idle claude'}, screens={'s1': 'all quiet\n'}),
+            'report missing, blocked state': dict(out='{"result":{"agent":{"agent_status":"blocked"}}}', pair=digest_pair, agents={'s1': 'blocked claude'}, screens={'s1': 'Unauthorized\n'}),
+            'report missing, blocked and unready': dict(out='{"result":{"agent":{"agent_status":"blocked"}}}', pair=sent, files={'reports/001-x.md': done, 'steps/001-x.tsv': '1\t{c2}\t5\t\tone\n2\t{c3}\t5\t\ttwo\n', 'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}),
+            'herdr timeout payload': dict(code=1, err='{"error":{"code":"timeout"}}', pair=digest_pair, agents=working, files={'progress/001-x.md': '10:00 one\n'}),
+            'herdr timeout, idle sidekick': dict(code=1, err='{"error":{"code":"timeout"}}', pair=digest_pair, agents={'s1': 'idle claude'}),
+            'herdr error with a code': dict(code=1, err='{"error":{"code":"not_found"}}', pair=digest_pair),
+            'herdr error as a string': dict(code=1, err='{"error":"boom"}', pair=digest_pair),
+            'herdr error that is not JSON': dict(code=1, err='herdr: connection refused', pair=digest_pair),
+            'herdr error that is empty': dict(code=1, err='', pair=digest_pair),
+            'herdr error as an object without a code': dict(code=1, err='{"error":{"message":"m"}}', pair=digest_pair),
+            'herdr error, two payloads': dict(code=1, err='{"a":1}\n{"error":{"code":"x"}}', pair=digest_pair),
+            'agent get output that is not JSON': dict(out='not json', pair=digest_pair),
+            'agent get output that is empty': dict(out='', pair=digest_pair),
+            'agent get output with a null status': dict(out='{"result":{"agent":{"agent_status":null}}}', pair=digest_pair),
+            'agent get output of the wrong type': dict(out='{"result":"x"}', pair=digest_pair),
+            'paused store': dict(report=rep, out=ok_out, pair=sent, files={'reports/001-x.md': done, 'paused': 'lunch\nmore\n'}),
+            'mode any with reports': dict(mode='any', out=ok_out, pair=sent, files={'reports/001-x.md': done, 'reports/002-y.md': '# R\n\nstatus: partial\n'}),
+            'mode any without reports': dict(mode='any', out=ok_out, pair=sent),
+            'a queue note after the report': dict(report=rep, out=ok_out, pair={**sent, 'dispatch': {'brief': '{st}/briefs/002-y.md'}}, files={'reports/001-x.md': done, 'queue': '{st}/briefs/003-z.md\n'}),
+            'review delta after the report': dict(report=rep, out=ok_out, pair=sent, files={'reports/001-x.md': done, 'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n2\t{c2}\t5\t\ttwo\n'}),
+        }
+        for name, kw in cases.items():
+            kw = dict(kw)
+            pair = kw.pop('pair', None)
+            env_extra = kw.pop('wait_env', None)
+            spec = {k: kw.pop(k) for k in ('files', 'agents', 'screens') if k in kw}
+            if pair is not None:
+                spec['pair'] = pair
+            if env_extra:
+                spec['env'] = env_extra
+            results[name] = self.finish_wait_both(name.replace(' ', '-').replace(',', ''), **kw, **spec)
+        self.maxDiff = None
+        self.assertEqual(self.fw_mismatches, {})
+        self.assertEqual(results['done report'][0], 0)
+        self.assertEqual(results['done report, blocked state'][0], 3)
+        self.assertEqual(results['idle, reply already shown'][0], 4)
+        self.assertIn('idle: the reply to 001-x.md was already shown', results['idle, reply already shown'][1])
+        self.assertIn('check-in: 001-x.md', results['report missing, sidekick working'][1])
+        self.assertIn('state: ', results['herdr timeout payload'][1])
+        self.assertIn('boom', results['herdr error as a string'][2])
+
     def test_fresh_per_brief_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
             code = self.bash(f'if fresh_per_brief {shlex.quote(kind)}; then echo 0; else echo 1; fi').strip()
@@ -2024,7 +2197,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                   'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
                   'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
                   'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
-                  'record_prime_session')
+                  'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait')
 
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}

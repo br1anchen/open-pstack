@@ -8,6 +8,16 @@ import time
 from .errors import Die, Exit
 
 
+def bash_int(text):
+    """What [ "$x" -gt 0 ] accepts as an integer, or None: optional blanks, one sign, ASCII decimal digits (010 is ten),
+    and a value that fits a signed 64-bit integer."""
+    m = re.fullmatch(r'[ \t\n\v\f\r]*([+-]?[0-9]+)[ \t\n\v\f\r]*', text)
+    if not m:
+        return None
+    value = int(m.group(1))
+    return value if -(1 << 63) <= value < (1 << 63) else None
+
+
 def utf8_locale():
     """Whether the locale (LC_ALL, then LC_CTYPE, then LANG) is UTF-8, so grep, cut and awk count characters."""
     for name in ('LC_ALL', 'LC_CTYPE', 'LANG'):
