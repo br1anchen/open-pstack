@@ -1397,15 +1397,21 @@ def last_working_event(events: list[list[str]]) -> int | None:
     return int(stamps[-1]) if stamps else None
 
 
+def _event_rows(store: Path) -> list[list[str]]:
+    """The store's events.tsv rows. event() writes no header; a store from an older build may start with one, and that line is skipped."""
+    try:
+        lines = (store / 'events.tsv').read_text().splitlines()
+    except OSError:
+        return []
+    if lines and lines[0].startswith('ts\t'):
+        lines = lines[1:]
+    return [line.split('\t') for line in lines]
+
+
 def run_counters(store: Path) -> dict:
     """One run's counters, read-only. Every file is optional: an older or partial store gives zeros."""
     pair = _json(store / 'pair.json')
-    events = []
-    try:
-        events = [line.split('\t') for line in (store / 'events.tsv').read_text().splitlines()[1:]]
-    except OSError:
-        pass
-    events = [e + [''] * (6 - len(e)) for e in events]
+    events = [e + [''] * (6 - len(e)) for e in _event_rows(store)]
     done = 0
     for brief in sorted((store / 'briefs').glob('[0-9][0-9][0-9]-*.md')):
         report = store / 'reports' / (re.sub(r'-a\d+$', '', brief.stem) + '.md')
@@ -1639,11 +1645,7 @@ def retro_rows(store: Path, run: str, ts: str) -> list[tuple[str, ...]]:
         kind, direction = _header(s, 'kind'), _section(s, 'direction')
         rows.append((ts, run, 'steer', 'brief', s.stem, s.name[:3], unit_area(store, [s.name[:3]]),
                      f'{kind}: {direction}' if kind else direction, kind))
-    try:
-        events = [ln.split('\t') for ln in (store / 'events.tsv').read_text().splitlines()[1:]]
-    except OSError:
-        events = []
-    for e in events:
+    for e in _event_rows(store):
         if len(e) >= 6 and e[3] == 'gate-flaky':
             unit = e[4] if re.match(r'\d{3}', e[4]) else ''
             rows.append((ts, run, 'gate-flaky', e[5], e[4], unit[:3], unit_area(store, [unit]) if unit else '', '', ''))

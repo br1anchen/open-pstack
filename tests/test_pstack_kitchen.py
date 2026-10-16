@@ -1318,6 +1318,37 @@ if __name__ == '__main__':
     unittest.main()
 
 
+class EventRowTests(unittest.TestCase):
+    """The readers of events.tsv count its first row: event() writes no header."""
+
+    HEADER = 'ts\tepoch\tactor\tevent\tunit\tdetail\n'
+    WAKE = '2026-01-01T00:00:00Z\t100\tmaster\twake\t-\tcheckin\n'
+    FLAKY = '2026-01-01T00:00:01Z\t101\tsidekick\tgate-flaky\t001-x\ttests/t.py::a\n'
+
+    def store(self, text):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name) / 'run'
+        d.mkdir()
+        (d / 'events.tsv').write_text(text)
+        return d
+
+    def test_run_counters_counts_the_first_event_of_a_headerless_store(self):
+        c = kitchen.run_counters(self.store(self.WAKE))
+        self.assertEqual((c['wakes'], c['started']), (1, 100))
+
+    def test_run_counters_gives_a_legacy_header_store_the_same_counts(self):
+        self.assertEqual(kitchen.run_counters(self.store(self.HEADER + self.WAKE)), kitchen.run_counters(self.store(self.WAKE)))
+
+    def test_retro_rows_counts_the_first_event_of_a_headerless_store(self):
+        rows = kitchen.retro_rows(self.store(self.FLAKY), 'run', 'T')
+        self.assertEqual([(r[2], r[4]) for r in rows], [('gate-flaky', '001-x')])
+
+    def test_retro_rows_gives_a_legacy_header_store_the_same_rows(self):
+        self.assertEqual(kitchen.retro_rows(self.store(self.HEADER + self.FLAKY), 'run', 'T'),
+                         kitchen.retro_rows(self.store(self.FLAKY), 'run', 'T'))
+
+
 class FleetTests(unittest.TestCase):
     """kitchen.py fleet and counters over fixture run stores."""
 
