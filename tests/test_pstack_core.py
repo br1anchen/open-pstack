@@ -19,6 +19,7 @@ scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
 from pstack_core import cli, herdr, review, store  # noqa: E402
+from pstack_core.commands import metrics  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die  # noqa: E402
 
@@ -786,6 +787,51 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertLessEqual(self.METRICS_LINES | {' (stopped)', ' (paused)', 'running:'}, self.covered(outputs.values()))
         self.assertEqual(self.metrics_oracle()[1], outputs)
         self.assertGreater(len(set(outputs.values())), 100)
+
+    def test_metrics_matches_the_awk_program_on_generated_logs(self):
+        stores, outputs = self.metrics_oracle()
+        ctx = Context('pstack-pair', str(root / 'skills/pstack-pair'), '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+        for seed, (st, now) in stores.items():
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, {'PAIR_METRICS_NOW': now}), contextlib.redirect_stdout(out):
+                metrics.run(ctx, [str(st)])
+            self.assertEqual(out.getvalue(), outputs[seed], (seed, now))
+
+
+    @unittest.skipIf(os.geteuid() == 0, 'file modes do not stop root')
+    def test_metrics_matches_pair_sh_at_the_legacy_commit_where_it_aborts_or_reads_nothing(self):
+        legacy = self.legacy_pair().parents[3]
+        cases = {}
+        for label, tree in (('legacy', legacy), ('port', root)):
+            runs = {}
+            for name in ('missing', 'empty', 'header only', 'no trailing newline', 'directory', 'unreadable'):
+                st = self.path / f'abort-{label}-{name.replace(" ", "-")}'
+                st.mkdir()
+                log = st / 'events.tsv'
+                if name == 'empty':
+                    log.write_text('')
+                elif name == 'header only':
+                    log.write_text('ts\tepoch\n')
+                elif name == 'no trailing newline':
+                    log.write_text('x\t1\tm\tsend-brief\t001-a\t\nx\t5\tm\tsend-brief\t001-a\t')
+                elif name == 'directory':
+                    log.mkdir()
+                    (log / 'f').write_text('x')
+                elif name == 'unreadable':
+                    log.write_text('x\t1\n')
+                    log.chmod(0)
+                r = self.run_pair('metrics', str(st), script=tree / 'skills/pstack-pair/scripts/pair.sh', extra_env={'PAIR_METRICS_NOW': '100'})
+                runs[name] = (r.returncode, r.stdout, r.stderr.replace(str(st), 'ST'))
+                if name == 'unreadable':
+                    log.chmod(0o644)
+            runs['usage'] = (lambda r: (r.returncode, r.stdout, r.stderr))(
+                self.run_pair('metrics', script=tree / 'skills/pstack-pair/scripts/pair.sh'))
+            cases[label] = runs
+        self.assertEqual(cases['legacy'], cases['port'])
+        self.assertEqual(cases['port']['unreadable'][0], 2)
+        self.assertEqual(cases['port']['directory'][0], 0)
+        self.assertIn('is a directory: skipped', cases['port']['directory'][2])
+        self.assertEqual(cases['port']['missing'][0], 1)
 
 
     def test_pause_resume_and_progress_through_pair_sh(self):

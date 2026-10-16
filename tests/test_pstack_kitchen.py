@@ -1683,6 +1683,21 @@ esac
         self.assertEqual((live / 'src/util.py').read_text(), 'X = 99\n')
         self.run_sh('scratch', str(self.store), '002-x-live', '--remove')
 
+    def test_kitchen_metrics_reports_wall_time_and_review_latency_from_events_tsv(self):
+        rows = [('900', 'master', 'send-brief', '001-util', ''),
+                ('1000', 'master', 'send-brief', '001-util', ''),
+                ('1600', 'sidekick', 'report', '001-util', ''),
+                ('1700', 'master', 'wake', '001-util', 'report:done'),
+                ('1760', 'master', 'log', '-', 'review: accepted 001')]
+        (self.store / 'events.tsv').write_text(''.join(f'2026-01-01T00:00:00Z\t{epoch}\t{actor}\t{ev}\t{unit}\t{detail}\n'
+                                                      for epoch, actor, ev, unit, detail in rows))
+        self.env['PAIR_METRICS_NOW'] = '1800'
+        out = self.run_sh('metrics', str(self.store)).splitlines()
+        self.assertEqual(out[0], 'wall: 13m from first event to last')
+        self.assertIn('master: 1 wakes, 0 of them check-ins; review latency median 3m over 1 reviews', out)
+        self.assertIn('sidekick: busy 10m (78% of wall), idle 0m across 0 gaps; 1 briefs (median 10m), 0 plan responses (0m)', out)
+        self.assertIn('verdicts: accept 1', out)
+
     def test_init_puts_the_kitchen_in_the_standing_orders(self):
         orders = (self.store / 'standing-orders.md').read_text()
         self.assertIn('runs these skills on its diff and fixes what they find: no-comments', orders)
