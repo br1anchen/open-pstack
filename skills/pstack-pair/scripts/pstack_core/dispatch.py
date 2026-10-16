@@ -12,7 +12,7 @@ def fresh_per_brief(kind):
     return kind in ('devin', 'pi', 'prime-agent')
 
 
-def record_dispatch(store, brief):
+def record_dispatch(store, brief, now=None):
     """record_dispatch() in pair-core.sh: the dispatch, the sent message, the unit's base head, and the pending list."""
     old = expected_report(store, brief)
     seen = f'{old}:{int(os.stat(old).st_mtime)}' if os.path.isfile(old) else ''
@@ -20,14 +20,15 @@ def record_dispatch(store, brief):
     cwd = pair.get('cwd')
     r = subprocess.run(['git', '-C', 'null' if cwd is None else str(cwd), 'rev-parse', 'HEAD'], capture_output=True, check=False)
     head = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
-    now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-    epoch = int(time.time())
+    stamp = time.time() if now is None else now
+    at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))
+    epoch = int(stamp)
 
     def mutate(doc):
         sidekick = doc.get('sidekick')
         generation = alt(sidekick.get('generation') if isinstance(sidekick, dict) else None, 0)
-        doc['dispatch'] = {'brief': brief, 'at': now, 'head': head, 'generation': generation}
-        doc['sent'] = {'file': brief, 'kind': 'BRIEF', 'at': now, 'epoch': epoch}
+        doc['dispatch'] = {'brief': brief, 'at': at, 'head': head, 'generation': generation}
+        doc['sent'] = {'file': brief, 'kind': 'BRIEF', 'at': at, 'epoch': epoch}
         if seen:
             doc['sent']['seen'] = seen
         heads = doc.get('heads')
@@ -42,7 +43,7 @@ def record_dispatch(store, brief):
     update(store, mutate)
 
 
-def take_queued(store):
+def take_queued(store, now=None):
     """take_queued(): the queued brief, now dispatched, or None. The bash runs it in a command substitution, so a
     failure inside it (a brief that is gone, a held lock) prints its message and reads as an empty queue."""
     taken = f'{store}/queue.taken.{os.getpid()}'
@@ -59,7 +60,7 @@ def take_queued(store):
     try:
         if not os.path.isfile(brief):
             raise Die(f'queued brief is gone: {brief}')
-        record_dispatch(store, brief)
+        record_dispatch(store, brief, now)
     except Die as e:
         sys.stderr.write(f'pair.sh: {e.message}\n')
         return None

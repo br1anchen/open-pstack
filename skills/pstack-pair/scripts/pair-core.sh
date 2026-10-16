@@ -698,46 +698,6 @@ require_not_paused() {
 	die "the store is paused ($reason): start nothing new; record where the work stands and end your turn, or run pair.sh resume $1" 5
 }
 
-# Printed by the sidekick's step, notes, progress, and finish commands, so a
-# pause reaches it at the next boundary without a message.
-pause_notice() {
-	local reason
-	reason="$(paused_reason "$1")" || return 0
-	printf 'PAUSE: %s. This is your safe point: commit what is verified, write the report as partial with where you stopped and the next step under Deviations, run pair.sh finish, and end the turn.\n' "$reason"
-}
-
-# Steers left for the sidekick in the store (pair.sh steer to a working
-# Devin) on the running brief, not yet acknowledged: no progress line "steer
-# s<k> applied|withdrawn|late" and no objection report. A draft new-steer
-# wrote, or a steer delivered as a message, is never listed.
-open_steers() {
-	local brief unit prog f k
-	brief="$(field "$1" '.dispatch.brief // empty')"
-	[ -n "$brief" ] || return 0
-	unit="$(basename "$brief" .md)"
-	prog="$1/progress/$unit.md"
-	while IFS= read -r f; do
-		[ -f "$f" ] || continue
-		case "$(basename "$f")" in "$unit"-s[0-9]*.md) ;; *) continue ;; esac
-		k="$(basename "$f" .md | sed -E 's/.*-s([0-9]+)$/\1/')"
-		[ -f "$prog" ] && grep -qE "steer s$k (applied|withdrawn|late)" "$prog" && continue
-		[ -f "$1/reports/$unit-s$k.md" ] && continue
-		printf '%s\n' "$f"
-	done < <(jq -r '.notice_steers // [] | .[]' "$1/pair.json")
-}
-
-# Printed by the sidekick's step, notes, progress, and finish commands. This is
-# how a steer reaches a working Devin: Enter would deliver a queued message
-# now, but it cancels the command Devin is running.
-steer_notice() {
-	local f
-	while IFS= read -r f; do
-		[ -n "$f" ] || continue
-		printf 'STEER: read %s now, before your next tool call. Agree: apply it and run pair.sh progress %s "steer s%s applied: <what changed>". Object: write the steer response and run pair.sh finish on it.\n' \
-			"$f" "$1" "$(basename "$f" .md | sed -E 's/.*-s([0-9]+)$/\1/')"
-	done < <(open_steers "$1")
-}
-
 cmd_pause() { pycore pause "$@"; }
 
 cmd_resume() { pycore resume "$@"; }
@@ -2021,19 +1981,6 @@ cmd_note() { pycore note "$@"; }
 # The sidekick's check at each step boundary: blocking notes still open on
 # the running brief, printed in full so they can be fixed without another read.
 cmd_notes() { pycore notes "$@"; }
-
-# Takes the queued brief, if any: records its dispatch and prints its path.
-take_queued() {
-	local store="$1" taken brief
-	taken="$store/queue.taken.$$"
-	mv "$store/queue" "$taken" 2>/dev/null || return 1
-	brief="$(cat "$taken")"
-	rm -f "$taken"
-	[ -f "$brief" ] || die "queued brief is gone: $brief"
-	record_dispatch "$store" "$brief"
-	event "$store" sidekick send-brief "$brief" queued
-	printf '%s\n' "$brief"
-}
 
 # The sidekick's pickup after writing a report: prints the queued brief's
 # message to act on. Exit 4 when the queue is empty, so the turn ends.

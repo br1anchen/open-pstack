@@ -159,7 +159,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for content in (None, '', 'for lunch\n', 'two\nlines\n', 'no newline'):
             if content is not None:
                 (st / 'paused').write_text(content)
-            bash = self.bash(f'printf "[%s]\\n" "$(paused_reason {st} || echo NONE)"; pause_notice {st}')
+            bash = self.bash(f'printf "[%s]\\n" "$(paused_reason {st} || echo NONE)"; pause_notice {st}', base=True)
             reason = store.paused_reason(str(st))
             ours = f'[{"NONE" if reason is None else reason}]\n' + store.pause_notice(str(st))
             self.assertEqual(ours, bash, repr(content))
@@ -172,10 +172,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         pair = json.loads((st / 'pair.json').read_text())
         pair['notice_steers'] = names
         (st / 'pair.json').write_text(json.dumps(pair))
-        self.assertEqual(self.bash(f'steer_notice {st}'), store.steer_notice(str(st)))
+        self.assertEqual(self.bash(f'steer_notice {st}', base=True), store.steer_notice(str(st)))
         (st / 'progress/001-one.md').write_text('10:00 steer s1 applied: x\n10:01 steer s12 late: reported\n')
         (st / 'reports/001-one-s2.md').write_text('status: object\n')
-        bash = self.bash(f'steer_notice {st}')
+        bash = self.bash(f'steer_notice {st}', base=True)
         self.assertEqual(store.steer_notice(str(st)), bash)
         self.assertEqual(bash.count('STEER:'), 1)
         self.assertIn('001-one-s3.md', bash)
@@ -215,7 +215,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             st.mkdir()
             (st / 'pair.json').write_text(json.dumps(pair))
             self.assertEqual(store.progress_path(str(st)) or 'NONE', self.bash(f'progress_path {st} || echo NONE').strip(), name)
-            self.assertEqual(store.steer_notice(str(st)), self.bash(f'steer_notice {st}'), name)
+            self.assertEqual(store.steer_notice(str(st)), self.bash(f'steer_notice {st}', base=True), name)
 
     def notes_fixture(self):
         st = self.fixture_store()
@@ -1149,6 +1149,31 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.send_both('sent-none', 'record_sent "$store" /f PLAN', lambda ctx, st, fill: send.record_sent(st, '/f', 'PLAN', self.SEND_NOW), mask_ts=False, pair={'sent': None})
         got = self.send_both('sent-at-is-the-fixed-instant', 'record_sent "$store" /f PLAN', lambda ctx, st, fill: send.record_sent(st, '/f', 'PLAN', self.SEND_NOW), mask_ts=False)
         self.assertIn('"at": "2027-01-15T08:05:21Z"', got[3]['pair.json'])
+
+    def test_take_queued_matches_bash(self):
+        # take_queued runs in a command substitution in the bash, so a failure inside it (a brief that is gone, a held lock) prints its message
+        # and reads as an empty queue: both halves call it that way.
+        snippet = 'b="$(take_queued "$store")" && echo "got=$b" || echo "got-nothing"'
+        call = lambda ctx, st, fill: (lambda b: f'got={b}\n' if b is not None else 'got-nothing\n')(dispatch.take_queued(st, self.SEND_NOW))
+        brief = '# Brief 002-y\n'
+        cases = {
+            'a queued brief': dict(files={'queue': '{st}/briefs/002-y.md\n'}),
+            'a queued brief with trailing blank lines': dict(files={'queue': '{st}/briefs/002-y.md\n\n\n'}),
+            'a queued brief that is gone': dict(files={'queue': '{st}/briefs/009-gone.md\n'}),
+            'an empty queue file': dict(files={'queue': ''}),
+            'no queue': dict(),
+            'a queued answered brief': dict(files={'queue': '{st}/briefs/002-y.md\n', 'reports/002-y.md': '# old\n'}, mtimes={'reports/002-y.md': 1_700_000_000}),
+            'a queued brief with known heads and pending': dict(files={'queue': '{st}/briefs/002-y.md\n'}, pair={'heads': {'002-y': 'kept'}, 'pending': ['z', '{st}/briefs/001-x.md']}),
+            'a devin sidekick generation': dict(files={'queue': '{st}/briefs/002-y.md\n'}, pair={'sidekick': {'kind': 'devin', 'generation': 4, 'name': 's1'}}),
+        }
+        results = {}
+        for name, spec in cases.items():
+            results[name] = self.send_both('take-' + name.replace(' ', '-'), snippet, call, mask_ts=False, **spec)
+        self.assertEqual(results['a queued brief'][1].split('\n')[0][:4], 'got=')
+        self.assertIn('send-brief', ' '.join(results['a queued brief'][4]))
+        self.assertIn('queued brief is gone', results['a queued brief that is gone'][2])
+        self.assertEqual(results['no queue'][1], 'got-nothing\n')
+        self.assertNotIn('queue', results['a queued brief'][3])
 
     def test_send_helpers_require_fresh_session_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex'):
@@ -3385,7 +3410,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss')
-    DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'open_steers', 'progress_path',
+    DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'progress_path',
                   'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
                   'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update',
                   'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
@@ -3393,18 +3418,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                   'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
                   'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
                   'require_agreed_plan', 'prune_pending', 'record_sent', 'require_fresh_session', 'submit_typed', 'prompt_sidekick', 'send_and_wait')
-
-    # Bash twins with no bash caller since the command that used them moved to Python. They stay in pair-core.sh until the unit that
-    # deletes the bash twins, and keep their parity tests (test_paused_reason_and_pause_notice_match_bash, test_steer_notice_matches_bash).
-    # Listing them here makes the deletion unit remove them from this list and the day anything calls them again visible.
-    DEAD_TWINS = ('pause_notice', 'steer_notice')
-
-    def test_dead_bash_twins_are_still_defined_and_still_uncalled(self):
-        text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
-        for helper in self.DEAD_TWINS:
-            self.assertRegex(text[scripts / 'pair-core.sh'], rf'(?m)^{helper}\(\) \{{$', helper)
-            callers = sum(len(re.findall(rf'(?<![\w-]){helper}(?![\w-])(?!\(\) \{{)', body)) for body in text.values())
-            self.assertEqual(callers, 0, f'{helper} has a bash caller again: move it back to DUPLICATED')
 
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
