@@ -175,18 +175,20 @@ def tdiv(a, b):
 
 def core_line(text, after='wait_opts() {'):
     """(path, line number) of the first line holding text in the function of pair-core.sh that starts with `after`, for the messages
-    bash prefixes to its errors."""
+    bash prefixes to its errors. When the function no longer holds the text (its body moved into Python and it is a shim) the line is
+    the function's own definition; it is never 0 unless pair-core.sh has no such function."""
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pair-core.sh')
+    definition = 0
     try:
-        inside = False
         with open(path, encoding='utf-8') as f:
             for number, line in enumerate(f, 1):
-                inside = inside or line.startswith(after)
-                if inside and text in line:
+                if not definition and line.startswith(after):
+                    definition = number
+                if definition and text in line:
                     return path, number
     except OSError:
         pass
-    return path, 0
+    return path, definition
 
 
 def shell_error(line_text, message):

@@ -57,7 +57,7 @@ class CoreTests(unittest.TestCase):
 
     def pair_py(self, *args):
         return subprocess.run([sys.executable, '-I', str(scripts / 'pair.py'), *core_args(), *args],
-                              env=self.env, capture_output=True, text=True, check=False)
+                              env=self.env, capture_output=True, text=True, check=False, timeout=120)
 
     def bash(self, snippet, env=None, check=True, base=False):
         """snippet run with pair-core.sh sourced: the working tree's, or with base=True skills/ as it was at e6e83e3, the oracle for
@@ -68,7 +68,7 @@ skill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; stor
 roles=(sidekick); store_dirs=(plans); slug_max=21
 . {skills / "pstack-pair/scripts/pair-core.sh"}
 {snippet}'''
-        r = subprocess.run(['bash', '-c', harness], env={**self.env, **(env or {})}, capture_output=True, text=True, check=check)
+        r = subprocess.run(['bash', '-c', harness], env={**self.env, **(env or {})}, capture_output=True, text=True, check=check, timeout=120)
         return r.stdout if check else r
 
     def test_die_without_a_code_exits_1(self):
@@ -239,7 +239,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         repo = self.path / 'repo'
         repo.mkdir()
         env = {**self.env, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
-        self.git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True).stdout.strip()
+        self.git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True, timeout=120).stdout.strip()
         self.git('init', '-q', '-b', branch)
         return repo
 
@@ -314,10 +314,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         if cls.__dict__.get('_base') is None:
             tmp = tempfile.TemporaryDirectory()
             self.addClassCleanup(tmp.cleanup)
-            git = subprocess.run(['git', '-C', str(root), 'archive', BASE, 'skills'], capture_output=True, check=False)
+            git = subprocess.run(['git', '-C', str(root), 'archive', BASE, 'skills'], capture_output=True, check=False, timeout=120)
             if git.returncode != 0:
                 raise unittest.SkipTest(f'{BASE} is not in this checkout')
-            subprocess.run(['tar', '-x', '-C', tmp.name], input=git.stdout, check=True)
+            subprocess.run(['tar', '-x', '-C', tmp.name], input=git.stdout, check=True, timeout=120)
             cls._base = Path(tmp.name) / 'skills'
         return cls._base
 
@@ -335,7 +335,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         if not spec.get('noenv'):
             env['HERDR_ENV'] = '1'
         env.pop('CLAUDE_CODE_SESSION_ID', None)
-        git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True).stdout.strip()
+        git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True, timeout=120).stdout.strip()
         git('init', '-q', '-b', 'main')
         shas = {}
         for rel, text in spec.get('repo_files', {}).items():
@@ -346,7 +346,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             git('add', '-A')
             git('commit', '-q', '-m', name)
             shas[name] = git('rev-parse', 'HEAD')
-        sub = {**shas, 'st': str(st), 'T': str(top), 'repo': str(repo)}
+        sub = {**shas, **{f'{k}s': v[:9] for k, v in shas.items()}, 'st': str(st), 'T': str(top), 'repo': str(repo)}
         fill = lambda text: text.format(**sub)
         pair = {'master': {'name': 'm1'}, 'sidekick': {'kind': spec.get('kind', 'claude'), 'generation': 1, 'name': 's1'},
                 'git_root': str(repo), 'cwd': str(repo), 'dispatch': {'brief': f'{st}/briefs/001-x.md', 'generation': spec.get('dispatch_generation', 1)},
@@ -583,9 +583,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_wait_ab_matches_the_bash_at_the_base_commit(self):
         mismatches = {}
         results = {}
+        # Masked: bash's own error text (an unknown value for `--every`, a `[` that finds no integer) names the file and line of the statement
+        # that failed. For the oracle that is e6e83e3's pair-core.sh and its line, which moved by the time of HEAD; Python names HEAD's wait_opts
+        # line (checked never to be 0 below and exactly in test_wait_finish_opts_match_bash).
         norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
         for name, spec in self.wait_ab_cases().items():
             got, want = self.wait_ab_compare(name, spec)
+            self.assertNotIn('line 0:', got['stderr'], name)
             for side in (got, want):
                 side['stderr'] = norm_core(side['stderr'])
                 side['stdout'] = self.mask_minutes(re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', side['stdout']))
@@ -605,10 +609,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def wait_ab_variant(self, skill, cases):
         mismatches = {}
+        # Masked: bash's own error text (an unknown value for `--every`, a `[` that finds no integer) names the file and line of the statement
+        # that failed. For the oracle that is e6e83e3's pair-core.sh and its line, which moved by the time of HEAD; Python names HEAD's wait_opts
+        # line (checked never to be 0 below and exactly in test_wait_finish_opts_match_bash).
         norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
         outcomes = {}
         for name, spec in cases.items():
             got, want = self.wait_ab_compare(name, spec, skill)
+            self.assertNotIn('line 0:', got['stderr'], name)
             for side in (got, want):
                 side['stderr'] = norm_core(side['stderr'])
                 side['stdout'] = self.mask_minutes(side['stdout'])
@@ -754,8 +762,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         # kitchen.sh runs the wait in a command substitution, so the signalled shell and the wait are two processes. TERM kills the shell
         # at once, as in the base; the Python wait must not outlive it (the base's subshell does run on). INT is held by the shell until
         # the wait ends, in the base too, so it is not signalled here.
-        got = self.wait_signalled(root / 'skills', signal.SIGTERM, False, 'pstack-kitchen')
-        want = self.wait_signalled(self.base_skills(), signal.SIGTERM, False, 'pstack-kitchen')
+        # A short timeout: the base's subshell outlives the signalled shell and runs to the end of its wait, which the test then waits for.
+        got = self.wait_signalled(root / 'skills', signal.SIGTERM, False, 'pstack-kitchen', timeout_ms=3000)
+        want = self.wait_signalled(self.base_skills(), signal.SIGTERM, False, 'pstack-kitchen', timeout_ms=3000)
         self.assertEqual(got[:3], want[:3])
         self.assertEqual(got, (-signal.SIGTERM, '', '', True))
 
@@ -804,9 +813,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def queue_ab_run(self, cases, skill):
         mismatches, outcomes = {}, {}
+        # Masked: bash's own error text (an unknown value for `--every`, a `[` that finds no integer) names the file and line of the statement
+        # that failed. For the oracle that is e6e83e3's pair-core.sh and its line, which moved by the time of HEAD; Python names HEAD's wait_opts
+        # line (checked never to be 0 below and exactly in test_wait_finish_opts_match_bash).
         norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
         for name, spec in cases.items():
             got, want = self.wait_ab_compare(name, spec, skill)
+            self.assertNotIn('line 0:', got['stderr'], name)
             for side in (got, want):
                 side['stderr'] = norm_core(side['stderr'])
             outcomes[name] = got
@@ -882,7 +895,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 (fake / 'date').chmod(0o755)
                 script = (f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
                           f'. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\ncmd_step "$@"')
-                r = subprocess.run(['bash', '-c', script, '_', *argv], env={**env, 'PATH': f'{fake}:{env["PATH"]}'}, cwd=top / 'repo', capture_output=True, text=True, check=False)
+                r = subprocess.run(['bash', '-c', script, '_', *argv], env={**env, 'PATH': f'{fake}:{env["PATH"]}'}, cwd=top / 'repo', capture_output=True, text=True, check=False, timeout=120)
                 rc, so, se = r.returncode, r.stdout, r.stderr
             else:
                 so_io, se_io = io.StringIO(), io.StringIO()
@@ -897,7 +910,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                         se_io.write(e.stderr)
                 so, se = so_io.getvalue(), se_io.getvalue()
             norm = lambda text: re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>'))
-            mask = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
+            # Only the message for `--resolves` with no value is masked, and only its file and line: the bash names the line of its `$2` in the
+            # cmd_step body, which is gone from HEAD (the body moved into Python and cmd_step is a one-line shim), and the oracle's path is
+            # not the working tree's. The line Python names is checked below against the shim's own line.
+            mask = lambda text: re.sub(r'\S*pair-core\.sh: line [0-9]+: \$2: unbound variable', '<core>: line N: $2: unbound variable', text)
+            if label == 'py':
+                self.step_python_stderr[name] = se
             files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
             events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]]
             results.append((rc, norm(so), mask(norm(se)), files, events))
@@ -905,6 +923,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         return results[1]
 
     def test_step_ab_matches_the_bash_at_the_base_commit(self):
+        self.step_python_stderr = {}
         sha = '{c2}'
         rows = '1\t{c1}\t5\t\tone\n2\t{c2}\t6\t\ttwo\n'
         note = {'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}
@@ -919,7 +938,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a steps file with blank lines': dict(args=['{st}', sha, 'did more'], files={'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n\n\n2\t{c2}\t6\t\ttwo\n\n'}),
             'a summary with a tab and a newline': dict(args=['{st}', sha, 'a\tb\nc\n']),
             'a summary with a percent and a backslash': dict(args=['{st}', sha, '100% \\n done \u00e9']),
-            'a short sha': dict(args=['{st}', '{c2}'[:0] + '{c2}'.replace('{c2}', '{c2}')]),
+            'a short sha': dict(args=['{st}', '{c2s}', 'short']),
             'HEAD': dict(args=['{st}', 'HEAD', 'head']),
             'a ref name': dict(args=['{st}', 'main', 'branch']),
             'a sha that is not a commit': dict(args=['{st}', 'f' * 40, 'nope']),
@@ -949,8 +968,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             args = case.pop('args')
             if name == 'two arguments':
                 args = ['{st}', '{c2}']
-            if name == 'a short sha':
-                args = ['{st}', '{c2}', 'short']
             if name == 'no arguments':
                 args = []
             out[name] = self.step_both(name.replace(' ', '-'), args, **case)
@@ -958,6 +975,49 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(out['a later step'][3]['steps/001-x.tsv'].count('\n'), 3)
         self.assertEqual(out['resolves an unpublished note'][0], 1)
         self.assertEqual(out['no brief dispatched'][0], 1)
+        # The missing `--resolves` value: bash's format, HEAD's pair-core.sh, and the line of the cmd_step shim, never 0.
+        core = scripts / 'pair-core.sh'
+        shim = next(n for n, line in enumerate(core.read_text().splitlines(), 1) if line.startswith('cmd_step() {'))
+        stderr = self.step_python_stderr['resolves-with-no-value']
+        self.assertEqual(stderr.replace(str(self.path), '<P>').replace(str(core), '<core>'), f'<core>: line {shim}: $2: unbound variable\n')
+        for text in self.step_python_stderr.values():
+            self.assertNotIn('line 0:', text)
+
+    def test_step_ab_kitchen_runs_its_gates_then_the_core_step(self):
+        # kitchen.sh step classifies the commit, runs the touched profiles' fast gates and the policy check, and only then calls the core
+        # step, which is the Python shim. The profile below covers the files the world's commits touch, so the gates run and pass.
+        toml = 'version = 1\n\n[profile.app]\npaths = ["c*", "src/**"]\nfast = ["true"]\n'
+        env = {'KITCHEN_STEP_POLL_S': '0.2', 'PSTACK_KITCHEN_SLOT_POLL_S': '0.2', 'PSTACK_KITCHEN_LOAD': '1 8'}
+        base = dict(repo_files={'.agents/kitchen.toml': toml}, env=env, pair={'heads': {'001-x': '{c1}'}})
+        cases = {
+            'the first step': dict(base, args=['step', '{st}', '{c2}', 'did a thing']),
+            'a step that resolves a published note': dict(base, args=['step', '{st}', '{c2}', 'fix', '--resolves', 'n1'], files={'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}),
+            'a paused store': dict(base, args=['step', '{st}', '{c2}', 'x'], files={'paused': 'lunch\n'}),
+            'a step that resolves an unpublished note': dict(base, args=['step', '{st}', '{c2}', 'x', '--resolves', 'n9']),
+            'a sha that is not a commit': dict(base, args=['step', '{st}', 'f' * 40, 'x']),
+        }
+        mismatches, outcomes = {}, {}
+        for name, spec in cases.items():
+            got, want = self.wait_ab_compare(name, spec, 'pstack-kitchen')
+            # Masked: the gate job's directory under steps/jobs holds the log paths and run times of a detached process.
+            for side in (got, want):
+                side['files'] = {k: v for k, v in side['files'].items() if not k.startswith('steps/jobs/')}
+                side['stderr'] = re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', side['stderr']))
+            outcomes[name] = got
+            if got != want:
+                mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
+        self.maxDiff = None
+        self.assertEqual(mismatches, {})
+        self.assertIn('gates: pass (app)', outcomes['the first step']['stdout'])
+        self.assertIn('step 1 recorded', outcomes['the first step']['stdout'])
+        self.assertIn('gates.tsv', ' '.join(outcomes['the first step']['files']))
+        self.assertEqual(outcomes['a step that resolves an unpublished note']['rc'], 1)
+
+    def test_step_ab_a_missing_resolves_value_names_the_shim_line_through_pair_sh(self):
+        core = scripts / 'pair-core.sh'
+        shim = next(n for n, line in enumerate(core.read_text().splitlines(), 1) if line.startswith('cmd_step() {'))
+        got = self.ab_run('shim-line', root / 'skills', 'pstack-pair', dict(args=['step', '{st}', '{c2}', 'x', '--resolves'], agents={'s1': 'working claude'}))
+        self.assertEqual((got['rc'], got['stdout'], got['stderr']), (1, '', f'{core}: line {shim}: $2: unbound variable\n'))
 
     def test_step_ab_through_every_variants_script(self):
         # The shim, end to end: `step` through pair.sh, guided's and trio's pair.sh at e6e83e3 and at HEAD. The clock is masked here (the
@@ -977,17 +1037,18 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_step_ab_unreadable_steps_file(self):
         if os.geteuid() == 0:
             self.skipTest('file modes do not stop root')
-        top, st, env, fill = self.ab_world('unreadable', {'agents': {'s1': 'working claude'}, 'files': {'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n'}})
-        (st / 'steps/001-x.tsv').chmod(0o000)
-        self.addCleanup(lambda: (st / 'steps/001-x.tsv').chmod(0o644))
         results = []
         for label in ('bash', 'py'):
+            # A world of its own for each side, so that what one leaves behind cannot show in the other.
+            top, st, env, fill = self.ab_world(f'unreadable-{label}', {'agents': {'s1': 'working claude'}, 'files': {'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n'}})
+            (st / 'steps/001-x.tsv').chmod(0o000)
+            self.addCleanup(lambda f=st / 'steps/001-x.tsv': f.chmod(0o644))
             ctx = Context('pstack-pair', str(root / 'skills/pstack-pair'), str(top / 'state'), 'Pair', ('sidekick',), ('plans',), 21, '')
             if label == 'bash':
                 script = (f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
                           f'. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\ncmd_step "$@"')
-                r = subprocess.run(['bash', '-c', script, '_', str(st), fill('{c2}'), 'x'], env=env, cwd=top / 'repo', capture_output=True, text=True, check=False)
-                results.append((r.returncode, r.stdout, re.sub(r'\S*pair-core\.sh: line [0-9]+', '<core>: line N', r.stderr).replace(str(top), '<T>')))
+                r = subprocess.run(['bash', '-c', script, '_', str(st), fill('{c2}'), 'x'], env=env, cwd=top / 'repo', capture_output=True, text=True, check=False, timeout=120)
+                rc, out, err = r.returncode, r.stdout, r.stderr
             else:
                 so, se = io.StringIO(), io.StringIO()
                 with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(so), contextlib.redirect_stderr(se):
@@ -996,10 +1057,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     except Exit as e:
                         rc = e.code
                         se.write(e.stderr)
-                    except PermissionError:
-                        rc = 'PermissionError'
-                results.append((rc, so.getvalue(), se.getvalue().replace(str(top), '<T>')))
-        self.assertEqual(results[0][:2], (2, ''), results[0])
+                out, err = so.getvalue(), se.getvalue()
+            (st / 'steps/001-x.tsv').chmod(0o644)
+            files = {str(f.relative_to(st)): f.read_text(errors='replace').replace(str(top), '<T>') for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
+            events = [l.split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]]
+            results.append((rc, out, err.replace(str(top), '<T>'), files, events))
+            (st / 'steps/001-x.tsv').chmod(0o000)
+        self.assertEqual(results[0][:3], (2, '', 'grep: <T>/st/steps/001-x.tsv: Permission denied\n'), results[0])
         self.assertEqual(results[1], results[0])
 
     def test_finish_and_notify_match_the_bash_in_the_other_variants(self):
@@ -1026,7 +1090,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         os.chdir(top)
         self.addCleanup(os.chdir, cwd)
         for path in paths:
-            r = subprocess.run(['readlink', '-f', '--', path], capture_output=True, text=True, check=False)
+            r = subprocess.run(['readlink', '-f', '--', path], capture_output=True, text=True, check=False, timeout=120)
             try:
                 got = (0, store.readlink_f(path))
             except Exit as e:
@@ -1394,7 +1458,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             procs.append(subprocess.Popen(['sleep', '60'], env=env, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         sh = subprocess.Popen(['sh', '-c', 'cat >/dev/null; true'], env={**envs['shell'], 'HERDR_SOCKET_PATH': sock}, stdin=subprocess.PIPE, start_new_session=True,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.addCleanup(lambda: [(os.killpg(p.pid, 9), p.wait()) for p in [*procs, sh]])
+        self.addCleanup(lambda: [(os.killpg(p.pid, 9), p.wait(timeout=10)) for p in [*procs, sh]])
         for since, sock_env in ((now - 3600, sock), (now - 3600, ''), (now + 5, sock), (now - 3600, '/elsewhere')):
             extra = {'HERDR_SOCKET_PATH': sock_env}
             ours = checkin.busy_command(pane, since, now + 130, env=extra)
@@ -1404,7 +1468,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(checkin.busy_command('', 0, now), self.bash_at('busy_command "" 0', now))
         only_shell = subprocess.Popen(['sh', '-c', 'read x'], env={**self.env, 'HERDR_PANE_ID': 'p-only-shell'}, stdin=subprocess.PIPE, start_new_session=True,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.addCleanup(lambda: (os.killpg(only_shell.pid, 9), only_shell.wait()))
+        self.addCleanup(lambda: (os.killpg(only_shell.pid, 9), only_shell.wait(timeout=10)))
         ours = checkin.busy_command('p-only-shell', now - 10, now + 200, env={})
         self.assertEqual(ours, self.bash_at('busy_command p-only-shell ' + str(now - 10), now + 200, {'HERDR_SOCKET_PATH': ''}))
         self.assertEqual(ours, 'sh for 0m')
@@ -1431,7 +1495,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         scope = '\n'.join(['# Brief', '', 'playbook: feature', 'timebox: 45 minutes', '', '## Scope', '', 'may write:', '- src/** \u2014 the code', '- docs/ (the docs)',
                             '- `my, file.txt`', '- *.md', '', 'must not write:', '- lib/**', '', '## Steps', '', '1. do'])
         procs = []
-        self.addCleanup(lambda: [(os.killpg(p.pid, 9), p.wait()) for p in procs])
+        self.addCleanup(lambda: [(os.killpg(p.pid, 9), p.wait(timeout=10)) for p in procs])
 
         def reset():
             self.git('reset', '-q', '--hard', c3)
@@ -1551,7 +1615,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         outputs = {}
         for build in scenarios:
             for p in procs:
-                os.killpg(p.pid, 9), p.wait()
+                os.killpg(p.pid, 9), p.wait(timeout=10)
             procs.clear()
             reset()
             pair()
@@ -1591,9 +1655,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     for before, after in ((60, 100), (60, 60)):
                         ours = providers.grep_o_context(text, before, after)
                         r = subprocess.run(['bash', '-c', f'{self.provider_re_line()}\nprintf "%s\\n" "$1" | grep -oiE ".{{0,{before}}}($provider_error_re).{{0,{after}}}" || true', 'x', text],
-                                           env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True)
+                                           env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True, timeout=120)
                         self.assertEqual('\n'.join(ours).encode('utf-8', 'surrogateescape') + (b'\n' if ours else b''), r.stdout, (locale_name, text, before, after))
-                    cut = subprocess.run(['bash', '-c', 'printf "%s\\n" "$1" | cut -c1-240', 'x', text], env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True).stdout
+                    cut = subprocess.run(['bash', '-c', 'printf "%s\\n" "$1" | cut -c1-240', 'x', text], env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True, timeout=120).stdout
                     self.assertEqual(providers.cut_chars(text, 240).encode('utf-8', 'surrogateescape') + b'\n', cut, (locale_name, 'cut', text[:20]))
         self.assertEqual(providers.PROVIDER_ERROR_RE, re.search(r"^provider_error_re='(.*)'$", (scripts / 'pair-core.sh').read_text(), re.M).group(1))
 
@@ -1812,7 +1876,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for text in inputs:
             rc = {}
             for want in (0, 8):
-                r = subprocess.run(['bash', '-c', '[ "$1" -eq ' + str(want) + ' ]', '_', text], capture_output=True, check=False)
+                r = subprocess.run(['bash', '-c', '[ "$1" -eq ' + str(want) + ' ]', '_', text], capture_output=True, check=False, timeout=120)
                 rc[want] = r.returncode
             ours = store.bash_int(text)
             self.assertEqual(ours is None, rc[0] == 2, repr(text))
@@ -1840,13 +1904,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             snippet = ('rest=(); timeout=540000; send_only=0; wait_opts "$@"; printf "%s\\037%s\\037%s" "$timeout" "$checkin_interval_m" "$send_only"; '
                        'for r in ${rest[@]+"${rest[@]}"}; do printf "\\037%s" "$r"; done')
             r = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root=/x; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n. {core}\n{snippet}', '_', *args],
-                               env=self.env, capture_output=True, text=True, check=False)
+                               env=self.env, capture_output=True, text=True, check=False, timeout=120)
             try:
                 timeout, interval, send_only, rest = wait.wait_opts(args)
                 ours = (0, '\x1f'.join([timeout, str(interval), '1' if send_only else '0']) + ''.join('\x1f' + x for x in rest), '')
             except Exit as e:
                 ours = (e.code, '', e.stderr)
-            # the file and line the bash names are the working tree's for Python and e6e83e3's for the oracle: compare the message
+            # Masked: the file and line bash names are the working tree's for Python and e6e83e3's for the oracle. wait_opts is still bash
+            # code at HEAD, so Python names its real line, which must never be 0.
+            self.assertNotIn('line 0:', ours[2], args)
             mask = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
             if (ours[0], ours[1], mask(ours[2])) != (r.returncode, r.stdout, mask(r.stderr)):
                 mismatched.append((args, mask(ours[2]), mask(r.stderr)))
@@ -1876,7 +1942,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 # events.tsv is pre-seeded with one row, so the header branch unit 002 removed from event() cannot show
                 script = (f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
                           f'. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\ncheckin_interval_m={interval}\nfinish_wait {st} {code} "$1" "$2" {mode} {shlex.quote(rep)}')
-                r = subprocess.run(['bash', '-c', script, '_', out, err], env={**env, 'PATH': f'{fake}:{env["PATH"]}'}, capture_output=True, text=True, check=False)
+                r = subprocess.run(['bash', '-c', script, '_', out, err], env={**env, 'PATH': f'{fake}:{env["PATH"]}'}, capture_output=True, text=True, check=False, timeout=120)
                 rc, so, se = r.returncode, r.stdout, r.stderr
             else:
                 so_io, se_io = io.StringIO(), io.StringIO()
@@ -1984,21 +2050,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             extra = re.search(r'^plan_gate_extra\(\) \{.*?^\}$', text, re.M | re.S).group(0) + '\n'
         script = (f'set -euo pipefail\nskill_root={skills / skill}; PAIR_SKILL={skill}; state_root=/s; store_label=Pair\nroles=(sidekick consultant); store_dirs=(plans advice); slug_max=21\n'
                   f'. {skills / "pstack-pair/scripts/pair-core.sh"}\n{extra}{snippet}')
-        r = subprocess.run(['bash', '-c', script], env=self.env, capture_output=True, text=True, check=False, cwd=store_dir)
+        r = subprocess.run(['bash', '-c', script], env=self.env, capture_output=True, text=True, check=False, cwd=store_dir, timeout=120)
         return r.returncode, r.stdout, r.stderr
 
     def gate_python(self, skill, call, store_dir):
         ctx = Context(skill, str(root / 'skills' / skill), '/s', 'Pair', ('sidekick', 'consultant'), ('plans', 'advice'), 21, '')
         out, err = io.StringIO(), io.StringIO()
         try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            with contextlib.chdir(store_dir), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 call(ctx)
             code = 0
         except Die as e:
             code, err = e.code, io.StringIO(err.getvalue() + f'pair.sh: {e.message}\n')
         return code, out.getvalue(), err.getvalue()
 
-    def gate_world(self, name, playbook='feature', plan='{plan}', plan_text='# Plan\n\nscale: small\n', review=None, advice=None):
+    def gate_world(self, name, playbook='feature', plan='{plan}', plan_text='# Plan\n\nscale: small\n', review=None, advice=None, extra_review=None, relative=False):
         """A store with a brief naming the plan, the plan file, its review and its advice, as the case lays them out."""
         top = self.path / name
         for d in ('briefs', 'plans', 'reviews', 'advice'):
@@ -2006,10 +2072,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         plan_path = top / 'plans/001-x.md'
         if plan_text is not None:
             plan_path.write_text(plan_text)
-        header = f'playbook: {playbook}\n' + (f'plan: {plan.format(plan=plan_path)}\n' if plan is not None else '')
+        shown = os.path.relpath(plan_path, top / 'briefs') if relative else plan_path
+        header = f'playbook: {playbook}\n' + (f'plan: {plan.format(plan=shown)}\n' if plan is not None else '')
         (top / 'briefs/002-y.md').write_text(f'# Brief\n\n{header}')
         if review is not None:
             (top / 'reviews/001-x.md').write_text(f'# Review\n\n{review}')
+        if extra_review is not None:
+            (top / 'reviews/001-a.md').write_text(f'# Review\n\n{extra_review}')
         if advice:
             (top / 'advice/001-x.md').write_text('# Advice\n')
         return top
@@ -2021,7 +2090,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                  ('no review', dict()), ('review not agreed', dict(review='verdict: revise\n')), ('review with no verdict', dict(review='status: x\n')),
                  ('agreed', dict(review=agreed)), ('agreed, with advice', dict(review=agreed, advice=True)),
                  ('bug-fix agreed', dict(playbook='bug-fix', review=agreed)), ('pstack-tdd without a plan', dict(playbook='pstack-tdd', plan='')),
-                 ('perf-issue not agreed', dict(playbook='perf-issue', review='verdict: rejected\n'))]
+                 ('perf-issue not agreed', dict(playbook='perf-issue', review='verdict: rejected\n')),
+                 ('two reviews, the first by name is agreed', dict(review='verdict: revise\n', extra_review=agreed)),
+                 ('two reviews, the first by name is not', dict(review=agreed, extra_review='verdict: revise\n'))]
         guided = [(f'scale {scale}, approval {approval}', dict(plan_text=f'# Plan\n\n{"scale: " + scale + chr(10) if scale else ""}', review=f'verdict: agreed\n{"approval: " + approval + chr(10) if approval else ""}'))
                   for scale in ('small', 'medium', 'large', '') for approval in ('', 'posted', 'human', 'later')]
         n = 0
@@ -2032,9 +2103,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 brief = top / 'briefs/002-y.md'
                 bash = self.gate_bash(skill, f'require_agreed_plan {top} {brief}', top)
                 ours = self.gate_python(skill, lambda ctx: ctx.variant.require_agreed_plan(ctx, str(top), str(brief)), top)
-                norm = lambda r: tuple(x.replace(str(top), '<T>') for x in r[1:]) and (r[0], r[1].replace(str(top), '<T>'), r[2].replace(str(top), '<T>'))
+                norm = lambda r: (r[0], r[1].replace(str(top), '<T>'), r[2].replace(str(top), '<T>'))
                 self.assertEqual(norm(ours), norm(bash), (skill, label))
-        self.assertEqual(self.gate_python('pstack-trio', lambda ctx: ctx.variant.require_agreed_plan(ctx, str(top), str(top / 'briefs/002-y.md')), top)[0], 6)
+        # The plan is a path relative to the brief's directory in this world, and the commands run in the store: both sides must resolve
+        # it from the same working directory.
+        top = self.gate_world('gate-relative', review=agreed, relative=True)
+        brief = top / 'briefs/002-y.md'
+        for cwd in (top, top / 'briefs'):
+            bash = self.gate_bash('pstack-pair', f'require_agreed_plan {top} {brief}', cwd)
+            ours = self.gate_python('pstack-pair', lambda ctx: ctx.variant.require_agreed_plan(ctx, str(top), str(brief)), cwd)
+            self.assertEqual(ours, bash, str(cwd))
+        # The trio's advice gate, named: without advice it refuses with 6, with advice it passes.
+        for name, advice, code in (('gate-trio-without', False, 6), ('gate-trio-with', True, 0)):
+            top = self.gate_world(name, review=agreed, advice=advice)
+            brief = top / 'briefs/002-y.md'
+            self.assertEqual(self.gate_python('pstack-trio', lambda ctx: ctx.variant.require_agreed_plan(ctx, str(top), str(brief)), top)[0], code, name)
 
     def test_plan_gate_kitchen_passes_its_gate_as_an_argument(self):
         # kitchen.sh cannot be sourced in a harness, so these are the literal results of kitchen.sh require_agreed_plan (444-453).
@@ -2096,13 +2179,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             ours = self.gate_python('pstack-pair', lambda ctx: __import__('pstack_core.gates', fromlist=['x']).check_scope(str(brief), str(repo)), repo)
             self.assertEqual(ours, bash, label)
         for e, label in entries:
-            tracked = subprocess.run(['git', '-C', str(repo), 'ls-files', '-co', '--exclude-standard'], capture_output=True, text=True, check=True).stdout.rstrip('\n')
+            tracked = subprocess.run(['git', '-C', str(repo), 'ls-files', '-co', '--exclude-standard'], capture_output=True, text=True, check=True, timeout=120).stdout.rstrip('\n')
             from pstack_core import gates
             for tr in (tracked, ''):
-                r = self.gate_bash('pstack-pair', f'if scope_entry_exists {repo} {shlex.quote(e)} "$1"; then echo yes; else echo no; fi', repo)
-                script_tracked = subprocess.run(['bash', '-c', 'true'], capture_output=True)
                 bash = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root=/x; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\nif scope_entry_exists "$1" "$2" "$3"; then echo yes; else echo no; fi', '_', str(repo), e, tr],
-                                      env=self.env, capture_output=True, text=True, check=True).stdout.strip()
+                                      env=self.env, capture_output=True, text=True, check=True, timeout=120).stdout.strip()
                 self.assertEqual('yes' if gates.scope_entry_exists(str(repo), e, tr) else 'no', bash, (e, label, bool(tr)))
         for reason in (None, 'lunch', '', 'two words'):
             st = self.path / f'paused-{reason}'
@@ -2111,7 +2192,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 (st / 'paused').write_text(reason + '\nmore\n')
             bash = self.gate_bash('pstack-pair', f'require_not_paused {shlex.quote(str(st))}', repo)
             ours = self.gate_python('pstack-pair', lambda ctx: __import__('pstack_core.gates', fromlist=['x']).require_not_paused(str(st)), repo)
-            self.assertEqual((ours[0], ours[2].replace(str(st), '<S>')), (bash[0], bash[2].replace(str(st), '<S>')), reason)
+            self.assertEqual((ours[0], ours[1], ours[2].replace(str(st), '<S>')), (bash[0], bash[1], bash[2].replace(str(st), '<S>')), reason)
 
     def test_fresh_per_brief_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
@@ -2155,7 +2236,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_load_variant_is_lazy_and_picks_the_skills_class_by_path(self):
         code = ('import sys; sys.path.insert(0, sys.argv[1]); import pstack_core.cli; '
                 'assert "pstack_core.variant" not in sys.modules; print("lazy")')
-        r = subprocess.run([sys.executable, '-I', '-c', code, str(scripts)], capture_output=True, text=True, check=False)
+        r = subprocess.run([sys.executable, '-I', '-c', code, str(scripts)], capture_output=True, text=True, check=False, timeout=120)
         self.assertEqual((r.stdout, r.returncode), ('lazy\n', 0), r.stderr)
         names = {}
         for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen'):
@@ -2240,17 +2321,17 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         if cls.legacy_dir is None:
             cls.legacy_tmp = tempfile.TemporaryDirectory()
             cls.addClassCleanup(cls.legacy_tmp.cleanup)
-            git = subprocess.run(['git', '-C', str(root), 'archive', LEGACY, 'skills'], capture_output=True, check=False)
+            git = subprocess.run(['git', '-C', str(root), 'archive', LEGACY, 'skills'], capture_output=True, check=False, timeout=120)
             if git.returncode != 0:
                 raise unittest.SkipTest(f'{LEGACY} is not in this checkout')
-            subprocess.run(['tar', '-x', '-C', cls.legacy_tmp.name], input=git.stdout, check=True)
+            subprocess.run(['tar', '-x', '-C', cls.legacy_tmp.name], input=git.stdout, check=True, timeout=120)
             cls.legacy_dir = Path(cls.legacy_tmp.name)
         return cls.legacy_dir / 'skills/pstack-pair/scripts/pair.sh'
 
     def run_pair(self, *args, script=None, extra_env=None):
         env = {**self.env, 'FAKE': str(self.path), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
                'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path), **(extra_env or {})}
-        return subprocess.run([str(script or scripts / 'pair.sh'), *args], env=env, capture_output=True, text=True, check=False)
+        return subprocess.run([str(script or scripts / 'pair.sh'), *args], env=env, capture_output=True, text=True, check=False, timeout=120)
 
     def test_new_steer_counts_files_caps_fresh_steers_and_answers_objections(self):
         self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
@@ -2353,7 +2434,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(ours.splitlines()[0], 'working' if busy and state in ('idle', 'done') else state, (state, busy))
 
 
-    @unittest.skipUnless(any(l.lower().replace('-', '') == 'en_us.utf8' for l in subprocess.run(['locale', '-a'], capture_output=True, text=True).stdout.split()),
+    @unittest.skipUnless(any(l.lower().replace('-', '') == 'en_us.utf8' for l in subprocess.run(['locale', '-a'], capture_output=True, text=True, timeout=120).stdout.split()),
                          'needs the en_US.UTF-8 locale')
     def test_first_brief_follows_the_callers_collation_like_bash(self):
         legacy = self.legacy_pair()
@@ -2377,7 +2458,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def status_pair(self, variant, script_root, *args, keep_order=False):
         env = {**self.env, 'FAKE': str(self.path / 'fake'), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
                'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}
-        r = subprocess.run([str(script_root / 'skills' / variant / 'scripts/pair.sh'), *args], env=env, capture_output=True, text=True, check=False)
+        r = subprocess.run([str(script_root / 'skills' / variant / 'scripts/pair.sh'), *args], env=env, capture_output=True, text=True, check=False, timeout=120)
         stamp = re.compile(r'generated: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ')
         return r.returncode, stamp.sub('generated: T', r.stdout), (r.stderr.splitlines() if keep_order else sorted(r.stderr.splitlines()))
 
@@ -2555,7 +2636,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     }
 
     def jq_bytes(self, text):
-        return subprocess.run(['jq', '.'], input=text, capture_output=True, text=True, check=True).stdout
+        return subprocess.run(['jq', '.'], input=text, capture_output=True, text=True, check=True, timeout=120).stdout
 
     def test_update_writes_the_bytes_jq_writes(self):
         for name, text in self.JQ_FIXTURES.items():
@@ -2590,7 +2671,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 st = self.fixture_store(f'{name}-{n}')
                 (st / 'pair.json').write_text(text)
                 store.update(str(st), mutate)
-                want = subprocess.run(['jq', '--arg', 'id', 'x', program], input=text, capture_output=True, text=True, check=True).stdout
+                want = subprocess.run(['jq', '--arg', 'id', 'x', program], input=text, capture_output=True, text=True, check=True, timeout=120).stdout
                 self.assertEqual((st / 'pair.json').read_text(), want, (name, text))
 
 
@@ -2606,7 +2687,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                'FAKE': str(top / 'fake'), 'HERDR_SOCKET_PATH': str(top / 'herdr.sock')}
         for d in ('agents', 'panes', 'busy', 'screen'):
             (top / 'fake' / d).mkdir(parents=True)
-        git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True).stdout.strip()
+        git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True, timeout=120).stdout.strip()
         git('init', '-q', '-b', 'main')
         (repo / 'a.txt').write_text('one\n')
         (repo / 'sub/b.txt').write_text('b\n')
@@ -2616,15 +2697,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         (repo / 'sub/new.txt').write_text('untracked\n')
         os.chmod(repo / 'sub/new.txt', 0o755)
         if jj:
-            subprocess.run(['jj', 'git', 'init', '--colocate', str(repo)], env=env, capture_output=True, check=True)
+            subprocess.run(['jj', 'git', 'init', '--colocate', str(repo)], env=env, capture_output=True, check=True, timeout=120)
         script = tree / 'skills/pstack-pair/scripts/pair.sh'
-        subprocess.run([str(script), 'init', 'demo'], cwd=repo, env=env, capture_output=True, check=True)
+        subprocess.run([str(script), 'init', 'demo'], cwd=repo, env=env, capture_output=True, check=True, timeout=120)
         store = xdg / 'pstack/pair/demo'
         (store / 'pair.json').write_text(json.dumps({'git_root': str(repo), 'scratch': []}, indent=2) + '\n')
         return top, repo, store, script, env, git
 
     def run_scratch(self, label, top, script, env, store, *args):
-        r = subprocess.run([str(script), 'scratch', str(store), *args], env=env, capture_output=True, text=True, check=False)
+        r = subprocess.run([str(script), 'scratch', str(store), *args], env=env, capture_output=True, text=True, check=False, timeout=120)
         norm = lambda t: re.sub(r'\b[0-9a-f]{8,}\b|\b[k-z]{8,}\b', 'ID', t.replace(str(top), 'ROOT'))
         return r.returncode, norm(r.stdout), norm(r.stderr)
 
@@ -2762,7 +2843,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         loop = '\n'.join(f'printf "\\037%d\\n" {seed}; PAIR_METRICS_NOW={shlex.quote(now)} cmd_metrics {st}' for seed, (st, now) in stores.items())
         harness = (f'set -uo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
                    f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {legacy}\nset +e\n{loop}\n')
-        oracle = subprocess.run(['bash', '-c', harness], env=self.env, capture_output=True, text=True, check=False)
+        oracle = subprocess.run(['bash', '-c', harness], env=self.env, capture_output=True, text=True, check=False, timeout=120)
         parts = oracle.stdout.split('\x1f')[1:]
         self.assertEqual(len(parts), 200, oracle.stderr[-500:])
         outputs = {}
@@ -2864,6 +2945,18 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                   'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
                   'require_agreed_plan')
 
+    # Bash twins with no bash caller since the command that used them moved to Python. They stay in pair-core.sh until the unit that
+    # deletes the bash twins, and keep their parity tests (test_paused_reason_and_pause_notice_match_bash, test_steer_notice_matches_bash).
+    # Listing them here makes the deletion unit remove them from this list and the day anything calls them again visible.
+    DEAD_TWINS = ('pause_notice', 'steer_notice')
+
+    def test_dead_bash_twins_are_still_defined_and_still_uncalled(self):
+        text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
+        for helper in self.DEAD_TWINS:
+            self.assertRegex(text[scripts / 'pair-core.sh'], rf'(?m)^{helper}\(\) \{{$', helper)
+            callers = sum(len(re.findall(rf'(?<![\w-]){helper}(?![\w-])(?!\(\) \{{)', body)) for body in text.values())
+            self.assertEqual(callers, 0, f'{helper} has a bash caller again: move it back to DUPLICATED')
+
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
         core = text[scripts / 'pair-core.sh']
@@ -2887,7 +2980,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         env = {**inherited_env(), 'PATH': str(bin_dir), 'HOME': str(self.path), 'HERDR_ENV': '1', 'FAKE': str(self.path / 'fake'),
                'XDG_STATE_HOME': str(self.path / 'state')}
         self.assertIsNone(shutil.which('python3', path=str(bin_dir)))
-        r = subprocess.run([str(bin_dir / 'bash'), str(scripts / 'pair.sh'), 'help'], env=env, capture_output=True, text=True, check=False)
+        r = subprocess.run([str(bin_dir / 'bash'), str(scripts / 'pair.sh'), 'help'], env=env, capture_output=True, text=True, check=False, timeout=120)
         self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', 'pair.sh: python3 is required on PATH\n'))
 
 
@@ -2924,7 +3017,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'), 'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}
         for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio'):
             script = str(root / 'skills' / skill / 'scripts/pair.sh')
-            run = lambda *a: subprocess.run([script, *a], env=env, capture_output=True, text=True, check=False)
+            run = lambda *a: subprocess.run([script, *a], env=env, capture_output=True, text=True, check=False, timeout=120)
             self.assertEqual(run('init', 'demo').returncode, 0, skill)
             store = self.path / 'state/pstack' / skill.removeprefix('pstack-') / 'demo'
             r = run('log', str(store), 'p', 'd', 'w', 'e', 'r')

@@ -8,8 +8,7 @@ import sys
 from .checkin import case_pattern, scope_entries
 from .collate import glob_sorted
 from .errors import Die
-from .review import jq_raw
-from .store import alt, cut_chars, header_field, pair_json, paused_reason
+from .store import cut_chars, header_field, paused_reason, read_text
 
 PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd')
 
@@ -77,7 +76,6 @@ def scope_entry_exists(root, entry, tracked):
 
 def scope_lists_several(brief):
     """The unquoted Scope entries that list several paths: "a, b", or "a.ts and b/c.ts" (prose like "README and docs" is not)."""
-    from .store import read_text
     found, inside = [], False
     for line in read_text(brief).removesuffix('\n').split('\n'):
         if re.match(r'may write:|must not write:', line):
