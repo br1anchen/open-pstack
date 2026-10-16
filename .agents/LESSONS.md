@@ -7,12 +7,13 @@ How often each held or recurred is counted on the host, not here.
 
 ## L001: A test that waits for a condition polls in a bounded loop marked kitchen-allow: test-sleep with a reason, never another blocking call that slips past the rule.
 
-status: proposed
+status: retired
 kind: catch
 class: policy
 layer: policy
 area: skills
 since: 2026-10-16
+note: encoded as the test-sleep policy pattern (Event().wait, asyncio.sleep, select.select) in .agents/kitchen.toml at 7935ccd, pinned by PolicyRuleTests
 evidence:
 - 2026-10-16 kitchen-perf 011: test-sleep rule misses threading.Event().wait polls; a sidekick used it to sidestep the rule instead of kitchen-allow
 
