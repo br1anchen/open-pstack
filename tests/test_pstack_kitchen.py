@@ -2192,6 +2192,40 @@ esac
         self.assertIn("exit 0", out)
         self.assertEqual(len(self.reported()), 1)
 
+    def core_finish(self, report):
+        """finish as the Python core runs it for the kitchen, past kitchen.sh's own Verify run."""
+        argv = [sys.executable, '-I', str(root / 'skills/pstack-pair/scripts/pair.py'), '--skill', 'pstack-kitchen', '--skill-root', str(skill),
+                '--state-root', str(self.store.parent), '--store-label', 'Kitchen', '--roles', 'sidekick verifier consultant',
+                '--store-dirs', 'plans briefs reports reviews progress steers consults advice scratch verdicts', '--slug-max', '20',
+                '--unfilled-re', '', '--', 'finish', str(self.store), str(report)]
+        env = {**self.env, 'PAIR_EVENT_DEDUPE': '1'}
+        r = subprocess.run(argv, cwd=self.repo, env=env, capture_output=True, text=True, check=False)
+        return r.returncode, r.stdout, r.stderr
+
+    def test_finish_in_the_core_withholds_a_kitchen_done_report_until_its_verify_job_passed(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, 'true')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        head = self.commit('work')
+        self.done(b, head)
+        report = self.store / 'reports' / b.name
+        module = self.kitchen_variant()
+        job = Path(module.verify_job(str(self.store), str(b), head))
+        code, out, err = self.core_finish(report)
+        why = f"001-util: the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them); rewrite the report at the unit's last commit (head:), then finish again 7\n"
+        self.assertEqual((code, out, err), (7, '', 'pair.sh: ' + why))
+        self.assertEqual(self.reported(), [])
+        job.mkdir(parents=True)
+        (job / 'rc').write_text('1\n')
+        self.assertEqual(self.core_finish(report)[0], 7)
+        (job / 'rc').write_text('0\n')
+        code, out, err = self.core_finish(report)
+        self.assertEqual((code, err), (0, ''))
+        self.assertRegex(out, r'^(prompted master demo-master \(was idle\) with|master demo-master is \w+; left) ')
+        self.assertIn(f'next: end the turn with the single line: pstack-kitchen REPORT {report}\n', out)
+        self.assertEqual(len(self.reported()), 1)
+
     def test_finish_runs_the_verify_commands_only_at_the_units_tip(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.verify_block(b, 'true')
