@@ -114,10 +114,11 @@ def lines(ctx, store, out):
         out.write(f'paused: {paused_reason(store)}\n')
     scratch = alt(pair.get('scratch'), [])
     if isinstance(scratch, list):
-        words = ' '.join(jq_raw(v) if not isinstance(v, (dict, list)) else json.dumps(v, separators=(',', ':')) for v in scratch).split()
-        if words:
+        text = '\n'.join(jq_raw(v) if not isinstance(v, (dict, list)) else json.dumps(v, separators=(',', ':')) for v in scratch).rstrip('\n')
+        if text:
+            words = [w for w in re.split(r'[ \t\n]+', text) if w]
             out.write('\nopen scratch worktrees (remove with pair.sh scratch <store> <id> --remove):\n')
-            for w in words:
+            for w in words or ['']:
                 out.write(f'  {w}\n')
     if os.path.isdir(f'{store}/answers'):
         asks = 0

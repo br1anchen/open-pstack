@@ -432,12 +432,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotEqual(picked['C', 'port'], picked['en_US.UTF-8', 'port'])
 
 
-    def status_pair(self, variant, script_root, *args):
+    def status_pair(self, variant, script_root, *args, keep_order=False):
         env = {**self.env, 'FAKE': str(self.path / 'fake'), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
                'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}
         r = subprocess.run([str(script_root / 'skills' / variant / 'scripts/pair.sh'), *args], env=env, capture_output=True, text=True, check=False)
         stamp = re.compile(r'generated: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ')
-        return r.returncode, stamp.sub('generated: T', r.stdout), sorted(r.stderr.splitlines())
+        return r.returncode, stamp.sub('generated: T', r.stdout), (r.stderr.splitlines() if keep_order else sorted(r.stderr.splitlines()))
 
     def populate_store(self, st, consultant):
         def put(rel, text='', age=0):
@@ -498,6 +498,31 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertIn('open gates: 2\n', out)
             self.assertEqual('(c1)' in out, consultant, variant)
 
+    def test_status_names_an_unassigned_role_and_a_master_with_no_name_like_bash(self):
+        legacy = self.legacy_pair().parents[3]
+        fake = self.path / 'fake'
+        for d in ('agents', 'busy', 'screen', 'panes'):
+            (fake / d).mkdir(parents=True, exist_ok=True)
+        self.assertEqual(self.status_pair('pstack-trio', root, 'init', 'demo')[0], 0)
+        st = self.path / 'state/pstack/trio/demo'
+        pair = json.loads((st / 'pair.json').read_text())
+        pair['master'] = {}
+        pair['sidekick'] = {}
+        pair['consultant'] = {'name': 'demo-consultant', 'pane_id': False}
+        pair['scratch'] = [' ', '']
+        (st / 'pair.json').write_text(json.dumps(pair))
+        results = {}
+        for name, tree in (('legacy', legacy), ('port', root)):
+            (fake / 'calls.log').unlink(missing_ok=True)
+            code, out, err = self.status_pair('pstack-trio', tree, 'status', str(st))
+            results[name] = (code, out, err, re.sub(r'generated: \S+', 'generated: T', (st / 'status.md').read_text()), (fake / 'calls.log').read_text())
+        self.assertEqual(results['legacy'], results['port'])
+        self.assertIn('master: null (null) absent\n', results['port'][1])
+        self.assertIn('sidekick: null (unassigned) absent\n', results['port'][1])
+        self.assertIn('agent get null\n', results['port'][4])
+        self.assertIn('\nopen scratch worktrees (remove with pair.sh scratch <store> <id> --remove):\n  \n', results['port'][1])
+
+
     def test_status_on_a_store_without_pair_json_prints_the_header_then_dies_like_bash(self):
         legacy = self.legacy_pair().parents[3]
         for label, make_dir in (('dir exists', True), ('dir missing', False)):
@@ -506,12 +531,66 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 st.mkdir(parents=True)
             results = {}
             for name, tree in (('legacy', legacy), ('port', root)):
-                results[name] = self.status_pair('pstack-pair', tree, 'status', str(st))
+                (st / 'status.md').unlink(missing_ok=True)
+                code, out, err = self.status_pair('pstack-pair', tree, 'status', str(st), keep_order=make_dir)
+                saved = re.sub(r'generated: \S+', 'generated: T', (st / 'status.md').read_text()) if (st / 'status.md').exists() else None
+                results[name] = (code, out, err, saved)
             self.assertEqual(results['legacy'], results['port'], label)
+            self.assertEqual(results['port'][3], results['port'][1] if make_dir else None, label)
             self.assertEqual(results['port'][0], 1 if not make_dir else 2)
             self.assertTrue(results['port'][1].startswith('# Pair status\n\ngenerated: T\n'), label)
             self.assertIn(f'pair.sh: no pair.json in {st}; run: pair.sh init <slug>', results['port'][2])
             self.assertEqual(any('tee:' in l for l in results['port'][2]), not make_dir, label)
+
+
+    def test_update_waits_on_a_held_lock_and_applies_its_filter_to_the_file_as_it_is_after_acquiring_it(self):
+        st = self.fixture_store()
+        pair = st / 'pair.json'
+        original = pair.read_text()
+        (st / '.pair.lock').mkdir()
+        waits = []
+
+        def holder_finishes(_seconds):
+            waits.append(pair.read_text())
+            pair.write_text(json.dumps({**json.loads(pair.read_text()), 'holder': 1}))
+            (st / '.pair.lock').rmdir()
+            self.bash(f"json_update {st} '.bash = true'")
+
+        with mock.patch.object(store.time, 'sleep', holder_finishes):
+            store.update(str(st), '--arg', 'v', '1', '.py = $v')
+        self.assertEqual(waits, [original])
+        final = json.loads(pair.read_text())
+        self.assertEqual((final['holder'], final['bash'], final['py']), (1, True, '1'))
+        self.assertEqual(sorted(p.name for p in st.iterdir() if p.name.startswith('pair.json') or p.name == '.pair.lock'), ['pair.json'])
+
+    def test_update_that_fails_in_jq_matches_bash_leaves_pair_json_alone_and_frees_the_lock(self):
+        runs = {}
+        for label in ('bash', 'py'):
+            st = self.fixture_store(label)
+            before = (st / 'pair.json').read_bytes()
+            if label == 'bash':
+                r = self.bash(f"json_update {st} 'error(\"boom\")'", check=False)
+            else:
+                code = f"import sys; sys.path.insert(0, {str(scripts)!r}); from pstack_core import store; store.update({str(st)!r}, 'error(\"boom\")')"
+                r = subprocess.run([sys.executable, '-I', '-c', code], env=self.env, capture_output=True, text=True, check=False)
+            runs[label] = (r.returncode, r.stdout, r.stderr.replace(str(st), 'STORE'), sorted(p.name for p in st.iterdir() if 'pair' in p.name),
+                           (st / 'pair.json').read_bytes() == before)
+        self.assertEqual(runs['bash'], runs['py'])
+        self.assertEqual(runs['py'][0], 5)
+        self.assertNotIn('.pair.lock', runs['py'][3])
+        self.assertTrue(runs['py'][4])
+
+    def test_update_gives_up_on_a_lock_that_stays_held_with_the_bash_message_and_leaves_that_lock(self):
+        st = self.fixture_store()
+        (st / '.pair.lock').mkdir()
+        sleeps = []
+        with mock.patch.dict(os.environ, {'PAIR_LOCK_TRIES': '3'}), mock.patch.object(store.time, 'sleep', sleeps.append):
+            with self.assertRaises(Die) as cm:
+                store.update(str(st), '.x = 1')
+        self.assertEqual((cm.exception.message, cm.exception.code, len(sleeps)),
+                         (f'pair.json lock held for 10s; remove {st}/.pair.lock if no pair.sh is running', 1, 2))
+        self.assertTrue((st / '.pair.lock').is_dir())
+        self.assertNotIn('"x"', (st / 'pair.json').read_text())
 
 
     def test_pause_resume_and_progress_through_pair_sh(self):

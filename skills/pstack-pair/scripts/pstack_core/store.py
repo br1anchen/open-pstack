@@ -2,6 +2,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import time
 
 from .errors import Die
@@ -183,3 +184,35 @@ def new_from_template(ctx, store, slug, directory, template):
     path = f'{store}/{directory}/{seq}-{slug}.md'
     write_text(path, fill_template(f'{ctx.skill_root}/references/{template}', {'SEQ': seq, 'SLUG': slug, 'STORE': store}))
     return path
+
+
+def update(store, *jq_args):
+    """json_update: pair.json has two writers, so each write holds the mkdir lock, runs jq on the
+    file as it is once the lock is held, and replaces it atomically. PAIR_LOCK_TRIES and
+    PAIR_LOCK_POLL_S exist so tests can shorten the 10 s wait."""
+    lock = f'{store}/.pair.lock'
+    tries = int(os.environ.get('PAIR_LOCK_TRIES', '100'))
+    poll = float(os.environ.get('PAIR_LOCK_POLL_S', '0.1'))
+    i = 0
+    while True:
+        try:
+            os.mkdir(lock)
+            break
+        except OSError:
+            i += 1
+            if i >= tries:
+                raise Die(f'pair.json lock held for 10s; remove {store}/.pair.lock if no pair.sh is running')
+            time.sleep(poll)
+    code = 0
+    try:
+        with open(f'{store}/pair.json.tmp', 'wb') as out:
+            code = subprocess.run(['jq', *jq_args, f'{store}/pair.json'], stdout=out, check=False).returncode
+        if code == 0:
+            os.replace(f'{store}/pair.json.tmp', f'{store}/pair.json')
+    finally:
+        try:
+            os.rmdir(lock)
+        except OSError:
+            pass
+    if code:
+        raise SystemExit(code)
