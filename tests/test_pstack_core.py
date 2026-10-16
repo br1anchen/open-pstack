@@ -22,7 +22,7 @@ scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
 from pstack_core import checkin, cli, dispatch, herdr, providers, replies, review, store, wait  # noqa: E402
-from pstack_core.commands import metrics  # noqa: E402
+from pstack_core.commands import metrics, step  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
 
@@ -338,6 +338,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True).stdout.strip()
         git('init', '-q', '-b', 'main')
         shas = {}
+        for rel, text in spec.get('repo_files', {}).items():
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text(text)
         for name in () if spec.get('emptyrepo') else ('c1', 'c2', 'c3'):
             (repo / name).write_text(name)
             git('add', '-A')
@@ -390,7 +393,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         script = 'kitchen.sh' if skill == 'pstack-kitchen' else 'pair.sh'
         r = subprocess.run([str(skills / skill / 'scripts' / script), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env, timeout=120,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, check=False)
-        norm = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))
+        norm = lambda text: re.sub(r'(?m)^[0-9]{2}:[0-9]{2} step ', '<HM> step ', re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>'))))
         files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
         events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()]
         calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
@@ -755,6 +758,249 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         want = self.wait_signalled(self.base_skills(), signal.SIGTERM, False, 'pstack-kitchen')
         self.assertEqual(got[:3], want[:3])
         self.assertEqual(got, (-signal.SIGTERM, '', '', True))
+
+    KITCHEN_TOML = 'version = 1\n\n[profile.app]\npaths = ["src/**", "docs/**", "extra/**"]\nfast = ["true"]\n\n[escalate]\npaths = ["contracts/**"]\n'
+
+    def queue_ab_cases(self):
+        working = {'s1': 'working claude'}
+        brief_text = lambda *lines, headers='playbook: investigation\n': '# Brief 003-z\n\n' + headers + '\n## Scope\n\nmay write:\n' + ''.join(f'- {l}\n' for l in (lines or ('src/a.py',))) + '\nmust not write:\n- lib/**\n'
+        plan_files = {'plans/001-x.md': '# Plan\n\nscale: small\n', 'reviews/001-x.md': '# Review\n\nverdict: agreed\n'}
+        feature = 'playbook: feature\nplan: {st}/plans/001-x.md\n'
+        base = dict(args=['queue', '{st}', '{st}/briefs/003-z.md'], agents=working, files={'briefs/003-z.md': brief_text()}, repo_files={'src/a.py': 'x', 'docs/guide.md': 'x'})
+        with_files = lambda **extra: {**base, 'files': {'briefs/003-z.md': brief_text(), **extra.pop('files', {})}, **extra}
+        return {
+            'clear a queue': dict(args=['queue', '{st}', '--clear'], files={'queue': '{st}/briefs/002-y.md\n'}),
+            'clear nothing': dict(args=['queue', '{st}', '--clear']),
+            'queue a brief': base,
+            'queue the same brief again': with_files(files={'queue': '{st}/briefs/003-z.md\n'}),
+            'the queue is held by another brief': with_files(files={'queue': '{st}/briefs/002-y.md\n'}),
+            'replace the queue': with_files(args=['queue', '{st}', '{st}/briefs/003-z.md', '--replace'], files={'queue': '{st}/briefs/002-y.md\n'}),
+            'an unknown option': with_files(args=['queue', '{st}', '{st}/briefs/003-z.md', '--force']),
+            'an empty third argument': with_files(args=['queue', '{st}', '{st}/briefs/003-z.md', '']),
+            'a missing brief': with_files(args=['queue', '{st}', '{st}/briefs/009-none.md']),
+            'a relative brief path': with_files(args=['queue', '{st}', '../st/briefs/003-z.md']),
+            'a symlinked brief': with_files(args=['queue', '{st}', '{T}/link.md'], links={'link.md': '{st}/briefs/003-z.md'}),
+            'a brief path with a trailing slash': with_files(args=['queue', '{st}', '{st}/briefs/003-z.md/']),
+            'too few arguments': dict(args=['queue', '{st}']),
+            'no pair.json': with_files(nopair=True),
+            'a paused store': with_files(files={'paused': 'lunch\n'}),
+            'an unfilled brief': with_files(files={'briefs/003-z.md': brief_text('{{path}}')}),
+            'a scope that lists paths on one line': with_files(files={'briefs/003-z.md': brief_text('src/a.py, src/b.py')}),
+            'a scope that joins paths with and': with_files(files={'briefs/003-z.md': brief_text('src/a.py and docs/guide.md')}),
+            'a scope entry that matches nothing': with_files(files={'briefs/003-z.md': brief_text('src/a.py', 'nodir/new.py', 'nodir/**')}),
+            'a scope with globs and a directory': with_files(files={'briefs/003-z.md': brief_text('src/', 'docs/**', '**/guide.md', '*.nope')}),
+            'a feature brief with no plan': with_files(files={'briefs/003-z.md': brief_text(headers='playbook: feature\n')}),
+            'a feature brief with plan none': with_files(files={'briefs/003-z.md': brief_text(headers='playbook: feature\nplan: none\n')}),
+            'a feature brief whose plan is missing': with_files(files={'briefs/003-z.md': brief_text(headers='playbook: feature\nplan: {st}/plans/009-none.md\n')}),
+            'a feature brief whose plan has no review': with_files(files={'briefs/003-z.md': brief_text(headers=feature), 'plans/001-x.md': '# Plan\n\nscale: small\n'}),
+            'a feature brief whose review is not agreed': with_files(files={'briefs/003-z.md': brief_text(headers=feature), 'plans/001-x.md': '# Plan\n', 'reviews/001-x.md': '# R\n\nverdict: revise\n'}),
+            'a feature brief with an agreed plan': with_files(files={'briefs/003-z.md': brief_text(headers=feature), **plan_files}),
+            'the sidekick is idle': with_files(agents={'s1': 'idle claude'}),
+            'the sidekick is done': with_files(agents={'s1': 'done claude'}),
+            'the sidekick is blocked': with_files(agents={'s1': 'blocked claude'}),
+            'the sidekick is absent': with_files(agents={}),
+            'a null sidekick': with_files(pair={'sidekick': None}),
+        }
+
+    def queue_ab_run(self, cases, skill):
+        mismatches, outcomes = {}, {}
+        norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
+        for name, spec in cases.items():
+            got, want = self.wait_ab_compare(name, spec, skill)
+            for side in (got, want):
+                side['stderr'] = norm_core(side['stderr'])
+            outcomes[name] = got
+            if got != want:
+                mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
+        self.maxDiff = None
+        self.assertEqual(mismatches, {})
+        return outcomes
+
+    def test_queue_ab_matches_the_bash_at_the_base_commit(self):
+        outcomes = self.queue_ab_run(self.queue_ab_cases(), 'pstack-pair')
+        self.assertEqual(outcomes['queue a brief']['rc'], 0)
+        self.assertIn('queued ', outcomes['queue a brief']['stdout'])
+        self.assertEqual(outcomes['the queue is held by another brief']['rc'], 5)
+        self.assertEqual(outcomes['the sidekick is blocked']['rc'], 3)
+        self.assertEqual(outcomes['a feature brief with no plan']['rc'], 6)
+        self.assertIn('warning: Scope entry "nodir/new.py"', outcomes['a scope entry that matches nothing']['stderr'])
+
+    def test_queue_ab_matches_the_bash_in_the_other_variants(self):
+        cases = self.queue_ab_cases()
+        keep = ('queue a brief', 'the queue is held by another brief', 'a feature brief with an agreed plan', 'a feature brief whose plan has no review', 'a paused store', 'the sidekick is idle')
+        for skill in ('pstack-pair-guided', 'pstack-trio'):
+            subset = {name: cases[name] for name in keep}
+            if skill == 'pstack-pair-guided':
+                # the guided gate: scale and approval
+                for scale, approval in (('small', ''), ('medium', ''), ('medium', 'posted'), ('large', 'posted'), ('large', 'human'), ('', 'human')):
+                    spec = dict(cases['a feature brief with an agreed plan'])
+                    spec['files'] = {**spec['files'], 'plans/001-x.md': f'# Plan\n\n{"scale: " + scale + chr(10) if scale else ""}',
+                                     'reviews/001-x.md': f'# R\n\nverdict: agreed\n{"approval: " + approval + chr(10) if approval else ""}'}
+                    subset[f'guided scale {scale or "none"} approval {approval or "none"}'] = spec
+            else:
+                spec = dict(cases['a feature brief with an agreed plan'])
+                subset['trio with advice'] = {**spec, 'files': {**spec['files'], 'advice/001-x.md': '# Advice\n'}}
+            self.queue_ab_run(subset, skill)
+
+    def test_queue_ab_kitchen_runs_classify_and_its_gates_first(self):
+        cases = self.queue_ab_cases()
+        toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
+        escalated = lambda text: text.replace('playbook: investigation\n', 'playbook: feature\nplan: {st}/plans/001-x.md\nrisk: escalated (a contract)\n')
+        plan_files = {'plans/001-x.md': '# Plan\n', 'reviews/001-x.md': '# R\n\nverdict: agreed\n'}
+        picked = {name: {**cases[name], 'repo_files': {**cases[name].get('repo_files', {}), **toml}} for name in (
+            'queue a brief', 'queue the same brief again', 'the queue is held by another brief', 'replace the queue', 'a paused store', 'an unfilled brief',
+            'a scope that lists paths on one line', 'a scope entry that matches nothing', 'the sidekick is idle', 'a feature brief with an agreed plan', 'a feature brief with no plan')}
+        brief = lambda headers: {**cases['queue a brief']['files'], 'briefs/003-z.md': cases['queue a brief']['files']['briefs/003-z.md'].replace('playbook: investigation\n', headers)}
+        base = {**cases['queue a brief'], 'repo_files': toml}
+        picked['an escalated brief with no advice'] = {**base, 'files': {**brief('playbook: feature\nplan: {st}/plans/001-x.md\nrisk: escalated (a contract)\n'), **plan_files}}
+        picked['an escalated brief with advice'] = {**base, 'files': {**brief('playbook: feature\nplan: {st}/plans/001-x.md\nrisk: escalated (a contract)\n'), **plan_files, 'advice/001-x.md': '# A\n'}}
+        picked['a routine brief with plan none'] = {**base, 'files': brief('playbook: feature\nplan: none\nrisk: routine\n')}
+        picked['a routine brief with a plan that is not agreed'] = {**base, 'files': {**brief('playbook: feature\nplan: {st}/plans/001-x.md\nrisk: routine\n'), 'plans/001-x.md': '# P\n', 'reviews/001-x.md': '# R\n\nverdict: revise\n'}}
+        picked['a landing brief skips classify'] = {**base, 'files': brief('playbook: opening-a-pr\n')}
+        picked['a landing brief by header'] = {**base, 'files': brief('playbook: investigation\nlanding: yes\n')}
+        picked['a brief with nothing under Scope'] = {**base, 'files': {'briefs/003-z.md': '# Brief\n\nplaybook: investigation\n\n## Scope\n\nmay write:\n'}}
+        outcomes = self.queue_ab_run(picked, 'pstack-kitchen')
+        self.assertEqual(outcomes['an escalated brief with advice']['rc'], 0)
+        self.assertEqual(outcomes['an escalated brief with no advice']['rc'], 6)
+        self.assertEqual(outcomes['a routine brief with plan none']['rc'], 0)
+        self.assertEqual(outcomes['a routine brief with a plan that is not agreed']['rc'], 6)
+
+    STEP_NOW = 1_800_000_123
+
+    def step_both(self, name, args, **spec):
+        """cmd_step in bash (the e6e83e3 core, with `date` fixed at STEP_NOW) and step() in Python (given the same instant) on identical
+        worlds: (return code, stdout, stderr, store files, events added)."""
+        results = []
+        for label in ('bash', 'py'):
+            top, st, env, fill = self.ab_world(f'{name}-{label}', {'agents': {'s1': 'working claude'}, **spec})
+            argv = [fill(a) for a in args]
+            ctx = Context('pstack-pair', str(root / 'skills/pstack-pair'), str(top / 'state'), 'Pair', ('sidekick',), ('plans',), 21, '')
+            if label == 'bash':
+                fake = self.path / f'fakedate-{self.STEP_NOW}'
+                fake.mkdir(exist_ok=True)
+                (fake / 'date').write_text(f'#!/bin/sh\ncase "$1" in +%s) echo {self.STEP_NOW} ;; +%H:%M) exec {shutil.which("date")} -d @{self.STEP_NOW} +%H:%M ;; *) exec {shutil.which("date")} "$@" ;; esac\n')
+                (fake / 'date').chmod(0o755)
+                script = (f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
+                          f'. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\ncmd_step "$@"')
+                r = subprocess.run(['bash', '-c', script, '_', *argv], env={**env, 'PATH': f'{fake}:{env["PATH"]}'}, cwd=top / 'repo', capture_output=True, text=True, check=False)
+                rc, so, se = r.returncode, r.stdout, r.stderr
+            else:
+                so_io, se_io = io.StringIO(), io.StringIO()
+                with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(so_io), contextlib.redirect_stderr(se_io):
+                    try:
+                        rc = step.step(ctx, argv, now=self.STEP_NOW)
+                    except Die as e:
+                        rc = e.code
+                        se_io.write(f'pair.sh: {e.message}\n')
+                    except Exit as e:
+                        rc = e.code
+                        se_io.write(e.stderr)
+                so, se = so_io.getvalue(), se_io.getvalue()
+            norm = lambda text: re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>'))
+            mask = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
+            files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
+            events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]]
+            results.append((rc, norm(so), mask(norm(se)), files, events))
+        self.assertEqual(results[0], results[1], name)
+        return results[1]
+
+    def test_step_ab_matches_the_bash_at_the_base_commit(self):
+        sha = '{c2}'
+        rows = '1\t{c1}\t5\t\tone\n2\t{c2}\t6\t\ttwo\n'
+        note = {'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}
+        steer = {'pair': {'notice_steers': ['{st}/steers/001-x-s1.md']}, 'files': {'steers/001-x-s1.md': '# S\n'}}
+        out = {}
+        cases = {
+            'no arguments': dict(args=['step']), 'two arguments': dict(args=['step', '{st}', sha][1:]),
+            'the first step': dict(args=['{st}', sha, 'did a thing']),
+            'a later step': dict(args=['{st}', sha, 'did more'], files={'steps/001-x.tsv': rows}),
+            'an empty steps file': dict(args=['{st}', sha, 'did more'], files={'steps/001-x.tsv': ''}),
+            'a steps file of blank lines only': dict(args=['{st}', sha, 'did more'], files={'steps/001-x.tsv': '\n\n'}),
+            'a steps file with blank lines': dict(args=['{st}', sha, 'did more'], files={'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n\n\n2\t{c2}\t6\t\ttwo\n\n'}),
+            'a summary with a tab and a newline': dict(args=['{st}', sha, 'a\tb\nc\n']),
+            'a summary with a percent and a backslash': dict(args=['{st}', sha, '100% \\n done \u00e9']),
+            'a short sha': dict(args=['{st}', '{c2}'[:0] + '{c2}'.replace('{c2}', '{c2}')]),
+            'HEAD': dict(args=['{st}', 'HEAD', 'head']),
+            'a ref name': dict(args=['{st}', 'main', 'branch']),
+            'a sha that is not a commit': dict(args=['{st}', 'f' * 40, 'nope']),
+            'an empty sha': dict(args=['{st}', '', 'nope']),
+            'no brief dispatched': dict(args=['{st}', sha, 'x'], pair={'dispatch': None}),
+            'no cwd': dict(args=['{st}', sha, 'x'], pair={'cwd': None}),
+            'an unknown option': dict(args=['{st}', sha, 'x', '--force']),
+            'resolves a published note': dict(args=['{st}', sha, 'x', '--resolves', 'n1'], files=note),
+            'resolves two published notes': dict(args=['{st}', sha, 'x', '--resolves', 'n1,n2'], files={**note, 'notes/001-x-n2.md': '# N\n'}),
+            'resolves an unpublished note': dict(args=['{st}', sha, 'x', '--resolves', 'n3'], files=note),
+            'resolves with a trailing comma': dict(args=['{st}', sha, 'x', '--resolves', 'n1,']),
+            'resolves a bad id': dict(args=['{st}', sha, 'x', '--resolves', 'x1']),
+            'resolves two ids with a space': dict(args=['{st}', sha, 'x', '--resolves', 'n1 n2'], files=note),
+            'resolves nothing': dict(args=['{st}', sha, 'x', '--resolves', '']),
+            'resolves with no value': dict(args=['{st}', sha, 'x', '--resolves']),
+            'an empty fourth argument': dict(args=['{st}', sha, 'x', '']),
+            'no pair.json': dict(args=['{st}', sha, 'x'], nopair=True),
+            'a paused store': dict(args=['{st}', sha, 'x'], files={'paused': 'lunch\n'}),
+            'a steer waiting for its ack': dict(args=['{st}', sha, 'x'], **steer),
+            'a paused store with a steer': dict(args=['{st}', sha, 'x'], pair=steer['pair'], files={**steer['files'], 'paused': 'lunch\n'}),
+            'a steer already acknowledged': dict(args=['{st}', sha, 'x'], pair=steer['pair'], files={**steer['files'], 'progress/001-x.md': '10:00 steer s1 applied: ok\n'}),
+            'an existing progress log': dict(args=['{st}', sha, 'x'], files={'progress/001-x.md': '10:00 first\n'}),
+            'a progress log without a final newline': dict(args=['{st}', sha, 'x'], files={'progress/001-x.md': '10:00 first'}),
+        }
+        for name, case in cases.items():
+            case = dict(case)
+            args = case.pop('args')
+            if name == 'two arguments':
+                args = ['{st}', '{c2}']
+            if name == 'a short sha':
+                args = ['{st}', '{c2}', 'short']
+            if name == 'no arguments':
+                args = []
+            out[name] = self.step_both(name.replace(' ', '-'), args, **case)
+        self.assertEqual(out['the first step'][0], 0)
+        self.assertEqual(out['a later step'][3]['steps/001-x.tsv'].count('\n'), 3)
+        self.assertEqual(out['resolves an unpublished note'][0], 1)
+        self.assertEqual(out['no brief dispatched'][0], 1)
+
+    def test_step_ab_through_every_variants_script(self):
+        # The shim, end to end: `step` through pair.sh, guided's and trio's pair.sh at e6e83e3 and at HEAD. The clock is masked here (the
+        # fixed-clock test above compares it); kitchen.sh's step runs its gates first and has its own tests.
+        sha = '{c2}'
+        cases = {
+            'a step': dict(args=['step', '{st}', sha, 'did a thing']),
+            'a step that resolves a note': dict(args=['step', '{st}', sha, 'fix', '--resolves', 'n1'], files={'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}),
+            'a paused store with a steer': dict(args=['step', '{st}', sha, 'x'], pair={'notice_steers': ['{st}/steers/001-x-s1.md']}, files={'steers/001-x-s1.md': '# S\n', 'paused': 'lunch\n'}),
+            'a sha that is not a commit': dict(args=['step', '{st}', 'f' * 40, 'x']),
+            'an empty steps file': dict(args=['step', '{st}', sha, 'x'], files={'steps/001-x.tsv': ''}),
+            'no brief dispatched': dict(args=['step', '{st}', sha, 'x'], pair={'dispatch': None}),
+        }
+        for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio'):
+            self.queue_ab_run(cases, skill)
+
+    def test_step_ab_unreadable_steps_file(self):
+        if os.geteuid() == 0:
+            self.skipTest('file modes do not stop root')
+        top, st, env, fill = self.ab_world('unreadable', {'agents': {'s1': 'working claude'}, 'files': {'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n'}})
+        (st / 'steps/001-x.tsv').chmod(0o000)
+        self.addCleanup(lambda: (st / 'steps/001-x.tsv').chmod(0o644))
+        results = []
+        for label in ('bash', 'py'):
+            ctx = Context('pstack-pair', str(root / 'skills/pstack-pair'), str(top / 'state'), 'Pair', ('sidekick',), ('plans',), 21, '')
+            if label == 'bash':
+                script = (f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
+                          f'. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\ncmd_step "$@"')
+                r = subprocess.run(['bash', '-c', script, '_', str(st), fill('{c2}'), 'x'], env=env, cwd=top / 'repo', capture_output=True, text=True, check=False)
+                results.append((r.returncode, r.stdout, re.sub(r'\S*pair-core\.sh: line [0-9]+', '<core>: line N', r.stderr).replace(str(top), '<T>')))
+            else:
+                so, se = io.StringIO(), io.StringIO()
+                with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(so), contextlib.redirect_stderr(se):
+                    try:
+                        rc = step.step(ctx, [str(st), fill('{c2}'), 'x'])
+                    except Exit as e:
+                        rc = e.code
+                        se.write(e.stderr)
+                    except PermissionError:
+                        rc = 'PermissionError'
+                results.append((rc, so.getvalue(), se.getvalue().replace(str(top), '<T>')))
+        self.assertEqual(results[0][:2], (2, ''), results[0])
+        self.assertEqual(results[1], results[0])
 
     def test_finish_and_notify_match_the_bash_in_the_other_variants(self):
         self.mismatches = {}
@@ -2608,8 +2854,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(self.metrics_of(LEGACY_HEADER + '\n' + self.FIRST_EVENTS), self.metrics_of(self.FIRST_EVENTS))
 
     PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
-              'finish', 'notify', 'report', 'next', 'wait')
-    DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'pause_notice', 'steer_notice', 'open_steers', 'progress_path',
+              'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step')
+    DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'open_steers', 'progress_path',
                   'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
                   'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update',
                   'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',

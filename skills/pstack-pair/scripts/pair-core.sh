@@ -2027,77 +2027,11 @@ cmd_wait() { pycore --exec wait "$@"; }
 
 # The master's next brief, held for the sidekick to take the moment its
 # current report is written. One slot: more than one queued brief is a plan.
-cmd_queue() {
-	[ $# -ge 2 ] || die "usage: pair.sh queue <store> <brief-path> [--replace] | pair.sh queue <store> --clear"
-	local store="$1" brief="$2" replace=0 queued name status
-	pair_file "$store" >/dev/null
-	if [ "$brief" = --clear ]; then
-		rm -f "$store/queue"
-		event "$store" master queue - cleared
-		printf 'queue cleared\n'
-		return 0
-	fi
-	case "${3:-}" in
-	--replace) replace=1 ;;
-	"") ;;
-	*) die "unknown option $3" ;;
-	esac
-	[ -f "$brief" ] || die "brief not found: $brief"
-	brief="$(readlink -f "$brief")"
-	require_not_paused "$store"
-	require_filled "$brief"
-	check_scope "$brief" "$(field "$store" '.git_root // .cwd')"
-	require_agreed_plan "$store" "$brief"
-	queued="$(queued_brief "$store")"
-	[ -z "$queued" ] || [ "$queued" = "$brief" ] || [ "$replace" -eq 1 ] || die "the queue holds $queued; pass --replace to swap it" 5
-	name="$(field "$store" .sidekick.name)"
-	status="$(agent_status "$name")"
-	case "$status" in
-	working) ;;
-	idle | done) die "sidekick $name is $status; dispatch instead: pair.sh dispatch $store $brief" 5 ;;
-	*) die "sidekick $name is $status; resolve that before queueing" 3 ;;
-	esac
-	printf '%s\n' "$brief" >"$store/queue.tmp"
-	mv "$store/queue.tmp" "$store/queue"
-	event "$store" master queue "$brief"
-	printf 'queued %s; the sidekick takes it when its current report is written\n' "$brief"
-}
+cmd_queue() { pycore queue "$@"; }
 
 # The sidekick records a committed step and goes straight on; the master's
 # wait picks it up for review. --resolves names the notes the step fixes.
-cmd_step() {
-	[ $# -ge 3 ] || die "usage: pair.sh step <store> <sha> <summary> [--resolves n1,n2]"
-	local store="$1" sha="$2" summary="$3" resolves="" brief file full k
-	shift 3
-	case "${1:-}" in
-	--resolves) resolves="$2" ;;
-	"") ;;
-	*) die "unknown option $1" ;;
-	esac
-	[[ "$resolves" =~ ^(n[0-9]+(,n[0-9]+)*)?$ ]] || die "--resolves takes note ids like n2,n3"
-	pair_file "$store" >/dev/null
-	brief="$(field "$store" '.dispatch.brief // empty')"
-	[ -n "$brief" ] || die "no brief dispatched; a step belongs to a running brief"
-	full="$(git -C "$(field "$store" .cwd)" rev-parse --verify --quiet "$sha^{commit}")" || die "not a commit: $sha; commit the step first"
-	local id
-	for id in ${resolves//,/ }; do
-		[ -f "$store/notes/$(basename "$brief" .md)-$id.md" ] || die "--resolves $id: no published note $id on $(basename "$brief" .md); resolve only notes pair.sh notes printed"
-	done
-	mkdir -p "$store/steps" "$store/progress"
-	file="$(steps_file "$store" "$brief")"
-	k=1
-	[ -f "$file" ] && k=$(( $(grep -c . "$file") + 1 ))
-	printf '%s\t%s\t%s\t%s\t%s\n' "$k" "$full" "$(date +%s)" "$resolves" "$(printf '%s' "$summary" | tr '\t\n' '  ')" >>"$file"
-	printf '%s step %s %s: %s\n' "$(date +%H:%M)" "$k" "${full:0:9}" "$summary" >>"$(progress_path "$store")"
-	event "$store" sidekick step "$brief" "$k:${full:0:9}"
-	if paused_reason "$store" >/dev/null; then
-		printf 'step %s recorded at %s.\n' "$k" "${full:0:9}"
-		pause_notice "$store"
-	else
-		printf 'step %s recorded at %s; go on with the next step. At the next step boundary: pair.sh notes %s\n' "$k" "${full:0:9}" "$store"
-	fi
-	steer_notice "$store"
-}
+cmd_step() { pycore step "$@"; }
 
 # The master's review of a unit's steps: a draft note covering the steps since
 # the last note, through the last step a wait showed (or --through k), so a
