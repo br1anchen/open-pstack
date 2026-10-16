@@ -847,7 +847,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for kind, env in (('sleep-other', envs['other-pane']), ('sleep-pane', {**envs['plain'], 'HERDR_SOCKET_PATH': sock}), ('sleep-nosock', envs['plain']),
                           ('sleep-othersock', {**envs['plain'], 'HERDR_SOCKET_PATH': '/elsewhere'})):
             procs.append(subprocess.Popen(['sleep', '60'], env=env, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        sh = subprocess.Popen(['sh', '-c', 'sleep 60; true'], env={**envs['shell'], 'HERDR_SOCKET_PATH': sock}, start_new_session=True,
+        sh = subprocess.Popen(['sh', '-c', 'cat >/dev/null; true'], env={**envs['shell'], 'HERDR_SOCKET_PATH': sock}, stdin=subprocess.PIPE, start_new_session=True,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(lambda: [(os.killpg(p.pid, 9), p.wait()) for p in [*procs, sh]])
         for since, sock_env in ((now - 3600, sock), (now - 3600, ''), (now + 5, sock), (now - 3600, '/elsewhere')):
