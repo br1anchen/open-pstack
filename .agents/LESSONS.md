@@ -27,3 +27,14 @@ since: 2026-10-16
 evidence:
 - 2026-10-16 kitchen-perf 002: kitchen.sh dispatch logs a checkin wake for a swallowed first check-in (core_dispatch without PAIR_QUIET_WAIT), then quiet_wait logs its own: two rows per return
 - 2026-10-16 kitchen-perf 002: verify provider path logs verify:provider then execs the fallback retry, which logs a second wake for the same return
+
+## L003: Porting set -e bash: decide each failing assignment, command or pipeline stage by running the base bash, never by reading it, and pin the result with a parity test.
+
+status: proposed
+kind: reject
+class: verify
+layer: verify
+area: skills
+since: 2026-10-16
+evidence:
+- 2026-10-16 python-port 003: Acceptance "stdout, stderr, exit codes and store files stay unchanged" fails on one error path (Evidence E5, E6).
