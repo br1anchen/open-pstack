@@ -1,6 +1,9 @@
 """The Python core behind pair-core.sh: die parity and the store helpers it duplicates from bash."""
+import contextlib
+import io
 import json
 import os
+import random
 import re
 import shlex
 import shutil
@@ -697,6 +700,92 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_scratch_matches_pair_sh_at_the_legacy_commit_in_a_jj_repo(self):
         out = dict((o[0], o) for o in self.scratch_cases(jj=True))
         self.assertEqual(out['create'][1][0], 0)
+
+
+    def generated_events(self, seed):
+        """One events.tsv as event() writes it (no header), and a PAIR_METRICS_NOW, from a fixed seed."""
+        rng = random.Random(seed)
+        units = ['001-alpha', '002-beta', '002-beta-s1', '003-gamma-q2', '003-gamma', '004-delta-s2', '-']
+        words = ['accepted', 'Accept', 'agreed', 'revise', 'rejected', 'REJECT', 'looks fine', '', 'Agreed with notes', 'revised']
+        t = 1_700_000_000
+        rows = []
+        for _ in range(1 if seed % 25 == 0 else rng.randint(2, 45)):
+            t += rng.choice([0, 0, 1, 7, 30, 61, 90, 600, 3600])
+            u = rng.choice(units)
+            kind = rng.randrange(18)
+            actor, ev, d = 'master', 'log', ''
+            if kind == 0:
+                ev, d = rng.choice(['send-brief', 'send-answer']), rng.choice(['', 'queued', 'fresh'])
+            elif kind == 1:
+                ev, d = 'send-plan', rng.choice(['', 'consultant', 'sidekick'])
+            elif kind == 2:
+                ev = 'send-consult'
+            elif kind == 3:
+                ev, d = 'send-steer', rng.choice(['objection', 'redirect', ''])
+            elif kind == 4:
+                ev = 'queue'
+            elif kind == 5:
+                ev, d = 'failover', rng.choice(['pi:unready', 'devin:rate limit'])
+            elif kind == 6:
+                actor, ev, d = 'sidekick', 'step', rng.choice([f'{rng.randint(1, 5)}:abc123', 'x:y', '', '01:zzz'])
+            elif kind == 7:
+                actor, ev, d = 'master', 'note', rng.choice([f'{rng.randint(1, 6)}:blocking', f'{rng.randint(1, 6)}:clear', '', ':clear'])
+            elif kind == 8:
+                actor, ev = 'sidekick', 'report'
+            elif kind == 9:
+                actor, ev = 'consultant', 'advice'
+            elif kind in (10, 11):
+                ev, d = 'wake', rng.choice(['checkin', 'report:done', 'sidekick:idle', 'advice:agree', 'consultant:idle', 'other', ''])
+            elif kind in (12, 13, 14):
+                ev, d = 'log', rng.choice(['review', 'plan', 'other']) + ': ' + rng.choice(words) + rng.choice(['', ' 002', ' because'])
+            else:
+                actor, ev = rng.choice([('sidekick', 'report'), ('master', 'wake'), ('consultant', 'advice')])
+            epoch = str(t)
+            if rng.randrange(40) == 0:
+                epoch = rng.choice(['abc', '12.5', '', f'{t}.5'])
+            rows.append(f'2026-01-01T00:00:00Z\t{epoch}\t{actor}\t{ev}\t{u}\t{d}')
+            if rng.randrange(60) == 0:
+                rows.append(rng.choice(['', 'short\trow', f'x\t{t}']))
+        now = rng.choice([str(t - 100), str(t), str(t + 50), str(t + 5000), 'later'])
+        return '\n'.join(rows) + rng.choice(['\n', '']), now
+
+    def metrics_oracle(self):
+        """The generated stores and the awk program's output for each, from pair.sh as it was at d06a932, in one bash process."""
+        legacy = self.legacy_pair().parents[3] / 'skills/pstack-pair/scripts/pair-core.sh'
+        stores = {}
+        for seed in range(200):
+            text, now = self.generated_events(seed)
+            st = self.path / f'm{seed}'
+            st.mkdir(exist_ok=True)
+            (st / 'events.tsv').write_text(text)
+            stores[seed] = (st, now)
+        loop = '\n'.join(f'printf "\\037%d\\n" {seed}; PAIR_METRICS_NOW={shlex.quote(now)} cmd_metrics {st}' for seed, (st, now) in stores.items())
+        harness = (f'set -uo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
+                   f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {legacy}\nset +e\n{loop}\n')
+        oracle = subprocess.run(['bash', '-c', harness], env=self.env, capture_output=True, text=True, check=False)
+        parts = oracle.stdout.split('\x1f')[1:]
+        self.assertEqual(len(parts), 200, oracle.stderr[-500:])
+        outputs = {}
+        for seed in stores:
+            label, want = parts[seed].split('\n', 1)
+            self.assertEqual(label, str(seed))
+            outputs[seed] = want
+        return stores, outputs
+
+    METRICS_LINES = {'wall', 'sidekick', 'queue', 'consultant', 'master', 'failovers', 'steps', 'verdicts', 'briefs'}
+
+    def covered(self, outputs):
+        seen = set()
+        for out in outputs:
+            seen.update(line.split(':')[0] for line in out.splitlines() if not line.startswith(' '))
+            seen.update(w for w in (' (stopped)', ' (paused)', 'running:') if w in out)
+        return seen
+
+    def test_generated_logs_reach_every_metrics_line_and_the_oracle_is_repeatable(self):
+        stores, outputs = self.metrics_oracle()
+        self.assertLessEqual(self.METRICS_LINES | {' (stopped)', ' (paused)', 'running:'}, self.covered(outputs.values()))
+        self.assertEqual(self.metrics_oracle()[1], outputs)
+        self.assertGreater(len(set(outputs.values())), 100)
 
 
     def test_pause_resume_and_progress_through_pair_sh(self):
