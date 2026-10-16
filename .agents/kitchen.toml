@@ -1,0 +1,67 @@
+# .agents/kitchen.toml: which of this repo's own commands prove which part of it.
+# Read by skills/pstack-kitchen/scripts/kitchen.py; schema in
+# skills/pstack-kitchen/references/kitchen-toml.md.
+version = 1
+
+# The scripts and their Python tests (fake herdr, golden transcripts).
+[profile.pstack]
+paths = [
+  "skills/*/scripts/**",
+  "sources.json",
+  "scripts/**",
+  "tests/**",
+]
+fast = [
+  "python3 scripts/check-pstack.py",
+  "for f in skills/*/scripts/*.sh; do bash -n \"$f\" || exit 1; done",
+  "python3 tests/run.py",
+]
+behavioral = ["python3 tests/run.py"]
+tests = ["tests/**"]
+require_tests = true
+verify = "batch"
+sample = 0.2
+
+# The skill text and references: links and inventory, no tests needed.
+[profile.pstack-docs]
+paths = ["skills/**", "README.md", "AGENTS.md", "LICENSE", ".agents/LESSONS.md"]
+fast = ["python3 scripts/check-pstack.py"]
+verify = "gates"
+sample = 0.0
+
+[escalate]
+paths = [".agents/kitchen.toml"]
+manifests = ["sources.json"]
+max_diff_lines = 600
+
+[[policy.forbid]]
+id = "test-sleep"
+pattern = '\btime\.sleep\(|\bsleep [0-9]'
+paths = ["tests/test_*.py"]
+message = "trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BUSY_POLL, KITCHEN_QUIET_POLL_S); assert on output, never on elapsed time"
+source = "AGENTS.md#testing-guidelines"
+
+[[policy.forbid]]
+id = "literal-secret"
+pattern = '''(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*["'][A-Za-z0-9_\-]{20,}["']'''
+paths = ["**"]
+message = "keep secrets out of the repo; read them from host environment or a secret manager"
+source = "AGENTS.md#security"
+
+[review]
+standards = ["AGENTS.md#style", "AGENTS.md#testing-guidelines"]
+
+[landing]
+mode = "commit"
+
+[coverage]
+ignore = [
+  ".agents/**",
+  "README.md",
+  "AGENTS.md",
+  "LICENSE",
+  ".gitignore",
+]
+
+[resources]
+max_parallel_heavy = 1

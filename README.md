@@ -1,4 +1,10 @@
-# Pstack across coding agents
+# open-pstack
+
+Pstack skills for coding agents (Claude Code, Codex, Pi, Grok Build), with the
+local multi-agent workflows built on them: `pstack-pair`, `pstack-trio` and
+`pstack-kitchen` over Herdr. Split out of
+[br1anchen/nixpkgs-config](https://github.com/br1anchen/nixpkgs-config) with its
+history; that repo installs it with Home Manager.
 
 This repo owns 60 pstack skills in `skills/`, their reference files, helper
 scripts, and MIT license. Start with the
@@ -59,8 +65,10 @@ artwork are not runtime dependencies.
 
 ## Sync and update
 
-Home Manager imports `home-manager/pstack.nix`, which runs the same sync script
-used below against a Nix-store snapshot. It exposes individual skill links in
+[nixpkgs-config](https://github.com/br1anchen/nixpkgs-config) takes this repo
+as a flake input (`flake = false`); its `home-manager/pstack.nix` runs the same
+sync script used below against the input's Nix-store snapshot and records the
+input's rev in `~/.local/state/pstack/builds.tsv`. It exposes individual skill links in
 `~/.agents/skills`, `~/.claude/skills`, `~/.pi/agent/skills`, and `~/.grok/skills`.
 Existing directory-wide aliases are respected. Codex and generic Agent Skills
 consumers use the shared `.agents` path. Pi and Grok also support that shared
@@ -124,16 +132,14 @@ never treats absent transcript evidence as permission to delete work.
 
 ## Validation
 
+Needs Python 3.11 or later, `jq` and Bash; the tests drive the scripts against a
+fake `herdr` and need no agent.
+
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-pstack.py
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_pstack_*.py'
-nix flake check --no-write-lock-file 'path:.'
-home-manager build --flake 'path:.#omarchy' --no-out-link
-home-manager build --flake 'path:.#darwin' --no-out-link
+python3 scripts/check-pstack.py   # inventory, frontmatter, links
+python3 tests/run.py              # every suite in parallel; -k <text> selects tests
+PSTACK_PAIR_UPDATE=1 python3 tests/run.py -k pair   # regenerate the pair goldens
 ```
 
-`path:.` includes new files before they are tracked by Git. The Omarchy profile
-build and flake check passed. The Darwin profile evaluated, but its build failed
-on this Linux machine because it requires an `aarch64-darwin` builder. No full
-Home Manager switch was performed. End-to-end model runs on all four agents and
-live webhook/scheduler execution have not been tested.
+End-to-end model runs on all four agents and live webhook/scheduler execution
+are not covered by the tests.
