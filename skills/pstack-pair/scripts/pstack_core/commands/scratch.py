@@ -71,7 +71,7 @@ def run(ctx, args):
             os.rmdir(dirname(path))
         except OSError:
             pass
-        update(store, '--arg', 'id', ident, '.scratch = ((.scratch // []) - [$id])')
+        update(store, lambda doc: doc.update(scratch=[x for x in doc.get('scratch') or [] if x != ident]))
         print(f'removed {path}')
         return 0
     if os.path.isdir(path):
@@ -114,6 +114,6 @@ def run(ctx, args):
                 f = raw.decode('utf-8', 'surrogateescape')
                 os.makedirs(f'{path}/{dirname(f)}', exist_ok=True)
                 shutil.copy2(f'{cwd}/{f}', f'{path}/{f}')
-    update(store, '--arg', 'id', ident, '.scratch = ((.scratch // []) + [$id] | unique)')
+    update(store, lambda doc: doc.update(scratch=sorted({*(doc.get('scratch') or []), ident})))
     print(path)
     return 0

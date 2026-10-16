@@ -561,7 +561,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(any('tee:' in l for l in results['port'][2]), not make_dir, label)
 
 
-    def test_update_waits_on_a_held_lock_and_applies_its_filter_to_the_file_as_it_is_after_acquiring_it(self):
+    def test_update_waits_on_a_held_lock_and_applies_its_mutation_to_the_file_as_it_is_after_acquiring_it(self):
         st = self.fixture_store()
         pair = st / 'pair.json'
         original = pair.read_text()
@@ -575,28 +575,32 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.bash(f"json_update {st} '.bash = true'")
 
         with mock.patch.object(store.time, 'sleep', holder_finishes):
-            store.update(str(st), '--arg', 'v', '1', '.py = $v')
+            store.update(str(st), lambda doc: doc.update(py='1'))
         self.assertEqual(waits, [original])
         final = json.loads(pair.read_text())
         self.assertEqual((final['holder'], final['bash'], final['py']), (1, True, '1'))
         self.assertEqual(sorted(p.name for p in st.iterdir() if p.name.startswith('pair.json') or p.name == '.pair.lock'), ['pair.json'])
 
-    def test_update_that_fails_in_jq_matches_bash_leaves_pair_json_alone_and_frees_the_lock(self):
-        runs = {}
-        for label in ('bash', 'py'):
-            st = self.fixture_store(label)
-            before = (st / 'pair.json').read_bytes()
-            if label == 'bash':
-                r = self.bash(f"json_update {st} 'error(\"boom\")'", check=False)
-            else:
-                code = f"import sys; sys.path.insert(0, {str(scripts)!r}); from pstack_core import store; store.update({str(st)!r}, 'error(\"boom\")')"
-                r = subprocess.run([sys.executable, '-I', '-c', code], env=self.env, capture_output=True, text=True, check=False)
-            runs[label] = (r.returncode, r.stdout, r.stderr.replace(str(st), 'STORE'), sorted(p.name for p in st.iterdir() if 'pair' in p.name),
-                           (st / 'pair.json').read_bytes() == before)
-        self.assertEqual(runs['bash'], runs['py'])
-        self.assertEqual(runs['py'][0], 5)
-        self.assertNotIn('.pair.lock', runs['py'][3])
-        self.assertTrue(runs['py'][4])
+    def test_update_whose_mutation_raises_leaves_pair_json_alone_and_frees_the_lock(self):
+        st = self.fixture_store()
+        before = (st / 'pair.json').read_bytes()
+
+        def boom(doc):
+            doc['changed'] = True
+            raise RuntimeError('boom')
+
+        with self.assertRaises(RuntimeError):
+            store.update(str(st), boom)
+        self.assertEqual((st / 'pair.json').read_bytes(), before)
+        self.assertEqual(sorted(p.name for p in st.iterdir() if 'pair' in p.name), ['pair.json'])
+
+    def test_update_of_a_pair_json_that_does_not_parse_leaves_it_alone_and_frees_the_lock(self):
+        st = self.fixture_store()
+        (st / 'pair.json').write_text('{"a": ')
+        with self.assertRaises(json.JSONDecodeError):
+            store.update(str(st), lambda doc: None)
+        self.assertEqual((st / 'pair.json').read_text(), '{"a": ')
+        self.assertEqual(sorted(p.name for p in st.iterdir() if 'pair' in p.name), ['pair.json'])
 
     def test_update_gives_up_on_a_lock_that_stays_held_with_the_bash_message_and_leaves_that_lock(self):
         st = self.fixture_store()
@@ -604,11 +608,66 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         sleeps = []
         with mock.patch.dict(os.environ, {'PAIR_LOCK_TRIES': '3'}), mock.patch.object(store.time, 'sleep', sleeps.append):
             with self.assertRaises(Die) as cm:
-                store.update(str(st), '.x = 1')
+                store.update(str(st), lambda doc: doc.update(x=1))
         self.assertEqual((cm.exception.message, cm.exception.code, len(sleeps)),
                          (f'pair.json lock held for 10s; remove {st}/.pair.lock if no pair.sh is running', 1, 2))
         self.assertTrue((st / '.pair.lock').is_dir())
         self.assertNotIn('"x"', (st / 'pair.json').read_text())
+
+    INIT_PAIR = (root / 'tests/pstack-pair/golden/pair.txt').read_text().split('--- ./pair.json\n', 1)[1].split('\n--- ', 1)[0].replace('<EPOCH>', '1767225600') + '\n'
+    JQ_FIXTURES = {
+        'init': INIT_PAIR,
+        'kitchen': '{"slug":"k","master":{"name":"m","sessions":[{"generation":1,"id":"a\\u00e9"}],"previous":null},'
+                   '"sidekick":{"generation":2,"failovers":0,"fallback":{"kind":"pi","args":["--model","x"]}},"consultant":{"pane_id":null},'
+                   '"verifying":{"unit":"001","at":"2026-01-01T00:00:00Z","sample":0.0},"pending":["a","b"],"scratch":[],"heads":{},"on":true}',
+        'sample 0.0': '{"verifying":{"sample":0.0}}',
+        'sample 0.25': '{"verifying":{"sample":0.25}}',
+        'sample 1': '{"verifying":{"sample":1}}',
+        'strings': '{"a":"\\u00e9 \\u2192 \\ud83d\\ude00","c":"\\u001f","d":"q\\"b\\\\s/","e":"\\u0000\\b\\f\\n\\r\\t","f":"\\u2028","g":"\\u00ad"}',
+        'del': '{"b":"x\\u007fy"}',
+        'empties': '{"a":[],"b":{},"c":{"d":[],"e":{}},"f":[[],{}]}',
+        'integers': '{"a":0,"b":-5,"c":9007199254740993,"d":100000000000000000000,"e":1.0}',
+        'floats': '{"a":0.1,"b":3.14159,"c":100.0}',
+    }
+
+    def jq_bytes(self, text):
+        return subprocess.run(['jq', '.'], input=text, capture_output=True, text=True, check=True).stdout
+
+    def test_update_writes_the_bytes_jq_writes(self):
+        for name, text in self.JQ_FIXTURES.items():
+            st = self.fixture_store(name.replace(' ', '-'))
+            (st / 'pair.json').write_text(text)
+            store.update(str(st), lambda doc: None)
+            self.assertEqual((st / 'pair.json').read_text(), self.jq_bytes(text), name)
+
+    def test_update_documents_where_its_number_spelling_differs_from_jq(self):
+        # jq 1.8 keeps the spelling of a number it does not compute on, in the canonical form 1E+3; Python parses
+        # it as a float and prints its own. No writer puts these in pair.json (counts and epochs are integers, and
+        # sample comes from toml as 0.0, 0.25 or 1), and no reader treats the text as anything but JSON.
+        for text, jq, py in (('1e3', '1E+3', '1000.0'), ('-0', '-0', '0'), ('1.5e-7', '1.5E-7', '1.5e-07'),
+                             ('1.10', '1.10', '1.1'), ('1E2', '1E+2', '100.0'), ('0.000001', '0.000001', '1e-06')):
+            doc = f'{{"n":{text}}}'
+            st = self.fixture_store('num-' + text)
+            (st / 'pair.json').write_text(doc)
+            store.update(str(st), lambda d: None)
+            self.assertEqual(
+                (self.jq_bytes(doc), (st / 'pair.json').read_text()),
+                (f'{{\n  "n": {jq}\n}}\n', f'{{\n  "n": {py}\n}}\n'), text)
+
+    def test_scratch_mutations_match_their_jq_programs(self):
+        docs = ['{"a":1}', '{"a":1,"scratch":null}', '{"a":1,"scratch":false}', '{"a":1,"scratch":[]}',
+                '{"scratch":["x","001-a","x"],"a":1}', '{"scratch":["z","b","001-a","a"]}']
+        programs = {
+            'remove': ('.scratch = ((.scratch // []) - [$id])', lambda doc: doc.update(scratch=[x for x in doc.get('scratch') or [] if x != 'x'])),
+            'add': ('.scratch = ((.scratch // []) + [$id] | unique)', lambda doc: doc.update(scratch=sorted({*(doc.get('scratch') or []), 'x'}))),
+        }
+        for name, (program, mutate) in programs.items():
+            for n, text in enumerate(docs):
+                st = self.fixture_store(f'{name}-{n}')
+                (st / 'pair.json').write_text(text)
+                store.update(str(st), mutate)
+                want = subprocess.run(['jq', '--arg', 'id', 'x', program], input=text, capture_output=True, text=True, check=True).stdout
+                self.assertEqual((st / 'pair.json').read_text(), want, (name, text))
 
 
     GIT_ENV = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t',
