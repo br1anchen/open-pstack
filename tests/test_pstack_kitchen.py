@@ -1581,6 +1581,14 @@ esac
     def done(self, brief, head):
         (self.store / 'reports' / brief.name).write_text(f'# Report\n\nstatus: done\nhead: {head}\n')
 
+    def test_kitchen_log_records_the_decision_and_a_master_log_event(self):
+        self.run_sh('log', str(self.store), 'review', 'accept 001', 'diff clean', 'reviews/001', 'next')
+        rows = (self.store / 'decisions.tsv').read_text().splitlines()
+        self.assertEqual(rows[-1].split('\t')[1:], ['review', 'accept 001', 'diff clean', 'reviews/001', 'next'])
+        self.assertEqual((self.store / 'events.tsv').read_text().splitlines()[-1].split('\t')[2:], ['master', 'log', '-', 'review: accept 001'])
+        out = self.run_sh('log', str(self.store), 'review', code=1)
+        self.assertEqual(out, 'pair.sh: usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>\n')
+
     def test_init_puts_the_kitchen_in_the_standing_orders(self):
         orders = (self.store / 'standing-orders.md').read_text()
         self.assertIn('runs these skills on its diff and fixes what they find: no-comments', orders)

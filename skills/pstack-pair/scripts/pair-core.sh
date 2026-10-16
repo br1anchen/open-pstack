@@ -15,7 +15,6 @@
 #   slug_max      longest slug tail, so <slug>-<longest role> fits Herdr's 32 chars
 #   unfilled_re   optional ERE for header lines that still list alternatives
 
-log_helper="$skill_root/../show-me-your-work/scripts/log.sh"
 : "${unfilled_re:=}"
 
 die() {
@@ -33,6 +32,13 @@ need jq
 pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=prime-agent.sh
 . "$pair_core_dir/prime-agent.sh"
+
+# Run a command in the Python core. The variant's globals travel as argv.
+pycore() {
+	python3 -I "$pair_core_dir/pair.py" --skill "$PAIR_SKILL" --skill-root "$skill_root" \
+		--state-root "$state_root" --store-label "$store_label" --roles "${roles[*]}" \
+		--store-dirs "${store_dirs[*]}" --slug-max "$slug_max" --unfilled-re "$unfilled_re" -- "$@"
+}
 
 in_herdr() {
 	[ "${HERDR_ENV:-}" = 1 ] || die "not running inside Herdr (HERDR_ENV != 1)"
@@ -2673,14 +2679,7 @@ cmd_status() {
 	} | tee "$store/status.md"
 }
 
-cmd_log() {
-	[ $# -eq 6 ] || die "usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>"
-	local store="$1"
-	shift
-	[ -x "$log_helper" ] || die "show-me-your-work log helper not found at $log_helper"
-	"$log_helper" "$store/decisions.tsv" "$@"
-	event "$store" master log - "$1: $2"
-}
+cmd_log() { pycore log "$@"; }
 
 # A throwaway worktree beside the shared tree. Default: detached at HEAD with
 # the sidekick's uncommitted diff applied, so a prototype or build starts from
