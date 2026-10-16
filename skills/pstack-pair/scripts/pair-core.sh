@@ -2151,47 +2151,11 @@ cmd_new_note() {
 
 # Publishes a filled note: the sidekick sees it at its next step boundary,
 # and its follow-ups go to followups.md rather than into the unit.
-cmd_note() {
-	[ $# -eq 2 ] || die "usage: pair.sh note <store> <note-draft-path>"
-	local store="$1" draft="$2" path status k unit
-	[ -f "$draft" ] || die "note not found: $draft"
-	case "$draft" in *.md.draft) ;; *) die "publish the .md.draft file new-note printed" ;; esac
-	require_filled "$draft"
-	status="$(header_field "$draft" status)"
-	case "$status" in
-	blocking | clear) ;;
-	*) die "$draft needs status: blocking or clear" ;;
-	esac
-	path="${draft%.draft}"
-	mv "$draft" "$path"
-	unit="$(basename "$path" .md | sed -E 's/-n[0-9]+$//')"
-	k="$(basename "$path" .md | sed -E 's/.*-n([0-9]+)$/\1/')"
-	awk -v tag="$unit n$k" '/^## Follow-ups/{f=1;next} /^## /{f=0} f && /^- / && !/^- none$/ {sub(/^- /, ""); print "- [" tag "] " $0}' "$path" >>"$store/followups.md"
-	event "$store" master note "$unit" "$k:$status"
-	printf 'published %s (%s)\n' "$path" "$status"
-}
+cmd_note() { pycore note "$@"; }
 
 # The sidekick's check at each step boundary: blocking notes still open on
 # the running brief, printed in full so they can be fixed without another read.
-cmd_notes() {
-	[ $# -eq 1 ] || die "usage: pair.sh notes <store>"
-	local store="$1" brief open f
-	pair_file "$store" >/dev/null
-	brief="$(field "$store" '.dispatch.brief // empty')"
-	[ -n "$brief" ] || { printf 'notes: none open\n'; return 0; }
-	pause_notice "$store"
-	steer_notice "$store"
-	open="$(open_notes "$store" "$brief")"
-	if [ -z "$open" ]; then
-		printf 'notes: none open; go on with the next step\n'
-		return 0
-	fi
-	printf 'notes: %s open. Fix each Blocking item as a fixup commit before the next step, then record it: pair.sh step %s <sha> "<summary>" --resolves <n-ids>\n' "$(printf '%s\n' "$open" | grep -c .)" "$store"
-	while IFS= read -r f; do
-		printf '\n=== %s (%s)\n' "$(basename "$f" .md | sed -E 's/.*-(n[0-9]+)$/\1/')" "$f"
-		awk '/^## Blocking/{p=1;next} /^## /{p=0} p' "$f"
-	done <<<"$open"
-}
+cmd_notes() { pycore notes "$@"; }
 
 # Takes the queued brief, if any: records its dispatch and prints its path.
 take_queued() {

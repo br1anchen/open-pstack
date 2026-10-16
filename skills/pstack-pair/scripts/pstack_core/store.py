@@ -181,15 +181,11 @@ def steer_notice(store):
         for f in open_steers(store))
 
 
-TEMPLATE_TOKENS = ('SEQ', 'SLUG', 'K', 'STORE', 'SUPERSEDES')
-
-
 def fill_template(path, values):
-    """Literal token replacement in order, where the bash used sed -e "s|{{X}}|$x|g"."""
+    """Literal token replacement in the order given, where the bash used sed -e "s|{{X}}|$x|g"."""
     text = read_text(path)
-    for token in TEMPLATE_TOKENS:
-        if token in values:
-            text = text.replace('{{' + token + '}}', values[token])
+    for token, value in values.items():
+        text = text.replace('{{' + token + '}}', value)
     return text
 
 

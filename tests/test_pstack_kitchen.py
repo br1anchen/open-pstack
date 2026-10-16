@@ -1612,6 +1612,37 @@ esac
         self.assertEqual(self.run_sh('resume', str(self.store)), f'resumed {self.store}\n')
         self.assertEqual(self.run_sh('progress', str(self.store), 'step 3 done').splitlines(), [str(progress)])
 
+    def test_kitchen_notes_lists_a_blocking_note_until_a_step_resolves_it_and_followups_are_tagged(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        base = self.state()['dispatch']['head']
+        self.write('src/util.py', 'X = 2\n')
+        c1 = self.commit('one')
+        self.write('src/util.py', 'X = 3\n')
+        c2 = self.commit('two')
+        steps = self.store / 'steps/001-util.tsv'
+        steps.parent.mkdir(exist_ok=True)
+        steps.write_text(f'1\t{c1}\t1\t\tone\n2\t{c2}\t2\t\ttwo\n')
+        draft = Path(self.run_sh('new-note', str(self.store), '001', '--through', '1').strip())
+        self.assertEqual(draft, self.store / 'notes/001-util-n1.md.draft')
+        self.assertIn(f'range: {base[:9]}..{c1[:9]}\n', draft.read_text())
+        self.assertIn('unfilled placeholders', self.run_sh('note', str(self.store), str(draft), code=1))
+        draft.write_text('# Note 001-util n1\n\nunit: 001-util\nthrough: step 1\nstatus: blocking\n\n## Blocking\n\n'
+                         '- src/util.py:1, X is wrong, expected 3\n\n## Follow-ups\n\n- rename X\n- none\n')
+        self.assertEqual(self.run_sh('note', str(self.store), str(draft)), f'published {draft.with_suffix("")} (blocking)\n')
+        self.assertFalse(draft.exists())
+        self.assertEqual((self.store / 'followups.md').read_text(), '- [001-util n1] rename X\n')
+        self.assertIn('master\tnote\t001-util\t1:blocking\n', (self.store / 'events.tsv').read_text())
+        out = self.run_sh('notes', str(self.store))
+        self.assertIn('notes: 1 open.', out)
+        self.assertIn(f'\n=== n1 ({self.store}/notes/001-util-n1.md)\n\n- src/util.py:1, X is wrong, expected 3\n', out)
+        steps.write_text(f'1\t{c1}\t1\t\tone\n2\t{c2}\t2\tn1\ttwo\n')
+        self.assertEqual(self.run_sh('notes', str(self.store)), 'notes: none open; go on with the next step\n')
+        second = self.run_sh('new-note', str(self.store), '001').strip()
+        self.assertEqual(second, f'{self.store}/notes/001-util-n2.md.draft')
+        self.assertIn(f'range: {c1[:9]}..{c2[:9]}\n', Path(second).read_text())
+        self.assertEqual(self.run_sh('new-note', str(self.store), '001', '--through', '1', code=1),
+                         'pair.sh: unit 001 is reviewed through step 1 already; wait for the next steps\n')
+
     def test_init_puts_the_kitchen_in_the_standing_orders(self):
         orders = (self.store / 'standing-orders.md').read_text()
         self.assertIn('runs these skills on its diff and fixes what they find: no-comments', orders)
