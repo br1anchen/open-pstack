@@ -82,7 +82,7 @@ def pair_file(store):
 
 
 def pair_json(store):
-    """pair.json, the read side of field(). A writer stays in bash for now."""
+    """pair.json, the read side of field(). Writes go through update() in this module, under the same .pair.lock as bash json_update."""
     with open(pair_file(store), 'rb') as f:
         return json.load(f)
 

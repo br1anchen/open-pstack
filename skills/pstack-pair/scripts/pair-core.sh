@@ -31,6 +31,7 @@ need() {
 
 need herdr
 need jq
+need python3
 
 pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=prime-agent.sh
