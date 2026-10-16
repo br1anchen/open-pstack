@@ -643,7 +643,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def wait_signalled(self, skills, number, group):
         """Run `pair.sh wait`, signal it while it sits in herdr's wait (the fake herdr's once hook holds it there on a pipe), and give
-        (exit status, stdout, stderr). The hook is released afterwards so the fake herdr and its pipes close."""
+        (exit status, stdout, stderr). Nothing here can hang: each wait is bounded, the hook is released in a finally, and the
+        whole process group is killed if the command outlives the bound."""
         top, st, env, fill = self.ab_world(f'sig-{len(list(self.path.iterdir()))}', {'agents': {'s1': 'working claude'}, 'pair': {'sent': {'file': '{st}/briefs/001-x.md', 'epoch': 1}}})
         ready, release = top / 'ready', top / 'release'
         os.mkfifo(ready)
@@ -652,22 +653,51 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         hook.parent.mkdir(exist_ok=True)
         hook.write_text(f'#!/bin/sh\necho in >"{ready}"\nread x <"{release}"\n')
         hook.chmod(0o755)
+
+        def default_signals():
+            # a gate that runs as a background job hands its children SIGINT ignored; the signal under test must be deliverable
+            for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                signal.signal(each, signal.SIG_DFL)
+
         proc = subprocess.Popen([str(skills / 'pstack-pair/scripts/pair.sh'), 'wait', str(st), '--timeout', '20000'], cwd=top / 'repo', env=env, text=True,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-        self.addCleanup(lambda: proc.poll() is None and os.killpg(proc.pid, signal.SIGKILL))
-        with open(ready) as f:
-            f.read()
-        (os.killpg if group else os.kill)(proc.pid, number)
-        status = proc.wait()
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, preexec_fn=default_signals)
+
+        def kill_group():
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        def open_release():
+            try:
+                fd = os.open(release, os.O_WRONLY | os.O_NONBLOCK)
+                os.write(fd, b'x\n')
+                os.close(fd)
+            except OSError:
+                pass  # the signal reached the hook too (a process group), so nothing holds the pipe
+
+        self.addCleanup(kill_group)
         try:
-            fd = os.open(release, os.O_WRONLY | os.O_NONBLOCK)
-            os.write(fd, b'x\n')
-            os.close(fd)
-        except OSError:
-            pass  # the signal reached the hook too (a process group), so nothing holds the pipe
+            fd = os.open(ready, os.O_RDONLY | os.O_NONBLOCK)
+            try:
+                if not select.select([fd], [], [], 30)[0]:
+                    self.fail('the wait never reached herdr')
+            finally:
+                os.close(fd)
+            (os.killpg if group else os.kill)(proc.pid, number)
+            try:
+                status = proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                kill_group()
+                proc.wait()
+                self.fail(f'{number.name} did not end the wait')
+        finally:
+            open_release()
         # The pipe closes when everything that held it has ended: a Python wait left behind by a signal to the shell alone must follow
         # its shell (PR_SET_PDEATHSIG) instead of running on to its timeout.
-        self.assertTrue(select.select([proc.stdout], [], [], 10)[0], 'the wait outlived its shell')
+        if not select.select([proc.stdout], [], [], 10)[0]:
+            kill_group()
+            self.fail('the wait outlived its shell')
         out, err = proc.stdout.read(), proc.stderr.read()
         proc.stdout.close()
         proc.stderr.close()

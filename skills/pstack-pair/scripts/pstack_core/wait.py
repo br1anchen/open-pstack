@@ -511,7 +511,9 @@ def die_with_the_shell():
     status; and when the shell that ran it dies first (a SIGTERM to the shell alone), the wait goes too instead of running on
     as an orphan."""
     for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        signal.signal(number, signal.SIG_DFL)
+        # Python swaps in its own SIGINT handler; a signal the parent ignored (a background job's SIGINT) stays ignored, as in bash.
+        if signal.getsignal(number) is not signal.SIG_IGN:
+            signal.signal(number, signal.SIG_DFL)
     try:
         import ctypes
         ctypes.CDLL(None).prctl(1, int(signal.SIGTERM))
