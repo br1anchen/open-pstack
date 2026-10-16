@@ -4,6 +4,7 @@
 
 - `skills/<name>/` holds one skill each: `SKILL.md`, `references/`, and `scripts/`. `sources.json` lists every skill and where it came from (upstream `cursor/plugins` at a pinned revision, or `local customization`).
 - `pstack-pair/scripts/pair-core.sh` is the script core of the multi-agent workflows; `pstack-pair`, `pstack-pair-guided`, `pstack-trio` and `pstack-kitchen` each source it from their own entry script (`pair.sh`, or `kitchen.sh` for the kitchen). The consultant's commands live in `pstack-trio/scripts/consultant-core.sh`. `pstack-kitchen/scripts/kitchen.py` reads a repo's `.agents/kitchen.toml` as data.
+- `pstack-pair/scripts/pair.py` and `pstack_core/` are the stdlib-only Python core; a ported command runs in it through the `pycore` shim in `pair-core.sh`, and the bash dispatch and the variant overrides stay as they were.
 - `scripts/pstack-sync.py` installs the skills as per-skill links for each agent runtime; `scripts/check-pstack.py` checks the inventory, frontmatter and links.
 - `tests/` drives the scripts against a fake `herdr` (`tests/pstack-pair/bin`) and compares golden transcripts (`tests/pstack-pair/golden`).
 

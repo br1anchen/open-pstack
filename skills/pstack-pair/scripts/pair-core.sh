@@ -3,6 +3,9 @@
 # this file, defines usage and any command it adds or overrides, then calls
 # pair_main "$@". A command is any function named cmd_<name>, with dashes in
 # the name as underscores. Every command is idempotent and prints what it did.
+# A ported command is a pycore shim into pair.py (the stdlib-only Python core in
+# pstack_core/); a variant overrides it by redefining cmd_<name> after sourcing
+# this file, as it does any other command.
 # JSON from herdr is parsed with jq; identifiers are never guessed.
 #
 # Set by the caller before sourcing:
