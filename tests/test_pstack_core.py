@@ -104,5 +104,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(store.header_field(str(f), key), self.bash(f'header_field {f} {key}').removesuffix('\n'), key)
 
 
+    def test_log_records_a_row_and_an_event_through_each_pair_entry_script(self):
+        env = {**self.env, 'FAKE': str(self.path), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0',
+               'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'), 'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}
+        for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio'):
+            script = str(root / 'skills' / skill / 'scripts/pair.sh')
+            run = lambda *a: subprocess.run([script, *a], env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(run('init', 'demo').returncode, 0, skill)
+            store = self.path / 'state/pstack' / skill.removeprefix('pstack-') / 'demo'
+            r = run('log', str(store), 'p', 'd', 'w', 'e', 'r')
+            self.assertEqual((r.returncode, r.stderr), (0, ''), skill)
+            self.assertEqual((store / 'decisions.tsv').read_text().splitlines()[-1].split('\t')[1:], ['p', 'd', 'w', 'e', 'r'], skill)
+            self.assertEqual((store / 'events.tsv').read_text().splitlines()[-1].split('\t')[2:], ['master', 'log', '-', 'p: d'], skill)
+            r = run('log', str(store), 'p')
+            self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>\n'), skill)
+
+
 if __name__ == '__main__':
     unittest.main()
