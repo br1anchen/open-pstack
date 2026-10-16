@@ -1600,6 +1600,18 @@ esac
         self.assertEqual(Path(steer).read_text().splitlines()[:3],
                          ['# Steer 002-s1: shape', '', f'brief: {self.store}/briefs/002-shape.md'])
 
+    def test_kitchen_pause_reaches_the_sidekick_at_progress_until_resume(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        progress = self.store / 'progress/001-util.md'
+        self.assertEqual(self.run_sh('progress', str(self.store), 'step 1 done').splitlines(), [str(progress)])
+        self.assertRegex(progress.read_text(), r'^\d\d:\d\d step 1 done\n$')
+        self.assertIn('paused ', self.run_sh('pause', str(self.store), '--reason', 'lunch'))
+        out = self.run_sh('progress', str(self.store), 'step 2 done').splitlines()
+        self.assertEqual(out[0], str(progress))
+        self.assertTrue(out[1].startswith('PAUSE: lunch. This is your safe point'), out)
+        self.assertEqual(self.run_sh('resume', str(self.store)), f'resumed {self.store}\n')
+        self.assertEqual(self.run_sh('progress', str(self.store), 'step 3 done').splitlines(), [str(progress)])
+
     def test_init_puts_the_kitchen_in_the_standing_orders(self):
         orders = (self.store / 'standing-orders.md').read_text()
         self.assertIn('runs these skills on its diff and fixes what they find: no-comments', orders)

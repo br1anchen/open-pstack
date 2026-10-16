@@ -742,28 +742,9 @@ steer_notice() {
 	done < <(open_steers "$1")
 }
 
-cmd_pause() {
-	[ $# -ge 1 ] || die "usage: pair.sh pause <store> [--reason TEXT]"
-	local store="$1" reason="paused by the human"
-	shift
-	case "${1:-}" in
-	--reason) reason="$2" ;;
-	"") ;;
-	*) die "unknown option $1" ;;
-	esac
-	pair_file "$store" >/dev/null
-	printf '%s\n' "$reason" >"$store/paused"
-	event "$store" master pause - "$reason"
-	printf 'paused %s: the sidekick stops at its next step or progress boundary, and dispatch, queue, discuss, consult, and answer refuse until pair.sh resume\n' "$store"
-}
+cmd_pause() { pycore pause "$@"; }
 
-cmd_resume() {
-	[ $# -eq 1 ] || die "usage: pair.sh resume <store>"
-	pair_file "$1" >/dev/null
-	rm -f "$1/paused"
-	event "$1" master resume -
-	printf 'resumed %s\n' "$1"
-}
+cmd_resume() { pycore resume "$@"; }
 
 queued_brief() {
 	# $1 store: the brief waiting in the queue, or empty.
@@ -2462,18 +2443,7 @@ cmd_stop() {
 	finish_wait "$store" "$code" "$out" "$err" any
 }
 
-cmd_progress() {
-	[ $# -eq 2 ] || die "usage: pair.sh progress <store> <text>"
-	local store="$1" text="$2" path
-	pair_file "$store" >/dev/null
-	path="$(progress_path "$store")" || die "no brief dispatched yet; progress belongs to a running brief"
-	mkdir -p "$store/progress"
-	printf '%s %s\n' "$(date +%H:%M)" "$text" >>"$path"
-	event "$store" sidekick progress "$path"
-	printf '%s\n' "$path"
-	pause_notice "$store"
-	steer_notice "$store"
-}
+cmd_progress() { pycore progress "$@"; }
 
 # Fresh steers on a unit are capped at two; a steer that supersedes an objected
 # one is a discussion round and does not count.

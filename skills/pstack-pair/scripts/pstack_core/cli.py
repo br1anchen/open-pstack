@@ -1,10 +1,11 @@
 import sys
 
-from .commands import log, templates
+from .commands import log, pause, progress, templates
 from .context import Context
 from .errors import Die
 
-COMMANDS = {'log': log.run, 'new-plan': templates.new_plan, 'new-brief': templates.new_brief, 'new-steer': templates.new_steer}
+COMMANDS = {'log': log.run, 'new-plan': templates.new_plan, 'new-brief': templates.new_brief, 'new-steer': templates.new_steer,
+            'pause': pause.pause, 'resume': pause.resume, 'progress': progress.run}
 
 OPTIONS = ('--skill', '--skill-root', '--state-root', '--store-label', '--roles', '--store-dirs', '--slug-max', '--unfilled-re')
 
@@ -25,6 +26,8 @@ def parse(argv):
 
 
 def main(argv):
+    sys.stdout.reconfigure(errors='surrogateescape')
+    sys.stderr.reconfigure(errors='surrogateescape')
     try:
         ctx, cmd, args = parse(argv)
         if cmd not in COMMANDS:
