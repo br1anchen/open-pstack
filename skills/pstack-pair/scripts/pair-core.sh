@@ -2464,76 +2464,7 @@ cmd_log() { pycore log "$@"; }
 # the live state. With --at SHA: exactly that commit, so the master can rerun
 # a unit's checks, or the consultant read it, while the sidekick keeps working.
 # Removed when done; status lists the open ones.
-cmd_scratch() {
-	[ $# -ge 2 ] || die "usage: pair.sh scratch <store> <id> [--at SHA] [--remove]"
-	local store="$1" id="$2" remove=0 at="" cwd path
-	shift 2
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--remove) remove=1; shift ;;
-		--at) at="$2"; shift 2 ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	pair_file "$store" >/dev/null
-	[[ "$id" =~ ^[0-9]{3}-[a-z0-9_-]+$ ]] || die "scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review"
-	cwd="$(field "$store" .git_root)"
-	[ -n "$cwd" ] && [ "$cwd" != null ] || die "the store's cwd is not inside a git repository"
-	# The worktree lives inside the repo's git directory: an agent started
-	# there inherits the folder trust the human gave the repo (Claude and Codex
-	# check the directory's ancestors), and the main tree's status never sees
-	# it. The store keeps a link at scratch/<id>; an older store's real
-	# directory there is still removed.
-	local link="$store/scratch/$id"
-	path="$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir)/pstack-scratch/$(basename "$(dirname "$store")")-$(basename "$store")/$id"
-	[ -L "$link" ] || [ ! -d "$link" ] || path="$link"
-	if [ "$remove" -eq 1 ]; then
-		if [ -d "$cwd/.jj" ]; then
-			jj -R "$cwd" workspace forget "scratch-$id" >/dev/null 2>&1 || true
-			rm -rf "$path"
-		else
-			git -C "$cwd" worktree remove --force "$path" >/dev/null 2>&1 || rm -rf "$path"
-			git -C "$cwd" worktree prune >/dev/null 2>&1 || true
-		fi
-		[ ! -L "$link" ] || rm -f "$link"
-		rmdir "$(dirname "$path")" 2>/dev/null || true
-		json_update "$store" --arg id "$id" '.scratch = ((.scratch // []) - [$id])'
-		printf 'removed %s\n' "$path"
-		return 0
-	fi
-	if [ -d "$path" ]; then
-		printf '%s\n' "$path"
-		return 0
-	fi
-	mkdir -p "$store/scratch" "$(dirname "$path")"
-	ln -sfn "$path" "$link"
-	if [ -n "$at" ]; then
-		git -C "$cwd" rev-parse --verify --quiet "$at^{commit}" >/dev/null || die "not a commit: $at"
-		if [ -d "$cwd/.jj" ]; then
-			jj -R "$cwd" workspace add --name "scratch-$id" -r "$at" "$path" >/dev/null || die "jj workspace add failed" 2
-		else
-			git -C "$cwd" worktree add --detach "$path" "$at" >/dev/null || die "git worktree add failed" 2
-		fi
-	elif [ -d "$cwd/.jj" ]; then
-		jj -R "$cwd" workspace add --name "scratch-$id" "$path" >/dev/null || die "jj workspace add failed" 2
-	else
-		git -C "$cwd" worktree add --detach "$path" HEAD >/dev/null || die "git worktree add failed" 2
-		# Tracked changes as a patch; untracked files copied as they are.
-		local patch
-		patch="$(mktemp)"
-		git -C "$cwd" diff HEAD --binary >"$patch"
-		if [ -s "$patch" ]; then
-			git -C "$path" apply --index "$patch" 2>/dev/null || { printf 'live diff did not apply cleanly; scratch is at HEAD only\n' >&2; git -C "$path" checkout -- . >/dev/null 2>&1 || true; }
-		fi
-		rm -f "$patch"
-		git -C "$cwd" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
-			mkdir -p "$path/$(dirname "$f")"
-			cp -p "$cwd/$f" "$path/$f"
-		done
-	fi
-	json_update "$store" --arg id "$id" '.scratch = ((.scratch // []) + [$id] | unique)'
-	printf '%s\n' "$path"
-}
+cmd_scratch() { pycore scratch "$@"; }
 
 # Where a run's time went, from events.tsv. A sidekick is busy from a brief,
 # plan, answer, or objection steer until its report for that unit, a new

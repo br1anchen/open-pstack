@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -591,6 +592,82 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                          (f'pair.json lock held for 10s; remove {st}/.pair.lock if no pair.sh is running', 1, 2))
         self.assertTrue((st / '.pair.lock').is_dir())
         self.assertNotIn('"x"', (st / 'pair.json').read_text())
+
+
+    GIT_ENV = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t',
+               'GIT_AUTHOR_DATE': '2026-01-01T00:00:00Z', 'GIT_COMMITTER_DATE': '2026-01-01T00:00:00Z'}
+
+    def scratch_env(self, label, tree, jj=False):
+        """A repo with a tracked change and an untracked file, and a store whose pair.json names it."""
+        top = self.path / label
+        repo, xdg = top / 'repo', top / 'state'
+        (repo / 'sub').mkdir(parents=True)
+        env = {**self.env, **self.GIT_ENV, 'XDG_STATE_HOME': str(xdg), 'HOME': str(top), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0',
+               'FAKE': str(top / 'fake'), 'HERDR_SOCKET_PATH': str(top / 'herdr.sock')}
+        for d in ('agents', 'panes', 'busy', 'screen'):
+            (top / 'fake' / d).mkdir(parents=True)
+        git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True).stdout.strip()
+        git('init', '-q', '-b', 'main')
+        (repo / 'a.txt').write_text('one\n')
+        (repo / 'sub/b.txt').write_text('b\n')
+        git('add', '-A')
+        git('commit', '-q', '-m', 'init')
+        (repo / 'a.txt').write_text('one\ntwo\n')
+        (repo / 'sub/new.txt').write_text('untracked\n')
+        os.chmod(repo / 'sub/new.txt', 0o755)
+        if jj:
+            subprocess.run(['jj', 'git', 'init', '--colocate', str(repo)], env=env, capture_output=True, check=True)
+        script = tree / 'skills/pstack-pair/scripts/pair.sh'
+        subprocess.run([str(script), 'init', 'demo'], cwd=repo, env=env, capture_output=True, check=True)
+        store = xdg / 'pstack/pair/demo'
+        (store / 'pair.json').write_text(json.dumps({'git_root': str(repo), 'scratch': []}, indent=2) + '\n')
+        return top, repo, store, script, env, git
+
+    def run_scratch(self, label, top, script, env, store, *args):
+        r = subprocess.run([str(script), 'scratch', str(store), *args], env=env, capture_output=True, text=True, check=False)
+        norm = lambda t: re.sub(r'\b[0-9a-f]{8,}\b|\b[k-z]{8,}\b', 'ID', t.replace(str(top), 'ROOT'))
+        return r.returncode, norm(r.stdout), norm(r.stderr)
+
+    def scratch_cases(self, jj):
+        legacy = self.legacy_pair().parents[3]
+        results = {}
+        for label, tree in (('legacy', legacy), ('port', root)):
+            top, repo, store, script, env, git = self.scratch_env(label, tree, jj)
+            head = git('rev-parse', 'HEAD')
+            out = []
+            state = lambda: (store / 'pair.json').read_text().replace(str(top), 'ROOT')
+            for name, args in (('create', ('001-x-review',)), ('again', ('001-x-review',)), ('at', ('002-y-c1', '--at', head)),
+                               ('bad sha', ('003-z', '--at', 'nosuchrev')), ('bad id', ('bad',)), ('unknown option', ('004-w', '--bogus')),
+                               ('usage', ()), ('remove', ('001-x-review', '--remove')), ('remove again', ('001-x-review', '--remove')),
+                               ('remove at', ('002-y-c1', '--remove'))):
+                r = self.run_scratch(label, top, script, env, store, *args)
+                scratch_root = repo / '.git/pstack-scratch'
+                tree_files = sorted(str(f.relative_to(top)) for f in scratch_root.rglob('*') if '.git' not in f.relative_to(scratch_root).parts[-1:]
+                                    and f.name != '.git') if scratch_root.exists() else []
+                links = sorted((l.name, os.readlink(l).replace(str(top), 'ROOT')) for l in (store / 'scratch').glob('*') if l.is_symlink()) if (store / 'scratch').exists() else []
+                out.append((name, r, state(), tree_files, links))
+                if name == 'create' and not jj:
+                    wt = Path(r[1].strip().replace('ROOT', str(top)))
+                    out.append(('content', (wt / 'a.txt').read_text(), (wt / 'sub/new.txt').read_text(), oct((wt / 'sub/new.txt').stat().st_mode & 0o777)))
+            results[label] = out
+        self.assertEqual(results['legacy'], results['port'])
+        return results['port']
+
+    def test_scratch_matches_pair_sh_at_the_legacy_commit_in_a_git_repo(self):
+        out = dict((o[0], o) for o in self.scratch_cases(jj=False))
+        self.assertEqual(out['create'][1][0], 0)
+        self.assertEqual(out['content'][1:], ('one\ntwo\n', 'untracked\n', '0o755'))
+        self.assertEqual(out['again'][1][1], out['create'][1][1])
+        self.assertEqual(out['bad sha'][1][:3], (1, '', 'pair.sh: not a commit: nosuchrev\n'))
+        self.assertEqual(out['bad id'][1][0], 1)
+        self.assertIn('"001-x-review"', out['create'][2])
+        self.assertNotIn('001-x-review', out['remove'][2])
+        self.assertEqual(out['remove'][1][1].split(' ')[0], 'removed')
+
+    @unittest.skipUnless(shutil.which('jj'), 'needs jj on PATH')
+    def test_scratch_matches_pair_sh_at_the_legacy_commit_in_a_jj_repo(self):
+        out = dict((o[0], o) for o in self.scratch_cases(jj=True))
+        self.assertEqual(out['create'][1][0], 0)
 
 
     def test_pause_resume_and_progress_through_pair_sh(self):

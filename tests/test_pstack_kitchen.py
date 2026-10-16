@@ -1658,6 +1658,30 @@ esac
         row = [l for l in self.run_sh('status', str(self.store)).splitlines() if l.startswith('| 001 ')]
         self.assertEqual(row, ['| 001 | brief | util | none | none | none |'])
 
+    def scratch_stdout(self, *args):
+        """stdout alone, as kitchen.sh reads it with | tail -1."""
+        r = subprocess.run([str(self.script), 'scratch', str(self.store), *args], cwd=self.repo, env=self.env, capture_output=True, text=True, check=False)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout
+
+    def test_kitchen_scratch_makes_a_worktree_at_the_sha_and_removes_it(self):
+        self.write('src/util.py', 'X = 2\n')
+        sha = self.commit('scratch head')
+        self.write('src/util.py', 'X = 99\n')
+        path = Path(self.scratch_stdout('001-x-review', '--at', sha).splitlines()[-1])
+        self.assertEqual(self.git('-C', str(path), 'rev-parse', 'HEAD'), sha)
+        self.assertEqual((path / 'src/util.py').read_text(), 'X = 2\n')
+        self.assertEqual(self.state()['scratch'], ['001-x-review'])
+        self.assertEqual(os.readlink(self.store / 'scratch/001-x-review'), str(path))
+        self.assertEqual(self.scratch_stdout('001-x-review', '--at', sha).splitlines()[-1], str(path))
+        self.assertEqual(self.run_sh('scratch', str(self.store), '001-x-review', '--remove'), f'removed {path}\n')
+        self.assertFalse(path.exists())
+        self.assertFalse((self.store / 'scratch/001-x-review').is_symlink())
+        self.assertEqual(self.state()['scratch'], [])
+        live = Path(self.scratch_stdout('002-x-live').splitlines()[-1])
+        self.assertEqual((live / 'src/util.py').read_text(), 'X = 99\n')
+        self.run_sh('scratch', str(self.store), '002-x-live', '--remove')
+
     def test_init_puts_the_kitchen_in_the_standing_orders(self):
         orders = (self.store / 'standing-orders.md').read_text()
         self.assertIn('runs these skills on its diff and fixes what they find: no-comments', orders)
