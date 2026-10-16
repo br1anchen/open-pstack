@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import sys
 
-from ..errors import Die
+from ..errors import Die, unbound_arg
 from ..review import jq_raw
 from ..store import pair_file, pair_json, update
 
@@ -40,7 +40,7 @@ def run(ctx, args):
             remove, rest = True, rest[1:]
         elif rest[0] == '--at':
             if len(rest) < 2:
-                raise Die('$2: unbound variable')
+                raise unbound_arg()
             at, rest = rest[1], rest[2:]
         else:
             raise Die(f'unknown option {rest[0]}')

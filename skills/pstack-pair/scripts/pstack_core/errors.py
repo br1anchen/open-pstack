@@ -15,3 +15,8 @@ class Exit(Exception):
         self.code = code
         self.stderr = stderr
         super().__init__(stderr)
+
+
+def unbound_arg():
+    """The Die bash's set -u raises for a flag whose value `$2` is missing."""
+    return Die('$2: unbound variable')

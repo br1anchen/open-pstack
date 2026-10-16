@@ -5,7 +5,7 @@ import subprocess
 
 from .errors import Die
 from .collate import glob_sorted
-from .store import alt, header_field, last_line, pair_json, read_text, unit_name
+from .store import alt, header_field, jq_raw, last_line, note_id, pair_json, read_text, suffix_number, unit_name
 
 
 def steps_file(store, unit):
@@ -19,8 +19,8 @@ def note_files(store, unit):
 
 
 def note_number(path):
-    m = re.fullmatch(r'.*-n([0-9]+)', unit_name(path), re.S)
-    return int(m.group(1)) if m else None
+    k = suffix_number(unit_name(path), 'n')
+    return int(k) if k else None
 
 
 def noted_through(store, unit):
@@ -40,8 +40,7 @@ def open_notes(store, brief):
     for f in note_files(store, unit):
         if header_field(f, 'status') != 'blocking':
             continue
-        m = re.fullmatch(r'.*-(n[0-9]+)', unit_name(f), re.S)
-        if (m.group(1) if m else unit_name(f)) not in resolved:
+        if note_id(f) not in resolved:
             found.append(f)
     return found
 
@@ -76,15 +75,6 @@ def range_floor(root, base, tip, allow_head=False):
         return base, ''
     trunk_name = trunk.removeprefix('refs/')
     return tmb, f'recorded base {base[:9]} is behind where its branch leaves {trunk_name}; measuring from {tmb[:9]}'
-
-
-def jq_raw(value):
-    """jq -r of a value: null, true and false print as words."""
-    if value is None:
-        return 'null'
-    if isinstance(value, bool):
-        return 'true' if value else 'false'
-    return value if isinstance(value, str) else str(value)
 
 
 def awk_equal(field, k):

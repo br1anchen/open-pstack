@@ -3,11 +3,11 @@ import os
 import re
 import sys
 
-from ..errors import Die
+from ..errors import Die, unbound_arg
 from ..collate import glob_sorted
 from ..review import awk_equal, jq_raw, noted_through, open_notes, require_filled, review_base, steps_file
-from ..store import (alt, dispatched_brief, event, fill_template, header_field, pair_file, pair_json, pause_notice,
-                     read_text, steer_notice, unit_name, write_text)
+from ..store import (alt, dispatched_brief, event, fill_template, header_field, note_id, pair_file, pair_json, pause_notice,
+                     read_text, steer_notice, suffix_number, unit_name, write_text)
 
 
 def blocking_lines(path):
@@ -41,8 +41,7 @@ def notes(ctx, args):
     print(f'notes: {len(open_)} open. Fix each Blocking item as a fixup commit before the next step, then record it: '
           f'pair.sh step {store} <sha> "<summary>" --resolves <n-ids>')
     for f in open_:
-        m = re.fullmatch(r'.*-(n[0-9]+)', unit_name(f), re.S)
-        sys.stdout.write(f'\n=== {m.group(1) if m else unit_name(f)} ({f})\n')
+        sys.stdout.write(f'\n=== {note_id(f)} ({f})\n')
         for line in blocking_lines(f):
             sys.stdout.write(line + '\n')
     return 0
@@ -77,8 +76,7 @@ def note(ctx, args):
     os.replace(draft, path)
     name = unit_name(path)
     unit = re.sub(r'-n[0-9]+$', '', name)
-    m = re.fullmatch(r'.*-n([0-9]+)', name, re.S)
-    k = m.group(1) if m else name
+    k = suffix_number(name, 'n') or name
     lines = followups(path, f'{unit} n{k}')
     with open(f'{store}/followups.md', 'ab') as f:
         f.write(''.join(lines).encode('utf-8', 'surrogateescape'))
@@ -99,7 +97,7 @@ def new_note(ctx, args):
     through = ''
     if rest and rest[0] == '--through':
         if len(rest) < 2:
-            raise Die('$2: unbound variable')
+            raise unbound_arg()
         through = rest[1]
     elif rest and rest[0] != '':
         raise Die(f'unknown option {rest[0]}')

@@ -6,7 +6,7 @@ import re
 
 from .collate import collate_key, glob_sorted
 from .review import jq_raw, noted_through, review_base, steps_file
-from .store import alt, bash_int, cut_chars, expected_report, header_field, last_line, pair_json, read_text, unit_name, update
+from .store import alt, bash_int, cut_chars, expected_report, header_field, last_line, pair_json, read_text, suffix_number, unit_name, update
 from .commands.status import latest
 
 
@@ -91,8 +91,8 @@ def fresh_reply(ctx, store):
             continue
         if not ctx.variant.report_ready(ctx, store, f).ready:
             continue
-        m = re.fullmatch(r'.*-[sq]([0-9]+)', unit_name(f), re.S)
-        key = t * 1000 + (int(m.group(1)) if m else 999)
+        k = suffix_number(unit_name(f), 'sq')
+        key = t * 1000 + (int(k) if k else 999)
         if key > best:
             best, reply = key, f
     if not reply:
@@ -177,4 +177,4 @@ def review_delta(store, report):
         cols = last_line(file).split('\t')
         head = cols[1] if len(cols) > 1 else cols[0]
     base = review_base(store, unit)
-    return f'review-delta: {base.encode()[:9].decode(errors="replace")}..{head[:9]} (steps reviewed through {noted_through(store, unit)})\n'
+    return f'review-delta: {cut_chars(base, 9)}..{cut_chars(head, 9)} (steps reviewed through {noted_through(store, unit)})\n'

@@ -611,6 +611,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 side['stdout'] = self.mask_minutes(re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', side['stdout']))
                 side['calls'] = self.collapse_polls(side['calls'])
             results[name] = got
+            if name == 'a settle hold that is not an integer':
+                # the words come from this host's bash, not from the port: bash 5.3 says "integer expected", earlier ones "integer expression expected"
+                probe = subprocess.run(['bash', '-c', '[ 1 -lt x ]'], capture_output=True, text=True, check=False, timeout=30).stderr
+                wording = re.fullmatch(r'bash: line [0-9]+: \[: x: (.*)\n', probe).group(1)
+                self.assertEqual(got['stderr'], f'<core>: line N: [: 1.5: {wording}\n', 'the port follows the host bash here: it hard-codes the 5.3 text')
             if name == 'without pair.json':
                 # Permitted difference: with no pair.json the bash goes on with an empty agent name and prints a pair of error lines
                 # for every field() it reads (some 40 lines, and a herdr call for the empty name); Python stops after the first pair.
@@ -1829,6 +1834,19 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                                     ('empty steps', dict(rows=[], report='done'), True), ('no tab in the last row', dict(rows=[steps3[0], f'{c2}\n'], report='done', head='x'), True)):
             lay(**kw)
             self.assertEqual(replies.review_delta(str(st), str(st / 'reports/001-x.md')), self.bash_value(f'review_delta {st} {st}/reports/001-x.md')[1] + ('\n' if self.bash_value(f'review_delta {st} {st}/reports/001-x.md')[1] else ''), name)
+        # `cut -c1-9` and `${head:0:9}` count characters in a UTF-8 locale and bytes in C
+        wide = '\u00e9' * 12
+        for name, kw in (('wide head in the last row', dict(rows=[steps3[0], row(2, wide, T0 + 20)], report='done', head='x')),
+                         ('wide base from the dispatch', dict(rows=steps3, report='done', extra_pair={'dispatch': {'brief': f'{st}/briefs/001-x.md', 'head': wide}}))):
+            lay(**kw)
+            for locale_name in ('en_US.UTF-8', 'C'):
+                with mock.patch.dict(os.environ, {'LC_ALL': locale_name}):
+                    ours = replies.review_delta(str(st), str(st / 'reports/001-x.md'))
+                # bytes, because `cut -c` in C can split a character
+                r = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair; roles=(sidekick); '
+                                    f'store_dirs=(plans); slug_max=21\n. {scripts / "pair-core.sh"}\nreview_delta {st} {st}/reports/001-x.md'],
+                                   env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True, timeout=120)
+                self.assertEqual(ours.encode('utf-8', 'surrogateescape'), r.stdout, (name, locale_name))
 
     def bash_at(self, snippet, now, extra=None):
         """The harness with `date +%s` fixed at now, so the clock the bash reads is the clock the Python is given."""
@@ -2276,6 +2294,28 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     return e.code, ''
 
         return self.provider_both(name, call_bash, call_py, **kw)
+
+    def test_provider_hint_keeps_the_bytes_of_a_screen_that_is_not_utf8_as_the_bash_does(self):
+        # grep -o in a UTF-8 locale cannot match across a byte that is not UTF-8; in C every byte is a character
+        screens = {'bad bytes around the match': b'quiet \xff\xfe rate limit hit caf\xc3\xa9 \xe9 end\n', 'bad byte after the match': b'rate limit \xff only\n',
+                   'bad byte inside a word': b'rate\xfflimit then overloaded\n', 'only bad bytes': b'\xff\xfe\n'}
+        for locale_name in ('en_US.UTF-8', 'C'):
+            for name, screen in screens.items():
+                outs = []
+                for who in ('bash', 'py'):
+                    st, env = self.provider_world(f'{who}-{locale_name}-{len(outs)}-{name}'.replace(' ', '-').replace('.', '-'), kind='claude', screen='')
+                    (st.parent / 'fake/screen/s1').write_bytes(screen)
+                    env['LC_ALL'] = locale_name
+                    if who == 'bash':
+                        r = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair; roles=(sidekick); '
+                                            f'store_dirs=(plans); slug_max=21\n. {scripts / "pair-core.sh"}\nprovider_hint {st}'],
+                                           env={**self.env, **env}, capture_output=True, check=True, timeout=120)
+                        outs.append(r.stdout)
+                    else:
+                        with mock.patch.dict(os.environ, env):
+                            outs.append(providers.provider_hint(str(st)).encode('utf-8', 'surrogateescape'))
+                self.assertEqual(outs[1], outs[0], (locale_name, name))
+        self.assertEqual(outs[0], b'')
 
     def test_provider_hint_matches_bash(self):
         error_log = self.pi_line(error='Reached free model rate limit. Your limit will reset in 50 minutes.') + '\n'
@@ -2832,6 +2872,28 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(out(self.run_pair('new-steer', str(st), '002', '--supersedes', str(st / 'nope.md'))),
                          (1, '', f'pair.sh: superseded steer not found: {st}/nope.md\n'))
 
+    def test_new_steer_counts_the_steers_bash_tests_with_e_so_a_dangling_symlink_does_not_count(self):
+        # d06a932's `[ -e "$f" ] || continue` is false for a link whose target is gone; the glob alone still lists it
+        self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
+        st = self.path / 'state/pstack/pair/demo'
+        self.run_pair('new-brief', str(st), 'one')
+        outcomes = []
+        for label, setup in (('only a dangling link', ()), ('one real steer and a dangling link', ('s1',)), ('two real steers and a dangling link', ('s1', 's2'))):
+            for f in (st / 'steers').iterdir():
+                f.unlink()
+            for k in setup:
+                (st / f'steers/001-one-{k}.md').write_text('supersedes: none\n')
+            (st / 'steers/001-one-s9.md').symlink_to(self.path / 'nowhere')
+            got = {}
+            for who, script in (('port', None), ('bash', self.legacy_pair())):
+                r = self.run_pair('new-steer', str(st), "001", script=script)
+                got[who] = (r.returncode, r.stdout, r.stderr)
+                if r.stdout.strip():
+                    Path(r.stdout.strip()).unlink()
+            self.assertEqual(got['port'], got['bash'], label)
+            outcomes.append(got['bash'][:1] + (got['bash'][1].rsplit('/', 1)[-1].strip(),))
+        self.assertEqual(outcomes, [(0, '001-one-s1.md'), (0, '001-one-s2.md'), (7, '')])
+
     def test_new_note_checks_in_bash_order_and_defaults_through_to_the_shown_step(self):
         self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
         st = self.path / 'state/pstack/pair/demo'
@@ -3070,6 +3132,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
         with self.assertRaises(RuntimeError):
             store.update(str(st), boom)
+        self.assertEqual((st / 'pair.json').read_bytes(), before)
+        self.assertEqual(sorted(p.name for p in st.iterdir() if 'pair' in p.name), ['pair.json'])
+
+    def test_update_whose_document_cannot_be_serialised_leaves_no_pair_json_tmp_and_frees_the_lock(self):
+        st = self.fixture_store()
+        before = (st / 'pair.json').read_bytes()
+        with self.assertRaises(TypeError):
+            store.update(str(st), lambda doc: doc.update(bad={1, 2}))
         self.assertEqual((st / 'pair.json').read_bytes(), before)
         self.assertEqual(sorted(p.name for p in st.iterdir() if 'pair' in p.name), ['pair.json'])
 
@@ -3412,24 +3482,53 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss')
     DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'progress_path',
                   'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
-                  'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update',
+                  'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'queued_brief', 'json_update', 'pair_file',
                   'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
                   'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
                   'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
                   'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
-                  'require_agreed_plan', 'prune_pending', 'record_sent', 'require_fresh_session', 'submit_typed', 'prompt_sidekick', 'send_and_wait')
+                  'prune_pending', 'record_sent', 'require_fresh_session', 'submit_typed', 'prompt_sidekick', 'send_and_wait')
 
-    def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
+    # No bash caller is left, but kitchen.sh still copies it with copy_fn (kitchen.sh is out of reach of the unit that found this), so the body stays
+    # until that line goes. Phase 3 deletes the body in pair-core.sh and kitchen's override together.
+    KEPT_FOR_COPY_FN = ('require_agreed_plan',)
+
+    # a bash helper whose Python twin has another name
+    TWIN_NAMES = {'json_update': 'update'}
+
+    def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller_and_a_python_twin(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
         core = text[scripts / 'pair-core.sh']
         for name in self.PORTED:
             self.assertRegex(core, rf'(?m)^cmd_{name}\(\) \{{ pycore (--exec )?\S+ "\$@"; \}}$', name)
         defined = core + text[scripts / 'prime-agent.sh']
+        # a comment that names a helper, and a copy_fn line that aliases one, are not calls
+        code = {p: '\n'.join(l for l in body.split('\n') if not re.match(r'\s*(#|copy_fn\s)', l)) for p, body in text.items()}
+        python = '\n'.join(p.read_text() for p in (scripts / 'pstack_core').rglob('*.py'))
         for helper in self.DUPLICATED:
             self.assertRegex(defined, rf'(?m)^{helper}\(\) \{{$', helper)
-            callers = sum(len(re.findall(rf'(?<![\w-]){helper}(?![\w-])(?!\(\) \{{)', body)) for body in text.values())
+            callers = sum(len(re.findall(rf'(?<![\w-]){helper}(?![\w-])(?!\(\) \{{)', body)) for body in code.values())
             self.assertGreater(callers, 0, f'{helper} has no bash caller left: delete the bash twin')
+            self.assertRegex(python, rf'(?m)^\s*def {self.TWIN_NAMES.get(helper, helper)}\(', f'{helper} has no Python twin')
 
+    def test_a_bash_helper_kept_only_for_a_copy_fn_line_is_still_copied_and_has_a_python_twin(self):
+        text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
+        python = '\n'.join(p.read_text() for p in (scripts / 'pstack_core').rglob('*.py'))
+        for helper in self.KEPT_FOR_COPY_FN:
+            self.assertRegex(text[scripts / 'pair-core.sh'], rf'(?m)^{helper}\(\) \{{$', helper)
+            self.assertRegex(python, rf'(?m)^\s*def {helper}\(', helper)
+            copies = [p.name for p, body in text.items() if re.search(rf'(?m)^copy_fn {helper} ', body)]
+            self.assertEqual(copies, ['kitchen.sh'], f'{helper} is no longer copied: delete its bash body')
+            calls = sum(len(re.findall(rf'(?<![\w-]){helper}(?![\w-])(?!\(\) \{{)', '\n'.join(l for l in body.split('\n') if not re.match(r'\s*(#|copy_fn\s)', l))))
+                        for p, body in text.items() if p.name != 'kitchen.sh')
+            self.assertEqual(calls, 0, f'{helper} has a caller again: move it back to DUPLICATED')
+
+    def test_the_duplicated_guard_ignores_comments_and_copy_fn_lines(self):
+        # a helper named only in a comment or in a copy_fn alias line has no caller
+        body = "# event is logged here\ncopy_fn event core_event\n  # event again\n\tcopy_fn\tevent x\nevent() {\n}\n"
+        code = '\n'.join(l for l in body.split('\n') if not re.match(r'\s*(#|copy_fn\s)', l))
+        self.assertEqual(len(re.findall(r'(?<![\w-])event(?![\w-])(?!\(\) \{)', code)), 0)
+        self.assertEqual(len(re.findall(r'(?<![\w-])event(?![\w-])(?!\(\) \{)', body)), 4)
 
     def test_pair_sh_stops_with_a_message_when_python3_is_not_on_path(self):
         bin_dir = self.path / 'bin-without-python3'

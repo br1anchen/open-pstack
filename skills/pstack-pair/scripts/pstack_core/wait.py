@@ -500,6 +500,7 @@ def wait_for_reply(ctx, store, name, timeout, now=None):
                 settled_at = clock()
             hold = bash_int(settle_hold)
             if hold is None:
+                # bash 5.3's words; bash 5.2 and earlier say "integer expression expected". Only stderr differs, on an odd PAIR_SETTLE_HOLD.
                 path, number = core_line('-lt "$settle_hold_s"', 'wait_for_reply() {')
                 sys.stderr.write(f'{path}: line {number}: [: {settle_hold}: integer expected\n')
                 break

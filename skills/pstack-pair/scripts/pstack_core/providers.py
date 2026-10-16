@@ -23,7 +23,9 @@ def grep_o_context(text, before, after):
     if not utf8_locale():
         text = text.encode('utf-8', 'surrogateescape').decode('latin-1')
     found = []
-    for line in text.split('\n'):
+    # in a UTF-8 locale grep's . does not match a byte that is not UTF-8, so no match spans one: each stretch between them is a line
+    lines = [part for line in text.split('\n') for part in (re.split('[\udc80-\udcff]+', line) if utf8_locale() else [line])]
+    for line in lines:
         n = len(line)
         longest = {}
         for a in ALTERNATIVES:

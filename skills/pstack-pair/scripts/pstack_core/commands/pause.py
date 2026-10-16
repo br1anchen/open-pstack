@@ -1,6 +1,6 @@
 import os
 
-from ..errors import Die
+from ..errors import Die, unbound_arg
 from ..store import event, pair_file
 
 
@@ -11,7 +11,7 @@ def pause(ctx, args):
     reason = 'paused by the human'
     if rest and rest[0] == '--reason':
         if len(rest) < 2:
-            raise Die('$2: unbound variable')
+            raise unbound_arg()
         reason = rest[1]
     elif rest and rest[0] != '':
         raise Die(f'unknown option {rest[0]}')

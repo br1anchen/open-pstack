@@ -10,7 +10,7 @@ from ..collate import collate_key, glob_sorted, newest
 from ..errors import Die
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import alt, header_field, pair_json, paused_reason, read_text, unit_name
+from ..store import alt, header_field, pair_json, paused_reason, read_text, suffix_number, unit_name
 
 
 class NoPairJson(Exception):
@@ -126,8 +126,7 @@ def lines(ctx, store, out):
             if not os.path.exists(f):
                 continue
             base = os.path.basename(f)
-            m = re.fullmatch(r'.*-q([0-9]+)', unit_name(f), re.S)
-            k = m.group(1) if m else unit_name(f)
+            k = suffix_number(unit_name(f), 'q') or unit_name(f)
             if not glob.glob(os.path.join(glob.escape(store), 'answers', f'{glob.escape(base[:3])}-*-a{glob.escape(k)}.md')):
                 asks += 1
         if asks > 0:

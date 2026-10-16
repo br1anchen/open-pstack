@@ -163,6 +163,15 @@ def alt(value, default=''):
     return default if value is None or value is False else value
 
 
+def jq_raw(value):
+    """jq -r of a value: null, true and false print as words."""
+    if value is None:
+        return 'null'
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    return value if isinstance(value, str) else str(value)
+
+
 def dispatched_brief(store):
     """field "$store" '.dispatch.brief // empty'"""
     dispatch = alt(pair_json(store).get('dispatch'), {})
@@ -212,9 +221,20 @@ def expected_report(store, brief):
     return f'{store}/reports/{re.sub(r"-a[0-9]+$", "", unit_name(brief))}.md'
 
 
+def suffix_number(name, letters):
+    """The digits of a trailing -<letter><digits> in name, the letter one of letters (bash ${name##*-n}), or None."""
+    m = re.fullmatch(rf'.*-[{letters}]([0-9]+)', name, re.S)
+    return m.group(1) if m else None
+
+
+def note_id(path):
+    """n<k> for a note file, else its unit name unchanged."""
+    k = suffix_number(unit_name(path), 'n')
+    return f'n{k}' if k else unit_name(path)
+
+
 def steer_number(path):
-    m = re.fullmatch(r'.*-s([0-9]+)', unit_name(path), re.S)
-    return m.group(1) if m else unit_name(path)
+    return suffix_number(unit_name(path), 's') or unit_name(path)
 
 
 def open_steers(store):
@@ -291,8 +311,9 @@ def update(store, mutate):
         with open(f'{store}/pair.json', encoding='utf-8') as f:
             doc = json.load(f)
         mutate(doc)
+        text = _dumps(doc)
         with open(f'{store}/pair.json.tmp', 'w', encoding='utf-8') as out:
-            out.write(_dumps(doc))
+            out.write(text)
         os.replace(f'{store}/pair.json.tmp', f'{store}/pair.json')
     finally:
         try:

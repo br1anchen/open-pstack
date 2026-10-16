@@ -1,7 +1,7 @@
 import glob
 import os
 
-from ..errors import Die
+from ..errors import Die, unbound_arg
 from ..collate import glob_sorted, newest
 from ..store import fill_template, header_field, new_from_template, pair_file, readlink_f, unit_name, write_text
 
@@ -31,7 +31,7 @@ def new_steer(ctx, args):
             force, rest = True, rest[1:]
         elif rest[0] == '--supersedes':
             if len(rest) < 2:
-                raise Die('$2: unbound variable')
+                raise unbound_arg()
             supersedes, rest = readlink_f(rest[1]), rest[2:]
         else:
             raise Die(f'unknown option {rest[0]}')
@@ -40,7 +40,8 @@ def new_steer(ctx, args):
     if not briefs:
         raise Die(f'no brief for unit {seq}')
     slug = unit_name(briefs[0])[4:]
-    existing = glob.glob(os.path.join(glob.escape(store), 'steers', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md'))
+    # bash counts a steer with [ -e ], which is false for a dangling symlink; the glob alone lists one
+    existing = [f for f in glob.glob(os.path.join(glob.escape(store), 'steers', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')) if os.path.exists(f)]
     k = len(existing) + 1
     fresh = sum(1 for f in existing if header_field(f, 'supersedes') == 'none')
     if supersedes != 'none':
