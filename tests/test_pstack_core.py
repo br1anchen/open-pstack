@@ -612,10 +612,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 side['calls'] = self.collapse_polls(side['calls'])
             results[name] = got
             if name == 'a settle hold that is not an integer':
-                # the words come from this host's bash, not from the port: bash 5.3 says "integer expected", earlier ones "integer expression expected"
-                probe = subprocess.run(['bash', '-c', '[ 1 -lt x ]'], capture_output=True, text=True, check=False, timeout=30).stderr
-                wording = re.fullmatch(r'bash: line [0-9]+: \[: x: (.*)\n', probe).group(1)
-                self.assertEqual(got['stderr'], f'<core>: line N: [: 1.5: {wording}\n', 'the port follows the host bash here: it hard-codes the 5.3 text')
+                # The port hard-codes bash 5.3's words; bash 5.2 and earlier say "integer expression expected". Pin the port's text exactly, accept
+                # either on the bash side, and compare everything else as it is.
+                self.assertEqual(got['stderr'], '<core>: line N: [: 1.5: integer expected\n')
+                self.assertRegex(want['stderr'], r'\A<core>: line N: \[: 1\.5: (integer expected|integer expression expected)\n\Z')
+                want['stderr'] = want['stderr'].replace('integer expression expected', 'integer expected')
             if name == 'without pair.json':
                 # Permitted difference: with no pair.json the bash goes on with an empty agent name and prints a pair of error lines
                 # for every field() it reads (some 40 lines, and a herdr call for the empty name); Python stops after the first pair.
