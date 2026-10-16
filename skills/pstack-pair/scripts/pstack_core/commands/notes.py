@@ -4,8 +4,9 @@ import re
 import sys
 
 from ..errors import Die
+from ..collate import glob_sorted
 from ..review import awk_equal, jq_raw, noted_through, open_notes, require_filled, review_base, steps_file
-from ..store import (alt, dispatched_brief, event, fill_template, glob_sorted, header_field, pair_file, pair_json, pause_notice,
+from ..store import (alt, dispatched_brief, event, fill_template, header_field, pair_file, pair_json, pause_notice,
                      read_text, steer_notice, unit_name, write_text)
 
 

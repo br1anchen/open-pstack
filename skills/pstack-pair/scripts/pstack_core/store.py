@@ -1,24 +1,10 @@
 import glob
 import json
-import _locale
 import os
 import re
 import time
 
 from .errors import Die
-
-
-def collate_key():
-    """A sort key that orders names as the shell's globs and ls do under the user's LC_COLLATE."""
-    try:
-        _locale.setlocale(_locale.LC_COLLATE, "")
-    except _locale.Error:
-        pass
-    return _locale.strxfrm
-
-
-def glob_sorted(paths):
-    return sorted(paths, key=collate_key())
 
 
 def last_line(path):

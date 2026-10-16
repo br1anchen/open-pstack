@@ -13,7 +13,7 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import cli, review, store  # noqa: E402
+from pstack_core import cli, herdr, review, store  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die  # noqa: E402
 
@@ -304,9 +304,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             cls.legacy_dir = Path(cls.legacy_tmp.name)
         return cls.legacy_dir / 'skills/pstack-pair/scripts/pair.sh'
 
-    def run_pair(self, *args, script=None):
+    def run_pair(self, *args, script=None, extra_env=None):
         env = {**self.env, 'FAKE': str(self.path), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
-               'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}
+               'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path), **(extra_env or {})}
         return subprocess.run([str(script or scripts / 'pair.sh'), *args], env=env, capture_output=True, text=True, check=False)
 
     def test_new_steer_counts_files_caps_fresh_steers_and_answers_objections(self):
@@ -384,6 +384,51 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(out['legacy'], out['port'])
         self.assertEqual(out['port']['no parent'], (1, '', ''))
         self.assertTrue(out['port']['not a file'][2].startswith('pair.sh: superseded steer not found: '))
+
+
+    def fake_herdr_dir(self, label, state, busy):
+        fake = self.path / f'fake-{label}'
+        for d in ('agents', 'busy', 'screen', 'panes'):
+            (fake / d).mkdir(parents=True)
+        if state != 'absent':
+            (fake / 'agents/w').write_text(f'{state} devin\n')
+        if busy:
+            (fake / 'busy/w').write_text('')
+        return fake
+
+    def test_agent_status_matches_bash_in_every_state_and_calls_the_same_herdr(self):
+        for i, (state, busy) in enumerate((('idle', False), ('working', False), ('done', True), ('done', False), ('idle', True),
+                                           ('blocked', False), ('absent', False))):
+            theirs_dir, ours_dir = self.fake_herdr_dir(f'bash{i}', state, busy), self.fake_herdr_dir(f'py{i}', state, busy)
+            theirs = self.bash('agent_status w; agent_kind w', {'FAKE': str(theirs_dir)})
+            with mock.patch.dict(os.environ, {**self.env, 'FAKE': str(ours_dir)}):
+                status = herdr.agent_status('w')
+                kind = herdr.agent_kind('w')
+                ours = f'{status}\n' + (f'{kind}\n' if kind else '')
+            self.assertEqual(ours, theirs, (state, busy))
+            self.assertEqual((ours_dir / 'calls.log').read_text(), (theirs_dir / 'calls.log').read_text(), (state, busy))
+            self.assertEqual(ours.splitlines()[0], 'working' if busy and state in ('idle', 'done') else state, (state, busy))
+
+
+    @unittest.skipUnless(any(l.lower().replace('-', '') == 'en_us.utf8' for l in subprocess.run(['locale', '-a'], capture_output=True, text=True).stdout.split()),
+                         'needs the en_US.UTF-8 locale')
+    def test_first_brief_follows_the_callers_collation_like_bash(self):
+        legacy = self.legacy_pair()
+        self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
+        st = self.path / 'state/pstack/pair/demo'
+        for name in ('001-a-c.md', '001-a_b.md'):
+            (st / 'briefs' / name).write_text('')
+        picked = {}
+        for locale_name in ('C', 'en_US.UTF-8'):
+            env = {'LC_ALL': locale_name}
+            for label, script in (('legacy', legacy), ('port', None)):
+                for f in (st / 'steers').glob('*'):
+                    f.unlink()
+                out = self.run_pair('new-steer', str(st), '001', script=script, extra_env=env).stdout.strip()
+                picked[locale_name, label] = out
+        self.assertEqual(picked['C', 'legacy'], picked['C', 'port'])
+        self.assertEqual(picked['en_US.UTF-8', 'legacy'], picked['en_US.UTF-8', 'port'])
+        self.assertNotEqual(picked['C', 'port'], picked['en_US.UTF-8', 'port'])
 
 
     def test_pause_resume_and_progress_through_pair_sh(self):

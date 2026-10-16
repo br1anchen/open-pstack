@@ -4,7 +4,8 @@ import re
 import subprocess
 
 from .errors import Die
-from .store import alt, glob_sorted, header_field, last_line, pair_json, read_text, unit_name
+from .collate import glob_sorted
+from .store import alt, header_field, last_line, pair_json, read_text, unit_name
 
 
 def steps_file(store, unit):

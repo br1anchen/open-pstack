@@ -2,7 +2,8 @@ import glob
 import os
 
 from ..errors import Die
-from ..store import collate_key, fill_template, glob_sorted, header_field, new_from_template, pair_file, unit_name, write_text
+from ..collate import collate_key, glob_sorted
+from ..store import fill_template, header_field, new_from_template, pair_file, unit_name, write_text
 
 
 def new_plan(ctx, args):
