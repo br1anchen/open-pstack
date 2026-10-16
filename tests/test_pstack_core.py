@@ -262,7 +262,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_report_ready_matches_bash_on_every_branch(self):
         st, c1, c2, c3 = self.readiness_fixture()
         missing = 'f' * 40
-        both, tail_gone, no_tab = [(1, c1, ''), (2, c2, '')], [(1, c1, ''), (2, missing, '')], None
+        both, tail_gone = [(1, c1, ''), (2, c2, '')], [(1, c1, ''), (2, missing, '')]
         # name, steps rows (None: no file, []: empty file), blocking notes, report name, status, head
         cases = [
             ('not done', both, (), '001-x.md', 'partial', c3),
@@ -882,7 +882,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_queue_ab_kitchen_runs_classify_and_its_gates_first(self):
         cases = self.queue_ab_cases()
         toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
-        escalated = lambda text: text.replace('playbook: investigation\n', 'playbook: feature\nplan: {st}/plans/001-x.md\nrisk: escalated (a contract)\n')
         plan_files = {'plans/001-x.md': '# Plan\n', 'reviews/001-x.md': '# R\n\nverdict: agreed\n'}
         picked = {name: {**cases[name], 'repo_files': {**cases[name].get('repo_files', {}), **toml}} for name in (
             'queue a brief', 'queue the same brief again', 'the queue is held by another brief', 'replace the queue', 'a paused store', 'an unfilled brief',
@@ -1161,7 +1160,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         # and reads as an empty queue: both halves call it that way.
         snippet = 'b="$(take_queued "$store")" && echo "got=$b" || echo "got-nothing"'
         call = lambda ctx, st, fill: (lambda b: f'got={b}\n' if b is not None else 'got-nothing\n')(dispatch.take_queued(st, self.SEND_NOW))
-        brief = '# Brief 002-y\n'
         cases = {
             'a queued brief': dict(files={'queue': '{st}/briefs/002-y.md\n'}),
             'a queued brief with trailing blank lines': dict(files={'queue': '{st}/briefs/002-y.md\n\n\n'}),
@@ -1191,9 +1189,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.send_both('fresh-null-sidekick', 'require_fresh_session "$store"', lambda ctx, st, fill: send.require_fresh_session(st), pair={'sidekick': None})
 
     def test_send_helpers_submit_typed_and_prompt_sidekick_match_bash(self):
-        marker = '001-x.md'
         screen = lambda text: {'screens': {'s1': text}}
-        typed = lambda n: ' '.join(['x'] * n)
         call = lambda ctx, st, fill: f'submitted={send.submit_typed("s1", "001-x.md")}\n'
         snippet = 'submit_typed s1 001-x.md; echo "submitted=$submitted"'
         got = self.send_both('submit-not-visible', snippet, call, **screen('a quiet pane\n'))
@@ -1239,8 +1235,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                        lambda ctx, st, fill: f'submitted={send.prompt_sidekick("s1", "PAIR BRIEF " + st + "/briefs/a b.md")}\n', agents={'s1': 'working claude'})
 
     def send_ab_cases(self):
-        T = int(time.time())
-        at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(T - 20 * 60 - 30))
         idle = {'s1': 'idle claude'}
         brief_text = lambda *lines, headers='playbook: investigation\n': '# Brief 003-z\n\n' + headers + 'timebox: 45\n\n## Scope\n\nmay write:\n' + ''.join(f'- {l}\n' for l in (lines or ('src/a.py',))) + '\nmust not write:\n- lib/**\n'
         plan_files = {'plans/001-x.md': '# Plan\n\nscale: small\n', 'reviews/001-x.md': '# Review\n\nverdict: agreed\n'}
@@ -1369,8 +1363,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.send_ab_run({n: cases[n] for n in ('a plan to its reply', 'a plan with send-only', 'the sidekick is absent')}, skill)
 
     def test_send_ab_kitchen_dispatch_and_routine_discuss(self):
-        T = int(time.time())
-        at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(T - 20 * 60 - 30))
         toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
         env = {'KITCHEN_QUIET_POLL_S': '0', 'KITCHEN_QUIET_MAX_S': '2'}
         brief = lambda headers='playbook: investigation\n': '# Brief 003-z\n\n' + headers + 'timebox: 45\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- lib/**\n'
@@ -1688,7 +1680,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for case, report in (('drops one', f'{st}/reports/002-x.md'), ('drops none', f'{st}/reports/009-x.md'), ('answer suffix', f'{st}/reports/001-x.md')):
             for label in ('bash', 'py'):
                 lay(briefs[:3] + [f'{st}/briefs/001-x-a2.md'], (1, 2))
-                before = (st / 'pair.json').read_bytes()
                 if label == 'bash':
                     self.bash(f'mark_seen {st} {shlex.quote(report)}')
                 else:
@@ -1708,10 +1699,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def test_replies_fresh_reply_and_seen_reply_match_bash(self):
         ctx = self.replies_ctx()
-        c1, c2, c3 = None, None, None
         st = self.replies_world('r4')
         head = self.replies_shas[2]
-        cases = {}
         base = {'file': f'{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1_700_000_000}
         def lay(files, sent, notes=(), steps=None):
             for d in ('reports', 'notes', 'steps'):
@@ -2109,7 +2098,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             pair()
             build()
             # Back-date the dispatch so the sleeper started just now counts as started since it.
-            progress_before = progress.read_bytes() if progress.exists() else None
             seen_before = seen.read_bytes() if seen.exists() else None
             self.git('status', '--porcelain')
             r = self.bash_at(f'checkin {st} 9', now, {'HERDR_SOCKET_PATH': ''})
@@ -2644,8 +2632,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             out = self.gate_python('pstack-kitchen', lambda c: variant.require_agreed_plan(c, str(top), str(brief)), top)
             self.assertEqual((out[0], out[2].replace(str(top), '<T>')), expect, name)
 
-        advice = lambda top: f'pair.sh: plan <T>/plans/001-x.md has no consultant advice under advice/001-*; run pair.sh discuss so both agents respond 6\n'
-        gate('kg1', 'escalated (a contract)', (6, advice(None)), review=agreed)
+        advice = 'pair.sh: plan <T>/plans/001-x.md has no consultant advice under advice/001-*; run pair.sh discuss so both agents respond 6\n'
+        gate('kg1', 'escalated (a contract)', (6, advice), review=agreed)
         gate('kg2', 'escalated', (0, ''), review=agreed, advice=True)
         gate('kg3', 'escalated', (6, "pair.sh: playbook feature needs an agreed plan; brief has plan: none 6\n"), plan='none')
         gate('kg4', 'routine', (0, ''), plan='none')

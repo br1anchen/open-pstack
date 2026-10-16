@@ -13,10 +13,10 @@ from .checkin import checkin, sidekick_activity
 from .errors import Die, Exit
 from .herdr import agent_status, pane_busy
 from .providers import provider_hint
-from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply, sent_field,
+from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
 from .review import jq_raw, review_base
-from .store import alt, bash_int, cut_chars, event, header_field, pair_file, pair_json, paused_reason, unit_name, update
+from .store import alt, bash_int, cut_chars, event, header_field, pair_json, paused_reason, unit_name, update
 
 
 class WaitResult:
@@ -132,7 +132,6 @@ def bash_arith(expr):
             if pos < n and expr[pos] in '*/%' and expr[pos:pos + 2] != '**':
                 op = expr[pos]
                 pos += 1
-                start = pos
                 skip()
                 rhs_at = pos
                 rhs = power()
@@ -323,10 +322,6 @@ def agent_state(out, default):
         status = jq_member(jq_member(jq_member(value, 'result'), 'agent'), 'agent_status')
         return status if truthy(status) else default
     return jq_run(out, program, 'settled' if default == 'settled' else None)
-
-
-def json_update_failed(code, text=''):
-    raise Exit(code, text)
 
 
 def finish_wait(ctx, store, interval, result, mode, report='', now=None):
