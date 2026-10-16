@@ -19,6 +19,7 @@
 - `python3 scripts/check-pstack.py` and `python3 tests/run.py` must pass before a commit. `tests/run.py` runs one process per test in parallel; `-k <text>` selects tests by id; `PSTACK_PAIR_UPDATE=1` regenerates the pair goldens, and a golden changes only when the transcript is meant to change.
 - Tests are deterministic: no sleeps and no elapsed-time asserts. Trigger a state change at a fixed point with the fake herdr hooks (`$FAKE/once/<subcommand>`, `$FAKE/report-after`) and assert on output.
 - Tests are hermetic: they scrub inherited `PSTACK_KITCHEN_*`, `KITCHEN_*` and `PAIR_*` variables, so a run inside a live kitchen gives the same result as one outside it.
+- Drive pair.sh and kitchen.sh by hand only against the fake herdr: put `tests/pstack-pair/bin` first on PATH and point XDG_STATE_HOME at a temp directory, as `tests/pstack-pair/scenario.sh` does. `init`, `spawn`, `stop` and `close` against the real herdr register, rename or close the calling pane, so an agent that runs them there loses its own pane.
 
 ## Security
 
