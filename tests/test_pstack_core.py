@@ -1,6 +1,7 @@
 """The Python core behind pair-core.sh: die parity and the store helpers it duplicates from bash."""
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -12,7 +13,7 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import cli, store  # noqa: E402
+from pstack_core import cli, review, store  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die  # noqa: E402
 
@@ -179,6 +180,108 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_event_detail_defaults_to_empty(self):
         store.event(str(self.path), 'sidekick', 'step', '-')
         self.assertTrue((self.path / 'events.tsv').read_text().endswith('\tsidekick\tstep\t-\t\n'))
+
+
+    def test_jq_alternative_treats_false_and_a_missing_key_as_absent(self):
+        for name, pair in (('false', {'dispatch': {'brief': False}, 'notice_steers': False}), ('missing', {})):
+            st = self.path / name
+            st.mkdir()
+            (st / 'pair.json').write_text(json.dumps(pair))
+            self.assertEqual(store.progress_path(str(st)) or 'NONE', self.bash(f'progress_path {st} || echo NONE').strip(), name)
+            self.assertEqual(store.steer_notice(str(st)), self.bash(f'steer_notice {st}'), name)
+
+    def notes_fixture(self):
+        st = self.fixture_store()
+        (st / 'notes').mkdir()
+        (st / 'steps').mkdir()
+        for name, status in (('n1', 'blocking'), ('n2', 'clear'), ('n3', 'blocking'), ('n10', 'blocking')):
+            (st / f'notes/001-one-{name}.md').write_text(f'# Note\n\nstatus: {status}\n')
+        (st / 'notes/001-one-n4.md.draft').write_text('status: blocking\n')
+        (st / 'notes/002-two-n7.md').write_text('status: blocking\n')
+        (st / 'steps/001-one.tsv').write_text('1\taaa111\tfirst\t\n2\tbbb222\tsecond\tn3,n9\n')
+        return st
+
+    def test_noted_through_and_open_notes_match_bash(self):
+        st = self.notes_fixture()
+        for unit in ('001-one', '001-one.md', '002-two', '003-none'):
+            self.assertEqual(str(review.noted_through(str(st), unit)), self.bash(f'noted_through {st} {unit}').strip(), unit)
+            self.assertEqual('\n'.join(review.open_notes(str(st), unit)), self.bash(f'open_notes {st} {unit}').rstrip('\n'), unit)
+        self.assertEqual(review.steps_file(str(st), '001-one.md'), self.bash(f'steps_file {st} 001-one.md').strip())
+
+    def git_repo(self, branch='main'):
+        repo = self.path / 'repo'
+        repo.mkdir()
+        env = {**self.env, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+        self.git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True).stdout.strip()
+        self.git('init', '-q', '-b', branch)
+        return repo
+
+    def commit(self, name):
+        (self.path / 'repo' / name).write_text(name)
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', name)
+        return self.git('rev-parse', 'HEAD')
+
+    def test_trunk_ref_range_floor_and_review_base_match_bash(self):
+        repo = self.git_repo('work')
+        self.commit('c1')
+        self.assertEqual(review.trunk_ref(str(repo)) or '', self.bash(f'trunk_ref {repo}').strip(), 'no trunk')
+        self.assertEqual(review.trunk_ref(str(repo)), None)
+        self.git('checkout', '-q', '-b', 'main')
+        c2 = self.commit('c2')
+        self.git('checkout', '-q', '-b', 'feature')
+        f1, f2 = self.commit('f1'), self.commit('f2')
+        st = self.fixture_store()
+        pair = {'git_root': str(repo), 'dispatch': {'head': c2}}
+
+        def compare(label, base, tip, steps=None, heads=None):
+            (st / 'pair.json').write_text(json.dumps({**pair, 'heads': heads or {}, 'dispatch': {'head': base}}))
+            (st / 'steps').mkdir(exist_ok=True)
+            steps_path = st / 'steps/001-one.tsv'
+            steps_path.unlink(missing_ok=True)
+            if steps:
+                steps_path.write_text(steps)
+            rev, note = review.range_floor(str(repo), base, tip)
+            out = self.bash(f'range_floor {repo} {base} {tip}; printf "%s\\n%s\\n" "$range_floor_rev" "$range_floor_note"')
+            self.assertEqual(f'{rev}\n{note}\n', out, label)
+            self.assertEqual(review.review_base(str(st), '001-one'), self.bash(f'review_base {st} 001-one').rstrip('\n'), label)
+            return rev, note
+
+        self.assertEqual(review.trunk_ref(str(repo)), 'refs/heads/main')
+        self.assertEqual(compare('base is the merge-base', c2, f2), (c2, ''))
+        self.assertEqual(compare('with a steps file', c2, f2, steps=f'1\t{f1}\ta\t\n2\t{f2}\tb\t\n'), (c2, ''))
+        self.git('checkout', '-q', 'main')
+        c3 = self.commit('c3')
+        self.git('checkout', '-q', 'feature')
+        self.git('rebase', '-q', 'main')
+        g2 = self.git('rev-parse', 'HEAD')
+        rev, note = compare('base behind after a rebase', c2, g2)
+        self.assertEqual((rev, note), (c3, f'recorded base {c2[:9]} is behind where its branch leaves heads/main; measuring from {c3[:9]}'))
+        compare('behind, from a steps file tip', c2, g2, steps=f'1\t{g2}\ta\t\n')
+        compare('base from heads', c2, g2, heads={'001-one': c2})
+        (st / 'pair.json').write_text(json.dumps({'git_root': False, 'cwd': str(repo)}))
+        self.assertEqual(review.review_base(str(st), '001-one'), self.bash(f'review_base {st} 001-one').rstrip('\n'))
+        (st / 'pair.json').write_text(json.dumps({'dispatch': {'head': c2}}))
+        self.assertEqual(review.review_base(str(st), '001-one'), self.bash(f'review_base {st} 001-one').rstrip('\n'))
+        rev, _ = review.range_floor(str(repo), c3, g2, allow_head=True)
+        self.assertEqual(self.bash(f'range_floor {repo} {c3} {g2} --allow-head; echo "$range_floor_rev"').strip(), rev)
+
+    def test_require_filled_matches_bash(self):
+        f = self.path / 'f.md'
+        guided = '^(decided by|status): .*\\|'
+        quoted = shlex.quote(guided)
+        ctxs = {'plain': Context('x', '', '', '', (), (), 1, ''), 'guided': Context('x', '', '', '', (), (), 1, guided)}
+        for text in ('status: done\n', 'status: done | partial\n', 'decided by: human\n', 'a {{b}} c\n', 'x\n'):
+            f.write_text(text)
+            for name, ctx in ctxs.items():
+                r = self.bash(f"unfilled_re={quoted}; [ {name} = plain ] && unfilled_re=; require_filled {f}", check=False)
+                try:
+                    review.require_filled(ctx, str(f))
+                    ours = (0, '')
+                except Die as e:
+                    ours = (1, f'pair.sh: {e.message}\n')
+                self.assertEqual(ours, (r.returncode, r.stderr), (text, name))
+        self.assertIsNone(review.require_filled(ctxs['guided'], str(self.path / 'missing.md')))
 
 
     def run_pair(self, *args):

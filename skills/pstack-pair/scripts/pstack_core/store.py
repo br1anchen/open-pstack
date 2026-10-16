@@ -1,10 +1,24 @@
 import glob
 import json
+import _locale
 import os
 import re
 import time
 
 from .errors import Die
+
+
+def collate_key():
+    """A sort key that orders names as the shell's globs and ls do under the user's LC_COLLATE."""
+    try:
+        _locale.setlocale(_locale.LC_COLLATE, "")
+    except _locale.Error:
+        pass
+    return _locale.strxfrm
+
+
+def glob_sorted(paths):
+    return sorted(paths, key=collate_key())
 
 
 def last_line(path):
@@ -102,7 +116,8 @@ def next_seq(store):
     top = 0
     for d in ('briefs', 'plans', 'reports'):
         for f in glob.glob(os.path.join(glob.escape(store), d, '[0-9][0-9][0-9]-*.md')):
-            top = max(top, int(os.path.basename(f)[:3]))
+            if os.path.exists(f):
+                top = max(top, int(os.path.basename(f)[:3]))
     return f'{top + 1:03d}'
 
 
@@ -151,7 +166,7 @@ def open_steers(store):
         if not os.path.isfile(f) or not re.fullmatch(re.escape(unit) + r'-s[0-9].*\.md', name, re.S):
             continue
         k = steer_number(f)
-        if os.path.isfile(prog) and re.search(f'steer s{k} (applied|withdrawn|late)', read_text(prog)):
+        if os.path.isfile(prog) and re.search(f'steer s{re.escape(k)} (applied|withdrawn|late)', read_text(prog)):
             continue
         if os.path.isfile(f'{store}/reports/{unit}-s{k}.md'):
             continue

@@ -36,3 +36,6 @@ def main(argv):
     except Die as e:
         sys.stderr.write(f'pair.sh: {e.message}\n')
         return e.code
+    except (OSError, ValueError) as e:
+        sys.stderr.write(f'pair.sh: {e}\n')
+        return 1

@@ -2,7 +2,7 @@ import glob
 import os
 
 from ..errors import Die
-from ..store import fill_template, header_field, new_from_template, pair_file, unit_name, write_text
+from ..store import collate_key, fill_template, glob_sorted, header_field, new_from_template, pair_file, unit_name, write_text
 
 
 def new_plan(ctx, args):
@@ -27,7 +27,7 @@ def readlink_f(path):
 
 def newest(paths):
     """ls -t | head -1: newest first, ties by name."""
-    return min(paths, key=lambda p: (-os.stat(p).st_mtime_ns, os.path.basename(p)), default='')
+    return min(paths, key=lambda p: (-os.stat(p).st_mtime_ns, collate_key()(os.path.basename(p))), default='')
 
 
 def new_steer(ctx, args):
@@ -46,7 +46,7 @@ def new_steer(ctx, args):
         else:
             raise Die(f'unknown option {rest[0]}')
     pair_file(store)
-    briefs = sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
+    briefs = glob_sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
     if not briefs:
         raise Die(f'no brief for unit {seq}')
     slug = unit_name(briefs[0])[4:]
