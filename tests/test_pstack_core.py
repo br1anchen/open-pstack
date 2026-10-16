@@ -1725,6 +1725,148 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('state: ', results['herdr timeout payload'][1])
         self.assertIn('boom', results['herdr error as a string'][2])
 
+    GATE_PLAYBOOKS = ('investigation', 'feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd', 'prototype')
+
+    def gate_bash(self, skill, snippet, store_dir):
+        """snippet run with the e6e83e3 pair-core.sh, plus the variant's bash gate as its pair.sh or consultant-core.sh defines it."""
+        skills = self.base_skills()
+        extra = ''
+        if skill in ('pstack-trio', 'pstack-kitchen'):
+            extra = f'. {skills / "pstack-trio/scripts/consultant-core.sh"}\n'
+        elif skill == 'pstack-pair-guided':
+            text = (skills / 'pstack-pair-guided/scripts/pair.sh').read_text()
+            extra = re.search(r'^plan_gate_extra\(\) \{.*?^\}$', text, re.M | re.S).group(0) + '\n'
+        script = (f'set -euo pipefail\nskill_root={skills / skill}; PAIR_SKILL={skill}; state_root=/s; store_label=Pair\nroles=(sidekick consultant); store_dirs=(plans advice); slug_max=21\n'
+                  f'. {skills / "pstack-pair/scripts/pair-core.sh"}\n{extra}{snippet}')
+        r = subprocess.run(['bash', '-c', script], env=self.env, capture_output=True, text=True, check=False, cwd=store_dir)
+        return r.returncode, r.stdout, r.stderr
+
+    def gate_python(self, skill, call, store_dir):
+        ctx = Context(skill, str(root / 'skills' / skill), '/s', 'Pair', ('sidekick', 'consultant'), ('plans', 'advice'), 21, '')
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                call(ctx)
+            code = 0
+        except Die as e:
+            code, err = e.code, io.StringIO(err.getvalue() + f'pair.sh: {e.message}\n')
+        return code, out.getvalue(), err.getvalue()
+
+    def gate_world(self, name, playbook='feature', plan='{plan}', plan_text='# Plan\n\nscale: small\n', review=None, advice=None):
+        """A store with a brief naming the plan, the plan file, its review and its advice, as the case lays them out."""
+        top = self.path / name
+        for d in ('briefs', 'plans', 'reviews', 'advice'):
+            (top / d).mkdir(parents=True)
+        plan_path = top / 'plans/001-x.md'
+        if plan_text is not None:
+            plan_path.write_text(plan_text)
+        header = f'playbook: {playbook}\n' + (f'plan: {plan.format(plan=plan_path)}\n' if plan is not None else '')
+        (top / 'briefs/002-y.md').write_text(f'# Brief\n\n{header}')
+        if review is not None:
+            (top / 'reviews/001-x.md').write_text(f'# Review\n\n{review}')
+        if advice:
+            (top / 'advice/001-x.md').write_text('# Advice\n')
+        return top
+
+    def test_plan_gate_matches_bash_in_every_variant(self):
+        agreed = 'verdict: agreed\n'
+        plain = [('investigation, no gate', dict(playbook='investigation', plan=None)), ('prototype, no gate', dict(playbook='prototype')),
+                 ('plan missing from the brief', dict(plan=None)), ('plan: none', dict(plan='none')), ('plan file missing', dict(plan_text=None, review=agreed)),
+                 ('no review', dict()), ('review not agreed', dict(review='verdict: revise\n')), ('review with no verdict', dict(review='status: x\n')),
+                 ('agreed', dict(review=agreed)), ('agreed, with advice', dict(review=agreed, advice=True)),
+                 ('bug-fix agreed', dict(playbook='bug-fix', review=agreed)), ('pstack-tdd without a plan', dict(playbook='pstack-tdd', plan='')),
+                 ('perf-issue not agreed', dict(playbook='perf-issue', review='verdict: rejected\n'))]
+        guided = [(f'scale {scale}, approval {approval}', dict(plan_text=f'# Plan\n\n{"scale: " + scale + chr(10) if scale else ""}', review=f'verdict: agreed\n{"approval: " + approval + chr(10) if approval else ""}'))
+                  for scale in ('small', 'medium', 'large', '') for approval in ('', 'posted', 'human', 'later')]
+        n = 0
+        for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio'):
+            for label, kw in plain + (guided if skill == 'pstack-pair-guided' else []):
+                n += 1
+                top = self.gate_world(f'gate{n}', **kw)
+                brief = top / 'briefs/002-y.md'
+                bash = self.gate_bash(skill, f'require_agreed_plan {top} {brief}', top)
+                ours = self.gate_python(skill, lambda ctx: ctx.variant.require_agreed_plan(ctx, str(top), str(brief)), top)
+                norm = lambda r: tuple(x.replace(str(top), '<T>') for x in r[1:]) and (r[0], r[1].replace(str(top), '<T>'), r[2].replace(str(top), '<T>'))
+                self.assertEqual(norm(ours), norm(bash), (skill, label))
+        self.assertEqual(self.gate_python('pstack-trio', lambda ctx: ctx.variant.require_agreed_plan(ctx, str(top), str(top / 'briefs/002-y.md')), top)[0], 6)
+
+    def test_plan_gate_kitchen_passes_its_gate_as_an_argument(self):
+        # kitchen.sh cannot be sourced in a harness, so these are the literal results of kitchen.sh require_agreed_plan (444-453).
+        agreed = 'verdict: agreed\n'
+        ctx = Context('pstack-kitchen', str(root / 'skills/pstack-kitchen'), '/s', 'Kitchen', ('sidekick', 'consultant'), ('plans',), 20, '')
+        variant = ctx.variant
+        before = dict(vars(variant))
+
+        def gate(name, risk, expect, **kw):
+            top = self.gate_world(name, **kw)
+            brief = top / 'briefs/002-y.md'
+            if risk:
+                brief.write_text(brief.read_text() + f'risk: {risk}\n')
+            out = self.gate_python('pstack-kitchen', lambda c: variant.require_agreed_plan(c, str(top), str(brief)), top)
+            self.assertEqual((out[0], out[2].replace(str(top), '<T>')), expect, name)
+
+        advice = lambda top: f'pair.sh: plan <T>/plans/001-x.md has no consultant advice under advice/001-*; run pair.sh discuss so both agents respond 6\n'
+        gate('kg1', 'escalated (a contract)', (6, advice(None)), review=agreed)
+        gate('kg2', 'escalated', (0, ''), review=agreed, advice=True)
+        gate('kg3', 'escalated', (6, "pair.sh: playbook feature needs an agreed plan; brief has plan: none 6\n"), plan='none')
+        gate('kg4', 'routine', (0, ''), plan='none')
+        gate('kg5', 'routine', (0, ''), plan='')
+        gate('kg6', None, (0, ''), plan='none')
+        gate('kg7', 'routine', (6, "pair.sh: plan <T>/plans/001-x.md review verdict is 'revise', not agreed 6\n"), review='verdict: revise\n')
+        gate('kg8', 'routine', (0, ''), review=agreed)
+        gate('kg9', 'routine', (0, ''), playbook='investigation', plan=None)
+        gate('kg10', 'routine', (6, "pair.sh: plan <T>/plans/001-x.md has no review; run pair.sh discuss and write reviews/001-<slug>.md with verdict: agreed 6\n"))
+        self.assertEqual(vars(variant), before, 'the gate is an argument: nothing is stored on the instance')
+
+    def test_plan_gate_scope_and_pause_match_bash(self):
+        repo = self.git_repo()
+        for name in ('README.md', 'src/a.py', 'src/sub/b.py', 'docs/guide.md', 'my, file.txt', 'top.md'):
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (repo / name).write_text(name)
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', 'files')
+        (repo / 'src/untracked.py').write_text('x')
+        (repo / 'ignored.log').write_text('x')
+        (repo / '.gitignore').write_text('*.log\n')
+        entries = [
+            ('src/a.py', 'exists'), ('src/', 'dir'), ('src/**', 'glob'), ('**/x.md', 'no match, no dir'), ('**/guide.md', 'nested'), ('**/top.md', 'top-level'),
+            ('docs/*.md', 'docs glob'), ('src/new_file.py', 'new file in an existing dir'), ('nodir/new.py', 'new file in a missing dir'), ('nodir/**', 'glob under a missing dir'),
+            ('nodir/', 'missing dir'), ('src/sub/', 'nested dir'), ('src/sub/new/', 'new dir under a dir'), ('*.md', 'top glob'), ('*.nope', 'glob with no file'),
+            ('[ab]rc/*', 'bracket glob'), ('src/?.py', 'question mark'), ('src/untracked.py', 'untracked file'), ('ignored.log', 'ignored file'), ('/abs/path', 'absolute'),
+            ('README.md', 'top file'), ('newtop.md', 'new top file'), ('.', 'dot'), ('./src/a.py', 'dot slash'), ('src//a.py', 'double slash'),
+        ]
+        brief = self.path / 'scope-brief.md'
+        variants = {
+            'one entry each': [f'- {e}' for e, _ in entries],
+            'comma list': ['- src/a.py, src/b.py'], 'and list': ['- src/a.py and docs/guide.md'], 'prose and': ['- README and docs'], 'and with one bare word': ['- src/a.py and docs'],
+            'and with extensions': ['- a.ts and b.ts'], 'backquoted comma': ['- `my, file.txt`', '- `src/a.py`'], 'dash annotation': ['- src/a.py \u2014 the code', '- docs/ \u2013 docs', '- top.md -- top'],
+            'paren note': ['- src/a.py (the code)', '- docs/guide.md (a guide) (second)'], 'trailing space': ['- src/a.py '], 'bare dash': ['-', '- '], 'entry after must not write': ['- src/a.py'],
+            'comma in must-not': [], 'three and': ['- a.py and b.py and c.py'], 'and then a comma': ['- a.py and b.py, c.py'],
+        }
+        for label, lines in variants.items():
+            text = '# Brief\n\n## Scope\n\nmay write:\n' + '\n'.join(lines) + '\n\nmust not write:\n' + ('- x, y\n' if label == 'comma in must-not' else '- lib/**\n') + '\n## Steps\n\n- one, two\n'
+            brief.write_text(text)
+            bash = self.gate_bash('pstack-pair', f'check_scope {brief} {repo}', repo)
+            ours = self.gate_python('pstack-pair', lambda ctx: __import__('pstack_core.gates', fromlist=['x']).check_scope(str(brief), str(repo)), repo)
+            self.assertEqual(ours, bash, label)
+        for e, label in entries:
+            tracked = subprocess.run(['git', '-C', str(repo), 'ls-files', '-co', '--exclude-standard'], capture_output=True, text=True, check=True).stdout.rstrip('\n')
+            from pstack_core import gates
+            for tr in (tracked, ''):
+                r = self.gate_bash('pstack-pair', f'if scope_entry_exists {repo} {shlex.quote(e)} "$1"; then echo yes; else echo no; fi', repo)
+                script_tracked = subprocess.run(['bash', '-c', 'true'], capture_output=True)
+                bash = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root=/x; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\nif scope_entry_exists "$1" "$2" "$3"; then echo yes; else echo no; fi', '_', str(repo), e, tr],
+                                      env=self.env, capture_output=True, text=True, check=True).stdout.strip()
+                self.assertEqual('yes' if gates.scope_entry_exists(str(repo), e, tr) else 'no', bash, (e, label, bool(tr)))
+        for reason in (None, 'lunch', '', 'two words'):
+            st = self.path / f'paused-{reason}'
+            st.mkdir()
+            if reason is not None:
+                (st / 'paused').write_text(reason + '\nmore\n')
+            bash = self.gate_bash('pstack-pair', f'require_not_paused {shlex.quote(str(st))}', repo)
+            ours = self.gate_python('pstack-pair', lambda ctx: __import__('pstack_core.gates', fromlist=['x']).require_not_paused(str(st)), repo)
+            self.assertEqual((ours[0], ours[2].replace(str(st), '<S>')), (bash[0], bash[2].replace(str(st), '<S>')), reason)
+
     def test_fresh_per_brief_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
             code = self.bash(f'if fresh_per_brief {shlex.quote(kind)}; then echo 0; else echo 1; fi').strip()
@@ -1775,7 +1917,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertIsNone(ctx._variant)
             names[skill] = [c.__name__ for c in type(ctx.variant).__mro__[:-1]]
             self.assertIs(ctx.variant, ctx.variant)
-        self.assertEqual(names, {'pstack-pair': ['Variant'], 'pstack-pair-guided': ['Variant'],
+        self.assertEqual(names, {'pstack-pair': ['Variant'], 'pstack-pair-guided': ['GuidedVariant', 'Variant'],
                                  'pstack-trio': ['TrioVariant', 'Variant'], 'pstack-kitchen': ['KitchenVariant', 'TrioVariant', 'Variant']})
 
     def test_trunk_ref_range_floor_and_review_base_match_bash(self):
@@ -2473,7 +2615,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                   'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
                   'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
                   'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
-                  'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply')
+                  'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
+                  'require_agreed_plan')
 
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}

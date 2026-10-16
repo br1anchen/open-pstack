@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pstack_core.review import jq_raw
 from pstack_core.store import dispatched_brief, expected_report, header_field, pair_json
+from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 
 TrioVariant = load_skill_variant(Path(__file__).resolve().parents[2], 'pstack-trio')
@@ -73,6 +74,16 @@ def verify_job(store, brief, head):
 
 
 class KitchenVariant(TrioVariant):
+    def require_agreed_plan(self, ctx, store, brief):
+        """Routine units run on the brief alone; an escalated one needs the agreed plan with the consultant's advice, as in the trio. A
+        routine brief that names a plan still needs it agreed. The gate to apply is an argument, as the bash passed it in a global."""
+        if risk_of(brief) == 'escalated':
+            require_agreed_plan(ctx, store, brief, lambda *args: TrioVariant.plan_gate_extra(self, *args))
+            return
+        if header_field(brief, 'plan') in ('', 'none'):
+            return
+        require_agreed_plan(ctx, store, brief, no_gate)
+
     def steps_due(self, ctx, store, brief):
         """The master reads every step of an escalated unit; a routine unit's steps are proved by their gates."""
         if not brief or risk_of(brief) != 'escalated':

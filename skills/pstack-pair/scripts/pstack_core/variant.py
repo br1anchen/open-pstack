@@ -69,6 +69,15 @@ class Variant:
         """Whether a wait should return to the master for the running brief's steps."""
         return steps_due_in(ctx, store, brief)
 
+    def plan_gate_extra(self, ctx, store, plan, review, seq):
+        """Further gates on an agreed plan, called with the plan path, its review path and its sequence number. A refusal is a Die
+        with exit 6. The base pair requires nothing more."""
+
+    def require_agreed_plan(self, ctx, store, brief):
+        """The gate in front of a brief that implements a plan: the agreed plan, and this variant's plan_gate_extra."""
+        from .gates import require_agreed_plan
+        require_agreed_plan(ctx, store, brief, self.plan_gate_extra)
+
 
 def steps_due_in(ctx, store, brief):
     """steps_due() in pair-core.sh: a step landed that neither a note nor an earlier steps wake has covered."""
