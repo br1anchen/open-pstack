@@ -2573,7 +2573,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         (st / '.pair.lock').mkdir()
         waits = []
 
-        def holder_finishes(_seconds):
+        real_sleep = time.sleep
+
+        def holder_finishes(seconds):
+            # store.time is the time module: subprocess.run(timeout=...) polls with time.sleep too, and must get the real one.
+            if waits:
+                return real_sleep(seconds)
             waits.append(pair.read_text())
             pair.write_text(json.dumps({**json.loads(pair.read_text()), 'holder': 1}))
             (st / '.pair.lock').rmdir()
