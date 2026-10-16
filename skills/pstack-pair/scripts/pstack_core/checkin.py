@@ -9,7 +9,7 @@ import time
 from .collate import collate_key, glob_sorted
 from .replies import dispatched, file_mtime
 from .review import jq_raw, noted_through, open_notes, range_floor, steps_file
-from .store import alt, header_field, pair_json, progress_path, read_text
+from .store import alt, cut_chars, header_field, pair_json, progress_path, read_text
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 CLASSES = {'alpha': 'A-Za-z', 'digit': '0-9', 'alnum': '0-9A-Za-z', 'upper': 'A-Z', 'lower': 'a-z', 'space': ' \t\n\r\f\v',
@@ -282,7 +282,7 @@ def checkin(ctx, store, interval='9', now=None):
     if head and tip:
         head, floor_note = range_floor(cwd, head, tip, allow_head=True)
     base = os.path.basename(brief.rstrip('/') or brief)
-    seq = base.encode('utf-8', 'surrogateescape')[:3].decode('utf-8', 'surrogateescape')
+    seq = cut_chars(base, 3)
     m = re.match(r'[0-9]+', header_field(brief, 'timebox'))
     timebox = m.group(0) if m else ''
     since = iso_epoch(at)

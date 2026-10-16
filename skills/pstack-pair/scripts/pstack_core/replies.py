@@ -6,7 +6,7 @@ import re
 
 from .collate import collate_key, glob_sorted
 from .review import jq_raw, noted_through, review_base, steps_file
-from .store import alt, expected_report, header_field, last_line, pair_json, read_text, unit_name, update
+from .store import alt, cut_chars, expected_report, header_field, last_line, pair_json, read_text, unit_name, update
 from .commands.status import latest
 
 
@@ -32,9 +32,8 @@ def dispatched(store):
 
 
 def first3(path):
-    """basename | cut -c1-3, which counts bytes."""
-    name = os.path.basename(path.rstrip('/') or path)
-    return name.encode('utf-8', 'surrogateescape')[:3].decode('utf-8', 'surrogateescape')
+    """basename | cut -c1-3."""
+    return cut_chars(os.path.basename(path.rstrip('/') or path), 3)
 
 
 def queued_brief(store):

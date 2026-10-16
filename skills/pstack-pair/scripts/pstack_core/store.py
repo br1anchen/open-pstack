@@ -8,6 +8,22 @@ import time
 from .errors import Die, Exit
 
 
+def utf8_locale():
+    """Whether the locale (LC_ALL, then LC_CTYPE, then LANG) is UTF-8, so grep, cut and awk count characters."""
+    for name in ('LC_ALL', 'LC_CTYPE', 'LANG'):
+        value = os.environ.get(name)
+        if value:
+            return bool(re.search(r'utf-?8', value, re.IGNORECASE))
+    return False
+
+
+def cut_chars(text, last):
+    """cut -c1-N: characters under a UTF-8 locale, bytes otherwise."""
+    if utf8_locale():
+        return text[:last]
+    return text.encode('utf-8', 'surrogateescape')[:last].decode('utf-8', 'surrogateescape')
+
+
 def readlink_f(path):
     """readlink -f, where a failure ends the command with 1 and no message (set -e on an assignment). Every
     component but the last must exist and be a directory; a trailing slash needs a directory, except after a

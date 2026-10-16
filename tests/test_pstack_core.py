@@ -19,7 +19,7 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import checkin, cli, dispatch, herdr, replies, review, store  # noqa: E402
+from pstack_core import checkin, cli, dispatch, herdr, providers, replies, review, store  # noqa: E402
 from pstack_core.commands import metrics  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
@@ -528,6 +528,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         code, out = r.split('\x1f', 1)
         return int(code), out
 
+    def bash_value_env(self, snippet, env):
+        r = self.bash(f'rc=0; out="$({snippet})" || rc=$?; printf "%s\\037%s" "$rc" "$out"', env=env)
+        code, out = r.split('\x1f', 1)
+        return int(code), out
+
     def replies_ctx(self):
         return Context('pstack-pair', str(root / 'skills/pstack-pair'), '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
 
@@ -559,6 +564,16 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def test_replies_queue_helpers_match_bash(self):
         st = self.replies_world('r2')
+        for locale_name in ('en_US.UTF-8', 'C'):
+            q = st / 'queue'
+            q.unlink(missing_ok=True)
+            pair = json.loads((st / 'pair.json').read_text())
+            pair['dispatch'] = {'brief': f'{st}/briefs/\u00e9\u00e91-x.md'}
+            (st / 'pair.json').write_text(json.dumps(pair))
+            report_path = f'{st}/reports/\u00e9\u00e92-y.md'
+            with mock.patch.dict(os.environ, {'LC_ALL': locale_name}):
+                ours = replies.queue_note(str(st), report_path)
+            self.assertEqual((0, ours.rstrip('\n')), self.bash_value_env(f'queue_note {st} {shlex.quote(report_path)}', {'LC_ALL': locale_name}), locale_name)
         for queue, running, report in ((None, '001-x.md', '001-x.md'), ('', '001-x.md', '002-y.md'), (f'{st}/briefs/002-y.md\n\n', '001-x.md', '001-x.md'),
                                        (f'{st}/briefs/002-y.md\n', '001-x.md', '002-y.md'), (f'{st}/briefs/001-x.md', '001-x.md', '001-x-a2.md'),
                                        ('/a/b\n', '001-x.md', '\u00e9\u00e9-r.md'), (None, '', '001-x.md')):
@@ -1034,6 +1049,232 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('steers: 3 sent, 2 applied, 1 objected', outputs['scenario_steers'])
         self.assertIn('2 commits since dispatch', outputs['scenario_commits'])
         self.assertIn('elapsed ?m of 45m', outputs['scenario_bad_at'])
+
+    def test_provider_error_context_and_cuts_match_bash(self):
+        texts = ['Error: Reached free model rate limit. Your limit will reset in 50 minutes.', 'nothing to see', 'x' * 100 + ' Rate-Limit ' + 'y' * 300,
+                 'a rate limit then another RATE LIMIT and overloaded close by', 'Usage limit reached. wait for usage to reset at 5pm; billing_error',
+                 '\u00e9' * 70 + ' capacity issues ' + '\u00e9' * 120, 'caf\u00e9 \u2192 unauthorized \u2192 forbidden \u2192 Too Many Requests',
+                 'first line rate limit\nsecond line fetch failed\nthird', 'ECONNRESET', 'x rate_limit x', 'ratelimit', 'rate\tlimit rate  limit', '']
+        for locale_name in ('en_US.UTF-8', 'C'):
+            with mock.patch.dict(os.environ, {'LC_ALL': locale_name}):
+                for text in texts:
+                    for before, after in ((60, 100), (60, 60)):
+                        ours = providers.grep_o_context(text, before, after)
+                        r = subprocess.run(['bash', '-c', f'{self.provider_re_line()}\nprintf "%s\\n" "$1" | grep -oiE ".{{0,{before}}}($provider_error_re).{{0,{after}}}" || true', 'x', text],
+                                           env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True)
+                        self.assertEqual('\n'.join(ours).encode('utf-8', 'surrogateescape') + (b'\n' if ours else b''), r.stdout, (locale_name, text, before, after))
+                    cut = subprocess.run(['bash', '-c', 'printf "%s\\n" "$1" | cut -c1-240', 'x', text], env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True).stdout
+                    self.assertEqual(providers.cut_chars(text, 240).encode('utf-8', 'surrogateescape') + b'\n', cut, (locale_name, 'cut', text[:20]))
+        self.assertEqual(providers.PROVIDER_ERROR_RE, re.search(r"^provider_error_re='(.*)'$", (scripts / 'pair-core.sh').read_text(), re.M).group(1))
+
+    def provider_re_line(self):
+        return re.search(r"^provider_error_re='.*'$", (scripts / 'pair-core.sh').read_text(), re.M).group(0)
+
+    def provider_home(self, name):
+        home = self.path / name
+        home.mkdir()
+        return home
+
+    def pi_line(self, role='assistant', stop='error', error='boom', **extra):
+        message = {'role': role, **({'stopReason': stop} if stop is not None else {}), **({'errorMessage': error} if error is not None else {}), **extra}
+        return json.dumps({'type': 'message', 'message': message}, ensure_ascii=False)
+
+    def test_provider_agent_session_error_matches_bash(self):
+        home = self.provider_home('h1')
+        log = home / 'session.jsonl'
+        long_text = '\u00e9\u2192' * 200 + ' tail'
+        cases = {
+            'last turn errored': [self.pi_line('user', None, None), self.pi_line(error='Reached free model rate limit')],
+            'recovered': [self.pi_line(error='old'), self.pi_line(stop='stop', error=None)],
+            'tab newline backslash': [self.pi_line(error='a\tb\nc\\d\re')],
+            'long non-ascii': [self.pi_line(error=long_text)],
+            'long ascii': [self.pi_line(error='x' * 500)],
+            'error without text': [self.pi_line(error=None)],
+            'empty text': [self.pi_line(error='')],
+            'user turn last': [self.pi_line(error='boom'), self.pi_line('user', 'error', 'ignored')],
+            'garbage line stops the stream': [self.pi_line(error='before'), 'not json', self.pi_line(error='after')],
+            'object text stops the stream': [self.pi_line(error='before'), self.pi_line(error={'a': 1}), self.pi_line(error='after')],
+            'numeric text': [self.pi_line(error=42)],
+            'false text': [self.pi_line(error=False)],
+            'true stop reason': [self.pi_line(stop=True, error='x')],
+            'not objects': ['[1,2]', '3', '"s"', 'null', self.pi_line(error='kept')],
+            'no message': [json.dumps({'type': 'x'}), self.pi_line(error='kept')],
+            'more than 200 lines': [self.pi_line(error='dropped')] + [self.pi_line('user', None, None)] * 250,
+            'empty file': [],
+        }
+        for name, lines in cases.items():
+            log.write_text('\n'.join(lines) + ('\n' if lines else ''))
+            for locale_name in ('en_US.UTF-8', 'C'):
+                with mock.patch.dict(os.environ, {'LC_ALL': locale_name, 'HOME': str(home)}):
+                    ours = providers.agent_session_error(str(log))
+                r = self.bash(f'agent_session_error {log}', env={'LC_ALL': locale_name, 'HOME': str(home)})
+                self.assertEqual(ours + '\n' if ours else '', r, (name, locale_name))
+        self.assertEqual(providers.agent_session_error('', ''), '')
+        self.assertEqual(providers.agent_session_error(str(home / 'none.jsonl'), ''), self.bash(f'agent_session_error {home}/none.jsonl'))
+        cwd = '/work/my project'
+        directory = home / '.pi/agent/sessions/--work-my project--'
+        directory.mkdir(parents=True)
+        for i, error in enumerate(('older', 'newest')):
+            f = directory / f'{i}.jsonl'
+            f.write_text(self.pi_line(error=error) + '\n')
+            os.utime(f, (1_700_000_000 + i * 100, 1_700_000_000 + i * 100))
+        with mock.patch.dict(os.environ, {'HOME': str(home)}):
+            ours = providers.agent_session_error('', cwd)
+            ours_missing = providers.agent_session_error(str(home / 'gone'), cwd)
+        self.assertEqual((ours, ours_missing), ('newest', 'newest'))
+        self.assertEqual(self.bash(f'agent_session_error "" {shlex.quote(cwd)}', env={'HOME': str(home)}), 'newest\n')
+        self.assertEqual(self.bash(f'agent_session_error {home}/gone {shlex.quote(cwd)}', env={'HOME': str(home)}), 'newest\n')
+
+    def test_provider_muse_session_error_matches_bash(self):
+        data = self.provider_home('d1')
+        cwd = '/work/muse project'
+        sessions = data / 'muse/sessions'
+
+        def make(rel, text, t):
+            f = sessions / rel / 'session.jsonl'
+            f.parent.mkdir(parents=True)
+            f.write_text(text)
+            os.utime(f, (t, t))
+
+        make('a/b/c/d1', f'{{"cwd": "{cwd}"}}\nUsage limit reached, wait for usage to reset at 5pm\nlater line\n', 1_700_000_100)
+        make('a/b/c/d2', 'another project\nrate limit hit\n', 1_700_000_300)
+        make('a/b/c/d3', f'{{"cwd": "{cwd}"}}\n' + 'ok line\n' * 10 + 'HTTP 402 Billing verification failed (billing_error) \u00e9\u00e9' * 3 + '\n' + 'x' * 400 + '\n', 1_700_000_200)
+        for locale_name in ('en_US.UTF-8', 'C'):
+            for xdg in (str(data), ''):
+                env = {'LC_ALL': locale_name, 'XDG_DATA_HOME': xdg, 'HOME': str(data.parent / 'nohome')}
+                if not xdg:
+                    (data.parent / 'nohome/.local').mkdir(parents=True, exist_ok=True)
+                    if not (data.parent / 'nohome/.local/share').exists():
+                        (data.parent / 'nohome/.local/share').symlink_to(data)
+                with mock.patch.dict(os.environ, env):
+                    ours = providers.muse_session_error(cwd)
+                r = self.bash(f'muse_session_error {shlex.quote(cwd)}', env=env)
+                self.assertEqual(ours + '\n' if ours else '', r, (locale_name, xdg))
+        # With no log naming the directory the function returns nothing; called on its own (not in a substitution, as
+        # provider_hint does) the bash ends the shell there: its search assignment fails under set -e.
+        with mock.patch.dict(os.environ, {'XDG_DATA_HOME': str(data), 'LC_ALL': 'en_US.UTF-8'}):
+            self.assertEqual(providers.muse_session_error(''), '')
+            self.assertEqual(providers.muse_session_error('/nowhere'), '')
+        self.assertEqual(self.bash('muse_session_error ""', env={'XDG_DATA_HOME': str(data)}), '')
+        for xdg, code in ((str(data), 1), (str(self.path / 'no-such-data'), 2)):
+            r = self.bash('muse_session_error /nowhere', env={'XDG_DATA_HOME': xdg}, check=False)
+            self.assertEqual((r.returncode, r.stdout), (code, ''), xdg)
+            self.assertEqual(self.bash('x="$(muse_session_error /nowhere)"; printf "[%s]" "$x"', env={'XDG_DATA_HOME': xdg}), '[]', xdg)
+            with mock.patch.dict(os.environ, {'XDG_DATA_HOME': xdg}):
+                self.assertEqual(providers.muse_session_error('/nowhere'), '')
+
+    def provider_world(self, label, kind, fallback=None, agent=True, screen=None, session=None, pair_extra=None, home_logs=None, muse_logs=None):
+        """A store, a fake herdr with the sidekick's pane, and logs under a temp HOME, built the same for every label."""
+        top = self.path / label
+        st, fake, home = top / 'st', top / 'fake', top / 'home'
+        for d in (st, fake / 'agents', fake / 'panes', fake / 'screen', fake / 'sessions', home):
+            d.mkdir(parents=True)
+        sidekick = {'name': 's1', 'kind': kind, 'pane_id': 'p5', **({'fallback': {'kind': fallback}} if fallback else {})}
+        (st / 'pair.json').write_text(json.dumps({'cwd': '/work/proj', 'sidekick': sidekick, **(pair_extra or {})}, indent=2) + '\n')
+        if agent:
+            (fake / 'agents/s1').write_text(f'idle {kind}\n')
+            (fake / 'panes/p5').write_text('s1')
+        if screen is not None:
+            (fake / 'screen/s1').write_text(screen)
+        if session is not None:
+            log = top / 'prime-session.jsonl'
+            log.write_text(session)
+            (fake / 'sessions/s1').write_text(str(log))
+        for rel, text in (home_logs or {}).items():
+            f = home / '.pi/agent/sessions/--work-proj--' / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text)
+        for rel, text in (muse_logs or {}).items():
+            f = home / '.local/share/muse/sessions' / rel / 'session.jsonl'
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text)
+        env = {'FAKE': str(fake), 'HOME': str(home), 'HERDR_SOCKET_PATH': str(top / 'sock'), 'XDG_DATA_HOME': '', 'LC_ALL': 'en_US.UTF-8', 'PATH': self.env['PATH']}
+        return st, env
+
+    def provider_both(self, name, call_bash, call_py, **kw):
+        outcomes = []
+        for label, run in (('bash', call_bash), ('py', call_py)):
+            st, env = self.provider_world(f'{name}-{label}', **kw)
+            code, out = run(st, env)
+            outcomes.append((code, out.replace(str(self.path / f'{name}-{label}'), 'ROOT'), (st / 'pair.json').read_text().replace(str(self.path / f'{name}-{label}'), 'ROOT')))
+        self.assertEqual(outcomes[0], outcomes[1], name)
+        return outcomes[1]
+
+    def provider_hint_both(self, name, phase='', **kw):
+        def call_bash(st, env):
+            r = self.bash(f'provider_hint {st} {phase}', env=env, check=False)
+            return r.returncode, r.stdout
+
+        def call_py(st, env):
+            with mock.patch.dict(os.environ, env):
+                try:
+                    return 0, providers.provider_hint(str(st), phase)
+                except Exit as e:
+                    return e.code, ''
+
+        return self.provider_both(name, call_bash, call_py, **kw)
+
+    def test_provider_hint_matches_bash(self):
+        error_log = self.pi_line(error='Reached free model rate limit. Your limit will reset in 50 minutes.') + '\n'
+        ok_log = self.pi_line(stop='stop', error=None) + '\n'
+        prime_log = self.pi_line(error='capacity issues, try later \u00e9') + '\n'
+        cases = {
+            'claude pane error with fallback': dict(kind='claude', fallback='devin', screen='working... Error: 429 Too Many Requests, rate limit hit\nnext line\n'),
+            'claude pane error without fallback': dict(kind='claude', screen='Unauthorized: no api key found\n'),
+            'claude pane clean': dict(kind='claude', fallback='devin', screen='all good\n'),
+            'claude fallback is itself': dict(kind='claude', fallback='claude', screen='rate limit\n'),
+            'claude bootstrap': dict(kind='claude', fallback='devin', screen='rate limit\n', phase='bootstrap'),
+            'claude pane error far from the edges': dict(kind='claude', fallback='pi', screen='a ' * 100 + 'overloaded' + ' b' * 100 + '\n'),
+            'agent gone': dict(kind='claude', fallback='pi', agent=False),
+            'agent gone, no fallback': dict(kind='devin', agent=False),
+            'pi gone with a logged error': dict(kind='pi', fallback='devin', agent=False, home_logs={'1.jsonl': error_log}),
+            'pi pane clean, logged error': dict(kind='pi', fallback='devin', screen='quiet\n', home_logs={'1.jsonl': error_log}),
+            'pi pane clean, recovered': dict(kind='pi', fallback='devin', screen='quiet\n', home_logs={'1.jsonl': ok_log}),
+            'pi pane error beats the log': dict(kind='pi', fallback='devin', screen='fetch failed\n', home_logs={'1.jsonl': error_log}),
+            'prime-agent with a session log': dict(kind='prime-agent', fallback='devin', screen='rate limit on screen is ignored\n', session=prime_log),
+            'prime-agent gone': dict(kind='prime-agent', fallback='devin', agent=False, session=prime_log),
+            'prime-agent without a session': dict(kind='prime-agent', fallback='devin', screen='x\n'),
+            'muse with a logged error': dict(kind='muse', fallback='devin', screen='quiet\n', muse_logs={'a/b/c/d': '/work/proj\nBilling verification failed\n'}),
+            'muse gone with a logged error': dict(kind='muse', fallback='devin', agent=False, muse_logs={'a/b/c/d': '/work/proj\nusage limit reached\n'}),
+            'muse with no log': dict(kind='muse', fallback='devin', screen='quiet\n'),
+            'muse with logs that name another directory': dict(kind='muse', fallback='devin', screen='quiet\n', muse_logs={'a/b/c/d': '/elsewhere\nrate limit\n'}),
+            'other kind, no fallback key': dict(kind='codex', screen='forbidden\n'),
+        }
+        outcomes = {}
+        for name, kw in cases.items():
+            kw = dict(kw)
+            outcomes[name] = self.provider_hint_both(name.replace(' ', '-').replace(',', ''), kw.pop('phase', ''), **kw)
+        self.assertIn('provider_error: the claude sidekick exited', outcomes['agent gone'][1])
+        self.assertIn('next: pair.sh failover', outcomes['agent gone'][1])
+        self.assertEqual(outcomes['muse with no log'][:2], (0, ''))
+        self.assertEqual(outcomes['muse with logs that name another directory'][:2], (0, ''))
+        self.assertEqual(outcomes['claude pane clean'][1], '')
+        self.assertIn('capacity issues', outcomes['prime-agent with a session log'][1])
+        self.assertIn('"session"', outcomes['prime-agent with a session log'][2])
+
+    def test_provider_record_prime_session_and_role_error_match_bash(self):
+        prime_log = self.pi_line(error='capacity issues') + '\n'
+        for name, kw in {'recorded': dict(session=prime_log), 'no session on file': dict(), 'agent gone': dict(agent=False, session=prime_log),
+                         'role without a section': dict(session=prime_log, pair_extra={'sidekick': None}), 'consultant role': dict(session=prime_log, pair_extra={'consultant': {'name': 's1', 'pane_id': 'p5', 'kind': 'prime-agent'}}),
+                         'other kind': dict(kind='claude', session=prime_log)}.items():
+            kw = {'kind': 'prime-agent', **kw}
+            role = 'consultant' if name == 'consultant role' else 'sidekick'
+            def call_bash(st, env, role=role):
+                r = self.bash(f'record_prime_session {st} {role} && echo yes || echo no', env=env, check=False)
+                return r.returncode, r.stdout
+            def call_py(st, env, role=role):
+                with mock.patch.dict(os.environ, env):
+                    return 0, 'yes\n' if providers.record_prime_session(str(st), role) else 'no\n'
+            self.provider_both('rec-' + name.replace(' ', '-'), call_bash, call_py, **kw)
+
+            def call_bash2(st, env, role=role):
+                r = self.bash(f'prime_role_error {st} {role}', env=env, check=False)
+                return r.returncode, r.stdout
+            def call_py2(st, env, role=role):
+                with mock.patch.dict(os.environ, env):
+                    out = providers.prime_role_error(str(st), role)
+                return 0, out + '\n' if out else ''
+            self.provider_both('err-' + name.replace(' ', '-'), call_bash2, call_py2, **kw)
 
     def test_fresh_per_brief_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
@@ -1782,15 +2023,17 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                   'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update',
                   'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
                   'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
-                  'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin')
+                  'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
+                  'record_prime_session')
 
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
         core = text[scripts / 'pair-core.sh']
         for name in self.PORTED:
             self.assertRegex(core, rf'(?m)^cmd_{name}\(\) \{{ pycore \S+ "\$@"; \}}$', name)
+        defined = core + text[scripts / 'prime-agent.sh']
         for helper in self.DUPLICATED:
-            self.assertRegex(core, rf'(?m)^{helper}\(\) \{{$', helper)
+            self.assertRegex(defined, rf'(?m)^{helper}\(\) \{{$', helper)
             callers = sum(len(re.findall(rf'(?<![\w-]){helper}(?![\w-])(?!\(\) \{{)', body)) for body in text.values())
             self.assertGreater(callers, 0, f'{helper} has no bash caller left: delete the bash twin')
 
