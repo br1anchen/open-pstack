@@ -173,15 +173,15 @@ def tdiv(a, b):
     return q if (a < 0) == (b < 0) else -q
 
 
-def core_line(text):
-    """(path, line number) of the first line of wait_opts() in pair-core.sh holding text, for the messages bash prefixes
-    to its errors."""
+def core_line(text, after='wait_opts() {'):
+    """(path, line number) of the first line holding text in the function of pair-core.sh that starts with `after`, for the messages
+    bash prefixes to its errors."""
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pair-core.sh')
     try:
         inside = False
         with open(path, encoding='utf-8') as f:
             for number, line in enumerate(f, 1):
-                inside = inside or line.startswith('wait_opts() {')
+                inside = inside or line.startswith(after)
                 if inside and text in line:
                     return path, number
     except OSError:
@@ -240,8 +240,11 @@ def bash_sleep(text):
     """sleep with the text the bash gives it: seconds, fractions and s/m/h/d suffixes; anything else is sleep's own error."""
     m = re.fullmatch(r'(?:[0-9]+\.?[0-9]*|\.[0-9]+)[smhd]?', text)
     if not m:
+        # GNU sleep takes more than this (0x1, 0e0, inf, a leading blank); run it, and end the command as set -e does if it refuses.
         r = subprocess.run(['sleep', text], check=False)
-        raise Exit(r.returncode)
+        if r.returncode:
+            raise Exit(r.returncode)
+        return
     unit = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(text[-1], 1)
     time.sleep(float(text.rstrip('smhd')) * unit)
 
@@ -494,19 +497,18 @@ def wait_for_reply(ctx, store, name, timeout, now=None):
             if settled_at is None:
                 settled_at = clock()
             hold = bash_int(settle_hold)
-            if hold is None or not clock() - settled_at < hold:
+            if hold is None:
+                path, number = core_line('-lt "$settle_hold_s"', 'wait_for_reply() {')
+                sys.stderr.write(f'{path}: line {number}: [: {settle_hold}: integer expected\n')
+                break
+            if not clock() - settled_at < hold:
                 break
             if not clock() < deadline:
                 break
             bash_sleep(settle_poll)
             continue
         settled_at = None
-        values, _ = json_values(result.err)
-        code = ''
-        try:
-            code = jq_run(result.err, lambda v: jq_member(jq_member(v, 'error'), 'code'), None)
-        except JqError:
-            code = ''
+        code = jq_run(result.err, lambda v: (lambda c: c if truthy(c) else None)(jq_member(jq_member(v, 'error'), 'code')), None)
         if code != 'timeout':
             break
         if not clock() < deadline:
@@ -542,6 +544,7 @@ def wait(ctx, args):
     if not os.path.isfile(f'{store}/pair.json'):
         # The bash goes on with an empty agent name and prints a pair of error lines for every field() it then reads; the
         # first pair and the status are kept.
+        sys.stdout.write('state: \n')
         raise Exit(2, f'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n')
     pair = pair_json(store)
     name = jq_raw(alt(alt(pair.get('sidekick'), {}).get('name'), None))

@@ -549,6 +549,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an idle sidekick that settles after a hold': dict(args=run, agents={'s1': 'idle claude'}, pair=digest, env={'PAIR_SETTLE_HOLD': '1', 'PAIR_SETTLE_POLL_S': '0.2'}),
             'a settle while the pane is busy': dict(args=['wait', '{st}', '--timeout', '2000'], agents={'s1': 'idle claude'}, busy=True, pair=digest, env={'PAIR_BUSY_POLL': '1'}, files={**log, **brief('routine')}),
             'a settled sidekick with a reply already shown': dict(args=run, agents={'s1': 'idle claude'}, pair={**digest, 'sent': {**digest['sent'], 'seen': '{st}/reports/001-x.md:1'}}, files={'reports/001-x.md': done}),
+            'a settle hold that is not an integer': dict(args=run, agents={'s1': 'idle claude'}, pair=digest, env={'PAIR_SETTLE_HOLD': '1.5'}),
+            'a busy poll that sleep refuses': dict(args=['wait', '{st}', '--timeout', '2000'], agents={'s1': 'idle claude'}, busy=True, pair=digest, env={'PAIR_BUSY_POLL': 'abc'}),
+            'a busy poll that sleep accepts and the pattern does not': dict(args=['wait', '{st}', '--timeout', '2000'], agents={'s1': 'idle claude'}, busy=True, pair=digest, env={'PAIR_BUSY_POLL': '0x1'}),
             'a herdr timeout': dict(args=short, agents=working, pair=digest, files={**log, **brief('routine')}),
             'a herdr error that is not a timeout': dict(args=short, agents={}, pair=digest, files=brief('routine')),
             'a paused store': dict(args=run, pair={'sent': sent}, files={'reports/001-x.md': done, 'paused': 'lunch\n'}),
@@ -570,8 +573,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def wait_ab_compare(self, name, spec, skill='pstack-pair'):
         spec = dict(spec)
-        for label in ('base', 'port'):
-            pass
         want = self.ab_run(f'wbase-{len(list(self.path.iterdir()))}', self.base_skills(), skill, spec)
         got = self.ab_run(f'wport-{len(list(self.path.iterdir()))}', root / 'skills', skill, spec)
         return got, want
@@ -590,14 +591,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if name == 'without pair.json':
                 # Permitted difference: with no pair.json the bash goes on with an empty agent name and prints a pair of error lines
                 # for every field() it reads (some 40 lines, and a herdr call for the empty name); Python stops after the first pair.
-                self.assertEqual((got['rc'], got['stderr']), (want['rc'], want['stderr'][:len(got['stderr'])]))
+                self.assertEqual((got['rc'], got['stdout'], got['stderr'], got['files'], got['events']),
+                                 (want['rc'], want['stdout'], want['stderr'][:len(got['stderr'])], want['files'], want['events']))
                 self.assertTrue(want['stderr'].startswith('pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'))
                 continue
             if got != want:
                 mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
         self.maxDiff = None
         self.assertEqual(mismatches, {})
-        self.wait_ab_results = results
 
     def wait_ab_variant(self, skill, cases):
         mismatches = {}
@@ -644,7 +645,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for skill in ('pstack-pair-guided', 'pstack-trio'):
             self.wait_ab_variant(skill, cases)
 
-    def wait_signalled(self, skills, number, group):
+    def wait_signalled(self, skills, number, group, skill='pstack-pair', ignore_int=False, timeout_ms=20000):
         """Run `pair.sh wait`, signal it while it sits in herdr's wait (the fake herdr's once hook holds it there on a pipe), and give
         (exit status, stdout, stderr). Nothing here can hang: each wait is bounded, the hook is released in a finally, and the
         whole process group is killed if the command outlives the bound."""
@@ -664,9 +665,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         def default_signals():
             # a gate that runs as a background job hands its children SIGINT ignored; the signal under test must be deliverable
             for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-                signal.signal(each, signal.SIG_DFL)
+                signal.signal(each, signal.SIG_IGN if ignore_int and each == signal.SIGINT else signal.SIG_DFL)
 
-        proc = subprocess.Popen([str(skills / 'pstack-pair/scripts/pair.sh'), 'wait', str(st), '--timeout', '20000'], cwd=top / 'repo', env=env, text=True,
+        script = 'kitchen.sh' if skill == 'pstack-kitchen' else 'pair.sh'
+        before = self.store_snapshot(st)
+        proc = subprocess.Popen([str(skills / skill / 'scripts' / script), 'wait', str(st), '--timeout', str(timeout_ms)], cwd=top / 'repo', env=env, text=True,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, preexec_fn=default_signals)
 
         def kill_group():
@@ -687,11 +690,16 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             finally:
                 os.close(fd)
             (os.killpg if group else os.kill)(proc.pid, number)
+            # A SIGINT to the shell alone is held by the bash until herdr's call returns, so the hook is let go at once.
+            open_release()
             try:
                 status = proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 kill_group()
-                proc.wait()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
                 self.fail(f'{number.name} did not end the wait')
         finally:
             open_release()
@@ -704,18 +712,49 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             out, err = proc.communicate(timeout=20)
         except subprocess.TimeoutExpired:
             kill_group()
-            proc.communicate()
+            proc.communicate(timeout=10)
             self.fail('a process kept the output open')
-        return status, out, err
+        return status, out, err, self.store_snapshot(st) == before
+
+    @staticmethod
+    def store_snapshot(st):
+        return {str(f.relative_to(st)): f.read_bytes() for f in sorted(st.rglob('*')) if f.is_file()}
 
     def test_wait_ab_signals_end_the_command_as_they_end_the_bash(self):
-        # A SIGINT sent to the shell alone is not tested: the bash waits for herdr's call to end and then dies, but the shell around the
-        # Python wait waits for the whole wait. A terminal's Ctrl-C reaches the process group, which is tested.
-        for number, group in ((signal.SIGTERM, False), (signal.SIGTERM, True), (signal.SIGINT, True), (signal.SIGHUP, False), (signal.SIGHUP, True)):
+        # Group-wide, as a terminal's Ctrl-C or a harness kill delivers it: INT, TERM and HUP end the command with the signal and
+        # print nothing, and the store is as it was.
+        for number, group in ((signal.SIGTERM, True), (signal.SIGINT, True), (signal.SIGHUP, True)):
             want = self.wait_signalled(self.base_skills(), number, group)
             got = self.wait_signalled(root / 'skills', number, group)
             self.assertEqual(got, want, (number.name, group))
-            self.assertEqual(got, (-number, '', ''), (number.name, group))
+            self.assertEqual(got, (-number, '', '', True), (number.name, group))
+
+    def test_wait_ab_signals_to_the_shell_alone_end_the_wait_with_it(self):
+        # The signal goes to the pair.sh process only. The base bash dies of INT, TERM or HUP (INT after herdr's call returns) and
+        # writes nothing; the port is the same process, so it must die of the signal at once and leave nothing running or written.
+        for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            want = self.wait_signalled(self.base_skills(), number, False)
+            got = self.wait_signalled(root / 'skills', number, False)
+            self.assertEqual(got, want, number.name)
+            self.assertEqual(got, (-number, '', '', True), number.name)
+
+    def test_wait_ab_an_ignored_sigint_stays_ignored(self):
+        # A background job hands its children SIGINT ignored, and a process cannot un-ignore what it inherited ignored: bash does not,
+        # and the Python wait must not turn it back into a fatal signal. The wait runs to its end and answers as it would unsignalled.
+        want = self.wait_signalled(self.base_skills(), signal.SIGINT, True, ignore_int=True, timeout_ms=1000)
+        got = self.wait_signalled(root / 'skills', signal.SIGINT, True, ignore_int=True, timeout_ms=1000)
+        self.assertEqual(got[0], want[0])
+        self.assertEqual(got[0], 4)
+        self.assertEqual(got[1:3], want[1:3])
+
+    def test_wait_ab_kitchen_signal_to_the_shell_alone(self):
+        # kitchen.sh runs the wait in a command substitution, so the signalled shell and the wait are two processes. TERM kills the shell
+        # at once, as in the base; the Python wait must not outlive it (the base's subshell does run on). INT is held by the shell until
+        # the wait ends, in the base too, so it is not signalled here.
+        got = self.wait_signalled(root / 'skills', signal.SIGTERM, False, 'pstack-kitchen')
+        want = self.wait_signalled(self.base_skills(), signal.SIGTERM, False, 'pstack-kitchen')
+        self.assertEqual(got[:3], want[:3])
+        self.assertEqual(got, (-signal.SIGTERM, '', '', True))
 
     def test_finish_and_notify_match_the_bash_in_the_other_variants(self):
         self.mismatches = {}
@@ -2440,7 +2479,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
         core = text[scripts / 'pair-core.sh']
         for name in self.PORTED:
-            self.assertRegex(core, rf'(?m)^cmd_{name}\(\) \{{ pycore \S+ "\$@"; \}}$', name)
+            self.assertRegex(core, rf'(?m)^cmd_{name}\(\) \{{ pycore (--exec )?\S+ "\$@"; \}}$', name)
         defined = core + text[scripts / 'prime-agent.sh']
         for helper in self.DUPLICATED:
             self.assertRegex(defined, rf'(?m)^{helper}\(\) \{{$', helper)

@@ -38,8 +38,12 @@ pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 . "$pair_core_dir/prime-agent.sh"
 
 # Run a command in the Python core. The variant's globals travel as argv.
+# With --exec first, Python replaces the shell, so a signal sent to the command's
+# process reaches the Python code (wait uses it: it must stop when it is stopped).
 pycore() {
-	python3 -I "$pair_core_dir/pair.py" --skill "$PAIR_SKILL" --skill-root "$skill_root" \
+	local run=()
+	[ "${1:-}" != --exec ] || { run=(exec); shift; }
+	${run[@]+"${run[@]}"} python3 -I "$pair_core_dir/pair.py" --skill "$PAIR_SKILL" --skill-root "$skill_root" \
 		--state-root "$state_root" --store-label "$store_label" --roles "${roles[*]}" \
 		--store-dirs "${store_dirs[*]}" --slug-max "$slug_max" --unfilled-re "$unfilled_re" -- "$@"
 }
@@ -2019,7 +2023,7 @@ prompt_sidekick() {
 	submit_typed "$name" "$(basename "${text##* }")"
 }
 
-cmd_wait() { pycore wait "$@"; }
+cmd_wait() { pycore --exec wait "$@"; }
 
 # The master's next brief, held for the sidekick to take the moment its
 # current report is written. One slot: more than one queued brief is a plan.
