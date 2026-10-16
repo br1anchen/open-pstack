@@ -73,7 +73,7 @@ class WorktreeAuditTests(unittest.TestCase):
             gh = binaries / 'gh'
             gh.write_text('#!/bin/sh\nprintf "[]\\n"\n')
             gh.chmod(0o755)
-            script = Path(__file__).resolve().parents[1] / 'config/pstack/skills/poteto-mode/scripts/worktree-audit.sh'
+            script = Path(__file__).resolve().parents[1] / 'skills/poteto-mode/scripts/worktree-audit.sh'
             env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
                        PSTACK_TRANSCRIPTS_DIR='')
             result = subprocess.run(['bash', str(script), str(repo)], env=env,

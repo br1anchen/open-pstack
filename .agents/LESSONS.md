@@ -11,7 +11,7 @@ status: proposed
 kind: catch
 class: policy
 layer: policy
-area: config/pstack
+area: skills
 since: 2026-10-16
 evidence:
 - 2026-10-16 kitchen-perf 011: test-sleep rule misses threading.Event().wait polls; a sidekick used it to sidestep the rule instead of kitchen-allow
@@ -22,7 +22,7 @@ status: proposed
 kind: catch
 class: verify
 layer: verify
-area: config/pstack
+area: skills
 since: 2026-10-16
 evidence:
 - 2026-10-16 kitchen-perf 002: kitchen.sh dispatch logs a checkin wake for a swallowed first check-in (core_dispatch without PAIR_QUIET_WAIT), then quiet_wait logs its own: two rows per return

@@ -49,7 +49,7 @@ def sync(source, home, apply=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', type=Path, default=Path(__file__).resolve().parents[1] / 'config/pstack/skills')
+    parser.add_argument('--source', type=Path, default=Path(__file__).resolve().parents[1] / 'skills')
     parser.add_argument('--home', type=Path, default=Path.home())
     parser.add_argument('--apply', action='store_true', help='install links; otherwise report drift only')
     args = parser.parse_args()

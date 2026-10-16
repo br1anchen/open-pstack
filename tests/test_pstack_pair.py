@@ -23,7 +23,7 @@ tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
 
 root = Path(__file__).resolve().parents[1]
 here = root / 'tests/pstack-pair'
-skills = root / 'config/pstack/skills'
+skills = root / 'skills'
 
 
 LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')

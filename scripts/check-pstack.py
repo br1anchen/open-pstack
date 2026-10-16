@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import re
 
-root = Path(__file__).resolve().parents[1] / 'config/pstack'
+root = Path(__file__).resolve().parents[1]
 manifest = json.loads((root / 'sources.json').read_text())
 skills = root / 'skills'
 expected = set(manifest['skills'])

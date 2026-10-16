@@ -26,7 +26,7 @@ print(f"evidence: {base}", flush=True)
 herdr = str(Path(args.herdr).resolve())
 prime = str(Path(args.prime_agent).resolve())
 repository = Path(__file__).resolve().parents[1]
-adapter = repository / "config/pstack/skills/pstack-pair/scripts/prime-agent.sh"
+adapter = repository / "skills/pstack-pair/scripts/prime-agent.sh"
 name = "prime-smoke-" + str(os.getpid())
 mode = "ok"
 
@@ -94,7 +94,7 @@ for directory in ["home", "config", "state", "agent", "bin", "cwd"]:
 (base / "bin/herdr").symlink_to(herdr)
 (base / "bin/prime-agent").symlink_to(prime)
 (base / "home/.agents").mkdir()
-(base / "home/.agents/skills").symlink_to(repository / "config/pstack/skills")
+(base / "home/.agents/skills").symlink_to(repository / "skills")
 config = base / "herdr.toml"
 config.write_text(
     'onboarding = false\n[experimental]\nallow_nested = true\n[terminal]\ndefault_shell = "/bin/bash"\n[server]\nheadless_cols = 160\nheadless_rows = 50\n'

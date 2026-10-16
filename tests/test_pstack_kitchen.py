@@ -19,7 +19,7 @@ import tomllib
 tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
 
 root = Path(__file__).resolve().parents[1]
-skill = root / 'config/pstack/skills/pstack-kitchen'
+skill = root / 'skills/pstack-kitchen'
 script = skill / 'scripts/kitchen.py'
 sys.path.insert(0, str(script.parent))
 import kitchen
