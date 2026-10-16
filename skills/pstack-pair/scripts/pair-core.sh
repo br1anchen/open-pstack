@@ -2133,109 +2133,16 @@ take_queued() {
 
 # The sidekick's pickup after writing a report: prints the queued brief's
 # message to act on. Exit 4 when the queue is empty, so the turn ends.
-cmd_next() {
-	[ $# -eq 1 ] || die "usage: pair.sh next <store>"
-	local brief
-	pair_file "$1" >/dev/null
-	! fresh_per_brief "$(field "$1" .sidekick.kind)" || die "a $(field "$1" .sidekick.kind) sidekick leaves the queue for the master to dispatch after a fresh session" 5
-	require_fresh_session "$1"
-	if paused_reason "$1" >/dev/null; then
-		printf 'queue: paused\n'
-		exit 4
-	fi
-	brief="$(take_queued "$1")" || { printf 'queue: empty\n'; exit 4; }
-	printf '%s BRIEF %s\n' "$PAIR_SKILL" "$brief"
-}
+cmd_next() { pycore next "$@"; }
 
 # The one command a sidekick runs after writing any report: tells the master,
 # then says what to do next. Devin ends the turn for master-owned rotation;
 # other kinds may take a queued brief after a done report.
-cmd_finish() {
-	in_herdr
-	[ $# -eq 2 ] || die "usage: pair.sh finish <store> <report-path>"
-	local store="$1" report status brief
-	report="$(readlink -f "$2")"
-	[ -f "$report" ] || die "report not found: $report; write it first"
-	status="$(header_field "$report" status)"
-	# A done report the master cannot verify costs a whole brief to repair,
-	# so its header is checked while the sidekick is still in this turn.
-	if [ "$status" = done ] && [ "$report" = "$(expected_report "$store" "$(field "$store" '.dispatch.brief // "-"')")" ]; then
-		case "$(header_field "$report" head)" in
-		"" | "<"*) die "$(basename "$report"): a done report needs the report template's header, with head: <the unit's commit> (HEAD when the brief says commit: no); add it and run finish again" 1 ;;
-		esac
-	fi
-	if [ "$status" = done ]; then
-		report_ready "$store" "$report" || {
-			[ -z "$report_open" ] || die "blocking review notes are still open on $(basename "$report" .md):
-$report_open
-Resolve each as a fixup commit, record it with pair.sh step $store <sha> <summary> --resolves <n-ids>, then finish again" 7
-			die "$(basename "$report" .md): $report_why; rewrite the report at the unit's last commit (head:), then finish again" 7
-		}
-	fi
-	local current
-	current="$(field "$store" '.dispatch.brief // empty')"
-	if [ "$status" = "done" ] && fresh_per_brief "$(field "$store" .sidekick.kind)" && [ -n "$current" ] && [ "$report" = "$(expected_report "$store" "$current")" ] && \
-		[ "$(field "$store" '.dispatch.generation // 0')" = "$(field "$store" '.sidekick.generation // 0')" ]; then
-		if [ "$(field "$store" '.sidekick.rotation_required // false')" != true ]; then
-			json_update "$store" '.sidekick.rotation_required = true'
-			event "$store" sidekick rotation-required "$report" "generation:$(field "$store" '.sidekick.generation // 0')"
-		fi
-	fi
-	cmd_notify "$store" "$report"
-	local late
-	while IFS= read -r late; do
-		[ -n "$late" ] || continue
-		printf 'late steer: %s arrived after this report; record pair.sh progress %s "steer s%s late: reported" and the master folds it into the next brief\n' \
-			"$late" "$store" "$(basename "$late" .md | sed -E 's/.*-s([0-9]+)$/\1/')"
-	done < <(open_steers "$store")
-	if [ "$status" = "done" ] && fresh_per_brief "$(field "$store" .sidekick.kind)"; then
-		if [ "$(field "$store" '.sidekick.rotation_required // false')" = true ]; then
-			printf 'rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate %s\n' "$store"
-		fi
-		printf 'next: end the turn with the single line: %s REPORT %s\n' "$PAIR_SKILL" "$report"
-		return 0
-	fi
-	if [ "$status" = done ] && ! paused_reason "$store" >/dev/null && brief="$(take_queued "$store")"; then
-		printf 'next: the master queued %s BRIEF %s\n' "$PAIR_SKILL" "$brief"
-		printf 'Start that brief now, in this turn, as if the message had just arrived.\n'
-	else
-		printf 'next: end the turn with the single line: %s REPORT %s\n' "$PAIR_SKILL" "$report"
-	fi
-}
+cmd_finish() { pycore finish "$@"; }
 
-cmd_report() {
-	[ $# -ge 1 ] || die "usage: pair.sh report <store> [NNN]"
-	local path
-	if path="$(latest_report "$1" "${2:-}")"; then
-		printf '%s\n' "$path"
-	else
-		die "no report found" 4
-	fi
-}
+cmd_report() { pycore report "$@"; }
 
-cmd_notify() {
-	in_herdr
-	[ $# -eq 2 ] || die "usage: pair.sh notify <store> <report-or-advice-path>"
-	local store="$1" file status master word
-	file="$(readlink -f "$2")"
-	[ -f "$file" ] || die "file not found: $file"
-	case "$file" in
-	"$store"/advice/*) word=ADVICE ;;
-	*) word=REPORT ;;
-	esac
-	event "$store" "$([ "$word" = ADVICE ] && echo consultant || echo sidekick)" "${word,,}" "$file" "$(header_field "$file" status)"
-	master="$(field "$store" .master.name)"
-	status="$(agent_status "$master")"
-	case "$status" in
-	idle | done)
-		herdr agent prompt "$master" "$PAIR_SKILL $word $file" >/dev/null
-		printf 'prompted master %s (was %s) with %s %s\n' "$master" "$status" "$word" "$file"
-		;;
-	*)
-		printf 'master %s is %s; left %s for its next wait or status check\n' "$master" "$status" "$file"
-		;;
-	esac
-}
+cmd_notify() { pycore notify "$@"; }
 
 # The stop-like reports (or advice) of role $2 on disk, as "path:mtime" lines.
 stop_candidates() {

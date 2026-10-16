@@ -1,12 +1,13 @@
 import sys
 
-from .commands import log, metrics, notes, pause, progress, scratch, status, templates
+from .commands import log, metrics, notes, pause, progress, report, scratch, status, templates
 from .context import Context
-from .errors import Die
+from .errors import Die, Exit
 
 COMMANDS = {'log': log.run, 'new-plan': templates.new_plan, 'new-brief': templates.new_brief, 'new-steer': templates.new_steer,
             'pause': pause.pause, 'resume': pause.resume, 'progress': progress.run,
-            'notes': notes.notes, 'note': notes.note, 'new-note': notes.new_note, 'status': status.run, 'scratch': scratch.run, 'metrics': metrics.run}
+            'notes': notes.notes, 'note': notes.note, 'new-note': notes.new_note, 'status': status.run, 'scratch': scratch.run, 'metrics': metrics.run,
+            'finish': report.finish, 'notify': report.notify, 'report': report.report, 'next': report.next_brief}
 
 OPTIONS = ('--skill', '--skill-root', '--state-root', '--store-label', '--roles', '--store-dirs', '--slug-max', '--unfilled-re')
 
@@ -34,6 +35,9 @@ def main(argv):
         if cmd not in COMMANDS:
             raise Die(f'unknown command: {cmd}')
         return COMMANDS[cmd](ctx, args)
+    except Exit as e:
+        sys.stderr.write(e.stderr)
+        return e.code
     except Die as e:
         sys.stderr.write(f'pair.sh: {e.message}\n')
         return e.code

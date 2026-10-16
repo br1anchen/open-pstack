@@ -18,12 +18,13 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import cli, herdr, review, store  # noqa: E402
+from pstack_core import cli, dispatch, herdr, review, store  # noqa: E402
 from pstack_core.commands import metrics  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die  # noqa: E402
 
 LEGACY = 'd06a932'
+BASE = 'e6e83e3'
 LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
 
 
@@ -300,6 +301,210 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         got = ctx.variant.report_ready(ctx, str(st), str(path))
         r = self.bash(f'rc=0; report_ready {st} {path} || rc=$?; printf "%s\\037%s" "$rc" "$report_why"')
         self.assertEqual((int(not got.ready), got.why), (int(r.split('\x1f')[0]), r.split('\x1f')[1]), 'a last step row without a tab')
+
+    def base_skills(self):
+        """skills/ as it was at e6e83e3, the bash that finish, notify, report and next ran in before they moved to Python."""
+        cls = type(self)
+        if cls.__dict__.get('_base') is None:
+            tmp = tempfile.TemporaryDirectory()
+            self.addClassCleanup(tmp.cleanup)
+            git = subprocess.run(['git', '-C', str(root), 'archive', BASE, 'skills'], capture_output=True, check=False)
+            if git.returncode != 0:
+                raise unittest.SkipTest(f'{BASE} is not in this checkout')
+            subprocess.run(['tar', '-x', '-C', tmp.name], input=git.stdout, check=True)
+            cls._base = Path(tmp.name) / 'skills'
+        return cls._base
+
+    GIT = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t',
+           'GIT_AUTHOR_DATE': '2026-01-01T00:00:00Z', 'GIT_COMMITTER_DATE': '2026-01-01T00:00:00Z'}
+
+    def ab_world(self, label, spec):
+        """A repo with commits c1 < c2 < c3, a store and a fake herdr, built the same for every label."""
+        top = self.path / label
+        repo, st, fake = top / 'repo', top / 'st', top / 'fake'
+        for d in (repo, fake / 'agents', fake / 'panes', top / 'home', *(st / n for n in ('briefs', 'reports', 'plans', 'steps', 'notes', 'progress', 'steers', 'advice'))):
+            d.mkdir(parents=True)
+        env = {**self.env, **self.GIT, 'FAKE': str(fake), 'HOME': str(top / 'home'), 'XDG_STATE_HOME': str(top / 'state'),
+               'HERDR_PANE_ID': 'p0', 'HERDR_SOCKET_PATH': str(top / 'herdr.sock'), 'PAIR_SETTLE_HOLD': '0', 'PAIR_SUBMIT_CHECK_S': '0'}
+        if not spec.get('noenv'):
+            env['HERDR_ENV'] = '1'
+        env.pop('CLAUDE_CODE_SESSION_ID', None)
+        git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True).stdout.strip()
+        git('init', '-q', '-b', 'main')
+        shas = {}
+        for name in ('c1', 'c2', 'c3'):
+            (repo / name).write_text(name)
+            git('add', '-A')
+            git('commit', '-q', '-m', name)
+            shas[name] = git('rev-parse', 'HEAD')
+        sub = {**shas, 'st': str(st), 'T': str(top), 'repo': str(repo)}
+        fill = lambda text: text.format(**sub)
+        pair = {'master': {'name': 'm1'}, 'sidekick': {'kind': spec.get('kind', 'claude'), 'generation': 1, 'name': 's1'},
+                'git_root': str(repo), 'cwd': str(repo), 'dispatch': {'brief': f'{st}/briefs/001-x.md', 'generation': spec.get('dispatch_generation', 1)},
+                **spec.get('pair', {})}
+        if not spec.get('nopair'):
+            def walk(v):
+                return fill(v) if isinstance(v, str) else [walk(x) for x in v] if isinstance(v, list) else {k: walk(x) for k, x in v.items()} if isinstance(v, dict) else v
+
+            (st / 'pair.json').write_text(json.dumps(walk(pair), indent=2) + '\n')
+        for name in ('001-x', '002-y'):
+            (st / f'briefs/{name}.md').write_text(f'# Brief {name}\n')
+        for rel, text in spec.get('files', {}).items():
+            (st / rel).parent.mkdir(parents=True, exist_ok=True)
+            (st / rel).write_text(fill(text))
+        if spec.get('master', 'idle'):
+            (fake / 'agents/m1').write_text(f'{spec.get("master", "idle")} claude\n')
+        if spec.get('promptfail'):
+            (fake / 'prompt-fail').write_text('')
+        (st / 'events.tsv').write_text('2026-01-01T00:00:00Z\t1\tmaster\tinit\t-\tbefore\n')
+        return top, st, env, fill
+
+    def ab_run(self, label, skills, skill, spec):
+        top, st, env, fill = self.ab_world(label, spec)
+        r = subprocess.run([str(skills / skill / 'scripts/pair.sh'), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env,
+                           capture_output=True, text=True, check=False)
+        norm = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))
+        files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
+        events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()]
+        calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
+        return {'rc': r.returncode, 'stdout': norm(r.stdout), 'stderr': norm(r.stderr), 'files': files, 'events': events, 'calls': calls}
+
+    AB_CASES = {
+        'done report to an idle master': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'done report to a working master': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], master='working', files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'done report, no master agent': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], master=None, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'done report to a done master': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], master='done', files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'prompt delivery fails': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], promptfail=True, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'partial report': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: partial\n'}),
+        'done report without a head': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: done\n'}),
+        'done report with the template head': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: done\nhead: <sha>\n'}),
+        'done report of another unit without a head': dict(args=['finish', '{st}', '{st}/reports/002-y.md'], files={'reports/002-y.md': '# R\n\nstatus: done\n'}),
+        'done report with open notes': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
+            'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'steps/001-x.tsv': '1\t{c2}\ts\t\n', 'notes/001-x-n1.md': '# N\n\nstatus: blocking\n',
+            'notes/001-x-n3.md': '# N\n\nstatus: blocking\n'}),
+        'done report with a stale head': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
+            'reports/001-x.md': '# R\n\nstatus: done\nhead: {c1}\n', 'steps/001-x.tsv': '1\t{c2}\ts\t\n2\t{c3}\ts\t\n'}),
+        'queued brief after a done report': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
+            'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'queue': '{st}/briefs/002-y.md\n'}),
+        'queued brief that is gone': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
+            'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'queue': '{st}/briefs/009-gone.md\n'}),
+        'queued brief of an answered unit': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
+            'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'reports/002-y.md': '# old\n', 'queue': '{st}/briefs/002-y.md\n'},
+            pair={'heads': {'001-x': 'kept'}, 'pending': ['{st}/briefs/z.md', '{st}/briefs/001-x.md']}),
+        'queued brief behind a pause': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
+            'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'queue': '{st}/briefs/002-y.md\n', 'paused': 'lunch\n'}),
+        'queue with a partial report': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
+            'reports/001-x.md': '# R\n\nstatus: partial\n', 'queue': '{st}/briefs/002-y.md\n'}),
+        'devin done report asks for a rotation': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], kind='devin', files={
+            'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'queue': '{st}/briefs/002-y.md\n'}),
+        'devin that already asked for a rotation': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], kind='pi', pair={'sidekick': {'kind': 'pi', 'generation': 1, 'rotation_required': True}},
+            files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'devin report of an older generation': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], kind='devin', dispatch_generation=0,
+            files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'devin partial report': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], kind='devin', files={'reports/001-x.md': '# R\n\nstatus: partial\n'}),
+        'late steer': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], pair={'notice_steers': ['{st}/steers/001-x-s1.md', '{st}/steers/001-x-s2.md']}, files={
+            'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'steers/001-x-s1.md': '# S\n', 'steers/001-x-s2.md': '# S\n',
+            'progress/001-x.md': '12:00 steer s2 applied: ok\n'}),
+        'steer objection report': dict(args=['finish', '{st}', '{st}/reports/001-x-s1.md'], files={'reports/001-x-s1.md': '# R\n\nstatus: object\n'}),
+        'advice to the master': dict(args=['notify', '{st}', '{st}/advice/001-x.md'], files={'advice/001-x.md': '# A\n\nstatus: answered\n'}),
+        'notify a report': dict(args=['notify', '{st}', '{st}/reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: done\nhead: nothing\n'}),
+        'notify through a relative path': dict(args=['notify', '{st}', '../st/reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: done\n'}),
+        'notify a missing file': dict(args=['notify', '{st}', '{st}/reports/none.md']),
+        'notify under a missing directory': dict(args=['notify', '{st}', '{T}/nope/none.md']),
+        'notify an empty path': dict(args=['notify', '{st}', '']),
+        'notify without arguments': dict(args=['notify']),
+        'notify outside herdr': dict(args=['notify', '{st}', '{st}/reports/001-x.md'], noenv=True, files={'reports/001-x.md': '# R\n'}),
+        'notify without pair.json': dict(args=['notify', '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': '# R\n\nstatus: done\n'}),
+        'notify with a null master': dict(args=['notify', '{st}', '{st}/reports/001-x.md'], pair={'master': None}, files={'reports/001-x.md': '# R\n'}),
+        'finish a missing report': dict(args=['finish', '{st}', '{st}/reports/none.md']),
+        'finish under a missing directory': dict(args=['finish', '{st}', '{T}/nope/none.md']),
+        'finish an empty path': dict(args=['finish', '{st}', '']),
+        'finish without arguments': dict(args=['finish', '{st}']),
+        'finish outside herdr': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], noenv=True, files={'reports/001-x.md': '# R\n'}),
+        'finish a done report without pair.json': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'finish a partial report without pair.json': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': '# R\n\nstatus: partial\n'}),
+        'finish a symlinked report': dict(args=['finish', '{st}', '{T}/link.md'], files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'report, newest': dict(args=['report', '{st}'], files={'reports/001-x.md': '# R\n', 'reports/002-y.md': '# R\n', 'reports/notes.md': '# R\n'}),
+        'report by number': dict(args=['report', '{st}', '001'], files={'reports/001-x.md': '# R\n', 'reports/001-x-s1.md': '# R\n', 'reports/002-y.md': '# R\n'}),
+        'report with none': dict(args=['report', '{st}']),
+        'report of a number with none': dict(args=['report', '{st}', '007'], files={'reports/001-x.md': '# R\n'}),
+        'report without arguments': dict(args=['report']),
+        'next with a queued brief': dict(args=['next', '{st}'], files={'queue': '{st}/briefs/002-y.md\n'}),
+        'next with nothing queued': dict(args=['next', '{st}']),
+        'next while paused': dict(args=['next', '{st}'], files={'queue': '{st}/briefs/002-y.md\n', 'paused': 'lunch\n'}),
+        'next with a brief that is gone': dict(args=['next', '{st}'], files={'queue': '{st}/briefs/009-gone.md\n'}),
+        'next for a devin sidekick': dict(args=['next', '{st}'], kind='devin', files={'queue': '{st}/briefs/002-y.md\n'}),
+        'next for a pi sidekick with a null kind': dict(args=['next', '{st}'], pair={'sidekick': None}, files={'queue': '{st}/briefs/002-y.md\n'}),
+        'next with a stale answer on file': dict(args=['next', '{st}'], files={'queue': '{st}/briefs/002-y.md\n', 'reports/002-y.md': '# old\n'}),
+        'next without pair.json': dict(args=['next', '{st}'], nopair=True),
+        'next with arguments missing': dict(args=['next']),
+    }
+
+    def ab_compare(self, name, spec, skill='pstack-pair'):
+        spec = dict(spec)
+        want = self.ab_run(f'base-{len(list(self.path.iterdir()))}', self.base_skills(), skill, spec)
+        got = self.ab_run(f'port-{len(list(self.path.iterdir()))}', root / 'skills', skill, spec)
+        self.mismatches.update({name: {k: (got[k], want[k]) for k in got if got[k] != want[k]}} if got != want else {})
+        return got
+
+    def test_finish_notify_report_and_next_match_the_bash_at_the_base_commit(self):
+        self.mismatches = {}
+        outcomes = {}
+        for name, spec in self.AB_CASES.items():
+            outcomes[name] = self.ab_compare(name, spec)
+        self.maxDiff = None
+        self.assertEqual(self.mismatches, {})
+        self.assertEqual(outcomes['done report to an idle master']['stdout'].split('\n')[0].split(' ')[:3], ['prompted', 'master', 'm1'])
+        self.assertEqual(outcomes['done report with open notes']['rc'], 7)
+        self.assertEqual(outcomes['done report with a stale head']['rc'], 7)
+        self.assertIn('next: the master queued', outcomes['queued brief after a done report']['stdout'])
+        self.assertIn('rotation-required', ''.join(outcomes['devin done report asks for a rotation']['events']))
+        self.assertIn('late steer', outcomes['late steer']['stdout'])
+        self.assertEqual(outcomes['finish a done report without pair.json']['rc'], 2)
+
+    def test_finish_and_notify_match_the_bash_in_the_other_variants(self):
+        self.mismatches = {}
+        self.maxDiff = None
+        for skill in ('pstack-pair-guided', 'pstack-trio'):
+            for name in ('done report to an idle master', 'done report with open notes', 'queued brief after a done report', 'advice to the master',
+                         'devin done report asks for a rotation', 'next with a queued brief', 'report, newest'):
+                self.ab_compare(f'{skill}: {name}', self.AB_CASES[name], skill)
+        self.assertEqual(self.mismatches, {})
+
+    def test_fresh_per_brief_matches_bash(self):
+        for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
+            code = self.bash(f'if fresh_per_brief {shlex.quote(kind)}; then echo 0; else echo 1; fi').strip()
+            self.assertEqual(int(not dispatch.fresh_per_brief(kind)), int(code), kind)
+
+    def test_record_dispatch_matches_bash(self):
+        repo = self.git_repo()
+        head = self.commit('c1')
+        results = []
+        for label in ('bash', 'py'):
+            for case, extra in (('empty store', {}), ('an answered unit', {'old': True}), ('known heads and pending', {'heads': {'002-y': 'kept', '001-x': None}, 'pending': ['z', 'a']}),
+                                ('no sidekick', {'nosidekick': True})):
+                st = self.path / f'{label}-{case.replace(" ", "-")}'
+                for d in ('briefs', 'reports'):
+                    (st / d).mkdir(parents=True)
+                (st / 'briefs/002-y.md').write_text('# B\n')
+                if extra.get('old'):
+                    (st / 'reports/002-y.md').write_text('# old\n')
+                    os.utime(st / 'reports/002-y.md', (1_700_000_000, 1_700_000_000))
+                pair = {'cwd': str(repo), 'sidekick': {'generation': 3}, **{k: v for k, v in extra.items() if k in ('heads', 'pending')}}
+                if extra.get('nosidekick'):
+                    del pair['sidekick']
+                (st / 'pair.json').write_text(json.dumps(pair, indent=2) + '\n')
+                brief = f'{st}/briefs/002-y.md'
+                if label == 'bash':
+                    self.bash(f'record_dispatch {st} {brief}')
+                else:
+                    dispatch.record_dispatch(str(st), brief)
+                doc = (st / 'pair.json').read_text().replace(str(st), 'ST')
+                results.append((case, re.sub(r'"(at|epoch)": ("[0-9T:Z-]+"|[0-9]+)', r'"\1": T', doc)))
+        half = len(results) // 2
+        self.assertEqual(results[:half], results[half:])
+        self.assertIn(head, results[0][1])
+        self.assertIn('1700000000', results[1][1])
 
     def test_expected_report_matches_bash(self):
         for brief in ('/s/briefs/001-x.md', '001-x-a2.md', '/s/briefs/001-x-a12', '/s/briefs/001-x-a.md', '/s/briefs/-a1.md', '.md', '/s/briefs/001-a1-x.md'):
@@ -1006,11 +1211,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_metrics_gives_a_legacy_header_store_the_same_output_as_the_headerless_one(self):
         self.assertEqual(self.metrics_of(LEGACY_HEADER + '\n' + self.FIRST_EVENTS), self.metrics_of(self.FIRST_EVENTS))
 
-    PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch')
+    PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
+              'finish', 'notify', 'report', 'next')
     DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'pause_notice', 'steer_notice', 'open_steers', 'progress_path',
                   'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
                   'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update',
-                  'report_ready', 'expected_report')
+                  'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch')
 
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
