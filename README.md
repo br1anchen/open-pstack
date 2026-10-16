@@ -53,7 +53,7 @@ See their SKILL.md files. The four share one script core,
 `pstack-pair/scripts/pair-core.sh`; each skill's `scripts/pair.sh` sets its
 variant, adds its own commands, and sources it (the kitchen's is `scripts/kitchen.sh`). The consultant's commands
 (spawn, plan rounds, consults, multi-role stop) live in
-`pstack-trio/scripts/consultant-core.sh`, sourced after the core. `pstack-pair/scripts/pair.py` and `pstack_core/` are a stdlib-only Python core: the ported commands run in it through `pair-core.sh`, and `tests/test_pstack_core.py` checks them against the bash at two commits: d06a932 for phase 1, and e6e83e3 for phase 2, whose `base_skills()` extracts the bash those commands ran in. `tests/test_pstack_pair.py`
+`pstack-trio/scripts/consultant-core.sh`, sourced after the core. `pstack-pair/scripts/pair.py` and `pstack_core/` are a stdlib-only Python core (each variant's hooks are Python in its skill's `scripts/variant.py`): the ported commands run in it through `pair-core.sh`, and `tests/test_pstack_core.py` checks them against the bash at two commits: d06a932 for phase 1, and e6e83e3 for phase 2, whose `base_skills()` extracts the bash those commands ran in. `tests/test_pstack_pair.py`
 drives all three against a fake `herdr` and compares golden transcripts. Other workflows use the current
 upstream revision plus the runtime adaptation. The old installation is backed
 up on sync, including any local edits outside SKILL.md.

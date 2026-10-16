@@ -661,8 +661,9 @@ steer_scope_entries() {
 	done
 }
 
-# Variant hook: further gates on an agreed plan, called with the store, the
-# plan path, its review path, and its sequence number. Exit 6 on a refusal.
+# Variant hook: further gates on an agreed plan. No bash calls it any more: the
+# Python gate (pstack_core/gates.py) runs each variant's plan_gate_extra from its
+# variant.py. Kept until phase 3 deletes the dead bash.
 plan_gate_extra() { :; }
 
 # Implementation playbooks may only run against a plan the sidekick agreed to
@@ -1748,8 +1749,9 @@ cmd_new_plan() { pycore new-plan "$@"; }
 
 cmd_new_brief() { pycore new-brief "$@"; }
 
-# Shared by discuss, dispatch, and answer: refuse unfilled files and a sidekick
-# that cannot take input, then prompt and wait.
+# Only guided's answer calls this now; dispatch and discuss run in
+# pstack_core/send.py. Refuses unfilled files and a sidekick that cannot take
+# input, then prompts and waits.
 send_and_wait() {
 	# $1 store, $2 file, $3 message kind (PLAN|BRIEF|ANSWER), $4 timeout
 	local store="$1" file="$2" kind="$3" timeout="$4" name status out err code=0

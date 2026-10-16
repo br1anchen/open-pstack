@@ -309,7 +309,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual((int(not got.ready), got.why), (int(r.split('\x1f')[0]), r.split('\x1f')[1]), 'a last step row without a tab')
 
     def base_skills(self):
-        """skills/ as it was at e6e83e3, the bash that finish, notify, report and next ran in before they moved to Python."""
+        """skills/ as it was at e6e83e3, the oracle for wait, finish, notify, report, next, queue, step, dispatch, discuss and the plan gates."""
         cls = type(self)
         if cls.__dict__.get('_base') is None:
             tmp = tempfile.TemporaryDirectory()
