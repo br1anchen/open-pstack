@@ -1,4 +1,5 @@
 """The Python core behind pair-core.sh: die parity and the store helpers it duplicates from bash."""
+import json
 import os
 import subprocess
 import sys
@@ -10,7 +11,9 @@ from unittest import mock
 root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
+sys.dont_write_bytecode = True
 from pstack_core import cli, store  # noqa: E402
+from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die  # noqa: E402
 
 LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
@@ -41,13 +44,14 @@ class CoreTests(unittest.TestCase):
         return subprocess.run([sys.executable, '-I', str(scripts / 'pair.py'), *core_args(), *args],
                               env=self.env, capture_output=True, text=True, check=False)
 
-    def bash(self, snippet, env=None):
+    def bash(self, snippet, env=None, check=True):
         harness = f'''set -euo pipefail
 skill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair
 roles=(sidekick); store_dirs=(plans); slug_max=21
 . {scripts / "pair-core.sh"}
 {snippet}'''
-        return subprocess.run(['bash', '-c', harness], env={**self.env, **(env or {})}, capture_output=True, text=True, check=True).stdout
+        r = subprocess.run(['bash', '-c', harness], env={**self.env, **(env or {})}, capture_output=True, text=True, check=check)
+        return r.stdout if check else r
 
     def test_die_without_a_code_exits_1(self):
         r = self.pair_py('log', 'only-one-arg')
@@ -102,6 +106,79 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         f.write_text('# T\n\nstatus:\t done | partial\nstatus: later\nempty:\nkind:   a  b \n')
         for key in ('status', 'empty', 'kind', 'missing'):
             self.assertEqual(store.header_field(str(f), key), self.bash(f'header_field {f} {key}').removesuffix('\n'), key)
+
+
+    def fixture_store(self, name='s', brief='001-one.md'):
+        st = self.path / name
+        for d in ('briefs', 'plans', 'reports', 'progress', 'steers'):
+            (st / d).mkdir(parents=True)
+        (st / 'pair.json').write_text(json.dumps({'dispatch': {'brief': f'{st}/briefs/{brief}'} if brief else None, 'notice_steers': []}))
+        return st
+
+    def ctx(self):
+        return Context('pstack-pair', str(root / 'skills/pstack-pair'), '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+
+    def test_next_seq_matches_bash(self):
+        st = self.fixture_store()
+        self.assertEqual(store.next_seq(str(st)), self.bash(f'next_seq {st}').strip())
+        for rel in ('briefs/001-a.md', 'plans/003-b.md', 'reports/007-c.md', 'reports/x.md', 'briefs/12-no.md', 'plans/009-b.txt', 'reports/010x.md'):
+            (st / rel).write_text('')
+            self.assertEqual(store.next_seq(str(st)), self.bash(f'next_seq {st}').strip(), rel)
+        self.assertEqual(store.next_seq(str(st)), '008')
+
+    def test_paused_reason_and_pause_notice_match_bash(self):
+        st = self.fixture_store()
+        for content in (None, '', 'for lunch\n', 'two\nlines\n', 'no newline'):
+            if content is not None:
+                (st / 'paused').write_text(content)
+            bash = self.bash(f'printf "[%s]\\n" "$(paused_reason {st} || echo NONE)"; pause_notice {st}')
+            reason = store.paused_reason(str(st))
+            ours = f'[{"NONE" if reason is None else reason}]\n' + store.pause_notice(str(st))
+            self.assertEqual(ours, bash, repr(content))
+
+    def test_steer_notice_matches_bash(self):
+        st = self.fixture_store()
+        names = [f'{st}/steers/001-one-s{k}.md' for k in (1, 2, 3, 12)] + [f'{st}/steers/001-one-s9.md', f'{st}/steers/002-other-s1.md']
+        for n in names[:4] + names[5:]:
+            Path(n).write_text('')
+        pair = json.loads((st / 'pair.json').read_text())
+        pair['notice_steers'] = names
+        (st / 'pair.json').write_text(json.dumps(pair))
+        self.assertEqual(self.bash(f'steer_notice {st}'), store.steer_notice(str(st)))
+        (st / 'progress/001-one.md').write_text('10:00 steer s1 applied: x\n10:01 steer s12 late: reported\n')
+        (st / 'reports/001-one-s2.md').write_text('status: object\n')
+        bash = self.bash(f'steer_notice {st}')
+        self.assertEqual(store.steer_notice(str(st)), bash)
+        self.assertEqual(bash.count('STEER:'), 1)
+        self.assertIn('001-one-s3.md', bash)
+
+    def test_progress_path_matches_bash(self):
+        for brief in ('001-one.md', None):
+            st = self.fixture_store(f's-{brief}', brief)
+            bash = self.bash(f'progress_path {st} || echo NONE').strip()
+            self.assertEqual(store.progress_path(str(st)) or 'NONE', bash)
+
+    def test_new_from_template_matches_bash(self):
+        st = self.fixture_store()
+        (st / 'plans/004-p.md').write_text('')
+        for directory, template in (('plans', 'plan-template.md'), ('briefs', 'brief-template.md')):
+            out = self.bash(f'new_from_template {st} good-slug {directory} {template}').strip()
+            bash_text = Path(out).read_text()
+            Path(out).unlink()
+            self.assertEqual(store.new_from_template(self.ctx(), str(st), 'good-slug', directory, template), out)
+            self.assertEqual(Path(out).read_text(), bash_text)
+            self.assertTrue(not any(t in bash_text for t in ('{{SEQ}}', '{{SLUG}}', '{{STORE}}')) and 'good-slug' in bash_text, directory)
+        r = self.bash(f'new_from_template {st} Bad_Slug briefs brief-template.md', check=False)
+        with self.assertRaises(Die) as cm:
+            store.new_from_template(self.ctx(), str(st), 'Bad_Slug', 'briefs', 'brief-template.md')
+        self.assertEqual((r.returncode, r.stderr), (cm.exception.code, f'pair.sh: {cm.exception.message}\n'))
+
+    def test_header_field_is_silent_on_a_missing_or_empty_path(self):
+        self.assertEqual((store.header_field('', 'status'), store.header_field(str(self.path / 'none.md'), 'status')), ('', ''))
+
+    def test_event_detail_defaults_to_empty(self):
+        store.event(str(self.path), 'sidekick', 'step', '-')
+        self.assertTrue((self.path / 'events.tsv').read_text().endswith('\tsidekick\tstep\t-\t\n'))
 
 
     def test_log_records_a_row_and_an_event_through_each_pair_entry_script(self):
