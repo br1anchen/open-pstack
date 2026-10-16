@@ -170,10 +170,7 @@ event() {
 		last="$(tail -n 1 "$log" 2>/dev/null | cut -f2- || true)"
 		[ "$last" != "$(printf '%s\t%s\t%s\t%s\t%s' "$epoch" "$2" "$3" "$unit" "${5:-}")" ] || return 0
 	fi
-	{
-		[ -f "$log" ] || printf 'ts\tepoch\tactor\tevent\tunit\tdetail\n'
-		printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$epoch" "$2" "$3" "$unit" "${5:-}"
-	} >>"$log" 2>/dev/null || true
+	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$epoch" "$2" "$3" "$unit" "${5:-}" >>"$log" 2>/dev/null || true
 }
 
 header_field() {

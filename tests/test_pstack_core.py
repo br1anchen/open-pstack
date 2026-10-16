@@ -95,6 +95,16 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(mask(text), mask((a / 'events.tsv').read_text()))
         self.assertEqual(len(text.splitlines()), 4)
 
+    def test_the_first_event_in_a_new_store_is_the_first_line_of_events_tsv(self):
+        a, b = self.path / 'a', self.path / 'b'
+        a.mkdir()
+        b.mkdir()
+        self.bash(f'event {a} master init - pstack-pair')
+        store.event(str(b), 'master', 'init', '-', 'pstack-pair')
+        for d in (a, b):
+            rows = (d / 'events.tsv').read_text().splitlines()
+            self.assertEqual([r.split('\t', 2)[2] for r in rows], ['master\tinit\t-\tpstack-pair'])
+
     def test_event_dedupes_a_repeated_master_wake_in_one_second(self):
         a, b = self.path / 'a', self.path / 'b'
         a.mkdir()
