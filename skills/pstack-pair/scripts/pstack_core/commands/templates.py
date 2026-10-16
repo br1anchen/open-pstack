@@ -3,7 +3,7 @@ import os
 
 from ..errors import Die
 from ..collate import glob_sorted, newest
-from ..store import fill_template, header_field, new_from_template, pair_file, unit_name, write_text
+from ..store import fill_template, header_field, new_from_template, pair_file, readlink_f, unit_name, write_text
 
 
 def new_plan(ctx, args):
@@ -18,14 +18,6 @@ def new_brief(ctx, args):
         raise Die('usage: pair.sh new-brief <store> <slug>')
     print(new_from_template(ctx, args[0], args[1], 'briefs', 'brief-template.md'))
     return 0
-
-
-def readlink_f(path):
-    """readlink -f: every component but the last must exist, else it fails and set -e ends the command silently."""
-    real = os.path.realpath(path)
-    if not os.path.isdir(os.path.dirname(real)):
-        raise SystemExit(1)
-    return real
 
 
 def new_steer(ctx, args):

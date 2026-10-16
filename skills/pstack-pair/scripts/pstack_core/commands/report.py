@@ -5,7 +5,8 @@ from ..dispatch import fresh_per_brief, take_queued
 from ..errors import Die, Exit
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import alt, event, expected_report, header_field, open_steers, pair_json, paused_reason, steer_number, unit_name, update
+from ..store import (alt, event, expected_report, header_field, open_steers, pair_json, paused_reason, readlink_f, steer_number,
+                     unit_name, update)
 from .status import latest
 
 MISSING_PAIR = 'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'
@@ -14,16 +15,6 @@ MISSING_PAIR = 'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: 
 def in_herdr():
     if os.environ.get('HERDR_ENV') != '1':
         raise Die('not running inside Herdr (HERDR_ENV != 1)')
-
-
-def readlink_f(path):
-    """readlink -f: every component but the last must exist. Ends the command silently with 1 when it does not."""
-    if path == '':
-        raise Exit(1)
-    resolved = os.path.realpath(path)
-    if not os.path.isdir(os.path.dirname(resolved)):
-        raise Exit(1)
-    return resolved
 
 
 def require_pair(store, times=1):

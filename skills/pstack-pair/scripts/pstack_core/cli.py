@@ -28,7 +28,7 @@ def parse(argv):
 
 
 def main(argv):
-    sys.stdout.reconfigure(errors='surrogateescape')
+    sys.stdout.reconfigure(errors='surrogateescape', line_buffering=True)
     sys.stderr.reconfigure(errors='surrogateescape')
     try:
         ctx, cmd, args = parse(argv)

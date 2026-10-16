@@ -19,7 +19,7 @@ def record_dispatch(store, brief):
     pair = pair_json(store)
     cwd = pair.get('cwd')
     r = subprocess.run(['git', '-C', 'null' if cwd is None else str(cwd), 'rev-parse', 'HEAD'], capture_output=True, check=False)
-    head = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n') if r.returncode == 0 else ''
+    head = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     epoch = int(time.time())
 

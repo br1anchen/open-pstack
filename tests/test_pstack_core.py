@@ -21,7 +21,7 @@ sys.dont_write_bytecode = True
 from pstack_core import cli, dispatch, herdr, review, store  # noqa: E402
 from pstack_core.commands import metrics  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
-from pstack_core.errors import Die  # noqa: E402
+from pstack_core.errors import Die, Exit  # noqa: E402
 
 LEGACY = 'd06a932'
 BASE = 'e6e83e3'
@@ -332,7 +332,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True).stdout.strip()
         git('init', '-q', '-b', 'main')
         shas = {}
-        for name in ('c1', 'c2', 'c3'):
+        for name in () if spec.get('emptyrepo') else ('c1', 'c2', 'c3'):
             (repo / name).write_text(name)
             git('add', '-A')
             git('commit', '-q', '-m', name)
@@ -349,6 +349,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (st / 'pair.json').write_text(json.dumps(walk(pair), indent=2) + '\n')
         for name in ('001-x', '002-y'):
             (st / f'briefs/{name}.md').write_text(f'# Brief {name}\n')
+        for name, target in spec.get('links', {}).items():
+            (top / name).symlink_to(fill(target))
         for rel, text in spec.get('files', {}).items():
             (st / rel).parent.mkdir(parents=True, exist_ok=True)
             (st / rel).write_text(fill(text))
@@ -362,12 +364,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def ab_run(self, label, skills, skill, spec):
         top, st, env, fill = self.ab_world(label, spec)
         r = subprocess.run([str(skills / skill / 'scripts/pair.sh'), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env,
-                           capture_output=True, text=True, check=False)
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, check=False)
         norm = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))
         files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
         events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()]
         calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
-        return {'rc': r.returncode, 'stdout': norm(r.stdout), 'stderr': norm(r.stderr), 'files': files, 'events': events, 'calls': calls}
+        return {'rc': r.returncode, 'stdout': norm(r.stdout), 'stderr': norm(r.stderr or ''), 'files': files, 'events': events, 'calls': calls}
 
     AB_CASES = {
         'done report to an idle master': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
@@ -388,9 +390,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'queue': '{st}/briefs/002-y.md\n'}),
         'queued brief that is gone': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
             'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'queue': '{st}/briefs/009-gone.md\n'}),
+        'queued brief that is gone, the streams merged': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], merged=True, files={
+            'reports/001-x.md': '# R\\n\\nstatus: done\\nhead: {c3}\\n', 'queue': '{st}/briefs/009-gone.md\\n'}),
         'queued brief of an answered unit': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
             'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'reports/002-y.md': '# old\n', 'queue': '{st}/briefs/002-y.md\n'},
             pair={'heads': {'001-x': 'kept'}, 'pending': ['{st}/briefs/z.md', '{st}/briefs/001-x.md']}),
+        'queued brief in a repo without commits': dict(args=['next', '{st}'], emptyrepo=True, files={'queue': '{st}/briefs/002-y.md\\n'}),
         'queued brief behind a pause': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
             'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'queue': '{st}/briefs/002-y.md\n', 'paused': 'lunch\n'}),
         'queue with a partial report': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
@@ -423,7 +428,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'finish outside herdr': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], noenv=True, files={'reports/001-x.md': '# R\n'}),
         'finish a done report without pair.json': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
         'finish a partial report without pair.json': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': '# R\n\nstatus: partial\n'}),
-        'finish a symlinked report': dict(args=['finish', '{st}', '{T}/link.md'], files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'finish a report path with a trailing slash': dict(args=['finish', '{st}', '{st}/reports/001-x.md/'], files={'reports/001-x.md': '# R\\n\\nstatus: done\\nhead: {c3}\\n'}),
+        'finish through a missing intermediate directory': dict(args=['finish', '{st}', '{st}/nope/../reports/001-x.md'], files={'reports/001-x.md': '# R\\n\\nstatus: done\\nhead: {c3}\\n'}),
+        'notify through a missing intermediate directory': dict(args=['notify', '{st}', '{st}/nope/../reports/001-x.md'], files={'reports/001-x.md': '# R\\n\\nstatus: done\\n'}),
+        'finish a symlink loop': dict(args=['finish', '{st}', '{T}/loop1'], links={'loop1': 'loop2', 'loop2': 'loop1'}, files={'reports/001-x.md': '# R\\n\\nstatus: done\\nhead: {c3}\\n'}),
+        'finish a symlinked report': dict(args=['finish', '{st}', '{T}/link.md'], links={'link.md': '{st}/reports/001-x.md'}, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
         'report, newest': dict(args=['report', '{st}'], files={'reports/001-x.md': '# R\n', 'reports/002-y.md': '# R\n', 'reports/notes.md': '# R\n'}),
         'report by number': dict(args=['report', '{st}', '001'], files={'reports/001-x.md': '# R\n', 'reports/001-x-s1.md': '# R\n', 'reports/002-y.md': '# R\n'}),
         'report with none': dict(args=['report', '{st}']),
@@ -470,6 +479,28 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                          'devin done report asks for a rotation', 'next with a queued brief', 'report, newest'):
                 self.ab_compare(f'{skill}: {name}', self.AB_CASES[name], skill)
         self.assertEqual(self.mismatches, {})
+
+    def test_readlink_f_matches_readlink(self):
+        top = self.path / 'rl'
+        (top / 'd').mkdir(parents=True)
+        (top / 'f').write_text('')
+        (top / 'd/g').write_text('')
+        for name, target in (('lf', 'f'), ('dang', 'nowhere'), ('loop1', 'loop2'), ('loop2', 'loop1'), ('ld', 'd'), ('dd', 'dang/x'), ('abs', str(top / 'f')),
+                             ('up', 'd/../d')):
+            (top / name).symlink_to(target)
+        paths = ['f', 'd', 'lf', 'dang', 'loop1', 'ld', 'missing', 'd/missing', 'missing/x', 'f/', 'd/', 'lf/', 'ld/', 'dang/', 'missing/', 'missing/..',
+                 'f/x', './f', 'd/../f', 'loop1/x', 'd/.', 'd/..', '.', '..', '/', '//', 'f//', 'd//', 'ld/g', 'dd', 'f/..', 'missing/../f',
+                 'd/missing/..', 'abs', 'up', 'up/g', 'd/./g', 'd//g', 'missing/.', str(top / 'f'), str(top / 'nope/f'), str(top) + '/d/../lf', '']
+        cwd = os.getcwd()
+        os.chdir(top)
+        self.addCleanup(os.chdir, cwd)
+        for path in paths:
+            r = subprocess.run(['readlink', '-f', '--', path], capture_output=True, text=True, check=False)
+            try:
+                got = (0, store.readlink_f(path))
+            except Exit as e:
+                got = (e.code, '')
+            self.assertEqual(got, (r.returncode, r.stdout.rstrip('\n')), repr(path))
 
     def test_fresh_per_brief_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):

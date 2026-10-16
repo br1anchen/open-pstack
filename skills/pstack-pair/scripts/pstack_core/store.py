@@ -2,9 +2,55 @@ import glob
 import json
 import os
 import re
+import stat
 import time
 
-from .errors import Die
+from .errors import Die, Exit
+
+
+def readlink_f(path):
+    """readlink -f, where a failure ends the command with 1 and no message (set -e on an assignment). Every
+    component but the last must exist and be a directory; a trailing slash needs a directory, except after a
+    missing last component; more than 40 symlinks, or a loop, fail."""
+    if path == '':
+        raise Exit(1)
+    rest, links = path, 0
+    parts = [] if path.startswith('/') else [p for p in os.getcwd().split('/') if p]
+    while True:
+        rest = rest.lstrip('/')
+        if rest == '':
+            break
+        name, sep, tail = rest.partition('/')
+        rest = sep + tail
+        if name in ('', '.'):
+            continue
+        if name == '..':
+            if parts:
+                parts.pop()
+            continue
+        here = '/' + '/'.join([*parts, name])
+        try:
+            mode = os.lstat(here).st_mode
+        except FileNotFoundError:
+            if rest.strip('/') == '':
+                parts.append(name)
+                break
+            raise Exit(1)
+        except OSError:
+            raise Exit(1)
+        if stat.S_ISLNK(mode):
+            links += 1
+            if links > 40:
+                raise Exit(1)
+            target = os.readlink(here)
+            if target.startswith('/'):
+                parts = []
+            rest = target + rest
+            continue
+        if rest.startswith('/') and not stat.S_ISDIR(mode):
+            raise Exit(1)
+        parts.append(name)
+    return '/' + '/'.join(parts)
 
 
 def last_line(path):
