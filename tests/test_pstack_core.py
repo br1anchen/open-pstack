@@ -263,8 +263,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(review.review_base(str(st), '001-one'), self.bash(f'review_base {st} 001-one').rstrip('\n'))
         (st / 'pair.json').write_text(json.dumps({'dispatch': {'head': c2}}))
         self.assertEqual(review.review_base(str(st), '001-one'), self.bash(f'review_base {st} 001-one').rstrip('\n'))
-        rev, _ = review.range_floor(str(repo), c3, g2, allow_head=True)
-        self.assertEqual(self.bash(f'range_floor {repo} {c3} {g2} --allow-head; echo "$range_floor_rev"').strip(), rev)
+        for allow in (False, True):
+            rev, note = review.range_floor(str(repo), c2, c3, allow_head=allow)
+            flag = ' --allow-head' if allow else ''
+            out = self.bash(f'range_floor {repo} {c2} {c3}{flag}; printf "%s\\n%s\\n" "$range_floor_rev" "$range_floor_note"')
+            self.assertEqual(f'{rev}\n{note}\n', out, allow)
+            self.assertEqual(bool(note), allow)
 
     def test_require_filled_matches_bash(self):
         f = self.path / 'f.md'
@@ -318,6 +322,31 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn(f'supersedes: {first}', Path(answer).read_text())
         self.assertEqual(out(self.run_pair('new-steer', str(st), '002', '--supersedes', str(st / 'nope.md'))),
                          (1, '', f'pair.sh: superseded steer not found: {st}/nope.md\n'))
+
+    def test_new_note_checks_in_bash_order_and_defaults_through_to_the_shown_step(self):
+        self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
+        st = self.path / 'state/pstack/pair/demo'
+        err = lambda *a: self.run_pair('new-note', str(st), *a).stderr
+        self.assertEqual(err('001'), 'pair.sh: no brief for unit 001\n')
+        (st / 'briefs/001-one.md').write_text('')
+        self.assertEqual(err('001', '--bogus'), 'pair.sh: unknown option --bogus\n')
+        self.assertEqual(err('001'), 'pair.sh: unit 001 has no steps recorded\n')
+        (st / 'steps').mkdir(exist_ok=True)
+        (st / 'steps/001-one.tsv').write_text('1\taaaaaaaaaaaa\t1\t\tone\n2\tbbbbbbbbbbbb\t2\t\ttwo\n')
+        self.assertEqual(err('001', '--through', '3'), 'pair.sh: unit 001 has no step 3\n')
+        self.assertEqual(err('001', '--through', 'x'), 'pair.sh: unit 001 has no step x\n')
+        pair = json.loads((st / 'pair.json').read_text())
+        pair['shown'] = {'001-one': 1}
+        (st / 'pair.json').write_text(json.dumps(pair))
+        first = self.run_pair('new-note', str(st), '001')
+        self.assertEqual(first.stdout, f'{st}/notes/001-one-n1.md.draft\n')
+        self.assertIn('through: step 1\n', Path(first.stdout.strip()).read_text())
+        (st / 'notes/001-one-n1.md').write_text('status: clear\n')
+        second = self.run_pair('new-note', str(st), '001')
+        self.assertIn('through: step 2\n', Path(second.stdout.strip()).read_text())
+        (st / 'notes/001-one-n2.md').write_text('status: clear\n')
+        self.assertEqual(err('001'), 'pair.sh: unit 001 is reviewed through step 2 already; wait for the next steps\n')
+
 
     def test_pause_resume_and_progress_through_pair_sh(self):
         self.assertEqual(self.run_pair('init', 'demo').returncode, 0)

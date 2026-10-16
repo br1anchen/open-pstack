@@ -6,7 +6,7 @@ from .errors import Die
 
 COMMANDS = {'log': log.run, 'new-plan': templates.new_plan, 'new-brief': templates.new_brief, 'new-steer': templates.new_steer,
             'pause': pause.pause, 'resume': pause.resume, 'progress': progress.run,
-            'notes': notes.notes, 'note': notes.note}
+            'notes': notes.notes, 'note': notes.note, 'new-note': notes.new_note}
 
 OPTIONS = ('--skill', '--skill-root', '--state-root', '--store-label', '--roles', '--store-dirs', '--slug-max', '--unfilled-re')
 

@@ -1,10 +1,12 @@
+import glob
 import os
 import re
 import sys
 
 from ..errors import Die
-from ..review import open_notes, require_filled
-from ..store import dispatched_brief, event, header_field, pair_file, pause_notice, read_text, steer_notice, unit_name
+from ..review import awk_equal, jq_raw, noted_through, open_notes, require_filled, review_base, steps_file
+from ..store import (alt, dispatched_brief, event, fill_template, glob_sorted, header_field, pair_file, pair_json, pause_notice,
+                     read_text, steer_notice, unit_name, write_text)
 
 
 def blocking_lines(path):
@@ -81,4 +83,51 @@ def note(ctx, args):
         f.write(''.join(lines).encode('utf-8', 'surrogateescape'))
     event(store, 'master', 'note', unit, f'{k}:{status}')
     print(f'published {path} ({status})')
+    return 0
+
+
+def count_lines(path):
+    """grep -c . : lines with at least one character."""
+    return sum(1 for line in read_text(path).split('\n') if line)
+
+
+def new_note(ctx, args):
+    if len(args) < 2:
+        raise Die('usage: pair.sh new-note <store> <NNN> [--through K]')
+    store, seq, rest = args[0], args[1], args[2:]
+    through = ''
+    if rest and rest[0] == '--through':
+        if len(rest) < 2:
+            raise Die('$2: unbound variable')
+        through = rest[1]
+    elif rest and rest[0] != '':
+        raise Die(f'unknown option {rest[0]}')
+    pair_file(store)
+    briefs = glob_sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
+    if not briefs:
+        raise Die(f'no brief for unit {seq}')
+    unit = unit_name(briefs[0])
+    file = steps_file(store, unit)
+    if not (os.path.isfile(file) and os.path.getsize(file) > 0):
+        raise Die(f'unit {seq} has no steps recorded')
+    done = noted_through(store, unit)
+    if not through:
+        shown_map = alt(pair_json(store).get('shown'), {})
+        shown = alt(shown_map.get(unit) if isinstance(shown_map, dict) else None, '')
+        shown = jq_raw(shown) if shown != '' else ''
+        through = shown if re.fullmatch(r'-?[0-9]+', shown) and int(shown) > done else ''
+    steps = count_lines(file)
+    k = through or str(steps)
+    if not (re.fullmatch(r'[0-9]+', k) and int(k) <= steps):
+        raise Die(f'unit {seq} has no step {k}')
+    if int(k) <= done:
+        raise Die(f'unit {seq} is reviewed through step {k} already; wait for the next steps')
+    base = review_base(store, unit)
+    rows = (r.split('\t') for r in read_text(file).split('\n') if r)
+    to = '\n'.join(c[1] if len(c) > 1 else '' for c in rows if awk_equal(c[0], k))
+    os.makedirs(f'{store}/notes', exist_ok=True)
+    path = f'{store}/notes/{unit}-n{k}.md.draft'
+    write_text(path, fill_template(f'{ctx.skill_root}/references/note-template.md',
+                                   {'UNIT': unit, 'K': k, 'RANGE': f'{base[:9]}..{to[:9]}'}))
+    print(path)
     return 0

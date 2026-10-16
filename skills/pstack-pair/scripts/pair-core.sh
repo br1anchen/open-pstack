@@ -2116,38 +2116,7 @@ cmd_step() {
 # the last note, through the last step a wait showed (or --through k), so a
 # step that lands while the master reviews is left for the next note.
 # Published with pair.sh note once filled.
-cmd_new_note() {
-	[ $# -ge 2 ] || die "usage: pair.sh new-note <store> <NNN> [--through K]"
-	local store="$1" seq="$2" brief unit file k base to path through=""
-	shift 2
-	case "${1:-}" in
-	--through) through="$2" ;;
-	"") ;;
-	*) die "unknown option $1" ;;
-	esac
-	pair_file "$store" >/dev/null
-	brief="$(ls "$store"/briefs/"$seq"-*.md 2>/dev/null | head -1 || true)"
-	[ -n "$brief" ] || die "no brief for unit $seq"
-	unit="$(basename "$brief" .md)"
-	file="$(steps_file "$store" "$unit")"
-	[ -s "$file" ] || die "unit $seq has no steps recorded"
-	if [ -z "$through" ]; then
-		# The last range a wait showed, unless the notes already cover it:
-		# steps recorded without a wake then default to the latest.
-		through="$(jq -r --arg u "$unit" '.shown[$u] // empty' "$store/pair.json")"
-		[ -n "$through" ] && [ "$through" -gt "$(noted_through "$store" "$unit")" ] || through=""
-	fi
-	k="${through:-$(grep -c . "$file")}"
-	[[ "$k" =~ ^[0-9]+$ ]] && [ "$k" -le "$(grep -c . "$file")" ] || die "unit $seq has no step $k"
-	[ "$k" -gt "$(noted_through "$store" "$unit")" ] || die "unit $seq is reviewed through step $k already; wait for the next steps"
-	base="$(review_base "$store" "$unit")"
-	to="$(awk -F '\t' -v k="$k" '$1 == k {print $2}' "$file")"
-	mkdir -p "$store/notes"
-	path="$store/notes/$unit-n$k.md.draft"
-	sed -e "s|{{UNIT}}|$unit|g" -e "s|{{K}}|$k|g" -e "s|{{RANGE}}|${base:0:9}..${to:0:9}|g" \
-		"$skill_root/references/note-template.md" >"$path"
-	printf '%s\n' "$path"
-}
+cmd_new_note() { pycore new-note "$@"; }
 
 # Publishes a filled note: the sidekick sees it at its next step boundary,
 # and its follow-ups go to followups.md rather than into the unit.
