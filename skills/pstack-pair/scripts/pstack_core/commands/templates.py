@@ -20,9 +20,11 @@ def new_brief(ctx, args):
 
 
 def readlink_f(path):
-    """readlink -f: every component but the last must exist, else empty."""
+    """readlink -f: every component but the last must exist, else it fails and set -e ends the command silently."""
     real = os.path.realpath(path)
-    return real if os.path.isdir(os.path.dirname(real)) else ''
+    if not os.path.isdir(os.path.dirname(real)):
+        raise SystemExit(1)
+    return real
 
 
 def newest(paths):

@@ -17,6 +17,7 @@ from pstack_core import cli, review, store  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die  # noqa: E402
 
+LEGACY = 'd06a932'
 LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
 
 
@@ -288,10 +289,25 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIsNone(review.require_filled(ctxs['guided'], str(self.path / 'missing.md')))
 
 
-    def run_pair(self, *args):
+    legacy_dir = None
+
+    @classmethod
+    def legacy_pair(cls):
+        """pair.sh as it was before the port, extracted from git, the oracle for commands that no longer have a bash body."""
+        if cls.legacy_dir is None:
+            cls.legacy_tmp = tempfile.TemporaryDirectory()
+            cls.addClassCleanup(cls.legacy_tmp.cleanup)
+            git = subprocess.run(['git', '-C', str(root), 'archive', LEGACY, 'skills'], capture_output=True, check=False)
+            if git.returncode != 0:
+                raise unittest.SkipTest(f'{LEGACY} is not in this checkout')
+            subprocess.run(['tar', '-x', '-C', cls.legacy_tmp.name], input=git.stdout, check=True)
+            cls.legacy_dir = Path(cls.legacy_tmp.name)
+        return cls.legacy_dir / 'skills/pstack-pair/scripts/pair.sh'
+
+    def run_pair(self, *args, script=None):
         env = {**self.env, 'FAKE': str(self.path), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
                'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}
-        return subprocess.run([str(scripts / 'pair.sh'), *args], env=env, capture_output=True, text=True, check=False)
+        return subprocess.run([str(script or scripts / 'pair.sh'), *args], env=env, capture_output=True, text=True, check=False)
 
     def test_new_steer_counts_files_caps_fresh_steers_and_answers_objections(self):
         self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
@@ -346,6 +362,28 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('through: step 2\n', Path(second.stdout.strip()).read_text())
         (st / 'notes/001-one-n2.md').write_text('status: clear\n')
         self.assertEqual(err('001'), 'pair.sh: unit 001 is reviewed through step 2 already; wait for the next steps\n')
+
+
+    def test_new_steer_supersedes_exits_silently_when_the_path_cannot_resolve_and_names_a_missing_file(self):
+        legacy = self.legacy_pair()
+        for script in (legacy, None):
+            self.assertEqual(self.run_pair('init', 'demo', script=script).returncode, 0)
+        out = {}
+        for label, script in (('legacy', legacy), ('port', None)):
+            st = self.path / f'state/pstack/{"pair"}/demo'
+            (st / 'briefs').mkdir(exist_ok=True)
+            (st / 'briefs/001-one.md').write_text('')
+            (st / 'steers').mkdir(exist_ok=True)
+            for f in (st / 'steers').iterdir():
+                f.unlink()
+            cases = {}
+            for name, target in (('no parent', '/nonexistent-dir/steer.md'), ('not a file', str(st / 'steers/none.md'))):
+                r = self.run_pair('new-steer', str(st), '001', '--supersedes', target, script=script)
+                cases[name] = (r.returncode, r.stdout, r.stderr)
+            out[label] = cases
+        self.assertEqual(out['legacy'], out['port'])
+        self.assertEqual(out['port']['no parent'], (1, '', ''))
+        self.assertTrue(out['port']['not a file'][2].startswith('pair.sh: superseded steer not found: '))
 
 
     def test_pause_resume_and_progress_through_pair_sh(self):
