@@ -5,14 +5,16 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 from .dispatch import fresh_per_brief, record_dispatch
-from .errors import Die
+from .errors import Die, Exit
 from .gates import check_scope
 from .herdr import agent_kind, agent_status
 from .replies import first3, pending, queued_brief
 from .review import jq_raw, require_filled
 from .store import alt, event, expected_report, pair_json, update
+from .commands.report import MISSING_PAIR
 from .wait import bash_sleep, finish_wait, jq_member, jq_run, reply_mode, truthy, wait_for_reply
 
 
@@ -44,7 +46,6 @@ def prune_pending(store):
 
 def record_sent(store, file, kind, now=None):
     """The message the sidekick is answering: its report is the one a wait looks for, even when a newer brief already sits in the queue."""
-    import time
     stamp = time.time() if now is None else now
     at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))
     update(store, lambda doc: doc.__setitem__('sent', {'file': file, 'kind': kind, 'at': at, 'epoch': int(stamp)}))
@@ -101,10 +102,17 @@ def prompt_sidekick(name, text):
 def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None):
     """Shared by discuss, dispatch and answer: refuse unfilled files and a sidekick that cannot take input, then prompt and wait."""
     require_filled(ctx, file)
+    if not os.path.isfile(f'{store}/pair.json'):
+        # field() runs pair_file in a substitution, so its die only ends that subshell and jq then fails on an empty file name: a pair of
+        # error lines each time. A brief reads the repo root first (check_scope then warns about every entry against an empty root), and the
+        # fresh-session check reads the kind: the second pair, with status 2. A plan gets only the second.
+        text = MISSING_PAIR.format(store=store)
+        if kind == 'BRIEF':
+            sys.stderr.write(text)
+            check_scope(file, '')
+        raise Exit(2, text)
     pair = pair_json(store)
-    if kind != 'BRIEF':
-        pass
-    else:
+    if kind == 'BRIEF':
         check_scope(file, jq_raw(alt(pair.get('git_root'), pair.get('cwd'))))
     require_fresh_session(store)
     name = jq_raw(section(pair_json(store), 'sidekick').get('name'))
@@ -133,8 +141,10 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
         event(store, 'master', f'send-{kind.lower()}', file)
         prompt_sidekick(name, f'{ctx.skill} {kind} {file}')
     finally:
+        # `trap - TERM INT HUP`, as decided by running the bash: TERM and HUP go back to what the shell inherited (an ignored one stays
+        # ignored), but INT goes to its default even if it was inherited as ignored.
         for number, previous in held.items():
-            signal.signal(number, previous)
+            signal.signal(number, signal.SIG_DFL if number == signal.SIGINT else previous)
     if send_only:
         print(f'sent: {kind} {file}; follow it with the wait command')
         return 0

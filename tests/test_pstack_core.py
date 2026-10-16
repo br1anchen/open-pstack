@@ -806,7 +806,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'too few arguments': dict(args=['queue', '{st}']),
             'no pair.json': with_files(nopair=True),
             'a paused store': with_files(files={'paused': 'lunch\n'}),
-            'an unfilled brief': with_files(files={'briefs/003-z.md': brief_text('{{path}}')}),
+            'an unfilled brief': with_files(files={'briefs/003-z.md': brief_text('{{{{path}}}}')}),  # ab_world formats file text: doubled braces stay literal
             'a scope that lists paths on one line': with_files(files={'briefs/003-z.md': brief_text('src/a.py, src/b.py')}),
             'a scope that joins paths with and': with_files(files={'briefs/003-z.md': brief_text('src/a.py and docs/guide.md')}),
             'a scope entry that matches nothing': with_files(files={'briefs/003-z.md': brief_text('src/a.py', 'nodir/new.py', 'nodir/**')}),
@@ -846,6 +846,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         outcomes = self.queue_ab_run(self.queue_ab_cases(), 'pstack-pair')
         self.assertEqual(outcomes['queue a brief']['rc'], 0)
         self.assertIn('queued ', outcomes['queue a brief']['stdout'])
+        self.assertEqual(outcomes['an unfilled brief']['rc'], 1)
+        self.assertIn('still has unfilled placeholders', outcomes['an unfilled brief']['stderr'])
         self.assertEqual(outcomes['the queue is held by another brief']['rc'], 5)
         self.assertEqual(outcomes['the sidekick is blocked']['rc'], 3)
         self.assertEqual(outcomes['a feature brief with no plan']['rc'], 6)
@@ -1220,7 +1222,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a dispatch of a brief with pending briefs': mod(pair={'pending': ['{st}/briefs/001-x.md', '{st}/briefs/002-y.md', '']}, files={'reports/001-x.md': '# R\n'}),
             'a dispatch of an answered brief': mod(files={'reports/003-z.md': '# old\n'}, mtimes={'reports/003-z.md': 1_700_000_000}),
             'a dispatch in a paused store': mod(files={'paused': 'lunch\n'}),
-            'a dispatch of an unfilled brief': mod(files={'briefs/003-z.md': brief_text('{{path}}')}),
+            'a dispatch of an unfilled brief': mod(files={'briefs/003-z.md': brief_text('{{{{path}}}}')}),
             'a dispatch with a comma scope': mod(files={'briefs/003-z.md': brief_text('src/a.py, src/b.py')}),
             'a dispatch with a scope entry that matches nothing': mod(files={'briefs/003-z.md': brief_text('src/a.py', 'nodir/**')}),
             'a feature brief with no plan': mod(files={'briefs/003-z.md': brief_text(headers='playbook: feature\n')}),
@@ -1267,10 +1269,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def test_send_ab_dispatch_matches_the_bash_at_the_base_commit(self):
         cases = self.send_ab_cases()
-        if 'no pair.json' in cases:
-            # With no pair.json the bash goes on after the first error pair for a long cascade (see the wait test); only the status is pinned.
-            cases.pop('no pair.json')
+        cases['a brief through a missing directory'] = {**cases['a dispatch to a report'], 'args': ['dispatch', '{st}', '{st}/nope/../briefs/003-z.md']}
         outcomes = self.send_ab_run(cases, 'pstack-pair')
+        # With no pair.json the bash prints a pair of error lines for each field() it reads: the repo root for the Scope check (whose
+        # warnings then name an empty root), then the kind in require_fresh_session, which ends the command with 2. Python reproduces all of it.
+        self.assertEqual(outcomes['no pair.json']['rc'], 2)
+        self.assertEqual(outcomes['no pair.json']['stderr'].count('jq: error: Could not open file : No such file or directory'), 2)
+        self.assertIn('matches no file or directory in ;', outcomes['no pair.json']['stderr'])
         self.assertEqual(outcomes['a dispatch to a report']['rc'], 0)
         self.assertEqual(outcomes['a dispatch with send-only']['rc'], 0)
         self.assertIn('sent: BRIEF', outcomes['a dispatch with send-only']['stdout'])
@@ -1278,6 +1283,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(outcomes['a dispatch while another brief is queued']['rc'], 5)
         self.assertEqual(outcomes['a feature brief with no plan']['rc'], 6)
         self.assertEqual(outcomes['a prompt that fails']['rc'], 2)
+        self.assertEqual(outcomes['a dispatch of an unfilled brief']['rc'], 1)
 
     def test_send_ab_matches_the_bash_in_guided_and_trio(self):
         cases = self.send_ab_cases()
@@ -1306,12 +1312,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a plan with send-only': {**base, 'args': run + ['--send-only']},
             'a plan that is missing': {**base, 'args': ['discuss', '{st}', '{st}/plans/009-none.md']},
             'a plan in a paused store': {**base, 'files': {**base['files'], 'paused': 'lunch\n'}},
-            'an unfilled plan': {**base, 'files': {'plans/001-x.md': plan('{{x}}\n')}},
+            'an unfilled plan': {**base, 'files': {'plans/001-x.md': plan('{{{{x}}}}\n')}},
             'a plan with an unknown option': {**base, 'args': run + ['--force']},
             'too few arguments': dict(args=['discuss', '{st}']),
             'a relative plan path': {**base, 'args': ['discuss', '{st}', '../st/plans/001-x.md', '--timeout', '20000']},
             'a symlinked plan': {**base, 'args': ['discuss', '{st}', '{T}/link.md', '--timeout', '20000'], 'links': {'link.md': '{st}/plans/001-x.md'}},
             'the sidekick is absent': {**base, 'agents': {}},
+            'no pair.json': {**base, 'nopair': True},
             'the sidekick is working': {**base, 'agents': {'s1': 'working claude'}},
             'a rotation is required': {**base, 'agents': {'s1': 'idle pi'}, 'pair': {'sidekick': {'kind': 'pi', 'generation': 1, 'name': 's1', 'rotation_required': True}}},
             'a prompt that stalls': {**base, 'files': {**base['files'], '../fake/stall': ''}},
@@ -1348,6 +1355,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a brief that is missing': {**base, 'args': ['dispatch', '{st}', '{st}/briefs/009-none.md']},
             'the sidekick is absent': {**base, 'agents': {}},
             'a queued brief taken': {**base, 'files': {'briefs/003-z.md': brief(), 'queue': '{st}/briefs/003-z.md\n'}},
+            'a paused store': {**base, 'files': {'briefs/003-z.md': brief(), 'paused': 'lunch\n'}},
+            'the sidekick is blocked': {**base, 'agents': {'s1': 'blocked claude'}},
+            'the sidekick is working': {**base, 'agents': {'s1': 'working claude'}},
+            'an unfilled brief': {**base, 'files': {'briefs/003-z.md': brief().replace('src/a.py', '{{{{path}}}}')}},
             'another brief queued': {**base, 'files': {'briefs/003-z.md': brief(), 'queue': '{st}/briefs/002-y.md\n'}},
             'a discuss of a routine plan': dict(base, args=['discuss', '{st}', '{st}/plans/001-x.md', '--timeout', '20000'], files={'plans/001-x.md': '# Plan 001-x\n\nrisk: routine\n'},
                                                 report_after='1 {st}/reports/001-x.md agree'),
@@ -1358,13 +1369,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual({n: o['rc'] for n, o in outcomes.items()}, {
             'a routine brief to a report': 0, 'a routine brief with send-only': 0, 'an escalated brief with advice': 0, 'an escalated brief with no advice': 6, 'a landing brief': 0,
             'a brief that waits to steps': 0, 'a check-in the quiet wait swallows': 4, 'a check-in with a flag': 4, 'a brief that is missing': 1, 'the sidekick is absent': 2,
-            'a queued brief taken': 0, 'another brief queued': 5, 'a discuss of a routine plan': 0, 'a done report that is not ready': 4, 'a discuss of a plan with no risk': 2})
+            'a queued brief taken': 0, 'a paused store': 5, 'the sidekick is blocked': 3, 'the sidekick is working': 5, 'an unfilled brief': 1, 'another brief queued': 5, 'a discuss of a routine plan': 0, 'a done report that is not ready': 4, 'a discuss of a plan with no risk': 2})
         self.assertIn('written but not ready: its head: is not a commit', outcomes['a done report that is not ready']['stdout'])
 
-    def dispatch_signalled(self, skills, number, group, hook_sub, skill='pstack-pair'):
+    def dispatch_signalled(self, skills, number, group, hook_sub, skill='pstack-pair', ignored=(), capture=None):
         """`dispatch`, signalled while a fake-herdr hook holds it in `hook_sub` (the prompt of the delivery, or the wait that follows):
         (exit status, stdout, stderr, the store as it ends). Bounded as wait_signalled is."""
-        spec = {'agents': {'s1': 'idle claude'}, 'repo_files': {'src/a.py': 'x'}, 'report_after': '1 {st}/reports/003-z.md',
+        spec = {'agents': {'s1': 'idle claude'}, 'repo_files': {'src/a.py': 'x', **({'.agents/kitchen.toml': self.KITCHEN_TOML} if skill == 'pstack-kitchen' else {})},
+                'env': {'KITCHEN_QUIET_MAX_S': '3', 'KITCHEN_QUIET_POLL_S': '0'}, 'report_after': '1 {st}/reports/003-z.md',
                 'files': {'briefs/003-z.md': '# Brief 003-z\n\nplaybook: investigation\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/a.py\n'}}
         top, st, env, fill = self.ab_world(f'sigd-{len(list(self.path.iterdir()))}', spec)
         ready, release = top / 'ready', top / 'release'
@@ -1379,7 +1391,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
         def default_signals():
             for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-                signal.signal(each, signal.SIG_DFL)
+                signal.signal(each, signal.SIG_IGN if each in ignored else signal.SIG_DFL)
 
         # A wrapper around the fake herdr tells the test when a herdr call that outlived its shell is over (it may still be writing the report
         # the fake's report-after promises), so the store is read after it and not in a race with it.
@@ -1410,6 +1422,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     self.fail(f'dispatch never reached herdr\'s {hook_sub}')
             finally:
                 os.close(fd)
+            norm_now = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))
+            if capture is not None:
+                capture['before'] = ({str(f.relative_to(st)): norm_now(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'},
+                                     [norm_now(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]])
             (os.killpg if group else os.kill)(proc.pid, number)
             os.write(release_fd, b'x\n')
             try:
@@ -1451,6 +1467,33 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(got, want, (number.name, group))
             self.assertEqual(got[0], -number, (number.name, group))
             self.assertIn('send-brief', ' '.join(got[4]))
+
+    def test_send_ab_signals_inherited_as_ignored_after_delivery(self):
+        # Decided by running the bash: after `trap '' TERM INT HUP` and `trap - TERM INT HUP`, an inherited-ignored SIGINT is at its default
+        # (a SIGINT in the wait kills the base) while an inherited-ignored SIGHUP stays ignored (the base finishes its wait). The port must do
+        # the same. This differs from `wait`, which has no trap and so keeps an inherited ignore of SIGINT.
+        # reports/ is left out of the comparison: whether the fake herdr's hook, which inherited the ignored signal, goes on to write its report
+        # after it is released is the fake's own doing, not the dispatch's.
+        strip = lambda r: (r[0], r[1], r[2], {k: v for k, v in r[3].items() if not k.startswith('reports/')}, r[4])
+        for number, status in ((signal.SIGINT, -signal.SIGINT), (signal.SIGHUP, 0)):
+            want = self.dispatch_signalled(self.base_skills(), number, True, 'wait', ignored=(number,))
+            got = self.dispatch_signalled(root / 'skills', number, True, 'wait', ignored=(number,))
+            self.assertEqual(strip(got), strip(want), number.name)
+            self.assertEqual(got[0], status, number.name)
+
+    def test_send_ab_kitchen_signal_to_the_shell_alone_during_the_wait(self):
+        # kitchen.sh runs the dispatch in a command substitution, so the signalled shell and the dispatch are two processes. TERM kills the
+        # shell at once, as in the base. The base's subshell then outlives it and finishes its wait, writing the store after the signal
+        # (a report mark, a wake row); the exec'd Python follows its parent (PR_SET_PDEATHSIG), so the port leaves nothing running and the
+        # store as it was when the signal came.
+        capture = {}
+        got = self.dispatch_signalled(root / 'skills', signal.SIGTERM, False, 'wait', skill='pstack-kitchen', capture=capture)
+        self.assertEqual(got[0], -signal.SIGTERM)
+        # reports/ is left out: the report is the fake herdr's own write, made when the test lets its hook go, not the dispatch's
+        self.assertEqual(({k: v for k, v in got[3].items() if not k.startswith('reports/')}, got[4]), capture['before'])
+        want = self.dispatch_signalled(self.base_skills(), signal.SIGTERM, False, 'wait', skill='pstack-kitchen')
+        self.assertEqual(want[0], -signal.SIGTERM)
+        self.assertEqual(want[1:3], got[1:3])
 
     def test_send_ab_signals_during_delivery_are_ignored_as_in_the_bash(self):
         # TERM, INT and HUP wait out the prompt: bash's `trap '' TERM INT HUP` discards them, so the dispatch goes on to its report.
