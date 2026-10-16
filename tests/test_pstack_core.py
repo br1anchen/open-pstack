@@ -1,6 +1,7 @@
 """The Python core behind pair-core.sh: die parity and the store helpers it duplicates from bash."""
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -429,6 +430,88 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(picked['C', 'legacy'], picked['C', 'port'])
         self.assertEqual(picked['en_US.UTF-8', 'legacy'], picked['en_US.UTF-8', 'port'])
         self.assertNotEqual(picked['C', 'port'], picked['en_US.UTF-8', 'port'])
+
+
+    def status_pair(self, variant, script_root, *args):
+        env = {**self.env, 'FAKE': str(self.path / 'fake'), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
+               'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}
+        r = subprocess.run([str(script_root / 'skills' / variant / 'scripts/pair.sh'), *args], env=env, capture_output=True, text=True, check=False)
+        stamp = re.compile(r'generated: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ')
+        return r.returncode, stamp.sub('generated: T', r.stdout), sorted(r.stderr.splitlines())
+
+    def populate_store(self, st, consultant):
+        def put(rel, text='', age=0):
+            f = st / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text)
+            t = 1_700_000_000 - age
+            os.utime(f, (t, t))
+        put('plans/001-plan-a.md')
+        put('briefs/002-b_one.md')
+        put('briefs/002-b-two.md')
+        put('briefs/003-c.direction.md')
+        put('briefs/003-c.md')
+        put('reports/000-ready.md', 'status: done\n', 90)
+        put('reports/002-b_one.md', 'status: partial\n', 50)
+        put('reports/002-b_one-s1.md', 'status: object\n', 60)
+        put('reports/003-c.md', '# nothing\n', 10)
+        put('reviews/002-b_one.md', 'verdict: agreed\n')
+        put('reviews/003-c.md', '# no verdict\n')
+        put('queue', f'{st}/briefs/003-c.md\n\n')
+        put('paused', 'for lunch\nsecond line\n')
+        put('gates.md', '# Gates\n\n- one\n- two\nnot a gate\n')
+        put('answers/002-b_one-a1.md')
+        put('reports/002-b_one-q1.md', 'status: asking\n', 100)
+        put('reports/003-c-q2.md', 'status: asking\n', 100)
+        if consultant:
+            put('advice/002-b_one.md', 'status: agree\n', 5)
+            put('advice/002-b_one-c1.md', 'status: object\n', 20)
+            put('advice/003-c.md', '# no status\n', 1)
+        pair = json.loads((st / 'pair.json').read_text())
+        pair['scratch'] = ['/tmp/one', 'two words', '*.nothing-glob']
+        (st / 'pair.json').write_text(json.dumps(pair))
+
+    def test_status_matches_pair_sh_at_the_legacy_commit_in_every_variant(self):
+        legacy = self.legacy_pair().parents[3]
+        new_root = root
+        for variant, consultant in (('pstack-pair', False), ('pstack-pair-guided', False), ('pstack-trio', True)):
+            fake = self.path / 'fake'
+            for d in ('agents', 'busy', 'screen', 'panes', 'sessions'):
+                (fake / d).mkdir(parents=True, exist_ok=True)
+            label = variant.removeprefix('pstack-')
+            self.assertEqual(self.status_pair(variant, new_root, 'init', 'demo')[0], 0, variant)
+            st = self.path / f'state/pstack/{label}/demo'
+            self.populate_store(st, consultant)
+            (fake / 'agents/demo-sidekick').write_text('done pi\n')
+            (fake / 'busy/demo-sidekick').write_text('')
+            results = {}
+            for name, tree in (('legacy', legacy), ('port', new_root)):
+                (fake / 'calls.log').unlink(missing_ok=True)
+                results[name] = self.status_pair(variant, tree, 'status', str(st)) + (re.sub(r'generated: \S+', 'generated: T', (st / 'status.md').read_text()), (fake / 'calls.log').read_text())
+            self.assertEqual(results['legacy'], results['port'], variant)
+            code, out, _err, saved, calls = results['port']
+            self.assertEqual(code, 0)
+            self.assertEqual(saved, out, variant)
+            self.assertIn('| 002 | brief | b_one | partial |', out)
+            self.assertIn('agent read demo-sidekick --source visible --lines 40', calls)
+            self.assertIn('unanswered asks: 1\n', out)
+            self.assertIn('open gates: 2\n', out)
+            self.assertEqual('(c1)' in out, consultant, variant)
+
+    def test_status_on_a_store_without_pair_json_prints_the_header_then_dies_like_bash(self):
+        legacy = self.legacy_pair().parents[3]
+        for label, make_dir in (('dir exists', True), ('dir missing', False)):
+            st = self.path / f'state/pstack/pair/{label.replace(" ", "-")}'
+            if make_dir:
+                st.mkdir(parents=True)
+            results = {}
+            for name, tree in (('legacy', legacy), ('port', root)):
+                results[name] = self.status_pair('pstack-pair', tree, 'status', str(st))
+            self.assertEqual(results['legacy'], results['port'], label)
+            self.assertEqual(results['port'][0], 1 if not make_dir else 2)
+            self.assertTrue(results['port'][1].startswith('# Pair status\n\ngenerated: T\n'), label)
+            self.assertIn(f'pair.sh: no pair.json in {st}; run: pair.sh init <slug>', results['port'][2])
+            self.assertEqual(any('tee:' in l for l in results['port'][2]), not make_dir, label)
 
 
     def test_pause_resume_and_progress_through_pair_sh(self):

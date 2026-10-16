@@ -2,7 +2,7 @@ import glob
 import os
 
 from ..errors import Die
-from ..collate import collate_key, glob_sorted
+from ..collate import glob_sorted, newest
 from ..store import fill_template, header_field, new_from_template, pair_file, unit_name, write_text
 
 
@@ -26,11 +26,6 @@ def readlink_f(path):
     if not os.path.isdir(os.path.dirname(real)):
         raise SystemExit(1)
     return real
-
-
-def newest(paths):
-    """ls -t | head -1: newest first, ties by name."""
-    return min(paths, key=lambda p: (-os.stat(p).st_mtime_ns, collate_key()(os.path.basename(p))), default='')
 
 
 def new_steer(ctx, args):
@@ -60,7 +55,7 @@ def new_steer(ctx, args):
         if not os.path.isfile(supersedes):
             raise Die(f'superseded steer not found: {supersedes}')
         reports = glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md'))
-        if header_field(newest(reports), 'status') != 'object':
+        if header_field(newest(reports) or '', 'status') != 'object':
             raise Die(f'no open objection on unit {seq} to answer; send a fresh steer instead')
     elif fresh >= 2 and not force:
         raise Die(f'unit {seq} already has two fresh steers; stop the unit and re-brief, or pass --force', 7)

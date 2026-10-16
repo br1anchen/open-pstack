@@ -1643,6 +1643,21 @@ esac
         self.assertEqual(self.run_sh('new-note', str(self.store), '001', '--through', '1', code=1),
                          'pair.sh: unit 001 is reviewed through step 1 already; wait for the next steps\n')
 
+    def test_kitchen_status_lists_the_three_roles_the_advice_column_and_saves_status_md(self):
+        out = self.run_sh('status', str(self.store))
+        lines = out.splitlines()
+        self.assertEqual(lines[0], '# Kitchen status')
+        roles = [l for l in lines if re.match(r'(sidekick|verifier|consultant): ', l)]
+        self.assertEqual([l.split(':')[0] for l in roles], ['sidekick', 'verifier', 'consultant'])
+        self.assertRegex(roles[0], r'^sidekick: demo-sidekick \(\S+\) idle$')
+        self.assertEqual(roles[1], 'verifier: demo-verifier (unassigned) absent')
+        self.assertEqual(roles[2], 'consultant: demo-consultant (unassigned) absent')
+        self.assertIn('| seq | kind | unit | report | advice | review |\n|---|---|---|---|---|---|\n', out)
+        self.assertEqual((self.store / 'status.md').read_text(), out)
+        self.brief('001', 'util', ['src/**', 'tests/**'])
+        row = [l for l in self.run_sh('status', str(self.store)).splitlines() if l.startswith('| 001 ')]
+        self.assertEqual(row, ['| 001 | brief | util | none | none | none |'])
+
     def test_init_puts_the_kitchen_in_the_standing_orders(self):
         orders = (self.store / 'standing-orders.md').read_text()
         self.assertIn('runs these skills on its diff and fixes what they find: no-comments', orders)

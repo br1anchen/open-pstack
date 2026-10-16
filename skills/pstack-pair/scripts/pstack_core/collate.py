@@ -1,4 +1,5 @@
 import _locale
+import os
 
 _key = None
 
@@ -17,3 +18,9 @@ def collate_key():
 
 def glob_sorted(paths):
     return sorted(paths, key=collate_key())
+
+
+def newest(paths):
+    """ls -t | head -1: newest first, ties by collated name; None when there are none."""
+    key = collate_key()
+    return min(paths, key=lambda p: (-os.stat(p).st_mtime_ns, key(os.path.basename(p))), default=None)
