@@ -6,7 +6,6 @@ import signal
 import subprocess
 import sys
 
-from .checkin import checkin
 from .dispatch import fresh_per_brief, record_dispatch
 from .errors import Die
 from .gates import check_scope
@@ -20,6 +19,14 @@ from .wait import bash_sleep, finish_wait, jq_member, jq_run, reply_mode, truthy
 def section(pair, name):
     value = pair.get(name)
     return value if isinstance(value, dict) else {}
+
+
+def gnu_basename(path):
+    """basename: trailing slashes go, and a path of slashes alone is '/'."""
+    stripped = path.rstrip('/')
+    if not stripped:
+        return '/' if path else ''
+    return stripped.rsplit('/', 1)[-1]
 
 
 def prune_pending(store):
@@ -44,6 +51,7 @@ def record_sent(store, file, kind, now=None):
 
 
 def require_fresh_session(store):
+    # A non-object .sidekick reads as empty here; the bash's field() would fail in jq and end the shell. No writer stores one.
     sidekick = section(pair_json(store), 'sidekick')
     kind = jq_raw(sidekick.get('kind'))
     if fresh_per_brief(kind) and (alt(sidekick.get('rotation_required'), False) is not False or alt(sidekick.get('bootstrap_pending'), False) is not False):
@@ -87,8 +95,7 @@ def prompt_sidekick(name, text):
         if code not in ('timeout', 'agent_prompt_stalled'):
             sys.stderr.write(err)
             raise Die(f'herdr prompt failed for {name}', 2)
-    word = text.rsplit(' ', 1)[-1]
-    return submit_typed(name, os.path.basename(word.rstrip('/') or word))
+    return submit_typed(name, gnu_basename(text.rsplit(' ', 1)[-1]))
 
 
 def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None):

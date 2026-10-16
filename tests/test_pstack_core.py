@@ -379,6 +379,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (fake / 'once').mkdir(exist_ok=True)
             (fake / 'once' / subcommand).write_text(script)
             (fake / 'once' / subcommand).chmod(0o755)
+        if spec.get('prompt_error') is not None:
+            # a herdr whose `agent prompt` fails with exactly this stderr; every other call goes to the fake
+            (top / 'prompt_error.txt').write_text(spec['prompt_error'])
+            wrap = top / 'wrapprompt'
+            wrap.mkdir()
+            (wrap / 'herdr').write_text(f'#!/bin/sh\nif [ "$1 $2" = "agent prompt" ]; then cat "{top}/prompt_error.txt" >&2; exit 1; fi\nexec {root / "tests/pstack-pair/bin/herdr"} "$@"\n')
+            (wrap / 'herdr').chmod(0o755)
+            env['PATH'] = f'{wrap}:{env["PATH"]}'
         if spec.get('hook'):
             (fake / 'hook').write_text(spec['hook'])
             (fake / 'hook').chmod(0o755)
@@ -1073,7 +1081,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     SEND_NOW = 1_800_000_321
 
-    def send_both(self, name, snippet, call, **spec):
+    def send_both(self, name, snippet, call, mask_ts=True, **spec):
         """A helper of the send path in bash (the e6e83e3 core, `date` fixed at SEND_NOW) and in Python (given the same instant) on identical
         worlds: (return code, stdout, stderr, store files, events added, herdr calls)."""
         results = []
@@ -1084,7 +1092,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if label == 'bash':
                 fake = self.path / f'fakedate-{self.SEND_NOW}'
                 fake.mkdir(exist_ok=True)
-                (fake / 'date').write_text(f'#!/bin/sh\ncase "$1" in +%s) echo {self.SEND_NOW} ;; *) exec {shutil.which("date")} "$@" ;; esac\n')
+                (fake / 'date').write_text(f'#!/bin/sh\ncase "$1" in +%s) echo {self.SEND_NOW} ;; -u) shift; exec {shutil.which("date")} -u -d @{self.SEND_NOW} "$@" ;; *) exec {shutil.which("date")} "$@" ;; esac\n')
                 (fake / 'date').chmod(0o755)
                 script = (f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
                           f'. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\n{fill(snippet)}')
@@ -1092,7 +1100,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 rc, so, se = r.returncode, r.stdout, r.stderr
             else:
                 so_io, se_io = io.StringIO(), io.StringIO()
-                with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(so_io), contextlib.redirect_stderr(se_io):
+                # The Python half runs in this process: every subprocess it starts gets the timeout the bash half has, so a hung fake herdr
+                # fails the test instead of the gate.
+                real_run = subprocess.run
+                bounded = lambda *a, **k: real_run(*a, **{'timeout': 120, **k})
+                with mock.patch.dict(os.environ, env), mock.patch.object(subprocess, 'run', bounded), contextlib.redirect_stdout(so_io), contextlib.redirect_stderr(se_io):
                     try:
                         out = call(ctx, str(st), fill)
                         rc = 0
@@ -1101,7 +1113,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                         rc = e.code
                         se_io.write(f'pair.sh: {e.message}\n')
                 so, se = so_io.getvalue(), se_io.getvalue()
-            norm = lambda text: re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>'))
+            norm = lambda text: (re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text) if mask_ts else text).replace(str(top), '<T>')
             files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
             events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]]
             calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
@@ -1125,8 +1137,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         }.items():
             self.send_both('prune ' + label.replace(' ', '-'), 'prune_pending "$store"', lambda ctx, st, fill: send.prune_pending(st), **spec)
         for kind in ('PLAN', 'ANSWER', 'BRIEF'):
-            self.send_both(f'sent-{kind}', f'record_sent "$store" {{st}}/plans/001-x.md {kind}', lambda ctx, st, fill, kind=kind: send.record_sent(st, fill('{st}/plans/001-x.md'), kind, self.SEND_NOW), pair={'sent': {'file': 'old', 'epoch': 1}})
-        self.send_both('sent-none', 'record_sent "$store" /f PLAN', lambda ctx, st, fill: send.record_sent(st, '/f', 'PLAN', self.SEND_NOW), pair={'sent': None})
+            self.send_both(f'sent-{kind}', f'record_sent "$store" {{st}}/plans/001-x.md {kind}', lambda ctx, st, fill, kind=kind: send.record_sent(st, fill('{st}/plans/001-x.md'), kind, self.SEND_NOW), mask_ts=False, pair={'sent': {'file': 'old', 'epoch': 1}})
+        self.send_both('sent-none', 'record_sent "$store" /f PLAN', lambda ctx, st, fill: send.record_sent(st, '/f', 'PLAN', self.SEND_NOW), mask_ts=False, pair={'sent': None})
+        got = self.send_both('sent-at-is-the-fixed-instant', 'record_sent "$store" /f PLAN', lambda ctx, st, fill: send.record_sent(st, '/f', 'PLAN', self.SEND_NOW), mask_ts=False)
+        self.assertIn('"at": "2027-01-15T08:05:21Z"', got[3]['pair.json'])
 
     def test_send_helpers_require_fresh_session_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex'):
@@ -1157,6 +1171,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         got = self.send_both('submit-codex-working', snippet, call, agents={'s1': 'working codex'}, **screen('❯ 001-x.md\n'))
         self.assertEqual(got[1], 'submitted=3\n', 'submit-codex-working')
         self.send_both('submit-no-agent', snippet, call, agents={'s1': ''}, **screen('❯ 001-x.md\n'))
+        # The marker is compared after tr -d '\n │' has deleted bytes from the screen, E2 and 82 among them, so a marker with a euro sign (E2 82 AC)
+        # can never be found again: the locale is set explicitly and the bash and Python must agree.
+        snippet_eur = 'submit_typed s1 "a\u20acb"; echo "submitted=$submitted"'
+        call_eur = lambda ctx, st, fill: f'submitted={send.submit_typed("s1", "a\u20acb")}\n'
+        for locale_name in ('en_US.UTF-8', 'C'):
+            with mock.patch.dict(os.environ, {'LC_ALL': locale_name}):
+                got = self.send_both('submit-euro-' + locale_name, snippet_eur, call_eur, env={'LC_ALL': locale_name}, **screen('x a\u20acb y\n'))
+            self.assertEqual(got[1], 'submitted=0\n', locale_name)
         text = 'PAIR BRIEF {st}/briefs/001-x.md'
         pcall = lambda ctx, st, fill: f'submitted={send.prompt_sidekick("s1", fill(text))}\n'
         psnip = 'prompt_sidekick s1 "PAIR BRIEF $store/briefs/001-x.md"; echo "submitted=$submitted"'
@@ -1168,6 +1190,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.send_both('prompt-stalls', psnip, pcall, agents={'s1': 'working claude'}, files={'../fake/prompt-drop': ''})
         self.send_both('prompt-stalls-typed', psnip, pcall, agents={'s1': 'working claude'}, files={'../fake/stall': ''})
         self.send_both('prompt-to-an-absent-agent', psnip, pcall, agents={'s1': ''})
+        for label, error, code in (('empty-stderr', '', 2), ('non-json-stderr', 'herdr: socket gone\n', 2), ('json-timeout', '{"error":{"code":"timeout"}}\n', 0),
+                                   ('json-stalled', '{"error":{"code":"agent_prompt_stalled"}}', 0), ('json-string-error', '{"error":"boom"}\n', 2), ('two-payloads', '{"a":1}\n{"error":{"code":"timeout"}}\n', 0)):
+            got = self.send_both('prompt-' + label, psnip, pcall, agents={'s1': 'working claude'}, prompt_error=error)
+            self.assertEqual(got[0], code, label)
+        self.send_both('prompt-text-ending-in-a-slash', 'prompt_sidekick s1 "PAIR BRIEF /"; echo "submitted=$submitted"',
+                       lambda ctx, st, fill: f'submitted={send.prompt_sidekick("s1", "PAIR BRIEF /")}\n', agents={'s1': 'working claude'}, **screen('PAIR BRIEF /\n'))
         self.send_both('prompt-path-with-a-space', 'prompt_sidekick s1 "PAIR BRIEF $store/briefs/a b.md"; echo "submitted=$submitted"',
                        lambda ctx, st, fill: f'submitted={send.prompt_sidekick("s1", "PAIR BRIEF " + st + "/briefs/a b.md")}\n', agents={'s1': 'working claude'})
 

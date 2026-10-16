@@ -55,7 +55,8 @@ def queue_note(store, report):
 
 
 def pending(store):
-    """jq -r '.pending // [] | .[]', the non-empty lines."""
+    """jq -r '.pending // [] | .[]', the non-empty lines. The shapes jq rejects or prints differently (a string or an object for .pending,
+    nested arrays) are not reproduced: no writer stores them."""
     items = alt(pair_json(store).get('pending'), [])
     return [line for item in items for line in jq_raw(item).split('\n') if line]
 
