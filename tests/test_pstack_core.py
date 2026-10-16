@@ -18,7 +18,7 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import cli, dispatch, herdr, review, store  # noqa: E402
+from pstack_core import cli, dispatch, herdr, replies, review, store  # noqa: E402
 from pstack_core.commands import metrics  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
@@ -501,6 +501,248 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             except Exit as e:
                 got = (e.code, '')
             self.assertEqual(got, (r.returncode, r.stdout.rstrip('\n')), repr(path))
+
+    def replies_world(self, name, sent=None, pending=(), dispatch='001-x.md', shown=None, extra=None):
+        """A store with a repo (commits c1 < c2 < c3), reports, steps and notes laid out by the caller."""
+        if not hasattr(self, 'replies_repo'):
+            self.replies_repo = self.git_repo()
+            self.replies_shas = [self.commit('c1'), self.commit('c2'), self.commit('c3')]
+        st = self.path / name
+        for d in ('briefs', 'reports', 'steps', 'notes', 'reviews', 'progress'):
+            (st / d).mkdir(parents=True)
+        pair = {'git_root': str(self.replies_repo), 'cwd': str(self.replies_repo), 'pending': list(pending), 'sidekick': {'kind': 'claude'}}
+        if dispatch:
+            pair['dispatch'] = {'brief': f'{st}/briefs/{dispatch}', 'head': self.replies_shas[0]}
+        if sent is not None:
+            pair['sent'] = sent
+        if shown is not None:
+            pair['shown'] = shown
+        pair.update(extra or {})
+        (st / 'pair.json').write_text(json.dumps(pair, indent=2) + '\n')
+        return st
+
+    def bash_value(self, snippet):
+        """(return code, stdout as a command substitution gives it) of a bash snippet in the harness."""
+        r = self.bash(f'rc=0; out="$({snippet})" || rc=$?; printf "%s\\037%s" "$rc" "$out"')
+        code, out = r.split('\x1f', 1)
+        return int(code), out
+
+    def replies_ctx(self):
+        return Context('pstack-pair', str(root / 'skills/pstack-pair'), '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+
+    def test_replies_file_mtime_and_latest_report_match_bash(self):
+        st = self.replies_world('r1')
+        a, b, c = (st / 'reports' / n for n in ('001-x.md', '002-y.md', '002-z.md'))
+        for f, t in ((a, 1_700_000_000), (b, 1_700_000_100), (c, 1_700_000_100)):
+            f.write_text('# R\n')
+            os.utime(f, (t, t))
+        (st / 'reports/notes.md').write_text('x')
+        for f in (a, b):
+            self.assertEqual(replies.file_mtime(str(f)), int(self.bash_value(f'file_mtime {f}')[1]))
+        self.assertEqual(self.bash_value(f'file_mtime {st}/reports/none.md')[0] != 0, True)
+        with self.assertRaises(OSError):
+            replies.file_mtime(f'{st}/reports/none.md')
+        for want in ('', '001', '002', '003', '00'):
+            got = replies.latest_report(str(st), want)
+            self.assertEqual((0, got) if got else (1, ''), self.bash_value(f'latest_report {st} {want}'), want)
+        (st / 'reports/002-z.md').unlink()
+        os.utime(b, (1_700_000_500, 1_700_000_500))
+        self.assertEqual(replies.latest_report(str(st)), self.bash_value(f'latest_report {st}')[1])
+
+    def test_replies_queue_helpers_match_bash(self):
+        st = self.replies_world('r2')
+        for queue, running, report in ((None, '001-x.md', '001-x.md'), ('', '001-x.md', '002-y.md'), (f'{st}/briefs/002-y.md\n\n', '001-x.md', '001-x.md'),
+                                       (f'{st}/briefs/002-y.md\n', '001-x.md', '002-y.md'), (f'{st}/briefs/001-x.md', '001-x.md', '001-x-a2.md'),
+                                       ('/a/b\n', '001-x.md', '\u00e9\u00e9-r.md'), (None, '', '001-x.md')):
+            q = st / 'queue'
+            q.unlink(missing_ok=True)
+            if queue is not None:
+                q.write_text(queue)
+            pair = json.loads((st / 'pair.json').read_text())
+            pair['dispatch'] = {'brief': f'{st}/briefs/{running}'} if running else None
+            (st / 'pair.json').write_text(json.dumps(pair))
+            report_path = f'{st}/reports/{report}'
+            self.assertEqual(replies.queued_brief(str(st)), self.bash_value(f'queued_brief {st}')[1], queue)
+            self.assertEqual((0, replies.queue_note(str(st), report_path).rstrip('\n')), self.bash_value(f'queue_note {st} {shlex.quote(report_path)}'), (queue, running, report))
+
+    def test_replies_pending_report_and_mark_seen_match_bash(self):
+        ctx = self.replies_ctx()
+        st = self.replies_world('r3')
+        briefs = [f'{st}/briefs/00{n}-x.md' for n in (1, 2, 3, 4)]
+
+        def lay(pending, reports, reviews=(), status='done'):
+            pair = json.loads((st / 'pair.json').read_text())
+            pair['pending'] = pending
+            (st / 'pair.json').write_text(json.dumps(pair, indent=2) + '\n')
+            for d in ('reports', 'reviews'):
+                for f in (st / d).iterdir():
+                    f.unlink()
+            for n in reports:
+                (st / f'reports/00{n}-x.md').write_text(f'# R\n\nstatus: {status}\nhead: {self.replies_shas[2]}\n')
+            for n in reviews:
+                (st / f'reviews/00{n}-x.md').write_text('# review\n')
+
+        for case, pending, reports, reviews in (('oldest first', briefs[:3], (2, 3), ()), ('reviewed unit skipped', briefs[:3], (1, 2), (1,)), ('none ready', briefs[:2], (), ()),
+                                                ('no pending', [], (1,), ()), ('empty entry', ['', briefs[0]], (1,), ()), ('missing key', None, (1,), ())):
+            lay(pending if pending is not None else [], reports, reviews)
+            if pending is None:
+                pair = json.loads((st / 'pair.json').read_text())
+                del pair['pending']
+                (st / 'pair.json').write_text(json.dumps(pair))
+            got = replies.pending_report(ctx, str(st))
+            self.assertEqual((0, got) if got else (1, ''), self.bash_value(f'pending_report {st}'), case)
+        lay(briefs[:2], (1, 2), status='partial')
+        self.assertEqual(replies.pending_report(ctx, str(st)), self.bash_value(f'pending_report {st}')[1])
+        for case, report in (('drops one', f'{st}/reports/002-x.md'), ('drops none', f'{st}/reports/009-x.md'), ('answer suffix', f'{st}/reports/001-x.md')):
+            for label in ('bash', 'py'):
+                lay(briefs[:3] + [f'{st}/briefs/001-x-a2.md'], (1, 2))
+                before = (st / 'pair.json').read_bytes()
+                if label == 'bash':
+                    self.bash(f'mark_seen {st} {shlex.quote(report)}')
+                else:
+                    replies.mark_seen(str(st), report)
+                after = (st / 'pair.json').read_text()
+                if label == 'bash':
+                    want = after
+                else:
+                    self.assertEqual(after, want, case)
+        lay([], ())
+        (st / 'pair.json').write_text('{"a":   1}')
+        self.bash(f'mark_seen {st} x')
+        bash_bytes = (st / 'pair.json').read_text()
+        (st / 'pair.json').write_text('{"a":   1}')
+        replies.mark_seen(str(st), 'x')
+        self.assertEqual((st / 'pair.json').read_text(), bash_bytes, 'rewritten even when nothing changed')
+
+    def test_replies_fresh_reply_and_seen_reply_match_bash(self):
+        ctx = self.replies_ctx()
+        c1, c2, c3 = None, None, None
+        st = self.replies_world('r4')
+        head = self.replies_shas[2]
+        cases = {}
+        base = {'file': f'{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1_700_000_000}
+        def lay(files, sent, notes=(), steps=None):
+            for d in ('reports', 'notes', 'steps'):
+                for f in (st / d).iterdir():
+                    f.unlink()
+            for name, (status, t) in files.items():
+                f = st / 'reports' / name
+                f.write_text(f'# R\n\nstatus: {status}\nhead: {head}\n')
+                os.utime(f, (t, t))
+            for n in notes:
+                (st / f'notes/001-x-n{n}.md').write_text('# N\n\nstatus: blocking\n')
+            if steps:
+                (st / 'steps/001-x.tsv').write_text(steps)
+            pair = json.loads((st / 'pair.json').read_text())
+            pair['sent'] = sent
+            (st / 'pair.json').write_text(json.dumps(pair, indent=2) + '\n')
+        T0 = 1_700_000_000
+        scenarios = {
+            'own report': ({'001-x.md': ('done', T0 + 5)}, base),
+            'older than the send': ({'001-x.md': ('done', T0 - 5)}, base),
+            'objection and own report tie': ({'001-x.md': ('done', T0 + 5), '001-x-s1.md': ('object', T0 + 5)}, base),
+            'later objection wins': ({'001-x.md': ('done', T0 + 5), '001-x-s2.md': ('object', T0 + 9), '001-x-s10.md': ('object', T0 + 9)}, base),
+            'ask and objection tie on rank': ({'001-x-q1.md': ('ask', T0 + 5), '001-x-s1.md': ('object', T0 + 5)}, base),
+            'suffix without digits': ({'001-x-s1abc.md': ('object', T0 + 5), '001-x.md': ('done', T0 + 5)}, base),
+            'answer brief': ({'001-x.md': ('done', T0 + 5)}, {**base, 'file': f'{st}/briefs/001-x-a2.md'}),
+            'already seen': ({'001-x.md': ('done', T0 + 5)}, {**base, 'seen': f'{st}/reports/001-x.md:{T0 + 5}'}),
+            'seen but rewritten': ({'001-x.md': ('done', T0 + 6)}, {**base, 'seen': f'{st}/reports/001-x.md:{T0 + 5}'}),
+            'no sent file': ({'001-x.md': ('done', T0 + 5)}, {'kind': 'BRIEF'}),
+            'sent null': ({'001-x.md': ('done', T0 + 5)}, None),
+            'no epoch': ({'001-x.md': ('done', T0 + 5)}, {'file': f'{st}/briefs/001-x.md'}),
+            'float epoch': ({'001-x.md': ('done', T0 + 5)}, {**base, 'epoch': 1700000000.5}),
+            'withheld by a note': ({'001-x.md': ('done', T0 + 5), '001-x-s1.md': ('object', T0 + 4)}, base),
+            'plan response': ({'001-x.md': ('agree', T0 + 5)}, base),
+        }
+        for name, (files, sent) in scenarios.items():
+            lay(files, sent, notes=(1,) if name == 'withheld by a note' else ())
+            got = replies.fresh_reply(ctx, str(st))
+            self.assertEqual((0, got) if got else (1, ''), self.bash_value(f'fresh_reply {st}'), name)
+            seen = replies.seen_reply(str(st))
+            self.assertEqual((0, seen) if seen else (1, ''), self.bash_value(f'seen_reply {st}'), name)
+        lay({'001-x.md': ('done', T0 + 5)}, {**base, 'seen': f'{st}/reports/001-x.md'})
+        self.assertEqual(replies.seen_reply(str(st)), self.bash_value(f'seen_reply {st}')[1], 'seen without a stamp')
+
+    def test_replies_steps_helpers_match_bash(self):
+        ctx = self.replies_ctx()
+        c1, c2, c3 = self.replies_world('r5') and self.replies_shas
+        st = self.path / 'r5'
+        T0 = 1_700_000_000
+
+        def lay(rows, report=None, notes=(), shown=None, brief='001-x.md', sent=None, head=None, report_t=T0 + 100, extra_pair=None):
+            for d in ('reports', 'notes', 'steps'):
+                for f in (st / d).iterdir():
+                    f.unlink()
+            if rows is not None:
+                (st / 'steps/001-x.tsv').write_text(''.join(rows))
+            if report:
+                f = st / 'reports/001-x.md'
+                f.write_text(f'# R\n\nstatus: {report}\nhead: {head or c3}\n')
+                os.utime(f, (report_t, report_t))
+            for n in notes:
+                (st / f'notes/001-x-n{n}.md').write_text(f'# N\n\nstatus: {"blocking" if n != 9 else "clear"}\n')
+            pair = json.loads((st / 'pair.json').read_text())
+            pair['dispatch'] = {'brief': f'{st}/briefs/{brief}', 'head': c1} if brief else None
+            pair['shown'] = shown
+            pair['sent'] = sent
+            pair.update(extra_pair or {})
+            if shown is None:
+                del pair['shown']
+            (st / 'pair.json').write_text(json.dumps(pair, indent=2) + '\n')
+
+        row = lambda k, sha, t, res='', summary='s': f'{k}\t{sha}\t{t}\t{res}\t{summary}\n'
+        steps3 = [row(1, c1, T0 + 10, '', 'one'), row(2, c2, T0 + 20, '', 'two'), row(3, c3, T0 + 30, '', 'three')]
+        cases = {
+            'no steps file': dict(rows=None),
+            'empty steps file': dict(rows=[]),
+            'all due': dict(rows=steps3),
+            'report after the last step': dict(rows=steps3, report='done', report_t=T0 + 100),
+            'report before the last step': dict(rows=steps3, report='done', report_t=T0 + 25),
+            'partial report after the last step': dict(rows=steps3, report='partial'),
+            'done report withheld by a note': dict(rows=steps3, report='done', notes=(1,)),
+            'noted through 2': dict(rows=steps3, notes=(2,)),
+            'noted through 3': dict(rows=steps3, notes=(3,)),
+            'shown 2': dict(rows=steps3, shown={'001-x': 2}),
+            'shown 3': dict(rows=steps3, shown={'001-x': 3}),
+            'shown for another unit': dict(rows=steps3, shown={'002-y': 3}),
+            'shown null': dict(rows=steps3, shown={'001-x': None}),
+            'shown a word': dict(rows=steps3, shown={'001-x': 'many'}),
+            'no dispatch': dict(rows=steps3, brief=None),
+            'blank line in the steps': dict(rows=[steps3[0], '\n', steps3[1]]),
+            'row without a summary': dict(rows=[f'1\t{c1}\t{T0 + 1}\n', f'2\t{c2}\n']),
+            'step numbers as text': dict(rows=[f'a\t{c1}\t{T0}\t\tx\n', f'10\t{c2}\t{T0}\t\ty\n', f'9\t{c3}\t{T0}\t\tz\n']),
+            'last row without a trailing newline': dict(rows=[steps3[0], steps3[1].rstrip('\n')]),
+        }
+        for name, kw in cases.items():
+            lay(**kw)
+            ours = replies.unreviewed_steps(ctx, str(st))
+            self.assertEqual((0, '\n'.join(ours)) if ours else (1, ''), self.bash_value(f'unreviewed_steps {st}'), name)
+            brief = f'{st}/briefs/001-x.md'
+            due = ctx.variant.steps_due(ctx, str(st), brief if kw.get('brief', '001-x.md') else '')
+            code = self.bash_value(f'steps_due {st}')[0]
+            self.assertEqual(due, code == 0, name)
+            self.assertEqual(code, 2 if name == 'shown a word' else int(not due), name)
+
+        sent = {'file': f'{st}/briefs/001-x.md', 'epoch': T0 + 50}
+        for name, kw in {
+            'written since the send but open notes': dict(rows=steps3, report='done', notes=(1,), sent=sent),
+            'ready': dict(rows=steps3, report='done', sent=sent),
+            'written before the send': dict(rows=steps3, report='done', sent=sent, report_t=T0 + 40),
+            'partial is ready': dict(rows=steps3, report='partial', sent=sent),
+            'stale head': dict(rows=steps3, report='done', sent=sent, head=c1),
+            'answer brief': dict(rows=steps3, report='done', sent={**sent, 'file': f'{st}/briefs/001-x-a1.md'}),
+            'no sent': dict(rows=steps3, report='done', sent=None),
+            'epoch missing': dict(rows=steps3, report='done', sent={'file': sent['file']}),
+        }.items():
+            lay(**kw)
+            got = replies.withheld_report(ctx, str(st))
+            self.assertEqual((0, f'{got[0]}\t{got[1]}') if got else (1, ''), self.bash_value(f'withheld_report {st}'), name)
+
+        for name, kw, head_line in (('head in the report', dict(rows=steps3, report='done', head=c2), True), ('placeholder head', dict(rows=steps3, report='done', head='<sha>'), True),
+                                    ('no steps', dict(rows=None, report='done'), True), ('noted through 2', dict(rows=steps3, report='done', notes=(2,)), True),
+                                    ('empty steps', dict(rows=[], report='done'), True), ('no tab in the last row', dict(rows=[steps3[0], f'{c2}\n'], report='done', head='x'), True)):
+            lay(**kw)
+            self.assertEqual(replies.review_delta(str(st), str(st / 'reports/001-x.md')), self.bash_value(f'review_delta {st} {st}/reports/001-x.md')[1] + ('\n' if self.bash_value(f'review_delta {st} {st}/reports/001-x.md')[1] else ''), name)
 
     def test_fresh_per_brief_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
@@ -1247,7 +1489,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'pause_notice', 'steer_notice', 'open_steers', 'progress_path',
                   'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
                   'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update',
-                  'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch')
+                  'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
+                  'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due')
 
     def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
         text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}

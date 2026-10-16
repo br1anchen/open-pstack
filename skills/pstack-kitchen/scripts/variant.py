@@ -9,13 +9,24 @@ from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 TrioVariant = load_skill_variant(Path(__file__).resolve().parents[2], 'pstack-trio')
 
 
+def _crc_table():
+    table = []
+    for n in range(256):
+        crc = n << 24
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x04C11DB7 if crc & 0x80000000 else crc << 1) & 0xFFFFFFFF
+        table.append(crc)
+    return table
+
+
+CRC_TABLE = _crc_table()
+
+
 def cksum(data):
     """POSIX cksum: the CRC-32 with polynomial 0x04C11DB7, fed the bytes and then the length."""
     crc = 0
     for byte in [*data, *length_bytes(len(data))]:
-        crc ^= byte << 24
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x04C11DB7 if crc & 0x80000000 else crc << 1) & 0xFFFFFFFF
+        crc = ((crc << 8) & 0xFFFFFFFF) ^ CRC_TABLE[(crc >> 24) ^ byte]
     return ~crc & 0xFFFFFFFF
 
 
@@ -25,6 +36,12 @@ def length_bytes(n):
         out.append(n & 0xFF)
         n >>= 8
     return out
+
+
+def risk_of(brief):
+    """The first word of a brief's risk: header, which the master may follow with the reason."""
+    words = header_field(brief, 'risk').split()
+    return words[0] if words else ''
 
 
 def verify_block(brief):
@@ -56,6 +73,12 @@ def verify_job(store, brief, head):
 
 
 class KitchenVariant(TrioVariant):
+    def steps_due(self, ctx, store, brief):
+        """The master reads every step of an escalated unit; a routine unit's steps are proved by their gates."""
+        if not brief or risk_of(brief) != 'escalated':
+            return False
+        return super().steps_due(ctx, store, brief)
+
     def report_ready(self, ctx, store, report):
         """A done report for the dispatched unit also needs the brief's Verify commands to have passed at its head,
         rerun by the kitchen: a wait never shows the master a done report that finish refused."""

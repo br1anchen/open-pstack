@@ -1632,6 +1632,26 @@ esac
         spec.loader.exec_module(module)
         return module
 
+    def test_replies_kitchen_steps_due_is_false_unless_the_brief_is_escalated(self):
+        # kitchen.sh cannot be sourced in a harness, so these are the literal results of kitchen.sh risk_of and steps_due.
+        module = self.kitchen_variant()
+        from pstack_core.context import Context
+        ctx = Context('pstack-kitchen', str(skill), '/s', 'Kitchen', (), (), 20, '')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        steps = self.store / 'steps/001-util.tsv'
+        steps.parent.mkdir(exist_ok=True)
+        steps.write_text('1\tabc\t1\t\tone\n2\tdef\t2\t\ttwo\n')
+        text = b.read_text()
+        for header, risk, due in (('risk: routine', 'routine', False), ('risk: escalated', 'escalated', True), ('risk: escalated (contract X changes)', 'escalated', True),
+                                  ('risk:', '', False), ('risk: Escalated', 'Escalated', False)):
+            b.write_text(re.sub(r'^risk:.*$', header, text, flags=re.M))
+            self.assertEqual(module.risk_of(str(b)), risk, header)
+            self.assertEqual(module.VARIANT().steps_due(ctx, str(self.store), str(b)), due, header)
+        b.write_text(re.sub(r'^risk:.*\n', '', text, flags=re.M))
+        self.assertEqual((module.risk_of(str(b)), module.VARIANT().steps_due(ctx, str(self.store), str(b))), ('', False))
+        self.assertFalse(module.VARIANT().steps_due(ctx, str(self.store), ''))
+
     def test_verify_job_matches_cksum(self):
         module = self.kitchen_variant()
         fn = re.search(r'^verify_job\(\) \{.*?^\}$', (skill / 'scripts/kitchen.sh').read_text(), re.MULTILINE | re.DOTALL).group(0)

@@ -3,7 +3,7 @@ import os
 import re
 import subprocess
 
-from .review import git, jq_raw, open_notes, steps_file
+from .review import git, jq_raw, noted_through, open_notes, steps_file
 from .store import alt, header_field, last_line, pair_json, unit_name
 
 
@@ -63,6 +63,26 @@ class Variant:
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode == 0:
             return ReportReadiness(True)
         return ReportReadiness(False, '', f"the report's head {head[:9]} predates step {k} {last[:9]}")
+
+
+    def steps_due(self, ctx, store, brief):
+        """Whether a wait should return to the master for the running brief's steps."""
+        return steps_due_in(ctx, store, brief)
+
+
+def steps_due_in(ctx, store, brief):
+    """steps_due() in pair-core.sh: a step landed that neither a note nor an earlier steps wake has covered."""
+    from .replies import unreviewed_steps
+    if unreviewed_steps(ctx, store) is None:
+        return False
+    shown = alt(alt(pair_json(store).get('shown'), {}).get(unit_name(brief)), 0)
+    file = steps_file(store, brief)
+    with open(file, 'rb') as f:
+        last = sum(1 for line in f.read().split(b'\n') if line)
+    try:
+        return last > int(jq_raw(shown)) and last > noted_through(store, brief)
+    except ValueError:
+        return False
 
 
 def load_module(path, name):
