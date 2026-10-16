@@ -834,6 +834,22 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(cases['port']['missing'][0], 1)
 
 
+    PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch')
+    DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'pause_notice', 'steer_notice', 'open_steers', 'progress_path',
+                  'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
+                  'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'latest_advice', 'queued_brief', 'json_update')
+
+    def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller(self):
+        text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
+        core = text[scripts / 'pair-core.sh']
+        for name in self.PORTED:
+            self.assertRegex(core, rf'(?m)^cmd_{name}\(\) \{{ pycore \S+ "\$@"; \}}$', name)
+        for helper in self.DUPLICATED:
+            self.assertRegex(core, rf'(?m)^{helper}\(\) \{{$', helper)
+            callers = sum(len(re.findall(rf'(?<![\w-]){helper}(?![\w-])(?!\(\) \{{)', body)) for body in text.values())
+            self.assertGreater(callers, 0, f'{helper} has no bash caller left: delete the bash twin')
+
+
     def test_pause_resume_and_progress_through_pair_sh(self):
         self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
         st = str(self.path / 'state/pstack/pair/demo')
