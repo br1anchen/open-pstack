@@ -406,6 +406,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         script = 'kitchen.sh' if skill == 'pstack-kitchen' else 'pair.sh'
         r = subprocess.run([str(skills / skill / 'scripts' / script), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env, timeout=120,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, check=False)
+        # The base run and the port run are two worlds, built in two temp directories at two moments, so only what that explains is rewritten:
+        # <T> is the world's directory (it appears in paths); <TS> the ISO stamps the store writes (.dispatch.at, .sent.at); <EPOCH> the epoch
+        # seconds it writes (.sent.epoch, steps and gates rows); <HM> the HH:MM that starts a progress line `step`. Nothing else.
         norm = lambda text: re.sub(r'(?m)^[0-9]{2}:[0-9]{2} step ', '<HM> step ', re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>'))))
         files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
         events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()]
@@ -924,7 +927,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                         rc = e.code
                         se_io.write(e.stderr)
                 so, se = so_io.getvalue(), se_io.getvalue()
-            norm = lambda text: re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>'))
+            # The clock is fixed for both runs (a fake `date` for the bash, `now=` for Python), so times are compared as they are; the two runs
+            # of one world use different temp directories, and <T> stands for that directory in paths. Nothing else is rewritten here.
+            norm = lambda text: text.replace(str(top), '<T>')
             # Only the message for `--resolves` with no value is masked, and only its file and line: the bash names the line of its `$2` in the
             # cmd_step body, which is gone from HEAD (the body moved into Python and cmd_step is a one-line shim), and the oracle's path is
             # not the working tree's. The line Python names is checked below against the shim's own line.
@@ -1014,10 +1019,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         mismatches, outcomes = {}, {}
         for name, spec in cases.items():
             got, want = self.wait_ab_compare(name, spec, 'pstack-kitchen')
-            # Masked: the gate job's directory under steps/jobs holds the log paths and run times of a detached process.
+            # Left out of the comparison: the gate job's directory under steps/jobs holds the log paths and run times of a detached process.
+            # Stderr is compared as it is: none of these cases prints a line number or the path of pair-core.sh (no kitchen case has a
+            # `--resolves` with no value, the one message that does).
             for side in (got, want):
                 side['files'] = {k: v for k, v in side['files'].items() if not k.startswith('steps/jobs/')}
-                side['stderr'] = re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', side['stderr']))
             outcomes[name] = got
             if got != want:
                 mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
