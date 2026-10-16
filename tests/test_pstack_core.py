@@ -652,6 +652,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         ready, release = top / 'ready', top / 'release'
         os.mkfifo(ready)
         os.mkfifo(release)
+        # Held read-write from the start: the hook's open of the pipe then never waits for a writer, and what the test writes after the
+        # signal reaches the hook however late it gets there.
+        release_fd = os.open(release, os.O_RDWR | os.O_NONBLOCK)
+        self.addCleanup(lambda: os.close(release_fd) if release_fd is not None else None)
         hook = top / 'fake/once/wait'
         hook.parent.mkdir(exist_ok=True)
         hook.write_text(f'#!/bin/sh\necho in >"{ready}"\nread x <"{release}"\n')
@@ -672,12 +676,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 pass
 
         def open_release():
-            try:
-                fd = os.open(release, os.O_WRONLY | os.O_NONBLOCK)
-                os.write(fd, b'x\n')
-                os.close(fd)
-            except OSError:
-                pass  # the signal reached the hook too (a process group), so nothing holds the pipe
+            os.write(release_fd, b'x\n')
 
         self.addCleanup(kill_group)
         try:
@@ -701,9 +700,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         if not select.select([proc.stdout], [], [], 10)[0]:
             kill_group()
             self.fail('the wait outlived its shell')
-        out, err = proc.stdout.read(), proc.stderr.read()
-        proc.stdout.close()
-        proc.stderr.close()
+        try:
+            out, err = proc.communicate(timeout=20)
+        except subprocess.TimeoutExpired:
+            kill_group()
+            proc.communicate()
+            self.fail('a process kept the output open')
         return status, out, err
 
     def test_wait_ab_signals_end_the_command_as_they_end_the_bash(self):
