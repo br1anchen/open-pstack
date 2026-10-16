@@ -59,11 +59,14 @@ class CoreTests(unittest.TestCase):
         return subprocess.run([sys.executable, '-I', str(scripts / 'pair.py'), *core_args(), *args],
                               env=self.env, capture_output=True, text=True, check=False)
 
-    def bash(self, snippet, env=None, check=True):
+    def bash(self, snippet, env=None, check=True, base=False):
+        """snippet run with pair-core.sh sourced: the working tree's, or with base=True skills/ as it was at e6e83e3, the oracle for
+        the commands that moved to Python since."""
+        skills = self.base_skills() if base else root / 'skills'
         harness = f'''set -euo pipefail
-skill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair
+skill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair
 roles=(sidekick); store_dirs=(plans); slug_max=21
-. {scripts / "pair-core.sh"}
+. {skills / "pstack-pair/scripts/pair-core.sh"}
 {snippet}'''
         r = subprocess.run(['bash', '-c', harness], env={**self.env, **(env or {})}, capture_output=True, text=True, check=check)
         return r.stdout if check else r
@@ -1534,12 +1537,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for stamp in ('2026-10-16T11:39:33Z', '1970-01-01T00:00:00Z', '1969-12-31T23:59:59Z', '2026-02-29T00:00:00Z', '2024-02-29T12:00:00Z', '2026-10-16T11:39:33',
                       '2026-10-16 11:39:33Z', '2026-1-1T0:0:0Z', 'garbage', '', '2026-10-16T11:39:33.5Z', ' 2026-10-16T11:39:33Z', '2026-13-01T00:00:00Z', '2026-10-16T25:00:00Z', '2026-10-16T11:39:33Z ', '2026-10-16T11:39:33Z junk', '2026-10-16T11:39:33Zjunk', '2026-04-31T00:00:00Z',
                       '0001-01-01T00:00:00Z', '12345-01-01T00:00:00Z', '2026-0-1T00:00:00Z', '2026-10-16T11:39:62Z'):
-            r = self.bash(f'iso_epoch {shlex.quote(stamp)}', check=False)
+            r = self.bash(f'iso_epoch {shlex.quote(stamp)}', check=False, base=True)
             ours = checkin.iso_epoch(stamp)
             self.assertEqual((0, str(ours)) if ours is not None else (5, ''), (r.returncode, r.stdout.strip()), repr(stamp))
 
     def test_wait_finish_opts_match_bash(self):
-        core = str(scripts / 'pair-core.sh')
+        core = str(self.base_skills() / 'pstack-pair/scripts/pair-core.sh')
         mismatched = []
         cases = [[], ['--timeout', '1000'], ['--every', '2'], ['--send-only'], ['--timeout', '5', '--every', '3'], ['--every', '3', '--timeout', '7'], ['--bogus'], ['x', '--timeout', '9', 'y'],
                  ['--timeout'], ['--every'], ['--timeout', 'abc'], ['--every', 'abc'], ['--timeout', '1.5'], ['--every', '1.5'], ['--every', ''], ['--timeout', ''], ['--every', '0'],
@@ -1556,13 +1559,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 ours = (0, '\x1f'.join([timeout, str(interval), '1' if send_only else '0']) + ''.join('\x1f' + x for x in rest), '')
             except Exit as e:
                 ours = (e.code, '', e.stderr)
-            if ours != (r.returncode, r.stdout, r.stderr):
-                mismatched.append((args, ours[2].replace(core, '<core>'), r.stderr.replace(core, '<core>')))
+            # the file and line the bash names are the working tree's for Python and e6e83e3's for the oracle: compare the message
+            mask = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
+            if (ours[0], ours[1], mask(ours[2])) != (r.returncode, r.stdout, mask(r.stderr)):
+                mismatched.append((args, mask(ours[2]), mask(r.stderr)))
         self.assertEqual(mismatched, [])
 
     def test_wait_finish_reply_mode_matches_bash(self):
         for ready, steps_due in (('', False), ('', True), ('/r.md', False), ('/r.md', True)):
-            r = self.bash(f'ready={shlex.quote(ready)}; steps_due={int(steps_due)}; reply_mode')
+            r = self.bash(f'ready={shlex.quote(ready)}; steps_due={int(steps_due)}; reply_mode', base=True)
             self.assertEqual(wait.reply_mode(wait.WaitResult(0, '', '', ready, steps_due)), r.strip(), (ready, steps_due))
 
     FW_NOW = 1_800_000_000
@@ -1581,8 +1586,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 fake.mkdir(exist_ok=True)
                 (fake / 'date').write_text(f'#!/bin/sh\nif [ "$1" = "+%s" ]; then echo {self.FW_NOW}; else exec {shutil.which("date")} "$@"; fi\n')
                 (fake / 'date').chmod(0o755)
-                script = (f'set -euo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
-                          f'. {scripts / "pair-core.sh"}\ncheckin_interval_m={interval}\nfinish_wait {st} {code} "$1" "$2" {mode} {shlex.quote(rep)}')
+                # events.tsv is pre-seeded with one row, so the header branch unit 002 removed from event() cannot show
+                script = (f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\nroles=(sidekick); store_dirs=(plans); slug_max=21\n'
+                          f'. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\ncheckin_interval_m={interval}\nfinish_wait {st} {code} "$1" "$2" {mode} {shlex.quote(rep)}')
                 r = subprocess.run(['bash', '-c', script, '_', out, err], env={**env, 'PATH': f'{fake}:{env["PATH"]}'}, capture_output=True, text=True, check=False)
                 rc, so, se = r.returncode, r.stdout, r.stderr
             else:
@@ -1626,6 +1632,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                                                       files={'reports/001-x.md': done, 'queue': '{st}/briefs/002-y.md\n'}),
             'reply to a sent unit marks it shown': dict(report=rep, out='', pair={'sent': {'file': '{st}/briefs/001-x-a2.md', 'epoch': 1}}, files={'reports/001-x.md': done}),
             'the report is gone when its time is read': dict(report='{st}/reports/009-x.md', out=ok_out, pair={'sent': {'file': '{st}/briefs/009-x.md', 'epoch': 1}}),
+            'an empty sent file, a report': dict(report=rep, out=ok_out, pair={'sent': {'file': '', 'epoch': 1}}, files={'reports/001-x.md': done}),
+            'an empty sent file, idle with a reply shown': dict(out=ok_out, pair={'sent': {'file': '', 'epoch': 1, 'seen': '{st}/reports/001-x.md:1'}}, files={'reports/001-x.md': done}),
             'no sent field': dict(report=rep, out=ok_out, pair={'sent': None}, files={'reports/001-x.md': done}),
             'steps mode': dict(mode='steps', out=ok_out, pair=sent, files={'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n2\t{c2}\t6\t\ttwo\n3\t{c3}\t7\tn1\tthree\n'}),
             'steps mode, nothing to review': dict(mode='steps', out=ok_out, pair=sent),

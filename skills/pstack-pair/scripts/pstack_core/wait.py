@@ -346,11 +346,11 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         report = latest_report(store) or ''
     if report:
         mark_seen(store, report)
-        sent = sent_field(store, 'file')
-        if not sent:
+        sent = sent_file(store)
+        if sent is None:
             # basename '---' reads the word as an option, prints its error and gives nothing to compare.
             sys.stderr.write("basename: unrecognized option '---'\nTry 'basename --help' for more information.\n")
-        if sent and cut_chars(os.path.basename(report), 3) == cut_chars(os.path.basename(sent.rstrip('/') or sent), 3):
+        if sent is not None and cut_chars(os.path.basename(report), 3) == cut_chars(os.path.basename(sent.rstrip('/') or sent), 3):
             try:
                 stamp = str(file_mtime(report))
             except OSError:
@@ -392,9 +392,10 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
     activity = sidekick_activity(store, clock())
     shown = seen_reply(store)
     if shown and not withheld and not activity and result.code == 0 and agent_status(name()) != 'working':
-        sent = sent_field(store, 'file') or '-'
+        sent = sent_file(store)
+        sent = '-' if sent is None else sent
         write(f'idle: the reply to {os.path.basename(sent.rstrip("/") or sent)} was already shown ({shown}); send the next message\n')
-        event(store, 'master', 'wake', sent_field(store, 'file') or '-', 'idle')
+        event(store, 'master', 'wake', sent, 'idle')
         return 4
     why = ''
     if withheld:
@@ -414,6 +415,13 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         event(store, 'master', 'wake', running, why or 'missing')
         write(provider_hint(store))
     return 4
+
+
+def sent_file(store):
+    """`.sent.file` as jq's `// default` leaves it: None when missing, null or false; an empty string stays an empty string."""
+    sent = alt(pair_json(store).get('sent'), {})
+    value = alt(sent.get('file') if isinstance(sent, dict) else None, None)
+    return None if value is None else jq_raw(value)
 
 
 def status_of(report):
