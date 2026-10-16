@@ -1847,34 +1847,9 @@ no_extra_opts() {
 	[ "${#rest[@]}" -eq 0 ] || die "unknown option ${rest[0]}"
 }
 
-cmd_discuss() {
-	in_herdr
-	[ $# -ge 2 ] || die "usage: pair.sh discuss <store> <plan-path> [--timeout MS]"
-	local store="$1" plan="$2" timeout=540000 rest
-	shift 2
-	wait_opts "$@"
-	no_extra_opts
-	[ -f "$plan" ] || die "plan not found: $plan"
-	require_not_paused "$store"
-	send_and_wait "$store" "$(readlink -f "$plan")" PLAN "$timeout"
-}
+cmd_discuss() { pycore --exec discuss "$@"; }
 
-cmd_dispatch() {
-	in_herdr
-	[ $# -ge 2 ] || die "usage: pair.sh dispatch <store> <brief-path> [--timeout MS | --every MIN]"
-	local store="$1" brief="$2" timeout=540000 rest
-	shift 2
-	wait_opts "$@"
-	no_extra_opts
-	[ -f "$brief" ] || die "brief not found: $brief"
-	brief="$(readlink -f "$brief")"
-	require_not_paused "$store"
-	require_agreed_plan "$store" "$brief"
-	local queued
-	queued="$(queued_brief "$store")"
-	[ -z "$queued" ] || [ "$queued" = "$brief" ] || die "the queue holds $queued; dispatch that first, or: pair.sh queue $store --clear" 5
-	send_and_wait "$store" "$brief" BRIEF "$timeout"
-}
+cmd_dispatch() { pycore --exec dispatch "$@"; }
 
 # Seconds a settle must hold, with no reply, before a wait believes it, and
 # between checks while herdr says settled but the pane shows the agent busy.
