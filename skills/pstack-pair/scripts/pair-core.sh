@@ -73,12 +73,6 @@ json_update() {
 	return "$rc"
 }
 
-has_role() {
-	local r
-	for r in "${roles[@]}"; do [ "$r" = "$1" ] && return 0; done
-	return 1
-}
-
 # herdr's state detection can miss a Devin agent in a narrow pane for a whole
 # run, reporting done while it works. Every agent kind shows "esc to
 # interrupt" (Devin: "esc twice to interrupt") in its status line while it
