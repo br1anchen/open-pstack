@@ -1675,6 +1675,7 @@ esac
         self.assertEqual(os.readlink(self.store / 'scratch/001-x-review'), str(path))
         self.assertEqual(self.scratch_stdout('001-x-review', '--at', sha).splitlines()[-1], str(path))
         self.assertEqual(self.run_sh('scratch', str(self.store), '001-x-review', '--remove'), f'removed {path}\n')
+        self.assertEqual(self.run_sh('scratch', str(self.store), '001-x-review', '--remove'), f'removed {path}\n')
         self.assertFalse(path.exists())
         self.assertFalse((self.store / 'scratch/001-x-review').is_symlink())
         self.assertEqual(self.state()['scratch'], [])

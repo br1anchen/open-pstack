@@ -77,8 +77,12 @@ def run(ctx, args):
     if os.path.isdir(path):
         print(path)
         return 0
-    os.makedirs(f'{store}/scratch', exist_ok=True)
-    os.makedirs(dirname(path), exist_ok=True)
+    try:
+        os.makedirs(f'{store}/scratch', exist_ok=True)
+        os.makedirs(dirname(path), exist_ok=True)
+    except OSError as e:
+        sys.stderr.write(f'mkdir: cannot create directory ‘{e.filename}’: {os.strerror(e.errno)}\n')
+        return 1
     if os.path.islink(link) or os.path.exists(link):
         os.unlink(link)
     os.symlink(path, link)

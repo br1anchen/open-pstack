@@ -648,7 +648,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 out.append((name, r, state(), tree_files, links))
                 if name == 'create' and not jj:
                     wt = Path(r[1].strip().replace('ROOT', str(top)))
-                    out.append(('content', (wt / 'a.txt').read_text(), (wt / 'sub/new.txt').read_text(), oct((wt / 'sub/new.txt').stat().st_mode & 0o777)))
+                    out.append(('content', (wt / 'a.txt').read_text(), (wt / 'sub/new.txt').read_text(), oct((wt / 'sub/new.txt').stat().st_mode & 0o777),
+                                (wt / 'sub/new.txt').stat().st_mtime_ns == (repo / 'sub/new.txt').stat().st_mtime_ns))
             results[label] = out
         self.assertEqual(results['legacy'], results['port'])
         return results['port']
@@ -656,13 +657,41 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_scratch_matches_pair_sh_at_the_legacy_commit_in_a_git_repo(self):
         out = dict((o[0], o) for o in self.scratch_cases(jj=False))
         self.assertEqual(out['create'][1][0], 0)
-        self.assertEqual(out['content'][1:], ('one\ntwo\n', 'untracked\n', '0o755'))
+        self.assertEqual(out['content'][1:], ('one\ntwo\n', 'untracked\n', '0o755', True))
         self.assertEqual(out['again'][1][1], out['create'][1][1])
         self.assertEqual(out['bad sha'][1][:3], (1, '', 'pair.sh: not a commit: nosuchrev\n'))
         self.assertEqual(out['bad id'][1][0], 1)
         self.assertIn('"001-x-review"', out['create'][2])
         self.assertNotIn('001-x-review', out['remove'][2])
         self.assertEqual(out['remove'][1][1].split(' ')[0], 'removed')
+
+    def test_scratch_with_a_git_root_that_is_not_a_repo_or_a_path_that_is_a_file_matches_bash(self):
+        legacy = self.legacy_pair().parents[3]
+        results = {}
+        for label, tree in (('legacy', legacy), ('port', root)):
+            top, repo, store, script, env, git = self.scratch_env(label, tree)
+            out = []
+            norm = lambda t: t.replace(str(top), 'ROOT')
+            state = lambda: norm((store / 'pair.json').read_text())
+            common = Path(git('rev-parse', '--path-format=absolute', '--git-common-dir'))
+            blocker = common / 'pstack-scratch/pair-demo/001-x-file'
+            blocker.parent.mkdir(parents=True)
+            blocker.write_text('in the way')
+            out.append(('worktree add fails', self.run_scratch(label, top, script, env, store, '001-x-file', '--at', git('rev-parse', 'HEAD')), state()))
+            out.append(('again', self.run_scratch(label, top, script, env, store, '001-x-file'), state()))
+            (store / 'pair.json').write_text(json.dumps({'git_root': str(top / 'norepo'), 'scratch': ['001-gone']}, indent=2) + '\n')
+            (top / 'norepo').mkdir()
+            for args in (('001-gone', '--remove'), ('002-b',)):
+                out.append(('not a repo', self.run_scratch(label, top, script, env, store, *args), state()))
+            (store / 'pair.json').write_text(json.dumps({'scratch': []}) + '\n')
+            out.append(('no git_root', self.run_scratch(label, top, script, env, store, '003-c'), state()))
+            results[label] = out
+        self.assertEqual(results['legacy'], results['port'])
+        by_name = {o[0]: o for o in results['port']}
+        self.assertEqual(by_name['worktree add fails'][1][0], 2)
+        self.assertIn('pair.sh: git worktree add failed 2', by_name['worktree add fails'][1][2])
+        self.assertEqual(by_name['no git_root'][1][:3], (1, '', "pair.sh: the store's cwd is not inside a git repository\n"))
+
 
     @unittest.skipUnless(shutil.which('jj'), 'needs jj on PATH')
     def test_scratch_matches_pair_sh_at_the_legacy_commit_in_a_jj_repo(self):
