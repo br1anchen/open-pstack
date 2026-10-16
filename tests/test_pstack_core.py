@@ -850,6 +850,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertGreater(callers, 0, f'{helper} has no bash caller left: delete the bash twin')
 
 
+    def test_pair_sh_stops_with_a_message_when_python3_is_not_on_path(self):
+        bin_dir = self.path / 'bin-without-python3'
+        bin_dir.mkdir()
+        for tool in ('bash', 'jq', 'env', 'dirname', 'basename', 'readlink', 'cat', 'mkdir', 'date', 'rm', 'ls', 'head', 'tail', 'cut', 'sed', 'grep', 'awk', 'tr', 'sort', 'mv', 'cp', 'stat'):
+            found = shutil.which(tool)
+            if found:
+                (bin_dir / tool).symlink_to(found)
+        (bin_dir / 'herdr').symlink_to(root / 'tests/pstack-pair/bin/herdr')
+        env = {**inherited_env(), 'PATH': str(bin_dir), 'HOME': str(self.path), 'HERDR_ENV': '1', 'FAKE': str(self.path / 'fake'),
+               'XDG_STATE_HOME': str(self.path / 'state')}
+        self.assertIsNone(shutil.which('python3', path=str(bin_dir)))
+        r = subprocess.run([str(bin_dir / 'bash'), str(scripts / 'pair.sh'), 'help'], env=env, capture_output=True, text=True, check=False)
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', 'pair.sh: python3 is required on PATH\n'))
+
+
     def test_pause_resume_and_progress_through_pair_sh(self):
         self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
         st = str(self.path / 'state/pstack/pair/demo')
