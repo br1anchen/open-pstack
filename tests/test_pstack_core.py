@@ -697,6 +697,121 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('verifier null is not live', results['the verifier is unassigned']['stdout'])
         self.assertEqual(results['a blocked verifier']['rc'], 3)
 
+    PRIME_WRAPPER = (
+        '#!/usr/bin/env python3\nimport os, sys, time\nfake = os.environ["FAKE"]\nargs = sys.argv[1:]\n'
+        'def read(name):\n    try:\n        return open(os.path.join(fake, name)).read()\n    except OSError:\n        return None\n'
+        'hang = read("wrap-hang")\nif hang is not None and args and args[0] in hang.split():\n    time.sleep(60)\n'
+        'receipt = read("wrap-receipt")\nif receipt is not None and args and args[0] == "send":\n    with open(os.path.join(fake, "prime.log"), "a") as log:\n'
+        '        import json; log.write(json.dumps(args) + "\\n")\n    sys.stdout.write(receipt); sys.exit(int(read("wrap-receipt-exit") or 0))\n'
+        'reply = read("wrap-list")\nif reply is not None and args and args[0] == "list":\n    with open(os.path.join(fake, "prime.log"), "a") as log:\n'
+        '        import json; log.write(json.dumps(args) + "\\n")\n    sys.stdout.write(reply); sys.exit(0)\n'
+        'os.execv(sys.argv[0] + ".real", [sys.argv[0] + ".real", *args])\n')
+
+    def prime_world(self, label, spec):
+        """A Prime sidekick in a fake-herdr world: its pair.json entry, the daemon's session list, and a prime-agent in front of the fixture that a
+        case can make hang, answer with a given receipt or session list."""
+        sessions = [{'activeSessionId': 'live-1', 'sessionId': 'sess-1', 'sessionFile': '/t/one.jsonl', 'name': 's1'}]
+        sidekick = {'kind': 'prime-agent', 'generation': 1, 'name': 's1', 'pane_id': 'p1', 'launch_cwd': '{T}/launch', **spec.get('sidekick', {})}
+        world = {'agents': {'s1': 'idle prime-agent'}, 'panes': {'p1': 's1'}, 'pair': {'sidekick': sidekick, **spec.get('pair', {})},
+                 'fake': {'prime-sessions.json': json.dumps(spec.get('sessions', sessions)),
+                          **({} if spec.get('herdr_session') is False else {'sessions/s1': spec.get('herdr_session', '/t/one.jsonl')}),
+                          **spec.get('fake', {})}, 'env': {'PAIR_PRIME_COMMAND_TIMEOUT': '1', **spec.get('env', {})}}
+        top, st, env, fill = self.ab_world(label, world)
+        sidekick_json = json.loads((st / 'pair.json').read_text())
+        sidekick_json['sidekick'] = json.loads(json.dumps(sidekick_json['sidekick']).replace('{T}', str(top)))
+        (st / 'pair.json').write_text(json.dumps(sidekick_json, indent=2) + '\n')
+        wrap = top / 'wrap'
+        wrap.mkdir()
+        real = shutil.which('prime-agent', path=env['PATH'])
+        (wrap / 'prime-agent.real').symlink_to(real)
+        (wrap / 'prime-agent').write_text(self.PRIME_WRAPPER)
+        (wrap / 'prime-agent').chmod(0o755)
+        env['PATH'] = f'{wrap}:{env["PATH"]}'
+        return top, st, env
+
+    def prime_both(self, label, bash_snippet, python_snippet, **spec):
+        """A Prime helper of the 04d2c13 bash (sourced under set -euo pipefail) against its Python twin run in a fresh interpreter, on identical
+        worlds: (exit code, stdout, stderr, pair.json, the prime-agent and herdr calls)."""
+        results = []
+        for side in ('bash', 'py'):
+            top, st, env = self.prime_world(f'{label}-{side}', spec)
+            skills3 = self.phase3_skills()
+            if side == 'bash':
+                script = (f'set -euo pipefail\nskill_root={skills3 / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
+                          f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills3 / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
+                argv = ['bash', '-c', script]
+            else:
+                code = f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import prime\nstore = {str(st)!r}\n{python_snippet}'
+                argv = [sys.executable, '-I', '-c', code]
+            r = subprocess.run(argv, cwd=top / 'repo', env=env, capture_output=True, text=True, check=False, timeout=120)
+            norm = lambda text: text.replace(str(top), '<T>')
+            read = lambda f: norm((top / f).read_text()) if (top / f).exists() else ''
+            results.append((r.returncode, norm(r.stdout), norm(r.stderr), read('st/pair.json'), read('fake/prime.log'), read('fake/calls.log')))
+        self.assertEqual(results[0], results[1], label)
+        return results[1]
+
+    def test_prime_active_session_and_the_socket_match_the_bash_at_the_phase_3_base(self):
+        sess = lambda *rows: {'sessions': list(rows)}
+        row = lambda active, sid, path, name='s1': {'activeSessionId': active, 'sessionId': sid, 'sessionFile': path, 'name': name}
+        path_session = {'kind': 'path', 'value': '/t/one.jsonl'}
+        id_session = {'kind': 'id', 'value': 'sess-1'}
+        bash = 'prime_active_session "$store" sidekick; rc=$?; printf "rc=%s id=[%s]\\n" "$rc" "${prime_active_id-unset}"'
+        py = 'id = prime.prime_active_session(store, "sidekick")\nprint(f"rc={int(id is None)} id=[{\'unset\' if id is None else id}]")'
+        cases = {
+            'no recorded session': dict(),
+            'a path session that is live': dict(sidekick={'session': path_session}),
+            'an id session matched by sessionId': dict(sidekick={'session': id_session}),
+            'an id session matched by the active id': dict(sidekick={'session': {'kind': 'id', 'value': 'live-1'}}),
+            'no live session matches': dict(sidekick={'session': {'kind': 'path', 'value': '/t/other.jsonl'}}),
+            'a name alone does not match': dict(sidekick={'session': {'kind': 'id', 'value': 's1'}}),
+            'two live ids match': dict(sidekick={'session': id_session}, sessions=[row('live-1', 'sess-1', '/a'), row('live-2', 'sess-1', '/b')]),
+            'one active id listed twice': dict(sidekick={'session': id_session}, sessions=[row('live-1', 'sess-1', '/a'), row('live-1', 'sess-1', '/b')]),
+            'sessions with no active id are skipped': dict(sidekick={'session': id_session}, sessions=[row('', 'sess-1', '/a'), {'sessionId': 'sess-1'}, 7, row('live-3', 'sess-1', '/c')]),
+            'a daemon that fails': dict(sidekick={'session': path_session}, fake={'prime-list-fail': ''}),
+            'a reply that is not JSON': dict(sidekick={'session': path_session}, fake={'wrap-list': 'not json\n'}),
+            'a reply with no sessions array': dict(sidekick={'session': path_session}, fake={'wrap-list': '{"sessions": 3}\n'}),
+            'an empty reply': dict(sidekick={'session': path_session}, fake={'wrap-list': ''}),
+            'a daemon that hangs': dict(sidekick={'session': path_session}, fake={'wrap-hang': 'list'}),
+            'a relative socket against the launch directory': dict(sidekick={'session': path_session, 'start_args': ['--model', 'x', '--daemon-socket', 'run/d.sock']}),
+            'a relative socket against the run directory': dict(sidekick={'session': path_session, 'launch_cwd': None, 'start_args': ['--daemon-socket=run/d.sock']}),
+            'an absolute socket': dict(sidekick={'session': path_session, 'start_args': ['--daemon-socket', '/run/d.sock', '--x']}),
+            'a socket flag with no value': dict(sidekick={'session': path_session, 'start_args': ['--daemon-socket']}),
+            'start args that are not strings': dict(sidekick={'session': path_session, 'start_args': [1, None, {'a': 1}, '--daemon-socket=/s']}),
+        }
+        results = {name: self.prime_both('active-' + re.sub(r'\W+', '-', name), bash, py, **spec) for name, spec in cases.items()}
+        self.assertEqual(results['a path session that is live'][1], 'rc=0 id=[live-1]\n')
+        self.assertEqual(results['no live session matches'][1], 'rc=0 id=[]\n')
+        self.assertIn('multiple live Prime sessions match', results['two live ids match'][2])
+        self.assertIn('no recorded Prime session for sidekick', results['no recorded session'][2])
+        self.assertIn('"--socket", "<T>/launch/run/d.sock"', results['a relative socket against the launch directory'][4])
+        self.assertIn('"--socket", "<T>/repo/run/d.sock"', results['a relative socket against the run directory'][4])
+
+    def test_prime_steer_matches_the_bash_at_the_phase_3_base(self):
+        bash = 'if prime_steer "$store" "pstack-pair STEER /s/001-x-s1.md"; then echo ok; else echo fail; fi'
+        py = 'print("ok" if prime.prime_steer(store, "pstack-pair STEER /s/001-x-s1.md") else "fail")'
+        path_session = {'kind': 'path', 'value': '/t/one.jsonl'}
+        receipt = lambda **kw: json.dumps({'deliveryMode': 'steer', 'deliveryStatus': 'queued', 'target': {'activeSessionId': 'live-1'}, **kw}) + '\n'
+        cases = {
+            'a queued steer': dict(),
+            'a delivered steer': dict(fake={'wrap-receipt': receipt(deliveryStatus='delivered')}),
+            'a receipt that says failed': dict(fake={'wrap-receipt': receipt(deliveryStatus='failed')}),
+            'a receipt for follow-up': dict(fake={'wrap-receipt': receipt(deliveryMode='follow-up')}),
+            'a receipt for another session': dict(fake={'wrap-receipt': receipt(target={'activeSessionId': 'live-9'})}),
+            'a receipt with no target': dict(fake={'wrap-receipt': '{"deliveryMode": "steer", "deliveryStatus": "queued"}\n'}),
+            'a receipt that is not JSON': dict(fake={'wrap-receipt': 'sent\n'}),
+            'a send that exits non-zero': dict(fake={'wrap-receipt': receipt(), 'wrap-receipt-exit': '1'}),
+            'a send that hangs': dict(fake={'wrap-hang': 'send'}),
+            'a daemon that cannot list': dict(fake={'prime-list-fail': ''}),
+            'herdr reports no session': dict(herdr_session=False),
+            'no live session matches': dict(sessions=[]),
+            'two live sessions match': dict(sessions=[{'activeSessionId': 'live-1', 'sessionFile': '/t/one.jsonl'}, {'activeSessionId': 'live-2', 'sessionFile': '/t/one.jsonl'}]),
+            'a socket of its own': dict(sidekick={'start_args': ['--daemon-socket=run/d.sock']}),
+        }
+        results = {name: self.prime_both('steer-' + re.sub(r'\W+', '-', name), bash, py, **dict(spec, sidekick={'session': path_session, **spec.get('sidekick', {})}))
+                   for name, spec in cases.items()}
+        self.assertEqual(results['a queued steer'][1], 'ok\n')
+        self.assertEqual([results[n][1] for n in ('a receipt that says failed', 'a receipt for follow-up', 'a receipt for another session', 'a send that hangs')], ['fail\n'] * 4)
+
     def test_phase3_skills_extracts_the_bash_at_the_phase_3_base(self):
         core = self.phase3_skills() / 'pstack-pair/scripts/pair-core.sh'
         self.assertTrue(core.is_file())
