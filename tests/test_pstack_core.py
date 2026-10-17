@@ -833,7 +833,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         prime_session = {'kind': 'path', 'value': '/t/one.jsonl'}
         prime = dict(agents={'s1': 'working prime-agent'}, panes={'p1': 's1'}, files=steer, fake={'prime-sessions.json': json.dumps(
             [{'activeSessionId': 'live-1', 'sessionId': 'sess-1', 'sessionFile': '/t/one.jsonl', 'name': 's1'}]), 'sessions/s1': '/t/one.jsonl'},
-            pair={'sidekick': {'kind': 'prime-agent', 'generation': 1, 'name': 's1', 'pane_id': 'p1', 'session': prime_session}}, env={'PAIR_PRIME_COMMAND_TIMEOUT': '2'})
+            pair={'sidekick': {'kind': 'prime-agent', 'generation': 1, 'name': 's1', 'pane_id': 'p1', 'session': prime_session}})
         idle = dict(args=run, agents={'s1': 'idle claude'}, files={**steer, **objection}, pair={'sent': {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 5}})
         reply = '1 {st}/reports/001-x.md'
         return {
@@ -858,6 +858,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a working devin': dict(args=run, agents={'s1': 'working devin'}, kind='devin', files=steer),
             'a working devin with a steer already left and another': dict(args=run, agents={'s1': 'working devin'}, kind='devin', files=steer,
                                                                            pair={'notice_steers': ['{st}/steers/001-x-s1.md', '/a/other-s2.md']}),
+            'a working devin whose notice list holds a number': dict(args=run, agents={'s1': 'working devin'}, kind='devin', files=steer, pair={'notice_steers': [1]}),
+            'a working devin whose notice list holds an object': dict(args=run, agents={'s1': 'working devin'}, kind='devin', files=steer, pair={'notice_steers': [{'a': 1}]}),
+            'a working devin whose notice list is a string': dict(args=run, agents={'s1': 'working devin'}, kind='devin', files=steer, pair={'notice_steers': 'x'}),
+            'a working devin and a steer path that is not UTF-8': dict(args=['steer', '{st}', '{st}/steers/001-x-\udcff-s1.md'], agents={'s1': 'working devin'}, kind='devin',
+                                                                        files={'steers/001-x-\udcff-s1.md': self.STEER_TEXT}),
+            'a steer file that cannot be read': dict(args=['steer', '{st}', '{T}/steer.md'], agents=working, topfiles={'steer.md': (self.STEER_TEXT, 0)}),
+            'a steer reached through a symlink': dict(args=['steer', '{st}', '{T}/link.md'], agents=working, files=steer, links={'link.md': '{st}/steers/001-x-s1.md'}),
             'a working devin with a null notice list': dict(args=run, agents={'s1': 'working devin'}, kind='devin', files=steer, pair={'notice_steers': None}),
             'a working devin with --interrupt': dict(args=run + ['--interrupt'], agents={'s1': 'working devin'}, kind='devin', files=steer, once=settle),
             'a working prime sidekick': dict(prime, args=run),
@@ -1245,6 +1252,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (fake / 'busy' / 's1').write_text('')
         if spec.get('promptfail'):
             (fake / 'prompt-fail').write_text('')
+        for rel, (text, mode) in spec.get('topfiles', {}).items():
+            (top / rel).write_text(text)
+            (top / rel).chmod(mode)
+            self.addCleanup((top / rel).chmod, 0o644)
         for rel, text in spec.get('fake', {}).items():
             (fake / rel).parent.mkdir(parents=True, exist_ok=True)
             (fake / rel).write_text(text)
@@ -1255,13 +1266,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         top, st, env, fill = self.ab_world(label, spec)
         script = 'kitchen.sh' if skill == 'pstack-kitchen' else 'pair.sh'
         r = subprocess.run([str(skills / skill / 'scripts' / script), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env, timeout=120,
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, check=False)
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, errors='surrogateescape', check=False)
         # The base run and the port run are two worlds, built in two temp directories at two moments, so only what that explains is rewritten:
         # <T> is the world's directory (it appears in paths); <TS> the ISO stamps the store writes (.dispatch.at, .sent.at); <EPOCH> the epoch
         # seconds it writes (.sent.epoch, steps and gates rows); <HM> the HH:MM that starts a progress line `step`. Nothing else.
         norm = lambda text: re.sub(r'(?m)^[0-9]{2}:[0-9]{2} step ', '<HM> step ', re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>'))))
         files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
-        events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()]
+        events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text(errors='surrogateescape').splitlines()]
         calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
         return {'rc': r.returncode, 'stdout': norm(r.stdout), 'stderr': norm(r.stderr or ''), 'files': files, 'events': events, 'calls': calls}
 
@@ -1450,7 +1461,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         mismatches = {}
         results = {}
         # Masked: bash's own error text (an unknown value for `--every`, a `[` that finds no integer) names the file and line of the statement
-        # that failed. For the oracle that is e6e83e3's pair-core.sh and its line, which moved by the time of HEAD; Python names HEAD's wait_opts
+        # that failed. For the oracle that is e6e83e3's pair-core.sh and its line, which moved by the time of HEAD; Python names cmd_wait's
         # line (checked never to be 0 below and exactly in test_wait_finish_opts_match_bash).
         norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
         for name, spec in self.wait_ab_cases().items():
@@ -1482,7 +1493,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def wait_ab_variant(self, skill, cases):
         mismatches = {}
         # Masked: bash's own error text (an unknown value for `--every`, a `[` that finds no integer) names the file and line of the statement
-        # that failed. For the oracle that is e6e83e3's pair-core.sh and its line, which moved by the time of HEAD; Python names HEAD's wait_opts
+        # that failed. For the oracle that is e6e83e3's pair-core.sh and its line, which moved by the time of HEAD; Python names cmd_wait's
         # line (checked never to be 0 below and exactly in test_wait_finish_opts_match_bash).
         norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
         outcomes = {}
@@ -1686,7 +1697,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def queue_ab_run(self, cases, skill):
         mismatches, outcomes = {}, {}
         # Masked: bash's own error text (an unknown value for `--every`, a `[` that finds no integer) names the file and line of the statement
-        # that failed. For the oracle that is e6e83e3's pair-core.sh and its line, which moved by the time of HEAD; Python names HEAD's wait_opts
+        # that failed. For the oracle that is e6e83e3's pair-core.sh and its line, which moved by the time of HEAD; Python names cmd_wait's
         # line (checked never to be 0 below and exactly in test_wait_finish_opts_match_bash).
         norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
         for name, spec in cases.items():
@@ -2132,7 +2143,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def send_ab_run(self, cases, skill):
         mismatches, outcomes = {}, {}
         # Masked: bash's own error text (a bad --timeout, a missing $2) names pair-core.sh and a line; for the oracle that is e6e83e3's file and
-        # its line, which moved by HEAD. Python names HEAD's wait_opts line, never 0 (asserted below).
+        # its line, which moved by HEAD. Python names cmd_wait's line, never 0 (asserted below).
         norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
         for name, spec in cases.items():
             # A file the world holds before the send counts as an answer to it only when its integer-second mtime is not before the send's epoch,

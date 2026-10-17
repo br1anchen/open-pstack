@@ -2,14 +2,15 @@ import glob
 import os
 import re
 import subprocess
+import sys
 import time
 
 from ..collate import newest
-from ..errors import Die, Exit
+from ..errors import Die
 from ..herdr import agent_status
 from ..prime import prime_steer
 from ..send import prompt_sidekick
-from ..store import cut_chars, event, header_field, pair_json, readlink_f, unit_name, update
+from ..store import cut_chars, event, header_field, readlink_f, unit_name, update_or_jq
 from ..wait import die_with_the_shell, finish_wait, reply_mode, wait_for_reply, wait_opts
 from .report import in_herdr, require_pair
 from .stop import role_value
@@ -20,16 +21,6 @@ USAGE = 'usage: pair.sh steer <store> <steer-path> [--interrupt] [--force] [--ti
 def herdr_ok(*args):
     """herdr with stdout dropped and stderr left on the terminal, as `herdr ... >/dev/null` runs: whether it succeeded."""
     return subprocess.run(['herdr', *args], stdout=subprocess.DEVNULL, check=False).returncode == 0
-
-
-def update_or_jq(store, mutate, program, *jq_args):
-    """json_update of pair.json. A pair.json jq cannot update ends the command with jq's own message and status, and leaves the empty
-    pair.json.tmp its redirect made."""
-    try:
-        update(store, mutate)
-    except (ValueError, TypeError):
-        open(f'{store}/pair.json.tmp', 'wb').close()
-        raise Exit(subprocess.run(['jq', *jq_args, program, f'{store}/pair.json'], stdout=subprocess.DEVNULL, check=False).returncode or 1)
 
 
 def leave_for_devin(store, steer):
@@ -48,8 +39,6 @@ def open_the_objection_round(store, epoch):
     """The reply to this steer is any report on the unit written from now: .sent.epoch = now and the seen mark gone."""
     def mutate(doc):
         sent = doc.get('sent')
-        if sent is None and 'sent' not in doc:
-            doc['sent'] = sent = {}
         if sent is None:
             sent = doc['sent'] = {}
         if not isinstance(sent, dict):
@@ -76,8 +65,13 @@ def steer(ctx, args):
             raise Die(f'unknown option {opt}')
     if not os.path.isfile(steer_path):
         raise Die(f'steer not found: {steer_path}')
-    with open(steer_path, 'rb') as f:
-        text = f.read().decode('utf-8', 'surrogateescape')
+    try:
+        with open(steer_path, 'rb') as f:
+            text = f.read().decode('utf-8', 'surrogateescape')
+    except OSError as e:
+        # grep says why it could not read the file, then the check fails
+        sys.stderr.write(f'grep: {steer_path}: {e.strerror}\n')
+        raise Die(f'not a steer file: {steer_path}')
     if not re.search(r'(?m)^## Direction', text):
         raise Die(f'not a steer file: {steer_path}')
     if '{{' in text or re.search(r'(?m)^(kind|scope effect): .*\|', text):

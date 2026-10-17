@@ -320,3 +320,33 @@ def update(store, mutate):
             os.rmdir(lock)
         except OSError:
             pass
+
+
+def update_or_jq(store, mutate, program, *jq_args):
+    """json_update with a jq program: update() applies mutate natively; where it cannot (a document or value jq reads differently), jq itself
+    decides, as in the bash. jq succeeding writes its output under the same lock; jq failing ends the command with its message and status,
+    leaving the empty pair.json.tmp the bash's redirect makes."""
+    try:
+        update(store, mutate)
+        return
+    except (ValueError, TypeError, AttributeError, KeyError):
+        pass
+    import subprocess
+    lock = f'{store}/.pair.lock'
+    try:
+        os.mkdir(lock)
+    except OSError:
+        raise Die(f'pair.json lock held for 10s; remove {store}/.pair.lock if no pair.sh is running')
+    try:
+        r = subprocess.run(['jq', *jq_args, program, f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
+        with open(f'{store}/pair.json.tmp', 'wb') as tmp:
+            if r.returncode == 0:
+                tmp.write(r.stdout)
+        if r.returncode != 0:
+            raise Exit(r.returncode)
+        os.replace(f'{store}/pair.json.tmp', f'{store}/pair.json')
+    finally:
+        try:
+            os.rmdir(lock)
+        except OSError:
+            pass
