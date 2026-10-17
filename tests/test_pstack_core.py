@@ -1608,6 +1608,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         # its line, which moved by HEAD. Python names HEAD's wait_opts line, never 0 (asserted below).
         norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
         for name, spec in cases.items():
+            # A file the world holds before the send counts as an answer to it only when its integer-second mtime is not before the send's epoch,
+            # so one written when the world is built would count or not by whether the build and the send fall in the same second, differently
+            # in the oracle's world and the port's. Every fixture file is old; a case that needs a fresh one says so in its own `mtimes`.
+            spec = {**spec, 'mtimes': {**{rel: self.OLD_MTIME for rel in spec.get('files', {})}, **spec.get('mtimes', {})}}
             got, want = self.wait_ab_compare(name, spec, skill)
             self.assertNotIn('line 0:', got['stderr'], name)
             for side in (got, want):
@@ -1620,6 +1624,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.maxDiff = None
         self.assertEqual(mismatches, {})
         return outcomes
+
+    OLD_MTIME = 1_000_000_000
 
     def test_send_ab_dispatch_matches_the_bash_at_the_base_commit(self):
         cases = self.send_ab_cases()
