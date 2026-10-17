@@ -28,6 +28,7 @@ from pstack_core.errors import Die, Exit  # noqa: E402
 
 LEGACY = 'd06a932'
 BASE = 'e6e83e3'
+PHASE3 = '04d2c13'
 LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
 
 
@@ -320,6 +321,24 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             subprocess.run(['tar', '-x', '-C', tmp.name], input=git.stdout, check=True, timeout=120)
             cls._base = Path(tmp.name) / 'skills'
         return cls._base
+
+    def phase3_skills(self):
+        """skills/ as it was at PHASE3, the oracle for init, permission, stop, steer, answer, spawn, rotate and failover."""
+        cls = type(self)
+        if cls.__dict__.get('_phase3') is None:
+            tmp = tempfile.TemporaryDirectory()
+            self.addClassCleanup(tmp.cleanup)
+            git = subprocess.run(['git', '-C', str(root), 'archive', PHASE3, 'skills'], capture_output=True, check=False, timeout=120)
+            if git.returncode != 0:
+                raise unittest.SkipTest(f'{PHASE3} is not in this checkout')
+            subprocess.run(['tar', '-x', '-C', tmp.name], input=git.stdout, check=True, timeout=120)
+            cls._phase3 = Path(tmp.name) / 'skills'
+        return cls._phase3
+
+    def test_phase3_skills_extracts_the_bash_at_the_phase_3_base(self):
+        core = self.phase3_skills() / 'pstack-pair/scripts/pair-core.sh'
+        self.assertTrue(core.is_file())
+        subprocess.run(['bash', '-n', str(core)], check=True, capture_output=True, timeout=60)
 
     GIT = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t',
            'GIT_AUTHOR_DATE': '2026-01-01T00:00:00Z', 'GIT_COMMITTER_DATE': '2026-01-01T00:00:00Z'}
