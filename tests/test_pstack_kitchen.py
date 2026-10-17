@@ -2875,7 +2875,8 @@ esac
                                                             'verifier-class': 'landing', 'verifier-outcome': 'clean'})
 
     def deadline_verify(self, mode, *extra, code=0, every=None, prompts_fail=False):
-        self.env.update({'KITCHEN_VERIFY_GRACE_S': '4', 'KITCHEN_VERIFY_GRACE_POLL_S': '1'})
+        self.env.setdefault('KITCHEN_VERIFY_GRACE_S', '4')
+        self.env['KITCHEN_VERIFY_GRACE_POLL_S'] = '1'
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         self.write('src/util.py', 'X = 9\n')
@@ -2977,18 +2978,19 @@ esac
         self.assertIn('status: reject', out)
 
     def test_a_later_wait_resumes_the_same_grace_and_never_prompts_again(self):
-        self.env.update({'KITCHEN_VERIFY_GRACE_S': '8'})
+        self.env['KITCHEN_VERIFY_GRACE_S'] = '600'
         out = self.deadline_verify('slow', code=4, every='0')
         self.assertIn('past its deadline; grace', out)
         v = self.state()['verifying']
         self.assertEqual(v['grace_delivery'], 'prompted')
         until = v['grace_until']
-        self.env['KITCHEN_VERIFY_GRACE_S'] = '600'
         out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', code=4)
         self.assertIn('past its deadline; grace', out)
         self.assertEqual(self.state()['verifying']['grace_until'], until)
         self.assertEqual(len(self.grace_prompts()), 1)
-        time.sleep(max(0, until - time.time()) + 1)
+        state = self.state()
+        state['verifying']['grace_until'] = int(time.time()) - 1
+        (self.store / 'pair.json').write_text(json.dumps(state))
         out = self.run_sh('verify', str(self.store), '--wait', code=4)
         self.assertIn('no verdict at', out)
         self.assertEqual(len(self.grace_prompts()), 1)
@@ -3009,7 +3011,7 @@ esac
 
     def test_a_working_devin_is_not_prompted_but_the_grace_still_waits(self):
         self.set_roster('[verifier]\nkind = "devin"\n')
-        self.env.update({'KITCHEN_VERIFY_GRACE_S': '8'})
+        self.env['KITCHEN_VERIFY_GRACE_S'] = '600'
         self.deadline_verify('devin-working', code=4, every='0')
         self.assertEqual(self.state()['verifying']['grace_delivery'], 'skipped:devin-working')
         self.assertEqual(self.grace_prompts(), [])
