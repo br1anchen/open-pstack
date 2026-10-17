@@ -1215,6 +1215,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual((bash_plain[0], 'no pane id' in bash_plain[2]), (1, False), label)
             self.assertEqual((port_plain[0], 'no pane id' in port_plain[2]), (2, True), label)
 
+    READY_HOOK = ('#!/bin/sh\nst="$FAKE/../st"\ncase "$2" in Load*) case "$1" in c1) printf "# R\\n\\nstatus: answered\\n" >"$st/advice/000-ready.md" ;; '
+                  '*) printf "# R\\n\\nstatus: done\\n" >"$st/reports/000-ready.md" ;; esac ;; esac\nexit 0\n')
+
     def spawn_cases(self):
         """Worlds for spawn_role: (spec, argv of the call). The call is `spawn_role store role kind permission anchor timeout direction pane [args]`."""
         hook = {'hook': self.READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300'}}
