@@ -29,7 +29,12 @@ def section(pair, role):
 
 
 def field(store, role, key):
-    return jq_raw(section(pair_json(store), role).get(key))
+    """jq -r '.role.key': a role that is not an object makes jq itself answer (its error on stderr, an empty value), as the bash did."""
+    value = pair_json(store).get(role)
+    if value is None or isinstance(value, dict):
+        return jq_raw((value or {}).get(key))
+    r = subprocess.run(['jq', '-r', f'.{role}.{key}', f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
+    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
 
 
 def update_role(store, role, changes):
@@ -152,7 +157,16 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         if master is None:
             master = doc['master'] = {}
         master['permission_mode'] = master_mode
-    update(store, started)
+    try:
+        update_or_jq(store, started,
+                     '.[$role].pane_id = $pane | .[$role].kind = $kind | .[$role].started_at = $now | .[$role].start_args = $args'
+                     ' | .[$role].generation = ((.[$role].generation // 0) + 1) | .[$role].bootstrap_pending = true'
+                     ' | .[$role].permission_mode = $perm | .master.permission_mode = $mperm',
+                     '--arg', 'role', role, '--arg', 'pane', pane, '--arg', 'kind', kind, '--arg', 'now', now, '--arg', 'perm', permission,
+                     '--arg', 'mperm', master_mode, '--argjson', 'args', json.dumps(list(args), separators=(',', ':')))
+    except Exit as e:
+        # the bash went on past a jq that refused the write (a master that is not an object): its error is printed and the start continues
+        sys.stderr.write(e.stderr)
     if kind == 'prime-agent':
         update_role(store, role, {'session': None, 'session_stopped': False, 'closed': False, 'launch_cwd': cwd})
         if prime_start_failed:

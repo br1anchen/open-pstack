@@ -2714,6 +2714,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an unknown store': {**base, 'args': ['spawn', '{T}/nope', '--kind', 'claude']},
             'a store without pair.json': {**base, 'nopair': True, 'args': ['spawn', '{st}', '--kind', 'claude']},
             'a plain spawn': run('--kind', 'claude'),
+            'a master that is a string': run('--kind', 'claude', pair={**side(), 'master': 'x'}),
+            'a master that is an array': run('--kind', 'claude', pair={**side(), 'master': [1]}),
             '--tab': run('--kind', 'claude', '--tab', pair={**side(), 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}),
             '--split after --tab': run('--kind', 'claude', '--tab', '--split'),
             'a placement already recorded': run('--kind', 'claude', pair={**side(), 'placement': 'tab', 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}),
@@ -2777,6 +2779,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'a pi preflight that fails with a fallback recorded earlier': (0, 'codex:ready'), 'a live sidekick skips the preflight': (0, 'already live (idle) in p1'),
         'a bootstrap that returns 4': (4, 'claude:unready'), 'a bootstrap that returns 3': (3, 'claude:failed'), 'a fallback that returns 4': (4, 'devin:unready'),
         'an unknown option': (1, 'unknown option --bogus'), 'a missing --kind': (1, '--kind is required'),
+        'a master that is a string': (0, 'Cannot index string with string ("permission_mode")'), 'a master that is an array': (0, 'Cannot index array with string ("permission_mode")'),
         # spawn_sidekick runs under `|| rc=$?`, where errexit is off: a failed failover record prints jq's error and the fallback still starts; a failed
         # fallback or placement record (in cmd_spawn proper, errexit on) ends the command
         'a failover whose record fails (failovers is not an array)': (0, 'cannot be added'), 'a failover over an object of failovers': (0, 'devin:ready'),
@@ -3085,6 +3088,37 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(out['a Prime verifier whose cleanup fails'][1], 'rc=5\n')
         self.assertIn('Prime verifier cleanup failed; its pane and scratch stay for inspection', out['a Prime verifier whose cleanup fails'][2])
         self.assertIn('agent prompt v1 /exit', out['a claude verifier'][5])
+
+    def test_the_prime_smoke_script_sources_pair_core_and_its_names_resolve(self):
+        """tests/prime_herdr_smoke.py needs a real Prime, so only what can be proved here is: it sources pair-core.sh (which sources prime-agent.sh)
+        with no stubs of the helpers that file defines, and in that shell `stop_prime_role` and `pycore` are functions."""
+        text = (root / 'tests/prime_herdr_smoke.py').read_text()
+        self.assertIn('skills/pstack-pair/scripts/pair-core.sh', text)
+        self.assertNotRegex(text, r'(?m)^(field|json_update|agent_status)\(\) \{')
+        script = re.search(r'script = """(.*?)"""', text, re.S).group(1)
+        core = root / 'skills/pstack-pair/scripts/pair-core.sh'
+        r = subprocess.run(['bash', '-c', script.split('stop_prime_role "$1"')[0] + 'type -t stop_prime_role pycore', 'smoke', 'unused', str(core)],
+                           capture_output=True, text=True, check=False, timeout=60)
+        self.assertEqual((r.returncode, r.stdout), (0, 'function\nfunction\n'), r.stderr)
+
+    def test_the_stop_prime_role_shim_returns_a_signal_status_and_exits_for_a_die(self):
+        """A pycore killed by a signal (143 for TERM) comes back from the shim as 143, not 43; a die the core reports as 100 plus its code (103) still
+        ends the shell with that code; 0 and 1 come back as returns."""
+        snippet = '''
+pycore() { sh -c 'kill -TERM $$'; }
+stop_prime_role "$store" sidekick || echo "signal rc=$?"
+pycore() { sh -c 'exit 103'; }
+( stop_prime_role "$store" sidekick || echo "die returned rc=$?" ); echo "die exit rc=$?"
+pycore() { return 1; }
+stop_prime_role "$store" sidekick || echo "answer rc=$?"
+pycore() { return 0; }
+stop_prime_role "$store" sidekick && echo "stopped"
+'''
+        top, st, env, fill = self.ab_world('shim-signal', {'master': None})
+        script = (f'set -euo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
+                  f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {root / "skills/pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{snippet}')
+        r = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, check=False, timeout=60)
+        self.assertEqual(r.stdout, 'signal rc=143\ndie exit rc=3\nanswer rc=1\nstopped\n')
 
     def test_close_role_matches_the_bash_at_the_phase_3_base_with_the_shims(self):
         """close_role, the shims' remaining pair-core caller (kitchen.sh `close` runs it): 04d2c13's function against the working tree's."""

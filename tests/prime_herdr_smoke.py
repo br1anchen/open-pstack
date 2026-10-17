@@ -27,7 +27,7 @@ print(f"evidence: {base}", flush=True)
 herdr = str(Path(args.herdr).resolve())
 prime = str(Path(args.prime_agent).resolve())
 repository = Path(__file__).resolve().parents[1]
-adapter = repository / "skills/pstack-pair/scripts/prime-agent.sh"
+adapter = repository / "skills/pstack-pair/scripts/pair-core.sh"  # sources prime-agent.sh; stop_prime_role runs in the Python core through pycore
 name = "prime-smoke-" + str(os.getpid())
 mode = "ok"
 
@@ -342,10 +342,10 @@ try:
         )
     )
     script = """set -euo pipefail
-field() { jq -r "$2" "$1/pair.json"; }
-json_update() { local store="$1"; shift; jq "$@" "$store/pair.json" >"$store/new"; mv "$store/new" "$store/pair.json"; }
-agent_status() { herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent_status' || printf absent; }
+skill_root="$(dirname "$(dirname "$(dirname "$2")")")/pstack-pair"; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair
+roles=(sidekick); store_dirs=(plans); slug_max=21
 source "$2"
+type -t stop_prime_role pycore >/dev/null
 stop_prime_role "$1" sidekick
 """
     call(
