@@ -5,13 +5,6 @@
 # caller sets roles to include consultant and ships consult-template.md under
 # $skill_root/references.
 
-# A plan the consultant took part in also needs its advice on file.
-plan_gate_extra() {
-	local store="$1" plan="$2" seq="$4" advice
-	advice="$(latest_advice "$store" "$seq")" || die "plan $plan has no consultant advice under advice/$seq-*; run pair.sh discuss so both agents respond" 6
-	[ -n "$advice" ] || die "plan $plan has no consultant advice under advice/$seq-*; run pair.sh discuss so both agents respond" 6
-}
-
 # The consultant splits from the sidekick's pane so the master keeps its
 # height. $1 store, $2 kind, $3 permission, $4 timeout, then agent args. Returns
 # 3 when the bootstrap did not settle and 4 when it settled without the ready file.

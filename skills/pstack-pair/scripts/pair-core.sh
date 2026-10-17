@@ -308,31 +308,6 @@ range_floor() {
 	range_floor_rev="$tmb"
 }
 
-# Variant hook: further gates on an agreed plan. No bash calls it any more: the
-# Python gate (pstack_core/gates.py) runs each variant's plan_gate_extra from its
-# variant.py. Kept until phase 3 deletes the dead bash.
-plan_gate_extra() { :; }
-
-# Implementation playbooks may only run against a plan the sidekick agreed to
-# and the master marked agreed. Exit 6 names what is missing.
-require_agreed_plan() {
-	local store="$1" brief="$2" playbook plan seq review verdict
-	playbook="$(header_field "$brief" playbook)"
-	case "$playbook" in
-	feature | bug-fix | refactoring | perf-issue | pstack-tdd) ;;
-	*) return 0 ;;
-	esac
-	plan="$(header_field "$brief" plan)"
-	[ -n "$plan" ] && [ "$plan" != none ] || die "playbook $playbook needs an agreed plan; brief has plan: ${plan:-<missing>}" 6
-	[ -f "$plan" ] || die "plan not found: $plan" 6
-	seq="$(basename "$plan" | cut -c1-3)"
-	review="$(ls "$store"/reviews/"$seq"-*.md 2>/dev/null | head -1 || true)"
-	[ -n "$review" ] || die "plan $plan has no review; run pair.sh discuss and write reviews/$seq-<slug>.md with verdict: agreed" 6
-	verdict="$(header_field "$review" verdict)"
-	[ "$verdict" = agreed ] || die "plan $plan review verdict is '${verdict:-missing}', not agreed" 6
-	plan_gate_extra "$store" "$plan" "$review" "$seq"
-}
-
 # A pause asked for at the next safe point: the sidekick stops at its next
 # step or progress boundary with its work committed, and the master starts
 # nothing new. $store/paused holds the reason; pair.sh resume removes it.
@@ -365,71 +340,6 @@ queued_brief() {
 # steps/<unit>.tsv, one row per step: k, sha, epoch, notes it resolves, summary.
 steps_file() {
 	printf '%s/steps/%s.tsv\n' "$1" "$(basename "$2" .md)"
-}
-
-# True when a step landed that neither a note nor an earlier steps wake has
-# covered: once shown, a range does not wake the master again while it reviews.
-steps_due() {
-	local brief file shown noted last
-	unreviewed_steps "$1" >/dev/null || return 1
-	brief="$(field "$1" '.dispatch.brief // empty')"
-	file="$(steps_file "$1" "$brief")"
-	shown="$(jq -r --arg u "$(basename "$brief" .md)" '.shown[$u] // 0' "$1/pair.json")"
-	noted="$(noted_through "$1" "$brief")"
-	last="$(grep -c . "$file")"
-	[ "$last" -gt "$shown" ] && [ "$last" -gt "$noted" ]
-}
-
-# Blocking notes on a unit that no step has resolved yet, one path per line.
-open_notes() {
-	local unit f id file
-	unit="$(basename "$2" .md)"
-	file="$(steps_file "$1" "$unit")"
-	for f in "$1"/notes/"$unit"-n[0-9]*.md; do
-		[ -e "$f" ] || continue
-		[ "$(header_field "$f" status)" = blocking ] || continue
-		id="$(basename "$f" .md | sed -E 's/.*-(n[0-9]+)$/\1/')"
-		if [ -f "$file" ] && awk -F '\t' -v id="$id" '{n = split($4, r, ","); for (i = 1; i <= n; i++) if (r[i] == id) found = 1} END {exit !found}' "$file"; then
-			continue
-		fi
-		printf '%s\n' "$f"
-	done
-}
-
-# Whether a report may be shown to the master as a reply. Sets report_open
-# (the open note paths) and report_why (the reason it is withheld). Only a
-# done unit report can be withheld: partial, blocked and failed reports, plan
-# responses, asks (-q<k>) and objections (-s<k>) are ready as soon as written.
-# A done report waits while its own unit has open blocking notes, and, when
-# the unit has recorded steps and the report's head resolves to a commit, until
-# that head contains the last recorded step, so a step that resolves the last
-# note does not expose the report written before it. A unit with no steps, or a
-# head that does not resolve (older stores, fixtures), is judged on notes alone.
-# It judges the report's own unit, whichever brief is running now.
-report_ready() {
-	local store="$1" report="$2" base file head root last k
-	report_open=""
-	report_why=""
-	[ "$(header_field "$report" status)" = "done" ] || return 0
-	base="$(basename "$report" .md)"
-	case "$base" in *-[sq][0-9]*) return 0 ;; esac
-	report_open="$(open_notes "$store" "$report")"
-	if [ -n "$report_open" ]; then
-		report_why="open blocking notes $(printf '%s\n' "$report_open" | sed -E 's/.*-(n[0-9]+)\.md$/\1/' | paste -sd, -)"
-		return 1
-	fi
-	file="$(steps_file "$store" "$base")"
-	[ -s "$file" ] || return 0
-	head="$(header_field "$report" head | grep -oE '^[0-9a-f]{7,40}' || true)"
-	[ -n "$head" ] || return 0
-	root="$(field "$store" '.git_root // .cwd')"
-	git -C "$root" rev-parse --verify --quiet "$head^{commit}" >/dev/null 2>&1 || return 0
-	k="$(tail -1 "$file" | cut -f1)"
-	last="$(tail -1 "$file" | cut -f2)"
-	git -C "$root" rev-parse --verify --quiet "$last^{commit}" >/dev/null 2>&1 || return 0
-	git -C "$root" merge-base --is-ancestor "$last" "$head" 2>/dev/null && return 0
-	report_why="the report's head ${head:0:9} predates step $k ${last:0:9}"
-	return 1
 }
 
 provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|billing verification failed|billing_error'

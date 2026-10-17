@@ -70,7 +70,7 @@ class CoreTests(unittest.TestCase):
                     'prompt_sidekick', 'prune_pending', 'queue_note', 'record_dispatch', 'record_sent', 'reply_mode', 'review_base', 'review_delta',
                     'scope_entry_exists', 'seen_reply', 'send_and_wait', 'sidekick_activity', 'status_paths', 'steer_scope_entries', 'tree_activity',
                     'unreviewed_steps', 'wait_for_reply', 'withheld_report', 'wait_opts', 'prime_steer', 'steps_due', 'report_ready',
-                    'provider_hint', 'bootstrap_recover', 'asks_no_approvals')
+                    'provider_hint', 'bootstrap_recover', 'asks_no_approvals', 'plan_gate_extra', 'require_agreed_plan', 'open_notes')
 
     def bash(self, snippet, env=None, check=True, base=None):
         """snippet run with pair-core.sh sourced: the working tree's, or with base=True skills/ as it was at e6e83e3, the oracle for
@@ -78,6 +78,11 @@ class CoreTests(unittest.TestCase):
         if base is None:
             base = re.search(r'\b(' + '|'.join(self.DELETED_BASH) + r')\b', snippet) is not None
         skills = self.base_skills() if base else root / 'skills'
+        if base:
+            # the oracle tree must hold the bodies the snippet calls that the working tree no longer has
+            core = (skills / 'pstack-pair/scripts/pair-core.sh').read_text() + (skills / 'pstack-pair/scripts/prime-agent.sh').read_text()
+            for name in set(re.findall(r'\b(' + '|'.join(self.DELETED_BASH) + r')\b', snippet)):
+                self.assertRegex(core, rf'(?m)^{name}\(\) \{{', f'{name} is not defined in the oracle tree')
         harness = f'''set -euo pipefail
 skill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair
 roles=(sidekick); store_dirs=(plans); slug_max=21
@@ -2733,7 +2738,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     if 'pair-core.sh' in got['stderr']:
                         shim = self.shim_line('pstack-pair/scripts/pair-core.sh', 'cmd_spawn')
                         self.assertRegex(got['stderr'], rf'pair-core\.sh: line {shim}: \$2: unbound variable\n')
-                    mask = lambda text: re.sub(r'\S*pair-core\.sh: line [0-9]+', '<core>: line N', text)
+                    mask = lambda text: re.sub(r'\S*(pair-core|kitchen)\.sh: line [0-9]+', '<core>: line N', text)
                     got, want = dict(got, stderr=mask(got['stderr'])), dict(want, stderr=mask(want['stderr']))
                 self.assertEqual(got, want, name)
                 outcomes[name] = got
@@ -4505,6 +4510,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def gate_bash(self, skill, snippet, store_dir):
         """snippet run with the e6e83e3 pair-core.sh, plus the variant's bash gate as its pair.sh or consultant-core.sh defines it."""
         skills = self.base_skills()
+        # the oracle tree holds the gate bodies the working tree has deleted
+        self.assertRegex((skills / 'pstack-pair/scripts/pair-core.sh').read_text(), r'(?m)^require_agreed_plan\(\) \{')
         extra = ''
         if skill in ('pstack-trio', 'pstack-kitchen'):
             extra = f'. {skills / "pstack-trio/scripts/consultant-core.sh"}\n'
@@ -4583,7 +4590,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(self.gate_python('pstack-trio', lambda ctx: ctx.variant.require_agreed_plan(ctx, str(top), str(brief)), top)[0], code, name)
 
     def test_plan_gate_kitchen_passes_its_gate_as_an_argument(self):
-        # kitchen.sh cannot be sourced in a harness, so these are the literal results of kitchen.sh require_agreed_plan (444-453).
+        # kitchen.sh cannot be sourced in a harness, so these are the literal results of kitchen.sh require_agreed_plan (444-453), a body the
+        # working tree has deleted; the oracle for the literals is that function at e6e83e3.
+        self.assertRegex((self.base_skills() / 'pstack-kitchen/scripts/kitchen.sh').read_text(), r'(?m)^require_agreed_plan\(\) \{')
         agreed = 'verdict: agreed\n'
         ctx = Context('pstack-kitchen', str(root / 'skills/pstack-kitchen'), '/s', 'Kitchen', ('sidekick', 'consultant'), ('plans',), 20, '')
         variant = ctx.variant
@@ -5471,10 +5480,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss', 'spawn')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
     TWINS = ('event', 'header_field', 'next_seq', 'paused_reason',
-             'new_from_template', 'steps_file', 'open_notes', 'trunk_ref', 'range_floor', 'require_filled',
+             'new_from_template', 'steps_file', 'trunk_ref', 'range_floor', 'require_filled',
              'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'queued_brief', 'json_update', 'pair_file',
-             'report_ready', 'expected_report', 'fresh_per_brief', 'file_mtime',
-             'steps_due', 'scope_entries',
+             'expected_report', 'fresh_per_brief', 'file_mtime',
+             'scope_entries',
              'busy_command', 'agent_session_error', 'muse_session_error', 'prime_role_error',
              'record_prime_session', 'require_not_paused',
              'require_fresh_session', 'submit_typed',
@@ -5483,34 +5492,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
              'pick_direction', 'new_pane', 'refuse_untrusted', 'await_file')
     TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest', 'detect_permission_mode': 'detect'}
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
-    HOOK_TWINS = {'pstack-kitchen/scripts/kitchen.sh:steps_due': 'pstack-kitchen/scripts/variant.py',
-                  'pstack-kitchen/scripts/kitchen.sh:report_ready': 'pstack-kitchen/scripts/variant.py',
-                  'pstack-kitchen/scripts/kitchen.sh:require_agreed_plan': 'pstack-kitchen/scripts/variant.py',
-                  'pstack-pair-guided/scripts/pair.sh:plan_gate_extra': 'pstack-pair-guided/scripts/variant.py',
-                  'pstack-trio/scripts/consultant-core.sh:plan_gate_extra': 'pstack-trio/scripts/variant.py'}
-    # The bash bodies no entry script reaches. This list may only shrink: each phase 3 unit deletes the bodies it orphans and removes them
-    # here, and the last unit empties it. Computed by tests/bash_reach.py, never widened by hand to make the guard pass.
-    KNOWN_DEAD = (
-        'pstack-kitchen/scripts/kitchen.sh:advice_gate',
-        'pstack-kitchen/scripts/kitchen.sh:core_require_agreed_plan',
-        'pstack-kitchen/scripts/kitchen.sh:core_steps_due',
-        'pstack-kitchen/scripts/kitchen.sh:plan_gate_extra',
-        'pstack-kitchen/scripts/kitchen.sh:report_ready',
-        'pstack-kitchen/scripts/kitchen.sh:require_agreed_plan',
-        'pstack-kitchen/scripts/kitchen.sh:steps_due',
-        'pstack-pair-guided/scripts/pair.sh:plan_gate_extra',
-        'pstack-pair/scripts/pair-core.sh:plan_gate_extra',
-        'pstack-pair/scripts/pair-core.sh:report_ready',
-        'pstack-pair/scripts/pair-core.sh:require_agreed_plan',
-        'pstack-pair/scripts/pair-core.sh:steps_due',
-        'pstack-trio/scripts/consultant-core.sh:plan_gate_extra',
-    )
+    # The bash bodies no entry script reaches. Phase 3 ended with none: a body that loses its last caller is deleted in the commit that orphans it,
+    # and the guard has no baseline to add it to.
+    KNOWN_DEAD = ()
     # kitchen.sh keeps the pair's commands under core_* names (copy_fn) and wraps them
-    KITCHEN_ALIASES = {'advice_gate': 'pstack-trio/scripts/consultant-core.sh:plan_gate_extra',
-                       'core_report_ready': 'pstack-pair/scripts/pair-core.sh:report_ready',
-                       'core_require_agreed_plan': 'pstack-pair/scripts/pair-core.sh:require_agreed_plan',
-                       'core_steps_due': 'pstack-pair/scripts/pair-core.sh:steps_due',
-                       'core_init': 'pstack-pair/scripts/pair-core.sh:cmd_init', 'core_spawn': 'pstack-pair/scripts/pair-core.sh:cmd_spawn',
+    KITCHEN_ALIASES = {'core_init': 'pstack-pair/scripts/pair-core.sh:cmd_init', 'core_spawn': 'pstack-pair/scripts/pair-core.sh:cmd_spawn',
                        'core_dispatch': 'pstack-pair/scripts/pair-core.sh:cmd_dispatch', 'core_wait': 'pstack-pair/scripts/pair-core.sh:cmd_wait',
                        'core_queue': 'pstack-pair/scripts/pair-core.sh:cmd_queue', 'core_discuss': 'pstack-pair/scripts/pair-core.sh:cmd_discuss',
                        'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
@@ -5524,7 +5510,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         return cls._reach
 
     def test_every_bash_function_runs_from_an_entry_script_or_is_known_dead(self):
-        self.assertEqual(list(self.KNOWN_DEAD), sorted(self.KNOWN_DEAD))
+        self.assertEqual(self.KNOWN_DEAD, ())
         reach = self.reach()
         dead, known = reach.dead(), set(self.KNOWN_DEAD)
         problems = [f'{k} has no caller from any entry script: delete its bash body' for k in sorted(dead - known)]
@@ -5538,9 +5524,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for helper in self.TWINS:
             self.assertTrue(any(f'{f}:{helper}' in reach.nodes for f in self.HELPER_FILES), f'{helper} has no bash definition: remove it from TWINS')
             self.assertRegex(python, rf'(?m)^\s*def {self.TWIN_NAMES.get(helper, helper)}\(', f'{helper} has no Python twin')
-        for key, variant in self.HOOK_TWINS.items():
-            self.assertIn(key, reach.nodes, f'{key} has no bash definition: remove it from HOOK_TWINS')
-            self.assertRegex((root / 'skills' / variant).read_text(), rf'(?m)^\s*def {key.split(":")[1]}\(', f'{key} has no Python hook in {variant}')
 
     def test_ported_commands_are_pycore_shims_in_the_script_that_defines_their_final_body(self):
         reach = self.reach()

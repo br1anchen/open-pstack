@@ -110,10 +110,6 @@ copy_fn cmd_queue core_queue
 copy_fn cmd_discuss core_discuss
 copy_fn cmd_step core_step
 copy_fn cmd_finish core_finish
-copy_fn report_ready core_report_ready
-copy_fn steps_due core_steps_due
-copy_fn require_agreed_plan core_require_agreed_plan
-copy_fn plan_gate_extra advice_gate
 
 # A plan's or brief's risk class: the first word of its risk: header, which
 # a master may follow with the reason ("escalated (contract X)").
@@ -438,25 +434,6 @@ cmd_classify() {
 	classify_brief "$1" "$2"
 }
 
-# Routine units run on the brief alone; an escalated one needs the agreed
-# plan with the consultant's advice, as in the trio. A routine brief that
-# names a plan still needs it agreed.
-require_agreed_plan() {
-	local store="$1" brief="$2" plan
-	if [ "$(risk_of "$brief")" = escalated ]; then
-		kitchen_escalated=1 core_require_agreed_plan "$@"
-		return
-	fi
-	plan="$(header_field "$brief" plan)"
-	case "$plan" in "" | none) return 0 ;; esac
-	kitchen_escalated=0 core_require_agreed_plan "$@"
-}
-
-plan_gate_extra() {
-	[ "${kitchen_escalated:-0}" = 1 ] || return 0
-	advice_gate "$@"
-}
-
 is_landing() {
 	case "$(header_field "$1" playbook)" in
 	opening-a-pr | shipping) return 0 ;;
@@ -591,15 +568,6 @@ cmd_discuss() {
 	fi
 }
 
-# The master reads every step of an escalated unit; a routine unit's steps
-# are proved by their gates, and the master reads the unit once, at review.
-steps_due() {
-	local brief
-	brief="$(field "$1" '.dispatch.brief // empty')"
-	[ -n "$brief" ] && [ "$(risk_of "$brief")" = escalated ] || return 1
-	core_steps_due "$@"
-}
-
 # A step is recorded only once the touched profiles' fast gates and the
 # policy check pass on it. Two failures in a row are an exception for the
 # master, reported as blocked. The checks run detached and step returns
@@ -710,24 +678,6 @@ cmd_step() {
 verify_job() {
 	printf '%s/steps/jobs/%s-verify-%s-%s\n' "$1" "$(basename "$2" .md)" "${3:0:12}" \
 		"$(awk '/^## Verify/{p=1; next} /^## /{p=0} p' "$2" | cksum | cut -d' ' -f1)"
-}
-
-# The pair's readiness, and for the dispatched unit's done report, a pass of
-# its Verify commands at its head: a wait never shows the master a done
-# report that finish refused.
-report_ready() {
-	core_report_ready "$@" || return 1
-	local store="$1" report="$2" brief head
-	[ "$(header_field "$report" status)" = "done" ] || return 0
-	brief="$(field "$store" '.dispatch.brief // empty')"
-	[ -n "$brief" ] && [ "$(readlink -f "$report")" = "$(expected_report "$store" "$brief")" ] || return 0
-	head="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$report" head)^{commit}" 2>/dev/null)" || {
-		report_why="its head: is not a commit"
-		return 1
-	}
-	[ "$(cat "$(verify_job "$store" "$brief" "$head")/rc" 2>/dev/null)" = 0 ] && return 0
-	report_why="the brief's Verify commands have not passed at ${head:0:9} (kitchen.sh finish runs them)"
-	return 1
 }
 
 # A done report reaches the master only once the brief's Verify commands,

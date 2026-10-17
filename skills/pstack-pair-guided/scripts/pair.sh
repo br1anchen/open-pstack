@@ -84,20 +84,6 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
 USAGE
 }
 
-# An agreed plan also needs the human approval its scale calls for.
-plan_gate_extra() {
-	local plan="$2" review="$3"
-	local scale approval
-	scale="$(header_field "$plan" scale)"
-	approval="$(header_field "$review" approval)"
-	case "$scale" in
-	small) ;;
-	medium) [ "$approval" = posted ] || [ "$approval" = human ] || die "medium plan needs approval: posted or human in $review (found '${approval:-missing}')" 6 ;;
-	large) [ "$approval" = human ] || die "large plan needs approval: human in $review (found '${approval:-missing}'); post the direction summary and wait for the human" 6 ;;
-	*) die "plan $plan has scale '${scale:-missing}'; set small, medium, or large" 6 ;;
-	esac
-}
-
 cmd_new_direction() {
 	[ $# -eq 2 ] || die "usage: pair.sh new-direction <store> <plan-path>"
 	local store="$1" plan seq slug path
