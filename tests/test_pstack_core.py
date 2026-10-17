@@ -999,15 +999,17 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         results = self.stop_ab_run('pstack-kitchen', lambda n: True, specs)
         self.assertIn('steps: 1 to review on 001-x', results['an escalated unit with steps to review']['stdout'])
 
-    def leaf_both(self, label, bash_snippet, python_snippet=None, logs=True, **spec):
+    def leaf_both(self, label, bash_snippet, python_snippet=None, logs=True, same=True, **spec):
         """A bash helper of the 04d2c13 core (sourced under set -euo pipefail) against its Python twin in a fresh interpreter, on identical
         worlds with the fake agents on PATH: (exit code, stdout, stderr, the fakes' logs). The skills directories and the world's directory
         are masked; so is the scratch directory a Prime preflight makes. Without a Python snippet the second side is the working tree's bash: the
         shims, in the forms their callers use."""
         results = []
+        trees = []
         for side in ('bash', 'py'):
             top, st, env, fill = self.ab_world(f'{label}-{side}', {'master': None, **spec})
             skills = self.phase3_skills() if side == 'bash' else root / 'skills'
+            trees.append(skills)
             if side == 'bash' or python_snippet is None:
                 script = (f'set -euo pipefail\nskill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
                           f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
@@ -1023,6 +1025,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             stamps = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', norm(text)))
             kept = {str(f.relative_to(st)): stamps(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file()}
             results.append((r.returncode, norm(r.stdout), norm(r.stderr), written if logs else {}, kept))
+        # a comparison of a tree with itself proves nothing: the second side is the working tree (its bash shims, or the Python twin)
+        self.assertNotEqual(trees[0], root / 'skills')
+        self.assertEqual(trees[1], root / 'skills')
+        if not same:
+            return results
         self.assertEqual(results[0], results[1], label)
         return results[1]
 
@@ -1179,10 +1186,34 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             mk = 'touch "$store/f"; ' if present else ''
             self.leaf_both('pane-await-' + label.replace(' ', '-'), f'{mk}if await_file "$store/f" {wait_ms}; then echo yes; else echo no; fi',
                            f'import os\nif {present}: open(store + "/f", "w").close()\nprint("yes" if panes.await_file(store + "/f", {wait_ms}) else "no")',
-                           env={'PAIR_FILE_POLL_MS': '100'})
+                           env={'PAIR_FILE_POLL_MS': '1'})
+        # a file that appears while it polls: the bash's external sleep and the port's sleep each create it on their second call
+        fake_sleep = self.path / 'fake-sleep'
+        fake_sleep.mkdir()
+        (fake_sleep / 'sleep').write_text('#!/bin/sh\nn=$(cat "$FAKE/sleeps" 2>/dev/null || echo 0); n=$((n + 1)); echo $n >"$FAKE/sleeps"; [ "$n" -lt 2 ] || : >"$FAKE/../st/f"\n')
+        (fake_sleep / 'sleep').chmod(0o755)
+        py = ('import os\ncalls = []\ndef fake(text):\n    calls.append(text)\n    if len(calls) >= 2:\n        open(store + "/f", "w").close()\n'
+              'panes.bash_sleep = fake\nprint("yes" if panes.await_file(store + "/f", 100000) else "no", len(calls))')
+        bash = 'PATH="' + str(fake_sleep) + ':$PATH"; if await_file "$store/f" 100000; then echo "yes $(cat "$FAKE/sleeps")"; else echo no; fi'
+        self.assertEqual(self.leaf_both('pane-await-appears', bash, py, env={'PAIR_FILE_POLL_MS': '1000'})[1], 'yes 2\n')
 
-    READY_HOOK = ('#!/bin/sh\nst="$FAKE/../st"\ncase "$2" in Load*) case "$1" in c1) printf "# R\\n\\nstatus: answered\\n" >"$st/advice/000-ready.md" ;; '
-                  '*) printf "# R\\n\\nstatus: done\\n" >"$st/reports/000-ready.md" ;; esac ;; esac\nexit 0\n')
+    def test_new_pane_when_herdr_fails_differs_from_the_bash_only_where_set_e_decides(self):
+        # At 04d2c13 `new_pane_id="$(herdr ... | jq ...)"` under set -euo pipefail ends a caller's shell with status 1 and no message where errexit
+        # is in force (a plain command), and reaches the die (status 2) where it is ignored (`|| rc=$?`). The port always dies with status 2: it
+        # cannot tell which context it was called from. For a herdr that fails outright the two differ in the plain-command form: a documented
+        # difference, pinned here on both sides.
+        py = self.DIE.lstrip('\n') + 'run(lambda: panes.new_pane(store, "sidekick", "p1", "", __import__("os").getcwd()))'
+        call = 'new_pane "$store" sidekick p1 "" "$PWD"'
+        for label, (pair, fake) in {'a split': ({}, {'split-fail': ''}),
+                                    'a tab': ({'placement': 'tab', 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}, {'tab-fail': ''})}.items():
+            bash_or, port_or = self.leaf_both(f'pane-fail-or-{label[2:]}', f'rc=0; {call} || rc=$?; echo "rc=$rc"', py, same=False, pair=pair, fake=fake)
+            bash_plain, port_plain = self.leaf_both(f'pane-fail-plain-{label[2:]}', f'set -e\n{call}\necho "after"', py, same=False, pair=pair, fake=fake)
+            # errexit ignored: the bash reaches its die (status 2, the message), as the port does
+            self.assertEqual((bash_or[0], 'returned no pane id' in bash_or[2]), (2, True), label)
+            self.assertEqual((port_or[0], 'returned no pane id' in port_or[2]), (2, True), label)
+            # errexit in force: the bash ends at once with status 1 and no message; the port dies with 2 and the message
+            self.assertEqual((bash_plain[0], 'no pane id' in bash_plain[2]), (1, False), label)
+            self.assertEqual((port_plain[0], 'no pane id' in port_plain[2]), (2, True), label)
 
     def spawn_cases(self):
         """Worlds for spawn_role: (spec, argv of the call). The call is `spawn_role store role kind permission anchor timeout direction pane [args]`."""
