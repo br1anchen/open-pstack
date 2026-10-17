@@ -1678,16 +1678,29 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def ab_run(self, label, skills, skill, spec):
         top, st, env, fill = self.ab_world(label, spec)
         script = 'kitchen.sh' if skill == 'pstack-kitchen' else 'pair.sh'
-        r = subprocess.run([str(skills / skill / 'scripts' / script), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env, timeout=120,
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, errors='surrogateescape', check=False)
+        run = lambda: subprocess.run([str(skills / skill / 'scripts' / script), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env, timeout=120,
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, errors='surrogateescape', check=False)
+        r = run()
+        second = None
+        if spec.get('twice'):
+            # The same command again in the same store, once the detached job the first one started has written its rc (a bounded poll: the job is
+            # a real process, and the second run reads what it left).
+            for _ in range(400):
+                if list(st.glob('steps/jobs/*/rc')):
+                    break
+                time.sleep(0.05)  # kitchen-allow: test-sleep (a bounded wait for a detached job's rc file)
+            second = run()
         # The base run and the port run are two worlds, built in two temp directories at two moments, so only what that explains is rewritten:
         # <T> is the world's directory (it appears in paths); <TS> the ISO stamps the store writes (.dispatch.at, .sent.at); <EPOCH> the epoch
         # seconds it writes (.sent.epoch, steps and gates rows); <HM> the HH:MM that starts a progress line `step`. Nothing else.
-        norm = lambda text: re.sub(r'(?m)^[0-9]{2}:[0-9]{2} step ', '<HM> step ', re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>'))))
+        norm = lambda text: re.sub(r'(exit [0-9]+ )[0-9.]+s', r'\1<S>s', re.sub(r'(?m)^[0-9]{2}:[0-9]{2} step ', '<HM> step ', re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))))
         files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
         events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text(errors='surrogateescape').splitlines()]
         calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
-        return {'rc': r.returncode, 'stdout': norm(r.stdout), 'stderr': norm(r.stderr or ''), 'files': files, 'events': events, 'calls': calls}
+        out = {'rc': r.returncode, 'stdout': norm(r.stdout), 'stderr': norm(r.stderr or ''), 'files': files, 'events': events, 'calls': calls}
+        if second is not None:
+            out['second'] = (second.returncode, norm(second.stdout), norm(second.stderr or ''))
+        return out
 
     AB_CASES = {
         'done report to an idle master': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
@@ -3312,7 +3325,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         brief = '# Brief 001-x\n\nplaybook: investigation\ncommit: no\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/a.py\n\n## Verify\n\n```bash\ntrue\n```\n'
         report = lambda status='done', head='{c3}': f'# R\n\nstatus: {status}\nhead: {head}\n'
         base = dict(args=['finish', '{st}', '{st}/reports/001-x.md'], repo_files={'src/a.py': 'x'}, files={'briefs/001-x.md': brief, 'reports/001-x.md': report()},
-                    env={'KITCHEN_STEP_SLICE_S': '0'})
+                    env={'KITCHEN_STEP_SLICE_S': '0', 'KITCHEN_STEP_POLL_S': '0'})
         steps = {'steps/001-x.tsv': '1\t{c2}\ts\t\n2\t{c3}\ts\t\n'}
         cases = {
             'a report that is not done': {**base, 'files': {**base['files'], 'reports/001-x.md': report('partial')}},
@@ -3322,8 +3335,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an open blocking note': {**base, 'files': {**base['files'], **steps, 'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}},
             'a head older than the last step': {**base, 'files': {**base['files'], **steps, 'reports/001-x.md': report(head='{c1}')}},
             'a head that is not a commit': {**base, 'files': {**base['files'], 'reports/001-x.md': report(head='{c3}x')}},
-            'a ready report whose Verify rerun starts': base,
-            'a ready report whose Verify rerun passes': {**base, 'env': {'KITCHEN_STEP_SLICE_S': '60'}},
+            'a ready report whose Verify rerun starts, then passes on the next finish': {**base, 'twice': True},
         }
         outcomes = {}
         for n, (name, spec) in enumerate(cases.items()):
@@ -3333,9 +3345,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             mask = lambda o: json.loads(re.sub(r'(?<=/)[0-9a-f]{12}(?=[/\s"\\])', '<JOB>', json.dumps(o)))
             self.assertEqual(mask(got), mask(want), name)
             outcomes[name] = got
-        self.assertEqual(outcomes['a ready report whose Verify rerun starts']['rc'], 4)
-        self.assertIn('are still running', outcomes['a ready report whose Verify rerun starts']['stdout'])
-        self.assertIn('verify: pass', outcomes['a ready report whose Verify rerun passes']['stdout'])
+        ready = outcomes['a ready report whose Verify rerun starts, then passes on the next finish']
+        self.assertEqual(ready['rc'], 4)
+        self.assertIn('are still running', ready['stdout'])
+        self.assertEqual(ready['second'][0], 0)
+        self.assertIn('verify: pass', ready['second'][1])
+        self.assertTrue(any(name.endswith('/consumed') for name in ready['files']), 'the second finish took the first one\'s job')
         self.assertEqual(outcomes['an open blocking note']['rc'], 7)
         self.assertEqual(outcomes['a head older than the last step']['rc'], 7)
         self.assertEqual(outcomes['a report that is not done']['rc'], 0)
