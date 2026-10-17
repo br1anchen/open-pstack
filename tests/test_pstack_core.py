@@ -728,7 +728,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         sessions = [{'activeSessionId': 'live-1', 'sessionId': 'sess-1', 'sessionFile': '/t/one.jsonl', 'name': 's1'}]
         sidekick = {'kind': 'prime-agent', 'generation': 1, 'name': 's1', 'pane_id': 'p1', 'launch_cwd': '{T}/launch', **spec.get('sidekick', {})}
         world = {'agents': spec.get('agents', {'s1': 'idle prime-agent'}), 'panes': spec.get('panes', {'p1': 's1'}), 'once': spec.get('once', {}),
-                 'files': spec.get('files', {}), 'pair': {'sidekick': sidekick, **spec.get('pair', {})},
+                 'files': spec.get('files', {}), 'clock': spec.get('clock'), 'pair': {'sidekick': sidekick, **spec.get('pair', {})},
                  'fake': {'prime-sessions.json': json.dumps(spec.get('sessions', sessions)),
                           **({} if spec.get('herdr_session') is False else {'sessions/s1': spec.get('herdr_session', '/t/one.jsonl')}),
                           **spec.get('fake', {})}, 'env': {'PAIR_PRIME_COMMAND_TIMEOUT': '1', **spec.get('env', {})}}
@@ -743,17 +743,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         (wrap / 'prime-agent').write_text(self.PRIME_WRAPPER)
         (wrap / 'prime-agent').chmod(0o755)
         env['PATH'] = f'{wrap}:{env["PATH"]}'
-        if spec.get('clock'):
-            # A clock that runs 100 s on every `date +%s`, and a sleep that returns at once: the bash's 15 s deadline is past at its second look, with
-            # no waiting. The port's deadline and poll are set to 0 for the same effect.
-            clock = top / 'clockbin'
-            clock.mkdir()
-            (clock / 'date').write_text('#!/bin/sh\nif [ "$*" = "+%s" ]; then n=$(cat "$FAKE/date-calls" 2>/dev/null || echo 0); echo $((n + 1)) >"$FAKE/date-calls"; echo $((1000 + 100 * n)); else exec /usr/bin/env -i PATH=/usr/bin:/bin date "$@"; fi\n')
-            (clock / 'sleep').write_text('#!/bin/sh\nexit 0\n')
-            for each in ('date', 'sleep'):
-                (clock / each).chmod(0o755)
-            env['PATH'] = f'{clock}:{env["PATH"]}'
-            env.update({'PAIR_EXIT_DEADLINE_S': '0', 'PAIR_EXIT_POLL_S': '0'})
         return top, st, env
 
     def prime_both(self, label, bash_snippet, python_snippet, shim=False, **spec):
@@ -1013,7 +1002,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         results = self.stop_ab_run('pstack-kitchen', lambda n: True, specs)
         self.assertIn('steps: 1 to review on 001-x', results['an escalated unit with steps to review']['stdout'])
 
-    def leaf_both(self, label, bash_snippet, python_snippet=None, logs=True, same=True, sources=(), **spec):
+    def leaf_both(self, label, bash_snippet, python_snippet=None, logs=True, same=True, sources=(), define='', **spec):
         """A bash helper of the 04d2c13 core (sourced under set -euo pipefail) against its Python twin in a fresh interpreter, on identical
         worlds with the fake agents on PATH: (exit code, stdout, stderr, the fakes' logs). The skills directories and the world's directory
         are masked; so is the scratch directory a Prime preflight makes. Without a Python snippet the second side is the working tree's bash: the
@@ -1027,7 +1016,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if side == 'bash' or python_snippet is None:
                 script = (f'set -euo pipefail\nskill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
                           f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills / "pstack-pair/scripts/pair-core.sh"}\n'
-                          + ''.join(f'. {skills / source}\n' for source in sources) + f'store={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
+                          + ''.join(f'. {skills / source}\n' for source in sources) + f'store={shlex.quote(str(st))}\nset +e\n{define if side == "py" else ""}{bash_snippet}')
                 argv = ['bash', '-c', script]
             else:
                 code = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents, panes, spawn\nfrom pstack_core.errors import Die, Exit\n'
@@ -1285,6 +1274,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a previous ready file moved aside': (dict(pair=old(pane_id=None), files={'reports/000-ready.md': '# old\n'}, **hook), call()),
         }
 
+    # spawn_role had no bash caller left once rotate and failover moved, so its bash shim is gone; the call forms it served are still run, against a
+    # definition of the same shim in the test, so the Python entry is pinned the way the bash callers used it.
+    SPAWN_ROLE_SHIM = 'spawn_role() { pycore __spawn_role "$@" || { local pycore_rc=$?; case $pycore_rc in 3 | 4) return $pycore_rc ;; *) exit $pycore_rc ;; esac; }; }\n'
     SPAWN_FORMS = {
         'with an or': 'rc=0; spawn_role "$store" {a} || rc=$?; echo "returned rc=$rc"',
         'as a plain command': 'spawn_role "$store" {a}; echo "returned"',
@@ -1304,12 +1296,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             for form, template in self.SPAWN_FORMS.items():
                 call = template.format(a=shlex.join(argv))
                 if label in self.SPAWN_ERREXIT_DIFFERENCE and form == 'as a plain command under errexit':
-                    bash_side, port_side = self.leaf_both(f'spawn-{part}-{len(results)}', call, None, same=False, **spec)
+                    bash_side, port_side = self.leaf_both(f'spawn-{part}-{len(results)}', call, None, same=False, define=self.SPAWN_ROLE_SHIM, **spec)
                     self.assertEqual((bash_side[0], 'no pane id' in bash_side[2]), (1, False), (label, form))
                     self.assertEqual((port_side[0], 'no pane id' in port_side[2]), (2, True), (label, form))
                     results[(label, form)] = port_side
                 else:
-                    results[(label, form)] = self.leaf_both(f'spawn-{part}-{len(results)}', call, None, **spec)
+                    results[(label, form)] = self.leaf_both(f'spawn-{part}-{len(results)}', call, None, define=self.SPAWN_ROLE_SHIM, **spec)
         return results
 
     SPAWN_EXPECT = {
@@ -1642,6 +1634,17 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         if spec.get('report_after'):
             (fake / 'report-after').write_text(fill(spec['report_after']) + '\n')
         env.update(spec.get('env', {}))
+        if spec.get('clock'):
+            # A clock that runs 100 s on every `date +%s`, and a sleep that returns at once: the bash's 15 s deadline is past at its second look, with
+            # no waiting. The port's deadline and poll are set to 0 for the same effect.
+            clock = top / 'clockbin'
+            clock.mkdir()
+            (clock / 'date').write_text('#!/bin/sh\nif [ "$*" = "+%s" ]; then n=$(cat "$FAKE/date-calls" 2>/dev/null || echo 0); echo $((n + 1)) >"$FAKE/date-calls"; echo $((1000 + 100 * n)); else exec /usr/bin/env -i PATH=/usr/bin:/bin date "$@"; fi\n')
+            (clock / 'sleep').write_text('#!/bin/sh\nexit 0\n')
+            for each in ('date', 'sleep'):
+                (clock / each).chmod(0o755)
+            env['PATH'] = f'{clock}:{env["PATH"]}'
+            env.update({'PAIR_EXIT_DEADLINE_S': '0', 'PAIR_EXIT_POLL_S': '0', 'PAIR_ESC_WAIT_S': '0'})
         if spec.get('busy'):
             (fake / 'busy').mkdir(exist_ok=True)
             (fake / 'busy' / 's1').write_text('')
@@ -3043,6 +3046,207 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('returned rc=1', out['a prime-agent role whose cleanup fails'][1])
         self.assertIn('agent prompt s1 /exit', out['a claude role'][5])
         self.assertIn('agent prompt s1 /quit', out['a codex role'][5])
+
+    def rotation_world(self, kind='devin', **sidekick):
+        """A rotation-due sidekick of this kind in p1, the master in p0; the bootstrap writes its ready file."""
+        env = {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PRIME_COMMAND_TIMEOUT': '2'}
+        entry = {'name': 's1', 'kind': kind, 'generation': 1, 'pane_id': 'p1', 'rotation_required': True, 'start_args': ['--model', 'm', 'a b'], **sidekick}
+        world = dict(pair={'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': entry}, panes={'p0': 'm1', 'p1': ''}, agents={'s1': f'idle {kind}'},
+                     hook=self.READY_HOOK, env=env)
+        if kind == 'prime-agent':
+            world['panes'] = {'p0': 'm1', 'p1': 's1'}
+            world['fake'] = {'prime-sessions.json': json.dumps([{'activeSessionId': 'live-1', 'sessionId': 'sess-1', 'sessionFile': '/t/one.jsonl', 'name': 's1'}]),
+                             'sessions/s1': '/t/one.jsonl'}
+            world['pair']['sidekick']['session'] = {'kind': 'path', 'value': '/t/one.jsonl'}
+        return world
+
+    def rotate_cases(self):
+        world = self.rotation_world
+        run = lambda w, *a: {**w, 'args': ['rotate', '{st}', *a]}
+        plain = world()
+        quiet = {**plain, 'hook': None}
+        return {
+            'no arguments': {**plain, 'args': ['rotate']},
+            'too many arguments': run(plain, 'x'),
+            'an unknown store': {**plain, 'args': ['rotate', '{T}/nope']},
+            'a kind that is not fresh per brief': run(world('claude')),
+            'no rotation required': run(world(rotation_required=False)),
+            'a rotation flag that is not true': run(world(rotation_required='yes')),
+            'no recorded start args': run(world(start_args=None)),
+            'start args that are not an array': run(world(start_args='x')),
+            'a paused run': {**run(plain), 'files': {'paused': 'lunch\n'}},
+            'an idle devin': run(plain),
+            'a done devin': run({**plain, 'agents': {'s1': 'done devin'}}),
+            'an absent devin': run({**plain, 'agents': {}}),
+            'a working devin': run({**plain, 'agents': {'s1': 'working devin'}}),
+            'a blocked devin': run({**plain, 'agents': {'s1': 'blocked devin'}}),
+            'an idle pi': run(world('pi')),
+            'an idle devin whose start args hold an empty and a newline argument': run(world(start_args=['', 'x\ny', '--m'])),
+            'an exit prompt that fails with a tolerated error, and an agent that stays': run({**plain, 'prompt_error': '{"error":{"code":"agent_not_found"}}\n', 'clock': True}),
+            'an exit prompt that fails with a stalled prompt': run({**plain, 'prompt_error': '{"error":{"code":"agent_prompt_stalled"}}\n', 'clock': True}),
+            'an exit prompt that fails with an untolerated error': run({**plain, 'prompt_error': '{"error":{"code":"boom"}}\n'}),
+            'an exit prompt error that only contains a tolerated word': run({**plain, 'prompt_error': 'weird not_found text\n', 'clock': True}),
+            'a sidekick that does not exit in time': run({**plain, 'prompt_error': '{"error":{"code":"not_found"}}\n', 'clock': True}),
+            'a spawn that returns 4': run(quiet),
+            'a spawn that dies': run({**plain, 'fake': {'start-fail': ''}}),
+            'a spawn that returns 3': run({**plain, 'promptfail': True}),
+            'a prime-agent sidekick': run(world('prime-agent')),
+            'a prime-agent sidekick that is done': run({**world('prime-agent'), 'agents': {'s1': 'done prime-agent'}}),
+            'a prime-agent sidekick already absent': run({**world('prime-agent'), 'agents': {}}),
+            'a prime-agent sidekick whose cleanup fails': run({**world('prime-agent'), 'fake': {**world('prime-agent')['fake'], 'prime-stop-fail': ''}}),
+            'a prime-agent sidekick absent whose cleanup fails': run({**world('prime-agent'), 'agents': {}, 'fake': {**world('prime-agent')['fake'], 'prime-stop-fail': ''}}),
+            'a prime-agent sidekick with no recorded session': run(world('prime-agent', session=None)),
+            'a prime-agent sidekick whose shell never takes the foreground': run({**world('prime-agent'), 'clock': True,
+                                                                                  'fake': {**world('prime-agent')['fake'], 'prime-client-stays': ''}}),
+            'a working prime-agent sidekick': run({**world('prime-agent'), 'agents': {'s1': 'working prime-agent'}}),
+        }
+
+    def failover_cases(self):
+        env = {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PRIME_COMMAND_TIMEOUT': '2'}
+
+        def world(kind='claude', fallback=None, **sidekick):
+            fb = {'kind': 'devin', 'args': ['--model', 'm', 'a b']} if fallback is None else fallback
+            entry = {'name': 's1', 'kind': kind, 'generation': 1, 'pane_id': 'p1', 'fallback': fb, **sidekick}
+            w = dict(pair={'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': entry}, panes={'p0': 'm1', 'p1': ''}, agents={'s1': f'idle {kind}'},
+                     hook=self.READY_HOOK, env=env)
+            if kind == 'prime-agent':
+                w['panes'] = {'p0': 'm1', 'p1': 's1'}
+                w['fake'] = {'prime-sessions.json': json.dumps([{'activeSessionId': 'live-1', 'sessionId': 'sess-1', 'sessionFile': '/t/one.jsonl', 'name': 's1'}]),
+                             'sessions/s1': '/t/one.jsonl'}
+                w['pair']['sidekick']['session'] = {'kind': 'path', 'value': '/t/one.jsonl'}
+            return w
+        run = lambda w, *a: {**w, 'args': ['failover', '{st}', *a]}
+        plain = world()
+        return {
+            'no arguments': {**plain, 'args': ['failover']},
+            'an unknown option': run(plain, '--bogus'),
+            'a reason with no value': run(plain, '--reason'),
+            'an unknown store': {**plain, 'args': ['failover', '{T}/nope']},
+            'no fallback recorded': run(world(fallback={})),
+            'no fallback recorded (null)': run(world(fallback=None, **{}) | {'pair': {'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': {'name': 's1', 'kind': 'claude', 'pane_id': 'p1'}}}),
+            'already on the fallback': run(world('devin', fallback={'kind': 'devin'})),
+            'an idle sidekick': run(plain),
+            'an idle sidekick with a reason': run(plain, '--reason', 'out of quota'),
+            'a done sidekick': run({**plain, 'agents': {'s1': 'done claude'}}),
+            'an absent sidekick': run({**plain, 'agents': {}}),
+            'a blocked sidekick': run({**plain, 'agents': {'s1': 'blocked claude'}}),
+            'a working sidekick without --force': run({**plain, 'agents': {'s1': 'working claude'}}),
+            'a working sidekick with --force': run({**plain, 'agents': {'s1': 'working claude'}, 'clock': True}, '--force'),
+            'a fallback without args': run(world(fallback={'kind': 'codex'})),
+            'fallback args with an empty and a newline argument': run(world(fallback={'kind': 'codex', 'args': ['', 'x\ny']})),
+            'a sidekick that does not exit in time': run({**plain, 'prompt_error': '{"error":{"code":"x"}}\n', 'clock': True}),
+            'a running dispatch with no report': run(plain),
+            'a running dispatch with its report': {**run(plain), 'files': {'reports/001-x.md': '# R\n'}},
+            'a running dispatch whose brief is an attempt': {**run(plain), 'pair': {**plain['pair'], 'dispatch': {'brief': '{st}/briefs/001-x-a2.md', 'generation': 1}}},
+            'no running dispatch': run({**plain, 'pair': {**plain['pair'], 'dispatch': None}}),
+            'a spawn that returns 4': run({**plain, 'hook': None}),
+            'a spawn that returns 3': run({**plain, 'promptfail': True}),
+            'a spawn that dies': run({**plain, 'fake': {'start-fail': ''}}),
+            'a failover record that jq refuses': run(world(failovers='x')),
+            'failovers already recorded': run(world(failovers=[{'from': 'a', 'to': 'b', 'reason': 'r', 'at': 't'}])),
+            'a prime-agent sidekick': run(world('prime-agent')),
+            'a prime-agent sidekick whose cleanup fails': run({**world('prime-agent'), 'fake': {**world('prime-agent')['fake'], 'prime-stop-fail': ''}}),
+            'a prime-agent sidekick already absent': run({**world('prime-agent'), 'agents': {}}),
+            'a working prime-agent sidekick with --force': run({**world('prime-agent'), 'agents': {'s1': 'working prime-agent'}, 'clock': True}, '--force'),
+            'a prime-agent sidekick whose shell never takes the foreground': run({**world('prime-agent'), 'clock': True,
+                                                                                  'fake': {**world('prime-agent')['fake'], 'prime-client-stays': ''}}),
+            'a codex sidekick': run(world('codex')),
+        }
+
+    ROTATE_EXPECT = {
+        'a kind that is not fresh per brief': (5, 'rotate is for a sidekick that starts fresh per brief'), 'no rotation required': (5, 'rotation requires a completed task'),
+        'no recorded start args': (5, 'no recorded startup arguments'), 'a paused run': (5, 'the store is paused'), 'an idle devin': (0, 'devin:ready'),
+        'a working devin': (5, 'sidekick s1 is working'), 'an exit prompt that fails with an untolerated error': (2, 'devin exit failed:'),
+        'a sidekick that does not exit in time': (5, 'devin has not exited; inspect s1'), 'a spawn that returns 4': (4, 'devin:unready'),
+        'a prime-agent sidekick': (0, 'devin:ready' if False else 'prime-agent:ready'), 'a prime-agent sidekick whose cleanup fails': (5, 'Prime session cleanup failed; no new session was started'),
+        'an absent devin': (0, 'master\trotate'), 'a prime-agent sidekick whose shell never takes the foreground': (5, 'Prime client has not exited')}
+    FAILOVER_EXPECT = {
+        'no fallback recorded': (5, 'no fallback recorded; spawn the sidekick with --fallback KIND'), 'already on the fallback': (5, 'already runs the fallback (devin)'),
+        'an idle sidekick': (0, 'failover: claude -> devin (requested)'), 'a working sidekick without --force': (5, 'is working; pair.sh stop'),
+        'a working sidekick with --force': (0, 'send-keys s1 esc'), 'a sidekick that does not exit in time': (5, 'claude sidekick has not exited'),
+        'a running dispatch with no report': (0, 'next: re-dispatch'), 'a spawn that returns 4': (4, 'devin:unready'),
+        'a prime-agent sidekick whose cleanup fails': (5, 'Prime session cleanup failed; no fallback was started'),
+        'an idle sidekick with a reason': (0, 'failover: claude -> devin (out of quota)'), 'a failover record that jq refuses': (5, 'cannot be added'), 'a prime-agent sidekick': (0, 'failover: prime-agent -> devin')}
+
+    def lifecycle_part(self, kind, skill, part, parts, keep=None):
+        cases = self.rotate_cases() if kind == 'rotate' else self.failover_cases()
+        expect = self.ROTATE_EXPECT if kind == 'rotate' else self.FAILOVER_EXPECT
+        outcomes = {}
+        for n, (name, spec) in enumerate(cases.items()):
+            if n % parts != part or (keep is not None and name not in keep):
+                continue
+            got, want = self.phase3_ab(f'{kind[:2]}{n}', skill, spec)
+            self.maxDiff = None
+            if name in ('a reason with no value', 'no arguments') and 'line' in want['stderr']:
+                self.assertRegex(want['stderr'], r'line [0-9]+: \$2: unbound variable')
+                mask = lambda text: re.sub(r'\S*pair-core\.sh: line [0-9]+', '<core>: line N', text)
+                got, want = dict(got, stderr=mask(got['stderr'])), dict(want, stderr=mask(want['stderr']))
+            self.assertEqual(got, want, name)
+            outcomes[name] = got
+            if name in expect:
+                code, needle = expect[name]
+                self.assertEqual(got['rc'], code, name)
+                self.assertIn(needle, got['stdout'] + got['stderr'] + '\n'.join(got['events']) + got['calls'] + got['files']['pair.json'], name)
+        return outcomes
+
+    def test_rotate_matches_the_bash_at_the_phase_3_base_part_0(self):
+        self.lifecycle_part('rotate', 'pstack-pair', 0, 3)
+
+    def test_rotate_matches_the_bash_at_the_phase_3_base_part_1(self):
+        self.lifecycle_part('rotate', 'pstack-pair', 1, 3)
+
+    def test_rotate_matches_the_bash_at_the_phase_3_base_part_2(self):
+        self.lifecycle_part('rotate', 'pstack-pair', 2, 3)
+
+    def test_rotate_through_the_kitchen_matches_the_bash_at_the_phase_3_base(self):
+        names = {'rotate': ('an idle devin', 'a paused run', 'a prime-agent sidekick', 'a spawn that returns 4', 'a kind that is not fresh per brief'),
+                 'failover': ('an idle sidekick', 'no fallback recorded', 'a working sidekick with --force', 'a spawn that returns 4', 'a running dispatch with its report')}['rotate']
+        self.lifecycle_part('rotate', 'pstack-kitchen', 0, 1, keep=names)
+
+    def test_failover_matches_the_bash_at_the_phase_3_base_part_0(self):
+        self.lifecycle_part('failover', 'pstack-pair', 0, 3)
+
+    def test_failover_matches_the_bash_at_the_phase_3_base_part_1(self):
+        self.lifecycle_part('failover', 'pstack-pair', 1, 3)
+
+    def test_failover_matches_the_bash_at_the_phase_3_base_part_2(self):
+        self.lifecycle_part('failover', 'pstack-pair', 2, 3)
+
+    def test_failover_through_the_kitchen_matches_the_bash_at_the_phase_3_base(self):
+        names = {'rotate': ('an idle devin', 'a paused run', 'a prime-agent sidekick', 'a spawn that returns 4', 'a kind that is not fresh per brief'),
+                 'failover': ('an idle sidekick', 'no fallback recorded', 'a working sidekick with --force', 'a spawn that returns 4', 'a running dispatch with its report')}['failover']
+        self.lifecycle_part('failover', 'pstack-kitchen', 0, 1, keep=names)
+
+    def test_kitchen_rotates_a_sidekick_before_a_brief_as_at_the_phase_3_base(self):
+        """kitchen.sh `dispatch` calls cmd_rotate inside $( ) (rotate_if_due) and reads its output and status: a rotation that succeeds, one that
+        fails with the die's status and message, one that is not due, and a spawn that returns 4."""
+        toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
+        brief = '# Brief 003-z\n\nplaybook: investigation\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- lib/**\n'
+        due = self.rotation_world()
+        base = dict(due, args=['dispatch', '{st}', '{st}/briefs/003-z.md', '--timeout', '20000'], files={'briefs/003-z.md': brief},
+                    repo_files={'src/a.py': 'x', **toml}, report_after='1 {st}/reports/003-z.md partial')
+        base['env'] = {**base['env'], 'KITCHEN_QUIET_POLL_S': '0', 'KITCHEN_QUIET_MAX_S': '2'}
+        cases = {
+            'a rotation that succeeds': base,
+            'a rotation that is not due': {**base, 'pair': {**base['pair'], 'sidekick': {**base['pair']['sidekick'], 'rotation_required': False}}},
+            'a kind that is not fresh per brief': {**base, 'agents': {'s1': 'idle claude'}, 'pair': {**base['pair'], 'sidekick': {**base['pair']['sidekick'], 'kind': 'claude'}}},
+            'a rotation whose exit prompt fails': {**base, 'prompt_error': '{"error":{"code":"boom"}}\n'},
+            'a rotation that does not exit in time': {**base, 'prompt_error': '{"error":{"code":"not_found"}}\n', 'clock': True},
+            'a rotation whose spawn returns 4': {**base, 'hook': None},
+            'a paused run': {**base, 'files': {**base['files'], 'paused': 'lunch\n'}},
+            'a prime-agent rotation': {**self.rotation_world('prime-agent'), **{k: base[k] for k in ('args', 'files', 'repo_files', 'report_after')}, 'env': base['env']},
+        }
+        outcomes = {}
+        for n, (name, spec) in enumerate(cases.items()):
+            got, want = self.phase3_ab(f'kr{n}', 'pstack-kitchen', spec)
+            self.maxDiff = None
+            self.assertEqual(got, want, name)
+            outcomes[name] = got
+        self.assertIn('rotated: the devin sidekick starts this brief in a fresh session', outcomes['a rotation that succeeds']['stdout'])
+        self.assertIn('rotating the sidekick before this brief failed:', outcomes['a rotation whose exit prompt fails']['stderr'])
+        self.assertEqual(outcomes['a rotation whose exit prompt fails']['rc'], 2)
+        self.assertEqual(outcomes['a rotation that does not exit in time']['rc'], 5)
+        self.assertEqual(outcomes['a rotation whose spawn returns 4']['rc'], 4)
 
     def test_send_ab_kitchen_dispatch_and_routine_discuss(self):
         toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
@@ -5197,7 +5401,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
              'require_fresh_session', 'submit_typed',
              'iso_epoch', 'in_herdr', 'latest_advice', 'detect_permission_mode',
              'permission_args', 'trust_args', 'mcp_args', 'has_mcp_arg', 'has_trust_arg', 'has_permission_arg', 'has_preflight', 'preflight_kind',
-             'pick_direction', 'new_pane', 'refuse_untrusted', 'await_file', 'spawn_role', 'record_failover')
+             'pick_direction', 'new_pane', 'refuse_untrusted', 'await_file')
     TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest', 'detect_permission_mode': 'detect'}
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
     HOOK_TWINS = {'pstack-kitchen/scripts/kitchen.sh:steps_due': 'pstack-kitchen/scripts/variant.py',

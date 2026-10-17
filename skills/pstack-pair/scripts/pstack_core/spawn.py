@@ -223,8 +223,9 @@ def set_placement(store, want=''):
     update_or_jq(store, mutate, '.placement = $p', '--arg', 'p', want)
 
 
-def record_failover(store, source, target, reason):
-    """The sidekick's failover from one kind to another: .sidekick.failovers, the master's failover event, and the line it prints."""
+def record_failover(store, source, target, reason, errexit_off=True):
+    """The sidekick's failover from one kind to another: .sidekick.failovers, the master's failover event, and the line it prints. A jq that
+    refuses the write ends the command, unless the caller runs with errexit off (spawn_sidekick, under its caller's `|| rc=$?`)."""
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
     def mutate(doc):
@@ -239,6 +240,8 @@ def record_failover(store, source, target, reason):
         update_or_jq(store, mutate, '.sidekick.failovers = ((.sidekick.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])',
                      '--arg', 'from', source, '--arg', 'to', target, '--arg', 'why', reason, '--arg', 'now', now)
     except Exit as e:
+        if not errexit_off:
+            raise
         # spawn_sidekick runs under its caller's `|| rc=$?`, where errexit is off: a jq that fails prints its error and the failover goes on
         sys.stderr.write(e.stderr)
     event(store, 'master', 'failover', '-', f'{source}:{target}')
@@ -258,11 +261,15 @@ def record_fallback(store, kind, args):
     update_or_jq(store, mutate, '.sidekick.fallback = {kind: $kind, args: $args}', '--arg', 'kind', kind, '--argjson', 'args', json.dumps(list(args), separators=(',', ':')))
 
 
-def fallback_args(fallback):
-    """mapfile -t of jq -r '.sidekick.fallback.args[]?': one argument per output line."""
-    values = fallback.get('args') if isinstance(fallback, dict) else None
+def mapfile_args(values):
+    """mapfile -t of jq -r '.[]?': one argument per output line."""
     values = values if isinstance(values, list) else list(values.values()) if isinstance(values, dict) else []
     return ''.join(f'{jq_raw(v)}\n' for v in values).split('\n')[:-1]
+
+
+def fallback_args(fallback):
+    """mapfile -t of jq -r '.sidekick.fallback.args[]?'."""
+    return mapfile_args(fallback.get('args') if isinstance(fallback, dict) else None)
 
 
 def preflight_reason(kind, args):

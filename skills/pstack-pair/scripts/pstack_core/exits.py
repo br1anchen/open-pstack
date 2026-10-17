@@ -95,6 +95,15 @@ def stop_prime_role(store, role):
     return True
 
 
+def stopped(store, role):
+    """stop_prime_role as a caller tests it with `||`: a failed jq write is the answer "no", its message printed; a die ends the command."""
+    try:
+        return stop_prime_role(store, role)
+    except Exit as e:
+        sys.stderr.write(e.stderr)
+        return False
+
+
 def entry_exit_command(ctx, args):
     sys.stdout.write(exit_command(args[0]) + '\n')
     return 0

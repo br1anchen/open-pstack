@@ -542,14 +542,6 @@ new_pane() {
 	fi
 }
 
-# Start one role, record it in pair.json, and bootstrap it. It reuses $pane,
-# or the role's previous pane when that is back at a shell prompt, and
-# otherwise splits $anchor in $direction (picked from the anchor's shape when
-# empty). $1 store, $2 role, $3 kind, $4 permission mode, $5 anchor pane,
-# $6 timeout, $7 direction, $8 pane, rest: native agent args. Returns 3 when
-# the bootstrap did not settle and 4 when it settled without the ready file.
-spawn_role() { pycore __spawn_role "$@" || { local pycore_rc=$?; case $pycore_rc in 3 | 4) return $pycore_rc ;; *) exit $pycore_rc ;; esac; }; }
-
 # Kinds whose sidekick starts a fresh conversation for each completed brief:
 # Devin, Pi, and Prime, whose compacted conversation would otherwise carry every
 # earlier brief into the next. The master rotates them; the queue waits.
@@ -577,14 +569,6 @@ has_preflight() { pycore __has_preflight "$@" || { local pycore_rc=$?; case $pyc
 # have no check here. $1 kind, rest: the native args the agent starts with.
 # Prints the last lines of a failure on stderr.
 preflight_kind() { pycore __preflight_kind "$@"; }
-
-record_failover() {
-	# $1 store, $2 from kind, $3 to kind, $4 reason
-	json_update "$1" --arg from "$2" --arg to "$3" --arg why "$4" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'.sidekick.failovers = ((.sidekick.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])'
-	event "$1" master failover - "$2:$3"
-	printf 'failover: %s -> %s (%s)\n' "$2" "$3" "$4"
-}
 
 exit_command() { pycore __exit_command "$@"; }
 
@@ -625,97 +609,9 @@ close_role() {
 	printf 'closed %s %s (%s)\n' "$role" "$name" "$pane"
 }
 
-# Replaces a failing sidekick with its recorded fallback in the same pane.
-# The new agent picks up from the store: the step log, progress, and the
-# brief it was on; every committed step survives. A run stays on the
-# fallback, since failover never switches back.
-cmd_failover() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh failover <store> [--reason TEXT] [--force]"
-	local store="$1" reason=requested force=0
-	shift
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--reason) reason="$2"; shift 2 ;;
-		--force) force=1; shift ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	pair_file "$store" >/dev/null
-	local kind fallback name status deadline rc=0
-	kind="$(field "$store" .sidekick.kind)"
-	fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
-	[ -n "$fallback" ] || die "no fallback recorded; spawn the sidekick with --fallback KIND" 5
-	[ "$kind" != "$fallback" ] || die "the sidekick already runs the fallback ($fallback)" 5
-	name="$(field "$store" .sidekick.name)"
-	status="$(agent_status "$name")"
-	if [ "$status" = working ]; then
-		[ "$force" -eq 1 ] || die "sidekick $name is working; pair.sh stop $store first, or pass --force to interrupt it" 5
-		herdr agent send-keys "$name" esc >/dev/null 2>&1 || true
-		sleep 2
-	fi
-	if [ "$kind" = prime-agent ]; then
-		stop_prime_role "$store" sidekick || die "Prime session cleanup failed; no fallback was started" 5
-	elif [ "$status" != absent ]; then
-		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
-		deadline=$(($(date +%s) + 15))
-		while [ "$(agent_status "$name")" != absent ]; do
-			[ "$(date +%s)" -lt "$deadline" ] || die "$kind sidekick has not exited; close it by hand, then rerun failover" 5
-			sleep 1
-		done
-	fi
-	record_failover "$store" "$kind" "$fallback" "$reason"
-	local -a args=()
-	mapfile -t args < <(jq -r '.sidekick.fallback.args[]?' "$store/pair.json")
-	spawn_role "$store" sidekick "$fallback" "" "$(field "$store" .master.pane_id)" 60000 "" "$(field "$store" .sidekick.pane_id)" "${args[@]}" || rc=$?
-	local running
-	running="$(field "$store" '.dispatch.brief // empty')"
-	if [ "$rc" -eq 0 ] && [ -n "$running" ] && [ ! -f "$(expected_report "$store" "$running")" ]; then
-		printf 'next: re-dispatch %s with "resumed after failover from %s" in its Context\n' "$running" "$kind"
-	fi
-	exit "$rc"
-}
+cmd_failover() { pycore --exec failover "$@"; }
 
-# Rotation exits the idle sidekick and reuses its pane with the same native
-# arguments. It preserves the store and never deletes a Devin session.
-cmd_rotate() {
-	in_herdr
-	[ $# -eq 1 ] || die "usage: pair.sh rotate <store>"
-	local store="$1" name status err code=0 deadline
-	pair_file "$store" >/dev/null
-	require_not_paused "$store"
-	local kind
-	kind="$(field "$store" '.sidekick.kind')"
-	fresh_per_brief "$kind" || die "rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not $kind" 5
-	[ "$(field "$store" '.sidekick.rotation_required // false')" = true ] || die "rotation requires a completed task; partial or blocked work keeps its session" 5
-	jq -e '.sidekick.start_args | type == "array"' "$store/pair.json" >/dev/null || die "no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags" 5
-	name="$(field "$store" .sidekick.name)"
-	status="$(agent_status "$name")"
-	case "$status" in
-	idle | "done")
-		if [ "$kind" = prime-agent ]; then
-			stop_prime_role "$store" sidekick || die "Prime session cleanup failed; no new session was started" 5
-		else
-			err="$(herdr agent prompt "$name" "$(exit_command "$kind")" 2>&1)" || code=$?
-			if [ "$code" -ne 0 ] && ! grep -qE 'agent_prompt_stalled|agent_not_found|not_found' <<<"$err"; then
-				die "$kind exit failed: $err" 2
-			fi
-			deadline=$(($(date +%s) + 15))
-			while [ "$(agent_status "$name")" != absent ]; do
-				[ "$(date +%s)" -lt "$deadline" ] || die "$kind has not exited; inspect $name before retrying rotate" 5
-				sleep 1
-			done
-		fi
-		;;
-	absent)
-		[ "$kind" != prime-agent ] || stop_prime_role "$store" sidekick || die "Prime session cleanup failed; no new session was started" 5 ;;
-	*) die "sidekick $name is $status; wait for its report and turn to end before rotating" 5 ;;
-	esac
-	local -a args
-	mapfile -t args < <(jq -r '.sidekick.start_args[]' "$store/pair.json")
-	event "$store" master rotate - "generation:$(field "$store" .sidekick.generation)"
-	spawn_role "$store" sidekick "$kind" none "$(field "$store" .master.pane_id)" 60000 "" "$(field "$store" .sidekick.pane_id)" "${args[@]}"
-}
+cmd_rotate() { pycore --exec rotate "$@"; }
 
 cmd_spawn() { pycore --exec spawn "$@"; }
 
