@@ -557,9 +557,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a working devin whose input box holds the text': dict(devin, args=run, fake={'devin-input': ''}, hook=self.stop_hook()),
             'a working devin with an older queued message': dict(devin, args=run, fake={'devin-input': '', 'queued/s1': 'an older steer'}, hook=self.stop_hook()),
             'a working devin whose report lands at once': dict(devin, args=run, hook=self.stop_hook()),
-            'a working devin that never shows the text': dict(devin, args=run + ['--timeout', '1000']),
+            'a working devin that never shows the text': dict(devin, args=run + ['--timeout', '2000']),
             'a working devin and a stop under another name': dict(devin, args=run, fake={'devin-input': ''}, hook=self.stop_hook('001-land-partial1.md', 'partial (STOP)')),
-            'a working devin whose text stays typed': dict(devin, args=run + ['--timeout', '1000'], fake={'devin-input': '', 'typing/s1': 'pstack-pair STOP x'}),
+            'a working devin whose text stays typed': dict(devin, args=run + ['--timeout', '2000'], fake={'devin-input': '', 'typing/s1': 'pstack-pair STOP x'}),
         }
 
     def stop_ab_run(self, skill, group, cases=None):
@@ -599,8 +599,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('report: missing', results['a working sidekick that never writes it']['stdout'])
 
     def test_stop_matches_the_bash_at_the_phase_3_base_when_the_sidekick_is_a_working_devin(self):
-        results = self.stop_ab_run('pstack-pair', lambda n: 'working devin' in n)
+        results = self.stop_ab_run('pstack-pair', lambda n: 'working devin' in n and 'never' not in n and 'stays typed' not in n)
         self.assertEqual(results['a working devin whose input box holds the text']['rc'], 0)
+
+    def test_stop_matches_the_bash_at_the_phase_3_base_when_a_working_devin_is_never_sent_the_text(self):
+        # The window is two seconds, not one: the outcome depends on whether the pane watch gets to run before the deadline, and a slow fake
+        # herdr call between the send and the watch must not tip a one-second window.
+        results = self.stop_ab_run('pstack-pair', lambda n: 'never' in n and 'devin' in n or 'stays typed' in n)
         self.assertIn('STOP never showed in the pane; sent one Enter as a fallback', results['a working devin that never shows the text']['stderr'])
 
     def test_stop_ab_signals_end_the_command_as_they_end_the_bash(self):
