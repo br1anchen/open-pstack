@@ -698,9 +698,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(results['a blocked verifier']['rc'], 3)
 
     PRIME_WRAPPER = (
-        '#!/usr/bin/env python3\nimport os, sys, time\nfake = os.environ["FAKE"]\nargs = sys.argv[1:]\n'
+        '#!/usr/bin/env python3\nimport os, signal, sys\nfake = os.environ["FAKE"]\nargs = sys.argv[1:]\n'
         'def read(name):\n    try:\n        return open(os.path.join(fake, name)).read()\n    except OSError:\n        return None\n'
-        'hang = read("wrap-hang")\nif hang is not None and args and args[0] in hang.split():\n    time.sleep(60)\n'
+        'hang = read("wrap-hang")\nif hang is not None and args and args[0] in hang.split():\n    signal.pause()\n'
         'receipt = read("wrap-receipt")\nif receipt is not None and args and args[0] == "send":\n    with open(os.path.join(fake, "prime.log"), "a") as log:\n'
         '        import json; log.write(json.dumps(args) + "\\n")\n    sys.stdout.write(receipt); sys.exit(int(read("wrap-receipt-exit") or 0))\n'
         'reply = read("wrap-list")\nif reply is not None and args and args[0] == "list":\n    with open(os.path.join(fake, "prime.log"), "a") as log:\n'
