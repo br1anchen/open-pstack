@@ -1089,7 +1089,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for label, (kind, args, fake, env) in cases.items():
             bash = f'preflight_kind {shlex.join([kind, *args])}; echo "rc=$?"'
             py = f'code = agents.preflight_kind({kind!r}, {args!r})\nprint(f"rc={{code}}")'
-            # A fake that `exec sleep 30`s is cut off after one real second, and whether it got to write its argv log first depends on the load (the
+            # A fake that never answers is cut off after one real second, and whether it got to write its argv log first depends on the load (the
             # Prime fake starts an interpreter first): the timeout cases compare status and summary, the answering cases compare the argv logs.
             results[label] = self.leaf_both('leaf-pre-' + re.sub(r'\W+', '-', label), bash, py, logs='hangs' not in label, fake=fake, env=env)
         # the kind's binary absent from PATH: the summary names no version and no path, and the attempt's status is timeout(1)'s 127
