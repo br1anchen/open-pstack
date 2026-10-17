@@ -8,7 +8,7 @@ printf '%s\n' "$*" >>"$FAKE/muse.log"
 case "${1:-}" in
 exec)
 	# $FAKE/muse-hang: never answers; $FAKE/muse-reply: what it answers instead of OK (empty: nothing).
-	[ -e "$FAKE/muse-hang" ] && exec sleep 30
+	[ -e "$FAKE/muse-hang" ] && exec sleep infinity
 	[ -e "$FAKE/muse-reply" ] && { cat "$FAKE/muse-reply"; exit 0; }
 	if [ -s "$FAKE/muse-fail" ]; then cat "$FAKE/muse-fail" >&2; exit 1; fi
 	printf 'OK\n' ;;

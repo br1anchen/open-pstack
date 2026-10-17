@@ -2,6 +2,7 @@
 """Prime daemon fixture: detaching a client does not stop its session."""
 import json
 import os
+import signal
 from pathlib import Path
 import sys
 
@@ -17,7 +18,7 @@ sessions = json.loads(sessions_file.read_text()) if sessions_file.exists() else 
 
 if '--print' in args:
     if (fake / 'prime-hang').exists():
-        os.execvp('sleep', ['sleep', '30'])
+        signal.pause()
     if (fake / 'prime-reply').exists():
         sys.stdout.write((fake / 'prime-reply').read_text())
         raise SystemExit(0)
