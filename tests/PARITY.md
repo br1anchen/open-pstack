@@ -29,7 +29,7 @@ behaviour changes. Where a row is unpinned, the input is a hand-edited or damage
 | D11 | `.sidekick.fallback` is a string | jq's `Cannot index string with string ("kind")` first, then the same die or exit 5 | the same die without jq's line (`spawn`), `no fallback recorded` instead of jq's exit 5 (`failover`) | `P/spawn.py:spawn_sidekick`, `P/commands/failover.py` | unpinned |
 | D12 | trio spawn with no `--sidekick`/`--consultant` and `.sidekick` or `.consultant` not an object | jq error, exit 5 | `--sidekick KIND is required`, exit 1 | `skills/pstack-trio/scripts/variant.py:spawn` | unpinned |
 | D14 | `failover` or `rotate` with `.sidekick` a string or array; `failover` with `.dispatch` a string | jq error and exit 5 (`.dispatch`: exit 5, no failover) | the jq error, then the port's own die (exit 5); `.dispatch` string: failover runs and exits 0 | `P/commands/failover.py`, `P/commands/rotate.py` | unpinned |
-| D15 | the shell that ran the command dies alone | not re-run: the bash command runs on | `die_with_the_shell` sets `PR_SET_PDEATHSIG`, so the Python ends with its parent | `P/wait.py:die_with_the_shell` | unpinned (`die_with_the_shell` itself; the shim's signal-status mapping is D2's own test, `test_the_stop_prime_role_shim_returns_a_signal_status...`) |
+| D15 | the shell that ran the command dies alone | not re-run: the bash command runs on | `die_with_the_shell` sets `PR_SET_PDEATHSIG`, so the Python ends with its parent | `P/wait.py:die_with_the_shell` | unpinned (`die_with_the_shell` itself; the shim's signal-status mapping is D2's own test, `test_the_stop_prime_role_shim_returns_a_signal_status_and_exits_for_a_die`, listed under "Parity fixes") |
 | D16 | a non-object element in the daemon's session list after the stop; process info that is not JSON | jq errors for a non-null, non-object element (null counts as no match); `jq -e` fails on bad JSON | returns False without jq's message; a null row counts as no match | `P/exits.py:stop_prime_role`, `shell_owns_foreground` | the null row: `a daemon whose list holds a null row after the stop`; the rest unpinned |
 | D17 | `finish` or `notify` on a store without pair.json | not re-run (python-port-2 landing review g3): the bash printed the message once or twice by report status and exited 7 | the message count and exit code are copied by status | `P/commands/report.py:finish`, `notify` | unpinned beyond the common cases |
 | D18 | a queue that is a directory; `heads: false`; mixed `pending` | not re-run (landing review g3): jq's own errors | Python's reading of the value | `P/dispatch.py:take_queued`, `record_dispatch` | unpinned |
@@ -45,6 +45,22 @@ behaviour changes. Where a row is unpinned, the input is a hand-edited or damage
 | spawn_role's started write | `.master` is not an object, so the jq write of the start fails | where the caller has errexit on (a direct `rotate`, kitchen.sh `consultant`) the shell ends with jq's status; where it is off (spawn, trio spawn, failover, a rotate inside kitchen.sh's `$( )`) the error is printed and the start goes on | the same, per caller: `spawn_role(errexit_off=...)`; rotate tells `$( )` from a direct run by its pid against `PAIR_SHELL_PID`; the consultant entry is the kitchen's caller, so it is on | `P/spawn.py:spawn_role`, `spawn_consultant`, `P/commands/rotate.py:inside_substitution` | `a master that is a string` / `an array` in the spawn, rotate, kitchen-rotate and kitchen-consultant A/Bs |
 | rotate, split failure | a failing `pane split` under a direct `rotate` | silent exit with herdr's status | dies 2 with a message (see D8) | `P/panes.py:new_pane` | unpinned |
 | init, verifier role | `init` with `PSTACK_KITCHEN_ROLE=verifier` in the environment | renames the calling pane and registers it as the master (python-port-3's 003 verifier lost its pane) | exits 2 with `init refuses under PSTACK_KITCHEN_ROLE=verifier: ...` before the `HERDR_ENV` check, any herdr call or store write; kitchen.sh's `init` reaches it through `core_init` first | `P/commands/init.py:run` | `test_init_refuses_under_the_verifier_role_before_any_herdr_call_or_store_write` (pair.sh and kitchen.sh) |
+
+## Parity fixes
+
+Differences that were found and then closed, so the port matches the base. Each is pinned.
+
+| Id | Fix | Commit | Pinned by |
+| --- | --- | --- | --- |
+| D1 | a `master` that is not an object is read and written as jq does | 3996681 | `a master that is a string` / `an array` cases in the permission A/B |
+| D2 | the `stop_prime_role` shim returns a signal status | 3996681 | `test_the_stop_prime_role_shim_returns_a_signal_status_and_exits_for_a_die` |
+| D3 | the prime smoke script sources pair-core.sh | 3996681 | `test_the_prime_smoke_script_sources_pair_core_and_its_names_resolve` |
+| D4 | external commands are listed | 34f0d3a | `EXTERNAL_COMMANDS` in `test_every_name_the_bash_calls_resolves_to_a_definition_or_a_command` |
+| D5 | the status die test compares what interleaving cannot break | 34f0d3a | `test_status_on_a_store_without_pair_json_prints_the_header_then_dies_like_bash` |
+| D9 | a preflight's retry wait that `sleep` refuses prints sleep's error and retries | c1a0ba4 | `a pi preflight that fails with a retry wait that is not a number` in the preflights A/B |
+| D25 | the jq fallback of `update` waits out a held lock | c1a0ba4 | `test_update_or_jq_waits_out_a_held_lock_in_its_jq_fallback` |
+
+The `spawn_role's started write` row was rewritten and run against the base at unit 018 (befb645) by its four A/Bs (spawn, rotate, kitchen-rotate, kitchen-consultant).
 
 Run against the base for this file: D6, D7 (on this host: bash 5.3, jq 1.8), D10, D11, D12, D14 (through the 04d2c13 A/B helpers on the fake herdr; the
 differences are what they printed), D8/D13 and the two `record_failover` rows (their pins pass), D16's null row. The rows marked "not re-run" are as
