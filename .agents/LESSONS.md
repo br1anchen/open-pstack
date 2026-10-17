@@ -45,13 +45,15 @@ evidence:
 
 ## L004: Commit a source change under skills/pstack-pair in the same step as the test that pins it; the test-touch gate refuses a step that changes source without a test.
 
-status: proposed
+status: active
 kind: gate-fail
 class: policy
 match: test-touch
 layer: policy
 area: skills/pstack-pair
 since: 2026-10-17
+active: 2026-10-17T22:31:31Z
+note: owner deferred to master 2026-10-18: 5 test-touch gate failures in 3 runs
 evidence:
 - 2026-10-16 python-port 002: skills/pstack-pair/scripts/pair-core.sh: [test-touch] profile pstack requires tests: 1 source files changed and no file matching tests/** (.agents/kitchen.toml)
 - 2026-10-16 python-port 007: skills/pstack-pair/scripts/pair-core.sh: [test-touch] profile pstack requires tests: 1 source files changed and no file matching tests/** (.agents/kitchen.toml)
@@ -72,13 +74,15 @@ evidence:
 
 ## L006: A test that drives a waiting command passes it an explicit small timeout or poll bound, never its default; a hung step gate means a test lacks one.
 
-status: proposed
+status: active
 kind: steer
 class: brief
 match: redirect
 layer: brief
 area: skills/pstack-pair
 since: 2026-10-17
+active: 2026-10-17T22:31:31Z
+note: owner deferred to master 2026-10-18: 2 redirect steers in 2 runs over hung step gates
 evidence:
 - 2026-10-16 python-port-2 007: redirect: The step gate for f0a7c9a has hung for over 15 minutes. `test_wait_ab_signals_end_the_command_as_they_end_the_bash`, case sig-4, signalled the base bash `pair.sh wait`. But non-interactive …
 - 2026-10-17 python-port-3 012: redirect: Dropping `--timeout 2000` from 'a working devin whose text stays typed' makes it run on stop's 300000 ms default. The uncommitted run of `test_stop_matches_..._never_sent_the_text` (pid 425…
