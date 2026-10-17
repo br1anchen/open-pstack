@@ -586,12 +586,22 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 side['stderr'] = norm_core(side['stderr'])
                 side['stdout'] = self.mask_minutes(side['stdout'])
                 side['calls'] = self.collapse_polls(side['calls'])
+                if 'working devin' in spec.get('agents', {}).values() or 'working devin' in ' '.join(spec.get('agents', {}).values()):
+                    side['calls'] = self.without_pane_watch_reads(side['calls'])
             results[name] = want
             if got != want:
                 mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
         self.maxDiff = None
         self.assertEqual(mismatches, {})
         return results
+
+    @staticmethod
+    def without_pane_watch_reads(calls):
+        """The call log of a stop to a working Devin without the pane reads of its one-second watch. How many times the watch reads the pane
+        depends on where the whole-second clock falls in its window (`date +%s` in the bash, the port's clock in Python), so the count is a
+        decision of neither script. Everything else stays compared exactly: the prompt, every Enter, the status reads, and the messages the final
+        read produces on stderr (compared as stderr)."""
+        return '\n'.join(line for line in calls.splitlines() if line != 'agent read s1 --source visible --lines 40')
 
     def test_stop_matches_the_bash_at_the_phase_3_base_when_the_sidekick_is_not_working(self):
         results = self.stop_ab_run('pstack-pair', lambda n: 'working' not in n)
