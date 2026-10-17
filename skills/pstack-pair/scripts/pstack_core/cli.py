@@ -1,6 +1,6 @@
 import sys
 
-from . import agents, permission, wait
+from . import agents, panes, permission, wait
 from .commands import init, log, metrics, notes, pause, progress, queue, report, scratch, send, status, step, steer, stop, templates
 from .context import Context
 from .errors import Die, Exit
@@ -10,6 +10,7 @@ COMMANDS = {'init': init.run, 'log': log.run, 'new-plan': templates.new_plan, 'n
             'notes': notes.notes, 'note': notes.note, 'new-note': notes.new_note, 'status': status.run, 'scratch': scratch.run, 'metrics': metrics.run,
             'dispatch': send.dispatch, 'discuss': send.discuss, 'queue': queue.queue, 'step': step.step, 'wait': wait.wait, 'finish': report.finish, 'notify': report.notify, 'report': report.report, 'next': report.next_brief,
             'permission': permission.permission, 'steer': steer.steer, 'stop': stop.stop, '__detect_permission_mode': permission.helper,
+            '__refuse_untrusted': panes.entry_refuse_untrusted,
             **agents.COMMANDS}
 
 # The commands a variant may replace whole. Only these names ask the variant (loading it), so every other command runs without it, and an

@@ -1012,7 +1012,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                           f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
                 argv = ['bash', '-c', script]
             else:
-                code = f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents\n{python_snippet}'
+                code = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents, panes, spawn\nfrom pstack_core.errors import Die\n'
+                        f'store = {str(st)!r}\n{python_snippet}')
                 argv = [sys.executable, '-I', '-c', code]
             r = subprocess.run(argv, cwd=top / 'repo', env=env, capture_output=True, text=True, check=False, timeout=120)
             norm = lambda text: re.sub(r'"--cwd", "[^"]+"', '"--cwd", "<SCRATCH>"', re.sub(r'--cwd \S+', '--cwd <SCRATCH>',
@@ -1140,6 +1141,41 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                             'not JSON': {'codex-mcp.json': 'oops\n'}, 'fine': {'codex-mcp.json': '[{"name": "a"}]\n'}}.items():
             out = self.leaf_both('shims-mcp-' + label.replace(' ', '-'), 'set -e\nmapfile -t got < <(mcp_args codex "$PWD"); echo "got: ${got[*]}"\nmcp_args codex "$PWD"\necho "after"\n', fake=fake)
             self.assertEqual(out[0], 0 if label == 'fine' else {'refused last': 1, 'a string element': 5, 'not JSON': 5}[label], label)
+
+    DIE = ('\ndef run(fn):\n    try:\n        return fn()\n    except Die as e:\n        sys.stderr.write(f"pair.sh: {e.message}\\n")\n        sys.exit(e.code)\n')
+
+    def test_pick_direction_and_new_pane_match_the_bash_at_the_phase_3_base(self):
+        master = {'master': {'name': 'm1', 'pane_id': 'w1:p0'}}
+        cases = {'a wide pane': {'layout-size': '200 50'}, 'exactly twice as wide': {'layout-size': '100 50'}, 'a hair narrower': {'layout-size': '99 50'},
+                 'a tall pane': {'layout-size': '40 60'}, 'a pane the layout does not list': {'layout-gone': ''}, 'a size that is null': {'layout-size': 'null null'}}
+        for label, fake in cases.items():
+            self.leaf_both('pane-dir-' + label.replace(' ', '-'), 'pick_direction p1; echo "rc=$?"', 'print(panes.pick_direction("p1"))\nprint("rc=0")', fake=fake)
+        for label, (pair, direction, fake) in {
+                'a split picked from the anchor': ({}, '', {}), 'a split to the down': ({}, 'down', {}), 'a split to the left': ({}, 'left', {}),
+                'a tall anchor': ({}, '', {'layout-size': '40 60'}), 'a tab': ({'placement': 'tab', **master}, '', {}),
+                'a tab in another workspace': ({'placement': 'tab', 'master': {'name': 'm1', 'pane_id': 'w7:p3'}}, '', {}),
+                'a split that returns no id': ({}, '', {'split-null': ''}), 'a tab that returns no id': ({'placement': 'tab', **master}, '', {'tab-null': ''})}.items():
+            py = self.DIE.lstrip('\n') + f'print("id=" + run(lambda: panes.new_pane(store, "sidekick", "p1", {direction!r}, __import__("os").getcwd())))'
+            self.leaf_both('pane-new-' + label.replace(' ', '-'), f'new_pane "$store" sidekick p1 {shlex.quote(direction)} "$PWD"; echo "id=$new_pane_id"', py, pair=pair, fake=fake)
+        self.assertIn('split p1 right -> p', self.leaf_both('pane-new-check', 'new_pane "$store" sidekick p1 "" "$PWD"; echo "id=$new_pane_id"',
+                      self.DIE.lstrip('\n') + 'print("id=" + run(lambda: panes.new_pane(store, "sidekick", "p1", "", __import__("os").getcwd())))')[1])
+
+    def test_refuse_untrusted_and_await_file_match_the_bash_at_the_phase_3_base(self):
+        dialog = {'trust-dialog': ''}
+        for label, (fake, close) in {'no dialog': ({}, ''), 'a dialog': (dialog, ''), 'a dialog and a close': (dialog, 'close')}.items():
+            call = f'refuse_untrusted p1 claude /work {close}'
+            py = self.DIE.lstrip('\n') + f'run(lambda: panes.refuse_untrusted("p1", "claude", "/work", {bool(close)}))\nprint("returned")'
+            self.leaf_both('pane-trust-' + label.replace(' ', '-'), f'{call}; echo "returned"', py, fake=fake)
+            # the shim in the working tree's bash ends the caller's shell with the die's status
+            out = self.leaf_both('pane-trust-shim-' + label.replace(' ', '-'), f'( {call} ); echo "rc=$?"; {call}; echo "after"', None, fake=fake)
+            if fake:
+                self.assertIn('rc=5', out[1])
+                self.assertNotIn('after', out[1])
+        for label, (present, wait_ms) in {'a file that is there': (True, 300), 'a file that never comes': (False, 300), 'no time to wait': (False, 0)}.items():
+            mk = 'touch "$store/f"; ' if present else ''
+            self.leaf_both('pane-await-' + label.replace(' ', '-'), f'{mk}if await_file "$store/f" {wait_ms}; then echo yes; else echo no; fi',
+                           f'import os\nif {present}: open(store + "/f", "w").close()\nprint("yes" if panes.await_file(store + "/f", {wait_ms}) else "no")',
+                           env={'PAIR_FILE_POLL_MS': '100'})
 
     def test_mcp_args_match_the_bash_at_the_phase_3_base(self):
         servers = lambda *items: {'codex-mcp.json': json.dumps(list(items)) + '\n'}
