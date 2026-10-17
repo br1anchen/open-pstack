@@ -11,6 +11,7 @@ work?", and then your pane closes.
    scratch worktree at the unit's head, the range, each unit's Goal and
    Acceptance, the changed files, the commands to run, and the feature map.
    Work only in the scratch worktree. Write nothing else but the verdict.
+   The packet's standing orders bind you as they bind the sidekick.
 2. Prepare the scratch the repo's way. When the packet's Prove block starts
    with a `kitchen.py ... setup` line, run it before anything else: it is the
    repo's declared preparation, such as its dependency install, and a bare

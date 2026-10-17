@@ -2839,6 +2839,37 @@ esac
         self.assertRegex(block[1], r'^python3 \S+kitchen\.py --repo \S+/000-landing-verify setup$')
         self.assertIn(' gate app behavioral ', block[2])
 
+    def standing_line(self):
+        """A line of the test store's standing-orders.md that no other part of a packet repeats."""
+        text = (self.store / 'standing-orders.md').read_text()
+        line = next(l for l in text.splitlines() if l.startswith('13. '))
+        return text, line
+
+    def test_the_unit_packet_carries_the_runs_standing_orders(self):
+        self.verify_app_unit('clean', 0)
+        text, line = self.standing_line()
+        packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        self.assertIn('## Standing orders', packet)
+        self.assertIn(f'{self.store}/standing-orders.md', packet)
+        self.assertIn(line, packet)
+        self.assertLess(packet.index('## Standing orders'), packet.index('## Changed'))
+
+    def test_the_landing_packet_carries_the_runs_standing_orders(self):
+        self.verify_landing()
+        _, line = self.standing_line()
+        packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
+        self.assertIn('## Standing orders', packet)
+        self.assertIn(line, packet)
+        self.assertLess(packet.index('## Standing orders'), packet.index('## Changed'))
+
+    def test_a_store_without_standing_orders_still_gets_its_packets(self):
+        (self.store / 'standing-orders.md').unlink()
+        self.verify_app_unit('clean', 0)
+        packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        self.assertNotIn('## Standing orders', packet)
+        self.assertIn('## Changed', packet)
+        self.assertIn('## Prove', packet)
+
     def packet_fields(self, n='001-util-v1'):
         text = (self.store / f'verdicts/{n}-packet.md').read_text()
         return {k: v for k, v in (line.split(': ', 1) for line in text.splitlines() if line.startswith('verifier-'))}

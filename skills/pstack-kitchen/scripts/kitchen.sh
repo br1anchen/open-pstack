@@ -946,6 +946,9 @@ cmd_verify() {
 			lessons="$(python3 "$here/kitchen.py" lesson-packet "${ubriefs[@]}")"
 			[ -z "$lessons" ] || printf '%s\n\n' "$lessons"
 		fi
+		if [[ -f "$store/standing-orders.md" ]]; then
+			printf '## Standing orders\n\nThey bind you as they bind the sidekick (%s):\n\n%s\n\n' "$store/standing-orders.md" "$(cat "$store/standing-orders.md")"
+		fi
 		printf '## Changed\n\n```\n%s\n```\n\n' "$(git -C "$root" diff --stat "$base...$head" | tail -40)"
 		printf '## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo'"'"'s scripts give you\nyour own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n```bash\nexport PSTACK_KITCHEN_ROLE=verifier'
 		printf ' PSTACK_KITCHEN_RUN=%s\n' "$(field "$store" .slug)"
