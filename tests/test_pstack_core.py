@@ -3051,6 +3051,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a pane id that is not recorded': dict(agents={}, sidekick={'session': path_session, 'pane_id': None}, panes={}),
             'a lock that stays held at the final write': dict(**gone, files={'.pair.lock/held': ''}, env={'PAIR_LOCK_TRIES': '1', 'PAIR_LOCK_POLL_S': '0'}, clock=True),
             'a role entry that is null': dict(pair={'consultant': None}),
+            'a role entry that is a string': dict(pair={'consultant': 'x'}),
+            'a role entry that is an array': dict(pair={'consultant': [1]}),
         }
 
     def test_stop_prime_role_matches_the_bash_at_the_phase_3_base(self):
