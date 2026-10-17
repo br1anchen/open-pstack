@@ -1,0 +1,41 @@
+2026-01-01T00:00:00Z	1700000030	master	wake	004-delta-s2	
+2026-01-01T00:00:00Z	1700000630	master	note	-	1:clear
+2026-01-01T00:00:00Z	1700001230	master	note	-	4:blocking
+2026-01-01T00:00:00Z	1700001230	sidekick	step	004-delta-s2	
+2026-01-01T00:00:00Z	1700001320	master	send-consult	002-beta	
+2026-01-01T00:00:00Z	abc	master	queue	002-beta	
+2026-01-01T00:00:00Z	1700001927	master	failover	002-beta	devin:rate limit
+2026-01-01T00:00:00Z	1700005527	sidekick	step	004-delta-s2	x:y
+2026-01-01T00:00:00Z	1700005527	master	log	002-beta-s1	review: agreed 002
+2026-01-01T00:00:00Z	1700005557	master	send-answer	-	
+2026-01-01T00:00:00Z	1700005587	master	wake	003-gamma-q2	report:done
+2026-01-01T00:00:00Z	1700005588	sidekick	report	001-alpha	
+2026-01-01T00:00:00Z	1700005649	master	log	-	review: Agreed with notes 002
+2026-01-01T00:00:00Z	1700005649	master	send-plan	003-gamma-q2	sidekick
+2026-01-01T00:00:00Z	1700005656	master	note	001-alpha	a:blocking
+2026-01-01T00:00:00Z	1700009256	master	log	002-beta-s1	review: revised because
+2026-01-01T00:00:00Z	1700009286	master	log	001-alpha	review: revise 002
+2026-01-01T00:00:00Z	1700009347	master	wake	002-beta	sidekick:idle
+2026-01-01T00:00:00Z	1700009377	master	wake	004-delta-s2	sidekick:idle
+2026-01-01T00:00:00Z	1700009377	master	queue	004-delta-s2	
+2026-01-01T00:00:00Z	1700009378	master	send-plan	004-delta-s2	
+2026-01-01T00:00:00Z	1700009468	master	note	001-alpha	
+2026-01-01T00:00:00Z	1700009558	master	send-plan	002-beta	sidekick
+2026-01-01T00:00:00Z	1700010158	sidekick	step	002-beta-s1	x:y
+2026-01-01T00:00:00Z	1700010159	master	wake	003-gamma-q2	report:done
+2026-01-01T00:00:00Z	1700010249	master	queue	002-beta-s1	
+2026-01-01T00:00:00Z	1700010250	master	log	003-gamma	plan: REJECT 002
+2026-01-01T00:00:00Z	1700010850	master	queue	003-gamma-q2	
+2026-01-01T00:00:00Z	1700014450	master	wake	002-beta	
+2026-01-01T00:00:00Z	1700015050	consultant	advice	002-beta-s1	
+2026-01-01T00:00:00Z	1700015050	master	wake	-	other
+2026-01-01T00:00:00Z	1700015050	consultant	advice	-	
+2026-01-01T00:00:00Z	1700015080	master	wake	-	
+2026-01-01T00:00:00Z	1700015081	master	send-answer	003-gamma	fresh
+2026-01-01T00:00:00Z	1700015111	consultant	advice	003-gamma-q2	
+2026-01-01T00:00:00Z	1700015172	sidekick	report	002-beta-s1	
+2026-01-01T00:00:00Z	1700015262	master	failover	002-beta-s1	devin:rate limit
+2026-01-01T00:00:00Z	1700018862	sidekick	report	002-beta	
+2026-01-01T00:00:00Z	1700018923	master	wake	-	
+2026-01-01T00:00:00Z	1700019013	consultant	advice	002-beta	
+2026-01-01T00:00:00Z	1700022613	sidekick	report	-	

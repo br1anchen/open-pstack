@@ -3464,6 +3464,30 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('sidekick: busy 1m (100% of wall), idle 0m across 0 gaps; 1 briefs (median 1m), 0 plan responses (0m)\n', out)
         self.assertIn('  001-a 1m\n', out)
 
+    # Permitted difference: the bash at d06a932 never returns on a note whose id is not a number (`master note 001-alpha a:blocking`):
+    # `for (i = noted[u] + 1; i <= nk[1]; i++)` compares `i <= "a"` as strings, which is always true. The port skips the stall pairing
+    # for a note id that is not a number.
+    def test_metrics_returns_on_a_note_whose_id_is_not_a_number(self):
+        st = self.path / 'hang'
+        st.mkdir()
+        (st / 'events.tsv').write_bytes((root / 'tests/fixtures/metrics-hang-events.tsv').read_bytes())
+        self.env['PAIR_METRICS_NOW'] = '1700022613'
+        r = subprocess.run([sys.executable, '-I', str(scripts / 'pair.py'), *core_args(), 'metrics', str(st)],
+                           env=self.env, capture_output=True, text=True, check=False, timeout=30)
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        self.assertEqual(r.stdout, (
+            'wall: 376m from first event to now\n'
+            'sidekick: busy 284m (75% of wall), idle 0m across 0 gaps; 1 briefs (median 2m), 3 plan responses (157m)\n'
+            'queue: 4 briefs queued, 0 taken by the sidekick; 0 started the moment a report landed\n'
+            'consultant: busy 229m (60% of wall); 1 consults (229m), plan advice 0m\n'
+            'master: 9 wakes, 0 of them check-ins; review latency median 0m over 0 reviews\n'
+            'failovers: 2 (devin:rate limit, devin:rate limit)\n'
+            'steps: 3 committed, 4 notes (2 blocking); step to note median 0m\n'
+            'verdicts: agreed 2 revise 1 reject 1\n'
+            'briefs:\n'
+            '  - 2m (stopped)\n'
+            '  running: 003-gamma for 126m\n'))
+
     def test_metrics_gives_a_legacy_header_store_the_same_output_as_the_headerless_one(self):
         self.assertEqual(self.metrics_of(LEGACY_HEADER + '\n' + self.FIRST_EVENTS), self.metrics_of(self.FIRST_EVENTS))
 

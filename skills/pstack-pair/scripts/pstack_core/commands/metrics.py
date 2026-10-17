@@ -152,7 +152,8 @@ class Metrics:
             if len(parts) > 1 and parts[1] == 'blocking':
                 self.nblock += 1
             i = num(self.noted.get(u)) + 1
-            while compare(i, k1) <= 0:
+            # The bash never returns on a note id that is not a number (it compares i <= "a" as strings); skip the pairing there.
+            while looks_numeric(k1) and compare(i, k1) <= 0:
                 if u + '\x1c' + text(i) in self.st:
                     self.nsl += 1
                     self.sl.append(num(t) - num(self.st[u + '\x1c' + text(i)]))
