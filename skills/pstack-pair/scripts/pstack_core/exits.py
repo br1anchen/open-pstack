@@ -67,9 +67,9 @@ def stop_prime_role(store, role):
         if prime_command(store, role, 'stop', active, '--json')[0] != 0:
             return False
         failed, sessions = prime_sessions(store, role)
-        if failed or not all(isinstance(each, dict) for each in sessions):
+        if failed or not all(each is None or isinstance(each, dict) for each in sessions):
             return False
-        if any(each.get('activeSessionId') == active for each in sessions):
+        if any(each is not None and each.get("activeSessionId") == active for each in sessions):
             sys.stderr.write(f'Prime session {active} is still active; its pane and scratch stay\n')
             return False
     # The reporter releases on stop. Wait for the actual shell as well: killing a worker does not by itself prove the TUI has exited or
