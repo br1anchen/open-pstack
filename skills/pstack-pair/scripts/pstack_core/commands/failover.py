@@ -31,7 +31,7 @@ def failover(ctx, args):
         else:
             raise Die(f'unknown option {rest[0]}')
     pair_file(store)
-    kind = field(store, 'sidekick', 'kind')
+    kind = field(store, 'sidekick', 'kind', check=True)
     recorded = section(pair_json(store), 'sidekick').get('fallback')
     fallback = jq_raw(alt(recorded.get('kind'), '')) if isinstance(recorded, dict) else ''
     if not fallback:
@@ -58,7 +58,7 @@ def failover(ctx, args):
     record_failover(store, kind, fallback, reason, errexit_off=False)
     rc = spawn_role(ctx, store, 'sidekick', fallback, '', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'),
                     fallback_args(section(pair_json(store), 'sidekick').get('fallback')))
-    running = jq_raw(alt(section(pair_json(store), 'dispatch').get('brief'), ''))
+    running = field(store, 'dispatch', 'brief', check=True, empty=True)
     if rc == 0 and running and not os.path.isfile(expected_report(store, running)):
         print(f'next: re-dispatch {running} with "resumed after failover from {kind}" in its Context')
     return rc

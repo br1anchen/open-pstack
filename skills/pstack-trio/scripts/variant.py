@@ -133,8 +133,8 @@ def spawn(ctx, args):
     if only not in ('', 'sidekick', 'consultant'):
         raise Die('--only takes sidekick or consultant')
     # A role not being spawned keeps the kind recorded for it.
-    sidekick_kind = opts['sidekick'] or jq_raw(alt(section(pair_json(store), 'sidekick').get('kind'), ''))
-    consultant_kind = opts['consultant'] or jq_raw(alt(section(pair_json(store), 'consultant').get('kind'), ''))
+    sidekick_kind = opts['sidekick'] or field(store, 'sidekick', 'kind', check=True, empty=True)
+    consultant_kind = opts['consultant'] or field(store, 'consultant', 'kind', check=True, empty=True)
     if only != 'consultant' and not sidekick_kind:
         raise Die('--sidekick KIND is required (run: herdr agent, for the kind list)')
     if only != 'sidekick' and not consultant_kind:

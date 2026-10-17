@@ -33,7 +33,8 @@ def rotate(ctx, args):
     store = args[0]
     pair_file(store)
     require_not_paused(store)
-    kind = field(store, 'sidekick', 'kind')
+    errexit_off = inside_substitution()
+    kind = field(store, 'sidekick', 'kind', check=not errexit_off)
     if not fresh_per_brief(kind):
         raise Die(f'rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not {kind}', 5)
     sidekick = section(pair_json(store), 'sidekick')
@@ -65,4 +66,4 @@ def rotate(ctx, args):
     start_args = mapfile_args(section(pair_json(store), 'sidekick').get('start_args'))
     event(store, 'master', 'rotate', '-', f'generation:{field(store, "sidekick", "generation")}')
     return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args,
-                      errexit_off=inside_substitution())
+                      errexit_off=errexit_off)

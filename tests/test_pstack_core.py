@@ -2890,6 +2890,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a sidekick preflight that fails over': run('--sidekick', 'pi', '--consultant', 'devin', '--fallback', 'codex', fake={'pi-fail': 'quota\n'}),
             'a sidekick preflight that fails with no fallback': run('--sidekick', 'pi', '--consultant', 'devin', fake={'pi-fail': 'quota\n'}),
             'a consultant that is already live': run('--sidekick', 'codex', '--consultant', 'devin', agents={'c1': 'idle devin'}),
+            'a sidekick that is a string and no --sidekick': run(pair=pair(sidekick='x')),
+            'a sidekick that is an array and no --sidekick': run(pair=pair(sidekick=[1])),
+            'a consultant that is a string and no --consultant': run('--sidekick', 'codex', pair=pair(consultant='x')),
+            'a consultant that is an array and no --consultant': run('--sidekick', 'codex', pair=pair(consultant=[1])),
         }
 
     def trio_spawn_part(self, part, parts=3):
@@ -3242,6 +3246,8 @@ stop_prime_role "$store" sidekick && echo "stopped"
             'a spawn that returns 3': run({**plain, 'promptfail': True}),
             'a master that is a string': run({**plain, 'pair': {**plain['pair'], 'master': 'x'}}),
             'a master that is an array': run({**plain, 'pair': {**plain['pair'], 'master': [1]}}),
+            'a sidekick that is a string': run({**plain, 'pair': {**plain['pair'], 'sidekick': 'x'}}),
+            'a sidekick that is an array': run({**plain, 'pair': {**plain['pair'], 'sidekick': [1]}}),
             'a prime-agent sidekick': run(world('prime-agent')),
             'a prime-agent sidekick that is done': run({**world('prime-agent'), 'agents': {'s1': 'done prime-agent'}}),
             'a prime-agent sidekick already absent': run({**world('prime-agent'), 'agents': {}}),
@@ -3303,6 +3309,9 @@ stop_prime_role "$store" sidekick && echo "stopped"
             'a prime-agent sidekick whose shell never takes the foreground': run({**world('prime-agent'), 'clock': True,
                                                                                   'fake': {**world('prime-agent')['fake'], 'prime-client-stays': ''}}),
             'a codex sidekick': run(world('codex')),
+            'a sidekick that is a string': run({**plain, 'pair': {**plain['pair'], 'sidekick': 'x'}}),
+            'a sidekick that is an array': run({**plain, 'pair': {**plain['pair'], 'sidekick': [1]}}),
+            'a dispatch that is a string': run({**plain, 'pair': {**plain['pair'], 'dispatch': 'x'}}),
         }
 
     ROTATE_EXPECT = {
