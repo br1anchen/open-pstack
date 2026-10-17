@@ -3293,6 +3293,40 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(outcomes['a rotation that does not exit in time']['rc'], 5)
         self.assertEqual(outcomes['a rotation whose spawn returns 4']['rc'], 4)
 
+    def test_kitchen_finish_matches_the_bash_at_the_phase_3_base(self):
+        """kitchen.sh `finish` asks the pair's report_ready (once the bash function core_report_ready, now the core's base hook) before it runs the
+        brief's Verify commands: each way the pair's checks send the report straight to the core's finish, and a ready one whose Verify rerun starts."""
+        brief = '# Brief 001-x\n\nplaybook: investigation\ncommit: no\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/a.py\n\n## Verify\n\n```bash\ntrue\n```\n'
+        report = lambda status='done', head='{c3}': f'# R\n\nstatus: {status}\nhead: {head}\n'
+        base = dict(args=['finish', '{st}', '{st}/reports/001-x.md'], repo_files={'src/a.py': 'x'}, files={'briefs/001-x.md': brief, 'reports/001-x.md': report()},
+                    env={'KITCHEN_STEP_SLICE_S': '0'})
+        steps = {'steps/001-x.tsv': '1\t{c2}\ts\t\n2\t{c3}\ts\t\n'}
+        cases = {
+            'a report that is not done': {**base, 'files': {**base['files'], 'reports/001-x.md': report('partial')}},
+            'no dispatched brief': {**base, 'pair': {'dispatch': None}},
+            'a report that is not the expected one': {**base, 'args': ['finish', '{st}', '{st}/reports/002-y.md'], 'files': {**base['files'], 'reports/002-y.md': report()}},
+            'a report that does not exist': {**base, 'args': ['finish', '{st}', '{st}/reports/009-none.md']},
+            'an open blocking note': {**base, 'files': {**base['files'], **steps, 'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}},
+            'a head older than the last step': {**base, 'files': {**base['files'], **steps, 'reports/001-x.md': report(head='{c1}')}},
+            'a head that is not a commit': {**base, 'files': {**base['files'], 'reports/001-x.md': report(head='{c3}x')}},
+            'a ready report whose Verify rerun starts': base,
+            'a ready report whose Verify rerun passes': {**base, 'env': {'KITCHEN_STEP_SLICE_S': '60'}},
+        }
+        outcomes = {}
+        for n, (name, spec) in enumerate(cases.items()):
+            got, want = self.phase3_ab(f'kf{n}', 'pstack-kitchen', spec)
+            self.maxDiff = None
+            # the Verify job's directory is named by a hash of the store's path, which differs between the two worlds
+            mask = lambda o: json.loads(re.sub(r'(?<=/)[0-9a-f]{12}(?=[/\s"\\])', '<JOB>', json.dumps(o)))
+            self.assertEqual(mask(got), mask(want), name)
+            outcomes[name] = got
+        self.assertEqual(outcomes['a ready report whose Verify rerun starts']['rc'], 4)
+        self.assertIn('are still running', outcomes['a ready report whose Verify rerun starts']['stdout'])
+        self.assertIn('verify: pass', outcomes['a ready report whose Verify rerun passes']['stdout'])
+        self.assertEqual(outcomes['an open blocking note']['rc'], 7)
+        self.assertEqual(outcomes['a head older than the last step']['rc'], 7)
+        self.assertEqual(outcomes['a report that is not done']['rc'], 0)
+
     def test_send_ab_kitchen_dispatch_and_routine_discuss(self):
         toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
         env = {'KITCHEN_QUIET_POLL_S': '0', 'KITCHEN_QUIET_MAX_S': '2'}

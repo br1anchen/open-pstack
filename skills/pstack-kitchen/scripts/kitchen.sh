@@ -747,7 +747,7 @@ cmd_finish() {
 	# Everything but the dispatched unit's done report, and a report the
 	# pair's checks refuse anyway (no head:, open notes), goes straight on.
 	if [ ! -f "$report" ] || [ "$(header_field "$report" status)" != "done" ] || [ -z "$brief" ] ||
-		[ "$report" != "$(expected_report "$store" "$brief")" ] || ! core_report_ready "$store" "$report"; then
+		[ "$report" != "$(expected_report "$store" "$brief")" ] || ! pycore __pair_report_ready "$store" "$report"; then
 		core_finish "$@"
 		return
 	fi

@@ -13,7 +13,7 @@ COMMANDS = {'init': init.run, 'log': log.run, 'new-plan': templates.new_plan, 'n
             'notes': notes.notes, 'note': notes.note, 'new-note': notes.new_note, 'status': status.run, 'scratch': scratch.run, 'metrics': metrics.run,
             'dispatch': send.dispatch, 'discuss': send.discuss, 'queue': queue.queue, 'step': step.step, 'wait': wait.wait, 'finish': report.finish, 'notify': report.notify, 'report': report.report, 'next': report.next_brief,
             'permission': permission.permission, 'steer': steer.steer, 'spawn': spawn_command, 'rotate': rotate, 'failover': failover, 'stop': stop.stop, '__detect_permission_mode': permission.helper,
-            '__refuse_untrusted': panes.entry_refuse_untrusted, '__spawn_role': spawn.entry_spawn_role, '__spawn_consultant': spawn.entry_spawn_consultant,
+            '__refuse_untrusted': panes.entry_refuse_untrusted, '__pair_report_ready': report.pair_report_ready, '__spawn_role': spawn.entry_spawn_role, '__spawn_consultant': spawn.entry_spawn_consultant,
             **agents.COMMANDS, **exits.COMMANDS}
 
 # The commands a variant may replace whole. Only these names ask the variant (loading it), so every other command runs without it, and an
