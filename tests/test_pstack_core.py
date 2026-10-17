@@ -574,7 +574,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a working devin whose input box holds the text': dict(devin, args=run, fake={'devin-input': ''}, hook=self.stop_hook()),
             'a working devin with an older queued message': dict(devin, args=run, fake={'devin-input': '', 'queued/s1': 'an older steer'}, hook=self.stop_hook()),
             'a working devin whose report lands at once': dict(devin, args=run, hook=self.stop_hook()),
-            'a working devin that never shows the text': dict(devin, args=run + ['--timeout', '2000']),
+            'a working devin that never shows the text': dict(devin, args=run, clock=True),
             'a working devin and a stop under another name': dict(devin, args=run, fake={'devin-input': ''}, hook=self.stop_hook('001-land-partial1.md', 'partial (STOP)')),
             'a working devin whose text stays typed': dict(devin, args=run, hook=self.stop_hook(), fake={'devin-input': '', 'typing/s1': 'pstack-pair STOP x'}),
         }
@@ -622,11 +622,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_stop_matches_the_bash_at_the_phase_3_base_when_a_working_devin_is_never_sent_the_text(self):
         # 'stays typed' has no --timeout on purpose: the watch then ends on the queued text's send-now hint (the second Enter) and never on its
         # deadline. With a short deadline it ended either on the hint (read, Enter, read, Enter) or on the clock (read, Enter, read), by where
-        # the whole second fell, in the bash and in the port alike. 'never shows' ends on its deadline by design; its repeated reads collapse.
-        # The window is two seconds, not one: the outcome depends on whether the pane watch gets to run before the deadline, and a slow fake
-        # herdr call between the send and the watch must not tip a one-second window.
+        # the whole second fell, in the bash and in the port alike. 'never shows' runs on the instant clock (a `date` that jumps 100 s a call, a
+        # `sleep` that returns at once, the port's PAIR_DEVIN_WATCH_S and PAIR_STOP_DEADLINE_S at 0): the watch is over at its first look, so the
+        # fallback Enter goes and the stop deadline is past, in the bash and in the port alike. Its repeated reads collapse.
         results = self.stop_ab_run('pstack-pair', lambda n: 'never' in n and 'devin' in n or 'stays typed' in n)
-        self.assertIn('STOP never showed in the pane; sent one Enter as a fallback', results['a working devin that never shows the text']['stderr'])
+        never = results['a working devin that never shows the text']
+        self.assertIn('STOP never showed in the pane; sent one Enter as a fallback', never['stderr'])
+        self.assertEqual(never['rc'], 4)
+        self.assertIn('report: missing', never['stdout'])
 
     def test_stop_ab_signals_end_the_command_as_they_end_the_bash(self):
         # While the stop sits in herdr's prompt, a signal ends it with the signal and nothing printed, group-wide or to the shell alone, as it
@@ -1661,7 +1664,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             for each in ('date', 'sleep'):
                 (clock / each).chmod(0o755)
             env['PATH'] = f'{clock}:{env["PATH"]}'
-            env.update({'PAIR_EXIT_DEADLINE_S': '0', 'PAIR_EXIT_POLL_S': '0', 'PAIR_ESC_WAIT_S': '0'})
+            env.update({'PAIR_EXIT_DEADLINE_S': '0', 'PAIR_EXIT_POLL_S': '0', 'PAIR_ESC_WAIT_S': '0', 'PAIR_DEVIN_WATCH_S': '0', 'PAIR_STOP_DEADLINE_S': '0'})
         if spec.get('busy'):
             (fake / 'busy').mkdir(exist_ok=True)
             (fake / 'busy' / 's1').write_text('')

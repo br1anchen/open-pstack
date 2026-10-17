@@ -56,7 +56,7 @@ def devin_send_now(store, role, name, text, before, deadline):
     then Enter once it shows in the queue with the "send now" hint, which an older queued message alone does not satisfy. The watch ends early
     once the stop report exists, and after 20 seconds or the caller's deadline, whichever comes first. When the pane never showed the text, one
     Enter goes as a fallback. Returns False with a reason on stderr when delivery could not be confirmed."""
-    end = min(int(time.time()) + 20, deadline)
+    end = min(int(time.time()) + int(os.environ.get('PAIR_DEVIN_WATCH_S') or 20), deadline)
     seen = False
     while int(time.time()) < end:
         if stop_written(store, role, before):
@@ -100,7 +100,7 @@ def stop_role(ctx, store, role, timeout):
         r = subprocess.run(['herdr', 'agent', 'prompt', name, text], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)
         if r.returncode != 0:
             return 2, '', r.stderr.decode('utf-8', 'surrogateescape').rstrip('\n')
-        deadline = epoch + tdiv(timeout_ms(timeout), 1000)
+        deadline = epoch + int(os.environ.get('PAIR_STOP_DEADLINE_S') or tdiv(timeout_ms(timeout), 1000))
         code, err = 0, ''
         if role_value(store, role, 'kind') == 'devin':
             devin_send_now(store, role, name, f'{ctx.skill} STOP', before, deadline)

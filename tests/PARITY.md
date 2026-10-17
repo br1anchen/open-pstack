@@ -60,6 +60,8 @@ Differences that were found and then closed, so the port matches the base. Each 
 | D9 | a preflight's retry wait that `sleep` refuses prints sleep's error and retries | c1a0ba4 | `a pi preflight that fails with a retry wait that is not a number` in the preflights A/B |
 | D25 | the jq fallback of `update` waits out a held lock | c1a0ba4 | `test_update_or_jq_waits_out_a_held_lock_in_its_jq_fallback` |
 
+Port-only test knobs, defaults unchanged and unread by the bash at the base: `PAIR_DEVIN_WATCH_S` (the devin watch's 20 s cap, `P/commands/stop.py:devin_send_now`) and `PAIR_STOP_DEADLINE_S` (replaces the `--timeout` seconds of the stop deadline, `stop_role`). `ab_run`'s clock branch sets both to 0.
+
 The `spawn_role's started write` row was rewritten and run against the base at unit 018 (befb645) by its four A/Bs (spawn, rotate, kitchen-rotate, kitchen-consultant).
 
 Run against the base for this file: D6, D7 (on this host: bash 5.3, jq 1.8), D10, D11, D12, D14 (through the 04d2c13 A/B helpers on the fake herdr; the
