@@ -73,7 +73,7 @@ silently doing nothing.
 | `.max_diff_lines` | `600` | escalate a larger diff |
 | `.unmapped` | `true` | escalate a change to files no profile or `coverage.ignore` covers, since no gate proves them |
 | `[[policy.forbid]]` | | a rule for added lines |
-| `.id` | required | unique; a line opts out with `kitchen-allow: <id>` and the reason beside it |
+| `.id` | required | unique; a line opts out with `kitchen-allow: <id>`; several ids are a comma list (`kitchen-allow: a, b`), and the rest of the line is the reason |
 | `.pattern` | required | Python regular expression, searched in each added line |
 | `.message` | required | what to do instead; the sidekick reads only this |
 | `.paths` | `["**"]` | globs the rule applies to |

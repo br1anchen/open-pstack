@@ -735,6 +735,25 @@ class PolicyTests(KitchenTests):
         self.assertEqual([(f['rule'], f['path'], f['line']) for f in r['findings']], [('no-print', 'src/app.py', 2)])
         self.assertEqual(r['findings'][0]['source'], 'AGENTS.md#logging')
 
+    def test_kitchen_allow_takes_a_comma_list_of_ids_and_the_rest_of_the_line_is_the_reason(self):
+        self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text() +
+                   '\n[[policy.forbid]]\nid = "other-rule"\npattern = \'\\bprint\\(\'\npaths = ["src/**"]\nmessage = "also no"\n')
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', 'second rule')
+        base = self.git('rev-parse', 'HEAD')
+        lines = {
+            'one id then a reason in lowercase words': '    print("a")  # kitchen-allow: no-print bounded reason\n',
+            'a comma list then a reason': '    print("b")  # kitchen-allow: no-print, other-rule plain reason\n',
+            'a second id after a space is reason text': '    print("c")  # kitchen-allow: other-rule no-print\n',
+            'no allow': '    print("d")\n',
+        }
+        head = self.change({'src/app.py': 'def main():\n' + ''.join(lines.values()), 'tests/test_app.py': 'def test_main():\n    assert 5\n'})
+        r = self.data('policy', '--base', base, '--head', head, code=2)
+        found = sorted((f['line'], f['rule']) for f in r['findings'])
+        # line 2: no-print allowed (the words after it are the reason), so only other-rule fires; line 3: both allowed; line 4: other-rule allowed,
+        # `no-print` after it is reason text and still fires; line 5: both fire
+        self.assertEqual(found, [(2, 'other-rule'), (4, 'no-print'), (5, 'no-print'), (5, 'other-rule')])
+
     def test_test_touch(self):
         head = self.change({'src/util.py': 'X = 5\n'})
         r = self.data('policy', '--base', self.base, '--head', head, code=2)

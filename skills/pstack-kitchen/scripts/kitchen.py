@@ -1086,7 +1086,7 @@ def overloaded() -> float | None:
     return round(load, 1) if load > float(limit) * (os.cpu_count() or 1) else None
 
 
-ALLOW = re.compile(r'kitchen-allow:\s*([a-z0-9,\s-]+)')
+ALLOW = re.compile(r'kitchen-allow:\s*([a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)')
 
 
 # Added lines that break a forbid rule, unless the line carries
