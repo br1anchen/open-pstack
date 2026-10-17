@@ -24,11 +24,9 @@ REDIRECT = re.compile(r'(\d+|&)?(<<<|<<-?|>>|>&|<&|&>>|&>|>\||<>|>|<)')
 FN_PARENS = re.compile(r'[ \t]*\([ \t]*\)')
 ARITH_COMMAND = re.compile(r'[ \t]*\(\(')
 SPECIAL = '@*#?$!-0123456789'
-# The only dynamic forms the scripts use, each modeled where it is defined: pair_main runs `cmd_$1` (every final cmd_* is a root),
-# copy_fn builds `$2()` from `declare -f $1`, and pycore puts the variant's launcher words (`${run[@]}`) before python3.
-DYNAMIC_OK = {'pair_main': ('"$fn"',), 'pycore': ('${run[@]+',)}
-EVAL_OK = ('copy_fn',)
-DECLARE_OK = ('copy_fn', 'pair_main')
+# The only dynamic forms the scripts use, each pinned to the function and the exact command it models: pair_main runs `cmd_$1` (every final
+# cmd_* is a root), copy_fn builds `$2()` from `declare -f $1`, and pycore puts the variant's launcher words (`${run[@]}`) before python3.
+COPY_FN_EVAL = '"$2() $(declare -f "$1" | tail -n +2)"'
 
 
 class Def:
@@ -75,27 +73,20 @@ class _Parser:
         """i is just after `$(` or `<(`; returns the index after the closing parenthesis."""
         return self.parse(i, True)
 
-    def arith(self, i):
-        """i is just after `$((`; returns the index after the closing `))`, scanning any `$( )` inside."""
-        depth = 2
+    def arith(self, i, depth=2):
+        """i is just after `$((` (depth 2) or at the first `(` of a `((` command (depth 0); returns the index after the closing `))`,
+        running any `$( )` inside."""
+        text = self.text
         while i < self.n:
-            if self.text.startswith('$(', i):
+            if text.startswith('$((', i):
+                i = self.arith(i + 3)
+                continue
+            if text.startswith('$(', i):
                 i = self.subst(i + 2)
                 continue
-            c = self.text[i]
-            if c == '(':
-                depth += 1
-            elif c == ')':
-                depth -= 1
-                if depth == 0:
-                    return i + 1
-            i += 1
-        self.fail(i, 'unterminated $(( ))')
-
-    def skip_arith_command(self, i):
-        depth = 0
-        while i < self.n:
-            c = self.text[i]
+            c = text[i]
+            if c == '`':
+                self.fail(i, 'backtick substitution is not modeled')
             if c == '(':
                 depth += 1
             elif c == ')':
@@ -259,6 +250,10 @@ class _Parser:
         while i < end:
             if text[i] == '\\':
                 i += 2
+            elif text[i] == '`':
+                self.fail(i, 'backtick substitution is not modeled')
+            elif text.startswith('$((', i):
+                i = self.arith(i + 3)
             elif text.startswith('$(', i):
                 i = self.subst(i + 2)
             elif text.startswith('${', i):
@@ -268,7 +263,7 @@ class _Parser:
 
     def parse(self, i, close):
         text, n = self.text, self.n
-        cmdpos, forhdr, dbr = True, False, False
+        cmdpos, forhdr, dbr, after_time = True, False, False, False
         cases, pending, pending_fn = [], [], None
         parens = braces = 0
         cmd = None
@@ -278,21 +273,46 @@ class _Parser:
             c, cmd = cmd, None
             if not c:
                 return
-            name, at, args = c
+            name, at, args, dynamic = c
             owner = self.owner.name if self.owner else None
-            if name == 'eval' and owner not in EVAL_OK:
+            raws = [a[0] for a in args]
+            if dynamic:
+                pair_main = owner == 'pair_main' and name == '"$fn"' and raws == ['"$@"']
+                launcher = owner == 'pycore' and name.startswith('${run[@]+') and args and args[0][1] == 'python3'
+                if not (pair_main or launcher):
+                    self.fail(at, f'dynamic command word {name}')
+                return
+            while name in ('builtin', 'command') and args:
+                if name == 'command' and raws[0] in ('-v', '-V'):
+                    return
+                while args and args[0][0].startswith('-'):
+                    args = args[1:]
+                if not args:
+                    return
+                if args[0][1] is None:
+                    self.fail(at, f'dynamic command word after {name}')
+                name, args = args[0][1], args[1:]
+                raws = [a[0] for a in args]
+            if name == 'eval' and not (owner == 'copy_fn' and raws == [COPY_FN_EVAL]):
                 self.fail(at, 'eval is not modeled outside copy_fn')
-            if name in ('declare', 'typeset') and any(re.match(r'-[a-zA-Z]*[fF]', a[0]) for a in args) and owner not in DECLARE_OK:
-                self.fail(at, f'{name} -f/-F is not modeled outside copy_fn and pair_main')
+            if name in ('declare', 'typeset') and any(re.match(r'-[a-zA-Z]*[fF]', r) for r in raws):
+                if not ((owner == 'copy_fn' and raws == ['-f', '"$1"']) or (owner == 'pair_main' and raws == ['-F', '"$fn"'])):
+                    self.fail(at, f'{name} -f/-F is not modeled outside copy_fn and pair_main')
+            if name == 'export' and any(re.match(r'-[a-zA-Z]*f', r) for r in raws):
+                self.fail(at, 'export -f is not modeled')
+            if name == 'compgen' and any(a[1] == 'function' or a[0].startswith('-A') for a in args):
+                self.fail(at, 'compgen -A function is not modeled')
             if name == 'trap' and args and args[0][1] not in ('', '-'):
                 self.fail(at, 'a trap handler is not modeled')
-            if name in ('.', 'source') and owner is None:
+            if name in ('.', 'source'):
+                if owner is not None or close:
+                    self.fail(at, 'source inside a function or a substitution is not modeled')
                 if not args:
                     self.fail(at, 'source needs a path')
                 self.events.append(('source', args[0][0], self.line(at)))
-            elif name in ('.', 'source'):
-                self.fail(at, 'source inside a function is not modeled')
-            elif name == 'copy_fn' and owner is None:
+            elif name == 'copy_fn':
+                if owner is not None or close:
+                    self.fail(at, 'copy_fn is only modeled at the top level of a file')
                 if len(args) != 2 or any(a[1] is None for a in args):
                     self.fail(at, 'copy_fn needs two literal names')
                 self.events.append(('copy', args[0][1], args[1][1], self.line(at)))
@@ -358,7 +378,7 @@ class _Parser:
                     if pending_fn:
                         self.fail(i, f'{pending_fn} has a subshell body, which is not modeled')
                     if text.startswith('(', i + 1) and cmdpos:
-                        i = self.skip_arith_command(i)
+                        i = self.arith(i, 0)
                         cmdpos = False
                     else:
                         parens += 1
@@ -404,7 +424,16 @@ class _Parser:
                     cmd[2].append((raw, lit))
                 continue
             word_at = i - len(raw)
-            if raw in ('if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', 'time'):
+            if after_time:
+                after_time = False
+                if raw == '-p':
+                    continue
+            if raw == 'time':
+                after_time = True
+                continue
+            if raw == 'coproc':
+                self.fail(word_at, 'coproc is not modeled')
+            if raw in ('if', 'then', 'elif', 'else', 'while', 'until', 'do', '!'):
                 continue
             if raw in ('fi', 'done'):
                 cmdpos = False
@@ -420,7 +449,7 @@ class _Parser:
                 continue
             if raw in ('for', 'select'):
                 if ARITH_COMMAND.match(text, i):
-                    i = self.skip_arith_command(text.index('(', i))
+                    i = self.arith(text.index('(', i), 0)
                 forhdr, cmdpos = True, False
                 continue
             if raw == 'function':
@@ -443,13 +472,17 @@ class _Parser:
             if pending_fn:
                 self.fail(word_at, f'{pending_fn} has a body that does not start with a brace')
             if raw == '}':
+                if braces == 0:
+                    self.fail(word_at, 'a } with no { to close')
                 braces -= 1
                 cmdpos = False
                 if self.owner is not None and not close and braces < self.owner_depth:
                     self.owner.body = text[self.owner_start:word_at]
                     self.owner = None
                 continue
-            if lit is not None and not close and self.owner is None and NAME.match(lit) and FN_PARENS.match(text, i):
+            if lit is not None and NAME.match(lit) and FN_PARENS.match(text, i):
+                if close or self.owner is not None:
+                    self.fail(word_at, f'{lit} is defined inside a function or a substitution, which is not modeled')
                 i = FN_PARENS.match(text, i).end()
                 pending_fn = lit
                 continue
@@ -457,11 +490,7 @@ class _Parser:
                 continue
             if lit is not None:
                 self.call(lit, word_at)
-            elif '/' not in raw:
-                owner = self.owner.name if self.owner else None
-                if not any(raw.startswith(ok) for ok in DYNAMIC_OK.get(owner, ())):
-                    self.fail(word_at, f'dynamic command word {raw}')
-            cmd = [lit if lit is not None else raw, word_at, []]
+            cmd = [lit if lit is not None else raw, word_at, [], lit is None and '/' not in raw]
             cmdpos = False
         if close:
             self.fail(n, 'unterminated $( )')

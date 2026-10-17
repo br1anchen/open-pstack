@@ -3743,5 +3743,45 @@ class BashReachTests(unittest.TestCase):
                     self.reach(**files)
 
 
+    def test_a_command_substitution_inside_arithmetic_is_a_call(self):
+        script = 'helper() { :; }\nloop() { :; }\ncmd_x() {\n\tif (( $(helper) > 0 )); then :; fi\n\tfor ((i = 0; i < $(loop); i++)); do :; done\n}\n'
+        self.assertEqual(self.reach(lib=script, entry=self.SOURCE_LIB).dead(), set())
+
+    def test_a_heredoc_body_is_read_like_a_double_quoted_string(self):
+        reach = self.reach(lib='x() { :; }\ncmd_x() {\n\tcat <<EOF\n$((x + 1))\nEOF\n}\n', entry=self.SOURCE_LIB)
+        self.assertEqual(reach.dead(), {'lib.sh:x'})
+        with self.assertRaises(bash_reach.ReachError):
+            self.reach(lib='helper() { :; }\ncmd_x() {\n\tcat <<EOF\n`helper`\nEOF\n}\n', entry=self.SOURCE_LIB)
+
+    def test_a_nested_definition_or_a_brace_with_nothing_to_close_raises(self):
+        for label, script in {'a nested definition': 'cmd_x() {\n\tinner() { :; }\n\tinner\n}\n', 'an extra }': 'cmd_x() { :; }\n}\n'}.items():
+            with self.subTest(label), self.assertRaises(bash_reach.ReachError):
+                self.reach(lib=script, entry=self.SOURCE_LIB)
+
+    def test_copy_fn_inside_a_function_raises(self):
+        with self.assertRaises(bash_reach.ReachError):
+            self.reach(lib='cmd_y() { :; }\n', entry=self.SOURCE_LIB + self.COPY_FN + 'later() {\n\tcopy_fn cmd_y alias\n}\n')
+
+    def test_a_prefix_does_not_hide_a_form_the_model_rejects_and_time_does_not_hide_a_call(self):
+        for label, body in {'builtin eval': 'builtin eval "$x"', 'command eval': 'command eval "$x"', 'builtin source of a missing file': 'builtin source "$here/none.sh"',
+                            'compgen -A function': 'compgen -A function', 'export -f': 'export -f cmd_y', 'coproc': 'coproc cmd_y'}.items():
+            with self.subTest(label), self.assertRaises(bash_reach.ReachError):
+                self.reach(lib=f'cmd_y() {{ :; }}\ncmd_x() {{ {body}; }}\n', entry=self.SOURCE_LIB)
+        script = 'f() { :; }\ng() { :; }\ncmd_x() {\n\ttime -p f\n\ttime g\n\tcommand -v eval\n}\n'
+        self.assertEqual(self.reach(lib=script, entry=self.SOURCE_LIB).dead(), set())
+
+    def test_each_dynamic_form_is_pinned_to_the_command_it_models(self):
+        ok = {'copy_fn': self.COPY_FN, 'pycore': 'pycore() {\n\tlocal run=()\n\t${run[@]+"${run[@]}"} python3 -I x -- "$@"\n}\n',
+              'pair_main': 'pair_main() {\n\tlocal fn=cmd_y\n\tif declare -F "$fn" >/dev/null; then\n\t\t"$fn" "$@"\n\tfi\n}\n'}
+        for name, text in ok.items():
+            with self.subTest(name):
+                self.reach(lib='cmd_y() { :; }\n', entry=self.SOURCE_LIB + text)
+        changed = {'copy_fn': self.COPY_FN.replace('+2', '+3'), 'pycore': ok['pycore'].replace('python3 -I x', 'helper'),
+                   'pair_main': ok['pair_main'].replace('"$fn" "$@"', '"$fn" extra')}
+        for name, text in changed.items():
+            with self.subTest(f'changed {name}'), self.assertRaises(bash_reach.ReachError):
+                self.reach(lib='cmd_y() { :; }\nhelper() { :; }\n', entry=self.SOURCE_LIB + text)
+
+
 if __name__ == '__main__':
     unittest.main()
