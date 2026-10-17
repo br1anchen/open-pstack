@@ -4064,8 +4064,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     ENTRIES = ('pstack-pair/scripts/pair.sh', 'pstack-pair-guided/scripts/pair.sh', 'pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
     CORE = 'pstack-pair/scripts/pair-core.sh'
+    CONSULTANT_CORE = 'pstack-trio/scripts/consultant-core.sh'
+    CONSULTANT_ENTRIES = ('pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
     HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
-    PORTED = ('status', 'metrics', 'permission', 'init', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
+    PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
     TWINS = ('event', 'header_field', 'next_seq', 'paused_reason', 'progress_path',
@@ -4149,7 +4151,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     self.assertEqual(final.body.strip(), 'discuss_with_consultant "$@";')
                 else:
                     self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
-                    self.assertEqual(final.key, f'{self.CORE}:cmd_{name}', f'{entry}: the final cmd_{name} is not the pair-core one')
+                    # the trio's and the kitchen's stop is consultant-core's; every other ported command's final body is pair-core's
+                    home = self.CONSULTANT_CORE if name == 'stop' and entry in self.CONSULTANT_ENTRIES else self.CORE
+                    self.assertEqual(final.key, f'{home}:cmd_{name}', f'{entry}: the final cmd_{name} is not {home}')
 
     def test_kitchen_keeps_exactly_these_copy_fn_snapshots_of_the_pair_core_bodies(self):
         table = self.reach().tables[(root / 'skills/pstack-kitchen/scripts/kitchen.sh').resolve()]
