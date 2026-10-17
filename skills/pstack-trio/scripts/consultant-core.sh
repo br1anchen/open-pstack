@@ -166,42 +166,7 @@ plan_answer() {
 	return 0
 }
 
-cmd_stop() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh stop <store> [--only sidekick|consultant] [--timeout MS]"
-	local store="$1" timeout=300000 only=""
-	shift
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--only) only="$2"; shift 2 ;;
-		--timeout) timeout="$2"; shift 2 ;;
-		--every) timeout=$(($2 * 60000)); shift 2 ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	checkin_interval_m=$((timeout / 60000))
-	local role name status rc=0 code out err
-	rm -f "$store/queue"
-	json_update "$store" '.pending = []'
-	for role in "${roles[@]}"; do
-		[ -z "$only" ] || [ "$only" = "$role" ] || continue
-		name="$(field "$store" ".$role.name")"
-		status="$(agent_status "$name")"
-		case "$status" in
-		absent) printf '%s %s is not live\n' "$role" "$name"; continue ;;
-		blocked) printf '%s %s is blocked; inspect it before stopping\n' "$role" "$name" >&2; rc=3; continue ;;
-		esac
-		stop_role "$store" "$role" "$timeout"
-		status="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
-		[ "$code" -eq 0 ] || status="$(agent_status "$name")"
-		printf '%s_state: %s\n' "$role" "$status"
-		[ "$status" = blocked ] && rc=3
-	done
-	local report advice
-	if report="$(latest_report "$store")"; then printf 'report: %s (%s)\n' "$report" "$(header_field "$report" status)"; fi
-	if advice="$(latest_advice "$store")"; then printf 'advice: %s (%s)\n' "$advice" "$(header_field "$advice" status)"; fi
-	exit "$rc"
-}
+cmd_stop() { pycore stop "$@"; }
 
 # Consults on a unit are capped at three; a fourth means the design is wrong
 # and belongs in a plan round. A glance, the short diff read at a check-in,

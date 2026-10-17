@@ -119,6 +119,10 @@ def clear_queue(store):
     code = subprocess.run(['rm', '-f', f'{store}/queue'], check=False).returncode
     if code:
         raise Exit(code)
+    if not os.path.isfile(f'{store}/pair.json'):
+        # json_update's jq refuses a pair.json that is not there, after its redirect made the empty pair.json.tmp.
+        open(f'{store}/pair.json.tmp', 'wb').close()
+        raise Exit(2, f'jq: error: Could not open file {store}/pair.json: No such file or directory\n')
     update(store, lambda doc: doc.__setitem__('pending', []))
 
 

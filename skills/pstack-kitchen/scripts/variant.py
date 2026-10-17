@@ -74,7 +74,9 @@ def verify_job(store, brief, head):
 
 
 class KitchenVariant(TrioVariant):
-    commands = {}
+    # Its own table, as every variant has one: stop is the consultant-core stop, which loops over the kitchen's roles (the verifier too). Spawn
+    # stays the pair's, under kitchen.sh's wrapper.
+    commands = {'stop': TrioVariant.commands['stop']}
 
     def require_agreed_plan(self, ctx, store, brief):
         """Routine units run on the brief alone; an escalated one needs the agreed plan with the consultant's advice, as in the trio. A

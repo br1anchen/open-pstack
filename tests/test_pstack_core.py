@@ -468,12 +468,20 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': (), 'pstack-trio': (), 'pstack-kitchen': ()}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': (), 'pstack-trio': ('stop',), 'pstack-kitchen': ('stop',)}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
         self.assertEqual(tables, self.EFFECTIVE_COMMANDS)
         self.assertTrue(set(name for table in tables.values() for name in table) <= set(cli.OVERRIDABLE))
+
+    def test_kitchen_runs_the_trios_stop_from_a_table_of_its_own_and_has_no_spawn(self):
+        trio = load_skill_variant(root / 'skills', 'pstack-trio')
+        kitchen = load_skill_variant(root / 'skills', 'pstack-kitchen')
+        self.assertIsNot(kitchen.commands, trio.commands)
+        for table in (trio.commands, kitchen.commands):
+            self.assertEqual((table['stop'].__name__, table['stop'].__code__.co_filename), ('stop', str(root / 'skills/pstack-trio/scripts/variant.py')))
+        self.assertNotIn('spawn', kitchen.commands)
 
     def test_every_variant_class_defines_its_own_commands(self):
         for cls in (Variant, *(load_skill_variant(root / 'skills', skill) for skill in self.SKILLS_WITH_A_VARIANT)):
@@ -598,6 +606,75 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_stop_matches_the_bash_at_the_phase_3_base_in_guided(self):
         self.stop_ab_run('pstack-pair-guided', lambda n: n in ('an idle sidekick', 'the sidekick is blocked', 'the sidekick is absent', 'a working sidekick that writes NNN-stop.md',
                                                                'a working devin whose input box holds the text'))
+
+    def multi_stop_hook(self, writes):
+        """A fake-herdr hook: on STOP, each agent named in writes (sidekick s1, consultant c1, verifier v1) writes its stop file."""
+        files = {'s1': 'reports/001-stop.md', 'c1': 'advice/001-stop.md', 'v1': 'reports/002-stop.md'}
+        arms = ''.join(f'{n}) printf "# Stop\\n\\nstatus: partial\\n" >"$st/{files[n]}" ;; ' for n in writes)
+        return f'#!/bin/sh\nst="$FAKE/../st"\ncase "$2" in *" STOP "*) case "$1" in {arms}esac ;; esac\nexit 0\n'
+
+    def stop_cc_cases(self, kitchen=False):
+        """Cases for the consultant-core stop: the trio's, and with kitchen=True the kitchen's, whose roles also include the verifier."""
+        fast = {'PAIR_STOP_POLL_S': '0.2'}
+        roles = {'consultant': {'name': 'c1', 'kind': 'codex'}, **({'verifier': {'name': 'v1', 'kind': 'claude'}} if kitchen else {})}
+        idle = {'s1': 'idle claude', 'c1': 'idle codex', **({'v1': 'idle claude'} if kitchen else {})}
+        run = ['stop', '{st}']
+        base = dict(args=run, pair=roles, agents=idle)
+        cases = {
+            'no arguments': dict(base, args=['stop']),
+            'an unknown option': dict(base, args=run + ['--force']),
+            '--only with no value': dict(base, args=run + ['--only']),
+            '--timeout with no value': dict(base, args=run + ['--timeout']),
+            '--every with no value': dict(base, args=run + ['--every']),
+            '--every that is not a number': dict(base, args=run + ['--every', 'a b']),
+            '--timeout that is not a number': dict(base, args=run + ['--timeout', 'abc']),
+            '--every 2': dict(base, args=run + ['--every', '2']),
+            'outside herdr': dict(base, env={'HERDR_ENV': '0'}),
+            'no pair.json': dict(base, nopair=True),
+            'every role idle': base,
+            'every role absent': dict(base, agents={}),
+            'the consultant is absent': dict(base, agents={k: v for k, v in idle.items() if k != 'c1'}),
+            'the sidekick is blocked': dict(base, agents={**idle, 's1': 'blocked claude'}),
+            'the consultant is blocked': dict(base, agents={**idle, 'c1': 'blocked codex'}),
+            '--only consultant': dict(base, args=run + ['--only', 'consultant']),
+            '--only sidekick': dict(base, args=run + ['--only', 'sidekick']),
+            '--only a role nobody has': dict(base, args=run + ['--only', 'nobody']),
+            'a queue and pending briefs': dict(base, files={'queue': '{st}/briefs/002-y.md\n'}, pair={**roles, 'pending': ['{st}/briefs/001-x.md']}),
+            'a report and advice on file': dict(base, files={'reports/001-x.md': '# R\n\nstatus: done\n', 'advice/001-x.md': '# A\n\nstatus: answered\n'}),
+            'prompts that fail': dict(base, promptfail=True),
+            'a working consultant that writes its stop advice': dict(base, agents={**idle, 'c1': 'working codex'}, hook=self.multi_stop_hook(['c1']), env=fast),
+            'a working consultant that never does': dict(base, args=run + ['--timeout', '2000'], agents={**idle, 'c1': 'working codex'}, env=fast),
+            'a working sidekick and a working consultant': dict(base, agents={**idle, 's1': 'working claude', 'c1': 'working codex'},
+                                                                hook=self.multi_stop_hook(['s1', 'c1']), env=fast),
+            'a working consultant and a prompt that fails': dict(base, agents={**idle, 'c1': 'working codex'}, promptfail=True, env=fast),
+            'a working devin sidekick': dict(base, agents={**idle, 's1': 'working devin'}, pair={**roles, 'sidekick': {'kind': 'devin', 'generation': 1, 'name': 's1'}},
+                                             fake={'devin-input': ''}, hook=self.multi_stop_hook(['s1']), env=fast),
+        }
+        if kitchen:
+            cases.update({
+                '--only verifier': dict(base, args=run + ['--only', 'verifier']),
+                'the verifier is absent': dict(base, agents={k: v for k, v in idle.items() if k != 'v1'}),
+                'the verifier is unassigned': dict(base, pair={'consultant': roles['consultant']}),
+                'a working verifier that writes its stop report': dict(base, agents={**idle, 'v1': 'working claude'}, hook=self.multi_stop_hook(['v1']), env=fast),
+                'a blocked verifier': dict(base, agents={**idle, 'v1': 'blocked claude'}),
+            })
+        return cases
+
+    def test_stop_matches_the_bash_at_the_phase_3_base_in_trio(self):
+        results = self.stop_ab_run('pstack-trio', lambda n: True, self.stop_cc_cases())
+        self.assertEqual(results['every role idle']['rc'], 0)
+        self.assertIn('consultant c1 is not live', results['the consultant is absent']['stdout'])
+        self.assertEqual((results['the sidekick is blocked']['rc'], results['the consultant is blocked']['rc']), (3, 3))
+        self.assertIn('consultant_state:', results['a working consultant that writes its stop advice']['stdout'])
+        self.assertIn('advice: <T>/st/advice/001-stop.md (partial)', results['a working consultant that writes its stop advice']['stdout'])
+
+    def test_stop_matches_the_bash_at_the_phase_3_base_in_the_kitchen(self):
+        results = self.stop_ab_run('pstack-kitchen', lambda n: True, {n: dict(spec, repo_files={'.agents/kitchen.toml': self.KITCHEN_TOML})
+                                                                       for n, spec in self.stop_cc_cases(kitchen=True).items()})
+        self.assertIn('verifier_state: ', results['every role idle']['stdout'])
+        self.assertIn('verifier v1 is not live', results['the verifier is absent']['stdout'])
+        self.assertIn('verifier null is not live', results['the verifier is unassigned']['stdout'])
+        self.assertEqual(results['a blocked verifier']['rc'], 3)
 
     def test_phase3_skills_extracts_the_bash_at_the_phase_3_base(self):
         core = self.phase3_skills() / 'pstack-pair/scripts/pair-core.sh'
