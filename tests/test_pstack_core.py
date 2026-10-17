@@ -1087,6 +1087,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'pi answers with nothing': ('pi', [], {'pi-reply': ''}, fast),
             'pi answers with blanks only': ('pi', [], {'pi-reply': '  \n\n'}, fast),
             'pi OK inside a sentence': ('pi', [], {'pi-reply': 'it is OKAY\n'}, fast),
+            'pi fails twice with a retry wait that is not a number': ('pi', [], {'pi-fail': 'quota exhausted\n'}, {**fast, 'PAIR_PREFLIGHT_RETRY_S': 'x'}),
+            'prime fails twice with a retry wait that is not a number': ('prime-agent', [], {'prime-fail': 'capacity issues\n'}, {**fast, 'PAIR_PREFLIGHT_RETRY_S': 'x'}),
+            'pi fails once with a retry wait that is not a number': ('pi', [], {'pi-fail-once': ''}, {**fast, 'PAIR_PREFLIGHT_RETRY_S': 'x'}),
             'pi hangs': ('pi', [], {'pi-hang': ''}, hang),
             'muse answers': ('muse', ['--model', 'm', '--provider', 'p', '--contributor-mode', 'c', '--permission-profile', 'x', '--other', 'y', 'z'], {}, fast),
             'muse with a flag and no value': ('muse', ['--model', 'm', 'stray'], {}, fast),
@@ -2733,6 +2736,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a pi preflight that fails with the same fallback': run('--kind', 'pi', '--fallback', 'pi', fake={'pi-fail': 'quota exhausted\n'}),
             'a pi preflight that fails with a fallback recorded earlier': run('--kind', 'pi', fake={'pi-fail': 'quota exhausted\n'}, pair=side(fallback={'kind': 'codex', 'args': ['-c', 'x=1']})),
             'a pi preflight that fails with nothing to say': run('--kind', 'pi', '--fallback', 'devin', fake={'pi-reply': ''}),
+            'a pi preflight that fails with a retry wait that is not a number': run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'},
+                                                                                  env={**hook['env'], 'PAIR_PREFLIGHT_RETRY_S': 'x'}),
             'a pi preflight that passes': run('--kind', 'pi', '--fallback', 'devin'),
             'a failover whose record fails (failovers is not an array)': run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}, pair=side(failovers='x')),
             'a failover over an object of failovers': run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}, pair=side(failovers={'a': 1})),
@@ -2779,7 +2784,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'a pi preflight that fails with a fallback recorded earlier': (0, 'codex:ready'), 'a live sidekick skips the preflight': (0, 'already live (idle) in p1'),
         'a bootstrap that returns 4': (4, 'claude:unready'), 'a bootstrap that returns 3': (3, 'claude:failed'), 'a fallback that returns 4': (4, 'devin:unready'),
         'an unknown option': (1, 'unknown option --bogus'), 'a missing --kind': (1, '--kind is required'),
-        'a master that is a string': (0, 'Cannot index string with string ("permission_mode")'), 'a master that is an array': (0, 'Cannot index array with string ("permission_mode")'),
+        'a master that is a string': (0, 'Cannot index string with string ("permission_mode")'),
+        'a pi preflight that fails with a retry wait that is not a number': (0, 'sleep: invalid time interval'), 'a master that is an array': (0, 'Cannot index array with string ("permission_mode")'),
         # spawn_sidekick runs under `|| rc=$?`, where errexit is off: a failed failover record prints jq's error and the fallback still starts; a failed
         # fallback or placement record (in cmd_spawn proper, errexit on) ends the command
         'a failover whose record fails (failovers is not an array)': (0, 'cannot be added'), 'a failover over an object of failovers': (0, 'devin:ready'),
@@ -3100,6 +3106,38 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         r = subprocess.run(['bash', '-c', script.split('stop_prime_role "$1"')[0] + 'type -t stop_prime_role pycore', 'smoke', 'unused', str(core)],
                            capture_output=True, text=True, check=False, timeout=60)
         self.assertEqual((r.returncode, r.stdout), (0, 'function\nfunction\n'), r.stderr)
+
+    def test_update_or_jq_waits_out_a_held_lock_in_its_jq_fallback(self):
+        """The fallback (taken when the native mutate cannot apply) retries the held lock as update() does: the lock is held when the call starts and
+        released at the first poll, where the first attempt used to die. No real wait: the poll is the test's own function."""
+        st = self.path / 'lockwait'
+        st.mkdir()
+        (st / 'pair.json').write_text('{"a": 1}\n')
+        lock = st / '.pair.lock'
+        lock.mkdir()
+        polls = []
+
+        def release(seconds):
+            polls.append(seconds)
+            lock.rmdir()
+
+        def refuses(doc):
+            raise TypeError('only jq can apply this')
+
+        # update() is made to refuse before it takes the lock, so the only wait is the fallback's own
+        with mock.patch.object(store, 'update', side_effect=TypeError), mock.patch.object(store.time, 'sleep', release), \
+                mock.patch.dict(os.environ, {'PAIR_LOCK_POLL_S': '0.25'}):
+            store.update_or_jq(str(st), refuses, '.b = 2')
+        self.assertEqual(polls, [0.25])
+        self.assertEqual(json.loads((st / 'pair.json').read_text()), {'a': 1, 'b': 2})
+        self.assertFalse(lock.exists())
+        # a lock that is never released still ends in the die, after PAIR_LOCK_TRIES polls
+        lock.mkdir()
+        with mock.patch.object(store, 'update', side_effect=TypeError), mock.patch.object(store.time, 'sleep', lambda s: None), \
+                mock.patch.dict(os.environ, {'PAIR_LOCK_TRIES': '3'}):
+            with self.assertRaises(Die) as caught:
+                store.update_or_jq(str(st), refuses, '.c = 3')
+        self.assertIn('pair.json lock held for 10s', caught.exception.message)
 
     def test_the_stop_prime_role_shim_returns_a_signal_status_and_exits_for_a_die(self):
         """A pycore killed by a signal (143 for TERM) comes back from the shim as 143, not 43; a die the core reports as 100 plus its code (103) still

@@ -237,12 +237,15 @@ def now_s():
     return int(time.time())
 
 
-def bash_sleep(text):
-    """sleep with the text the bash gives it: seconds, fractions and s/m/h/d suffixes; anything else is sleep's own error."""
+def bash_sleep(text, capture=False):
+    """sleep with the text the bash gives it: seconds, fractions and s/m/h/d suffixes; anything else is sleep's own error. With capture, that
+    error goes through sys.stderr (where a caller that collects stderr sees it) instead of straight to the process's."""
     m = re.fullmatch(r'(?:[0-9]+\.?[0-9]*|\.[0-9]+)[smhd]?', text)
     if not m:
         # GNU sleep takes more than this (0x1, 0e0, inf, a leading blank); run it, and end the command as set -e does if it refuses.
-        r = subprocess.run(['sleep', text], check=False)
+        r = subprocess.run(['sleep', text], stderr=subprocess.PIPE if capture else None, check=False)
+        if capture and r.stderr:
+            sys.stderr.write(r.stderr.decode('utf-8', 'surrogateescape'))
         if r.returncode:
             raise Exit(r.returncode)
         return

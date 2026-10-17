@@ -288,12 +288,8 @@ def _dumps(doc):
     return (json.dumps(doc, indent=2, ensure_ascii=False) + '\n').replace('\x7f', '\\u007f')
 
 
-def update(store, mutate):
-    """json_update: pair.json has two writers, so each write holds the mkdir lock, parses the file as it
-    is once the lock is held, lets mutate(doc) change that document in place, and replaces the file
-    atomically with the bytes jq would write. A mutate that raises, or a pair.json that does not parse,
-    leaves pair.json and pair.json.tmp as they were and frees the lock. PAIR_LOCK_TRIES and
-    PAIR_LOCK_POLL_S exist so tests can shorten the 10 s wait."""
+def acquire_lock(store):
+    """The mkdir lock on pair.json, waited for up to 10 s (PAIR_LOCK_TRIES polls of PAIR_LOCK_POLL_S): its path. The caller removes it."""
     lock = f'{store}/.pair.lock'
     tries = int(os.environ.get('PAIR_LOCK_TRIES', '100'))
     poll = float(os.environ.get('PAIR_LOCK_POLL_S', '0.1'))
@@ -301,12 +297,21 @@ def update(store, mutate):
     while True:
         try:
             os.mkdir(lock)
-            break
+            return lock
         except OSError:
             i += 1
             if i >= tries:
                 raise Die(f'pair.json lock held for 10s; remove {store}/.pair.lock if no pair.sh is running')
             time.sleep(poll)
+
+
+def update(store, mutate):
+    """json_update: pair.json has two writers, so each write holds the mkdir lock, parses the file as it
+    is once the lock is held, lets mutate(doc) change that document in place, and replaces the file
+    atomically with the bytes jq would write. A mutate that raises, or a pair.json that does not parse,
+    leaves pair.json and pair.json.tmp as they were and frees the lock. PAIR_LOCK_TRIES and
+    PAIR_LOCK_POLL_S exist so tests can shorten the 10 s wait."""
+    lock = acquire_lock(store)
     try:
         with open(f'{store}/pair.json', encoding='utf-8') as f:
             doc = json.load(f)
@@ -332,11 +337,7 @@ def update_or_jq(store, mutate, program, *jq_args):
     except (ValueError, TypeError, AttributeError, KeyError):
         pass
     import subprocess
-    lock = f'{store}/.pair.lock'
-    try:
-        os.mkdir(lock)
-    except OSError:
-        raise Die(f'pair.json lock held for 10s; remove {store}/.pair.lock if no pair.sh is running')
+    lock = acquire_lock(store)
     try:
         r = subprocess.run(['jq', *jq_args, program, f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
         with open(f'{store}/pair.json.tmp', 'wb') as tmp:

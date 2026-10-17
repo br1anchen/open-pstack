@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 
+from .errors import Exit
 from .prime import with_timeout
 from .review import jq_raw
 from .wait import bash_sleep, jq_text
@@ -154,6 +155,15 @@ def preflight_muse(args):
     return 1
 
 
+def retry_wait():
+    """The pause before a preflight's second try. The bash ran it with errexit off, so a wait that sleep refuses (PAIR_PREFLIGHT_RETRY_S=x)
+    prints sleep's error with the rest of the preflight's output and the retry goes ahead at once."""
+    try:
+        bash_sleep(os.environ.get('PAIR_PREFLIGHT_RETRY_S') or '3', capture=True)
+    except Exit:
+        pass
+
+
 def preflight_pi(args):
     kept = [a for a in args if a not in ('--approve', '-a', '--no-approve', '-na')]
     out, code = '', 0
@@ -165,7 +175,7 @@ def preflight_pi(args):
             return 0
         # A provider can fail one request and answer the next, so a failure is retried once before it counts.
         if attempt == 1:
-            bash_sleep(os.environ.get('PAIR_PREFLIGHT_RETRY_S') or '3')
+            retry_wait()
     # The master's PATH can hold an older pi than the pane's, so name it.
     version, where = tool_line('pi')
     sys.stderr.write(f'pi {version} at {where}, twice: ')
@@ -189,7 +199,7 @@ def preflight_prime(args):
             if code == 0 and any(re.fullmatch(r'[ \t\n\r\f\v]*OK[ \t\n\r\f\v]*', line) for line in out.split('\n')):
                 return 0
             if attempt == 1:
-                bash_sleep(os.environ.get('PAIR_PREFLIGHT_RETRY_S') or '3')
+                retry_wait()
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
     version, where = tool_line('prime-agent')
