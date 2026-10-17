@@ -41,6 +41,8 @@ case "$1 $2" in
 		printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","name":"%s","pane_id":"%s","agent_session":{"kind":"path","value":"%s"}}}}\n' "$s" "$(kind_of "$n")" "$n" "$pid" "$(cat "$FAKE/sessions/$n")"
 	else printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","name":"%s","pane_id":"%s"}}}\n' "$s" "$(kind_of "$n")" "$n" "$pid"; fi ;;
 "agent start")
+	# $FAKE/start-fail: the agent cannot start in the pane (not a folder-trust dialog).
+	if [ -e "$FAKE/start-fail" ]; then printf '{"error":{"code":"start_failed"}}\n' >&2; exit 1; fi
 	name="$3"; kind=""; shift 3
 	while [ $# -gt 0 ]; do case "$1" in --kind) kind="$2"; shift 2 ;; --pane) printf '%s' "$name" >"$FAKE/panes/$2"; shift 2 ;; --) break ;; *) shift ;; esac; done
 	# $FAKE/trust-dialog: the agent opens on a folder-trust dialog.

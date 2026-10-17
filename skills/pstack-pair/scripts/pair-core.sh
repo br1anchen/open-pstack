@@ -478,47 +478,6 @@ muse_session_error() {
 	tail -n 400 "$f" | grep -oiE ".{0,60}($provider_error_re).{0,100}" | tail -1 | cut -c1-240 || true
 }
 
-# A sidekick that settles without a report may have hit its model provider,
-# not the task: a capacity or auth error on screen, or an agent that exited.
-# Prints the evidence and the way out, failover when a fallback is recorded.
-# $2 bootstrap: the sidekick never became ready, so the way out is failover,
-# not another prompt.
-provider_hint() {
-	local store="$1" phase="${2:-}" name kind fallback line
-	name="$(field "$store" .sidekick.name)"
-	kind="$(field "$store" .sidekick.kind)"
-	fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
-	[ -n "$fallback" ] && [ "$fallback" != "$kind" ] || fallback=""
-	local logged=""
-	case "$kind" in
-	pi) logged="$(agent_session_error "" "$(field "$store" .cwd)")" ;;
-	prime-agent) logged="$(prime_role_error "$store" sidekick)" ;;
-	muse) logged="$(muse_session_error "$(field "$store" .cwd)")" ;;
-	esac
-	if [ "$(agent_status "$name")" = absent ]; then
-		if [ -n "$logged" ]; then
-			printf 'provider_error: the %s sidekick exited on: %s\n' "$kind" "$logged"
-		else
-			printf 'provider_error: the %s sidekick exited\n' "$kind"
-		fi
-		[ -z "$fallback" ] || printf 'next: pair.sh failover %s --reason exited\n' "$store"
-		return 0
-	fi
-	line=""
-	if [ "$kind" != prime-agent ]; then
-		line="$(grep -oiE ".{0,60}($provider_error_re).{0,60}" <<<"$(pane_text "$name")" | tail -1 || true)"
-	fi
-	[ -n "$line" ] || line="$logged"
-	[ -n "$line" ] || return 0
-	printf 'provider_error: %s\n' "$line"
-	[ -n "$fallback" ] || return 0
-	if [ "$phase" = bootstrap ] || [ "$kind" = prime-agent ]; then
-		printf 'next: pair.sh failover %s --reason provider-error\n' "$store"
-	else
-		printf 'next: prompt the sidekick once to continue; on a second provider error, pair.sh failover %s --reason provider-error\n' "$store"
-	fi
-}
-
 cmd_init() { pycore init "$@"; }
 
 # The master's permission mode, in Claude Code vocabulary:
@@ -531,10 +490,6 @@ detect_permission_mode() { pycore __detect_permission_mode; }
 # Native arguments that give an agent of KIND the permission MODE. Empty for
 # kinds without a known translation; pass native flags after -- for those.
 permission_args() { pycore __permission_args "$@"; }
-
-# Pi and Prime ask before no tool call, so they need no permission arguments;
-# they cannot enforce read-only execution, so plan stays untranslated.
-asks_no_approvals() { pycore __asks_no_approvals "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
 
 # Native arguments that skip the kind's prompt to trust the working folder.
 # The prompt appears in any folder the agent has not seen (pi: any repo with
@@ -616,152 +571,7 @@ set_placement() {
 # empty). $1 store, $2 role, $3 kind, $4 permission mode, $5 anchor pane,
 # $6 timeout, $7 direction, $8 pane, rest: native agent args. Returns 3 when
 # the bootstrap did not settle and 4 when it settled without the ready file.
-spawn_role() {
-	local store="$1" role="$2" kind="$3" permission="$4" anchor="$5" timeout="$6" direction="$7" pane="$8"
-	shift 8
-	local master_mode
-	master_mode="$(detect_permission_mode)"
-	if [ -z "$permission" ]; then
-		case "$kind" in
-		devin) permission=bypassPermissions ;;
-		*) permission="$master_mode" ;;
-		esac
-	fi
-	local -a agent_args=()
-	if [ "$permission" = none ] || has_permission_arg "$@"; then
-		permission="native-args"
-	else
-		mapfile -t agent_args < <(permission_args "$kind" "$permission")
-		if [ "${#agent_args[@]}" -eq 0 ] && ! asks_no_approvals "$kind" "$permission"; then
-			printf 'no permission translation for kind %s; pass native flags after -- to match the master (%s)\n' "$kind" "$master_mode" >&2
-			permission="untranslated"
-		fi
-	fi
-	has_trust_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(trust_args "$kind")
-	has_mcp_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(mcp_args "$kind" "$(field "$store" .cwd)")
-	set -- "${agent_args[@]}" "$@"
-	if fresh_per_brief "$kind"; then
-		local arg
-		for arg in "$@"; do
-			case "$arg" in -c | --continue | -r | --resume | --resume=* | --session | --session=* | --session-id | --fork)
-				die "$kind task sessions start fresh; recover partial work from the store instead of passing $arg" 5 ;;
-			esac
-		done
-	fi
-	local name cwd status ready prime_start_failed=0
-	case "$role" in
-	consultant) ready="advice/000-ready.md" ;;
-	*) ready="reports/000-ready.md" ;;
-	esac
-	name="$(field "$store" ".$role.name")"
-	cwd="$(field "$store" .cwd)"
-	status="$(agent_status "$name")"
-	if [ "$status" != absent ]; then
-		if [ "$(field "$store" ".$role.bootstrap_pending // false")" = true ]; then
-			[ -f "$store/$ready" ] || { printf '%s bootstrap still pending: %s is missing\n' "$role" "$ready" >&2; return 4; }
-			json_update "$store" --arg role "$role" '.[$role].rotation_required = false | .[$role].bootstrap_pending = false'
-			printf 'ready: %s\n' "$store/$ready"
-			event "$store" "$role" spawn - "$(field "$store" ".$role.kind"):ready"
-		fi
-		printf '%s %s already live (%s) in %s\n' "$role" "$name" "$status" "$(field "$store" ".$role.pane_id")"
-		return 0
-	fi
-	if [ -z "$pane" ]; then
-		local previous
-		previous="$(field "$store" ".$role.pane_id // empty")"
-		if [ -n "$previous" ] && herdr pane get "$previous" >/dev/null 2>&1; then
-			pane="$previous"
-		fi
-	fi
-	local started=""
-	if [ -n "$pane" ]; then
-		if started="$(herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" 2>&1)"; then
-			printf 'reused pane %s\n' "$pane"
-		else
-			refuse_untrusted "$pane" "$kind" "$cwd"
-			printf 'pane %s unavailable for agent start: %s\n' "$pane" "$started" >&2
-			if [ "$kind" = prime-agent ]; then prime_start_failed=1; else pane=""; fi
-		fi
-	fi
-	if [ -z "$pane" ]; then
-		new_pane "$store" "$role" "$anchor" "$direction" "$cwd"
-		pane="$new_pane_id"
-		if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" >/dev/null; then
-			if [ "$kind" = prime-agent ]; then
-				prime_start_failed=1
-			else
-				refuse_untrusted "$pane" "$kind" "$cwd" close
-				die "agent start failed in $pane; inspect: herdr pane read $pane --source visible" 2
-			fi
-		fi
-	fi
-	local now
-	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-	local args_json
-	args_json="$(jq -cn --args '$ARGS.positional' -- "$@")"
-	json_update "$store" --arg role "$role" --arg pane "$pane" --arg kind "$kind" --arg now "$now" --arg perm "$permission" --arg mperm "$master_mode" \
-		--argjson args "$args_json" \
-		'.[$role].pane_id = $pane | .[$role].kind = $kind | .[$role].started_at = $now
-		 | .[$role].start_args = $args | .[$role].generation = ((.[$role].generation // 0) + 1)
-		 | .[$role].bootstrap_pending = true
-		 | .[$role].permission_mode = $perm | .master.permission_mode = $mperm'
-	if [ "$kind" = prime-agent ]; then
-		json_update "$store" --arg role "$role" --arg cwd "$cwd" \
-			'.[$role].session = null | .[$role].session_stopped = false | .[$role].closed = false | .[$role].launch_cwd = $cwd'
-		if [ "$prime_start_failed" -eq 1 ]; then
-			record_prime_session "$store" "$role" || true
-			die "Prime start failed in $pane; its pane and recorded launch stay for inspection" 5
-		fi
-		record_prime_session "$store" "$role" || die "Prime did not report its session; inspect $name before prompting" 5
-	fi
-	printf '%s %s (%s) started in %s with permission %s (master: %s)\n' "$role" "$name" "$kind" "$pane" "$permission" "$master_mode"
-	local bootstrap generation
-	generation="$(field "$store" ".$role.generation")"
-	if [ -f "$store/$ready" ]; then
-		mkdir -p "$store/sessions"
-		mv "$store/$ready" "$store/sessions/$role-$(field "$store" ".$role.generation")-previous-ready.md"
-	fi
-	bootstrap="Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the $role role (generation $(field "$store" ".$role.generation"), pane $pane). $store_label store: $store. Follow its bootstrap steps, write $ready, and reply READY."
-	local out err code=0 errfile
-	errfile="$(mktemp)"
-	out="$(herdr agent prompt "$name" "$bootstrap" --wait --timeout 240000 2>"$errfile")" || code=$?
-	err="$(cat "$errfile")"
-	rm -f "$errfile"
-	if [ ! -f "$store/$ready" ]; then
-		submit_typed "$name" "$(basename "$ready")"
-		[ "$submitted" -eq 0 ] || [ "$code" -ne 0 ] || await_file "$store/$ready" 240000 || true
-	fi
-	if [ "$code" -ne 0 ] && grep -q agent_prompt_stalled <<<"$err"; then
-		# A first-run screen (pi's changelog after an update, a trust prompt,
-		# Claude's update banner) can take the Enter that submits the bootstrap,
-		# or swallow the prompt whole. bootstrap_recover acts only on a live
-		# idle agent in this pane; otherwise state detection lagged on a narrow
-		# pane while the agent works. Either way the ready file is the signal.
-		if bootstrap_recover "$store" "$name" "$role" "$pane" "$ready" "$bootstrap" "$generation"; then
-			printf '%s prompt looked stalled; waiting for %s instead\n' "$role" "$ready"
-			await_file "$store/$ready" "${PAIR_BOOTSTRAP_WAIT_MS:-240000}" && code=0
-		fi
-	fi
-	if [ "$code" -ne 0 ]; then
-		printf '%s bootstrap did not settle: %s\n' "$role" "$err" >&2
-		printf 'inspect: herdr agent read %s --source visible --lines 60\n' "$name" >&2
-		event "$store" "$role" spawn - "$kind:failed"
-		[ "$role" != sidekick ] || [ "$kind" != prime-agent ] || provider_hint "$store" bootstrap >&2
-		return 3
-	fi
-	if [ -f "$store/$ready" ]; then
-		json_update "$store" --arg role "$role" '.[$role].rotation_required = false | .[$role].bootstrap_pending = false'
-		printf 'ready: %s\n' "$store/$ready"
-		event "$store" "$role" spawn - "$kind:ready"
-	else
-		printf '%s settled but %s is missing; state=%s. Read the pane before prompting again.\n' "$role" "$ready" "$(agent_status "$name")" >&2
-		# A provider stop (a rate limit) is the usual cause, and it shows only
-		# in the pane or the agent's session log.
-		[ "$role" != sidekick ] || provider_hint "$store" bootstrap >&2
-		event "$store" "$role" spawn - "$kind:unready"
-		return 4
-	fi
-}
+spawn_role() { pycore __spawn_role "$@" || { local pycore_rc=$?; case $pycore_rc in 3 | 4) return $pycore_rc ;; *) exit $pycore_rc ;; esac; }; }
 
 # Kinds whose sidekick starts a fresh conversation for each completed brief:
 # Devin, Pi, and Prime, whose compacted conversation would otherwise carry every
@@ -1022,43 +832,6 @@ cmd_dispatch() { pycore --exec dispatch "$@"; }
 # between checks while herdr says settled but the pane shows the agent busy.
 settle_hold_s="${PAIR_SETTLE_HOLD:-60}"
 busy_poll_s="${PAIR_BUSY_POLL:-10}"
-
-# Herdr can report a fresh agent working while a prompt still sits typed in
-# its input (a new Claude pane; pi after an update), so the pane is read too:
-# while its last lines still show the message's marker, Enter submits it, up
-# to three times. An Enter on an empty input does nothing; a working Devin is
-# left alone, since there Enter cancels the running command. $1 agent name,
-# $2 marker (a word of the message with no spaces, such as a file's name).
-# Sets submitted to the number of Enters it sent.
-# After a bootstrap prompt stalled and no ready file exists: an idle or done
-# agent in the recorded pane and generation gets one Enter when the prompt is
-# typed in its input, or the bootstrap sent once more when nothing was typed (a
-# startup screen swallowed it). A working agent is left alone; a blocked one is
-# waiting on a dialog that belongs to the human, so no keys; an absent or
-# unknown one keeps the failure and inspection message. $7 is the generation
-# the spawn recorded for this agent: a newer one means another spawn replaced
-# it. Returns 1 when the caller should not wait for the ready file.
-bootstrap_recover() {
-	local store="$1" name="$2" role="$3" pane="$4" ready="$5" bootstrap="$6" generation="$7" info state
-	sleep "${PAIR_SUBMIT_CHECK_S:-5}"
-	[ ! -f "$store/$ready" ] || return 0
-	info="$(herdr agent get "$name" 2>/dev/null)" || return 0
-	[ "$(jq -r '.result.agent.pane_id // empty' <<<"$info")" = "$pane" ] || return 0
-	[ "$(field "$store" ".$role.generation")" = "$generation" ] || return 0
-	state="$(agent_status "$name")"
-	case "$state" in
-	idle | done)
-		if grep -qF "$(basename "$ready")" <<<"$(herdr agent read "$name" --source visible --lines 12 2>/dev/null | tr -d '\n │')"; then
-			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
-		else
-			herdr agent prompt "$name" "$bootstrap" --wait --timeout 240000 >/dev/null 2>&1 || true
-		fi ;;
-	blocked)
-		printf '%s is blocked on a dialog that needs the human; no keys were sent. Read it with: herdr agent read %s --source visible --lines 60\n' "$name" "$name" >&2
-		return 1 ;;
-	esac
-	return 0
-}
 
 submit_typed() {
 	local name="$1" marker="$2" kind tries=0

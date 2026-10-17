@@ -39,7 +39,8 @@ elif args[0] == '--fake-start':
     transcript.parent.mkdir(exist_ok=True)
     transcript.write_text(json.dumps({'type': 'session', 'id': session_id}) + '\n')
     (fake / 'sessions').mkdir(exist_ok=True)
-    (fake / 'sessions' / name).write_text(str(transcript))
+    if not (fake / 'prime-no-session').exists():
+        (fake / 'sessions' / name).write_text(str(transcript))
     sessions.append({'activeSessionId': f'live-{generation}', 'sessionId': session_id,
                      'sessionFile': str(transcript), 'name': name})
     sessions_file.write_text(json.dumps(sessions))

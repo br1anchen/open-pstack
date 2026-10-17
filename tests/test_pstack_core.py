@@ -69,7 +69,8 @@ class CoreTests(unittest.TestCase):
     DELETED_BASH = ('check_scope', 'checkin', 'finish_wait', 'fresh_reply', 'mark_seen', 'noted_through', 'pending_report', 'progress_path',
                     'prompt_sidekick', 'prune_pending', 'queue_note', 'record_dispatch', 'record_sent', 'reply_mode', 'review_base', 'review_delta',
                     'scope_entry_exists', 'seen_reply', 'send_and_wait', 'sidekick_activity', 'status_paths', 'steer_scope_entries', 'tree_activity',
-                    'unreviewed_steps', 'wait_for_reply', 'withheld_report', 'wait_opts', 'prime_steer', 'steps_due', 'report_ready')
+                    'unreviewed_steps', 'wait_for_reply', 'withheld_report', 'wait_opts', 'prime_steer', 'steps_due', 'report_ready',
+                    'provider_hint', 'bootstrap_recover', 'asks_no_approvals')
 
     def bash(self, snippet, env=None, check=True, base=None):
         """snippet run with pair-core.sh sourced: the working tree's, or with base=True skills/ as it was at e6e83e3, the oracle for
@@ -1006,20 +1007,22 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         results = []
         for side in ('bash', 'py'):
             top, st, env, fill = self.ab_world(f'{label}-{side}', {'master': None, **spec})
-            skills = self.phase3_skills() if side == 'bash' or python_snippet is None else root / 'skills'
+            skills = self.phase3_skills() if side == 'bash' else root / 'skills'
             if side == 'bash' or python_snippet is None:
                 script = (f'set -euo pipefail\nskill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
                           f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
                 argv = ['bash', '-c', script]
             else:
-                code = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents, panes\nfrom pstack_core.errors import Die, Exit\n'
+                code = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents, panes, spawn\nfrom pstack_core.errors import Die, Exit\n'
                         f'store = {str(st)!r}\n{python_snippet}')
                 argv = [sys.executable, '-I', '-c', code]
             r = subprocess.run(argv, cwd=top / 'repo', env=env, capture_output=True, text=True, check=False, timeout=120)
             norm = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'"--cwd", "[^"]+"', '"--cwd", "<SCRATCH>"', re.sub(r'--cwd \S+', '--cwd <SCRATCH>',
                                                                                          text.replace(str(top), '<T>').replace(str(self.phase3_skills()), '<SK>').replace(str(root / 'skills'), '<SK>'))))
             written = {f.name: norm(f.read_text()) for f in sorted((top / 'fake').glob('*.log'))}
-            results.append((r.returncode, norm(r.stdout), norm(r.stderr), written if logs else {}))
+            stamps = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', norm(text)))
+            kept = {str(f.relative_to(st)): stamps(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file()}
+            results.append((r.returncode, norm(r.stdout), norm(r.stderr), written if logs else {}, kept))
         self.assertEqual(results[0], results[1], label)
         return results[1]
 
@@ -1127,8 +1130,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         snippet = ''
         for kind in self.LEAF_KINDS:
             for mode in self.LEAF_MODES:
-                snippet += (f'mapfile -t got < <(permission_args {shlex.quote(kind)} {shlex.quote(mode)}); echo "{kind}/{mode}: ${{#got[@]}} ${{got[*]-}}"\n'
-                            f'if asks_no_approvals {shlex.quote(kind)} {shlex.quote(mode)}; then echo yes; else echo no; fi\n')
+                snippet += f'mapfile -t got < <(permission_args {shlex.quote(kind)} {shlex.quote(mode)}); echo "{kind}/{mode}: ${{#got[@]}} ${{got[*]-}}"\n'
             snippet += f'mapfile -t got < <(trust_args {shlex.quote(kind)}); echo "trust {kind}: ${{got[*]-}}"\n'
             snippet += f'if has_preflight {shlex.quote(kind)}; then echo pre; else echo nopre; fi\n'
         for argv in argvs:
@@ -1178,6 +1180,95 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.leaf_both('pane-await-' + label.replace(' ', '-'), f'{mk}if await_file "$store/f" {wait_ms}; then echo yes; else echo no; fi',
                            f'import os\nif {present}: open(store + "/f", "w").close()\nprint("yes" if panes.await_file(store + "/f", {wait_ms}) else "no")',
                            env={'PAIR_FILE_POLL_MS': '100'})
+
+    READY_HOOK = ('#!/bin/sh\nst="$FAKE/../st"\ncase "$2" in Load*) case "$1" in c1) printf "# R\\n\\nstatus: answered\\n" >"$st/advice/000-ready.md" ;; '
+                  '*) printf "# R\\n\\nstatus: done\\n" >"$st/reports/000-ready.md" ;; esac ;; esac\nexit 0\n')
+
+    def spawn_cases(self):
+        """Worlds for spawn_role: (spec, argv of the call). The call is `spawn_role store role kind permission anchor timeout direction pane [args]`."""
+        hook = {'hook': self.READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300'}}
+        quiet = {'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300'}}
+        pane1 = {'panes': {'p1': ''}}
+        old = lambda **kw: {'sidekick': {'name': 's1', 'pane_id': 'p1', 'kind': 'claude', 'generation': 1, **kw}}
+        call = lambda role='sidekick', kind='claude', perm='plan', anchor='p0', direction='', pane='', args=(): [role, kind, perm, anchor, '5000', direction, pane, *args]
+        prime = {'agents': {}}
+        pf = lambda **kw: {'prime-sessions.json': '[]', **kw}
+        return {
+            'an already live role': (dict(agents={'s1': 'idle claude'}, pair=old(), **hook), call()),
+            'a pending bootstrap without its ready file': (dict(agents={'s1': 'idle claude'}, pair=old(bootstrap_pending=True), **quiet), call()),
+            'a pending bootstrap with its ready file': (dict(agents={'s1': 'idle claude'}, pair=old(bootstrap_pending=True), files={'reports/000-ready.md': '# R\n'}, **quiet), call()),
+            'a previous pane reused': (dict(pair=old(), **pane1, **hook), call()),
+            'a reused pane that shows a trust dialog': (dict(pair=old(), **pane1, fake={'trust-dialog': ''}, **hook), call()),
+            'a reused pane where the start fails': (dict(pair=old(), **pane1, fake={'start-fail': ''}, **hook), call()),
+            'a pane given by the caller': (dict(pair=old(pane_id=None), **pane1, **hook), call(pane='p1')),
+            'a new split': (dict(pair=old(pane_id=None), **hook), call()),
+            'a new split in a direction': (dict(pair=old(pane_id=None), **hook), call(direction='down')),
+            'a new tab': (dict(pair={**old(pane_id=None), 'placement': 'tab', 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}, **hook), call()),
+            'a start that fails in a new pane': (dict(pair=old(pane_id=None), fake={'start-fail': ''}, **hook), call()),
+            'a start that fails in a new pane behind a trust dialog': (dict(pair=old(pane_id=None), fake={'start-fail': '', 'trust-dialog': ''}, **hook), call()),
+            'a bootstrap that settles with the ready file': (dict(pair=old(pane_id=None), **hook), call(args=('--model', 'm'))),
+            'a bootstrap that settles without it': (dict(pair=old(pane_id=None), **quiet), call()),
+            'a consultant bootstrap that settles without it': (dict(pair={**old(pane_id=None), 'consultant': {'name': 'c1', 'kind': 'codex', 'pane_id': None}}, **quiet), call('consultant', 'codex')),
+            'a consultant bootstrap that settles with it': (dict(pair={**old(pane_id=None), 'consultant': {'name': 'c1', 'kind': 'codex', 'pane_id': None}}, **hook), call('consultant', 'codex')),
+            'a prompt that stalls and gets its Enter': (dict(pair=old(pane_id=None), fake={'stall': ''}, **hook), call()),
+            'a prompt that is dropped and resent': (dict(pair=old(pane_id=None), fake={'prompt-drop': ''}, **hook), call()),
+            'a prompt that is dropped by a dialog': (dict(pair=old(pane_id=None), fake={'prompt-drop': 'blocked'}, **hook), call()),
+            'a prompt that fails': (dict(pair=old(pane_id=None), promptfail=True, **hook), call()),
+            'a fresh-per-brief kind with --resume': (dict(pair=old(pane_id=None, kind='devin'), **hook), call(kind='devin', args=('--resume',))),
+            'a fresh-per-brief kind with --session=x': (dict(pair=old(pane_id=None, kind='pi'), **hook), call(kind='pi', args=('--session=x',))),
+            'a fresh-per-brief kind with -c': (dict(pair=old(pane_id=None, kind='devin'), **hook), call(kind='devin', args=('-c',))),
+            'a kind that carries -c and may': (dict(pair=old(pane_id=None, kind='codex'), **hook), call(kind='codex', args=('-c', 'x=1'))),
+            'a permission from the master': (dict(pair=old(pane_id=None), **hook), call(perm='')),
+            'devin without a permission': (dict(pair=old(pane_id=None, kind='devin'), **hook), call(kind='devin', perm='')),
+            'permission none': (dict(pair=old(pane_id=None), **hook), call(perm='none')),
+            'native permission args': (dict(pair=old(pane_id=None), **hook), call(args=('--permission-mode', 'plan'))),
+            'a kind with no translation': (dict(pair=old(pane_id=None, kind='grok'), **hook), call(kind='grok', perm='plan')),
+            'a prime start': (dict(pair=old(pane_id=None, kind='prime-agent'), **prime, fake=pf(), **hook), call(kind='prime-agent', perm='plan')),
+            'a prime start that fails in a new pane': (dict(pair=old(pane_id=None, kind='prime-agent'), **prime, fake=pf(**{'start-fail': ''}), **hook), call(kind='prime-agent', perm='plan')),
+            'a prime start in a reused pane that fails': (dict(pair=old(kind='prime-agent'), **prime, **pane1, fake=pf(**{'start-fail': ''}), **hook), call(kind='prime-agent', perm='plan')),
+            'a prime that reports no session': (dict(pair=old(pane_id=None, kind='prime-agent'), **prime, fake=pf(**{'prime-no-session': ''}), **hook), call(kind='prime-agent', perm='plan')),
+            'a prime sidekick whose bootstrap settles without it': (dict(pair=old(pane_id=None, kind='prime-agent'), **prime, fake=pf(), **quiet), call(kind='prime-agent', perm='plan')),
+            'a previous ready file moved aside': (dict(pair=old(pane_id=None), files={'reports/000-ready.md': '# old\n'}, **hook), call()),
+        }
+
+    SPAWN_FORMS = {
+        'with an or': 'rc=0; spawn_role "$store" {a} || rc=$?; echo "returned rc=$rc"',
+        'as a plain command': 'spawn_role "$store" {a}; echo "returned"',
+        'as a plain command under errexit': 'set -e\nspawn_role "$store" {a}\necho "returned"',
+    }
+    SPAWN_ALL_FORMS = ('an already live role', 'a bootstrap that settles without it', 'a prompt that fails', 'a new split', 'a fresh-per-brief kind with --resume',
+                       'a prime start', 'a pending bootstrap without its ready file')
+
+    def spawn_ab(self, part, parts=3):
+        """The part-th of `parts` slices of the spawn cases (the calls the callers make: with an or, as a plain command, and under errexit),
+        04d2c13's function against the working tree's shim: {(case, form): outcome}."""
+        results = {}
+        for n, (label, (spec, argv)) in enumerate(self.spawn_cases().items()):
+            if not (part * 12 <= n < (part + 1) * 12 if part < parts - 1 else n >= part * 12):
+                continue
+            for form, template in self.SPAWN_FORMS.items():
+                if form != 'with an or' and label not in self.SPAWN_ALL_FORMS:
+                    continue
+                results[(label, form)] = self.leaf_both(f'spawn-{part}-{len(results)}', template.format(a=shlex.join(argv)), None, **spec)
+        return results
+
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_part_one(self):
+        results = self.spawn_ab(0)
+        self.assertIn('already live (idle)', results[('an already live role', 'with an or')][1])
+        self.assertIn('started in p', results[('a new split', 'with an or')][1])
+        self.assertIn('returned rc=4', results[('a pending bootstrap without its ready file', 'with an or')][1])
+
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_part_two(self):
+        results = self.spawn_ab(1)
+        self.assertIn('returned rc=4', results[('a bootstrap that settles without it', 'with an or')][1])
+        self.assertIn('returned rc=3', results[('a prompt that fails', 'with an or')][1])
+        self.assertEqual(results[('a prompt that fails', 'as a plain command under errexit')][0], 3)
+        self.assertEqual(results[('a fresh-per-brief kind with --resume', 'with an or')][0], 5)
+        self.assertNotIn('returned', results[('a fresh-per-brief kind with --resume', 'with an or')][1])
+
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_part_three(self):
+        results = self.spawn_ab(2)
+        self.assertIn('ready: ', results[('a prime start', 'with an or')][1])
 
     def test_mcp_args_match_the_bash_at_the_phase_3_base(self):
         servers = lambda *items: {'codex-mcp.json': json.dumps(list(items)) + '\n'}
@@ -3379,8 +3470,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     (st.parent / 'fake/screen/s1').write_bytes(screen)
                     env['LC_ALL'] = locale_name
                     if who == 'bash':
-                        r = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair; roles=(sidekick); '
-                                            f'store_dirs=(plans); slug_max=21\n. {scripts / "pair-core.sh"}\nprovider_hint {st}'],
+                        r = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair; roles=(sidekick); '
+                                            f'store_dirs=(plans); slug_max=21\n. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\nprovider_hint {st}'],
                                            env={**self.env, **env}, capture_output=True, check=True, timeout=120)
                         outs.append(r.stdout)
                     else:
@@ -4593,10 +4684,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
              'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'queued_brief', 'json_update', 'pair_file',
              'report_ready', 'expected_report', 'fresh_per_brief', 'file_mtime',
              'steps_due', 'scope_entries',
-             'busy_command', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
+             'busy_command', 'agent_session_error', 'muse_session_error', 'prime_role_error',
              'record_prime_session', 'require_not_paused',
              'require_fresh_session', 'submit_typed',
-             'iso_epoch', 'in_herdr', 'latest_advice', 'detect_permission_mode')
+             'iso_epoch', 'in_herdr', 'latest_advice', 'detect_permission_mode',
+             'permission_args', 'trust_args', 'mcp_args', 'has_mcp_arg', 'has_trust_arg', 'has_permission_arg', 'has_preflight', 'preflight_kind',
+             'pick_direction', 'new_pane', 'refuse_untrusted', 'await_file', 'spawn_role')
     TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest', 'detect_permission_mode': 'detect'}
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
     HOOK_TWINS = {'pstack-kitchen/scripts/kitchen.sh:steps_due': 'pstack-kitchen/scripts/variant.py',
