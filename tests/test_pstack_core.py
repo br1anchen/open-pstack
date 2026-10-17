@@ -3519,57 +3519,101 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_metrics_gives_a_legacy_header_store_the_same_output_as_the_headerless_one(self):
         self.assertEqual(self.metrics_of(LEGACY_HEADER + '\n' + self.FIRST_EVENTS), self.metrics_of(self.FIRST_EVENTS))
 
+    ENTRIES = ('pstack-pair/scripts/pair.sh', 'pstack-pair-guided/scripts/pair.sh', 'pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
+    CORE = 'pstack-pair/scripts/pair-core.sh'
+    HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
     PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss')
-    DUPLICATED = ('event', 'header_field', 'next_seq', 'paused_reason', 'progress_path',
-                  'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
-                  'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'queued_brief', 'json_update', 'pair_file',
-                  'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
-                  'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
-                  'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
-                  'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
-                  'prune_pending', 'record_sent', 'require_fresh_session', 'submit_typed', 'prompt_sidekick', 'send_and_wait')
+    # bash helpers that have a Python twin (pstack_core), under the twin's name
+    TWINS = ('event', 'header_field', 'next_seq', 'paused_reason', 'progress_path',
+             'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
+             'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'queued_brief', 'json_update', 'pair_file',
+             'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
+             'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
+             'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
+             'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
+             'prune_pending', 'record_sent', 'require_fresh_session', 'submit_typed', 'prompt_sidekick', 'send_and_wait',
+             'iso_epoch', 'in_herdr', 'latest_advice')
+    TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest'}
+    # a variant's bash override of a hook, against the Python hook in that skill's variant.py
+    HOOK_TWINS = {'pstack-kitchen/scripts/kitchen.sh:steps_due': 'pstack-kitchen/scripts/variant.py',
+                  'pstack-kitchen/scripts/kitchen.sh:report_ready': 'pstack-kitchen/scripts/variant.py',
+                  'pstack-kitchen/scripts/kitchen.sh:require_agreed_plan': 'pstack-kitchen/scripts/variant.py',
+                  'pstack-pair-guided/scripts/pair.sh:plan_gate_extra': 'pstack-pair-guided/scripts/variant.py',
+                  'pstack-trio/scripts/consultant-core.sh:plan_gate_extra': 'pstack-trio/scripts/variant.py'}
+    # The bash bodies no entry script reaches. This list may only shrink: each phase 3 unit deletes the bodies it orphans and removes them
+    # here, and the last unit empties it. Computed by tests/bash_reach.py, never widened by hand to make the guard pass.
+    KNOWN_DEAD = (
+        'pstack-kitchen/scripts/kitchen.sh:advice_gate',
+        'pstack-kitchen/scripts/kitchen.sh:core_require_agreed_plan',
+        'pstack-kitchen/scripts/kitchen.sh:plan_gate_extra',
+        'pstack-kitchen/scripts/kitchen.sh:require_agreed_plan',
+        'pstack-pair-guided/scripts/pair.sh:plan_gate_extra',
+        'pstack-pair/scripts/pair-core.sh:plan_gate_extra',
+        'pstack-pair/scripts/pair-core.sh:require_agreed_plan',
+        'pstack-trio/scripts/consultant-core.sh:plan_gate_extra',
+    )
+    # kitchen.sh keeps the pair's commands under core_* names (copy_fn) and wraps them
+    KITCHEN_ALIASES = {'advice_gate': 'pstack-trio/scripts/consultant-core.sh:plan_gate_extra',
+                       'core_report_ready': 'pstack-pair/scripts/pair-core.sh:report_ready',
+                       'core_require_agreed_plan': 'pstack-pair/scripts/pair-core.sh:require_agreed_plan',
+                       'core_steps_due': 'pstack-pair/scripts/pair-core.sh:steps_due',
+                       'core_init': 'pstack-pair/scripts/pair-core.sh:cmd_init', 'core_spawn': 'pstack-pair/scripts/pair-core.sh:cmd_spawn',
+                       'core_dispatch': 'pstack-pair/scripts/pair-core.sh:cmd_dispatch', 'core_wait': 'pstack-pair/scripts/pair-core.sh:cmd_wait',
+                       'core_queue': 'pstack-pair/scripts/pair-core.sh:cmd_queue', 'core_discuss': 'pstack-pair/scripts/pair-core.sh:cmd_discuss',
+                       'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
+    KITCHEN_WRAPS = ('dispatch', 'wait', 'queue', 'step', 'finish', 'discuss')
 
-    # No bash caller is left, but kitchen.sh still copies it with copy_fn (kitchen.sh is out of reach of the unit that found this), so the body stays
-    # until that line goes. Phase 3 deletes the body in pair-core.sh and kitchen's override together.
-    KEPT_FOR_COPY_FN = ('require_agreed_plan',)
+    def reach(self):
+        cls = type(self)
+        if cls.__dict__.get('_reach') is None:
+            skills = root / 'skills'
+            cls._reach = bash_reach.Reach([skills / e for e in self.ENTRIES], skills)
+        return cls._reach
 
-    # a bash helper whose Python twin has another name
-    TWIN_NAMES = {'json_update': 'update'}
+    def test_every_bash_function_runs_from_an_entry_script_or_is_known_dead(self):
+        self.assertEqual(list(self.KNOWN_DEAD), sorted(self.KNOWN_DEAD))
+        reach = self.reach()
+        dead, known = reach.dead(), set(self.KNOWN_DEAD)
+        problems = [f'{k} has no caller from any entry script: delete its bash body' for k in sorted(dead - known)]
+        problems += [f'{k} no longer exists: remove it from KNOWN_DEAD' if k not in reach.nodes else f'{k} is reachable again: remove it from KNOWN_DEAD'
+                     for k in sorted(known - dead)]
+        self.assertEqual(problems, [])
 
-    def test_ported_commands_are_pycore_shims_and_each_duplicated_bash_helper_still_has_a_bash_caller_and_a_python_twin(self):
-        text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
-        core = text[scripts / 'pair-core.sh']
-        for name in self.PORTED:
-            self.assertRegex(core, rf'(?m)^cmd_{name}\(\) \{{ pycore (--exec )?\S+ "\$@"; \}}$', name)
-        defined = core + text[scripts / 'prime-agent.sh']
-        # a comment that names a helper, and a copy_fn line that aliases one, are not calls
-        code = {p: '\n'.join(l for l in body.split('\n') if not re.match(r'\s*(#|copy_fn\s)', l)) for p, body in text.items()}
+    def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
+        reach = self.reach()
         python = '\n'.join(p.read_text() for p in (scripts / 'pstack_core').rglob('*.py'))
-        for helper in self.DUPLICATED:
-            self.assertRegex(defined, rf'(?m)^{helper}\(\) \{{$', helper)
-            callers = sum(len(re.findall(rf'(?<![\w-]){helper}(?![\w-])(?!\(\) \{{)', body)) for body in code.values())
-            self.assertGreater(callers, 0, f'{helper} has no bash caller left: delete the bash twin')
+        for helper in self.TWINS:
+            self.assertTrue(any(f'{f}:{helper}' in reach.nodes for f in self.HELPER_FILES), f'{helper} has no bash definition: remove it from TWINS')
             self.assertRegex(python, rf'(?m)^\s*def {self.TWIN_NAMES.get(helper, helper)}\(', f'{helper} has no Python twin')
+        for key, variant in self.HOOK_TWINS.items():
+            self.assertIn(key, reach.nodes, f'{key} has no bash definition: remove it from HOOK_TWINS')
+            self.assertRegex((root / 'skills' / variant).read_text(), rf'(?m)^\s*def {key.split(":")[1]}\(', f'{key} has no Python hook in {variant}')
 
-    def test_a_bash_helper_kept_only_for_a_copy_fn_line_is_still_copied_and_has_a_python_twin(self):
-        text = {p: p.read_text() for p in (root / 'skills').glob('*/scripts/*.sh')}
-        python = '\n'.join(p.read_text() for p in (scripts / 'pstack_core').rglob('*.py'))
-        for helper in self.KEPT_FOR_COPY_FN:
-            self.assertRegex(text[scripts / 'pair-core.sh'], rf'(?m)^{helper}\(\) \{{$', helper)
-            self.assertRegex(python, rf'(?m)^\s*def {helper}\(', helper)
-            copies = [p.name for p, body in text.items() if re.search(rf'(?m)^copy_fn {helper} ', body)]
-            self.assertEqual(copies, ['kitchen.sh'], f'{helper} is no longer copied: delete its bash body')
-            calls = sum(len(re.findall(rf'(?<![\w-]){helper}(?![\w-])(?!\(\) \{{)', '\n'.join(l for l in body.split('\n') if not re.match(r'\s*(#|copy_fn\s)', l))))
-                        for p, body in text.items() if p.name != 'kitchen.sh')
-            self.assertEqual(calls, 0, f'{helper} has a caller again: move it back to DUPLICATED')
+    def test_ported_commands_are_pycore_shims_in_the_script_that_defines_their_final_body(self):
+        reach = self.reach()
+        shim = re.compile(r'\s*pycore (--exec )?\S+ "\$@";?\s*\Z')
+        wrapped = {'pstack-kitchen/scripts/kitchen.sh': self.KITCHEN_WRAPS}
+        for entry in self.ENTRIES:
+            for name in self.PORTED:
+                final = reach.final(root / 'skills' / entry, f'cmd_{name}')
+                self.assertIsNotNone(final, f'{entry}: cmd_{name} is not defined')
+                if name in wrapped.get(entry, ()):
+                    self.assertFalse(shim.fullmatch(final.body), f'{final.key} is a wrapper around core_{name}, not a shim')
+                    core = reach.final(root / 'skills' / entry, f'core_{name}')
+                    self.assertEqual(core.alias_of.key, f'{self.CORE}:cmd_{name}', f'{entry}: core_{name} is not a snapshot of the pair command')
+                elif (entry, name) == ('pstack-trio/scripts/pair.sh', 'discuss'):
+                    self.assertEqual(final.body.strip(), 'discuss_with_consultant "$@";')
+                else:
+                    self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
+                    self.assertEqual(final.key, f'{self.CORE}:cmd_{name}', f'{entry}: the final cmd_{name} is not the pair-core one')
 
-    def test_the_duplicated_guard_ignores_comments_and_copy_fn_lines(self):
-        # a helper named only in a comment or in a copy_fn alias line has no caller
-        body = "# event is logged here\ncopy_fn event core_event\n  # event again\n\tcopy_fn\tevent x\nevent() {\n}\n"
-        code = '\n'.join(l for l in body.split('\n') if not re.match(r'\s*(#|copy_fn\s)', l))
-        self.assertEqual(len(re.findall(r'(?<![\w-])event(?![\w-])(?!\(\) \{)', code)), 0)
-        self.assertEqual(len(re.findall(r'(?<![\w-])event(?![\w-])(?!\(\) \{)', body)), 4)
+    def test_kitchen_keeps_exactly_these_copy_fn_snapshots_of_the_pair_core_bodies(self):
+        table = self.reach().tables[(root / 'skills/pstack-kitchen/scripts/kitchen.sh').resolve()]
+        self.assertEqual({name: d.alias_of.key for name, d in table.items() if d.alias_of}, self.KITCHEN_ALIASES)
+        for name in ('init', 'spawn'):
+            self.assertEqual(table[f'core_{name}'].alias_of.key, f'{self.CORE}:cmd_{name}')
+            self.assertEqual(table[f'cmd_{name}'].key, f'pstack-kitchen/scripts/kitchen.sh:cmd_{name}')
 
     def test_pair_sh_stops_with_a_message_when_python3_is_not_on_path(self):
         bin_dir = self.path / 'bin-without-python3'
