@@ -55,7 +55,8 @@ def trust_args(kind):
 
 def codex_mcp_names(cwd):
     """(name lines, jq's status): the MCP servers codex lists where it runs that are not disabled, as the bash's jq prints them. jq stops at
-    an element it cannot index (status 5) and fails on text it cannot read (also status 5); under pipefail that status is the pipeline's."""
+    an element it cannot index (status 5) and fails on text it cannot read (also status 5; jq 1.7 and 1.8 both use 5 for runtime and parse
+    errors, and the callers only test for non-zero); under pipefail that status is the pipeline's."""
     try:
         r = with_timeout('20', ['codex', 'mcp', 'list', '--json'], cwd=cwd or '.', stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
