@@ -10,7 +10,7 @@ import time
 
 from . import agents
 from .dispatch import fresh_per_brief
-from .errors import Die
+from .errors import Die, Exit
 from .herdr import agent_field, agent_status, herdr
 from .panes import await_file, new_pane, refuse_untrusted
 from .permission import mode_of_this_shell
@@ -235,8 +235,12 @@ def record_failover(store, source, target, reason):
         if not isinstance(current, list):
             raise TypeError('failovers is not an array')
         entry['failovers'] = current + [{'from': source, 'to': target, 'reason': reason, 'at': now}]
-    update_or_jq(store, mutate, '.sidekick.failovers = ((.sidekick.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])',
-                 '--arg', 'from', source, '--arg', 'to', target, '--arg', 'why', reason, '--arg', 'now', now)
+    try:
+        update_or_jq(store, mutate, '.sidekick.failovers = ((.sidekick.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])',
+                     '--arg', 'from', source, '--arg', 'to', target, '--arg', 'why', reason, '--arg', 'now', now)
+    except Exit as e:
+        # spawn_sidekick runs under its caller's `|| rc=$?`, where errexit is off: a jq that fails prints its error and the failover goes on
+        sys.stderr.write(e.stderr)
     event(store, 'master', 'failover', '-', f'{source}:{target}')
     print(f'failover: {source} -> {target} ({reason})')
 

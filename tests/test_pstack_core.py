@@ -2690,6 +2690,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a pi preflight that fails with a fallback recorded earlier': run('--kind', 'pi', fake={'pi-fail': 'quota exhausted\n'}, pair=side(fallback={'kind': 'codex', 'args': ['-c', 'x=1']})),
             'a pi preflight that fails with nothing to say': run('--kind', 'pi', '--fallback', 'devin', fake={'pi-reply': ''}),
             'a pi preflight that passes': run('--kind', 'pi', '--fallback', 'devin'),
+            'a failover whose record fails (failovers is not an array)': run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}, pair=side(failovers='x')),
+            'a failover over an object of failovers': run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}, pair=side(failovers={'a': 1})),
+            'a fallback recorded over a sidekick that is not an object': run('--kind', 'claude', '--fallback', 'devin', pair={**side(), 'sidekick': 'x'}),
+            'a placement recorded over a pair.json that is an array': {**base, 'args': ['spawn', '{st}', '--kind', 'claude', '--tab'], 'nopair': True, 'files': {'pair.json': '[]\n'}},
+            'a failover over a null sidekick failovers': run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}, pair=side(failovers=None)),
             'a live sidekick skips the preflight': run('--kind', 'pi', '--fallback', 'devin', agents={'s1': 'idle pi'}, fake={'pi-fail': 'quota exhausted\n'}, pair=side(kind='pi', pane_id='p1')),
             'a bootstrap that returns 4': {**run('--kind', 'claude'), 'hook': None, **quiet},
             'a bootstrap that returns 3': run('--kind', 'claude', promptfail=True),
@@ -2729,7 +2734,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'a pi preflight that fails with no fallback': (2, 'no fallback recorded for a failed pi'), 'a pi preflight that fails with a fallback': (0, 'devin:ready'),
         'a pi preflight that fails with a fallback recorded earlier': (0, 'codex:ready'), 'a live sidekick skips the preflight': (0, 'already live (idle) in p1'),
         'a bootstrap that returns 4': (4, 'claude:unready'), 'a bootstrap that returns 3': (3, 'claude:failed'), 'a fallback that returns 4': (4, 'devin:unready'),
-        'an unknown option': (1, 'unknown option --bogus'), 'a missing --kind': (1, '--kind is required')}
+        'an unknown option': (1, 'unknown option --bogus'), 'a missing --kind': (1, '--kind is required'),
+        # spawn_sidekick runs under `|| rc=$?`, where errexit is off: a failed failover record prints jq's error and the fallback still starts; a failed
+        # fallback or placement record (in cmd_spawn proper, errexit on) ends the command
+        'a failover whose record fails (failovers is not an array)': (0, 'cannot be added'), 'a failover over an object of failovers': (0, 'devin:ready'),
+        'a fallback recorded over a sidekick that is not an object': (5, 'Cannot index string'), 'a placement recorded over a pair.json that is an array': (5, 'jq: error')}
 
 
     def test_spawn_command_through_pair_matches_the_bash_at_the_phase_3_base_part_0(self):
