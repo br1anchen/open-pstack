@@ -21,7 +21,7 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import checkin, cli, dispatch, herdr, providers, replies, review, send, store, wait  # noqa: E402
+from pstack_core import checkin, cli, dispatch, herdr, permission, providers, replies, review, send, store, wait  # noqa: E402
 from pstack_core.commands import metrics, step  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
@@ -342,6 +342,58 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         core = self.phase3_skills() / 'pstack-pair/scripts/pair-core.sh'
         self.assertTrue(core.is_file())
         subprocess.run(['bash', '-n', str(core)], check=True, capture_output=True, timeout=60)
+
+    def detect_in(self, procs, strict=False, files=None, session=''):
+        """permission.detect over a table {pid: (ppid, comm, args)} in place of ps, with HOME and cwd under the test's directory."""
+        home, cwd = self.path / 'home', self.path / 'cwd'
+        for rel, text in (files or {}).items():
+            (self.path / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.path / rel).write_text(text)
+
+        def ps(*args):
+            row = procs.get(int(args[3]))
+            if row is None:
+                return 1, ''
+            return 0, {'ppid=': f'  {row[0]}', 'comm=': row[1], 'args=': row[2]}[args[1]]
+        return permission.detect(100, str(cwd), str(home), session, strict, ps)
+
+    def test_detect_reads_the_agent_above_the_shell_and_stops_after_twelve_hops(self):
+        shell = (101, 'bash', 'bash')
+        agent = lambda pid, args: (1, 'claude', f'claude {args}')
+        for shells, want in ((11, 'plan'), (12, 'auto'), (13, 'auto')):
+            procs = {100: (101, 'bash', 'bash')}
+            procs.update({100 + i: (101 + i, 'bash', 'bash') for i in range(1, shells)})
+            procs[100 + shells] = agent(100 + shells, '--permission-mode plan')
+            self.assertEqual(self.detect_in(procs), want, f'{shells} shells before the agent')
+        self.assertEqual(self.detect_in({100: shell, 101: agent(101, '--dangerously-skip-permissions')}), 'bypassPermissions')
+        self.assertEqual(self.detect_in({100: shell, 101: (1, 'node', 'node /x/claude --permission-mode=acceptEdits')}), 'acceptEdits')
+        self.assertEqual(self.detect_in({100: shell, 101: (1, 'codex', 'codex --ask-for-approval=never')}), 'dontAsk')
+        self.assertEqual(self.detect_in({100: shell, 101: (1, 'sh', 'sh -c claude --permission-mode plan')}), 'auto')
+
+    def test_detect_falls_back_to_the_transcript_then_the_settings_files_in_order_then_auto(self):
+        alone = {100: (1, 'bash', 'bash')}
+        settings = lambda mode: '{"permissions": {"defaultMode": "%s"}}' % mode
+        cwd_rel = 'cwd'
+        self.assertEqual(self.detect_in(alone), 'auto')
+        files = {'home/.claude/settings.json': settings('acceptEdits')}
+        self.assertEqual(self.detect_in(alone, files=files), 'acceptEdits')
+        files['cwd/.claude/settings.json'] = settings('dontAsk')
+        self.assertEqual(self.detect_in(alone, files=files), 'dontAsk')
+        files['home/.claude/settings.local.json'] = settings('manual')
+        self.assertEqual(self.detect_in(alone, files=files), 'dontAsk')
+        files['cwd/.claude/settings.local.json'] = settings('plan')
+        self.assertEqual(self.detect_in(alone, files=files), 'plan')
+        slug = re.sub(r'[/.]', '-', str(self.path / cwd_rel))
+        files[f'home/.claude/projects/{slug}/s1.jsonl'] = '{"permissionMode":"auto"}\n{"permissionMode":"bypassPermissions"}\n'
+        self.assertEqual(self.detect_in(alone, files=files, session='s1'), 'bypassPermissions')
+
+    def test_detect_ends_with_the_status_of_a_failing_command_only_when_the_caller_runs_with_errexit(self):
+        alone = {100: (1, 'bash', 'bash')}
+        files = {'cwd/.claude/settings.local.json': '{not json', 'home/.claude/settings.json': '{"permissions": {"defaultMode": "plan"}}'}
+        self.assertEqual(self.detect_in(alone, files=files), 'plan')
+        with self.assertRaises(Exit) as raised:
+            self.detect_in(alone, strict=True, files=files)
+        self.assertEqual(raised.exception.code, 5)
 
     GIT = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t',
            'GIT_AUTHOR_DATE': '2026-01-01T00:00:00Z', 'GIT_COMMITTER_DATE': '2026-01-01T00:00:00Z'}
