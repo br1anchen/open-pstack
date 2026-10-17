@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import sys
@@ -13,6 +14,12 @@ from ..review import jq_raw
 from ..store import alt, event, pair_file, pair_json
 from ..wait import die_with_the_shell
 from .report import in_herdr
+
+def inside_substitution():
+    """True when this process is not the shell the command was started from: `pycore --exec` replaces that shell, so a rotate run as `$(cmd_rotate ...)`
+    (kitchen.sh rotate_if_due) is a subshell, where bash clears errexit, and a direct `pair.sh rotate` keeps the shell's pid."""
+    return os.getpid() != int(os.environ.get('PAIR_SHELL_PID') or os.getpid())
+
 
 TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
 
@@ -57,4 +64,5 @@ def rotate(ctx, args):
         raise Die(f'sidekick {name} is {status}; wait for its report and turn to end before rotating', 5)
     start_args = mapfile_args(section(pair_json(store), 'sidekick').get('start_args'))
     event(store, 'master', 'rotate', '-', f'generation:{field(store, "sidekick", "generation")}')
-    return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args)
+    return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args,
+                      errexit_off=inside_substitution())

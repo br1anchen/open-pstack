@@ -2944,6 +2944,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a start that succeeds anchored on the sidekick pane': run('--kind', 'codex', agents={'s1': 'idle claude'}, panes={'p0': 'm1', 'p1': 's1'},
                                                                       pair=pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p1'})),
             'a start whose anchor pane is gone': run('--kind', 'codex', agents={'s1': 'idle claude'}, pair=pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p9'})),
+            'a master that is a string': run('--kind', 'codex', pair=pair(master='x')),
+            'a master that is an array': run('--kind', 'codex', pair=pair(master=[1])),
             'a start that returns 4': run('--kind', 'codex', hook=None),
             'a start that returns 3': run('--kind', 'codex', promptfail=True),
             'a start that dies with 5': run('--kind', 'devin', '--', '--resume'),
@@ -2967,6 +2969,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotIn('escalate', '\n'.join(outcomes['a start that returns 4']['events']))
         self.assertEqual(outcomes['a start that returns 3']['rc'], 3)
         self.assertEqual(outcomes['a start that dies with 5']['rc'], 5)
+        # kitchen.sh consultant calls spawn_consultant as a plain command under set -e: a master that is not an object ends it at the anchor lookup,
+        # before any herdr call
+        for name in ('a master that is a string', 'a master that is an array'):
+            self.assertEqual((outcomes[name]['rc'], outcomes[name]['calls']), (5, ''), name)
+            self.assertIn('jq: error', outcomes[name]['stderr'], name)
         self.assertIn('failover: consultant pi -> codex', outcomes['the roster kind failing its preflight']['stdout'])
 
     SPAWN_CONSULTANT_FORMS = {
@@ -3228,6 +3235,8 @@ stop_prime_role "$store" sidekick && echo "stopped"
             'a spawn that returns 4': run(quiet),
             'a spawn that dies': run({**plain, 'fake': {'start-fail': ''}}),
             'a spawn that returns 3': run({**plain, 'promptfail': True}),
+            'a master that is a string': run({**plain, 'pair': {**plain['pair'], 'master': 'x'}}),
+            'a master that is an array': run({**plain, 'pair': {**plain['pair'], 'master': [1]}}),
             'a prime-agent sidekick': run(world('prime-agent')),
             'a prime-agent sidekick that is done': run({**world('prime-agent'), 'agents': {'s1': 'done prime-agent'}}),
             'a prime-agent sidekick already absent': run({**world('prime-agent'), 'agents': {}}),
@@ -3292,6 +3301,8 @@ stop_prime_role "$store" sidekick && echo "stopped"
         }
 
     ROTATE_EXPECT = {
+        # a jq that refuses the start's write ends a direct rotate (errexit on); inside kitchen.sh's $( ) it does not (the kitchen A/B below)
+        'a master that is a string': (5, 'Cannot index string with string ("permission_mode")'), 'a master that is an array': (5, 'Cannot index array with string ("permission_mode")'),
         'a rotation flag that is the string true': (0, 'devin:ready'), 'a tolerated agent_not_found and an agent that leaves': (3, 'master\trotate'),
         # the wrapper fails the bootstrap prompt of the spawn too, so a rotation that got past the exit ends in spawn_role's 3
         'a tolerated agent_prompt_stalled and an agent that leaves': (3, 'devin:failed'),
@@ -3371,6 +3382,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
         cases = {
             'a rotation that succeeds': base,
             'a rotation flag that is the string true': {**base, 'pair': {**base['pair'], 'sidekick': {**base['pair']['sidekick'], 'rotation_required': 'true'}}},
+            'a master that is a string': {**base, 'pair': {**base['pair'], 'master': 'x'}},
             'a rotation that is not due': {**base, 'pair': {**base['pair'], 'sidekick': {**base['pair']['sidekick'], 'rotation_required': False}}},
             'a kind that is not fresh per brief': {**base, 'agents': {'s1': 'idle claude'}, 'pair': {**base['pair'], 'sidekick': {**base['pair']['sidekick'], 'kind': 'claude'}}},
             'a rotation whose exit prompt fails': {**base, 'prompt_error': '{"error":{"code":"boom"}}\n'},
@@ -5146,7 +5158,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
             results = {}
             for name, tree in (('legacy', legacy), ('port', root)):
                 (st / 'status.md').unlink(missing_ok=True)
-                code, out, err = self.status_pair('pstack-pair', tree, 'status', str(st), keep_order=make_dir)
+                code, out, err = self.status_pair('pstack-pair', tree, 'status', str(st), keep_order=True)
                 saved = re.sub(r'generated: \S+', 'generated: T', (st / 'status.md').read_text()) if (st / 'status.md').exists() else None
                 results[name] = (code, out, err, saved)
             if make_dir:
@@ -5156,9 +5168,9 @@ stop_prime_role "$store" sidekick && echo "stopped"
                 # the characters of its stderr; the port's own lines are compared exactly, against the text they should be.
                 chars = lambda r: (r[0], r[1], sorted(''.join(r[2])), r[3])
                 self.assertEqual(chars(results['legacy']), chars(results['port']), label)
-                self.assertEqual(results['port'][2], sorted([f'tee: {st}/status.md: No such file or directory',
-                                                              f'pair.sh: no pair.json in {st}; run: pair.sh init <slug>',
-                                                              'jq: error: Could not open file : No such file or directory']), label)
+                self.assertEqual(results['port'][2], [f'tee: {st}/status.md: No such file or directory',
+                                                      f'pair.sh: no pair.json in {st}; run: pair.sh init <slug>',
+                                                      'jq: error: Could not open file : No such file or directory'], label)
             self.assertEqual(results['port'][3], results['port'][1] if make_dir else None, label)
             self.assertEqual(results['port'][0], 1 if not make_dir else 2)
             self.assertTrue(results['port'][1].startswith('# Pair status\n\ngenerated: T\n'), label)

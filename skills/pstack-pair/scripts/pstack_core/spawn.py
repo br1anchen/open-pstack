@@ -28,12 +28,15 @@ def section(pair, role):
     return value if isinstance(value, dict) else {}
 
 
-def field(store, role, key):
-    """jq -r '.role.key': a role that is not an object makes jq itself answer (its error on stderr, an empty value), as the bash did."""
+def field(store, role, key, check=False):
+    """jq -r '.role.key': a role that is not an object makes jq itself answer (its error on stderr, an empty value), as the bash did. With check,
+    that failure ends the command with jq's status, as a failing assignment does where the caller has errexit on."""
     value = pair_json(store).get(role)
     if value is None or isinstance(value, dict):
         return jq_raw((value or {}).get(key))
     r = subprocess.run(['jq', '-r', f'.{role}.{key}', f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
+    if check and r.returncode:
+        raise Exit(r.returncode)
     return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
 
 
@@ -82,7 +85,7 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
     return True
 
 
-def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, pane, args):
+def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, pane, args, errexit_off=True):
     master_mode = mode_of_this_shell(False)
     if not permission:
         permission = 'bypassPermissions' if kind == 'devin' else master_mode
@@ -165,7 +168,10 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
                      '--arg', 'role', role, '--arg', 'pane', pane, '--arg', 'kind', kind, '--arg', 'now', now, '--arg', 'perm', permission,
                      '--arg', 'mperm', master_mode, '--argjson', 'args', json.dumps(list(args), separators=(',', ':')))
     except Exit as e:
-        # the bash went on past a jq that refused the write (a master that is not an object): its error is printed and the start continues
+        if not errexit_off:
+            raise
+        # a jq that refuses the write (a master that is not an object): where the caller had errexit off (spawn, trio spawn, failover, a rotate inside
+        # $( )) the bash printed its error and the start went on; where it was on (a direct rotate, kitchen.sh consultant) the shell ended
         sys.stderr.write(e.stderr)
     if kind == 'prime-agent':
         update_role(store, role, {'session': None, 'session_stopped': False, 'closed': False, 'launch_cwd': cwd})
@@ -314,12 +320,12 @@ def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pan
     return spawn_role(ctx, store, 'sidekick', kind, permission, anchor, timeout, direction, pane, args)
 
 
-def spawn_consultant(ctx, store, kind, permission, timeout, args):
+def spawn_consultant(ctx, store, kind, permission, timeout, args, errexit_off=True):
     """The consultant splits from the sidekick's pane, so the master keeps its height; the master's pane when the sidekick's is gone."""
     anchor = jq_raw(alt(section(pair_json(store), 'sidekick').get('pane_id'), ''))
     if not anchor or herdr('pane', 'get', anchor)[0] != 0:
-        anchor = field(store, 'master', 'pane_id')
-    return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args)
+        anchor = field(store, 'master', 'pane_id', check=not errexit_off)
+    return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args, errexit_off)
 
 
 def entry_spawn_consultant(ctx, args):
@@ -327,4 +333,5 @@ def entry_spawn_consultant(ctx, args):
     die_with_the_shell()
     if len(args) < 4:
         raise Die('usage: __spawn_consultant <store> <kind> <permission> <timeout> [args...]')
-    return spawn_consultant(ctx, *args[:4], list(args[4:]))
+    # its one bash caller is kitchen.sh consultant, a plain command under set -e
+    return spawn_consultant(ctx, *args[:4], list(args[4:]), errexit_off=False)
