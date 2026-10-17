@@ -32,7 +32,7 @@ class Variant:
     commands = {}
 
     def report_ready(self, ctx, store, report):
-        """report_ready() in pair-core.sh. Only a done report is judged, and only the unit's own report:
+        """The pair's report readiness (report_ready in the bash before phase 3). Only a done report is judged, and only the unit's own report:
         the -sN and -qN reports answer a steer or a consult. Open blocking notes withhold it, and so does
         a head that predates the unit's last recorded step. A unit with no steps, or a head that does not
         resolve (older stores, fixtures), is judged on notes alone."""
@@ -85,7 +85,7 @@ class Variant:
 
 
 def steps_due_in(ctx, store, brief):
-    """steps_due() in pair-core.sh: a step landed that neither a note nor an earlier steps wake has covered."""
+    """Whether a step landed (steps_due in the bash before phase 3): a step landed that neither a note nor an earlier steps wake has covered."""
     from .replies import unreviewed_steps
     if unreviewed_steps(ctx, store) is None:
         return False

@@ -1323,6 +1323,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         ('a bootstrap that settles without it and a rate limit on screen', 'with an or'): (0, 'returned rc=4'),
     }
 
+    def test_the_spawn_role_slices_cover_every_case(self):
+        size, parts = 6, [int(m) for m in re.findall(r'test_spawn_role_matches_the_bash_at_the_phase_3_base_in_every_call_form_part_([0-9]+)', Path(__file__).read_text())]
+        self.assertEqual(sorted(set(parts)), list(range(len(set(parts)))))
+        self.assertGreaterEqual(len(set(parts)) * size, len(self.spawn_cases()), 'spawn_ab slices leave cases out: add a part')
+        self.assertLess((len(set(parts)) - 1) * size, len(self.spawn_cases()), 'a part has no case')
+
     def check_spawn_part(self, part):
         results = self.spawn_ab(part)
         for key, (code, needle) in self.SPAWN_EXPECT.items():
@@ -3043,8 +3049,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         """kitchen.sh's verifier cleanup (the lines of its verdict collection that stop a Prime verifier with `stop_prime_role ... || die ... 5` or
         exit any other kind and wait for it to go), cut out of kitchen.sh and run on its own against 04d2c13's helpers and the working tree's."""
         lines = (root / 'skills/pstack-kitchen/scripts/kitchen.sh').read_text().splitlines()
-        first = next(n for n, line in enumerate(lines) if line == '\tif [ "$kind" = prime-agent ]; then' and 'stop_prime_role "$store" verifier' in lines[n + 1])
-        last = next(n for n in range(first, len(lines)) if lines[n].startswith('\t[ "$kind" != prime-agent ] || json_update "$store" \'.verifier.closed = true\''))
+        first = next((n for n, line in enumerate(lines) if line == '\tif [ "$kind" = prime-agent ]; then' and 'stop_prime_role "$store" verifier' in lines[n + 1]), None)
+        self.assertIsNotNone(first, 'kitchen.sh no longer holds the lines `if [ "$kind" = prime-agent ]; then` / `stop_prime_role "$store" verifier`')
+        last = next((n for n in range(first, len(lines)) if lines[n].startswith('\t[ "$kind" != prime-agent ] || json_update "$store" \'.verifier.closed = true\'')), None)
+        self.assertIsNotNone(last, 'kitchen.sh no longer holds the line `[ "$kind" != prime-agent ] || json_update "$store" \'.verifier.closed = true\'`')
         cleanup = '\n'.join(lines[first:last + 1])
         self.assertIn('exit_command "$kind"', cleanup)
         verifier = {'kind': 'prime-agent', 'name': 'v1', 'pane_id': 'p2', 'session': {'kind': 'path', 'value': '/t/v.jsonl'}}

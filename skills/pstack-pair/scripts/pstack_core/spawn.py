@@ -202,7 +202,8 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
 
 
 def entry_spawn_role(ctx, args):
-    """__spawn_role store role kind permission anchor timeout direction pane [native args...]: the positional arguments the bash function takes."""
+    """__spawn_role store role kind permission anchor timeout direction pane [native args...]: the positional arguments the bash function took.
+    No production caller is left (spawn, rotate and failover call spawn_role directly); it stays as the seam the call-form A/B tests drive."""
     die_with_the_shell()
     if len(args) < 8:
         raise Die('usage: __spawn_role <store> <role> <kind> <permission> <anchor> <timeout> <direction> <pane> [args...]')

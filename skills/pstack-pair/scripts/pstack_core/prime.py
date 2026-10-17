@@ -1,5 +1,5 @@
 """Prime's daemon from the pair: the management commands that must use the launched client's socket, the live session a role owns, and
-the steer that reaches it. The bash versions stay in prime-agent.sh for stop_prime_role, which rotate and failover still use."""
+the steer that reaches it. stop_prime_role (exits.py) uses them."""
 import json
 import os
 import shutil

@@ -13,7 +13,7 @@ def fresh_per_brief(kind):
 
 
 def record_dispatch(store, brief, now=None):
-    """record_dispatch() in pair-core.sh: the dispatch, the sent message, the unit's base head, and the pending list."""
+    """The dispatch record (record_dispatch in the bash before phase 3): the dispatch, the sent message, the unit's base head, and the pending list."""
     old = expected_report(store, brief)
     seen = f'{old}:{int(os.stat(old).st_mtime)}' if os.path.isfile(old) else ''
     pair = pair_json(store)

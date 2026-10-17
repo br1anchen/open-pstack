@@ -1,5 +1,5 @@
 """Sending a message to the sidekick and, for a brief or a plan, waiting for the reply: the helpers behind dispatch and discuss, and
-send_and_wait itself. The bash versions stay for guided's answer, steer, stop and the trio's discuss."""
+send_and_wait itself. The commands built on them are in commands/."""
 import glob
 import os
 import signal
