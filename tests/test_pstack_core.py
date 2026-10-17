@@ -1625,7 +1625,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (top / 'prompt_error.txt').write_text(spec['prompt_error'])
             wrap = top / 'wrapprompt'
             wrap.mkdir()
-            (wrap / 'herdr').write_text(f'#!/bin/sh\nif [ "$1 $2" = "agent prompt" ]; then cat "{top}/prompt_error.txt" >&2; exit 1; fi\nexec {root / "tests/pstack-pair/bin/herdr"} "$@"\n')
+            # prompt_error_exits: the agent leaves although the prompt reports the error
+            if spec.get('prompt_error_exits'):
+                (top / 'prompt_exits').write_text('')
+            (wrap / 'herdr').write_text(f'#!/bin/sh\nif [ "$1 $2" = "agent prompt" ]; then cat "{top}/prompt_error.txt" >&2; [ ! -e "{top}/prompt_exits" ] || rm -f "$FAKE/agents/$3"; exit 1; fi\nexec {root / "tests/pstack-pair/bin/herdr"} "$@"\n')
             (wrap / 'herdr').chmod(0o755)
             env['PATH'] = f'{wrap}:{env["PATH"]}'
         if spec.get('hook'):
@@ -3102,6 +3105,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a kind that is not fresh per brief': run(world('claude')),
             'no rotation required': run(world(rotation_required=False)),
             'a rotation flag that is not true': run(world(rotation_required='yes')),
+            'a rotation flag that is the string true': run(world(rotation_required='true')),
             'no recorded start args': run(world(start_args=None)),
             'start args that are not an array': run(world(start_args='x')),
             'a paused run': {**run(plain), 'files': {'paused': 'lunch\n'}},
@@ -3114,6 +3118,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an idle devin whose start args hold an empty and a newline argument': run(world(start_args=['', 'x\ny', '--m'])),
             'an exit prompt that fails with a tolerated error, and an agent that stays': run({**plain, 'prompt_error': '{"error":{"code":"agent_not_found"}}\n', 'clock': True}),
             'an exit prompt that fails with a stalled prompt': run({**plain, 'prompt_error': '{"error":{"code":"agent_prompt_stalled"}}\n', 'clock': True}),
+            'a tolerated agent_not_found and an agent that leaves': run({**plain, 'prompt_error': '{"error":{"code":"agent_not_found"}}\n', 'prompt_error_exits': True}),
+            'a tolerated agent_prompt_stalled and an agent that leaves': run({**plain, 'prompt_error': '{"error":{"code":"agent_prompt_stalled"}}\n', 'prompt_error_exits': True}),
+            'a tolerated not_found and an agent that leaves': run({**plain, 'prompt_error': 'xx not_found yy\n', 'prompt_error_exits': True}),
+            'an untolerated error and an agent that leaves': run({**plain, 'prompt_error': '{"error":{"code":"boom"}}\n', 'prompt_error_exits': True}),
             'an exit prompt that fails with an untolerated error': run({**plain, 'prompt_error': '{"error":{"code":"boom"}}\n'}),
             'an exit prompt error that only contains a tolerated word': run({**plain, 'prompt_error': 'weird not_found text\n', 'clock': True}),
             'a sidekick that does not exit in time': run({**plain, 'prompt_error': '{"error":{"code":"not_found"}}\n', 'clock': True}),
@@ -3184,6 +3192,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         }
 
     ROTATE_EXPECT = {
+        'a rotation flag that is the string true': (0, 'devin:ready'), 'a tolerated agent_not_found and an agent that leaves': (3, 'master\trotate'),
+        # the wrapper fails the bootstrap prompt of the spawn too, so a rotation that got past the exit ends in spawn_role's 3
+        'a tolerated agent_prompt_stalled and an agent that leaves': (3, 'devin:failed'),
+        'a tolerated not_found and an agent that leaves': (3, 'master\trotate'), 'an untolerated error and an agent that leaves': (2, 'devin exit failed:'),
         'a kind that is not fresh per brief': (5, 'rotate is for a sidekick that starts fresh per brief'), 'no rotation required': (5, 'rotation requires a completed task'),
         'no recorded start args': (5, 'no recorded startup arguments'), 'a paused run': (5, 'the store is paused'), 'an idle devin': (0, 'devin:ready'),
         'a working devin': (5, 'sidekick s1 is working'), 'an exit prompt that fails with an untolerated error': (2, 'devin exit failed:'),
@@ -3258,6 +3270,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         base['env'] = {**base['env'], 'KITCHEN_QUIET_POLL_S': '0', 'KITCHEN_QUIET_MAX_S': '2'}
         cases = {
             'a rotation that succeeds': base,
+            'a rotation flag that is the string true': {**base, 'pair': {**base['pair'], 'sidekick': {**base['pair']['sidekick'], 'rotation_required': 'true'}}},
             'a rotation that is not due': {**base, 'pair': {**base['pair'], 'sidekick': {**base['pair']['sidekick'], 'rotation_required': False}}},
             'a kind that is not fresh per brief': {**base, 'agents': {'s1': 'idle claude'}, 'pair': {**base['pair'], 'sidekick': {**base['pair']['sidekick'], 'kind': 'claude'}}},
             'a rotation whose exit prompt fails': {**base, 'prompt_error': '{"error":{"code":"boom"}}\n'},

@@ -9,7 +9,8 @@ from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..gates import require_not_paused
 from ..herdr import agent_status
 from ..spawn import field, mapfile_args, section, spawn_role
-from ..store import event, pair_file, pair_json
+from ..review import jq_raw
+from ..store import alt, event, pair_file, pair_json
 from ..wait import die_with_the_shell
 from .report import in_herdr
 
@@ -29,7 +30,7 @@ def rotate(ctx, args):
     if not fresh_per_brief(kind):
         raise Die(f'rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not {kind}', 5)
     sidekick = section(pair_json(store), 'sidekick')
-    if sidekick.get('rotation_required') is not True:
+    if jq_raw(alt(sidekick.get('rotation_required'), False)) != 'true':
         raise Die('rotation requires a completed task; partial or blocked work keeps its session', 5)
     if not isinstance(sidekick.get('start_args'), list):
         raise Die('no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags', 5)
