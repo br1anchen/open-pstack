@@ -3422,6 +3422,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
         self.assertIn('are still running', ready['stdout'])
         self.assertEqual(ready['second'][0], 0)
         self.assertIn('verify: pass', ready['second'][1])
+        self.assertTrue(any(name.endswith('/rc') for name in ready['files']), 'the Verify job wrote no rc file inside the bounded poll: steps/jobs/*/rc is missing')
         self.assertTrue(any(name.endswith('/consumed') for name in ready['files']), 'the second finish took the first one\'s job')
         self.assertEqual(outcomes['an open blocking note']['rc'], 7)
         self.assertEqual(outcomes['a head older than the last step']['rc'], 7)
@@ -4609,6 +4610,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
         self.assertRegex((skills / 'pstack-pair/scripts/pair-core.sh').read_text(), r'(?m)^require_agreed_plan\(\) \{')
         extra = ''
         if skill in ('pstack-trio', 'pstack-kitchen'):
+            self.assertRegex((skills / 'pstack-trio/scripts/consultant-core.sh').read_text(), r'(?m)^plan_gate_extra\(\) \{')
             extra = f'. {skills / "pstack-trio/scripts/consultant-core.sh"}\n'
         elif skill == 'pstack-pair-guided':
             text = (skills / 'pstack-pair-guided/scripts/pair.sh').read_text()
@@ -5147,7 +5149,16 @@ stop_prime_role "$store" sidekick && echo "stopped"
                 code, out, err = self.status_pair('pstack-pair', tree, 'status', str(st), keep_order=make_dir)
                 saved = re.sub(r'generated: \S+', 'generated: T', (st / 'status.md').read_text()) if (st / 'status.md').exists() else None
                 results[name] = (code, out, err, saved)
-            self.assertEqual(results['legacy'], results['port'], label)
+            if make_dir:
+                self.assertEqual(results['legacy'], results['port'], label)
+            else:
+                # The legacy `{ ... } | tee` interleaves tee's error with the die mid-line under load, so the legacy side is compared with the port as
+                # the characters of its stderr; the port's own lines are compared exactly, against the text they should be.
+                chars = lambda r: (r[0], r[1], sorted(''.join(r[2])), r[3])
+                self.assertEqual(chars(results['legacy']), chars(results['port']), label)
+                self.assertEqual(results['port'][2], sorted([f'tee: {st}/status.md: No such file or directory',
+                                                              f'pair.sh: no pair.json in {st}; run: pair.sh init <slug>',
+                                                              'jq: error: Could not open file : No such file or directory']), label)
             self.assertEqual(results['port'][3], results['port'][1] if make_dir else None, label)
             self.assertEqual(results['port'][0], 1 if not make_dir else 2)
             self.assertTrue(results['port'][1].startswith('# Pair status\n\ngenerated: T\n'), label)
@@ -5625,8 +5636,20 @@ stop_prime_role "$store" sidekick && echo "stopped"
                 missing |= {(entry, name, definition.key) for name in definition.calls if name not in table}
             missing |= {(entry, name, '<top>') for name, _ in reach.roots[path] if name not in table}
         names = sorted({name for _, name, _ in missing})
-        known = {n for n in names if subprocess.run(['bash', '-c', 'type -t -- "$1"', 'x', n], capture_output=True, check=False).returncode == 0}
-        self.assertEqual(sorted(m for m in missing if m[1] not in known), [], 'calls to a name no definition, builtin or command provides')
+        # The fakes (herdr, ps, pi) come first on PATH, as in the other tests; a name that resolves to a file must be one of the external commands the
+        # scripts are known to call, so a typo that happens to match a binary on this host fails by name.
+        env = {**os.environ, 'PATH': f"{root / 'tests/pstack-pair/bin'}:{os.environ['PATH']}"}
+        kind = {n: subprocess.run(['bash', '-c', 'type -t -- "$1"', 'x', n], capture_output=True, text=True, check=False, env=env).stdout.strip() for n in names}
+        unknown = sorted(n for n in names if kind[n] == 'file' and n not in self.EXTERNAL_COMMANDS)
+        self.assertEqual(unknown, [], 'external commands not listed in EXTERNAL_COMMANDS (add a command the scripts really call, fix a typo otherwise)')
+        self.assertEqual(sorted(m for m in missing if not kind[m[1]]), [], 'calls to a name no definition, builtin or command provides')
+        absent = sorted(n for n in self.EXTERNAL_COMMANDS if not shutil.which(n, path=env['PATH']))
+        self.assertEqual(absent, [], 'EXTERNAL_COMMANDS names that do not resolve')
+
+    # the external commands the entry scripts call, written out; the fakes under tests/pstack-pair/bin stand in for herdr and ps
+    EXTERNAL_COMMANDS = frozenset((
+        'awk', 'basename', 'cat', 'cksum', 'column', 'cp', 'cut', 'date', 'dirname', 'find', 'git', 'grep', 'head', 'herdr', 'id', 'jq', 'ls', 'mkdir',
+        'mktemp', 'mv', 'paste', 'perl', 'ps', 'python3', 'readlink', 'rm', 'rmdir', 'sed', 'setsid', 'sleep', 'sort', 'stat', 'tail', 'tr'))
 
     def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
         reach = self.reach()
