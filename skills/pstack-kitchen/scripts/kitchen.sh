@@ -961,7 +961,7 @@ cmd_verify() {
 	name="$(field "$store" .verifier.name)"
 	anchor="$(field "$store" '.sidekick.pane_id // empty')"
 	[ -n "$anchor" ] && herdr pane get "$anchor" >/dev/null 2>&1 || anchor="$(field "$store" .master.pane_id)"
-	new_pane "$store" verifier "$anchor" "" "$scratch" >/dev/null
+	new_pane "$store" verifier "$anchor" "" "$scratch" PSTACK_KITCHEN_ROLE=verifier "PSTACK_KITCHEN_RUN=$(field "$store" .slug)" >/dev/null
 	pane="$new_pane_id"
 	local start_failed=0
 	herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 -- "${args[@]}" >/dev/null || start_failed=1

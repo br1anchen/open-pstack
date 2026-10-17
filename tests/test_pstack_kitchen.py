@@ -2656,6 +2656,26 @@ esac
         self.assertIn('--label demo-verifier --no-focus', calls)
         self.assertRegex(calls, r'pane close t\d')
 
+    ROLE_ENV = '--env PSTACK_KITCHEN_ROLE=verifier --env PSTACK_KITCHEN_RUN=demo'
+
+    def pane_calls(self, call):
+        return [l for l in (self.fake / 'calls.log').read_text().splitlines() if l.startswith(call)]
+
+    def test_the_verifier_pane_split_carries_the_role_and_run_but_the_sidekicks_does_not(self):
+        spawn_splits = self.pane_calls('pane split')
+        self.assertTrue(spawn_splits and not any('--env' in l for l in spawn_splits), spawn_splits)
+        self.verify_app_unit('clean', 0)
+        added = self.pane_calls('pane split')[len(spawn_splits):]
+        self.assertEqual([l.endswith(self.ROLE_ENV) for l in added], [True], added)
+
+    def test_the_verifier_tab_carries_the_role_and_run_under_tab_placement(self):
+        state = self.state()
+        state['placement'] = 'tab'
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.verify_app_unit('clean', 0)
+        tabs = self.pane_calls('tab create')
+        self.assertEqual([l.endswith(self.ROLE_ENV) for l in tabs], [True], tabs)
+
     def test_a_fix_is_verified_with_the_unit_it_fixes(self):
         first = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(first)

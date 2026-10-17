@@ -435,18 +435,21 @@ refuse_untrusted() { pycore __refuse_untrusted "$@" || exit $?; }
 # A new pane for a role: a split beside the anchor, or, with placement tab
 # (spawn --tab, or PSTACK_PLACEMENT=tab), a tab of its own in the master's
 # workspace, labelled with the role. Sets new_pane_id. $1 store, $2 role,
-# $3 anchor, $4 direction (empty picks one), $5 cwd.
+# $3 anchor, $4 direction (empty picks one), $5 cwd, $6... each KEY=VALUE
+# an --env for the launched process.
 new_pane() {
-	local store="$1" role="$2" anchor="$3" direction="$4" cwd="$5" master
+	local store="$1" role="$2" anchor="$3" direction="$4" cwd="$5" master env_args=() kv
+	shift 5
+	for kv in "$@"; do env_args+=(--env "$kv"); done
 	if [ "$(field "$store" '.placement // empty')" = tab ]; then
 		master="$(field "$store" .master.pane_id)"
-		new_pane_id="$(herdr tab create --workspace "${master%%:*}" --cwd "$cwd" --label "$(field "$store" .slug)-$role" --no-focus |
+		new_pane_id="$(herdr tab create --workspace "${master%%:*}" --cwd "$cwd" --label "$(field "$store" .slug)-$role" --no-focus "${env_args[@]}" |
 			jq -r '.result.root_pane.pane_id')"
 		[ -n "$new_pane_id" ] && [ "$new_pane_id" != null ] || die "tab create returned no pane id" 2
 		printf 'tab %s-%s -> %s\n' "$(field "$store" .slug)" "$role" "$new_pane_id"
 	else
 		[ -n "$direction" ] || direction="$(pick_direction "$anchor")"
-		new_pane_id="$(herdr pane split --pane "$anchor" --direction "$direction" --cwd "$cwd" --no-focus | jq -r '.result.pane.pane_id')"
+		new_pane_id="$(herdr pane split --pane "$anchor" --direction "$direction" --cwd "$cwd" --no-focus "${env_args[@]}" | jq -r '.result.pane.pane_id')"
 		[ -n "$new_pane_id" ] && [ "$new_pane_id" != null ] || die "pane split returned no pane id" 2
 		printf 'split %s %s -> %s\n' "$anchor" "$direction" "$new_pane_id"
 	fi

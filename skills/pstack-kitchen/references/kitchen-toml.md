@@ -105,7 +105,10 @@ machine apart. A repo's scripts should derive ports, data directories and
 emulator names from the (run, role) pair, since either one alone can collide
 (two runs share the role `verifier`). `kitchen.py` passes both through to the
 wrap, `setup` and gate commands without inferring or clearing them; the kitchen
-allocates no ports.
+allocates no ports. The verifier's pane itself starts with both variables set
+(`--env` on its `herdr pane split` or `tab create`), so a harness that starts a
+fresh shell for each command still has them; `init` refuses under
+`PSTACK_KITCHEN_ROLE=verifier`, because it would rename the verifier's pane.
 
 ## Globs
 

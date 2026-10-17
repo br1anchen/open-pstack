@@ -18,7 +18,8 @@ work?", and then your pane closes.
    worktree has none. Without that line, install what the commands need
    yourself. You share the machine with the sidekick, and other kitchens may
    run beside this one: export `PSTACK_KITCHEN_ROLE=verifier` and
-   `PSTACK_KITCHEN_RUN=<the packet's run>` (the packet's export line sets both)
+   `PSTACK_KITCHEN_RUN=<the packet's run>` (the packet's export line sets both;
+   your pane already starts with both set, and `init` refuses under the role)
    in every shell you run repo commands in, so the repo's scripts give you
    your own ports, emulators, and data, and stop every server, emulator, or
    process you start before step 7.
