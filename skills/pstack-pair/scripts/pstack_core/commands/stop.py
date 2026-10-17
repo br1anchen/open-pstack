@@ -1,0 +1,142 @@
+import glob
+import os
+import re
+import subprocess
+import sys
+import time
+
+from ..collate import glob_sorted
+from ..errors import Die, Exit
+from ..herdr import agent_status, herdr, pane_text
+from ..replies import file_mtime
+from ..review import jq_raw
+from ..store import alt, event, header_field, pair_json, update
+from ..wait import WaitResult, bash_sleep, finish_wait, tdiv, timeout_ms, wait_opts
+from .report import in_herdr, require_pair
+from .status import latest
+
+DEFAULT_TIMEOUT = '300000'
+
+
+def first_line(path):
+    """head -1 of a file, as a command substitution leaves it."""
+    with open(path, 'rb') as f:
+        return f.readline().decode('utf-8', 'surrogateescape').rstrip('\n')
+
+
+def stop_candidates(store, role):
+    """The stop-like reports (or advice) of the role on disk, as "path:mtime" rows."""
+    directory = 'advice' if role == 'consultant' else 'reports'
+    rows = []
+    for f in glob_sorted(glob.glob(os.path.join(glob.escape(store), directory, '[0-9][0-9][0-9]-*.md'))):
+        if not os.path.isfile(f):
+            continue
+        if not re.fullmatch(r'[0-9]{3}-stop\.md', os.path.basename(f)):
+            if 'STOP' not in first_line(f) and not re.search('stop', header_field(f, 'status'), re.IGNORECASE):
+                continue
+        rows.append(f'{f}:{file_mtime(f)}')
+    return rows
+
+
+def stop_written(store, role, before):
+    """True when the role wrote a stop report or advice since the snapshot `before` that stop_candidates took before the send. The role docs
+    name it NNN-stop.md, but Devin also writes NNN-<slug>-stop.md or NNN-<slug>-partial1.md, so any report counts when its heading says STOP in
+    capitals or its status mentions a stop; a slug that merely contains "stop" does not. Comparing against the snapshot, not the send time,
+    keeps a report from the same second and drops an older one."""
+    return any(row not in before for row in stop_candidates(store, role))
+
+
+def send_enter(name):
+    herdr('agent', 'send-keys', name, 'enter')
+
+
+def devin_send_now(store, role, name, text, before, deadline):
+    """Delivers a prompt already typed into a working Devin's input. Devin needs two Enters: one submits the text to its queue, the next sends
+    the queue now, cancelling the running command. The pane is watched instead of sleeping once: Enter while the text sits in the input box,
+    then Enter once it shows in the queue with the "send now" hint, which an older queued message alone does not satisfy. The watch ends early
+    once the stop report exists, and after 20 seconds or the caller's deadline, whichever comes first. When the pane never showed the text, one
+    Enter goes as a fallback. Returns False with a reason on stderr when delivery could not be confirmed."""
+    end = min(int(time.time()) + 20, deadline)
+    seen = False
+    while int(time.time()) < end:
+        if stop_written(store, role, before):
+            return True
+        screen = pane_text(name)
+        if f'❭ {text}' in screen:
+            seen = True
+            send_enter(name)
+        elif f'○ {text}' in screen and re.search(r'send queued messages now|↵ send now', screen, re.IGNORECASE):
+            send_enter(name)
+            return True
+        time.sleep(1)
+    if stop_written(store, role, before):
+        return True
+    if f'❭ {text}' in pane_text(name):
+        sys.stderr.write(f'{role}: STOP is still typed in the input box; read it: herdr agent read {name} --source visible\n')
+        return False
+    if not seen:
+        send_enter(name)
+        sys.stderr.write(f'{role}: STOP never showed in the pane; sent one Enter as a fallback\n')
+        return False
+    return True
+
+
+def role_value(store, role, key):
+    """field "$store" ".<role>.<key>", as jq -r prints it."""
+    section = pair_json(store).get(role)
+    return jq_raw(section.get(key) if isinstance(section, dict) else None)
+
+
+def stop_role(ctx, store, role, timeout):
+    """STOP for one role: (code, out, err). An idle agent gets it with a wait. A working one may settle its current turn before it reads STOP,
+    so the wait ends on its stop report or advice written after the send, not on a settle. A working Devin parks a mid-turn message as queued
+    until Enter is pressed, so Enter follows."""
+    name = role_value(store, role, 'name')
+    event(store, 'master', 'send-stop', '-', role)
+    text = f'{ctx.skill} STOP {store}'
+    if agent_status(name) == 'working':
+        epoch = int(time.time())
+        before = stop_candidates(store, role)
+        r = subprocess.run(['herdr', 'agent', 'prompt', name, text], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)
+        if r.returncode != 0:
+            return 2, '', r.stderr.decode('utf-8', 'surrogateescape').rstrip('\n')
+        deadline = epoch + tdiv(timeout_ms(timeout), 1000)
+        code, err = 0, ''
+        if role_value(store, role, 'kind') == 'devin':
+            devin_send_now(store, role, name, f'{ctx.skill} STOP', before, deadline)
+        while not stop_written(store, role, before):
+            if int(time.time()) >= deadline:
+                code, err = 1, '{"error":{"code":"timeout"}}'
+                break
+            bash_sleep(os.environ.get('PAIR_STOP_POLL_S') or '5')
+        return code, herdr('agent', 'get', name)[1].rstrip('\n'), err
+    r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--timeout', timeout], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    return (r.returncode, r.stdout.decode('utf-8', 'replace').rstrip('\n'), r.stderr.decode('utf-8', 'surrogateescape').rstrip('\n'))
+
+
+def clear_queue(store):
+    """rm -f "$store/queue" and json_update "$store" '.pending = []'."""
+    code = subprocess.run(['rm', '-f', f'{store}/queue'], check=False).returncode
+    if code:
+        raise Exit(code)
+    update(store, lambda doc: doc.__setitem__('pending', []))
+
+
+def stop(ctx, args):
+    in_herdr()
+    if not args:
+        raise Die('usage: pair.sh stop <store> [--timeout MS]')
+    store = args[0]
+    timeout, interval, _, rest = wait_opts(args[1:], DEFAULT_TIMEOUT)
+    if rest:
+        raise Die(f'unknown option {rest[0]}')
+    require_pair(store)
+    name = role_value(store, 'sidekick', 'name')
+    status = agent_status(name)
+    if status == 'absent':
+        raise Die(f'sidekick {name} is not live', 2)
+    if status == 'blocked':
+        raise Die(f'sidekick {name} is blocked; inspect it before stopping', 3)
+    clear_queue(store)
+    code, out, err = stop_role(ctx, store, 'sidekick', timeout)
+    return finish_wait(ctx, store, interval, WaitResult(code, out, err), 'any')

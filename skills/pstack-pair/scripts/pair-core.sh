@@ -1709,10 +1709,6 @@ wait_opts() {
 	checkin_interval_m=$((timeout / 60000))
 }
 
-no_extra_opts() {
-	[ "${#rest[@]}" -eq 0 ] || die "unknown option ${rest[0]}"
-}
-
 cmd_discuss() { pycore --exec discuss "$@"; }
 
 cmd_dispatch() { pycore --exec dispatch "$@"; }
@@ -2012,25 +2008,7 @@ stop_role() {
 	rm -f "$errfile"
 }
 
-cmd_stop() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh stop <store> [--timeout MS]"
-	local store="$1" timeout=300000 rest
-	shift
-	wait_opts "$@"
-	no_extra_opts
-	local name status out err code=0
-	name="$(field "$store" .sidekick.name)"
-	status="$(agent_status "$name")"
-	case "$status" in
-	absent) die "sidekick $name is not live" 2 ;;
-	blocked) die "sidekick $name is blocked; inspect it before stopping" 3 ;;
-	esac
-	rm -f "$store/queue"
-	json_update "$store" '.pending = []'
-	stop_role "$store" sidekick "$timeout"
-	finish_wait "$store" "$code" "$out" "$err" any
-}
+cmd_stop() { pycore stop "$@"; }
 
 cmd_progress() { pycore progress "$@"; }
 

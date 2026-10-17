@@ -505,6 +505,100 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                             str(scripts), *core_args(), 'resume', str(store)], capture_output=True, text=True, check=False, timeout=60)
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, f'resumed {store}\n', ''))
 
+    STOP_HOOK = ('#!/bin/sh\nst="$FAKE/../st"\ncase "$2" in *" STOP "*) %s ;; esac\nexit 0\n')
+
+    def stop_hook(self, name='001-stop.md', heading='Stop', status='partial', directory='reports'):
+        return self.STOP_HOOK % f'printf "# {heading}\\n\\nstatus: {status}\\n" >"$st/{directory}/{name}"'
+
+    def stop_cases(self):
+        """Cases for `stop` of the sidekick alone: the pair's and the guided pair's."""
+        fast = {'PAIR_STOP_POLL_S': '0.2'}
+        working = lambda kind='claude': {'s1': f'working {kind}'}
+        devin = dict(kind='devin', agents=working('devin'), env=fast)
+        run = ['stop', '{st}']
+        return {
+            'no arguments': dict(args=['stop']),
+            'an unknown option': dict(args=run + ['--force'], agents={'s1': 'idle claude'}),
+            'a timeout that is not a number': dict(args=run + ['--timeout', 'abc'], agents={'s1': 'idle claude'}),
+            '--timeout with no value': dict(args=run + ['--timeout'], agents={'s1': 'idle claude'}),
+            '--every with no value': dict(args=run + ['--every'], agents={'s1': 'idle claude'}),
+            '--every 2': dict(args=run + ['--every', '2'], agents={'s1': 'idle claude'}),
+            '--send-only is taken and ignored': dict(args=run + ['--send-only'], agents={'s1': 'idle claude'}),
+            'outside herdr': dict(args=run, env={'HERDR_ENV': '0'}, agents={'s1': 'idle claude'}),
+            'no pair.json': dict(args=run, nopair=True),
+            'the sidekick is absent': dict(args=run),
+            'the sidekick is blocked': dict(args=run, agents={'s1': 'blocked claude'}),
+            'an idle sidekick': dict(args=run, agents={'s1': 'idle claude'}),
+            'an idle sidekick that drops the prompt': dict(args=run, agents={'s1': 'idle claude'}, promptfail=True),
+            'an idle sidekick with a queue and pending briefs': dict(args=run, agents={'s1': 'idle claude'}, files={'queue': '{st}/briefs/002-y.md\n'},
+                                                                      pair={'pending': ['{st}/briefs/001-x.md']}),
+            'a done sidekick': dict(args=run, agents={'s1': 'done claude'}),
+            'a working sidekick that writes NNN-stop.md': dict(args=run, agents=working(), hook=self.stop_hook(), env=fast),
+            'a working sidekick that writes a stop report under another name': dict(args=run, agents=working(), env=fast,
+                                                                                    hook=self.stop_hook('001-land-partial1.md', 'partial (STOP)')),
+            'a working sidekick whose status says stopped': dict(args=run, agents=working(), env=fast,
+                                                                 hook=self.stop_hook('001-x-part.md', 'Partial', 'stopped-partial')),
+            'a working sidekick whose report has bus-stop in its slug': dict(args=run + ['--timeout', '2000'], agents=working(), env=fast,
+                                                                              hook=self.stop_hook('001-bus-stop.md', 'Report', 'partial')),
+            'a working sidekick that never writes it': dict(args=run + ['--timeout', '2000'], agents=working(), env=fast),
+            'a working sidekick and a prompt that fails': dict(args=run, agents=working(), promptfail=True, env=fast),
+            'a working sidekick with an older stop report on file': dict(args=run + ['--timeout', '2000'], agents=working(), env=fast,
+                                                                         files={'reports/001-stop.md': '# Stop\n\nstatus: partial\n'}),
+            'a working sidekick and a stop report that gets rewritten': dict(args=run, agents=working(), env=fast, hook=self.stop_hook(),
+                                                                              files={'reports/001-stop.md': '# Stop\n\nstatus: partial\n'}, mtimes={'reports/001-stop.md': 1_000_000_000}),
+            'a working devin whose input box holds the text': dict(devin, args=run, fake={'devin-input': ''}, hook=self.stop_hook()),
+            'a working devin with an older queued message': dict(devin, args=run, fake={'devin-input': '', 'queued/s1': 'an older steer'}, hook=self.stop_hook()),
+            'a working devin whose report lands at once': dict(devin, args=run, hook=self.stop_hook()),
+            'a working devin that never shows the text': dict(devin, args=run + ['--timeout', '3000']),
+            'a working devin and a stop under another name': dict(devin, args=run, fake={'devin-input': ''}, hook=self.stop_hook('001-land-partial1.md', 'partial (STOP)')),
+            'a working devin whose text stays typed': dict(devin, args=run + ['--timeout', '3000'], fake={'devin-input': '', 'typing/s1': 'pstack-pair STOP x'}),
+        }
+
+    def stop_ab_run(self, skill, group, cases=None):
+        """The stop cases of a group through one entry script, against the bash at the phase 3 base: the outcomes of the base."""
+        skills3 = self.phase3_skills()
+        mismatches, results = {}, {}
+        norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*(pair|consultant)-core\.sh', '<core>', text))
+        for name, spec in (cases or self.stop_cases()).items():
+            if not group(name):
+                continue
+            n = len(list(self.path.iterdir()))
+            want = self.ab_run(f'wb{n}', skills3, skill, spec)
+            got = self.ab_run(f'wp{n}', root / 'skills', skill, spec)
+            for side in (got, want):
+                side['stderr'] = norm_core(side['stderr'])
+                side['stdout'] = self.mask_minutes(side['stdout'])
+                side['calls'] = self.collapse_polls(side['calls'])
+            results[name] = want
+            if got != want:
+                mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
+        self.maxDiff = None
+        self.assertEqual(mismatches, {})
+        return results
+
+    def test_stop_matches_the_bash_at_the_phase_3_base_when_the_sidekick_is_not_working(self):
+        results = self.stop_ab_run('pstack-pair', lambda n: 'working' not in n)
+        rc = lambda name: results[name]['rc']
+        self.assertEqual((rc('the sidekick is absent'), rc('the sidekick is blocked'), rc('no arguments'), rc('no pair.json')), (2, 3, 1, 2))
+        self.assertEqual(rc('an idle sidekick'), 4)
+        self.assertIn('state: prompt_failed', results['an idle sidekick that drops the prompt']['stdout'])
+
+    def test_stop_matches_the_bash_at_the_phase_3_base_when_the_sidekick_is_working(self):
+        results = self.stop_ab_run('pstack-pair', lambda n: 'working sidekick' in n)
+        self.assertEqual(results['a working sidekick that writes NNN-stop.md']['rc'], 0)
+        self.assertIn('report: <T>/st/reports/001-land-partial1.md', results['a working sidekick that writes a stop report under another name']['stdout'])
+        self.assertEqual(results['a working sidekick that never writes it']['rc'], 4)
+        self.assertIn('report: missing', results['a working sidekick that never writes it']['stdout'])
+
+    def test_stop_matches_the_bash_at_the_phase_3_base_when_the_sidekick_is_a_working_devin(self):
+        results = self.stop_ab_run('pstack-pair', lambda n: 'working devin' in n)
+        self.assertEqual(results['a working devin whose input box holds the text']['rc'], 0)
+        self.assertIn('STOP never showed in the pane; sent one Enter as a fallback', results['a working devin that never shows the text']['stderr'])
+
+    def test_stop_matches_the_bash_at_the_phase_3_base_in_guided(self):
+        self.stop_ab_run('pstack-pair-guided', lambda n: n in ('an idle sidekick', 'the sidekick is blocked', 'the sidekick is absent', 'a working sidekick that writes NNN-stop.md',
+                                                               'a working devin whose input box holds the text'))
+
     def test_phase3_skills_extracts_the_bash_at_the_phase_3_base(self):
         core = self.phase3_skills() / 'pstack-pair/scripts/pair-core.sh'
         self.assertTrue(core.is_file())
@@ -762,6 +856,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (fake / 'busy' / 's1').write_text('')
         if spec.get('promptfail'):
             (fake / 'prompt-fail').write_text('')
+        for rel, text in spec.get('fake', {}).items():
+            (fake / rel).parent.mkdir(parents=True, exist_ok=True)
+            (fake / rel).write_text(text)
         (st / 'events.tsv').write_text('2026-01-01T00:00:00Z\t1\tmaster\tinit\t-\tbefore\n')
         return top, st, env, fill
 

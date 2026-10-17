@@ -1,7 +1,7 @@
 import sys
 
 from . import permission, wait
-from .commands import init, log, metrics, notes, pause, progress, queue, report, scratch, send, status, step, templates
+from .commands import init, log, metrics, notes, pause, progress, queue, report, scratch, send, status, step, stop, templates
 from .context import Context
 from .errors import Die, Exit
 
@@ -9,7 +9,7 @@ COMMANDS = {'init': init.run, 'log': log.run, 'new-plan': templates.new_plan, 'n
             'pause': pause.pause, 'resume': pause.resume, 'progress': progress.run,
             'notes': notes.notes, 'note': notes.note, 'new-note': notes.new_note, 'status': status.run, 'scratch': scratch.run, 'metrics': metrics.run,
             'dispatch': send.dispatch, 'discuss': send.discuss, 'queue': queue.queue, 'step': step.step, 'wait': wait.wait, 'finish': report.finish, 'notify': report.notify, 'report': report.report, 'next': report.next_brief,
-            'permission': permission.permission, '__detect_permission_mode': permission.helper}
+            'permission': permission.permission, 'stop': stop.stop, '__detect_permission_mode': permission.helper}
 
 # The commands a variant may replace whole. Only these names ask the variant (loading it), so every other command runs without it, and an
 # internal entry (a name starting with __) never goes through it.

@@ -172,11 +172,11 @@ def tdiv(a, b):
     return q if (a < 0) == (b < 0) else -q
 
 
-def core_line(text, after='wait_opts() {'):
-    """(path, line number) of the first line holding text in the function of pair-core.sh that starts with `after`, for the messages
-    bash prefixes to its errors. When the function no longer holds the text (its body moved into Python and it is a shim) the line is
-    the function's own definition; it is never 0 unless pair-core.sh has no such function."""
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pair-core.sh')
+def core_line(text, after='wait_opts() {', path=None):
+    """(path, line number) of the first line holding text in the function of pair-core.sh (or of the script at `path`) that starts with
+    `after`, for the messages bash prefixes to its errors. When the function no longer holds the text (its body moved into Python and it is a
+    shim) the line is the function's own definition; it is never 0 unless the script has no such function."""
+    path = path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pair-core.sh')
     definition = 0
     try:
         with open(path, encoding='utf-8') as f:
