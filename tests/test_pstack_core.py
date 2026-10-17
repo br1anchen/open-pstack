@@ -3000,6 +3000,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a stop that fails': dict(fake={'prime-stop-fail': ''}),
             'a daemon whose list fails': dict(fake={'prime-list-fail': ''}),
             'a daemon whose list fails after the stop': dict(fake={'prime-list-fail-after-stop': ''}),
+            'a daemon whose list holds a null row after the stop': dict(fake={'prime-list-null-after-stop': ''}),
             'a daemon whose list is not JSON after the stop': dict(fake={'prime-list-fail-after-stop': '', 'wrap-list': 'not json\n'}),
             'a pane whose shell never takes the foreground': dict(fake={'prime-client-stays': ''}, clock=True),
             'a pane whose shell never takes the foreground and an absent client': dict(**gone, fake={'prime-client-stays': ''}, clock=True),
@@ -3025,6 +3026,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('no live daemon session matches s1', out['no live session matches'][2])
         self.assertIn('is still active', out['a session that stays active'][2])
         self.assertIn('returned rc=1', out['a daemon whose list fails after the stop'][1])
+        self.assertEqual(out['a daemon whose list holds a null row after the stop'][1], 'after\n')
         self.assertIn('"stop"', out['a daemon whose list fails after the stop'][4])
         self.assertNotIn('"session_stopped"', out['a daemon whose list fails after the stop'][3])
         self.assertIn('Prime client has not exited in p1', out['a pane whose shell never takes the foreground'][2])
