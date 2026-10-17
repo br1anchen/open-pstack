@@ -778,35 +778,7 @@ cmd_rotate() {
 	spawn_role "$store" sidekick "$kind" none "$(field "$store" .master.pane_id)" 60000 "" "$(field "$store" .sidekick.pane_id)" "${args[@]}"
 }
 
-cmd_spawn() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]"
-	local store="$1" kind="" direction="" pane="" timeout=60000 permission="" fallback="" placement=""
-	local -a fallback_args=()
-	shift
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--kind) kind="$2"; shift 2 ;;
-		--fallback) fallback="$2"; shift 2 ;;
-		--fallback-arg) fallback_args+=("$2"); shift 2 ;;
-		--tab) placement="tab"; shift ;;
-		--split) placement="split"; shift ;;
-		--permission) permission="$2"; shift 2 ;;
-		--direction) direction="$2"; shift 2 ;;
-		--pane) pane="$2"; shift 2 ;;
-		--timeout) timeout="$2"; shift 2 ;;
-		--) shift; break ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	[ -n "$kind" ] || die "--kind is required (run: herdr agent, for the kind list)"
-	pair_file "$store" >/dev/null
-	set_placement "$store" "$placement"
-	record_fallback "$store" "$fallback" "${fallback_args[@]}"
-	local rc=0
-	spawn_sidekick "$store" "$kind" "$permission" "$(field "$store" .master.pane_id)" "$timeout" "$direction" "$pane" "$@" || rc=$?
-	exit "$rc"
-}
+cmd_spawn() { pycore --exec spawn "$@"; }
 
 new_from_template() {
 	# $1 store, $2 slug, $3 directory (plans|briefs), $4 template name

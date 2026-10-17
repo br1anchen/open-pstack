@@ -1,5 +1,7 @@
 """Starting a role's agent in a pane and bootstrapping it: spawn_role and the recovery of a bootstrap prompt that a first-run screen swallowed.
 Returns 0, 3 (the bootstrap did not settle) or 4 (it settled without the ready file); a die is a Die."""
+import io
+import json
 import os
 import re
 import subprocess
@@ -15,7 +17,7 @@ from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .review import jq_raw
 from .send import submit_typed, visible_without_blanks
-from .store import alt, event, pair_json, update
+from .store import alt, event, pair_json, update, update_or_jq
 from .wait import bash_sleep, die_with_the_shell
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
@@ -205,3 +207,82 @@ def entry_spawn_role(ctx, args):
     if len(args) < 8:
         raise Die('usage: __spawn_role <store> <role> <kind> <permission> <anchor> <timeout> <direction> <pane> [args...]')
     return spawn_role(ctx, *args[:8], list(args[8:]))
+
+
+def set_placement(store, want=''):
+    """How roles get their panes: --tab or --split from spawn, else what the store has, else PSTACK_PLACEMENT, else split."""
+    if not want and jq_raw(alt(pair_json(store).get('placement'), '')) == '':
+        want = os.environ.get('PSTACK_PLACEMENT') or 'split'
+    if not want:
+        return
+    if want not in ('split', 'tab'):
+        raise Die(f'placement must be split or tab, not {want}')
+
+    def mutate(doc):
+        doc['placement'] = want
+    update_or_jq(store, mutate, '.placement = $p', '--arg', 'p', want)
+
+
+def record_failover(store, source, target, reason):
+    """The sidekick's failover from one kind to another: .sidekick.failovers, the master's failover event, and the line it prints."""
+    now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+
+    def mutate(doc):
+        entry = doc.get('sidekick')
+        if entry is None:
+            entry = doc['sidekick'] = {}
+        current = alt(entry.get('failovers'), [])
+        if not isinstance(current, list):
+            raise TypeError('failovers is not an array')
+        entry['failovers'] = current + [{'from': source, 'to': target, 'reason': reason, 'at': now}]
+    update_or_jq(store, mutate, '.sidekick.failovers = ((.sidekick.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])',
+                 '--arg', 'from', source, '--arg', 'to', target, '--arg', 'why', reason, '--arg', 'now', now)
+    event(store, 'master', 'failover', '-', f'{source}:{target}')
+    print(f'failover: {source} -> {target} ({reason})')
+
+
+def record_fallback(store, kind, args):
+    """The sidekick's fallback from the spawn options; an empty kind keeps any recorded one."""
+    if not kind:
+        return
+
+    def mutate(doc):
+        entry = doc.get('sidekick')
+        if entry is None:
+            entry = doc['sidekick'] = {}
+        entry['fallback'] = {'kind': kind, 'args': list(args)}
+    update_or_jq(store, mutate, '.sidekick.fallback = {kind: $kind, args: $args}', '--arg', 'kind', kind, '--argjson', 'args', json.dumps(list(args), separators=(',', ':')))
+
+
+def fallback_args(fallback):
+    """mapfile -t of jq -r '.sidekick.fallback.args[]?': one argument per output line."""
+    values = fallback.get('args') if isinstance(fallback, dict) else None
+    values = values if isinstance(values, list) else list(values.values()) if isinstance(values, dict) else []
+    return ''.join(f'{jq_raw(v)}\n' for v in values).split('\n')[:-1]
+
+
+def preflight_reason(kind, args):
+    """(status, text): preflight_kind with its stderr captured, as `$(preflight_kind ... 2>&1)` leaves it."""
+    seen, sys.stderr = sys.stderr, io.StringIO()
+    try:
+        code = agents.preflight_kind(kind, args)
+        return code, sys.stderr.getvalue().rstrip('\n')
+    finally:
+        sys.stderr = seen
+
+
+def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pane, args):
+    """Starts the sidekick, or its recorded fallback when the kind's preflight fails. The fallback starts with its own recorded arguments and
+    its kind's default permission. A live sidekick skips the preflight. Returns spawn_role's 0, 3 or 4."""
+    if agents.has_preflight(kind) and agent_status(field(store, 'sidekick', 'name')) == 'absent':
+        code, reason = preflight_reason(kind, args)
+        if code != 0:
+            reason = f'preflight: {reason or "no answer"}'
+            sys.stderr.write(f'{kind} failed {reason}\n')
+            fallback = section(pair_json(store), 'sidekick').get('fallback')
+            name = jq_raw(alt(fallback.get('kind'), '')) if isinstance(fallback, dict) else ''
+            if not name or name == kind:
+                raise Die(f'no fallback recorded for a failed {kind}; pass --fallback KIND or fix the agent', 2)
+            record_failover(store, kind, name, reason)
+            return spawn_role(ctx, store, 'sidekick', name, '', anchor, timeout, direction, pane, fallback_args(fallback))
+    return spawn_role(ctx, store, 'sidekick', kind, permission, anchor, timeout, direction, pane, args)

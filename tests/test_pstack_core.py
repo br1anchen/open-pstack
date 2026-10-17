@@ -2612,13 +2612,23 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     ROSTER_TOML = ('[sidekick]\nkind = "claude"\nargs = ["--model", "m1"]\n\n[sidekick.fallback]\nkind = "devin"\nargs = ["--fb", "x"]\n')
 
+    def phase3_ab(self, label, skill, spec):
+        """One world run through 04d2c13's script and the working tree's, outcomes with the two trees' paths masked: (working tree, base)."""
+        bases = self.phase3_skills()
+        if skill == 'pstack-kitchen':
+            spec = {**spec, 'repo_files': {**spec.get('repo_files', {}), '.agents/kitchen.toml': self.KITCHEN_TOML}}
+        want = self.ab_run(f'{label}-base', bases, skill, spec)
+        got = self.ab_run(f'{label}-port', root / 'skills', skill, spec)
+        # the two trees sit at two paths (calls.log and pair.json name references/no-mcp.json under them)
+        mask = lambda o, tree: json.loads(json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>'))
+        return mask(got, root / 'skills'), mask(want, bases)
+
     def test_kitchen_spawn_matches_the_bash_at_the_phase_3_base(self):
         """kitchen.sh `spawn` (its bash wrapper over the captured pair command) at 04d2c13 and at the working tree, on the fake herdr: the roster's
         default kind, `--kind` over it, the roster's fallback, and `--tab`. Stdout, stderr, status, the store, events.tsv rows and calls.log."""
         hook = {'hook': self.READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300'}}
         roster = {'home/.config/pstack/kitchen.toml': (self.ROSTER_TOML, 0o644)}
-        base = dict(args=['spawn', '{st}'], repo_files={'.agents/kitchen.toml': self.KITCHEN_TOML}, topfiles=roster, **hook,
-                    pair={'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None}})
+        base = dict(args=['spawn', '{st}'], topfiles=roster, **hook, pair={'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None}})
         cases = {
             'the roster default kind': base,
             'the roster default kind and a trailing native arg': {**base, 'args': ['spawn', '{st}', '--', '--x']},
@@ -2631,12 +2641,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         }
         outcomes = {}
         for n, (name, spec) in enumerate(cases.items()):
-            bases = self.base_skills()
-            want = self.ab_run(f'kbase-{n}', bases, 'pstack-kitchen', spec)
-            got = self.ab_run(f'kport-{n}', root / 'skills', 'pstack-kitchen', spec)
-            # the two trees sit at two paths (calls.log and pair.json name references/no-mcp.json under them)
-            mask = lambda o, tree: json.loads(json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>'))
-            want, got = mask(want, bases), mask(got, root / 'skills')
+            got, want = self.phase3_ab(f'k{n}', 'pstack-kitchen', spec)
             self.maxDiff = None
             self.assertEqual(got, want, name)
             outcomes[name] = got
@@ -2646,6 +2651,118 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('"kind": "codex"', outcomes['--kind over the roster']['files']['pair.json'])
         self.assertIn('"kind": "devin"', outcomes['--kind equal to the roster kind takes its fallback']['files']['pair.json'])
         self.assertNotEqual(outcomes['an empty roster and no --kind']['rc'], 0)
+
+    def spawn_command_cases(self):
+        """Worlds for the spawn command (args after `spawn`): {name: spec}."""
+        hook = {'hook': self.READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}}
+        quiet = {'env': hook['env']}
+        side = lambda **kw: {'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None, **kw}}
+        base = dict(pair=side(), **hook)
+        run = lambda *a, **kw: {**base, 'args': ['spawn', '{st}', *a], **kw}
+        return {
+            'no arguments': {**base, 'args': ['spawn']},
+            'a missing --kind': run(),
+            'an unknown option': run('--bogus'),
+            'an unknown option after --kind': run('--kind', 'claude', '--bogus'),
+            'an unknown store': {**base, 'args': ['spawn', '{T}/nope', '--kind', 'claude']},
+            'a store without pair.json': {**base, 'nopair': True, 'args': ['spawn', '{st}', '--kind', 'claude']},
+            'a plain spawn': run('--kind', 'claude'),
+            '--tab': run('--kind', 'claude', '--tab', pair={**side(), 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}),
+            '--split after --tab': run('--kind', 'claude', '--tab', '--split'),
+            'a placement already recorded': run('--kind', 'claude', pair={**side(), 'placement': 'tab', 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}),
+            'a placement from the environment': run('--kind', 'claude', env={**hook['env'], 'PSTACK_PLACEMENT': 'tab'}),
+            'a bad placement from the environment': run('--kind', 'claude', env={**hook['env'], 'PSTACK_PLACEMENT': 'floating'}),
+            'a fallback with its arguments': run('--kind', 'claude', '--fallback', 'devin', '--fallback-arg', '--model', '--fallback-arg', 'a b'),
+            'a fallback with an empty and a newline argument': run('--kind', 'claude', '--fallback', 'devin', '--fallback-arg', '', '--fallback-arg', 'x\ny'),
+            'a fallback over a recorded one': run('--kind', 'claude', '--fallback', 'codex', pair=side(fallback={'kind': 'devin', 'args': ['x']})),
+            'native arguments': run('--kind', 'claude', '--', '--model', 'm', 'a b'),
+            'permission, direction, pane and timeout': run('--kind', 'claude', '--permission', 'plan', '--direction', 'down', '--timeout', '5000'),
+            'a pane given': run('--kind', 'claude', '--pane', 'p1', panes={'p1': ''}),
+            'a missing value': run('--kind'),
+            'a pi preflight that fails with no fallback': run('--kind', 'pi', fake={'pi-fail': 'quota exhausted\n'}),
+            'a pi preflight that fails with a fallback': run('--kind', 'pi', '--fallback', 'devin', '--fallback-arg', '--m', fake={'pi-fail': 'quota exhausted\n'}),
+            'a pi preflight that fails with the same fallback': run('--kind', 'pi', '--fallback', 'pi', fake={'pi-fail': 'quota exhausted\n'}),
+            'a pi preflight that fails with a fallback recorded earlier': run('--kind', 'pi', fake={'pi-fail': 'quota exhausted\n'}, pair=side(fallback={'kind': 'codex', 'args': ['-c', 'x=1']})),
+            'a pi preflight that fails with nothing to say': run('--kind', 'pi', '--fallback', 'devin', fake={'pi-reply': ''}),
+            'a pi preflight that passes': run('--kind', 'pi', '--fallback', 'devin'),
+            'a live sidekick skips the preflight': run('--kind', 'pi', '--fallback', 'devin', agents={'s1': 'idle pi'}, fake={'pi-fail': 'quota exhausted\n'}, pair=side(kind='pi', pane_id='p1')),
+            'a bootstrap that returns 4': {**run('--kind', 'claude'), 'hook': None, **quiet},
+            'a bootstrap that returns 3': run('--kind', 'claude', promptfail=True),
+            'a fallback that returns 4': {**run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}), 'hook': None, **quiet},
+        }
+
+    def spawn_command_part(self, skill, part, parts=3):
+        cases = list(self.spawn_command_cases().items())
+        outcomes = {}
+        for n, (name, spec) in enumerate(cases):
+            if n % parts == part:
+                got, want = self.phase3_ab(f'sc{n}', skill, spec)
+                self.maxDiff = None
+                if name == 'a missing value':
+                    # the bash's set -u names the file and line of `--kind "$2"`; the port names pair.sh
+                    self.assertRegex(want['stderr'], r'\$2: unbound variable')
+                    self.assertEqual((got['rc'], got['stdout'], got['stderr'].split(': ')[-1]), (want['rc'], want['stdout'], want['stderr'].split(': ')[-1]))
+                else:
+                    self.assertEqual(got, want, name)
+                outcomes[name] = got
+                if name in self.SPAWN_COMMAND_EXPECT and not (skill == 'pstack-kitchen' and name in ('a missing --kind', 'an unknown option', 'a bad placement from the environment')):
+                    code, needle = self.SPAWN_COMMAND_EXPECT[name]
+                    self.assertEqual(got['rc'], code, name)
+                    self.assertIn(needle, got['stdout'] + got['stderr'] + ' '.join(got['events']) + got['files']['pair.json'], name)
+        return outcomes
+
+    SPAWN_COMMAND_EXPECT = {
+        'a plain spawn': (0, 'claude:ready'), '--tab': (0, 'started in t0'), 'a bad placement from the environment': (1, 'placement must be split or tab, not floating'),
+        'a pi preflight that fails with no fallback': (2, 'no fallback recorded for a failed pi'), 'a pi preflight that fails with a fallback': (0, 'devin:ready'),
+        'a pi preflight that fails with a fallback recorded earlier': (0, 'codex:ready'), 'a live sidekick skips the preflight': (0, 'already live (idle) in p1'),
+        'a bootstrap that returns 4': (4, 'claude:unready'), 'a bootstrap that returns 3': (3, 'claude:failed'), 'a fallback that returns 4': (4, 'devin:unready'),
+        'an unknown option': (1, 'unknown option --bogus'), 'a missing --kind': (1, '--kind is required')}
+
+
+    def test_spawn_command_through_pair_matches_the_bash_at_the_phase_3_base_part_0(self):
+        out = self.spawn_command_part('pstack-pair', 0)
+        if 0 == 0:
+            self.assertEqual(out['a plain spawn']['rc'], 0)
+
+    def test_spawn_command_through_pair_matches_the_bash_at_the_phase_3_base_part_1(self):
+        out = self.spawn_command_part('pstack-pair', 1)
+        if 1 == 0:
+            self.assertEqual(out['a plain spawn']['rc'], 0)
+
+    def test_spawn_command_through_pair_matches_the_bash_at_the_phase_3_base_part_2(self):
+        out = self.spawn_command_part('pstack-pair', 2)
+        if 2 == 0:
+            self.assertEqual(out['a plain spawn']['rc'], 0)
+
+    def test_spawn_command_through_guided_matches_the_bash_at_the_phase_3_base_part_0(self):
+        out = self.spawn_command_part('pstack-pair-guided', 0)
+        if 0 == 0:
+            self.assertEqual(out['a plain spawn']['rc'], 0)
+
+    def test_spawn_command_through_guided_matches_the_bash_at_the_phase_3_base_part_1(self):
+        out = self.spawn_command_part('pstack-pair-guided', 1)
+        if 1 == 0:
+            self.assertEqual(out['a plain spawn']['rc'], 0)
+
+    def test_spawn_command_through_guided_matches_the_bash_at_the_phase_3_base_part_2(self):
+        out = self.spawn_command_part('pstack-pair-guided', 2)
+        if 2 == 0:
+            self.assertEqual(out['a plain spawn']['rc'], 0)
+
+    def test_spawn_command_through_kitchen_matches_the_bash_at_the_phase_3_base_part_0(self):
+        out = self.spawn_command_part('pstack-kitchen', 0)
+        if 0 == 0:
+            self.assertEqual(out['a plain spawn']['rc'], 0)
+
+    def test_spawn_command_through_kitchen_matches_the_bash_at_the_phase_3_base_part_1(self):
+        out = self.spawn_command_part('pstack-kitchen', 1)
+        if 1 == 0:
+            self.assertEqual(out['a plain spawn']['rc'], 0)
+
+    def test_spawn_command_through_kitchen_matches_the_bash_at_the_phase_3_base_part_2(self):
+        out = self.spawn_command_part('pstack-kitchen', 2)
+        if 2 == 0:
+            self.assertEqual(out['a plain spawn']['rc'], 0)
 
     def test_send_ab_kitchen_dispatch_and_routine_discuss(self):
         toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
