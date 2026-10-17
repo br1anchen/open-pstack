@@ -17,11 +17,13 @@ PERL_TIMEOUT = ('my $s = shift; my $p = fork // die "fork: $!\n";\n'
                 'alarm $s; waitpid $p, 0; exit($? & 127 ? 128 + ($? & 127) : $? >> 8)')
 
 
-def with_timeout(seconds, argv):
-    """with_timeout: timeout(1) where coreutils has it, else perl with the same contract (exit 124 when the command runs out)."""
+def with_timeout(seconds, argv, **kwargs):
+    """with_timeout: timeout(1) where coreutils has it, else perl with the same contract (exit 124 when the command runs out). Keyword
+    arguments go to subprocess.run; stdout is a pipe unless given."""
+    kwargs.setdefault('stdout', subprocess.PIPE)
     if shutil.which('timeout'):
-        return subprocess.run(['timeout', seconds, *argv], stdout=subprocess.PIPE, check=False)
-    return subprocess.run(['perl', '-e', PERL_TIMEOUT, seconds, *argv], stdout=subprocess.PIPE, check=False)
+        return subprocess.run(['timeout', seconds, *argv], check=False, **kwargs)
+    return subprocess.run(['perl', '-e', PERL_TIMEOUT, seconds, *argv], check=False, **kwargs)
 
 
 def section(pair, role):

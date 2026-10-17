@@ -530,57 +530,17 @@ detect_permission_mode() { pycore __detect_permission_mode; }
 
 # Native arguments that give an agent of KIND the permission MODE. Empty for
 # kinds without a known translation; pass native flags after -- for those.
-permission_args() {
-	local kind="$1" mode="$2"
-	case "$kind" in
-	claude) printf -- '--permission-mode\n%s\n' "$mode" ;;
-	devin)
-		# devin: auto approves read-only tools, smart lets a fast model judge the rest.
-		case "$mode" in
-		bypassPermissions | dontAsk) printf -- '--permission-mode\ndangerous\n' ;;
-		acceptEdits) printf -- '--permission-mode\naccept-edits\n' ;;
-		plan) printf -- '--permission-mode\nauto\n' ;;
-		*) printf -- '--permission-mode\nsmart\n' ;;
-		esac
-		;;
-	muse)
-		# Muse sandboxes its shell to the workspace by default, which would
-		# refuse the role's writes to the run store and the gates' own
-		# caches; approvals off keeps an unattended role from blocking.
-		case "$mode" in
-		bypassPermissions) printf -- '--yolo\n' ;;
-		plan) printf -- '--approval-mode\nnever\n--disable-write\n' ;;
-		*) printf -- '--approval-mode\nnever\n--disable-sandbox\n' ;;
-		esac
-		;;
-	codex)
-		case "$mode" in
-		bypassPermissions) printf -- '--dangerously-bypass-approvals-and-sandbox\n' ;;
-		dontAsk) printf -- '-a\nnever\n-s\nworkspace-write\n' ;;
-		plan) printf -- '-a\non-request\n-s\nread-only\n' ;;
-		*) printf -- '-a\non-request\n-s\nworkspace-write\n' ;;
-		esac
-		;;
-	esac
-}
+permission_args() { pycore __permission_args "$@"; }
 
 # Pi and Prime ask before no tool call, so they need no permission arguments;
 # they cannot enforce read-only execution, so plan stays untranslated.
-asks_no_approvals() {
-	case "$1" in pi | prime-agent) [ "$2" != plan ] ;; *) return 1 ;; esac
-}
+asks_no_approvals() { pycore __asks_no_approvals "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
 
 # Native arguments that skip the kind's prompt to trust the working folder.
 # The prompt appears in any folder the agent has not seen (pi: any repo with
 # .agents/skills), would hang an unattended agent, and eats the bootstrap's
 # Enter. The master already works in that folder.
-trust_args() {
-	case "$1" in
-	pi) printf -- '--approve\n' ;;
-	devin) printf -- '--respect-workspace-trust\nfalse\n' ;;
-	muse) printf -- '--trust-workspace\n' ;;
-	esac
-}
+trust_args() { pycore __trust_args "$@"; }
 
 # A spawned agent needs none of the human's MCP servers, and each one is a
 # process per session: the Railway server alone held 150-250 MB in every
@@ -593,53 +553,15 @@ trust_args() {
 # plugins), and each server `codex mcp list` reports in $2 (the agent's
 # working directory: a repo can add its own) is turned off by name. A name
 # that is not a bare TOML key is left on, since Codex rejects a quoted one.
-mcp_args() {
-	local name
-	case "$1" in
-	claude) printf -- '--strict-mcp-config\n--mcp-config\n%s\n' "$pair_core_dir/../references/no-mcp.json" ;;
-	codex)
-		printf -- '--disable\nplugins\n'
-		{ (cd "${2:-.}" 2>/dev/null && with_timeout 20 codex mcp list --json </dev/null 2>/dev/null) || true; } |
-			jq -r '.[]? | select(.enabled != false) | .name' 2>/dev/null |
-			while IFS= read -r name; do
-				[[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] && printf -- '-c\nmcp_servers.%s.enabled=false\n' "$name"
-			done ;;
-	esac
-}
+mcp_args() { pycore __mcp_args "$@"; }
 
-has_mcp_arg() {
-	local a
-	for a in "$@"; do
-		case "$a" in --mcp-config | --mcp-config=* | --strict-mcp-config | mcp_servers.* | --config=mcp_servers.*) return 0 ;; esac
-	done
-	return 1
-}
+has_mcp_arg() { pycore __has_mcp_arg "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
 
 # True when the native arguments already decide folder trust.
-has_trust_arg() {
-	local arg
-	for arg in "$@"; do
-		case "$arg" in
-		--approve | --no-approve | -na | --respect-workspace-trust | --respect-workspace-trust=* | --trust-workspace | --yolo) return 0 ;;
-		esac
-	done
-	return 1
-}
+has_trust_arg() { pycore __has_trust_arg "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
 
 # True when the caller's native arguments already set a permission policy.
-has_permission_arg() {
-	local arg
-	for arg in "$@"; do
-		case "$arg" in
-		--permission-mode | --permission-mode=* | --dangerously-skip-permissions | --allow-dangerously-skip-permissions | \
-			-a | --ask-for-approval | --ask-for-approval=* | -s | --sandbox | --sandbox=* | --dangerously-bypass-approvals-and-sandbox | \
-			--approval-mode | --approval-mode=* | --yolo | --disable-approval | --disable-sandbox | --permission-profile | --permission-profile=*)
-			return 0
-			;;
-		esac
-	done
-	return 1
-}
+has_permission_arg() { pycore __has_permission_arg "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
 
 cmd_permission() { pycore permission "$@"; }
 

@@ -998,6 +998,79 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         results = self.stop_ab_run('pstack-kitchen', lambda n: True, specs)
         self.assertIn('steps: 1 to review on 001-x', results['an escalated unit with steps to review']['stdout'])
 
+    def leaf_both(self, label, bash_snippet, python_snippet, **spec):
+        """A bash helper of the 04d2c13 core (sourced under set -euo pipefail) against its Python twin in a fresh interpreter, on identical
+        worlds with the fake agents on PATH: (exit code, stdout, stderr, the fakes' logs). The skills directories and the world's directory
+        are masked; so is the scratch directory a Prime preflight makes."""
+        results = []
+        for side in ('bash', 'py'):
+            top, st, env, fill = self.ab_world(f'{label}-{side}', {'master': None, **spec})
+            skills = self.phase3_skills() if side == 'bash' else root / 'skills'
+            if side == 'bash':
+                script = (f'set -euo pipefail\nskill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
+                          f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
+                argv = ['bash', '-c', script]
+            else:
+                code = f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents\n{python_snippet}'
+                argv = [sys.executable, '-I', '-c', code]
+            r = subprocess.run(argv, cwd=top / 'repo', env=env, capture_output=True, text=True, check=False, timeout=120)
+            norm = lambda text: re.sub(r'--cwd \S+', '--cwd <SCRATCH>', text.replace(str(top), '<T>').replace(str(self.phase3_skills()), '<SK>').replace(str(root / 'skills'), '<SK>'))
+            logs = {f.name: norm(f.read_text()) for f in sorted((top / 'fake').glob('*.log'))}
+            results.append((r.returncode, norm(r.stdout), norm(r.stderr), logs))
+        self.assertEqual(results[0], results[1], label)
+        return results[1]
+
+    LEAF_KINDS = ('claude', 'codex', 'pi', 'devin', 'muse', 'prime-agent', 'grok', 'nobody', '')
+    LEAF_MODES = ('auto', 'acceptEdits', 'bypassPermissions', 'manual', 'dontAsk', 'plan', 'none', 'whatever', '')
+
+    def test_permission_trust_and_approval_helpers_match_the_bash_at_the_phase_3_base(self):
+        pairs = [(k, m) for k in self.LEAF_KINDS for m in self.LEAF_MODES]
+        bash = ''.join(f'echo "== {k} {m}"; permission_args {shlex.quote(k)} {shlex.quote(m)}; echo "rc=$?"; asks_no_approvals {shlex.quote(k)} {shlex.quote(m)}; echo "asks=$?"\n' for k, m in pairs)
+        bash += ''.join(f'echo "== trust {k}"; trust_args {shlex.quote(k)}; echo "rc=$?"\n' for k in self.LEAF_KINDS)
+        py = (f'for k, m in {pairs!r}:\n    print(f"== {{k}} {{m}}")\n    sys.stdout.write(agents.lines(agents.permission_args(k, m)))\n    print("rc=0")\n'
+              f'    print(f"asks={{agents.status(agents.asks_no_approvals(k, m))}}")\n'
+              f'for k in {self.LEAF_KINDS!r}:\n    print(f"== trust {{k}}")\n    sys.stdout.write(agents.lines(agents.trust_args(k)))\n    print("rc=0")\n')
+        out = self.leaf_both('leaf-perm', bash, py)
+        self.assertIn('== devin plan\n--permission-mode\nauto\nrc=0', out[1])
+        self.assertIn('== codex dontAsk\n-a\nnever\n-s\nworkspace-write\nrc=0', out[1])
+        self.assertIn('== pi plan\nrc=0\nasks=1', out[1])
+
+    def test_the_has_helpers_match_the_bash_at_the_phase_3_base(self):
+        argvs = [[], ['--'], ['x'], ['--mcp-config'], ['--mcp-config=x.json'], ['--mcp-config', 'x'], ['--strict-mcp-config'], ['mcp_servers.a.enabled=false'],
+                 ['-c', 'mcp_servers.a.enabled=false'], ['--config=mcp_servers.a'], ['--config', 'mcp_servers.a'], ['--', '--mcp-config'], ['--mcp-configx'],
+                 ['--approve'], ['--no-approve'], ['-na'], ['--respect-workspace-trust'], ['--respect-workspace-trust=false'], ['--respect-workspace-trust', 'false'],
+                 ['--trust-workspace'], ['--yolo'], ['--approvex'], ['--permission-mode'], ['--permission-mode=plan'], ['--permission-mode', 'plan'],
+                 ['--dangerously-skip-permissions'], ['--allow-dangerously-skip-permissions'], ['-a'], ['-a', 'never'], ['--ask-for-approval'], ['--ask-for-approval=never'],
+                 ['-s'], ['--sandbox'], ['--sandbox=read-only'], ['--dangerously-bypass-approvals-and-sandbox'], ['--approval-mode'], ['--approval-mode=never'],
+                 ['--disable-approval'], ['--disable-sandbox'], ['--permission-profile'], ['--permission-profile=x'], ['-p', '--model', 'm'], [''], ['a b', '--yolo'], ['--', 'x', '--approve']]
+        names = ('has_mcp_arg', 'has_trust_arg', 'has_permission_arg')
+        bash = ''.join(f'{n} {shlex.join(a)}; echo "{n} {a!r} $?"\n' for n in names for a in argvs)
+        py = (f'for n, a in {[(n, a) for n in names for a in argvs]!r}:\n    print(f"{{n}} {{a!r}} {{agents.status(getattr(agents, n)(a))}}")\n')
+        out = self.leaf_both('leaf-has', bash, py)
+        self.assertIn("has_mcp_arg ['--mcp-config=x.json'] 0", out[1])
+        self.assertIn("has_permission_arg ['--', '--mcp-config'] 1", out[1])
+
+    def test_mcp_args_match_the_bash_at_the_phase_3_base(self):
+        servers = lambda *items: {'codex-mcp.json': json.dumps(list(items)) + '\n'}
+        cases = {
+            'claude': ('claude', {}),
+            'codex with no servers': ('codex', {}),
+            'codex with servers': ('codex', servers({'name': 'github', 'enabled': True}, {'name': 'docs'}, {'name': 'old', 'enabled': False})),
+            'codex with names the filter refuses': ('codex', servers({'name': 'ok_1-b'}, {'name': 'not ok'}, {'name': 'x;y'}, {'name': ''}, {'name': 5}, {})),
+            'codex with a null and a string in the list': ('codex', servers({'name': 'a'}, None, {'name': 'b'}, 'str', {'name': 'c'})),
+            'codex with an object instead of a list': ('codex', {'codex-mcp.json': '{"x": {"name": "viaobject"}, "y": {"name": "other", "enabled": false}}\n'}),
+            'codex with output that is not JSON': ('codex', {'codex-mcp.json': 'oops\n'}),
+            'codex with a name that spans lines': ('codex', servers({'name': 'a\nb'})),
+            'pi': ('pi', {}), 'devin': ('devin', {}), 'an unknown kind': ('x', {})}
+        for label, (kind, fake) in cases.items():
+            bash = f'mcp_args {kind} "$PWD"; echo "rc=$?"'
+            py = f'import os\nargs, code = agents.mcp_args({kind!r}, os.getcwd())\nsys.stdout.write(agents.lines(args))\nprint(f"rc={{code}}")'
+            out = self.leaf_both('leaf-mcp-' + re.sub(r'\W+', '-', label), bash, py, fake=fake)
+        self.assertEqual(self.leaf_both('leaf-mcp-claude-path', 'mcp_args claude', 'sys.stdout.write(agents.lines(agents.mcp_args("claude")[0]))')[1],
+                         '--strict-mcp-config\n--mcp-config\n<SK>/pstack-pair/scripts/../references/no-mcp.json\n')
+        self.assertIn('-c\nmcp_servers.github.enabled=false\n', self.leaf_both('leaf-mcp-names', 'mcp_args codex "$PWD"', 'import os\nsys.stdout.write(agents.lines(agents.mcp_args("codex", os.getcwd())[0]))',
+                                                                                 fake=servers({'name': 'github'}))[1])
+
     def test_phase3_skills_extracts_the_bash_at_the_phase_3_base(self):
         core = self.phase3_skills() / 'pstack-pair/scripts/pair-core.sh'
         self.assertTrue(core.is_file())
