@@ -37,13 +37,14 @@ pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=prime-agent.sh
 . "$pair_core_dir/prime-agent.sh"
 
-# Run a command in the Python core. The variant's globals travel as argv.
+# Run a command in the Python core. The variant's globals travel as argv, and
+# the pid of this shell as PAIR_SHELL_PID ($$ is the main shell inside $( ) too).
 # With --exec first, Python replaces the shell, so a signal sent to the command's
 # process reaches the Python code (wait uses it: it must stop when it is stopped).
 pycore() {
 	local run=()
 	[ "${1:-}" != --exec ] || { run=(exec); shift; }
-	${run[@]+"${run[@]}"} python3 -I "$pair_core_dir/pair.py" --skill "$PAIR_SKILL" --skill-root "$skill_root" \
+	PAIR_SHELL_PID=$$ ${run[@]+"${run[@]}"} python3 -I "$pair_core_dir/pair.py" --skill "$PAIR_SKILL" --skill-root "$skill_root" \
 		--state-root "$state_root" --store-label "$store_label" --roles "${roles[*]}" \
 		--store-dirs "${store_dirs[*]}" --slug-max "$slug_max" --unfilled-re "$unfilled_re" -- "$@"
 }
@@ -1077,56 +1078,7 @@ cmd_init() {
 # Sources in order: the launching command line of the agent process above this
 # shell, the current Claude session transcript (a mode toggled at runtime lands
 # there), settings defaultMode, then auto.
-detect_permission_mode() {
-	local pid=$$ ppid comm args depth=0 mode=""
-	while [ "$pid" -gt 1 ] && [ "$depth" -lt 12 ]; do
-		ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')" || break
-		[ -n "$ppid" ] || break
-		comm="$(basename "$(ps -o comm= -p "$pid" 2>/dev/null)")"
-		args="$(ps -o args= -p "$pid" 2>/dev/null)"
-		# Match the agent executable itself, never a shell whose command text
-		# happens to mention a flag.
-		case "$comm" in
-		node | bun) case "$args" in *claude*) comm=claude ;; *codex*) comm=codex ;; esac ;;
-		esac
-		case "$comm" in
-		claude)
-			case "$args" in
-			*--dangerously-skip-permissions*) mode=bypassPermissions ;;
-			*--permission-mode*) mode="$(printf '%s' "$args" | sed -nE 's/.*--permission-mode[= ]([A-Za-z]+).*/\1/p')" ;;
-			esac
-			break
-			;;
-		codex)
-			case "$args" in
-			*--dangerously-bypass-approvals-and-sandbox*) mode=bypassPermissions ;;
-			*"-a never"* | *"--ask-for-approval never"* | *"--ask-for-approval=never"*) mode=dontAsk ;;
-			*"-a on-request"* | *"--ask-for-approval on-request"* | *"--ask-for-approval=on-request"*) mode=auto ;;
-			esac
-			break
-			;;
-		esac
-		pid="$ppid"
-		depth=$((depth + 1))
-	done
-	if [ -z "$mode" ] && [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
-		local slug transcript
-		slug="$(printf '%s' "$PWD" | sed 's#[/.]#-#g')"
-		transcript="$HOME/.claude/projects/$slug/$CLAUDE_CODE_SESSION_ID.jsonl"
-		if [ -f "$transcript" ]; then
-			mode="$(grep -o '"permissionMode":"[A-Za-z]*"' "$transcript" | tail -1 | sed -E 's/.*:"([A-Za-z]+)"/\1/')"
-		fi
-	fi
-	if [ -z "$mode" ]; then
-		local f
-		for f in "$PWD/.claude/settings.local.json" "$PWD/.claude/settings.json" "$HOME/.claude/settings.local.json" "$HOME/.claude/settings.json"; do
-			[ -f "$f" ] || continue
-			mode="$(jq -r '.permissions.defaultMode // empty' "$f" 2>/dev/null)"
-			[ -n "$mode" ] && break
-		done
-	fi
-	printf '%s\n' "${mode:-auto}"
-}
+detect_permission_mode() { pycore __detect_permission_mode; }
 
 # Native arguments that give an agent of KIND the permission MODE. Empty for
 # kinds without a known translation; pass native flags after -- for those.
@@ -1241,9 +1193,7 @@ has_permission_arg() {
 	return 1
 }
 
-cmd_permission() {
-	detect_permission_mode
-}
+cmd_permission() { pycore permission "$@"; }
 
 pick_direction() {
 	# Cells are about twice as tall as wide: a pane is visually wider than tall

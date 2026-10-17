@@ -395,6 +395,129 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.detect_in(alone, strict=True, files=files)
         self.assertEqual(raised.exception.code, 5)
 
+    def perm_world(self, label, spec):
+        """A shell with a chain of processes above it (a fake ps table), a HOME, a cwd with settings files and maybe a transcript."""
+        top = self.path / label
+        home, cwd = top / 'home', top / 'cwd'
+        for d in (home / '.claude', cwd / '.claude'):
+            d.mkdir(parents=True)
+        for rel, text in spec.get('files', {}).items():
+            (top / rel).parent.mkdir(parents=True, exist_ok=True)
+            (top / rel).write_text(text)
+        if 'transcript' in spec:
+            where = home / '.claude/projects' / re.sub(r'[/.]', '-', str(cwd))
+            where.mkdir(parents=True)
+            (where / 'sess.jsonl').write_text(spec['transcript'])
+        chain = spec['chain']
+        rows = []
+        for i, (comm, args) in enumerate(chain):
+            pid = 'SELF' if i == 0 else str(5000 + i)
+            ppid = str(5000 + i + 1) if i + 1 < len(chain) else spec.get('top_ppid', '1')
+            rows.append(f'{pid}\t{ppid}\t{comm}\t{args}')
+        (top / 'ps.tsv').write_text('\n'.join(rows) + '\n')
+        env = {**self.env, 'HOME': str(home), 'PWD': str(cwd), 'HERDR_ENV': '1', 'FAKE_PS_TABLE': str(top / 'ps.tsv'), 'FAKE_PS_FAIL': spec.get('fail', ''),
+               'FAKE': str(top / 'fake')}
+        env.pop('CLAUDE_CODE_SESSION_ID', None)
+        if 'transcript' in spec or spec.get('session'):
+            env['CLAUDE_CODE_SESSION_ID'] = 'sess'
+        return top, cwd, env
+
+    def perm_run(self, label, spec, argv, nested=None):
+        """argv in the world, or, with nested=(skills dir, snippet), the snippet run under set -euo pipefail with that dir's pair-core.sh sourced.
+        (exit code, stdout, stderr), with the world's directory and bash's line numbers masked."""
+        top, cwd, env = self.perm_world(label, spec)
+        if nested:
+            skills, snippet = nested
+            harness = (f'set -euo pipefail\nskill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
+                       f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills / "pstack-pair/scripts/pair-core.sh"}\n{snippet}')
+            argv = ['bash', '-c', harness]
+        r = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, check=False, timeout=120)
+        mask = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text.replace(str(top), '<T>')))
+        return r.returncode, mask(r.stdout), mask(r.stderr)
+
+    SHELL = ('bash', 'bash /x/pair.sh permission')
+
+    def perm_cases(self):
+        shell, claude = self.SHELL, lambda args: ('claude', f'claude {args}')
+        settings = lambda mode: '{"permissions": {"defaultMode": "%s"}}' % mode
+        local, plain = 'cwd/.claude/settings.local.json', 'cwd/.claude/settings.json'
+        hlocal, hplain = 'home/.claude/settings.local.json', 'home/.claude/settings.json'
+        cases = {
+            'claude with skip-permissions': dict(chain=[shell, claude('--model x --dangerously-skip-permissions')]),
+            'claude with --permission-mode acceptEdits': dict(chain=[shell, claude('--permission-mode acceptEdits')]),
+            'claude with --permission-mode=plan': dict(chain=[shell, claude('--permission-mode=plan --model x')]),
+            'claude with two --permission-mode': dict(chain=[shell, claude('--permission-mode a --permission-mode=b+c')]),
+            'claude with --permission-mode and nothing after it': dict(chain=[shell, claude('--permission-mode ')]),
+            'claude by a path': dict(chain=[shell, ('/usr/local/bin/claude', 'claude --permission-mode plan')]),
+            'node running claude': dict(chain=[shell, ('node', 'node /lib/claude/cli.js --permission-mode plan')]),
+            'bun running codex': dict(chain=[shell, ('bun', 'bun run codex -a never')]),
+            'claude without a flag falls to the settings': dict(chain=[shell, claude('--model x')], files={hplain: settings('acceptEdits')}),
+            'a shell that mentions a flag': dict(chain=[('bash', 'bash -c claude --dangerously-skip-permissions'), ('bash', 'bash')]),
+            'codex bypass': dict(chain=[shell, ('codex', 'codex --dangerously-bypass-approvals-and-sandbox')]),
+            'codex -a never': dict(chain=[shell, ('codex', 'codex -a never')]),
+            'codex --ask-for-approval never': dict(chain=[shell, ('codex', 'codex --ask-for-approval never')]),
+            'codex --ask-for-approval=never': dict(chain=[shell, ('codex', 'codex --ask-for-approval=never')]),
+            'codex -a on-request': dict(chain=[shell, ('codex', 'codex -a on-request')]),
+            'codex --ask-for-approval on-request': dict(chain=[shell, ('codex', 'codex --ask-for-approval on-request')]),
+            'codex --ask-for-approval=on-request': dict(chain=[shell, ('codex', 'codex --ask-for-approval=on-request')]),
+            'codex without a flag': dict(chain=[shell, ('codex', 'codex exec')]),
+            'agent 11 shells up (found)': dict(chain=[shell, *[('bash', 'bash')] * 10, claude('--permission-mode plan')]),
+            'agent 12 shells up (the depth limit)': dict(chain=[shell, *[('bash', 'bash')] * 11, claude('--permission-mode plan')]),
+            'agent 13 shells up': dict(chain=[shell, *[('bash', 'bash')] * 12, claude('--permission-mode plan')]),
+            'a chain that ends at pid 1': dict(chain=[shell, ('sh', 'sh')]),
+            'a parent that ps does not know': dict(chain=[shell], top_ppid='777'),
+            'ps cannot answer for args': dict(chain=[shell, claude('--permission-mode plan')], fail='args:SELF'),
+            'ps cannot answer for comm': dict(chain=[shell, claude('--permission-mode plan')], fail='comm:SELF'),
+            'ps cannot answer for the agent args': dict(chain=[shell, claude('--permission-mode plan')], fail='args:5001'),
+            'a login shell comm': dict(chain=[('-bash', '-bash'), claude('--permission-mode plan')]),
+            'no agent, a transcript with two modes': dict(chain=[shell], transcript='{"permissionMode":"plan"}\n{"x":1,"permissionMode":"acceptEdits"}\n'),
+            'no agent, a transcript with no mode': dict(chain=[shell], transcript='{"x":1}\n', files={hplain: settings('dontAsk')}),
+            'no agent, a transcript with an empty mode': dict(chain=[shell], transcript='{"permissionMode":""}\n'),
+            'a session id and no transcript': dict(chain=[shell], session=True, files={hplain: settings('plan')}),
+            'an agent mode beats the transcript': dict(chain=[shell, claude('--permission-mode plan')], transcript='{"permissionMode":"auto"}\n'),
+            'cwd settings.local.json beats home settings.json': dict(chain=[shell], files={local: settings('plan'), hplain: settings('acceptEdits')}),
+            'cwd settings.json beats home settings.local.json': dict(chain=[shell], files={plain: settings('dontAsk'), hlocal: settings('plan')}),
+            'home settings.local.json beats home settings.json': dict(chain=[shell], files={hlocal: settings('plan'), hplain: settings('acceptEdits')}),
+            'cwd settings.local.json beats cwd settings.json': dict(chain=[shell], files={local: settings('manual'), plain: settings('plan')}),
+            'invalid JSON before a good file': dict(chain=[shell], files={local: '{not json', hplain: settings('plan')}),
+            'invalid JSON alone': dict(chain=[shell], files={hplain: '{not json'}),
+            'permissions that is not an object': dict(chain=[shell], files={local: '{"permissions": "x"}', hplain: settings('plan')}),
+            'defaultMode null before a good file': dict(chain=[shell], files={local: '{"permissions": {"defaultMode": null}}', hplain: settings('plan')}),
+            'defaultMode a number': dict(chain=[shell], files={local: '{"permissions": {"defaultMode": 5}}'}),
+            'an empty settings file': dict(chain=[shell], files={local: '', hplain: settings('plan')}),
+            'nothing anywhere': dict(chain=[shell]),
+        }
+        return cases
+
+    def test_permission_matches_the_bash_at_the_phase_3_base(self):
+        skills3 = self.phase3_skills()
+        entries = {'pstack-pair': 'pair.sh', 'pstack-pair-guided': 'pair.sh', 'pstack-trio': 'pair.sh', 'pstack-kitchen': 'kitchen.sh'}
+        mismatches, seen = {}, {}
+        for i, (name, spec) in enumerate(self.perm_cases().items()):
+            want = self.perm_run(f'w{i}', spec, [str(skills3 / 'pstack-pair/scripts/pair.sh'), 'permission'])
+            seen[name] = want
+            for j, (skill, script) in enumerate(entries.items() if i % 7 == 0 else [('pstack-pair', 'pair.sh')]):
+                got = self.perm_run(f'g{i}-{j}', spec, [str(root / 'skills' / skill / 'scripts' / script), 'permission'])
+                if got != want:
+                    mismatches[f'{name} through {skill}'] = (got, want)
+            want = self.perm_run(f'n{i}', spec, None, nested=(skills3, 'mode="$(detect_permission_mode)"\nprintf "%s\\n" "$mode"'))
+            got = self.perm_run(f'm{i}', spec, None, nested=(root / 'skills', 'mode="$(detect_permission_mode)"\nprintf "%s\\n" "$mode"'))
+            seen[f'{name} (nested)'] = want
+            if got != want:
+                mismatches[f'{name} inside $( )'] = (got, want)
+        self.maxDiff = None
+        self.assertEqual(mismatches, {})
+        self.assertEqual(seen['agent 11 shells up (found)'][1], 'plan\n')
+        self.assertEqual(seen['agent 12 shells up (the depth limit)'][1], 'auto\n')
+        self.assertEqual(seen['agent 13 shells up'][1], 'auto\n')
+        self.assertEqual(seen['no agent, a transcript with two modes'][1], 'acceptEdits\n')
+        self.assertEqual(seen['cwd settings.local.json beats home settings.json'][1], 'plan\n')
+        # the commands that fail under errexit end the bash with the status of the failing command; inside $( ) it goes on
+        self.assertEqual(seen['invalid JSON before a good file'][0], 5)
+        self.assertEqual(seen['invalid JSON before a good file (nested)'][1], 'plan\n')
+        self.assertEqual(seen['no agent, a transcript with no mode'][0], 1)
+        self.assertEqual(seen['ps cannot answer for args'][0], 1)
+
     GIT = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t',
            'GIT_AUTHOR_DATE': '2026-01-01T00:00:00Z', 'GIT_COMMITTER_DATE': '2026-01-01T00:00:00Z'}
 
@@ -3574,7 +3697,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     ENTRIES = ('pstack-pair/scripts/pair.sh', 'pstack-pair-guided/scripts/pair.sh', 'pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
     CORE = 'pstack-pair/scripts/pair-core.sh'
     HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
-    PORTED = ('status', 'metrics', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
+    PORTED = ('status', 'metrics', 'permission', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
     TWINS = ('event', 'header_field', 'next_seq', 'paused_reason', 'progress_path',
@@ -3585,8 +3708,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
              'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
              'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
              'prune_pending', 'record_sent', 'require_fresh_session', 'submit_typed', 'prompt_sidekick', 'send_and_wait',
-             'iso_epoch', 'in_herdr', 'latest_advice')
-    TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest'}
+             'iso_epoch', 'in_herdr', 'latest_advice', 'detect_permission_mode')
+    TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest', 'detect_permission_mode': 'detect'}
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
     HOOK_TWINS = {'pstack-kitchen/scripts/kitchen.sh:steps_due': 'pstack-kitchen/scripts/variant.py',
                   'pstack-kitchen/scripts/kitchen.sh:report_ready': 'pstack-kitchen/scripts/variant.py',
