@@ -338,6 +338,132 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             cls._phase3 = Path(tmp.name) / 'skills'
         return cls._phase3
 
+    def init_run(self, label, skills, skill, spec):
+        """`init` in a world with no store, then the spec's `then` step in the same world: the outputs of each run, and everything the runs left
+        under the world's directory (the repo aside), with the world's directory and the skills directory masked."""
+        script = skills / skill / 'scripts' / ('kitchen.sh' if skill == 'pstack-kitchen' else 'pair.sh')
+        slug_max = int(re.search(r'(?m)^slug_max=(\d+)', script.read_text()).group(1))
+        top, st, env, fill = self.ab_world(label, {'nopair': True, 'master': None, 'noenv': spec.get('noenv'), 'repo_files': spec.get('repo_files', {})})
+        shutil.rmtree(st)
+        cwd = top / ('plain' if spec.get('plain') else 'repo')
+        cwd.mkdir(exist_ok=True)
+        env['PWD'] = str(cwd)
+        norm = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>',
+                                   re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text.replace(str(skills), '<SKILLS>').replace(str(top), '<T>')))))
+        outs = []
+        for step in (spec, *([spec['then']] if 'then' in spec else [])):
+            if step is not spec and step.get('prep'):
+                step['prep'](top)
+            elif step is spec and step.get('prep'):
+                step['prep'](top)
+            args = step['args'](slug_max) if callable(step['args']) else step['args']
+            run_env = {**env, **step.get('env', {})}
+            for key in step.get('unset', ()):
+                run_env.pop(key, None)
+            r = subprocess.run([str(script), *(a.replace('{T}', str(top)) for a in args)], cwd=cwd, env=run_env, capture_output=True, text=True, check=False, timeout=120)
+            outs.append((r.returncode, norm(r.stdout), norm(r.stderr)))
+        files = {}
+        for f in sorted(top.rglob('*')):
+            rel = f.relative_to(top)
+            if rel.parts[0] in ('repo', 'plain') or f.name in ('.pair.lock',):
+                continue
+            if f.is_symlink():
+                files[str(rel)] = ('link', norm(os.readlink(f)))
+            elif f.is_dir():
+                files[str(rel)] = ('dir', oct(f.stat().st_mode & 0o777))
+            else:
+                files[str(rel)] = (oct(f.stat().st_mode & 0o777), norm(f.read_text(errors='replace')))
+        return outs, files
+
+    def init_cases(self):
+        cases = {
+            'a fresh store at the default path': dict(args=['init', 'demo']),
+            'a fresh store with --store': dict(args=['init', 'demo', '--store', '{T}/new']),
+            'a slug at slug_max': dict(args=lambda m: ['init', 'a' + 'b' * m]),
+            'a slug past slug_max': dict(args=lambda m: ['init', 'a' + 'b' * (m + 1)]),
+            'a slug with an uppercase letter': dict(args=['init', 'Demo']),
+            'a slug that starts with a digit': dict(args=['init', '1demo']),
+            'a slug with a dot': dict(args=['init', 'de.mo']),
+            'an empty slug': dict(args=['init', '']),
+            'a slug with a newline': dict(args=['init', 'demo\nx']),
+            'no slug': dict(args=['init']),
+            'outside herdr': dict(args=['init', 'demo'], noenv=True),
+            'HERDR_PANE_ID unset': dict(args=['init', 'demo'], unset=['HERDR_PANE_ID']),
+            'HERDR_PANE_ID empty': dict(args=['init', 'demo'], env={'HERDR_PANE_ID': ''}),
+            '--pane': dict(args=['init', 'demo', '--pane', 'p7'], unset=['HERDR_PANE_ID']),
+            '--pane with no value': dict(args=['init', 'demo', '--pane']),
+            '--store with no value': dict(args=['init', 'demo', '--store']),
+            'an unknown option': dict(args=['init', 'demo', '--force']),
+            'an unknown option after a good one': dict(args=['init', 'demo', '--pane', 'p7', '--force']),
+            'the option before the slug': dict(args=['init', '--pane', 'p7', 'demo']),
+            'a stale HERDR_PANE_ID': dict(args=['init', 'demo'], env={'HERDR_PANE_ID': 'gone1'}),
+            'a stale --pane': dict(args=['init', 'demo', '--pane', 'gone2']),
+            'workspace and tab ids': dict(args=['init', 'demo'], env={'HERDR_WORKSPACE_ID': 'w1', 'HERDR_TAB_ID': 'w1:t2'}),
+            'a working directory outside a git repo': dict(args=['init', 'demo'], plain=True),
+            'a re-init in another pane': dict(args=['init', 'demo'], then=dict(args=['init', 'demo'], env={'HERDR_PANE_ID': 'p3', 'HERDR_WORKSPACE_ID': 'w9', 'HERDR_TAB_ID': 'w9:t1'})),
+            'a re-init that keeps edited standing orders, gates and decisions': dict(
+                args=['init', 'demo'], then=dict(args=['init', 'demo'], prep=lambda top: [
+                    (p := next(top.glob('state/pstack/**/demo'))).joinpath('standing-orders.md').write_text('mine\n'),
+                    p.joinpath('gates.md').write_text('g\n'), p.joinpath('decisions.tsv').write_text('d\n')])),
+            'a re-init after the store lost its standing orders': dict(
+                args=['init', 'demo'], then=dict(args=['init', 'demo'], prep=lambda top: next(top.glob('state/pstack/**/demo')).joinpath('standing-orders.md').unlink())),
+            'a re-init of a pair.json whose master is null': dict(
+                args=['init', 'demo'], then=dict(args=['init', 'demo'], prep=lambda top: (lambda f: f.write_text(re.sub(r'"master": \{.*?\n  \}', '"master": null', f.read_text(), flags=re.S)))(
+                    next(top.glob('state/pstack/**/demo/pair.json'))))),
+            'a re-init of a pair.json that does not parse': dict(
+                args=['init', 'demo'], then=dict(args=['init', 'demo'], prep=lambda top: next(top.glob('state/pstack/**/demo/pair.json')).write_text('{not json'))),
+            'a re-init of a pair.json whose master is a string': dict(
+                args=['init', 'demo'], then=dict(args=['init', 'demo'], prep=lambda top: next(top.glob('state/pstack/**/demo/pair.json')).write_text('{"master": "x"}'))),
+        }
+        return cases
+
+    def init_failure_cases(self):
+        def read_only(path):
+            path.chmod(0o555)
+            self.addCleanup(path.chmod, 0o755)
+        link_dead = lambda name: (lambda top: (top / 'new').mkdir() or (top / 'new' / name).symlink_to(top / 'nope/x'))
+        return {
+            'a store that cannot be created': dict(args=['init', 'demo', '--store', '{T}/ro/s'], prep=lambda top: (top / 'ro').mkdir() or read_only(top / 'ro')),
+            'a pair.json that is a directory': dict(args=['init', 'demo', '--store', '{T}/new'], prep=lambda top: (top / 'new/pair.json').mkdir(parents=True)),
+            'a store that cannot be written': dict(args=['init', 'demo', '--store', '{T}/new'], prep=lambda top: [
+                (top / 'new' / d).mkdir(parents=True) for d in ('plans', 'briefs', 'reports', 'reviews', 'progress', 'steers', 'advice', 'consults')] and read_only(top / 'new')),
+            'standing orders that cannot be copied': dict(args=['init', 'demo', '--store', '{T}/new'], prep=link_dead('standing-orders.md')),
+            'a gates.md that cannot be written': dict(args=['init', 'demo', '--store', '{T}/new'], prep=link_dead('gates.md')),
+            'a decisions.tsv that cannot be written': dict(args=['init', 'demo', '--store', '{T}/new'], prep=link_dead('decisions.tsv')),
+        }
+
+    def test_init_matches_the_bash_at_the_phase_3_base_through_every_entry_script(self):
+        skills3 = self.phase3_skills()
+        kitchen_cases = ('a fresh store at the default path', 'a fresh store with --store', 'a slug past slug_max', 'a slug at slug_max', 'no slug', 'outside herdr',
+                         'HERDR_PANE_ID unset', '--pane', '--pane with no value', '--store with no value', 'an unknown option', 'a stale HERDR_PANE_ID', 'a stale --pane',
+                         'a re-init in another pane', 'a re-init that keeps edited standing orders, gates and decisions', 'workspace and tab ids')
+        cases = {**self.init_cases(), **self.init_failure_cases()}
+        mismatches, seen = {}, {}
+        n = 0
+        for name, spec in cases.items():
+            for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen'):
+                if skill == 'pstack-kitchen' and name not in kitchen_cases:
+                    continue
+                if skill != 'pstack-pair' and name in self.init_failure_cases() and name != 'a pair.json that is a directory':
+                    continue
+                spec = dict(spec, repo_files={'.agents/kitchen.toml': self.KITCHEN_TOML} if skill == 'pstack-kitchen' else {})
+                n += 1
+                want = self.init_run(f'w{n}', skills3, skill, spec)
+                got = self.init_run(f'g{n}', root / 'skills', skill, spec)
+                seen[(name, skill)] = want
+                if skill == 'pstack-kitchen' and name in ('--pane with no value', '--store with no value'):
+                    # Permitted difference: kitchen.sh builds core_init by eval from cmd_init, so the bash's own error for the missing value
+                    # names kitchen.sh as the source; the port's names pair-core.sh, whose shim it is, as it does for the other entry scripts.
+                    self.assertEqual(want[0][0][2], '<SKILLS>/pstack-kitchen/scripts/kitchen.sh: line N: $2: unbound variable\n')
+                    want = ([(want[0][0][0], want[0][0][1], '<core>: line N: $2: unbound variable\n')], want[1])
+                if got != want:
+                    mismatches[f'{name} through {skill}'] = {'got': got, 'want': want}
+        self.maxDiff = None
+        self.assertEqual(mismatches, {})
+        self.assertEqual(seen[('a fresh store at the default path', 'pstack-pair')][0][0][0], 0)
+        self.assertEqual(seen[('a stale --pane', 'pstack-pair')][0][0][0], 2)
+        self.assertEqual(seen[('a slug past slug_max', 'pstack-pair')][0][0][0], 1)
+
     def test_phase3_skills_extracts_the_bash_at_the_phase_3_base(self):
         core = self.phase3_skills() / 'pstack-pair/scripts/pair-core.sh'
         self.assertTrue(core.is_file())
@@ -3697,7 +3823,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     ENTRIES = ('pstack-pair/scripts/pair.sh', 'pstack-pair-guided/scripts/pair.sh', 'pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
     CORE = 'pstack-pair/scripts/pair-core.sh'
     HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
-    PORTED = ('status', 'metrics', 'permission', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
+    PORTED = ('status', 'metrics', 'permission', 'init', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
     TWINS = ('event', 'header_field', 'next_seq', 'paused_reason', 'progress_path',
@@ -3737,7 +3863,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                        'core_dispatch': 'pstack-pair/scripts/pair-core.sh:cmd_dispatch', 'core_wait': 'pstack-pair/scripts/pair-core.sh:cmd_wait',
                        'core_queue': 'pstack-pair/scripts/pair-core.sh:cmd_queue', 'core_discuss': 'pstack-pair/scripts/pair-core.sh:cmd_discuss',
                        'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
-    KITCHEN_WRAPS = ('dispatch', 'wait', 'queue', 'step', 'finish', 'discuss')
+    KITCHEN_WRAPS = ('init', 'dispatch', 'wait', 'queue', 'step', 'finish', 'discuss')
 
     def reach(self):
         cls = type(self)

@@ -1025,53 +1025,7 @@ provider_hint() {
 	fi
 }
 
-cmd_init() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh init <slug> [--store DIR] [--pane ID]"
-	local slug="$1" store="" longest="${roles[${#roles[@]}-1]}" pane_id="${HERDR_PANE_ID:-}"
-	shift
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--store) store="$2"; shift 2 ;;
-		--pane) pane_id="$2"; shift 2 ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	[[ "$slug" =~ ^[a-z][a-z0-9_-]{0,$slug_max}$ ]] || die "slug must match [a-z][a-z0-9_-]{0,$slug_max} (so <slug>-$longest fits Herdr's 32-char name limit)"
-	[ -n "$store" ] || store="$state_root/$slug"
-	[ -n "$pane_id" ] || die "HERDR_PANE_ID is unset; run from a Herdr-managed pane, or pass --pane ID"
-	local d
-	for d in "${store_dirs[@]}"; do mkdir -p "$store/$d"; done
-	local master="$slug-master" now cwd git_root
-	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-	cwd="$PWD"
-	git_root="$(git rev-parse --show-toplevel 2>/dev/null || printf '')"
-	# HERDR_PANE_ID can be stale: Codex runs every session's commands through
-	# one shared app-server daemon, which keeps the pane it was started in.
-	herdr agent rename "$pane_id" "$master" >/dev/null 2>&1 ||
-		die "pane $pane_id is not a live Herdr pane; HERDR_PANE_ID is stale when a harness runs commands through a shared daemon (Codex's app-server). Pass your pane with --pane ID (herdr agent list shows each agent's pane)" 2
-	if [ -f "$store/pair.json" ]; then
-		json_update "$store" --arg pane "$pane_id" --arg ws "${HERDR_WORKSPACE_ID:-}" --arg tab "${HERDR_TAB_ID:-}" --arg now "$now" \
-			'.master.pane_id = $pane | .master.workspace_id = $ws | .master.tab_id = $tab | .master.registered_at = $now'
-		printf 'store: %s (re-registered master %s in %s)\n' "$store" "$master" "$pane_id"
-	else
-		jq -n --arg slug "$slug" --arg store "$store" --arg now "$now" --arg cwd "$cwd" --arg git_root "$git_root" \
-			--arg master "$master" --arg pane "$pane_id" \
-			--arg ws "${HERDR_WORKSPACE_ID:-}" --arg tab "${HERDR_TAB_ID:-}" --args \
-			'{slug: $slug, store: $store, created_at: $now, cwd: $cwd, git_root: $git_root,
-			  master: {name: $master, pane_id: $pane, workspace_id: $ws, tab_id: $tab, registered_at: $now}}
-			 | reduce $ARGS.positional[] as $r (.; .[$r] = {name: "\($slug)-\($r)", pane_id: null, kind: null, started_at: null})
-			 | if has("consultant") then .scratch = [] else . end' \
-			"${roles[@]}" >"$store/pair.json"
-		printf 'store: %s (master %s in %s)\n' "$store" "$master" "$pane_id"
-	fi
-	event "$store" master init - "$PAIR_SKILL"
-	# The template comes from a read-only install, so give the copy its own mode.
-	[ -f "$store/standing-orders.md" ] || { cp "$skill_root/references/standing-orders-template.md" "$store/standing-orders.md" && chmod u+w "$store/standing-orders.md"; }
-	[ -f "$store/gates.md" ] || printf '# Gates\n\nOne entry per open question for the human: question, options, default on no answer.\n' >"$store/gates.md"
-	[ -f "$store/decisions.tsv" ] || printf 'ts\tphase\tdecision\twhy\tevidence\tresult\n' >"$store/decisions.tsv"
-	printf 'standing orders: %s\n' "$store/standing-orders.md"
-}
+cmd_init() { pycore init "$@"; }
 
 # The master's permission mode, in Claude Code vocabulary:
 # auto | acceptEdits | bypassPermissions | manual | dontAsk | plan.
