@@ -64,9 +64,18 @@ class CoreTests(unittest.TestCase):
         return subprocess.run([sys.executable, '-I', str(scripts / 'pair.py'), *core_args(), *args],
                               env=self.env, capture_output=True, text=True, check=False, timeout=120)
 
-    def bash(self, snippet, env=None, check=True, base=False):
+    # Bash helpers whose bodies left the working tree once their last caller moved to Python. A snippet that names one runs from the tree at
+    # e6e83e3, where they are still defined: the oracle the Python twins are compared with.
+    DELETED_BASH = ('check_scope', 'checkin', 'finish_wait', 'fresh_reply', 'mark_seen', 'noted_through', 'pending_report', 'progress_path',
+                    'prompt_sidekick', 'prune_pending', 'queue_note', 'record_dispatch', 'record_sent', 'reply_mode', 'review_base', 'review_delta',
+                    'scope_entry_exists', 'seen_reply', 'send_and_wait', 'sidekick_activity', 'status_paths', 'steer_scope_entries', 'tree_activity',
+                    'unreviewed_steps', 'wait_for_reply', 'withheld_report', 'wait_opts', 'prime_steer', 'steps_due', 'report_ready')
+
+    def bash(self, snippet, env=None, check=True, base=None):
         """snippet run with pair-core.sh sourced: the working tree's, or with base=True skills/ as it was at e6e83e3, the oracle for
-        the commands that moved to Python since."""
+        the commands that moved to Python since (and the default for a snippet that names a helper whose bash body is gone)."""
+        if base is None:
+            base = re.search(r'\b(' + '|'.join(self.DELETED_BASH) + r')\b', snippet) is not None
         skills = self.base_skills() if base else root / 'skills'
         harness = f'''set -euo pipefail
 skill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair
@@ -468,7 +477,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': (), 'pstack-trio': ('stop',), 'pstack-kitchen': ('stop',)}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('stop',), 'pstack-kitchen': ('stop',)}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -566,7 +575,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         """The stop cases of a group through one entry script, against the bash at the phase 3 base: the outcomes of the base."""
         skills3 = self.phase3_skills()
         mismatches, results = {}, {}
-        norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*(pair|consultant)-core\.sh', '<core>', text))
+        norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*(?:pair|consultant)-core\.sh|\S*/pair\.sh', '<core>', text))
         for name, spec in (cases or self.stop_cases()).items():
             if not group(name):
                 continue
@@ -894,6 +903,56 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(results['an idle sidekick that never replies']['rc'], 4)
         self.assertIn('send-steer\t', ' '.join(f'{e}\t' for e in results['an idle sidekick with an open objection']['events']))
         self.assertIn('"epoch"', results['no sent entry']['files']['pair.json'])
+
+    ANSWER_TEXT = '# Answer\n\n## Answer\n\nuse the other helper\n'
+
+    def answer_cases(self):
+        answer = {'answers/001-x-a1.md': self.ANSWER_TEXT}
+        run = ['answer', '{st}', '{st}/answers/001-x-a1.md']
+        idle = {'s1': 'idle claude'}
+        reply = '1 {st}/reports/001-x.md'
+        cases = {
+            'no arguments': dict(args=['answer']),
+            'one argument': dict(args=['answer', '{st}']),
+            'an unknown option': dict(args=run + ['--force'], agents=idle, files=answer),
+            '--timeout with no value': dict(args=run + ['--timeout'], agents=idle, files=answer),
+            '--every with no value': dict(args=run + ['--every'], agents=idle, files=answer),
+            '--every that is not a number': dict(args=run + ['--every', 'a b'], agents=idle, files=answer),
+            'a missing answer file': dict(args=['answer', '{st}', '{st}/answers/009-none.md'], agents=idle),
+            'a file without an answer heading': dict(args=run, agents=idle, files={'answers/001-x-a1.md': '# Notes\n'}),
+            'an answer with a placeholder': dict(args=run, agents=idle, files={'answers/001-x-a1.md': self.ANSWER_TEXT.replace('other helper', '{{{{x}}}}')}),
+            'a paused store': dict(args=run, agents=idle, files={**answer, 'paused': 'lunch\n'}),
+            'outside herdr': dict(args=run, agents=idle, files=answer, env={'HERDR_ENV': '0'}),
+            'no pair.json': dict(args=run, nopair=True, files=answer),
+            'the sidekick is absent': dict(args=run, files=answer),
+            'the sidekick is blocked': dict(args=run, agents={'s1': 'blocked claude'}, files=answer),
+            'the sidekick is working': dict(args=run, agents={'s1': 'working claude'}, files=answer),
+            'a devin that needs a rotation': dict(args=run, agents={'s1': 'idle devin'}, files=answer,
+                                                  pair={'sidekick': {'kind': 'devin', 'generation': 1, 'name': 's1', 'rotation_required': True}}),
+            'an answer that gets its reply': dict(args=run, agents=idle, files=answer, report_after=reply),
+            'an answer through a relative path': dict(args=['answer', '{st}', '../st/answers/001-x-a1.md'], agents=idle, files=answer, report_after=reply),
+            '--timeout 1000 and no reply': dict(args=run + ['--timeout', '1000'], agents=idle, files=answer),
+            '--every 1 and a reply': dict(args=run + ['--every', '1'], agents=idle, files=answer, report_after=reply),
+            'a prompt that fails': dict(args=run, agents=idle, files=answer, promptfail=True),
+        }
+        return {n: {**spec, 'mtimes': {rel: self.OLD_MTIME for rel in spec.get('files', {})}} for n, spec in cases.items()}
+
+    def test_answer_matches_the_bash_at_the_phase_3_base_in_guided(self):
+        results = self.stop_ab_run('pstack-pair-guided', lambda n: True, self.answer_cases())
+        self.assertEqual((results['the sidekick is absent']['rc'], results['the sidekick is blocked']['rc'], results['the sidekick is working']['rc']), (2, 3, 5))
+        self.assertIn('report: <T>/st/reports/001-x.md', results['an answer that gets its reply']['stdout'])
+        self.assertEqual(results['--timeout 1000 and no reply']['rc'], 4)
+        self.assertIn('send-answer', ' '.join(results['an answer that gets its reply']['events']))
+
+    def test_answer_ab_signals_end_the_command_as_they_end_the_bash(self):
+        skills3 = self.phase3_skills()
+        world = {k: v for k, v in self.answer_cases()['an answer that gets its reply'].items() if k not in ('args', 'report_after')}
+        for number, group in ((signal.SIGTERM, True), (signal.SIGTERM, False), (signal.SIGHUP, False), (signal.SIGINT, True)):
+            run = dict(hold='wait', argv=lambda st: ['answer', str(st), str(st / 'answers/001-x-a1.md')], world=world)
+            want = self.wait_signalled(skills3, number, group, 'pstack-pair-guided', **run)
+            got = self.wait_signalled(root / 'skills', number, group, 'pstack-pair-guided', **run)
+            self.assertEqual(got, want, (number.name, group))
+            self.assertEqual(got[0], -number, (number.name, group))
 
     def test_steer_ab_signals_end_the_command_as_they_end_the_bash(self):
         # The idle path sits in herdr's prompt (held by a fake-herdr hook); a signal ends it with the signal and nothing printed, as it ends the
@@ -2630,8 +2689,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 with mock.patch.dict(os.environ, {'LC_ALL': locale_name}):
                     ours = replies.review_delta(str(st), str(st / 'reports/001-x.md'))
                 # bytes, because `cut -c` in C can split a character
-                r = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair; roles=(sidekick); '
-                                    f'store_dirs=(plans); slug_max=21\n. {scripts / "pair-core.sh"}\nreview_delta {st} {st}/reports/001-x.md'],
+                r = subprocess.run(['bash', '-c', f'set -euo pipefail\nskill_root={self.base_skills() / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair; roles=(sidekick); '
+                                    f'store_dirs=(plans); slug_max=21\n. {self.base_skills() / "pstack-pair/scripts/pair-core.sh"}\nreview_delta {st} {st}/reports/001-x.md'],
                                    env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True, timeout=120)
                 self.assertEqual(ours.encode('utf-8', 'surrogateescape'), r.stdout, (name, locale_name))
 
@@ -4302,14 +4361,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'steer', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
-    TWINS = ('event', 'header_field', 'next_seq', 'paused_reason', 'progress_path',
-             'new_from_template', 'steps_file', 'noted_through', 'open_notes', 'trunk_ref', 'range_floor', 'review_base', 'require_filled',
+    TWINS = ('event', 'header_field', 'next_seq', 'paused_reason',
+             'new_from_template', 'steps_file', 'open_notes', 'trunk_ref', 'range_floor', 'require_filled',
              'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'queued_brief', 'json_update', 'pair_file',
-             'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
-             'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
-             'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
-             'record_prime_session', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
-             'prune_pending', 'record_sent', 'require_fresh_session', 'submit_typed', 'prompt_sidekick', 'send_and_wait',
+             'report_ready', 'expected_report', 'fresh_per_brief', 'file_mtime',
+             'steps_due', 'scope_entries',
+             'busy_command', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
+             'record_prime_session', 'require_not_paused',
+             'require_fresh_session', 'submit_typed',
              'iso_epoch', 'in_herdr', 'latest_advice', 'detect_permission_mode')
     TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest', 'detect_permission_mode': 'detect'}
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
@@ -4330,7 +4389,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'pstack-kitchen/scripts/kitchen.sh:steps_due',
         'pstack-pair-guided/scripts/pair.sh:plan_gate_extra',
         'pstack-pair/scripts/pair-core.sh:plan_gate_extra',
+        'pstack-pair/scripts/pair-core.sh:report_ready',
         'pstack-pair/scripts/pair-core.sh:require_agreed_plan',
+        'pstack-pair/scripts/pair-core.sh:steps_due',
         'pstack-trio/scripts/consultant-core.sh:plan_gate_extra',
     )
     # kitchen.sh keeps the pair's commands under core_* names (copy_fn) and wraps them
@@ -4389,6 +4450,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     # the trio's and the kitchen's stop is consultant-core's; every other ported command's final body is pair-core's
                     home = self.CONSULTANT_CORE if name == 'stop' and entry in self.CONSULTANT_ENTRIES else self.CORE
                     self.assertEqual(final.key, f'{home}:cmd_{name}', f'{entry}: the final cmd_{name} is not {home}')
+
+    def test_answer_is_guided_only_and_a_pycore_shim_there(self):
+        reach = self.reach()
+        final = reach.final(root / 'skills/pstack-pair-guided/scripts/pair.sh', 'cmd_answer')
+        self.assertRegex(final.body, r'\s*pycore (--exec )?answer "\$@";?\s*\Z')
+        self.assertEqual(final.key, 'pstack-pair-guided/scripts/pair.sh:cmd_answer')
+        for entry in self.ENTRIES:
+            if entry != 'pstack-pair-guided/scripts/pair.sh':
+                self.assertIsNone(reach.final(root / 'skills' / entry, 'cmd_answer'), entry)
 
     def test_kitchen_keeps_exactly_these_copy_fn_snapshots_of_the_pair_core_bodies(self):
         table = self.reach().tables[(root / 'skills/pstack-kitchen/scripts/kitchen.sh').resolve()]

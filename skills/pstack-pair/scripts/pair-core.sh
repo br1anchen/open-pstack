@@ -194,74 +194,6 @@ require_filled() {
 # --every or --timeout by the command; nine minutes stays under the shell cap.
 checkin_interval_m=9
 
-# Recorded at dispatch so a check-in can measure elapsed time, commits, and
-# files touched against this brief. A brief sent again whose report is still
-# on disk has that report marked shown, so only a write after the send is the
-# reply.
-record_dispatch() {
-	local store="$1" brief="$2" cwd now head old seen=""
-	old="$(expected_report "$store" "$brief")"
-	[ ! -f "$old" ] || seen="$old:$(file_mtime "$old")"
-	cwd="$(field "$store" .cwd)"
-	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-	head="$(git -C "$cwd" rev-parse HEAD 2>/dev/null || printf '')"
-	json_update "$store" --arg brief "$brief" --arg now "$now" --arg head "$head" --arg seen "$seen" \
-		--argjson epoch "$(date +%s)" \
-		'.dispatch = {brief: $brief, at: $now, head: $head, generation: (.sidekick.generation // 0)} | .sent = {file: $brief, kind: "BRIEF", at: $now, epoch: $epoch}
-		 | (if $seen == "" then . else .sent.seen = $seen end)
-		 | .heads[$brief | split("/") | last | rtrimstr(".md")] //= $head
-		 | .pending = ((.pending // []) + (if $seen == "" then [$brief] else [] end) | unique)'
-}
-
-# Briefs whose report the master has not been shown yet. A wait surfaces the
-# oldest one whose report exists, whichever brief the sidekick is on by then,
-# so a report written while the master was busy is never skipped.
-pending_report() {
-	local b r
-	while IFS= read -r b; do
-		[ -n "$b" ] || continue
-		# A unit the master already reviewed was seen, however it was read.
-		ls "$1"/reviews/"$(basename "$b" | cut -c1-3)"-*.md >/dev/null 2>&1 && continue
-		r="$(expected_report "$1" "$b")"
-		[ -f "$r" ] && report_ready "$1" "$r" && { printf '%s\n' "$r"; return 0; }
-	done < <(jq -r '.pending // [] | .[]' "$1/pair.json")
-	return 1
-}
-
-# Before the master dispatches, the sidekick is idle and every earlier brief
-# has ended: drop those whose report or review exists, since the master read
-# them by some path, and only a brief still owed a report stays pending.
-prune_pending() {
-	local b keep=() list='[]'
-	while IFS= read -r b; do
-		[ -n "$b" ] || continue
-		[ -f "$(expected_report "$1" "$b")" ] && continue
-		ls "$1"/reviews/"$(basename "$b" | cut -c1-3)"-*.md >/dev/null 2>&1 && continue
-		keep+=("$b")
-	done < <(jq -r '.pending // [] | .[]' "$1/pair.json")
-	[ "${#keep[@]}" -eq 0 ] || list="$(printf '%s\n' "${keep[@]}" | jq -R . | jq -sc .)"
-	json_update "$1" --argjson keep "$list" '.pending = $keep'
-}
-
-# $1 store, $2 a report the master has now seen: drop its brief from pending.
-mark_seen() {
-	local b keep=()
-	while IFS= read -r b; do
-		[ -n "$b" ] || continue
-		[ "$(expected_report "$1" "$b")" = "$2" ] || keep+=("$b")
-	done < <(jq -r '.pending // [] | .[]' "$1/pair.json")
-	local list='[]'
-	[ "${#keep[@]}" -eq 0 ] || list="$(printf '%s\n' "${keep[@]}" | jq -R . | jq -sc .)"
-	json_update "$1" --argjson keep "$list" '.pending = $keep'
-}
-
-# The message the sidekick is answering: its report is the one a wait looks
-# for, even when a newer brief already sits in the queue.
-record_sent() {
-	json_update "$1" --arg file "$2" --arg kind "$3" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson epoch "$(date +%s)" \
-		'.sent = {file: $file, kind: $kind, at: $now, epoch: $epoch}'
-}
-
 file_mtime() {
 	stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
 }
@@ -295,53 +227,10 @@ detached() {
 	fi
 }
 
-# The sidekick's reply to the last message sent: the newest report written
-# since the send that answers it: the unit's report or plan response
-# (reports/<unit>.md), a steer objection (-s<k>), or an ask (-q<k>). A stop
-# report shares the unit's number but answers a STOP, and one written late,
-# after a re-dispatch, is not the reply to the brief.
-fresh_reply() {
-	local sent unit epoch f r="" best=-1 t rank key
-	sent="$(field "$1" '.sent.file // empty')"
-	[ -n "$sent" ] || return 1
-	unit="$(basename "$sent" .md | sed -E 's/-a[0-9]+$//')"
-	epoch="$(field "$1" '.sent.epoch // 0')"
-	# Mtimes are whole seconds, so a tie goes to the unit's own report, then to
-	# the highest-numbered objection or ask: the one written last.
-	for f in "$1/reports/$unit.md" "$1/reports/$unit"-[sq][0-9]*.md; do
-		[ -f "$f" ] || continue
-		t="$(file_mtime "$f")"
-		[ "$t" -ge "$epoch" ] || continue
-		report_ready "$1" "$f" || continue
-		rank="$(basename "$f" .md | sed -nE 's/.*-[sq]([0-9]+)$/\1/p')"
-		key=$(( t * 1000 + ${rank:-999} ))
-		[ "$key" -gt "$best" ] && { best="$key"; r="$f"; }
-	done
-	[ -n "$r" ] || return 1
-	# A reply already shown to the master does not wake it again.
-	[ "$r:$(file_mtime "$r")" != "$(field "$1" '.sent.seen // empty')" ] || return 1
-	printf '%s\n' "$r"
-}
-
-# The reply the master was already shown for the last message, if it still exists.
-seen_reply() {
-	local seen
-	seen="$(field "$1" '.sent.seen // empty')"
-	[ -n "$seen" ] && [ -f "${seen%:*}" ] && printf '%s\n' "${seen%:*}"
-}
-
 # The report a message asks for: reports/<NNN-slug>.md, where an answer's
 # -a<k> suffix names the brief it answers.
 expected_report() {
 	printf '%s/reports/%s.md\n' "$1" "$(basename "$2" .md | sed -E 's/-a[0-9]+$//')"
-}
-
-progress_path() {
-	# $1 store: the progress log of the dispatched brief, or empty.
-	local brief
-	brief="$(field "$1" '.dispatch.brief // empty')"
-	[ -n "$brief" ] || return 1
-	printf '%s/progress/%s.md\n' "$1" "$(basename "$brief" .md)"
 }
 
 # A quiet progress log is not stale while a command the sidekick started
@@ -371,21 +260,6 @@ busy_command() {
 	[ -z "$best" ] || printf '%s for %dm' "$best" $((best_et / 60))
 }
 
-# The longest-running process in the sidekick's pane started since the current
-# dispatch, as "<command> for Nm", or nothing. It is how the wait and the digest
-# see background work the agent's UI does not show (a harness Monitor sweep, a
-# background shell): those processes inherit the pane's HERDR_PANE_ID. Linux
-# only (it reads /proc); elsewhere it reports nothing and the wait falls back to
-# the screen and Herdr's state.
-sidekick_activity() {
-	local pane at since
-	pane="$(field "$1" '.sidekick.pane_id // empty')"
-	at="$(field "$1" '.dispatch.at // empty')"
-	[ -n "$pane" ] && [ -n "$at" ] || return 0
-	since="$(iso_epoch "$at" 2>/dev/null)" || return 0
-	busy_command "$pane" "$since"
-}
-
 # A brief's Scope entries, one path or glob per line, for `may` (the
 # may write: list) or `mustnot` (must not write:). An entry is the text after
 # "- ", without a " — " annotation or a trailing "(...)" note; one pair of
@@ -407,60 +281,6 @@ scope_entries() {
 			}
 			if (e != "") print e
 		}' "$1"
-}
-
-# Refuses a brief whose Scope has an unquoted entry listing several paths
-# ("a, b"): a guessed split could widen the Scope silently. Warns, without
-# refusing, on an entry that matches nothing in the repo, the usual sign of
-# a path written relative to its neighbour. $1 the brief, $2 the repo root.
-check_scope() {
-	local brief="$1" root="$2" bad e tracked
-	bad="$(awk '
-		/^may write:|^must not write:/ { f = 1; next }
-		/^## / { f = 0 }
-		f && /^- / {
-			sub(/^- /, "")
-			if (substr($0, 1, 1) == "`") next
-			e = $0; sub(/ +(—|–|--) .*$/, "", e); sub(/ +\(.*\)$/, "", e)
-			if (e ~ /, /) { print "- " e; next }
-			# "a.ts and b/c.ts": several paths joined by "and"; prose like "README and docs" is not.
-			n = split(e, w, / and /)
-			if (n > 1) {
-				ok = 1
-				for (i = 1; i <= n; i++) if (w[i] !~ /\// && w[i] !~ /\.[A-Za-z0-9]+$/) ok = 0
-				if (ok) print "- " e
-			}
-		}' "$brief")"
-	[ -z "$bad" ] || die "$(basename "$brief"): Scope takes one path or glob per line; split these (a path with a comma goes in backquotes):
-$bad"
-	tracked="$(git -C "$root" ls-files -co --exclude-standard 2>/dev/null || true)"
-	while IFS= read -r e; do
-		[ -n "$e" ] || continue
-		scope_entry_exists "$root" "$e" "$tracked" ||
-			printf 'warning: Scope entry "%s" matches no file or directory in %s; is it relative to a neighbouring entry?\n' "$e" "$root" >&2
-	done < <(scope_entries "$brief" may)
-}
-
-# Whether a may-write entry names something that exists, or a new file in a
-# directory that does. A glob matches when a file does or its fixed directory
-# prefix exists.
-scope_entry_exists() {
-	local root="$1" e="$2" tracked="$3" prefix dir f
-	case "$e" in
-	*[*?[]*)
-		prefix="${e%%[*?[]*}"
-		dir="${prefix%/*}"
-		[ "$dir" != "$prefix" ] || dir=""
-		[ -z "$dir" ] || [ -d "$root/$dir" ] || return 1
-		# bash's case needs a slash for **/, so a top-level file also tries the pattern without it.
-		while IFS= read -r f; do
-			# shellcheck disable=SC2254
-			case "$f" in $e | ${e#\*\*/}) return 0 ;; esac
-		done <<<"$tracked"
-		[ -n "$dir" ] ;;
-	*/) [ -d "$root/$e" ] || [ -d "$root/$(dirname "${e%/}")" ] ;;
-	*) [ -e "$root/$e" ] || [ -d "$root/$(dirname "$e")" ] ;;
-	esac
 }
 
 # The repo's trunk: origin's default branch, else main or master; never the
@@ -499,167 +319,6 @@ range_floor() {
 	git -C "$root" merge-base --is-ancestor "$mb" "$tmb" 2>/dev/null || return 0
 	range_floor_note="recorded base ${base:0:9} is behind where its branch leaves ${trunk#refs/}; measuring from ${tmb:0:9}"
 	range_floor_rev="$tmb"
-}
-
-# Paths git status lists, one per line, unquoted (NUL-delimited, so a name
-# with a space or comma is a real path); a rename counts at its new path.
-status_paths() {
-	local entry skip=0
-	while IFS= read -r -d '' entry; do
-		if [ "$skip" -eq 1 ]; then skip=0; continue; fi
-		case "${entry:0:2}" in R* | C*) skip=1 ;; esac
-		printf '%s\n' "${entry:3}"
-	done < <(git -C "$1" status --porcelain=v1 -z --untracked-files=all 2>/dev/null)
-}
-
-# The newest sign of work in the sidekick's tree, as an epoch: the mtime of
-# each file git status lists (NUL-delimited, so names are real paths; a rename
-# counts at its new path, a deleted file is skipped) and the committer time of
-# HEAD when it moved since dispatch. Nothing when the tree is quiet. A
-# future mtime within a minute counts as now; a later one is ignored.
-tree_activity() {
-	local cwd="$1" head="$2" now newest=0 entry path t skip=0 commits=0
-	now="$(date +%s)"
-	while IFS= read -r -d '' entry; do
-		if [ "$skip" -eq 1 ]; then skip=0; continue; fi
-		case "${entry:0:2}" in R* | C*) skip=1 ;; esac
-		path="${entry:3}"
-		t="$(file_mtime "$cwd/$path" 2>/dev/null)" || continue
-		# A clock skew of a minute counts as now; a stamp further ahead is no evidence.
-		[ "$t" -le $(( now + 60 )) ] || continue
-		[ "$t" -le "$now" ] || t="$now"
-		[ "$t" -le "$newest" ] || newest="$t"
-	done < <(git -C "$cwd" status --porcelain=v1 -z --untracked-files=all 2>/dev/null)
-	[ -z "$head" ] || commits="$(git -C "$cwd" rev-list --count "$head"..HEAD 2>/dev/null || printf 0)"
-	if [ "$commits" -gt 0 ]; then
-		t="$(git -C "$cwd" log -1 --format=%ct 2>/dev/null || printf 0)"
-		[ "$t" -le "$now" ] || t="$now"
-		[ "$t" -le "$newest" ] || newest="$t"
-	fi
-	[ "$newest" -eq 0 ] || printf '%s\n' "$newest"
-}
-
-# Check-in digest for a sidekick still working at the interval: elapsed against
-# the timebox, progress lines not yet shown, files touched against the brief's
-# Scope, commits since dispatch, and steer counts. Bounded, so the master can
-# poll it cheaply instead of reading the pane. $2 is the interval in minutes.
-checkin() {
-	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale run active timebox elapsed_m now since
-	brief="$(field "$store" '.dispatch.brief // empty')"
-	[ -n "$brief" ] && [ -f "$brief" ] || return 0
-	at="$(field "$store" '.dispatch.at // empty')"
-	head="$(field "$store" '.dispatch.head // empty')"
-	cwd="$(field "$store" .cwd)"
-	local floor_note="" tip
-	tip="$(git -C "$cwd" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
-	if [ -n "$head" ] && [ -n "$tip" ]; then
-		range_floor "$cwd" "$head" "$tip" --allow-head
-		head="$range_floor_rev"
-		floor_note="$range_floor_note"
-	fi
-	seq="$(basename "$brief" | cut -c1-3)"
-	now="$(date +%s)"
-	timebox="$(header_field "$brief" timebox | grep -oE '^[0-9]+' || true)"
-	# An unreadable dispatch time shows as ?, not as a failed check-in.
-	elapsed_m='?'
-	! since="$(iso_epoch "$at" 2>/dev/null)" || elapsed_m=$(( (now - since) / 60 ))
-	printf 'check-in: %s  elapsed %sm of %sm\n' "$(basename "$brief")" "$elapsed_m" "${timebox:-?}"
-	run="$(sidekick_activity "$store")"
-	prog="$(progress_path "$store")"
-	if [ -f "$prog" ]; then
-		total=$(( $(wc -l <"$prog") ))
-		seen=0
-		[ -f "$prog.seen" ] && seen="$(cat "$prog.seen")"
-		[ "$seen" -le "$total" ] || seen=0
-		new=$((total - seen))
-		age_m=$(( (now - $(file_mtime "$prog")) / 60 ))
-		stale=""
-		if [ "$age_m" -ge "$interval" ]; then
-			if [ -n "$run" ]; then
-				stale="  running: $run"
-			else
-				# Edits and commits are activity, not advancement: the timebox still fires.
-				active="$(tree_activity "$cwd" "$head")"
-				if [ -n "$active" ] && [ $(( now - active )) -lt $(( (interval > 0 ? interval : 1) * 60 )) ]; then
-					stale="  editing: last change $(( (now - active) / 60 ))m ago"
-				else
-					stale="  STALE"
-				fi
-			fi
-		fi
-		printf 'progress: +%d lines (last %dm ago)%s\n' "$new" "$age_m" "$stale"
-		tail -n "+$((seen + 1))" "$prog" | tail -n 20 | sed 's/^/  /'
-		printf '%s\n' "$total" >"$prog.seen"
-	else
-		printf 'progress: none yet\n'
-	fi
-	[ -z "$run" ] || [[ "${stale:-}" == *running:* ]] || printf 'running: %s\n' "$run"
-	local -a touched=() may=() outside=()
-	mapfile -t touched < <({
-		status_paths "$cwd"
-		[ -n "$head" ] && git -C "$cwd" diff --name-only "$head"..HEAD 2>/dev/null
-	} | sort -u)
-	local commits=0
-	[ -n "$head" ] && commits="$(git -C "$cwd" rev-list --count "$head"..HEAD 2>/dev/null || printf 0)"
-	[ -z "$floor_note" ] || printf 'note: %s\n' "$floor_note"
-	printf 'touched: %d files, %d commits since dispatch\n' "${#touched[@]}" "$commits"
-	[ "${#touched[@]}" -gt 0 ] && printf '  %s\n' "${touched[@]:0:30}"
-	mapfile -t may < <({ scope_entries "$brief" may; steer_scope_entries "$store" "$seq"; } | sed 's#/$#/*#')
-	local f p ok
-	for f in "${touched[@]}"; do
-		ok=0
-		for p in "${may[@]}"; do
-			# shellcheck disable=SC2254
-			case "$f" in $p) ok=1; break ;; esac
-		done
-		[ "$ok" -eq 1 ] || outside+=("$f")
-	done
-	if [ "${#outside[@]}" -gt 0 ]; then
-		printf 'outside scope: %d\n' "${#outside[@]}"
-		printf '  %s\n' "${outside[@]:0:30}"
-	fi
-	local sent=0 applied=0 objected=0
-	sent=$(( $(ls "$store"/steers/"$seq"-*-s[0-9]*.md 2>/dev/null | wc -l || true) ))
-	objected=$(( $(ls "$store"/reports/"$seq"-*-s[0-9]*.md 2>/dev/null | wc -l || true) ))
-	[ -f "$prog" ] && applied="$(grep -cE ' steer s[0-9]+ applied' "$prog" || true)"
-	printf 'steers: %d sent, %d applied, %d objected\n' "$sent" "${applied:-0}" "$objected"
-	local sfile
-	sfile="$(steps_file "$store" "$brief")"
-	if [ -s "$sfile" ]; then
-		printf 'steps: %d committed, reviewed through %s, %d blocking notes open\n' "$(grep -c . "$sfile")" \
-			"$(noted_through "$store" "$brief")" "$(open_notes "$store" "$brief" | grep -c . || true)"
-	fi
-}
-
-# The paths a unit's live steers allow beyond its brief, one per line: the
-# `scope effect: may write ...` line of each steer that is not a withdraw and
-# that no later steer of the unit withdraws by `supersedes:`. Quoted strings
-# when the line has any (may write "a/**" and "b/**"), else the first word
-# after `may write:` (the rest is a note). `none` and `must not write` add
-# nothing.
-steer_scope_entries() {
-	local store="$1" seq="$2" f sup line rest withdrawn=" "
-	for f in "$store"/steers/"$seq"-*-s[0-9]*.md; do
-		[ -f "$f" ] && [ "$(header_field "$f" kind)" = withdraw ] || continue
-		sup="$(header_field "$f" supersedes)"
-		[ "${sup%% *}" = none ] || withdrawn+="$(basename "${sup%% *}") "
-	done
-	for f in "$store"/steers/"$seq"-*-s[0-9]*.md; do
-		[ -f "$f" ] && [ "$(header_field "$f" kind)" != withdraw ] || continue
-		[[ "$withdrawn" != *" $(basename "$f") "* ]] || continue
-		line="$(header_field "$f" 'scope effect')"
-		[[ "$line" == "may write"* ]] || continue
-		if [[ "$line" == *\"* ]]; then
-			grep -o '"[^"]*"' <<<"$line" | tr -d '"`'
-		else
-			rest="${line#may write}"
-			rest="${rest#:}"
-			rest="${rest# }"
-			rest="${rest%% *}"
-			rest="${rest//\`/}"
-			[ -z "$rest" ] || printf '%s\n' "$rest"
-		fi
-	done
 }
 
 # Variant hook: further gates on an agreed plan. No bash calls it any more: the
@@ -709,19 +368,6 @@ queued_brief() {
 	[ -f "$1/queue" ] && cat "$1/queue" || true
 }
 
-# After a report: say whether the sidekick already moved on to the queued
-# brief, and whether a queued brief still waits for an idle sidekick.
-queue_note() {
-	local store="$1" report="$2" running queued
-	running="$(field "$store" '.dispatch.brief // empty')"
-	if [ -n "$running" ] && [ "$(basename "$running" | cut -c1-3)" != "$(basename "$report" | cut -c1-3)" ]; then
-		printf 'running: %s\n' "$running"
-	fi
-	queued="$(queued_brief "$store")"
-	[ -n "$queued" ] && printf 'queued: %s\n' "$queued"
-	return 0
-}
-
 # Draft-PR review. The sidekick commits each step of a brief and records it
 # with pair.sh step, then goes on without waiting. A wait returns each step
 # the master has not reviewed; the master reviews that diff and publishes a
@@ -732,59 +378,6 @@ queue_note() {
 # steps/<unit>.tsv, one row per step: k, sha, epoch, notes it resolves, summary.
 steps_file() {
 	printf '%s/steps/%s.tsv\n' "$1" "$(basename "$2" .md)"
-}
-
-# The step a unit's notes have reviewed through: the highest n<k> published.
-noted_through() {
-	local f k max=0
-	for f in "$1"/notes/"$(basename "$2" .md)"-n[0-9]*.md; do
-		[ -e "$f" ] || continue
-		k="$(basename "$f" .md | sed -E 's/.*-n([0-9]+)$/\1/')"
-		[ "$k" -gt "$max" ] && max="$k"
-	done
-	printf '%s\n' "$max"
-}
-
-# The commit a unit's next review starts from: the last noted step, or the
-# head the unit was first dispatched at. The running dispatch head is not it:
-# next and a re-dispatch after a pause overwrite that.
-review_base() {
-	local through file unit
-	unit="$(basename "$2" .md)"
-	through="$(noted_through "$1" "$unit")"
-	file="$(steps_file "$1" "$unit")"
-	if [ "$through" -gt 0 ] && [ -f "$file" ]; then
-		awk -F '\t' -v k="$through" '$1 == k {print $2}' "$file"
-	else
-		local base tip root
-		base="$(jq -r --arg u "$unit" '.heads[$u] // .dispatch.head // empty' "$(pair_file "$1")")"
-		root="$(field "$1" '.git_root // .cwd')"
-		tip="$( { [ -s "$file" ] && tail -1 "$file" | cut -f2; } || git -C "$root" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
-		if [ -n "$base" ] && [ -n "$tip" ]; then
-			range_floor "$root" "$base" "$tip"
-			base="$range_floor_rev"
-		fi
-		printf '%s\n' "$base"
-	fi
-}
-
-# Steps of the running brief past the last note, as "k<TAB>sha<TAB>summary".
-# Once the unit reports after its last step, the final review reads those
-# steps through review-delta, so none are due: a finished unit never holds a
-# wait on steps. A unit resumed after a partial report has steps newer than
-# the report, and those are due again.
-unreviewed_steps() {
-	local brief file through report
-	brief="$(field "$1" '.dispatch.brief // empty')"
-	[ -n "$brief" ] || return 1
-	file="$(steps_file "$1" "$brief")"
-	[ -s "$file" ] || return 1
-	report="$(expected_report "$1" "$brief")"
-	if [ -f "$report" ] && [ "$(file_mtime "$report")" -ge "$(tail -1 "$file" | cut -f3)" ] && report_ready "$1" "$report"; then
-		return 1
-	fi
-	through="$(noted_through "$1" "$brief")"
-	awk -F '\t' -v k="$through" '$1 > k {print $1 "\t" $2 "\t" $5}' "$file" | grep . || return 1
 }
 
 # True when a step landed that neither a note nor an earlier steps wake has
@@ -850,105 +443,6 @@ report_ready() {
 	git -C "$root" merge-base --is-ancestor "$last" "$head" 2>/dev/null && return 0
 	report_why="the report's head ${head:0:9} predates step $k ${last:0:9}"
 	return 1
-}
-
-# The sent unit's report when it is written but withheld: "path<TAB>reason".
-withheld_report() {
-	local sent unit r
-	sent="$(field "$1" '.sent.file // empty')"
-	[ -n "$sent" ] || return 1
-	unit="$(basename "$sent" .md | sed -E 's/-a[0-9]+$//')"
-	r="$1/reports/$unit.md"
-	[ -f "$r" ] && [ "$(file_mtime "$r")" -ge "$(field "$1" '.sent.epoch // 0')" ] || return 1
-	report_ready "$1" "$r" && return 1
-	printf '%s\t%s\n' "$r" "$report_why"
-}
-
-# With a report on a unit that has steps: the one diff the final review reads.
-review_delta() {
-	local store="$1" report="$2" unit file head
-	unit="$(basename "$report" .md)"
-	file="$(steps_file "$store" "$unit")"
-	[ -s "$file" ] || return 0
-	head="$(header_field "$report" head | grep -oE '^[0-9a-f]{7,40}' || true)"
-	[ -n "$head" ] || head="$(tail -1 "$file" | cut -f2)"
-	printf 'review-delta: %s..%s (steps reviewed through %s)\n' "$(review_base "$store" "$unit" | cut -c1-9)" "${head:0:9}" "$(noted_through "$store" "$unit")"
-}
-
-finish_wait() {
-	# $1 store, $2 herdr exit code, $3 herdr stdout, $4 herdr stderr,
-	# $5 "reply" (the report in $6, empty when none landed), "steps" (steps
-	# to review, none landed yet), or "any" (the newest report at all)
-	local store="$1" code="$2" out="$3" err="$4" mode="$5" report="${6:-}" state
-	if [ "$code" -ne 0 ]; then
-		state="$(printf '%s' "$err" | jq -r '.error.code // .error // "herdr_error"' 2>/dev/null || printf 'herdr_error')"
-		# A wait that ran out its interval is not an error: report the
-		# sidekick's state, without herdr's timeout payload.
-		if [ "$state" = timeout ]; then
-			state="$(agent_status "$(field "$store" .sidekick.name)")"
-		else
-			printf '%s\n' "$err" >&2
-		fi
-		printf 'state: %s\n' "$state"
-	else
-		state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
-		printf 'state: %s\n' "$state"
-	fi
-	paused_reason "$store" >/dev/null && printf 'paused: %s (start nothing new; record the next step in gates.md and end your turn)\n' "$(paused_reason "$store")"
-	if [ -n "$report" ] || { [ "$mode" = any ] && report="$(latest_report "$store")"; }; then
-		mark_seen "$store" "$report"
-		# Only a reply to the message last sent is marked shown; a queued
-		# brief's earlier report is not the reply to what runs now.
-		if [ "$(basename "$report" | cut -c1-3)" = "$(basename "$(field "$store" '.sent.file // "---"')" | cut -c1-3)" ]; then
-			json_update "$store" --arg s "$report:$(file_mtime "$report")" '.sent.seen = $s'
-		fi
-		printf 'report: %s\n' "$report"
-		printf 'report_status: %s\n' "$(header_field "$report" status)"
-		event "$store" master wake "$report" "report:$(header_field "$report" status)"
-		queue_note "$store" "$report"
-		review_delta "$store" "$report"
-		[ "$state" = blocked ] && exit 3
-		exit 0
-	fi
-	local running
-	running="$(field "$store" '.dispatch.brief // empty')"
-	if [ "$mode" = steps ]; then
-		local rows first
-		rows="$(unreviewed_steps "$store")"
-		first="$(printf '%s\n' "$rows" | head -1 | cut -f1)"
-		printf 'steps: %s to review on %s\n' "$(printf '%s\n' "$rows" | grep -c .)" "$(basename "$running" .md)"
-		printf '%s\n' "$rows" | awk -F '\t' '{printf "  %s %s %s\n", $1, substr($2, 1, 9), $3}'
-		printf 'range: %s..%s\n' "$(review_base "$store" "$running" | cut -c1-9)" "$(printf '%s\n' "$rows" | tail -1 | cut -f2 | cut -c1-9)"
-		printf 'next: review the range, then pair.sh new-note %s %s\n' "$store" "$(basename "$running" | cut -c1-3)"
-		json_update "$store" --arg u "$(basename "$running" .md)" --argjson k "$(printf '%s\n' "$rows" | tail -1 | cut -f1)" '.shown[$u] = $k'
-		event "$store" master wake "$running" "steps:$first"
-		exit 0
-	fi
-	local shown withheld="" why="" activity
-	withheld="$(withheld_report "$store" || true)"
-	activity="$(sidekick_activity "$store")"
-	if shown="$(seen_reply "$store")" && [ -z "$withheld" ] && [ -z "$activity" ] && [ "$code" -eq 0 ] && [ "$(agent_status "$(field "$store" .sidekick.name)")" != working ]; then
-		printf 'idle: the reply to %s was already shown (%s); send the next message\n' "$(basename "$(field "$store" '.sent.file // "-"')")" "$shown"
-		event "$store" master wake "$(field "$store" '.sent.file // "-"')" idle
-		exit 4
-	fi
-	if [ -n "$withheld" ]; then
-		printf 'report: %s written but not ready: %s\n' "${withheld%%$'\t'*}" "${withheld#*$'\t'}"
-		why=report:unready
-	else
-		printf 'report: missing\n'
-	fi
-	case "$state" in
-	blocked) event "$store" master wake "$running" "${why:-blocked}"; provider_hint "$store"; exit 3 ;;
-	esac
-	if [ "$(agent_status "$(field "$store" .sidekick.name)")" = working ] || [ -n "$activity" ]; then
-		[ "${PAIR_QUIET_WAIT:-}" = 1 ] || event "$store" master wake "$running" "${why:-checkin}"
-		checkin "$store" "$checkin_interval_m"
-	else
-		event "$store" master wake "$running" "${why:-missing}"
-		provider_hint "$store"
-	fi
-	exit 4
 }
 
 provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|billing verification failed|billing_error'
@@ -1653,47 +1147,6 @@ cmd_new_plan() { pycore new-plan "$@"; }
 
 cmd_new_brief() { pycore new-brief "$@"; }
 
-# Only guided's answer calls this now; dispatch and discuss run in
-# pstack_core/send.py. Refuses unfilled files and a sidekick that cannot take
-# input, then prompts and waits.
-send_and_wait() {
-	# $1 store, $2 file, $3 message kind (PLAN|BRIEF|ANSWER), $4 timeout
-	local store="$1" file="$2" kind="$3" timeout="$4" name status out err code=0
-	require_filled "$file"
-	[ "$kind" != BRIEF ] || check_scope "$file" "$(field "$store" '.git_root // .cwd')"
-	require_fresh_session "$store"
-	name="$(field "$store" .sidekick.name)"
-	status="$(agent_status "$name")"
-	case "$status" in
-	idle | done) ;;
-	absent) die "sidekick $name is not live; run: pair.sh spawn $store --kind <kind>" 2 ;;
-	blocked) die "sidekick $name is blocked; inspect: herdr agent read $name --source visible --lines 60" 3 ;;
-	*) die "sidekick $name is $status; run: pair.sh wait $store" 5 ;;
-	esac
-	# Delivery is not interruptible: a dispatch wrapped in a short timeout was
-	# killed after recording a brief and before sending it, and the store
-	# waited on a sidekick that never got it. TERM, INT and HUP wait until the
-	# message is in; the wait that follows may be cut short safely.
-	trap '' TERM INT HUP
-	if [ "$kind" = BRIEF ]; then
-		[ "$(queued_brief "$store")" = "$file" ] && rm -f "$store/queue"
-		prune_pending "$store"
-		record_dispatch "$store" "$file"
-	else
-		record_sent "$store" "$file" "$kind"
-	fi
-	event "$store" master "send-${kind,,}" "$file"
-	prompt_sidekick "$name" "$PAIR_SKILL $kind $file"
-	trap - TERM INT HUP
-	if [ "${send_only:-0}" = 1 ]; then
-		printf 'sent: %s %s; follow it with the wait command\n' "$kind" "$file"
-		exit 0
-	fi
-	local ready
-	wait_for_reply "$store" "$name" "$timeout"
-	finish_wait "$store" "$code" "$out" "$err" "$(reply_mode)" "$ready"
-}
-
 cmd_discuss() { pycore --exec discuss "$@"; }
 
 cmd_dispatch() { pycore --exec dispatch "$@"; }
@@ -1702,80 +1155,6 @@ cmd_dispatch() { pycore --exec dispatch "$@"; }
 # between checks while herdr says settled but the pane shows the agent busy.
 settle_hold_s="${PAIR_SETTLE_HOLD:-60}"
 busy_poll_s="${PAIR_BUSY_POLL:-10}"
-
-# Blocks until the sidekick's reply lands or the interval ends, in short
-# slices so a report is seen the moment it is written, even after the
-# sidekick took the queued brief and never settles. A settle from herdr is a
-# hint, not proof: a Devin sidekick left in done flips to idle as a prompt
-# arrives, and shows idle between steps. So a settle without a reply is
-# rechecked, and only one that holds for settle_hold_s ends the wait. Sets
-# code, out, err, and ready (the report, or empty) for finish_wait.
-wait_for_reply() {
-	local store="$1" name="$2" timeout="$3" deadline slice settled_at="" errfile state
-	steps_due=0
-	deadline=$(( $(date +%s) + timeout / 1000 ))
-	errfile="$(mktemp)"
-	while :; do
-		if ready="$(pending_report "$store")" || ready="$(fresh_reply "$store")"; then
-			code=0
-			out="$(herdr agent get "$name" 2>/dev/null || true)"
-			: >"$errfile"
-			break
-		fi
-		ready=""
-		if steps_due "$store"; then
-			steps_due=1
-			code=0
-			out="$(herdr agent get "$name" 2>/dev/null || true)"
-			: >"$errfile"
-			break
-		fi
-		slice=$(( (deadline - $(date +%s)) * 1000 ))
-		[ "$slice" -le 30000 ] || slice=30000
-		[ "$slice" -ge 1000 ] || slice=1000
-		code=0
-		out="$(herdr agent wait "$name" --timeout "$slice" 2>"$errfile")" || code=$?
-		if [ "$code" -eq 0 ]; then
-			state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)"
-			[ "$state" != blocked ] || break
-			{ pending_report "$store" >/dev/null || fresh_reply "$store" >/dev/null || steps_due "$store"; } && continue
-			if ! pane_busy "$name" && [ -z "$(sidekick_activity "$store")" ] && seen_reply "$store" >/dev/null; then
-				# Idle, and its reply to the last message was already shown:
-				# nothing is coming until the master sends the next one.
-				break
-			fi
-			if pane_busy "$name"; then
-				# herdr says settled, the pane says working: believe the pane.
-				settled_at=""
-				sleep "$busy_poll_s"
-				[ "$(date +%s)" -lt "$deadline" ] || break
-				continue
-			fi
-			if [ -n "$(sidekick_activity "$store")" ]; then
-				# Settled by Herdr, but a process the sidekick started since
-				# this dispatch still runs in its pane: it is not done.
-				settled_at=""
-				sleep "$busy_poll_s"
-				[ "$(date +%s)" -lt "$deadline" ] || break
-				continue
-			fi
-			[ -n "$settled_at" ] || settled_at="$(date +%s)"
-			[ $(( $(date +%s) - settled_at )) -lt "$settle_hold_s" ] || break
-			[ "$(date +%s)" -lt "$deadline" ] || break
-			sleep "${PAIR_SETTLE_POLL_S:-5}"
-			continue
-		fi
-		settled_at=""
-		[ "$(jq -r '.error.code // empty' "$errfile" 2>/dev/null || true)" = timeout ] || break
-		[ "$(date +%s)" -lt "$deadline" ] || break
-	done
-	err="$(cat "$errfile")"
-	rm -f "$errfile"
-}
-
-reply_mode() {
-	if [ -z "$ready" ] && [ "${steps_due:-0}" = 1 ]; then printf 'steps\n'; else printf 'reply\n'; fi
-}
 
 # Herdr can report a fresh agent working while a prompt still sits typed in
 # its input (a new Claude pane; pi after an update), so the pane is read too:
@@ -1826,23 +1205,6 @@ submit_typed() {
 		tries=$((tries + 1))
 		submitted="$tries"
 	done
-}
-
-# Sends one message and confirms the sidekick took it. A narrow pane can hide
-# the working state, so a timeout or stall here is not an error; the wait that
-# follows looks for the reply file either way.
-prompt_sidekick() {
-	local name="$1" text="$2" errfile rc=0
-	errfile="$(mktemp)"
-	herdr agent prompt "$name" "$text" --wait --until working --timeout 30000 >/dev/null 2>"$errfile" || rc=$?
-	if [ "$rc" -ne 0 ]; then
-		case "$(jq -r '.error.code // empty' "$errfile" 2>/dev/null || true)" in
-		timeout | agent_prompt_stalled) ;;
-		*) cat "$errfile" >&2; rm -f "$errfile"; die "herdr prompt failed for $name" 2 ;;
-		esac
-	fi
-	rm -f "$errfile"
-	submit_typed "$name" "$(basename "${text##* }")"
 }
 
 cmd_wait() { pycore --exec wait "$@"; }

@@ -138,23 +138,6 @@ cmd_new_answer() {
 	printf '%s\n' "$path"
 }
 
-cmd_answer() {
-	in_herdr
-	[ $# -ge 2 ] || die "usage: pair.sh answer <store> <answer-path> [--timeout MS | --every MIN]"
-	local store="$1" answer="$2" timeout=540000
-	shift 2
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--timeout) timeout="$2"; shift 2 ;;
-		--every) timeout=$(($2 * 60000)); shift 2 ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	checkin_interval_m=$((timeout / 60000))
-	[ -f "$answer" ] || die "answer not found: $answer"
-	require_not_paused "$store"
-	grep -q '^## Answer' "$answer" || die "not an answer file: $answer"
-	send_and_wait "$store" "$(readlink -f "$answer")" ANSWER "$timeout"
-}
+cmd_answer() { pycore --exec answer "$@"; }
 
 pair_main "$@"
