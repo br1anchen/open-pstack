@@ -16,6 +16,11 @@ sessions_file = fake / 'prime-sessions.json'
 sessions = json.loads(sessions_file.read_text()) if sessions_file.exists() else []
 
 if '--print' in args:
+    if (fake / 'prime-hang').exists():
+        os.execvp('sleep', ['sleep', '30'])
+    if (fake / 'prime-reply').exists():
+        sys.stdout.write((fake / 'prime-reply').read_text())
+        raise SystemExit(0)
     if (fake / 'prime-fail-once').exists():
         (fake / 'prime-fail-once').unlink()
         print('Error: capacity issues', file=sys.stderr)

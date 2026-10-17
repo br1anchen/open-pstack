@@ -98,27 +98,6 @@ stop_prime_role() {
 	json_update "$store" --arg role "$role" '.[$role].session_stopped = true'
 }
 
-preflight_prime() {
-	local out attempt rc dir
-	dir="$(mktemp -d)" || return 1
-	for attempt in 1 2; do
-		rc=0
-		out="$(HERDR_ENV=0 with_timeout "${PAIR_PREFLIGHT_TIMEOUT:-90}" prime-agent "$@" --cwd "$dir" --no-session \
-			--no-context-files --no-skills --no-prompt-templates --print --mode text \
-			'Reply with exactly: OK. Do not use tools.' 2>&1)" || rc=$?
-		if [ "$rc" -eq 0 ] && grep -qxE '[[:space:]]*OK[[:space:]]*' <<<"$out"; then
-			rm -rf "$dir"
-			return 0
-		fi
-		[ "$attempt" -eq 2 ] || sleep "${PAIR_PREFLIGHT_RETRY_S:-3}"
-	done
-	rm -rf "$dir"
-	printf 'prime-agent %s at %s, twice: exit %s ' "$(prime-agent --version 2>/dev/null || printf '?')" "$(command -v prime-agent)" "$rc" >&2
-	printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -3 | tr '\n' ' ' >&2
-	printf '\n' >&2
-	return 1
-}
-
 prime_role_error() {
 	local store="$1" role="$2" session
 	record_prime_session "$store" "$role" || true

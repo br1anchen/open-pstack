@@ -1014,7 +1014,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 code = f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents\n{python_snippet}'
                 argv = [sys.executable, '-I', '-c', code]
             r = subprocess.run(argv, cwd=top / 'repo', env=env, capture_output=True, text=True, check=False, timeout=120)
-            norm = lambda text: re.sub(r'--cwd \S+', '--cwd <SCRATCH>', text.replace(str(top), '<T>').replace(str(self.phase3_skills()), '<SK>').replace(str(root / 'skills'), '<SK>'))
+            norm = lambda text: re.sub(r'"--cwd", "[^"]+"', '"--cwd", "<SCRATCH>"', re.sub(r'--cwd \S+', '--cwd <SCRATCH>',
+                                                                                         text.replace(str(top), '<T>').replace(str(self.phase3_skills()), '<SK>').replace(str(root / 'skills'), '<SK>')))
             logs = {f.name: norm(f.read_text()) for f in sorted((top / 'fake').glob('*.log'))}
             results.append((r.returncode, norm(r.stdout), norm(r.stderr), logs))
         self.assertEqual(results[0], results[1], label)
@@ -1049,6 +1050,57 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         out = self.leaf_both('leaf-has', bash, py)
         self.assertIn("has_mcp_arg ['--mcp-config=x.json'] 0", out[1])
         self.assertIn("has_permission_arg ['--', '--mcp-config'] 1", out[1])
+
+    def test_the_preflights_match_the_bash_at_the_phase_3_base(self):
+        fast = {'PAIR_PREFLIGHT_RETRY_S': '0'}
+        hang = {**fast, 'PAIR_PREFLIGHT_TIMEOUT': '1'}
+        noisy = 'line one\n\n   \nline two\nline three\nline four\nline five\nline six\n\n'
+        cases = {
+            'no preflight for claude': ('claude', [], {}, fast), 'no preflight for an unknown kind': ('nobody', ['--x'], {}, fast),
+            'pi answers': ('pi', ['--model', 'm'], {}, fast),
+            'pi drops the approve and no-approve flags': ('pi', ['--approve', '-a', '--no-approve', '-na', '--model', 'm', 'a b'], {}, fast),
+            'pi fails once then answers': ('pi', [], {'pi-fail-once': ''}, fast),
+            'pi fails twice': ('pi', [], {'pi-fail': 'quota exhausted\n'}, fast),
+            'pi fails twice with a long noisy message': ('pi', [], {'pi-fail': noisy}, fast),
+            'pi answers without OK': ('pi', [], {'pi-reply': 'hello\n'}, fast),
+            'pi answers with nothing': ('pi', [], {'pi-reply': ''}, fast),
+            'pi answers with blanks only': ('pi', [], {'pi-reply': '  \n\n'}, fast),
+            'pi OK inside a sentence': ('pi', [], {'pi-reply': 'it is OKAY\n'}, fast),
+            'pi hangs': ('pi', [], {'pi-hang': ''}, hang),
+            'muse answers': ('muse', ['--model', 'm', '--provider', 'p', '--contributor-mode', 'c', '--permission-profile', 'x', '--other', 'y', 'z'], {}, fast),
+            'muse with a flag and no value': ('muse', ['--model', 'm', 'stray'], {}, fast),
+            'muse fails': ('muse', ['--model', 'm'], {'muse-fail': 'logged out\n'}, fast),
+            'muse fails with a long message': ('muse', [], {'muse-fail': noisy}, fast),
+            'muse answers without OK': ('muse', [], {'muse-reply': 'no\n'}, fast),
+            'muse answers with nothing': ('muse', [], {'muse-reply': ''}, fast),
+            'muse hangs': ('muse', [], {'muse-hang': ''}, hang),
+            'prime answers': ('prime-agent', ['--model', 'm'], {}, fast),
+            'prime fails once then answers': ('prime-agent', [], {'prime-fail-once': ''}, fast),
+            'prime fails twice': ('prime-agent', ['--model', 'm'], {'prime-fail': 'capacity issues\n'}, fast),
+            'prime fails twice with a long message': ('prime-agent', [], {'prime-fail': noisy}, fast),
+            'prime answers OK padded with blanks': ('prime-agent', [], {'prime-reply': '  OK  \n'}, fast),
+            'prime answers OK among other lines': ('prime-agent', [], {'prime-reply': 'thinking\nOK\n'}, fast),
+            'prime answers OK inside a sentence': ('prime-agent', [], {'prime-reply': 'OK, sure\n'}, fast),
+            'prime answers with nothing': ('prime-agent', [], {'prime-reply': ''}, fast),
+            'prime hangs': ('prime-agent', [], {'prime-hang': ''}, {**hang}),
+        }
+        results = {}
+        for label, (kind, args, fake, env) in cases.items():
+            bash = f'preflight_kind {shlex.join([kind, *args])}; echo "rc=$?"'
+            py = f'code = agents.preflight_kind({kind!r}, {args!r})\nprint(f"rc={{code}}")'
+            results[label] = self.leaf_both('leaf-pre-' + re.sub(r'\W+', '-', label), bash, py, fake=fake, env=env)
+        self.assertEqual(results['pi answers'][1], 'rc=0\n')
+        self.assertIn('pi 1.0.2 at ', results['pi fails twice'][2])
+        self.assertIn('timed out after 1s', results['pi hangs'][2])
+        self.assertIn('answered without OK', results['pi answers without OK'][2])
+        self.assertIn('(no output)', results['pi answers with nothing'][2])
+        self.assertEqual(results['no preflight for claude'][1], 'rc=0\n')
+        self.assertEqual(results['pi fails once then answers'][3]['pi.log'].count('\n'), 2)
+
+    def test_has_preflight_matches_the_bash_at_the_phase_3_base(self):
+        bash = ''.join(f'has_preflight {shlex.quote(k)}; echo "{k!r} $?"\n' for k in self.LEAF_KINDS)
+        py = f'for k in {self.LEAF_KINDS!r}:\n    print(f"{{k!r}} {{agents.status(agents.has_preflight(k))}}")\n'
+        self.assertEqual(self.leaf_both('leaf-has-pre', bash, py)[1].count(' 0\n'), 3)
 
     def test_mcp_args_match_the_bash_at_the_phase_3_base(self):
         servers = lambda *items: {'codex-mcp.json': json.dumps(list(items)) + '\n'}

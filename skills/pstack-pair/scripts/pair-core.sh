@@ -786,65 +786,17 @@ require_fresh_session() {
 	fi
 }
 
-preflight_timeout_s="${PAIR_PREFLIGHT_TIMEOUT:-90}"
-
-has_preflight() {
-	case "$1" in pi | prime-agent | muse) return 0 ;; *) return 1 ;; esac
-}
+has_preflight() { pycore __has_preflight "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
 
 # Muse Code: one headless prompt on the role's model proves the account is
 # logged in and its plan has usage left. Only the arguments `muse exec`
 # shares with the TUI pass through.
-preflight_muse() {
-	local -a args=()
-	local out rc=0
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--model | --provider | --contributor-mode | --permission-profile) [ $# -ge 2 ] && args+=("$1" "$2"); shift 2 ;;
-		*) shift ;;
-		esac
-	done
-	out="$(cd /tmp && with_timeout "$preflight_timeout_s" muse exec "${args[@]}" 'Reply with exactly: OK' </dev/null 2>&1)" || rc=$?
-	[ "$rc" -eq 0 ] && grep -q OK <<<"$out" && return 0
-	printf '%s\n' "$out" | tail -5 >&2
-	return 1
-}
-
 # Proves a kind's model answers before a pane starts. pi reaches some models
 # through community provider packages that can break or run out of capacity,
 # so it gets one print-mode prompt, without the repo's resources. Other kinds
 # have no check here. $1 kind, rest: the native args the agent starts with.
 # Prints the last lines of a failure on stderr.
-preflight_kind() {
-	local kind="$1" out arg
-	shift
-	has_preflight "$kind" || return 0
-	[ "$kind" != prime-agent ] || { preflight_prime "$@"; return $?; }
-	[ "$kind" != muse ] || { preflight_muse "$@"; return $?; }
-	local -a args=()
-	for arg in "$@"; do
-		case "$arg" in --approve | -a | --no-approve | -na) ;; *) args+=("$arg") ;; esac
-	done
-	# A provider can fail one request and answer the next, so a failure is
-	# retried once before it counts.
-	local attempt rc=0
-	for attempt in 1 2; do
-		rc=0
-		out="$(with_timeout "$preflight_timeout_s" pi --no-session --no-approve --no-context-files --no-skills -p "${args[@]}" 'Reply with exactly: OK' 2>&1)" || rc=$?
-		[ "$rc" -eq 0 ] && grep -q OK <<<"$out" && return 0
-		[ "$attempt" -eq 2 ] || sleep "${PAIR_PREFLIGHT_RETRY_S:-3}"
-	done
-	# The master's PATH can hold an older pi than the pane's, so name it.
-	printf 'pi %s at %s, twice: ' "$(pi --version 2>/dev/null || printf '?')" "$(command -v pi)" >&2
-	case "$rc" in
-	124) printf 'timed out after %ss ' "$preflight_timeout_s" >&2 ;;
-	0) printf 'answered without OK ' >&2 ;;
-	*) printf 'exit %s ' "$rc" >&2 ;;
-	esac
-	printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -3 | tr '\n' ' ' >&2
-	[ -n "$(tr -d '[:space:]' <<<"$out")" ] || printf '(no output)' >&2
-	return 1
-}
+preflight_kind() { pycore __preflight_kind "$@"; }
 
 record_failover() {
 	# $1 store, $2 from kind, $3 to kind, $4 reason
