@@ -568,7 +568,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a working devin whose report lands at once': dict(devin, args=run, hook=self.stop_hook()),
             'a working devin that never shows the text': dict(devin, args=run + ['--timeout', '2000']),
             'a working devin and a stop under another name': dict(devin, args=run, fake={'devin-input': ''}, hook=self.stop_hook('001-land-partial1.md', 'partial (STOP)')),
-            'a working devin whose text stays typed': dict(devin, args=run + ['--timeout', '2000'], fake={'devin-input': '', 'typing/s1': 'pstack-pair STOP x'}),
+            'a working devin whose text stays typed': dict(devin, args=run, hook=self.stop_hook(), fake={'devin-input': '', 'typing/s1': 'pstack-pair STOP x'}),
         }
 
     def stop_ab_run(self, skill, group, cases=None):
@@ -586,22 +586,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 side['stderr'] = norm_core(side['stderr'])
                 side['stdout'] = self.mask_minutes(side['stdout'])
                 side['calls'] = self.collapse_polls(side['calls'])
-                if 'working devin' in spec.get('agents', {}).values() or 'working devin' in ' '.join(spec.get('agents', {}).values()):
-                    side['calls'] = self.without_pane_watch_reads(side['calls'])
             results[name] = want
             if got != want:
                 mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
         self.maxDiff = None
         self.assertEqual(mismatches, {})
         return results
-
-    @staticmethod
-    def without_pane_watch_reads(calls):
-        """The call log of a stop to a working Devin without the pane reads of its one-second watch. How many times the watch reads the pane
-        depends on where the whole-second clock falls in its window (`date +%s` in the bash, the port's clock in Python), so the count is a
-        decision of neither script. Everything else stays compared exactly: the prompt, every Enter, the status reads, and the messages the final
-        read produces on stderr (compared as stderr)."""
-        return '\n'.join(line for line in calls.splitlines() if line != 'agent read s1 --source visible --lines 40')
 
     def test_stop_matches_the_bash_at_the_phase_3_base_when_the_sidekick_is_not_working(self):
         results = self.stop_ab_run('pstack-pair', lambda n: 'working' not in n)
@@ -622,6 +612,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(results['a working devin whose input box holds the text']['rc'], 0)
 
     def test_stop_matches_the_bash_at_the_phase_3_base_when_a_working_devin_is_never_sent_the_text(self):
+        # 'stays typed' has no --timeout on purpose: the watch then ends on the queued text's send-now hint (the second Enter) and never on its
+        # deadline. With a short deadline it ended either on the hint (read, Enter, read, Enter) or on the clock (read, Enter, read), by where
+        # the whole second fell, in the bash and in the port alike. 'never shows' ends on its deadline by design; its repeated reads collapse.
         # The window is two seconds, not one: the outcome depends on whether the pane watch gets to run before the deadline, and a slow fake
         # herdr call between the send and the watch must not tip a one-second window.
         results = self.stop_ab_run('pstack-pair', lambda n: 'never' in n and 'devin' in n or 'stays typed' in n)
