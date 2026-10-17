@@ -45,7 +45,8 @@ work?", and then your pane closes.
    not narrow what you look for. Mark each lesson held or hit in the
    verdict's Lessons section; a hit that breaks Acceptance is also a finding.
 6. Write the verdict from the template, copying the packet's `verifier-agent:`
-   line into the verdict header:
+   line into the verdict header. The header's `range:` line is the packet's
+   range copied as it is, with nothing after the head:
    - `clean`: every Acceptance line proven, nothing broken.
    - `reject`: a line fails or something regressed. One numbered finding per
      problem, each pointing at its Evidence block.

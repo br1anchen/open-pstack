@@ -2,7 +2,7 @@
 
 status: clean | reject | inconclusive
 units: <the packet's units: line, copied as it is (`landing` for a landing packet)>
-range: <base>..<head> from the packet
+range: <base>..<head>
 verifier: <your agent kind and model>
 verifier-agent: <copy the verifier-agent: line from the packet>
 
