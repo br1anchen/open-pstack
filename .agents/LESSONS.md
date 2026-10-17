@@ -40,6 +40,7 @@ layer: verify
 area: skills
 since: 2026-10-16
 active: 2026-10-16T11:33:46Z
+note: owner 2026-10-18: keep active, not promoted (no mechanical check)
 evidence:
 - 2026-10-16 python-port 003: Acceptance "stdout, stderr, exit codes and store files stay unchanged" fails on one error path (Evidence E5, E6).
 
