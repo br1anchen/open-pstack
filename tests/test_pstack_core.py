@@ -812,6 +812,123 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(results['a queued steer'][1], 'ok\n')
         self.assertEqual([results[n][1] for n in ('a receipt that says failed', 'a receipt for follow-up', 'a receipt for another session', 'a send that hangs')], ['fail\n'] * 4)
 
+    STEER_TEXT = '# Steer 001-x-s1\n\nkind: narrow\nscope effect: none\n\n## Direction\n\nuse the other helper\n'
+
+    def steer_cases(self):
+        """Cases for `steer`, through every entry script. A case's files are all old (see send_ab_run): the objection report must not count as the
+        reply to a steer sent in the same second."""
+        steer, objection = {'steers/001-x-s1.md': self.STEER_TEXT}, {'reports/001-x-s1.md': '# R\n\nstatus: object\n'}
+        run = ['steer', '{st}', '{st}/steers/001-x-s1.md']
+        working = {'s1': 'working claude'}
+        settle = {'wait': '#!/bin/sh\nprintf "idle claude\\n" >"$FAKE/agents/s1"\n'}
+        prime_session = {'kind': 'path', 'value': '/t/one.jsonl'}
+        prime = dict(agents={'s1': 'working prime-agent'}, panes={'p1': 's1'}, files=steer, fake={'prime-sessions.json': json.dumps(
+            [{'activeSessionId': 'live-1', 'sessionId': 'sess-1', 'sessionFile': '/t/one.jsonl', 'name': 's1'}]), 'sessions/s1': '/t/one.jsonl'},
+            pair={'sidekick': {'kind': 'prime-agent', 'generation': 1, 'name': 's1', 'pane_id': 'p1', 'session': prime_session}}, env={'PAIR_PRIME_COMMAND_TIMEOUT': '2'})
+        idle = dict(args=run, agents={'s1': 'idle claude'}, files={**steer, **objection}, pair={'sent': {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 5}})
+        reply = '1 {st}/reports/001-x.md'
+        return {
+            'no arguments': dict(args=['steer']),
+            'one argument': dict(args=['steer', '{st}']),
+            'a steer path that cannot be resolved': dict(args=['steer', '{st}', '']),
+            'a missing steer file': dict(args=['steer', '{st}', '{st}/steers/009-none.md'], agents=working),
+            'a file that is not a steer': dict(args=run, agents=working, files={'steers/001-x-s1.md': '# Notes\n'}),
+            'a steer with a placeholder': dict(args=run, agents=working, files={'steers/001-x-s1.md': self.STEER_TEXT.replace('other helper', '{{{{what}}}}')}),
+            'a steer whose kind line lists alternatives': dict(args=run, agents=working, files={'steers/001-x-s1.md': self.STEER_TEXT.replace('narrow', 'narrow | widen')}),
+            'a steer whose scope effect lists alternatives': dict(args=run, agents=working, files={'steers/001-x-s1.md': self.STEER_TEXT.replace('none', 'none | extra')}),
+            'an unknown option': dict(args=run + ['--bogus'], agents=working, files=steer),
+            '--timeout with no value': dict(args=run + ['--timeout'], agents=working, files=steer),
+            'outside herdr': dict(args=run, agents=working, files=steer, env={'HERDR_ENV': '0'}),
+            'no pair.json': dict(args=run, nopair=True, files=steer),
+            'the sidekick is absent': dict(args=run, files=steer),
+            'the sidekick is blocked': dict(args=run, agents={'s1': 'blocked claude'}, files=steer),
+            'a working sidekick': dict(args=run, agents=working, files=steer),
+            'a working sidekick and a prompt that fails': dict(args=run, agents=working, files=steer, promptfail=True),
+            'a working sidekick with --interrupt that settles': dict(args=run + ['--interrupt'], agents=working, files=steer, once=settle),
+            'a working sidekick with --interrupt that does not settle': dict(args=run + ['--interrupt'], agents=working, files=steer),
+            'a working devin': dict(args=run, agents={'s1': 'working devin'}, kind='devin', files=steer),
+            'a working devin with a steer already left and another': dict(args=run, agents={'s1': 'working devin'}, kind='devin', files=steer,
+                                                                           pair={'notice_steers': ['{st}/steers/001-x-s1.md', '/a/other-s2.md']}),
+            'a working devin with a null notice list': dict(args=run, agents={'s1': 'working devin'}, kind='devin', files=steer, pair={'notice_steers': None}),
+            'a working devin with --interrupt': dict(args=run + ['--interrupt'], agents={'s1': 'working devin'}, kind='devin', files=steer, once=settle),
+            'a working prime sidekick': dict(prime, args=run),
+            'a working prime sidekick whose daemon fails': dict(prime, args=run, fake={**prime['fake'], 'prime-list-fail': ''}),
+            'a working prime sidekick with --interrupt': dict(prime, args=run + ['--interrupt'], once=settle),
+            'an idle sidekick with an open objection': dict(idle, report_after=reply),
+            'an idle sidekick whose reply is a report with another status': dict(idle, report_after=reply + ' partial'),
+            'a done sidekick with an open objection': dict(idle, agents={'s1': 'done claude'}, report_after=reply),
+            'an idle sidekick that never replies': dict(idle, args=run + ['--timeout', '1000']),
+            '--every on the wait': dict(idle, args=run + ['--every', '1'], report_after=reply),
+            'an idle sidekick and a prompt that fails': dict(idle, promptfail=True),
+            'an idle sidekick with no objection': dict(args=run, agents={'s1': 'idle claude'}, files=steer),
+            'an idle sidekick whose objection was answered': dict(idle, files={**steer, 'reports/001-x-s1.md': '# R\n\nstatus: agree\n'}),
+            'an idle sidekick and a steer that supersedes none': dict(idle, files={**steer, 'steers/001-x-s1.md': self.STEER_TEXT + '\nsupersedes: none\n'}),
+            'an idle sidekick and a steer that supersedes an objection': dict(idle, report_after=reply, files={**steer, 'steers/001-x-s1.md': self.STEER_TEXT + '\nsupersedes: s1\n'}),
+            'a second objection newer than the first': dict(idle, report_after=reply, files={**steer, **objection, 'reports/001-x-s2.md': '# R\n\nstatus: agree\n'},
+                                                             mtimes={'reports/001-x-s2.md': 1_000_000_100}),
+            'a sent entry already marked seen': dict(idle, report_after=reply, pair={'sent': {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 5, 'seen': 'x:1'}}),
+            'no sent entry': dict(idle, report_after=reply, pair={'sent': None}),
+            'an unknown sidekick': dict(args=run, agents={'s1': 'unknown claude'}, files=steer),
+            'an unknown sidekick with --force': dict(args=run + ['--force'], agents={'s1': 'unknown claude'}, files=steer),
+            'an unknown sidekick with --force and a prompt that fails': dict(args=run + ['--force'], agents={'s1': 'unknown claude'}, files=steer, promptfail=True),
+        }
+
+    def steer_specs(self):
+        return {n: {**spec, 'mtimes': {**{rel: self.OLD_MTIME for rel in spec.get('files', {})}, **spec.get('mtimes', {})}} for n, spec in self.steer_cases().items()}
+
+    IDLE_STEER_CASES = ('idle sidekick', 'done sidekick', '--every on the wait', 'second objection', 'sent entry', 'no sent entry')
+
+    def test_steer_matches_the_bash_at_the_phase_3_base_in_pair_when_the_sidekick_is_not_idle(self):
+        results = self.stop_ab_run('pstack-pair', lambda n: not any(w in n for w in self.IDLE_STEER_CASES), self.steer_specs())
+        self.assertEqual(results['a working sidekick']['rc'], 0)
+        self.assertIn('steered s1 with <T>/st/steers/001-x-s1.md; its harness hands it over', results['a working sidekick']['stdout'])
+        self.assertEqual((results['the sidekick is absent']['rc'], results['the sidekick is blocked']['rc'], results['an unknown sidekick']['rc']), (2, 3, 5))
+        self.assertEqual(results['a working sidekick with --interrupt that does not settle']['rc'], 3)
+        self.assertIn('left for s1', results['a working devin']['stdout'])
+        self.assertIn('Prime queues it', results['a working prime sidekick']['stdout'])
+
+    def test_steer_matches_the_bash_at_the_phase_3_base_in_pair_when_the_sidekick_is_idle(self):
+        results = self.stop_ab_run('pstack-pair', lambda n: any(w in n for w in self.IDLE_STEER_CASES), self.steer_specs())
+        self.assertIn('report_status: partial', results['an idle sidekick whose reply is a report with another status']['stdout'])
+        self.assertEqual(results['an idle sidekick with no objection']['rc'], 5)
+        self.assertEqual(results['an idle sidekick that never replies']['rc'], 4)
+        self.assertIn('send-steer\t', ' '.join(f'{e}\t' for e in results['an idle sidekick with an open objection']['events']))
+        self.assertIn('"epoch"', results['no sent entry']['files']['pair.json'])
+
+    def test_steer_ab_signals_end_the_command_as_they_end_the_bash(self):
+        # The idle path sits in herdr's prompt (held by a fake-herdr hook); a signal ends it with the signal and nothing printed, as it ends the
+        # bash, whether it goes to the process group or to the shell alone: the port is one process (pycore --exec).
+        skills3 = self.phase3_skills()
+        world = {k: v for k, v in self.steer_specs()['an idle sidekick with an open objection'].items() if k not in ('args', 'report_after')}
+        for skill in ('pstack-pair', 'pstack-kitchen'):
+            for number, group in ((signal.SIGTERM, True), (signal.SIGTERM, False), (signal.SIGHUP, False), (signal.SIGINT, True)):
+                run = dict(hold='prompt', argv=lambda st: ['steer', str(st), str(st / 'steers/001-x-s1.md')], world=world)
+                want = self.wait_signalled(skills3, number, group, skill, **run)
+                got = self.wait_signalled(root / 'skills', number, group, skill, **run)
+                self.assertEqual(got, want, (skill, number.name, group))
+                self.assertEqual(got[:3], (-number, '', ''), (skill, number.name, group))
+
+    def test_steer_matches_the_bash_at_the_phase_3_base_in_guided_and_trio(self):
+        keep = ('no arguments', 'a missing steer file', 'a working sidekick', 'a working devin', 'the sidekick is blocked', 'an unknown sidekick with --force',
+                'an idle sidekick with an open objection', 'an idle sidekick with no objection', 'an idle sidekick that never replies')
+        specs = {n: spec for n, spec in self.steer_specs().items() if n in keep}
+        for skill in ('pstack-pair-guided', 'pstack-trio'):
+            self.stop_ab_run(skill, lambda n: True, specs)
+
+    def test_steer_matches_the_bash_at_the_phase_3_base_in_the_kitchen(self):
+        # The idle path waits through the kitchen's own steps_due and report_ready: an escalated unit with steps to review ends the wait on them.
+        escalated = {'briefs/001-x.md': '# Brief\n\nrisk: escalated (x)\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/**\n', 'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n'}
+        done = {'briefs/001-x.md': '# Brief\n\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/**\n'}
+        keep = ('a working sidekick', 'the sidekick is blocked', 'an idle sidekick with an open objection', 'an idle sidekick that never replies', 'an unknown sidekick with --force')
+        specs = {n: dict(spec, repo_files={'.agents/kitchen.toml': self.KITCHEN_TOML}) for n, spec in self.steer_specs().items() if n in keep}
+        base = self.steer_specs()['an idle sidekick with an open objection']
+        specs['an escalated unit with steps to review'] = dict(base, files={**base['files'], **escalated}, mtimes={**base['mtimes'], **{r: self.OLD_MTIME for r in escalated}},
+                                                               repo_files={'.agents/kitchen.toml': self.KITCHEN_TOML})
+        specs['a routine unit whose reply arrives'] = dict(base, files={**base['files'], **done}, mtimes={**base['mtimes'], **{r: self.OLD_MTIME for r in done}}, report_after='1 {st}/reports/001-x.md',
+                                                           repo_files={'.agents/kitchen.toml': self.KITCHEN_TOML})
+        results = self.stop_ab_run('pstack-kitchen', lambda n: True, specs)
+        self.assertIn('steps: 1 to review on 001-x', results['an escalated unit with steps to review']['stdout'])
+
     def test_phase3_skills_extracts_the_bash_at_the_phase_3_base(self):
         core = self.phase3_skills() / 'pstack-pair/scripts/pair-core.sh'
         self.assertTrue(core.is_file())
@@ -3088,8 +3205,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 ours = (0, '\x1f'.join([timeout, str(interval), '1' if send_only else '0']) + ''.join('\x1f' + x for x in rest), '')
             except Exit as e:
                 ours = (e.code, '', e.stderr)
-            # Masked: the file and line bash names are the working tree's for Python and e6e83e3's for the oracle. wait_opts is still bash
-            # code at HEAD, so Python names its real line, which must never be 0.
+            # Masked: the file and line bash names are the working tree's for Python and e6e83e3's for the oracle. wait_opts is gone from the bash at HEAD
+            # (Python names cmd_wait's line), which must never be 0.
             self.assertNotIn('line 0:', ours[2], args)
             mask = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text))
             if (ours[0], ours[1], mask(ours[2])) != (r.returncode, r.stdout, mask(r.stderr)):
@@ -4182,7 +4299,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     CONSULTANT_CORE = 'pstack-trio/scripts/consultant-core.sh'
     CONSULTANT_ENTRIES = ('pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
     HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
-    PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
+    PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'steer', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
     TWINS = ('event', 'header_field', 'next_seq', 'paused_reason', 'progress_path',
@@ -4191,7 +4308,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
              'report_ready', 'expected_report', 'fresh_per_brief', 'record_dispatch', 'file_mtime', 'queue_note', 'pending_report', 'fresh_reply', 'seen_reply',
              'mark_seen', 'unreviewed_steps', 'withheld_report', 'review_delta', 'steps_due', 'status_paths', 'tree_activity', 'scope_entries',
              'steer_scope_entries', 'sidekick_activity', 'busy_command', 'checkin', 'agent_session_error', 'muse_session_error', 'provider_hint', 'prime_role_error',
-             'record_prime_session', 'wait_opts', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
+             'record_prime_session', 'reply_mode', 'finish_wait', 'wait_for_reply', 'require_not_paused', 'check_scope', 'scope_entry_exists',
              'prune_pending', 'record_sent', 'require_fresh_session', 'submit_typed', 'prompt_sidekick', 'send_and_wait',
              'iso_epoch', 'in_herdr', 'latest_advice', 'detect_permission_mode')
     TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest', 'detect_permission_mode': 'detect'}
@@ -4206,8 +4323,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     KNOWN_DEAD = (
         'pstack-kitchen/scripts/kitchen.sh:advice_gate',
         'pstack-kitchen/scripts/kitchen.sh:core_require_agreed_plan',
+        'pstack-kitchen/scripts/kitchen.sh:core_steps_due',
         'pstack-kitchen/scripts/kitchen.sh:plan_gate_extra',
+        'pstack-kitchen/scripts/kitchen.sh:report_ready',
         'pstack-kitchen/scripts/kitchen.sh:require_agreed_plan',
+        'pstack-kitchen/scripts/kitchen.sh:steps_due',
         'pstack-pair-guided/scripts/pair.sh:plan_gate_extra',
         'pstack-pair/scripts/pair-core.sh:plan_gate_extra',
         'pstack-pair/scripts/pair-core.sh:require_agreed_plan',

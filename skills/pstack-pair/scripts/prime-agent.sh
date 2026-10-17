@@ -98,18 +98,6 @@ stop_prime_role() {
 	json_update "$store" --arg role "$role" '.[$role].session_stopped = true'
 }
 
-prime_steer() {
-	local store="$1" text="$2" receipt
-	record_prime_session "$store" sidekick || return 1
-	prime_active_session "$store" sidekick || return 1
-	[ -n "$prime_active_id" ] || return 1
-	# Prime 0.10.0 advertises --steer but its Rust CLI rejects that flag.
-	# Plain send defaults to steering; require a receipt confirming that lane.
-	receipt="$(prime_command "$store" sidekick send --json "$prime_active_id" "$text")" || return 1
-	jq -e --arg id "$prime_active_id" '.deliveryMode == "steer" and .target.activeSessionId == $id
-		and (.deliveryStatus == "queued" or .deliveryStatus == "delivered")' <<<"$receipt" >/dev/null
-}
-
 preflight_prime() {
 	local out attempt rc dir
 	dir="$(mktemp -d)" || return 1

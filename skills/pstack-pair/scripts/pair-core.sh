@@ -1694,21 +1694,6 @@ send_and_wait() {
 	finish_wait "$store" "$code" "$out" "$err" "$(reply_mode)" "$ready"
 }
 
-# Parse the options every waiting command shares; sets $timeout and the
-# check-in interval, and leaves any other flag in $rest for the caller.
-wait_opts() {
-	rest=()
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--timeout) timeout="$2"; shift 2 ;;
-		--every) timeout=$(($2 * 60000)); shift 2 ;;
-		--send-only) send_only=1; shift ;;
-		*) rest+=("$1"); shift ;;
-		esac
-	done
-	checkin_interval_m=$((timeout / 60000))
-}
-
 cmd_discuss() { pycore --exec discuss "$@"; }
 
 cmd_dispatch() { pycore --exec dispatch "$@"; }
@@ -1909,74 +1894,7 @@ cmd_new_steer() { pycore new-steer "$@"; }
 # the agent's input queue, handed over between tool calls; the ack is a
 # progress line, so there is nothing to wait for. A sidekick paused on an
 # objection is idle, so a steer that answers it is sent with a wait instead.
-cmd_steer() {
-	in_herdr
-	[ $# -ge 2 ] || die "usage: pair.sh steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]"
-	local store="$1" steer force=0 interrupt=0 timeout=540000 rest name status seq slug objection out err code=0 errfile opt
-	steer="$(readlink -f "$2")"
-	shift 2
-	wait_opts "$@"
-	for opt in "${rest[@]}"; do
-		case "$opt" in
-		--force) force=1 ;;
-		--interrupt) interrupt=1 ;;
-		*) die "unknown option $opt" ;;
-		esac
-	done
-	[ -f "$steer" ] || die "steer not found: $steer"
-	grep -q '^## Direction' "$steer" || die "not a steer file: $steer"
-	if grep -q '{{' "$steer" || grep -qE '^(kind|scope effect): .*\|' "$steer"; then
-		die "$steer still has unfilled placeholders"
-	fi
-	name="$(field "$store" .sidekick.name)"
-	status="$(agent_status "$name")"
-	case "$status" in
-	working)
-		if [ "$interrupt" -eq 1 ]; then
-			# Esc cancels the running tool call so the steer is read now, not after it.
-			herdr agent send-keys "$name" esc >/dev/null || die "herdr send-keys failed for $name" 2
-			herdr agent wait "$name" --until idle --until "done" --until blocked --timeout 15000 >/dev/null \
-				|| die "sidekick $name did not settle after esc; inspect: herdr agent read $name --source visible --lines 60" 3
-		fi
-		event "$store" master send-steer "$steer" working
-		if [ "$(field "$store" .sidekick.kind)" = devin ] && [ "$interrupt" -eq 0 ]; then
-			# Devin parks a mid-turn message as queued, and the Enter that would
-			# deliver it cancels the running command. The steer stays in the
-			# store; the sidekick's next step, notes, or progress prints it.
-			json_update "$store" --arg s "$steer" '.notice_steers = ((.notice_steers // []) + [$s] | unique)'
-			printf 'steer %s left for %s: it lands at the sidekick'"'"'s next pair.sh step, notes, or progress, between tool calls; the ack lands in the progress log. Use --interrupt only to cancel the running command.\n' "$steer" "$name"
-		elif [ "$(field "$store" .sidekick.kind)" = prime-agent ] && [ "$interrupt" -eq 0 ]; then
-			prime_steer "$store" "$PAIR_SKILL STEER $steer" || die "Prime steer failed for $name" 2
-			printf 'steered %s with %s; Prime queues it between tool calls without cancelling the running command\n' "$name" "$steer"
-		else
-			herdr agent prompt "$name" "$PAIR_SKILL STEER $steer" >/dev/null || die "herdr prompt failed for $name" 2
-			printf 'steered %s with %s; its harness hands it over between tool calls and the ack lands in the progress log\n' "$name" "$steer"
-		fi
-		;;
-	idle | done)
-		seq="$(basename "$steer" | cut -c1-3)"
-		slug="$(basename "$steer" .md | sed -E 's/^[0-9]{3}-//; s/-s[0-9]+$//')"
-		objection="$(ls -t "$store"/reports/"$seq"-"$slug"-s[0-9]*.md 2>/dev/null | head -1 || true)"
-		[ -n "$objection" ] && [ "$(header_field "$objection" status)" = object ] \
-			|| die "sidekick $name is $status and no objection is open on unit $seq; fold the steer into the next brief instead" 5
-		[ "$(header_field "$steer" supersedes)" != none ] || die "$steer answers $objection but its supersedes: line says none"
-		event "$store" master send-steer "$steer" objection
-		# The reply to this steer is any report on the unit written from now.
-		json_update "$store" --argjson epoch "$(date +%s)" '.sent.epoch = $epoch | del(.sent.seen)'
-		prompt_sidekick "$name" "$PAIR_SKILL STEER $steer"
-		local ready
-		wait_for_reply "$store" "$name" "$timeout"
-		finish_wait "$store" "$code" "$out" "$err" "$(reply_mode)" "$ready"
-		;;
-	unknown)
-		[ "$force" -eq 1 ] || die "sidekick $name is unknown; read the pane, then pass --force to steer anyway" 5
-		herdr agent prompt "$name" "$PAIR_SKILL STEER $steer" >/dev/null || die "herdr prompt failed for $name" 2
-		printf 'steered %s with %s\n' "$name" "$steer"
-		;;
-	absent) die "sidekick $name is not live" 2 ;;
-	blocked) die "sidekick $name is blocked; inspect: herdr agent read $name --source visible --lines 60" 3 ;;
-	esac
-}
+cmd_steer() { pycore --exec steer "$@"; }
 
 cmd_status() { pycore status "$@"; }
 

@@ -1,0 +1,136 @@
+import glob
+import os
+import re
+import subprocess
+import time
+
+from ..collate import newest
+from ..errors import Die, Exit
+from ..herdr import agent_status
+from ..prime import prime_steer
+from ..send import prompt_sidekick
+from ..store import cut_chars, event, header_field, pair_json, readlink_f, unit_name, update
+from ..wait import die_with_the_shell, finish_wait, reply_mode, wait_for_reply, wait_opts
+from .report import in_herdr, require_pair
+from .stop import role_value
+
+USAGE = 'usage: pair.sh steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]'
+
+
+def herdr_ok(*args):
+    """herdr with stdout dropped and stderr left on the terminal, as `herdr ... >/dev/null` runs: whether it succeeded."""
+    return subprocess.run(['herdr', *args], stdout=subprocess.DEVNULL, check=False).returncode == 0
+
+
+def update_or_jq(store, mutate, program, *jq_args):
+    """json_update of pair.json. A pair.json jq cannot update ends the command with jq's own message and status, and leaves the empty
+    pair.json.tmp its redirect made."""
+    try:
+        update(store, mutate)
+    except (ValueError, TypeError):
+        open(f'{store}/pair.json.tmp', 'wb').close()
+        raise Exit(subprocess.run(['jq', *jq_args, program, f'{store}/pair.json'], stdout=subprocess.DEVNULL, check=False).returncode or 1)
+
+
+def leave_for_devin(store, steer):
+    """.notice_steers gains the steer once, sorted: Devin's next pair.sh step, notes or progress prints it."""
+    def mutate(doc):
+        current = doc.get('notice_steers')
+        if current in (None, False):
+            current = []
+        if not isinstance(current, list):
+            raise ValueError('notice_steers is not an array')
+        doc['notice_steers'] = sorted(set(current + [steer]))
+    update_or_jq(store, mutate, '.notice_steers = ((.notice_steers // []) + [$s] | unique)', '--arg', 's', steer)
+
+
+def open_the_objection_round(store, epoch):
+    """The reply to this steer is any report on the unit written from now: .sent.epoch = now and the seen mark gone."""
+    def mutate(doc):
+        sent = doc.get('sent')
+        if sent is None and 'sent' not in doc:
+            doc['sent'] = sent = {}
+        if sent is None:
+            sent = doc['sent'] = {}
+        if not isinstance(sent, dict):
+            raise ValueError('sent is not an object')
+        sent['epoch'] = epoch
+        sent.pop('seen', None)
+    update_or_jq(store, mutate, '.sent.epoch = $epoch | del(.sent.seen)', '--argjson', 'epoch', str(epoch))
+
+
+def steer(ctx, args):
+    in_herdr()
+    die_with_the_shell()
+    if len(args) < 2:
+        raise Die(USAGE)
+    store, steer_path = args[0], readlink_f(args[1])
+    timeout, interval, _, rest = wait_opts(args[2:])
+    force = interrupt = False
+    for opt in rest:
+        if opt == '--force':
+            force = True
+        elif opt == '--interrupt':
+            interrupt = True
+        else:
+            raise Die(f'unknown option {opt}')
+    if not os.path.isfile(steer_path):
+        raise Die(f'steer not found: {steer_path}')
+    with open(steer_path, 'rb') as f:
+        text = f.read().decode('utf-8', 'surrogateescape')
+    if not re.search(r'(?m)^## Direction', text):
+        raise Die(f'not a steer file: {steer_path}')
+    if '{{' in text or re.search(r'(?m)^(kind|scope effect): .*\|', text):
+        raise Die(f'{steer_path} still has unfilled placeholders')
+    require_pair(store)
+    name = role_value(store, 'sidekick', 'name')
+    status = agent_status(name)
+    message = f'{ctx.skill} STEER {steer_path}'
+    if status == 'working':
+        if interrupt:
+            # Esc cancels the running tool call so the steer is read now, not after it.
+            if not herdr_ok('agent', 'send-keys', name, 'esc'):
+                raise Die(f'herdr send-keys failed for {name}', 2)
+            if not herdr_ok('agent', 'wait', name, '--until', 'idle', '--until', 'done', '--until', 'blocked', '--timeout', '15000'):
+                raise Die(f'sidekick {name} did not settle after esc; inspect: herdr agent read {name} --source visible --lines 60', 3)
+        event(store, 'master', 'send-steer', steer_path, 'working')
+        kind = role_value(store, 'sidekick', 'kind')
+        if kind == 'devin' and not interrupt:
+            # Devin parks a mid-turn message as queued, and the Enter that would deliver it cancels the running command. The steer stays in
+            # the store; the sidekick's next step, notes, or progress prints it.
+            leave_for_devin(store, steer_path)
+            print(f"steer {steer_path} left for {name}: it lands at the sidekick's next pair.sh step, notes, or progress, between tool calls; "
+                  'the ack lands in the progress log. Use --interrupt only to cancel the running command.')
+        elif kind == 'prime-agent' and not interrupt:
+            if not prime_steer(store, message):
+                raise Die(f'Prime steer failed for {name}', 2)
+            print(f'steered {name} with {steer_path}; Prime queues it between tool calls without cancelling the running command')
+        else:
+            if not herdr_ok('agent', 'prompt', name, message):
+                raise Die(f'herdr prompt failed for {name}', 2)
+            print(f'steered {name} with {steer_path}; its harness hands it over between tool calls and the ack lands in the progress log')
+    elif status in ('idle', 'done'):
+        seq = cut_chars(os.path.basename(steer_path), 3)
+        slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
+        objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
+        if not objection or header_field(objection, 'status') != 'object':
+            raise Die(f'sidekick {name} is {status} and no objection is open on unit {seq}; fold the steer into the next brief instead', 5)
+        if header_field(steer_path, 'supersedes') == 'none':
+            raise Die(f'{steer_path} answers {objection} but its supersedes: line says none')
+        event(store, 'master', 'send-steer', steer_path, 'objection')
+        # The reply to this steer is any report on the unit written from now.
+        open_the_objection_round(store, int(time.time()))
+        prompt_sidekick(name, message)
+        result = wait_for_reply(ctx, store, name, timeout)
+        return finish_wait(ctx, store, interval, result, reply_mode(result), result.ready)
+    elif status == 'unknown':
+        if not force:
+            raise Die(f'sidekick {name} is unknown; read the pane, then pass --force to steer anyway', 5)
+        if not herdr_ok('agent', 'prompt', name, message):
+            raise Die(f'herdr prompt failed for {name}', 2)
+        print(f'steered {name} with {steer_path}')
+    elif status == 'absent':
+        raise Die(f'sidekick {name} is not live', 2)
+    elif status == 'blocked':
+        raise Die(f'sidekick {name} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
+    return 0
