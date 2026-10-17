@@ -26,6 +26,11 @@ def commit_of(root, rev):
 class Variant:
     """The pair's hooks. A variant's scripts/variant.py subclasses this and sets VARIANT."""
 
+    # Whole commands this variant runs in place of the core's, by name, for the names in cli.OVERRIDABLE. Every variant defines its own table
+    # in its own class body: a table inherited from another variant would give a skill commands it never chose (kitchen's spawn is the pair's,
+    # not the trio's).
+    commands = {}
+
     def report_ready(self, ctx, store, report):
         """report_ready() in pair-core.sh. Only a done report is judged, and only the unit's own report:
         the -sN and -qN reports answer a steer or a consult. Open blocking notes withhold it, and so does

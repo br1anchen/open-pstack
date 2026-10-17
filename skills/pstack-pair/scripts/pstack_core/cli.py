@@ -11,6 +11,20 @@ COMMANDS = {'init': init.run, 'log': log.run, 'new-plan': templates.new_plan, 'n
             'dispatch': send.dispatch, 'discuss': send.discuss, 'queue': queue.queue, 'step': step.step, 'wait': wait.wait, 'finish': report.finish, 'notify': report.notify, 'report': report.report, 'next': report.next_brief,
             'permission': permission.permission, '__detect_permission_mode': permission.helper}
 
+# The commands a variant may replace whole. Only these names ask the variant (loading it), so every other command runs without it, and an
+# internal entry (a name starting with __) never goes through it.
+OVERRIDABLE = ('answer', 'spawn', 'stop')
+
+
+def resolve(ctx, cmd):
+    """The function that runs cmd: the variant's own for an overridable name it defines, else the core's."""
+    if cmd in OVERRIDABLE:
+        command = ctx.variant.commands.get(cmd)
+        if command is not None:
+            return command
+    return COMMANDS.get(cmd)
+
+
 OPTIONS = ('--skill', '--skill-root', '--state-root', '--store-label', '--roles', '--store-dirs', '--slug-max', '--unfilled-re')
 
 
@@ -34,9 +48,10 @@ def main(argv):
     sys.stderr.reconfigure(errors='surrogateescape')
     try:
         ctx, cmd, args = parse(argv)
-        if cmd not in COMMANDS:
+        command = resolve(ctx, cmd)
+        if command is None:
             raise Die(f'unknown command: {cmd}')
-        return COMMANDS[cmd](ctx, args)
+        return command(ctx, args)
     except Exit as e:
         sys.stderr.write(e.stderr)
         return e.code

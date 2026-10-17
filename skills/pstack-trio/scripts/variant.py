@@ -4,6 +4,8 @@ from pstack_core.variant import Variant
 
 
 class TrioVariant(Variant):
+    commands = {}
+
     def plan_gate_extra(self, ctx, store, plan, review, seq):
         """A plan the consultant took part in also needs its advice on file."""
         if not latest(store, 'advice', seq):

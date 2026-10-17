@@ -74,6 +74,8 @@ def verify_job(store, brief, head):
 
 
 class KitchenVariant(TrioVariant):
+    commands = {}
+
     def require_agreed_plan(self, ctx, store, brief):
         """Routine units run on the brief alone; an escalated one needs the agreed plan with the consultant's advice, as in the trio. A
         routine brief that names a plan still needs it agreed. The gate to apply is an argument, as the bash passed it in a global."""

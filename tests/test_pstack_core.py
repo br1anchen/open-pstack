@@ -25,6 +25,7 @@ from pstack_core import checkin, cli, dispatch, herdr, permission, providers, re
 from pstack_core.commands import metrics, step  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
+from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
 
 sys.path.insert(0, str(root / 'tests'))
 import bash_reach  # noqa: E402
@@ -463,6 +464,46 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(seen[('a fresh store at the default path', 'pstack-pair')][0][0][0], 0)
         self.assertEqual(seen[('a stale --pane', 'pstack-pair')][0][0][0], 2)
         self.assertEqual(seen[('a slug past slug_max', 'pstack-pair')][0][0][0], 1)
+
+    SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
+    # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
+    # lists what it chooses to keep.
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': (), 'pstack-trio': (), 'pstack-kitchen': ()}
+
+    def test_each_skills_effective_command_table_is_pinned(self):
+        tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
+        self.assertEqual(tables, self.EFFECTIVE_COMMANDS)
+        self.assertTrue(set(name for table in tables.values() for name in table) <= set(cli.OVERRIDABLE))
+
+    def test_every_variant_class_defines_its_own_commands(self):
+        for cls in (Variant, *(load_skill_variant(root / 'skills', skill) for skill in self.SKILLS_WITH_A_VARIANT)):
+            self.assertIn('commands', cls.__dict__, cls.__name__)
+            self.assertIsInstance(cls.__dict__['commands'], dict, cls.__name__)
+
+    def test_only_an_overridable_name_asks_the_variant_and_an_internal_entry_never_does(self):
+        class Exploding:
+            @property
+            def commands(self):
+                raise AssertionError('the variant was asked')
+
+        ctx = Context('pstack-pair', '/nowhere/pstack-pair', '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+        ctx._variant = Exploding()
+        for name in cli.COMMANDS:
+            if name not in cli.OVERRIDABLE:
+                self.assertIs(cli.resolve(ctx, name), cli.COMMANDS[name], name)
+        self.assertIsNone(cli.resolve(ctx, '__nothing'))
+        ctx._variant = type('V', (), {'commands': {'answer': 'mine', 'status': 'not asked', '__detect_permission_mode': 'not asked'}})()
+        self.assertEqual((cli.resolve(ctx, 'answer'), cli.resolve(ctx, 'status'), cli.resolve(ctx, '__detect_permission_mode')),
+                         ('mine', cli.COMMANDS['status'], cli.COMMANDS['__detect_permission_mode']))
+
+    def test_a_command_the_variant_does_not_override_runs_without_loading_the_variant_module(self):
+        store = self.path / 'st'
+        store.mkdir()
+        (store / 'pair.json').write_text('{}')
+        r = subprocess.run([sys.executable, '-I', '-c', 'import sys; sys.path.insert(0, sys.argv[1]); from pstack_core import cli, variant; '
+                            'variant.load_variant = lambda ctx: (_ for _ in ()).throw(AssertionError("loaded")); sys.exit(cli.main(sys.argv[2:]))',
+                            str(scripts), *core_args(), 'resume', str(store)], capture_output=True, text=True, check=False, timeout=60)
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, f'resumed {store}\n', ''))
 
     def test_phase3_skills_extracts_the_bash_at_the_phase_3_base(self):
         core = self.phase3_skills() / 'pstack-pair/scripts/pair-core.sh'

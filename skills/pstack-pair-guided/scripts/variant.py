@@ -4,6 +4,8 @@ from pstack_core.variant import Variant
 
 
 class GuidedVariant(Variant):
+    commands = {}
+
     def plan_gate_extra(self, ctx, store, plan, review, seq):
         """An agreed plan also needs the human approval its scale calls for."""
         scale = header_field(plan, 'scale')
