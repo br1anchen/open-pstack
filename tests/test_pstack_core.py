@@ -2809,7 +2809,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         procs = []
         for kind, env in (('sleep-other', envs['other-pane']), ('sleep-pane', {**envs['plain'], 'HERDR_SOCKET_PATH': sock}), ('sleep-nosock', envs['plain']),
                           ('sleep-othersock', {**envs['plain'], 'HERDR_SOCKET_PATH': '/elsewhere'})):
-            procs.append(subprocess.Popen(['sleep', '60'], env=env, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            procs.append(subprocess.Popen(['sleep', '3600'], env=env, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         sh = subprocess.Popen(['sh', '-c', 'cat >/dev/null; true'], env={**envs['shell'], 'HERDR_SOCKET_PATH': sock}, stdin=subprocess.PIPE, start_new_session=True,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(lambda: [(os.killpg(p.pid, 9), p.wait(timeout=10)) for p in [*procs, sh]])
@@ -2878,7 +2878,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 seen.write_text(seen_value)
 
         def sleeper():
-            procs.append(subprocess.Popen(['sleep', '60'], env={**self.env, 'HERDR_PANE_ID': pane}, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            procs.append(subprocess.Popen(['sleep', '3600'], env={**self.env, 'HERDR_PANE_ID': pane}, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
 
         def steer(name, effect='', kind='narrow'):
             (st / 'steers' / name).write_text(f'# S\n\nkind: {kind}\nsupersedes: none\nscope effect: {effect}\n')
