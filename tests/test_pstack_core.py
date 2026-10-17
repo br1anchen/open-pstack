@@ -1132,7 +1132,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def test_the_shims_behave_as_the_bash_bodies_in_the_forms_their_callers_use(self):
         # The working tree's bash (shims into Python) against 04d2c13's bodies, through the callers' forms: mapfile from a process substitution,
-        # if / ! / || on the has_* and asks_no_approvals statuses, and mcp_args' status under set -e.
+        # if / ! / || on the has_* statuses, and mcp_args' status under set -e.
         argvs = [[], ['--yolo'], ['--mcp-config=x'], ['--approve'], ['-a', 'never'], ['--', '--yolo'], ['x', 'y']]
         snippet = ''
         for kind in self.LEAF_KINDS:
@@ -1262,6 +1262,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a prime start in a reused pane that fails': (dict(pair=old(kind='prime-agent'), **prime, **pane1, fake=pf(**{'start-fail': ''}), **hook), call(kind='prime-agent', perm='plan')),
             'a prime that reports no session': (dict(pair=old(pane_id=None, kind='prime-agent'), **prime, fake=pf(**{'prime-no-session': ''}), **hook), call(kind='prime-agent', perm='plan')),
             'a prime sidekick whose bootstrap settles without it': (dict(pair=old(pane_id=None, kind='prime-agent'), **prime, fake=pf(), **quiet), call(kind='prime-agent', perm='plan')),
+            'a split that fails': (dict(pair=old(pane_id=None), fake={'split-fail': ''}, **hook), call()),
+            'a tab that fails': (dict(pair={**old(pane_id=None), 'placement': 'tab', 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}, fake={'tab-fail': ''}, **hook), call()),
+            'a bootstrap that settles without it and a rate limit on screen': (dict(pair={**old(pane_id=None), 'fallback': {'kind': 'devin'}}, screens={'s1': 'Error: rate limit reached\\n'}, **quiet), call()),
+            'a stalled prompt whose ready name is on screen': (dict(pair=old(pane_id=None), fake={'prompt-drop': ''}, screens={'s1': 'type 000-ready.md\\n'}, **quiet), call()),
+            'a stalled prompt for a working agent': (dict(pair=old(pane_id=None), fake={'prompt-drop': 'working'}, **quiet), call()),
             'a previous ready file moved aside': (dict(pair=old(pane_id=None), files={'reports/000-ready.md': '# old\n'}, **hook), call()),
         }
 
@@ -1270,39 +1275,73 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'as a plain command': 'spawn_role "$store" {a}; echo "returned"',
         'as a plain command under errexit': 'set -e\nspawn_role "$store" {a}\necho "returned"',
     }
-    SPAWN_ALL_FORMS = ('an already live role', 'a bootstrap that settles without it', 'a prompt that fails', 'a new split', 'a fresh-per-brief kind with --resume',
-                       'a prime start', 'a pending bootstrap without its ready file')
+    # Where herdr itself fails to open a pane, 04d2c13's `new_pane_id="$(herdr ... | jq ...)"` ends a caller whose errexit is in force (the under-errexit form) with status 1
+    # and no message (the port dies with 2 and the message, as the bash does where errexit is ignored): a documented difference, pinned below.
+    SPAWN_ERREXIT_DIFFERENCE = ('a split that fails', 'a tab that fails')
 
-    def spawn_ab(self, part, parts=3):
-        """The part-th of `parts` slices of the spawn cases (the calls the callers make: with an or, as a plain command, and under errexit),
-        04d2c13's function against the working tree's shim: {(case, form): outcome}."""
+    def spawn_ab(self, part, size=6):
+        """The part-th slice of `size` spawn cases through the three call forms (with an or, as a plain command, under errexit): 04d2c13's function
+        against the working tree's shim, {(case, form): outcome}."""
         results = {}
         for n, (label, (spec, argv)) in enumerate(self.spawn_cases().items()):
-            if not (part * 12 <= n < (part + 1) * 12 if part < parts - 1 else n >= part * 12):
+            if not part * size <= n < (part + 1) * size:
                 continue
             for form, template in self.SPAWN_FORMS.items():
-                if form != 'with an or' and label not in self.SPAWN_ALL_FORMS:
-                    continue
-                results[(label, form)] = self.leaf_both(f'spawn-{part}-{len(results)}', template.format(a=shlex.join(argv)), None, **spec)
+                call = template.format(a=shlex.join(argv))
+                if label in self.SPAWN_ERREXIT_DIFFERENCE and form == 'as a plain command under errexit':
+                    bash_side, port_side = self.leaf_both(f'spawn-{part}-{len(results)}', call, None, same=False, **spec)
+                    self.assertEqual((bash_side[0], 'no pane id' in bash_side[2]), (1, False), (label, form))
+                    self.assertEqual((port_side[0], 'no pane id' in port_side[2]), (2, True), (label, form))
+                    results[(label, form)] = port_side
+                else:
+                    results[(label, form)] = self.leaf_both(f'spawn-{part}-{len(results)}', call, None, **spec)
         return results
 
-    def test_spawn_role_matches_the_bash_at_the_phase_3_base_part_one(self):
-        results = self.spawn_ab(0)
-        self.assertIn('already live (idle)', results[('an already live role', 'with an or')][1])
-        self.assertIn('started in p', results[('a new split', 'with an or')][1])
-        self.assertIn('returned rc=4', results[('a pending bootstrap without its ready file', 'with an or')][1])
+    SPAWN_EXPECT = {
+        ('an already live role', 'with an or'): (0, 'already live (idle)'),
+        ('a new split', 'with an or'): (0, 'started in p'),
+        ('a pending bootstrap without its ready file', 'with an or'): (0, 'returned rc=4'),
+        ('a bootstrap that settles without it', 'with an or'): (0, 'returned rc=4'),
+        ('a prompt that fails', 'with an or'): (0, 'returned rc=3'),
+        ('a prompt that fails', 'as a plain command under errexit'): (3, ''),
+        ('a bootstrap that settles without it', 'as a plain command under errexit'): (4, ''),
+        ('a fresh-per-brief kind with --resume', 'with an or'): (5, ''),
+        ('a prime start', 'with an or'): (0, 'ready: '),
+        ('a stalled prompt whose ready name is on screen', 'with an or'): (0, 'returned rc=3'),
+        ('a bootstrap that settles without it and a rate limit on screen', 'with an or'): (0, 'returned rc=4'),
+    }
 
-    def test_spawn_role_matches_the_bash_at_the_phase_3_base_part_two(self):
-        results = self.spawn_ab(1)
-        self.assertIn('returned rc=4', results[('a bootstrap that settles without it', 'with an or')][1])
-        self.assertIn('returned rc=3', results[('a prompt that fails', 'with an or')][1])
-        self.assertEqual(results[('a prompt that fails', 'as a plain command under errexit')][0], 3)
-        self.assertEqual(results[('a fresh-per-brief kind with --resume', 'with an or')][0], 5)
-        self.assertNotIn('returned', results[('a fresh-per-brief kind with --resume', 'with an or')][1])
+    def check_spawn_part(self, part):
+        results = self.spawn_ab(part)
+        for key, (code, needle) in self.SPAWN_EXPECT.items():
+            if key in results:
+                self.assertEqual(results[key][0], code, key)
+                self.assertIn(needle, results[key][1], key)
+        hint = ('a bootstrap that settles without it and a rate limit on screen', 'with an or')
+        if hint in results:
+            self.assertRegex(results[hint][2], r'(?i)rate.?limit', 'the provider hint is printed')
+        return results
 
-    def test_spawn_role_matches_the_bash_at_the_phase_3_base_part_three(self):
-        results = self.spawn_ab(2)
-        self.assertIn('ready: ', results[('a prime start', 'with an or')][1])
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_in_every_call_form_part_0(self):
+        self.check_spawn_part(0)
+
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_in_every_call_form_part_1(self):
+        self.check_spawn_part(1)
+
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_in_every_call_form_part_2(self):
+        self.check_spawn_part(2)
+
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_in_every_call_form_part_3(self):
+        self.check_spawn_part(3)
+
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_in_every_call_form_part_4(self):
+        self.check_spawn_part(4)
+
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_in_every_call_form_part_5(self):
+        self.check_spawn_part(5)
+
+    def test_spawn_role_matches_the_bash_at_the_phase_3_base_in_every_call_form_part_6(self):
+        self.check_spawn_part(6)
 
     def test_mcp_args_match_the_bash_at_the_phase_3_base(self):
         servers = lambda *items: {'codex-mcp.json': json.dumps(list(items)) + '\n'}
