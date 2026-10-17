@@ -1,6 +1,6 @@
 import sys
 
-from . import agents, panes, permission, spawn, wait
+from . import agents, exits, panes, permission, spawn, wait
 from .commands import init, log, metrics, notes, pause, progress, queue, report, scratch, send, status, step, steer, stop, templates
 from .commands.spawn import spawn as spawn_command
 from .context import Context
@@ -12,7 +12,7 @@ COMMANDS = {'init': init.run, 'log': log.run, 'new-plan': templates.new_plan, 'n
             'dispatch': send.dispatch, 'discuss': send.discuss, 'queue': queue.queue, 'step': step.step, 'wait': wait.wait, 'finish': report.finish, 'notify': report.notify, 'report': report.report, 'next': report.next_brief,
             'permission': permission.permission, 'steer': steer.steer, 'spawn': spawn_command, 'stop': stop.stop, '__detect_permission_mode': permission.helper,
             '__refuse_untrusted': panes.entry_refuse_untrusted, '__spawn_role': spawn.entry_spawn_role, '__spawn_consultant': spawn.entry_spawn_consultant,
-            **agents.COMMANDS}
+            **agents.COMMANDS, **exits.COMMANDS}
 
 # The commands a variant may replace whole. Only these names ask the variant (loading it), so every other command runs without it, and an
 # internal entry (a name starting with __) never goes through it.

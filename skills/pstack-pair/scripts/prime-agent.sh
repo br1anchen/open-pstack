@@ -11,92 +11,9 @@ record_prime_session() {
 	json_update "$store" --arg role "$role" --argjson session "$session" '.[$role].session = $session'
 }
 
-# Management commands must use the same daemon socket as the launched client.
-prime_command() {
-	local store="$1" role="$2" arg socket="" next=0
-	shift 2
-	while IFS= read -r arg; do
-		if [ "$next" -eq 1 ]; then socket="$arg"; next=0; continue; fi
-		case "$arg" in
-		--daemon-socket) next=1 ;;
-		--daemon-socket=*) socket="${arg#*=}" ;;
-		esac
-	done < <(jq -r --arg role "$role" '.[$role].start_args[]?' "$store/pair.json")
-	case "$socket" in
-	"" | /*) ;;
-	*) socket="$(field "$store" ".$role.launch_cwd // .cwd")/$socket" ;;
-	esac
-	local -a socket_args=()
-	[ -z "$socket" ] || socket_args=(--socket "$socket")
-	with_timeout "${PAIR_PRIME_COMMAND_TIMEOUT:-30}" prime-agent "$@" "${socket_args[@]}"
-}
-
-prime_sessions() {
-	local out
-	out="$(prime_command "$1" "$2" list --json)" || return 1
-	jq -ce '.sessions | select(type == "array")' <<<"$out"
-}
-
-# Exact path/id matching yields the live daemon id. No prefix or name matching:
-# another kitchen or the human may have a similar session name.
-prime_active_session() {
-	local store="$1" role="$2" session matches
-	session="$(field "$store" ".$role.session // empty")"
-	[ -n "$session" ] || { printf 'no recorded Prime session for %s; inspect its pane before cleanup\n' "$role" >&2; return 1; }
-	matches="$(prime_sessions "$store" "$role" | jq -c --argjson session "$session" '[.[]
-		| select(.activeSessionId? | type == "string" and length > 0)
-		| select(if $session.kind == "path" then .sessionFile == $session.value
-		         else .sessionId == $session.value or .activeSessionId == $session.value end)
-		| .activeSessionId] | unique')" || return 1
-	case "$(jq length <<<"$matches")" in
-	0) prime_active_id="" ;;
-	1) prime_active_id="$(jq -r '.[0]' <<<"$matches")" ;;
-	*) printf 'multiple live Prime sessions match %s; none was stopped\n' "$session" >&2; return 1 ;;
-	esac
-}
-
-stop_prime_role() {
-	local store="$1" role="$2" name status id remaining pane info
-	name="$(field "$store" ".$role.name")"
-	status="$(agent_status "$name")"
-	if [ "$status" != absent ]; then
-		record_prime_session "$store" "$role" || return 1
-	fi
-	prime_active_session "$store" "$role" || return 1
-	id="$prime_active_id"
-	if [ "$status" != absent ] && [ -z "$id" ]; then
-		printf 'no live daemon session matches %s in its recorded socket; inspect the client before cleanup\n' "$name" >&2
-		return 1
-	fi
-	# Detach while the client is still an active Herdr target. A blocked client
-	# cannot take /quit through agent.prompt; Ctrl+D exits its empty editor.
-	# Stopping the worker alone leaves the TUI displaying a session-closed error.
-	if [ "$status" = idle ] || [ "$status" = "done" ]; then
-		herdr agent prompt "$name" /quit >/dev/null 2>&1 || true
-	elif [ "$status" = blocked ]; then
-		herdr agent send-keys "$name" ctrl+d >/dev/null 2>&1 || true
-	fi
-	if [ -n "$id" ]; then
-		prime_command "$store" "$role" stop "$id" --json >/dev/null || return 1
-		remaining="$(prime_sessions "$store" "$role" | jq --arg id "$id" '[.[] | select(.activeSessionId == $id)] | length')" || return 1
-		[ "$remaining" -eq 0 ] || { printf 'Prime session %s is still active; its pane and scratch stay\n' "$id" >&2; return 1; }
-	fi
-	# The reporter releases on stop. Wait for the actual shell as well: killing
-	# a worker does not by itself prove the TUI has exited or released its PTY.
-	pane="$(field "$store" ".$role.pane_id")"
-	local deadline=$(( $(date +%s) + 15 ))
-	while :; do
-		info="$(herdr pane process-info --pane "$pane" 2>/dev/null)" || return 1
-		if [ "$(agent_status "$pane")" = absent ] && jq -e '
-			.result.process_info | (.shell_pid | type == "number")
-			and .foreground_process_group_id == .shell_pid' <<<"$info" >/dev/null; then
-			break
-		fi
-		[ "$(date +%s)" -lt "$deadline" ] || { printf 'Prime client has not exited in %s; inspect it before cleanup\n' "$pane" >&2; return 1; }
-		sleep 1
-	done
-	json_update "$store" --arg role "$role" '.[$role].session_stopped = true'
-}
+# Runs in the Python core. It returns 0 when the role is stopped and 1 when it cannot be, and the callers test it with `||`, so every status comes
+# back as a return; a die in the core (100 plus its code) ends the shell, as the die did.
+stop_prime_role() { pycore __stop_prime_role "$@" || { local pycore_rc=$?; case $pycore_rc in 1[0-9][0-9]) exit $((pycore_rc - 100)) ;; *) return $pycore_rc ;; esac; }; }
 
 prime_role_error() {
 	local store="$1" role="$2" session

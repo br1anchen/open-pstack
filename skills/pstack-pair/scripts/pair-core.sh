@@ -204,19 +204,6 @@ iso_epoch() {
 	jq -rn --arg t "$1" '$t | fromdateiso8601'
 }
 
-# timeout(1) where coreutils has it. macOS ships none, so perl stands in with
-# the same contract: $1 seconds, then the command; exit 124 when it runs out.
-with_timeout() {
-	if command -v timeout >/dev/null 2>&1; then
-		timeout "$@"
-	else
-		perl -e 'my $s = shift; my $p = fork // die "fork: $!\n";
-			unless ($p) { exec { $ARGV[0] } @ARGV or exit 127 }
-			local $SIG{ALRM} = sub { kill "TERM", $p; waitpid $p, 0; exit 124 };
-			alarm $s; waitpid $p, 0; exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$@"
-	fi
-}
-
 # setsid(1) where util-linux has it. macOS ships none, so perl starts the
 # command in a session of its own.
 detached() {
@@ -599,12 +586,7 @@ record_failover() {
 	printf 'failover: %s -> %s (%s)\n' "$2" "$3" "$4"
 }
 
-exit_command() {
-	case "$1" in
-	pi | prime-agent | codex | muse) printf '/quit\n' ;;
-	*) printf '/exit\n' ;;
-	esac
-}
+exit_command() { pycore __exit_command "$@"; }
 
 # Ends a role's agent and closes its pane, for a run that is over: the exit
 # command, then up to fifteen seconds for the agent to go (a Claude asking

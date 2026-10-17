@@ -727,7 +727,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         case can make hang, answer with a given receipt or session list."""
         sessions = [{'activeSessionId': 'live-1', 'sessionId': 'sess-1', 'sessionFile': '/t/one.jsonl', 'name': 's1'}]
         sidekick = {'kind': 'prime-agent', 'generation': 1, 'name': 's1', 'pane_id': 'p1', 'launch_cwd': '{T}/launch', **spec.get('sidekick', {})}
-        world = {'agents': {'s1': 'idle prime-agent'}, 'panes': {'p1': 's1'}, 'pair': {'sidekick': sidekick, **spec.get('pair', {})},
+        world = {'agents': spec.get('agents', {'s1': 'idle prime-agent'}), 'panes': spec.get('panes', {'p1': 's1'}), 'once': spec.get('once', {}),
+                 'files': spec.get('files', {}), 'pair': {'sidekick': sidekick, **spec.get('pair', {})},
                  'fake': {'prime-sessions.json': json.dumps(spec.get('sessions', sessions)),
                           **({} if spec.get('herdr_session') is False else {'sessions/s1': spec.get('herdr_session', '/t/one.jsonl')}),
                           **spec.get('fake', {})}, 'env': {'PAIR_PRIME_COMMAND_TIMEOUT': '1', **spec.get('env', {})}}
@@ -742,16 +743,27 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         (wrap / 'prime-agent').write_text(self.PRIME_WRAPPER)
         (wrap / 'prime-agent').chmod(0o755)
         env['PATH'] = f'{wrap}:{env["PATH"]}'
+        if spec.get('clock'):
+            # A clock that runs 100 s on every `date +%s`, and a sleep that returns at once: the bash's 15 s deadline is past at its second look, with
+            # no waiting. The port's deadline and poll are set to 0 for the same effect.
+            clock = top / 'clockbin'
+            clock.mkdir()
+            (clock / 'date').write_text('#!/bin/sh\nif [ "$*" = "+%s" ]; then n=$(cat "$FAKE/date-calls" 2>/dev/null || echo 0); echo $((n + 1)) >"$FAKE/date-calls"; echo $((1000 + 100 * n)); else exec /usr/bin/env -i PATH=/usr/bin:/bin date "$@"; fi\n')
+            (clock / 'sleep').write_text('#!/bin/sh\nexit 0\n')
+            for each in ('date', 'sleep'):
+                (clock / each).chmod(0o755)
+            env['PATH'] = f'{clock}:{env["PATH"]}'
+            env.update({'PAIR_EXIT_DEADLINE_S': '0', 'PAIR_EXIT_POLL_S': '0'})
         return top, st, env
 
-    def prime_both(self, label, bash_snippet, python_snippet, **spec):
+    def prime_both(self, label, bash_snippet, python_snippet, shim=False, **spec):
         """A Prime helper of the 04d2c13 bash (sourced under set -euo pipefail) against its Python twin run in a fresh interpreter, on identical
         worlds: (exit code, stdout, stderr, pair.json, the prime-agent and herdr calls)."""
         results = []
         for side in ('bash', 'py'):
             top, st, env = self.prime_world(f'{label}-{side}', spec)
-            skills3 = self.phase3_skills()
-            if side == 'bash':
+            skills3 = self.phase3_skills() if side == 'bash' or not shim else root / 'skills'
+            if side == 'bash' or shim:
                 script = (f'set -euo pipefail\nskill_root={skills3 / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
                           f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills3 / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
                 argv = ['bash', '-c', script]
@@ -759,7 +771,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 code = f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import prime\nstore = {str(st)!r}\n{python_snippet}'
                 argv = [sys.executable, '-I', '-c', code]
             r = subprocess.run(argv, cwd=top / 'repo', env=env, capture_output=True, text=True, check=False, timeout=120)
-            norm = lambda text: text.replace(str(top), '<T>')
+            norm = lambda text: re.sub(r'line [0-9]+', 'line N', text.replace(str(top), '<T>').replace(str(self.phase3_skills()), '<SK>').replace(str(root / 'skills'), '<SK>'))
             read = lambda f: norm((top / f).read_text()) if (top / f).exists() else ''
             results.append((r.returncode, norm(r.stdout), norm(r.stderr), read('st/pair.json'), read('fake/prime.log'), read('fake/calls.log')))
         self.assertEqual(results[0], results[1], label)
@@ -2957,6 +2969,80 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertNotIn('returned', seen[('a start that dies with 5', form)][1], form)
             self.assertEqual(seen[('a start that dies with 2', form)][0], 2, form)
             self.assertEqual(seen[('a start that succeeds', form)][0], 0, form)
+
+    def test_exit_command_matches_the_bash_at_the_phase_3_base(self):
+        kinds = ('claude', 'codex', 'pi', 'devin', 'muse', 'prime-agent', 'grok', '', 'PI', 'pi ')
+        bash = ''.join(f'printf "[%s]" "$(exit_command {shlex.quote(k)})"; exit_command {shlex.quote(k)} | od -c | head -1\n' for k in kinds)
+        out = self.prime_both('exit-command', bash, '', shim=True)
+        self.assertIn('[/quit]', out[1])
+        self.assertIn('[/exit]', out[1])
+
+    def stop_prime_cases(self):
+        path_session = {'kind': 'path', 'value': '/t/one.jsonl'}
+        recorded = {'sidekick': {'session': path_session}}
+        gone = {'agents': {}, 'sidekick': {'session': path_session}}
+        return {
+            'an idle client': dict(),
+            'a done client': dict(agents={'s1': 'done prime-agent'}),
+            'a blocked client': dict(agents={'s1': 'blocked prime-agent'}),
+            'a working client': dict(agents={'s1': 'working prime-agent'}),
+            'an absent client with its session recorded': dict(**gone),
+            'an absent client with no session recorded': dict(agents={}),
+            'a client herdr reports no session for': dict(herdr_session=False),
+            'no live session matches': dict(sessions=[]),
+            'a session that stays active': dict(fake={'prime-stays-live': ''}),
+            'a stop that fails': dict(fake={'prime-stop-fail': ''}),
+            'a daemon whose list fails': dict(fake={'prime-list-fail': ''}),
+            'a daemon whose list fails after the stop': dict(fake={'wrap-list': 'not json\n'}),
+            'a pane whose shell never takes the foreground': dict(fake={'prime-client-stays': ''}, clock=True),
+            'a pane whose shell never takes the foreground and an absent client': dict(**gone, fake={'prime-client-stays': ''}, clock=True),
+            'a pane with no process info': dict(**gone, panes={}),
+            'a pane id that is not recorded': dict(agents={}, sidekick={'session': path_session, 'pane_id': None}, panes={}),
+            'a lock that stays held at the final write': dict(**gone, files={'.pair.lock/held': ''}, env={'PAIR_LOCK_TRIES': '1', 'PAIR_LOCK_POLL_S': '0'}),
+            'a role entry that is null': dict(pair={'consultant': None}),
+        }
+
+    def test_stop_prime_role_matches_the_bash_at_the_phase_3_base(self):
+        """stop_prime_role, which its callers test with `||`: 04d2c13's function against the working tree's shim, over every client status and
+        every way the cleanup stops short. The deadline cases run on a clock that jumps 100 s per `date +%s` and a sleep that returns at once (the
+        port's deadline and poll are 0)."""
+        bash = 'stop_prime_role "$store" sidekick || echo "returned rc=$?"; echo "after"'
+        out = {name: self.prime_both('spr-' + re.sub(r'\W+', '-', name), bash, '', shim=True, **spec) for name, spec in self.stop_prime_cases().items()}
+        self.assertEqual(out['an idle client'][1], 'after\n')
+        self.assertIn('"session_stopped": true', out['an idle client'][3])
+        self.assertIn('["stop", "live-1"', out['an idle client'][4])
+        self.assertIn('agent prompt s1 /quit', out['an idle client'][5])
+        self.assertIn('agent send-keys s1 ctrl+d', out['a blocked client'][5])
+        self.assertNotIn('/quit', out['a working client'][5])
+        self.assertIn('no recorded Prime session for sidekick', out['an absent client with no session recorded'][2])
+        self.assertIn('no live daemon session matches s1', out['no live session matches'][2])
+        self.assertIn('is still active', out['a session that stays active'][2])
+        self.assertIn('Prime client has not exited in p1', out['a pane whose shell never takes the foreground'][2])
+        self.assertIn('returned rc=1', out['a stop that fails'][1])
+        self.assertEqual(out['a lock that stays held at the final write'][0], 1)
+        self.assertNotIn('after', out['a lock that stays held at the final write'][1])
+
+    def test_close_role_matches_the_bash_at_the_phase_3_base_with_the_shims(self):
+        """close_role, the shims' remaining pair-core caller (kitchen.sh `close` runs it): 04d2c13's function against the working tree's."""
+        path_session = {'kind': 'path', 'value': '/t/one.jsonl'}
+        bash = 'close_role "$store" sidekick || echo "returned rc=$?"; echo "after"'
+        cases = {
+            'a prime-agent role': dict(),
+            'a prime-agent role whose cleanup fails': dict(fake={'prime-stop-fail': ''}),
+            'a prime-agent role already absent': dict(agents={}, sidekick={'session': path_session}),
+            'a prime-agent role whose shell never takes the foreground': dict(fake={'prime-client-stays': ''}, clock=True),
+            'a claude role': dict(agents={'s1': 'idle claude'}, sidekick={'kind': 'claude'}),
+            'a codex role': dict(agents={'s1': 'idle codex'}, sidekick={'kind': 'codex'}),
+            'a claude role already absent': dict(agents={}, sidekick={'kind': 'claude'}, clock=True),
+            'a role already closed': dict(sidekick={'closed': True}),
+            'a role never spawned': dict(sidekick={'pane_id': None}),
+        }
+        out = {name: self.prime_both('cr-' + re.sub(r'\W+', '-', name), bash, '', shim=True, **spec) for name, spec in cases.items()}
+        self.assertIn('closed sidekick s1 (p1)', out['a prime-agent role'][1])
+        self.assertIn('"closed": true', out['a prime-agent role'][3])
+        self.assertIn('returned rc=1', out['a prime-agent role whose cleanup fails'][1])
+        self.assertIn('agent prompt s1 /exit', out['a claude role'][5])
+        self.assertIn('agent prompt s1 /quit', out['a codex role'][5])
 
     def test_send_ab_kitchen_dispatch_and_routine_discuss(self):
         toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
