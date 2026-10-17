@@ -3376,9 +3376,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         loop = '\n'.join(f'printf "\\037%d\\n" {seed}; PAIR_METRICS_NOW={shlex.quote(now)} cmd_metrics {st}' for seed, (st, now) in stores.items())
         harness = (f'set -uo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
                    f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {legacy}\nset +e\n{loop}\n')
-        oracle = subprocess.run(['bash', '-c', harness], env=self.env, capture_output=True, text=True, check=False, timeout=120)
-        parts = oracle.stdout.split('\x1f')[1:]
-        self.assertEqual(len(parts), 200, oracle.stderr[-500:])
+        proc = subprocess.Popen(['bash', '-c', harness], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            stdout, stderr = proc.communicate(timeout=120)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            raise
+        parts = stdout.split('\x1f')[1:]
+        self.assertEqual(len(parts), 200, stderr[-500:])
         outputs = {}
         for seed in stores:
             label, want = parts[seed].split('\n', 1)
