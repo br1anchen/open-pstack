@@ -96,68 +96,11 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no 
 USAGE
 }
 
-# The trio needs at least two distinct agent kinds, so the consultant is a
-# second perspective and not the master's echo. Exit 8 names the three kinds.
-require_diverse_kinds() {
-	local master="$1" sidekick="$2" consultant="$3"
-	[ -n "$master" ] || die "cannot read the master's agent kind from herdr; run pair.sh init first" 2
-	if [ "$master" = "$sidekick" ] && [ "$master" = "$consultant" ]; then
-		die "all three agents would be $master; pstack-trio needs at least two distinct kinds (master $master, sidekick $sidekick, consultant $consultant). Restart with a different --sidekick or --consultant kind, or use pstack-pair" 8
-	fi
-}
-
-cmd_spawn() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh spawn <store> --sidekick KIND --consultant KIND [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--only sidekick|consultant] [--permission MODE|none] [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]"
-	local store="$1" sidekick_kind="" consultant_kind="" only="" permission="" cpermission="" timeout=60000 fallback="" placement=""
-	local -a fallback_args=()
-	shift
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--sidekick) sidekick_kind="$2"; shift 2 ;;
-		--consultant) consultant_kind="$2"; shift 2 ;;
-		--kind) sidekick_kind="$2"; consultant_kind="${consultant_kind:-$2}"; shift 2 ;;
-		--fallback) fallback="$2"; shift 2 ;;
-		--tab) placement="tab"; shift ;;
-		--split) placement="split"; shift ;;
-		--fallback-arg) fallback_args+=("$2"); shift 2 ;;
-		--only) only="$2"; shift 2 ;;
-		--permission) permission="$2"; shift 2 ;;
-		--consultant-permission) cpermission="$2"; shift 2 ;;
-		--timeout) timeout="$2"; shift 2 ;;
-		--) shift; break ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	pair_file "$store" >/dev/null
-	set_placement "$store" "$placement"
-	case "$only" in
-	"" | sidekick | consultant) ;;
-	*) die "--only takes sidekick or consultant" ;;
-	esac
-	# A role not being spawned keeps the kind recorded for it.
-	[ -n "$sidekick_kind" ] || sidekick_kind="$(field "$store" '.sidekick.kind // empty')"
-	[ -n "$consultant_kind" ] || consultant_kind="$(field "$store" '.consultant.kind // empty')"
-	[ "$only" = consultant ] || [ -n "$sidekick_kind" ] || die "--sidekick KIND is required (run: herdr agent, for the kind list)"
-	[ "$only" = sidekick ] || [ -n "$consultant_kind" ] || die "--consultant KIND is required (run: herdr agent, for the kind list)"
-	local master_kind
-	master_kind="$(agent_kind "$(field "$store" .master.pane_id)")"
-	require_diverse_kinds "$master_kind" "${sidekick_kind:-$master_kind}" "${consultant_kind:-$master_kind}"
-	local master_pane
-	master_pane="$(field "$store" .master.pane_id)"
-	[ -n "$cpermission" ] || cpermission="$permission"
-	local rc=0
-	if [ "$only" != consultant ]; then
-		record_fallback "$store" "$fallback" "${fallback_args[@]}"
-		spawn_sidekick "$store" "$sidekick_kind" "$permission" "$master_pane" "$timeout" "" "" "$@" || rc=$?
-		[ "$rc" -eq 0 ] || exit "$rc"
-	fi
-	if [ "$only" != sidekick ]; then
-		spawn_consultant "$store" "$consultant_kind" "$cpermission" "$timeout" "$@" || rc=$?
-		[ "$rc" -eq 0 ] || exit "$rc"
-	fi
-	printf 'kinds: master %s, sidekick %s, consultant %s\n' "$master_kind" "$(field "$store" '.sidekick.kind // "absent"')" "$(field "$store" '.consultant.kind // "absent"')"
-}
+# Starts the sidekick and the consultant; the trio needs at least two distinct
+# agent kinds, so the consultant is a second perspective and not the master's
+# echo (exit 8 names the three kinds). It runs in the Python core, as the
+# trio's own command.
+cmd_spawn() { pycore --exec spawn "$@"; }
 
 # A trio plan round goes to the sidekick and the consultant at once.
 cmd_discuss() { discuss_with_consultant "$@"; }

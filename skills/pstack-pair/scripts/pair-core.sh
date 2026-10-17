@@ -555,16 +555,6 @@ new_pane() {
 	fi
 }
 
-# Records how roles get their panes: --tab or --split from spawn, else what
-# the store already has, else PSTACK_PLACEMENT, else split.
-set_placement() {
-	local store="$1" want="${2:-}"
-	[ -n "$want" ] || [ -n "$(field "$store" '.placement // empty')" ] || want="${PSTACK_PLACEMENT:-split}"
-	[ -n "$want" ] || return 0
-	case "$want" in split | tab) ;; *) die "placement must be split or tab, not $want" ;; esac
-	json_update "$store" --arg p "$want" '.placement = $p'
-}
-
 # Start one role, record it in pair.json, and bootstrap it. It reuses $pane,
 # or the role's previous pane when that is back at a shell prompt, and
 # otherwise splits $anchor in $direction (picked from the anchor's shape when
@@ -607,39 +597,6 @@ record_failover() {
 		'.sidekick.failovers = ((.sidekick.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])'
 	event "$1" master failover - "$2:$3"
 	printf 'failover: %s -> %s (%s)\n' "$2" "$3" "$4"
-}
-
-# Starts the sidekick, or its recorded fallback when the kind's preflight
-# fails. The fallback starts with its own recorded arguments and its kind's
-# default permission. A live sidekick skips the preflight. Arguments as
-# spawn_role, without the role.
-spawn_sidekick() {
-	local store="$1" kind="$2" permission="$3" anchor="$4" timeout="$5" direction="$6" pane="$7" reason fallback
-	shift 7
-	if has_preflight "$kind" && [ "$(agent_status "$(field "$store" .sidekick.name)")" = absent ]; then
-		if ! reason="$(preflight_kind "$kind" "$@" 2>&1)"; then
-			reason="preflight: ${reason:-no answer}"
-			printf '%s failed %s\n' "$kind" "$reason" >&2
-			fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
-			[ -n "$fallback" ] && [ "$fallback" != "$kind" ] || die "no fallback recorded for a failed $kind; pass --fallback KIND or fix the agent" 2
-			record_failover "$store" "$kind" "$fallback" "$reason"
-			local -a args=()
-			mapfile -t args < <(jq -r '.sidekick.fallback.args[]?' "$store/pair.json")
-			spawn_role "$store" sidekick "$fallback" "" "$anchor" "$timeout" "$direction" "$pane" "${args[@]}"
-			return
-		fi
-	fi
-	spawn_role "$store" sidekick "$kind" "$permission" "$anchor" "$timeout" "$direction" "$pane" "$@"
-}
-
-# Records the sidekick's fallback from the spawn options: $1 store, $2 kind
-# (empty keeps any recorded one), rest: its native arguments.
-record_fallback() {
-	local store="$1" kind="$2"
-	shift 2
-	[ -n "$kind" ] || return 0
-	json_update "$store" --arg kind "$kind" --argjson args "$(jq -cn --args '$ARGS.positional' -- "$@")" \
-		'.sidekick.fallback = {kind: $kind, args: $args}'
 }
 
 exit_command() {

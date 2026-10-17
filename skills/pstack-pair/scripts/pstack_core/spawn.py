@@ -286,3 +286,19 @@ def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pan
             record_failover(store, kind, name, reason)
             return spawn_role(ctx, store, 'sidekick', name, '', anchor, timeout, direction, pane, fallback_args(fallback))
     return spawn_role(ctx, store, 'sidekick', kind, permission, anchor, timeout, direction, pane, args)
+
+
+def spawn_consultant(ctx, store, kind, permission, timeout, args):
+    """The consultant splits from the sidekick's pane, so the master keeps its height; the master's pane when the sidekick's is gone."""
+    anchor = jq_raw(alt(section(pair_json(store), 'sidekick').get('pane_id'), ''))
+    if not anchor or herdr('pane', 'get', anchor)[0] != 0:
+        anchor = field(store, 'master', 'pane_id')
+    return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args)
+
+
+def entry_spawn_consultant(ctx, args):
+    """__spawn_consultant store kind permission timeout [args...]: the positional arguments the bash function takes."""
+    die_with_the_shell()
+    if len(args) < 4:
+        raise Die('usage: __spawn_consultant <store> <kind> <permission> <timeout> [args...]')
+    return spawn_consultant(ctx, *args[:4], list(args[4:]))

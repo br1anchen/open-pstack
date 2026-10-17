@@ -478,7 +478,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('stop',), 'pstack-kitchen': ('stop',)}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('stop',)}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -492,6 +492,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for table in (trio.commands, kitchen.commands):
             self.assertEqual((table['stop'].__name__, table['stop'].__code__.co_filename), ('stop', str(root / 'skills/pstack-trio/scripts/variant.py')))
         self.assertNotIn('spawn', kitchen.commands)
+        # the trio's spawn is its own command, in its variant; the kitchen's (the captured pair command under its bash wrapper) is the core's
+        self.assertEqual((trio.commands['spawn'].__name__, trio.commands['spawn'].__code__.co_filename), ('spawn', str(root / 'skills/pstack-trio/scripts/variant.py')))
 
     def test_every_variant_class_defines_its_own_commands(self):
         for cls in (Variant, *(load_skill_variant(root / 'skills', skill) for skill in self.SKILLS_WITH_A_VARIANT)):
@@ -999,7 +1001,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         results = self.stop_ab_run('pstack-kitchen', lambda n: True, specs)
         self.assertIn('steps: 1 to review on 001-x', results['an escalated unit with steps to review']['stdout'])
 
-    def leaf_both(self, label, bash_snippet, python_snippet=None, logs=True, same=True, **spec):
+    def leaf_both(self, label, bash_snippet, python_snippet=None, logs=True, same=True, sources=(), **spec):
         """A bash helper of the 04d2c13 core (sourced under set -euo pipefail) against its Python twin in a fresh interpreter, on identical
         worlds with the fake agents on PATH: (exit code, stdout, stderr, the fakes' logs). The skills directories and the world's directory
         are masked; so is the scratch directory a Prime preflight makes. Without a Python snippet the second side is the working tree's bash: the
@@ -1012,7 +1014,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             trees.append(skills)
             if side == 'bash' or python_snippet is None:
                 script = (f'set -euo pipefail\nskill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
-                          f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
+                          f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills / "pstack-pair/scripts/pair-core.sh"}\n'
+                          + ''.join(f'. {skills / source}\n' for source in sources) + f'store={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
                 argv = ['bash', '-c', script]
             else:
                 code = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents, panes, spawn\nfrom pstack_core.errors import Die, Exit\n'
@@ -2701,17 +2704,25 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 got, want = self.phase3_ab(f'sc{n}', skill, spec)
                 self.maxDiff = None
                 if name == 'a missing value':
-                    # the bash's set -u names the file and line of `--kind "$2"`; the port names pair.sh
-                    self.assertRegex(want['stderr'], r'\$2: unbound variable')
-                    self.assertEqual((got['rc'], got['stdout'], got['stderr'].split(': ')[-1]), (want['rc'], want['stdout'], want['stderr'].split(': ')[-1]))
-                else:
-                    self.assertEqual(got, want, name)
+                    # the bash's set -u names its file and the line of `--kind "$2"`; the port names the file and the line of the cmd_spawn shim
+                    # (kitchen.sh's own wrapper fails first, on both sides)
+                    self.assertRegex(want['stderr'], r'line [0-9]+: \$2: unbound variable')
+                    if 'pair-core.sh' in got['stderr']:
+                        shim = self.shim_line('pstack-pair/scripts/pair-core.sh', 'cmd_spawn')
+                        self.assertRegex(got['stderr'], rf'pair-core\.sh: line {shim}: \$2: unbound variable\n')
+                    mask = lambda text: re.sub(r'\S*pair-core\.sh: line [0-9]+', '<core>: line N', text)
+                    got, want = dict(got, stderr=mask(got['stderr'])), dict(want, stderr=mask(want['stderr']))
+                self.assertEqual(got, want, name)
                 outcomes[name] = got
                 if name in self.SPAWN_COMMAND_EXPECT and not (skill == 'pstack-kitchen' and name in ('a missing --kind', 'an unknown option', 'a bad placement from the environment')):
                     code, needle = self.SPAWN_COMMAND_EXPECT[name]
                     self.assertEqual(got['rc'], code, name)
                     self.assertIn(needle, got['stdout'] + got['stderr'] + ' '.join(got['events']) + got['files']['pair.json'], name)
         return outcomes
+
+    def shim_line(self, rel, name):
+        """The line a one-line shim of a script sits on."""
+        return next(n for n, line in enumerate((root / 'skills' / rel).read_text().splitlines(), 1) if line.startswith(f'{name}() {{'))
 
     SPAWN_COMMAND_EXPECT = {
         'a plain spawn': (0, 'claude:ready'), '--tab': (0, 'started in t0'), 'a bad placement from the environment': (1, 'placement must be split or tab, not floating'),
@@ -2765,6 +2776,178 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         out = self.spawn_command_part('pstack-kitchen', 2)
         if 2 == 0:
             self.assertEqual(out['a plain spawn']['rc'], 0)
+
+    SIDEKICK_ONLY_HOOK = ('#!/bin/sh\nst="$FAKE/../st"\ncase "$2" in Load*) case "$1" in c1) ;; *) printf "# R\\n\\nstatus: done\\n" >"$st/reports/000-ready.md" ;; esac ;; esac\nexit 0\n')
+
+    def trio_spawn_cases(self):
+        """Worlds for the trio's spawn (args after `spawn {st}`): {name: spec}. The master is a claude in p0; the roles are s1 and c1."""
+        env = {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}
+        hook = {'hook': self.READY_HOOK, 'env': env}
+        quiet = {'env': env}
+        pair = lambda **kw: {'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None},
+                             'consultant': {'name': 'c1', 'kind': 'codex', 'generation': 1, 'pane_id': None}, **kw}
+        base = dict(pair=pair(), panes={'p0': 'm1'}, **hook)
+        run = lambda *a, **kw: {**base, 'args': ['spawn', '{st}', *a], **kw}
+        return {
+            'no arguments': {**base, 'args': ['spawn']},
+            'an unknown option': run('--bogus'),
+            'an unknown store': {**base, 'args': ['spawn', '{T}/nope', '--sidekick', 'codex']},
+            'a missing value': run('--consultant'),
+            '--sidekick and --consultant': run('--sidekick', 'codex', '--consultant', 'devin'),
+            '--kind alone': run('--kind', 'codex'),
+            '--kind then --consultant': run('--kind', 'codex', '--consultant', 'devin'),
+            '--consultant then --kind': run('--consultant', 'devin', '--kind', 'codex'),
+            'the recorded kinds': run(),
+            'the recorded sidekick kind is missing': run(pair=pair(sidekick={'name': 's1', 'kind': None, 'pane_id': None})),
+            'the recorded consultant kind is missing': run('--sidekick', 'codex', pair=pair(consultant={'name': 'c1', 'kind': None, 'pane_id': None})),
+            '--only sidekick': run('--only', 'sidekick', '--sidekick', 'codex'),
+            '--only sidekick with no recorded consultant kind': run('--only', 'sidekick', '--sidekick', 'codex', pair=pair(consultant=None)),
+            '--only consultant': run('--only', 'consultant', '--consultant', 'devin'),
+            '--only consultant with no recorded sidekick kind': run('--only', 'consultant', '--consultant', 'devin', pair=pair(sidekick=None)),
+            '--only with a bad value': run('--only', 'both', '--sidekick', 'codex'),
+            'all three kinds equal': run('--sidekick', 'claude', '--consultant', 'claude'),
+            'all three kinds equal for --only sidekick': run('--only', 'sidekick', '--sidekick', 'claude'),
+            'an unreadable master kind': run('--sidekick', 'codex', '--consultant', 'devin', panes={}, pair=pair(master={'name': 'm1', 'pane_id': 'gone'})),
+            'a sidekick that returns 4': run('--sidekick', 'codex', '--consultant', 'devin', hook=None, **quiet),
+            'a consultant that returns 4': run('--sidekick', 'codex', '--consultant', 'devin', hook=self.SIDEKICK_ONLY_HOOK),
+            'a consultant that dies with 5': run('--sidekick', 'codex', '--consultant', 'devin', '--', '--resume'),
+            'a consultant whose anchor pane is gone': run('--sidekick', 'codex', '--consultant', 'devin', agents={'s1': 'idle codex'},
+                                                          pair=pair(sidekick={'name': 's1', 'kind': 'codex', 'generation': 1, 'pane_id': 'p9'})),
+            'a consultant anchored on the sidekick pane': run('--sidekick', 'codex', '--consultant', 'devin', agents={'s1': 'idle codex'}, panes={'p0': 'm1', 'p1': 's1'},
+                                                              pair=pair(sidekick={'name': 's1', 'kind': 'codex', 'generation': 1, 'pane_id': 'p1'})),
+            'an unrecorded sidekick pane': run('--only', 'consultant', '--consultant', 'devin', pair=pair(sidekick={'name': 's1', 'kind': 'codex'})),
+            '--consultant-permission': run('--sidekick', 'codex', '--consultant', 'devin', '--permission', 'plan', '--consultant-permission', 'none'),
+            '--permission for both': run('--sidekick', 'codex', '--consultant', 'devin', '--permission', 'plan'),
+            '--tab': run('--sidekick', 'codex', '--consultant', 'devin', '--tab'),
+            '--split after a recorded tab': run('--sidekick', 'codex', '--consultant', 'devin', '--split', pair=pair(placement='tab')),
+            'a bad placement from the environment': run('--sidekick', 'codex', '--consultant', 'devin', env={**env, 'PSTACK_PLACEMENT': 'floating'}),
+            'native arguments for both': run('--sidekick', 'codex', '--consultant', 'devin', '--', '--model', 'm'),
+            'a fallback recorded for the sidekick': run('--sidekick', 'codex', '--consultant', 'devin', '--fallback', 'devin', '--fallback-arg', '--x'),
+            'a fallback with --only consultant is not recorded': run('--only', 'consultant', '--consultant', 'devin', '--fallback', 'devin'),
+            'a sidekick preflight that fails over': run('--sidekick', 'pi', '--consultant', 'devin', '--fallback', 'codex', fake={'pi-fail': 'quota\n'}),
+            'a sidekick preflight that fails with no fallback': run('--sidekick', 'pi', '--consultant', 'devin', fake={'pi-fail': 'quota\n'}),
+            'a consultant that is already live': run('--sidekick', 'codex', '--consultant', 'devin', agents={'c1': 'idle devin'}),
+        }
+
+    def trio_spawn_part(self, part, parts=3):
+        outcomes = {}
+        for n, (name, spec) in enumerate(self.trio_spawn_cases().items()):
+            if n % parts != part:
+                continue
+            got, want = self.phase3_ab(f'ts{n}', 'pstack-trio', spec)
+            self.maxDiff = None
+            if name == 'a missing value':
+                trio = 'pstack-trio/scripts/pair.sh'
+                self.assertRegex(want['stderr'], r'line [0-9]+: \$2: unbound variable')
+                self.assertRegex(got['stderr'], rf'pstack-trio/scripts/pair\.sh: line {self.shim_line(trio, "cmd_spawn")}: \$2: unbound variable\n')
+                mask = lambda text: re.sub(r'\S*pair\.sh: line [0-9]+', '<trio>: line N', text)
+                got, want = dict(got, stderr=mask(got['stderr'])), dict(want, stderr=mask(want['stderr']))
+            self.assertEqual(got, want, name)
+            outcomes[name] = got
+            if name in self.TRIO_SPAWN_EXPECT:
+                code, needle = self.TRIO_SPAWN_EXPECT[name]
+                self.assertEqual(got['rc'], code, name)
+                self.assertIn(needle, got['stdout'] + got['stderr'] + ' '.join(got['events']) + got['calls'], name)
+        return outcomes
+
+    TRIO_SPAWN_EXPECT = {
+        '--sidekick and --consultant': (0, 'kinds: master claude, sidekick codex, consultant devin'), '--kind alone': (0, 'kinds: master claude, sidekick codex, consultant codex'),
+        '--consultant then --kind': (0, 'kinds: master claude, sidekick codex, consultant devin'), 'the recorded kinds': (0, 'kinds: master claude, sidekick claude, consultant codex'),
+        '--only sidekick': (0, 'sidekick s1 (codex) started'), '--only consultant': (0, 'consultant c1 (devin) started'),
+        '--only with a bad value': (1, '--only takes sidekick or consultant'), 'all three kinds equal': (8, 'all three agents would be claude'),
+        'an unreadable master kind': (2, "cannot read the master's agent kind"), 'a sidekick that returns 4': (4, 'codex:unready'),
+        'a consultant that returns 4': (4, 'devin:unready'), 'a consultant that dies with 5': (5, 'devin task sessions start fresh'),
+        'the recorded sidekick kind is missing': (1, '--sidekick KIND is required'), 'the recorded consultant kind is missing': (1, '--consultant KIND is required'),
+        'a sidekick preflight that fails over': (0, 'codex:ready'), 'a sidekick preflight that fails with no fallback': (2, 'no fallback recorded for a failed pi'),
+        'a consultant that is already live': (0, 'consultant c1 already live (idle)'), '--tab': (0, 'tab create')}
+
+    def test_trio_spawn_matches_the_bash_at_the_phase_3_base_part_0(self):
+        self.trio_spawn_part(0)
+
+    def test_trio_spawn_matches_the_bash_at_the_phase_3_base_part_1(self):
+        self.trio_spawn_part(1)
+
+    def test_trio_spawn_matches_the_bash_at_the_phase_3_base_part_2(self):
+        self.trio_spawn_part(2)
+
+    def test_kitchen_consultant_matches_the_bash_at_the_phase_3_base(self):
+        """kitchen.sh `consultant`, which calls spawn_consultant as a plain command under set -e: a start that succeeds records the escalation; one
+        that returns 4 ends the command with 4 and records nothing; a die inside ends it with the die's status. At 04d2c13 and at the working tree."""
+        env = {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}
+        roster = {'home/.config/pstack/kitchen.toml': ('[consultant]\nkind = "pi"\nargs = ["--model", "c"]\n\n[consultant.fallback]\nkind = "codex"\nargs = ["--fb"]\n', 0o644)}
+        pair = lambda **kw: {'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None},
+                             'consultant': {'name': 'c1', 'kind': 'codex', 'generation': 1, 'pane_id': None}, **kw}
+        base = dict(pair=pair(), panes={'p0': 'm1'}, hook=self.READY_HOOK, env=env, args=['consultant', '{st}', '--reason', 'a contract'])
+        run = lambda *a, **kw: {**base, 'args': [*base['args'], *a], **kw}
+        cases = {
+            'a start that succeeds': run('--kind', 'codex'),
+            'a start that succeeds anchored on the sidekick pane': run('--kind', 'codex', agents={'s1': 'idle claude'}, panes={'p0': 'm1', 'p1': 's1'},
+                                                                      pair=pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p1'})),
+            'a start whose anchor pane is gone': run('--kind', 'codex', agents={'s1': 'idle claude'}, pair=pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p9'})),
+            'a start that returns 4': run('--kind', 'codex', hook=None),
+            'a start that returns 3': run('--kind', 'codex', promptfail=True),
+            'a start that dies with 5': run('--kind', 'devin', '--', '--resume'),
+            'the roster kind and its native args': run(topfiles=roster),
+            'the roster kind failing its preflight': run(topfiles=roster, fake={'pi-fail': 'quota\n'}),
+            'a roster kind that returns 4 after its preflight': run(topfiles=roster, hook=None),
+            'a live consultant': run('--kind', 'codex', agents={'c1': 'idle codex'}),
+            'no reason': {**base, 'args': ['consultant', '{st}', '--kind', 'codex']},
+        }
+        outcomes = {}
+        for n, (name, spec) in enumerate(cases.items()):
+            got, want = self.phase3_ab(f'kc{n}', 'pstack-kitchen', spec)
+            self.maxDiff = None
+            self.assertEqual(got, want, name)
+            outcomes[name] = got
+        self.assertEqual(outcomes['a start that succeeds']['rc'], 0)
+        self.assertIn('a contract', outcomes['a start that succeeds']['files']['pair.json'])
+        self.assertIn('master\tescalate', '\n'.join(outcomes['a start that succeeds']['events']))
+        self.assertEqual(outcomes['a start that returns 4']['rc'], 4)
+        self.assertNotIn('a contract', outcomes['a start that returns 4']['files']['pair.json'])
+        self.assertNotIn('escalate', '\n'.join(outcomes['a start that returns 4']['events']))
+        self.assertEqual(outcomes['a start that returns 3']['rc'], 3)
+        self.assertEqual(outcomes['a start that dies with 5']['rc'], 5)
+        self.assertIn('failover: consultant pi -> codex', outcomes['the roster kind failing its preflight']['stdout'])
+
+    SPAWN_CONSULTANT_FORMS = {
+        'with an or': 'rc=0; spawn_consultant "$store" {a} || rc=$?; echo "returned rc=$rc"',
+        'as a plain command': 'spawn_consultant "$store" {a}; echo "returned"',
+        'as a plain command under errexit': 'set -e\nspawn_consultant "$store" {a}\necho "returned"',
+    }
+
+    def test_spawn_consultant_matches_the_bash_at_the_phase_3_base_in_every_call_form(self):
+        """consultant-core.sh's spawn_consultant (04d2c13's function against the working tree's shim) from the forms its callers use: kitchen.sh
+        `consultant` calls it as a plain command under set -e, and `|| rc=$?` and a plain command with errexit off are the other two. The shim returns
+        3 and 4 and ends the caller on anything else: a die (here 5) must end the caller in the form where a return would not."""
+        env = {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300'}
+        pair = lambda **kw: {'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None},
+                             'consultant': {'name': 'c1', 'kind': 'codex', 'generation': 1, 'pane_id': None}, **kw}
+        world = dict(pair=pair(), panes={'p0': 'm1'}, hook=self.READY_HOOK, env=env)
+        call = lambda kind='codex', perm='', *args: shlex.join([kind, perm, '5000', *args])
+        cases = {
+            'a start that succeeds': (world, call()),
+            'a start that returns 4': ({**world, 'hook': None}, call()),
+            'a start that returns 3': ({**world, 'promptfail': True}, call()),
+            'a start that dies with 5': (world, call('devin', '', '--resume')),
+            'a start that dies with 2': ({**world, 'fake': {'start-fail': ''}}, call()),
+            'an anchor on the sidekick pane': ({**world, 'agents': {'s1': 'idle claude'}, 'panes': {'p0': 'm1', 'p1': 's1'},
+                                                'pair': pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p1'})}, call()),
+            'an anchor pane that is gone': ({**world, 'agents': {'s1': 'idle claude'}, 'pair': pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p9'})}, call()),
+            'a permission and native arguments': (world, call('codex', 'plan', '--model', 'm')),
+            'a live consultant': ({**world, 'agents': {'c1': 'idle codex'}}, call()),
+        }
+        seen = {}
+        for n, (name, (spec, argv)) in enumerate(cases.items()):
+            for form, template in self.SPAWN_CONSULTANT_FORMS.items():
+                seen[(name, form)] = self.leaf_both(f'sc-{n}-{len(seen)}', template.format(a=argv), None, sources=('pstack-trio/scripts/consultant-core.sh',), **spec)
+        self.assertEqual((seen[('a start that returns 4', 'with an or')][0], 'returned rc=4' in seen[('a start that returns 4', 'with an or')][1]), (0, True))
+        self.assertEqual(seen[('a start that returns 4', 'as a plain command under errexit')][0], 4)
+        self.assertEqual(seen[('a start that returns 3', 'with an or')][1].count('returned rc=3'), 1)
+        for form in self.SPAWN_CONSULTANT_FORMS:
+            self.assertEqual(seen[('a start that dies with 5', form)][0], 5, form)
+            self.assertNotIn('returned', seen[('a start that dies with 5', form)][1], form)
+            self.assertEqual(seen[('a start that dies with 2', form)][0], 2, form)
+            self.assertEqual(seen[('a start that succeeds', form)][0], 0, form)
 
     def test_send_ab_kitchen_dispatch_and_routine_discuss(self):
         toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
@@ -4907,7 +5090,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     CONSULTANT_ENTRIES = ('pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
     HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
     PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'steer', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
-              'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss')
+              'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss', 'spawn')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
     TWINS = ('event', 'header_field', 'next_seq', 'paused_reason',
              'new_from_template', 'steps_file', 'open_notes', 'trunk_ref', 'range_floor', 'require_filled',
@@ -4919,7 +5102,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
              'require_fresh_session', 'submit_typed',
              'iso_epoch', 'in_herdr', 'latest_advice', 'detect_permission_mode',
              'permission_args', 'trust_args', 'mcp_args', 'has_mcp_arg', 'has_trust_arg', 'has_permission_arg', 'has_preflight', 'preflight_kind',
-             'pick_direction', 'new_pane', 'refuse_untrusted', 'await_file', 'spawn_role')
+             'pick_direction', 'new_pane', 'refuse_untrusted', 'await_file', 'spawn_role', 'record_failover')
     TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest', 'detect_permission_mode': 'detect'}
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
     HOOK_TWINS = {'pstack-kitchen/scripts/kitchen.sh:steps_due': 'pstack-kitchen/scripts/variant.py',
@@ -4953,7 +5136,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                        'core_dispatch': 'pstack-pair/scripts/pair-core.sh:cmd_dispatch', 'core_wait': 'pstack-pair/scripts/pair-core.sh:cmd_wait',
                        'core_queue': 'pstack-pair/scripts/pair-core.sh:cmd_queue', 'core_discuss': 'pstack-pair/scripts/pair-core.sh:cmd_discuss',
                        'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
-    KITCHEN_WRAPS = ('init', 'dispatch', 'wait', 'queue', 'step', 'finish', 'discuss')
+    KITCHEN_WRAPS = ('init', 'dispatch', 'wait', 'queue', 'step', 'finish', 'discuss', 'spawn')
 
     def reach(self):
         cls = type(self)
@@ -4999,6 +5182,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
                     # the trio's and the kitchen's stop is consultant-core's; every other ported command's final body is pair-core's
                     home = self.CONSULTANT_CORE if name == 'stop' and entry in self.CONSULTANT_ENTRIES else self.CORE
+                    if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
+                        home = entry  # the trio's own command, run from its variant
                     self.assertEqual(final.key, f'{home}:cmd_{name}', f'{entry}: the final cmd_{name} is not {home}')
 
     def test_answer_is_guided_only_and_a_pycore_shim_there(self):

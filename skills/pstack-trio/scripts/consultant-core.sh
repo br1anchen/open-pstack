@@ -13,14 +13,9 @@ plan_gate_extra() {
 }
 
 # The consultant splits from the sidekick's pane so the master keeps its
-# height. $1 store, $2 kind, $3 permission, $4 timeout, then agent args.
-spawn_consultant() {
-	local store="$1" kind="$2" permission="$3" timeout="$4" anchor
-	shift 4
-	anchor="$(field "$store" '.sidekick.pane_id // empty')"
-	[ -n "$anchor" ] && herdr pane get "$anchor" >/dev/null 2>&1 || anchor="$(field "$store" .master.pane_id)"
-	spawn_role "$store" consultant "$kind" "$permission" "$anchor" "$timeout" "" "" "$@"
-}
+# height. $1 store, $2 kind, $3 permission, $4 timeout, then agent args. Returns
+# 3 when the bootstrap did not settle and 4 when it settled without the ready file.
+spawn_consultant() { pycore __spawn_consultant "$@" || { local pycore_rc=$?; case $pycore_rc in 3 | 4) return $pycore_rc ;; *) exit $pycore_rc ;; esac; }; }
 
 # A plan round goes to the sidekick and the consultant at once; each answers
 # in its own file and the master merges. A sidekick busy on a unit does not

@@ -1,7 +1,7 @@
-from ..errors import Die, unbound_arg
+from ..errors import Die, Exit
 from ..spawn import field, record_fallback, set_placement, spawn_sidekick
 from ..store import pair_file
-from ..wait import die_with_the_shell
+from ..wait import core_line, die_with_the_shell
 from .report import in_herdr
 
 USAGE = ('usage: pair.sh spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] '
@@ -22,7 +22,8 @@ def spawn(ctx, args):
         flag = rest[0]
         if flag in VALUED or flag == '--fallback-arg':
             if len(rest) < 2:
-                raise unbound_arg()
+                path, number = core_line(f'{flag}) ', 'cmd_spawn() {')
+                raise Exit(1, f'{path}: line {number}: $2: unbound variable\n')
             if flag == '--fallback-arg':
                 fallback_args.append(rest[1])
             else:
