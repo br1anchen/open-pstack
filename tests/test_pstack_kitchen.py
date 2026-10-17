@@ -1643,7 +1643,7 @@ esac
         return module
 
     def test_replies_kitchen_steps_due_is_false_unless_the_brief_is_escalated(self):
-        # kitchen.sh cannot be sourced in a harness, so these are the literal results of kitchen.sh risk_of and steps_due.
+        # kitchen.sh cannot be sourced in a harness, so these are the literal results of kitchen.sh risk_of and of its steps_due as it was at e6e83e3 (a body since deleted).
         module = self.kitchen_variant()
         from pstack_core.context import Context
         ctx = Context('pstack-kitchen', str(skill), '/s', 'Kitchen', (), (), 20, '')
@@ -1680,7 +1680,7 @@ esac
         self.assertEqual(module.verify_job('/store', str(bare), 'abc'), bash, 'a Verify block that ends the file')
 
     def test_kitchen_report_ready_adds_the_verify_job_to_the_pairs_readiness(self):
-        # kitchen.sh cannot be sourced in a harness, so the why strings below are the literals of kitchen.sh report_ready.
+        # kitchen.sh cannot be sourced in a harness, so the why strings below are the literals of kitchen.sh report_ready as it was at e6e83e3 (a body since deleted).
         module = self.kitchen_variant()
         ready = lambda path: module.VARIANT().report_ready(None, str(self.store), str(path))
         b = self.brief('001', 'util', ['src/**', 'tests/**'])

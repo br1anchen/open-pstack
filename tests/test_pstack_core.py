@@ -5541,6 +5541,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                      for k in sorted(known - dead)]
         self.assertEqual(problems, [])
 
+    def test_every_name_the_bash_calls_resolves_to_a_definition_or_a_command(self):
+        """The reachability guard follows only calls to names it knows; a call to a deleted function would be dropped. Every command-position name in
+        every definition and top-level line of each entry script is a definition of that entry, a shell builtin, or an external command."""
+        reach = self.reach()
+        missing = set()
+        for entry in self.ENTRIES:
+            path = (root / 'skills' / entry).resolve()
+            table = reach.tables[path]
+            for definition in table.values():
+                missing |= {(entry, name, definition.key) for name in definition.calls if name not in table}
+            missing |= {(entry, name, '<top>') for name, _ in reach.roots[path] if name not in table}
+        names = sorted({name for _, name, _ in missing})
+        known = {n for n in names if subprocess.run(['bash', '-c', 'type -t -- "$1"', 'x', n], capture_output=True, check=False).returncode == 0}
+        self.assertEqual(sorted(m for m in missing if m[1] not in known), [], 'calls to a name no definition, builtin or command provides')
+
     def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
         reach = self.reach()
         python = '\n'.join(p.read_text() for p in (scripts / 'pstack_core').rglob('*.py'))
