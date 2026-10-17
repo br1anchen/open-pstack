@@ -2630,6 +2630,18 @@ esac
         self.assertIn('close\tsidekick:pi', (self.store / 'events.tsv').read_text().replace('\t-\t', '\t'))
         self.assertEqual(self.run_sh('close', str(self.store)), '')
 
+    def test_init_refuses_under_the_verifier_role_before_any_herdr_call_or_store_write(self):
+        refusal = 'init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier'
+        calls = self.fake / 'calls.log'
+        before = calls.read_text()
+        self.env['PSTACK_KITCHEN_ROLE'] = 'verifier'
+        r = subprocess.run([str(self.script), 'init', 'other'], cwd=self.repo, env=self.env, capture_output=True, text=True, check=False, timeout=120)
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', f'pair.sh: {refusal}\n'))
+        self.assertEqual(calls.read_text(), before)
+        self.assertEqual([p.name for p in self.store.parent.iterdir()], [self.store.name])
+        self.env['PSTACK_KITCHEN_ROLE'] = 'sidekick'
+        self.assertIn('other', self.run_sh('init', 'other'))
+
     def test_verify_prompt_left_typed_is_submitted(self):
         _, out = self.verify_app_unit('clean', 0, stall=True)
         self.assertIn('status: clean', out)

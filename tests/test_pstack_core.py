@@ -4914,6 +4914,15 @@ stop_prime_role "$store" sidekick && echo "stopped"
                'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path), **(extra_env or {})}
         return subprocess.run([str(script or scripts / 'pair.sh'), *args], env=env, capture_output=True, text=True, check=False, timeout=120)
 
+    def test_init_refuses_under_the_verifier_role_before_any_herdr_call_or_store_write(self):
+        refusal = 'init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier'
+        r = self.run_pair('init', 'demo', extra_env={'PSTACK_KITCHEN_ROLE': 'verifier'})
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', f'pair.sh: {refusal}\n'))
+        calls = self.path / 'calls.log'
+        self.assertNotIn('agent rename', calls.read_text() if calls.exists() else '')
+        self.assertFalse((self.path / 'state/pstack/pair/demo').exists())
+        self.assertEqual(self.run_pair('init', 'demo', extra_env={'PSTACK_KITCHEN_ROLE': 'sidekick'}).returncode, 0)
+
     def test_new_steer_counts_files_caps_fresh_steers_and_answers_objections(self):
         self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
         st = self.path / 'state/pstack/pair/demo'

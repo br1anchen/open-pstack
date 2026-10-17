@@ -63,6 +63,8 @@ def re_register(store, pane, workspace, tab, now):
 
 
 def run(ctx, args):
+    if os.environ.get('PSTACK_KITCHEN_ROLE') == 'verifier':
+        raise Exit(2, 'pair.sh: init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier\n')
     if os.environ.get('HERDR_ENV') != '1':
         raise Die('not running inside Herdr (HERDR_ENV != 1)')
     if not args:
