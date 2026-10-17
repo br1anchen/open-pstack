@@ -128,8 +128,12 @@ def last_lines(out, n):
 
 
 def tool_line(tool):
-    version = subprocess.run([tool, '--version'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
-    shown = text_of(version.stdout) if version.returncode == 0 else '?'
+    """(version, path) as the failure summary shows them: `$(tool --version 2>/dev/null || printf '?')` and `$(command -v tool)`."""
+    try:
+        version = subprocess.run([tool, '--version'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+        shown = text_of(version.stdout) if version.returncode == 0 else '?'
+    except OSError:
+        shown = '?'
     return shown, shutil.which(tool) or ''
 
 

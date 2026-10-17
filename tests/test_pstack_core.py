@@ -998,7 +998,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         results = self.stop_ab_run('pstack-kitchen', lambda n: True, specs)
         self.assertIn('steps: 1 to review on 001-x', results['an escalated unit with steps to review']['stdout'])
 
-    def leaf_both(self, label, bash_snippet, python_snippet=None, **spec):
+    def leaf_both(self, label, bash_snippet, python_snippet=None, logs=True, **spec):
         """A bash helper of the 04d2c13 core (sourced under set -euo pipefail) against its Python twin in a fresh interpreter, on identical
         worlds with the fake agents on PATH: (exit code, stdout, stderr, the fakes' logs). The skills directories and the world's directory
         are masked; so is the scratch directory a Prime preflight makes. Without a Python snippet the second side is the working tree's bash: the
@@ -1017,8 +1017,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             r = subprocess.run(argv, cwd=top / 'repo', env=env, capture_output=True, text=True, check=False, timeout=120)
             norm = lambda text: re.sub(r'"--cwd", "[^"]+"', '"--cwd", "<SCRATCH>"', re.sub(r'--cwd \S+', '--cwd <SCRATCH>',
                                                                                          text.replace(str(top), '<T>').replace(str(self.phase3_skills()), '<SK>').replace(str(root / 'skills'), '<SK>')))
-            logs = {f.name: norm(f.read_text()) for f in sorted((top / 'fake').glob('*.log'))}
-            results.append((r.returncode, norm(r.stdout), norm(r.stderr), logs))
+            written = {f.name: norm(f.read_text()) for f in sorted((top / 'fake').glob('*.log'))}
+            results.append((r.returncode, norm(r.stdout), norm(r.stderr), written if logs else {}))
         self.assertEqual(results[0], results[1], label)
         return results[1]
 
@@ -1089,7 +1089,23 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for label, (kind, args, fake, env) in cases.items():
             bash = f'preflight_kind {shlex.join([kind, *args])}; echo "rc=$?"'
             py = f'code = agents.preflight_kind({kind!r}, {args!r})\nprint(f"rc={{code}}")'
-            results[label] = self.leaf_both('leaf-pre-' + re.sub(r'\W+', '-', label), bash, py, fake=fake, env=env)
+            # A fake that `exec sleep 30`s is cut off after one real second, and whether it got to write its argv log first depends on the load (the
+            # Prime fake starts an interpreter first): the timeout cases compare status and summary, the answering cases compare the argv logs.
+            results[label] = self.leaf_both('leaf-pre-' + re.sub(r'\W+', '-', label), bash, py, logs='hangs' not in label, fake=fake, env=env)
+        # the kind's binary absent from PATH: the summary names no version and no path, and the attempt's status is timeout(1)'s 127
+        tools = self.path / 'only-these'
+        tools.mkdir()
+        for name in ('bash', 'timeout', 'jq', 'python3', 'cat', 'date', 'mkdir', 'mktemp', 'rm', 'grep', 'sed', 'tr', 'tail', 'head', 'basename', 'dirname', 'readlink', 'sleep',
+                     'ls', 'cut', 'env', 'perl', 'chmod', 'cp', 'mv', 'printf', 'tee', 'sort', 'wc', 'awk', 'git', 'ps'):
+            found = shutil.which(name)
+            if found:
+                (tools / name).symlink_to(found)
+        (tools / 'herdr').symlink_to(root / 'tests/pstack-pair/bin/herdr')
+        for kind in ('pi', 'prime-agent'):
+            absent = self.leaf_both('leaf-pre-absent-' + kind, f'preflight_kind {kind}; echo "rc=$?"', f'code = agents.preflight_kind({kind!r}, [])\nprint(f"rc={{code}}")',
+                                    env={'PAIR_PREFLIGHT_RETRY_S': '0', 'PATH': str(tools)})
+            self.assertIn(f'{kind} ? at , twice:', absent[2])
+            self.assertIn('exit 127', absent[2])
         self.assertEqual(results['pi answers'][1], 'rc=0\n')
         self.assertIn('pi 1.0.2 at ', results['pi fails twice'][2])
         self.assertIn('timed out after 1s', results['pi hangs'][2])

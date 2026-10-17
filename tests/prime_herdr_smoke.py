@@ -6,6 +6,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -207,12 +208,12 @@ try:
     print(f"named session {name}, pane {pane}", flush=True)
     h("pane", "process-info", "--pane", pane)
     call(
-        "/bin/bash",
+        sys.executable,
         [
+            "-I",
             "-c",
-            'set -euo pipefail; source "$1"; shift; preflight_prime "$@"',
-            "smoke",
-            str(adapter),
+            "import sys; sys.path.insert(0, sys.argv[1]); from pstack_core import agents; sys.exit(agents.preflight_kind('prime-agent', sys.argv[2:]))",
+            str(repository / "skills/pstack-pair/scripts"),
             "--offline",
             "--model",
             "mock/smoke",
