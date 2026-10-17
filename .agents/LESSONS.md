@@ -19,13 +19,14 @@ evidence:
 
 ## L002: When porting or changing a command that writes events.tsv, compare the exact rows each entry point adds (dispatch, wait, verify, retry) against the base, snapshotting before the call.
 
-status: active
+status: promoted
 kind: catch
 class: verify
 layer: verify
 area: skills
 since: 2026-10-16
 active: 2026-10-16T11:33:47Z
+note: bda04b0 run_sh at-most-one-master-wake guard
 evidence:
 - 2026-10-16 kitchen-perf 002: kitchen.sh dispatch logs a checkin wake for a swallowed first check-in (core_dispatch without PAIR_QUIET_WAIT), then quiet_wait logs its own: two rows per return
 - 2026-10-16 kitchen-perf 002: verify provider path logs verify:provider then execs the fallback retry, which logs a second wake for the same return
