@@ -1588,10 +1588,20 @@ esac
         self.git('commit', '-q', '-m', message)
         return self.git('rev-parse', 'HEAD')
 
+    def wake_rows(self):
+        log = self.store / 'events.tsv' if hasattr(self, 'store') else None
+        if log is None or not log.exists():
+            return []
+        return [r.split('\t', 2)[2] for r in log.read_text().splitlines() if r.split('\t')[2:4] == ['master', 'wake']]
+
     def run_sh(self, *args, code=0, timeout=None):
+        before = self.wake_rows()
         result = subprocess.run([str(self.script), *args], cwd=self.repo, env=self.env,
                                 capture_output=True, text=True, check=False, timeout=timeout)
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        added = self.wake_rows()[len(before):]
+        # One kitchen.sh call returns to its caller once (a retry it execs is the same return), so it logs at most one master wake.
+        self.assertLessEqual(len(added), 1, f'kitchen.sh {args[0]} logged {len(added)} master wake rows for one return: {added}')
         return result.stdout + result.stderr
 
     def state(self):
