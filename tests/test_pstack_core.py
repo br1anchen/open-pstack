@@ -1691,10 +1691,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         if spec.get('twice'):
             # The same command again in the same store, once the detached job the first one started has written its rc (a bounded poll: the job is
             # a real process, and the second run reads what it left).
-            for _ in range(400):
+            for _ in range(2400):
                 if list(st.glob('steps/jobs/*/rc')):
                     break
-                time.sleep(0.05)  # kitchen-allow: test-sleep (a bounded wait for a detached job's rc file)
+                time.sleep(0.05)  # kitchen-allow: test-sleep (a wait for a detached job's rc file, bounded by the 120 s of the run's subprocess timeout; a passing run leaves at once)
             second = run()
         # The base run and the port run are two worlds, built in two temp directories at two moments, so only what that explains is rewritten:
         # <T> is the world's directory (it appears in paths); <TS> the ISO stamps the store writes (.dispatch.at, .sent.at); <EPOCH> the epoch
@@ -5664,16 +5664,19 @@ stop_prime_role "$store" sidekick && echo "stopped"
         # scripts are known to call, so a typo that happens to match a binary on this host fails by name.
         env = {**os.environ, 'PATH': f"{root / 'tests/pstack-pair/bin'}:{os.environ['PATH']}"}
         kind = {n: subprocess.run(['bash', '-c', 'type -t -- "$1"', 'x', n], capture_output=True, text=True, check=False, env=env).stdout.strip() for n in names}
-        unknown = sorted(n for n in names if kind[n] == 'file' and n not in self.EXTERNAL_COMMANDS)
+        unknown = sorted(n for n in names if kind[n] == 'file' and n not in self.EXTERNAL_COMMANDS | self.OPTIONAL_HOST_COMMANDS)
         self.assertEqual(unknown, [], 'external commands not listed in EXTERNAL_COMMANDS (add a command the scripts really call, fix a typo otherwise)')
-        self.assertEqual(sorted(m for m in missing if not kind[m[1]]), [], 'calls to a name no definition, builtin or command provides')
+        self.assertEqual(sorted(m for m in missing if not kind[m[1]] and m[1] not in self.OPTIONAL_HOST_COMMANDS), [], 'calls to a name no definition, builtin or command provides')
         absent = sorted(n for n in self.EXTERNAL_COMMANDS if not shutil.which(n, path=env['PATH']))
         self.assertEqual(absent, [], 'EXTERNAL_COMMANDS names that do not resolve')
 
     # the external commands the entry scripts call, written out; the fakes under tests/pstack-pair/bin stand in for herdr and ps
     EXTERNAL_COMMANDS = frozenset((
-        'awk', 'basename', 'cat', 'cksum', 'column', 'cp', 'cut', 'date', 'dirname', 'find', 'git', 'grep', 'head', 'herdr', 'id', 'jq', 'ls', 'mkdir',
-        'mktemp', 'mv', 'paste', 'perl', 'ps', 'python3', 'readlink', 'rm', 'rmdir', 'sed', 'setsid', 'sleep', 'sort', 'stat', 'tail', 'tr'))
+        'awk', 'basename', 'cat', 'cksum', 'cp', 'cut', 'date', 'dirname', 'find', 'git', 'grep', 'head', 'herdr', 'id', 'jq', 'ls', 'mkdir',
+        'mktemp', 'mv', 'paste', 'ps', 'python3', 'readlink', 'rm', 'rmdir', 'sed', 'sleep', 'sort', 'stat', 'tail', 'tr'))
+    # commands the scripts call that a host may lack: column (kitchen.sh retro's table), setsid (pair-core.sh's detach, which falls back to perl) and
+    # perl (kitchen.sh's brief-header edits, that fallback, and prime.py's timeout where coreutils has no timeout(1))
+    OPTIONAL_HOST_COMMANDS = frozenset(('column', 'perl', 'setsid'))
 
     def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
         reach = self.reach()
