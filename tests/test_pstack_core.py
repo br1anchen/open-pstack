@@ -2996,12 +2996,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a session that stays active': dict(fake={'prime-stays-live': ''}),
             'a stop that fails': dict(fake={'prime-stop-fail': ''}),
             'a daemon whose list fails': dict(fake={'prime-list-fail': ''}),
-            'a daemon whose list fails after the stop': dict(fake={'wrap-list': 'not json\n'}),
+            'a daemon whose list fails after the stop': dict(fake={'prime-list-fail-after-stop': ''}),
+            'a daemon whose list is not JSON after the stop': dict(fake={'prime-list-fail-after-stop': '', 'wrap-list': 'not json\n'}),
             'a pane whose shell never takes the foreground': dict(fake={'prime-client-stays': ''}, clock=True),
             'a pane whose shell never takes the foreground and an absent client': dict(**gone, fake={'prime-client-stays': ''}, clock=True),
             'a pane with no process info': dict(**gone, panes={}),
             'a pane id that is not recorded': dict(agents={}, sidekick={'session': path_session, 'pane_id': None}, panes={}),
-            'a lock that stays held at the final write': dict(**gone, files={'.pair.lock/held': ''}, env={'PAIR_LOCK_TRIES': '1', 'PAIR_LOCK_POLL_S': '0'}),
+            'a lock that stays held at the final write': dict(**gone, files={'.pair.lock/held': ''}, env={'PAIR_LOCK_TRIES': '1', 'PAIR_LOCK_POLL_S': '0'}, clock=True),
             'a role entry that is null': dict(pair={'consultant': None}),
         }
 
@@ -3020,10 +3021,39 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('no recorded Prime session for sidekick', out['an absent client with no session recorded'][2])
         self.assertIn('no live daemon session matches s1', out['no live session matches'][2])
         self.assertIn('is still active', out['a session that stays active'][2])
+        self.assertIn('returned rc=1', out['a daemon whose list fails after the stop'][1])
+        self.assertIn('"stop"', out['a daemon whose list fails after the stop'][4])
+        self.assertNotIn('"session_stopped"', out['a daemon whose list fails after the stop'][3])
         self.assertIn('Prime client has not exited in p1', out['a pane whose shell never takes the foreground'][2])
         self.assertIn('returned rc=1', out['a stop that fails'][1])
         self.assertEqual(out['a lock that stays held at the final write'][0], 1)
         self.assertNotIn('after', out['a lock that stays held at the final write'][1])
+
+    def test_the_kitchens_verifier_cleanup_matches_the_bash_at_the_phase_3_base_with_the_shims(self):
+        """kitchen.sh's verifier cleanup (the lines of its verdict collection that stop a Prime verifier with `stop_prime_role ... || die ... 5` or
+        exit any other kind and wait for it to go), cut out of kitchen.sh and run on its own against 04d2c13's helpers and the working tree's."""
+        lines = (root / 'skills/pstack-kitchen/scripts/kitchen.sh').read_text().splitlines()
+        first = next(n for n, line in enumerate(lines) if line == '\tif [ "$kind" = prime-agent ]; then' and 'stop_prime_role "$store" verifier' in lines[n + 1])
+        last = next(n for n in range(first, len(lines)) if lines[n].startswith('\t[ "$kind" != prime-agent ] || json_update "$store" \'.verifier.closed = true\''))
+        cleanup = '\n'.join(lines[first:last + 1])
+        self.assertIn('exit_command "$kind"', cleanup)
+        verifier = {'kind': 'prime-agent', 'name': 'v1', 'pane_id': 'p2', 'session': {'kind': 'path', 'value': '/t/v.jsonl'}}
+        row = {'activeSessionId': 'live-v', 'sessionId': 'sess-v', 'sessionFile': '/t/v.jsonl', 'name': 'v1'}
+        prime = dict(agents={'v1': 'idle prime-agent'}, panes={'p1': 's1', 'p2': 'v1'}, pair={'verifier': verifier},
+                     sessions=[row], fake={'sessions/v1': '/t/v.jsonl'})
+        bash = f'kind=$(jq -r .verifier.kind "$store/pair.json"); name=v1; pane=p2\n( {cleanup}\n echo "cleaned" ) ; echo "rc=$?"'
+        cases = {
+            'a Prime verifier whose cleanup succeeds': prime,
+            'a Prime verifier whose cleanup fails': {**prime, 'fake': {**prime['fake'], 'prime-stop-fail': ''}},
+            'a Prime verifier whose shell never takes the foreground': {**prime, 'clock': True, 'fake': {**prime['fake'], 'prime-client-stays': ''}},
+            'a claude verifier': dict(agents={'v1': 'idle claude'}, panes={'p1': 's1', 'p2': 'v1'}, pair={'verifier': {'kind': 'claude', 'name': 'v1', 'pane_id': 'p2'}}, clock=True),
+        }
+        out = {name: self.prime_both('vc-' + re.sub(r'\W+', '-', name), bash, '', shim=True, **spec) for name, spec in cases.items()}
+        self.assertIn('cleaned', out['a Prime verifier whose cleanup succeeds'][1])
+        self.assertIn('"closed": true', out['a Prime verifier whose cleanup succeeds'][3])
+        self.assertEqual(out['a Prime verifier whose cleanup fails'][1], 'rc=5\n')
+        self.assertIn('Prime verifier cleanup failed; its pane and scratch stay for inspection', out['a Prime verifier whose cleanup fails'][2])
+        self.assertIn('agent prompt v1 /exit', out['a claude verifier'][5])
 
     def test_close_role_matches_the_bash_at_the_phase_3_base_with_the_shims(self):
         """close_role, the shims' remaining pair-core caller (kitchen.sh `close` runs it): 04d2c13's function against the working tree's."""

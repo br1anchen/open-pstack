@@ -57,6 +57,9 @@ elif args[0] == 'stop':
     if len(matches) != 1:
         print('unknown active session', file=sys.stderr)
         raise SystemExit(1)
+    # prime-list-fail-after-stop: the daemon answers the stop, then its list fails
+    if (fake / 'prime-list-fail-after-stop').exists():
+        (fake / 'prime-list-fail').write_text('')
     if not (fake / 'prime-stays-live').exists():
         sessions.remove(matches[0])
         sessions_file.write_text(json.dumps(sessions))
