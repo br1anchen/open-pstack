@@ -1484,7 +1484,8 @@ land_check() {
 		[ "$lk" -le "$best" ] || { best="$lk"; landing_verdict="$f"; }
 	done
 	if [ -n "$landing_verdict" ] && [ "$(header_field "$landing_verdict" status)" = clean ]; then
-		landing_head="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/.*\.\.//')^{commit}" 2>/dev/null || true)"
+		landing_head="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')^{commit}" 2>/dev/null || true)"
+		[ -n "$landing_head" ] || printf 'land-check: note: landing verdict %s range head does not resolve; no unit is covered by it\n' "$landing_verdict"
 	fi
 	for r in "$store"/reviews/[0-9][0-9][0-9]-*.md; do
 		[ -e "$r" ] || continue

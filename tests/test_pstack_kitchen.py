@@ -3534,6 +3534,35 @@ esac
         self.assertIn(f'covered: unit 001 by the clean landing verdict {landing}', out)
         self.assertIn('land-check: pass', out)
 
+    def landing_range_world(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        head = self.commit('util')
+        self.done(b, head)
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        return init, head, landing
+
+    def test_a_clean_landing_verdict_whose_range_line_has_words_after_the_head_covers_a_unit(self):
+        init, head, landing = self.landing_range_world()
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{head[:9]} from the packet\n')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn(f'covered: unit 001 by the clean landing verdict {landing}', out)
+        self.assertIn('land-check: pass', out)
+        self.assertNotIn('range head does not resolve', out)
+
+    def test_a_clean_landing_verdict_whose_range_head_does_not_resolve_says_so_and_covers_nothing(self):
+        init, head, landing = self.landing_range_world()
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..deadbeef0\n')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn(f'land-check: note: landing verdict {landing} range head does not resolve; no unit is covered by it', out)
+        self.assertNotIn('covered:', out)
+        self.assertIn('unverified: unit 001', out)
+
     def test_rejected_verdict_drafts_the_fix_brief(self):
         _, out = self.verify_app_unit('reject', 2)
         self.assertIn('Acceptance broke', out)
