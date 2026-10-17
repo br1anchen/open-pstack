@@ -8,7 +8,7 @@ from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
 from pstack_core.store import header_field
 from pstack_core.variant import Variant
-from pstack_core.wait import ArithError, agent_state, bash_arith, core_line, tdiv
+from pstack_core.wait import ArithError, agent_state, bash_arith, core_line, die_with_the_shell, tdiv
 
 CONSULTANT_CORE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'consultant-core.sh')
 
@@ -24,6 +24,7 @@ def stop(ctx, args):
     ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, a blocked one sets the exit status
     to 3, and the newest report and advice are shown at the end."""
     in_herdr()
+    die_with_the_shell()
     if not args:
         raise Die('usage: pair.sh stop <store> [--only sidekick|consultant] [--timeout MS]')
     store, rest = args[0], args[1:]

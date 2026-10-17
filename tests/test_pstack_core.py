@@ -520,7 +520,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def stop_cases(self):
         """Cases for `stop` of the sidekick alone: the pair's and the guided pair's."""
-        fast = {'PAIR_STOP_POLL_S': '0.2'}
+        fast = {'PAIR_STOP_POLL_S': '0.1'}
         working = lambda kind='claude': {'s1': f'working {kind}'}
         devin = dict(kind='devin', agents=working('devin'), env=fast)
         run = ['stop', '{st}']
@@ -546,20 +546,20 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                                                                                     hook=self.stop_hook('001-land-partial1.md', 'partial (STOP)')),
             'a working sidekick whose status says stopped': dict(args=run, agents=working(), env=fast,
                                                                  hook=self.stop_hook('001-x-part.md', 'Partial', 'stopped-partial')),
-            'a working sidekick whose report has bus-stop in its slug': dict(args=run + ['--timeout', '2000'], agents=working(), env=fast,
+            'a working sidekick whose report has bus-stop in its slug': dict(args=run + ['--timeout', '1000'], agents=working(), env=fast,
                                                                               hook=self.stop_hook('001-bus-stop.md', 'Report', 'partial')),
-            'a working sidekick that never writes it': dict(args=run + ['--timeout', '2000'], agents=working(), env=fast),
+            'a working sidekick that never writes it': dict(args=run + ['--timeout', '1000'], agents=working(), env=fast),
             'a working sidekick and a prompt that fails': dict(args=run, agents=working(), promptfail=True, env=fast),
-            'a working sidekick with an older stop report on file': dict(args=run + ['--timeout', '2000'], agents=working(), env=fast,
+            'a working sidekick with an older stop report on file': dict(args=run + ['--timeout', '1000'], agents=working(), env=fast,
                                                                          files={'reports/001-stop.md': '# Stop\n\nstatus: partial\n'}),
             'a working sidekick and a stop report that gets rewritten': dict(args=run, agents=working(), env=fast, hook=self.stop_hook(),
                                                                               files={'reports/001-stop.md': '# Stop\n\nstatus: partial\n'}, mtimes={'reports/001-stop.md': 1_000_000_000}),
             'a working devin whose input box holds the text': dict(devin, args=run, fake={'devin-input': ''}, hook=self.stop_hook()),
             'a working devin with an older queued message': dict(devin, args=run, fake={'devin-input': '', 'queued/s1': 'an older steer'}, hook=self.stop_hook()),
             'a working devin whose report lands at once': dict(devin, args=run, hook=self.stop_hook()),
-            'a working devin that never shows the text': dict(devin, args=run + ['--timeout', '3000']),
+            'a working devin that never shows the text': dict(devin, args=run + ['--timeout', '1000']),
             'a working devin and a stop under another name': dict(devin, args=run, fake={'devin-input': ''}, hook=self.stop_hook('001-land-partial1.md', 'partial (STOP)')),
-            'a working devin whose text stays typed': dict(devin, args=run + ['--timeout', '3000'], fake={'devin-input': '', 'typing/s1': 'pstack-pair STOP x'}),
+            'a working devin whose text stays typed': dict(devin, args=run + ['--timeout', '1000'], fake={'devin-input': '', 'typing/s1': 'pstack-pair STOP x'}),
         }
 
     def stop_ab_run(self, skill, group, cases=None):
@@ -603,6 +603,22 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(results['a working devin whose input box holds the text']['rc'], 0)
         self.assertIn('STOP never showed in the pane; sent one Enter as a fallback', results['a working devin that never shows the text']['stderr'])
 
+    def test_stop_ab_signals_end_the_command_as_they_end_the_bash(self):
+        # While the stop sits in herdr's prompt, a signal ends it with the signal and nothing printed, group-wide or to the shell alone, as it
+        # ends the bash (INT to the shell alone after herdr's call returns). The core stop and the consultant-core stop are one process.
+        skills3 = self.phase3_skills()
+        roles = {'consultant': {'name': 'c1', 'kind': 'codex'}, 'verifier': {'name': 'v1', 'kind': 'claude'}}
+        worlds = {'pstack-pair': {'agents': {'s1': 'idle claude'}},
+                  'pstack-trio': {'agents': {'s1': 'idle claude', 'c1': 'idle codex'}, 'pair': roles},
+                  'pstack-kitchen': {'agents': {'s1': 'idle claude', 'c1': 'idle codex', 'v1': 'idle claude'}, 'pair': roles}}
+        for skill, world in worlds.items():
+            for number, group in ((signal.SIGTERM, True), (signal.SIGTERM, False), (signal.SIGHUP, False), (signal.SIGINT, True), (signal.SIGINT, False)):
+                run = dict(hold='prompt', argv=lambda st: ['stop', str(st), '--timeout', '20000'], world=world)
+                want = self.wait_signalled(skills3, number, group, skill, **run)
+                got = self.wait_signalled(root / 'skills', number, group, skill, **run)
+                self.assertEqual(got, want, (skill, number.name, group))
+                self.assertEqual(got[:3], (-number, '', ''), (skill, number.name, group))
+
     def test_stop_matches_the_bash_at_the_phase_3_base_in_guided(self):
         self.stop_ab_run('pstack-pair-guided', lambda n: n in ('an idle sidekick', 'the sidekick is blocked', 'the sidekick is absent', 'a working sidekick that writes NNN-stop.md',
                                                                'a working devin whose input box holds the text'))
@@ -615,7 +631,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def stop_cc_cases(self, kitchen=False):
         """Cases for the consultant-core stop: the trio's, and with kitchen=True the kitchen's, whose roles also include the verifier."""
-        fast = {'PAIR_STOP_POLL_S': '0.2'}
+        fast = {'PAIR_STOP_POLL_S': '0.1'}
         roles = {'consultant': {'name': 'c1', 'kind': 'codex'}, **({'verifier': {'name': 'v1', 'kind': 'claude'}} if kitchen else {})}
         idle = {'s1': 'idle claude', 'c1': 'idle codex', **({'v1': 'idle claude'} if kitchen else {})}
         run = ['stop', '{st}']
@@ -643,7 +659,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a report and advice on file': dict(base, files={'reports/001-x.md': '# R\n\nstatus: done\n', 'advice/001-x.md': '# A\n\nstatus: answered\n'}),
             'prompts that fail': dict(base, promptfail=True),
             'a working consultant that writes its stop advice': dict(base, agents={**idle, 'c1': 'working codex'}, hook=self.multi_stop_hook(['c1']), env=fast),
-            'a working consultant that never does': dict(base, args=run + ['--timeout', '2000'], agents={**idle, 'c1': 'working codex'}, env=fast),
+            'a working consultant that never does': dict(base, args=run + ['--timeout', '1000'], agents={**idle, 'c1': 'working codex'}, env=fast),
             'a working sidekick and a working consultant': dict(base, agents={**idle, 's1': 'working claude', 'c1': 'working codex'},
                                                                 hook=self.multi_stop_hook(['s1', 'c1']), env=fast),
             'a working consultant and a prompt that fails': dict(base, agents={**idle, 'c1': 'working codex'}, promptfail=True, env=fast),
@@ -1216,11 +1232,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for skill in ('pstack-pair-guided', 'pstack-trio'):
             self.wait_ab_variant(skill, cases)
 
-    def wait_signalled(self, skills, number, group, skill='pstack-pair', ignore_int=False, timeout_ms=20000):
+    def wait_signalled(self, skills, number, group, skill='pstack-pair', ignore_int=False, timeout_ms=20000, hold='wait', argv=None, world=None):
         """Run `pair.sh wait`, signal it while it sits in herdr's wait (the fake herdr's once hook holds it there on a pipe), and give
         (exit status, stdout, stderr). Nothing here can hang: each wait is bounded, the hook is released in a finally, and the
         whole process group is killed if the command outlives the bound."""
-        top, st, env, fill = self.ab_world(f'sig-{len(list(self.path.iterdir()))}', {'agents': {'s1': 'working claude'}, 'pair': {'sent': {'file': '{st}/briefs/001-x.md', 'epoch': 1}}})
+        top, st, env, fill = self.ab_world(f'sig-{len(list(self.path.iterdir()))}', world or {'agents': {'s1': 'working claude'}, 'pair': {'sent': {'file': '{st}/briefs/001-x.md', 'epoch': 1}}})
         ready, release = top / 'ready', top / 'release'
         os.mkfifo(ready)
         os.mkfifo(release)
@@ -1228,7 +1244,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         # signal reaches the hook however late it gets there.
         release_fd = os.open(release, os.O_RDWR | os.O_NONBLOCK)
         self.addCleanup(lambda: os.close(release_fd) if release_fd is not None else None)
-        hook = top / 'fake/once/wait'
+        hook = top / 'fake/once' / hold
         hook.parent.mkdir(exist_ok=True)
         hook.write_text(f'#!/bin/sh\necho in >"{ready}"\nread x <"{release}"\n')
         hook.chmod(0o755)
@@ -1240,7 +1256,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
         script = 'kitchen.sh' if skill == 'pstack-kitchen' else 'pair.sh'
         before = self.store_snapshot(st)
-        proc = subprocess.Popen([str(skills / skill / 'scripts' / script), 'wait', str(st), '--timeout', str(timeout_ms)], cwd=top / 'repo', env=env, text=True,
+        proc = subprocess.Popen([str(skills / skill / 'scripts' / script), *(argv(st) if argv else ['wait', str(st), '--timeout', str(timeout_ms)])], cwd=top / 'repo', env=env, text=True,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, preexec_fn=default_signals)
 
         def kill_group():

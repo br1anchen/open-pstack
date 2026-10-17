@@ -11,7 +11,7 @@ from ..herdr import agent_status, herdr, pane_text
 from ..replies import file_mtime
 from ..review import jq_raw
 from ..store import alt, event, header_field, pair_json, update
-from ..wait import WaitResult, bash_sleep, finish_wait, tdiv, timeout_ms, wait_opts
+from ..wait import WaitResult, bash_sleep, die_with_the_shell, finish_wait, tdiv, timeout_ms, wait_opts
 from .report import in_herdr, require_pair
 from .status import latest
 
@@ -128,6 +128,7 @@ def clear_queue(store):
 
 def stop(ctx, args):
     in_herdr()
+    die_with_the_shell()
     if not args:
         raise Die('usage: pair.sh stop <store> [--timeout MS]')
     store = args[0]

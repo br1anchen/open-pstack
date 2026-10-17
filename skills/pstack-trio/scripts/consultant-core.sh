@@ -166,7 +166,7 @@ plan_answer() {
 	return 0
 }
 
-cmd_stop() { pycore stop "$@"; }
+cmd_stop() { pycore --exec stop "$@"; }
 
 # Consults on a unit are capped at three; a fourth means the design is wrong
 # and belongs in a plan round. A glance, the short diff read at a check-in,

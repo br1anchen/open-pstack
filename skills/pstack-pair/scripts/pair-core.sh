@@ -1897,7 +1897,7 @@ cmd_report() { pycore report "$@"; }
 
 cmd_notify() { pycore notify "$@"; }
 
-cmd_stop() { pycore stop "$@"; }
+cmd_stop() { pycore --exec stop "$@"; }
 
 cmd_progress() { pycore progress "$@"; }
 
