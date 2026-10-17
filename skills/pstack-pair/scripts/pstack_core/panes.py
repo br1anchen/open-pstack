@@ -5,11 +5,11 @@ import re
 import subprocess
 import sys
 
-from .errors import Die
+from .errors import Die, Exit
 from .herdr import herdr
 from .review import jq_raw
 from .store import pair_json
-from .wait import bash_sleep
+from .wait import bash_sleep, core_line
 
 TRUST_RE = re.compile('trust this folder|project you created or one you trust|do you trust the (files|contents)', re.IGNORECASE)
 
@@ -37,11 +37,16 @@ def pick_direction(pane):
     for each in panes if isinstance(panes, list) else []:
         if isinstance(each, dict) and each.get('pane_id') == pane:
             rect = each.get('rect') if isinstance(each.get('rect'), dict) else {}
-            width, height = rect.get('width'), rect.get('height')
-            # a width or height that is not an integer makes the bash's [ ... -ge ... ] fail, which reads as "down"
-            if not all(isinstance(v, int) and not isinstance(v, bool) for v in (width, height)):
+            width, height = jq_raw(rect.get('width')), jq_raw(rect.get('height'))
+            if not re.fullmatch(r'-?[0-9]+', height):
+                # $((2 * h)) reads a word as a variable, which `set -u` refuses; the shell ends there
+                path, number = core_line('$((2 *', 'pick_direction() {')
+                raise Exit(127, f'{path}: line {number}: {height}: unbound variable\n')
+            if not re.fullmatch(r'-?[0-9]+', width):
+                path, number = core_line('-ge $((2 *', 'pick_direction() {')
+                sys.stderr.write(f'{path}: line {number}: [: {width}: integer expected\n')
                 return 'down'
-            return 'right' if width >= 2 * height else 'down'
+            return 'right' if int(width) >= 2 * int(height) else 'down'
     return 'right'
 
 

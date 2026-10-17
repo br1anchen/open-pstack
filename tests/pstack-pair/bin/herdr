@@ -157,7 +157,7 @@ case "$1 $2" in
 "pane layout") pane="$4"
 	# $FAKE/layout-size "W H": the pane's size; $FAKE/layout-gone: the layout lists no such pane.
 	if [ -e "$FAKE/layout-gone" ]; then printf '{"result":{"layout":{"panes":[]}}}\n'; exit 0; fi
-	read -r w h <"$FAKE/layout-size" 2>/dev/null || { w=200; h=50; }
+	if [ -f "$FAKE/layout-size" ]; then read -r w h <"$FAKE/layout-size"; else w=200; h=50; fi
 	printf '{"result":{"layout":{"panes":[{"pane_id":"%s","rect":{"width":%s,"height":%s}}]}}}\n' "$pane" "$w" "$h" ;;
 "notification show") printf '{}\n' ;;
 *) printf 'fake herdr: unhandled %s\n' "$*" >&2; exit 2 ;;

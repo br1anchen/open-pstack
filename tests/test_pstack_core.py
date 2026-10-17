@@ -1012,12 +1012,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                           f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {skills / "pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{bash_snippet}')
                 argv = ['bash', '-c', script]
             else:
-                code = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents, panes\nfrom pstack_core.errors import Die\n'
+                code = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core import agents, panes\nfrom pstack_core.errors import Die, Exit\n'
                         f'store = {str(st)!r}\n{python_snippet}')
                 argv = [sys.executable, '-I', '-c', code]
             r = subprocess.run(argv, cwd=top / 'repo', env=env, capture_output=True, text=True, check=False, timeout=120)
-            norm = lambda text: re.sub(r'"--cwd", "[^"]+"', '"--cwd", "<SCRATCH>"', re.sub(r'--cwd \S+', '--cwd <SCRATCH>',
-                                                                                         text.replace(str(top), '<T>').replace(str(self.phase3_skills()), '<SK>').replace(str(root / 'skills'), '<SK>')))
+            norm = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'"--cwd", "[^"]+"', '"--cwd", "<SCRATCH>"', re.sub(r'--cwd \S+', '--cwd <SCRATCH>',
+                                                                                         text.replace(str(top), '<T>').replace(str(self.phase3_skills()), '<SK>').replace(str(root / 'skills'), '<SK>'))))
             written = {f.name: norm(f.read_text()) for f in sorted((top / 'fake').glob('*.log'))}
             results.append((r.returncode, norm(r.stdout), norm(r.stderr), written if logs else {}))
         self.assertEqual(results[0], results[1], label)
@@ -1142,14 +1142,16 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             out = self.leaf_both('shims-mcp-' + label.replace(' ', '-'), 'set -e\nmapfile -t got < <(mcp_args codex "$PWD"); echo "got: ${got[*]}"\nmcp_args codex "$PWD"\necho "after"\n', fake=fake)
             self.assertEqual(out[0], 0 if label == 'fine' else {'refused last': 1, 'a string element': 5, 'not JSON': 5}[label], label)
 
-    DIE = ('\ndef run(fn):\n    try:\n        return fn()\n    except Die as e:\n        sys.stderr.write(f"pair.sh: {e.message}\\n")\n        sys.exit(e.code)\n')
+    DIE = ('\ndef run(fn):\n    try:\n        return fn()\n    except Die as e:\n        sys.stderr.write(f"pair.sh: {e.message}\\n")\n        sys.exit(e.code)\n    except Exit as e:\n        sys.stderr.write(e.stderr)\n        sys.exit(e.code)\n')
 
     def test_pick_direction_and_new_pane_match_the_bash_at_the_phase_3_base(self):
         master = {'master': {'name': 'm1', 'pane_id': 'w1:p0'}}
         cases = {'a wide pane': {'layout-size': '200 50'}, 'exactly twice as wide': {'layout-size': '100 50'}, 'a hair narrower': {'layout-size': '99 50'},
-                 'a tall pane': {'layout-size': '40 60'}, 'a pane the layout does not list': {'layout-gone': ''}, 'a size that is null': {'layout-size': 'null null'}}
+                 'a tall pane': {'layout-size': '40 60'}, 'a pane the layout does not list': {'layout-gone': ''}, 'a height that is null': {'layout-size': '40 null'}, 'a width that is null': {'layout-size': 'null 40'}}
         for label, fake in cases.items():
-            self.leaf_both('pane-dir-' + label.replace(' ', '-'), 'pick_direction p1; echo "rc=$?"', 'print(panes.pick_direction("p1"))\nprint("rc=0")', fake=fake)
+            out = self.leaf_both('pane-dir-' + label.replace(' ', '-'), 'pick_direction p1; echo "rc=$?"', self.DIE.lstrip('\n') + 'print(run(lambda: panes.pick_direction("p1")))\nprint("rc=0")', fake=fake)
+            if label == 'a height that is null':
+                self.assertEqual(out[0], 127)
         for label, (pair, direction, fake) in {
                 'a split picked from the anchor': ({}, '', {}), 'a split to the down': ({}, 'down', {}), 'a split to the left': ({}, 'left', {}),
                 'a tall anchor': ({}, '', {'layout-size': '40 60'}), 'a tab': ({'placement': 'tab', **master}, '', {}),
