@@ -26,6 +26,9 @@ from pstack_core.commands import metrics, step  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
 
+sys.path.insert(0, str(root / 'tests'))
+import bash_reach  # noqa: E402
+
 LEGACY = 'd06a932'
 BASE = 'e6e83e3'
 PHASE3 = '04d2c13'
@@ -3625,6 +3628,75 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual((store / 'events.tsv').read_text().splitlines()[-1].split('\t')[2:], ['master', 'log', '-', 'p: d'], skill)
             r = run('log', str(store), 'p')
             self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>\n'), skill)
+
+
+class BashReachTests(unittest.TestCase):
+    """tests/bash_reach.py on small synthetic scripts."""
+
+    COPY_FN = 'copy_fn() {\n\teval "$2() $(declare -f "$1" | tail -n +2)"\n}\n'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name).resolve()
+
+    def reach(self, **files):
+        for name, text in files.items():
+            (self.dir / f'{name}.sh').write_text(text)
+        return bash_reach.Reach([self.dir / 'entry.sh'], self.dir)
+
+    SOURCE_LIB = '. "$here/lib.sh"\n'
+
+    def test_a_cycle_with_no_root_is_dead_and_what_a_cmd_function_calls_is_live(self):
+        reach = self.reach(lib='a() { b; }\nb() { a; }\nlive() { :; }\ncmd_x() { live; }\n', entry=self.SOURCE_LIB)
+        self.assertEqual(reach.dead(), {'lib.sh:a', 'lib.sh:b'})
+        self.assertEqual(reach.reachable(self.dir / 'entry.sh'), {'lib.sh:cmd_x', 'lib.sh:live'})
+
+    def test_the_last_definition_in_an_entry_wins_and_the_overridden_body_takes_its_callees_with_it(self):
+        reach = self.reach(lib='helper() { leaf; }\nleaf() { :; }\ncmd_x() { helper; }\n', entry=self.SOURCE_LIB + 'helper() { :; }\n')
+        self.assertEqual(reach.dead(), {'lib.sh:helper', 'lib.sh:leaf'})
+        self.assertIn('entry.sh:helper', reach.reachable(self.dir / 'entry.sh'))
+
+    def test_the_override_is_per_entry_so_the_other_entry_keeps_the_first_body_live(self):
+        (self.dir / 'lib.sh').write_text('helper() { leaf; }\nleaf() { :; }\ncmd_x() { helper; }\n')
+        (self.dir / 'entry.sh').write_text(self.SOURCE_LIB + 'helper() { :; }\n')
+        (self.dir / 'other.sh').write_text(self.SOURCE_LIB)
+        reach = bash_reach.Reach([self.dir / 'entry.sh', self.dir / 'other.sh'], self.dir)
+        self.assertEqual(reach.dead(), set())
+        self.assertEqual(reach.reachable(self.dir / 'other.sh'), {'lib.sh:cmd_x', 'lib.sh:helper', 'lib.sh:leaf'})
+
+    def test_a_copy_fn_alias_is_live_when_called_and_dead_when_not_and_its_body_resolves_late(self):
+        reach = self.reach(lib='orig() { leaf; }\nleaf() { :; }\n',
+                           entry=self.SOURCE_LIB + self.COPY_FN + 'copy_fn orig kept\ncopy_fn orig unused\norig() { :; }\ncmd_x() { kept; orig; }\n')
+        self.assertEqual(reach.dead(), {'lib.sh:orig', 'entry.sh:unused'})
+        self.assertEqual(reach.reachable(self.dir / 'entry.sh'), {'entry.sh:cmd_x', 'entry.sh:kept', 'entry.sh:orig', 'lib.sh:leaf', 'entry.sh:copy_fn'})
+        self.assertEqual(reach.final(self.dir / 'entry.sh', 'kept').alias_of.key, 'lib.sh:orig')
+
+    def test_a_name_in_echo_quotes_a_comment_or_heredoc_data_is_not_a_call(self):
+        script = ('helper() { :; }\nlive() { :; }\nhidden() { :; }\ncmd_x() {\n\techo helper\n\tprintf "%s\\n" "helper"  # helper\n'
+                  '\tcat <<EOF\nhelper\n$(live)\nEOF\n\tcat <<\'EOF\'\n$(hidden)\nEOF\n}\n')
+        self.assertEqual(self.reach(lib=script, entry=self.SOURCE_LIB).dead(), {'lib.sh:helper', 'lib.sh:hidden'})
+
+    def test_a_name_in_command_position_inside_a_substitution_or_a_construct_is_a_call(self):
+        script = ('one() { :; }\ntwo() { :; }\nthree() { :; }\nfour() { :; }\nfive() { :; }\nnever() { :; }\n'
+                  'cmd_x() {\n\tv="$(one)"\n\tmapfile -t a < <(two)\n\techo "${v:-$(three)}"\n'
+                  '\tcase "$1" in\n\tnever) four ;;\n\t*) : ;;\n\tesac\n\tif ! [ -n x ] && five; then :; fi\n}\n')
+        self.assertEqual(self.reach(lib=script, entry=self.SOURCE_LIB).dead(), {'lib.sh:never'})
+
+    def test_what_the_model_does_not_cover_raises(self):
+        cases = {'a dynamic command word': ('lib', 'cmd_x() { "$fn" arg; }\n'),
+                 'an eval outside copy_fn': ('lib', 'cmd_x() { eval "$x"; }\n'),
+                 'declare -F outside pair_main and copy_fn': ('lib', 'cmd_x() { declare -F cmd_y; }\n'),
+                 'a trap handler': ('lib', 'cmd_x() { trap cleanup EXIT; }\n'),
+                 'a backtick substitution': ('lib', 'cmd_x() { v=`one`; }\n'),
+                 'a source path it cannot resolve': ('entry', '. "$elsewhere/lib.sh"\n'),
+                 'a copy_fn of a name with no earlier definition': ('entry', self.SOURCE_LIB + self.COPY_FN + 'copy_fn missing alias\n')}
+        for label, (where, text) in cases.items():
+            with self.subTest(label):
+                files = {'lib': 'cmd_y() { :; }\n', 'entry': self.SOURCE_LIB}
+                files[where] = text
+                with self.assertRaises(bash_reach.ReachError):
+                    self.reach(**files)
 
 
 if __name__ == '__main__':
