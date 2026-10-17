@@ -2615,6 +2615,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def phase3_ab(self, label, skill, spec):
         """One world run through 04d2c13's script and the working tree's, outcomes with the two trees' paths masked: (working tree, base)."""
         bases = self.phase3_skills()
+        # the oracle is 04d2c13 (PHASE3), where `cmd_spawn` is still the bash body, not the phase-2 tree or a shim
+        self.assertIn('set_placement "$store" "$placement"', (bases / 'pstack-pair/scripts/pair-core.sh').read_text())
         if skill == 'pstack-kitchen':
             spec = {**spec, 'repo_files': {**spec.get('repo_files', {}), '.agents/kitchen.toml': self.KITCHEN_TOML}}
         want = self.ab_run(f'{label}-base', bases, skill, spec)
