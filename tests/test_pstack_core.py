@@ -1633,6 +1633,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         if spec.get('promptfail'):
             (fake / 'prompt-fail').write_text('')
         for rel, (text, mode) in spec.get('topfiles', {}).items():
+            (top / rel).parent.mkdir(parents=True, exist_ok=True)
             (top / rel).write_text(text)
             (top / rel).chmod(mode)
             self.addCleanup((top / rel).chmod, 0o644)
@@ -2608,6 +2609,43 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('send-plan', ' '.join(outcomes['a plan to its reply']['events']))
         for skill in ('pstack-pair-guided',):
             self.send_ab_run({n: cases[n] for n in ('a plan to its reply', 'a plan with send-only', 'the sidekick is absent')}, skill)
+
+    ROSTER_TOML = ('[sidekick]\nkind = "claude"\nargs = ["--model", "m1"]\n\n[sidekick.fallback]\nkind = "devin"\nargs = ["--fb", "x"]\n')
+
+    def test_kitchen_spawn_matches_the_bash_at_the_phase_3_base(self):
+        """kitchen.sh `spawn` (its bash wrapper over the captured pair command) at 04d2c13 and at the working tree, on the fake herdr: the roster's
+        default kind, `--kind` over it, the roster's fallback, and `--tab`. Stdout, stderr, status, the store, events.tsv rows and calls.log."""
+        hook = {'hook': self.READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300'}}
+        roster = {'home/.config/pstack/kitchen.toml': (self.ROSTER_TOML, 0o644)}
+        base = dict(args=['spawn', '{st}'], repo_files={'.agents/kitchen.toml': self.KITCHEN_TOML}, topfiles=roster, **hook,
+                    pair={'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None}})
+        cases = {
+            'the roster default kind': base,
+            'the roster default kind and a trailing native arg': {**base, 'args': ['spawn', '{st}', '--', '--x']},
+            '--kind over the roster': {**base, 'args': ['spawn', '{st}', '--kind', 'codex']},
+            '--kind equal to the roster kind takes its fallback': {**base, 'args': ['spawn', '{st}', '--kind', 'claude']},
+            '--kind with an explicit fallback': {**base, 'args': ['spawn', '{st}', '--kind', 'codex', '--fallback', 'pi']},
+            '--tab': {**base, 'args': ['spawn', '{st}', '--tab'], 'pair': {'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None},
+                                                                          'master': {'name': 'm1', 'pane_id': 'w1:p0'}}},
+            'an empty roster and no --kind': {**base, 'topfiles': {}},
+        }
+        outcomes = {}
+        for n, (name, spec) in enumerate(cases.items()):
+            bases = self.base_skills()
+            want = self.ab_run(f'kbase-{n}', bases, 'pstack-kitchen', spec)
+            got = self.ab_run(f'kport-{n}', root / 'skills', 'pstack-kitchen', spec)
+            # the two trees sit at two paths (calls.log and pair.json name references/no-mcp.json under them)
+            mask = lambda o, tree: json.loads(json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>'))
+            want, got = mask(want, bases), mask(got, root / 'skills')
+            self.maxDiff = None
+            self.assertEqual(got, want, name)
+            outcomes[name] = got
+        self.assertEqual(outcomes['the roster default kind']['rc'], 0)
+        self.assertIn('started in', outcomes['the roster default kind']['stdout'])
+        self.assertIn('"kind": "claude"', outcomes['the roster default kind']['files']['pair.json'])
+        self.assertIn('"kind": "codex"', outcomes['--kind over the roster']['files']['pair.json'])
+        self.assertIn('"kind": "devin"', outcomes['--kind equal to the roster kind takes its fallback']['files']['pair.json'])
+        self.assertNotEqual(outcomes['an empty roster and no --kind']['rc'], 0)
 
     def test_send_ab_kitchen_dispatch_and_routine_discuss(self):
         toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
