@@ -1890,32 +1890,45 @@ manifest_warning() {
 	local root files
 	[ -n "$2" ] && [ -n "$3" ] && [ "$2" != "$3" ] || return 0
 	root="$(field "$1" .git_root)"
-	files="$(git -C "$root" diff --name-only "$2" "$3" 2>/dev/null | kpy "$1" --json manifests 2>/dev/null | jq -r '.manifests | join(", ")' 2>/dev/null || true)"
+	files="$(git -C "$root" diff --name-only -z --no-renames "$2" "$3" 2>/dev/null | kpy "$1" --json manifests -z 2>/dev/null | jq -r '.manifests | join(", ")' 2>/dev/null || true)"
 	[ -z "$files" ] || printf 'warning: dependency manifests changed since the verified base: %s\n' "$files"
 }
 
-# Whether the unit's range only deletes: no line added, no file created, no mode
-# changed, no rename (a rename is a delete and an add). It reads the range
-# classify reads, from the merge-base of the dispatch head and the unit head, with
-# renames off; a binary file counts as a change unless it is gone at the unit head.
+# Whether the unit's range only deletes: every changed path is deleted, or modified by removing
+# lines only (no line added, so no mode change either). It reads `git diff --name-status -z
+# --no-renames` and `--numstat -z` from the merge-base of the dispatch head and the unit head, the
+# range classify reads: NUL-separated, so a path is never quoted, and a rename is a delete plus an
+# add, which refuses. A binary file modified is a change; deleted it is not. Any failing git command
+# refuses (the output goes to files, so no pipe or substitution swallows a status).
 # $1 store, $2 brief.
 unit_adds_no_lines() {
-	local root base head added path
+	local root base head status added deleted path names nums ok=1
+	local -A modified=()
 	root="$(field "$1" .git_root)"
 	base="$(jq -r --arg u "$(basename "$2" .md)" '.heads[$u] // empty' "$1/pair.json")"
 	head="$(unit_head "$1" "$2")"
 	[ -n "$base" ] && [ -n "$head" ] || return 1
-	if git -C "$root" diff --summary --no-renames "$base...$head" 2>/dev/null | grep -qE '^ (create|mode change) '; then
-		return 1
+	git -C "$root" rev-parse --verify --quiet "$base^{commit}" >/dev/null || return 1
+	names="$(mktemp)"
+	nums="$(mktemp)"
+	if git -C "$root" diff --name-status -z --no-renames "$base...$head" >"$names" 2>/dev/null &&
+		git -C "$root" diff --numstat -z --no-renames "$base...$head" >"$nums" 2>/dev/null; then
+		while IFS= read -r -d '' status && IFS= read -r -d '' path; do
+			case "$status" in
+			D) ;;
+			M) modified[$path]=1 ;;
+			*) ok=0 ;;
+			esac
+		done <"$names"
+		while IFS=$'\t' read -r -d '' added deleted path; do
+			[ -n "${modified[$path]:-}" ] || continue
+			[[ "$added" =~ ^[0-9]+$ ]] && [[ "$deleted" =~ ^[0-9]+$ ]] && [ "$added" -eq 0 ] && [ "$deleted" -gt 0 ] || ok=0
+		done <"$nums"
+	else
+		ok=0
 	fi
-	while IFS=$'\t' read -r added _ path; do
-		if [[ "$added" =~ ^[0-9]+$ ]]; then
-			[ "$added" -eq 0 ] || return 1
-		else
-			git -C "$root" cat-file -e "$head:$path" 2>/dev/null && return 1
-		fi
-	done < <(git -C "$root" diff --numstat --no-renames "$base...$head" 2>/dev/null)
-	return 0
+	rm -f "$names" "$nums"
+	[ "$ok" -eq 1 ]
 }
 
 # Whether the review note meets the required engine: it cites a run, or it says

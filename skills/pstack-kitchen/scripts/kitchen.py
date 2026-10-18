@@ -2388,7 +2388,8 @@ def main(argv: list[str] | None = None) -> int:
     sn.add_argument('dir', type=Path)
     su = sub.add_parser('setup', help='run [scratch].setup in the repo root, inside the wrap')
     su.add_argument('--role', choices=('verifier', 'sidekick'), default='verifier')
-    sub.add_parser('manifests', help='the paths on stdin (one per line) that match [escalate].manifests')
+    mf = sub.add_parser('manifests', help='the paths on stdin (one per line) that match [escalate].manifests')
+    mf.add_argument('-z', action='store_true', help='the paths are NUL-separated (git diff -z), so none is quoted')
     c = sub.add_parser('classify', help='profiles, risk class, and verify settings for a change')
     p = sub.add_parser('policy', help='forbid rules on added lines, and test-touch')
     for s in (c, p):
@@ -2599,7 +2600,9 @@ def main(argv: list[str] | None = None) -> int:
                  if r['passed'] else f'setup: FAIL exit {r["exit"]} (log {r["log"]})\n' + '\n'.join(f'  | {t}' for t in r['tail']))
             return 0 if r['passed'] else 2
         if args.cmd == 'manifests':
-            hits = [x for x in sys.stdin.read().splitlines() if x and matches(x, kitchen.escalate['manifests'])]
+            text = sys.stdin.buffer.read().decode('utf-8', 'surrogateescape')
+            paths = text.split('\0') if args.z else text.splitlines()
+            hits = [x for x in paths if x and matches(x, kitchen.escalate['manifests'])]
             emit({'manifests': hits}, args.json, '\n'.join(hits))
             return 0
         if args.cmd == 'classify':

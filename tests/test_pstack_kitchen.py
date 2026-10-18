@@ -2835,6 +2835,45 @@ esac
         review = self.skipped_unit(lambda: self.write('src/run.sh', '#!/bin/sh\n'), lambda: (self.repo / 'src/run.sh').chmod(0o755))
         self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
 
+    def test_a_modified_binary_with_a_non_ascii_name_cannot_use_the_deletion_only_skip(self):
+        def lay_out():
+            (self.repo / 'assets').mkdir(exist_ok=True)
+            (self.repo / 'assets/caf\u00e9.png').write_bytes(bytes(range(256)))
+
+        self.skipped_unit(lay_out, lambda: (self.repo / 'assets/caf\u00e9.png').write_bytes(bytes(range(255, -1, -1))))
+        self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
+
+    def test_a_path_with_a_tab_is_read_exactly_by_the_deletion_only_check(self):
+        name = 'assets/we\tird.bin'
+
+        def lay_out():
+            (self.repo / 'assets').mkdir(exist_ok=True)
+            (self.repo / name).write_bytes(bytes(range(256)))
+
+        self.skipped_unit(lay_out, lambda: (self.repo / name).write_bytes(bytes(range(255, -1, -1))))
+        self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
+
+    def test_a_deleted_path_with_a_tab_can_use_the_deletion_only_skip(self):
+        name = 'assets/we\tird.bin'
+
+        def lay_out():
+            (self.repo / 'assets').mkdir(exist_ok=True)
+            (self.repo / name).write_bytes(bytes(range(256)))
+
+        self.skipped_unit(lay_out, lambda: self.git('rm', '-q', name))
+        self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
+
+    def test_a_dispatch_head_that_no_longer_resolves_refuses_the_deletion_only_skip(self):
+        self.skipped_unit(lambda: self.write('src/old.py', 'O = 1\n'), lambda: self.git('rm', '-q', 'src/old.py'))
+        state = self.state()
+        state['heads']['001-util'] = 'deadbeef' * 5
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
+
+    def test_a_deletion_that_removes_lines_from_a_text_file_can_use_the_skip(self):
+        self.skipped_unit(lambda: self.write('src/lines.py', 'A = 1\nB = 2\nC = 3\n'), lambda: self.write('src/lines.py', 'A = 1\nC = 3\n'))
+        self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
+
     def test_a_binary_deletion_can_use_the_deletion_only_skip(self):
         def lay_out():
             (self.repo / 'src').mkdir(exist_ok=True)
@@ -4729,6 +4768,22 @@ esac
     def test_a_manifest_changed_only_on_the_verified_bases_side_still_warns(self):
         self.verified_on_a_base_with_a_manifest_edit()
         out = self.run_sh('land-check', str(self.store), code=0)
+        self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
+
+    def test_a_manifest_renamed_on_the_current_bases_side_warns_through_its_old_path(self):
+        init, heads = self.two_unit_stack()
+        self.git('checkout', '-q', '-b', 'verified', init)
+        self.write('requirements.txt', 'pytest==9\n')
+        verified_base = self.commit('manifest added')
+        self.git('cherry-pick', *heads)
+        tip = self.git('rev-parse', 'HEAD')
+        self.write_landing_verdict(verified_base, tip)
+        self.git('checkout', '-q', '-b', 'renamed', verified_base)
+        self.git('mv', 'requirements.txt', 'deps.lock')
+        trunk = self.commit('manifest renamed')
+        self.git('update-ref', 'refs/remotes/origin/main', trunk)
+        self.git('cherry-pick', *heads)
+        out = self.run_sh('land-check', str(self.store))
         self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
 
     def test_the_manifest_warning_reads_the_base_from_the_verdicts_packet(self):
