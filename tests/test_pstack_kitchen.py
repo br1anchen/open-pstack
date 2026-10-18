@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -3094,41 +3095,109 @@ esac
         self.assertIn('no verification is open', self.run_sh('verify', str(self.store), '--wait', code=5))
 
     def test_until_verdict_returns_once_on_the_verdict_with_no_interval_return(self):
-        self.env.update({'KITCHEN_VERIFY_POLL_S': '0', 'KITCHEN_VERDICT_SETTLE_S': '0'})
+        # The clock jumps 20 minutes at the first status poll: past the default 9-minute interval, inside the 60-minute deadline.
+        shim = Path(self.tmp.name) / 'clock'
+        shim.mkdir()
+        (shim / 'date').write_text(f'#!/bin/bash\nif [ "$1" = +%s ] && [ -e "$FAKE/time-jump" ]; then echo $(( $({shutil.which("date")} +%s) + 1200 )); '
+                                   f'else exec {shutil.which("date")} "$@"; fi\n')
+        (shim / 'date').chmod(0o755)
+        self.env.update({'KITCHEN_VERIFY_POLL_S': '0', 'KITCHEN_VERDICT_SETTLE_S': '0', 'KITCHEN_VERIFY_IDLE_S': '100000',
+                         'PATH': f'{shim}:{self.env["PATH"]}'})
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         self.write('src/util.py', 'X = 11\n')
         self.write('tests/test_app.py', 'x = 11\n')
         self.done(b, self.commit('util'))
         (self.fake / 'verdict-mode').write_text('slow')
-        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        self.run_sh('verify', str(self.store), '001', '--every', '0', '--timeout', '60', code=4)
         verdict = Path(self.state()['verifying']['verdict'])
-        # The verdict lands at the second status poll of the resumed wait; an interval of 0 would end it at the first.
+        # The first status poll starts the jump; the verdict lands at the third.
         hook = self.fake / 'once/get'
         hook.parent.mkdir(exist_ok=True)
         polls = self.fake / 'polls'
         hook.write_text(
             "#!/bin/bash\n"
             f"echo >>{polls}\n"
-            f"if [ \"$(wc -l <{polls})\" -ge 2 ]; then printf '# V\\n\\nstatus: clean\\nunits: 001\\n\\n## Evidence\\n\\n```\\n$ true\\n```\\n' >{verdict}\n"
+            f"touch {self.fake}/time-jump\n"
+            f"if [ \"$(wc -l <{polls})\" -ge 3 ]; then printf '# V\\n\\nstatus: clean\\nunits: 001\\n\\n## Evidence\\n\\n```\\n$ true\\n```\\n' >{verdict}\n"
             f"else cp \"$0\" {hook}; fi\n")
         hook.chmod(0o755)
-        out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', '--until-verdict')
+        out = self.run_sh('verify', str(self.store), '--wait', '--until-verdict')
         self.assertIn('status: clean', out)
         self.assertNotIn('verifying: units', out)
         wakes = [r.split('\t')[5] for r in (self.store / 'events.tsv').read_text().splitlines() if '\tmaster\twake\t' in r]
         self.assertEqual([w for w in wakes if w.startswith('verify:')], ['verify:progress', 'verify:clean'])
 
-    def open_slow_verification(self):
+    def test_every_and_until_verdict_are_alternatives(self):
+        self.assertIn('--every and --until-verdict are alternatives',
+                      self.run_sh('verify', str(self.store), '--wait', '--every', '1', '--until-verdict', code=1))
+
+    def open_slow_verification(self, n='001', slug='util'):
         self.env.update({'KITCHEN_VERIFY_POLL_S': '0', 'KITCHEN_VERDICT_SETTLE_S': '0'})
-        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        b = self.brief(n, slug, ['src/**', 'tests/**'])
         self.dispatch(b)
-        self.write('src/util.py', 'X = 12\n')
-        self.write('tests/test_app.py', 'x = 12\n')
-        self.done(b, self.commit('util'))
+        self.write('src/util.py', f'X = 1{n}\n')
+        self.write('tests/test_app.py', f'x = 1{n}\n')
+        self.done(b, self.commit(slug))
         (self.fake / 'verdict-mode').write_text('slow')
-        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        self.run_sh('verify', str(self.store), n, '--every', '0', '--timeout', '60', code=4)
         return self.state()['verifying']
+
+    def written_verdict(self, open_, status, units='001', findings=''):
+        Path(open_['verdict']).write_text(f'status: {status}\nunits: {units}\n\n## Findings\n\n{findings}\n\n## Evidence\n\n```\n$ true\n```\n')
+
+    def test_an_unread_reject_closed_by_the_next_verify_prints_its_findings_and_starts_nothing(self):
+        open_ = self.open_slow_verification()
+        self.written_verdict(open_, 'reject', findings='1. Acceptance broke: add returns 0')
+        starts = (self.fake / 'calls.log').read_text().count('agent start demo-verifier')
+        out = self.run_sh('verify', str(self.store), '001', '--every', '0', code=2)
+        self.assertIn(f"closed: {open_['verdict']} (reject)", out)
+        self.assertIn('Acceptance broke: add returns 0', out)
+        self.assertIn('next: kitchen.sh revise', out)
+        self.assertNotIn('verifying', self.state())
+        self.assertEqual((self.fake / 'calls.log').read_text().count('agent start demo-verifier'), starts)
+
+    def test_an_unread_sampled_clean_closed_by_the_next_verify_prints_the_audit_line(self):
+        open_ = self.open_slow_verification(slug='c')
+        self.written_verdict(open_, 'clean')
+        out = self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        self.assertIn(f"closed: {open_['verdict']} (clean)", out)
+        self.assertIn('audit: yes', out)
+        self.assertIn('verifying: units 001 by pi', out)
+
+    def test_the_handoff_nudge_prints_when_the_second_clean_verdict_is_closed_by_the_next_verify(self):
+        self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'
+        self.assertNotIn('since your last handoff', self.run_sh_unit_clean('001'))
+        open_ = self.open_slow_verification('002', 'next')
+        self.written_verdict(open_, 'clean', units='002')
+        out = self.run_sh('verify', str(self.store), '002', '--every', '0', code=4)
+        self.assertIn('master: 2 units verified since your last handoff', out)
+
+    def run_sh_unit_clean(self, n):
+        b = self.brief(n, 'first', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/first.py', 'F = 1\n')
+        self.write('tests/test_first.py', 'f = 1\n')
+        self.done(b, self.commit('first'))
+        return self.run_sh('verify', str(self.store), n)
+
+    def test_a_waiter_whose_verification_was_cancelled_and_replaced_touches_nothing(self):
+        self.open_slow_verification()
+        first = self.state()['verifying']['verdict']
+        pane = self.state()['verifier']['pane_id']
+        hook = self.fake / 'once/get'
+        hook.parent.mkdir(exist_ok=True)
+        hook.write_text(f'#!/bin/bash\n{self.script} verify {self.store} --cancel >/dev/null 2>&1\n'
+                        f'{self.script} verify {self.store} 001 --every 0 --timeout 60 >/dev/null 2>&1\n')
+        hook.chmod(0o755)
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', code=5)
+        self.assertIn('verification closed elsewhere', out)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertEqual(calls.count(f'pane close {pane}'), 1)
+        second = self.state()['verifying']
+        self.assertNotEqual(second['verdict'], first)
+        self.assertTrue((self.store / 'scratch' / second['scratch']).exists())
+        self.assertTrue((self.fake / 'panes' / self.state()['verifier']['pane_id']).exists())
 
     def test_a_verdict_written_but_unread_is_closed_by_the_next_verify(self):
         open_ = self.open_slow_verification()
@@ -3150,6 +3219,11 @@ esac
         self.assertFalse(scratch.exists())
         self.assertIn(f'pane close {pane}', (self.fake / 'calls.log').read_text())
         self.assertIn('\tverify-cancel\t', (self.store / 'events.tsv').read_text())
+        self.assertEqual(self.packet_fields()['verifier-outcome'], 'cancelled')
+        fleet = subprocess.run([sys.executable, str(script), '--json', 'fleet', '--runs', str(self.store.parent)],
+                               env=self.env, capture_output=True, text=True, check=True)
+        attempts = json.loads(fleet.stdout)['verifiers']
+        self.assertEqual(sum(v['running'] for v in attempts), 0)
 
     def test_verify_cancel_with_nothing_open_exits_5(self):
         self.assertIn('no verification open', self.run_sh('verify', str(self.store), '--cancel', code=5))
