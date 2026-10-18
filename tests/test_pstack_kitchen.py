@@ -3983,6 +3983,51 @@ esac
         self.assertIn('land-check: pass', out)
         self.assertNotIn('range head does not resolve', out)
 
+    def two_unit_stack(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        heads = []
+        for n, slug in ((1, 'util'), (2, 'next')):
+            b = self.brief(f'00{n}', slug, ['src/**', 'tests/**'])
+            self.dispatch(b)
+            self.write(f'src/mod{n}.py', f'X = {n}\n')
+            self.write(f'tests/test_mod{n}.py', f'x = {n}\n')
+            heads.append(self.commit(slug))
+            self.done(b, heads[-1])
+            (self.store / f'reviews/00{n}-{slug}.md').write_text('verdict: accept\n')
+        return init, heads
+
+    def land_on_new_trunk(self, init, heads, squash=False):
+        self.git('checkout', '-q', '-b', 'landing', init)
+        self.write('docs/trunk.md', '# trunk moved\n')
+        trunk = self.commit('trunk moved')
+        if squash:
+            self.git('cherry-pick', '-n', *heads)
+            tip = self.commit('squash of the stack')
+        else:
+            self.git('cherry-pick', *heads)
+            tip = self.git('rev-parse', 'HEAD')
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n')
+        return landing, tip
+
+    def test_land_check_covers_a_unit_rebased_into_the_stack_by_patch_id(self):
+        init, heads = self.two_unit_stack()
+        landing, tip = self.land_on_new_trunk(init, heads)
+        out = self.run_sh('land-check', str(self.store))
+        self.assertRegex(out, rf'covered: unit 001 \(rebased as [0-9a-f]{{9}}\) by the clean landing verdict {landing}')
+        self.assertRegex(out, rf'covered: unit 002 \(rebased as {tip[:9]}\) by the clean landing verdict {landing}')
+        self.assertIn('land-check: pass', out)
+
+    def test_land_check_notes_a_unit_squashed_into_the_stack_and_leaves_it_uncovered(self):
+        init, heads = self.two_unit_stack()
+        self.land_on_new_trunk(init, heads, squash=True)
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn("land-check: note: unit 001's head is not in the stack and its commits do not match by patch-id (squashed?); verify --landing covers it", out)
+        self.assertIn("land-check: note: unit 002's head is not in the stack", out)
+        self.assertNotIn('covered:', out)
+        self.assertIn('unverified: unit 001', out)
+
     def test_a_clean_landing_verdict_whose_range_head_does_not_resolve_says_so_and_covers_nothing(self):
         init, head, landing = self.landing_range_world()
         landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..deadbeef0\n')

@@ -218,6 +218,34 @@ unit_head() {
 	printf '%s' "$uhead"
 }
 
+# Whether a unit rebased into a stack: every commit of the unit's range
+# (its dispatch head to its head) has a patch-id among the commits of
+# <stack base>..<stack head>. Sets rebased_sha to the stack commit matching the
+# unit's head. $1 store, $2 brief, $3 unit head, $4 stack base, $5 stack head.
+unit_rebased_in() {
+	local root unit_base c id want="" tip_id="" ids
+	root="$(field "$1" .git_root)"
+	unit_base="$(jq -r --arg u "$(basename "$2" .md)" '.heads[$u] // empty' "$1/pair.json")"
+	rebased_sha=""
+	[ -n "$unit_base" ] && [ -n "$4" ] || return 1
+	git -C "$root" rev-parse --verify --quiet "$unit_base^{commit}" >/dev/null || return 1
+	local -A have=()
+	while read -r c; do
+		id="$(git -C "$root" diff-tree -p "$c" | git patch-id --stable | cut -d' ' -f1)"
+		[ -z "$id" ] || have[$id]="$c"
+	done < <(git -C "$root" rev-list --no-merges "$4..$5")
+	ids=0
+	while read -r c; do
+		id="$(git -C "$root" diff-tree -p "$c" | git patch-id --stable | cut -d' ' -f1)"
+		[ -n "$id" ] || continue
+		[ -n "${have[$id]:-}" ] || return 1
+		ids=$((ids + 1))
+		[ -n "$tip_id" ] || tip_id="$id"
+	done < <(git -C "$root" rev-list --no-merges "$unit_base..$3")
+	[ "$ids" -gt 0 ] || return 1
+	rebased_sha="${have[$tip_id]}"
+}
+
 # Every unit this verification names must be in the head it checks out, the
 # last unit's: a fix is named last (verify 015 --covers 010,011,013), or
 # the earlier units' work would be missing from what the verifier proves. A unit
@@ -237,6 +265,7 @@ unit_heads_in() {
 			continue
 		fi
 		git -C "$root" merge-base --is-ancestor "$uhead" "$head" 2>/dev/null ||
+			unit_rebased_in "$store" "$brief" "$uhead" "$(git -C "$root" merge-base "$(trunk_ref "$root")" "$head" 2>/dev/null || true)" "$head" ||
 			die "unit $unit's head ${uhead:0:9} is not in the checked-out head ${head:0:9} (unit $last); name the unit that carries all the others last" 2
 	done
 }
@@ -1605,7 +1634,7 @@ land_check() {
 	# kitchen that names a review engine requires each accepted unit's review
 	# note to cite a run of it: "engine: <name> <run id or artifact path>".
 	local store="$1" r seq brief verdict f problems=0 uhead engine
-	local landing_verdict="" landing_head="" lk best=0
+	local landing_verdict="" landing_head="" landing_base="" lk best=0
 	engine="$(kpy "$store" --json validate 2>/dev/null | jq -r '.review_engine // empty')" ||
 		{ printf 'kitchen: validate fails (kitchen.py validate shows why)\n'; return 1; }
 	for f in "$store"/verdicts/landing-v[0-9]*.md; do
@@ -1616,6 +1645,7 @@ land_check() {
 	done
 	if [ -n "$landing_verdict" ] && [ "$(header_field "$landing_verdict" status)" = clean ]; then
 		landing_head="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')^{commit}" 2>/dev/null || true)"
+		landing_base="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/\.\..*//')^{commit}" 2>/dev/null || true)"
 		[ -n "$landing_head" ] || printf 'land-check: note: landing verdict %s range head does not resolve; no unit is covered by it\n' "$landing_verdict"
 	fi
 	for r in "$store"/reviews/[0-9][0-9][0-9]-*.md; do
@@ -1642,6 +1672,14 @@ land_check() {
 			if [ -n "$uhead" ] && git -C "$(field "$store" .git_root)" merge-base --is-ancestor "$uhead" "$landing_head" 2>/dev/null; then
 				verdict="$landing_verdict"
 				printf 'covered: unit %s by the clean landing verdict %s\n' "$seq" "$landing_verdict"
+			elif [ -n "$uhead" ]; then
+				# A unit rebased into the stack has other shas but the same patches.
+				if unit_rebased_in "$store" "$brief" "$uhead" "$landing_base" "$landing_head"; then
+					verdict="$landing_verdict"
+					printf 'covered: unit %s (rebased as %s) by the clean landing verdict %s\n' "$seq" "${rebased_sha:0:9}" "$landing_verdict"
+				else
+					printf 'land-check: note: unit %s'"'"'s head is not in the stack and its commits do not match by patch-id (squashed?); verify --landing covers it\n' "$seq"
+				fi
 			fi
 		fi
 		if [ -z "$verdict" ]; then
