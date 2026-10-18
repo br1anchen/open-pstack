@@ -1314,13 +1314,14 @@ verifier_trail() {
 # from the error stop its session log recorded. Empty when there is none.
 verifier_provider_error() {
 	local store="$1" name="$2" line="" session
+	# $3 is the session of the verification the caller owns, when it captured it.
 	if [ "$(field "$store" .verifier.kind)" = prime-agent ]; then
 		prime_role_error "$store" verifier
 		return 0
 	fi
 	[ "$(agent_status "$name")" = absent ] ||
 		line="$(grep -oiE ".{0,60}($provider_error_re).{0,100}" <<<"$(pane_text "$name")" | tail -1 || true)"
-	session="$(field "$store" '.verifying.session // empty')"
+	session="${3-$(field "$store" '.verifying.session // empty')}"
 	if [ -z "$line" ]; then
 		local cwd=""
 		[ "$(field "$store" .verifier.kind)" != pi ] && [ "$(field "$store" .verifier.kind)" != muse ] ||
@@ -1382,6 +1383,7 @@ verify_grace() {
 	while :; do
 		{ [ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ]; } && return 0
 		state="$(agent_status "$name")"
+		verification_still_open "$store" "$verdict"
 		[ "$state" != absent ] || return 0
 		now="$(date +%s)"
 		[ "$now" -lt "$grace_until" ] || return 0
@@ -1412,7 +1414,7 @@ verify_cancel() {
 	brief="$(field "$store" .verifying.brief)"
 	name="$(field "$store" .verifier.name)"
 	kind="$(field "$store" .verifier.kind)"
-	close_verifier "$store" "$name" "$kind" "$(field "$store" .verifier.pane_id)" "$verdict"
+	close_verifier "$store" "$name" "$kind" "$(field "$store" .verifier.pane_id)" "$verdict" || die "no verification open (another call closed it)" 5
 	set_outcome "$(field "$store" .verifying.packet)" cancelled
 	drop_verifying "$store" "$verdict"
 	event "$store" master verify-cancel "$brief" "$units"
@@ -1452,7 +1454,7 @@ drop_verifying() {
 # unless .verifying no longer names the verification with verdict $5.
 close_verifier() {
 	local store="$1" name="$2" kind="$3" pane="$4" gone
-	[ "$(field "$store" '.verifying.verdict // empty')" = "$5" ] || return 0
+	[ "$(field "$store" '.verifying.verdict // empty')" = "$5" ] || return 1
 	if [ "$kind" = prime-agent ]; then
 		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5
 	else
@@ -1475,9 +1477,23 @@ verification_still_open() {
 
 verify_wait() {
 	local store="$1" every_m="$2" verdict name kind until state="" now idle_since stalled=0
+	local brief risk sample unit pane packet session provider="" fallback="" retried
+	local -a argv=()
+	# The verification this wait took, read once: after another call closes it and starts the next, these
+	# still describe the one this wait owns, never the store's current one.
 	verdict="$(field "$store" .verifying.verdict)"
 	name="$(field "$store" .verifier.name)"
 	kind="$(field "$store" .verifier.kind)"
+	packet="$(field "$store" .verifying.packet)"
+	session="$(field "$store" '.verifying.session // empty')"
+	brief="$(field "$store" .verifying.brief)"
+	risk="$(field "$store" .verifying.risk)"
+	sample="$(field "$store" .verifying.sample)"
+	unit="$(field "$store" .verifying.unit)"
+	pane="$(field "$store" .verifier.pane_id)"
+	fallback="$(field "$store" '.verifying.entry.fallback // empty' | jq -c . 2>/dev/null || true)"
+	retried="$(field "$store" '.verifying.retried // false')"
+	mapfile -t argv < <(jq -r '.verifying.argv[]?' "$store/pair.json")
 	until=$(( $(date +%s) + every_m * 60 ))
 	# A verify stopped between the verifier's start and its packet leaves the
 	# verifier idle with nothing to do, until the stall check closes it.
@@ -1504,12 +1520,12 @@ verify_wait() {
 		idle_since="$(field "$store" '.verifying.idle_since // empty')"
 		case "$state" in
 		blocked)
-			if [ "$(field "$store" .verifier.kind)" = prime-agent ] && [ -n "$(verifier_provider_error "$store" "$name")" ]; then
+			if [ "$(field "$store" .verifier.kind)" = prime-agent ] && [ -n "$(verifier_provider_error "$store" "$name" "$session")" ]; then
 				break
 			fi
 			[ -z "$idle_since" ] || json_update "$store" 'del(.verifying.idle_since)' ;;
 		idle | "done")
-			[ -z "$(verifier_provider_error "$store" "$name")" ] || break
+			[ -z "$(verifier_provider_error "$store" "$name" "$session")" ] || break
 			if [ -n "$(busy_command "$(field "$store" .verifier.pane_id)" "$(field "$store" .verifying.started)")" ]; then
 				[ -z "$idle_since" ] || json_update "$store" 'del(.verifying.idle_since)'
 			elif [ -z "$idle_since" ]; then
@@ -1525,26 +1541,17 @@ verify_wait() {
 	verification_still_open "$store" "$verdict"
 	# A verifier still alive at the deadline is asked once for what it proved.
 	if { [ ! -f "$verdict" ] || [ -z "$(header_field "$verdict" status)" ]; } && [ "$state" != absent ] &&
-		[ "$(date +%s)" -ge "$(field "$store" .verifying.deadline)" ] && [ -z "$(verifier_provider_error "$store" "$name")" ]; then
+		[ "$(date +%s)" -ge "$(field "$store" .verifying.deadline)" ] && [ -z "$(verifier_provider_error "$store" "$name" "$session")" ]; then
 		verify_grace "$store" "$name" "$kind" "$verdict" "$until"
+		verification_still_open "$store" "$verdict"
 	fi
 	# A verdict just written may still be closing; give the writer a moment.
 	[ ! -f "$verdict" ] || sleep "${KITCHEN_VERDICT_SETTLE_S:-3}"
-	local brief risk sample unit pane packet session
-	packet="$(field "$store" .verifying.packet)"
-	session="$(field "$store" '.verifying.session // empty')"
-	brief="$(field "$store" .verifying.brief)"
-	risk="$(field "$store" .verifying.risk)"
-	sample="$(field "$store" .verifying.sample)"
-	unit="$(field "$store" .verifying.unit)"
-	pane="$(field "$store" .verifier.pane_id)"
-	local provider="" fallback="" retried
-	local -a argv=()
-	[ -f "$verdict" ] || provider="$(verifier_provider_error "$store" "$name")"
-	fallback="$(field "$store" '.verifying.entry.fallback // empty' | jq -c . 2>/dev/null || true)"
-	retried="$(field "$store" '.verifying.retried // false')"
-	mapfile -t argv < <(jq -r '.verifying.argv[]?' "$store/pair.json")
-	close_verifier "$store" "$name" "$kind" "$pane" "$verdict"
+	verification_still_open "$store" "$verdict"
+	[ -f "$verdict" ] || provider="$(verifier_provider_error "$store" "$name" "$session")"
+	close_verifier "$store" "$name" "$kind" "$pane" "$verdict" || { printf 'verification closed elsewhere\n'; exit 5; }
+	# The wait may have been long (the verifier's exit); the verification must still be this one before anything is written.
+	verification_still_open "$store" "$verdict"
 	# The attempt's outcome is written to its packet before .verifying goes and
 	# before any fallback starts, so fleet can tell attempts apart.
 	local problem="" status=""
