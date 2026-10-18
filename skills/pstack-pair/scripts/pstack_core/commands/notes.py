@@ -5,6 +5,8 @@ import sys
 
 from ..errors import Die, unbound_arg
 from ..collate import glob_sorted
+from ..herdr import agent_status
+from ..prime import prime_steer
 from ..review import awk_equal, jq_raw, noted_through, open_notes, require_filled, review_base, steps_file
 from ..store import (alt, dispatched_brief, event, fill_template, header_field, note_id, pair_file, pair_json, pause_notice,
                      read_text, steer_notice, suffix_number, unit_name, write_text)
@@ -81,8 +83,30 @@ def note(ctx, args):
     with open(f'{store}/followups.md', 'ab') as f:
         f.write(''.join(lines).encode('utf-8', 'surrogateescape'))
     event(store, 'master', 'note', unit, f'{k}:{status}')
-    print(f'published {path} ({status})')
+    delivery = deliver_blocking_note(ctx, store, path) if status == 'blocking' and os.path.isfile(f'{store}/pair.json') else ''
+    print(f'published {path} ({status}){delivery}')
     return 0
+
+
+def deliver_blocking_note(ctx, store, path):
+    """A blocking note reaches a working sidekick at once, the way a steer does: a Devin keeps a message sent mid-turn parked as queued, so
+    its next `pair.sh notes` (every step boundary) lists the note; Prime takes it through its daemon; every other kind through a prompt.
+    The text to append to the published line, empty when the sidekick is not working."""
+    from .steer import herdr_ok
+    from .stop import role_value
+    name = role_value(store, 'sidekick', 'name')
+    if agent_status(name) != 'working':
+        return ''
+    message = f'{ctx.skill} NOTE {path}'
+    kind = role_value(store, 'sidekick', 'kind')
+    if kind == 'devin':
+        return f"; left for {name}: it lands at the sidekick's next pair.sh notes, between tool calls"
+    if kind == 'prime-agent':
+        if not prime_steer(store, message):
+            raise Die(f'Prime delivery failed for {name}', 2)
+    elif not herdr_ok('agent', 'prompt', name, message):
+        raise Die(f'herdr prompt failed for {name}', 2)
+    return f'; sent to {name}'
 
 
 def count_lines(path):

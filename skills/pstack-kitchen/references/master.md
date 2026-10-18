@@ -47,7 +47,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    returns), so a wait never holds your turn. The kitchen's wait is quiet: a
    check-in with nothing flagged does not return. It returns for a report, an
    escalated unit's steps, a blocked sidekick, a digest that carries a flag
-   (a stale log, a write outside Scope, an objection, an open blocking note,
+   (a stale log, a write outside Scope, an objection, an open blocking note (a
+   blocking note you publish is also delivered to a working sidekick at once),
    a timebox overrun, a pause), or after `--max` minutes (an hour) with the
    latest digest. A check-in the wait swallows is not logged as a wake; the
    one it returns is. Read a digest for direction only, as the pair master does;

@@ -621,8 +621,9 @@ pair.sh: <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md.draft still ha
 [exit 1]
 
 $ pair.sh note <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md.draft
-published <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md (blocking)
+published <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md (blocking); left for demo-sidekick: it lands at the sidekick's next pair.sh notes, between tool calls
 [exit 0]
+  herdr agent get demo-sidekick
 
 $ pair.sh new-note <T>/state/pstack/pair-guided/demo 013
 <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n2.md.draft

@@ -45,3 +45,7 @@ differ:
 - **After a verifier's rejection,** the fix brief's Context names the
   verdict. Fix each finding with the check that shows it gone; the next
   verification repeats the same acceptance.
+- **A `pstack-kitchen NOTE <path>` message is a blocking review note.** Read it
+  between tool calls: fix each blocking item first, as a fixup commit recorded
+  with `kitchen.sh step ... --resolves <n-ids>`, then go on. A Devin gets the
+  note at its next `kitchen.sh notes`; a clear note is never sent.

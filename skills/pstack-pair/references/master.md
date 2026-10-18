@@ -84,11 +84,12 @@ is yours alone.
    fixing, so read nothing yet and wait again. Exit 0 with `steps:` means
    steps landed that no note covers: read the range it prints (`git diff`),
    run `pair.sh new-note <store> <NNN>`, fill Blocking and Follow-ups, publish
-   it with `pair.sh note <store> <draft>`, and wait again. The sidekick picks
-   the note up at its next step boundary; never hold a note for the end. Exit
+   it with `pair.sh note <store> <draft>`, and wait again. A blocking note is
+   delivered to a working sidekick at once (`pstack-pair NOTE <path>`; a Devin
+   gets it at its next `pair.sh notes`); never hold a note for the end. Exit
    4 without a digest means the sidekick settled without a report; see
-   Recovery. A steer is the only message that may reach a working sidekick; a
-   second brief never does, it waits in the queue.
+   Recovery. A steer and a blocking note are the only messages that may reach a
+   working sidekick; a second brief never does, it waits in the queue.
 7. **Review.** Read the report, then read the unit's commit yourself: `git show
    <head>` for the report's head, or `git diff` and `git log` from the head the
    brief recorded. Do it while the sidekick works on the queued unit. Rerun

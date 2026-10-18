@@ -2409,6 +2409,35 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             calls = (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else ''
             self.assertNotIn('agent prompt', calls, label)
 
+    def note_world(self, label, status, **spec):
+        top, st, run = self.own_world(label, files={'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n'}, **spec)
+        draft = st / 'notes/001-x-n1.md.draft'
+        draft.parent.mkdir(exist_ok=True)
+        draft.write_text(f'# Note 001-n1: x\n\nunit: 001-x\nstatus: {status}\n\n## Blocking\n\n- fix the thing\n\n## Follow-ups\n\n- none\n')
+        return top, st, run, draft
+
+    def test_a_blocking_note_reaches_a_working_sidekick_at_once(self):
+        # A11. Claude through a prompt; Devin keeps it for its next notes; a clear note or a sidekick that is not working gets nothing.
+        top, st, run, draft = self.note_world('nb', 'blocking', agents={'s1': 'working claude'})
+        r = run('note', '{st}', str(draft))
+        published = f'{st}/notes/001-x-n1.md'
+        self.assertEqual((r.returncode, r.stdout), (0, f'published {published} (blocking); sent to s1\n'))
+        prompts = [l for l in (top / 'fake/calls.log').read_text().splitlines() if l.startswith('agent prompt')]
+        self.assertEqual(prompts, [f'agent prompt s1 pstack-pair NOTE {published}'])
+        top, st, run, draft = self.note_world('nd', 'blocking', agents={'s1': 'working devin'}, kind='devin')
+        r = run('note', '{st}', str(draft))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"published {st}/notes/001-x-n1.md (blocking); left for s1: it lands at the sidekick's next pair.sh notes", r.stdout)
+        calls = (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else ''
+        self.assertNotIn('agent prompt', calls)
+        self.assertIn('fix the thing', run('notes', '{st}').stdout)
+        for label, status, agents in (('clear note', 'clear', {'s1': 'working claude'}), ('idle sidekick', 'blocking', {'s1': 'idle claude'})):
+            top, st, run, draft = self.note_world('nc-' + label.replace(' ', '-'), status, agents=agents)
+            r = run('note', '{st}', str(draft))
+            self.assertEqual((r.returncode, r.stdout), (0, f'published {st}/notes/001-x-n1.md ({status})\n'), label)
+            calls = (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else ''
+            self.assertNotIn('agent prompt', calls, label)
+
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
         top, st, run = self.own_world('nl')
