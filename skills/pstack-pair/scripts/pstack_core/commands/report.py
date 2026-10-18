@@ -59,7 +59,7 @@ def notify(ctx, args):
             return code
         print(f'prompted master {master} (was {status}) with {word} {file}')
         # The master has the message. A wait that is running will return the report itself; with none running the next wait would return it again.
-        if word == 'REPORT' and os.environ.get('PAIR_NOTIFY_MARK') != '0' and not wait_owner_alive(store):
+        if word == 'REPORT' and os.environ.get('PAIR_GOLDEN_BASE') != '1' and not wait_owner_alive(store):
             mark_report_seen(store, file)
     else:
         print(f'master {master} is {status}; left {file} for its next wait or status check')

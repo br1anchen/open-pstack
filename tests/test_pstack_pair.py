@@ -37,8 +37,9 @@ def inherited_env():
 
 class PairScriptTests(unittest.TestCase):
     def check(self, variant):
-        # PAIR_NOTIFY_MARK=0 keeps the goldens on the base's notify, which leaves a report for the master's next wait (PARITY.md, A1)
-        env = {**inherited_env(), 'PAIR_NOTIFY_MARK': '0'}
+        # PAIR_GOLDEN_BASE=1 keeps the goldens on the base's output where unit 005 changed it: notify leaves a report for the master's next wait
+        # (A1) and a queued brief behind a report that is not done carries no held note (A3). See PARITY.md.
+        env = {**inherited_env(), 'PAIR_GOLDEN_BASE': '1'}
         out = subprocess.run([here / 'scenario.sh', skills, variant], env=env, capture_output=True, text=True, check=True).stdout
         golden = here / 'golden' / f'{variant}.txt'
         if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
