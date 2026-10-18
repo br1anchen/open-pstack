@@ -1463,7 +1463,7 @@ update_verifying() {
 # unless .verifying no longer names the verification with verdict $5.
 close_verifier() {
 	local store="$1" name="$2" kind="$3" pane="$4" gone scratch
-	[ "$(field "$store" '.verifying.verdict // empty')" = "$5" ] || return 1
+	[ "$(field "$store" '.verifying.verdict // empty')" = "${5:-}" ] || return 1
 	scratch="$(field "$store" .verifying.scratch)"
 	if [ "$kind" = prime-agent ]; then
 		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5
@@ -1473,7 +1473,7 @@ close_verifier() {
 		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
 	fi
 	# Another call may have closed this verification while the verifier was leaving.
-	[ "$(field "$store" '.verifying.verdict // empty')" = "$5" ] || return 1
+	[ "$(field "$store" '.verifying.verdict // empty')" = "${5:-}" ] || return 1
 	herdr pane close "$pane" >/dev/null 2>&1 || true
 	[ "$kind" != prime-agent ] || json_update "$store" '.verifier.closed = true'
 	cmd_scratch "$store" "$scratch" --remove >/dev/null
