@@ -1077,6 +1077,9 @@ cmd_verify() {
 		jq -r --arg k "$here/kitchen.py${kitchen_cfg[1]:+ --config ${kitchen_cfg[1]}}" --arg s "$scratch" 'if (.scratch_setup | length) > 0 then "python3 \($k) --repo \($s) setup" else empty end' <<<"$json"
 		jq -r --arg k "$here/kitchen.py${kitchen_cfg[1]:+ --config ${kitchen_cfg[1]}}" --arg s "$scratch" --arg b "$(git -C "$root" merge-base "$base" "$head" 2>/dev/null || printf '%s' "$base")" \
 			'.behavioral[] | "python3 \($k) --repo \($s) gate \(.) behavioral --role verifier --base \($b)"' <<<"$json"
+		# A landing verification also runs the touched profiles' landing commands.
+		[ "$risk" != landing ] || jq -r --arg k "$here/kitchen.py${kitchen_cfg[1]:+ --config ${kitchen_cfg[1]}}" --arg s "$scratch" --arg b "$(git -C "$root" merge-base "$base" "$head" 2>/dev/null || printf '%s' "$base")" \
+			'.landing[] | "python3 \($k) --repo \($s) gate \(.) landing --role verifier --base \($b)"' <<<"$json"
 		printf '```\n\nfeature map: %s\n' "$(jq -r '.features | if length == 0 then "none listed" else join(", ") end' <<<"$json")"
 		printf 'verification skill: %s\n' "$(ls -d "$root"/.agents/skills/verify-*/ 2>/dev/null | tr '\n' ' ' || true)"
 	} >"$packet"

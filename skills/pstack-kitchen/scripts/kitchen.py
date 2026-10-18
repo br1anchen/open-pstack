@@ -579,6 +579,7 @@ def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: lis
         'diff_lines': diff_lines, 'verify': verify, 'sample': sample,
         'features': sorted({f for p in profiles for f in p.features}),
         'behavioral': [p.name for p in profiles if p.commands['behavioral']],
+        'landing': [p.name for p in profiles if p.commands['landing']],
         'max_batch_diff': kitchen.review['max_batch_diff'],
         'files': files,
         'outside': outside or [],

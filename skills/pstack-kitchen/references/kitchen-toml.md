@@ -58,7 +58,7 @@ silently doing nothing.
 | `.paths` | required | globs the profile covers; a file may sit in several profiles |
 | `.fast` | `[]` | commands `kitchen.py gate <p> fast` runs at every step: format, lint, typecheck, targeted tests; minutes, not tens of minutes |
 | `.behavioral` | `[]` | commands the verifier runs at the unit's commit: e2e, journeys, the app driven for real |
-| `.landing` | `[]` | the full battery, run once, in the landing unit |
+| `.landing` | `[]` | the full battery, run once, in the landing unit: `verify --landing` puts `gate <profile> landing` in the verifier's packet for each touched profile that declares it |
 | `.features` | `[]` | feature-map files of the repo's verification skill that the verifier reads for this profile |
 | `.tests` | `[]` | globs of this profile's test files |
 | `.require_tests` | `false` | a change to the profile's files needs a change to a `tests` file (`kitchen.py policy` reports `test-touch`) |

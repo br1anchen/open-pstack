@@ -4046,6 +4046,23 @@ esac
         self.assertIn('gate app behavioral', packet)
         self.assertIn('landing verification: clean', self.run_sh('land-check', str(self.store), code=0))
 
+    def test_a_landing_packet_runs_each_touched_profiles_landing_commands_and_a_unit_packet_does_not(self):
+        self.write('.agents/kitchen.toml', KITCHEN.replace('behavioral = ["true"]', 'behavioral = ["true"]\nlanding = ["true"]'))
+        self.commit('declare a landing command')
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        self.run_sh('verify', str(self.store), '001')
+        self.assertNotIn(' landing --role verifier', (self.store / 'verdicts/001-util-v1-packet.md').read_text())
+        self.run_sh('verify', str(self.store), '--landing')
+        packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
+        self.assertRegex(packet, r'gate app behavioral --role verifier --base [0-9a-f]+\n')
+        self.assertRegex(packet, r'gate app landing --role verifier --base [0-9a-f]+\n')
+
     def test_a_clean_landing_verdict_covers_a_unit_inside_its_range(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         b = self.brief('001', 'util', ['src/**', 'tests/**'])

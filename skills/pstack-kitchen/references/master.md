@@ -182,7 +182,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    into it.
    A squash or rebase step touches no profile, so before the landing brief,
    `kitchen.sh verify <store> --landing` gives the stack tip a fresh verifier
-   of the escalated class: every behavioral gate the stack touches, from where it
+   of the escalated class: every behavioral gate the stack touches, and each touched
+   profile's `landing` commands, from where it
    leaves trunk, and the main flows its briefs describe. land-check reports
    its result without requiring it. A landing verdict older than HEAD is
    reported as `landing verdict <file> at <short>, N commits behind HEAD`.
