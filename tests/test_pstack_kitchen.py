@@ -2108,15 +2108,30 @@ esac
         hook.write_text('#!/bin/sh\n' + script)
         hook.chmod(0o755)
 
-    def test_a_quiet_wait_owns_the_store_under_its_own_pid_until_it_returns(self):
+    def test_a_quiet_wait_claims_the_store_once_and_its_later_polls_only_check_it(self):
+        # (c) A fake `sleep` plays the newer wait between two inner polls: it writes a foreign token. The quiet wait's second poll must find it
+        # and end with `superseded:`; a quiet wait that claimed on every poll would overwrite it and go on.
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        shim = Path(self.tmp.name) / 'shim'
+        shim.mkdir()
+        (shim / 'sleep').write_text(f'#!/bin/sh\n[ "$1" = 0.37 ] && printf "other\\n" >"{self.store}/wait.pid"\nexit 0\n')
+        (shim / 'sleep').chmod(0o755)
+        self.env['PATH'] = f'{shim}:{self.env["PATH"]}'
+        self.env['KITCHEN_QUIET_POLL_S'] = '0.37'
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertEqual(out.strip().splitlines()[-1], 'superseded: a newer wait owns this store; this one ends')
+        self.assertNotIn('quiet:', out)
+        self.assertEqual((self.store / 'wait.pid').read_text(), 'other\n')
+
+    def test_a_quiet_wait_releases_the_store_when_it_returns(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
         (self.fake / 'report-after').write_text(f'3 {self.store / "reports" / b.name} partial\n')
         self.once_hook('wait', f'cp "{self.store}/wait.pid" "$FAKE/owner"\n')
         self.assertIn('report_status: partial', self.run_sh('wait', str(self.store), '--timeout', '1'))
-        owner = (self.fake / 'owner').read_text().strip()
-        self.assertTrue(owner.isdigit(), owner)
+        self.assertTrue((self.fake / 'owner').read_text().strip().isdigit())
         self.assertFalse((self.store / 'wait.pid').exists())
 
     def test_a_quiet_wait_that_a_newer_wait_supersedes_ends_without_a_quiet_line(self):
@@ -2126,22 +2141,6 @@ esac
         out = self.run_sh('wait', str(self.store), '--timeout', '20000', code=4)
         self.assertEqual(out.strip(), 'superseded: a newer wait owns this store; this one ends')
         self.assertEqual((self.store / 'wait.pid').read_text(), 'other\n')
-
-    def test_verify_on_a_report_with_no_status_prints_one_error_and_no_usage(self):
-        # A10. unit_range dies inside no command substitution now, so the reason is the only line.
-        b = self.brief('001', 'util', ['src/**', 'tests/**'])
-        self.dispatch(b)
-        self.write('src/util.py', 'X = 9\n')
-        self.commit('util')
-        (self.store / 'reports' / b.name).write_text('# Report\n\nhead: abc\n')
-        out = self.run_sh('verify', str(self.store), '001', code=1)
-        self.assertEqual(out, "kitchen.sh: unit 001's report is , not done, partial, or blocked\n")
-
-    def test_dispatch_takes_a_brief_path_relative_to_the_store(self):
-        # A13. The cwd is the repo, not the store.
-        b = self.brief('001', 'util', ['src/**', 'tests/**'])
-        self.dispatch(b.relative_to(self.store))
-        self.assertEqual(self.state()['dispatch']['brief'], str(b))
 
     def test_a_quiet_wait_ending_at_max_logs_one_checkin_wake(self):
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))

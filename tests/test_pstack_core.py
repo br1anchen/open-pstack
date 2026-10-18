@@ -1931,6 +1931,31 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 self.assertEqual(got['stderr'].replace('\n', ''), '', name)
             self.assertNotEqual(got, want, name)
 
+    def test_finish_without_a_live_wait_differs_from_the_bash_only_in_what_notify_marks_seen(self):
+        """A1 on the marking path: the finish/notify A/Bs run with a live wait.pid, so notify marks nothing there. Here there is none, and the
+        port marks the report seen; everything else (stdout, stderr, events, calls, the queue take, late-steer and rotation lines) must still
+        match the base once `pending` and `.sent.seen` are masked in pair.json."""
+        names = ('done report to an idle master', 'done report, no master agent', 'done report to a done master', 'queued brief after a done report',
+                 'queue with a partial report', 'devin done report asks for a rotation', 'late steer', 'queued brief behind a pause', 'done report with open notes',
+                 'partial report', 'steer objection report')
+
+        def masked(out):
+            files = dict(out['files'])
+            text = re.sub(r'(?s)(,\s*)?"pending": \[.*?\]', '', files['pair.json'])
+            files['pair.json'] = re.sub(r'(,\s*)?"seen": "[^"]*"', '', text)
+            return {**out, 'files': files}
+
+        marked = 0
+        for name in names:
+            spec = dict(self.AB_CASES[name], live_wait=False)
+            n = len(list(self.path.iterdir()))
+            want = self.ab_run(f'nlb{n}', self.base_skills(), 'pstack-pair', dict(spec))
+            got = self.ab_run(f'nlp{n}', root / 'skills', 'pstack-pair', dict(spec))
+            self.maxDiff = None
+            self.assertEqual(masked(got), masked(want), name)
+            marked += got['files']['pair.json'] != want['files']['pair.json']
+        self.assertGreaterEqual(marked, 1, 'no case reached the marking path')
+
     @staticmethod
     def mask_minutes(text):
         """The minutes a digest prints, which move when the base run and the port run fall on either side of a minute."""
@@ -2280,6 +2305,55 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(json.loads((st / 'pair.json').read_text())['dispatch']['brief'], f'{st}/briefs/002-y.md')
         r = run('dispatch', '{st}', 'briefs/009-none.md', '--send-only')
         self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: brief not found: briefs/009-none.md\n'))
+
+    def test_a_fresh_wait_claims_the_store_from_an_older_token(self):
+        # (a) A wait that starts takes wait.pid whatever it held; the older wait finds a foreign token at its next poll.
+        hook = '#!/bin/sh\ncp "$FAKE/../st/wait.pid" "$FAKE/claimed"\n'
+        top, st, run = self.own_world('fresh', files={}, once={'wait': hook})
+        (st / 'wait.pid').write_text('older\n')
+        r = run('wait', '{st}', '--timeout', '1000')
+        claimed = (top / 'fake/claimed').read_text().strip()
+        self.assertTrue(claimed.isdigit(), claimed)
+        self.assertNotEqual(claimed, 'older')
+        self.assertFalse((st / 'wait.pid').exists(), r.stdout)
+
+    def test_a_wait_whose_claim_was_removed_is_superseded_too(self):
+        # (b) A newer wait that returned and released took the file away: the older one must not read a missing file as its own.
+        hook = '#!/bin/sh\nrm -f "$FAKE/../st/wait.pid"\n'
+        top, st, run = self.own_world('gone', files={}, once={'wait': hook})
+        before = (st / 'pair.json').read_text()
+        r = run('wait', '{st}', '--timeout', '5000')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (4, 'superseded: a newer wait owns this store; this one ends\n', ''))
+        self.assertFalse((st / 'wait.pid').exists())
+        self.assertEqual((st / 'pair.json').read_text(), before)
+
+    def test_a_dispatch_owns_the_store_so_a_finish_during_its_wait_is_returned_to_it(self):
+        # (d) The sidekick finishes while the dispatch waits: notify must not mark the report seen under the dispatch's wait.
+        pair = root / 'skills/pstack-pair/scripts/pair.sh'
+        hook = ('#!/bin/sh\nST="$FAKE/../st"\nprintf "# R\\n\\nstatus: partial\\n" >"$ST/reports/002-y.md"\n'
+                f'{pair} finish "$ST" "$ST/reports/002-y.md" >"$FAKE/finish.out" 2>&1\ncp "$ST/pair.json" "$FAKE/after-notify.json"\n')
+        top, st, run = self.own_world('dwait', files={}, agents={'s1': 'idle claude'}, once={'wait': hook}, pair={})
+        r = run('dispatch', '{st}', '{st}/briefs/002-y.md', '--timeout', '5000')
+        self.assertIn('prompted master', (top / 'fake/finish.out').read_text())
+        after = json.loads((top / 'fake/after-notify.json').read_text())
+        self.assertEqual(after['pending'], [f'{st}/briefs/002-y.md'])
+        self.assertNotIn('seen', after['sent'])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f'report: {st}/reports/002-y.md', r.stdout)
+        self.assertIn('report_status: partial', r.stdout)
+        self.assertFalse((st / 'wait.pid').exists())
+
+    def test_release_never_deletes_a_newer_owners_file(self):
+        # (f)
+        st = self.path / 'rel'
+        st.mkdir()
+        (st / 'wait.pid').write_text('newer\n')
+        wait.release_wait(str(st), 'mine')
+        self.assertEqual((st / 'wait.pid').read_text(), 'newer\n')
+        wait.release_wait(str(st), 'newer')
+        self.assertFalse((st / 'wait.pid').exists())
+        wait.release_wait(str(st), 'newer')
+        self.assertTrue(wait.superseded(str(st), 'newer'))
 
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
