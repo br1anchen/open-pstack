@@ -2731,7 +2731,10 @@ esac
         self.assertIn('a hand-over is open', self.run_sh('rotate-master', str(self.store), code=5))
         self.assertIn(f'take-master runs from the new master\'s pane {new_pane}', self.run_sh('take-master', str(self.store), code=5))
         self.env['HERDR_PANE_ID'] = new_pane
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + 'engine = "joo"\n')
         out = self.run_sh('take-master', str(self.store))
+        self.assertIn('warning: unreviewed: unit 001 cites no joo run; review its range with joo', out)
         self.assertIn('closed the old master demo-master (p0)', out)
         self.assertIn(f'master: demo-master in {new_pane} (generation 2)', out)
         self.assertFalse((self.fake / 'panes/p0').exists())
@@ -2791,6 +2794,19 @@ esac
             self.assertIn(f'unreviewed: unit 001 cites no joo run; review its range with joo and add "engine: joo <run id or artifact path>" to {review}', out)
         review.write_text('verdict: accept\nhead: x\nengine: joo /tmp/joo-001.json\n')
         self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
+
+    def test_a_clean_verify_warns_of_a_review_note_without_the_required_engine_run(self):
+        self.three_units()
+        review = self.store / 'reviews/001-u1.md'
+        review.write_text('verdict: accept\n')
+        out = self.run_sh('verify', str(self.store), '002')
+        self.assertNotIn('unreviewed', out)
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + 'engine = "joo"\n')
+        out = self.run_sh('verify', str(self.store), '003')
+        self.assertIn(f'warning: unreviewed: unit 001 cites no joo run; review its range with joo and add "engine: joo <run id or artifact path>" to {review}', out)
+        review.write_text('verdict: accept\nengine: joo /tmp/joo-001.json\n')
+        self.assertNotIn('unreviewed', self.run_sh('verify', str(self.store), '002', '003'))
 
     def test_verify_nudges_a_handoff_after_the_configured_number_of_units(self):
         self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'

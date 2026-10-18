@@ -938,6 +938,7 @@ cmd_verify() {
 		event "$store" master verify "$brief" "gates:clean"
 		event "$store" master wake "$brief" "verify:clean"
 		printf 'verdict: %s\nstatus: clean (gates only; mode gates)\n' "$verdict"
+		warn_unreviewed "$store"
 		exit 0
 	fi
 	# The default deadline: 3 x the slowest recent passing behavioral gates, plus
@@ -1445,6 +1446,7 @@ verify_wait() {
 		else
 			printf 'audit: no\n'
 		fi
+		warn_unreviewed "$store"
 		handoff_due "$store" "$unit"
 		exit 0 ;;
 	reject)
@@ -1564,13 +1566,40 @@ PY
 	printf '%s\n' "$path"
 }
 
+# Whether a review note cites a run of the required engine: "engine: <name> <run id or artifact path>".
+cites_engine() {
+	local cited
+	cited="$(header_field "$1" engine)"
+	[ "${cited%% *}" = "$2" ] && [ "${cited#* }" != "$cited" ]
+}
+
+# Prints a "warning: unreviewed:" line for each accepted unit whose review note
+# lacks the run the kitchen's [review].engine requires; nothing when no engine
+# is set. land-check holds the landing on the same lines.
+warn_unreviewed() {
+	local store="$1" engine r seq brief
+	engine="$(kpy "$store" --json validate 2>/dev/null | jq -r '.review_engine // empty' 2>/dev/null || true)"
+	[ -n "$engine" ] || return 0
+	for r in "$store"/reviews/[0-9][0-9][0-9]-*.md; do
+		[ -e "$r" ] || continue
+		[ "$(header_field "$r" verdict)" = accept ] || continue
+		seq="$(basename "$r" | cut -c1-3)"
+		brief="$(ls "$store"/briefs/"$seq"-*.md 2>/dev/null | head -1 || true)"
+		[ -n "$brief" ] && [ "$(header_field "$brief" commit | cut -c1-3)" = yes ] || continue
+		is_landing "$brief" && continue
+		cites_engine "$r" "$engine" ||
+			printf 'warning: unreviewed: unit %s cites no %s run; review its range with %s and add "engine: %s <run id or artifact path>" to %s\n' \
+				"$seq" "$engine" "$engine" "$engine" "$r"
+	done
+}
+
 land_check() {
 	# Prints one line per problem; returns 1 when there is any. A unit with no
 	# clean verdict of its own is covered by the latest landing verdict when
 	# that one is clean and its range's head contains the unit's head. A
 	# kitchen that names a review engine requires each accepted unit's review
 	# note to cite a run of it: "engine: <name> <run id or artifact path>".
-	local store="$1" r seq brief verdict f problems=0 uhead engine cited
+	local store="$1" r seq brief verdict f problems=0 uhead engine
 	local landing_verdict="" landing_head="" lk best=0
 	engine="$(kpy "$store" --json validate 2>/dev/null | jq -r '.review_engine // empty')" ||
 		{ printf 'kitchen: validate fails (kitchen.py validate shows why)\n'; return 1; }
@@ -1592,8 +1621,7 @@ land_check() {
 		[ -n "$brief" ] && [ "$(header_field "$brief" commit | cut -c1-3)" = yes ] || continue
 		is_landing "$brief" && continue
 		if [ -n "$engine" ]; then
-			cited="$(header_field "$r" engine)"
-			if [ "${cited%% *}" != "$engine" ] || [ "${cited#* }" = "$cited" ]; then
+			if ! cites_engine "$r" "$engine"; then
 				printf 'unreviewed: unit %s cites no %s run; review its range with %s and add "engine: %s <run id or artifact path>" to %s\n' \
 					"$seq" "$engine" "$engine" "$engine" "$r"
 				problems=$((problems + 1))
@@ -1872,6 +1900,7 @@ cmd_take_master() {
 	*) printf 'left pane %s open: it now holds %s, not the old master %s\n' "$prev_pane" "$host" "$prev" ;;
 	esac
 	printf 'master: %s in %s (generation %s)\n' "$name" "$pane" "$(field "$store" .master.generation)"
+	warn_unreviewed "$store"
 }
 
 cmd_retro() {
