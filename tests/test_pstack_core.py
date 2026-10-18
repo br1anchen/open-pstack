@@ -1698,7 +1698,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (fake / rel).parent.mkdir(parents=True, exist_ok=True)
             (fake / rel).write_text(text)
         (st / 'events.tsv').write_text('2026-01-01T00:00:00Z\t1\tmaster\tinit\t-\tbefore\n')
-        if spec.get('live_wait'):
+        if spec.get('live_wait', bool(spec.get('args')) and spec['args'][0] in ('finish', 'notify')):
             # a wait that owns the store and is running (this test process): notify leaves the report for it, as the base always did
             (st / 'wait.pid').write_text(f'{os.getpid()}\n')
         return top, st, env, fill
@@ -1826,7 +1826,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     }
 
     def ab_compare(self, name, spec, skill='pstack-pair'):
-        spec = dict(spec, live_wait=True)
+        spec = dict(spec)
         want = self.ab_run(f'base-{len(list(self.path.iterdir()))}', self.base_skills(), skill, spec)
         got = self.ab_run(f'port-{len(list(self.path.iterdir()))}', root / 'skills', skill, spec)
         self.mismatches.update({name: {k: (got[k], want[k]) for k in got if got[k] != want[k]}} if got != want else {})
