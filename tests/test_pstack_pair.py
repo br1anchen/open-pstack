@@ -673,6 +673,10 @@ class ReadinessTests(unittest.TestCase):
         self.steer(1, 'scope', 'may write "docs/a.md" \u2014 see "docs/b.md"')
         self.assertEqual(self.outside('docs/a.md', 'docs/b.md'), ['docs/b.md'])
 
+    def test_a_note_with_quotes_after_an_unquoted_path_leaves_the_path_in_scope(self):
+        self.steer(1, 'scope', 'may write: docs/new.md \u2014 keep "Title"')
+        self.assertEqual(self.outside('docs/new.md', 'Title'), ['Title'])
+
     def test_a_quoted_list_of_paths_in_a_steer_all_count(self):
         self.steer(1, 'scope', 'may write "gen/**" and "`docs/two.md`"')
         self.assertEqual(self.outside('gen/a/b.json', 'docs/two.md', 'other.txt'), ['other.txt'])

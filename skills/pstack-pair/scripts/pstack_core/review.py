@@ -39,7 +39,7 @@ def open_notes(store, brief):
                 for note in cols[3].split(','):
                     if re.match(r'[0-9]{3}-', note):
                         qualified.add(note)
-                    elif steps == file:
+                    elif os.path.normpath(steps) == os.path.normpath(file):
                         resolved.add(note)
     seq = unit[:3]
     found = []

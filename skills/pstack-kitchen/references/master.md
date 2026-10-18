@@ -27,7 +27,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `reports/000-ready.md`.
 4. **Classify before you plan.** Draft the brief's Scope first (one
    repo-relative path or glob per line, in full; dispatch refuses `a, b` on
-   one line) and run `kitchen.sh classify <store> <brief>`.
+   one line) and run `kitchen.sh classify <store> <brief>`. Classify keeps a
+   reason you wrote after the class (`risk: escalated (contract change)`) while
+   the class is unchanged and rewrites the line only when the class changes.
+   A failed step's `gate-fail` event names the log of that run
+   (`steps/jobs/<unit>-<sha>/out.<n>`); each run keeps its own.
    A `warn: Scope covers ...` line means the Scope reaches a generated file's
    source but not its outputs: add them to may write before dispatch, or say
    in the brief why not.

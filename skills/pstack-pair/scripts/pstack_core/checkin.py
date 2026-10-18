@@ -184,9 +184,10 @@ def steer_scope_entries(store, seq, errexit=True):
         line = header_field(f, 'scope effect')
         if not line.startswith('may write'):
             continue
+        # the paths come before a note (` \u2014 <note>`), which may quote words of its own: quoted or not is decided by what precedes it
+        line = line.split(' \u2014 ')[0]
         if '"' in line:
-            # the quoted paths come before a note (` \u2014 <note>`), which may quote words of its own
-            quoted = re.findall(r'"[^"]*"', line.split(' \u2014 ')[0])
+            quoted = re.findall(r'"[^"]*"', line)
             if not quoted and errexit:
                 break
             found.extend(q.replace('"', '').replace('`', '') for q in quoted)

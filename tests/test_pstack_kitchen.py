@@ -2044,21 +2044,44 @@ esac
         self.run_sh('step', str(self.store), sha, 'util two again', '--resolves', 'n1')
         self.assertEqual((self.store / 'steps/001-util.tsv').read_text().splitlines(), rows)
 
-    def test_a_gate_rerun_keeps_the_earlier_log_and_the_fail_event_names_its_out_path(self):
+    def test_each_gate_run_keeps_its_own_log_and_the_fail_event_names_that_run(self):
+        # B4, refined: three runs of the same step leave out.1, out.2 and out.3, `out` points at the latest, and every gate-fail event names
+        # the log of its own run.
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         self.write('FAIL', 'x\n')
         self.write('src/util.py', 'print(3)\n')
         sha = self.commit('step 2')
-        first = self.run_sh('step', str(self.store), sha, 'three', code=2)
-        job = next((self.store / 'steps/jobs').iterdir())
-        log = (job / 'out').read_text()
-        self.assertIn('[no-print]', first)
-        self.run_sh('step', str(self.store), sha, 'three', code=2)
-        self.assertEqual((job / 'out.prev').read_text(), log)
+        logs = []
+        for n in (1, 2, 3):
+            out = self.run_sh('step', str(self.store), sha, 'three', code=2)
+            self.assertIn('[no-print]', out)
+            job = next((self.store / 'steps/jobs').iterdir())
+            logs.append((job / f'out.{n}').read_text())
+            self.assertEqual((job / 'out').resolve(), (job / f'out.{n}').resolve())
         failed = [l for l in (self.store / 'events.tsv').read_text().splitlines() if '\tgate-fail\t' in l]
-        self.assertEqual(len(failed), 2)
-        self.assertTrue(all(l.endswith(f'{sha[:9]} {job}/out') for l in failed), failed)
+        self.assertEqual([l.rsplit(' ', 1)[1] for l in failed], [f'{job}/out.{n}' for n in (1, 2, 3)])
+        for n in (1, 2, 3):
+            self.assertEqual((job / f'out.{n}').read_text(), logs[n - 1])
+
+    def test_an_earlier_sha_is_re_recorded_whatever_head_and_the_tree_are_now(self):
+        # review 011 (i): record A, record B, then A again with --resolves n1 while A is not HEAD and the tree is dirty.
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        note = self.store / 'notes/001-util-n1.md'
+        note.parent.mkdir(exist_ok=True)
+        note.write_text('# N\n\nstatus: blocking\n')
+        shas = []
+        for n in (2, 3):
+            self.write('src/util.py', f'X = {n}\n')
+            self.write('tests/test_app.py', f'x = {n}\n')
+            shas.append(self.commit(f'step {n}'))
+            self.assertIn('gates: pass', self.run_sh('step', str(self.store), shas[-1], f'step {n}'))
+        self.write('src/util.py', 'X = 99\n')
+        out = self.run_sh('step', str(self.store), shas[0], 'again', '--resolves', 'n1')
+        self.assertIn(f'step {shas[0][:9]}: already recorded', out)
+        rows = (self.store / 'steps/001-util.tsv').read_text().splitlines()
+        self.assertEqual([r.split('\t')[3] for r in rows], ['n1', ''])
 
     def test_step_gates_see_the_run_and_role(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])

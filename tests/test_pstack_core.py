@@ -2682,6 +2682,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(r.returncode, 1, bad)
             self.assertIn(text, r.stderr, bad)
 
+    def test_notes_with_a_trailing_slash_store_still_counts_a_bare_id_resolved(self):
+        # review 011 (iii): the steps file's path and the glob's differ by a slash; they are the same file.
+        files = {'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}
+        top, st, run = self.own_world('slash', files=files, pair={'dispatch': {'brief': '{st}/briefs/002-y.md', 'generation': 1}, 'heads': {'002-y': '{c1}'}})
+        self.assertEqual(run('step', '{st}', '{c3}', 'own', '--resolves', 'n1').returncode, 0)
+        self.assertEqual(review.open_notes(str(st) + '/', '002-y.md'), [])
+        self.assertEqual(run('notes', str(st) + '/').stdout, 'notes: none open; go on with the next step\n')
+
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
         top, st, run = self.own_world('nl')
@@ -6408,8 +6416,8 @@ stop_prime_role "$store" sidekick && echo "stopped"
 
     # the external commands the entry scripts call, written out; the fakes under tests/pstack-pair/bin stand in for herdr and ps
     EXTERNAL_COMMANDS = frozenset((
-        'awk', 'basename', 'cat', 'cksum', 'cp', 'cut', 'date', 'dirname', 'find', 'git', 'grep', 'head', 'herdr', 'id', 'jq', 'ls', 'mkdir',
-        'mktemp', 'mv', 'paste', 'ps', 'python3', 'readlink', 'rm', 'rmdir', 'sed', 'sleep', 'sort', 'stat', 'tail', 'tr'))
+        'awk', 'basename', 'cat', 'cksum', 'cp', 'cut', 'date', 'dirname', 'find', 'git', 'grep', 'head', 'herdr', 'id', 'jq', 'ln', 'ls', 'mkdir',
+        'mktemp', 'mv', 'paste', 'ps', 'python3', 'readlink', 'rm', 'rmdir', 'sed', 'sleep', 'sort', 'stat', 'tail', 'tr', 'wc'))
     # commands the scripts call that a host may lack: column (kitchen.sh :1867, retro's table), setsid (pair-core.sh :212, the detach, which falls
     # back to perl) and perl (kitchen.sh :131 and :133, the brief header edits, and :1068, a verifier-outcome edit; consultant-core.sh :199 and :230;
     # the setsid fallback in pair-core.sh :215; and prime.py's timeout where coreutils has no timeout(1), which is Python, not bash, so not scanned)

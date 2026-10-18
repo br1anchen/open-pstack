@@ -36,7 +36,7 @@ usage: pair.sh <command> [args]
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
                                             current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
-  step <store> <sha> <summary> [--resolves n1,n2]
+  step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
   notes <store>                             sidekick, at each step boundary: print blocking review notes still open
@@ -1170,7 +1170,7 @@ usage: pair.sh <command> [args]
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
                                             current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
-  step <store> <sha> <summary> [--resolves n1,n2]
+  step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
   notes <store>                             sidekick, at each step boundary: print blocking review notes still open

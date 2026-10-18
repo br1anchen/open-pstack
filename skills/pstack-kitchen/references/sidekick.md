@@ -10,7 +10,11 @@ differ:
   n2` closes this unit's note 2; `001-n2` closes unit 001's note 2 from a step
   on a later unit, so a fix carried by the next unit still closes the note.
 - **Steps go through the gates.** After each step's commit, run
-  `kitchen.sh step <store> <sha> "<summary>"`. It runs the fast gates of the
+  `kitchen.sh step <store> <sha> "<summary>"` with the commit you just made:
+  the sha must be HEAD and the tracked files clean (an untracked file does not
+  count), or it refuses before any gate. A sha the unit already recorded prints
+  `step <short>: already recorded` and only merges `--resolves`; it runs and
+  writes nothing else. It runs the fast gates of the
   profiles your commits touched and the repo's policy check, and records the
   step only when they pass. On a failure it prints each failing command's log
   tail: fix it in a new commit and run `step` again with that commit. When it

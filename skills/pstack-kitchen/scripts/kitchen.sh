@@ -50,7 +50,7 @@ consult, advice. These differ or are new:
                                             or returns once the brief is delivered with --send-only
   wait <store> [...] [--max MIN]            the pair's wait, quiet through check-ins with nothing flagged; returns
                                             for a report, steps, a block, a flagged check-in, or after --max (60)
-  step <store> <sha> <summary> [--resolves n1,n2]
+  step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: run the touched profiles' fast gates and policy on the
                                             step's commits, then record it; exit 2 when they fail. The checks run
                                             detached: exit 4 "still running" after ~2 minutes, run it again to wait
@@ -597,23 +597,23 @@ cmd_discuss() {
 # checking says so, and running the same step command again waits on.
 cmd_step() {
 	[ $# -ge 3 ] || die "usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]"
-	local store="$1" sha="$2" brief root base full json p fails file unit job slice
+	local store="$1" sha="$2" brief root base full json p fails file unit job slice run
 	pair_file "$store" >/dev/null
 	brief="$(field "$store" '.dispatch.brief // empty')"
 	[ -n "$brief" ] || die "no brief dispatched; a step belongs to a running brief"
 	unit="$(basename "$brief" .md)"
 	root="$(field "$store" .git_root)"
 	full="$(git -C "$root" rev-parse --verify --quiet "$sha^{commit}")" || die "not a commit: $sha; commit the step first"
-	# The gates run on the checkout, so they prove HEAD: a step names the commit they ran on, and a tracked file edited since would be proven too.
-	[ "$(git -C "$root" rev-parse HEAD)" = "$full" ] || die "step $sha: HEAD is $(git -C "$root" rev-parse --short HEAD); commit the step and record HEAD"
-	[ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ] || die "step $sha: the tree has uncommitted changes to tracked files; commit or stash them first"
 	file="$(steps_file "$store" "$brief")"
 	# A SHA this unit already recorded proves nothing new: no gates, no job directory touched, no row, no event (the core step only merges
-	# --resolves into the row it has).
+	# --resolves into the row it has). It is looked up first, so an earlier commit can be re-recorded whatever HEAD and the tree are now.
 	if [ -s "$file" ] && cut -f2 "$file" | grep -qxF "$full"; then
 		core_step "$@"
 		return
 	fi
+	# The gates run on the checkout, so they prove HEAD: a step names the commit they ran on, and a tracked file edited since would be proven too.
+	[ "$(git -C "$root" rev-parse HEAD)" = "$full" ] || die "step $sha: HEAD is $(git -C "$root" rev-parse --short HEAD); commit the step and record HEAD"
+	[ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ] || die "step $sha: the tree has uncommitted changes to tracked files; commit or stash them first"
 	base="$( { [ -s "$file" ] && tail -1 "$file" | cut -f2; } || jq -r --arg u "$unit" '.heads[$u] // empty' "$store/pair.json")"
 	[ -n "$base" ] || die "no base for $unit; was it dispatched?"
 	# A commit made before this brief was dispatched (a resumed unit) is the
@@ -630,10 +630,11 @@ cmd_step() {
 	base="$range_floor_rev"
 	job="$store/steps/jobs/$unit-${full:0:12}"
 	if [ ! -d "$job" ] || [ -f "$job/consumed" ]; then
-		# a rerun of a step whose gates failed keeps that run's log beside the new one
-		[ ! -f "$job/out" ] || mv -f "$job/out" "$job/out.prev"
+		# every run of the gates has its own log (out.1, out.2, ...), and `out` points at the latest: a path an event named keeps its run's text
 		rm -rf "$job/rc" "$job/consumed" "$job/classify.json" "$job/profiles" "$job/base"
 		mkdir -p "$job"
+		run=$(( $(find "$job" -maxdepth 1 -name 'out.[0-9]*' | wc -l) + 1 ))
+		ln -sfn "out.$run" "$job/out"
 		brief_kitchen "$brief"
 		json="$(kpy "$store" "${kitchen_cfg[@]}" --json classify --base "$base" --head "$full")"
 		printf '%s\n' "$json" >"$job/classify.json"
@@ -649,7 +650,7 @@ cmd_step() {
 			done <"$3/profiles"
 			python3 "$2" --repo "$1" ${6:+--config "$6"} policy --base "$4" --head "$5" || rc=2
 			printf "%s\n" "$rc" >"$3/rc"
-		' kitchen-step "$root" "$here/kitchen.py" "$job" "$base" "$full" "${kitchen_cfg[1]:-}" >"$job/out" 2>&1 </dev/null &
+		' kitchen-step "$root" "$here/kitchen.py" "$job" "$base" "$full" "${kitchen_cfg[1]:-}" >"$job/out.$run" 2>&1 </dev/null &
 		disown 2>/dev/null || true
 	fi
 	slice="${KITCHEN_STEP_SLICE_S:-100}"
@@ -680,7 +681,7 @@ cmd_step() {
 	printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$unit" "${full:0:9}" "$state" "$(IFS=,; printf '%s' "${profiles[*]}")" >>"$store/gates.tsv"
 	if [ "$rc" -ne 0 ]; then
 		cat "$job/out"
-		event "$store" sidekick gate-fail "$brief" "${full:0:9} $job/out"
+		event "$store" sidekick gate-fail "$brief" "${full:0:9} $job/$(readlink "$job/out")"
 		fails="$(awk -F '\t' -v u="$unit" '$2 == u {n = ($4 == "fail") ? n + 1 : 0} END {print n + 0}' "$store/gates.tsv")"
 		if [ "$fails" -ge 2 ]; then
 			printf 'next: %s failed checks in a row; write the report as blocked with the logs under Questions, then kitchen.sh finish\n' "$fails"
