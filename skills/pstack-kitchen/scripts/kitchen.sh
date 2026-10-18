@@ -480,7 +480,7 @@ quiet_wait() {
 	start="$(quiet_now)"
 	while :; do
 		rc=0
-		out="$(PAIR_QUIET_WAIT=1 core_wait "$store" "${args[@]}")" || rc=$?
+		out="$(PAIR_WAIT_OWNER=$$ PAIR_QUIET_WAIT=1 core_wait "$store" "${args[@]}")" || rc=$?
 		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out" && [ $(( $(quiet_now) - start )) -lt "$max" ]; then
 			sleep "${KITCHEN_QUIET_POLL_S:-1}"
 			continue
@@ -489,6 +489,7 @@ quiet_wait() {
 			printf 'quiet: %sm with nothing flagged; the sidekick works on\n' "$(( ($(quiet_now) - start) / 60 ))"
 		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then log_checkin_wake "$store" "$out"; fi
 		printf '%s\n' "$out"
+		[ "$(cat "$store/wait.pid" 2>/dev/null)" != "$$" ] || rm -f "$store/wait.pid"
 		exit "$rc"
 	done
 }

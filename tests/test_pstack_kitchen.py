@@ -2093,6 +2093,31 @@ esac
         self.assertIn('report_status: partial', self.run_sh('wait', str(self.store), '--timeout', '1'))
         self.assertEqual(self.wakes()[len(before):], ['report:partial'])
 
+    def once_hook(self, subcommand, script):
+        hook = self.fake / 'once' / subcommand
+        hook.parent.mkdir(exist_ok=True)
+        hook.write_text('#!/bin/sh\n' + script)
+        hook.chmod(0o755)
+
+    def test_a_quiet_wait_owns_the_store_under_its_own_pid_until_it_returns(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        (self.fake / 'report-after').write_text(f'3 {self.store / "reports" / b.name} partial\n')
+        self.once_hook('wait', f'cp "{self.store}/wait.pid" "$FAKE/owner"\n')
+        self.assertIn('report_status: partial', self.run_sh('wait', str(self.store), '--timeout', '1'))
+        owner = (self.fake / 'owner').read_text().strip()
+        self.assertTrue(owner.isdigit(), owner)
+        self.assertFalse((self.store / 'wait.pid').exists())
+
+    def test_a_quiet_wait_that_a_newer_wait_supersedes_ends_without_a_quiet_line(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        self.once_hook('wait', f'printf "other\\n" >"{self.store}/wait.pid"\n')
+        out = self.run_sh('wait', str(self.store), '--timeout', '20000', code=4)
+        self.assertEqual(out.strip(), 'superseded: a newer wait owns this store; this one ends')
+        self.assertEqual((self.store / 'wait.pid').read_text(), 'other\n')
+
     def test_a_quiet_wait_ending_at_max_logs_one_checkin_wake(self):
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')

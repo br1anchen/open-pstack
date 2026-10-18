@@ -1698,6 +1698,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (fake / rel).parent.mkdir(parents=True, exist_ok=True)
             (fake / rel).write_text(text)
         (st / 'events.tsv').write_text('2026-01-01T00:00:00Z\t1\tmaster\tinit\t-\tbefore\n')
+        if spec.get('live_wait'):
+            # a wait that owns the store and is running (this test process): notify leaves the report for it, as the base always did
+            (st / 'wait.pid').write_text(f'{os.getpid()}\n')
         return top, st, env, fill
 
     def ab_run(self, label, skills, skill, spec):
@@ -1823,7 +1826,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     }
 
     def ab_compare(self, name, spec, skill='pstack-pair'):
-        spec = dict(spec)
+        spec = dict(spec, live_wait=True)
         want = self.ab_run(f'base-{len(list(self.path.iterdir()))}', self.base_skills(), skill, spec)
         got = self.ab_run(f'port-{len(list(self.path.iterdir()))}', root / 'skills', skill, spec)
         self.mismatches.update({name: {k: (got[k], want[k]) for k in got if got[k] != want[k]}} if got != want else {})
@@ -2146,7 +2149,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     @staticmethod
     def store_snapshot(st):
-        return {str(f.relative_to(st)): f.read_bytes() for f in sorted(st.rglob('*')) if f.is_file()}
+        # wait.pid is the wait's claim on the store (a killed wait leaves it); the base wrote no such file
+        return {str(f.relative_to(st)): f.read_bytes() for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'wait.pid'}
 
     def test_wait_ab_signals_end_the_command_as_they_end_the_bash(self):
         # Group-wide, as a terminal's Ctrl-C or a harness kill delivers it: INT, TERM and HUP end the command with the signal and
@@ -2165,6 +2169,69 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             got = self.wait_signalled(root / 'skills', number, False)
             self.assertEqual(got, want, number.name)
             self.assertEqual(got, (-number, '', '', True), number.name)
+
+    def own_world(self, label, once=None, **spec):
+        """A world for the port alone (a behaviour the base never had) and a way to run its commands one after the other."""
+        sent = {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1}
+        spec = {'agents': {'s1': 'working claude'}, 'pair': {'sent': sent, 'pending': ['{st}/briefs/001-x.md']},
+                'files': {'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}, **spec}
+        top, st, env, fill = self.ab_world(label, spec)
+        for name, script in (once or {}).items():
+            (top / 'fake/once').mkdir(exist_ok=True)
+            (top / 'fake/once' / name).write_text(script)
+            (top / 'fake/once' / name).chmod(0o755)
+        run = lambda *args: subprocess.run([str(root / 'skills/pstack-pair/scripts/pair.sh'), *(fill(a) for a in args)], cwd=top / 'repo', env=env,
+                                           capture_output=True, text=True, check=False, timeout=120)
+        return top, st, run
+
+    def test_a_newer_wait_supersedes_the_older_and_the_wait_that_returns_releases_the_store(self):
+        # A2. The fake herdr's once hook plays the newer wait at a fixed poll: it writes its own owner into wait.pid while this wait sits in
+        # `agent wait`; this wait sees another owner at its next poll, says so, ends with 4 and marks nothing seen.
+        hook = '#!/bin/sh\nprintf \'other\\n\' >"$FAKE/../st/wait.pid"\n'
+        top, st, run = self.own_world('sup', files={}, once={'wait': hook})
+        before = (st / 'pair.json').read_text()
+        r = run('wait', '{st}', '--timeout', '5000')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (4, 'superseded: a newer wait owns this store; this one ends\n', ''))
+        self.assertEqual((st / 'wait.pid').read_text(), 'other\n')
+        self.assertEqual((st / 'pair.json').read_text(), before)
+        # the wait that owns the store returns the report and takes its claim away
+        top, st, run = self.own_world('own')
+        r = run('wait', '{st}', '--timeout', '5000')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f'report: {st}/reports/001-x.md', r.stdout)
+        self.assertFalse((st / 'wait.pid').exists())
+
+    def test_notify_marks_a_report_seen_when_no_wait_will_return_it(self):
+        # A1. With no live wait the master's next wait must not return the report the notify just handed it.
+        top, st, run = self.own_world('nm')
+        r = run('wait', '{st}', '--timeout', '1000')
+        self.assertIn('report:', r.stdout)
+        top, st, run = self.own_world('nm2')
+        r = run('notify', '{st}', '{st}/reports/001-x.md')
+        self.assertIn('prompted master m1 (was idle) with REPORT', r.stdout)
+        self.assertEqual(json.loads((st / 'pair.json').read_text())['pending'], [])
+        r = run('wait', '{st}', '--timeout', '1000')
+        self.assertNotIn(f'report: {st}/reports/001-x.md', r.stdout)
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        # a stale wait.pid (a pid that is gone) counts as no wait
+        top, st, run = self.own_world('nm3')
+        gone = subprocess.Popen(['true'])
+        gone.wait()
+        (st / 'wait.pid').write_text(f'{gone.pid}\n')
+        run('notify', '{st}', '{st}/reports/001-x.md')
+        self.assertEqual(json.loads((st / 'pair.json').read_text())['pending'], [])
+
+    def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
+        # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
+        top, st, run = self.own_world('nl')
+        (st / 'wait.pid').write_text(f'{os.getpid()}\n')
+        before = (st / 'pair.json').read_text()
+        r = run('notify', '{st}', '{st}/reports/001-x.md')
+        self.assertIn('prompted master m1', r.stdout)
+        self.assertEqual((st / 'pair.json').read_text(), before)
+        self.assertEqual((st / 'wait.pid').read_text(), f'{os.getpid()}\n')
+        r = run('wait', '{st}', '--timeout', '1000')
+        self.assertIn(f'report: {st}/reports/001-x.md', r.stdout)
 
     def test_wait_ab_an_ignored_sigint_stays_ignored(self):
         # A background job hands its children SIGINT ignored, and a process cannot un-ignore what it inherited ignored: bash does not,
