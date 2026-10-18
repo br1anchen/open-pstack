@@ -136,7 +136,13 @@ Verifier: [references/verifier.md](references/verifier.md).
    accepted review note is verified; `kitchen.sh verify --landing`
    proves the stack tip with a fresh verifier, and its clean verdict covers
    the last units that were not verified on their own (review them against it,
-   then run land-check); the landing brief goes as far
+   then run land-check). land-check covers a unit rebased into the stack by
+   patch-id, says how many commits behind HEAD an older landing verdict is,
+   and warns when dependency manifests changed after its verified base;
+   `verify --landing --parent REF` records where the stack starts and
+   `--head REV` proves a branch other than HEAD. A deletion-only unit may
+   cite `engine: skipped (deletion-only, proof: <command>)` when
+   `[review].engine` is set. The landing brief goes as far
    as `[landing].mode` allows and never merges.
 7. **Learn.** `kitchen.sh retro` shows where the master was needed and what
    repeated; each repeated class becomes a rule, a lint, a profile command, or
