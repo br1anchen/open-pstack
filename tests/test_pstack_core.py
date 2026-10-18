@@ -2543,6 +2543,27 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(notes_mod.deliver_blocking_note(ctx, str(pair), '/p/n.md'), '; sent to s1')
         self.assertEqual(sent, [(str(pair), 'pstack-pair NOTE /p/n.md')])
 
+    def test_the_idle_path_after_a_marked_report_shows_the_queue_note_and_review_delta(self):
+        # A report notify marked is not returned; the master's next wait says so and adds what the report path would have: the queue note
+        # (held behind a report that is not done) and the review delta. A marked plan response gets the idle line alone.
+        steps = {'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n2\t{c2}\t6\t\ttwo\n', 'notes/001-x-n1.md': '# N\n\nstatus: clear\n', 'queue': '{st}/briefs/002-y.md\n'}
+        top, st, run = self.own_world('idle1', agents={'s1': 'idle claude'}, files={'reports/001-x.md': '# R\n\nstatus: partial\nhead: {c3}\n', **steps})
+        self.assertIn('prompted master', run('notify', '{st}', '{st}/reports/001-x.md').stdout)
+        r = run('wait', '{st}', '--timeout', '1000')
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        lines = r.stdout.splitlines()
+        idle = next(i for i, l in enumerate(lines) if l.startswith('idle: the reply to 001-x.md was already shown'))
+        self.assertEqual(lines[idle + 1], f'queued: {st}/briefs/002-y.md (held: report is partial; dispatch it yourself)')
+        self.assertTrue(lines[idle + 2].startswith('review-delta: '), lines)
+        self.assertNotIn('report:', r.stdout.replace(f'({st}/reports/001-x.md)', ''))
+        sent = {'file': '{st}/plans/001-x.md', 'kind': 'PLAN', 'epoch': 1}
+        top, st, run = self.own_world('idle2', agents={'s1': 'idle claude'}, files={'reports/001-x.md': '# R\n\nstatus: agree\nhead: {c3}\n', 'plans/001-x.md': '# P\n', **steps},
+                                      pair={'sent': sent, 'pending': []})
+        run('notify', '{st}', '{st}/reports/001-x.md')
+        r = run('wait', '{st}', '--timeout', '1000')
+        self.assertNotIn('queued:', r.stdout)
+        self.assertNotIn('review-delta:', r.stdout)
+
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
         top, st, run = self.own_world('nl')

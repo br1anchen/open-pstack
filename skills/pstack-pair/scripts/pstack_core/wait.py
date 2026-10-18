@@ -400,6 +400,12 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         sent = '-' if sent is None else sent
         write(f'idle: the reply to {os.path.basename(sent.rstrip("/") or sent)} was already shown ({shown}); send the next message\n')
         event(store, 'master', 'wake', sent, 'idle')
+        # Since notify marks a report it announced, this is the normal path to a report the master already has by message: show what the
+        # report path would add. A plan response or advice carries neither.
+        record = alt(pair_json(store).get('sent'), {})
+        if isinstance(record, dict) and record.get('kind') == 'BRIEF':
+            write(queue_note(store, shown))
+            write(review_delta(store, shown))
         return 4
     why = ''
     if withheld:
