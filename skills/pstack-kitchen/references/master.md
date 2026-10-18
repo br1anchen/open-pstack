@@ -200,7 +200,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    revert uncovers it (`covered: unit NNN (rebased as <short>)`; a range that
    holds a merge is never matched, and says so); `verify` accepts a rebased
    unit in its `--covers` list the same way and prints a `note:`; a squashed one prints a note and
-   stays uncovered until the landing verification proves the stack. When the stack was rebased after the last landing verdict, land-check and `verify --landing` print `warning: dependency manifests changed since the verified base: <files>` for the kitchen's `escalate.manifests` that changed between the two bases; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
+   stays uncovered until the landing verification proves the stack. A unit built
+   on top of a landing verdict's tip says it is newer than the verdict, and a
+   verdict whose base does not resolve says so; the `(squashed?)` note is for
+   neither. When the stack was rebased after the last landing verdict, land-check and `verify --landing` print `warning: dependency manifests changed since the verified base: <files>` for the kitchen's `escalate.manifests` that changed between the two bases; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and
    lands.
 9. **Retro and close.** `kitchen.sh retro <store>`. It ends with the repo's

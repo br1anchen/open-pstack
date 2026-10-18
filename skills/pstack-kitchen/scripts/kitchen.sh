@@ -1795,6 +1795,24 @@ warn_unreviewed() {
 	done
 }
 
+# Why a unit outside a clean landing verdict's range could not be matched by
+# patch-id, as one land-check note. $1 store, $2 unit NNN, $3 brief, $4 unit head,
+# $5 landing verdict, $6 its base, $7 its head.
+landing_unmatched_note() {
+	local root ubase
+	root="$(field "$1" .git_root)"
+	ubase="$(jq -r --arg u "$(basename "$3" .md)" '.heads[$u] // empty' "$1/pair.json")"
+	if [ "$rebased_why" = merge ]; then
+		printf 'land-check: note: unit %s'"'"'s range holds a merge commit, so patch-ids do not cover it; verify --landing covers it\n' "$2"
+	elif [ -z "$6" ]; then
+		printf 'land-check: note: landing verdict %s has no base that resolves; unit %s cannot be matched by patch-id; verify --landing covers it\n' "$5" "$2"
+	elif [ -n "$ubase" ] && git -C "$root" merge-base --is-ancestor "$7" "$ubase" 2>/dev/null; then
+		printf 'land-check: note: unit %s is newer than landing verdict %s; verify --landing again\n' "$2" "$5"
+	else
+		printf 'land-check: note: unit %s'"'"'s head is not in the stack and its commits do not match by patch-id (squashed?); verify --landing covers it\n' "$2"
+	fi
+}
+
 land_check() {
 	# Prints one line per problem; returns 1 when there is any. A unit with no
 	# clean verdict of its own is covered by the latest landing verdict when
@@ -1845,10 +1863,8 @@ land_check() {
 				if unit_rebased_in "$store" "$brief" "$uhead" "$landing_base" "$landing_head"; then
 					verdict="$landing_verdict"
 					printf 'covered: unit %s (rebased as %s) by the clean landing verdict %s\n' "$seq" "${rebased_sha:0:9}" "$landing_verdict"
-				elif [ "$rebased_why" = merge ]; then
-					printf 'land-check: note: unit %s'"'"'s range holds a merge commit, so patch-ids do not cover it; verify --landing covers it\n' "$seq"
 				else
-					printf 'land-check: note: unit %s'"'"'s head is not in the stack and its commits do not match by patch-id (squashed?); verify --landing covers it\n' "$seq"
+					landing_unmatched_note "$store" "$seq" "$brief" "$uhead" "$landing_verdict" "$landing_base" "$landing_head"
 				fi
 			fi
 		fi

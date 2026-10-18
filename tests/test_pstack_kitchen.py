@@ -4207,6 +4207,36 @@ esac
         self.assertRegex(out, rf"note: unit 001's head is not in {tip[:9]}; its commits match by patch-id \(rebased as [0-9a-f]{{9}}\)")
         self.assertIn('status: clean', out)
 
+    def verdict_then_a_newer_unit(self, base_text):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        b1 = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b1)
+        self.write('src/a.py', 'A = 1\n')
+        h1 = self.commit('a')
+        self.done(b1, h1)
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {base_text or init[:9]}..{h1[:9]}\n')
+        b2 = self.brief('002', 'next', ['src/**', 'tests/**'])
+        self.dispatch(b2)
+        self.write('src/b.py', 'B = 1\n')
+        self.done(b2, self.commit('b'))
+        (self.store / 'reviews/002-next.md').write_text('verdict: accept\n')
+        return landing
+
+    def test_a_unit_committed_after_the_landing_verdict_is_newer_not_squashed(self):
+        landing = self.verdict_then_a_newer_unit('')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn(f'land-check: note: unit 002 is newer than landing verdict {landing}; verify --landing again', out)
+        self.assertNotIn('squashed', out)
+
+    def test_a_landing_verdict_whose_base_does_not_resolve_says_so_instead_of_squashed(self):
+        landing = self.verdict_then_a_newer_unit('deadbeef0')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn(f'land-check: note: landing verdict {landing} has no base that resolves; unit 002 cannot be matched by patch-id', out)
+        self.assertNotIn('squashed', out)
+
     def test_a_unit_range_with_a_merge_is_not_covered_by_patch_id_and_the_note_says_why(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         main = self.git('rev-parse', '--abbrev-ref', 'HEAD')
