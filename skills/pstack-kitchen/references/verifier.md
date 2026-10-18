@@ -12,7 +12,9 @@ work?", and then your pane closes.
    Acceptance, the changed files, the commands to run, and the feature map.
    Work only in the scratch worktree. Write nothing else but the verdict;
    the packet's `Write rule:` line says so again. Its `Brief commands` are
-   the unit's Verify lines: run each from the scratch root. Lines under
+   the unit's Verify commands, each in a block of its own: run each in a fresh
+   shell from the scratch root. `Brief commands: none (brief-verify: ...)` means
+   the brief's Verify block could not be read; say so in the verdict. Lines under
    `not for the verifier:` are the master's (they write the store); run none.
    A check against the base (running the old code to compare) runs in a second
    scratch of its own (`kitchen.sh scratch <store> <id> --at <base>`), never in

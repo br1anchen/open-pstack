@@ -889,16 +889,41 @@ audit_due() {
 	awk -v h="$h" -v s="$2" 'BEGIN{exit !((h % 1000) < s * 1000)}'
 }
 
-# The brief's Verify commands for a verifier's packet: each runs from the scratch
-# root, except one that ends in `# master-only` (it writes the store), which is listed apart.
+# The brief's Verify commands for a verifier's packet, each in a block of its own, run from the
+# scratch root. A command that ends in `# master-only` (on its first or last line: a heredoc is
+# marked on its first) writes the store, and one that names an absolute path under the main
+# checkout or the store cannot run in the scratch; both are listed apart. A Verify block the
+# kitchen refuses is said so in the packet and warned of, not skipped. $1 store, $2 brief, $3 unit.
 brief_commands() {
-	local list own master
-	list="$(kpy "$1" --json brief-verify "$2" --list 2>/dev/null || true)"
-	[ -n "$list" ] || list='{}'
-	own="$(jq -r '.commands // [] | map(select(test("# master-only[ \\t]*$") | not)) | join("\n")' <<<"$list" 2>/dev/null || true)"
-	master="$(jq -r '.commands // [] | map(select(test("# master-only[ \\t]*$"))) | map("- " + (. | split("\n") | join("\n  "))) | join("\n")' <<<"$list" 2>/dev/null || true)"
-	[ -z "$own" ] || printf 'Brief commands (run each from the scratch root):\n\n```bash\n%s\n```\n\n' "$own"
-	[ -z "$master" ] || printf 'not for the verifier:\n\n%s\n\n' "$master"
+	local list rc=0 root store="$1" n=0 c first last why
+	local -a apart=()
+	root="$(field "$store" .git_root)"
+	list="$(kpy "$store" --json brief-verify "$2" --list 2>&1)" || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		list="$(head -1 <<<"$list")"
+		printf 'Brief commands: none (brief-verify: %s)\n\n' "$list"
+		printf 'warning: unit %s: brief-verify: %s\n' "${3:-?}" "$list" >&2
+		return 0
+	fi
+	while IFS= read -r c; do
+		[ -n "$c" ] || continue
+		c="$(jq -r . <<<"$c")"
+		first="$(head -1 <<<"$c")"
+		last="$(tail -1 <<<"$c")"
+		why=""
+		if [[ "$first" =~ \#\ master-only[[:space:]]*$ ]] || [[ "$last" =~ \#\ master-only[[:space:]]*$ ]]; then
+			why=""
+		elif [[ "$c" == *"$root/"* && "$c" != *"$root/.git/"* ]] || [[ "$c" == *"$store/"* ]]; then
+			why=" (absolute path)"
+		else
+			n=$((n + 1))
+			[ "$n" -ne 1 ] || printf 'Brief commands:\n\nRun each command in a fresh shell from the scratch root.\n\n'
+			printf 'Command %s:\n\n```bash\n%s\n```\n\n' "$n" "$c"
+			continue
+		fi
+		apart+=("- \`${first}\`${why}")
+	done < <(jq -c '.commands[]?' <<<"$list" 2>/dev/null)
+	[ "${#apart[@]}" -eq 0 ] || printf 'not for the verifier:\n\n%s\n\n' "$(printf '%s\n' "${apart[@]}")"
 }
 
 # verify starts a verification and waits for it in slices of --every
@@ -1128,7 +1153,7 @@ cmd_verify() {
 				printf '## Unit %s\n\nbrief: %s\n\n' "$u" "$b"
 				awk '/^## (Goal|Acceptance)/{p=1; print; next} /^## /{p=0} p' "$b"
 				printf '\n'
-				brief_commands "$store" "$b"
+				brief_commands "$store" "$b" "$u"
 			done
 			local -a ubriefs=()
 			local lessons

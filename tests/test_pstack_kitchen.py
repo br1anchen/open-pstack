@@ -3455,6 +3455,46 @@ esac
         self.run_sh('verify', str(self.store), '--landing')
         self.assertIn(rule, (self.store / 'verdicts/landing-v1-packet.md').read_text())
 
+    def packet_with_verify(self, block):
+        """A unit packet for a brief whose Verify section is `block` (rewritten after the dispatch, as a brief's Verify may be edited)."""
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        text = b.read_text()
+        self.assertIn('```bash\nx\n```', text)
+        b.write_text(text.replace('```bash\nx\n```', block))
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        self.done(b, self.commit('util'))
+        out = self.run_sh('verify', str(self.store), '001', '--timeout', '60', '--every', '0')
+        return out, (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+
+    def test_a_verify_block_the_kitchen_refuses_is_warned_of_and_said_so_in_the_packet(self):
+        out, packet = self.packet_with_verify('run the tests please')
+        self.assertIn('Brief commands: none (brief-verify: kitchen: ', packet)
+        self.assertIn('the Verify section has text outside a ``` block)', packet)
+        self.assertIn('warning: unit 001: brief-verify: kitchen: ', out)
+
+    def test_each_brief_command_is_its_own_numbered_block_run_from_the_scratch_root(self):
+        _, packet = self.packet_with_verify('```bash\ncd tests\npython3 -c "print(2)"\n```')
+        self.assertIn('Run each command in a fresh shell from the scratch root.', packet)
+        self.assertIn('Command 1:\n\n```bash\ncd tests\n```', packet)
+        self.assertIn('Command 2:\n\n```bash\npython3 -c "print(2)"\n```', packet)
+
+    def test_a_command_naming_an_absolute_path_in_the_checkout_or_the_store_is_not_for_the_verifier(self):
+        _, packet = self.packet_with_verify(f'```bash\npython3 {self.repo}/tools/check.py\ncat {self.store}/standing-orders.md\ntrue\n```')
+        apart = packet.split('not for the verifier:')[1]
+        self.assertIn(f'`python3 {self.repo}/tools/check.py` (absolute path)', apart)
+        self.assertIn(f'`cat {self.store}/standing-orders.md` (absolute path)', apart)
+        self.assertIn('Command 1:\n\n```bash\ntrue\n```', packet)
+        self.assertNotIn('Command 2:', packet)
+
+    def test_a_heredoc_marked_master_only_on_its_first_line_stays_out_of_the_verifiers_commands(self):
+        _, packet = self.packet_with_verify('```bash\ncat <<EOF  # master-only\nnote\nEOF\ntrue\n```')
+        own, _, apart = packet.partition('not for the verifier:')
+        self.assertNotIn('cat <<EOF', own)
+        self.assertIn('`cat <<EOF  # master-only`', apart)
+        self.assertIn('Command 1:\n\n```bash\ntrue\n```', own)
+
     def test_a_landing_packet_holds_each_covered_briefs_goal(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)
