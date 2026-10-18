@@ -198,9 +198,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `pair.json` (`.landing.parent`); later landings start there while it is an ancestor of the head being
    verified and print `landing base: recorded parent <ref> (<short>)` (otherwise
    they say it is no longer an ancestor and use the trunk merge-base);
-   `--parent` is recorded only after every other option passes, `--parent none`
-   clears it, and `--base REV` still wins for one call (it may be combined with
-   `--parent`). The landing packet's `Stack` and `Goals` hold only the units the range
+   `--parent` must be an ancestor of the head (also with `--base`, which still
+   wins for the call) and is recorded only once the scratch worktree exists,
+   `--parent none` clears it, and land-check reports a recorded parent that is
+   no longer an ancestor of HEAD. The landing packet's `Stack` and `Goals` hold only the units the range
    contains (not one landed before its base). `verify --landing --head REV` proves that commit or branch
    instead of HEAD (the scratch checks out REV, the base comes from the same
    rule against REV, and the verdict's `range:` ends at REV); land-check
@@ -216,7 +217,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    on top of a landing verdict's tip says it is newer than the verdict, and a
    verdict whose base does not resolve says so; the `(squashed?)` note is for
    neither. When the stack was rebased after the last landing verdict, land-check and `verify --landing` print `warning: dependency manifests changed since the verified base: <files>` for the kitchen's `escalate.manifests` that differ between the verdict's base
-   (read from its packet's `range:`) and the current base, whichever side changed them; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
+   (read, with its head, from its packet's `range:`, the same range coverage
+   uses) and the current base, whichever side changed them; a verdict verified
+   on a base inside the stack does not warn of the stack's own lower commits; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and
    lands.
 9. **Retro and close.** `kitchen.sh retro <store>`. It ends with the repo's

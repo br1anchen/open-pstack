@@ -4708,6 +4708,48 @@ esac
         self.assertIn('landing base: merge-base of remotes/origin/main and HEAD', out)
         self.assertNotIn('parent', self.state().get('landing', {}))
 
+    def landing_world_for_parent_checks(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        head = self.commit('util')
+        self.done(b, head)
+        return init, head
+
+    def test_base_with_a_parent_that_is_the_head_dies_and_records_nothing(self):
+        init, head = self.landing_world_for_parent_checks()
+        out = self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--base', init[:9], '--parent', head[:9], code=1)
+        self.assertIn(f'--parent {head[:9]} ({head[:9]}) must be an ancestor of {head[:9]} and not the same commit', out)
+        self.assertNotIn('landing', self.state())
+
+    def test_a_parent_is_not_recorded_when_the_scratch_worktree_cannot_be_made(self):
+        init, head = self.landing_world_for_parent_checks()
+        blocked = self.repo / '.git/pstack-scratch/runs-demo/000-landing-verify'
+        blocked.parent.mkdir(parents=True)
+        blocked.write_text('a file where the worktree goes\n')
+        out = self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--parent', init[:9], code=2)
+        self.assertIn('git worktree add failed', out)
+        self.assertNotIn('landing', self.state())
+        blocked.unlink()
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--parent', init[:9])
+        self.assertEqual(self.state()['landing']['parent'], init)
+
+    def test_land_check_reports_a_stale_recorded_parent_on_stderr(self):
+        init, head = self.landing_world_for_parent_checks()
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--parent', head[:9], '--head', head, code=1)
+        self.write('src/more.py', 'M = 1\n')
+        more = self.commit('more')
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--parent', head[:9])
+        self.assertEqual(self.state()['landing']['parent'], head)
+        self.git('checkout', '-q', '-b', 'elsewhere', init)
+        self.write('src/else.py', 'E = 1\n')
+        elsewhere = self.commit('elsewhere')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn(f'landing base: recorded parent {head[:9]} ({head[:9]}) is no longer an ancestor of {elsewhere[:9]}; using the trunk merge-base', out)
+
     def test_verify_landing_head_proves_a_branch_beside_head(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)
@@ -4786,10 +4828,28 @@ esac
         out = self.run_sh('land-check', str(self.store))
         self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
 
-    def test_the_manifest_warning_reads_the_base_from_the_verdicts_packet(self):
+    def test_the_manifest_warning_and_coverage_read_one_base_and_head_from_the_verdicts_packet(self):
+        """The verdict's own range line is garbled (the verifier copied it wrongly); the packet's is the kitchen's. Coverage and the warning
+        both use the packet's, so land-check passes and warns."""
         self.verified_on_a_base_with_a_manifest_edit(packet=True)
-        out = self.run_sh('land-check', str(self.store), code=2)
+        out = self.run_sh('land-check', str(self.store), code=0)
         self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
+        self.assertRegex(out, r'covered: unit 001 \(rebased as ')
+
+    def test_a_verdict_verified_on_a_base_inside_the_stack_does_not_warn_of_the_stacks_own_manifest_edits(self):
+        init, heads = self.two_unit_stack()
+        self.git('checkout', '-q', '-b', 'stack', init)
+        self.write('requirements.txt', 'pytest==9\n')
+        lower = self.commit('lower unit edits the manifest')
+        self.write('src/upper.py', 'U = 1\n')
+        upper = self.commit('upper unit')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {lower[:9]}..{upper[:9]}\n')
+        # The two units' own commits are not on this branch, so land-check refuses them; only the warning is under test.
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertNotIn('dependency manifests', out)
 
     def test_verify_landing_warns_of_manifests_changed_since_the_previous_landing_verdicts_base(self):
         self.verified_on_a_base_with_a_manifest_edit()

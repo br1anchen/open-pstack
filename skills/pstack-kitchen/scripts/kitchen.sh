@@ -1041,7 +1041,7 @@ cmd_verify() {
 	fi
 	[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "a verification is open ($(field "$store" '.verifying.units')); kitchen.sh verify $store --wait" 5
 	local -a all=("${covered[@]}" "${units[@]}")
-	local root base head json last brief slug k verdict packet mode class risk snap prior
+	local root base head json last brief slug k verdict packet mode class risk snap prior prior_base_ref
 	root="$(field "$store" .git_root)"
 	[ -z "$land_head" ] || [ "$landing" -eq 1 ] || die "--head goes with --landing"
 	[ -z "$parent_ref" ] || [ "$landing" -eq 1 ] || die "--parent goes with --landing"
@@ -1055,6 +1055,8 @@ cmd_verify() {
 		if [ -n "$parent_ref" ] && [ "$parent_ref" != none ]; then
 			landing_parent_override="$(git -C "$root" rev-parse --verify --quiet "$parent_ref^{commit}")" || die "--parent $parent_ref is not a commit"
 			landing_parent_label="$parent_ref"
+			[ "$landing_parent_override" != "$head" ] && git -C "$root" merge-base --is-ancestor "$landing_parent_override" "$head" 2>/dev/null ||
+				die "--parent $parent_ref (${landing_parent_override:0:9}) must be an ancestor of ${head:0:9} and not the same commit; name where the stack starts"
 		fi
 		if [ -n "$range_base" ]; then
 			base="$(git -C "$root" rev-parse --verify --quiet "$range_base^{commit}")" || die "--base $range_base is not a commit"
@@ -1064,18 +1066,15 @@ cmd_verify() {
 		fi
 		# A rebase since the last landing verdict may have moved a dependency manifest.
 		prior="$(latest_landing_verdict "$store")"
-		[ -z "$prior" ] || manifest_warning "$store" "$(git -C "$root" rev-parse --verify --quiet "$(verdict_base "$prior")^{commit}" 2>/dev/null || true)" "$base"
+		if [ -n "$prior" ]; then
+			read -r prior_base_ref _ <<<"$(verdict_range "$prior")"
+			manifest_warning "$store" "$(git -C "$root" rev-parse --verify --quiet "$prior_base_ref^{commit}" 2>/dev/null || true)" "$base" "$head"
+		fi
 		# The stack lands under the kitchen as it is now.
 		kitchen_cfg=()
 		snap="$(kitchen_snapshot "$store")"
 		[ -z "$snap" ] || kitchen_cfg=(--config "$snap")
 		json="$(kpy "$store" "${kitchen_cfg[@]}" --at "$head" --json classify --base "$base" --head "$head")"
-		# Every option has passed: record or clear the stack's parent.
-		if [ "$parent_ref" = none ]; then
-			json_update "$store" 'del(.landing.parent, .landing.parent_ref)'
-		elif [ -n "$landing_parent_override" ]; then
-			json_update "$store" --arg p "$landing_parent_override" --arg r "$landing_parent_label" '.landing.parent = $p | .landing.parent_ref = $r'
-		fi
 		risk=landing
 		mode=unit
 		class=escalated
@@ -1182,6 +1181,14 @@ cmd_verify() {
 	[ "$landing" -eq 0 ] || vclass=landing
 	if [ "$landing" -eq 1 ]; then scratch_id="000-landing-verify"; else scratch_id="$last-$slug-verify"; fi
 	scratch="$(cmd_scratch "$store" "$scratch_id" --at "$head" | tail -1)"
+	# The last point verify can die before it starts the verifier: only now is the stack's parent recorded or cleared.
+	if [ "$landing" -eq 1 ]; then
+		if [ "$parent_ref" = none ]; then
+			json_update "$store" 'del(.landing.parent, .landing.parent_ref)'
+		elif [ -n "$landing_parent_override" ]; then
+			json_update "$store" --arg p "$landing_parent_override" --arg r "$landing_parent_label" '.landing.parent = $p | .landing.parent_ref = $r'
+		fi
+	fi
 	local packet_write_rule="Write rule: you write only your verdict file and the scratch worktree you were given; work only in that worktree and write nothing else but the verdict."
 	{
 		local u b
@@ -1868,28 +1875,36 @@ current_landing_base() {
 			printf '%s\n' "$pc"
 			return 0
 		fi
+		printf 'landing base: recorded parent %s (%s) is no longer an ancestor of %s; using the trunk merge-base\n' \
+			"$(field "$1" '.landing.parent_ref // empty')" "${parent:0:9}" "${head:0:9}" >&2
 	fi
 	trunk="$(trunk_ref "$root")"
 	[ -z "$trunk" ] || git -C "$root" merge-base "$trunk" HEAD 2>/dev/null || true
 }
 
-# The base a landing verdict used: its packet's range (written by the kitchen, full
-# shas), else the range line the verifier copied into the verdict. $1 verdict.
-verdict_base() {
+# The base and head a landing verdict used, as "base head" (the refs as written): its packet's range
+# (written by the kitchen, full shas), else the range line the verifier copied into the verdict, with
+# no words after the head. Coverage and the manifest warning both read it. $1 verdict.
+verdict_range() {
 	local packet="${1%.md}-packet.md" range
 	range="$(header_field "$packet" range 2>/dev/null || true)"
 	[ -n "$range" ] || range="$(header_field "$1" range)"
-	printf '%s' "${range%%..*}"
+	range="${range%%[[:space:]]*}"
+	printf '%s %s\n' "${range%%..*}" "${range##*..}"
 }
 
-# When the stack's base moved since a landing was verified (a rebase), lists the
-# dependency manifests (kitchen.toml escalate.manifests, matched by kitchen.py)
-# that differ between the two bases, whichever side changed them.
-# $1 store, $2 verified base, $3 current base.
+# When the stack was rebased off the base a landing was verified on, lists the dependency manifests
+# (kitchen.toml escalate.manifests, matched by kitchen.py) that differ between that base and the
+# current one, whichever side changed them. A verified base above the current one and in the head's
+# history (a --base inside the stack) is the stack's own lower commits, not a moved trunk: no warning.
+# $1 store, $2 verified base, $3 current base, $4 the head being landed (default HEAD).
 manifest_warning() {
 	local root files
 	[ -n "$2" ] && [ -n "$3" ] && [ "$2" != "$3" ] || return 0
 	root="$(field "$1" .git_root)"
+	if git -C "$root" merge-base --is-ancestor "$3" "$2" 2>/dev/null && git -C "$root" merge-base --is-ancestor "$2" "${4:-HEAD}" 2>/dev/null; then
+		return 0
+	fi
 	files="$(git -C "$root" diff --name-only -z --no-renames "$2" "$3" 2>/dev/null | kpy "$1" --json manifests -z 2>/dev/null | jq -r '.manifests | join(", ")' 2>/dev/null || true)"
 	[ -z "$files" ] || printf 'warning: dependency manifests changed since the verified base: %s\n' "$files"
 }
@@ -1992,7 +2007,7 @@ land_check() {
 	# kitchen that names a review engine requires each accepted unit's review
 	# note to cite a run of it: "engine: <name> <run id or artifact path>".
 	local store="$1" r seq brief verdict f problems=0 uhead engine
-	local landing_verdict="" landing_head="" landing_base="" lk best=0 behind vhead
+	local landing_verdict="" landing_head="" landing_base="" lk best=0 behind vhead verdict_base_ref verdict_head_ref verdict_base_rev verdict_head_rev
 	engine="$(kpy "$store" --json validate 2>/dev/null | jq -r '.review_engine // empty')" ||
 		{ printf 'kitchen: validate fails (kitchen.py validate shows why)\n'; return 1; }
 	for f in "$store"/verdicts/landing-v[0-9]*.md; do
@@ -2001,9 +2016,14 @@ land_check() {
 		lk="${lk%.md}"
 		[ "$lk" -le "$best" ] || { best="$lk"; landing_verdict="$f"; }
 	done
+	if [ -n "$landing_verdict" ]; then
+		read -r verdict_base_ref verdict_head_ref <<<"$(verdict_range "$landing_verdict")"
+		verdict_base_rev="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$verdict_base_ref^{commit}" 2>/dev/null || true)"
+		verdict_head_rev="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$verdict_head_ref^{commit}" 2>/dev/null || true)"
+	fi
 	if [ -n "$landing_verdict" ] && [ "$(header_field "$landing_verdict" status)" = clean ]; then
-		landing_head="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')^{commit}" 2>/dev/null || true)"
-		landing_base="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/\.\..*//')^{commit}" 2>/dev/null || true)"
+		landing_head="$verdict_head_rev"
+		landing_base="$verdict_base_rev"
 		[ -n "$landing_head" ] || printf 'land-check: note: landing verdict %s range head does not resolve; no unit is covered by it\n' "$landing_verdict"
 	fi
 	for r in "$store"/reviews/[0-9][0-9][0-9]-*.md; do
@@ -2047,10 +2067,10 @@ land_check() {
 	done
 	# A landing verification is reported, not required.
 	if [ -n "$landing_verdict" ]; then
-		manifest_warning "$store" "$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(verdict_base "$landing_verdict")^{commit}" 2>/dev/null || true)" "$(current_landing_base "$store")"
+		manifest_warning "$store" "$verdict_base_rev" "$(current_landing_base "$store")"
 		printf 'landing verification: %s (%s)\n' "$(header_field "$landing_verdict" status)" "$landing_verdict"
-		vhead="$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')"
-		if [ -n "$vhead" ] && git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$vhead^{commit}" >/dev/null 2>&1; then
+		vhead="$verdict_head_rev"
+		if [ -n "$vhead" ]; then
 			if git -C "$(field "$store" .git_root)" merge-base --is-ancestor "$vhead" HEAD 2>/dev/null; then
 				behind="$(git -C "$(field "$store" .git_root)" rev-list --count "$vhead..HEAD" 2>/dev/null || true)"
 				[ "${behind:-0}" -eq 0 ] || printf 'landing verdict %s at %s, %s commit%s behind HEAD\n' "$landing_verdict" "${vhead:0:9}" "$behind" "$([ "$behind" -eq 1 ] || printf s)"
