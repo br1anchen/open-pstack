@@ -2287,7 +2287,7 @@ esac
         module = self.kitchen_variant()
         job = Path(module.verify_job(str(self.store), str(b), head))
         code, out, err = self.core_finish(report)
-        why = f"001-util: the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them); rewrite the report at the unit's last commit (head:), then finish again 7\n"
+        why = f"001-util: the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them); rewrite the report at the unit's last commit (head:), then finish again\n"
         self.assertEqual((code, out, err), (7, '', 'pair.sh: ' + why))
         self.assertEqual(self.reported(), [])
         job.mkdir(parents=True)

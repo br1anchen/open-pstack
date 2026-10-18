@@ -1,8 +1,8 @@
 class Die(Exception):
-    """pair-core.sh's die(): every part is printed, and the second part is the exit code."""
+    """pair-core.sh's die(): the first part is the message and the second the exit code (1 when absent)."""
 
     def __init__(self, *parts):
-        self.message = ' '.join(str(p) for p in parts)
+        self.message = str(parts[0])
         self.code = int(parts[1]) if len(parts) >= 2 else 1
         super().__init__(self.message)
 

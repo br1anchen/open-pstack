@@ -33,6 +33,25 @@ import bash_reach  # noqa: E402
 LEGACY = 'd06a932'
 BASE = 'e6e83e3'
 PHASE3 = '04d2c13'
+
+
+def die_prints_only_its_message(skills_dir):
+    """Unit 006 changed `die "msg" 2` from printing `pair.sh: msg 2` to printing `pair.sh: msg`. The bases above print the old form, so the one
+    line is patched in each extracted oracle (the line count stays, so `line N` text still matches); every other difference stays visible."""
+    core = skills_dir / 'pstack-pair/scripts/pair-core.sh'
+    old = "printf 'pair.sh: %s\\n' \"$*\" >&2"
+    text = core.read_text()
+    assert text.count(old) == 1, f'{core} no longer has the die line to patch'
+    core.write_text(text.replace(old, old.replace('"$*"', '"$1"')))
+    errors = skills_dir / 'pstack-pair/scripts/pstack_core/errors.py'
+    if errors.exists():
+        # the Python ported before this unit joined every part of a Die, the exit code included
+        joined = "self.message = ' '.join(str(p) for p in parts)"
+        text = errors.read_text()
+        assert text.count(joined) == 1, f'{errors} no longer has the Die line to patch'
+        errors.write_text(text.replace(joined, 'self.message = str(parts[0])'))
+
+
 LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
 
 
@@ -96,7 +115,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual((r.returncode, r.stdout), (1, ''))
         self.assertEqual(r.stderr, 'pair.sh: usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>\n')
 
-    def test_die_with_a_code_prints_it_and_exits_with_it(self):
+    def test_die_with_a_code_exits_with_it_and_prints_only_the_message(self):
         err = tempfile.TemporaryFile('w+')
         self.addCleanup(err.close)
 
@@ -106,7 +125,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         with mock.patch.dict(cli.COMMANDS, {'boom': boom}), mock.patch.object(sys, 'stderr', err):
             code = cli.main([*core_args(), 'boom'])
         err.seek(0)
-        self.assertEqual((code, err.read()), (7, 'pair.sh: x 7\n'))
+        self.assertEqual((code, err.read()), (7, 'pair.sh: x\n'))
 
     def test_an_unknown_command_dies(self):
         r = self.pair_py('nope')
@@ -338,6 +357,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if git.returncode != 0:
                 raise unittest.SkipTest(f'{BASE} is not in this checkout')
             subprocess.run(['tar', '-x', '-C', tmp.name], input=git.stdout, check=True, timeout=120)
+            die_prints_only_its_message(Path(tmp.name) / 'skills')
             cls._base = Path(tmp.name) / 'skills'
         return cls._base
 
@@ -351,6 +371,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if git.returncode != 0:
                 raise unittest.SkipTest(f'{PHASE3} is not in this checkout')
             subprocess.run(['tar', '-x', '-C', tmp.name], input=git.stdout, check=True, timeout=120)
+            die_prints_only_its_message(Path(tmp.name) / 'skills')
             cls._phase3 = Path(tmp.name) / 'skills'
         return cls._phase3
 
@@ -4949,17 +4970,17 @@ stop_prime_role "$store" sidekick && echo "stopped"
             out = self.gate_python('pstack-kitchen', lambda c: variant.require_agreed_plan(c, str(top), str(brief)), top)
             self.assertEqual((out[0], out[2].replace(str(top), '<T>')), expect, name)
 
-        advice = 'pair.sh: plan <T>/plans/001-x.md has no consultant advice under advice/001-*; run pair.sh discuss so both agents respond 6\n'
+        advice = 'pair.sh: plan <T>/plans/001-x.md has no consultant advice under advice/001-*; run pair.sh discuss so both agents respond\n'
         gate('kg1', 'escalated (a contract)', (6, advice), review=agreed)
         gate('kg2', 'escalated', (0, ''), review=agreed, advice=True)
-        gate('kg3', 'escalated', (6, "pair.sh: playbook feature needs an agreed plan; brief has plan: none 6\n"), plan='none')
+        gate('kg3', 'escalated', (6, "pair.sh: playbook feature needs an agreed plan; brief has plan: none\n"), plan='none')
         gate('kg4', 'routine', (0, ''), plan='none')
         gate('kg5', 'routine', (0, ''), plan='')
         gate('kg6', None, (0, ''), plan='none')
-        gate('kg7', 'routine', (6, "pair.sh: plan <T>/plans/001-x.md review verdict is 'revise', not agreed 6\n"), review='verdict: revise\n')
+        gate('kg7', 'routine', (6, "pair.sh: plan <T>/plans/001-x.md review verdict is 'revise', not agreed\n"), review='verdict: revise\n')
         gate('kg8', 'routine', (0, ''), review=agreed)
         gate('kg9', 'routine', (0, ''), playbook='investigation', plan=None)
-        gate('kg10', 'routine', (6, "pair.sh: plan <T>/plans/001-x.md has no review; run pair.sh discuss and write reviews/001-<slug>.md with verdict: agreed 6\n"))
+        gate('kg10', 'routine', (6, "pair.sh: plan <T>/plans/001-x.md has no review; run pair.sh discuss and write reviews/001-<slug>.md with verdict: agreed\n"))
         self.assertEqual(vars(variant), before, 'the gate is an argument: nothing is stored on the instance')
 
     def test_plan_gate_scope_and_pause_match_bash(self):
@@ -5140,6 +5161,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
             if git.returncode != 0:
                 raise unittest.SkipTest(f'{LEGACY} is not in this checkout')
             subprocess.run(['tar', '-x', '-C', cls.legacy_tmp.name], input=git.stdout, check=True, timeout=120)
+            die_prints_only_its_message(Path(cls.legacy_tmp.name) / 'skills')
             cls.legacy_dir = Path(cls.legacy_tmp.name)
         return cls.legacy_dir / 'skills/pstack-pair/scripts/pair.sh'
 
@@ -5176,7 +5198,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
         self.assertIn('supersedes: none', text)
         self.assertNotIn('{{SEQ}}', text)
         self.assertEqual(out(self.run_pair('new-steer', str(st), '002')),
-                         (7, '', 'pair.sh: unit 002 already has two fresh steers; stop the unit and re-brief, or pass --force 7\n'))
+                         (7, '', 'pair.sh: unit 002 already has two fresh steers; stop the unit and re-brief, or pass --force\n'))
         self.assertEqual(self.run_pair('new-steer', str(st), '002', '--force').stdout.strip(), f'{st}/steers/002-one-s3.md')
         self.assertEqual(out(self.run_pair('new-steer', str(st), '002', '--supersedes', first)),
                          (1, '', 'pair.sh: no open objection on unit 002 to answer; send a fresh steer instead\n'))
@@ -5638,7 +5660,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
         self.assertEqual(results['legacy'], results['port'])
         by_name = {o[0]: o for o in results['port']}
         self.assertEqual(by_name['worktree add fails'][1][0], 2)
-        self.assertIn('pair.sh: git worktree add failed 2', by_name['worktree add fails'][1][2])
+        self.assertIn('pair.sh: git worktree add failed\n', by_name['worktree add fails'][1][2])
         self.assertEqual(by_name['no git_root'][1][:3], (1, '', "pair.sh: the store's cwd is not inside a git repository\n"))
 
 

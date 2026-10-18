@@ -109,7 +109,7 @@ pair.sh: <T>/state/pstack/pair-guided/demo/plans/001-design.md still has unfille
 [exit 1]
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/002-early.md
-pair.sh: plan <T>/state/pstack/pair-guided/demo/plans/001-design.md has no review; run pair.sh discuss and write reviews/001-<slug>.md with verdict: agreed 6
+pair.sh: plan <T>/state/pstack/pair-guided/demo/plans/001-design.md has no review; run pair.sh discuss and write reviews/001-<slug>.md with verdict: agreed
 [exit 6]
 
 $ pair.sh discuss <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/plans/001-design.md
@@ -203,14 +203,14 @@ $ pair.sh progress <T>/state/pstack/pair-guided/demo steer s1 applied: narrowed 
 
 $ pair.sh steer <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/steers/003-build-s1.md --interrupt
 {"error":{"code":"timeout"}}
-pair.sh: sidekick demo-sidekick did not settle after esc; inspect: herdr agent read demo-sidekick --source visible --lines 60 3
+pair.sh: sidekick demo-sidekick did not settle after esc; inspect: herdr agent read demo-sidekick --source visible --lines 60
 [exit 3]
   herdr agent get demo-sidekick
   herdr agent send-keys demo-sidekick esc
   herdr agent wait demo-sidekick --until idle --until done --until blocked --timeout <MS>
 
 $ pair.sh new-steer <T>/state/pstack/pair-guided/demo 003
-pair.sh: unit 003 already has two fresh steers; stop the unit and re-brief, or pass --force 7
+pair.sh: unit 003 already has two fresh steers; stop the unit and re-brief, or pass --force
 [exit 7]
 
 $ pair.sh new-steer <T>/state/pstack/pair-guided/demo 003 --supersedes <T>/state/pstack/pair-guided/demo/steers/003-build-s1.md
@@ -315,11 +315,11 @@ report_status: done
   herdr agent get demo-sidekick
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/004-gated.md
-pair.sh: medium plan needs approval: posted or human in <T>/state/pstack/pair-guided/demo/reviews/001-design.md (found 'not-required') 6
+pair.sh: medium plan needs approval: posted or human in <T>/state/pstack/pair-guided/demo/reviews/001-design.md (found 'not-required')
 [exit 6]
 
 $ pair.sh queue <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md
-pair.sh: sidekick demo-sidekick is idle; dispatch instead: pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md 5
+pair.sh: sidekick demo-sidekick is idle; dispatch instead: pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md
 [exit 5]
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
@@ -351,11 +351,11 @@ queued <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md; the sidekick takes 
   herdr agent get demo-sidekick
 
 $ pair.sh queue <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/005-qone.md
-pair.sh: the queue holds <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md; pass --replace to swap it 5
+pair.sh: the queue holds <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md; pass --replace to swap it
 [exit 5]
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/005-qone.md
-pair.sh: the queue holds <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md; dispatch that first, or: pair.sh queue <T>/state/pstack/pair-guided/demo --clear 5
+pair.sh: the queue holds <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md; dispatch that first, or: pair.sh queue <T>/state/pstack/pair-guided/demo --clear
 [exit 5]
 
 $ pair.sh status <T>/state/pstack/pair-guided/demo
@@ -638,7 +638,7 @@ notes: 1 open. Fix each Blocking item as a fixup commit before the next step, th
 $ pair.sh finish <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/reports/013-qsteps.md
 pair.sh: blocking review notes are still open on 013-qsteps:
 <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md
-Resolve each as a fixup commit, record it with pair.sh step <T>/state/pstack/pair-guided/demo <sha> <summary> --resolves <n-ids>, then finish again 7
+Resolve each as a fixup commit, record it with pair.sh step <T>/state/pstack/pair-guided/demo <sha> <summary> --resolves <n-ids>, then finish again
 [exit 7]
 
 $ pair.sh step <T>/state/pstack/pair-guided/demo <SHA> claims a note not published --resolves n9
@@ -715,15 +715,15 @@ idle: the reply to 013-qsteps.md was already shown (<T>/state/pstack/pair-guided
   herdr agent read demo-sidekick --source visible --lines 40
 
 $ pair.sh next <T>/state/pstack/pair-guided/demo
-pair.sh: a devin sidekick leaves the queue for the master to dispatch after a fresh session 5
+pair.sh: a devin sidekick leaves the queue for the master to dispatch after a fresh session
 [exit 5]
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/007-qthree.md
-pair.sh: the devin sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate <T>/state/pstack/pair-guided/demo after a completed task. The queue is preserved. 5
+pair.sh: the devin sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate <T>/state/pstack/pair-guided/demo after a completed task. The queue is preserved.
 [exit 5]
 
 $ pair.sh rotate <T>/state/pstack/pair-guided/demo
-pair.sh: sidekick demo-sidekick is working; wait for its report and turn to end before rotating 5
+pair.sh: sidekick demo-sidekick is working; wait for its report and turn to end before rotating
 [exit 5]
   herdr agent get demo-sidekick
 
@@ -783,7 +783,7 @@ paused <T>/state/pstack/pair-guided/demo: the sidekick stops at its next step or
 [exit 0]
 
 $ pair.sh queue <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/016-qnine.md
-pair.sh: the store is paused (skill upgrade): start nothing new; record where the work stands and end your turn, or run pair.sh resume <T>/state/pstack/pair-guided/demo 5
+pair.sh: the store is paused (skill upgrade): start nothing new; record where the work stands and end your turn, or run pair.sh resume <T>/state/pstack/pair-guided/demo
 [exit 5]
 
 $ pair.sh progress <T>/state/pstack/pair-guided/demo half of step one

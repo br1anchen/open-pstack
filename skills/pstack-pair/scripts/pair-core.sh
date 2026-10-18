@@ -21,7 +21,7 @@
 : "${unfilled_re:=}"
 
 die() {
-	printf 'pair.sh: %s\n' "$*" >&2
+	printf 'pair.sh: %s\n' "$1" >&2
 	exit "${2:-1}"
 }
 
