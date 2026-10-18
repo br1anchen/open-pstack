@@ -603,6 +603,9 @@ cmd_step() {
 	unit="$(basename "$brief" .md)"
 	root="$(field "$store" .git_root)"
 	full="$(git -C "$root" rev-parse --verify --quiet "$sha^{commit}")" || die "not a commit: $sha; commit the step first"
+	# The gates run on the checkout, so they prove HEAD: a step names the commit they ran on, and a tracked file edited since would be proven too.
+	[ "$(git -C "$root" rev-parse HEAD)" = "$full" ] || die "step $sha: HEAD is $(git -C "$root" rev-parse --short HEAD); commit the step and record HEAD"
+	[ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ] || die "step $sha: the tree has uncommitted changes to tracked files; commit or stash them first"
 	file="$(steps_file "$store" "$brief")"
 	base="$( { [ -s "$file" ] && tail -1 "$file" | cut -f2; } || jq -r --arg u "$unit" '.heads[$u] // empty' "$store/pair.json")"
 	[ -n "$base" ] || die "no base for $unit; was it dispatched?"

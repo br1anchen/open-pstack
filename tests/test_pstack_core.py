@@ -2892,10 +2892,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         env = {'KITCHEN_STEP_POLL_S': '0.2', 'PSTACK_KITCHEN_SLOT_POLL_S': '0.2', 'PSTACK_KITCHEN_LOAD': '1 8'}
         base = dict(repo_files={'.agents/kitchen.toml': toml}, env=env, pair={'heads': {'001-x': '{c1}'}})
         cases = {
-            'the first step': dict(base, args=['step', '{st}', '{c2}', 'did a thing']),
-            'a step that resolves a published note': dict(base, args=['step', '{st}', '{c2}', 'fix', '--resolves', 'n1'], files={'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}),
-            'a paused store': dict(base, args=['step', '{st}', '{c2}', 'x'], files={'paused': 'lunch\n'}),
-            'a step that resolves an unpublished note': dict(base, args=['step', '{st}', '{c2}', 'x', '--resolves', 'n9']),
+            'the first step': dict(base, args=['step', '{st}', '{c3}', 'did a thing']),
+            'a step that resolves a published note': dict(base, args=['step', '{st}', '{c3}', 'fix', '--resolves', 'n1'], files={'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}),
+            'a paused store': dict(base, args=['step', '{st}', '{c3}', 'x'], files={'paused': 'lunch\n'}),
+            'a step that resolves an unpublished note': dict(base, args=['step', '{st}', '{c3}', 'x', '--resolves', 'n9']),
             'a sha that is not a commit': dict(base, args=['step', '{st}', 'f' * 40, 'x']),
         }
         mismatches, outcomes = {}, {}

@@ -1970,6 +1970,33 @@ esac
         self.assertIn('2 failed checks in a row; write the report as blocked', out)
         self.assertEqual(len((self.store / 'steps/001-util.tsv').read_text().splitlines()), 2)
 
+    def test_step_refuses_a_sha_that_is_not_head_and_a_dirty_tracked_tree_before_any_gate(self):
+        # B3: the gates run on the checkout, so a step must name HEAD and the tracked tree must be clean.
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        first = self.commit('step 1')
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.commit('step 2')
+        events = lambda: (self.store / 'events.tsv').read_text()
+        before = events()
+        out = self.run_sh('step', str(self.store), first, 'one', code=1)
+        self.assertEqual(out, f'kitchen.sh: step {first}: HEAD is {self.git("rev-parse", "--short", "HEAD")}; commit the step and record HEAD\n')
+        self.assertFalse((self.store / 'gates.tsv').exists())
+        self.write('src/util.py', 'X = 4\n')
+        head = self.git('rev-parse', 'HEAD')
+        out = self.run_sh('step', str(self.store), head, 'two', code=1)
+        self.assertEqual(out, f'kitchen.sh: step {head}: the tree has uncommitted changes to tracked files; commit or stash them first\n')
+        self.assertFalse((self.store / 'gates.tsv').exists())
+        self.assertEqual(events(), before)
+        self.assertFalse((self.store / 'steps/001-util.tsv').exists())
+        # an untracked file is not a tracked change
+        self.git('checkout', '--', 'src/util.py')
+        self.write('untracked.txt', 'x\n')
+        self.assertIn('gates: pass', self.run_sh('step', str(self.store), head, 'two'))
+
     def test_step_gates_see_the_run_and_role(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
