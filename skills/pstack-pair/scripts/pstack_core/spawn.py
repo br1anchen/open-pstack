@@ -42,18 +42,24 @@ def field(store, role, key, check=False, empty=False):
     return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
 
 
-def update_role(store, role, changes):
-    """json_update of .[role] keys, in order, creating the role's entry when it is null."""
+def update_role(store, role, changes, program, *jq_args, errexit_off=True):
+    """json_update of .[role] keys, in order, creating the role's entry when it is null. A role that is not an object is jq's to refuse, as in
+    the bash: its error is printed and, where the caller had errexit off, the command goes on."""
     def mutate(doc):
         entry = doc.get(role)
         if entry is None:
             entry = doc[role] = {}
         entry.update(changes)
-    update(store, mutate)
+    try:
+        update_or_jq(store, mutate, program, '--arg', 'role', role, *jq_args)
+    except Exit:
+        if not errexit_off:
+            raise
 
 
-def mark_ready(store, role):
-    update_role(store, role, {'rotation_required': False, 'bootstrap_pending': False})
+def mark_ready(store, role, errexit_off=True):
+    update_role(store, role, {'rotation_required': False, 'bootstrap_pending': False},
+                '.[$role].rotation_required = false | .[$role].bootstrap_pending = false', errexit_off=errexit_off)
 
 
 def stderr_of(text):
@@ -117,16 +123,17 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
             if not os.path.isfile(f'{store}/{ready}'):
                 stderr_of(f'{role} bootstrap still pending: {ready} is missing\n')
                 return 4
-            mark_ready(store, role)
+            mark_ready(store, role, errexit_off)
             print(f'ready: {store}/{ready}')
             event(store, role, 'spawn', '-', f'{field(store, role, "kind")}:ready')
         print(f'{role} {name} already live ({status}) in {field(store, role, "pane_id")}')
         return 0
     prime_start_failed = False
     if not pane:
-        previous = alt(section(pair_json(store), role).get('pane_id'), '')
-        if previous and herdr('pane', 'get', jq_raw(previous))[0] == 0:
-            pane = jq_raw(previous)
+        # field ".$role.pane_id // empty": jq's error where the role cannot be indexed
+        previous = field(store, role, 'pane_id', empty=True)
+        if previous and herdr('pane', 'get', previous)[0] == 0:
+            pane = previous
     if pane:
         r = subprocess.run(['herdr', 'agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', timeout, '--', *args],
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
@@ -176,7 +183,9 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         # $( )) the bash printed its error and the start went on; where it was on (a direct rotate, kitchen.sh consultant) the shell ended
         sys.stderr.write(e.stderr)
     if kind == 'prime-agent':
-        update_role(store, role, {'session': None, 'session_stopped': False, 'closed': False, 'launch_cwd': cwd})
+        update_role(store, role, {'session': None, 'session_stopped': False, 'closed': False, 'launch_cwd': cwd},
+                    '.[$role].session = null | .[$role].session_stopped = false | .[$role].closed = false | .[$role].launch_cwd = $cwd', '--arg', 'cwd', cwd,
+                    errexit_off=errexit_off)
         if prime_start_failed:
             record_prime_session(store, role)
             raise Die(f'Prime start failed in {pane}; its pane and recorded launch stay for inspection', 5)
@@ -211,7 +220,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
             stderr_of(provider_hint(store, 'bootstrap'))
         return 3
     if os.path.isfile(f'{store}/{ready}'):
-        mark_ready(store, role)
+        mark_ready(store, role, errexit_off)
         print(f'ready: {store}/{ready}')
         event(store, role, 'spawn', '-', f'{kind}:ready')
         return 0
@@ -324,7 +333,7 @@ def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pan
 
 def spawn_consultant(ctx, store, kind, permission, timeout, args, errexit_off=True):
     """The consultant splits from the sidekick's pane, so the master keeps its height; the master's pane when the sidekick's is gone."""
-    anchor = jq_raw(alt(section(pair_json(store), 'sidekick').get('pane_id'), ''))
+    anchor = field(store, 'sidekick', 'pane_id', empty=True)
     if not anchor or herdr('pane', 'get', anchor)[0] != 0:
         anchor = field(store, 'master', 'pane_id', check=not errexit_off)
     return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args, errexit_off)

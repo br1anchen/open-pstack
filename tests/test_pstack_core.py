@@ -3282,6 +3282,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a plain spawn': run('--kind', 'claude'),
             'a master that is a string': run('--kind', 'claude', pair={**side(), 'master': 'x'}),
             'a master that is an array': run('--kind', 'claude', pair={**side(), 'master': [1]}),
+            'a sidekick that is a string (claude)': run('--kind', 'claude', pair={**side(), 'sidekick': 'x'}),
+            'a sidekick that is a string (pi)': run('--kind', 'pi', pair={**side(), 'sidekick': 'x'}),
+            'a sidekick that is an array (claude)': run('--kind', 'claude', pair={**side(), 'sidekick': [1]}),
+            'a sidekick that is an array (pi)': run('--kind', 'pi', pair={**side(), 'sidekick': [1]}),
+            'a sidekick that is false (claude)': run('--kind', 'claude', pair={**side(), 'sidekick': False}),
+            'a sidekick that is false (pi)': run('--kind', 'pi', pair={**side(), 'sidekick': False}),
             '--tab': run('--kind', 'claude', '--tab', pair={**side(), 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}),
             '--split after --tab': run('--kind', 'claude', '--tab', '--split'),
             'a placement already recorded': run('--kind', 'claude', pair={**side(), 'placement': 'tab', 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}),
@@ -3312,22 +3318,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a bootstrap that returns 3': run('--kind', 'claude', promptfail=True),
             'a fallback that returns 4': {**run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}), 'hook': None, **quiet},
         }
-
-    def test_spawn_over_a_sidekick_that_is_not_an_object_differs_from_the_bash_at_the_phase_3_base_as_parity_md_says(self):
-        """D27. `spawn_role` writes the started sidekick into `.sidekick`. Over a string, array or false the base's jq prints its error per read and
-        the spawn goes on to ready (rc 0); the port raises `AttributeError` in `update_role` after the pane is split and the agent started (rc 1,
-        no spawn event)."""
-        hook = {'hook': self.READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}}
-        for n, (kind, value, shown) in enumerate((('a string', 'x', 'string'), ('an array', [1], 'array'), ('false', False, 'boolean'))):
-            spec = dict(hook, pair={'sidekick': value}, args=['spawn', '{st}', '--kind', 'claude'])
-            got, want = self.phase3_ab(f'd27-{n}', 'pstack-pair', spec)
-            self.assertEqual(want['rc'], 0, kind)
-            self.assertIn('ready: <T>/st/reports/000-ready.md', want['stdout'], kind)
-            self.assertIn(f'Cannot index {shown} with string ("name")', want['stderr'], kind)
-            self.assertIn('sidekick\tspawn\t-\tclaude:ready', '\n'.join(want['events']), kind)
-            self.assertEqual(got['rc'], 1, kind)
-            self.assertIn("AttributeError: '" + {'a string': 'str', 'an array': 'list', 'false': 'bool'}[kind] + "' object has no attribute 'update'", got['stderr'], kind)
-            self.assertNotIn('spawn', '\n'.join(got['events']), kind)
 
     def spawn_command_part(self, skill, part, parts=3):
         cases = list(self.spawn_command_cases().items())
@@ -3470,7 +3460,30 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a sidekick that is an array and no --sidekick': run(pair=pair(sidekick=[1])),
             'a consultant that is a string and no --consultant': run('--sidekick', 'codex', pair=pair(consultant='x')),
             'a consultant that is an array and no --consultant': run('--sidekick', 'codex', pair=pair(consultant=[1])),
+            'a consultant that is an array with both kinds given': run('--sidekick', 'codex', '--consultant', 'devin', pair=pair(consultant=[1])),
+            'a consultant that is a string with both kinds given': run('--sidekick', 'codex', '--consultant', 'devin', pair=pair(consultant='x')),
         }
+
+    def test_trio_spawn_over_a_sidekick_that_is_not_an_object_differs_from_the_bash_only_in_its_last_line(self):
+        """D27, the part left. The trio's spawn ends with `kinds: master M, sidekick K, consultant C`, read in skills/pstack-trio/scripts/variant.py
+        with `section(...).get("kind", "absent")`; the base reads `field "$store" '.sidekick.kind // "absent"'`, which over a `.sidekick` that is
+        not an object prints jq's error and reads empty. Everything before that line is equal; the port prints `absent` and no error. (The fix
+        is two lines in variant.py, outside unit 010's scope.)"""
+        env = {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}
+        pair = lambda value: {'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': value, 'consultant': {'name': 'c1', 'kind': 'codex', 'generation': 1, 'pane_id': None}}
+        for label, value, shown in (('a string', 'x', 'string'), ('an array', [1], 'array')):
+            spec = dict(pair=pair(value), panes={'p0': 'm1'}, hook=self.READY_HOOK, env=env, args=['spawn', '{st}', '--sidekick', 'codex', '--consultant', 'devin'])
+            got, want = self.phase3_ab(f'd27t-{label}'.replace(' ', '-'), 'pstack-trio', spec)
+            self.assertEqual(want['rc'], 0, label)
+            self.assertEqual(got['rc'], 0, label)
+            self.assertEqual(want['stdout'].splitlines()[-1], 'kinds: master claude, sidekick , consultant devin', label)
+            self.assertEqual(got['stdout'].splitlines()[-1], 'kinds: master claude, sidekick absent, consultant devin', label)
+            self.assertEqual(want['stdout'].splitlines()[:-1], got['stdout'].splitlines()[:-1], label)
+            self.assertTrue(want['stderr'].rstrip('\n').endswith(f'Cannot index {shown} with string ("kind")'), label)
+            self.assertEqual(want['stderr'].rstrip('\n').rsplit('\n', 1)[0] + '\n', got['stderr'], label)
+            for key in ('files', 'events', 'calls'):
+                self.assertEqual(got[key], want[key], (label, key))
+            self.assertNotIn('Traceback', got['stderr'], label)
 
     def trio_spawn_part(self, part, parts=3):
         outcomes = {}
@@ -3659,26 +3672,28 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(out['a lock that stays held at the final write'][0], 1)
         self.assertNotIn('after', out['a lock that stays held at the final write'][1])
 
-    def test_a_prime_session_that_is_not_an_object_differs_from_the_bash_at_the_phase_3_base_as_parity_md_says(self):
-        """D26. The base's jq prints its error for a `.session` that is a string, an array, a number or true and carries on as if none were
-        recorded; the port says nothing. A `.session` of false matches. An empty string is `no recorded Prime session` at the base and a live
-        session lookup in the port. stop_prime_role ends the same way on both sides (rc 0 here, `after` printed): only stderr and the daemon calls differ."""
+    def test_a_prime_session_that_is_not_an_object_gets_what_the_bash_gave_it(self):
+        """D26. `prime_active_session` and `stop_prime_role` over a role whose recorded `.session` is a string, an array, a number, true, false,
+        an empty string or an object without a kind, against 04d2c13's functions: exit code, stdout, stderr, pair.json, prime.log (the daemon
+        calls) and the herdr calls all equal (`prime_both` compares the whole tuple). A session jq cannot take as a `--argjson` or index prints
+        jq's own error on both sides; the list of sessions is empty in the last cases, where jq has nothing to index and says nothing."""
         bash = 'prime_active_session "$store" sidekick; rc=$?; printf "rc=%s id=[%s]\\n" "$rc" "${prime_active_id-unset}"'
         py = 'id = prime.prime_active_session(store, "sidekick")\nprint(f"rc={int(id is None)} id=[{\'unset\' if id is None else id}]")'
         stop = 'stop_prime_role "$store" sidekick || echo "returned rc=$?"; echo "after"'
-        jq_errors = {'x': 'invalid JSON text passed to --argjson', '["x"]': 'Cannot index array with string ("kind")', '3': 'Cannot index number with string ("kind")',
-                     'true': 'Cannot index boolean with string ("kind")'}
-        for value, needle in ((('x'), jq_errors['x']), (['x'], jq_errors['["x"]']), (3, jq_errors['3']), (True, jq_errors['true'])):
-            for label, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
-                base, port = self.prime_both(f'd26-{label}-{type(value).__name__}', snippet, python, shim=shim, expect_same=False, agents={}, sidekick={'session': value})
-                self.assertIn(needle, base[2], (label, value))
-                self.assertEqual(port[2], '', (label, value))
-                self.assertEqual((base[0], base[1], base[3]), (port[0], port[1], port[3]), (label, value))
-        same = self.prime_both('d26-false', bash, py, expect_same=False, agents={}, sidekick={'session': False})
-        self.assertEqual(same[0], same[1])
-        base, port = self.prime_both('d26-empty', bash, py, expect_same=False, agents={}, sidekick={'session': ''})
-        self.assertIn('no recorded Prime session for sidekick', base[2])
-        self.assertEqual((port[2], base[4], port[4]), ('', '', '["list", "--json"]\n'))
+        errors = {'x': 'invalid JSON text passed to --argjson', '["x"]': 'Cannot index array with string ("kind")', '3': 'Cannot index number with string ("kind")',
+                  'true': 'Cannot index boolean with string ("kind")', '': 'no recorded Prime session for sidekick'}
+        cases = (('a string', 'x', errors['x']), ('an array', ['x'], errors['["x"]']), ('a number', 3, errors['3']), ('true', True, errors['true']),
+                 ('an empty string', '', errors['']), ('false', False, 'no recorded Prime session for sidekick'), ('an object without kind', {}, ''))
+        for label, value, needle in cases:
+            for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
+                name = f'd26-{what}-{label}'.replace(' ', '-')
+                result = self.prime_both(name, snippet, python, shim=shim, agents={}, sidekick={'session': value})
+                self.assertIn(needle, result[2], (what, label))
+                self.assertNotIn('Traceback', result[2], (what, label))
+        # nothing live to index: jq takes the odd session without complaint and finds no match
+        for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
+            result = self.prime_both(f'd26-empty-{what}', snippet, python, shim=shim, agents={}, sessions=[], sidekick={'session': ['x']})
+            self.assertNotIn('Cannot index', result[2], what)
 
     def test_the_kitchens_verifier_cleanup_matches_the_bash_at_the_phase_3_base_with_the_shims(self):
         """kitchen.sh's verifier cleanup (the lines of its verdict collection that stop a Prime verifier with `stop_prime_role ... || die ... 5` or

@@ -79,16 +79,37 @@ def prime_sessions(store, role):
     return (False, sessions) if isinstance(sessions, list) else (True, None)
 
 
+MATCH_PROGRAM = ('[.[]\n\t\t| select(.activeSessionId? | type == "string" and length > 0)\n\t\t| select(if $session.kind == "path" then .sessionFile == $session.value\n\t\t         else .sessionId == $session.value or .activeSessionId == $session.value end)\n\t\t| .activeSessionId] | unique')
+
+
+def match_by_jq(session, sessions):
+    """A recorded session that is not an object (a string, an array, a number, true) is handed to jq as the bash hands it, `--argjson session`
+    with the text `jq -r` prints for it, over the daemon's session list: what jq says of it (an invalid argument, an index it cannot take) is
+    printed, a failure ends the lookup, and a list it accepts is read as for an object."""
+    text = jq_text(session)
+    r = subprocess.run(['jq', '-c', '--argjson', 'session', text, MATCH_PROGRAM], input=(json.dumps(sessions, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8', 'surrogateescape'),
+                       stdout=subprocess.PIPE, check=False)
+    if r.returncode != 0:
+        return None
+    ids = json.loads(r.stdout.decode('utf-8', 'surrogateescape'))
+    if len(ids) > 1:
+        sys.stderr.write(f'multiple live Prime sessions match {text}; none was stopped\n')
+        return None
+    return ids[0] if ids else ''
+
+
 def prime_active_session(store, role):
     """The live daemon id of the role's recorded session, by exact path or id (no prefix or name matching: another kitchen or the human may
     have a similar session name): '' when none is live, None, with the reason on stderr, when the answer is unknown or ambiguous."""
     session = section(pair_json(store), role).get('session')
-    if session in (None, False):
+    if session in (None, False, ''):
         sys.stderr.write(f'no recorded Prime session for {role}; inspect its pane before cleanup\n')
         return None
     failed, sessions = prime_sessions(store, role)
-    if failed or not isinstance(session, dict):
+    if failed:
         return None
+    if not isinstance(session, dict):
+        return match_by_jq(session, sessions)
     matches = set()
     for each in sessions or []:
         live = each.get('activeSessionId') if isinstance(each, dict) else None
