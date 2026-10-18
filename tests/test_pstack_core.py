@@ -753,7 +753,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         env['PATH'] = f'{wrap}:{env["PATH"]}'
         return top, st, env
 
-    def prime_both(self, label, bash_snippet, python_snippet, shim=False, **spec):
+    def prime_both(self, label, bash_snippet, python_snippet, shim=False, expect_same=True, **spec):
         """A Prime helper of the 04d2c13 bash (sourced under set -euo pipefail) against its Python twin run in a fresh interpreter, on identical
         worlds: (exit code, stdout, stderr, pair.json, the prime-agent and herdr calls)."""
         results = []
@@ -771,6 +771,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             norm = lambda text: re.sub(r'line [0-9]+', 'line N', text.replace(str(top), '<T>').replace(str(self.phase3_skills()), '<SK>').replace(str(root / 'skills'), '<SK>'))
             read = lambda f: norm((top / f).read_text()) if (top / f).exists() else ''
             results.append((r.returncode, norm(r.stdout), norm(r.stderr), read('st/pair.json'), read('fake/prime.log'), read('fake/calls.log')))
+        if not expect_same:
+            return results
         self.assertEqual(results[0], results[1], label)
         return results[1]
 
@@ -1794,6 +1796,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'next with a stale answer on file': dict(args=['next', '{st}'], files={'queue': '{st}/briefs/002-y.md\n', 'reports/002-y.md': '# old\n'}),
         'next without pair.json': dict(args=['next', '{st}'], nopair=True),
         'next with arguments missing': dict(args=['next']),
+        **{f'{cmd} a {status} report without pair.json': dict(args=[cmd, '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': f'# R\n\nstatus: {status}\nhead: {{c3}}\n'})
+           for cmd in ('finish', 'notify') for status in ('blocked', 'failed', 'bogus', '')},
+        'next, heads null': dict(args=['next', '{st}'], pair={'heads': None}, files={'queue': '{st}/briefs/002-y.md\n'}),
+        'next, heads with the unit as false': dict(args=['next', '{st}'], pair={'heads': {'002-y': False}}, files={'queue': '{st}/briefs/002-y.md\n'}),
+        'next, pending false': dict(args=['next', '{st}'], pair={'pending': False}, files={'queue': '{st}/briefs/002-y.md\n'}),
+        'next, pending holding the brief, with its report on file': dict(args=['next', '{st}'], pair={'pending': ['{st}/briefs/002-y.md', 'z']},
+                                                                          files={'queue': '{st}/briefs/002-y.md\n', 'reports/002-y.md': '# old\n'}),
     }
 
     def ab_compare(self, name, spec, skill='pstack-pair'):
@@ -1817,6 +1826,65 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('rotation-required', ''.join(outcomes['devin done report asks for a rotation']['events']))
         self.assertIn('late steer', outcomes['late steer']['stdout'])
         self.assertEqual(outcomes['finish a done report without pair.json']['rc'], 2)
+
+    def damaged_store_cases(self):
+        """Stores a hand edit or a crash leaves in a shape the commands never write, each run at e6e83e3 and in the working tree: {name: (spec,
+        base rc, port rc, text the base's stderr holds, text the port's holds)}. Each is a difference PARITY.md accepts (D18, D20, D21); the test
+        asserts the difference itself, so a port that comes to match the base, or to differ otherwise, fails here and the row gets rewritten."""
+        queued = {'queue': '{st}/briefs/002-y.md\n'}
+        nxt = lambda **kw: dict(args=['next', '{st}'], files=queued, **kw)
+        sent = {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1}
+        done = {'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}
+        wait = lambda **kw: dict(args=['wait', '{st}', '--timeout', '1000'], files=done, **kw)
+        index = lambda kind, key: f'Cannot index {kind} with string ("{key}")'
+        attr = lambda kind: f"AttributeError: '{kind}' object has no attribute 'get'"
+        cases = {
+            'next with a queue that is a directory': (dict(args=['next', '{st}'], files={'queue/x': ''}), 4, 1, 'queued brief is gone', 'Is a directory'),
+            'finish a done report with a queue that is a directory': (dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={**done, 'queue/x': ''}), 0, 1,
+                                                                      'queued brief is gone', 'Is a directory'),
+            'next with heads false': (nxt(pair={'heads': False}), 0, 0, index('boolean', '002-y'), ''),
+            'next with heads a string': (nxt(pair={'heads': 'x'}), 0, 1, index('string', '002-y'), attr('str')),
+            'next with heads an array': (nxt(pair={'heads': [1]}), 0, 1, index('array', '002-y'), attr('list')),
+            'next with heads a number': (nxt(pair={'heads': 3}), 0, 1, index('number', '002-y'), attr('int')),
+            'next with pending that mixes strings, a number and a null': (nxt(pair={'pending': ['b', 1, None, 'a']}), 0, 1, '', 'TypeError'),
+            'next with pending that holds an object': (nxt(pair={'pending': ['b', {'k': 1}, 'a']}), 0, 1, '', 'TypeError: unhashable type'),
+            'next with pending numbers': (nxt(pair={'pending': [3, 1, 2]}), 0, 1, '', 'TypeError'),
+            'next with pending a string': (nxt(pair={'pending': 'x'}), 0, 0, 'cannot be added', ''),
+            'next with pending an object': (nxt(pair={'pending': {'a': 1}}), 0, 0, 'cannot be added', ''),
+            'wait with an epoch that is not a number': (dict(args=['wait', '{st}', '--timeout', '1000'], files=done, pair={'sent': {**sent, 'epoch': 'abc'}}), 4, 4,
+                                                        'integer expected', ''),
+            'wait with pending a number': (wait(pair={'pending': 3, 'sent': sent}), 0, 1, 'Cannot iterate over number (3)', "TypeError: 'int' object is not iterable"),
+            'wait with pending a string': (wait(pair={'pending': 'x', 'sent': sent}), 0, 0, 'Cannot iterate over string ("x")', ''),
+            'wait with pending an object': (wait(pair={'pending': {'a': 1}, 'sent': sent}), 0, 0, '', ''),
+            'wait with a sidekick that is false': (wait(pair={'sidekick': False, 'sent': sent}), 0, 0, index('boolean', 'name'), ''),
+        }
+        for kind, value, name in (('string', 'x', 'str'), ('array', [1], 'list'), ('number', 3, 'int'), ('boolean', True, 'bool')):
+            cases[f'wait with a sidekick that is {kind}'] = (wait(pair={'sidekick': value, 'sent': sent}), 0, 1, index(kind, 'name'), attr(name))
+        idle = lambda value: dict(args=['wait', '{st}', '--timeout', '1000'], agents={'s1': 'idle claude'}, env={'PAIR_SETTLE_HOLD': '0'}, pair={'sidekick': value, 'sent': sent})
+        cases['wait for an idle sidekick that is false'] = (idle(False), 5, 4, index('boolean', 'name'), '')
+        for kind, value, name in (('string', 'x', 'str'), ('array', [1], 'list')):
+            cases[f'wait for an idle sidekick that is {kind}'] = (idle(value), 5, 1, index(kind, 'name'), attr(name))
+        for kind, value in (('false', False), ('a string', 'x'), ('an array', [1])):
+            shown = {'false': 'boolean', 'a string': 'string', 'an array': 'array'}[kind]
+            cases[f'dispatch to a sidekick that is {kind}'] = (dict(args=['dispatch', '{st}', '{st}/briefs/002-y.md', '--send-only'], pair={'sidekick': value}), 5, 2,
+                                                              index(shown, 'kind'), 'is not live')
+            cases[f'finish a done report with a sidekick that is {kind}'] = (dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files=done, pair={'sidekick': value}), 0, 0,
+                                                                             index(shown, 'kind'), '')
+        return cases
+
+    def test_damaged_store_shapes_differ_from_the_bash_at_the_base_commit_as_parity_md_says(self):
+        for name, (spec, base_rc, port_rc, base_text, port_text) in self.damaged_store_cases().items():
+            n = len(list(self.path.iterdir()))
+            want = self.ab_run(f'dsb{n}', self.base_skills(), 'pstack-pair', dict(spec))
+            got = self.ab_run(f'dsp{n}', root / 'skills', 'pstack-pair', dict(spec))
+            self.assertEqual((want['rc'], got['rc']), (base_rc, port_rc), name)
+            self.assertIn(base_text, want['stderr'], name)
+            self.assertIn(port_text, got['stderr'], name)
+            if not base_text:
+                self.assertNotIn('jq: error', want['stderr'], name)
+            if not port_text:
+                self.assertEqual(got['stderr'].replace('\n', ''), '', name)
+            self.assertNotEqual(got, want, name)
 
     @staticmethod
     def mask_minutes(text):
@@ -1891,6 +1959,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'outside herdr': dict(args=run, noenv=True),
             'without pair.json': dict(args=run, nopair=True),
             'a null sidekick': dict(args=short, pair={'sidekick': None, 'sent': sent}, files={'reports/001-x.md': done}),
+            'a seen mark that bash would read as octal (08)': dict(args=short, pair={'sent': {**sent, 'seen': '{st}/reports/001-x.md:08'}}, files={'reports/001-x.md': done}),
+            'a seen mark that bash would read as octal (010)': dict(args=short, pair={'sent': {**sent, 'seen': '{st}/reports/001-x.md:010'}}, files={'reports/001-x.md': done}),
+            'a seen mark that is hexadecimal': dict(args=short, pair={'sent': {**sent, 'seen': '{st}/reports/001-x.md:0x10'}}, files={'reports/001-x.md': done}),
+            'a seen mark that is not a number': dict(args=short, pair={'sent': {**sent, 'seen': '{st}/reports/001-x.md:abc'}}, files={'reports/001-x.md': done}),
+            'a sent epoch that bash would read as octal': dict(args=short, pair={'sent': {**sent, 'epoch': '010'}}, files={'reports/001-x.md': done}),
+            'pending holding a number and a null': dict(args=run, pair={'pending': ['{st}/briefs/001-x.md', 1, None], 'sent': sent}, files={'reports/001-x.md': done}),
+            'pending that is false': dict(args=run, pair={'pending': False, 'sent': sent}, files={'reports/001-x.md': done}),
         }
 
     def wait_ab_compare(self, name, spec, skill='pstack-pair'):
@@ -3092,6 +3167,27 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('returned rc=1', out['a stop that fails'][1])
         self.assertEqual(out['a lock that stays held at the final write'][0], 1)
         self.assertNotIn('after', out['a lock that stays held at the final write'][1])
+
+    def test_a_prime_session_that_is_not_an_object_differs_from_the_bash_at_the_phase_3_base_as_parity_md_says(self):
+        """D26. The base's jq prints its error for a `.session` that is a string, an array, a number or true and carries on as if none were
+        recorded; the port says nothing. A `.session` of false matches. An empty string is `no recorded Prime session` at the base and a live
+        session lookup in the port. stop_prime_role ends the same way on both sides (rc 0 here, `after` printed): only stderr and the daemon calls differ."""
+        bash = 'prime_active_session "$store" sidekick; rc=$?; printf "rc=%s id=[%s]\\n" "$rc" "${prime_active_id-unset}"'
+        py = 'id = prime.prime_active_session(store, "sidekick")\nprint(f"rc={int(id is None)} id=[{\'unset\' if id is None else id}]")'
+        stop = 'stop_prime_role "$store" sidekick || echo "returned rc=$?"; echo "after"'
+        jq_errors = {'x': 'invalid JSON text passed to --argjson', '["x"]': 'Cannot index array with string ("kind")', '3': 'Cannot index number with string ("kind")',
+                     'true': 'Cannot index boolean with string ("kind")'}
+        for value, needle in ((('x'), jq_errors['x']), (['x'], jq_errors['["x"]']), (3, jq_errors['3']), (True, jq_errors['true'])):
+            for label, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
+                base, port = self.prime_both(f'd26-{label}-{type(value).__name__}', snippet, python, shim=shim, expect_same=False, agents={}, sidekick={'session': value})
+                self.assertIn(needle, base[2], (label, value))
+                self.assertEqual(port[2], '', (label, value))
+                self.assertEqual((base[0], base[1], base[3]), (port[0], port[1], port[3]), (label, value))
+        same = self.prime_both('d26-false', bash, py, expect_same=False, agents={}, sidekick={'session': False})
+        self.assertEqual(same[0], same[1])
+        base, port = self.prime_both('d26-empty', bash, py, expect_same=False, agents={}, sidekick={'session': ''})
+        self.assertIn('no recorded Prime session for sidekick', base[2])
+        self.assertEqual((port[2], base[4], port[4]), ('', '', '["list", "--json"]\n'))
 
     def test_the_kitchens_verifier_cleanup_matches_the_bash_at_the_phase_3_base_with_the_shims(self):
         """kitchen.sh's verifier cleanup (the lines of its verdict collection that stop a Prime verifier with `stop_prime_role ... || die ... 5` or
