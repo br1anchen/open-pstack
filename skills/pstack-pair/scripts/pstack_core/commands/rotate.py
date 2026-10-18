@@ -18,6 +18,8 @@ from .report import in_herdr
 def errexit_off():
     """True where the shell that ran pycore had errexit off. pycore passes that shell's `$-` as PAIR_SHELL_FLAGS: `e` is there in a direct
     `pair.sh rotate` and in `( cmd_rotate ... ) &`, and gone inside `$(cmd_rotate ...)` (kitchen.sh rotate_if_due), where bash clears errexit.
+    `e` also stays in `$-` where errexit is only suspended (`cmd_rotate ... || x`, `if cmd_rotate`), so such a caller reads as errexit on; today's
+    callers, a direct `pair.sh rotate` and kitchen.sh's `$(cmd_rotate ...) || rc=$?`, are not suspended contexts.
     Without the variable the process is told from the shell's by pid: `pycore --exec` replaces that shell, so a $( ) subshell has another pid."""
     flags = os.environ.get('PAIR_SHELL_FLAGS')
     if flags is not None:

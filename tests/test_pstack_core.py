@@ -2855,6 +2855,22 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a fallback that returns 4': {**run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}), 'hook': None, **quiet},
         }
 
+    def test_spawn_over_a_sidekick_that_is_not_an_object_differs_from_the_bash_at_the_phase_3_base_as_parity_md_says(self):
+        """D27. `spawn_role` writes the started sidekick into `.sidekick`. Over a string, array or false the base's jq prints its error per read and
+        the spawn goes on to ready (rc 0); the port raises `AttributeError` in `update_role` after the pane is split and the agent started (rc 1,
+        no spawn event)."""
+        hook = {'hook': self.READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}}
+        for n, (kind, value, shown) in enumerate((('a string', 'x', 'string'), ('an array', [1], 'array'), ('false', False, 'boolean'))):
+            spec = dict(hook, pair={'sidekick': value}, args=['spawn', '{st}', '--kind', 'claude'])
+            got, want = self.phase3_ab(f'd27-{n}', 'pstack-pair', spec)
+            self.assertEqual(want['rc'], 0, kind)
+            self.assertIn('ready: <T>/st/reports/000-ready.md', want['stdout'], kind)
+            self.assertIn(f'Cannot index {shown} with string ("name")', want['stderr'], kind)
+            self.assertIn('sidekick\tspawn\t-\tclaude:ready', '\n'.join(want['events']), kind)
+            self.assertEqual(got['rc'], 1, kind)
+            self.assertIn("AttributeError: '" + {'a string': 'str', 'an array': 'list', 'false': 'bool'}[kind] + "' object has no attribute 'update'", got['stderr'], kind)
+            self.assertNotIn('spawn', '\n'.join(got['events']), kind)
+
     def spawn_command_part(self, skill, part, parts=3):
         cases = list(self.spawn_command_cases().items())
         outcomes = {}
@@ -3157,8 +3173,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a pane id that is not recorded': dict(agents={}, sidekick={'session': path_session, 'pane_id': None}, panes={}),
             'a lock that stays held at the final write': dict(**gone, files={'.pair.lock/held': ''}, env={'PAIR_LOCK_TRIES': '1', 'PAIR_LOCK_POLL_S': '0'}, clock=True),
             'a role entry that is null': dict(pair={'consultant': None}),
-            'a role entry that is a string': dict(pair={'consultant': 'x'}),
-            'a role entry that is an array': dict(pair={'consultant': [1]}),
+            'a role entry that is a string': dict(pair={'sidekick': 'x'}),
+            'a role entry that is an array': dict(pair={'sidekick': [1]}),
         }
 
     def test_stop_prime_role_matches_the_bash_at_the_phase_3_base(self):

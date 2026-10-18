@@ -40,7 +40,9 @@ pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # Run a command in the Python core. The variant's globals travel as argv, and
 # the pid of this shell as PAIR_SHELL_PID ($$ is the main shell inside $( ) too)
 # and its option flags as PAIR_SHELL_FLAGS ($- holds e where errexit is on: in a
-# direct call and in ( ... ) &, not inside $( ), which clears it).
+# direct call and in ( ... ) &, not inside $( ), which clears it; it also holds e
+# where errexit is only suspended, as in `f || x` and `if f`, so a caller that
+# runs in such a context reads as errexit on).
 # With --exec first, Python replaces the shell, so a signal sent to the command's
 # process reaches the Python code (wait uses it: it must stop when it is stopped).
 pycore() {
