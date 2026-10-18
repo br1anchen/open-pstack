@@ -420,7 +420,8 @@ classify_brief() {
 	brief_kitchen "$brief"
 	json="$(kpy "$store" "${kitchen_cfg[@]}" --json classify --paths "${globs[@]}" "${esc[@]}")" || die "kitchen.py classify failed; run kitchen.py validate in the repo"
 	risk="$(jq -r .risk <<<"$json")"
-	set_header "$brief" risk "$risk"
+	# The master may have written a reason after the class (`escalated (contract change)`): rewrite the line only when the class changes.
+	[ "$(risk_of "$brief")" = "$risk" ] || set_header "$brief" risk "$risk"
 	set_header "$brief" profiles "$(jq -r '.profiles | join(", ") | if . == "" then "none" else . end' <<<"$json")"
 	set_header "$brief" verify "$(jq -r '"\(.verify.mode) by \(.verify.kind) verifier"' <<<"$json")"
 	printf 'risk: %s\n' "$risk"

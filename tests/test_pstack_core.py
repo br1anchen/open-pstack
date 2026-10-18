@@ -2738,6 +2738,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertNotIn('line 0:', got['stderr'], name)
             for side in (got, want):
                 side['stderr'] = norm_core(side['stderr'])
+                # Unit 011 (B6): classify keeps `risk: escalated (a contract)` when the class is unchanged; the base rewrote it to `risk: escalated`.
+                side['files'] = {k: re.sub(r'(?m)^risk: (routine|escalated|landing) \(.*\)$', r'risk: \1', v) for k, v in side['files'].items()}
             outcomes[name] = got
             if got != want:
                 mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}

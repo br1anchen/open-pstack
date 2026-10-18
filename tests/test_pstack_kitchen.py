@@ -1898,6 +1898,19 @@ esac
         self.assertIn('escalate: escalate path: contracts/api.json', out)
         self.assertIn('next: kitchen.sh consultant', out)
 
+    def test_classify_keeps_the_masters_reason_on_the_risk_line_when_the_class_is_unchanged(self):
+        # B6: an escalated brief that classifies escalated keeps `escalated (contract change)`; one whose class changes is rewritten.
+        e = self.brief('002', 'api', ['contracts/**'])
+        e.write_text(re.sub(r'(?m)^risk:.*$', 'risk: escalated (contract change)', e.read_text()))
+        self.run_sh('classify', str(self.store), str(e))
+        self.assertIn('\nrisk: escalated (contract change)\n', e.read_text())
+        r = self.brief('003', 'api2', ['contracts/**'])
+        r.write_text(re.sub(r'(?m)^risk:.*$', 'risk: routine (it is small)', r.read_text()))
+        out = self.run_sh('classify', str(self.store), str(r))
+        self.assertIn('risk: escalated', out)
+        self.assertIn('\nrisk: escalated\n', r.read_text())
+        self.assertNotIn('it is small', r.read_text())
+
     def generate_pair(self):
         toml = self.repo / '.agents/kitchen.toml'
         toml.write_text(toml.read_text() + '\n[[generated]]\nsources = ["src/**"]\noutputs = ["docs/**"]\ncommand = "make gen"\n')
