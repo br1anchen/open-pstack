@@ -3193,6 +3193,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 side['stderr'] = norm_core(side['stderr'])
                 side['stdout'] = self.mask_minutes(re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', side['stdout']))
                 side['calls'] = self.collapse_polls(side['calls'])
+                # unit 011 (B6): a reason after the class on the brief's `risk:` line is kept when the class is unchanged; the base dropped it
+                side['files'] = {k: re.sub(r'(?m)^risk: (routine|escalated|landing) \(.*\)$', r'risk: \1', v) for k, v in side['files'].items()}
             outcomes[name] = got
             if got != want:
                 mismatches[name] = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
