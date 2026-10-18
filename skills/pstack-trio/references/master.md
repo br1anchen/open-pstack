@@ -258,6 +258,13 @@ nine minutes) and call `pair.sh wait` again. A consult's timeout defaults to
 fifteen minutes; pass `--timeout` under your cap when the cap is lower and
 call `pair.sh advice <store> <NNN>` afterwards to find the file.
 
+One wait owns a store at a time: the Python `wait`, `dispatch` and the pair's
+`discuss` claim it, and a newer one ends an older with `superseded: a newer wait
+owns this store; this one ends` (exit 4). The trio's `discuss` (it waits on the
+sidekick and the consultant with a bare `herdr agent wait`) and `stop` do not
+claim it, so a report announced during them is marked seen and your next wait
+shows it on the idle path (`idle:`, then the queue note and review delta).
+
 ## Recovery
 
 - A wait prints `provider_error:`: the sidekick's model provider failed, not

@@ -227,8 +227,8 @@ Your host caps one shell call. Keep `--every` under that cap (the default is
 nine minutes) and call `pair.sh wait` again. A wait that returns a check-in
 digest means the interval hit, so the sidekick is still on the unit.
 
-One wait owns a store at a time, and a `dispatch`, a `discuss` and a steer's wait
-count as waits. A newer one takes the store: the older prints `superseded: a
+One wait owns a store at a time, and `wait`, `dispatch`, a pair `discuss` and a
+steer's wait count as waits. A newer one takes the store: the older prints `superseded: a
 newer wait owns this store; this one ends` and exits 4 at its next poll, marking
 nothing seen. A `REPORT` message that reaches you while no wait owns the store
 is marked seen, so your next wait does not return the same report a second
