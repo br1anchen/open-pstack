@@ -595,7 +595,7 @@ cmd_discuss() {
 # longer command to the background and can sit idle on it, so a step still
 # checking says so, and running the same step command again waits on.
 cmd_step() {
-	[ $# -ge 3 ] || die "usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2]"
+	[ $# -ge 3 ] || die "usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]"
 	local store="$1" sha="$2" brief root base full json p fails file unit job slice
 	pair_file "$store" >/dev/null
 	brief="$(field "$store" '.dispatch.brief // empty')"

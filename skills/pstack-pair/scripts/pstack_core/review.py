@@ -30,17 +30,23 @@ def noted_through(store, unit):
 def open_notes(store, brief):
     unit = unit_name(brief)
     file = steps_file(store, unit)
-    resolved = set()
-    if os.path.isfile(file):
-        for row in read_text(file).split('\n'):
+    resolved, qualified = set(), set()
+    # a bare id (n2) resolves this unit's note; a qualified one (001-n2), written by a step on any unit, resolves unit 001's
+    for steps in glob.glob(os.path.join(glob.escape(store), 'steps', '*.tsv')):
+        for row in read_text(steps).split('\n'):
             cols = row.split('\t')
             if len(cols) > 3:
-                resolved.update(cols[3].split(','))
+                for note in cols[3].split(','):
+                    if re.match(r'[0-9]{3}-', note):
+                        qualified.add(note)
+                    elif steps == file:
+                        resolved.add(note)
+    seq = unit[:3]
     found = []
     for f in note_files(store, unit):
         if header_field(f, 'status') != 'blocking':
             continue
-        if note_id(f) not in resolved:
+        if note_id(f) not in resolved and f'{seq}-{note_id(f)}' not in qualified:
             found.append(f)
     return found
 

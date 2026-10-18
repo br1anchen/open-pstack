@@ -67,7 +67,8 @@ and the decision stays with the master.
    commit and record it with `pair.sh step <store> <sha> "<what it does>"`,
    then go straight on; never wait for review. At each step boundary run
    `pair.sh notes <store>`: fix each open blocking item first, as a fixup
-   commit recorded with `--resolves <n-ids>`, then take the next step.
+   commit recorded with `--resolves <n-ids>` (`n2` is this unit's note; `001-n2`
+   closes unit 001's note 2 from a step on another unit), then take the next step.
    Follow-ups are the master's list, not yours. A brief without Steps ends in
    one commit when it says `commit: yes`. The report's `head:` names the last
    commit, and the master reviews only what its notes have not covered. In a

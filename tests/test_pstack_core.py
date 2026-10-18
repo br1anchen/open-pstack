@@ -2636,6 +2636,23 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('scope effect must be none', r.stderr)
         self.assertNotIn('agent', (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else '')
 
+    def test_a_step_on_another_unit_resolves_a_qualified_note_and_a_bare_id_stays_this_units(self):
+        # B1. Unit 002 is running; unit 001's blocking note n1 is closed by a step on 002 that names it as 001-n1. A bare n1 on 002 is 002's.
+        files = {'notes/001-x-n1.md': '# N\n\nstatus: blocking\n', 'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}
+        top, st, run = self.own_world('qn', files=files, pair={'dispatch': {'brief': '{st}/briefs/002-y.md', 'generation': 1}, 'heads': {'002-y': '{c1}'}})
+        open_for = lambda unit: [os.path.basename(f) for f in review.open_notes(str(st), f'{unit}.md')]
+        self.assertEqual((open_for('001-x'), open_for('002-y')), (['001-x-n1.md'], ['002-y-n1.md']))
+        r = run('step', '{st}', '{c3}', 'fixes', '--resolves', '001-n1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((open_for('001-x'), open_for('002-y')), ([], ['002-y-n1.md']))
+        r = run('step', '{st}', '{c2}', 'own', '--resolves', 'n1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((open_for('001-x'), open_for('002-y')), ([], []))
+        for bad, text in (('001-n9', 'no published note n9 on unit 001'), ('009-n1', 'no published note n1 on unit 009'), ('1-n1', '--resolves takes note ids')):
+            r = run('step', '{st}', '{c1}', 'x', '--resolves', bad)
+            self.assertEqual(r.returncode, 1, bad)
+            self.assertIn(text, r.stderr, bad)
+
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
         top, st, run = self.own_world('nl')
@@ -2815,7 +2832,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             # Only the message for `--resolves` with no value is masked, and only its file and line: the bash names the line of its `$2` in the
             # cmd_step body, which is gone from HEAD (the body moved into Python and cmd_step is a one-line shim), and the oracle's path is
             # not the working tree's. The line Python names is checked below against the shim's own line.
-            mask = lambda text: re.sub(r'\S*pair-core\.sh: line [0-9]+: \$2: unbound variable', '<core>: line N: $2: unbound variable', text)
+            # Unit 011 (B1): `--resolves` also takes another unit's note (001-n2), and its error and usage say so; the base's words are restored here.
+            mask = lambda text: re.sub(r'\S*pair-core\.sh: line [0-9]+: \$2: unbound variable', '<core>: line N: $2: unbound variable',
+                                       text.replace(", or 001-n2 for another unit's note", '').replace(' | 001-n1]', ']'))
             if label == 'py':
                 self.step_python_stderr[name] = se
             files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}

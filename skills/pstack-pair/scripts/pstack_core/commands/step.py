@@ -1,3 +1,4 @@
+import glob
 import os
 import re
 import subprocess
@@ -24,7 +25,7 @@ def record_again(file, full, resolves):
         if len(cols) > 3 and cols[1] == full:
             found = True
             ids = {i for i in cols[3].split(',') if i} | {i for i in resolves.split(',') if i}
-            cols[3] = ','.join(sorted(ids, key=lambda i: int(i[1:])))
+            cols[3] = ','.join(sorted(ids, key=lambda i: (i.rpartition('-')[0], int(i.rpartition('n')[2]))))
             rows[n] = '\t'.join(cols)
             break
     if found and resolves:
@@ -38,7 +39,7 @@ def step(ctx, args, now=None):
     """The sidekick records a committed step and goes straight on; the master's wait picks it up for review. --resolves names the
     notes the step fixes."""
     if len(args) < 3:
-        raise Die('usage: pair.sh step <store> <sha> <summary> [--resolves n1,n2]')
+        raise Die('usage: pair.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha, summary = args[:3]
     rest = args[3:]
     resolves = ''
@@ -50,8 +51,8 @@ def step(ctx, args, now=None):
         resolves = rest[1]
     elif option != '':
         raise Die(f'unknown option {option}')
-    if not re.fullmatch(r'(n[0-9]+(,n[0-9]+)*)?', resolves):
-        raise Die('--resolves takes note ids like n2,n3')
+    if not re.fullmatch(r'((?:[0-9]{3}-)?n[0-9]+(,(?:[0-9]{3}-)?n[0-9]+)*)?', resolves):
+        raise Die('--resolves takes note ids like n2,n3, or 001-n2 for another unit\'s note')
     pair_file(store)
     brief = dispatched(store)
     if not brief:
@@ -63,7 +64,12 @@ def step(ctx, args, now=None):
     full = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
     unit = unit_name(brief)
     for note in resolves.replace(',', ' ').split():
-        if not os.path.isfile(f'{store}/notes/{unit}-{note}.md'):
+        if re.match(r'[0-9]{3}-', note):
+            # another unit's note: notes/<NNN>-<slug>-n<k>.md
+            seq, bare = note.split('-', 1)
+            if not glob.glob(os.path.join(glob.escape(store), 'notes', f'{seq}-*-{bare}.md')):
+                raise Die(f'--resolves {note}: no published note {bare} on unit {seq}; resolve only notes pair.sh notes printed')
+        elif not os.path.isfile(f'{store}/notes/{unit}-{note}.md'):
             raise Die(f'--resolves {note}: no published note {note} on {unit}; resolve only notes pair.sh notes printed')
     os.makedirs(f'{store}/steps', exist_ok=True)
     os.makedirs(f'{store}/progress', exist_ok=True)
