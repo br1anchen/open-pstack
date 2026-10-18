@@ -1446,8 +1446,9 @@ verifier_shown() {
 # not (Enter would cancel its command), so it is only waited on; a blocked or
 # unknown agent gets no prompt and no grace. $5 is this call's interval end.
 verify_grace() {
-	local store="$1" name="$2" kind="$3" verdict="$4" until="$5" state now delivery grace_until brief text
-	brief="$(field "$store" .verifying.brief)"
+	local store="$1" name="$2" kind="$3" verdict="$4" until="$5" brief="$6" session="$7" state now delivery grace_until text
+	# Before anything is read or the verifier is prompted: the verification must still be this wait's.
+	verification_still_open "$store" "$verdict"
 	grace_until="$(field "$store" '.verifying.grace_until // empty')"
 	if [ -z "$grace_until" ]; then
 		state="$(agent_status "$name")"
@@ -1477,7 +1478,7 @@ verify_grace() {
 		now="$(date +%s)"
 		[ "$now" -lt "$grace_until" ] || return 0
 		case "$state" in
-		idle | "done" | blocked) [ -z "$(verifier_provider_error "$store" "$name")" ] || return 0 ;;
+		idle | "done" | blocked) [ -z "$(verifier_provider_error "$store" "$name" "$session")" ] || return 0 ;;
 		esac
 		if [ "$now" -ge "$until" ]; then
 			printf 'verifying: units %s by %s, past its deadline; grace %ss left (%s), verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
@@ -1523,12 +1524,15 @@ verify_prompt() {
 	printf 'Load the %s skill from ~/.agents/skills/%s/SKILL.md and take the verifier role. %s VERIFY %s' "$PAIR_SKILL" "$PAIR_SKILL" "$PAIR_SKILL" "$1"
 }
 
-# Sends the open verification's packet once more; $2 says why.
+# Sends the open verification's packet once more; $2 says why. $3 to $6 are the verifier's name, the
+# packet, the brief and the verifier kind when the caller captured them (a wait does); else the store's.
 redeliver_packet() {
-	local store="$1" name packet
-	name="$(field "$store" .verifier.name)"
-	packet="$(field "$store" .verifying.packet)"
-	event "$store" master verify-redeliver "$(field "$store" .verifying.brief)" "$(field "$store" .verifier.kind)"
+	local store="$1" name packet brief kind
+	name="${3:-$(field "$store" .verifier.name)}"
+	packet="${4:-$(field "$store" .verifying.packet)}"
+	brief="${5:-$(field "$store" .verifying.brief)}"
+	kind="${6:-$(field "$store" .verifier.kind)}"
+	event "$store" master verify-redeliver "$brief" "$kind"
 	printf 'redelivered: %s; sent it again\n' "$2"
 	herdr agent prompt "$name" "$(verify_prompt "$packet")" --wait --until working --timeout 30000 >/dev/null 2>&1 || true
 	submit_typed "$name" "$(basename "$packet")"
@@ -1609,8 +1613,9 @@ verify_wait() {
 	# A verify stopped between the verifier's start and its packet leaves the
 	# verifier idle with nothing to do, until the stall check closes it.
 	if [ "$(field "$store" .verifying.delivered)" = false ] && [ ! -f "$verdict" ]; then
+		verification_still_open "$store" "$verdict"
 		case "$(agent_status "$name")" in
-		idle | "done") redeliver_packet "$store" "the verify that started this verifier stopped before sending its packet" ;;
+		idle | "done") redeliver_packet "$store" "the verify that started this verifier stopped before sending its packet" "$name" "$packet" "$brief" "$kind" ;;
 		esac
 		update_verifying "$store" "$verdict" '.verifying.delivered = true'
 	fi
@@ -1653,7 +1658,7 @@ verify_wait() {
 	# A verifier still alive at the deadline is asked once for what it proved.
 	if { [ ! -f "$verdict" ] || [ -z "$(header_field "$verdict" status)" ]; } && [ "$state" != absent ] &&
 		[ "$(date +%s)" -ge "$(field "$store" .verifying.deadline)" ] && [ -z "$(verifier_provider_error "$store" "$name" "$session")" ]; then
-		verify_grace "$store" "$name" "$kind" "$verdict" "$until"
+		verify_grace "$store" "$name" "$kind" "$verdict" "$until" "$brief" "$session"
 		verification_still_open "$store" "$verdict"
 	fi
 	# A verdict just written may still be closing; give the writer a moment.
