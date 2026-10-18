@@ -205,8 +205,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    rule against REV, and the verdict's `range:` ends at REV); land-check
    counts that verdict for the units whose heads, or patch-ids, it holds. A unit rebased or cherry-picked into the stack counts as
    covered when every commit of its range has a patch-id among the stack's
-   and its net change still reverse-applies to the stack head, so a later
-   revert uncovers it (`covered: unit NNN (rebased as <short>)`; a range that
+   and no later stack commit reverts it (a commit with the patch-id of the
+   inverse of the unit's net change or of one of its commits), so a later edit of
+   its lines keeps it covered and a revert uncovers it (`land-check: note: unit
+   NNN's commits match by patch-id but <short> reverts them`) (`covered: unit NNN (rebased as <short>)`; a range that
    holds a merge is never matched, and says so); `verify` accepts a rebased
    unit in its `--covers` list the same way and prints a `note:`; a squashed one prints a note and
    stays uncovered until the landing verification proves the stack. A unit built

@@ -240,34 +240,52 @@ unit_head() {
 	printf '%s' "$uhead"
 }
 
-# The stack's patch-ids (commit by patch-id, merges left out) for <base>..<head>,
-# built once per call into stack_ids and keyed by the range. $1 root, $2 base, $3 head.
-declare -A stack_ids=()
+# The patch-id of a commit's own change (or, with -R, of its inverse), from plumbing that ignores
+# diff.noprefix, diff.external and textconv. $1 root, $2 commit; $3 -R is the inverse: the diff from
+# the commit to its parent (not `diff-tree -R`, which swaps the a/ and b/ prefixes patch-id hashes).
+commit_patch_id() {
+	if [ "${3:-}" = -R ]; then
+		git -C "$1" diff-tree -p --binary --full-index "$2" "$2^"
+	else
+		git -C "$1" diff-tree -p --binary --full-index "$2"
+	fi | git patch-id --stable | cut -d' ' -f1
+}
+
+# The stack's patch-ids for <base>..<head> (merges left out), built once per call: stack_ids maps a
+# patch-id to its commit, stack_index a commit to its place from the oldest, stack_commits lists them
+# oldest first, and stack_id_of maps a commit to its patch-id. $1 root, $2 base, $3 head.
+declare -A stack_ids=() stack_index=() stack_id_of=()
+declare -a stack_commits=()
 stack_ids_range=""
 stack_patch_ids() {
-	local c id
+	local c id n=0
 	[ "$stack_ids_range" != "$2..$3" ] || return 0
-	stack_ids=()
+	stack_ids=() stack_index=() stack_id_of=() stack_commits=()
 	while read -r c; do
-		id="$(git -C "$1" diff-tree -p "$c" | git patch-id --stable | cut -d' ' -f1)"
+		id="$(commit_patch_id "$1" "$c")"
+		stack_commits+=("$c")
+		stack_index[$c]=$n
+		stack_id_of[$c]="$id"
 		[ -z "$id" ] || stack_ids[$id]="$c"
-	done < <(git -C "$1" rev-list --no-merges "$2..$3")
+		n=$((n + 1))
+	done < <(git -C "$1" rev-list --reverse --no-merges "$2..$3")
 	stack_ids_range="$2..$3"
 }
 
-# Whether a unit rebased into a stack: every commit of the unit's range (its
-# dispatch head to its head) has a patch-id among the commits of <stack base>..
-# <stack head>, and the unit's net change is still there: its diff applies in
-# reverse to the stack head, which it does not when a later commit reverted it.
-# A range that holds a merge is not matched (its patch-ids are not stable
-# across a rebase). Sets rebased_sha to the stack commit matching the unit's
-# head, and rebased_why when the range holds a merge.
-# $1 store, $2 brief, $3 unit head, $4 stack base, $5 stack head.
+# Whether a unit rebased into a stack: every commit of the unit's range (its dispatch head to its
+# head) has a patch-id among the commits of <stack base>..<stack head>, and no stack commit after the
+# one matching the unit's head reverts the unit (has the patch-id of the inverse of the unit's net
+# change or of one of its commits). Later edits of the unit's lines do not matter, a revert does. A
+# range that holds a merge is not matched (its patch-ids are not stable across a rebase); a unit
+# with commits but no net change is covered by its patch-ids alone. Sets rebased_sha to the stack
+# commit matching the unit's head, rebased_why to merge or reverted, and rebased_by to the reverting
+# commit. $1 store, $2 brief, $3 unit head, $4 stack base, $5 stack head.
 unit_rebased_in() {
-	local root unit_base c id tip_id="" ids=0 index
+	local root unit_base c id tip_id="" ids=0 later inverted net i
+	local -A undo=()
 	root="$(field "$1" .git_root)"
 	unit_base="$(jq -r --arg u "$(basename "$2" .md)" '.heads[$u] // empty' "$1/pair.json")"
-	rebased_sha="" rebased_why=""
+	rebased_sha="" rebased_why="" rebased_by=""
 	[ -n "$unit_base" ] && [ -n "$4" ] || return 1
 	git -C "$root" rev-parse --verify --quiet "$unit_base^{commit}" >/dev/null || return 1
 	if [ -n "$(git -C "$root" rev-list --merges "$unit_base..$3" | head -1)" ]; then
@@ -276,22 +294,25 @@ unit_rebased_in() {
 	fi
 	stack_patch_ids "$root" "$4" "$5"
 	while read -r c; do
-		id="$(git -C "$root" diff-tree -p "$c" | git patch-id --stable | cut -d' ' -f1)"
+		id="$(commit_patch_id "$root" "$c")"
 		[ -n "$id" ] || continue
 		[ -n "${stack_ids[$id]:-}" ] || return 1
 		ids=$((ids + 1))
 		[ -n "$tip_id" ] || tip_id="$id"
+		inverted="$(commit_patch_id "$root" "$c" -R)"
+		[ -z "$inverted" ] || undo[$inverted]=1
 	done < <(git -C "$root" rev-list --no-merges "$unit_base..$3")
 	[ "$ids" -gt 0 ] || return 1
-	# The net change must still be in the stack head: compare by reverse-applying it to the head's tree.
-	index="$(mktemp)"
-	if ! { GIT_INDEX_FILE="$index" git -C "$root" read-tree "$5" &&
-		git -C "$root" diff --binary "$unit_base" "$3" | GIT_INDEX_FILE="$index" git -C "$root" apply --check --cached -R; } >/dev/null 2>&1; then
-		rm -f "$index"
-		return 1
-	fi
-	rm -f "$index"
+	net="$(git -C "$root" diff-tree -p --binary --full-index "$3" "$unit_base" | git patch-id --stable | cut -d' ' -f1)"
+	[ -z "$net" ] || undo[$net]=1
 	rebased_sha="${stack_ids[$tip_id]}"
+	for ((i = ${stack_index[$rebased_sha]} + 1; i < ${#stack_commits[@]}; i++)); do
+		later="${stack_commits[i]}"
+		if [ -n "${stack_id_of[$later]}" ] && [ -n "${undo[${stack_id_of[$later]}]:-}" ]; then
+			rebased_why=reverted rebased_by="$later" rebased_sha=""
+			return 1
+		fi
+	done
 }
 
 # Every unit this verification names must be in the head it checks out, the
@@ -315,6 +336,8 @@ unit_heads_in() {
 		git -C "$root" merge-base --is-ancestor "$uhead" "$head" 2>/dev/null && continue
 		if unit_rebased_in "$store" "$brief" "$uhead" "$(git -C "$root" merge-base "$(trunk_ref "$root")" "$head" 2>/dev/null || true)" "$head"; then
 			printf 'note: unit %s'"'"'s head is not in %s; its commits match by patch-id (rebased as %s)\n' "$unit" "${head:0:9}" "${rebased_sha:0:9}" >&2
+		elif [ "$rebased_why" = reverted ]; then
+			die "unit $unit's commits match by patch-id but ${rebased_by:0:9} reverts them in the checked-out head ${head:0:9} (unit $last)" 2
 		else
 			die "unit $unit's head ${uhead:0:9} is not in the checked-out head ${head:0:9} (unit $last); name the unit that carries all the others last" 2
 		fi
@@ -1938,6 +1961,8 @@ landing_unmatched_note() {
 	ubase="$(jq -r --arg u "$(basename "$3" .md)" '.heads[$u] // empty' "$1/pair.json")"
 	if [ "$rebased_why" = merge ]; then
 		printf 'land-check: note: unit %s'"'"'s range holds a merge commit, so patch-ids do not cover it; verify --landing covers it\n' "$2"
+	elif [ "$rebased_why" = reverted ]; then
+		printf 'land-check: note: unit %s'"'"'s commits match by patch-id but %s reverts them\n' "$2" "${rebased_by:0:9}"
 	elif [ -z "$6" ]; then
 		printf 'land-check: note: landing verdict %s has no base that resolves; unit %s cannot be matched by patch-id; verify --landing covers it\n' "$5" "$2"
 	elif [ -n "$ubase" ] && git -C "$root" merge-base --is-ancestor "$7" "$ubase" 2>/dev/null; then
