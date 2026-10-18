@@ -196,7 +196,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    rule against REV, and the verdict's `range:` ends at REV); land-check
    counts that verdict for the units whose heads, or patch-ids, it holds. A unit rebased or cherry-picked into the stack counts as
    covered when every commit of its range has a patch-id among the stack's
-   (`covered: unit NNN (rebased as <short>)`); a squashed one prints a note and
+   and its net change still reverse-applies to the stack head, so a later
+   revert uncovers it (`covered: unit NNN (rebased as <short>)`; a range that
+   holds a merge is never matched, and says so); `verify` accepts a rebased
+   unit in its `--covers` list the same way and prints a `note:`; a squashed one prints a note and
    stays uncovered until the landing verification proves the stack. When the stack was rebased after the last landing verdict, land-check and `verify --landing` print `warning: dependency manifests changed since the verified base: <files>` for the kitchen's `escalate.manifests` that changed between the two bases; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and
    lands.

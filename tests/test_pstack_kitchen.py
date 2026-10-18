@@ -4178,6 +4178,76 @@ esac
         self.assertRegex(out, rf'covered: unit 002 \(rebased as {tip[:9]}\) by the clean landing verdict {landing}')
         self.assertIn('land-check: pass', out)
 
+    def test_a_unit_whose_patch_was_later_reverted_in_the_stack_is_neither_covered_nor_accepted_by_verify(self):
+        init, heads = self.two_unit_stack()
+        landing, tip = self.land_on_new_trunk(init, heads)
+        trunk = self.git('rev-parse', 'HEAD~2')
+        first = self.git('rev-parse', 'HEAD~1')
+        self.git('revert', '--no-edit', first)
+        tip = self.git('rev-parse', 'HEAD')
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn('unverified: unit 001', out)
+        self.assertRegex(out, r'covered: unit 002 \(rebased as ')
+        self.git('update-ref', 'refs/remotes/origin/main', trunk)
+        report = self.store / 'reports/002-next.md'
+        report.write_text(f'# Report\n\nstatus: done\nhead: {tip}\n')
+        out = self.run_sh('verify', str(self.store), '002', '--covers', '001', code=2)
+        self.assertIn("unit 001's head", out)
+        self.assertIn('is not in the checked-out head', out)
+
+    def test_verify_covers_a_rebased_unit_by_patch_id_and_says_so(self):
+        init, heads = self.two_unit_stack()
+        landing, tip = self.land_on_new_trunk(init, heads)
+        trunk = self.git('rev-parse', 'HEAD~2')
+        self.git('update-ref', 'refs/remotes/origin/main', trunk)
+        report = self.store / 'reports/002-next.md'
+        report.write_text(f'# Report\n\nstatus: done\nhead: {tip}\n')
+        out = self.run_sh('verify', str(self.store), '002', '--covers', '001')
+        self.assertRegex(out, rf"note: unit 001's head is not in {tip[:9]}; its commits match by patch-id \(rebased as [0-9a-f]{{9}}\)")
+        self.assertIn('status: clean', out)
+
+    def test_a_unit_range_with_a_merge_is_not_covered_by_patch_id_and_the_note_says_why(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        main = self.git('rev-parse', '--abbrev-ref', 'HEAD')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        start = self.git('rev-parse', 'HEAD')
+        self.write('src/a.py', 'A = 1\n')
+        first = self.commit('a')
+        self.git('checkout', '-q', '-b', 'side', start)
+        self.write('src/b.py', 'B = 1\n')
+        second = self.commit('b')
+        self.git('checkout', '-q', main)
+        self.git('merge', '--no-ff', '-q', '-m', 'merge side', 'side')
+        self.done(b, self.git('rev-parse', 'HEAD'))
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        self.git('checkout', '-q', '-b', 'landing', init)
+        self.write('docs/trunk.md', '# trunk moved\n')
+        trunk = self.commit('trunk moved')
+        self.git('cherry-pick', first, second)
+        tip = self.git('rev-parse', 'HEAD')
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn("land-check: note: unit 001's range holds a merge commit, so patch-ids do not cover it; verify --landing covers it", out)
+        self.assertNotIn('covered:', out)
+
+    def test_the_stack_patch_id_map_is_built_once_per_land_check(self):
+        init, heads = self.two_unit_stack()
+        landing, tip = self.land_on_new_trunk(init, heads)
+        trunk = self.git('rev-parse', 'HEAD~2')
+        shim = Path(self.tmp.name) / 'gitlog'
+        shim.mkdir()
+        log = shim / 'calls'
+        (shim / 'git').write_text(f'#!/bin/bash\necho "$*" >>{log}\nexec {shutil.which("git")} "$@"\n')
+        (shim / 'git').chmod(0o755)
+        self.env['PATH'] = f'{shim}:{self.env["PATH"]}'
+        out = self.run_sh('land-check', str(self.store))
+        self.assertEqual(out.count('(rebased as'), 2)
+        self.assertEqual(log.read_text().count(f'rev-list --no-merges {trunk}..{tip}'), 1)
+
     def test_land_check_notes_a_unit_squashed_into_the_stack_and_leaves_it_uncovered(self):
         init, heads = self.two_unit_stack()
         self.land_on_new_trunk(init, heads, squash=True)

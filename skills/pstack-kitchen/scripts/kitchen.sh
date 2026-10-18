@@ -229,32 +229,58 @@ unit_head() {
 	printf '%s' "$uhead"
 }
 
-# Whether a unit rebased into a stack: every commit of the unit's range
-# (its dispatch head to its head) has a patch-id among the commits of
-# <stack base>..<stack head>. Sets rebased_sha to the stack commit matching the
-# unit's head. $1 store, $2 brief, $3 unit head, $4 stack base, $5 stack head.
+# The stack's patch-ids (commit by patch-id, merges left out) for <base>..<head>,
+# built once per call into stack_ids and keyed by the range. $1 root, $2 base, $3 head.
+declare -A stack_ids=()
+stack_ids_range=""
+stack_patch_ids() {
+	local c id
+	[ "$stack_ids_range" != "$2..$3" ] || return 0
+	stack_ids=()
+	while read -r c; do
+		id="$(git -C "$1" diff-tree -p "$c" | git patch-id --stable | cut -d' ' -f1)"
+		[ -z "$id" ] || stack_ids[$id]="$c"
+	done < <(git -C "$1" rev-list --no-merges "$2..$3")
+	stack_ids_range="$2..$3"
+}
+
+# Whether a unit rebased into a stack: every commit of the unit's range (its
+# dispatch head to its head) has a patch-id among the commits of <stack base>..
+# <stack head>, and the unit's net change is still there: its diff applies in
+# reverse to the stack head, which it does not when a later commit reverted it.
+# A range that holds a merge is not matched (its patch-ids are not stable
+# across a rebase). Sets rebased_sha to the stack commit matching the unit's
+# head, and rebased_why when the range holds a merge.
+# $1 store, $2 brief, $3 unit head, $4 stack base, $5 stack head.
 unit_rebased_in() {
-	local root unit_base c id want="" tip_id="" ids
+	local root unit_base c id tip_id="" ids=0 index
 	root="$(field "$1" .git_root)"
 	unit_base="$(jq -r --arg u "$(basename "$2" .md)" '.heads[$u] // empty' "$1/pair.json")"
-	rebased_sha=""
+	rebased_sha="" rebased_why=""
 	[ -n "$unit_base" ] && [ -n "$4" ] || return 1
 	git -C "$root" rev-parse --verify --quiet "$unit_base^{commit}" >/dev/null || return 1
-	local -A have=()
-	while read -r c; do
-		id="$(git -C "$root" diff-tree -p "$c" | git patch-id --stable | cut -d' ' -f1)"
-		[ -z "$id" ] || have[$id]="$c"
-	done < <(git -C "$root" rev-list --no-merges "$4..$5")
-	ids=0
+	if [ -n "$(git -C "$root" rev-list --merges "$unit_base..$3" | head -1)" ]; then
+		rebased_why=merge
+		return 1
+	fi
+	stack_patch_ids "$root" "$4" "$5"
 	while read -r c; do
 		id="$(git -C "$root" diff-tree -p "$c" | git patch-id --stable | cut -d' ' -f1)"
 		[ -n "$id" ] || continue
-		[ -n "${have[$id]:-}" ] || return 1
+		[ -n "${stack_ids[$id]:-}" ] || return 1
 		ids=$((ids + 1))
 		[ -n "$tip_id" ] || tip_id="$id"
 	done < <(git -C "$root" rev-list --no-merges "$unit_base..$3")
 	[ "$ids" -gt 0 ] || return 1
-	rebased_sha="${have[$tip_id]}"
+	# The net change must still be in the stack head: compare by reverse-applying it to the head's tree.
+	index="$(mktemp)"
+	if ! { GIT_INDEX_FILE="$index" git -C "$root" read-tree "$5" &&
+		git -C "$root" diff --binary "$unit_base" "$3" | GIT_INDEX_FILE="$index" git -C "$root" apply --check --cached -R; } >/dev/null 2>&1; then
+		rm -f "$index"
+		return 1
+	fi
+	rm -f "$index"
+	rebased_sha="${stack_ids[$tip_id]}"
 }
 
 # Every unit this verification names must be in the head it checks out, the
@@ -275,9 +301,12 @@ unit_heads_in() {
 			printf 'note: unit %s has no usable head; its inclusion was not checked\n' "$unit" >&2
 			continue
 		fi
-		git -C "$root" merge-base --is-ancestor "$uhead" "$head" 2>/dev/null ||
-			unit_rebased_in "$store" "$brief" "$uhead" "$(git -C "$root" merge-base "$(trunk_ref "$root")" "$head" 2>/dev/null || true)" "$head" ||
+		git -C "$root" merge-base --is-ancestor "$uhead" "$head" 2>/dev/null && continue
+		if unit_rebased_in "$store" "$brief" "$uhead" "$(git -C "$root" merge-base "$(trunk_ref "$root")" "$head" 2>/dev/null || true)" "$head"; then
+			printf 'note: unit %s'"'"'s head is not in %s; its commits match by patch-id (rebased as %s)\n' "$unit" "${head:0:9}" "${rebased_sha:0:9}" >&2
+		else
 			die "unit $unit's head ${uhead:0:9} is not in the checked-out head ${head:0:9} (unit $last); name the unit that carries all the others last" 2
+		fi
 	done
 }
 
@@ -1816,6 +1845,8 @@ land_check() {
 				if unit_rebased_in "$store" "$brief" "$uhead" "$landing_base" "$landing_head"; then
 					verdict="$landing_verdict"
 					printf 'covered: unit %s (rebased as %s) by the clean landing verdict %s\n' "$seq" "${rebased_sha:0:9}" "$landing_verdict"
+				elif [ "$rebased_why" = merge ]; then
+					printf 'land-check: note: unit %s'"'"'s range holds a merge commit, so patch-ids do not cover it; verify --landing covers it\n' "$seq"
 				else
 					printf 'land-check: note: unit %s'"'"'s head is not in the stack and its commits do not match by patch-id (squashed?); verify --landing covers it\n' "$seq"
 				fi
