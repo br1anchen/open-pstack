@@ -1459,11 +1459,23 @@ update_verifying() {
 	json_update "$store" --arg v "$v" "$@" "if .verifying.verdict == \$v then ($body) else . end"
 }
 
+# Claims the close of the verification with verdict $2: one atomic update of pair.json that
+# succeeds for the first caller only. A claim older than two minutes belongs to a closer that died
+# and is taken over. Returns 1 when the verification is gone or another call holds the claim.
+claim_close() {
+	local token="$$-$RANDOM"
+	update_verifying "$1" "$2" 'if (.verifying.closing.at // 0) + 120 < $now then .verifying.closing = {token: $t, at: $now} else . end' \
+		--arg t "$token" --argjson now "$(date +%s)"
+	[ "$(field "$1" '.verifying.closing.token // empty')" = "$token" ]
+}
+
 # Stops the open verification's verifier, closes its pane and removes its scratch,
-# unless .verifying no longer names the verification with verdict $5.
+# unless .verifying no longer names the verification with verdict $5 or another call claimed it.
 close_verifier() {
 	local store="$1" name="$2" kind="$3" pane="$4" gone scratch
-	[ "$(field "$store" '.verifying.verdict // empty')" = "${5:-}" ] || return 1
+	# Of two closers only the first to claim the verification closes it; while it holds the claim nothing can
+	# replace the verification, so the pane and scratch below are its own.
+	claim_close "$store" "${5:-}" || return 1
 	scratch="$(field "$store" .verifying.scratch)"
 	if [ "$kind" = prime-agent ]; then
 		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5
@@ -1472,8 +1484,6 @@ close_verifier() {
 		gone=$(( $(date +%s) + ${KITCHEN_VERIFIER_EXIT_S:-15} ))
 		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
 	fi
-	# Another call may have closed this verification while the verifier was leaving.
-	[ "$(field "$store" '.verifying.verdict // empty')" = "${5:-}" ] || return 1
 	herdr pane close "$pane" >/dev/null 2>&1 || true
 	[ "$kind" != prime-agent ] || json_update "$store" '.verifier.closed = true'
 	cmd_scratch "$store" "$scratch" --remove >/dev/null

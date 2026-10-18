@@ -3236,22 +3236,44 @@ esac
         self.assertIn('verification closed elsewhere', out)
         self.assertNotIn('verifying', self.state())
 
-    def test_a_cancel_of_a_verification_another_call_closed_prints_no_cancelled_and_leaves_the_new_one(self):
-        """The inner cancel runs in the outer one's wait for the verifier to leave: it closes V1 and starts V2 before the outer one goes on."""
-        self.env['KITCHEN_VERIFIER_EXIT_S'] = '1'
+    def set_close_claim(self, age):
+        state = self.state()
+        state['verifying']['closing'] = {'token': 'another-call', 'at': int(time.time()) - age}
+        (self.store / 'pair.json').write_text(json.dumps(state))
+
+    def test_a_cancel_while_another_call_holds_the_close_claim_prints_no_cancelled_and_changes_nothing(self):
         first = self.open_slow_verification()
-        first_pane = self.state()['verifier']['pane_id']
-        self.on_nth_get(1, self.cancel_and_replace())
+        pane = self.state()['verifier']['pane_id']
+        self.set_close_claim(age=5)
         out = self.run_sh('verify', str(self.store), '--cancel', code=5)
         self.assertNotIn('cancelled:', out)
         self.assertIn('another call closed it', out)
-        second = self.state()['verifying']
-        self.assertNotEqual(second['verdict'], first['verdict'])
+        self.assertEqual(self.outcome_of(first['packet']), 'running')
+        self.assertEqual(self.state()['verifying']['verdict'], first['verdict'])
+        self.assertNotIn(f'pane close {pane}', (self.fake / 'calls.log').read_text())
+
+    def test_a_close_claim_older_than_two_minutes_is_taken_over(self):
+        self.env['KITCHEN_VERIFIER_EXIT_S'] = '1'
+        first = self.open_slow_verification()
+        self.set_close_claim(age=500)
+        self.assertIn('cancelled: 001', self.run_sh('verify', str(self.store), '--cancel'))
         self.assertEqual(self.outcome_of(first['packet']), 'cancelled')
-        self.assertEqual(self.outcome_of(second['packet']), 'running')
-        self.assertTrue((self.store / 'scratch' / second['scratch']).exists())
-        self.assertEqual((self.fake / 'calls.log').read_text().count(f'pane close {first_pane}'), 1)
-        self.assertTrue((self.fake / 'panes' / self.state()['verifier']['pane_id']).exists())
+
+    def test_two_close_outs_of_one_written_verdict_log_it_and_count_the_handoff_once(self):
+        """The second closer enters while the first is waiting for the verifier to leave, holding the claim: it ends with `closed elsewhere`
+        and logs, prints and counts nothing. Without the claim both close it: two `verify` rows and a handoff count of 2."""
+        self.env['KITCHEN_VERIFIER_EXIT_S'] = '1'
+        first = self.open_slow_verification()
+        self.written_verdict(first, 'clean')
+        self.on_nth_get(1, f'{self.script} verify {self.store} --wait --every 1 >{self.fake}/second.out 2>&1; echo $? >{self.fake}/second.rc')
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '1')
+        self.assertIn('status: clean', out)
+        self.assertEqual((self.fake / 'second.rc').read_text().strip(), '5')
+        self.assertIn('verification closed elsewhere', (self.fake / 'second.out').read_text())
+        self.assertNotIn('status: clean', (self.fake / 'second.out').read_text())
+        rows = [r for r in (self.store / 'events.tsv').read_text().splitlines() if '\tmaster\tverify\t' in r]
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(self.state()['master']['units_since_handoff'], 1)
 
     def test_a_waiter_in_the_grace_whose_verification_was_cancelled_and_replaced_exits_5_and_touches_nothing(self):
         """Fails with `verification_still_open` made a no-op: the waiter then prints the grace progress of the replaced verification and exits 4."""
