@@ -50,7 +50,10 @@ def queue_note(store, report):
         out += f'running: {running}\n'
     queued = queued_brief(store)
     if queued:
-        out += f'queued: {queued}\n'
+        # The queue is taken only after a done report (finish, next): behind any other status it waits for the master.
+        status = header_field(report, 'status') if os.path.isfile(report) else 'done'
+        held = f' (held: report is {status or "unknown"}; dispatch it yourself)' if status != 'done' else ''
+        out += f'queued: {queued}{held}\n'
     return out
 
 

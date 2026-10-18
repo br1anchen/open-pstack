@@ -255,6 +255,12 @@ def case_pattern(pattern):
     return re.compile(''.join(out), re.DOTALL)
 
 
+def scope_pattern(pattern):
+    """case_pattern for a Scope entry: `**/` stands for zero or more directories, so `d/**/x` matches `d/x` as well as `d/a/x`. Everything
+    else is the shell's case pattern."""
+    return re.compile('(?:.*/)?'.join(case_pattern(piece).pattern for piece in pattern.split('**/')), re.DOTALL)
+
+
 def case_match(pattern, text):
     return case_pattern(pattern).fullmatch(text) is not None
 
@@ -342,8 +348,9 @@ def checkin(ctx, store, interval='9', now=None):
     out.append(f'touched: {len(touched)} files, {commits} commits since dispatch\n')
     out.extend(f'  {f}\n' for f in touched[:30])
     may = [re.sub(r'/$', '/*', p) for p in [*scope_entries(brief, 'may'), *steer_scope_entries(store, seq)]]
-    patterns = [case_pattern(p) for p in may]
-    outside = [f for f in touched if not any(p.fullmatch(f) for p in patterns)]
+    patterns = [scope_pattern(p) for p in may]
+    # The master commits the lessons file in the shared tree (kitchen.py lessons add), whatever the brief's Scope says.
+    outside = [f for f in touched if f != '.agents/LESSONS.md' and not any(p.fullmatch(f) for p in patterns)]
     if outside:
         out.append(f'outside scope: {len(outside)}\n')
         out.extend(f'  {f}\n' for f in outside[:30])

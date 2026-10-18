@@ -2221,6 +2221,18 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         run('notify', '{st}', '{st}/reports/001-x.md')
         self.assertEqual(json.loads((st / 'pair.json').read_text())['pending'], [])
 
+    def test_a_queued_brief_behind_a_report_that_is_not_done_says_it_is_held(self):
+        # A3. The queue is taken only after a done report, so the digest says a queued brief behind any other report waits for the master.
+        held = lambda status: (self.own_world(f'qn-{status}', files={'reports/001-x.md': f'# R\n\nstatus: {status}\nhead: {{c3}}\n', 'queue': '{st}/briefs/002-y.md\n'}))
+        for status in ('blocked', 'partial', 'failed'):
+            top, st, run = held(status)
+            out = run('wait', '{st}', '--timeout', '1000').stdout
+            self.assertIn(f'queued: {st}/briefs/002-y.md (held: report is {status}; dispatch it yourself)\n', out, status)
+        top, st, run = held('done')
+        out = run('wait', '{st}', '--timeout', '1000').stdout
+        self.assertIn(f'queued: {st}/briefs/002-y.md\n', out)
+        self.assertNotIn('held:', out)
+
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
         top, st, run = self.own_world('nl')

@@ -640,6 +640,17 @@ class ReadinessTests(unittest.TestCase):
         out = self.wait(4)
         self.assertIn('outside scope: 1\n  other.txt', out)
 
+    def test_a_double_star_directory_in_a_scope_entry_matches_zero_directories(self):
+        self.scoped_brief('001-first', 'd/**/*.py', 'e/**/')
+        for f in ('d/build.py', 'd/a/b/deep.py', 'e/x.txt', 'f/build.py', 'd/build.txt'):
+            (self.cwd / f).parent.mkdir(parents=True, exist_ok=True)
+            (self.cwd / f).write_text('x')
+        out = self.wait(4)
+        self.assertEqual(sorted(line.strip() for line in out.split('outside scope:', 1)[1].splitlines()[1:] if line.startswith('  ')), ['d/build.txt', 'f/build.py'])
+
+    def test_the_lessons_file_the_master_commits_is_never_outside_scope(self):
+        self.assertEqual(self.outside('.agents/LESSONS.md', 'other.txt'), ['other.txt'])
+
     def steer(self, k, kind, effect, supersedes='none'):
         f = self.store / f'steers/001-first-s{k}.md'
         f.parent.mkdir(exist_ok=True)
