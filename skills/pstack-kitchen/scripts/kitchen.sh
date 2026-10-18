@@ -58,16 +58,19 @@ consult, advice. These differ or are new:
                                             commands as written at its head: (the checkout, clean), and goes to
                                             the master only when every one exits 0 (exit 2 otherwise, 4 while
                                             they run: run it again to wait)
-  verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN] [--timeout MIN] [--kind KIND]
+  verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND]
                                             verify one unit, or several as a batch, or a fix with the unit it
                                             fixes (--covers): gates only, or a fresh verifier in a scratch
                                             worktree at the head; returns at the interval with its progress
-                                            (exit 4), and with the verdict and whether to audit when it lands.
+                                            (exit 4; --until-verdict never returns at the interval, only on
+                                            the verdict, the deadline, a stall or a provider error), and with
+                                            the verdict and whether to audit when it lands.
                                             A verifier stopped by its provider is retried on the sidekick's
                                             fallback; the deadline defaults to 3x the measured gate time
   verify <store> --landing [--base REV]     a fresh verifier at the stack tip: every behavioral gate the stack
                                             touches, from where it leaves trunk (or --base)
-  verify <store> --wait [--every MIN]       wait again for the open verification: exit 4 while it runs, 5 when none
+  verify <store> --wait [--every MIN | --until-verdict]
+                                            wait again for the open verification: exit 4 while it runs, 5 when none
                                             is open
   revise <store> <verdict-path>             draft the fix brief for a rejected verdict
   land-check <store>                        every accepted unit verified
@@ -809,7 +812,7 @@ audit_due() {
 # open verification lives in pair.json .verifying, one at a time.
 cmd_verify() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV] [...] | kitchen.sh verify <store> --wait [--every MIN]"
+	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV] [...] | kitchen.sh verify <store> --wait [--every MIN | --until-verdict]"
 	local store="$1" timeout_m="" every_m=9 wait=0 units=() kind_override="" landing=0 retry_entry="" u
 	local -a cov=()
 	range_base=""
@@ -822,6 +825,7 @@ cmd_verify() {
 		--kind) kind_override="$2"; shift 2 ;;
 		--retry-entry) retry_entry="$2"; shift 2 ;;
 		--every) every_m="$2"; shift 2 ;;
+		--until-verdict) every_m=525600; shift ;;
 		--covers)
 			# One unit per flag, or a comma list: --covers 010,011,013.
 			[ $# -ge 2 ] || die "--covers takes a unit NNN or a comma list"

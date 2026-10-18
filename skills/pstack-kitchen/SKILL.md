@@ -120,8 +120,10 @@ Verifier: [references/verifier.md](references/verifier.md).
    step gates were the proof), `batch` (one verifier for several routine
    units), or `unit`. The verifier proves the brief's Acceptance at the
    unit's head and writes a verdict with evidence; a fix is verified with
-   the unit it fixes (`--covers`). `verify` returns at an interval while the
-   verifier works, so the master is never held in one long call.
+   the unit it fixes (`--covers`). `verify` returns at an interval (`--every MIN`) while the
+   verifier works, so the master is never held in one long call;
+   `--until-verdict` instead returns once, on the verdict, for a caller that
+   runs it in the background.
 4. **Review.** The master reviews the unit's range with whatever the repo's
    owner uses: its own read, the agent's built-in review, or an external
    tool it runs itself. The kitchen runs no reviewer and reads no tool's

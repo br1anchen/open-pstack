@@ -3027,6 +3027,24 @@ esac
         self.assertEqual(list((self.store / 'scratch').iterdir()), [])
         self.assertIn('no verification is open', self.run_sh('verify', str(self.store), '--wait', code=5))
 
+    def test_until_verdict_returns_once_on_the_verdict_with_no_interval_return(self):
+        self.env.update({'KITCHEN_VERIFY_POLL_S': '0', 'KITCHEN_VERDICT_SETTLE_S': '0'})
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 11\n')
+        self.write('tests/test_app.py', 'x = 11\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+        verdict = self.store / 'verdicts/001-util-v1.md'
+        packet = self.store / 'verdicts/001-util-v1-packet.md'
+        late = subprocess.Popen(['bash', '-c', f"until [ -f {packet} ]; do sleep 0.2; done; sleep 0.5; printf '# V\\n\\nstatus: clean\\nunits: 001\\n\\n## Evidence\\n\\n```\\n$ true\\n```\\n' >{verdict}"])
+        self.addCleanup(late.wait)
+        out = self.run_sh('verify', str(self.store), '001', '--until-verdict')
+        self.assertIn('status: clean', out)
+        self.assertNotIn('verifying: units', out)
+        wakes = [r.split('\t')[5] for r in (self.store / 'events.tsv').read_text().splitlines() if '\tmaster\twake\t' in r]
+        self.assertEqual([w for w in wakes if w.startswith('verify:')], ['verify:clean'])
+
     def rate_limited_verifier(self):
         session = Path(self.tmp.name) / 'pi-session.jsonl'
         session.write_text('{"type":"session"}\n')
