@@ -2564,6 +2564,22 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotIn('queued:', r.stdout)
         self.assertNotIn('review-delta:', r.stdout)
 
+    def test_notify_and_finish_canonicalise_the_store_they_are_given(self):
+        # A store given as <dir>/../<store> must clear `pending` and take the ADVICE branch as the canonical path does.
+        top, st, run = self.own_world('canon')
+        odd = f'{st}/../st'
+        r = run('notify', odd, '{st}/reports/001-x.md')
+        self.assertIn('prompted master', r.stdout, r.stderr)
+        self.assertEqual(json.loads((st / 'pair.json').read_text())['pending'], [])
+        top, st, run = self.own_world('canon2', files={'advice/001-x.md': '# A\n\nstatus: answered\n'})
+        odd = f'{st}/../st'
+        r = run('notify', odd, '{st}/advice/001-x.md')
+        self.assertIn('ADVICE', r.stdout)
+        top, st, run = self.own_world('canon3')
+        r = run('finish', f'{st}/../st', '{st}/reports/001-x.md')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.loads((st / 'pair.json').read_text())['pending'], [])
+
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
         top, st, run = self.own_world('nl')

@@ -49,7 +49,7 @@ def notify(ctx, args):
     in_herdr()
     if len(args) != 2:
         raise Die('usage: pair.sh notify <store> <report-or-advice-path>')
-    store = args[0]
+    store = readlink_f(args[0])
     file = readlink_f(args[1])
     if not os.path.isfile(file):
         raise Die(f'file not found: {file}')
@@ -95,7 +95,7 @@ def finish(ctx, args):
     in_herdr()
     if len(args) != 2:
         raise Die('usage: pair.sh finish <store> <report-path>')
-    store = args[0]
+    store = readlink_f(args[0])
     report = readlink_f(args[1])
     if not os.path.isfile(report):
         raise Die(f'report not found: {report}; write it first')
