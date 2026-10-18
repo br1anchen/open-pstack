@@ -12,7 +12,8 @@ verifier-agent: <copy the verifier-agent: line from the packet>
 each naming the acceptance line or behaviour, what happened instead, and the
 Evidence block that shows it. For clean: "none". For inconclusive: what you
 could not reach and why (a missing prerequisite, a harness gap), and the
-route you tried.>
+route you tried. A test in the range with a mask or normalisation that states
+no reason, or a subprocess with no bound, is a finding too.>
 
 ## Evidence
 

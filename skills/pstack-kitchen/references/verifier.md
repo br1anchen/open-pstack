@@ -48,6 +48,12 @@ work?", and then your pane closes.
 5. Try to break it within the brief's scope: the edge the Acceptance implies
    (empty input, the error path, a second run), and the nearest feature the
    change could have regressed.
+   Standing check, on every unit whose range touches tests: every mask or
+   normalisation in a test (a regex that rewrites output, a filtered line, a
+   tolerance) states its reason in a comment or the test's docstring, and
+   every subprocess a test starts is bounded (a timeout, or a fake that
+   returns). A mask with no stated reason, or an unbounded subprocess, is a
+   finding.
    When the packet has a Lessons section, its first list is Acceptance too;
    its second you check only now, after your own pass, so known trouble does
    not narrow what you look for. Mark each lesson held or hit in the
