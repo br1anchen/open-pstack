@@ -32,6 +32,9 @@ if '--print' in args:
     print('OK')
 elif args[0] == '--fake-start':
     name = args[1]
+    if not name:
+        print('Error: a session needs a name', file=sys.stderr)
+        raise SystemExit(1)
     counter = fake / 'prime-generation'
     generation = int(counter.read_text()) + 1 if counter.exists() else 1
     counter.write_text(str(generation))

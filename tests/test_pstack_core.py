@@ -3403,27 +3403,19 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a fallback that returns 4': {**run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}), 'hook': None, **quiet},
         }
 
-    def test_a_prime_spawn_over_a_sidekick_that_is_not_an_object_differs_from_the_bash_in_two_places(self):
+    def test_a_prime_spawn_over_a_sidekick_that_is_not_an_object_matches_the_bash_at_the_phase_3_base(self):
         """D27, Prime. `spawn --kind prime-agent` over a `.sidekick` that is a string, an array or false reaches spawn.py's Prime jq program and
-        ends as the base does (rc 5, `Prime did not report its session`, the same files and events). Two things differ, both in
-        `providers.record_prime_session` (outside unit 012's scope): the base's `field ".$role.name"` there prints jq's `Cannot index X with
-        string ("name")` and reads empty, so its `agent get` call has no name; the port prints no such line and asks `agent get null`."""
+        ends as the base does: rc 5, `Prime did not report its session`, the same files, events, herdr calls and stderr, including the jq line
+        `record_prime_session` prints when it reads the role's name through `spawn.field` (the call is `agent get` with no name). The fake
+        prime-agent refuses an empty name without a Traceback, so neither side has one."""
         plain = self.spawn_command_cases()['a plain spawn']
-        for n, (label, value, shown) in enumerate((('a string', 'x', 'string'), ('an array', [1], 'array'), ('false', False, 'boolean'))):
+        for n, (label, value) in enumerate((('a string', 'x'), ('an array', [1]), ('false', False))):
             spec = {**plain, 'pair': {**plain['pair'], 'sidekick': value}, 'args': ['spawn', '{st}', '--kind', 'prime-agent']}
             got, want = self.phase3_ab(f'd27p{n}', 'pstack-pair', spec)
             self.assertEqual((got['rc'], want['rc']), (5, 5), label)
-            for key in ('stdout', 'files', 'events'):
+            for key in ('stdout', 'stderr', 'files', 'events', 'calls'):
                 self.assertEqual(got[key], want[key], (label, key))
-            lines = want['stderr'].splitlines()
-            extra = max(i for i, line in enumerate(lines) if line.endswith(f'Cannot index {shown} with string ("name")'))
-            self.assertEqual(lines[:extra] + lines[extra + 1:], got['stderr'].splitlines(), label)
-            self.assertGreater(extra, 0, label)
-            # a Traceback in both stderrs is the test's fake prime-agent writing a session file under an empty name, not the port's
-            self.assertEqual(want['stderr'].count('Traceback'), got['stderr'].count('Traceback'), label)
-            head, _, tail = want['calls'].rpartition('agent get \n')
-            self.assertEqual(head + 'agent get null\n' + tail, got['calls'], label)
-            self.assertNotIn('File "' + str(root / 'skills'), got['stderr'], label)
+            self.assertNotIn('Traceback', got['stderr'], label)
 
     def test_an_unparseable_pair_json_ends_next_spawn_and_dispatch_with_python_s_message_where_the_bash_had_jq_s(self):
         """Unit 012 (vi), pinned and accepted. With a pair.json that is not JSON the bash's first `field` read fails in jq: its parse error (twice,
@@ -3794,7 +3786,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                   'true': 'Cannot index boolean with string ("kind")', '': 'no recorded Prime session for sidekick'}
         cases = (('a string', 'x', errors['x']), ('an array', ['x'], errors['["x"]']), ('a number', 3, errors['3']), ('true', True, errors['true']),
                  ('an empty string', '', errors['']), ('false', False, 'no recorded Prime session for sidekick'), ('an object without kind', {}, ''),
-                 ('zero', 0, errors['3'].replace('number', 'number')), ('0.0', 0.0, errors['3']))
+                 ('zero', 0, errors['3']), ('0.0', 0.0, errors['3']))
         for label, value, needle in cases:
             for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
                 name = f'd26-{what}-{label}'.replace(' ', '-')

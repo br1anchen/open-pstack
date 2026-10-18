@@ -6,9 +6,8 @@ from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, role_value, stop_role
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_kind, agent_status
-from pstack_core.review import jq_raw
-from pstack_core.spawn import field, record_fallback, section, set_placement, spawn_consultant, spawn_sidekick
-from pstack_core.store import alt, header_field, pair_file, pair_json
+from pstack_core.spawn import field, record_fallback, set_placement, spawn_consultant, spawn_sidekick
+from pstack_core.store import header_field, pair_file
 from pstack_core.variant import Variant
 from pstack_core.wait import ArithError, agent_state, bash_arith, core_line, die_with_the_shell, tdiv
 

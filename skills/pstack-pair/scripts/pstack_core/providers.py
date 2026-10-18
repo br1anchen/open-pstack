@@ -147,9 +147,10 @@ def muse_session_error(cwd):
 
 def record_prime_session(store, role):
     """Record the daemon session herdr reports for the role's prime-agent pane. False when herdr reports none."""
+    from .spawn import field  # spawn imports this module
     pair = pair_json(store)
     section = alt(pair.get(role), {})
-    name = jq_raw(section.get('name') if isinstance(section, dict) else None)
+    name = field(store, role, 'name')
     code, out = herdr('agent', 'get', name)
     if code != 0:
         return False

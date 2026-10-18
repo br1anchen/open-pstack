@@ -87,9 +87,9 @@ def match_by_jq(session, sessions):
     with the text `jq -r` prints for it, over the daemon's session list: what jq says of it (an invalid argument, an index it cannot take) is
     printed, a failure ends the lookup, and a list it accepts is read as for an object."""
     text = jq_text(session)
-    given = b'' if sessions is None else (json.dumps(sessions, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8', 'surrogateescape')
+    given = (json.dumps(sessions, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8', 'surrogateescape')
     r = subprocess.run(['jq', '-c', '--argjson', 'session', text, MATCH_PROGRAM], input=given, stdout=subprocess.PIPE, check=False)
-    if r.returncode != 0 or sessions is None:
+    if r.returncode != 0:
         return None
     ids = json.loads(r.stdout.decode('utf-8', 'surrogateescape'))
     if len(ids) > 1:
