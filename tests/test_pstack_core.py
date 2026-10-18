@@ -1841,6 +1841,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'next with a stale answer on file': dict(args=['next', '{st}'], files={'queue': '{st}/briefs/002-y.md\n', 'reports/002-y.md': '# old\n'}),
         'next without pair.json': dict(args=['next', '{st}'], nopair=True),
         'next with arguments missing': dict(args=['next']),
+        'notify a partial report without pair.json': dict(args=['notify', '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': '# R\n\nstatus: partial\n'}),
         **{f'{cmd} a {status} report without pair.json': dict(args=[cmd, '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': f'# R\n\nstatus: {status}\nhead: {{c3}}\n'})
            for cmd in ('finish', 'notify') for status in ('blocked', 'failed', 'bogus', '') if not (cmd == 'finish' and status in ('bogus', ''))},
         'next, heads null': dict(args=['next', '{st}'], pair={'heads': None}, files={'queue': '{st}/briefs/002-y.md\n'}),
