@@ -3293,6 +3293,27 @@ esac
         self.assertRegex(block[1], r'^python3 \S+kitchen\.py --repo \S+/001-util-verify setup$')
         self.assertIn(' gate app behavioral ', block[2])
 
+    def test_every_packet_states_the_write_rule_and_master_only_verify_lines_stay_out(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        text = b.read_text()
+        self.assertIn('```bash\nx\n```', text)
+        b.write_text(text.replace('```bash\nx\n```', '```bash\npython3 -c "print(1)"\nkitchen.sh log demo x y z w  # master-only\n```'))
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        self.done(b, self.commit('util'))
+        self.run_sh('verify', str(self.store), '001')
+        packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        rule = 'Write rule: you write only your verdict file and the scratch worktree you were given'
+        self.assertIn(rule, packet.split('## Unit')[0])
+        self.assertIn('python3 -c "print(1)"', packet.split('not for the verifier:')[0])
+        self.assertEqual(packet.count('kitchen.sh log demo x y z w'), 1)
+        self.assertIn('kitchen.sh log demo x y z w', packet.split('not for the verifier:')[1])
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        self.run_sh('verify', str(self.store), '--landing')
+        self.assertIn(rule, (self.store / 'verdicts/landing-v1-packet.md').read_text())
+
     def test_the_landing_packet_runs_setup_first_when_declared(self):
         self.declare_setup()
         self.verify_landing()

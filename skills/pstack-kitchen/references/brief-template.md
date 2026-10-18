@@ -45,7 +45,10 @@ did not make.}}
 {{extra commands beyond the profiles' fast gates, which kitchen.sh step runs at
 every step anyway: the targeted tests for what this unit changes, or "none".
 kitchen.sh finish reruns each one exactly as written, on its own from the repo
-root at the report's head:, and refuses done unless every one exits 0}}
+root at the report's head:, and refuses done unless every one exits 0. End a
+line that writes the store (a kitchen.sh command) with `# master-only`: finish
+still reruns it, but the verifier's packet leaves it out and lists it under
+`not for the verifier:`}}
 ```
 
 ## Forbidden

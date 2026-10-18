@@ -849,6 +849,18 @@ audit_due() {
 	awk -v h="$h" -v s="$2" 'BEGIN{exit !((h % 1000) < s * 1000)}'
 }
 
+# The brief's Verify commands for a verifier's packet: each runs from the scratch
+# root, except one that ends in `# master-only` (it writes the store), which is listed apart.
+brief_commands() {
+	local list own master
+	list="$(kpy "$1" --json brief-verify "$2" --list 2>/dev/null || true)"
+	[ -n "$list" ] || list='{}'
+	own="$(jq -r '.commands // [] | map(select(test("# master-only[ \\t]*$") | not)) | join("\n")' <<<"$list" 2>/dev/null || true)"
+	master="$(jq -r '.commands // [] | map(select(test("# master-only[ \\t]*$"))) | map("- " + (. | split("\n") | join("\n  "))) | join("\n")' <<<"$list" 2>/dev/null || true)"
+	[ -z "$own" ] || printf 'Brief commands (run each from the scratch root):\n\n```bash\n%s\n```\n\n' "$own"
+	[ -z "$master" ] || printf 'not for the verifier:\n\n%s\n\n' "$master"
+}
+
 # verify starts a verification and waits for it in slices of --every
 # minutes, so one call never outlasts a master's shell limit; the verifier
 # keeps working between calls, and `verify <store> --wait` picks it up. The
@@ -1039,11 +1051,13 @@ cmd_verify() {
 	[ "$landing" -eq 0 ] || vclass=landing
 	if [ "$landing" -eq 1 ]; then scratch_id="000-landing-verify"; else scratch_id="$last-$slug-verify"; fi
 	scratch="$(cmd_scratch "$store" "$scratch_id" --at "$head" | tail -1)"
+	local packet_write_rule="Write rule: you write only your verdict file and the scratch worktree you were given; work only in that worktree and write nothing else but the verdict."
 	{
 		local u b
 		if [ "$landing" -eq 1 ]; then
 			printf '# Verify landing: the stack at %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: landing\nunits: landing\nverifier-agent: %s\nverifier-class: %s\nverifier-outcome: prepared\ndeadline: %sm from now\n\n' \
 				"${head:0:9}" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$identity" "$vclass" "$timeout_m"
+			printf '%s\n\n' "$packet_write_rule"
 			printf '## Stack\n\nEach unit below was verified on its own. Prove that together, at this tip,\nthey still hold: run every Prove command, then drive the main flows the\nbriefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n'
 			for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
 				[ -e "$b" ] && [ "$(header_field "$(expected_report "$store" "$b")" status 2>/dev/null)" = "done" ] || continue
@@ -1054,12 +1068,14 @@ cmd_verify() {
 		else
 			printf '# Verify %s: %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: %s\nunits: %s\nverifier-agent: %s\nverifier-class: %s\nverifier-outcome: prepared\ndeadline: %sm from now\n\n' \
 				"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${all[*]}" "$identity" "$vclass" "$timeout_m"
+			printf '%s\n\n' "$packet_write_rule"
 			[ "${#covered[@]}" -eq 0 ] || printf 'Unit %s fixes unit %s: prove every unit'"'"'s Acceptance at this one head.\n\n' "${units[*]}" "${covered[*]}"
 			for u in "${all[@]}"; do
 				b="$(unit_brief "$store" "$u")"
 				printf '## Unit %s\n\nbrief: %s\n\n' "$u" "$b"
 				awk '/^## (Goal|Acceptance)/{p=1; print; next} /^## /{p=0} p' "$b"
 				printf '\n'
+				brief_commands "$store" "$b"
 			done
 			local -a ubriefs=()
 			local lessons
