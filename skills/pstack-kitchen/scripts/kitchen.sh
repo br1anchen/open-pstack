@@ -483,12 +483,17 @@ quiet_wait() {
 		esac
 	done
 	start="$(quiet_now)"
-	# One wait owns the store under this shell's pid: the first inner wait claims it, the later ones only check it.
-	local claim=1
+	# One wait owns the store under this shell's pid: the first inner wait claims it, the later ones only check it. A claim that could not be
+	# made (the inner wait says `unowned:`) leaves the rest of this run unowned: its later waits must not read the missing claim as a newer owner.
+	local claim=1 unowned=0
 	while :; do
 		rc=0
-		out="$(PAIR_WAIT_OWNER=$$ PAIR_WAIT_CLAIM=$claim PAIR_QUIET_WAIT=1 core_wait "$store" "${args[@]}")" || rc=$?
+		out="$(PAIR_WAIT_OWNER=$$ PAIR_WAIT_CLAIM=$claim PAIR_WAIT_UNOWNED=$unowned PAIR_QUIET_WAIT=1 core_wait "$store" "${args[@]}")" || rc=$?
 		claim=0
+		if grep -q '^unowned:' <<<"$out"; then
+			unowned=1
+			out="$(grep -v '^unowned:' <<<"$out" || true)"
+		fi
 		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out" && [ $(( $(quiet_now) - start )) -lt "$max" ]; then
 			sleep "${KITCHEN_QUIET_POLL_S:-1}"
 			continue

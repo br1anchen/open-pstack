@@ -669,6 +669,10 @@ class ReadinessTests(unittest.TestCase):
         self.steer(1, 'scope', 'may write: docs/new.md \u2014 regenerated only')
         self.assertEqual(self.outside('docs/new.md', 'other.txt'), ['other.txt'])
 
+    def test_only_the_quoted_paths_before_the_note_count_as_scope(self):
+        self.steer(1, 'scope', 'may write "docs/a.md" \u2014 see "docs/b.md"')
+        self.assertEqual(self.outside('docs/a.md', 'docs/b.md'), ['docs/b.md'])
+
     def test_a_quoted_list_of_paths_in_a_steer_all_count(self):
         self.steer(1, 'scope', 'may write "gen/**" and "`docs/two.md`"')
         self.assertEqual(self.outside('gen/a/b.json', 'docs/two.md', 'other.txt'), ['other.txt'])

@@ -85,7 +85,7 @@ def steer(ctx, args):
         raise Die(f'{steer_path} still has unfilled placeholders')
     # the forms steer-template.md describes, each optionally followed by ` \u2014 <note>`
     effect = header_field(steer_path, 'scope effect').rstrip().split(' \u2014 ')[0]
-    if not re.fullmatch(r'none|may write: \S.*|may write "[^"]*"(?: and "[^"]*")*|must not write: \S.*', effect):
+    if not re.fullmatch(r'none|may write: \S.*|may write "[^"]+"(?: and "[^"]+")*|must not write: \S.*', effect):
         raise Die(f'{steer_path}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"')
     require_pair(store)
     name = role_value(store, 'sidekick', 'name')

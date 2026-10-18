@@ -179,13 +179,13 @@ run queue "$store" "$q1"
 run dispatch "$store" "$q1"
 run status "$store"
 # finish: the sidekick's one command after a report takes the queued brief; the master's wait is running and returns the report
-wait_while_finishing '# Report\n\nstatus: done\nhead: abc\n' "$store/reports/$(basename "$q1")" --timeout 20000
+wait_while_finishing '# Report\n\nstatus: done\nhead: abc\n' "$store/reports/$(basename "$q1")" --timeout 1500
 run next "$store"
 q3="$("$P" new-brief "$store" qthree)"; fill "$q3"; set_hdr "$q3" playbook investigation; set_hdr "$q3" plan none
 run queue "$store" "$q3"
 # a partial report ends the turn and leaves the queued brief for the master
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
-wait_while_finishing '# Report\n\nstatus: partial\n' "$store/reports/$(basename "$q2")" --timeout 20000
+wait_while_finishing '# Report\n\nstatus: partial\n' "$store/reports/$(basename "$q2")" --timeout 1500
 run status "$store"
 jq '.sidekick.kind = "devin"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 # herdr reports a settle while the sidekick still works (a Devin sidekick
@@ -286,7 +286,7 @@ run note "$store" "$n4"
 sl="$("$P" new-steer "$store" "$qn")"; fill "$sl"; set_hdr "$sl" kind narrow; set_hdr "$sl" "scope effect" none; set_hdr "$sl" supersedes none
 run steer "$store" "$sl"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
-wait_while_finishing '# Report\n\nstatus: done\nhead: abc\n' "$store/reports/$(basename "$qs")" --timeout 20000
+wait_while_finishing '# Report\n\nstatus: done\nhead: abc\n' "$store/reports/$(basename "$qs")" --timeout 1500
 # a finished unit never holds a later wait on its steps
 run wait "$store" --timeout 1500
 # Devin cannot consume or dispatch another task in the completed conversation.

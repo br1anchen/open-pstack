@@ -2124,6 +2124,22 @@ esac
         self.assertNotIn('quiet:', out)
         self.assertEqual((self.store / 'wait.pid').read_text(), 'other\n')
 
+    def test_a_failed_first_claim_leaves_the_quiet_wait_unowned_not_superseded(self):
+        # The store lock is held for the first inner wait's claim (one try) and freed by the time it waits. The later inner waits must not read
+        # the missing claim as a newer owner and end with `superseded:`; the report that lands on the third poll is returned.
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        (self.fake / 'report-after').write_text(f'3 {self.store / "reports" / b.name} partial\n')
+        self.once_hook('wait', f'rmdir "{self.store}/.pair.lock"\n')
+        (self.store / '.pair.lock').mkdir()
+        self.env.update({'PAIR_LOCK_TRIES': '1', 'PAIR_LOCK_POLL_S': '0'})
+        out = self.run_sh('wait', str(self.store), '--timeout', '1')
+        self.assertIn('report_status: partial', out)
+        self.assertIn('could not claim wait.pid', out)
+        self.assertNotIn('superseded', out)
+        self.assertNotIn('unowned:', out)
+
     def test_a_quiet_wait_releases_the_store_when_it_returns(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

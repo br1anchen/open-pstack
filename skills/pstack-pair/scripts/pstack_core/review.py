@@ -135,11 +135,11 @@ def split_code(text):
     later line of that character alone, at least as long; an unclosed fence is prose to the end, and a line that opens and closes a fence on
     itself opens nothing. In the prose lines, a backtick span (matched by run length) is cut out and becomes a code piece."""
     lines = text.split('\n')
-    prose, code, i = [], [], 0
+    prose, code, i, unclosed = [], [], 0, False
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
-        m = re.match(r'(`{3,}|~{3,})', stripped)
+        m = None if unclosed else re.match(r'(`{3,}|~{3,})', stripped)
         if m and m.group(1)[0] * len(m.group(1)) not in stripped[len(m.group(1)):]:
             fence = m.group(1)
             close = next((j for j in range(i + 1, len(lines)) if re.fullmatch(re.escape(fence[0]) + '{' + str(len(fence)) + ',}', lines[j].strip())), None)
@@ -147,6 +147,7 @@ def split_code(text):
                 code.append('\n'.join(lines[i + 1:close]))
                 i = close + 1
                 continue
+            unclosed = True
         out, pos = [], 0
         while pos < len(line):
             run = re.compile('`+').search(line, pos)

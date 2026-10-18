@@ -545,6 +545,8 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
     clock = now_s if now is None else (lambda: now)
     deadline = clock() + tdiv(timeout_ms(timeout), 1000)
     settled_at = None
+    # what the top of the loop looks for: a report written in the last slice must not read as missing because the deadline ended the wait
+    arrived = lambda: bool(pending_report(ctx, store) or fresh_reply(ctx, store) or ctx.variant.steps_due(ctx, store, dispatched(store)))
     while True:
         if token is not None and superseded(store, token):
             result.superseded = True
@@ -599,6 +601,8 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
         if code != 'timeout':
             break
         if not clock() < deadline:
+            if arrived():
+                continue
             break
     return result
 
@@ -624,13 +628,18 @@ def owned_wait(ctx, store, name, timeout, interval, now=None):
     from . import cli
     held = os.environ.get('PAIR_WAIT_OWNER')
     token = wait_token()
-    if not held or os.environ.get('PAIR_WAIT_CLAIM') == '1':
+    if held and os.environ.get('PAIR_WAIT_UNOWNED') == '1':
+        # a quiet wait whose first claim failed: it runs on without ownership, checking nothing
+        token = None
+    elif not held or os.environ.get('PAIR_WAIT_CLAIM') == '1':
         try:
             claim_wait(store, token)
         except Die as e:
             # A lock that stays held must not fail a wait whose work is done (a dispatch has delivered its brief): wait without ownership.
             sys.stderr.write(f'{cli.PROG}: wait: could not claim wait.pid ({e.message}); waiting without ownership\n')
             token = None
+            if held:
+                sys.stdout.write('unowned: wait.pid could not be claimed\n')
     try:
         result = wait_for_reply(ctx, store, name, timeout, now, token=token)
         if result.superseded:

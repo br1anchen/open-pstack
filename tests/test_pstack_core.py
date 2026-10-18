@@ -2459,8 +2459,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
               'a line that opens and closes a fence on itself': f'{fence3}{{{{x}}}}{fence3} is code\n',
               'a longer fence holding a shorter one': f'{bt * 4}\n{fence3}\n{{{{x}}}}\n{bt * 4}\n',
               'a tilde fence': f'{tl * 3}\n{{{{x}}}}\n{tl * 3}\n',
-              'a span by run length': f'``a`{{{{b}}}}`` c\n'}
-        bad = {'the template Verify placeholder in a fence': f'## Verify\n\n{fence3}bash\n{template_verify}\n{fence3}\n',
+              'a span by run length': f'``a`{{{{b}}}}`` c\n',
+              'a double-backtick span holding one backtick and a placeholder': 'use ``a`b{{c}}`` here\n'}
+        bad = {'an unclosed four-backtick fence, then a three-backtick pair around a placeholder': f'{bt * 4}\ncode\n{fence3}\n{{{{x}}}}\n{fence3}\n',
+               'a one-line open and close, then a placeholder, then a fence line': f'{fence3}x{fence3}\n{{{{y}}}}\n{fence3}\n',
+               'the template Verify placeholder in a fence': f'## Verify\n\n{fence3}bash\n{template_verify}\n{fence3}\n',
                'the STORE placeholder in backticks': f'see `{store_pair}/briefs/x.md`\n',
                'an unclosed fence is prose': f'{fence3}\n{{{{x}}}}\n',
                'a tilde does not close a backtick fence, so the pair stays code but a prose pair after the real close fails': f'{fence3}\n~~~\n{fence3}\n{{{{y}}}}\n',
@@ -2612,6 +2615,26 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         (st / 'wait.pid').write_text('x\n')
         self.assertEqual(run('wait', '{st}', '--release').returncode, 0)
         self.assertTrue((st / 'wait.pid').exists())
+
+    def test_a_report_written_in_the_last_slice_is_returned_though_the_deadline_has_passed(self):
+        # The fake herdr's once hook writes the report during the wait's first `agent wait`; with --timeout 0 the deadline is already past when
+        # that call returns. The wait looks once more before it gives up.
+        hook = '#!/bin/sh\nprintf "# R\\n\\nstatus: partial\\n" >"$FAKE/../st/reports/001-x.md"\n'
+        top, st, run = self.own_world('late', files={}, once={'wait': hook})
+        r = run('wait', '{st}', '--timeout', '0')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f'report: {st}/reports/001-x.md', r.stdout)
+        self.assertIn('report_status: partial', r.stdout)
+
+    def test_a_steer_with_an_empty_quoted_scope_path_is_refused(self):
+        top, st, run = self.own_world('se-empty', files={})
+        steer = st / 'steers/001-x-s1.md'
+        steer.parent.mkdir(exist_ok=True)
+        steer.write_text('# Steer 001-s1: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: may write ""\n\n## Direction\n\nDo it.\n')
+        r = run('steer', '{st}', str(steer))
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn('scope effect must be none', r.stderr)
+        self.assertNotIn('agent', (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else '')
 
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.

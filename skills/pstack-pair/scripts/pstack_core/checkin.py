@@ -185,7 +185,8 @@ def steer_scope_entries(store, seq, errexit=True):
         if not line.startswith('may write'):
             continue
         if '"' in line:
-            quoted = re.findall(r'"[^"]*"', line)
+            # the quoted paths come before a note (` \u2014 <note>`), which may quote words of its own
+            quoted = re.findall(r'"[^"]*"', line.split(' \u2014 ')[0])
             if not quoted and errexit:
                 break
             found.extend(q.replace('"', '').replace('`', '') for q in quoted)
