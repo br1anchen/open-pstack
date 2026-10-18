@@ -3226,6 +3226,33 @@ esac
     def outcome_of(self, packet):
         return re.search(r'^verifier-outcome: (\S+)$', Path(packet).read_text(), re.M).group(1)
 
+    def test_a_cancel_racing_an_idle_update_leaves_no_verifying(self):
+        """Fails with the idle update written without the ownership filter: it brings `.verifying` back as {idle_since: N}."""
+        self.env.update({'KITCHEN_VERIFY_POLL_S': '0', 'KITCHEN_VERIFY_IDLE_S': '100000'})
+        self.open_slow_verification()
+        # The second status poll is the idle branch's provider check, between the ownership check and the idle update.
+        self.on_nth_get(2, f'{self.script} verify {self.store} --cancel >/dev/null 2>&1')
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '1', code=5)
+        self.assertIn('verification closed elsewhere', out)
+        self.assertNotIn('verifying', self.state())
+
+    def test_a_cancel_of_a_verification_another_call_closed_prints_no_cancelled_and_leaves_the_new_one(self):
+        """The inner cancel runs in the outer one's wait for the verifier to leave: it closes V1 and starts V2 before the outer one goes on."""
+        self.env['KITCHEN_VERIFIER_EXIT_S'] = '1'
+        first = self.open_slow_verification()
+        first_pane = self.state()['verifier']['pane_id']
+        self.on_nth_get(1, self.cancel_and_replace())
+        out = self.run_sh('verify', str(self.store), '--cancel', code=5)
+        self.assertNotIn('cancelled:', out)
+        self.assertIn('another call closed it', out)
+        second = self.state()['verifying']
+        self.assertNotEqual(second['verdict'], first['verdict'])
+        self.assertEqual(self.outcome_of(first['packet']), 'cancelled')
+        self.assertEqual(self.outcome_of(second['packet']), 'running')
+        self.assertTrue((self.store / 'scratch' / second['scratch']).exists())
+        self.assertEqual((self.fake / 'calls.log').read_text().count(f'pane close {first_pane}'), 1)
+        self.assertTrue((self.fake / 'panes' / self.state()['verifier']['pane_id']).exists())
+
     def test_a_waiter_in_the_grace_whose_verification_was_cancelled_and_replaced_exits_5_and_touches_nothing(self):
         """Fails with `verification_still_open` made a no-op: the waiter then prints the grace progress of the replaced verification and exits 4."""
         self.env['KITCHEN_VERIFY_POLL_S'] = '0'

@@ -1367,15 +1367,15 @@ verify_grace() {
 		grace_until=$(( now + ${KITCHEN_VERIFY_GRACE_S:-600} ))
 		delivery=prompted
 		if [ "$kind" = devin ] && [ "$state" = working ]; then delivery=skipped:devin-working; fi
-		json_update "$store" --argjson at "$now" --argjson until "$grace_until" --arg d "$delivery" \
-			'.verifying.grace_at = $at | .verifying.grace_until = $until | .verifying.grace_delivery = $d'
+		update_verifying "$store" "$verdict" '.verifying.grace_at = $at | .verifying.grace_until = $until | .verifying.grace_delivery = $d' \
+			--argjson at "$now" --argjson until "$grace_until" --arg d "$delivery"
 		if [ "$delivery" = prompted ]; then
 			text="Deadline reached: write $verdict now with status inconclusive, listing what you proved (with its evidence) and what you never reached, then end your turn. Stop any process you started first, and write the file complete in one write: create it under a temporary name in the same directory, then rename it into place."
 			if herdr agent prompt "$name" "$text" >/dev/null 2>&1; then
 				submit_typed "$name" "$(basename "$verdict")"
 			else
 				delivery=skipped:prompt-failed
-				json_update "$store" --arg d "$delivery" '.verifying.grace_delivery = $d'
+				update_verifying "$store" "$verdict" '.verifying.grace_delivery = $d' --arg d "$delivery"
 			fi
 		fi
 		event "$store" master verify-grace "$brief" "$delivery"
@@ -1404,7 +1404,7 @@ verify_grace() {
 # Cancels the open verification that has no verdict yet: its verifier and pane
 # stop, its scratch goes, and .verifying is cleared.
 verify_cancel() {
-	local store="$1" verdict units name kind brief
+	local store="$1" verdict units name kind brief packet
 	verdict="$(field "$store" '.verifying.verdict // empty')"
 	[ -n "$verdict" ] || die "no verification open" 5
 	if [ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ]; then
@@ -1412,10 +1412,11 @@ verify_cancel() {
 	fi
 	units="$(field "$store" .verifying.units)"
 	brief="$(field "$store" .verifying.brief)"
+	packet="$(field "$store" .verifying.packet)"
 	name="$(field "$store" .verifier.name)"
 	kind="$(field "$store" .verifier.kind)"
 	close_verifier "$store" "$name" "$kind" "$(field "$store" .verifier.pane_id)" "$verdict" || die "no verification open (another call closed it)" 5
-	set_outcome "$(field "$store" .verifying.packet)" cancelled
+	set_outcome "$packet" cancelled
 	drop_verifying "$store" "$verdict"
 	event "$store" master verify-cancel "$brief" "$units"
 	printf 'cancelled: %s\n' "$units"
@@ -1450,21 +1451,32 @@ drop_verifying() {
 	json_update "$1" --arg v "$2" 'if .verifying.verdict == $v then del(.verifying) else . end'
 }
 
+# Applies jq update $3 to .verifying only while it still names the verification with verdict $2, so a
+# write that lands after another call closed it cannot bring .verifying back. $4... are jq arguments.
+update_verifying() {
+	local store="$1" v="$2" body="$3"
+	shift 3
+	json_update "$store" --arg v "$v" "$@" "if .verifying.verdict == \$v then ($body) else . end"
+}
+
 # Stops the open verification's verifier, closes its pane and removes its scratch,
 # unless .verifying no longer names the verification with verdict $5.
 close_verifier() {
-	local store="$1" name="$2" kind="$3" pane="$4" gone
+	local store="$1" name="$2" kind="$3" pane="$4" gone scratch
 	[ "$(field "$store" '.verifying.verdict // empty')" = "$5" ] || return 1
+	scratch="$(field "$store" .verifying.scratch)"
 	if [ "$kind" = prime-agent ]; then
 		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5
 	else
 		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
-		gone=$(( $(date +%s) + 15 ))
+		gone=$(( $(date +%s) + ${KITCHEN_VERIFIER_EXIT_S:-15} ))
 		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
 	fi
+	# Another call may have closed this verification while the verifier was leaving.
+	[ "$(field "$store" '.verifying.verdict // empty')" = "$5" ] || return 1
 	herdr pane close "$pane" >/dev/null 2>&1 || true
 	[ "$kind" != prime-agent ] || json_update "$store" '.verifier.closed = true'
-	cmd_scratch "$store" "$(field "$store" .verifying.scratch)" --remove >/dev/null
+	cmd_scratch "$store" "$scratch" --remove >/dev/null
 }
 
 # A wait ends, touching nothing, when another call closed the verification it
@@ -1501,7 +1513,7 @@ verify_wait() {
 		case "$(agent_status "$name")" in
 		idle | "done") redeliver_packet "$store" "the verify that started this verifier stopped before sending its packet" ;;
 		esac
-		json_update "$store" '.verifying.delivered = true'
+		update_verifying "$store" "$verdict" '.verifying.delivered = true'
 	fi
 	while :; do
 		[ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ] && break
@@ -1523,18 +1535,18 @@ verify_wait() {
 			if [ "$(field "$store" .verifier.kind)" = prime-agent ] && [ -n "$(verifier_provider_error "$store" "$name" "$session")" ]; then
 				break
 			fi
-			[ -z "$idle_since" ] || json_update "$store" 'del(.verifying.idle_since)' ;;
+			[ -z "$idle_since" ] || update_verifying "$store" "$verdict" 'del(.verifying.idle_since)' ;;
 		idle | "done")
 			[ -z "$(verifier_provider_error "$store" "$name" "$session")" ] || break
 			if [ -n "$(busy_command "$(field "$store" .verifier.pane_id)" "$(field "$store" .verifying.started)")" ]; then
-				[ -z "$idle_since" ] || json_update "$store" 'del(.verifying.idle_since)'
+				[ -z "$idle_since" ] || update_verifying "$store" "$verdict" 'del(.verifying.idle_since)'
 			elif [ -z "$idle_since" ]; then
-				json_update "$store" --argjson at "$now" '.verifying.idle_since = $at'
+				update_verifying "$store" "$verdict" '.verifying.idle_since = $at' --argjson at "$now"
 			elif [ $(( now - idle_since )) -ge "${KITCHEN_VERIFY_IDLE_S:-600}" ]; then
 				stalled=1
 				break
 			fi ;;
-		*) [ -z "$idle_since" ] || json_update "$store" 'del(.verifying.idle_since)' ;;
+		*) [ -z "$idle_since" ] || update_verifying "$store" "$verdict" 'del(.verifying.idle_since)' ;;
 		esac
 		sleep "${KITCHEN_VERIFY_POLL_S:-10}"
 	done
