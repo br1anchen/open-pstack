@@ -1186,6 +1186,18 @@ verifier_provider_error() {
 # whether idle, done or working (their harnesses queue it); a working Devin does
 # not (Enter would cancel its command), so it is only waited on; a blocked or
 # unknown agent gets no prompt and no grace. $5 is this call's interval end.
+# The verifier's state for a progress line: an idle or done verifier whose pane
+# still runs a command of its own (a backgrounded gate, a Monitor) is working.
+verifier_shown() {
+	local store="$1" state="$2" cmd
+	case "$state" in
+	idle | "done")
+		cmd="$(busy_command "$(field "$store" .verifier.pane_id)" "$(field "$store" .verifying.started)")"
+		if [ -n "$cmd" ]; then printf 'working (%s)' "$cmd"; return; fi ;;
+	esac
+	printf '%s' "$state"
+}
+
 verify_grace() {
 	local store="$1" name="$2" kind="$3" verdict="$4" until="$5" state now delivery grace_until brief text
 	brief="$(field "$store" .verifying.brief)"
@@ -1221,7 +1233,7 @@ verify_grace() {
 		esac
 		if [ "$now" -ge "$until" ]; then
 			printf 'verifying: units %s by %s, past its deadline; grace %ss left (%s), verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
-				"$(( grace_until - now ))" "$(field "$store" .verifying.grace_delivery)" "$state"
+				"$(( grace_until - now ))" "$(field "$store" .verifying.grace_delivery)" "$(verifier_shown "$store" "$state")"
 			printf 'next: other work, then kitchen.sh verify %s --wait\n' "$store"
 			event "$store" master wake "$brief" "verify:grace"
 			exit 4
@@ -1273,7 +1285,7 @@ verify_wait() {
 		[ "$state" != absent ] && [ "$now" -lt "$(field "$store" .verifying.deadline)" ] || break
 		if [ "$now" -ge "$until" ]; then
 			printf 'verifying: units %s by %s, %sm of %sm, verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
-				"$(( (now - $(field "$store" .verifying.started)) / 60 ))" "$(( ($(field "$store" .verifying.deadline) - $(field "$store" .verifying.started)) / 60 ))" "$state"
+				"$(( (now - $(field "$store" .verifying.started)) / 60 ))" "$(( ($(field "$store" .verifying.deadline) - $(field "$store" .verifying.started)) / 60 ))" "$(verifier_shown "$store" "$state")"
 			printf 'next: other work, then kitchen.sh verify %s --wait\n' "$store"
 			event "$store" master wake "$(field "$store" .verifying.brief)" "verify:progress"
 			exit 4

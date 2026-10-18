@@ -3245,6 +3245,27 @@ esac
         self.assertNotIn('verifying', self.state())
         self.assertEqual(self.grace_prompts(), [])
 
+    def test_progress_says_what_an_idle_verifier_is_running(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 10\n')
+        self.write('tests/test_app.py', 'x = 10\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        verifier = self.state()['verifier']
+        pair = self.store / 'pair.json'
+        data = json.loads(pair.read_text())
+        data['verifying']['started'] -= 100
+        pair.write_text(json.dumps(data))
+        (self.fake / 'agents' / verifier['name']).write_text('idle pi\n')
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', code=4)
+        self.assertRegex(out, r'verifier idle\n')
+        proc = subprocess.Popen(['sleep', '30'], cwd=self.repo, env={**self.env, 'HERDR_PANE_ID': verifier['pane_id']})
+        self.addCleanup(lambda: (proc.kill(), proc.wait()))
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', code=4)
+        self.assertRegex(out, r'verifier working \(sleep for 0m\)\n')
+
     def test_the_deadline_asks_once_for_an_inconclusive_verdict(self):
         out = self.deadline_verify('grace-writes', code=2)
         self.assertIn('status: inconclusive', out)
