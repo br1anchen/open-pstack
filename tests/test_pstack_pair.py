@@ -925,7 +925,7 @@ esac
         self.spawn_prime()
         self.dispatch()
         steer = self.store / 'steers/001-first-s1.md'
-        steer.write_text('## Direction\n\nCorrect the acceptance criteria.\n')
+        steer.write_text('scope effect: none\n\n## Direction\n\nCorrect the acceptance criteria.\n')
         (self.fake / 'agents/demo-sidekick').write_text('working prime-agent\n')
         self.run_command('steer', str(self.store), str(steer))
         send = self.prime_calls('send')

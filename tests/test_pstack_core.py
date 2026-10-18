@@ -2356,6 +2356,41 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         wait.release_wait(str(st), 'newer')
         self.assertTrue(wait.superseded(str(st), 'newer'))
 
+    def test_require_filled_reads_a_complete_placeholder_pair_in_prose_only(self):
+        # A12. A double opening brace inside a fenced block or backticks is code; a complete pair in prose is a placeholder.
+        ctx = Context('pstack-pair', '/x', '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+        f = self.path / 'filled.md'
+        fence = '```'
+        ok = {'a fenced block': f'text\n{fence}sh\necho ${{{{x}}}}\n{fence}\nmore\n', 'backticks': 'use `${{name}}` here\n', 'a lone opening pair in prose': 'a {{ is just a brace pair\n',
+              'a fenced block with a placeholder-looking pair': f'{fence}\n{{{{x}}}}\n{fence}\n'}
+        for label, text in ok.items():
+            f.write_text(text)
+            self.assertIsNone(review.require_filled(ctx, str(f)), label)
+        bad = {'a pair around x in prose': 'fill {{x}} in\n', 'a pair across lines': 'fill {{x\nmore}} in\n', 'a pair after a closed fence': f'{fence}\ncode\n{fence}\n{{{{y}}}}\n',
+               'a pair after a backtick span': 'see `a` then {{z}}\n'}
+        for label, text in bad.items():
+            f.write_text(text)
+            with self.assertRaises(Die, msg=label):
+                review.require_filled(ctx, str(f))
+
+    def test_a_steer_whose_scope_effect_is_not_one_of_the_three_is_refused_before_any_herdr_call(self):
+        # A5.
+        for label, effect, ok in (('prose around the form', 'add "may write: x"', False), ('empty', '', False), ('a bare path', 'src/x.py', False),
+                                  ('may write with no path', 'may write:', False), ('none', 'none', True), ('may write', 'may write: src/**', True),
+                                  ('must not write', 'must not write: docs/x.md', True)):
+            top, st, run = self.own_world('se-' + label.replace(' ', '-'), files={})
+            steer = st / 'steers/001-x-s1.md'
+            steer.parent.mkdir(exist_ok=True)
+            steer.write_text(f'# Steer 001-s1: x\n\nbrief: {st}/briefs/001-x.md\nsupersedes: none\nkind: scope\nscope effect: {effect}\n\n## Direction\n\nDo it.\n')
+            r = run('steer', '{st}', str(steer))
+            calls = (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else ''
+            if ok:
+                self.assertEqual(r.returncode, 0, (label, r.stdout, r.stderr))
+            else:
+                self.assertEqual((r.returncode, r.stdout), (1, ''), label)
+                self.assertEqual(r.stderr, f'pair.sh: {steer}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"\n', label)
+                self.assertNotIn('agent', calls, label)
+
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
         top, st, run = self.own_world('nl')

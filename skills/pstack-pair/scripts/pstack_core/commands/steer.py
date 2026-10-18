@@ -9,6 +9,7 @@ from ..collate import newest
 from ..errors import Die
 from ..herdr import agent_status
 from ..prime import prime_steer
+from ..review import has_placeholder
 from ..send import prompt_sidekick
 from ..store import cut_chars, event, header_field, readlink_f, unit_name, update_or_jq
 from ..wait import die_with_the_shell, owned_wait, wait_opts
@@ -74,8 +75,11 @@ def steer(ctx, args):
         raise Die(f'not a steer file: {steer_path}')
     if not re.search(r'(?m)^## Direction', text):
         raise Die(f'not a steer file: {steer_path}')
-    if '{{' in text or re.search(r'(?m)^(kind|scope effect): .*\|', text):
+    if has_placeholder(text) or re.search(r'(?m)^(kind|scope effect): .*\|', text):
         raise Die(f'{steer_path} still has unfilled placeholders')
+    effect = header_field(steer_path, 'scope effect')
+    if not re.fullmatch(r'none|may write: \S.*|must not write: \S.*', effect):
+        raise Die(f'{steer_path}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"')
     require_pair(store)
     name = role_value(store, 'sidekick', 'name')
     status = agent_status(name)

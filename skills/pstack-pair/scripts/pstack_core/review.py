@@ -109,10 +109,27 @@ def review_base(store, unit):
     return base
 
 
+def prose_lines(text):
+    """The lines of text outside fenced code blocks (a line of three backticks opens one and the next closes it), with backtick spans removed:
+    code may hold a double opening brace (a shell expansion, a template literal) and is not a placeholder."""
+    lines, fenced = [], False
+    for line in text.split('\n'):
+        if line.lstrip().startswith('```'):
+            fenced = not fenced
+        elif not fenced:
+            lines.append(re.sub(r'`[^`]*`', '', line))
+    return lines
+
+
+def has_placeholder(text):
+    """A complete placeholder pair (two opening braces, text without a closing brace, two closing braces) in the prose of text."""
+    return re.search(r'\x7b\x7b[^}]*\x7d\x7d', '\n'.join(prose_lines(text))) is not None
+
+
 def require_filled(ctx, path):
     try:
-        lines = read_text(path).split('\n')
+        text = read_text(path)
     except OSError:
         return
-    if any('{{' in line for line in lines) or (ctx.unfilled_re and any(re.search(ctx.unfilled_re, line) for line in lines)):
+    if has_placeholder(text) or (ctx.unfilled_re and any(re.search(ctx.unfilled_re, line) for line in prose_lines(text))):
         raise Die(f'{path} still has unfilled placeholders')
