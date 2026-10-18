@@ -909,7 +909,7 @@ cmd_verify() {
 	fi
 	[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "a verification is open ($(field "$store" '.verifying.units')); kitchen.sh verify $store --wait" 5
 	local -a all=("${covered[@]}" "${units[@]}")
-	local root base head json last brief slug k verdict packet mode class risk snap
+	local root base head json last brief slug k verdict packet mode class risk snap prior
 	root="$(field "$store" .git_root)"
 	[ -z "$land_head" ] || [ "$landing" -eq 1 ] || die "--head goes with --landing"
 	if [ -n "$parent_ref" ]; then
@@ -929,6 +929,9 @@ cmd_verify() {
 			landing_base "$root" "$head" "$store"
 			base="$landing_base_rev"
 		fi
+		# A rebase since the last landing verdict may have moved a dependency manifest.
+		prior="$(latest_landing_verdict "$store")"
+		[ -z "$prior" ] || manifest_warning "$store" "$(git -C "$root" rev-parse --verify --quiet "$(header_field "$prior" range | sed 's/\.\..*//')^{commit}" 2>/dev/null || true)" "$base"
 		# The stack lands under the kitchen as it is now.
 		kitchen_cfg=()
 		snap="$(kitchen_snapshot "$store")"
@@ -1627,6 +1630,42 @@ cites_engine() {
 	[ "${cited%% *}" = "$2" ] && [ "${cited#* }" != "$cited" ]
 }
 
+# The newest landing verdict file in the store, or nothing.
+latest_landing_verdict() {
+	local f lk best=0 found=""
+	for f in "$1"/verdicts/landing-v[0-9]*.md; do
+		[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
+		lk="${f##*-v}"
+		lk="${lk%.md}"
+		[ "$lk" -le "$best" ] || { best="$lk"; found="$f"; }
+	done
+	printf '%s' "$found"
+}
+
+# Where the stack at HEAD leaves trunk now (the recorded landing parent, else
+# the merge-base with trunk), or nothing. $1 store.
+current_landing_base() {
+	local root parent trunk
+	root="$(field "$1" .git_root)"
+	parent="$(field "$1" '.landing.parent // empty')"
+	if [ -n "$parent" ]; then
+		git -C "$root" rev-parse --verify --quiet "$parent^{commit}" 2>/dev/null || true
+		return 0
+	fi
+	trunk="$(trunk_ref "$root")"
+	[ -z "$trunk" ] || git -C "$root" merge-base "$trunk" HEAD 2>/dev/null || true
+}
+
+# When the stack's base moved since a landing was verified (a rebase), lists the
+# dependency manifests (kitchen.toml escalate.manifests, as classify reads them)
+# that changed between the two bases. $1 store, $2 verified base, $3 current base.
+manifest_warning() {
+	local files
+	[ -n "$2" ] && [ -n "$3" ] && [ "$2" != "$3" ] || return 0
+	files="$(kpy "$1" --json classify --base "$2" --head "$3" 2>/dev/null | jq -r '[.escalate[]? | select(startswith("dependency manifest: ")) | sub("^dependency manifest: "; "")] | join(", ")' 2>/dev/null || true)"
+	[ -z "$files" ] || printf 'warning: dependency manifests changed since the verified base: %s\n' "$files"
+}
+
 # Whether the unit's range adds no lines: `git diff --numstat` from its dispatch
 # head to its head sums to 0 added (a binary file counts as added). $1 store, $2 brief.
 unit_adds_no_lines() {
@@ -1734,6 +1773,7 @@ land_check() {
 	done
 	# A landing verification is reported, not required.
 	if [ -n "$landing_verdict" ]; then
+		manifest_warning "$store" "$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/\.\..*//')^{commit}" 2>/dev/null || true)" "$(current_landing_base "$store")"
 		printf 'landing verification: %s (%s)\n' "$(header_field "$landing_verdict" status)" "$landing_verdict"
 		behind="$(git -C "$(field "$store" .git_root)" rev-list --count "$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')..HEAD" 2>/dev/null || true)"
 		vhead="$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')"

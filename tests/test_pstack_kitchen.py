@@ -4106,6 +4106,26 @@ esac
         self.assertIn('is not a commit', self.run_sh('verify', str(self.store), '--landing', '--head', 'nope', code=1))
         self.assertIn('--head goes with --landing', self.run_sh('verify', str(self.store), '001', '--head', 'side', code=1))
 
+    def rebased_after_a_landing_verdict(self, trunk_file):
+        init, heads = self.two_unit_stack()
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{heads[-1][:9]}\n')
+        self.git('checkout', '-q', '-b', 'rebased', init)
+        self.write(trunk_file, 'pytest==9\n')
+        trunk = self.commit('trunk moved')
+        self.git('update-ref', 'refs/remotes/origin/main', trunk)
+        self.git('cherry-pick', *heads)
+
+    def test_land_check_warns_when_a_dependency_manifest_changed_since_the_verified_base(self):
+        self.rebased_after_a_landing_verdict('requirements.txt')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
+
+    def test_land_check_says_nothing_of_manifests_when_trunk_moved_another_file(self):
+        self.rebased_after_a_landing_verdict('docs/notes.md')
+        self.assertNotIn('dependency manifests', self.run_sh('land-check', str(self.store)))
+
     def test_a_clean_landing_verdict_whose_range_head_does_not_resolve_says_so_and_covers_nothing(self):
         init, head, landing = self.landing_range_world()
         landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..deadbeef0\n')
