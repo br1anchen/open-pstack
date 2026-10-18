@@ -61,6 +61,11 @@ def pending(store):
     """jq -r '.pending // [] | .[]', the non-empty lines. The shapes jq rejects or prints differently (a string or an object for .pending,
     nested arrays) are not reproduced: no writer stores them."""
     items = alt(pair_json(store).get('pending'), [])
+    if not isinstance(items, list):
+        # `.[]` of a string or a number is jq's own error (printed), of an object its values: ask jq
+        import subprocess
+        r = subprocess.run(['jq', '-r', '.pending // [] | .[]', f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
+        return [line for line in r.stdout.decode('utf-8', 'surrogateescape').split('\n') if line]
     return [line for item in items for line in jq_raw(item).split('\n') if line]
 
 
@@ -90,7 +95,10 @@ def fresh_reply(ctx, store):
             continue
         t = file_mtime(f)
         floor = bash_int(epoch)
-        if floor is None or t < floor:
+        if floor is None:
+            integer_expected(epoch)
+            continue
+        if t < floor:
             continue
         if not ctx.variant.report_ready(ctx, store, f).ready:
             continue
@@ -153,6 +161,15 @@ def unreviewed_steps(ctx, store):
     return rows or None
 
 
+def integer_expected(value):
+    """The message bash prints on stderr when `[ x -ge "$value" ]` meets a value that is not an integer (the test is then false). It names
+    pair-core.sh and a line of it, as bash does; the line is the one of the wait command's shim."""
+    import sys
+    from .wait import core_line
+    path, number = core_line('wait', 'cmd_wait() {')
+    sys.stderr.write(f'{path}: line {number}: [: {value}: integer expected\n')
+
+
 def withheld_report(ctx, store):
     """(path, why) of the sent unit's report when it is written but withheld, or None."""
     sent = sent_field(store, 'file')
@@ -161,6 +178,8 @@ def withheld_report(ctx, store):
     report = f'{store}/reports/{re.sub(r"-a[0-9]+$", "", unit_name(sent))}.md'
     epoch = sent_field(store, 'epoch') if sent_field(store, 'epoch') != '' else '0'
     floor = bash_int(epoch)
+    if floor is None and os.path.isfile(report):
+        integer_expected(epoch)
     if floor is None or not (os.path.isfile(report) and file_mtime(report) >= floor):
         return None
     ready = ctx.variant.report_ready(ctx, store, report)

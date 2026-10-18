@@ -9,7 +9,8 @@ import subprocess
 import sys
 import time
 
-from .checkin import checkin, sidekick_activity
+from .checkin import checkin
+from .checkin import sidekick_activity as _sidekick_activity
 from .errors import Die, Exit
 from .herdr import agent_status, pane_busy
 from .providers import provider_hint
@@ -332,7 +333,8 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
     """finish_wait(): print the outcome of a wait and return the exit code the bash exits with."""
     write = sys.stdout.write
     clock = now_s if now is None else (lambda: now)
-    name = lambda: jq_raw(alt(alt(pair_json(store).get('sidekick'), {}).get('name'), None))
+    from .spawn import field
+    name = lambda: field(store, 'sidekick', 'name')
     if result.code != 0:
         state = error_state(result.err)
         if state == 'timeout':
@@ -415,7 +417,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         write('report: missing\n')
     if state == 'blocked':
         event(store, 'master', 'wake', running, why or 'blocked')
-        write(provider_hint(store))
+        write(hint_for(store))
         return 3
     if agent_status(name()) == 'working' or activity:
         if os.environ.get('PAIR_QUIET_WAIT') != '1':
@@ -423,8 +425,25 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         write(checkin(ctx, store, str(interval), clock()))
     else:
         event(store, 'master', 'wake', running, why or 'missing')
-        write(provider_hint(store))
+        write(hint_for(store))
     return 4
+
+
+def sidekick_activity(store, now):
+    """checkin.sidekick_activity, whose first read, field .sidekick.pane_id, prints jq's error when `.sidekick` cannot be indexed."""
+    from .spawn import field
+    if not isinstance(pair_json(store).get('sidekick'), (dict, type(None))):
+        field(store, 'sidekick', 'pane_id', empty=True)
+    return _sidekick_activity(store, now)
+
+
+def hint_for(store):
+    """provider_hint where the bash has errexit on: its first read, field .sidekick.name, ends the command with jq's status when `.sidekick`
+    cannot be indexed (a string, an array, a number or a boolean)."""
+    from .spawn import field
+    if not isinstance(pair_json(store).get('sidekick'), (dict, type(None))):
+        field(store, 'sidekick', 'name', check=True)
+    return provider_hint(store)
 
 
 def sent_file(store):
@@ -651,6 +670,6 @@ def wait(ctx, args):
         raise Die(f'unknown option {rest[0]}')
     if not os.path.isfile(f'{store}/pair.json'):
         missing_pair(store)
-    pair = pair_json(store)
-    name = jq_raw(alt(alt(pair.get('sidekick'), {}).get('name'), None))
+    from .spawn import field
+    name = field(store, 'sidekick', 'name')
     return owned_wait(ctx, store, name, timeout, interval)

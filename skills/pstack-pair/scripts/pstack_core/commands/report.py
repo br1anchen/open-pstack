@@ -91,6 +91,14 @@ def next_brief(ctx, args):
     return 0
 
 
+def sidekick_kind(store, sidekick):
+    """field "$store" .sidekick.kind: where `.sidekick` cannot be indexed jq says so (and the value reads empty)."""
+    if not isinstance(pair_json(store).get('sidekick'), (dict, type(None))):
+        from ..spawn import field
+        return field(store, 'sidekick', 'kind')
+    return jq_raw(sidekick.get('kind'))
+
+
 def finish(ctx, args):
     in_herdr()
     if len(args) != 2:
@@ -123,7 +131,7 @@ def finish(ctx, args):
     sidekick = section(pair, 'sidekick')
     dispatch = alt(pair.get('dispatch'), {})
     current = jq_raw(alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, ''))
-    kind = jq_raw(sidekick.get('kind'))
+    kind = sidekick_kind(store, sidekick)
     generation = jq_raw(alt(sidekick.get('generation'), 0))
     if (status == 'done' and fresh_per_brief(kind) and current and report == expected_report(store, current)
             and jq_raw(alt(dispatch.get('generation') if isinstance(dispatch, dict) else None, 0)) == generation):
@@ -139,7 +147,7 @@ def finish(ctx, args):
                   'and the master folds it into the next brief')
     pair = pair_json(store)
     sidekick = section(pair, 'sidekick')
-    if status == 'done' and fresh_per_brief(jq_raw(sidekick.get('kind'))):
+    if status == 'done' and fresh_per_brief(sidekick_kind(store, sidekick)):
         if jq_raw(alt(sidekick.get('rotation_required'), False)) == 'true':
             print(f'rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate {store}')
         print(f'next: end the turn with the single line: {ctx.skill} REPORT {report}')

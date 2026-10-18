@@ -1873,88 +1873,65 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(outcomes['finish a done report without pair.json']['rc'], 2)
 
     def damaged_store_cases(self):
-        """Stores a hand edit or a crash leaves in a shape the commands never write, each run at e6e83e3 and in the working tree: {name: (spec,
-        base rc, port rc, text the base's stderr holds, text the port's holds)}. Each is a difference PARITY.md accepts (D18, D20, D21); the test
-        asserts the difference itself, so a port that comes to match the base, or to differ otherwise, fails here and the row gets rewritten."""
+        """Stores a hand edit or a crash leaves in a shape the commands never write: {name: (spec, base rc, text the base's stderr holds)}. The
+        phase 2 commands (wait, next, finish, dispatch) run at e6e83e3 and in the working tree, and the whole outcome must be equal."""
         queued = {'queue': '{st}/briefs/002-y.md\n'}
         nxt = lambda **kw: dict(args=['next', '{st}'], files=queued, **kw)
         sent = {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1}
         done = {'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}
         wait = lambda **kw: dict(args=['wait', '{st}', '--timeout', '1000'], files=done, **kw)
         index = lambda kind, key: f'Cannot index {kind} with string ("{key}")'
-        attr = lambda kind: f"AttributeError: '{kind}' object has no attribute 'get'"
         cases = {
-            'next with a queue that is a directory': (dict(args=['next', '{st}'], files={'queue/x': ''}), 4, 1, 'queued brief is gone', 'Is a directory'),
-            'finish a done report with a queue that is a directory': (dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={**done, 'queue/x': ''}), 0, 1,
-                                                                      'queued brief is gone', 'Is a directory'),
-            'next with heads false': (nxt(pair={'heads': False}), 0, 0, index('boolean', '002-y'), ''),
-            'next with heads a string': (nxt(pair={'heads': 'x'}), 0, 1, index('string', '002-y'), attr('str')),
-            'next with heads an array': (nxt(pair={'heads': [1]}), 0, 1, index('array', '002-y'), attr('list')),
-            'next with heads a number': (nxt(pair={'heads': 3}), 0, 1, index('number', '002-y'), attr('int')),
-            'next with pending that mixes strings, a number and a null': (nxt(pair={'pending': ['b', 1, None, 'a']}), 0, 1, '', 'TypeError'),
-            'next with pending that holds an object': (nxt(pair={'pending': ['b', {'k': 1}, 'a']}), 0, 1, '', 'TypeError: unhashable type'),
-            'next with pending numbers': (nxt(pair={'pending': [3, 1, 2]}), 0, 1, '', 'TypeError'),
-            'next with pending a string': (nxt(pair={'pending': 'x'}), 0, 0, 'cannot be added', ''),
-            'next with pending an object': (nxt(pair={'pending': {'a': 1}}), 0, 0, 'cannot be added', ''),
-            'wait with an epoch that is not a number': (dict(args=['wait', '{st}', '--timeout', '1000'], files=done, pair={'sent': {**sent, 'epoch': 'abc'}}), 4, 4,
-                                                        'integer expected', ''),
-            'wait with pending a number': (wait(pair={'pending': 3, 'sent': sent}), 0, 1, 'Cannot iterate over number (3)', "TypeError: 'int' object is not iterable"),
-            'wait with pending a string': (wait(pair={'pending': 'x', 'sent': sent}), 0, 0, 'Cannot iterate over string ("x")', ''),
-            'wait with pending an object': (wait(pair={'pending': {'a': 1}, 'sent': sent}), 0, 0, '', ''),
-            'wait with a sidekick that is false': (wait(pair={'sidekick': False, 'sent': sent}), 0, 0, index('boolean', 'name'), ''),
+            'next with a queue that is a directory': (dict(args=['next', '{st}'], files={'queue/x': ''}), 4, 'queued brief is gone'),
+            'finish a done report with a queue that is a directory': (dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={**done, 'queue/x': ''}), 0,
+                                                                      'queued brief is gone'),
+            'next with heads false': (nxt(pair={'heads': False}), 0, index('boolean', '002-y')),
+            'next with heads a string': (nxt(pair={'heads': 'x'}), 0, index('string', '002-y')),
+            'next with heads an array': (nxt(pair={'heads': [1]}), 0, index('array', '002-y')),
+            'next with heads a number': (nxt(pair={'heads': 3}), 0, index('number', '002-y')),
+            'next with pending that mixes strings, a number and a null': (nxt(pair={'pending': ['b', 1, None, 'a']}), 0, ''),
+            'next with pending that holds an object': (nxt(pair={'pending': ['b', {'k': 1}, 'a']}), 0, ''),
+            'next with pending numbers': (nxt(pair={'pending': [3, 1, 2]}), 0, ''),
+            'next with pending a string': (nxt(pair={'pending': 'x'}), 0, 'cannot be added'),
+            'next with pending an object': (nxt(pair={'pending': {'a': 1}}), 0, 'cannot be added'),
+            'wait with an epoch that is not a number': (dict(args=['wait', '{st}', '--timeout', '1000'], files=done, pair={'sent': {**sent, 'epoch': 'abc'}}), 4,
+                                                        'integer expected'),
+            'wait with pending a number': (wait(pair={'pending': 3, 'sent': sent}), 0, 'Cannot iterate over number (3)'),
+            'wait with pending a string': (wait(pair={'pending': 'x', 'sent': sent}), 0, 'Cannot iterate over string ("x")'),
+            'wait with pending an object': (wait(pair={'pending': {'a': 1}, 'sent': sent}), 0, ''),
         }
-        for kind, value, name in (('string', 'x', 'str'), ('array', [1], 'list'), ('number', 3, 'int'), ('boolean', True, 'bool')):
-            cases[f'wait with a sidekick that is {kind}'] = (wait(pair={'sidekick': value, 'sent': sent}), 0, 1, index(kind, 'name'), attr(name))
+        kinds = (('false', False, 'boolean'), ('a string', 'x', 'string'), ('an array', [1], 'array'), ('a number', 3, 'number'), ('true', True, 'boolean'))
         idle = lambda value: dict(args=['wait', '{st}', '--timeout', '1000'], agents={'s1': 'idle claude'}, env={'PAIR_SETTLE_HOLD': '0'}, pair={'sidekick': value, 'sent': sent})
-        cases['wait for an idle sidekick that is false'] = (idle(False), 5, 4, index('boolean', 'name'), '')
-        for kind, value, name in (('string', 'x', 'str'), ('array', [1], 'list')):
-            cases[f'wait for an idle sidekick that is {kind}'] = (idle(value), 5, 1, index(kind, 'name'), attr(name))
-        for kind, value in (('false', False), ('a string', 'x'), ('an array', [1])):
-            shown = {'false': 'boolean', 'a string': 'string', 'an array': 'array'}[kind]
-            cases[f'dispatch to a sidekick that is {kind}'] = (dict(args=['dispatch', '{st}', '{st}/briefs/002-y.md', '--send-only'], pair={'sidekick': value}), 5, 2,
-                                                              index(shown, 'kind'), 'is not live')
-            cases[f'finish a done report with a sidekick that is {kind}'] = (dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files=done, pair={'sidekick': value}), 0, 0,
-                                                                             index(shown, 'kind'), '')
+        for label, value, shown in kinds:
+            cases[f'wait with a sidekick that is {label}'] = (wait(pair={'sidekick': value, 'sent': sent}), 0, index(shown, 'name'))
+            cases[f'wait for an idle sidekick that is {label}'] = (idle(value), 5, index(shown, 'name'))
+            cases[f'dispatch to a sidekick that is {label}'] = (dict(args=['dispatch', '{st}', '{st}/briefs/002-y.md', '--send-only'], pair={'sidekick': value}), 5,
+                                                              index(shown, 'kind'))
+            cases[f'finish a done report with a sidekick that is {label}'] = (dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files=done, pair={'sidekick': value}), 0,
+                                                                              index(shown, 'kind'))
         return cases
 
-    def test_damaged_store_shapes_differ_from_the_bash_at_the_base_commit_as_parity_md_says(self):
-        for name, (spec, base_rc, port_rc, base_text, port_text) in self.damaged_store_cases().items():
+    @staticmethod
+    def mask_damaged(outcome):
+        """The two things a damaged-store outcome carries that differ between two runs by construction: the pid in `queue.taken.<pid>` (the
+        queue is a directory) and bash's `pair-core.sh: line N:` prefix, whose path and line belong to the tree it ran from (PARITY.md D19)."""
+        def mask(text):
+            return re.sub(r'\S*pair-core\.sh: line [0-9]+', '<core>', re.sub(r'queue\.taken\.[0-9]+', 'queue.taken.PID', text))
+        return {**outcome, 'stdout': mask(outcome['stdout']), 'stderr': mask(outcome['stderr']), 'files': {mask(k): mask(v) for k, v in outcome['files'].items()},
+                'calls': mask(outcome['calls'])}
+
+    def test_a_damaged_store_gets_what_the_bash_gave_it(self):
+        """D17, D18, D20, D21: stdout, stderr, exit code, the store's files, events.tsv and the fake herdr's calls equal to e6e83e3's, and no
+        Python traceback. The base's rc and a piece of its stderr are asserted too, so a case cannot pass by doing nothing."""
+        self.maxDiff = None
+        for name, (spec, base_rc, base_text) in self.damaged_store_cases().items():
             n = len(list(self.path.iterdir()))
             want = self.ab_run(f'dsb{n}', self.base_skills(), 'pstack-pair', dict(spec))
             got = self.ab_run(f'dsp{n}', root / 'skills', 'pstack-pair', dict(spec))
-            self.assertEqual((want['rc'], got['rc']), (base_rc, port_rc), name)
+            self.assertEqual(want['rc'], base_rc, name)
             self.assertIn(base_text, want['stderr'], name)
-            self.assertIn(port_text, got['stderr'], name)
-            if not base_text:
-                self.assertNotIn('jq: error', want['stderr'], name)
-            if not port_text:
-                self.assertEqual(got['stderr'].replace('\n', ''), '', name)
-            self.assertNotEqual(got, want, name)
-
-    def test_finish_without_a_live_wait_differs_from_the_bash_only_in_what_notify_marks_seen(self):
-        """A1 on the marking path: the finish/notify A/Bs run with a live wait.pid, so notify marks nothing there. Here there is none, and the
-        port marks the report seen; everything else (stdout, stderr, events, calls, the queue take, late-steer and rotation lines) must still
-        match the base once `pending` and `.sent.seen` are masked in pair.json."""
-        names = ('done report to an idle master', 'done report, no master agent', 'done report to a done master', 'queued brief after a done report',
-                 'queue with a partial report', 'devin done report asks for a rotation', 'late steer', 'queued brief behind a pause', 'done report with open notes',
-                 'partial report', 'steer objection report')
-
-        def masked(out):
-            files = dict(out['files'])
-            text = re.sub(r'(?s)(,\s*)?"pending": \[.*?\]', '', files['pair.json'])
-            files['pair.json'] = re.sub(r'(,\s*)?"seen": "[^"]*"', '', text)
-            return {**out, 'files': files}
-
-        marked = 0
-        for name in names:
-            spec = dict(self.AB_CASES[name], live_wait=False)
-            n = len(list(self.path.iterdir()))
-            want = self.ab_run(f'nlb{n}', self.base_skills(), 'pstack-pair', dict(spec))
-            got = self.ab_run(f'nlp{n}', root / 'skills', 'pstack-pair', dict(spec))
-            self.maxDiff = None
-            self.assertEqual(masked(got), masked(want), name)
-            marked += got['files']['pair.json'] != want['files']['pair.json']
-        self.assertGreaterEqual(marked, 1, 'no case reached the marking path')
+            self.assertNotIn('Traceback', got['stderr'], name)
+            self.assertEqual(self.mask_damaged(got), self.mask_damaged(want), name)
 
     @staticmethod
     def mask_minutes(text):

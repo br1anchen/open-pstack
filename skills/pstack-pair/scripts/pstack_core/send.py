@@ -52,7 +52,10 @@ def record_sent(store, file, kind, now=None):
 
 
 def require_fresh_session(store):
-    # A non-object .sidekick reads as empty here; the bash's field() would fail in jq and end the shell. No writer stores one.
+    if not isinstance(pair_json(store).get('sidekick'), (dict, type(None))):
+        # `kind="$(field "$1" '.sidekick.kind')"` fails in jq with errexit on: jq's message and its status end the command
+        from .spawn import field
+        field(store, 'sidekick', 'kind', check=True)
     sidekick = section(pair_json(store), 'sidekick')
     kind = jq_raw(sidekick.get('kind'))
     if fresh_per_brief(kind) and (alt(sidekick.get('rotation_required'), False) is not False or alt(sidekick.get('bootstrap_pending'), False) is not False):

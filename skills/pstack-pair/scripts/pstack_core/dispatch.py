@@ -3,8 +3,15 @@ import subprocess
 import sys
 import time
 
-from .errors import Die
-from .store import alt, event, expected_report, pair_json, update
+from .errors import Die, Exit
+from .store import alt, event, expected_report, pair_json, update_or_jq
+
+# record_dispatch's jq program at the base: where the native update cannot take a document's shapes, jq decides.
+RECORD_DISPATCH = (
+    '.dispatch = {brief: $brief, at: $now, head: $head, generation: (.sidekick.generation // 0)} | .sent = {file: $brief, kind: "BRIEF", at: $now, epoch: $epoch}\n'
+    '\t\t | (if $seen == "" then . else .sent.seen = $seen end)\n'
+    '\t\t | .heads[$brief | split("/") | last | rtrimstr(".md")] //= $head\n'
+    '\t\t | .pending = ((.pending // []) + (if $seen == "" then [$brief] else [] end) | unique)')
 
 
 def fresh_per_brief(kind):
@@ -32,15 +39,21 @@ def record_dispatch(store, brief, now=None):
         if seen:
             doc['sent']['seen'] = seen
         heads = doc.get('heads')
-        if heads is None or heads is False:
+        if heads is None:
             heads = doc['heads'] = {}
+        if not isinstance(heads, dict):
+            raise ValueError('heads is not an object')
         key = brief.split('/')[-1]
         key = key[:-3] if key.endswith('.md') else key
         if alt(heads.get(key), None) is None:
             heads[key] = head
-        doc['pending'] = sorted({*alt(doc.get('pending'), []), *([] if seen else [brief])})
+        pending = alt(doc.get('pending'), [])
+        if not isinstance(pending, list):
+            raise ValueError('pending is not an array')
+        doc['pending'] = sorted({*pending, *([] if seen else [brief])})
 
-    update(store, mutate)
+    update_or_jq(store, mutate, RECORD_DISPATCH, '--arg', 'brief', brief, '--arg', 'now', at, '--arg', 'head', head, '--arg', 'seen', seen,
+                 '--argjson', 'epoch', str(epoch))
 
 
 def take_queued(store, now=None):
@@ -51,16 +64,18 @@ def take_queued(store, now=None):
         os.rename(f'{store}/queue', taken)
     except OSError:
         return None
-    with open(taken, 'rb') as f:
-        brief = f.read().decode('utf-8', 'surrogateescape').rstrip('\n')
-    try:
-        os.unlink(taken)
-    except OSError:
-        pass
+    # `brief="$(cat "$taken")"; rm -f "$taken"`: where the queue is a directory both commands say so themselves and the brief reads empty
+    r = subprocess.run(['cat', taken], stdout=subprocess.PIPE, check=False)
+    brief = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    subprocess.run(['rm', '-f', taken], check=False)
     try:
         if not os.path.isfile(brief):
             raise Die(f'queued brief is gone: {brief}')
-        record_dispatch(store, brief, now)
+        try:
+            record_dispatch(store, brief, now)
+        except Exit:
+            # jq refused the write and has said why; the substitution this runs in has errexit off, so the brief is dispatched all the same
+            pass
     except Die as e:
         sys.stderr.write(f'pair.sh: {e.message}\n')
         return None
