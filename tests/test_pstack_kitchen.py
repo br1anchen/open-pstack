@@ -3053,6 +3053,41 @@ esac
         wakes = [r.split('\t')[5] for r in (self.store / 'events.tsv').read_text().splitlines() if '\tmaster\twake\t' in r]
         self.assertEqual([w for w in wakes if w.startswith('verify:')], ['verify:progress', 'verify:clean'])
 
+    def open_slow_verification(self):
+        self.env.update({'KITCHEN_VERIFY_POLL_S': '0', 'KITCHEN_VERDICT_SETTLE_S': '0'})
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 12\n')
+        self.write('tests/test_app.py', 'x = 12\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        return self.state()['verifying']
+
+    def test_a_verdict_written_but_unread_is_closed_by_the_next_verify(self):
+        open_ = self.open_slow_verification()
+        Path(open_['verdict']).write_text('status: clean\nunits: 001\n\n## Evidence\n\n```\n$ true\n```\n')
+        out = self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        self.assertIn(f"closed: {open_['verdict']} (clean)", out)
+        self.assertIn('verifying: units 001 by pi', out)
+        self.assertNotEqual(self.state()['verifying']['verdict'], open_['verdict'])
+        self.assertIn('\tmaster\tverify\t', (self.store / 'events.tsv').read_text())
+
+    def test_verify_cancel_stops_the_open_verification_and_removes_its_pane_and_scratch(self):
+        open_ = self.open_slow_verification()
+        pane = self.state()['verifier']['pane_id']
+        scratch = self.store / 'scratch' / open_['scratch']
+        self.assertTrue(scratch.exists())
+        out = self.run_sh('verify', str(self.store), '--cancel')
+        self.assertIn('cancelled: 001', out)
+        self.assertNotIn('verifying', self.state())
+        self.assertFalse(scratch.exists())
+        self.assertIn(f'pane close {pane}', (self.fake / 'calls.log').read_text())
+        self.assertIn('\tverify-cancel\t', (self.store / 'events.tsv').read_text())
+
+    def test_verify_cancel_with_nothing_open_exits_5(self):
+        self.assertIn('no verification open', self.run_sh('verify', str(self.store), '--cancel', code=5))
+
     def rate_limited_verifier(self):
         session = Path(self.tmp.name) / 'pi-session.jsonl'
         session.write_text('{"type":"session"}\n')

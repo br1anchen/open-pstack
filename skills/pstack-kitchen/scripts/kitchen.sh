@@ -72,6 +72,9 @@ consult, advice. These differ or are new:
   verify <store> --wait [--every MIN | --until-verdict]
                                             wait again for the open verification: exit 4 while it runs, 5 when none
                                             is open
+  verify <store> --cancel                   stop the open verification that has no verdict yet: its verifier, pane
+                                            and scratch go (exit 5 when none is open); a verdict written but
+                                            unread is closed by the next verify (`closed:`)
   revise <store> <verdict-path>             draft the fix brief for a rejected verdict
   land-check <store>                        every accepted unit verified
   catch <store> <layer> <text> [<unit>]     record a miss found later (audit, human review): layer is
@@ -812,8 +815,8 @@ audit_due() {
 # open verification lives in pair.json .verifying, one at a time.
 cmd_verify() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV] [...] | kitchen.sh verify <store> --wait [--every MIN | --until-verdict]"
-	local store="$1" timeout_m="" every_m=9 wait=0 units=() kind_override="" landing=0 retry_entry="" u
+	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV] [...] | kitchen.sh verify <store> --wait [--every MIN | --until-verdict] | kitchen.sh verify <store> --cancel"
+	local store="$1" timeout_m="" every_m=9 wait=0 cancel=0 units=() kind_override="" landing=0 retry_entry="" u
 	local -a cov=()
 	range_base=""
 	local -a argv=("${@:2}")
@@ -838,17 +841,30 @@ cmd_verify() {
 		--base) range_base="$2"; shift 2 ;;
 		--landing) landing=1; shift ;;
 		--wait) wait=1; shift ;;
+		--cancel) cancel=1; shift ;;
 		[0-9][0-9][0-9]) units+=("$1"); shift ;;
 		*) die "unknown option $1" ;;
 		esac
 	done
 	pair_file "$store" >/dev/null
+	if [ "$cancel" -eq 1 ]; then
+		[ "$wait" -eq 0 ] && [ "${#units[@]}" -eq 0 ] && [ "$landing" -eq 0 ] || die "--cancel takes no units, --landing or --wait"
+		verify_cancel "$store"
+	fi
 	if [ "$wait" -eq 1 ]; then
 		[ -n "$(field "$store" '.verifying.verdict // empty')" ] || die "no verification is open; start one with kitchen.sh verify $store <NNN>" 5
 		verify_wait "$store" "$every_m"
 	fi
 	[ "$landing" -eq 1 ] || [ "${#units[@]}" -gt 0 ] || die "name at least one unit NNN, or --landing"
 	[ "$landing" -eq 0 ] || [ "${#units[@]}" -eq 0 ] || die "--landing verifies the whole stack; name no units"
+	# A verdict written but never read closes the verification it belonged to; the new one starts after it.
+	local open_verdict
+	open_verdict="$(field "$store" '.verifying.verdict // empty')"
+	if [ -n "$open_verdict" ] && [ -f "$open_verdict" ] && [ -n "$(header_field "$open_verdict" status)" ]; then
+		local closed
+		closed="$(closing=1 verify_wait "$store" 0 || true)"
+		printf 'closed: %s (%s)\n' "$open_verdict" "$(sed -n 's/^status: //p' <<<"$closed" | head -1)"
+	fi
 	[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "a verification is open ($(field "$store" '.verifying.units')); kitchen.sh verify $store --wait" 5
 	local -a all=("${covered[@]}" "${units[@]}")
 	local root base head json last brief slug k verdict packet mode class risk snap
@@ -1246,6 +1262,26 @@ verify_grace() {
 	done
 }
 
+# Cancels the open verification that has no verdict yet: its verifier and pane
+# stop, its scratch goes, and .verifying is cleared.
+verify_cancel() {
+	local store="$1" verdict units name kind brief
+	verdict="$(field "$store" '.verifying.verdict // empty')"
+	[ -n "$verdict" ] || die "no verification open" 5
+	if [ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ]; then
+		die "the verdict is written ($verdict); kitchen.sh verify $store --wait reads it" 5
+	fi
+	units="$(field "$store" .verifying.units)"
+	brief="$(field "$store" .verifying.brief)"
+	name="$(field "$store" .verifier.name)"
+	kind="$(field "$store" .verifier.kind)"
+	close_verifier "$store" "$name" "$kind" "$(field "$store" .verifier.pane_id)"
+	json_update "$store" 'del(.verifying)'
+	event "$store" master verify-cancel "$brief" "$units"
+	printf 'cancelled: %s\n' "$units"
+	exit 0
+}
+
 # Waits up to $2 minutes for the open verification's verdict. A verifier
 # still working at the interval leaves the verification open (exit 4, with
 # its progress); a verdict, a gone verifier, or the deadline closes it:
@@ -1266,6 +1302,21 @@ redeliver_packet() {
 	printf 'redelivered: %s; sent it again\n' "$2"
 	herdr agent prompt "$name" "$(verify_prompt "$packet")" --wait --until working --timeout 30000 >/dev/null 2>&1 || true
 	submit_typed "$name" "$(basename "$packet")"
+}
+
+# Stops the open verification's verifier, closes its pane and removes its scratch.
+close_verifier() {
+	local store="$1" name="$2" kind="$3" pane="$4" gone
+	if [ "$kind" = prime-agent ]; then
+		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5
+	else
+		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
+		gone=$(( $(date +%s) + 15 ))
+		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
+	fi
+	herdr pane close "$pane" >/dev/null 2>&1 || true
+	[ "$kind" != prime-agent ] || json_update "$store" '.verifier.closed = true'
+	cmd_scratch "$store" "$(field "$store" .verifying.scratch)" --remove >/dev/null
 }
 
 verify_wait() {
@@ -1337,16 +1388,7 @@ verify_wait() {
 	fallback="$(field "$store" '.verifying.entry.fallback // empty' | jq -c . 2>/dev/null || true)"
 	retried="$(field "$store" '.verifying.retried // false')"
 	mapfile -t argv < <(jq -r '.verifying.argv[]?' "$store/pair.json")
-	if [ "$kind" = prime-agent ]; then
-		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5
-	else
-		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
-		local gone=$(( $(date +%s) + 15 ))
-		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
-	fi
-	herdr pane close "$pane" >/dev/null 2>&1 || true
-	[ "$kind" != prime-agent ] || json_update "$store" '.verifier.closed = true'
-	cmd_scratch "$store" "$(field "$store" .verifying.scratch)" --remove >/dev/null
+	close_verifier "$store" "$name" "$kind" "$pane"
 	# The attempt's outcome is written to its packet before .verifying goes and
 	# before any fallback starts, so fleet can tell attempts apart.
 	local problem="" status=""
@@ -1394,7 +1436,7 @@ verify_wait() {
 		die "no verdict at $verdict (verifier ${state:-gone}); read the packet and verify by hand, or rerun" 4
 	fi
 	event "$store" master verify "$brief" "$status"
-	event "$store" master wake "$brief" "verify:${status%% *}"
+	[ -n "${closing:-}" ] || event "$store" master wake "$brief" "verify:${status%% *}"
 	printf 'verdict: %s\nstatus: %s%s\n' "$verdict" "$status" "${problem:+ ($problem)}"
 	case "$status" in
 	clean)
