@@ -179,7 +179,8 @@ unit_range() {
 		case "$(header_field "$report" status)" in
 		"done") ;;
 		partial | blocked | failed) printf 'note: unit %s'"'"'s report is %s; checking the head it names\n' "$unit" "$(header_field "$report" status)" >&2 ;;
-		*) die "unit $unit's report is $(header_field "$report" status), not done, partial, or blocked" ;;
+		"") die "unit $unit's report has no status:" ;;
+		*) die "unit $unit's report is $(header_field "$report" status), not done, partial, blocked, or failed" ;;
 		esac
 	done
 	head="$(header_field "$(expected_report "$store" "$(unit_brief "$store" "$last")")" head)"
@@ -555,6 +556,8 @@ cmd_dispatch() {
 }
 
 cmd_queue() {
+	# A brief path may be given relative to the store (briefs/NNN-x.md), as for dispatch.
+	if [ $# -ge 2 ] && [ "$2" != --clear ] && [ ! -f "$2" ] && [ -f "$1/$2" ]; then set -- "$1" "$1/$2" "${@:3}"; fi
 	if [ $# -ge 2 ] && [ "$2" != --clear ] && [ -f "$2" ] && ! is_landing "$2"; then
 		classify_brief "$1" "$2" >/dev/null
 	fi

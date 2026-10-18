@@ -2287,9 +2287,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             top, st, run = self.own_world('fs-' + label.replace(' ', '-').replace(':', ''), files={'reports/001-x.md': text})
             before = (st / 'pair.json').read_text()
             r = run('finish', '{st}', '{st}/reports/001-x.md')
-            self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', f'pair.sh: {st}/reports/001-x.md has no valid status: line (one of done, partial, blocked, failed, object)\n'), label)
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', f'pair.sh: {st}/reports/001-x.md has no valid status: line (one of done, partial, blocked, failed, object, agree, asking)\n'), label)
             self.assertEqual((st / 'pair.json').read_text(), before, label)
-        for status in ('done', 'partial', 'blocked', 'failed', 'object'):
+        # every status a role runs finish on: reports, steer and plan objections, plan agreements, guided asks
+        for status in ('done', 'partial', 'blocked', 'failed', 'object', 'agree', 'asking'):
             top, st, run = self.own_world('fv-' + status, files={'reports/001-x.md': f'# R\n\nstatus: {status}\nhead: {{c3}}\n'})
             self.assertNotIn('no valid status', run('finish', '{st}', '{st}/reports/001-x.md').stderr, status)
 
