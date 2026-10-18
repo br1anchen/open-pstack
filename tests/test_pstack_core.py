@@ -1901,6 +1901,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'wait with pending a string': (wait(pair={'pending': 'x', 'sent': sent}), 0, 'Cannot iterate over string ("x")'),
             'wait with pending an object': (wait(pair={'pending': {'a': 1}, 'sent': sent}), 0, ''),
         }
+        send = lambda **kw: dict(args=['dispatch', '{st}', '{st}/briefs/002-y.md', '--send-only'], agents={'s1': 'idle claude'}, **kw)
+        cases['dispatch --send-only over heads a string'] = (send(pair={'heads': 'x'}), 5, index('string', '002-y'))
+        cases['dispatch --send-only over pending that mixes a string, a number and a null'] = (send(pair={'pending': ['b', 1, None, 'a']}), 0, '')
+        cases['dispatch --send-only over pending a string'] = (send(pair={'pending': 'x'}), 0, 'Cannot iterate over string ("x")')
         kinds = (('false', False, 'boolean'), ('a string', 'x', 'string'), ('an array', [1], 'array'), ('a number', 3, 'number'), ('true', True, 'boolean'))
         idle = lambda value: dict(args=['wait', '{st}', '--timeout', '1000'], agents={'s1': 'idle claude'}, env={'PAIR_SETTLE_HOLD': '0'}, pair={'sidekick': value, 'sent': sent})
         for label, value, shown in kinds:
@@ -3391,6 +3395,50 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a fallback that returns 4': {**run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}), 'hook': None, **quiet},
         }
 
+    def test_a_prime_spawn_over_a_sidekick_that_is_not_an_object_differs_from_the_bash_in_two_places(self):
+        """D27, Prime. `spawn --kind prime-agent` over a `.sidekick` that is a string, an array or false reaches spawn.py's Prime jq program and
+        ends as the base does (rc 5, `Prime did not report its session`, the same files and events). Two things differ, both in
+        `providers.record_prime_session` (outside unit 012's scope): the base's `field ".$role.name"` there prints jq's `Cannot index X with
+        string ("name")` and reads empty, so its `agent get` call has no name; the port prints no such line and asks `agent get null`."""
+        plain = self.spawn_command_cases()['a plain spawn']
+        for n, (label, value, shown) in enumerate((('a string', 'x', 'string'), ('an array', [1], 'array'), ('false', False, 'boolean'))):
+            spec = {**plain, 'pair': {**plain['pair'], 'sidekick': value}, 'args': ['spawn', '{st}', '--kind', 'prime-agent']}
+            got, want = self.phase3_ab(f'd27p{n}', 'pstack-pair', spec)
+            self.assertEqual((got['rc'], want['rc']), (5, 5), label)
+            for key in ('stdout', 'files', 'events'):
+                self.assertEqual(got[key], want[key], (label, key))
+            lines = want['stderr'].splitlines()
+            extra = max(i for i, line in enumerate(lines) if line.endswith(f'Cannot index {shown} with string ("name")'))
+            self.assertEqual(lines[:extra] + lines[extra + 1:], got['stderr'].splitlines(), label)
+            self.assertGreater(extra, 0, label)
+            # a Traceback in both stderrs is the test's fake prime-agent writing a session file under an empty name, not the port's
+            self.assertEqual(want['stderr'].count('Traceback'), got['stderr'].count('Traceback'), label)
+            head, _, tail = want['calls'].rpartition('agent get \n')
+            self.assertEqual(head + 'agent get null\n' + tail, got['calls'], label)
+            self.assertNotIn('File "' + str(root / 'skills'), got['stderr'], label)
+
+    def test_an_unparseable_pair_json_ends_next_spawn_and_dispatch_with_python_s_message_where_the_bash_had_jq_s(self):
+        """Unit 012 (vi), pinned and accepted. With a pair.json that is not JSON the bash's first `field` read fails in jq: its parse error (twice,
+        for the two reads before the command ends), exit status 5, and from `json_update` an empty pair.json.tmp. The port reads the document
+        once and ends with Python's message and status 1, writing nothing. stdout, events and the document itself are equal."""
+        plain = self.spawn_command_cases()['a plain spawn']
+        cases = (('spawn', self.phase3_skills, {**plain, 'nopair': True, 'files': {'pair.json': 'not json\n'}, 'args': ['spawn', '{st}', '--kind', 'claude']}, True),
+                 ('next', self.base_skills, dict(args=['next', '{st}'], nopair=True, files={'pair.json': 'not json\n', 'queue': '{st}/briefs/002-y.md\n'}), False),
+                 ('dispatch', self.base_skills, dict(args=['dispatch', '{st}', '{st}/briefs/002-y.md', '--send-only'], nopair=True, agents={'s1': 'idle claude'},
+                                                      files={'pair.json': 'not json\n'}), False))
+        jq_error = 'jq: parse error: Invalid numeric literal at line 1, column 4\n'
+        for n, (name, tree, spec, tmp) in enumerate(cases):
+            want = self.ab_run(f'unp{n}b', tree(), 'pstack-pair', dict(spec))
+            got = self.ab_run(f'unp{n}p', root / 'skills', 'pstack-pair', dict(spec))
+            self.assertEqual((want['rc'], want['stderr']), (5, jq_error * 2), name)
+            self.assertEqual((got['rc'], got['stderr']), (1, 'pair.sh: Expecting value: line 1 column 1 (char 0)\n'), name)
+            self.assertEqual((got['stdout'], got['events']), (want['stdout'], want['events']), name)
+            expected_files = dict(want['files'])
+            if tmp:
+                self.assertEqual(expected_files.pop('pair.json.tmp'), '', name)
+            self.assertEqual(got['files'], expected_files, name)
+            self.assertNotIn('Traceback', got['stderr'], name)
+
     def spawn_command_part(self, skill, part, parts=3):
         cases = list(self.spawn_command_cases().items())
         outcomes = {}
@@ -3532,30 +3580,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a sidekick that is an array and no --sidekick': run(pair=pair(sidekick=[1])),
             'a consultant that is a string and no --consultant': run('--sidekick', 'codex', pair=pair(consultant='x')),
             'a consultant that is an array and no --consultant': run('--sidekick', 'codex', pair=pair(consultant=[1])),
+            'a sidekick that is a string with both kinds given': run('--sidekick', 'codex', '--consultant', 'devin', pair=pair(sidekick='x')),
+            'a sidekick that is an array with both kinds given': run('--sidekick', 'codex', '--consultant', 'devin', pair=pair(sidekick=[1])),
+            'a sidekick that is false with both kinds given': run('--sidekick', 'codex', '--consultant', 'devin', pair=pair(sidekick=False)),
             'a consultant that is an array with both kinds given': run('--sidekick', 'codex', '--consultant', 'devin', pair=pair(consultant=[1])),
             'a consultant that is a string with both kinds given': run('--sidekick', 'codex', '--consultant', 'devin', pair=pair(consultant='x')),
         }
-
-    def test_trio_spawn_over_a_sidekick_that_is_not_an_object_differs_from_the_bash_only_in_its_last_line(self):
-        """D27, the part left. The trio's spawn ends with `kinds: master M, sidekick K, consultant C`, read in skills/pstack-trio/scripts/variant.py
-        with `section(...).get("kind", "absent")`; the base reads `field "$store" '.sidekick.kind // "absent"'`, which over a `.sidekick` that is
-        not an object prints jq's error and reads empty. Everything before that line is equal; the port prints `absent` and no error. (The fix
-        is two lines in variant.py, outside unit 010's scope.)"""
-        env = {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}
-        pair = lambda value: {'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': value, 'consultant': {'name': 'c1', 'kind': 'codex', 'generation': 1, 'pane_id': None}}
-        for label, value, shown in (('a string', 'x', 'string'), ('an array', [1], 'array')):
-            spec = dict(pair=pair(value), panes={'p0': 'm1'}, hook=self.READY_HOOK, env=env, args=['spawn', '{st}', '--sidekick', 'codex', '--consultant', 'devin'])
-            got, want = self.phase3_ab(f'd27t-{label}'.replace(' ', '-'), 'pstack-trio', spec)
-            self.assertEqual(want['rc'], 0, label)
-            self.assertEqual(got['rc'], 0, label)
-            self.assertEqual(want['stdout'].splitlines()[-1], 'kinds: master claude, sidekick , consultant devin', label)
-            self.assertEqual(got['stdout'].splitlines()[-1], 'kinds: master claude, sidekick absent, consultant devin', label)
-            self.assertEqual(want['stdout'].splitlines()[:-1], got['stdout'].splitlines()[:-1], label)
-            self.assertTrue(want['stderr'].rstrip('\n').endswith(f'Cannot index {shown} with string ("kind")'), label)
-            self.assertEqual(want['stderr'].rstrip('\n').rsplit('\n', 1)[0] + '\n', got['stderr'], label)
-            for key in ('files', 'events', 'calls'):
-                self.assertEqual(got[key], want[key], (label, key))
-            self.assertNotIn('Traceback', got['stderr'], label)
 
     def trio_spawn_part(self, part, parts=3):
         outcomes = {}
@@ -3755,13 +3785,20 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         errors = {'x': 'invalid JSON text passed to --argjson', '["x"]': 'Cannot index array with string ("kind")', '3': 'Cannot index number with string ("kind")',
                   'true': 'Cannot index boolean with string ("kind")', '': 'no recorded Prime session for sidekick'}
         cases = (('a string', 'x', errors['x']), ('an array', ['x'], errors['["x"]']), ('a number', 3, errors['3']), ('true', True, errors['true']),
-                 ('an empty string', '', errors['']), ('false', False, 'no recorded Prime session for sidekick'), ('an object without kind', {}, ''))
+                 ('an empty string', '', errors['']), ('false', False, 'no recorded Prime session for sidekick'), ('an object without kind', {}, ''),
+                 ('zero', 0, errors['3'].replace('number', 'number')), ('0.0', 0.0, errors['3']))
         for label, value, needle in cases:
             for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
                 name = f'd26-{what}-{label}'.replace(' ', '-')
                 result = self.prime_both(name, snippet, python, shim=shim, agents={}, sidekick={'session': value})
                 self.assertIn(needle, result[2], (what, label))
                 self.assertNotIn('Traceback', result[2], (what, label))
+        # the daemon's list fails: the bash still runs jq, so an invalid --argjson is said and a session jq could index is not (no input to index)
+        for label, value, needle in (('a string', 'x', errors['x']), ('an array', ['x'], ''), ('zero', 0, '')):
+            for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
+                result = self.prime_both(f'd26-listfail-{what}-{label}'.replace(' ', '-'), snippet, python, shim=shim, agents={}, sidekick={'session': value},
+                                         fake={'prime-list-fail': ''})
+                self.assertIn(needle, result[2], (what, label))
         # nothing live to index: jq takes the odd session without complaint and finds no match
         for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
             result = self.prime_both(f'd26-empty-{what}', snippet, python, shim=shim, agents={}, sessions=[], sidekick={'session': ['x']})

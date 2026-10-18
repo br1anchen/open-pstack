@@ -64,10 +64,16 @@ def take_queued(store, now=None):
         os.rename(f'{store}/queue', taken)
     except OSError:
         return None
-    # `brief="$(cat "$taken")"; rm -f "$taken"`: where the queue is a directory both commands say so themselves and the brief reads empty
-    r = subprocess.run(['cat', taken], stdout=subprocess.PIPE, check=False)
-    brief = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
-    subprocess.run(['rm', '-f', taken], check=False)
+    try:
+        with open(taken, 'rb') as f:
+            brief = f.read().decode('utf-8', 'surrogateescape').rstrip('\n')
+        os.unlink(taken)
+    except OSError:
+        # `brief="$(cat "$taken")"; rm -f "$taken"`: where the queue cannot be read (a directory, say) both commands say so themselves and the
+        # brief reads empty
+        r = subprocess.run(['cat', taken], stdout=subprocess.PIPE, check=False)
+        brief = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+        subprocess.run(['rm', '-f', taken], check=False)
     try:
         if not os.path.isfile(brief):
             raise Die(f'queued brief is gone: {brief}')

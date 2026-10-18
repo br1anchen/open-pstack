@@ -152,8 +152,10 @@ def spawn(ctx, args):
         rc = spawn_consultant(ctx, store, consultant_kind, cpermission, opts['timeout'], rest)
         if rc != 0:
             return rc
-    print(f'kinds: master {master_kind}, sidekick {jq_raw(alt(section(pair_json(store), "sidekick").get("kind"), "absent"))}, '
-          f'consultant {jq_raw(alt(section(pair_json(store), "consultant").get("kind"), "absent"))}')
+    # field "$store" '.sidekick.kind // "absent"': over a role jq cannot index, jq's error is printed and the entry reads empty
+    sidekick_entry = field(store, 'sidekick', 'kind', default='absent')
+    consultant_entry = field(store, 'consultant', 'kind', default='absent')
+    print(f'kinds: master {master_kind}, sidekick {sidekick_entry}, consultant {consultant_entry}')
     return 0
 
 

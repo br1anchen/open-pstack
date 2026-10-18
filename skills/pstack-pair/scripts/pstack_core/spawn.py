@@ -28,15 +28,18 @@ def section(pair, role):
     return value if isinstance(value, dict) else {}
 
 
-def field(store, role, key, check=False, empty=False):
+def field(store, role, key, check=False, empty=False, default=None):
     """jq -r '.role.key': a role that is not an object makes jq itself answer (its error on stderr, an empty value), as the bash did. With check,
     that failure ends the command with jq's status, as a failing assignment does where the caller has errexit on. With empty, the filter is
-    '.role.key // empty'."""
+    '.role.key // empty'; with default, '.role.key // "<default>"'."""
     value = pair_json(store).get(role)
     if value is None or isinstance(value, dict):
         found = (value or {}).get(key)
+        if default is not None:
+            return jq_raw(alt(found, default))
         return jq_raw(alt(found, '')) if empty else jq_raw(found)
-    r = subprocess.run(['jq', '-r', f'.{role}.{key}' + (' // empty' if empty else ''), f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
+    suffix = f' // "{default}"' if default is not None else (' // empty' if empty else '')
+    r = subprocess.run(['jq', '-r', f'.{role}.{key}' + suffix, f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
     if check and r.returncode:
         raise Exit(r.returncode)
     return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
