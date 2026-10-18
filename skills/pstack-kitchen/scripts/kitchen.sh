@@ -926,6 +926,26 @@ brief_commands() {
 	[ "${#apart[@]}" -eq 0 ] || printf 'not for the verifier:\n\n%s\n\n' "$(printf '%s\n' "${apart[@]}")"
 }
 
+# The done unit briefs a landing range holds: those whose head is in base..head, or whose commits
+# were rebased into it (the test land-check's `covered:` uses). A unit landed before the base is out.
+# $1 store, $2 base, $3 head.
+landing_covered_briefs() {
+	local root b uhead
+	root="$(field "$1" .git_root)"
+	for b in "$1"/briefs/[0-9][0-9][0-9]-*.md; do
+		[ -e "$b" ] && [ "$(header_field "$(expected_report "$1" "$b")" status 2>/dev/null)" = "done" ] || continue
+		is_landing "$b" && continue
+		uhead="$(unit_head "$1" "$b")"
+		[ -n "$uhead" ] || continue
+		if git -C "$root" merge-base --is-ancestor "$uhead" "$3" 2>/dev/null; then
+			git -C "$root" merge-base --is-ancestor "$uhead" "$2" 2>/dev/null && continue
+		elif ! unit_rebased_in "$1" "$b" "$uhead" "$2" "$3"; then
+			continue
+		fi
+		printf '%s\n' "$b"
+	done
+}
+
 # verify starts a verification and waits for it in slices of --every
 # minutes, so one call never outlasts a master's shell limit; the verifier
 # keeps working between calls, and `verify <store> --wait` picks it up. The
@@ -1100,6 +1120,22 @@ cmd_verify() {
 		mapfile -t -O "${#dlargs[@]}" dlargs < <(jq -r '.behavioral[]' <<<"$json")
 		timeout_m="$(kpy "$store" --json "${dlargs[@]}" | jq .minutes)"
 		kpy "$store" "${dlargs[@]}"
+		# A landing verification also runs the touched profiles' landing commands: 3 x their measured time,
+		# and a fixed ten minutes for each that has no measured run.
+		if [ "$landing" -eq 1 ]; then
+			local -a lprofs=()
+			mapfile -t lprofs < <(jq -r '.landing[]?' <<<"$json")
+			if [ "${#lprofs[@]}" -gt 0 ]; then
+				local ljson lsec lunmeasured ladd
+				ljson="$(kpy "$store" --json timing --stage landing "${lprofs[@]}")"
+				lsec="$(jq '.seconds' <<<"$ljson")"
+				lunmeasured="$(jq '.unmeasured | length' <<<"$ljson")"
+				ladd="$(awk -v s="$lsec" -v u="$lunmeasured" 'BEGIN { m = int((3 * s + 59) / 60); print m + 10 * u }')"
+				timeout_m=$(( timeout_m + ladd ))
+				printf 'deadline +%sm for the landing gates of %s: 3 x %sm measured%s; now %sm\n' "$ladd" "${lprofs[*]}" \
+					"$(awk -v s="$lsec" 'BEGIN { printf "%.0f", s / 60 }')" "$([ "$lunmeasured" -eq 0 ] || printf ', %s unmeasured at 10m each' "$lunmeasured")" "$timeout_m"
+			fi
+		fi
 	else
 		printf 'deadline %sm (--timeout)\n' "$timeout_m"
 	fi
@@ -1131,15 +1167,13 @@ cmd_verify() {
 				"${head:0:9}" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$identity" "$vclass" "$timeout_m"
 			printf '%s\n\n' "$packet_write_rule"
 			printf '## Stack\n\nEach unit below was verified on its own. Prove that together, at this tip,\nthey still hold: run every Prove command, then drive the main flows the\nbriefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n'
-			for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
-				[ -e "$b" ] && [ "$(header_field "$(expected_report "$store" "$b")" status 2>/dev/null)" = "done" ] || continue
-				is_landing "$b" && continue
+			local -a stacked=()
+			mapfile -t stacked < <(landing_covered_briefs "$store" "$base" "$head")
+			for b in "${stacked[@]}"; do
 				printf -- '- %s\n' "$b"
 			done
 			printf '\n## Goals\n\n'
-			for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
-				[ -e "$b" ] && [ "$(header_field "$(expected_report "$store" "$b")" status 2>/dev/null)" = "done" ] || continue
-				is_landing "$b" && continue
+			for b in "${stacked[@]}"; do
 				printf '### Unit %s %s\n\n' "$(basename "$b" .md | cut -c1-3)" "$(basename "$b" .md | cut -c5-)"
 				printf '%s\n\n' "$(awk '/^## Goal/{p=1; next} /^## /{p=0} p' "$b" | sed '/./,$!d')"
 			done

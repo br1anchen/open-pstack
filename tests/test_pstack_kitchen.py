@@ -3495,6 +3495,51 @@ esac
         self.assertIn('`cat <<EOF  # master-only`', apart)
         self.assertIn('Command 1:\n\n```bash\ntrue\n```', own)
 
+    def test_a_unit_landed_before_the_landing_base_is_left_out_of_the_stack_and_goals(self):
+        for n, slug, goal in ((1, 'util', 'Users can add numbers.'), (2, 'next', 'Users can list numbers.')):
+            b = self.brief(f'00{n}', slug, ['src/**', 'tests/**'])
+            b.write_text(re.sub(r'(## Goal\n\n)x', rf'\g<1>{goal}', b.read_text(), count=1))
+            self.dispatch(b)
+            self.write(f'src/mod{n}.py', f'X = {n}\n')
+            self.write(f'tests/test_mod{n}.py', f'x = {n}\n')
+            head = self.commit(slug)
+            self.done(b, head)
+            if n == 1:
+                self.git('update-ref', 'refs/remotes/origin/main', head)
+        self.run_sh('verify', str(self.store), '--landing', '--every', '0')
+        packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
+        stack = packet.split('## Stack')[1].split('## Goals')[0]
+        goals = packet.split('## Goals')[1].split('\n## ')[0]
+        self.assertIn('002-next.md', stack)
+        self.assertNotIn('001-util.md', stack)
+        self.assertIn('Users can list numbers.', goals)
+        self.assertNotIn('Users can add numbers.', goals)
+
+    def landing_deadline_world(self):
+        self.write('.agents/kitchen.toml', KITCHEN.replace('behavioral = ["true"]', 'behavioral = ["true"]\nlanding = ["true"]'))
+        self.commit('declare a landing command')
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+
+    def test_the_landing_deadline_counts_the_landing_gates_it_measured(self):
+        self.landing_deadline_world()
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'], env=self.env,
+                                        capture_output=True, text=True, check=True).stdout.strip())
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / 'timings.tsv').write_text(f'{int(time.time())}\tapp\tlanding\tverifier\tpass\t600\t0\t0\t600\n')
+        out = self.run_sh('verify', str(self.store), '--landing', '--every', '0')
+        self.assertIn('deadline +30m for the landing gates of app: 3 x 10m measured; now 75m', out)
+
+    def test_the_landing_deadline_adds_a_fixed_allowance_for_a_landing_gate_never_measured(self):
+        self.landing_deadline_world()
+        out = self.run_sh('verify', str(self.store), '--landing', '--every', '0')
+        self.assertIn('deadline +10m for the landing gates of app: 3 x 0m measured, 1 unmeasured at 10m each; now 55m', out)
+
     def test_a_landing_packet_holds_each_covered_briefs_goal(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)

@@ -184,7 +184,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    A squash or rebase step touches no profile, so before the landing brief,
    `kitchen.sh verify <store> --landing` gives the stack tip a fresh verifier
    of the escalated class: every behavioral gate the stack touches, and each touched
-   profile's `landing` commands, from where it
+   profile's `landing` commands (the deadline adds 3 x their measured time, or
+   ten minutes for a landing gate never measured, and prints that part), from where it
    leaves trunk, and the main flows its briefs describe. land-check reports
    its result without requiring it. A landing verdict older than HEAD is
    reported as `landing verdict <file> at <short>, N commits behind HEAD` when
@@ -198,7 +199,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    they say it is no longer an ancestor and use the trunk merge-base);
    `--parent` is recorded only after every other option passes, `--parent none`
    clears it, and `--base REV` still wins for one call (it may be combined with
-   `--parent`). `verify --landing --head REV` proves that commit or branch
+   `--parent`). The landing packet's `Stack` and `Goals` hold only the units the range
+   contains (not one landed before its base). `verify --landing --head REV` proves that commit or branch
    instead of HEAD (the scratch checks out REV, the base comes from the same
    rule against REV, and the verdict's `range:` ends at REV); land-check
    counts that verdict for the units whose heads, or patch-ids, it holds. A unit rebased or cherry-picked into the stack counts as
