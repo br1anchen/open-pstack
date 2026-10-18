@@ -67,10 +67,11 @@ consult, advice. These differ or are new:
                                             the verdict and whether to audit when it lands.
                                             A verifier stopped by its provider is retried on the sidekick's
                                             fallback; the deadline defaults to 3x the measured gate time
-  verify <store> --landing [--base REV | --parent REF]
+  verify <store> --landing [--base REV | --parent REF] [--head REV]
                                             a fresh verifier at the stack tip: every behavioral gate the stack
                                             touches, from where it leaves trunk, or from the parent --parent
-                                            records for later landings (--base wins for one call)
+                                            records for later landings (--base wins for one call);
+                                            --head REV proves that commit or branch instead of HEAD
   verify <store> --wait [--every MIN | --until-verdict]
                                             wait again for the open verification: exit 4 while it runs, 5 when none
                                             is open
@@ -854,8 +855,8 @@ audit_due() {
 # open verification lives in pair.json .verifying, one at a time.
 cmd_verify() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV | --parent REF] [...] | kitchen.sh verify <store> --wait [--every MIN | --until-verdict] | kitchen.sh verify <store> --cancel"
-	local store="$1" parent_ref="" timeout_m="" every_m=9 wait=0 cancel=0 units=() kind_override="" landing=0 retry_entry="" u
+	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV | --parent REF] [--head REV] [...] | kitchen.sh verify <store> --wait [--every MIN | --until-verdict] | kitchen.sh verify <store> --cancel"
+	local store="$1" parent_ref="" land_head="" timeout_m="" every_m=9 wait=0 cancel=0 units=() kind_override="" landing=0 retry_entry="" u
 	local -a cov=()
 	range_base=""
 	local -a argv=("${@:2}")
@@ -880,6 +881,7 @@ cmd_verify() {
 		--base) range_base="$2"; shift 2 ;;
 		--landing) landing=1; shift ;;
 		--parent) parent_ref="$2"; shift 2 ;;
+		--head) land_head="$2"; shift 2 ;;
 		--wait) wait=1; shift ;;
 		--cancel) cancel=1; shift ;;
 		[0-9][0-9][0-9]) units+=("$1"); shift ;;
@@ -909,6 +911,7 @@ cmd_verify() {
 	local -a all=("${covered[@]}" "${units[@]}")
 	local root base head json last brief slug k verdict packet mode class risk snap
 	root="$(field "$store" .git_root)"
+	[ -z "$land_head" ] || [ "$landing" -eq 1 ] || die "--head goes with --landing"
 	if [ -n "$parent_ref" ]; then
 		[ "$landing" -eq 1 ] || die "--parent goes with --landing"
 		local pfull
@@ -919,7 +922,7 @@ cmd_verify() {
 		# The stack tip, from where it leaves trunk, by a fresh verifier of
 		# the escalated class: a squash or rebase step touches no profile, so
 		# the units' own verdicts never saw the stack as it lands.
-		head="$(git -C "$root" rev-parse HEAD)"
+		head="$(git -C "$root" rev-parse --verify --quiet "${land_head:-HEAD}^{commit}")" || die "--head $land_head is not a commit"
 		if [ -n "$range_base" ]; then
 			base="$(git -C "$root" rev-parse --verify --quiet "$range_base^{commit}")" || die "--base $range_base is not a commit"
 		else

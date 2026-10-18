@@ -186,7 +186,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    another branch), `verify --landing --parent REF` records that parent in
    `pair.json` (`.landing.parent`); later landings start there and print
    `landing base: recorded parent <ref> (<short>)`, and `--base REV` still wins
-   for one call. A unit rebased or cherry-picked into the stack counts as
+   for one call. `verify --landing --head REV` proves that commit or branch
+   instead of HEAD (the scratch checks out REV, the base comes from the same
+   rule against REV, and the verdict's `range:` ends at REV); land-check
+   counts that verdict for the units whose heads, or patch-ids, it holds. A unit rebased or cherry-picked into the stack counts as
    covered when every commit of its range has a patch-id among the stack's
    (`covered: unit NNN (rebased as <short>)`); a squashed one prints a note and
    stays uncovered until the landing verification proves the stack. Its playbook (`opening-a-pr` or

@@ -4054,6 +4054,28 @@ esac
         self.assertIn(f'range: {init}..{self.git("rev-parse", "HEAD")}', (self.store / 'verdicts/landing-v2-packet.md').read_text())
         self.assertIn('--parent goes with --landing', self.run_sh('verify', str(self.store), '001', '--parent', 'HEAD', code=1))
 
+    def test_verify_landing_head_proves_a_branch_beside_head(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        main = self.git('rev-parse', '--abbrev-ref', 'HEAD')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        self.git('checkout', '-q', '-b', 'side', init)
+        self.write('src/other.py', 'Y = 1\n')
+        side = self.commit('side work')
+        self.git('checkout', '-q', main)
+        out = self.run_sh('verify', str(self.store), '--landing', '--head', 'side')
+        self.assertIn('status: clean', out)
+        packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
+        self.assertIn(f'range: {init}..{side}', packet)
+        self.assertIn(f'# Verify landing: the stack at {side[:9]}', packet)
+        self.assertIn('is not a commit', self.run_sh('verify', str(self.store), '--landing', '--head', 'nope', code=1))
+        self.assertIn('--head goes with --landing', self.run_sh('verify', str(self.store), '001', '--head', 'side', code=1))
+
     def test_a_clean_landing_verdict_whose_range_head_does_not_resolve_says_so_and_covers_nothing(self):
         init, head, landing = self.landing_range_world()
         landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..deadbeef0\n')
