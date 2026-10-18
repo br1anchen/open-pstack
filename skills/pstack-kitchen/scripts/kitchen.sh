@@ -1877,10 +1877,14 @@ land_check() {
 	if [ -n "$landing_verdict" ]; then
 		manifest_warning "$store" "$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/\.\..*//')^{commit}" 2>/dev/null || true)" "$(current_landing_base "$store")"
 		printf 'landing verification: %s (%s)\n' "$(header_field "$landing_verdict" status)" "$landing_verdict"
-		behind="$(git -C "$(field "$store" .git_root)" rev-list --count "$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')..HEAD" 2>/dev/null || true)"
 		vhead="$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')"
-		if [ -n "$behind" ] && [ "$behind" -gt 0 ]; then
-			printf 'landing verdict %s at %s, %s commits behind HEAD\n' "$landing_verdict" "${vhead:0:9}" "$behind"
+		if [ -n "$vhead" ] && git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$vhead^{commit}" >/dev/null 2>&1; then
+			if git -C "$(field "$store" .git_root)" merge-base --is-ancestor "$vhead" HEAD 2>/dev/null; then
+				behind="$(git -C "$(field "$store" .git_root)" rev-list --count "$vhead..HEAD" 2>/dev/null || true)"
+				[ "${behind:-0}" -eq 0 ] || printf 'landing verdict %s at %s, %s commit%s behind HEAD\n' "$landing_verdict" "${vhead:0:9}" "$behind" "$([ "$behind" -eq 1 ] || printf s)"
+			else
+				printf 'landing verdict %s at %s, not in HEAD'"'"'s history (rebased or another branch); verify --landing again\n' "$landing_verdict" "${vhead:0:9}"
+			fi
 		fi
 	else
 		printf 'landing verification: none; kitchen.sh verify %s --landing proves the stack tip with a fresh verifier\n' "$store"

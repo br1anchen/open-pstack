@@ -4293,6 +4293,7 @@ esac
         self.assertNotIn('commits behind HEAD', self.run_sh('land-check', str(self.store)))
         self.write('docs/a.md', 'a\n')
         self.commit('a')
+        self.assertIn(f'landing verdict {landing} at {head[:9]}, 1 commit behind HEAD', self.run_sh('land-check', str(self.store)))
         self.write('docs/b.md', 'b\n')
         self.commit('b')
         out = self.run_sh('land-check', str(self.store))
@@ -4312,6 +4313,26 @@ esac
         self.assertIn(f'landing base: recorded parent {init[:9]} ({init[:9]})', out)
         self.assertIn(f'range: {init}..{self.git("rev-parse", "HEAD")}', (self.store / 'verdicts/landing-v2-packet.md').read_text())
         self.assertIn('--parent goes with --landing', self.run_sh('verify', str(self.store), '001', '--parent', 'HEAD', code=1))
+
+    def test_a_landing_verdict_off_heads_history_is_not_called_behind(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        main = self.git('rev-parse', '--abbrev-ref', 'HEAD')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        self.git('checkout', '-q', '-b', 'side', init)
+        self.write('src/other.py', 'Y = 1\n')
+        side = self.commit('side work')
+        self.git('checkout', '-q', main)
+        self.run_sh('verify', str(self.store), '--landing', '--head', 'side')
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{side[:9]}\n')
+        out = self.run_sh('land-check', str(self.store), code=0)
+        self.assertIn(f"landing verdict {landing} at {side[:9]}, not in HEAD's history (rebased or another branch); verify --landing again", out)
+        self.assertNotIn('behind HEAD', out)
 
     def test_verify_landing_head_proves_a_branch_beside_head(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')

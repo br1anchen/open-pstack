@@ -186,7 +186,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    profile's `landing` commands, from where it
    leaves trunk, and the main flows its briefs describe. land-check reports
    its result without requiring it. A landing verdict older than HEAD is
-   reported as `landing verdict <file> at <short>, N commits behind HEAD`.
+   reported as `landing verdict <file> at <short>, N commits behind HEAD` when
+   its head is in HEAD's history, and as `not in HEAD's history (rebased or
+   another branch)` when it is not (a `--head` branch, a verdict from before a
+   rebase).
    When the stack does not leave trunk where the merge-base says (stacked on
    another branch), `verify --landing --parent REF` records that parent in
    `pair.json` (`.landing.parent`); later landings start there and print
