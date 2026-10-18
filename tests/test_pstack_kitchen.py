@@ -2822,7 +2822,7 @@ esac
         self.dispatch(b)
         change()
         self.done(b, self.commit('the change'))
-        self.run_sh('verify', str(self.store), '001')
+        self.run_sh('verify', str(self.store), '--timeout', '60', '001')
         review = self.store / 'reviews/001-util.md'
         review.write_text('verdict: accept\nengine: skipped (deletion-only, proof: git diff --numstat)\n')
         return review
@@ -3209,7 +3209,7 @@ esac
         self.write('src/first.py', 'F = 1\n')
         self.write('tests/test_first.py', 'f = 1\n')
         self.done(b, self.commit('first'))
-        return self.run_sh('verify', str(self.store), n)
+        return self.run_sh('verify', str(self.store), '--timeout', '60', n)
 
     def on_nth_get(self, n, body):
         """Runs `body` (shell) inside the n-th `herdr agent get` that follows, in whatever command makes it."""
@@ -3443,7 +3443,7 @@ esac
         self.write('src/util.py', 'X = 5\n')
         self.write('tests/test_app.py', 'x = 5\n')
         self.done(b, self.commit('util'))
-        self.run_sh('verify', str(self.store), '001')
+        self.run_sh('verify', str(self.store), '--timeout', '60', '001')
         packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
         rule = 'Write rule: you write only your verdict file and the scratch worktree you were given'
         self.assertIn(rule, packet.split('## Unit')[0])
@@ -3452,7 +3452,7 @@ esac
         self.assertIn('kitchen.sh log demo x y z w', packet.split('not for the verifier:')[1])
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)
-        self.run_sh('verify', str(self.store), '--landing')
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing')
         self.assertIn(rule, (self.store / 'verdicts/landing-v1-packet.md').read_text())
 
     def packet_with_verify(self, block):
@@ -3550,7 +3550,7 @@ esac
             self.write(f'src/mod{n}.py', f'X = {n}\n')
             self.write(f'tests/test_mod{n}.py', f'x = {n}\n')
             self.done(b, self.commit(slug))
-        self.run_sh('verify', str(self.store), '--landing')
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing')
         packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
         goals = packet.split('## Goals')[1].split('\n## ')[0]
         self.assertIn('### Unit 001 util\n\nUsers can add numbers.', goals)
@@ -4320,9 +4320,9 @@ esac
         self.write('src/util.py', 'X = 3\n')
         self.write('tests/test_app.py', 'x = 3\n')
         self.done(b, self.commit('util'))
-        self.run_sh('verify', str(self.store), '001')
+        self.run_sh('verify', str(self.store), '--timeout', '60', '001')
         self.assertNotIn(' landing --role verifier', (self.store / 'verdicts/001-util-v1-packet.md').read_text())
-        self.run_sh('verify', str(self.store), '--landing')
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing')
         packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
         self.assertRegex(packet, r'gate app behavioral --role verifier --base [0-9a-f]+\n')
         self.assertRegex(packet, r'gate app landing --role verifier --base [0-9a-f]+\n')
@@ -4418,7 +4418,7 @@ esac
         self.git('update-ref', 'refs/remotes/origin/main', trunk)
         report = self.store / 'reports/002-next.md'
         report.write_text(f'# Report\n\nstatus: done\nhead: {tip}\n')
-        out = self.run_sh('verify', str(self.store), '002', '--covers', '001', code=2)
+        out = self.run_sh('verify', str(self.store), '--timeout', '60', '002', '--covers', '001', code=2)
         self.assertIn("unit 001's head", out)
         self.assertIn('is not in the checked-out head', out)
 
@@ -4429,7 +4429,7 @@ esac
         self.git('update-ref', 'refs/remotes/origin/main', trunk)
         report = self.store / 'reports/002-next.md'
         report.write_text(f'# Report\n\nstatus: done\nhead: {tip}\n')
-        out = self.run_sh('verify', str(self.store), '002', '--covers', '001')
+        out = self.run_sh('verify', str(self.store), '--timeout', '60', '002', '--covers', '001')
         self.assertRegex(out, rf"note: unit 001's head is not in {tip[:9]}; its commits match by patch-id \(rebased as [0-9a-f]{{9}}\)")
         self.assertIn('status: clean', out)
 
@@ -4553,7 +4553,7 @@ esac
         self.write('src/other.py', 'Y = 1\n')
         side = self.commit('side work')
         self.git('checkout', '-q', main)
-        self.run_sh('verify', str(self.store), '--landing', '--head', 'side')
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--head', 'side')
         landing = self.store / 'verdicts/landing-v1.md'
         landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{side[:9]}\n')
         out = self.run_sh('land-check', str(self.store), code=0)
@@ -4571,12 +4571,12 @@ esac
         self.done(b, unit)
         self.write('src/more.py', 'M = 1\n')
         self.commit('more')
-        self.run_sh('verify', str(self.store), '--landing', '--parent', unit[:9])
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--parent', unit[:9])
         self.assertEqual(self.state()['landing']['parent'], unit)
         self.git('checkout', '-q', '-b', 'elsewhere', init)
         self.write('src/else.py', 'E = 1\n')
         head = self.commit('elsewhere')
-        out = self.run_sh('verify', str(self.store), '--landing')
+        out = self.run_sh('verify', str(self.store), '--timeout', '60', '--landing')
         self.assertIn(f'landing base: recorded parent {unit[:9]} ({unit[:9]}) is no longer an ancestor of {head[:9]}; using the trunk merge-base', out)
         self.assertIn(f'landing base: merge-base of remotes/origin/main and HEAD ({init[:9]})', out)
 
@@ -4588,11 +4588,11 @@ esac
         self.write('src/util.py', 'X = 3\n')
         self.write('tests/test_app.py', 'x = 3\n')
         self.done(b, self.commit('util'))
-        self.assertIn('--head nope is not a commit', self.run_sh('verify', str(self.store), '--landing', '--parent', init[:9], '--head', 'nope', code=1))
+        self.assertIn('--head nope is not a commit', self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--parent', init[:9], '--head', 'nope', code=1))
         self.assertNotIn('landing', self.state())
-        self.run_sh('verify', str(self.store), '--landing', '--parent', init[:9])
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--parent', init[:9])
         self.assertEqual(self.state()['landing']['parent'], init)
-        out = self.run_sh('verify', str(self.store), '--landing', '--parent', 'none')
+        out = self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--parent', 'none')
         self.assertIn('landing base: merge-base of remotes/origin/main and HEAD', out)
         self.assertNotIn('parent', self.state().get('landing', {}))
 
@@ -4665,7 +4665,7 @@ esac
 
     def test_verify_landing_warns_of_manifests_changed_since_the_previous_landing_verdicts_base(self):
         self.verified_on_a_base_with_a_manifest_edit()
-        out = self.run_sh('verify', str(self.store), '--landing')
+        out = self.run_sh('verify', str(self.store), '--timeout', '60', '--landing')
         self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
 
     def test_land_check_says_nothing_of_manifests_when_trunk_moved_another_file(self):
