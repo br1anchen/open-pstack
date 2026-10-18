@@ -67,6 +67,23 @@ run() {
 fill() { perl -0pi -e 's/\{\{.*?\}\}/x/gs' "$1"; }
 set_hdr() { KEY="$2" VAL="$3" perl -i -pe 's/^\Q$ENV{KEY}\E:.*/$ENV{KEY}: $ENV{VAL}/' "$1"; }
 status() { printf '%s %s\n' "$2" "$3" >"$FAKE/agents/$1"; }
+# The master's wait is already running when the sidekick reports: the fake herdr runs the sidekick's report write and its `finish` at the
+# wait's first herdr call, so the wait that owns the store returns the report. $1 the report's text (printf format), $2 its path, then the
+# wait's arguments. The sidekick's own output follows the wait's.
+wait_while_finishing() {
+	local content="$1" report="$2"
+	shift 2
+	mkdir -p "$FAKE/once"
+	cat >"$FAKE/once/wait" <<HOOK
+#!/bin/sh
+printf '$content' >"$report"
+"$P" finish "$store" "$report" >"$FAKE/finish.out" 2>&1
+HOOK
+	chmod +x "$FAKE/once/wait"
+	run wait "$store" "$@"
+	printf '\n[during that wait the sidekick ran: pair.sh finish %s]\n' "$(basename "$report")"
+	norm <"$FAKE/finish.out"
+}
 
 run help
 run init BadSlug
@@ -161,18 +178,14 @@ run queue "$store" "$q2"
 run queue "$store" "$q1"
 run dispatch "$store" "$q1"
 run status "$store"
-printf '# Report\n\nstatus: done\nhead: abc\n' >"$store/reports/$(basename "$q1")"
-# finish: the sidekick's one command after a report takes the queued brief
-run finish "$store" "$store/reports/$(basename "$q1")"
+# finish: the sidekick's one command after a report takes the queued brief; the master's wait is running and returns the report
+wait_while_finishing '# Report\n\nstatus: done\nhead: abc\n' "$store/reports/$(basename "$q1")" --timeout 1500
 run next "$store"
-run wait "$store" --timeout 1500
 q3="$("$P" new-brief "$store" qthree)"; fill "$q3"; set_hdr "$q3" playbook investigation; set_hdr "$q3" plan none
 run queue "$store" "$q3"
 # a partial report ends the turn and leaves the queued brief for the master
-printf '# Report\n\nstatus: partial\n' >"$store/reports/$(basename "$q2")"
-run finish "$store" "$store/reports/$(basename "$q2")"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
-run wait "$store" --timeout 1500
+wait_while_finishing '# Report\n\nstatus: partial\n' "$store/reports/$(basename "$q2")" --timeout 1500
 run status "$store"
 jq '.sidekick.kind = "devin"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 # herdr reports a settle while the sidekick still works (a Devin sidekick
@@ -272,10 +285,8 @@ run note "$store" "$n4"
 # as work to apply now
 sl="$("$P" new-steer "$store" "$qn")"; fill "$sl"; set_hdr "$sl" kind narrow; set_hdr "$sl" "scope effect" none; set_hdr "$sl" supersedes none
 run steer "$store" "$sl"
-printf '# Report\n\nstatus: done\nhead: abc\n' >"$store/reports/$(basename "$qs")"
-run finish "$store" "$store/reports/$(basename "$qs")"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
-run wait "$store" --timeout 1500
+wait_while_finishing '# Report\n\nstatus: done\nhead: abc\n' "$store/reports/$(basename "$qs")" --timeout 1500
 # a finished unit never holds a later wait on its steps
 run wait "$store" --timeout 1500
 # Devin cannot consume or dispatch another task in the completed conversation.
