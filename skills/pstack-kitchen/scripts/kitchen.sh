@@ -520,6 +520,8 @@ $out" "$rc"
 
 cmd_dispatch() {
 	[ $# -ge 2 ] || die "usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]"
+	# A brief path may be given relative to the store (briefs/NNN-x.md).
+	if [ ! -f "$2" ] && [ -f "$1/$2" ]; then set -- "$1" "$1/$2" "${@:3}"; fi
 	[ -f "$2" ] || die "brief not found: $2"
 	if is_landing "$2"; then
 		land_check "$1" >/dev/null || die "landing refused: kitchen.sh land-check $1 fails" 2
@@ -841,7 +843,10 @@ cmd_verify() {
 		mode=unit
 		class=escalated
 	else
-		read -r base head <<<"$(unit_range "$store" "${all[@]}")"
+		# not inside the substitution that feeds read: a die in unit_range must end verify, not leave base and head empty
+		local span
+		span="$(unit_range "$store" "${all[@]}")"
+		read -r base head <<<"$span"
 		unit_heads_in "$store" "$head" "${all[@]}"
 		# A unit dispatched as escalated is verified as escalated, whatever
 		# its diff touches.

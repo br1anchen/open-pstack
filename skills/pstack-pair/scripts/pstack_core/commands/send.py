@@ -24,11 +24,16 @@ def discuss(ctx, args):
     return send_and_wait(ctx, store, readlink_f(plan), 'PLAN', timeout, interval, send_only)
 
 
+def store_relative(store, path):
+    """A brief path as given when it exists, else the same path under the store (briefs/NNN-x.md), else as given."""
+    return f'{store}/{path}' if not os.path.isfile(path) and os.path.isfile(f'{store}/{path}') else path
+
+
 def dispatch(ctx, args):
     in_herdr()
     if len(args) < 2:
         raise Die('usage: pair.sh dispatch <store> <brief-path> [--timeout MS | --every MIN]')
-    store, brief = args[0], args[1]
+    store, brief = args[0], store_relative(args[0], args[1])
     die_with_the_shell()
     timeout, interval, send_only, rest = wait_opts(args[2:])
     if rest:

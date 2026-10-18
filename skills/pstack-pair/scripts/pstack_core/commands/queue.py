@@ -7,6 +7,7 @@ from ..replies import queued_brief
 from ..review import jq_raw, require_filled
 from ..store import alt, event, pair_file, pair_json, readlink_f
 from .report import section
+from .send import store_relative
 
 
 def queue(ctx, args):
@@ -16,6 +17,7 @@ def queue(ctx, args):
         raise Die('usage: pair.sh queue <store> <brief-path> [--replace] | pair.sh queue <store> --clear')
     store, brief = args[0], args[1]
     pair_file(store)
+    brief = store_relative(store, brief)
     if brief == '--clear':
         try:
             os.unlink(f'{store}/queue')

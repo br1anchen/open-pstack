@@ -1785,7 +1785,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'queued brief that is gone': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
             'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'queue': '{st}/briefs/009-gone.md\n'}),
         'queued brief that is gone, the streams merged': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], merged=True, files={
-            'reports/001-x.md': '# R\\n\\nstatus: done\\nhead: {c3}\\n', 'queue': '{st}/briefs/009-gone.md\\n'}),
+            'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'queue': '{st}/briefs/009-gone.md\\n'}),
         'queued brief of an answered unit': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], files={
             'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n', 'reports/002-y.md': '# old\n', 'queue': '{st}/briefs/002-y.md\n'},
             pair={'heads': {'001-x': 'kept'}, 'pending': ['{st}/briefs/z.md', '{st}/briefs/001-x.md']}),
@@ -1819,13 +1819,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'finish under a missing directory': dict(args=['finish', '{st}', '{T}/nope/none.md']),
         'finish an empty path': dict(args=['finish', '{st}', '']),
         'finish without arguments': dict(args=['finish', '{st}']),
-        'finish outside herdr': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], noenv=True, files={'reports/001-x.md': '# R\n'}),
+        'finish outside herdr': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], noenv=True, files={'reports/001-x.md': '# R\n\nstatus: partial\n'}),
         'finish a done report without pair.json': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
         'finish a partial report without pair.json': dict(args=['finish', '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': '# R\n\nstatus: partial\n'}),
-        'finish a report path with a trailing slash': dict(args=['finish', '{st}', '{st}/reports/001-x.md/'], files={'reports/001-x.md': '# R\\n\\nstatus: done\\nhead: {c3}\\n'}),
-        'finish through a missing intermediate directory': dict(args=['finish', '{st}', '{st}/nope/../reports/001-x.md'], files={'reports/001-x.md': '# R\\n\\nstatus: done\\nhead: {c3}\\n'}),
-        'notify through a missing intermediate directory': dict(args=['notify', '{st}', '{st}/nope/../reports/001-x.md'], files={'reports/001-x.md': '# R\\n\\nstatus: done\\n'}),
-        'finish a symlink loop': dict(args=['finish', '{st}', '{T}/loop1'], links={'loop1': 'loop2', 'loop2': 'loop1'}, files={'reports/001-x.md': '# R\\n\\nstatus: done\\nhead: {c3}\\n'}),
+        'finish a report path with a trailing slash': dict(args=['finish', '{st}', '{st}/reports/001-x.md/'], files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'finish through a missing intermediate directory': dict(args=['finish', '{st}', '{st}/nope/../reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+        'notify through a missing intermediate directory': dict(args=['notify', '{st}', '{st}/nope/../reports/001-x.md'], files={'reports/001-x.md': '# R\n\nstatus: done\n'}),
+        'finish a symlink loop': dict(args=['finish', '{st}', '{T}/loop1'], links={'loop1': 'loop2', 'loop2': 'loop1'}, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
         'finish a symlinked report': dict(args=['finish', '{st}', '{T}/link.md'], links={'link.md': '{st}/reports/001-x.md'}, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
         'report, newest': dict(args=['report', '{st}'], files={'reports/001-x.md': '# R\n', 'reports/002-y.md': '# R\n', 'reports/notes.md': '# R\n'}),
         'report by number': dict(args=['report', '{st}', '001'], files={'reports/001-x.md': '# R\n', 'reports/001-x-s1.md': '# R\n', 'reports/002-y.md': '# R\n'}),
@@ -1842,7 +1842,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'next without pair.json': dict(args=['next', '{st}'], nopair=True),
         'next with arguments missing': dict(args=['next']),
         **{f'{cmd} a {status} report without pair.json': dict(args=[cmd, '{st}', '{st}/reports/001-x.md'], nopair=True, files={'reports/001-x.md': f'# R\n\nstatus: {status}\nhead: {{c3}}\n'})
-           for cmd in ('finish', 'notify') for status in ('blocked', 'failed', 'bogus', '')},
+           for cmd in ('finish', 'notify') for status in ('blocked', 'failed', 'bogus', '') if not (cmd == 'finish' and status in ('bogus', ''))},
         'next, heads null': dict(args=['next', '{st}'], pair={'heads': None}, files={'queue': '{st}/briefs/002-y.md\n'}),
         'next, heads with the unit as false': dict(args=['next', '{st}'], pair={'heads': {'002-y': False}}, files={'queue': '{st}/briefs/002-y.md\n'}),
         'next, pending false': dict(args=['next', '{st}'], pair={'pending': False}, files={'queue': '{st}/briefs/002-y.md\n'}),
@@ -2257,6 +2257,31 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         out = run('wait', '{st}', '--timeout', '1000').stdout
         self.assertIn(f'queued: {st}/briefs/002-y.md\n', out)
         self.assertNotIn('held:', out)
+
+    def test_finish_refuses_a_report_with_no_valid_status_line(self):
+        # A10. Before any other check, so the message is the reason and the store is not touched.
+        for label, text in (('no status', '# R\n\nhead: abc\n'), ('status: bogus', '# R\n\nstatus: bogus\n'), ('an empty status', '# R\n\nstatus:\n')):
+            top, st, run = self.own_world('fs-' + label.replace(' ', '-').replace(':', ''), files={'reports/001-x.md': text})
+            before = (st / 'pair.json').read_text()
+            r = run('finish', '{st}', '{st}/reports/001-x.md')
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', f'pair.sh: {st}/reports/001-x.md has no valid status: line (one of done, partial, blocked, failed, object)\n'), label)
+            self.assertEqual((st / 'pair.json').read_text(), before, label)
+        for status in ('done', 'partial', 'blocked', 'failed', 'object'):
+            top, st, run = self.own_world('fv-' + status, files={'reports/001-x.md': f'# R\n\nstatus: {status}\nhead: {{c3}}\n'})
+            self.assertNotIn('no valid status', run('finish', '{st}', '{st}/reports/001-x.md').stderr, status)
+
+    def test_dispatch_and_queue_take_a_brief_path_relative_to_the_store(self):
+        # A13. From a cwd that is the repo, not the store.
+        top, st, run = self.own_world('rel', files={})
+        r = run('queue', '{st}', 'briefs/002-y.md')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((st / 'queue').read_text().strip(), f'{st}/briefs/002-y.md')
+        top, st, run = self.own_world('rel2', files={}, agents={'s1': 'idle claude'})
+        r = run('dispatch', '{st}', 'briefs/002-y.md', '--send-only')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.loads((st / 'pair.json').read_text())['dispatch']['brief'], f'{st}/briefs/002-y.md')
+        r = run('dispatch', '{st}', 'briefs/009-none.md', '--send-only')
+        self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: brief not found: briefs/009-none.md\n'))
 
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.

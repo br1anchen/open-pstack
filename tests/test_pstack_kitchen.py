@@ -2127,6 +2127,22 @@ esac
         self.assertEqual(out.strip(), 'superseded: a newer wait owns this store; this one ends')
         self.assertEqual((self.store / 'wait.pid').read_text(), 'other\n')
 
+    def test_verify_on_a_report_with_no_status_prints_one_error_and_no_usage(self):
+        # A10. unit_range dies inside no command substitution now, so the reason is the only line.
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.commit('util')
+        (self.store / 'reports' / b.name).write_text('# Report\n\nhead: abc\n')
+        out = self.run_sh('verify', str(self.store), '001', code=1)
+        self.assertEqual(out, "kitchen.sh: unit 001's report is , not done, partial, or blocked\n")
+
+    def test_dispatch_takes_a_brief_path_relative_to_the_store(self):
+        # A13. The cwd is the repo, not the store.
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b.relative_to(self.store))
+        self.assertEqual(self.state()['dispatch']['brief'], str(b))
+
     def test_a_quiet_wait_ending_at_max_logs_one_checkin_wake(self):
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
