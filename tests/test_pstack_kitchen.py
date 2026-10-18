@@ -2795,6 +2795,36 @@ esac
         review.write_text('verdict: accept\nhead: x\nengine: joo /tmp/joo-001.json\n')
         self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
 
+    def test_a_deletion_only_unit_may_skip_the_required_engine_with_proof(self):
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + 'engine = "joo"\n')
+        self.commit('require joo')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.git('rm', '-q', 'tests/test_app.py')
+        self.done(b, self.commit('delete the old test'))
+        self.run_sh('verify', str(self.store), '001')
+        review = self.store / 'reviews/001-util.md'
+        skip = 'verdict: accept\nengine: skipped (deletion-only, proof: git diff --numstat shows 0 added)\n'
+        review.write_text(skip)
+        self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
+        review.write_text('verdict: accept\nengine: skipped (deletion-only)\n')
+        self.assertIn('unreviewed: unit 001 cites no joo run', self.run_sh('land-check', str(self.store), code=2))
+
+    def test_skipping_the_required_engine_is_refused_for_a_unit_that_adds_lines(self):
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + 'engine = "joo"\n')
+        self.commit('require joo')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/new.py', 'Z = 1\n')
+        self.done(b, self.commit('add a module'))
+        self.run_sh('verify', str(self.store), '001')
+        review = self.store / 'reviews/001-util.md'
+        review.write_text('verdict: accept\nengine: skipped (deletion-only, proof: none)\n')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn(f'unreviewed: unit 001 cites no joo run; review its range with joo and add "engine: joo <run id or artifact path>" to {review}; skipped is only for a deletion-only range', out)
+
     def test_a_clean_verify_warns_of_a_review_note_without_the_required_engine_run(self):
         self.three_units()
         review = self.store / 'reviews/001-u1.md'

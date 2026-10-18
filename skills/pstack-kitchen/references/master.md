@@ -150,7 +150,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      (`kitchen.py validate` prints `review engine:`), the owner requires that
      engine on every unit: run it on the unit's range and add
      `engine: <name> <run id or artifact path>` under the review note's
-     `head:` line, or land-check refuses the unit. For `joo`:
+     `head:` line, or land-check refuses the unit. A unit whose range adds no
+     lines (`git diff --numstat` sums 0 added) may instead say
+     `engine: skipped (deletion-only, proof: <command>)`; for a unit that adds
+     lines, land-check refuses that line (`skipped is only for a deletion-only
+     range`). For `joo`:
      `joo-dev engine review --repo <root> --range <base>..<head> --json --out <store>/scratch/joo-NNN.json`
      (or `joo`), cite that artifact path, and read its findings with
      `joo-dev connected review context --artifact <path> --json`.

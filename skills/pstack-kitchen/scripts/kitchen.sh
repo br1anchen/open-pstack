@@ -1627,6 +1627,31 @@ cites_engine() {
 	[ "${cited%% *}" = "$2" ] && [ "${cited#* }" != "$cited" ]
 }
 
+# Whether the unit's range adds no lines: `git diff --numstat` from its dispatch
+# head to its head sums to 0 added (a binary file counts as added). $1 store, $2 brief.
+unit_adds_no_lines() {
+	local root base head
+	root="$(field "$1" .git_root)"
+	base="$(jq -r --arg u "$(basename "$2" .md)" '.heads[$u] // empty' "$1/pair.json")"
+	head="$(unit_head "$1" "$2")"
+	[ -n "$base" ] && [ -n "$head" ] || return 1
+	[ "$(git -C "$root" diff --numstat "$base" "$head" 2>/dev/null | awk -F '\t' '{ s += ($1 ~ /^[0-9]+$/ ? $1 : 1) } END { print s + 0 }')" = 0 ]
+}
+
+# Whether the review note meets the required engine: it cites a run, or it says
+# `engine: skipped (deletion-only, proof: <command>)` and the unit's range adds
+# no lines. On failure, $engine_gap says why when the note tried to skip.
+# $1 store, $2 brief, $3 review note, $4 engine.
+engine_met() {
+	engine_gap=""
+	cites_engine "$3" "$4" && return 0
+	if [[ "$(header_field "$3" engine)" =~ ^skipped\ \(deletion-only,\ proof:\ .+\)$ ]]; then
+		unit_adds_no_lines "$1" "$2" && return 0
+		engine_gap="; skipped is only for a deletion-only range"
+	fi
+	return 1
+}
+
 # Prints a "warning: unreviewed:" line for each accepted unit whose review note
 # lacks the run the kitchen's [review].engine requires; nothing when no engine
 # is set. land-check holds the landing on the same lines.
@@ -1641,9 +1666,9 @@ warn_unreviewed() {
 		brief="$(ls "$store"/briefs/"$seq"-*.md 2>/dev/null | head -1 || true)"
 		[ -n "$brief" ] && [ "$(header_field "$brief" commit | cut -c1-3)" = yes ] || continue
 		is_landing "$brief" && continue
-		cites_engine "$r" "$engine" ||
-			printf 'warning: unreviewed: unit %s cites no %s run; review its range with %s and add "engine: %s <run id or artifact path>" to %s\n' \
-				"$seq" "$engine" "$engine" "$engine" "$r"
+		engine_met "$store" "$brief" "$r" "$engine" ||
+			printf 'warning: unreviewed: unit %s cites no %s run; review its range with %s and add "engine: %s <run id or artifact path>" to %s%s\n' \
+				"$seq" "$engine" "$engine" "$engine" "$r" "$engine_gap"
 	done
 }
 
@@ -1676,9 +1701,9 @@ land_check() {
 		[ -n "$brief" ] && [ "$(header_field "$brief" commit | cut -c1-3)" = yes ] || continue
 		is_landing "$brief" && continue
 		if [ -n "$engine" ]; then
-			if ! cites_engine "$r" "$engine"; then
-				printf 'unreviewed: unit %s cites no %s run; review its range with %s and add "engine: %s <run id or artifact path>" to %s\n' \
-					"$seq" "$engine" "$engine" "$engine" "$r"
+			if ! engine_met "$store" "$brief" "$r" "$engine"; then
+				printf 'unreviewed: unit %s cites no %s run; review its range with %s and add "engine: %s <run id or artifact path>" to %s%s\n' \
+					"$seq" "$engine" "$engine" "$engine" "$r" "$engine_gap"
 				problems=$((problems + 1))
 			fi
 		fi
