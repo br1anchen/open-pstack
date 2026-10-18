@@ -4438,6 +4438,40 @@ esac
         out = self.run_sh('land-check', str(self.store))
         self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
 
+    def verified_on_a_base_with_a_manifest_edit(self, packet=False):
+        """The stack was verified on top of a commit that edits requirements.txt, then rebased onto a trunk without that edit."""
+        init, heads = self.two_unit_stack()
+        self.git('checkout', '-q', '-b', 'verified', init)
+        self.write('requirements.txt', 'pytest==9\n')
+        verified_base = self.commit('manifest edit')
+        self.git('cherry-pick', *heads)
+        verified_tip = self.git('rev-parse', 'HEAD')
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        if packet:
+            (self.store / 'verdicts/landing-v1-packet.md').write_text(f'# Verify landing\n\nrange: {verified_base}..{verified_tip}\n')
+            landing.write_text('# Verdict\n\nstatus: clean\nunits: landing\nrange: copied wrongly\n')
+        else:
+            landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {verified_base[:9]}..{verified_tip[:9]}\n')
+        self.git('checkout', '-q', '-b', 'rebased', init)
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        self.git('cherry-pick', *heads)
+
+    def test_a_manifest_changed_only_on_the_verified_bases_side_still_warns(self):
+        self.verified_on_a_base_with_a_manifest_edit()
+        out = self.run_sh('land-check', str(self.store), code=0)
+        self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
+
+    def test_the_manifest_warning_reads_the_base_from_the_verdicts_packet(self):
+        self.verified_on_a_base_with_a_manifest_edit(packet=True)
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
+
+    def test_verify_landing_warns_of_manifests_changed_since_the_previous_landing_verdicts_base(self):
+        self.verified_on_a_base_with_a_manifest_edit()
+        out = self.run_sh('verify', str(self.store), '--landing')
+        self.assertIn('warning: dependency manifests changed since the verified base: requirements.txt', out)
+
     def test_land_check_says_nothing_of_manifests_when_trunk_moved_another_file(self):
         self.rebased_after_a_landing_verdict('docs/notes.md')
         self.assertNotIn('dependency manifests', self.run_sh('land-check', str(self.store)))

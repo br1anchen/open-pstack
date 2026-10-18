@@ -210,7 +210,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    stays uncovered until the landing verification proves the stack. A unit built
    on top of a landing verdict's tip says it is newer than the verdict, and a
    verdict whose base does not resolve says so; the `(squashed?)` note is for
-   neither. When the stack was rebased after the last landing verdict, land-check and `verify --landing` print `warning: dependency manifests changed since the verified base: <files>` for the kitchen's `escalate.manifests` that changed between the two bases; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
+   neither. When the stack was rebased after the last landing verdict, land-check and `verify --landing` print `warning: dependency manifests changed since the verified base: <files>` for the kitchen's `escalate.manifests` that differ between the verdict's base
+   (read from its packet's `range:`) and the current base, whichever side changed them; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and
    lands.
 9. **Retro and close.** `kitchen.sh retro <store>`. It ends with the repo's

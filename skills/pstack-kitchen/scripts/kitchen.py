@@ -2388,6 +2388,7 @@ def main(argv: list[str] | None = None) -> int:
     sn.add_argument('dir', type=Path)
     su = sub.add_parser('setup', help='run [scratch].setup in the repo root, inside the wrap')
     su.add_argument('--role', choices=('verifier', 'sidekick'), default='verifier')
+    sub.add_parser('manifests', help='the paths on stdin (one per line) that match [escalate].manifests')
     c = sub.add_parser('classify', help='profiles, risk class, and verify settings for a change')
     p = sub.add_parser('policy', help='forbid rules on added lines, and test-touch')
     for s in (c, p):
@@ -2597,6 +2598,10 @@ def main(argv: list[str] | None = None) -> int:
             emit(r, args.json, (f'setup: ok ({len(r["commands"])} commands' + (f', log {r["log"]}' if r['log'] else '') + ')')
                  if r['passed'] else f'setup: FAIL exit {r["exit"]} (log {r["log"]})\n' + '\n'.join(f'  | {t}' for t in r['tail']))
             return 0 if r['passed'] else 2
+        if args.cmd == 'manifests':
+            hits = [x for x in sys.stdin.read().splitlines() if x and matches(x, kitchen.escalate['manifests'])]
+            emit({'manifests': hits}, args.json, '\n'.join(hits))
+            return 0
         if args.cmd == 'classify':
             if not args.paths:
                 args.paths = None

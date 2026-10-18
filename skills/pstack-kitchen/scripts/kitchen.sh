@@ -996,7 +996,7 @@ cmd_verify() {
 		fi
 		# A rebase since the last landing verdict may have moved a dependency manifest.
 		prior="$(latest_landing_verdict "$store")"
-		[ -z "$prior" ] || manifest_warning "$store" "$(git -C "$root" rev-parse --verify --quiet "$(header_field "$prior" range | sed 's/\.\..*//')^{commit}" 2>/dev/null || true)" "$base"
+		[ -z "$prior" ] || manifest_warning "$store" "$(git -C "$root" rev-parse --verify --quiet "$(verdict_base "$prior")^{commit}" 2>/dev/null || true)" "$base"
 		# The stack lands under the kitchen as it is now.
 		kitchen_cfg=()
 		snap="$(kitchen_snapshot "$store")"
@@ -1762,13 +1762,24 @@ current_landing_base() {
 	[ -z "$trunk" ] || git -C "$root" merge-base "$trunk" HEAD 2>/dev/null || true
 }
 
+# The base a landing verdict used: its packet's range (written by the kitchen, full
+# shas), else the range line the verifier copied into the verdict. $1 verdict.
+verdict_base() {
+	local packet="${1%.md}-packet.md" range
+	range="$(header_field "$packet" range 2>/dev/null || true)"
+	[ -n "$range" ] || range="$(header_field "$1" range)"
+	printf '%s' "${range%%..*}"
+}
+
 # When the stack's base moved since a landing was verified (a rebase), lists the
-# dependency manifests (kitchen.toml escalate.manifests, as classify reads them)
-# that changed between the two bases. $1 store, $2 verified base, $3 current base.
+# dependency manifests (kitchen.toml escalate.manifests, matched by kitchen.py)
+# that differ between the two bases, whichever side changed them.
+# $1 store, $2 verified base, $3 current base.
 manifest_warning() {
-	local files
+	local root files
 	[ -n "$2" ] && [ -n "$3" ] && [ "$2" != "$3" ] || return 0
-	files="$(kpy "$1" --json classify --base "$2" --head "$3" 2>/dev/null | jq -r '[.escalate[]? | select(startswith("dependency manifest: ")) | sub("^dependency manifest: "; "")] | join(", ")' 2>/dev/null || true)"
+	root="$(field "$1" .git_root)"
+	files="$(git -C "$root" diff --name-only "$2" "$3" 2>/dev/null | kpy "$1" --json manifests 2>/dev/null | jq -r '.manifests | join(", ")' 2>/dev/null || true)"
 	[ -z "$files" ] || printf 'warning: dependency manifests changed since the verified base: %s\n' "$files"
 }
 
@@ -1910,7 +1921,7 @@ land_check() {
 	done
 	# A landing verification is reported, not required.
 	if [ -n "$landing_verdict" ]; then
-		manifest_warning "$store" "$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/\.\..*//')^{commit}" 2>/dev/null || true)" "$(current_landing_base "$store")"
+		manifest_warning "$store" "$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(verdict_base "$landing_verdict")^{commit}" 2>/dev/null || true)" "$(current_landing_base "$store")"
 		printf 'landing verification: %s (%s)\n' "$(header_field "$landing_verdict" status)" "$landing_verdict"
 		vhead="$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')"
 		if [ -n "$vhead" ] && git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$vhead^{commit}" >/dev/null 2>&1; then
