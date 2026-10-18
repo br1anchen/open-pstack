@@ -180,7 +180,16 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `kitchen.sh verify <store> --landing` gives the stack tip a fresh verifier
    of the escalated class: every behavioral gate the stack touches, from where it
    leaves trunk, and the main flows its briefs describe. land-check reports
-   its result without requiring it. Its playbook (`opening-a-pr` or
+   its result without requiring it. A landing verdict older than HEAD is
+   reported as `landing verdict <file> at <short>, N commits behind HEAD`.
+   When the stack does not leave trunk where the merge-base says (stacked on
+   another branch), `verify --landing --parent REF` records that parent in
+   `pair.json` (`.landing.parent`); later landings start there and print
+   `landing base: recorded parent <ref> (<short>)`, and `--base REV` still wins
+   for one call. A unit rebased or cherry-picked into the stack counts as
+   covered when every commit of its range has a patch-id among the stack's
+   (`covered: unit NNN (rebased as <short>)`); a squashed one prints a note and
+   stays uncovered until the landing verification proves the stack. Its playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and
    lands.
 9. **Retro and close.** `kitchen.sh retro <store>`. It ends with the repo's

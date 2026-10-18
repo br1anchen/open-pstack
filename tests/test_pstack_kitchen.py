@@ -4028,6 +4028,32 @@ esac
         self.assertNotIn('covered:', out)
         self.assertIn('unverified: unit 001', out)
 
+    def test_an_older_landing_verdict_says_how_many_commits_behind_head_it_is(self):
+        init, head, landing = self.landing_range_world()
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{head[:9]}\n')
+        self.assertNotIn('commits behind HEAD', self.run_sh('land-check', str(self.store)))
+        self.write('docs/a.md', 'a\n')
+        self.commit('a')
+        self.write('docs/b.md', 'b\n')
+        self.commit('b')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn(f'landing verdict {landing} at {head[:9]}, 2 commits behind HEAD', out)
+
+    def test_verify_landing_parent_is_recorded_and_used_by_the_next_landing(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        out = self.run_sh('verify', str(self.store), '--landing', '--parent', init[:9])
+        self.assertIn(f'landing base: recorded parent {init[:9]} ({init[:9]})', out)
+        self.assertEqual(self.state()['landing']['parent'], init)
+        out = self.run_sh('verify', str(self.store), '--landing')
+        self.assertIn(f'landing base: recorded parent {init[:9]} ({init[:9]})', out)
+        self.assertIn(f'range: {init}..{self.git("rev-parse", "HEAD")}', (self.store / 'verdicts/landing-v2-packet.md').read_text())
+        self.assertIn('--parent goes with --landing', self.run_sh('verify', str(self.store), '001', '--parent', 'HEAD', code=1))
+
     def test_a_clean_landing_verdict_whose_range_head_does_not_resolve_says_so_and_covers_nothing(self):
         init, head, landing = self.landing_range_world()
         landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..deadbeef0\n')

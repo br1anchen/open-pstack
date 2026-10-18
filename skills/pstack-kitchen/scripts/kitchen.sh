@@ -67,8 +67,10 @@ consult, advice. These differ or are new:
                                             the verdict and whether to audit when it lands.
                                             A verifier stopped by its provider is retried on the sidekick's
                                             fallback; the deadline defaults to 3x the measured gate time
-  verify <store> --landing [--base REV]     a fresh verifier at the stack tip: every behavioral gate the stack
-                                            touches, from where it leaves trunk (or --base)
+  verify <store> --landing [--base REV | --parent REF]
+                                            a fresh verifier at the stack tip: every behavioral gate the stack
+                                            touches, from where it leaves trunk, or from the parent --parent
+                                            records for later landings (--base wins for one call)
   verify <store> --wait [--every MIN | --until-verdict]
                                             wait again for the open verification: exit 4 while it runs, 5 when none
                                             is open
@@ -157,10 +159,18 @@ unit_brief() {
 	printf '%s\n' "$f"
 }
 
-# Where a stack at $2 leaves trunk, in $landing_base_rev; call it directly,
+# Where a stack at $2 leaves trunk (or at the parent recorded in store $3), in $landing_base_rev; call it directly,
 # not in a command substitution, so its refusals end the command.
 landing_base() {
-	local root="$1" head="$2" trunk
+	local root="$1" head="$2" store="$3" trunk parent
+	# A parent recorded by verify --landing --parent is where the stack starts.
+	parent="$(jq -r '.landing.parent // empty' "$store/pair.json" 2>/dev/null || true)"
+	if [ -n "$parent" ] && [ -z "${range_base:-}" ]; then
+		landing_base_rev="$(git -C "$root" rev-parse --verify --quiet "$parent^{commit}")" || die "the recorded landing parent $parent is not a commit; pass --parent again or --base"
+		[ "$landing_base_rev" != "$head" ] || die "the recorded landing parent is HEAD, so the landing range is empty; pass --parent <where the stack starts>"
+		printf 'landing base: recorded parent %s (%s)\n' "$(jq -r '.landing.parent_ref // empty' "$store/pair.json")" "${landing_base_rev:0:9}"
+		return 0
+	fi
 	trunk="$(trunk_ref "$root")"
 	[ -n "$trunk" ] || die "cannot tell this repo's trunk; pass --base <trunk ref or commit>"
 	landing_base_rev="$(git -C "$root" merge-base "$trunk" "$head")" || die "no merge-base between $trunk and HEAD; pass --base"
@@ -844,8 +854,8 @@ audit_due() {
 # open verification lives in pair.json .verifying, one at a time.
 cmd_verify() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV] [...] | kitchen.sh verify <store> --wait [--every MIN | --until-verdict] | kitchen.sh verify <store> --cancel"
-	local store="$1" timeout_m="" every_m=9 wait=0 cancel=0 units=() kind_override="" landing=0 retry_entry="" u
+	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV | --parent REF] [...] | kitchen.sh verify <store> --wait [--every MIN | --until-verdict] | kitchen.sh verify <store> --cancel"
+	local store="$1" parent_ref="" timeout_m="" every_m=9 wait=0 cancel=0 units=() kind_override="" landing=0 retry_entry="" u
 	local -a cov=()
 	range_base=""
 	local -a argv=("${@:2}")
@@ -869,6 +879,7 @@ cmd_verify() {
 			shift 2 ;;
 		--base) range_base="$2"; shift 2 ;;
 		--landing) landing=1; shift ;;
+		--parent) parent_ref="$2"; shift 2 ;;
 		--wait) wait=1; shift ;;
 		--cancel) cancel=1; shift ;;
 		[0-9][0-9][0-9]) units+=("$1"); shift ;;
@@ -898,6 +909,12 @@ cmd_verify() {
 	local -a all=("${covered[@]}" "${units[@]}")
 	local root base head json last brief slug k verdict packet mode class risk snap
 	root="$(field "$store" .git_root)"
+	if [ -n "$parent_ref" ]; then
+		[ "$landing" -eq 1 ] || die "--parent goes with --landing"
+		local pfull
+		pfull="$(git -C "$root" rev-parse --verify --quiet "$parent_ref^{commit}")" || die "--parent $parent_ref is not a commit"
+		json_update "$store" --arg p "$pfull" --arg r "$parent_ref" '.landing.parent = $p | .landing.parent_ref = $r'
+	fi
 	if [ "$landing" -eq 1 ]; then
 		# The stack tip, from where it leaves trunk, by a fresh verifier of
 		# the escalated class: a squash or rebase step touches no profile, so
@@ -906,7 +923,7 @@ cmd_verify() {
 		if [ -n "$range_base" ]; then
 			base="$(git -C "$root" rev-parse --verify --quiet "$range_base^{commit}")" || die "--base $range_base is not a commit"
 		else
-			landing_base "$root" "$head"
+			landing_base "$root" "$head" "$store"
 			base="$landing_base_rev"
 		fi
 		# The stack lands under the kitchen as it is now.
@@ -1634,7 +1651,7 @@ land_check() {
 	# kitchen that names a review engine requires each accepted unit's review
 	# note to cite a run of it: "engine: <name> <run id or artifact path>".
 	local store="$1" r seq brief verdict f problems=0 uhead engine
-	local landing_verdict="" landing_head="" landing_base="" lk best=0
+	local landing_verdict="" landing_head="" landing_base="" lk best=0 behind vhead
 	engine="$(kpy "$store" --json validate 2>/dev/null | jq -r '.review_engine // empty')" ||
 		{ printf 'kitchen: validate fails (kitchen.py validate shows why)\n'; return 1; }
 	for f in "$store"/verdicts/landing-v[0-9]*.md; do
@@ -1690,6 +1707,11 @@ land_check() {
 	# A landing verification is reported, not required.
 	if [ -n "$landing_verdict" ]; then
 		printf 'landing verification: %s (%s)\n' "$(header_field "$landing_verdict" status)" "$landing_verdict"
+		behind="$(git -C "$(field "$store" .git_root)" rev-list --count "$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')..HEAD" 2>/dev/null || true)"
+		vhead="$(header_field "$landing_verdict" range | sed 's/.*\.\.//; s/[[:space:]].*//')"
+		if [ -n "$behind" ] && [ "$behind" -gt 0 ]; then
+			printf 'landing verdict %s at %s, %s commits behind HEAD\n' "$landing_verdict" "${vhead:0:9}" "$behind"
+		fi
 	else
 		printf 'landing verification: none; kitchen.sh verify %s --landing proves the stack tip with a fresh verifier\n' "$store"
 	fi
