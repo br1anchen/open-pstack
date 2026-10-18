@@ -140,7 +140,7 @@ Verifier: [references/verifier.md](references/verifier.md).
    patch-id, says how many commits behind HEAD an older landing verdict is,
    and warns when dependency manifests changed after its verified base;
    `verify --landing --parent REF` records where the stack starts and
-   `--head REV` proves a branch other than HEAD. A deletion-only unit may
+   `--head REV` proves a branch other than HEAD. A unit that only deletes (no added line, new file, rename or mode change) may
    cite `engine: skipped (deletion-only, proof: <command>)` when
    `[review].engine` is set. The landing brief goes as far
    as `[landing].mode` allows and never merges.

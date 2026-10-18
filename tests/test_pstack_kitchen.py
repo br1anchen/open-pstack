@@ -2812,6 +2812,36 @@ esac
         review.write_text('verdict: accept\nengine: skipped (deletion-only)\n')
         self.assertIn('unreviewed: unit 001 cites no joo run', self.run_sh('land-check', str(self.store), code=2))
 
+    def skipped_unit(self, setup, change):
+        """A unit that makes `change` to files `setup` committed before its dispatch; its review note skips the required engine."""
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + 'engine = "joo"\n')
+        setup()
+        self.commit('require joo and lay out the files')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        change()
+        self.done(b, self.commit('the change'))
+        self.run_sh('verify', str(self.store), '001')
+        review = self.store / 'reviews/001-util.md'
+        review.write_text('verdict: accept\nengine: skipped (deletion-only, proof: git diff --numstat)\n')
+        return review
+
+    def test_a_rename_cannot_use_the_deletion_only_skip(self):
+        review = self.skipped_unit(lambda: self.write('src/old.py', 'O = 1\n'), lambda: self.git('mv', 'src/old.py', 'src/new.py'))
+        self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
+
+    def test_a_mode_change_cannot_use_the_deletion_only_skip(self):
+        review = self.skipped_unit(lambda: self.write('src/run.sh', '#!/bin/sh\n'), lambda: (self.repo / 'src/run.sh').chmod(0o755))
+        self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
+
+    def test_a_binary_deletion_can_use_the_deletion_only_skip(self):
+        def lay_out():
+            (self.repo / 'src').mkdir(exist_ok=True)
+            (self.repo / 'src/blob.bin').write_bytes(bytes(range(256)))
+        review = self.skipped_unit(lay_out, lambda: self.git('rm', '-q', 'src/blob.bin'))
+        self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
+
     def test_skipping_the_required_engine_is_refused_for_a_unit_that_adds_lines(self):
         toml = self.repo / '.agents/kitchen.toml'
         toml.write_text(toml.read_text() + 'engine = "joo"\n')

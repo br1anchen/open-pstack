@@ -1772,15 +1772,28 @@ manifest_warning() {
 	[ -z "$files" ] || printf 'warning: dependency manifests changed since the verified base: %s\n' "$files"
 }
 
-# Whether the unit's range adds no lines: `git diff --numstat` from its dispatch
-# head to its head sums to 0 added (a binary file counts as added). $1 store, $2 brief.
+# Whether the unit's range only deletes: no line added, no file created, no mode
+# changed, no rename (a rename is a delete and an add). It reads the range
+# classify reads, from the merge-base of the dispatch head and the unit head, with
+# renames off; a binary file counts as a change unless it is gone at the unit head.
+# $1 store, $2 brief.
 unit_adds_no_lines() {
-	local root base head
+	local root base head added path
 	root="$(field "$1" .git_root)"
 	base="$(jq -r --arg u "$(basename "$2" .md)" '.heads[$u] // empty' "$1/pair.json")"
 	head="$(unit_head "$1" "$2")"
 	[ -n "$base" ] && [ -n "$head" ] || return 1
-	[ "$(git -C "$root" diff --numstat "$base" "$head" 2>/dev/null | awk -F '\t' '{ s += ($1 ~ /^[0-9]+$/ ? $1 : 1) } END { print s + 0 }')" = 0 ]
+	if git -C "$root" diff --summary --no-renames "$base...$head" 2>/dev/null | grep -qE '^ (create|mode change) '; then
+		return 1
+	fi
+	while IFS=$'\t' read -r added _ path; do
+		if [[ "$added" =~ ^[0-9]+$ ]]; then
+			[ "$added" -eq 0 ] || return 1
+		else
+			git -C "$root" cat-file -e "$head:$path" 2>/dev/null && return 1
+		fi
+	done < <(git -C "$root" diff --numstat --no-renames "$base...$head" 2>/dev/null)
+	return 0
 }
 
 # Whether the review note meets the required engine: it cites a run, or it says
