@@ -497,7 +497,8 @@ quiet_wait() {
 			printf 'quiet: %sm with nothing flagged; the sidekick works on\n' "$(( ($(quiet_now) - start) / 60 ))"
 		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then log_checkin_wake "$store" "$out"; fi
 		printf '%s\n' "$out"
-		# in a substitution: core_wait assigns shell variables, rc among them
+		# in a substitution: core_wait is `pycore --exec`, which replaces the shell it runs in, so outside $( ) it would replace this one and
+		# skip the exit "$rc" below
 		: "$(PAIR_WAIT_OWNER=$$ core_wait "$store" --release 2>&1)" || true
 		exit "$rc"
 	done

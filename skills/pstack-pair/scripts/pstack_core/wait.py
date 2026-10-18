@@ -602,10 +602,16 @@ def die_with_the_shell():
 def owned_wait(ctx, store, name, timeout, interval, now=None):
     """A wait that owns the store: it claims wait.pid (unless a caller that runs several waits as one claims only on its first), ends with
     SUPERSEDED and 4 when a newer wait took the store, and releases the claim when it returns (unless that caller keeps it)."""
+    from . import cli
     held = os.environ.get('PAIR_WAIT_OWNER')
     token = wait_token()
     if not held or os.environ.get('PAIR_WAIT_CLAIM') == '1':
-        claim_wait(store, token)
+        try:
+            claim_wait(store, token)
+        except Die as e:
+            # A lock that stays held must not fail a wait whose work is done (a dispatch has delivered its brief): wait without ownership.
+            sys.stderr.write(f'{cli.PROG}: wait: could not claim wait.pid ({e.message}); waiting without ownership\n')
+            token = None
     try:
         result = wait_for_reply(ctx, store, name, timeout, now, token=token)
         if result.superseded:
@@ -613,14 +619,26 @@ def owned_wait(ctx, store, name, timeout, interval, now=None):
             return 4
         return finish_wait(ctx, store, interval, result, reply_mode(result), result.ready, now)
     finally:
-        if not held:
-            release_wait(store, token)
+        if not held and token is not None:
+            try:
+                release_wait(store, token)
+            except Die as e:
+                sys.stderr.write(f'{cli.PROG}: wait: could not release wait.pid ({e.message})\n')
+
+
+def missing_pair(store):
+    # The bash goes on with an empty agent name and prints a pair of error lines for every field() it then reads; the
+    # first pair and the status are kept.
+    sys.stdout.write('state: \n')
+    raise Exit(2, f'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n')
 
 
 def wait(ctx, args):
     from .commands.report import in_herdr
     if len(args) == 2 and args[1] == '--release':
-        # kitchen.sh's quiet wait gives its claim back when it exits (internal)
+        # kitchen.sh's quiet wait gives its claim back when it exits (internal; it runs from an exiting shell, so no herdr checks)
+        if not os.path.isfile(f'{args[0]}/pair.json'):
+            missing_pair(args[0])
         release_wait(args[0], wait_token())
         return 0
     in_herdr()
@@ -632,10 +650,7 @@ def wait(ctx, args):
     if rest:
         raise Die(f'unknown option {rest[0]}')
     if not os.path.isfile(f'{store}/pair.json'):
-        # The bash goes on with an empty agent name and prints a pair of error lines for every field() it then reads; the
-        # first pair and the status are kept.
-        sys.stdout.write('state: \n')
-        raise Exit(2, f'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n')
+        missing_pair(store)
     pair = pair_json(store)
     name = jq_raw(alt(alt(pair.get('sidekick'), {}).get('name'), None))
     return owned_wait(ctx, store, name, timeout, interval)

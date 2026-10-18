@@ -2230,7 +2230,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (top / 'fake/once').mkdir(exist_ok=True)
             (top / 'fake/once' / name).write_text(script)
             (top / 'fake/once' / name).chmod(0o755)
-        run = lambda *args: subprocess.run([str(root / 'skills' / skill / 'scripts/pair.sh'), *(fill(a) for a in args)], cwd=top / 'repo', env=env,
+        run = lambda *args, extra_env=None: subprocess.run([str(root / 'skills' / skill / 'scripts/pair.sh'), *(fill(a) for a in args)], cwd=top / 'repo', env={**env, **(extra_env or {})},
                                            capture_output=True, text=True, check=False, timeout=120)
         return top, st, run
 
@@ -2579,6 +2579,61 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         r = run('finish', f'{st}/../st', '{st}/reports/001-x.md')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(json.loads((st / 'pair.json').read_text())['pending'], [])
+
+    def test_a_lock_that_stays_held_never_turns_a_delivered_dispatch_or_a_printed_report_into_a_failure(self):
+        # The claim takes the store lock. Held for the claim's one try and freed by the time the wait finds its report, the wait still returns
+        # the report with exit 0, says so on stderr, and does not check for a newer owner it could not have been replaced by.
+        hook = '#!/bin/sh\nrmdir "$FAKE/../st/.pair.lock"\nprintf "# R\\n\\nstatus: partial\\n" >"$FAKE/../st/reports/001-x.md"\n'
+        top, st, run = self.own_world('lk', files={}, once={'wait': hook})
+        (st / '.pair.lock').mkdir()
+        r = run('wait', '{st}', '--timeout', '5000', extra_env={'PAIR_LOCK_TRIES': '1', 'PAIR_LOCK_POLL_S': '0'})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f'report: {st}/reports/001-x.md', r.stdout)
+        self.assertEqual(r.stderr, 'pair.sh: wait: could not claim wait.pid (pair.json lock held for 10s; remove '
+                                   f'{st}/.pair.lock if no pair.sh is running); waiting without ownership\n')
+
+    def test_owned_wait_keeps_its_outcome_when_the_claim_or_the_release_cannot_take_the_lock(self):
+        ctx = Context('pstack-pair', '/x', '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+        for fail_claim, fail_release in ((True, False), (False, True), (True, True)):
+            err = tempfile.TemporaryFile('w+')
+            self.addCleanup(err.close)
+            tokens = []
+
+            def claim(store, token):
+                if fail_claim:
+                    raise Die('pair.json lock held for 10s; remove x if no pair.sh is running')
+
+            def release(store, token):
+                raise Die('pair.json lock held for 10s; remove x if no pair.sh is running')
+
+            def reply(ctx_, store, name, timeout, now=None, token=None):
+                tokens.append(token)
+                return wait.WaitResult(0, 'idle', '', '/s/reports/001-x.md')
+
+            def finish(ctx_, store, interval, result, mode, report='', now=None):
+                sys.stdout.write('report: /s/reports/001-x.md\n')
+                return 0
+
+            with mock.patch.object(wait, 'claim_wait', claim), mock.patch.object(wait, 'release_wait', release if fail_release else (lambda *a: None)), \
+                    mock.patch.object(wait, 'wait_for_reply', reply), mock.patch.object(wait, 'finish_wait', finish), mock.patch.object(sys, 'stderr', err), \
+                    mock.patch('sys.stdout', new_callable=io.StringIO) as out, mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop('PAIR_WAIT_OWNER', None)
+                code = wait.owned_wait(ctx, '/s', 's1', '1000', '9')
+            err.seek(0)
+            text = err.read()
+            self.assertEqual((code, out.getvalue()), (0, 'report: /s/reports/001-x.md\n'), (fail_claim, fail_release))
+            self.assertEqual(text.count('could not claim wait.pid'), 1 if fail_claim else 0, text)
+            self.assertEqual(text.count('could not release wait.pid'), 1 if fail_release and not fail_claim else 0, text)
+            self.assertEqual(tokens, [None] if fail_claim else [str(os.getpid())])
+
+    def test_wait_release_checks_its_store(self):
+        top, st, run = self.own_world('rl')
+        r = run('wait', '{st}/nope', '--release')
+        self.assertEqual((r.returncode, r.stdout), (2, 'state: \n'))
+        self.assertIn(f'pair.sh: no pair.json in {st}/nope', r.stderr)
+        (st / 'wait.pid').write_text('x\n')
+        self.assertEqual(run('wait', '{st}', '--release').returncode, 0)
+        self.assertTrue((st / 'wait.pid').exists())
 
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
