@@ -192,9 +192,12 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    rebase).
    When the stack does not leave trunk where the merge-base says (stacked on
    another branch), `verify --landing --parent REF` records that parent in
-   `pair.json` (`.landing.parent`); later landings start there and print
-   `landing base: recorded parent <ref> (<short>)`, and `--base REV` still wins
-   for one call. `verify --landing --head REV` proves that commit or branch
+   `pair.json` (`.landing.parent`); later landings start there while it is an ancestor of the head being
+   verified and print `landing base: recorded parent <ref> (<short>)` (otherwise
+   they say it is no longer an ancestor and use the trunk merge-base);
+   `--parent` is recorded only after every other option passes, `--parent none`
+   clears it, and `--base REV` still wins for one call (it may be combined with
+   `--parent`). `verify --landing --head REV` proves that commit or branch
    instead of HEAD (the scratch checks out REV, the base comes from the same
    rule against REV, and the verdict's `range:` ends at REV); land-check
    counts that verdict for the units whose heads, or patch-ids, it holds. A unit rebased or cherry-picked into the stack counts as

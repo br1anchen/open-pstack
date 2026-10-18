@@ -67,10 +67,11 @@ consult, advice. These differ or are new:
                                             the verdict and whether to audit when it lands.
                                             A verifier stopped by its provider is retried on the sidekick's
                                             fallback; the deadline defaults to 3x the measured gate time
-  verify <store> --landing [--base REV | --parent REF] [--head REV]
+  verify <store> --landing [--base REV] [--parent REF|none] [--head REV]
                                             a fresh verifier at the stack tip: every behavioral gate the stack
                                             touches, from where it leaves trunk, or from the parent --parent
-                                            records for later landings (--base wins for one call);
+                                            records for later landings (--parent none clears it; --base wins
+                                            for one call and may be combined with --parent);
                                             --head REV proves that commit or branch instead of HEAD
   verify <store> --wait [--every MIN | --until-verdict]
                                             wait again for the open verification: exit 4 while it runs, 5 when none
@@ -163,14 +164,24 @@ unit_brief() {
 # Where a stack at $2 leaves trunk (or at the parent recorded in store $3), in $landing_base_rev; call it directly,
 # not in a command substitution, so its refusals end the command.
 landing_base() {
-	local root="$1" head="$2" store="$3" trunk parent
-	# A parent recorded by verify --landing --parent is where the stack starts.
-	parent="$(jq -r '.landing.parent // empty' "$store/pair.json" 2>/dev/null || true)"
+	local root="$1" head="$2" store="$3" trunk parent label pc
+	# A parent given to this call, else the one recorded by an earlier verify --landing --parent, is where the
+	# stack starts, while it is an ancestor of the head being verified.
+	parent="${landing_parent_override:-}"
+	label="${landing_parent_label:-}"
+	if [ -z "$parent" ] && [ "$label" != none ]; then
+		parent="$(jq -r '.landing.parent // empty' "$store/pair.json" 2>/dev/null || true)"
+		label="$(jq -r '.landing.parent_ref // empty' "$store/pair.json" 2>/dev/null || true)"
+	fi
 	if [ -n "$parent" ] && [ -z "${range_base:-}" ]; then
-		landing_base_rev="$(git -C "$root" rev-parse --verify --quiet "$parent^{commit}")" || die "the recorded landing parent $parent is not a commit; pass --parent again or --base"
-		[ "$landing_base_rev" != "$head" ] || die "the recorded landing parent is HEAD, so the landing range is empty; pass --parent <where the stack starts>"
-		printf 'landing base: recorded parent %s (%s)\n' "$(jq -r '.landing.parent_ref // empty' "$store/pair.json")" "${landing_base_rev:0:9}"
-		return 0
+		pc="$(git -C "$root" rev-parse --verify --quiet "$parent^{commit}" 2>/dev/null || true)"
+		if [ -n "$pc" ] && [ "$pc" != "$head" ] && git -C "$root" merge-base --is-ancestor "$pc" "$head" 2>/dev/null; then
+			landing_base_rev="$pc"
+			printf 'landing base: recorded parent %s (%s)\n' "$label" "${pc:0:9}"
+			return 0
+		fi
+		[ -z "${landing_parent_override:-}" ] || die "--parent $label (${parent:0:9}) must be an ancestor of ${head:0:9} and not the same commit; name where the stack starts"
+		printf 'landing base: recorded parent %s (%s) is no longer an ancestor of %s; using the trunk merge-base\n' "$label" "${parent:0:9}" "${head:0:9}"
 	fi
 	trunk="$(trunk_ref "$root")"
 	[ -n "$trunk" ] || die "cannot tell this repo's trunk; pass --base <trunk ref or commit>"
@@ -896,7 +907,7 @@ brief_commands() {
 # open verification lives in pair.json .verifying, one at a time.
 cmd_verify() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV | --parent REF] [--head REV] [...] | kitchen.sh verify <store> --wait [--every MIN | --until-verdict] | kitchen.sh verify <store> --cancel"
+	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV] [--parent REF|none] [--head REV] [...] | kitchen.sh verify <store> --wait [--every MIN | --until-verdict] | kitchen.sh verify <store> --cancel"
 	local store="$1" every_set=0 until_set=0 parent_ref="" land_head="" timeout_m="" every_m=9 wait=0 cancel=0 units=() kind_override="" landing=0 retry_entry="" u
 	local -a cov=()
 	range_base=""
@@ -965,17 +976,18 @@ cmd_verify() {
 	local root base head json last brief slug k verdict packet mode class risk snap prior
 	root="$(field "$store" .git_root)"
 	[ -z "$land_head" ] || [ "$landing" -eq 1 ] || die "--head goes with --landing"
-	if [ -n "$parent_ref" ]; then
-		[ "$landing" -eq 1 ] || die "--parent goes with --landing"
-		local pfull
-		pfull="$(git -C "$root" rev-parse --verify --quiet "$parent_ref^{commit}")" || die "--parent $parent_ref is not a commit"
-		json_update "$store" --arg p "$pfull" --arg r "$parent_ref" '.landing.parent = $p | .landing.parent_ref = $r'
-	fi
+	[ -z "$parent_ref" ] || [ "$landing" -eq 1 ] || die "--parent goes with --landing"
 	if [ "$landing" -eq 1 ]; then
 		# The stack tip, from where it leaves trunk, by a fresh verifier of
 		# the escalated class: a squash or rebase step touches no profile, so
 		# the units' own verdicts never saw the stack as it lands.
 		head="$(git -C "$root" rev-parse --verify --quiet "${land_head:-HEAD}^{commit}")" || die "--head $land_head is not a commit"
+		landing_parent_override="" landing_parent_label=""
+		[ "$parent_ref" != none ] || landing_parent_label=none
+		if [ -n "$parent_ref" ] && [ "$parent_ref" != none ]; then
+			landing_parent_override="$(git -C "$root" rev-parse --verify --quiet "$parent_ref^{commit}")" || die "--parent $parent_ref is not a commit"
+			landing_parent_label="$parent_ref"
+		fi
 		if [ -n "$range_base" ]; then
 			base="$(git -C "$root" rev-parse --verify --quiet "$range_base^{commit}")" || die "--base $range_base is not a commit"
 		else
@@ -990,6 +1002,12 @@ cmd_verify() {
 		snap="$(kitchen_snapshot "$store")"
 		[ -z "$snap" ] || kitchen_cfg=(--config "$snap")
 		json="$(kpy "$store" "${kitchen_cfg[@]}" --at "$head" --json classify --base "$base" --head "$head")"
+		# Every option has passed: record or clear the stack's parent.
+		if [ "$parent_ref" = none ]; then
+			json_update "$store" 'del(.landing.parent, .landing.parent_ref)'
+		elif [ -n "$landing_parent_override" ]; then
+			json_update "$store" --arg p "$landing_parent_override" --arg r "$landing_parent_label" '.landing.parent = $p | .landing.parent_ref = $r'
+		fi
 		risk=landing
 		mode=unit
 		class=escalated
@@ -1729,12 +1747,16 @@ latest_landing_verdict() {
 # Where the stack at HEAD leaves trunk now (the recorded landing parent, else
 # the merge-base with trunk), or nothing. $1 store.
 current_landing_base() {
-	local root parent trunk
+	local root parent trunk pc head
 	root="$(field "$1" .git_root)"
+	head="$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
 	parent="$(field "$1" '.landing.parent // empty')"
 	if [ -n "$parent" ]; then
-		git -C "$root" rev-parse --verify --quiet "$parent^{commit}" 2>/dev/null || true
-		return 0
+		pc="$(git -C "$root" rev-parse --verify --quiet "$parent^{commit}" 2>/dev/null || true)"
+		if [ -n "$pc" ] && [ "$pc" != "$head" ] && git -C "$root" merge-base --is-ancestor "$pc" "$head" 2>/dev/null; then
+			printf '%s\n' "$pc"
+			return 0
+		fi
 	fi
 	trunk="$(trunk_ref "$root")"
 	[ -z "$trunk" ] || git -C "$root" merge-base "$trunk" HEAD 2>/dev/null || true
