@@ -1239,7 +1239,12 @@ def doctor(root: Path, kitchen: Kitchen, source: Source, run: bool) -> list[dict
     routine = vr['verifier']['routine']
     add('verifier routine', 'ok', describe_verifier(routine))
     add('verifier fallback', 'ok', describe_verifier({**routine['fallback'], 'source': routine['source']}) if routine['fallback'] else 'none')
-    add('verifier escalated', 'ok', describe_verifier(vr['verifier']['escalated']) + '; also used by verify --landing')
+    escalated = vr['verifier']['escalated']
+    differs = ''
+    if (escalated['kind'], escalated['args']) != (DEFAULT_ESCALATED_VERIFIER['kind'], DEFAULT_ESCALATED_VERIFIER['args']):
+        default = ' '.join([DEFAULT_ESCALATED_VERIFIER['kind'], *DEFAULT_ESCALATED_VERIFIER['args']])
+        differs = f' (differs from the default {default})'
+    add('verifier escalated', 'ok', describe_verifier(escalated) + differs + '; also used by verify --landing')
     if kitchen.review['engine']:
         engine = kitchen.review['engine']
         found = shutil.which(f'{engine}-dev') or shutil.which(engine)
@@ -1319,9 +1324,13 @@ def roster_data() -> tuple[Path, dict]:
     out['verifier'] = {
         'routine': _entry(v, 'roster') if v.get('kind') else {'kind': 'sidekick', 'args': [], 'fallback': None, 'source': 'sidekick'},
         'escalated': _entry(esc, 'roster') if esc and esc.get('kind') else
-        {'kind': 'claude', 'args': ['--model', 'claude-opus-5-5'], 'fallback': None, 'source': 'default'},
+        dict(DEFAULT_ESCALATED_VERIFIER, args=list(DEFAULT_ESCALATED_VERIFIER['args'])),
     }
     return path, out
+
+
+# The escalated verifier (and verify --landing's) when the roster names none: claude on the strongest model.
+DEFAULT_ESCALATED_VERIFIER = {'kind': 'claude', 'args': ['--model', 'claude-opus-5-5'], 'fallback': None, 'source': 'default'}
 
 
 def roster(as_json: bool) -> int:

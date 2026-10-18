@@ -132,7 +132,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      host updates per attempt. `kitchen.sh fleet` ends with a table by agent
      and class built from those; read it as reported outcomes on different
      workloads, not as model accuracy. `kitchen.py doctor` prints the resolved
-     routine, fallback and escalated verifier and where each came from.
+     routine, fallback and escalated verifier and where each came from; the
+     escalated line adds `(differs from the default claude --model
+     claude-opus-5-5)` when the roster names another one.
    - A unit is measured from its dispatch head, but never from before where
      its branch leaves trunk: a unit dispatched before a landing and then
      rebased onto the new trunk is measured from there (`verify` prints a

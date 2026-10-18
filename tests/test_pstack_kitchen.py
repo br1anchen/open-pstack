@@ -1278,11 +1278,15 @@ class DoctorTests(KitchenTests):
         c = self.checks()
         self.assertEqual(c['verifier routine']['detail'], 'pi --model devin/swe-2 --thinking high (source roster)')
         self.assertEqual(c['verifier fallback']['detail'], 'claude --model claude-haiku-5-5 (source roster)')
-        self.assertIn('claude --model claude-sonnet-5-5 (source roster)', c['verifier escalated']['detail'])
+        self.assertEqual(c['verifier escalated']['detail'], 'claude --model claude-sonnet-5-5 (source roster) (differs from the default claude --model claude-opus-5-5); also used by verify --landing')
+        self.assertEqual(c['verifier escalated']['status'], 'ok')
+        roster.write_text('[verifier.escalated]\nkind = "claude"\nargs = ["--model", "claude-opus-5-5"]\n')
+        c = self.checks()
+        self.assertEqual(c['verifier escalated']['detail'], 'claude --model claude-opus-5-5 (source roster); also used by verify --landing')
         roster.write_text('[verifier.escalated]\nkind = "master"\n[verifier]\nkind = "devin"\n')
         c = self.checks()
         self.assertEqual(c['verifier routine']['detail'], 'devin (model unspecified) (source roster)')
-        self.assertIn("the master's own kind (source roster)", c['verifier escalated']['detail'])
+        self.assertIn("the master's own kind (source roster) (differs from the default claude --model claude-opus-5-5)", c['verifier escalated']['detail'])
 
     def test_problems_fail(self):
         self.change({'tools/gen.py': 'pass\n'})
