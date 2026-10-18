@@ -11,6 +11,7 @@ here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 skill_root="$(dirname "$here")"
 skills_dir="$(dirname "$skill_root")"
 PAIR_SKILL=pstack-kitchen
+PAIR_PROG=kitchen.sh
 export PAIR_EVENT_DEDUPE=1
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/runs"
 store_label=Kitchen
@@ -30,6 +31,9 @@ The pair's commands (pstack-pair's pair.sh help) work unchanged: init, rotate, f
 new-plan, new-brief, wait, queue, notes, new-note, note, finish, next, progress, new-steer, steer,
 report, notify, stop, scratch, pause, resume, status, log, metrics, and the consultant's new-consult,
 consult, advice. These differ or are new:
+
+  log <store> <phase> <decision> <why> <evidence> <result>
+                                            append one row to decisions.tsv and a log event for the master
 
   spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--permission MODE|none] [-- args...]
                                             start the sidekick; kind, args, and fallback default to the

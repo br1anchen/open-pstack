@@ -1737,7 +1737,7 @@ esac
         self.assertEqual(rows[-1].split('\t')[1:], ['review', 'accept 001', 'diff clean', 'reviews/001', 'next'])
         self.assertEqual((self.store / 'events.tsv').read_text().splitlines()[-1].split('\t')[2:], ['master', 'log', '-', 'review: accept 001'])
         out = self.run_sh('log', str(self.store), 'review', code=1)
-        self.assertEqual(out, 'pair.sh: usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>\n')
+        self.assertEqual(out, 'kitchen.sh: usage: kitchen.sh log <store> <phase> <decision> <why> <evidence> <result>\n')
 
     def test_kitchen_new_plan_new_brief_and_new_steer_fill_the_kitchen_templates(self):
         plan = self.run_sh('new-plan', str(self.store), 'shape').strip()
@@ -1761,6 +1761,15 @@ esac
         self.assertTrue(out[1].startswith('PAUSE: lunch. This is your safe point'), out)
         self.assertEqual(self.run_sh('resume', str(self.store)), f'resumed {self.store}\n')
         self.assertEqual(self.run_sh('progress', str(self.store), 'step 3 done').splitlines(), [str(progress)])
+
+    def test_the_help_lists_log_with_its_six_arguments_and_errors_name_the_script_that_printed_them(self):
+        self.assertIn('  log <store> <phase> <decision> <why> <evidence> <result>\n', self.run_sh('help'))
+        # a ported command run through kitchen.sh, a bash `die` of kitchen.sh's own, and the same command through pair.sh
+        self.assertEqual(self.run_sh('notes', code=1), 'kitchen.sh: usage: kitchen.sh notes <store>\n')
+        self.assertEqual(self.run_sh('verify', code=1).splitlines()[0].split(':')[0], 'kitchen.sh')
+        pair = skill.parent / 'pstack-pair/scripts/pair.sh'
+        r = subprocess.run([str(pair), 'notes'], env=self.env, capture_output=True, text=True, check=False, timeout=120)
+        self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: usage: pair.sh notes <store>\n'))
 
     def test_kitchen_notes_lists_a_blocking_note_until_a_step_resolves_it_and_followups_are_tagged(self):
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
@@ -1791,7 +1800,7 @@ esac
         self.assertEqual(second, f'{self.store}/notes/001-util-n2.md.draft')
         self.assertIn(f'range: {c1[:9]}..{c2[:9]}\n', Path(second).read_text())
         self.assertEqual(self.run_sh('new-note', str(self.store), '001', '--through', '1', code=1),
-                         'pair.sh: unit 001 is reviewed through step 1 already; wait for the next steps\n')
+                         'kitchen.sh: unit 001 is reviewed through step 1 already; wait for the next steps\n')
 
     def test_kitchen_status_lists_the_three_roles_the_advice_column_and_saves_status_md(self):
         out = self.run_sh('status', str(self.store))
@@ -2661,7 +2670,7 @@ esac
         before = calls.read_text()
         self.env['PSTACK_KITCHEN_ROLE'] = 'verifier'
         r = subprocess.run([str(self.script), 'init', 'other'], cwd=self.repo, env=self.env, capture_output=True, text=True, check=False, timeout=120)
-        self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', f'pair.sh: {refusal}\n'))
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', f'kitchen.sh: {refusal}\n'))
         self.assertEqual(calls.read_text(), before)
         self.assertEqual([p.name for p in self.store.parent.iterdir()], [self.store.name])
         self.env['PSTACK_KITCHEN_ROLE'] = 'sidekick'

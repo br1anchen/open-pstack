@@ -1,3 +1,4 @@
+import re
 import sys
 
 from . import agents, exits, panes, permission, spawn, wait
@@ -30,13 +31,21 @@ def resolve(ctx, cmd):
     return COMMANDS.get(cmd)
 
 
+PROG_OPTION = '--prog'
 OPTIONS = ('--skill', '--skill-root', '--state-root', '--store-label', '--roles', '--store-dirs', '--slug-max', '--unfilled-re')
 
 
 def parse(argv):
-    """The context options, then "--", then the command and its arguments."""
+    """The context options, then "--", then the command and its arguments. --prog, the name of the script the command runs under (pair.sh
+    when absent), is read apart: it is not part of the context."""
+    global PROG
+    PROG = 'pair.sh'
     opts, i = {}, 0
     while i < len(argv) and argv[i] != '--':
+        if argv[i] == PROG_OPTION and i + 1 < len(argv):
+            PROG = argv[i + 1]
+            i += 2
+            continue
         if argv[i] not in OPTIONS or i + 1 >= len(argv):
             raise Die(f'bad core option: {argv[i]}')
         opts[argv[i][2:].replace('-', '_')] = argv[i + 1]
@@ -48,11 +57,32 @@ def parse(argv):
     return ctx, argv[i + 1], argv[i + 2:]
 
 
+PROG = 'pair.sh'
+
+
+class ProgStderr:
+    """stderr for a command that runs under another script than pair.sh (kitchen.sh): a line that begins `pair.sh: ` begins with the script's
+    own name, and so does the `usage: pair.sh ...` inside it. The shell's own errors (`pair-core.sh: line N: ...`) are not touched."""
+
+    def __init__(self, stream, prog):
+        self.stream, self.prog = stream, prog
+
+    def write(self, text):
+        text = re.sub(r'(?m)^pair\.sh: usage: pair\.sh ', f'{self.prog}: usage: {self.prog} ', text)
+        return self.stream.write(re.sub(r'(?m)^pair\.sh: ', f'{self.prog}: ', text))
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
 def main(argv):
     sys.stdout.reconfigure(errors='surrogateescape', line_buffering=True)
     sys.stderr.reconfigure(errors='surrogateescape')
+    plain = sys.stderr
     try:
         ctx, cmd, args = parse(argv)
+        if PROG != 'pair.sh':
+            sys.stderr = ProgStderr(plain, PROG)
         command = resolve(ctx, cmd)
         if command is None:
             raise Die(f'unknown command: {cmd}')
@@ -66,3 +96,5 @@ def main(argv):
     except (OSError, ValueError) as e:
         sys.stderr.write(f'pair.sh: {e}\n')
         return 1
+    finally:
+        sys.stderr = plain

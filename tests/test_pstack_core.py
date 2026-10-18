@@ -604,7 +604,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         """The stop cases of a group through one entry script, against the bash at the phase 3 base: the outcomes of the base."""
         skills3 = self.phase3_skills()
         mismatches, results = {}, {}
-        norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*(?:pair|consultant)-core\.sh|\S*/pair\.sh', '<core>', text))
+        # the trio's stop usage line is Python, so under kitchen.sh it names kitchen.sh now (unit 006); the base printed pair.sh
+        norm_core = lambda text: re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*(?:pair|consultant)-core\.sh|\S*/pair\.sh', '<core>', text.replace('usage: kitchen.sh stop ', 'usage: pair.sh stop ')))
         for name, spec in (cases or self.stop_cases()).items():
             if not group(name):
                 continue
@@ -1756,9 +1757,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
         events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text(errors='surrogateescape').splitlines()]
         calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
-        out = {'rc': r.returncode, 'stdout': norm(r.stdout), 'stderr': norm(r.stderr or ''), 'files': files, 'events': events, 'calls': calls}
+        # Unit 006: an error a command prints under kitchen.sh now starts `kitchen.sh:`; the bases print `pair.sh:` there.
+        script_name = lambda text: re.sub(r'(?m)^kitchen\.sh: ', 'pair.sh: ', text)
+        out = {'rc': r.returncode, 'stdout': norm(r.stdout), 'stderr': script_name(norm(r.stderr or '')), 'files': files, 'events': events, 'calls': calls}
         if second is not None:
-            out['second'] = (second.returncode, norm(second.stdout), norm(second.stderr or ''))
+            out['second'] = (second.returncode, norm(second.stdout), script_name(norm(second.stderr or '')))
         return out
 
     AB_CASES = {

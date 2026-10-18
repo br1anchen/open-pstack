@@ -8,6 +8,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 skill_root="$(dirname "$here")"
 PAIR_SKILL=pstack-trio
+PAIR_PROG=pair.sh
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/pstack/trio"
 store_label=Trio
 roles=(sidekick consultant)
