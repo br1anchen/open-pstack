@@ -38,13 +38,15 @@ pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 . "$pair_core_dir/prime-agent.sh"
 
 # Run a command in the Python core. The variant's globals travel as argv, and
-# the pid of this shell as PAIR_SHELL_PID ($$ is the main shell inside $( ) too).
+# the pid of this shell as PAIR_SHELL_PID ($$ is the main shell inside $( ) too)
+# and its option flags as PAIR_SHELL_FLAGS ($- holds e where errexit is on: in a
+# direct call and in ( ... ) &, not inside $( ), which clears it).
 # With --exec first, Python replaces the shell, so a signal sent to the command's
 # process reaches the Python code (wait uses it: it must stop when it is stopped).
 pycore() {
 	local run=()
 	[ "${1:-}" != --exec ] || { run=(exec); shift; }
-	PAIR_SHELL_PID=$$ ${run[@]+"${run[@]}"} python3 -I "$pair_core_dir/pair.py" --skill "$PAIR_SKILL" --skill-root "$skill_root" \
+	PAIR_SHELL_PID=$$ PAIR_SHELL_FLAGS=$- ${run[@]+"${run[@]}"} python3 -I "$pair_core_dir/pair.py" --skill "$PAIR_SKILL" --skill-root "$skill_root" \
 		--state-root "$state_root" --store-label "$store_label" --roles "${roles[*]}" \
 		--store-dirs "${store_dirs[*]}" --slug-max "$slug_max" --unfilled-re "$unfilled_re" -- "$@"
 }

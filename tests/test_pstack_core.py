@@ -1684,7 +1684,17 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def ab_run(self, label, skills, skill, spec):
         top, st, env, fill = self.ab_world(label, spec)
         script = 'kitchen.sh' if skill == 'pstack-kitchen' else 'pair.sh'
-        run = lambda: subprocess.run([str(skills / skill / 'scripts' / script), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env, timeout=120,
+        entry = skills / skill / 'scripts' / script
+        if spec.get('background'):
+            # The entry script with its command run as `( pair_main ... ) &` and waited for: a subshell where errexit stays on, unlike `$( )`.
+            scripts_dir = entry.parent
+            text = entry.read_text()
+            here = 'here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"'
+            self.assertTrue(text.count(here) == 1 and text.endswith('\npair_main "$@"\n'), 'pair.sh changed shape')
+            entry = top / 'pair-background.sh'
+            entry.write_text(text.replace(here, f'here="{scripts_dir}"').removesuffix('pair_main "$@"\n') + '( pair_main "$@" ) &\nwait $!\n')
+            entry.chmod(0o755)
+        run = lambda: subprocess.run([str(entry), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env, timeout=120,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, errors='surrogateescape', check=False)
         r = run()
         second = None
@@ -3246,6 +3256,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
             'a spawn that returns 3': run({**plain, 'promptfail': True}),
             'a master that is a string': run({**plain, 'pair': {**plain['pair'], 'master': 'x'}}),
             'a master that is an array': run({**plain, 'pair': {**plain['pair'], 'master': [1]}}),
+            'a master that is a string from a background subshell': {**run({**plain, 'pair': {**plain['pair'], 'master': 'x'}}), 'background': True},
             'a sidekick that is a string': run({**plain, 'pair': {**plain['pair'], 'sidekick': 'x'}}),
             'a sidekick that is an array': run({**plain, 'pair': {**plain['pair'], 'sidekick': [1]}}),
             'a prime-agent sidekick': run(world('prime-agent')),
@@ -3316,6 +3327,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
 
     ROTATE_EXPECT = {
         # a jq that refuses the start's write ends a direct rotate (errexit on); inside kitchen.sh's $( ) it does not (the kitchen A/B below)
+        'a master that is a string from a background subshell': (5, 'Cannot index string with string ("permission_mode")'),
         'a master that is a string': (5, 'Cannot index string with string ("permission_mode")'), 'a master that is an array': (5, 'Cannot index array with string ("permission_mode")'),
         'a rotation flag that is the string true': (0, 'devin:ready'), 'a tolerated agent_not_found and an agent that leaves': (3, 'master\trotate'),
         # the wrapper fails the bootstrap prompt of the spawn too, so a rotation that got past the exit ends in spawn_role's 3

@@ -15,9 +15,13 @@ from ..store import alt, event, pair_file, pair_json
 from ..wait import die_with_the_shell
 from .report import in_herdr
 
-def inside_substitution():
-    """True when this process is not the shell the command was started from: `pycore --exec` replaces that shell, so a rotate run as `$(cmd_rotate ...)`
-    (kitchen.sh rotate_if_due) is a subshell, where bash clears errexit, and a direct `pair.sh rotate` keeps the shell's pid."""
+def errexit_off():
+    """True where the shell that ran pycore had errexit off. pycore passes that shell's `$-` as PAIR_SHELL_FLAGS: `e` is there in a direct
+    `pair.sh rotate` and in `( cmd_rotate ... ) &`, and gone inside `$(cmd_rotate ...)` (kitchen.sh rotate_if_due), where bash clears errexit.
+    Without the variable the process is told from the shell's by pid: `pycore --exec` replaces that shell, so a $( ) subshell has another pid."""
+    flags = os.environ.get('PAIR_SHELL_FLAGS')
+    if flags is not None:
+        return 'e' not in flags
     return os.getpid() != int(os.environ.get('PAIR_SHELL_PID') or os.getpid())
 
 
@@ -33,8 +37,8 @@ def rotate(ctx, args):
     store = args[0]
     pair_file(store)
     require_not_paused(store)
-    errexit_off = inside_substitution()
-    kind = field(store, 'sidekick', 'kind', check=not errexit_off)
+    off = errexit_off()
+    kind = field(store, 'sidekick', 'kind', check=not off)
     if not fresh_per_brief(kind):
         raise Die(f'rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not {kind}', 5)
     sidekick = section(pair_json(store), 'sidekick')
@@ -66,4 +70,4 @@ def rotate(ctx, args):
     start_args = mapfile_args(section(pair_json(store), 'sidekick').get('start_args'))
     event(store, 'master', 'rotate', '-', f'generation:{field(store, "sidekick", "generation")}')
     return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args,
-                      errexit_off=errexit_off)
+                      errexit_off=off)
