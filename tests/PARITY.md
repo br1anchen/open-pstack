@@ -51,12 +51,12 @@ Differences that were found and then closed, so the port matches the base. Each 
 
 | Id | Fix | Commit | Pinned by |
 | --- | --- | --- | --- |
-| D1 | a `master` that is not an object is read and written as jq does | 3996681 | `a master that is a string` / `an array` cases in the permission A/B |
+| D1 | a `master` that is not an object is read and written as jq does | 3996681 | `a master that is a string` / `an array` cases in the `spawn_command_cases`, kitchen-consultant and `rotate_cases` A/Bs |
 | D2 | the `stop_prime_role` shim returns a signal status | 3996681 | `test_the_stop_prime_role_shim_returns_a_signal_status_and_exits_for_a_die` |
 | D3 | the prime smoke script sources pair-core.sh | 3996681 | `test_the_prime_smoke_script_sources_pair_core_and_its_names_resolve` |
 | D4 | external commands are listed | 34f0d3a | `EXTERNAL_COMMANDS` in `test_every_name_the_bash_calls_resolves_to_a_definition_or_a_command` |
 | D5 | the status die test compares what interleaving cannot break | 34f0d3a | `test_status_on_a_store_without_pair_json_prints_the_header_then_dies_like_bash` |
-| D9 | a preflight's retry wait that `sleep` refuses prints sleep's error and retries | c1a0ba4 | `a pi preflight that fails with a retry wait that is not a number` in the preflights A/B |
+| D9 | a preflight's retry wait that `sleep` refuses prints sleep's error and retries | c1a0ba4 | `pi fails twice with a retry wait that is not a number` (and its siblings) in the preflights A/B (`test_the_preflights_match_the_bash_at_the_phase_3_base`), and `a pi preflight that fails with a retry wait that is not a number` in `spawn_command_cases` |
 | D25 | the jq fallback of `update` waits out a held lock | c1a0ba4 | `test_update_or_jq_waits_out_a_held_lock_in_its_jq_fallback` |
 | D12 | trio spawn with no `--sidekick`/`--consultant` and `.sidekick` or `.consultant` not an object prints jq's error and exits 5 | unit 003 | `a sidekick that is a string / an array and no --sidekick`, `a consultant that is a string / an array and no --consultant` in the trio spawn A/B |
 | D14 | `failover` or `rotate` with `.sidekick` a string or array, and `failover` with `.dispatch` a string, print jq's error and exit 5 as the base does | unit 003 | `a sidekick that is a string / an array` in the rotate and failover A/Bs, `a dispatch that is a string` in the failover A/B |

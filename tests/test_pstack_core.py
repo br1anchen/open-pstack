@@ -5683,6 +5683,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
                 missing |= {(entry, name, definition.key) for name in definition.calls if name not in table}
             missing |= {(entry, name, '<top>') for name, _ in reach.roots[path] if name not in table}
         names = sorted({name for _, name, _ in missing})
+        self.assertEqual(sorted(self.OPTIONAL_HOST_COMMANDS - set(names)), [], 'OPTIONAL_HOST_COMMANDS names that no script calls any more: remove them')
         # The fakes (herdr, ps, pi) come first on PATH, as in the other tests; a name that resolves to a file must be one of the external commands the
         # scripts are known to call, so a typo that happens to match a binary on this host fails by name.
         env = {**os.environ, 'PATH': f"{root / 'tests/pstack-pair/bin'}:{os.environ['PATH']}"}
@@ -5697,8 +5698,9 @@ stop_prime_role "$store" sidekick && echo "stopped"
     EXTERNAL_COMMANDS = frozenset((
         'awk', 'basename', 'cat', 'cksum', 'cp', 'cut', 'date', 'dirname', 'find', 'git', 'grep', 'head', 'herdr', 'id', 'jq', 'ls', 'mkdir',
         'mktemp', 'mv', 'paste', 'ps', 'python3', 'readlink', 'rm', 'rmdir', 'sed', 'sleep', 'sort', 'stat', 'tail', 'tr'))
-    # commands the scripts call that a host may lack: column (kitchen.sh retro's table), setsid (pair-core.sh's detach, which falls back to perl) and
-    # perl (kitchen.sh's brief-header edits, that fallback, and prime.py's timeout where coreutils has no timeout(1))
+    # commands the scripts call that a host may lack: column (kitchen.sh :1867, retro's table), setsid (pair-core.sh :212, the detach, which falls
+    # back to perl) and perl (kitchen.sh :131 and :133, the brief header edits, and :1068, a verifier-outcome edit; consultant-core.sh :199 and :230;
+    # the setsid fallback in pair-core.sh :215; and prime.py's timeout where coreutils has no timeout(1), which is Python, not bash, so not scanned)
     OPTIONAL_HOST_COMMANDS = frozenset(('column', 'perl', 'setsid'))
 
     def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
