@@ -11,6 +11,29 @@ from ..store import event, pair_file, pair_json, pause_notice, paused_reason, pr
 from ..wait import core_line
 
 
+def record_again(file, full, resolves):
+    """True when the steps file has a row for this commit; its resolves column then gains the given note ids (sorted by number, once each)."""
+    try:
+        with open(file, 'rb') as f:
+            rows = f.read().decode('utf-8', 'surrogateescape').split('\n')
+    except OSError:
+        return False  # the count below says why it cannot be read, as it always did
+    found = False
+    for n, row in enumerate(rows):
+        cols = row.split('\t')
+        if len(cols) > 3 and cols[1] == full:
+            found = True
+            ids = {i for i in cols[3].split(',') if i} | {i for i in resolves.split(',') if i}
+            cols[3] = ','.join(sorted(ids, key=lambda i: int(i[1:])))
+            rows[n] = '\t'.join(cols)
+            break
+    if found and resolves:
+        with open(f'{file}.tmp', 'wb') as f:
+            f.write('\n'.join(rows).encode('utf-8', 'surrogateescape'))
+        os.replace(f'{file}.tmp', file)
+    return found
+
+
 def step(ctx, args, now=None):
     """The sidekick records a committed step and goes straight on; the master's wait picks it up for review. --resolves names the
     notes the step fixes."""
@@ -45,6 +68,11 @@ def step(ctx, args, now=None):
     os.makedirs(f'{store}/steps', exist_ok=True)
     os.makedirs(f'{store}/progress', exist_ok=True)
     file = steps_file(store, brief)
+    if os.path.isfile(file) and record_again(file, full, resolves):
+        # this unit already recorded this commit: it only gains the notes it now resolves, and nothing else is written
+        sys.stdout.write(f'step {full[:9]}: already recorded\n')
+        sys.stdout.write(steer_notice(store))
+        return 0
     k = 1
     if os.path.isfile(file):
         # `[ -f file ] && k=$(( $(grep -c . file) + 1 ))`: the assignment takes grep's status, and as the last command of an AND list a

@@ -1997,6 +1997,52 @@ esac
         self.write('untracked.txt', 'x\n')
         self.assertIn('gates: pass', self.run_sh('step', str(self.store), head, 'two'))
 
+    def test_recording_the_same_sha_again_runs_nothing_and_merges_resolves(self):
+        # B2, B4. The second record of a commit runs no gate, touches no job directory, writes no row and logs no event; --resolves still lands.
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        sha = self.commit('step 1')
+        note = self.store / 'notes/001-util-n1.md'
+        note.parent.mkdir(exist_ok=True)
+        note.write_text('# N\n\nstatus: blocking\n')
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'util two'))
+        job = next((self.store / 'steps/jobs').iterdir())
+        (job / 'sentinel').write_text('x')
+        steps_events = lambda: [l for l in (self.store / 'events.tsv').read_text().splitlines() if '\tstep\t' in l]
+        snapshot = lambda: ((self.store / 'gates.tsv').read_text(), (self.store / 'progress/001-util.md').read_text(), len(steps_events()))
+        self.assertIn('001-util-n1', self.run_sh('notes', str(self.store)))
+        before = snapshot()
+        out = self.run_sh('step', str(self.store), sha, 'util two again', '--resolves', 'n1')
+        self.assertIn(f'step {sha[:9]}: already recorded', out)
+        self.assertNotIn('gates:', out)
+        self.assertEqual(snapshot(), before)
+        self.assertTrue((job / 'sentinel').exists())
+        rows = (self.store / 'steps/001-util.tsv').read_text().splitlines()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].split('\t')[3], 'n1')
+        self.assertNotIn('001-util-n1', self.run_sh('notes', str(self.store)))
+        # again, with the same id: nothing changes
+        self.run_sh('step', str(self.store), sha, 'util two again', '--resolves', 'n1')
+        self.assertEqual((self.store / 'steps/001-util.tsv').read_text().splitlines(), rows)
+
+    def test_a_gate_rerun_keeps_the_earlier_log_and_the_fail_event_names_its_out_path(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('FAIL', 'x\n')
+        self.write('src/util.py', 'print(3)\n')
+        sha = self.commit('step 2')
+        first = self.run_sh('step', str(self.store), sha, 'three', code=2)
+        job = next((self.store / 'steps/jobs').iterdir())
+        log = (job / 'out').read_text()
+        self.assertIn('[no-print]', first)
+        self.run_sh('step', str(self.store), sha, 'three', code=2)
+        self.assertEqual((job / 'out.prev').read_text(), log)
+        failed = [l for l in (self.store / 'events.tsv').read_text().splitlines() if '\tgate-fail\t' in l]
+        self.assertEqual(len(failed), 2)
+        self.assertTrue(all(l.endswith(f'{sha[:9]} {job}/out') for l in failed), failed)
+
     def test_step_gates_see_the_run_and_role(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

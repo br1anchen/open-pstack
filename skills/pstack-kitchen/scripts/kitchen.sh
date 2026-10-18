@@ -607,6 +607,12 @@ cmd_step() {
 	[ "$(git -C "$root" rev-parse HEAD)" = "$full" ] || die "step $sha: HEAD is $(git -C "$root" rev-parse --short HEAD); commit the step and record HEAD"
 	[ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ] || die "step $sha: the tree has uncommitted changes to tracked files; commit or stash them first"
 	file="$(steps_file "$store" "$brief")"
+	# A SHA this unit already recorded proves nothing new: no gates, no job directory touched, no row, no event (the core step only merges
+	# --resolves into the row it has).
+	if [ -s "$file" ] && cut -f2 "$file" | grep -qxF "$full"; then
+		core_step "$@"
+		return
+	fi
 	base="$( { [ -s "$file" ] && tail -1 "$file" | cut -f2; } || jq -r --arg u "$unit" '.heads[$u] // empty' "$store/pair.json")"
 	[ -n "$base" ] || die "no base for $unit; was it dispatched?"
 	# A commit made before this brief was dispatched (a resumed unit) is the
@@ -623,7 +629,9 @@ cmd_step() {
 	base="$range_floor_rev"
 	job="$store/steps/jobs/$unit-${full:0:12}"
 	if [ ! -d "$job" ] || [ -f "$job/consumed" ]; then
-		rm -rf "$job"
+		# a rerun of a step whose gates failed keeps that run's log beside the new one
+		[ ! -f "$job/out" ] || mv -f "$job/out" "$job/out.prev"
+		rm -rf "$job/rc" "$job/consumed" "$job/classify.json" "$job/profiles" "$job/base"
 		mkdir -p "$job"
 		brief_kitchen "$brief"
 		json="$(kpy "$store" "${kitchen_cfg[@]}" --json classify --base "$base" --head "$full")"
@@ -671,7 +679,7 @@ cmd_step() {
 	printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$unit" "${full:0:9}" "$state" "$(IFS=,; printf '%s' "${profiles[*]}")" >>"$store/gates.tsv"
 	if [ "$rc" -ne 0 ]; then
 		cat "$job/out"
-		event "$store" sidekick gate-fail "$brief" "${full:0:9}"
+		event "$store" sidekick gate-fail "$brief" "${full:0:9} $job/out"
 		fails="$(awk -F '\t' -v u="$unit" '$2 == u {n = ($4 == "fail") ? n + 1 : 0} END {print n + 0}' "$store/gates.tsv")"
 		if [ "$fails" -ge 2 ]; then
 			printf 'next: %s failed checks in a row; write the report as blocked with the logs under Questions, then kitchen.sh finish\n' "$fails"

@@ -2834,10 +2834,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         cases = {
             'no arguments': dict(args=['step']), 'two arguments': dict(args=['step', '{st}', sha][1:]),
             'the first step': dict(args=['{st}', sha, 'did a thing']),
-            'a later step': dict(args=['{st}', sha, 'did more'], files={'steps/001-x.tsv': rows}),
+            'a later step': dict(args=['{st}', '{c3}', 'did more'], files={'steps/001-x.tsv': rows}),
             'an empty steps file': dict(args=['{st}', sha, 'did more'], files={'steps/001-x.tsv': ''}),
             'a steps file of blank lines only': dict(args=['{st}', sha, 'did more'], files={'steps/001-x.tsv': '\n\n'}),
-            'a steps file with blank lines': dict(args=['{st}', sha, 'did more'], files={'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n\n\n2\t{c2}\t6\t\ttwo\n\n'}),
+            'a steps file with blank lines': dict(args=['{st}', '{c3}', 'did more'], files={'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n\n\n2\t{c2}\t6\t\ttwo\n\n'}),
             'a summary with a tab and a newline': dict(args=['{st}', sha, 'a\tb\nc\n']),
             'a summary with a percent and a backslash': dict(args=['{st}', sha, '100% \\n done \u00e9']),
             'a short sha': dict(args=['{st}', '{c2s}', 'short']),
