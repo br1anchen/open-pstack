@@ -385,8 +385,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         cwd = top / ('plain' if spec.get('plain') else 'repo')
         cwd.mkdir(exist_ok=True)
         env['PWD'] = str(cwd)
+        # unit 006: an error under kitchen.sh starts `kitchen.sh:`; the base printed `pair.sh:`
         norm = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>',
-                                   re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', text.replace(str(skills), '<SKILLS>').replace(str(top), '<T>')))))
+                                   re.sub(r'line [0-9]+', 'line N', re.sub(r'\S*pair-core\.sh', '<core>', re.sub(r'(?m)^kitchen\.sh: ', 'pair.sh: ', re.sub(r'(?m)^kitchen\.sh: (usage: )kitchen\.sh init ', r'pair.sh: \1pair.sh init ', text.replace(str(skills), '<SKILLS>').replace(str(top), '<T>')))))))
         outs = []
         for step in (spec, *([spec['then']] if 'then' in spec else [])):
             if step is not spec and step.get('prep'):
