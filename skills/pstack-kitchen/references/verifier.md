@@ -61,6 +61,11 @@ work?", and then your pane closes.
    - `inconclusive`: you could not reach a line (a missing credential, a
      harness gap); say what and the route you tried.
 
+   Fill the verdict's `Flows driven` section: one line per touched profile
+   naming the flow you drove on the real surface and its Evidence block, or
+   why none applies. A landing packet's `Goals` section is what each unit set
+   out to do; drive those flows, not only the commands.
+
    Every claim needs an Evidence block with the command or drive and its
    output. A verdict without command output is invalid and counts for
    nothing.

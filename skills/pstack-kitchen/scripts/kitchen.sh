@@ -1064,7 +1064,13 @@ cmd_verify() {
 				is_landing "$b" && continue
 				printf -- '- %s\n' "$b"
 			done
-			printf '\n'
+			printf '\n## Goals\n\n'
+			for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
+				[ -e "$b" ] && [ "$(header_field "$(expected_report "$store" "$b")" status 2>/dev/null)" = "done" ] || continue
+				is_landing "$b" && continue
+				printf '### Unit %s %s\n\n' "$(basename "$b" .md | cut -c1-3)" "$(basename "$b" .md | cut -c5-)"
+				printf '%s\n\n' "$(awk '/^## Goal/{p=1; next} /^## /{p=0} p' "$b" | sed '/./,$!d')"
+			done
 		else
 			printf '# Verify %s: %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: %s\nunits: %s\nverifier-agent: %s\nverifier-class: %s\nverifier-outcome: prepared\ndeadline: %sm from now\n\n' \
 				"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${all[*]}" "$identity" "$vclass" "$timeout_m"

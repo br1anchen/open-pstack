@@ -26,6 +26,13 @@ $ <command>
 <output>
 ```
 
+## Flows driven
+
+<One line per profile the range touches: the flow you drove on the real
+surface (the command, URL or screen) and the Evidence block that shows it, or
+the reason none applies ("no user-facing flow"). A landing verdict that names
+no flow for a touched profile has proved only that the commands pass.>
+
 ## Not covered
 
 <Acceptance lines or surfaces you did not exercise, and why, or "none".>

@@ -3314,6 +3314,23 @@ esac
         self.run_sh('verify', str(self.store), '--landing')
         self.assertIn(rule, (self.store / 'verdicts/landing-v1-packet.md').read_text())
 
+    def test_a_landing_packet_holds_each_covered_briefs_goal(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        for n, slug, goal in ((1, 'util', 'Users can add numbers.'), (2, 'next', 'Users can list numbers.')):
+            b = self.brief(f'00{n}', slug, ['src/**', 'tests/**'])
+            b.write_text(re.sub(r'(## Goal\n\n)x', rf'\g<1>{goal}', b.read_text(), count=1))
+            self.dispatch(b)
+            self.write(f'src/mod{n}.py', f'X = {n}\n')
+            self.write(f'tests/test_mod{n}.py', f'x = {n}\n')
+            self.done(b, self.commit(slug))
+        self.run_sh('verify', str(self.store), '--landing')
+        packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
+        goals = packet.split('## Goals')[1].split('\n## ')[0]
+        self.assertIn('### Unit 001 util\n\nUsers can add numbers.', goals)
+        self.assertIn('### Unit 002 next\n\nUsers can list numbers.', goals)
+        self.assertIn('## Flows driven', (skill / 'references/verdict-template.md').read_text())
+
     def test_the_landing_packet_runs_setup_first_when_declared(self):
         self.declare_setup()
         self.verify_landing()
