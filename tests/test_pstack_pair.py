@@ -706,6 +706,17 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('warning: Scope entry "nowhere/*.rs" matches no file or directory', out)
         self.assertEqual(out.count('warning:'), 2)
 
+    def test_an_absolute_scope_entry_is_checked_as_it_is(self):
+        # A8. The store sits outside the repo; its path in the Scope must not be read as a path under the repo root.
+        (self.store / 'followups.md').write_text('x')
+        b = self.scoped_brief('002-second', f'{self.store}/followups.md', f'{self.store}/reports/', f'{self.store}/*.md', f'{self.store}/new.md',
+                              f'{self.store}/nodir/new.md', f'{self.store}/nodir/*.md', '/nonexistent-root/x.md')
+        out = self.run_command('queue', str(self.store), str(b))
+        warned = [line for line in out.splitlines() if line.startswith('warning:')]
+        self.assertEqual(len(warned), 3, out)
+        for entry in (f'{self.store}/nodir/new.md', f'{self.store}/nodir/*.md', '/nonexistent-root/x.md'):
+            self.assertTrue(any(f'Scope entry "{entry}" matches no file or directory' in line for line in warned), (entry, out))
+
     def test_a_future_mtime_does_not_keep_it_active(self):
         self.quiet_log()
         (self.cwd / 'f.txt').write_text('changed')

@@ -199,8 +199,8 @@ running unit's review; when it does, wait for the report. One slot:
 clears it. `wait` returns each dispatched brief's report once, oldest first,
 so a report written while you were busy is never skipped; `running:` names
 the brief the sidekick moved on to, `queued:` one still waiting. A queued
-brief behind a report that was not `done` waits for you: dispatch it or clear
-it.
+brief behind a report that was not `done` waits for you, and `queued:` says so
+(`held: report is <status>; dispatch it yourself`): dispatch it or clear it.
 
 ## Pausing
 
@@ -225,6 +225,12 @@ sidekick pane.
 Your host caps one shell call. Keep `--every` under that cap (the default is
 nine minutes) and call `pair.sh wait` again. A wait that returns a check-in
 digest means the interval hit, so the sidekick is still on the unit.
+
+One wait owns a store at a time. A newer `pair.sh wait` on the same store takes
+over: the older one prints `superseded: a newer wait owns this store; this one
+ends` and exits 4 at its next poll, marking nothing seen. A `REPORT` message
+that reaches you while no wait is running is marked seen, so your next wait does
+not return the same report a second time.
 
 ## Recovery
 

@@ -59,10 +59,14 @@ def gnu_dirname(path):
 def scope_entry_exists(root, entry, tracked):
     """Whether a may-write entry names something that exists, or a new file in a directory that does. A glob matches when a file
     does or its fixed directory prefix exists."""
+    # An absolute entry names that path itself, not a path under the repo root.
+    at = (lambda path: path) if entry.startswith('/') else (lambda path: f'{root}/{path}')
     if any(c in entry for c in '*?['):
         prefix = re.split(r'[*?\[]', entry, maxsplit=1)[0]
         directory = prefix.rpartition('/')[0] if '/' in prefix else ''
-        if directory and not os.path.isdir(f'{root}/{directory}'):
+        if entry.startswith('/') and not directory:
+            directory = '/'
+        if directory and not os.path.isdir(at(directory)):
             return False
         patterns = [case_pattern(entry), case_pattern(entry.removeprefix('**/'))]
         for line in (tracked.split('\n') if tracked else ['']):
@@ -70,8 +74,8 @@ def scope_entry_exists(root, entry, tracked):
                 return True
         return bool(directory)
     if entry.endswith('/'):
-        return os.path.isdir(f'{root}/{entry}') or os.path.isdir(f'{root}/{gnu_dirname(entry[:-1])}')
-    return os.path.exists(f'{root}/{entry}') or os.path.isdir(f'{root}/{gnu_dirname(entry)}')
+        return os.path.isdir(at(entry)) or os.path.isdir(at(gnu_dirname(entry[:-1])))
+    return os.path.exists(at(entry)) or os.path.isdir(at(gnu_dirname(entry)))
 
 
 def scope_lists_several(brief):
