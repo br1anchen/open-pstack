@@ -11,7 +11,7 @@ from ..herdr import agent_status
 from ..prime import prime_steer
 from ..send import prompt_sidekick
 from ..store import cut_chars, event, header_field, readlink_f, unit_name, update_or_jq
-from ..wait import die_with_the_shell, finish_wait, reply_mode, wait_for_reply, wait_opts
+from ..wait import die_with_the_shell, owned_wait, wait_opts
 from .report import in_herdr, require_pair
 from .stop import role_value
 
@@ -115,8 +115,7 @@ def steer(ctx, args):
         # The reply to this steer is any report on the unit written from now.
         open_the_objection_round(store, int(time.time()))
         prompt_sidekick(name, message)
-        result = wait_for_reply(ctx, store, name, timeout)
-        return finish_wait(ctx, store, interval, result, reply_mode(result), result.ready)
+        return owned_wait(ctx, store, name, timeout, interval)
     elif status == 'unknown':
         if not force:
             raise Die(f'sidekick {name} is unknown; read the pane, then pass --force to steer anyway', 5)

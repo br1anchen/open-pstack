@@ -7,7 +7,7 @@ from ..herdr import agent_status
 from ..review import jq_raw
 from ..store import (alt, event, expected_report, header_field, open_steers, pair_json, paused_reason, readlink_f, steer_number,
                      unit_name, update)
-from ..wait import mark_report_seen, wait_owner_alive
+from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
 
 MISSING_PAIR = 'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'
@@ -58,8 +58,9 @@ def notify(ctx, args):
         if code:
             return code
         print(f'prompted master {master} (was {status}) with {word} {file}')
-        # The master has the message. A wait that is running will return the report itself; with none running the next wait would return it again.
-        if word == 'REPORT' and os.environ.get('PAIR_GOLDEN_BASE') != '1' and not wait_owner_alive(store):
+        # The master has the message. A wait that owns the store (wait.pid present, whatever it holds) will return the report itself; with none the
+        # next wait would return it again. A file a killed wait left behind costs one duplicate wake, never a missed report.
+        if word == 'REPORT' and not os.path.exists(wait_owner_path(store)):
             mark_report_seen(store, file)
     else:
         print(f'master {master} is {status}; left {file} for its next wait or status check')

@@ -15,7 +15,7 @@ from .replies import first3, pending, queued_brief
 from .review import jq_raw, require_filled
 from .store import alt, event, expected_report, pair_json, update
 from .commands.report import MISSING_PAIR
-from .wait import bash_sleep, finish_wait, jq_member, jq_run, reply_mode, truthy, wait_for_reply
+from .wait import bash_sleep, jq_member, jq_run, owned_wait, truthy
 
 
 def section(pair, name):
@@ -148,5 +148,4 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
     if send_only:
         print(f'sent: {kind} {file}; follow it with the wait command')
         return 0
-    result = wait_for_reply(ctx, store, name, timeout, now)
-    return finish_wait(ctx, store, interval, result, reply_mode(result), result.ready, now)
+    return owned_wait(ctx, store, name, timeout, interval, now)

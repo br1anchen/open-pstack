@@ -2238,13 +2238,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         r = run('wait', '{st}', '--timeout', '1000')
         self.assertNotIn(f'report: {st}/reports/001-x.md', r.stdout)
         self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
-        # a stale wait.pid (a pid that is gone) counts as no wait
+        # a wait.pid left by a killed wait is still a wait.pid: notify marks nothing (one duplicate wake, never a missed report)
         top, st, run = self.own_world('nm3')
-        gone = subprocess.Popen(['true'])
-        gone.wait()
-        (st / 'wait.pid').write_text(f'{gone.pid}\n')
+        (st / 'wait.pid').write_text('99999999\n')
         run('notify', '{st}', '{st}/reports/001-x.md')
-        self.assertEqual(json.loads((st / 'pair.json').read_text())['pending'], [])
+        self.assertEqual(json.loads((st / 'pair.json').read_text())['pending'], [f'{st}/briefs/001-x.md'])
 
     def test_a_queued_brief_behind_a_report_that_is_not_done_says_it_is_held(self):
         # A3. The queue is taken only after a done report, so the digest says a queued brief behind any other report waits for the master.
@@ -2609,7 +2607,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                         se.write(e.stderr)
                 out, err = so.getvalue(), se.getvalue()
             (st / 'steps/001-x.tsv').chmod(0o644)
-            files = {str(f.relative_to(st)): f.read_text(errors='replace').replace(str(top), '<T>') for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
+            files = {str(f.relative_to(st)): f.read_text(errors='replace').replace(str(top), '<T>') for f in sorted(st.rglob('*')) if f.is_file() and f.name not in ('events.tsv', 'wait.pid')}
             events = [l.split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]]
             results.append((rc, out, err.replace(str(top), '<T>'), files, events))
             (st / 'steps/001-x.tsv').chmod(0o000)
@@ -3815,7 +3813,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
                 os.close(fd)
             norm_now = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))
             if capture is not None:
-                capture['before'] = ({str(f.relative_to(st)): norm_now(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'},
+                capture['before'] = ({str(f.relative_to(st)): norm_now(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name not in ('events.tsv', 'wait.pid')},
                                      [norm_now(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]])
             (os.killpg if group else os.kill)(proc.pid, number)
             os.write(release_fd, b'x\n')
@@ -3846,7 +3844,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
             # the herdr call the shell left behind finishes after its hook is released; wait for its last word
             self.assertTrue(select.select([finished_fd], [], [], 20)[0], 'the herdr call left behind never ended')
         norm = lambda text: re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))
-        files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
+        files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name not in ('events.tsv', 'wait.pid')}
         events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text().splitlines()[1:]]
         return status, self.mask_minutes(norm(out)), norm(err), files, events
 

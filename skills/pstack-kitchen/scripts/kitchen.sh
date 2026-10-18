@@ -482,9 +482,12 @@ quiet_wait() {
 		esac
 	done
 	start="$(quiet_now)"
+	# One wait owns the store under this shell's pid: the first inner wait claims it, the later ones only check it.
+	local claim=1
 	while :; do
 		rc=0
-		out="$(PAIR_WAIT_OWNER=$$ PAIR_QUIET_WAIT=1 core_wait "$store" "${args[@]}")" || rc=$?
+		out="$(PAIR_WAIT_OWNER=$$ PAIR_WAIT_CLAIM=$claim PAIR_QUIET_WAIT=1 core_wait "$store" "${args[@]}")" || rc=$?
+		claim=0
 		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out" && [ $(( $(quiet_now) - start )) -lt "$max" ]; then
 			sleep "${KITCHEN_QUIET_POLL_S:-1}"
 			continue
@@ -493,7 +496,8 @@ quiet_wait() {
 			printf 'quiet: %sm with nothing flagged; the sidekick works on\n' "$(( ($(quiet_now) - start) / 60 ))"
 		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then log_checkin_wake "$store" "$out"; fi
 		printf '%s\n' "$out"
-		[ "$(cat "$store/wait.pid" 2>/dev/null)" != "$$" ] || rm -f "$store/wait.pid"
+		# in a substitution: core_wait assigns shell variables, rc among them
+		: "$(PAIR_WAIT_OWNER=$$ core_wait "$store" --release 2>&1)" || true
 		exit "$rc"
 	done
 }

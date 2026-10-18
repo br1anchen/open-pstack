@@ -16,7 +16,7 @@ from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
 from .review import jq_raw, review_base
-from .store import alt, bash_int, cut_chars, event, header_field, pair_json, paused_reason, unit_name, update
+from .store import acquire_lock, alt, bash_int, cut_chars, event, header_field, pair_json, paused_reason, unit_name, update
 
 
 class WaitResult:
@@ -462,51 +462,55 @@ def herdr_get(name):
     return r.stdout.decode('utf-8', 'replace').rstrip('\n')
 
 
+SUPERSEDED = 'superseded: a newer wait owns this store; this one ends'
+
+
 def wait_owner_path(store):
     return f'{store}/wait.pid'
 
 
+def wait_token():
+    """The token a wait owns the store under: $PAIR_WAIT_OWNER (a caller that runs several waits as one, kitchen.sh's quiet wait), else this pid."""
+    return os.environ.get('PAIR_WAIT_OWNER') or str(os.getpid())
+
+
 def read_wait_owner(store):
-    """The owner named in <store>/wait.pid, or None when the file is absent or empty."""
+    """The token in <store>/wait.pid, or None when the file is absent."""
     try:
         with open(wait_owner_path(store), 'rb') as f:
-            return f.read().decode('utf-8', 'surrogateescape').strip() or None
+            return f.read().decode('utf-8', 'surrogateescape').strip()
     except OSError:
         return None
 
 
-def claim_wait(store, owner):
-    """Record the owner of the store's wait, replacing an older one: that wait ends at its next poll."""
-    path = wait_owner_path(store)
-    with open(f'{path}.{os.getpid()}', 'w') as f:
-        f.write(f'{owner}\n')
-    os.replace(f'{path}.{os.getpid()}', path)
-
-
-def release_wait(store, owner):
-    """Remove wait.pid when it still names this owner."""
-    if read_wait_owner(store) == owner:
-        try:
-            os.unlink(wait_owner_path(store))
-        except OSError:
-            pass
-
-
-def wait_owner_alive(store):
-    """True when wait.pid names a process that is running: a wait that will return what the store holds."""
-    owner = read_wait_owner(store)
-    if owner is None or not owner.isdigit():
-        return False
+def claim_wait(store, token):
+    """Take the store: write the token to wait.pid under the store lock, replacing whatever is there. The older wait ends at its next poll."""
+    lock = acquire_lock(store)
     try:
-        os.kill(int(owner), 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+        path = wait_owner_path(store)
+        with open(f'{path}.tmp', 'w') as f:
+            f.write(f'{token}\n')
+        os.replace(f'{path}.tmp', path)
+    finally:
+        os.rmdir(lock)
 
 
-def wait_for_reply(ctx, store, name, timeout, now=None, owner=None):
+def release_wait(store, token):
+    """Remove wait.pid when it still holds this token, reading and unlinking inside one hold of the store lock: a newer owner's file stays."""
+    lock = acquire_lock(store)
+    try:
+        if read_wait_owner(store) == token:
+            os.unlink(wait_owner_path(store))
+    finally:
+        os.rmdir(lock)
+
+
+def superseded(store, token):
+    """True when wait.pid does not hold this token. A missing file counts: only a newer owner's release (or claim) removes or replaces it."""
+    return read_wait_owner(store) != token
+
+
+def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
     """wait_for_reply(): block until the sidekick's reply lands or the interval ends, in slices so a report is seen the moment
     it is written. A settle from herdr is a hint, not proof: only one that holds for PAIR_SETTLE_HOLD seconds ends the wait."""
     result = WaitResult()
@@ -517,8 +521,7 @@ def wait_for_reply(ctx, store, name, timeout, now=None, owner=None):
     deadline = clock() + tdiv(timeout_ms(timeout), 1000)
     settled_at = None
     while True:
-        newer = read_wait_owner(store) if owner is not None else None
-        if newer is not None and newer != owner:
+        if token is not None and superseded(store, token):
             result.superseded = True
             return result
         ready = pending_report(ctx, store) or fresh_reply(ctx, store)
@@ -590,8 +593,30 @@ def die_with_the_shell():
         pass
 
 
+def owned_wait(ctx, store, name, timeout, interval, now=None):
+    """A wait that owns the store: it claims wait.pid (unless a caller that runs several waits as one claims only on its first), ends with
+    SUPERSEDED and 4 when a newer wait took the store, and releases the claim when it returns (unless that caller keeps it)."""
+    held = os.environ.get('PAIR_WAIT_OWNER')
+    token = wait_token()
+    if not held or os.environ.get('PAIR_WAIT_CLAIM') == '1':
+        claim_wait(store, token)
+    try:
+        result = wait_for_reply(ctx, store, name, timeout, now, token=token)
+        if result.superseded:
+            sys.stdout.write(f'{SUPERSEDED}\n')
+            return 4
+        return finish_wait(ctx, store, interval, result, reply_mode(result), result.ready, now)
+    finally:
+        if not held:
+            release_wait(store, token)
+
+
 def wait(ctx, args):
     from .commands.report import in_herdr
+    if len(args) == 2 and args[1] == '--release':
+        # kitchen.sh's quiet wait gives its claim back when it exits (internal)
+        release_wait(args[0], wait_token())
+        return 0
     in_herdr()
     die_with_the_shell()
     if len(args) < 1:
@@ -607,17 +632,4 @@ def wait(ctx, args):
         raise Exit(2, f'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n')
     pair = pair_json(store)
     name = jq_raw(alt(alt(pair.get('sidekick'), {}).get('name'), None))
-    # One wait owns a store: a newer one replaces this owner and this wait ends at its next poll. A caller that runs several waits as one
-    # (kitchen.sh's quiet wait) names itself in PAIR_WAIT_OWNER and keeps the claim between them.
-    held_by_caller = os.environ.get('PAIR_WAIT_OWNER')
-    owner = held_by_caller or str(os.getpid())
-    claim_wait(store, owner)
-    try:
-        result = wait_for_reply(ctx, store, name, timeout, owner=owner)
-        if result.superseded:
-            sys.stdout.write('superseded: a newer wait owns this store; this one ends\n')
-            return 4
-        return finish_wait(ctx, store, interval, result, reply_mode(result), result.ready)
-    finally:
-        if not held_by_caller:
-            release_wait(store, owner)
+    return owned_wait(ctx, store, name, timeout, interval)

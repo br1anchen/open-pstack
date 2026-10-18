@@ -52,7 +52,7 @@ def queue_note(store, report):
     if queued:
         # The queue is taken only after a done report (finish, next): behind any other status it waits for the master.
         status = header_field(report, 'status') if os.path.isfile(report) else 'done'
-        held = f' (held: report is {status or "unknown"}; dispatch it yourself)' if status != 'done' and os.environ.get('PAIR_GOLDEN_BASE') != '1' else ''
+        held = f' (held: report is {status or "unknown"}; dispatch it yourself)' if status != 'done' else ''
         out += f'queued: {queued}{held}\n'
     return out
 

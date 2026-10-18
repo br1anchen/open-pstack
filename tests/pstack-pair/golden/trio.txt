@@ -468,10 +468,18 @@ queue: empty
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: working
-report: <T>/state/pstack/trio/demo/reports/004-qone.md
-report_status: done
-running: <T>/state/pstack/trio/demo/briefs/005-qtwo.md
-[exit 0]
+report: missing
+check-in: 005-qtwo.md  elapsed <N>m of ?m
+progress: none yet
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 2
+  a.txt
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
 $ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/006-qthree.md
@@ -489,11 +497,12 @@ next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/tri
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
-report: <T>/state/pstack/trio/demo/reports/005-qtwo.md
-report_status: partial
-queued: <T>/state/pstack/trio/demo/briefs/006-qthree.md
-[exit 0]
+idle: the reply to 005-qtwo.md was already shown (<T>/state/pstack/trio/demo/reports/005-qtwo.md); send the next message
+[exit 4]
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 40
 
 $ pair.sh status <T>/state/pstack/trio/demo
 # Trio status
@@ -774,11 +783,12 @@ next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/tri
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
-report: <T>/state/pstack/trio/demo/reports/012-qsteps.md
-report_status: done
-review-delta: <SHA>..<SHA> (steps reviewed through 4)
-[exit 0]
+idle: the reply to 012-qsteps.md was already shown (<T>/state/pstack/trio/demo/reports/012-qsteps.md); send the next message
+[exit 4]
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 40
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
@@ -882,11 +892,12 @@ next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/tri
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
 paused: skill upgrade (start nothing new; record the next step in gates.md and end your turn)
-report: <T>/state/pstack/trio/demo/reports/015-qnine.md
-report_status: partial
-review-delta: <SHA>..<SHA> (steps reviewed through 0)
-[exit 0]
+idle: the reply to 015-qnine.md was already shown (<T>/state/pstack/trio/demo/reports/015-qnine.md); send the next message
+[exit 4]
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 40
 
 $ pair.sh status <T>/state/pstack/trio/demo
 # Trio status
@@ -2291,10 +2302,10 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	queue	005-qtwo	
 <TS>	<EPOCH>	sidekick	report	004-qone	done
 <TS>	<EPOCH>	sidekick	send-brief	005-qtwo	queued
-<TS>	<EPOCH>	master	wake	004-qone	report:done
+<TS>	<EPOCH>	master	wake	005-qtwo	checkin
 <TS>	<EPOCH>	master	queue	006-qthree	
 <TS>	<EPOCH>	sidekick	report	005-qtwo	partial
-<TS>	<EPOCH>	master	wake	005-qtwo	report:partial
+<TS>	<EPOCH>	master	wake	005-qtwo	idle
 <TS>	<EPOCH>	master	send-brief	006-qthree	
 <TS>	<EPOCH>	master	wake	006-qthree	report:done
 <TS>	<EPOCH>	master	queue	-	cleared
@@ -2326,7 +2337,7 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	send-steer	012-qsteps-s1	working
 <TS>	<EPOCH>	sidekick	rotation-required	012-qsteps	generation:1
 <TS>	<EPOCH>	sidekick	report	012-qsteps	done
-<TS>	<EPOCH>	master	wake	012-qsteps	report:done
+<TS>	<EPOCH>	master	wake	012-qsteps	idle
 <TS>	<EPOCH>	master	wake	012-qsteps	idle
 <TS>	<EPOCH>	master	rotate	-	generation:1
 <TS>	<EPOCH>	sidekick	spawn	-	devin:ready
@@ -2340,7 +2351,7 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	sidekick	progress	015-qnine	
 <TS>	<EPOCH>	sidekick	step	015-qnine	1:<SHA>
 <TS>	<EPOCH>	sidekick	report	015-qnine	partial
-<TS>	<EPOCH>	master	wake	015-qnine	report:partial
+<TS>	<EPOCH>	master	wake	015-qnine	idle
 <TS>	<EPOCH>	master	resume	-	
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	send-stop	-	consultant
