@@ -142,13 +142,32 @@ deliver_plan() {
 	esac
 }
 
+# Whether an advice file is the consultant leaving, not an answer: its kind: is
+# stop, or, with no kind: line, it is named *-stop.md.
+advice_is_stop() {
+	local kind
+	kind="$(header_field "$1" kind)"
+	if [ -n "$kind" ]; then [ "$kind" = stop ]; else [[ "$1" == *-stop.md ]]; fi
+}
+
+# The newest advice for NNN that is not a stop; fails when there is none.
+latest_plan_advice() {
+	local f
+	while read -r f; do
+		[ -n "$f" ] && ! advice_is_stop "$f" || continue
+		printf '%s\n' "$f"
+		return 0
+	done < <(ls -t "$1"/advice/"$2"-*.md 2>/dev/null || true)
+	return 1
+}
+
 # The role's answer to this plan round: its latest report or advice for the
 # plan's number, when it was written after the plan file; else nothing.
 plan_answer() {
 	local store="$1" role="$2" seq="$3" plan="$4" file
 	case "$role" in
 	sidekick) file="$(latest_report "$store" "$seq" || true)" ;;
-	consultant) file="$(latest_advice "$store" "$seq" || true)" ;;
+	consultant) file="$(latest_plan_advice "$store" "$seq" || true)" ;;
 	esac
 	[ -n "$file" ] && [ "$file" -nt "$plan" ] && printf '%s' "$file"
 	return 0

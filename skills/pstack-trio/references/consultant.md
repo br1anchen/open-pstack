@@ -99,8 +99,8 @@ against the code. You check whether the design is the right one.
 
 ## On `pstack-trio STOP <store>`
 
-Remove any scratch worktree you hold. Write `advice/NNN-stop.md` with status
-`partial` and where the current consult stood, then end the turn with the
+Remove any scratch worktree you hold. Write `advice/NNN-stop.md` with `kind:
+stop`, status `partial` and where the current consult stood, then end the turn with the
 advice line.
 
 ## Timebox

@@ -5380,7 +5380,8 @@ stop_prime_role "$store" sidekick && echo "stopped"
             code, err = e.code, io.StringIO(err.getvalue() + f'pair.sh: {e.message}\n')
         return code, out.getvalue(), err.getvalue()
 
-    def gate_world(self, name, playbook='feature', plan='{plan}', plan_text='# Plan\n\nscale: small\n', review=None, advice=None, extra_review=None, relative=False):
+    def gate_world(self, name, playbook='feature', plan='{plan}', plan_text='# Plan\n\nscale: small\n', review=None, advice=None, extra_review=None, relative=False,
+                   advice_files=None):
         """A store with a brief naming the plan, the plan file, its review and its advice, as the case lays them out."""
         top = self.path / name
         for d in ('briefs', 'plans', 'reviews', 'advice'):
@@ -5397,6 +5398,8 @@ stop_prime_role "$store" sidekick && echo "stopped"
             (top / 'reviews/001-a.md').write_text(f'# Review\n\n{extra_review}')
         if advice:
             (top / 'advice/001-x.md').write_text('# Advice\n')
+        for fname, text in (advice_files or {}).items():
+            (top / 'advice' / fname).write_text(text)
         return top
 
     def test_plan_gate_matches_bash_in_every_variant(self):
@@ -5434,6 +5437,73 @@ stop_prime_role "$store" sidekick && echo "stopped"
             top = self.gate_world(name, review=agreed, advice=advice)
             brief = top / 'briefs/002-y.md'
             self.assertEqual(self.gate_python('pstack-trio', lambda ctx: ctx.variant.require_agreed_plan(ctx, str(top), str(brief)), top)[0], code, name)
+
+    STOP_ADVICE_CASES = (
+        ('a stop advice with kind: stop', {'001-stop.md': 'kind: stop\nstatus: partial\n'}, False),
+        ('a stop advice with no kind: line', {'001-stop.md': 'status: partial\n'}, False),
+        ('a stop advice named for a slug', {'001-x-stop.md': 'status: partial\n'}, False),
+        ('an advice of another kind named stop', {'001-stop.md': 'kind: design\nstatus: answered\n'}, True),
+        ('a stop beside a real advice', {'001-stop.md': 'kind: stop\nstatus: partial\n', '001-x.md': 'kind: design\nstatus: answered\n'}, True),
+        ('a real advice with no kind: line', {'001-x.md': 'status: answered\n'}, True))
+
+    def test_the_trio_plan_gate_does_not_count_a_consultants_stop_advice(self):
+        """D1 (unit 015), a difference from the trio base, decided by running it: the base's gate passes on any `advice/NNN-*` file, so the
+        consultant's `NNN-stop.md` (kind: stop, written when the consultant is told to stop) satisfied it. The port refuses (exit 6) unless a file
+        that is not a stop is on file; a stop is `kind: stop`, or, with no `kind:` line, a name ending in `-stop.md`."""
+        for n, (label, files, real) in enumerate(self.STOP_ADVICE_CASES):
+            top = self.gate_world(f'stopgate{n}', review='verdict: agreed\n', advice_files=files)
+            brief = top / 'briefs/002-y.md'
+            ours = self.gate_python('pstack-trio', lambda ctx: ctx.variant.require_agreed_plan(ctx, str(top), str(brief)), top)
+            bash = self.gate_bash('pstack-trio', f'require_agreed_plan {top} {brief}', top)
+            self.assertEqual(bash[0], 0, label)
+            self.assertEqual(ours[0], 0 if real else 6, label)
+            if not real:
+                self.assertIn('has no consultant advice under advice/001-*', ours[2], label)
+
+    def test_discuss_sends_a_new_plan_to_a_consultant_whose_last_advice_was_its_stop(self):
+        """D1 end to end on the fake herdr: with `advice/001-stop.md` newer than the plan, the base's `discuss` took it for the consultant's answer and
+        sent the plan to the sidekick only; the port sends it to both."""
+        plan = '# Plan 001-x\n\nscale: small\n'
+        spec = dict(args=['discuss', '{st}', '{st}/plans/001-x.md', '--timeout', '200'], agents={'s1': 'idle claude', 'c1': 'idle codex'},
+                    pair={'consultant': {'kind': 'codex', 'name': 'c1', 'generation': 1, 'pane_id': 'w1:p9'}},
+                    files={'plans/001-x.md': plan, 'advice/001-stop.md': 'kind: stop\nstatus: partial\n'},
+                    mtimes={'advice/001-stop.md': int(time.time()) + 3600}, env={'PAIR_FILE_POLL_MS': '100', 'PAIR_SUBMIT_CHECK_S': '0'})
+        want = self.ab_run('stopd-base', self.base_skills(), 'pstack-trio', dict(spec))
+        got = self.ab_run('stopd-port', root / 'skills', 'pstack-trio', dict(spec))
+        self.assertEqual((want['rc'], got['rc']), (4, 4), (want['stdout'], want['stderr'], got['stdout'], got['stderr']))
+        sent = lambda o: [e for e in o['events'] if 'send-plan' in e]
+        self.assertEqual(len(sent(want)), 1, want['events'])
+        self.assertTrue(sent(want)[0].endswith('sidekick'), sent(want))
+        self.assertEqual(len(sent(got)), 2, got['events'])
+        self.assertTrue(any(e.endswith('consultant') for e in sent(got)), sent(got))
+
+    def test_a_consultants_stop_advice_is_not_a_plans_answer(self):
+        """D1 (unit 015), a difference from the trio base: `plan_answer` for the consultant takes the newest advice for the plan's number written
+        after the plan, and the base took `NNN-stop.md` for it, so a new plan round saw the consultant as answered and never sent it the plan.
+        The port skips stop advice (the same rule as the gate) and answers with the newest advice that is not one."""
+        def answer(tree, store, plan):
+            script = (f'set -eu; source {tree}/pstack-pair/scripts/pair-core.sh; source {tree}/pstack-trio/scripts/consultant-core.sh; '
+                      f'plan_answer {store} consultant 001 {plan}')
+            r = subprocess.run(['bash', '-c', script], capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return r.stdout.replace(str(store), '<S>')
+        base = self.base_skills()
+        now = int(time.time())
+        for n, (label, files, real) in enumerate(self.STOP_ADVICE_CASES):
+            top = self.path / f'stopans{n}'
+            (top / 'advice').mkdir(parents=True)
+            plan = top / '001-x.md'
+            plan.write_text('# Plan\n')
+            os.utime(plan, (now - 100, now - 100))
+            for i, (name, text) in enumerate(sorted(files.items())):
+                (top / 'advice' / name).write_text(text)
+                os.utime(top / 'advice' / name, (now - 50 + (10 if name.endswith('stop.md') else 0), now - 50 + (10 if name.endswith('stop.md') else 0)))
+            want, got = answer(base, top, plan), answer(root / 'skills', top, plan)
+            self.assertNotEqual(want, '', label)
+            self.assertEqual(got != '', real, label)
+            if real and len(files) > 1:
+                self.assertEqual(got, '<S>/advice/001-x.md\n'.replace('\n', ''), label)
+                self.assertIn('stop.md', want, label)
 
     def test_plan_gate_kitchen_passes_its_gate_as_an_argument(self):
         # kitchen.sh cannot be sourced in a harness, so these are the literal results of kitchen.sh require_agreed_plan (444-453), a body the

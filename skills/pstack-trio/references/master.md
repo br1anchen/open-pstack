@@ -153,6 +153,9 @@ otherwise rest on one reading, and record what you did with the answer.
   steer's Resolved section with the reason, and log the row either way.
   `partial` advice past its timebox counts as advice; the consult's default
   applies unless the partial answer says otherwise.
+  A consultant's `advice/NNN-stop.md` (`kind: stop`, written when you stop it) is
+  not advice on a plan: a later plan round sends the consultant the plan, and the
+  plan gate still wants advice that is not a stop.
 - Three consults per unit. `new-consult` exits 7 on a fourth; the design is
   wrong, so go back to step 4.
 - Never send the landing unit for review. Never ask the consultant to talk

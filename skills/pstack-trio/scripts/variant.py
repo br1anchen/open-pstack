@@ -1,3 +1,4 @@
+import glob
 import os
 import sys
 
@@ -158,12 +159,18 @@ def spawn(ctx, args):
     return 0
 
 
+def advice_is_stop(path):
+    """The consultant leaving, not an answer: kind: stop, or, with no kind: line, a file named *-stop.md."""
+    kind = header_field(path, 'kind')
+    return kind == 'stop' if kind else path.endswith('-stop.md')
+
+
 class TrioVariant(Variant):
     commands = {'spawn': spawn, 'stop': stop}
 
     def plan_gate_extra(self, ctx, store, plan, review, seq):
         """A plan the consultant took part in also needs its advice on file."""
-        if not latest(store, 'advice', seq):
+        if not any(not advice_is_stop(f) for f in glob.glob(os.path.join(glob.escape(store), 'advice', f'{glob.escape(seq)}-*.md'))):
             raise Die(f'plan {plan} has no consultant advice under advice/{seq}-*; run pair.sh discuss so both agents respond', 6)
 
 
