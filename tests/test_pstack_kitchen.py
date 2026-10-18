@@ -3035,15 +3035,23 @@ esac
         self.write('tests/test_app.py', 'x = 11\n')
         self.done(b, self.commit('util'))
         (self.fake / 'verdict-mode').write_text('slow')
-        verdict = self.store / 'verdicts/001-util-v1.md'
-        packet = self.store / 'verdicts/001-util-v1-packet.md'
-        late = subprocess.Popen(['bash', '-c', f"until [ -f {packet} ]; do sleep 0.2; done; sleep 0.5; printf '# V\\n\\nstatus: clean\\nunits: 001\\n\\n## Evidence\\n\\n```\\n$ true\\n```\\n' >{verdict}"])
-        self.addCleanup(late.wait)
-        out = self.run_sh('verify', str(self.store), '001', '--until-verdict')
+        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        verdict = Path(self.state()['verifying']['verdict'])
+        # The verdict lands at the second status poll of the resumed wait; an interval of 0 would end it at the first.
+        hook = self.fake / 'once/get'
+        hook.parent.mkdir(exist_ok=True)
+        polls = self.fake / 'polls'
+        hook.write_text(
+            "#!/bin/bash\n"
+            f"echo >>{polls}\n"
+            f"if [ \"$(wc -l <{polls})\" -ge 2 ]; then printf '# V\\n\\nstatus: clean\\nunits: 001\\n\\n## Evidence\\n\\n```\\n$ true\\n```\\n' >{verdict}\n"
+            f"else cp \"$0\" {hook}; fi\n")
+        hook.chmod(0o755)
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', '--until-verdict')
         self.assertIn('status: clean', out)
         self.assertNotIn('verifying: units', out)
         wakes = [r.split('\t')[5] for r in (self.store / 'events.tsv').read_text().splitlines() if '\tmaster\twake\t' in r]
-        self.assertEqual([w for w in wakes if w.startswith('verify:')], ['verify:clean'])
+        self.assertEqual([w for w in wakes if w.startswith('verify:')], ['verify:progress', 'verify:clean'])
 
     def rate_limited_verifier(self):
         session = Path(self.tmp.name) / 'pi-session.jsonl'
