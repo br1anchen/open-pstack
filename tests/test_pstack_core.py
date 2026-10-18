@@ -2391,6 +2391,24 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 self.assertEqual(r.stderr, f'pair.sh: {steer}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"\n', label)
                 self.assertNotIn('agent', calls, label)
 
+    def test_steering_a_settled_sidekick_says_what_to_do_by_the_units_report(self):
+        # A9. Exit 5, the first clause as before, the advice by the status of the unit's own report (not an -s<k> objection); no herdr prompt.
+        for label, report, advice in (('blocked', 'blocked', 'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)'),
+                                      ('partial', 'partial', 'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)'),
+                                      ('done', 'done', 'write a fix brief and verify it with --covers 001'),
+                                      ('no report', None, 'fold the steer into the next brief instead'),
+                                      ('failed', 'failed', 'fold the steer into the next brief instead')):
+            files = {} if report is None else {'reports/001-x.md': f'# R\n\nstatus: {report}\nhead: {{c3}}\n'}
+            top, st, run = self.own_world('sa-' + label.replace(' ', '-'), files=files, agents={'s1': 'idle claude'})
+            steer = st / 'steers/001-x-s1.md'
+            steer.parent.mkdir(exist_ok=True)
+            steer.write_text('# Steer 001-s1: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n')
+            r = run('steer', '{st}', str(steer))
+            self.assertEqual((r.returncode, r.stdout), (5, ''), label)
+            self.assertEqual(r.stderr, f'pair.sh: sidekick s1 is idle and no objection is open on unit 001; {advice.format(st=st)}\n', label)
+            calls = (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else ''
+            self.assertNotIn('agent prompt', calls, label)
+
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
         top, st, run = self.own_world('nl')

@@ -112,7 +112,15 @@ def steer(ctx, args):
         slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
         objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
         if not objection or header_field(objection, 'status') != 'object':
-            raise Die(f'sidekick {name} is {status} and no objection is open on unit {seq}; fold the steer into the next brief instead', 5)
+            report = f'{store}/reports/{seq}-{slug}.md'
+            unit_status = header_field(report, 'status') if os.path.isfile(report) else ''
+            if unit_status in ('blocked', 'partial'):
+                advice = f'apply its scope effect to the brief and re-dispatch it (dispatch {store} <brief> --send-only)'
+            elif unit_status == 'done':
+                advice = f'write a fix brief and verify it with --covers {seq}'
+            else:
+                advice = 'fold the steer into the next brief instead'
+            raise Die(f'sidekick {name} is {status} and no objection is open on unit {seq}; {advice}', 5)
         if header_field(steer_path, 'supersedes') == 'none':
             raise Die(f'{steer_path} answers {objection} but its supersedes: line says none')
         event(store, 'master', 'send-steer', steer_path, 'objection')
