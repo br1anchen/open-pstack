@@ -136,7 +136,8 @@ brief.
 ## On `pstack-pair NOTE <path>`
 
 A blocking review note arrives while you work, either handed over by your
-harness between tool calls or, for Devin, at your next `pair.sh notes`. Read it
+harness between tool calls or, for Devin, printed as a `NOTE:` line by your
+next `pair.sh step`, `progress` or `notes`. Read it
 between tool calls, not at the end of the step: fix each blocking item first,
 as a fixup commit recorded with `pair.sh step <store> <sha> <summary> --resolves
 <n-ids>`, then go on with the step you were in. A clear note is never sent;

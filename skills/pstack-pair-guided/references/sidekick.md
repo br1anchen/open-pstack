@@ -156,6 +156,14 @@ If the brief's report already exists when a steer arrives, append `steer
 s<k> late: reported` and end the turn; the master folds it into the next
 brief.
 
+## On `pstack-pair-guided NOTE <path>`
+
+A blocking review note, handed over between tool calls or, for Devin, printed
+as a `NOTE:` line by your next `pair.sh step`, `progress` or `notes`. Read it
+the moment you see it: fix each blocking item first, as a fixup commit recorded
+with `pair.sh step <store> <sha> <summary> --resolves <n-ids>`, then go on.
+A clear note is never sent; `pair.sh notes` shows it.
+
 ## On `pstack-pair-guided STOP <store>`
 
 Run the pause-safely playbook. Write `reports/NNN-stop.md` with status

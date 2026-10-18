@@ -2427,9 +2427,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         top, st, run, draft = self.note_world('nd', 'blocking', agents={'s1': 'working devin'}, kind='devin')
         r = run('note', '{st}', str(draft))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn(f"published {st}/notes/001-x-n1.md (blocking); left for s1: it lands at the sidekick's next pair.sh notes", r.stdout)
+        self.assertIn(f"published {st}/notes/001-x-n1.md (blocking); left for s1: it lands at the sidekick's next pair.sh step, notes, or progress", r.stdout)
         calls = (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else ''
         self.assertNotIn('agent prompt', calls)
+        # parked: the next progress prints it once, the second does not
+        first = run('progress', '{st}', 'one').stdout
+        self.assertIn(f'NOTE: read {st}/notes/001-x-n1.md now, before your next tool call.', first)
+        self.assertIn(f'pair.sh step {st} <sha> <summary> --resolves <n-ids>', first)
+        self.assertNotIn('NOTE:', run('progress', '{st}', 'two').stdout)
         self.assertIn('fix the thing', run('notes', '{st}').stdout)
         for label, status, agents in (('clear note', 'clear', {'s1': 'working claude'}), ('idle sidekick', 'blocking', {'s1': 'idle claude'})):
             top, st, run, draft = self.note_world('nc-' + label.replace(' ', '-'), status, agents=agents)
@@ -2517,6 +2522,26 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         steer.write_text('# Steer 001-s2: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n')
         r = run('steer', '{st}', str(steer))
         self.assertIn('apply its scope effect to the brief and re-dispatch it', r.stderr)
+
+    def test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line(self):
+        top, st, run, draft = self.note_world('np', 'blocking', agents={'s1': 'working claude'})
+        published = f'{st}/notes/001-x-n1.md'
+        # a failing prompt: the published line first, then the error, exit 2
+        (top / 'fake/prompt-fail').write_text('')
+        r = run('note', '{st}', str(draft))
+        self.assertEqual((r.returncode, r.stdout), (2, f'published {published} (blocking)\n'))
+        self.assertIn('herdr prompt failed for s1', r.stderr)
+        # Prime takes the message through prime_steer
+        from pstack_core.commands import notes as notes_mod
+        sent = []
+        ctx = Context('pstack-pair', '/x', '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+        pair = self.path / 'primestore'
+        pair.mkdir()
+        (pair / 'pair.json').write_text(json.dumps({'sidekick': {'name': 's1', 'kind': 'prime-agent'}}))
+        with mock.patch.object(notes_mod, 'agent_status', return_value='working'), \
+                mock.patch.object(notes_mod, 'prime_steer', side_effect=lambda store, message: sent.append((store, message)) or True):
+            self.assertEqual(notes_mod.deliver_blocking_note(ctx, str(pair), '/p/n.md'), '; sent to s1')
+        self.assertEqual(sent, [(str(pair), 'pstack-pair NOTE /p/n.md')])
 
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.

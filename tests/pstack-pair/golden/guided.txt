@@ -621,7 +621,7 @@ pair.sh: <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md.draft still ha
 [exit 1]
 
 $ pair.sh note <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md.draft
-published <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md (blocking); left for demo-sidekick: it lands at the sidekick's next pair.sh notes, between tool calls
+published <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md (blocking); left for demo-sidekick: it lands at the sidekick's next pair.sh step, notes, or progress, between tool calls
 [exit 0]
   herdr agent get demo-sidekick
 
@@ -638,6 +638,7 @@ pair.sh: unit 013 is reviewed through step 2 already; wait for the next steps
 [exit 1]
 
 $ pair.sh notes <T>/state/pstack/pair-guided/demo
+NOTE: read <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md now, before your next tool call. Fix each blocking item first, as a fixup commit recorded with pair.sh step <T>/state/pstack/pair-guided/demo <sha> <summary> --resolves <n-ids>.
 notes: 1 open. Fix each Blocking item as a fixup commit before the next step, then record it: pair.sh step <T>/state/pstack/pair-guided/demo <sha> "<summary>" --resolves <n-ids>
 
 === n1 (<T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md)

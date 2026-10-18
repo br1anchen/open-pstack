@@ -257,8 +257,20 @@ def open_steers(store):
     return found
 
 
-def steer_notice(store):
+def note_notice(store):
+    """The blocking notes parked for a Devin sidekick (.notice_notes), once: each is printed and taken off the list."""
+    from . import cli
+    parked = [f for f in alt(pair_json(store).get('notice_notes'), []) if os.path.isfile(f)]
+    if not parked:
+        return ''
+    update(store, lambda doc: doc.pop('notice_notes', None))
     return ''.join(
+        f'NOTE: read {f} now, before your next tool call. Fix each blocking item first, as a fixup commit recorded with '
+        f'{cli.PROG} step {store} <sha> <summary> --resolves <n-ids>.\n' for f in parked)
+
+
+def steer_notice(store):
+    return note_notice(store) + ''.join(
         f'STEER: read {f} now, before your next tool call. Agree: apply it and run pair.sh progress {store} '
         f'"steer s{steer_number(f)} applied: <what changed>". Object: write the steer response and run pair.sh finish on it.\n'
         for f in open_steers(store))

@@ -47,5 +47,4 @@ differ:
   verification repeats the same acceptance.
 - **A `pstack-kitchen NOTE <path>` message is a blocking review note.** Read it
   between tool calls: fix each blocking item first, as a fixup commit recorded
-  with `kitchen.sh step ... --resolves <n-ids>`, then go on. A Devin gets the
-  note at its next `kitchen.sh notes`; a clear note is never sent.
+  with `kitchen.sh step ... --resolves <n-ids>`, then go on. A Devin gets it as a `NOTE:` line from its next `kitchen.sh step`, `progress` or `notes`; a clear note is never sent.

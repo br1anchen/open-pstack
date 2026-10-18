@@ -83,10 +83,11 @@ is yours alone.
    finished unit while it works. Exit 0 with `steps:` means steps landed that
    no note covers: read the range it prints (`git diff`), run `pair.sh new-note
    <store> <NNN>`, fill Blocking and Follow-ups, publish it with `pair.sh note
-   <store> <draft>`, and wait again. The sidekick picks the note up at its next
-   step boundary; never hold a note for the end. Exit 4 without a digest means
-   the sidekick settled without a report; see Recovery. A steer is the only
-   message that may reach a working sidekick; a second brief never does, it
+   <store> <draft>`, and wait again. A blocking note is delivered to a working sidekick at once
+   (`NOTE <path>`; a Devin gets it at its next `step`, `progress` or `notes`);
+   never hold a note for the end. Exit 4 without a digest means
+   the sidekick settled without a report; see Recovery. A steer and a blocking note are the only
+   messages that may reach a working sidekick; a second brief never does, it
    waits in the queue. `report_status: asking` means the sidekick paused on a
    question; see Asks below.
 8. **Review.** Read the report, then read the unit's commit yourself: `git show

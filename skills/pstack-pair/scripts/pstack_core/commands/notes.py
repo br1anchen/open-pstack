@@ -83,7 +83,12 @@ def note(ctx, args):
     with open(f'{store}/followups.md', 'ab') as f:
         f.write(''.join(lines).encode('utf-8', 'surrogateescape'))
     event(store, 'master', 'note', unit, f'{k}:{status}')
-    delivery = deliver_blocking_note(ctx, store, path) if status == 'blocking' and os.path.isfile(f'{store}/pair.json') else ''
+    try:
+        delivery = deliver_blocking_note(ctx, store, path) if status == 'blocking' and os.path.isfile(f'{store}/pair.json') else ''
+    except Die:
+        # the note is out; the master must also know it went undelivered
+        print(f'published {path} ({status})')
+        raise
     print(f'published {path} ({status}){delivery}')
     return 0
 
@@ -92,7 +97,8 @@ def deliver_blocking_note(ctx, store, path):
     """A blocking note reaches a working sidekick at once, the way a steer does: a Devin keeps a message sent mid-turn parked as queued, so
     its next `pair.sh notes` (every step boundary) lists the note; Prime takes it through its daemon; every other kind through a prompt.
     The text to append to the published line, empty when the sidekick is not working."""
-    from .steer import herdr_ok
+    from .. import cli
+    from .steer import herdr_ok, park_for_devin
     from .stop import role_value
     name = role_value(store, 'sidekick', 'name')
     if agent_status(name) != 'working':
@@ -100,7 +106,8 @@ def deliver_blocking_note(ctx, store, path):
     message = f'{ctx.skill} NOTE {path}'
     kind = role_value(store, 'sidekick', 'kind')
     if kind == 'devin':
-        return f"; left for {name}: it lands at the sidekick's next pair.sh notes, between tool calls"
+        park_for_devin(store, path, 'notice_notes')
+        return f"; left for {name}: it lands at the sidekick's next {cli.PROG} step, notes, or progress, between tool calls"
     if kind == 'prime-agent':
         if not prime_steer(store, message):
             raise Die(f'Prime delivery failed for {name}', 2)

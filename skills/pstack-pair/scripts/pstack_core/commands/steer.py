@@ -24,16 +24,22 @@ def herdr_ok(*args):
     return subprocess.run(['herdr', *args], stdout=subprocess.DEVNULL, check=False).returncode == 0
 
 
-def leave_for_devin(store, steer):
-    """.notice_steers gains the steer once, sorted: Devin's next pair.sh step, notes or progress prints it."""
+def park_for_devin(store, path, key='notice_steers'):
+    """The list `key` gains the path once, sorted: Devin's next pair.sh step, notes or progress prints it (a message sent mid-turn is parked as
+    queued, and the Enter that would deliver it cancels the running command)."""
     def mutate(doc):
-        current = doc.get('notice_steers')
+        current = doc.get(key)
         if current in (None, False):
             current = []
         if not isinstance(current, list):
-            raise ValueError('notice_steers is not an array')
-        doc['notice_steers'] = sorted(set(current + [steer]))
-    update_or_jq(store, mutate, '.notice_steers = ((.notice_steers // []) + [$s] | unique)', '--arg', 's', steer)
+            raise ValueError(f'{key} is not an array')
+        doc[key] = sorted(set(current + [path]))
+    update_or_jq(store, mutate, f'.{key} = ((.{key} // []) + [$s] | unique)', '--arg', 's', path)
+
+
+def leave_for_devin(store, steer):
+    """.notice_steers gains the steer once, sorted: Devin's next pair.sh step, notes or progress prints it."""
+    park_for_devin(store, steer)
 
 
 def open_the_objection_round(store, epoch):
