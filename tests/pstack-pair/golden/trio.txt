@@ -498,6 +498,7 @@ next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/tri
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
 idle: the reply to 005-qtwo.md was already shown (<T>/state/pstack/trio/demo/reports/005-qtwo.md); send the next message
+queued: <T>/state/pstack/trio/demo/briefs/006-qthree.md (held: report is partial; dispatch it yourself)
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
@@ -786,6 +787,7 @@ next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/tri
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
 idle: the reply to 012-qsteps.md was already shown (<T>/state/pstack/trio/demo/reports/012-qsteps.md); send the next message
+review-delta: <SHA>..<SHA> (steps reviewed through 4)
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
@@ -795,6 +797,7 @@ idle: the reply to 012-qsteps.md was already shown (<T>/state/pstack/trio/demo/r
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
 idle: the reply to 012-qsteps.md was already shown (<T>/state/pstack/trio/demo/reports/012-qsteps.md); send the next message
+review-delta: <SHA>..<SHA> (steps reviewed through 4)
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
@@ -895,6 +898,7 @@ $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
 paused: skill upgrade (start nothing new; record the next step in gates.md and end your turn)
 idle: the reply to 015-qnine.md was already shown (<T>/state/pstack/trio/demo/reports/015-qnine.md); send the next message
+review-delta: <SHA>..<SHA> (steps reviewed through 0)
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
