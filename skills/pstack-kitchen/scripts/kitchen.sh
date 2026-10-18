@@ -939,6 +939,7 @@ cmd_verify() {
 		event "$store" master wake "$brief" "verify:clean"
 		printf 'verdict: %s\nstatus: clean (gates only; mode gates)\n' "$verdict"
 		warn_unreviewed "$store"
+		handoff_due "$store" "$last"
 		exit 0
 	fi
 	# The default deadline: 3 x the slowest recent passing behavioral gates, plus
@@ -1472,13 +1473,17 @@ verify_wait() {
 # landing verdict fixes the stack, so its brief takes the union of the units'
 # Scopes and is proved again with verify --landing.
 # Every clean unit verdict counts toward the master's next handoff; after
-# KITCHEN_MASTER_ROTATE_UNITS (default 5) the verdict says to rotate.
+# KITCHEN_MASTER_ROTATE_UNITS (default 5) the verdict says to rotate, at the
+# threshold and at each multiple of it. A gates-mode unit counts too.
 handoff_due() {
-	local store="$1" n
+	local store="$1" n thr
 	[ "$2" != landing ] || return 0
 	json_update "$store" '.master.units_since_handoff = ((.master.units_since_handoff // 0) + 1)'
 	n="$(field "$store" .master.units_since_handoff)"
-	[ "$n" -ge "${KITCHEN_MASTER_ROTATE_UNITS:-5}" ] || return 0
+	# Once at the threshold and at each further multiple of it.
+	thr="${KITCHEN_MASTER_ROTATE_UNITS:-5}"
+	[ "$thr" -ge 1 ] || thr=1
+	[ $(( n % thr )) -eq 0 ] || return 0
 	printf 'master: %s units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff %s, fill it, kitchen.sh rotate-master %s\n' "$n" "$store" "$store"
 }
 

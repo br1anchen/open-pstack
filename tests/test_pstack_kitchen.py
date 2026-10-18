@@ -2816,6 +2816,26 @@ esac
         out = self.run_sh('verify', str(self.store), '002')
         self.assertIn('master: 2 units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff', out)
         self.assertEqual(self.state()['master']['units_since_handoff'], 2)
+        # Once at the threshold and at each multiple of it, not in between.
+        out = self.run_sh('verify', str(self.store), '003')
+        self.assertNotIn('since your last handoff', out)
+        b = self.brief('004', 'u4', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 44\n')
+        self.write('tests/test_app.py', 'x = 44\n')
+        self.done(b, self.commit('u4'))
+        out = self.run_sh('verify', str(self.store), '004')
+        self.assertIn('master: 4 units verified since your last handoff', out)
+
+    def test_a_gates_mode_unit_counts_toward_the_handoff_nudge(self):
+        self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'
+        self.three_units(scope=('docs/**',))
+        out = self.run_sh('verify', str(self.store), '001')
+        self.assertIn('gates only', out)
+        self.assertNotIn('since your last handoff', out)
+        out = self.run_sh('verify', str(self.store), '002')
+        self.assertIn('gates only', out)
+        self.assertIn('master: 2 units verified since your last handoff', out)
 
     def muse_consultant_roster(self):
         Path(self.env['PSTACK_KITCHEN_ROSTER']).write_text(
