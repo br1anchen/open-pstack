@@ -381,7 +381,7 @@ queued: <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md
   herdr agent read demo-master --source visible --lines 40
   herdr agent get demo-sidekick
 
-$ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 1500
+$ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 20000
 state: working
 report: <T>/state/pstack/pair-guided/demo/reports/005-qone.md
 report_status: done
@@ -407,7 +407,7 @@ queued <T>/state/pstack/pair-guided/demo/briefs/007-qthree.md; the sidekick take
 [exit 0]
   herdr agent get demo-sidekick
 
-$ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 1500
+$ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 20000
 state: idle
 report: <T>/state/pstack/pair-guided/demo/reports/006-qtwo.md
 report_status: partial
@@ -689,7 +689,7 @@ steer <T>/state/pstack/pair-guided/demo/steers/013-qsteps-s1.md left for demo-si
 [exit 0]
   herdr agent get demo-sidekick
 
-$ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 1500
+$ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 20000
 state: idle
 report: <T>/state/pstack/pair-guided/demo/reports/013-qsteps.md
 report_status: done
