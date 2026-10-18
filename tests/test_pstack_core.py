@@ -1934,6 +1934,31 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertNotIn('Traceback', got['stderr'], name)
             self.assertEqual(self.mask_damaged(got), self.mask_damaged(want), name)
 
+    def test_finish_without_a_live_wait_differs_from_the_bash_only_in_what_notify_marks_seen(self):
+        """A1 on the marking path: the finish/notify A/Bs run with a live wait.pid, so notify marks nothing there. Here there is none, and the
+        port marks the report seen; everything else (stdout, stderr, events, calls, the queue take, late-steer and rotation lines) must still
+        match the base once `pending` and `.sent.seen` are masked in pair.json."""
+        names = ('done report to an idle master', 'done report, no master agent', 'done report to a done master', 'queued brief after a done report',
+                 'queue with a partial report', 'devin done report asks for a rotation', 'late steer', 'queued brief behind a pause', 'done report with open notes',
+                 'partial report', 'steer objection report')
+
+        def masked(out):
+            files = dict(out['files'])
+            text = re.sub(r'(?s)(,\s*)?"pending": \[.*?\]', '', files['pair.json'])
+            files['pair.json'] = re.sub(r'(,\s*)?"seen": "[^"]*"', '', text)
+            return {**out, 'files': files}
+
+        marked = 0
+        for name in names:
+            spec = dict(self.AB_CASES[name], live_wait=False)
+            n = len(list(self.path.iterdir()))
+            want = self.ab_run(f'nlb{n}', self.base_skills(), 'pstack-pair', dict(spec))
+            got = self.ab_run(f'nlp{n}', root / 'skills', 'pstack-pair', dict(spec))
+            self.maxDiff = None
+            self.assertEqual(masked(got), masked(want), name)
+            marked += got['files']['pair.json'] != want['files']['pair.json']
+        self.assertGreaterEqual(marked, 1, 'no case reached the marking path')
+
     @staticmethod
     def mask_minutes(text):
         """The minutes a digest prints, which move when the base run and the port run fall on either side of a minute."""
