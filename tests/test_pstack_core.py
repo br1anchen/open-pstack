@@ -1528,6 +1528,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'agent 12 shells up (the depth limit)': dict(chain=[shell, *[('bash', 'bash')] * 11, claude('--permission-mode plan')]),
             'agent 13 shells up': dict(chain=[shell, *[('bash', 'bash')] * 12, claude('--permission-mode plan')]),
             'a chain that ends at pid 1': dict(chain=[shell, ('sh', 'sh')]),
+            'a parent pid that is empty': dict(chain=[shell, ('sh', 'sh')], top_ppid=''),
+            'a parent pid that is zero': dict(chain=[shell, ('sh', 'sh')], top_ppid='0'),
             'a parent that ps does not know': dict(chain=[shell], top_ppid='777'),
             'ps cannot answer for args': dict(chain=[shell, claude('--permission-mode plan')], fail='args:SELF'),
             'ps cannot answer for comm': dict(chain=[shell, claude('--permission-mode plan')], fail='comm:SELF'),
@@ -1551,6 +1553,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'nothing anywhere': dict(chain=[shell]),
         }
         return cases
+
+    def test_a_parent_pid_that_is_not_a_number_ends_the_walk_silently_where_the_bash_complains_on_stderr(self):
+        """D24. The walk up to the master's agent reads each parent pid with `[ "$pid" -gt 1 ]`: on `abc` or `1.5` the base prints
+        `[: abc: integer expected` and treats it as the end of the chain; the port ends the walk with nothing printed. Both fall to the transcript
+        and then the settings, so stdout and the exit code agree."""
+        shell = self.SHELL
+        skills3 = self.phase3_skills()
+        cases = {'not a number': (dict(chain=[shell, ('sh', 'sh')], top_ppid='abc'), 'auto\n', 'abc'),
+                 'a float': (dict(chain=[shell, ('sh', 'sh')], top_ppid='1.5'), 'auto\n', '1.5'),
+                 'not a number, then a transcript': (dict(chain=[shell, ('sh', 'sh')], top_ppid='abc', transcript='{"permissionMode":"plan"}\n'), 'plan\n', 'abc')}
+        for i, (name, (spec, mode, shown)) in enumerate(cases.items()):
+            want = self.perm_run(f'pd{i}b', spec, [str(skills3 / 'pstack-pair/scripts/pair.sh'), 'permission'])
+            got = self.perm_run(f'pd{i}p', spec, [str(root / 'skills/pstack-pair/scripts/pair.sh'), 'permission'])
+            self.assertEqual(want, (0, mode, f'<core>: line N: [: {shown}: integer expected\n'), name)
+            self.assertEqual(got, (0, mode, ''), name)
 
     def test_permission_matches_the_bash_at_the_phase_3_base(self):
         skills3 = self.phase3_skills()
