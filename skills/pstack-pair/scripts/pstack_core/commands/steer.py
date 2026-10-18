@@ -77,8 +77,9 @@ def steer(ctx, args):
         raise Die(f'not a steer file: {steer_path}')
     if has_placeholder(text) or re.search(r'(?m)^(kind|scope effect): .*\|', text):
         raise Die(f'{steer_path} still has unfilled placeholders')
-    effect = header_field(steer_path, 'scope effect')
-    if not re.fullmatch(r'none|may write: \S.*|must not write: \S.*', effect):
+    # the forms steer-template.md describes, each optionally followed by ` \u2014 <note>`
+    effect = header_field(steer_path, 'scope effect').rstrip().split(' \u2014 ')[0]
+    if not re.fullmatch(r'none|may write: \S.*|may write "[^"]*"(?: and "[^"]*")*|must not write: \S.*', effect):
         raise Die(f'{steer_path}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"')
     require_pair(store)
     name = role_value(store, 'sidekick', 'name')
@@ -117,7 +118,8 @@ def steer(ctx, args):
             if unit_status in ('blocked', 'partial'):
                 advice = f'apply its scope effect to the brief and re-dispatch it (dispatch {store} <brief> --send-only)'
             elif unit_status == 'done':
-                advice = f'write a fix brief and verify it with --covers {seq}'
+                # only the kitchen has verify --covers
+                advice = f'write a fix brief and verify it with --covers {seq}' if ctx.skill == 'pstack-kitchen' else 'write a fix brief'
             else:
                 advice = 'fold the steer into the next brief instead'
             raise Die(f'sidekick {name} is {status} and no objection is open on unit {seq}; {advice}', 5)

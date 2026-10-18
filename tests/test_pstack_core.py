@@ -2220,7 +2220,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(got, want, number.name)
             self.assertEqual(got, (-number, '', '', True), number.name)
 
-    def own_world(self, label, once=None, **spec):
+    def own_world(self, label, once=None, skill='pstack-pair', **spec):
         """A world for the port alone (a behaviour the base never had) and a way to run its commands one after the other."""
         sent = {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1}
         spec = {'agents': {'s1': 'working claude'}, 'pair': {'sent': sent, 'pending': ['{st}/briefs/001-x.md']},
@@ -2230,7 +2230,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (top / 'fake/once').mkdir(exist_ok=True)
             (top / 'fake/once' / name).write_text(script)
             (top / 'fake/once' / name).chmod(0o755)
-        run = lambda *args: subprocess.run([str(root / 'skills/pstack-pair/scripts/pair.sh'), *(fill(a) for a in args)], cwd=top / 'repo', env=env,
+        run = lambda *args: subprocess.run([str(root / 'skills' / skill / 'scripts/pair.sh'), *(fill(a) for a in args)], cwd=top / 'repo', env=env,
                                            capture_output=True, text=True, check=False, timeout=120)
         return top, st, run
 
@@ -2395,7 +2395,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         # A9. Exit 5, the first clause as before, the advice by the status of the unit's own report (not an -s<k> objection); no herdr prompt.
         for label, report, advice in (('blocked', 'blocked', 'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)'),
                                       ('partial', 'partial', 'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)'),
-                                      ('done', 'done', 'write a fix brief and verify it with --covers 001'),
+                                      ('done', 'done', 'write a fix brief'),
                                       ('no report', None, 'fold the steer into the next brief instead'),
                                       ('failed', 'failed', 'fold the steer into the next brief instead')):
             files = {} if report is None else {'reports/001-x.md': f'# R\n\nstatus: {report}\nhead: {{c3}}\n'}
@@ -2437,6 +2437,86 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual((r.returncode, r.stdout), (0, f'published {st}/notes/001-x-n1.md ({status})\n'), label)
             calls = (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else ''
             self.assertNotIn('agent prompt', calls, label)
+
+    def test_a_steer_scope_effect_in_every_form_the_template_describes_passes(self):
+        # 008 review: several quoted paths and a note after an em dash are in steer-template.md and read by the digest.
+        for effect in ('none', 'none \u2014 no scope change', 'none ', 'may write: src/**', 'may write: x \u2014 regenerated only',
+                       'may write "src/a.py" and "src/b.py"', 'may write "`docs/two.md`" and "gen/**" \u2014 both', 'must not write: docs/x.md',
+                       'must not write: docs/x.md \u2014 frozen'):
+            top, st, run = self.own_world('sf-' + str(abs(hash(effect))), files={})
+            steer = st / 'steers/001-x-s1.md'
+            steer.parent.mkdir(exist_ok=True)
+            steer.write_text(f'# Steer 001-s1: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: {effect}\n\n## Direction\n\nDo it.\n')
+            r = run('steer', '{st}', str(steer))
+            self.assertEqual(r.returncode, 0, (effect, r.stderr))
+
+    def test_a_steer_with_a_brace_pair_in_code_passes_and_in_prose_fails(self):
+        # steer.py reads placeholders through has_placeholder, as require_filled does.
+        for label, body, ok in (('backticks', 'Use `${{name}}` here.', True), ('a fence', 'See:\n```sh\necho ${{x}}\n```', True),
+                                ('prose', 'Fill {{this}} in.', False)):
+            top, st, run = self.own_world('sb-' + label.replace(' ', '-'), files={})
+            steer = st / 'steers/001-x-s1.md'
+            steer.parent.mkdir(exist_ok=True)
+            steer.write_text(f'# Steer 001-s1: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\n{body}\n')
+            r = run('steer', '{st}', str(steer))
+            if ok:
+                self.assertEqual(r.returncode, 0, (label, r.stderr))
+            else:
+                self.assertIn('still has unfilled placeholders', r.stderr, label)
+
+    def test_require_filled_follows_the_fence_span_and_template_rules(self):
+        ctx = Context('pstack-pair', '/x', '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+        f = self.path / 'rules.md'
+        bt, tl = '`', '~'
+        fence3 = bt * 3
+        template_verify = next(p for p in review.template_pairs() if p.startswith('{{exact commands'))
+        store_pair = '{{STORE}}'
+        ok = {'a CI matrix expression in a fence': f'{fence3}yaml\nruns-on: ${{{{ matrix.os }}}}\n{fence3}\n',
+              'a double-brace x in backticks': 'say `{{x}}` here\n',
+              'a line that opens and closes a fence on itself': f'{fence3}{{{{x}}}}{fence3} is code\n',
+              'a longer fence holding a shorter one': f'{bt * 4}\n{fence3}\n{{{{x}}}}\n{bt * 4}\n',
+              'a tilde fence': f'{tl * 3}\n{{{{x}}}}\n{tl * 3}\n',
+              'a span by run length': f'``a`{{{{b}}}}`` c\n'}
+        bad = {'the template Verify placeholder in a fence': f'## Verify\n\n{fence3}bash\n{template_verify}\n{fence3}\n',
+               'the STORE placeholder in backticks': f'see `{store_pair}/briefs/x.md`\n',
+               'an unclosed fence is prose': f'{fence3}\n{{{{x}}}}\n',
+               'a tilde does not close a backtick fence, so the pair stays code but a prose pair after the real close fails': f'{fence3}\n~~~\n{fence3}\n{{{{y}}}}\n',
+               'a pair in prose beside a span': 'a `b` {{c}}\n'}
+        for label, text in ok.items():
+            f.write_text(text)
+            self.assertIsNone(review.require_filled(ctx, str(f)), label)
+        for label, text in bad.items():
+            f.write_text(text)
+            with self.assertRaises(Die, msg=label):
+                review.require_filled(ctx, str(f))
+
+    def test_the_guided_unfilled_re_reads_prose_only(self):
+        ctx = Context('pstack-pair-guided', '/x', '/s', 'Pair', ('sidekick',), ('plans',), 21, '^(decided by|status): .*\\|')
+        f = self.path / 'resp.md'
+        fence3 = '`' * 3
+        f.write_text(f'# R\n\nstatus: agree\n\n{fence3}\nstatus: agree | object\n{fence3}\n')
+        self.assertIsNone(review.require_filled(ctx, str(f)))
+        f.write_text('# R\n\nstatus: agree | object\n')
+        with self.assertRaises(Die):
+            review.require_filled(ctx, str(f))
+
+    def test_steering_a_settled_sidekick_after_a_done_unit_advises_covers_only_in_the_kitchen_and_reads_the_units_own_report(self):
+        # 008 review: --covers is the kitchen's. In the other variants say `write a fix brief`. And an -s<k> report that is not `object` beside a
+        # blocked unit report must not be read as the unit's report.
+        for skill, advice in (('pstack-pair', 'write a fix brief'), ('pstack-pair-guided', 'write a fix brief'), ('pstack-trio', 'write a fix brief')):
+            top, st, run = self.own_world('sc-' + skill, skill=skill, files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}, agents={'s1': 'idle claude'})
+            steer = st / 'steers/001-x-s1.md'
+            steer.parent.mkdir(exist_ok=True)
+            steer.write_text('# Steer 001-s1: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n')
+            r = run('steer', '{st}', str(steer))
+            self.assertEqual(r.stderr, f'pair.sh: sidekick s1 is idle and no objection is open on unit 001; {advice}\n', skill)
+        top, st, run = self.own_world('sc-s1', files={'reports/001-x.md': '# R\n\nstatus: blocked\n', 'reports/001-x-s1.md': '# R\n\nstatus: partial\n'},
+                                      agents={'s1': 'idle claude'})
+        steer = st / 'steers/001-x-s2.md'
+        steer.parent.mkdir(exist_ok=True)
+        steer.write_text('# Steer 001-s2: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n')
+        r = run('steer', '{st}', str(steer))
+        self.assertIn('apply its scope effect to the brief and re-dispatch it', r.stderr)
 
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.

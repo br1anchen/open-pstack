@@ -109,21 +109,76 @@ def review_base(store, unit):
     return base
 
 
+PAIR = r'\x7b\x7b[^}]*\x7d\x7d'
+
+_template_pairs = None
+
+
+def template_pairs():
+    """Every complete placeholder pair that occurs in one of the skills' templates (skills/*/references/*-template.md beside this module's
+    skills directory), once per process: the exact text a template leaves for its writer to fill."""
+    global _template_pairs
+    if _template_pairs is None:
+        skills = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        found = set()
+        for path in glob.glob(os.path.join(glob.escape(skills), '*', 'references', '*-template.md')):
+            try:
+                found.update(re.findall(PAIR, read_text(path)))
+            except OSError:
+                pass
+        _template_pairs = found
+    return _template_pairs
+
+
+def split_code(text):
+    """(prose lines, code pieces) of text. A fence opens on a line whose stripped start is three or more backticks or tildes and closes on a
+    later line of that character alone, at least as long; an unclosed fence is prose to the end, and a line that opens and closes a fence on
+    itself opens nothing. In the prose lines, a backtick span (matched by run length) is cut out and becomes a code piece."""
+    lines = text.split('\n')
+    prose, code, i = [], [], 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        m = re.match(r'(`{3,}|~{3,})', stripped)
+        if m and m.group(1)[0] * len(m.group(1)) not in stripped[len(m.group(1)):]:
+            fence = m.group(1)
+            close = next((j for j in range(i + 1, len(lines)) if re.fullmatch(re.escape(fence[0]) + '{' + str(len(fence)) + ',}', lines[j].strip())), None)
+            if close is not None:
+                code.append('\n'.join(lines[i + 1:close]))
+                i = close + 1
+                continue
+        out, pos = [], 0
+        while pos < len(line):
+            run = re.compile('`+').search(line, pos)
+            if not run:
+                break
+            k = len(run.group())
+            end = next((r for r in re.finditer('`+', line[run.end():]) if len(r.group()) == k), None)
+            if end is None:
+                out.append(line[pos:run.end()])
+                pos = run.end()
+                continue
+            out.append(line[pos:run.start()] + ' ')
+            code.append(line[run.end():run.end() + end.start()])
+            pos = run.end() + end.end()
+        out.append(line[pos:])
+        prose.append(''.join(out))
+        i += 1
+    return prose, code
+
+
 def prose_lines(text):
-    """The lines of text outside fenced code blocks (a line of three backticks opens one and the next closes it), with backtick spans removed:
-    code may hold a double opening brace (a shell expansion, a template literal) and is not a placeholder."""
-    lines, fenced = [], False
-    for line in text.split('\n'):
-        if line.lstrip().startswith('```'):
-            fenced = not fenced
-        elif not fenced:
-            lines.append(re.sub(r'`[^`]*`', '', line))
-    return lines
+    return split_code(text)[0]
 
 
 def has_placeholder(text):
-    """A complete placeholder pair (two opening braces, text without a closing brace, two closing braces) in the prose of text."""
-    return re.search(r'\x7b\x7b[^}]*\x7d\x7d', '\n'.join(prose_lines(text))) is not None
+    """An unfilled placeholder: a complete pair in the prose, or, inside a fence or a backtick span, a pair whose exact text is one a template
+    leaves to be filled (so code that holds some other double-brace text, a CI matrix expression say, is not one)."""
+    prose, code = split_code(text)
+    if re.search(PAIR, '\n'.join(prose)):
+        return True
+    templates = template_pairs()
+    return any(pair in templates for piece in code for pair in re.findall(PAIR, piece))
 
 
 def require_filled(ctx, path):

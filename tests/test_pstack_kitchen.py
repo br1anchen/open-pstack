@@ -2180,6 +2180,18 @@ esac
         for line in ('risk: routine', 'profiles: app', 'verify: '):
             self.assertIn(line, text)
 
+    def test_steering_a_settled_sidekick_after_a_done_unit_advises_covers_in_the_kitchen(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'agents/demo-sidekick').write_text('idle pi\n')
+        steer = self.store / 'steers/001-util-s1.md'
+        steer.parent.mkdir(exist_ok=True)
+        steer.write_text('# Steer 001-s1: util\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n')
+        out = self.run_sh('steer', str(self.store), str(steer), code=5)
+        self.assertIn('write a fix brief and verify it with --covers 001', out)
+
     def test_a_quiet_wait_ending_at_max_logs_one_checkin_wake(self):
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
