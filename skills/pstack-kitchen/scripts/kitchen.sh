@@ -2207,18 +2207,7 @@ cmd_land_check() {
 	land_check "$1" || exit 2
 }
 
-cmd_catch() {
-	[ $# -eq 3 ] || [ $# -eq 4 ] || die "usage: kitchen.sh catch <store> <layer> <text> [<unit>]"
-	local store="$1" layer="$2" text="$3" unit="${4:-}"
-	case "$layer" in gate | policy | self | verify | review | triage | escalation) ;; *) die "layer is gate, policy, self, verify, review, triage, or escalation: the one that should have caught it" ;; esac
-	pair_file "$store" >/dev/null
-	[ -z "$unit" ] || [[ "$unit" =~ ^[0-9]{3}$ ]] || die "unit is a brief's number, like 003"
-	# Options first, then --, so a text that starts with - stays text.
-	python3 "$here/kitchen.py" ledger-catch --run "$(field "$store" .slug)" --ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		${unit:+--unit "$unit"} -- "$store" "$(kpy "$store" statedir)/ledger.tsv" "$layer" "$text" || exit 1
-	event "$store" master catch - "$layer"
-	printf 'caught at %s: %s\n' "$layer" "$text"
-}
+cmd_catch() { pycore catch "$@"; }
 
 # The run's counts, read-only and from the same function fleet uses: sets
 # the rc_* globals. retro prints them and feedback quotes the same line.
@@ -2270,48 +2259,9 @@ cmd_close() {
 # of the history. new-handoff writes the template with the units' state
 # filled in; rotate-master records the filled handoff and the session it
 # closes, then hands the run to a new master beside it.
-cmd_new_handoff() {
-	[ $# -eq 1 ] || die "usage: kitchen.sh new-handoff <store>"
-	local store="$1" path gen units
-	pair_file "$store" >/dev/null
-	path="$store/session-handoff.md"
-	gen="$(field "$store" '.master.generation // 1')"
-	units="$(handoff_units "$store")"
-	UNITS="$units" python3 - "$skill_root/references/handoff-template.md" "$path" "$(field "$store" .slug)" "$store" "$gen" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
-import os, sys
-src, dst, slug, store, gen, now = sys.argv[1:7]
-text = open(src).read()
-for k, v in {'SLUG': slug, 'STORE': store, 'GENERATION': gen, 'WRITTEN': now, 'UNITS': os.environ['UNITS']}.items():
-    text = text.replace('{{' + k + '}}', v)
-open(dst, 'w').write(text)
-PY
-	printf '%s\n' "$path"
-	printf 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master %s\n' "$store"
-}
+cmd_new_handoff() { pycore new-handoff "$@"; }
 
 # One row per unit: brief, report status, latest verdict, review verdict.
-handoff_units() {
-	local store="$1" b seq slug report rstatus verdict vstatus review rv
-	printf '| unit | report | verdict | review |\n|---|---|---|---|\n'
-	for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
-		[ -e "$b" ] || continue
-		seq="$(basename "$b" | cut -c1-3)"
-		slug="$(basename "$b" .md | cut -c5-)"
-		rstatus=-
-		report="$(ls -t "$store"/reports/"$seq"-*.md 2>/dev/null | head -1 || true)"
-		[ -z "$report" ] || rstatus="$(header_field "$report" status)"
-		vstatus=-
-		verdict="$(ls -t "$store"/verdicts/"$seq"-*-v[0-9]*.md 2>/dev/null | grep -v packet | head -1 || true)"
-		[ -z "$verdict" ] || vstatus="$(header_field "$verdict" status)"
-		rv=-
-		review="$store/reviews/$seq-$slug.md"
-		[ ! -f "$review" ] || rv="$(header_field "$review" verdict)"
-		printf '| %s %s | %s | %s | %s |\n' "$seq" "$slug" "${rstatus:--}" "${vstatus:--}" "${rv:--}"
-	done
-	[ -z "$(field "$store" '.dispatch.brief // empty')" ] || printf '\ndispatched: %s\n' "$(basename "$(field "$store" .dispatch.brief)")"
-	[ -z "$(field "$store" '.verifying.unit // empty')" ] || printf 'verifying: %s\n' "$(field "$store" .verifying.unit)"
-	[ -z "$(queued_brief "$store")" ] || printf 'queued: %s\n' "$(basename "$(queued_brief "$store")")"
-}
 
 # The --model the master's own Claude was started with, so the next
 # generation runs the same model; empty when none is on its command line.
@@ -2450,31 +2400,7 @@ cmd_take_master() {
 	warn_unreviewed "$store"
 }
 
-cmd_retro() {
-	[ $# -eq 1 ] || die "usage: kitchen.sh retro <store>"
-	local store="$1" ledger run now
-	pair_file "$store" >/dev/null
-	ledger="$(kpy "$store" statedir)/ledger.tsv"
-	run="$(field "$store" .slug)"
-	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-	python3 "$here/kitchen.py" ledger-retro "$store" "$ledger" --run "$run" --ts "$now"
-	retro_counts "$store"
-	retro_line "$store"
-	[ "$rc_verified" -eq 0 ] || printf 'master wakes per verified unit: %s\n' "$(awk -v w="$rc_wakes" -v v="$rc_verified" 'BEGIN{printf "%.1f", w / v}')"
-	printf 'repeated across runs (the kitchen should catch these, not the master):\n'
-	# Lesson scores, staged lessons and dismissals are the lessons report's, below.
-	awk -F '\t' 'NR > 1 && $3 !~ /^(lesson|lesson-added|dismiss)$/ {k = $3 "\t" $4; n[k]++; if (!((k, $2) in seen)) {seen[k, $2] = 1; runs[k]++}}
-		END {for (k in n) if (n[k] >= 2) {split(k, p, "\t"); printf "  %3d %-10s %-24s in %d runs\n", n[k], p[1], p[2], runs[k]}}' "$ledger" | sort -rn || true
-	cat <<'HINT'
-encode a repeated class at the highest level that works (the correct skill):
-  gate-fail <profile>  a sharper brief, or a lint whose error names the fix
-  gate-flaky <profile> a suite that fails under load: related tests per step, the full suite in behavioral
-  reject verify        acceptance the gates do not cover: add a behavioral command or test
-  steer brief          briefs miss a decision the master keeps making: a standing order or plan template line
-  catch <layer>        the layer that should have caught it gets the check
-HINT
-	kpy "$store" lessons || true
-}
+cmd_retro() { pycore retro "$@"; }
 
 # The host's feedback inbox: gaps in the kitchen itself, filed by masters
 # and read by whoever maintains pstack on this host.

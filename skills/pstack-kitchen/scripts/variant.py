@@ -138,4 +138,18 @@ class KitchenVariant(TrioVariant):
         return ReportReadiness(False, '', f"the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them)")
 
 
+
+def _kitchen_command(module, function):
+    """A command of kitchen_core, loaded when it runs: the package is imported for a kitchen command that needs it and not before."""
+    def run(ctx, args):
+        load_kitchen_core()
+        import importlib
+        return getattr(importlib.import_module(f'kitchen_core.{module}'), function)(ctx, args)
+    run.__name__ = function
+    return run
+
+
+KitchenVariant.commands = {**KitchenVariant.commands, 'catch': _kitchen_command('ledger', 'catch'), 'retro': _kitchen_command('ledger', 'retro'),
+                           'new-handoff': _kitchen_command('handoff', 'new_handoff')}
+
 VARIANT = KitchenVariant

@@ -5,6 +5,7 @@ import contextlib
 import importlib.util
 import io
 import sys
+import traceback
 from pathlib import Path
 
 KITCHEN_PY = Path(__file__).resolve().parents[1] / 'kitchen.py'
@@ -34,9 +35,26 @@ def run(repo, args):
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         try:
-            rc = module.main(['--repo', str(repo), *args])
+            rc = module.main([*(['--repo', str(repo)] if repo is not None else []), *args])
         except SystemExit as e:
             rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
             if isinstance(e.code, str):
                 err.write(e.code + '\n')
+        except Exception as e:  # what the interpreter prints for an uncaught one, status 1
+            rc = 1
+            err.write(uncaught(e))
     return rc, out.getvalue(), err.getvalue()
+
+
+def uncaught(error):
+    """The traceback `python3 kitchen.py` prints when main raises: the frames from the module's `sys.exit(main())` inward."""
+    summary = traceback.TracebackException.from_exception(error)
+    frames = [f for f in summary.stack]
+    start = next((i for i, f in enumerate(frames) if f.filename == str(KITCHEN_PY) and f.name == 'main'), 0)
+    source = KITCHEN_PY.read_text().splitlines()
+    line = next((n for n, text in enumerate(source, start=1) if text == '    sys.exit(main())' or text == 'sys.exit(main())'), 0)
+    text = source[line - 1] if line else 'sys.exit(main())'
+    column = text.index('main()') - 1
+    entry = traceback.FrameSummary(str(KITCHEN_PY), line, '<module>', line=text, end_lineno=line, colno=column, end_colno=column + 6)
+    summary.stack = traceback.StackSummary.from_list([entry, *frames[start:]])
+    return ''.join(summary.format())

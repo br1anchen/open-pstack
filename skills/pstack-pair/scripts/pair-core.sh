@@ -329,11 +329,6 @@ cmd_pause() { pycore pause "$@"; }
 
 cmd_resume() { pycore resume "$@"; }
 
-queued_brief() {
-	# $1 store: the brief waiting in the queue, or empty.
-	[ -f "$1/queue" ] && cat "$1/queue" || true
-}
-
 # Draft-PR review. The sidekick commits each step of a brief and records it
 # with pair.sh step, then goes on without waiting. A wait returns each step
 # the master has not reviewed; the master reviews that diff and publishes a

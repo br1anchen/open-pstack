@@ -520,12 +520,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('stop',)}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'new-handoff', 'retro', 'stop')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
         self.assertEqual(tables, self.EFFECTIVE_COMMANDS)
-        self.assertTrue(set(name for table in tables.values() for name in table) <= set(cli.OVERRIDABLE))
+        # a variant table holds a name the core lets it replace, or one the core lacks (the kitchen's own commands)
+        self.assertTrue(all(name in cli.OVERRIDABLE or name not in cli.COMMANDS for table in tables.values() for name in table))
 
     def test_kitchen_runs_the_trios_stop_from_a_table_of_its_own_and_has_no_spawn(self):
         trio = load_skill_variant(root / 'skills', 'pstack-trio')
@@ -608,6 +609,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             ours = kpy.run(repository, args)
             self.assertEqual(ours, (sub.returncode, sub.stdout, sub.stderr), (str(repository), args))
         self.assertEqual([kpy.run(repo, ['validate'])[0], kpy.run(bad, ['validate'])[0], kpy.run(repo, ['--no-such-flag'])[0]], [0, 1, 2])
+
+    def test_a_kitchen_command_run_from_the_filesystem_root_loads_kitchen_core(self):
+        kitchen_args = ['--skill', 'pstack-kitchen', '--skill-root', str(root / 'skills/pstack-kitchen'), '--state-root', '/s', '--store-label', 'Kitchen',
+                        '--roles', 'sidekick consultant verifier', '--store-dirs', 'plans briefs', '--slug-max', '21', '--unfilled-re', '', '--']
+        probe = ('import sys; sys.path.insert(0, sys.argv[1]); from pstack_core import cli\n'
+                 'rc = cli.main(sys.argv[2:])\nprint(rc, "kitchen_core" in sys.modules)')
+        r = subprocess.run([sys.executable, '-I', '-c', probe, str(scripts), *kitchen_args, 'catch'], capture_output=True, text=True, check=False, timeout=60, cwd='/')
+        self.assertEqual(r.stdout, '1 True\n', (r.stdout, r.stderr))
+        self.assertIn('usage: kitchen.sh catch <store> <layer> <text> [<unit>]', r.stderr)
 
     def test_the_kitchen_core_package_loads_by_path_from_any_cwd_and_once(self):
         probe = ('import sys; sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])\n'
@@ -3396,6 +3406,120 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         mask = lambda o, tree: json.loads(json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>'))
         return mask(got, root / 'skills'), mask(want, bases)
 
+    def phase4_ab(self, label, spec):
+        """One kitchen world run through b632713's kitchen.sh and the working tree's: (working tree, base), the two trees' paths masked."""
+        bases = self.phase4_skills()
+        spec = {**spec, 'repo_files': {**spec.get('repo_files', {}), '.agents/kitchen.toml': self.KITCHEN_TOML}}
+        want = self.ab_run(f'{label}-base', bases, 'pstack-kitchen', spec)
+        got = self.ab_run(f'{label}-port', root / 'skills', 'pstack-kitchen', spec)
+        for outcome, tag in ((want, 'base'), (got, 'port')):
+            outcome['state'] = self.state_tree(self.path / f'{label}-{tag}' / 'state', self.path / f'{label}-{tag}')
+        mask = lambda o, tree: json.loads(json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>'))
+        return mask(got, root / 'skills'), mask(want, bases)
+
+    def state_tree(self, directory, top):
+        """What a run left under the host state directory (the kitchen's ledger and timings), times masked."""
+        found = {}
+        for path in sorted(directory.rglob('*')) if directory.is_dir() else ():
+            if path.is_file():
+                text = path.read_text(errors='replace').replace(str(top), '<T>')
+                found[re.sub(r'repo-[0-9a-f]{8}', 'repo-<H>', str(path.relative_to(directory)).replace(top.name, '<T>'))] = re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text))
+        return found
+
+    def phase4_cases(self, label, cases):
+        """Every case through both trees; they must be equal. Returns the outcomes by name."""
+        outcomes = {}
+        for n, (name, spec) in enumerate(cases.items()):
+            got, want = self.phase4_ab(f'{label}{n}', spec)
+            self.maxDiff = None
+            self.assertEqual(got, want, name)
+            outcomes[name] = got
+        return outcomes
+
+    def test_catch_matches_the_bash_at_the_phase_4_base(self):
+        run = ['catch', '{st}', 'gate', 'a missed lint']
+        cases = {
+            'a catch': dict(args=run),
+            'a catch with a unit': dict(args=run + ['001']),
+            'a text that starts with a dash': dict(args=['catch', '{st}', 'review', '--not-an-option']),
+            'a bad layer': dict(args=['catch', '{st}', 'luck', 'x']),
+            'a git_root that is not a repository': dict(args=run, pair={'git_root': '/nonexistent/repo'}),
+            'a bad unit': dict(args=run + ['3']),
+            'too few arguments': dict(args=['catch', '{st}', 'gate']),
+            'a unit with no brief': dict(args=run + ['009']),
+            'too many arguments': dict(args=run + ['001', 'extra']),
+            'no pair.json': dict(args=run, nopair=True),
+            'a second catch on the same ledger': dict(args=run, files={}, then=None),
+        }
+        cases.pop('a second catch on the same ledger')
+        out = self.phase4_cases('catch', cases)
+        self.assertEqual(out['a catch']['rc'], 0)
+        self.assertIn('caught at gate: a missed lint', out['a catch']['stdout'])
+        self.assertTrue(any('ledger.tsv' in k and 'a missed lint' in v for k, v in out['a catch']['state'].items()), out['a catch']['state'])
+        self.assertNotEqual(out['a unit with no brief']['rc'], 0)
+        self.assertEqual(out['a bad layer']['rc'], 1)
+        self.assertEqual(out['no pair.json']['rc'], 1)
+
+    def kitchen_run_files(self):
+        """A store with two units reported, one clean verdict, one reject, two steers, wakes, an escalation and a failover."""
+        ev = lambda n, actor, event, unit='-', detail='': f'2026-10-0{n}T10:00:00Z\t{1790000000 + n}\t{actor}\t{event}\t{unit}\t{detail}\n'
+        return {
+            'reports/001-x.md': '# Report\n\nstatus: done\nhead: {c2}\n', 'reports/002-y.md': '# Report\n\nstatus: partial\nhead: {c3}\n',
+            'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n', 'verdicts/002-y-v1.md': '# V\n\nstatus: reject\nunits: 002\n\n## Findings\n\n1. it broke\n',
+            'verdicts/002-y-v1-packet.md': '# P\n\nverifier-outcome: reject\n', 'verdicts/002-y-v2.md': '# V\n\nstatus: clean\nunits: 002\n',
+            'steers/001-x-s1.md': '# Steer\n\nkind: scope\n\n## Direction\n\nstay in src\n', 'steers/002-y-s1.md': '# Steer\n\nkind: redirect\n\n## Direction\n\ndo it again\n',
+            'reviews/001-x.md': '# R\n\nverdict: accept\n',
+            'events.tsv': 'ts\tepoch\tactor\tevent\tunit\tdetail\n' + ev(1, 'master', 'init') + ev(2, 'master', 'wake', '001-x', 'sidekick:done')
+            + ev(3, 'master', 'wake', '002-y', 'verify:clean') + ev(4, 'master', 'escalate', '002-y', 'contract') + ev(5, 'master', 'failover', '-', 'pi'),
+            'gates.tsv': '1\t001-x\tabc\tfail\tpstack\n'}
+
+    def test_retro_matches_the_bash_at_the_phase_4_base(self):
+        run = ['retro', '{st}']
+        rich = self.kitchen_run_files()
+        no_verdicts = {k: v for k, v in rich.items() if not k.startswith('verdicts/')}
+        cases = {
+            'a store with briefs only': dict(args=run),
+            'units, verdicts, steers and events': dict(args=run, files=rich, pair={'slug': 'demo'}),
+            'no verified unit': dict(args=run, files=no_verdicts),
+            'a git_root that is not a repository': dict(args=run, files=rich, pair={'slug': 'demo', 'git_root': '/nonexistent/repo'}),
+            'no pair.json': dict(args=run, nopair=True),
+            'too many arguments': dict(args=run + ['x']),
+            'no arguments': dict(args=['retro']),
+        }
+        out = self.phase4_cases('retro', cases)
+        rich_out = out['units, verdicts, steers and events']
+        self.assertEqual(rich_out['rc'], 0, rich_out['stderr'])
+        self.assertIn('master wakes per verified unit:', rich_out['stdout'])
+        self.assertIn('run demo: 1 unit reports, 2 verified units', rich_out['stdout'])
+        self.assertRegex(rich_out['stdout'], r'(?m)^ +2 steer +brief +in 1 runs$')
+        self.assertIn('repeated across runs', rich_out['stdout'])
+        self.assertNotIn('master wakes per verified unit', out['no verified unit']['stdout'])
+
+    def test_new_handoff_matches_the_bash_at_the_phase_4_base(self):
+        rich = self.kitchen_run_files()
+        run = ['new-handoff', '{st}']
+        pair = {'slug': 'demo', 'master': {'name': 'm1', 'generation': 3}, 'dispatch': {'brief': '{st}/briefs/002-y.md'}, 'verifying': {'unit': '001-x'}}
+        cases = {
+            'a store with units in every state': dict(args=run, files={**rich, 'queue': '{st}/briefs/003-z.md\n', 'briefs/003-z.md': '# B\n'}, pair=pair),
+            'a store with briefs only': dict(args=run, pair={'slug': 'demo', 'dispatch': {}}),
+            'an existing handoff is overwritten': dict(args=run, files={'session-handoff.md': 'old text\n', **rich}, pair=pair),
+            'a master with no generation': dict(args=run, files=rich, pair={'slug': 'demo', 'master': {'name': 'm1'}}),
+            'no pair.json': dict(args=run, nopair=True),
+            'too many arguments': dict(args=run + ['x']),
+            'no arguments': dict(args=['new-handoff']),
+        }
+        out = self.phase4_cases('handoff', cases)
+        first = out['a store with units in every state']
+        self.assertEqual(first['rc'], 0, first['stderr'])
+        text = first['files']['session-handoff.md']
+        self.assertIn('| 001 x | done | clean | accept |', text)
+        self.assertIn('| 002 y | partial | clean | - |', text)
+        self.assertIn('dispatched: 002-y.md', text)
+        self.assertIn('verifying: 001-x', text)
+        self.assertIn('queued: 003-z.md', text)
+        self.assertIn('(master generation 3)', text)
+        self.assertNotIn('old text', out['an existing handoff is overwritten']['files']['session-handoff.md'])
+
     def test_kitchen_spawn_matches_the_bash_at_the_phase_3_base(self):
         """kitchen.sh `spawn` (its bash wrapper over the captured pair command) at 04d2c13 and at the working tree, on the fake herdr: the roster's
         default kind, `--kind` over it, the roster's fallback, and `--tab`. Stdout, stderr, status, the store, events.tsv rows and calls.log."""
@@ -4542,7 +4666,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
             pair['dispatch'] = {'brief': f'{st}/briefs/{running}'} if running else None
             (st / 'pair.json').write_text(json.dumps(pair))
             report_path = f'{st}/reports/{report}'
-            self.assertEqual(replies.queued_brief(str(st)), self.bash_value(f'queued_brief {st}')[1], queue)
+            self.assertEqual(replies.queued_brief(str(st)), self.bash_value(f'[ -f {st}/queue ] && cat {st}/queue || true')[1], queue)  # the body of the deleted bash queued_brief
             self.assertEqual((0, replies.queue_note(str(st), report_path).rstrip('\n')), self.bash_value(f'queue_note {st} {shlex.quote(report_path)}'), (queue, running, report))
 
     def test_replies_pending_report_and_mark_seen_match_bash(self):
@@ -6497,7 +6621,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
     # bash helpers that have a Python twin (pstack_core), under the twin's name
     TWINS = ('event', 'header_field', 'next_seq', 'paused_reason',
              'new_from_template', 'steps_file', 'trunk_ref', 'range_floor', 'require_filled',
-             'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'queued_brief', 'json_update', 'pair_file',
+             'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'json_update', 'pair_file',
              'expected_report', 'fresh_per_brief', 'file_mtime',
              'scope_entries',
              'busy_command', 'agent_session_error', 'muse_session_error', 'prime_role_error',
