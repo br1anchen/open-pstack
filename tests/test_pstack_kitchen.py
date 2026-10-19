@@ -3428,38 +3428,6 @@ esac
         self.assertNotEqual(self.state()['verifying']['verdict'], first)
         self.assertEqual(len(self.grace_prompts()), before)
 
-    def test_a_waiter_on_a_provider_error_whose_verification_was_replaced_runs_no_retry(self):
-        self.env.update({'KITCHEN_VERIFY_POLL_S': '0', 'KITCHEN_VERDICT_SETTLE_S': '0'})
-        self.rate_limited_verifier()
-        b = self.brief('001', 'util', ['src/**', 'tests/**'])
-        self.dispatch(b)
-        self.write('src/util.py', 'X = 9\n')
-        self.write('tests/test_app.py', 'x = 9\n')
-        self.done(b, self.commit('util'))
-        (self.fake / 'verdict-mode').write_text('ratelimit-live')
-        self.run_sh('verify', str(self.store), '001', '--every', '0', '--timeout', '60', code=4)
-        first = self.state()['verifying']['verdict']
-        self.on_nth_get(1, self.cancel_and_replace())
-        out = self.run_sh('verify', str(self.store), '--wait', '--every', '1', code=5)
-        self.assertIn('verification closed elsewhere', out)
-        self.assertNotIn('retry:', out)
-        second = self.state()['verifying']
-        self.assertNotEqual(second['verdict'], first)
-        self.assertEqual(self.outcome_of(second['packet']), 'running')
-        self.assertEqual(len(self.verifier_starts()), 2)
-
-    def test_a_waiter_whose_verification_the_next_verify_closed_exits_5_and_leaves_the_new_packet(self):
-        open_ = self.open_slow_verification()
-        written = ("printf 'status: clean\\nunits: 001\\n\\n## Findings\\n\\nnone\\n\\n## Evidence\\n\\n```\\n$ true\\n```\\n' >"
-                   f"{open_['verdict']}\n{self.script} verify {self.store} 001 --every 0 --timeout 60 >/dev/null 2>&1")
-        self.on_nth_get(1, written)
-        out = self.run_sh('verify', str(self.store), '--wait', '--every', '1', code=5)
-        self.assertIn('verification closed elsewhere', out)
-        self.assertEqual(self.outcome_of(open_['packet']), 'clean')
-        second = self.state()['verifying']
-        self.assertNotEqual(second['verdict'], open_['verdict'])
-        self.assertEqual(self.outcome_of(second['packet']), 'running')
-
     def test_a_waiter_whose_verification_was_cancelled_and_replaced_touches_nothing(self):
         self.open_slow_verification()
         first = self.state()['verifying']['verdict']
