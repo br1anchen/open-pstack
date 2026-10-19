@@ -558,6 +558,42 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual((cli.resolve(ctx, 'answer'), cli.resolve(ctx, 'status'), cli.resolve(ctx, '__detect_permission_mode')),
                          ('mine', cli.COMMANDS['status'], cli.COMMANDS['__detect_permission_mode']))
 
+    def test_a_name_the_core_lacks_asks_the_variant_and_an_internal_entry_still_does_not(self):
+        class Mine:
+            commands = {'catch': 'kitchen catch', '__hidden': 'never'}
+
+        ctx = Context('pstack-pair', '/nowhere/pstack-pair', '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
+        ctx._variant = Mine()
+        self.assertEqual(cli.resolve(ctx, 'catch'), 'kitchen catch')
+        self.assertIsNone(cli.resolve(ctx, '__hidden'))
+        self.assertIsNone(cli.resolve(ctx, 'nothing-like-it'))
+        self.assertIs(cli.resolve(ctx, 'status'), cli.COMMANDS['status'])
+
+    def test_pair_commands_load_no_kitchen_code_and_open_no_kitchen_file(self):
+        store = self.path / 'st'
+        store.mkdir()
+        (store / 'pair.json').write_text('{}')
+        probe = ('import sys; sys.path.insert(0, sys.argv[1]); opened = []\n'
+                 'sys.addaudithook(lambda event, args: opened.append(str(args[0])) if event == "open" and "pstack-kitchen" in str(args[0]) else None)\n'
+                 'from pstack_core import cli\n'
+                 'for name in sys.argv[3:]:\n'
+                 '    try:\n        cli.main(sys.argv[2].split() + [name, sys.argv[2].split()[-1]])\n    except SystemExit:\n        pass\n'
+                 'print("kitchen_core" in sys.modules, opened)')
+        for name in ('spawn', 'stop', 'status'):
+            r = subprocess.run([sys.executable, '-I', '-c', probe, str(scripts), ' '.join(core_args()) + f' {store}', name],
+                               capture_output=True, text=True, check=False, timeout=60, cwd='/')
+            self.assertEqual(r.stdout, 'False []\n', (name, r.stdout, r.stderr))
+
+    def test_the_kitchen_core_package_loads_by_path_from_any_cwd_and_once(self):
+        probe = ('import sys; sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])\n'
+                 'import variant\n'
+                 'assert "kitchen_core" not in sys.modules\n'
+                 'a = variant.load_kitchen_core(); b = variant.load_kitchen_core()\n'
+                 'print(a is b, a.__name__, list(a.__path__) == [str(variant.KITCHEN_CORE_DIR)])')
+        r = subprocess.run([sys.executable, '-I', '-c', probe, str(scripts), str(root / 'skills/pstack-kitchen/scripts')], capture_output=True, text=True,
+                           check=False, timeout=60, cwd='/')
+        self.assertEqual((r.returncode, r.stdout), (0, 'True kitchen_core True\n'), r.stderr)
+
     def test_a_command_the_variant_does_not_override_runs_without_loading_the_variant_module(self):
         store = self.path / 'st'
         store.mkdir()

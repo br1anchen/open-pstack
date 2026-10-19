@@ -17,18 +17,22 @@ COMMANDS = {'init': init.run, 'log': log.run, 'new-plan': templates.new_plan, 'n
             '__refuse_untrusted': panes.entry_refuse_untrusted, '__pair_report_ready': report.pair_report_ready, '__spawn_role': spawn.entry_spawn_role, '__spawn_consultant': spawn.entry_spawn_consultant,
             **agents.COMMANDS, **exits.COMMANDS}
 
-# The commands a variant may replace whole. Only these names ask the variant (loading it), so every other command runs without it, and an
-# internal entry (a name starting with __) never goes through it.
+# The commands a variant may replace whole. Only these names, and a name the core lacks, ask the variant (loading it), so every other
+# command runs without it, and an internal entry (a name starting with __) never goes through it.
 OVERRIDABLE = ('answer', 'spawn', 'stop')
 
 
 def resolve(ctx, cmd):
-    """The function that runs cmd: the variant's own for an overridable name it defines, else the core's."""
+    """The function that runs cmd: the variant's own for an overridable name it defines, else the core's; for a name the core does not
+    define at all (and that is not an internal entry), the variant's, so a variant can add commands (the kitchen's own)."""
     if cmd in OVERRIDABLE:
         command = ctx.variant.commands.get(cmd)
         if command is not None:
             return command
-    return COMMANDS.get(cmd)
+    command = COMMANDS.get(cmd)
+    if command is None and not cmd.startswith('__'):
+        return ctx.variant.commands.get(cmd)
+    return command
 
 
 PROG_OPTION = '--prog'

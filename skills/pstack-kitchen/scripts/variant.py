@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -8,6 +9,25 @@ from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 
 TrioVariant = load_skill_variant(Path(__file__).resolve().parents[2], 'pstack-trio')
+
+KITCHEN_CORE_DIR = Path(__file__).resolve().parent / 'kitchen_core'
+
+
+def load_kitchen_core():
+    """The kitchen_core package, registered in sys.modules as a real package (search locations set) so relative imports and dataclasses work,
+    loaded by path from the directory beside this file: whatever the working directory, and only for a command that needs it."""
+    module = sys.modules.get('kitchen_core')
+    if module is not None:
+        return module
+    spec = importlib.util.spec_from_file_location('kitchen_core', KITCHEN_CORE_DIR / '__init__.py', submodule_search_locations=[str(KITCHEN_CORE_DIR)])
+    module = importlib.util.module_from_spec(spec)
+    sys.modules['kitchen_core'] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules['kitchen_core']
+        raise
+    return module
 
 
 def _crc_table():
