@@ -8,6 +8,7 @@ import time
 
 from pstack_core.collate import glob_sorted, newest
 from pstack_core.errors import Die
+from pstack_core.spawn import field
 from pstack_core.store import alt, header_field, jq_raw, pair_file, pair_json
 
 
@@ -33,10 +34,11 @@ def queued_brief(store):
 
 def handoff_units(store):
     """The table of units and what is known of each, then what is dispatched, being verified and queued."""
-    pair = pair_json(store)
     out = ['| unit | report | verdict | review |', '|---|---|---|---|']
     esc = glob.escape(store)
     for brief in glob_sorted(glob.glob(f'{esc}/briefs/[0-9][0-9][0-9]-*.md')):
+        if not os.path.exists(brief):
+            continue
         name = os.path.basename(brief)
         seq, slug = name[:3], name[:-3][4:]
         report = newest_matching(f'{esc}/reports/{seq}-*.md')
@@ -47,12 +49,11 @@ def handoff_units(store):
         rv = header_field(review, 'verdict') if os.path.isfile(review) else '-'
         out.append(f'| {seq} {slug} | {rstatus or "-"} | {vstatus or "-"} | {rv or "-"} |')
     text = '\n'.join(out) + '\n'
-    dispatch = pair.get('dispatch')
-    brief = jq_raw(alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, ''))
+    # jq answers for a .dispatch or .verifying that is not an object: its error on stderr, an empty value, and the command goes on
+    brief = field(store, 'dispatch', 'brief', empty=True)
     if brief:
         text += f'\ndispatched: {basename(brief)}\n'
-    verifying = pair.get('verifying')
-    unit = jq_raw(alt(verifying.get('unit') if isinstance(verifying, dict) else None, ''))
+    unit = field(store, 'verifying', 'unit', empty=True)
     if unit:
         text += f'verifying: {unit}\n'
     queued = queued_brief(store)
@@ -68,8 +69,8 @@ def new_handoff(ctx, args):
     pair_file(store)
     pair = pair_json(store)
     path = f'{store}/session-handoff.md'
-    master = pair.get('master')
-    generation = jq_raw(alt(master.get('generation') if isinstance(master, dict) else None, 1))
+    # a plain assignment: a .master that is not an object ends the command with jq's status and error, before any file is written
+    generation = field(store, 'master', 'generation', check=True, default='1')
     units = handoff_units(store).rstrip('\n')
     with open(f'{ctx.skill_root}/references/handoff-template.md', encoding='utf-8', errors='surrogateescape') as f:
         text = f.read()

@@ -570,20 +570,52 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIsNone(cli.resolve(ctx, 'nothing-like-it'))
         self.assertIs(cli.resolve(ctx, 'status'), cli.COMMANDS['status'])
 
-    def test_pair_commands_load_no_kitchen_code_and_open_no_kitchen_file(self):
-        store = self.path / 'st'
+    def test_commands_load_the_variant_they_need_and_no_kitchen_code_they_do_not(self):
+        """Each command is run through cli.main in a fresh interpreter with the real skill root and a complete argv; the probe reports what ran and
+        what was imported or opened. A pair.sh run never reaches a pstack-kitchen file; kitchen.sh's stop and status load the kitchen variant
+        (stop asks for it; status needs no variant at all) but not kitchen_core; a kitchen command that is kitchen_core's loads it."""
+        store = self.path / 'probestore'
         store.mkdir()
-        (store / 'pair.json').write_text('{}')
-        probe = ('import sys; sys.path.insert(0, sys.argv[1]); opened = []\n'
+        (store / 'pair.json').write_text('{"sidekick": {"name": "s1", "kind": "claude"}, "master": {"name": "m1"}, "git_root": "/nonexistent"}')
+        for d in ('briefs', 'reports', 'plans'):
+            (store / d).mkdir()
+        probe = ('import json, sys; sys.path.insert(0, sys.argv[1]); opened = []\n'
                  'sys.addaudithook(lambda event, args: opened.append(str(args[0])) if event == "open" and "pstack-kitchen" in str(args[0]) else None)\n'
                  'from pstack_core import cli\n'
-                 'for name in sys.argv[3:]:\n'
-                 '    try:\n        cli.main(sys.argv[2].split() + [name, sys.argv[2].split()[-1]])\n    except SystemExit:\n        pass\n'
-                 'print("kitchen_core" in sys.modules, opened)')
-        for name in ('spawn', 'stop', 'status'):
-            r = subprocess.run([sys.executable, '-I', '-c', probe, str(scripts), ' '.join(core_args()) + f' {store}', name],
-                               capture_output=True, text=True, check=False, timeout=60, cwd='/')
-            self.assertEqual(r.stdout, 'False []\n', (name, r.stdout, r.stderr))
+                 'try:\n    rc = cli.main(json.loads(sys.argv[2]))\nexcept SystemExit as e:\n    rc = e.code\n'
+                 'print(json.dumps({"rc": rc, "kitchen_core": "kitchen_core" in sys.modules, "variant": [m for m in sys.modules if m.startswith("pstack_variant_")], '
+                 '"opened": opened}))')
+        pair_args = lambda skill, label: ['--skill', skill, '--skill-root', str(root / 'skills' / skill), '--state-root', '/s', '--store-label', label,
+                                          '--roles', 'sidekick', '--store-dirs', 'plans briefs', '--slug-max', '21', '--unfilled-re', '', '--']
+        kitchen_args = ['--skill', 'pstack-kitchen', '--skill-root', str(root / 'skills/pstack-kitchen'), '--state-root', '/s', '--store-label', 'Kitchen',
+                        '--roles', 'sidekick consultant verifier', '--store-dirs', 'plans briefs', '--slug-max', '21', '--unfilled-re', '', '--']
+        runs = []
+        for command in (['status', str(store)], ['stop', str(store)], ['spawn', str(store), '--kind']):
+            runs.append(('pair', command[0], pair_args('pstack-pair', 'Pair') + command))
+        for command in (['status', str(store)], ['stop', str(store)], ['catch', str(store)]):
+            runs.append(('kitchen', command[0], kitchen_args + command))
+        seen = {}
+        for kind, name, argv in runs:
+            r = subprocess.run([sys.executable, '-I', '-c', probe, str(scripts), json.dumps(argv)], capture_output=True, text=True, check=False, timeout=60, cwd='/')
+            self.assertNotIn('bad core option', r.stderr, (kind, name, r.stderr))
+            self.assertNotIn('unknown command', r.stderr, (kind, name, r.stderr))
+            seen[kind, name] = (json.loads(r.stdout.splitlines()[-1]), r.stdout, r.stderr)
+        for key in (('pair', 'status'), ('pair', 'stop'), ('pair', 'spawn')):
+            info = seen[key][0]
+            self.assertEqual((info['kitchen_core'], info['opened']), (False, []), (key, seen[key]))
+        # each command ran: status prints its page, stop and spawn end in their own diagnostics
+        self.assertIn('# Pair status', seen['pair', 'status'][1])
+        self.assertIn('# Kitchen status', seen['kitchen', 'status'][1])
+        self.assertTrue(seen['pair', 'stop'][2] or seen['pair', 'stop'][1])
+        for name in ('status', 'stop'):
+            info = seen['kitchen', name][0]
+            self.assertFalse(info['kitchen_core'], (name, seen['kitchen', name]))
+        loaded = lambda key: any('/pstack-kitchen/scripts/' in o and 'variant' in o for o in seen[key][0]['opened'])
+        self.assertTrue(loaded(('kitchen', 'stop')))
+        self.assertFalse(loaded(('kitchen', 'status')), 'status asks nothing of the variant')
+        self.assertTrue(loaded(('kitchen', 'catch')))
+        self.assertEqual(seen['kitchen', 'catch'][0]['kitchen_core'], True)
+        self.assertIn('usage: kitchen.sh catch <store> <layer> <text> [<unit>]', seen['kitchen', 'catch'][2])
 
     def test_kpy_run_equals_the_subprocess_in_output_stderr_and_status(self):
         """kitchen_core.kpy.run against `python3 kitchen.py`: a passing call, a failing one that prints to stderr, and an argparse error."""
@@ -3449,9 +3481,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a unit with no brief': dict(args=run + ['009']),
             'too many arguments': dict(args=run + ['001', 'extra']),
             'no pair.json': dict(args=run, nopair=True),
-            'a second catch on the same ledger': dict(args=run, files={}, then=None),
         }
-        cases.pop('a second catch on the same ledger')
         out = self.phase4_cases('catch', cases)
         self.assertEqual(out['a catch']['rc'], 0)
         self.assertIn('caught at gate: a missed lint', out['a catch']['stdout'])
@@ -3495,6 +3525,18 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('repeated across runs', rich_out['stdout'])
         self.assertNotIn('master wakes per verified unit', out['no verified unit']['stdout'])
 
+    def test_catch_retro_and_new_handoff_on_an_unparseable_pair_json_die_with_pythons_message(self):
+        """Accepted (PARITY.md, unparseable pair.json): the bash read pair.json with jq. catch went on and wrote a ledger row with an empty run
+        (rc 0); retro and new-handoff stopped with jq's rc 5. The port reads it once and dies with `kitchen.sh: Expecting value...`, rc 1,
+        writing nothing."""
+        for args, base_rc in ((['catch', '{st}', 'gate', 'x'], 0), (['retro', '{st}'], 5), (['new-handoff', '{st}'], 5)):
+            got, want = self.phase4_ab('unp' + args[0], dict(args=args, nopair=True, files={'pair.json': 'not json\n'}))
+            self.assertEqual((want['rc'], got['rc']), (base_rc, 1), args[0])
+            self.assertIn('parse error', want['stderr'])
+            self.assertTrue(got['stderr'].endswith('pair.sh: Expecting value: line 1 column 1 (char 0)\n'), got['stderr'])
+            self.assertEqual(got['state'], {}, args[0])
+            self.assertEqual(bool(want['state']), args[0] == 'catch')
+
     def test_new_handoff_matches_the_bash_at_the_phase_4_base(self):
         rich = self.kitchen_run_files()
         run = ['new-handoff', '{st}']
@@ -3504,6 +3546,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a store with briefs only': dict(args=run, pair={'slug': 'demo', 'dispatch': {}}),
             'an existing handoff is overwritten': dict(args=run, files={'session-handoff.md': 'old text\n', **rich}, pair=pair),
             'a master with no generation': dict(args=run, files=rich, pair={'slug': 'demo', 'master': {'name': 'm1'}}),
+            'a master that is a string ends with the jq error': dict(args=run, files=rich, pair={'slug': 'demo', 'master': 'm1'}),
+            'a dispatch that is a string is jq\'s error and the command goes on': dict(args=run, files=rich, pair={'slug': 'demo', 'dispatch': 'x'}),
+            'a verifying that is an array': dict(args=run, files=rich, pair={'slug': 'demo', 'verifying': [1]}),
+            'a dangling brief symlink is skipped': dict(args=run, files=rich, pair={'slug': 'demo'}, links={'st/briefs/009-z.md': '/nonexistent/brief.md'}),
             'no pair.json': dict(args=run, nopair=True),
             'too many arguments': dict(args=run + ['x']),
             'no arguments': dict(args=['new-handoff']),
@@ -3519,6 +3565,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('queued: 003-z.md', text)
         self.assertIn('(master generation 3)', text)
         self.assertNotIn('old text', out['an existing handoff is overwritten']['files']['session-handoff.md'])
+        string_master = out['a master that is a string ends with the jq error']
+        self.assertEqual((string_master['rc'], 'session-handoff.md' in string_master['files']), (5, False))
+        self.assertIn('Cannot index string with string ("generation")', string_master['stderr'])
+        self.assertIn('Cannot index string with string ("brief")', out["a dispatch that is a string is jq's error and the command goes on"]['stderr'])
+        self.assertNotIn('009-z', out['a dangling brief symlink is skipped']['files']['session-handoff.md'])
 
     def test_kitchen_spawn_matches_the_bash_at_the_phase_3_base(self):
         """kitchen.sh `spawn` (its bash wrapper over the captured pair command) at 04d2c13 and at the working tree, on the fake herdr: the roster's
