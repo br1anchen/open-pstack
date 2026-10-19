@@ -4349,9 +4349,11 @@ stop_prime_role "$store" sidekick && echo "stopped"
         self.assertEqual(r.stdout, 'signal rc=143\ndie exit rc=3\nanswer rc=1\nstopped\n')
 
     def test_close_role_matches_the_bash_at_the_phase_3_base_with_the_shims(self):
-        """close_role, the shims' remaining pair-core caller (kitchen.sh `close` runs it): 04d2c13's function against the working tree's."""
+        """close_role: 04d2c13's pair-core function against kitchen_core.master's, which replaced it (unit 024; kitchen.sh `close` was its only caller)."""
         path_session = {'kind': 'path', 'value': '/t/one.jsonl'}
         bash = 'close_role "$store" sidekick || echo "returned rc=$?"; echo "after"'
+        py = (f'sys.path.insert(0, {str(root / "skills/pstack-kitchen/scripts")!r})\nimport variant\nvariant.load_kitchen_core()\n'
+              'from kitchen_core import master\nif not master.close_role(store, "sidekick"):\n    print("returned rc=1")\nprint("after")')
         cases = {
             'a prime-agent role': dict(),
             'a prime-agent role whose cleanup fails': dict(fake={'prime-stop-fail': ''}),
@@ -4363,7 +4365,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
             'a role already closed': dict(sidekick={'closed': True}),
             'a role never spawned': dict(sidekick={'pane_id': None}),
         }
-        out = {name: self.prime_both('cr-' + re.sub(r'\W+', '-', name), bash, '', shim=True, **spec) for name, spec in cases.items()}
+        out = {name: self.prime_both('cr-' + re.sub(r'\W+', '-', name), bash, py, **spec) for name, spec in cases.items()}
         self.assertIn('closed sidekick s1 (p1)', out['a prime-agent role'][1])
         self.assertIn('"closed": true', out['a prime-agent role'][3])
         self.assertIn('returned rc=1', out['a prime-agent role whose cleanup fails'][1])
