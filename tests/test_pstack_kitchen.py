@@ -32,8 +32,10 @@ LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
 
 def inherited_env():
     """The test runner's environment without what a kitchen or pair run exports to its agents
-    (PSTACK_KITCHEN_ROLE and the like), so the result does not depend on which role runs the suite."""
-    return {k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT' and not k.startswith(LEAKED_PREFIXES)}
+    (PSTACK_KITCHEN_ROLE and the like) and without the XDG data, config and cache homes, which would send HOME-based
+    lookups to the host's real directories, so the result does not depend on who runs the suite."""
+    return {k: v for k, v in os.environ.items()
+            if k not in ('PSTACK_PLACEMENT', 'XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME') and not k.startswith(LEAKED_PREFIXES)}
 
 KITCHEN = textwrap.dedent('''\
     version = 1
@@ -3633,19 +3635,33 @@ esac
         self.assertIn('Command 1:\n\n```bash\ncd tests\n```', packet)
         self.assertIn('Command 2:\n\n```bash\npython3 -c "print(2)"\n```', packet)
 
-    def test_a_command_naming_an_absolute_path_in_the_checkout_or_the_store_is_not_for_the_verifier(self):
-        _, packet = self.packet_with_verify(f'```bash\npython3 {self.repo}/tools/check.py\ncat {self.store}/standing-orders.md\ntrue\n```')
-        apart = packet.split('not for the verifier:')[1]
-        self.assertIn(f'`python3 {self.repo}/tools/check.py` (absolute path)', apart)
-        self.assertIn(f'`cat {self.store}/standing-orders.md` (absolute path)', apart)
-        self.assertIn('Command 1:\n\n```bash\ntrue\n```', packet)
-        self.assertNotIn('Command 2:', packet)
+    def test_a_command_naming_the_checkout_or_the_store_in_any_spelling_is_not_for_the_verifier(self):
+        self.env['HOME'] = self.tmp.name
+        home = self.tmp.name
+        repo_rel, store_rel = os.path.relpath(self.repo, home), os.path.relpath(self.store, home)
+        commands = [f'cd {self.repo} && python3 tests/run.py', f'pytest "{self.repo}"', f'python3 {self.repo}/tools/check.py',
+                    f'cat {self.store}/standing-orders.md', f'cat ~/{store_rel}/x', f'cat $HOME/{store_rel}/x', f'cat ${{HOME}}/{repo_rel}/x',
+                    f'sh {self.repo}/.git/hooks/x', f'x {self.repo};y']
+        own = ['/usr/bin/env python3 x.py', 'ls /tmp/x', f'echo /other{self.repo}/y']
+        _, packet = self.packet_with_verify('```bash\n' + '\n'.join(commands + own) + '\n```')
+        shown, _, apart = packet.partition('not for the verifier:')
+        for c in commands:
+            self.assertIn(f'(absolute path)\n```bash\n{c}\n```', apart, c)
+            self.assertNotIn(f'\n{c}\n', shown, c)
+        for n, c in enumerate(own, start=1):
+            self.assertIn(f'Command {n}:\n\n```bash\n{c}\n```', shown, c)
+        self.assertNotIn(f'Command {len(own) + 1}:', shown)
+
+    def test_a_heredoc_that_holds_a_markdown_fence_stays_whole_in_a_longer_fence(self):
+        """The Verify block's own parser ends at a line that starts with three backticks, so the fence inside the heredoc is indented."""
+        _, packet = self.packet_with_verify('```bash\ncat <<EOF\n  ```\n  fenced\n  ```\nEOF\n```')
+        self.assertIn('Command 1:\n\n````bash\ncat <<EOF\n  ```\n  fenced\n  ```\nEOF\n````', packet)
 
     def test_a_heredoc_marked_master_only_on_its_first_line_stays_out_of_the_verifiers_commands(self):
         _, packet = self.packet_with_verify('```bash\ncat <<EOF  # master-only\nnote\nEOF\ntrue\n```')
         own, _, apart = packet.partition('not for the verifier:')
         self.assertNotIn('cat <<EOF', own)
-        self.assertIn('`cat <<EOF  # master-only`', apart)
+        self.assertIn('(master-only)\n```bash\ncat <<EOF  # master-only\nnote\nEOF\n```', apart)
         self.assertIn('Command 1:\n\n```bash\ntrue\n```', own)
 
     def test_a_unit_landed_before_the_landing_base_is_left_out_of_the_stack_and_goals(self):
@@ -3659,7 +3675,7 @@ esac
             self.done(b, head)
             if n == 1:
                 self.git('update-ref', 'refs/remotes/origin/main', head)
-        self.run_sh('verify', str(self.store), '--landing', '--every', '0')
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--every', '0')
         packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
         stack = packet.split('## Stack')[1].split('## Goals')[0]
         goals = packet.split('## Goals')[1].split('\n## ')[0]
@@ -4431,7 +4447,7 @@ esac
         state = self.state()
         state['sidekick']['kind'] = 'muse'
         (self.store / 'pair.json').write_text(json.dumps(state))
-        log = Path(self.env['HOME']) / '.local/share/muse/sessions/2026/10/12/01a1-other/session.jsonl'
+        log = Path(self.env['HOME']) / '.local/share/muse/sessions' / time.strftime('%Y/%m/%d') / '01a1-other/session.jsonl'
         log.parent.mkdir(parents=True)
         log.write_text('{"workspace_root":"/somewhere/else"} rate limited\n')
         log = log.parent.parent / '01a1-this/session.jsonl'

@@ -912,14 +912,31 @@ audit_due() {
 	awk -v h="$h" -v s="$2" 'BEGIN{exit !((h % 1000) < s * 1000)}'
 }
 
+# A code fence for $1: three backticks, or one more than the longest run of them in the text.
+fence_for() {
+	local longest
+	longest="$(printf '%s' "$1" | grep -o '`\+' | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')"
+	[ "$longest" -ge 3 ] || longest=2
+	printf '%*s' "$((longest + 1))" '' | tr ' ' '`'
+}
+
+# Whether command text $1 names path $2 as a whole path: after a leading ~/, $HOME/ or ${HOME}/ is
+# spelled out, $2 appears not inside a longer path and is followed by /, space, a quote, ), ;, &, | or the end.
+names_path() {
+	local text="$1" path="$2" quoted
+	text="$(printf '%s' "$text" | sed -E "s#(^|[[:space:]=:\"'(])(~|\\\$HOME|\\\$\\{HOME\\})/#\\1$HOME/#g")"
+	quoted="$(printf '%s' "$path" | sed 's/[][\.*^$/+?(){}|]/\\&/g')"
+	printf '%s\n' "$text" | grep -qE "(^|[^A-Za-z0-9_./-])${quoted}(/|[[:space:]\"'\`);&|]|\$)"
+}
+
 # The brief's Verify commands for a verifier's packet, each in a block of its own, run from the
 # scratch root. A command that ends in `# master-only` (on its first or last line: a heredoc is
-# marked on its first) writes the store, and one that names an absolute path under the main
-# checkout or the store cannot run in the scratch; both are listed apart. A Verify block the
-# kitchen refuses is said so in the packet and warned of, not skipped. $1 store, $2 brief, $3 unit.
+# marked on its first) writes the store, and one that names the main checkout or the store (in any
+# spelling: absolute, ~/, $HOME/) cannot run in the scratch; both are listed apart, in full, each with
+# its reason. A Verify block the kitchen refuses is said so in the packet and warned of, not skipped.
+# $1 store, $2 brief, $3 unit.
 brief_commands() {
-	local list rc=0 root store="$1" n=0 c first last why
-	local -a apart=()
+	local list rc=0 root store="$1" n=0 c first last why fence apart=""
 	root="$(field "$store" .git_root)"
 	list="$(kpy "$store" --json brief-verify "$2" --list 2>&1)" || rc=$?
 	if [ "$rc" -ne 0 ]; then
@@ -933,20 +950,20 @@ brief_commands() {
 		c="$(jq -r . <<<"$c")"
 		first="$(head -1 <<<"$c")"
 		last="$(tail -1 <<<"$c")"
-		why=""
+		fence="$(fence_for "$c")"
 		if [[ "$first" =~ \#\ master-only[[:space:]]*$ ]] || [[ "$last" =~ \#\ master-only[[:space:]]*$ ]]; then
-			why=""
-		elif [[ "$c" == *"$root/"* && "$c" != *"$root/.git/"* ]] || [[ "$c" == *"$store/"* ]]; then
-			why=" (absolute path)"
+			why="master-only"
+		elif names_path "$c" "$root" || names_path "$c" "$store"; then
+			why="absolute path"
 		else
 			n=$((n + 1))
 			[ "$n" -ne 1 ] || printf 'Brief commands:\n\nRun each command in a fresh shell from the scratch root.\n\n'
-			printf 'Command %s:\n\n```bash\n%s\n```\n\n' "$n" "$c"
+			printf 'Command %s:\n\n%sbash\n%s\n%s\n\n' "$n" "$fence" "$c" "$fence"
 			continue
 		fi
-		apart+=("- \`${first}\`${why}")
+		apart+="$(printf '(%s)\n%sbash\n%s\n%s\n\n' "$why" "$fence" "$c" "$fence")"$'\n\n'
 	done < <(jq -c '.commands[]?' <<<"$list" 2>/dev/null)
-	[ "${#apart[@]}" -eq 0 ] || printf 'not for the verifier:\n\n%s\n\n' "$(printf '%s\n' "${apart[@]}")"
+	[ -z "$apart" ] || printf 'not for the verifier:\n\n%s' "$apart"
 }
 
 # The done unit briefs a landing range holds: those whose head is in base..head, or whose commits

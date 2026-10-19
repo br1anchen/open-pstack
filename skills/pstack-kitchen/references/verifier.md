@@ -14,8 +14,10 @@ work?", and then your pane closes.
    the packet's `Write rule:` line says so again. Its `Brief commands` are
    the unit's Verify commands, each in a block of its own: run each in a fresh
    shell from the scratch root. `Brief commands: none (brief-verify: ...)` means
-   the brief's Verify block could not be read; say so in the verdict. Lines under
-   `not for the verifier:` are the master's (they write the store); run none.
+   the brief's Verify block could not be read; say so in the verdict. The blocks
+   under `not for the verifier:` hold master-only commands and commands that name
+   the main checkout or the store (by absolute path, `~/` or `$HOME/`), each with
+   its reason; you run neither kind.
    A check against the base (running the old code to compare) runs in a second
    scratch of its own (`kitchen.sh scratch <store> <id> --at <base>`), never in
    the one the gates use.
