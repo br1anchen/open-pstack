@@ -1043,9 +1043,30 @@ cmd_verify() {
 	if [ -n "$open_verdict" ] && [ -f "$open_verdict" ] && [ -n "$(header_field "$open_verdict" status)" ]; then
 		local closed closed_rc=0 closed_status closed_brief
 		closed_brief="$(field "$store" .verifying.brief)"
-		closed="$(closing=1 verify_wait "$store" 0 2>&1)" || closed_rc=$?
-		closed_status="$(sed -n 's/^status: //p' <<<"$closed" | head -1)"
-		if [ -z "$closed_status" ]; then
+		local waiting_since="" by_another=0
+		while :; do
+			if [ "$(field "$store" '.verifying.verdict // empty')" != "$open_verdict" ]; then
+				by_another=1
+				break
+			fi
+			closed_rc=0
+			closed="$(closing=1 verify_wait "$store" 0 2>&1)" || closed_rc=$?
+			closed_status="$(sed -n 's/^status: //p' <<<"$closed" | head -1)"
+			[ -z "$closed_status" ] || break
+			grep -q 'verification closed elsewhere' <<<"$closed" || break
+			# Another call is closing this verdict: wait for it to finish, then go on as after a close of our own.
+			if [ -z "$waiting_since" ]; then
+				waiting_since="$(date +%s)"
+				printf 'closing %s: another call is closing it; waiting for it\n' "$open_verdict"
+			fi
+			[ $(( $(date +%s) - waiting_since )) -lt "${KITCHEN_VERIFY_CLOSE_WAIT_S:-120}" ] || die "another call has held the close of $open_verdict for ${KITCHEN_VERIFY_CLOSE_WAIT_S:-120}s; kitchen.sh verify $store --wait" 5
+			sleep "${KITCHEN_VERIFY_POLL_S:-10}"
+		done
+		if [ "$by_another" -eq 1 ]; then
+			closed_status="closed by another call"
+			closed=""
+			case "$(header_field "$open_verdict" status)" in clean) closed_rc=0 ;; *) closed_rc=2 ;; esac
+		elif [ -z "$closed_status" ]; then
 			printf 'closing the unread verdict %s failed:\n%s\n' "$open_verdict" "$closed" >&2
 			exit "$(( closed_rc > 0 ? closed_rc : 5 ))"
 		fi
@@ -1522,7 +1543,8 @@ verify_cancel() {
 	packet="$(field "$store" .verifying.packet)"
 	name="$(field "$store" .verifier.name)"
 	kind="$(field "$store" .verifier.kind)"
-	close_verifier "$store" "$name" "$kind" "$(field "$store" .verifier.pane_id)" "$verdict" || die "no verification open (another call closed it)" 5
+	run_close "$store" "$name" "$kind" "$(field "$store" .verifier.pane_id)" "$verdict" || die "no verification open (another call closed it)" 5
+	still_my_claim "$store"
 	set_outcome "$packet" cancelled
 	drop_verifying "$store" "$verdict"
 	event "$store" master verify-cancel "$brief" "$units"
@@ -1570,13 +1592,56 @@ update_verifying() {
 }
 
 # Claims the close of the verification with verdict $2: one atomic update of pair.json that
-# succeeds for the first caller only. A claim older than two minutes belongs to a closer that died
-# and is taken over. Returns 1 when the verification is gone or another call holds the claim.
+# succeeds for the first caller only. The claim names this host and process; a claim whose process
+# is gone on this host is taken over, one from another host is never touched, a live one is
+# respected. Returns 1 when the verification is gone or another call holds the claim. The claim ends
+# with the verification (drop_verifying) or, when the close dies, with release_my_claim.
 claim_close() {
-	local token="$$-$RANDOM"
-	update_verifying "$1" "$2" 'if (.verifying.closing.at // 0) + 120 < $now then .verifying.closing = {token: $t, at: $now} else . end' \
-		--arg t "$token" --argjson now "$(date +%s)"
+	local token current="" pid="" host="" here_host
+	here_host="${HOSTNAME:-localhost}"
+	token="$here_host:$$:$RANDOM"
+	current="$(field "$1" '.verifying.closing.token // empty')"
+	if [ -n "$current" ]; then
+		host="${current%%:*}"
+		pid="${current#*:}"
+		pid="${pid%%:*}"
+		[ "$host" = "$here_host" ] && ! kill -0 "$pid" 2>/dev/null || return 1
+	fi
+	update_verifying "$1" "$2" 'if (.verifying.closing.token // "") == $old then .verifying.closing = {token: $t} else . end' \
+		--arg t "$token" --arg old "$current"
 	[ "$(field "$1" '.verifying.closing.token // empty')" = "$token" ]
+}
+
+# Gives up the claim $3 on the verification with verdict $2, when it is still the holder's.
+release_close() {
+	update_verifying "$1" "$2" 'if .verifying.closing.token == $t then del(.verifying.closing) else . end' --arg t "$3" 2>/dev/null || true
+}
+
+# Whether the claim in the store is this process's (the token names this host and pid).
+my_claim() {
+	case "$(field "$1" '.verifying.closing.token // empty')" in "${HOSTNAME:-localhost}:$$:"*) return 0 ;; esac
+	return 1
+}
+
+# After close_verifier: the claim must still be this closer's before anything is written.
+still_my_claim() {
+	my_claim "$1" && return 0
+	printf 'verification closed elsewhere\n'
+	exit 5
+}
+
+# Runs close_verifier (arguments as it takes them) in a subshell so that a die inside it, the Prime cleanup
+# failing, cannot leave this process's claim behind: the claim is released and the same status returned.
+# A return of 1 is "not ours to close" (closed elsewhere). $1 is the store, $5 the verdict.
+run_close() {
+	local rc=0
+	( close_verifier "$@" ) || rc=$?
+	[ "$rc" -eq 0 ] && return 0
+	[ "$rc" -eq 1 ] && return 1
+	if my_claim "$1"; then
+		release_close "$1" "$5" "$(field "$1" '.verifying.closing.token // empty')"
+	fi
+	exit "$rc"
 }
 
 # Stops the open verification's verifier, closes its pane and removes its scratch,
@@ -1682,9 +1747,9 @@ verify_wait() {
 	[ ! -f "$verdict" ] || sleep "${KITCHEN_VERDICT_SETTLE_S:-3}"
 	verification_still_open "$store" "$verdict"
 	[ -f "$verdict" ] || provider="$(verifier_provider_error "$store" "$name" "$session")"
-	close_verifier "$store" "$name" "$kind" "$pane" "$verdict" || { printf 'verification closed elsewhere\n'; exit 5; }
-	# The wait may have been long (the verifier's exit); the verification must still be this one before anything is written.
-	verification_still_open "$store" "$verdict"
+	run_close "$store" "$name" "$kind" "$pane" "$verdict" || { printf 'verification closed elsewhere\n'; exit 5; }
+	# The wait may have been long (the verifier's exit); the claim must still be ours before anything is written.
+	still_my_claim "$store"
 	# The attempt's outcome is written to its packet before .verifying goes and
 	# before any fallback starts, so fleet can tell attempts apart.
 	local problem="" status=""
