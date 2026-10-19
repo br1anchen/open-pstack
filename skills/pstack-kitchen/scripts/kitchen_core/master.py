@@ -1,16 +1,25 @@
 """close, rotate-master and take-master: the end of a run, and the hand-over between master generations. Ported from kitchen.sh at 9f0f6e5."""
 
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
 
+from pstack_core.agents import mcp_args, permission_args
 from pstack_core.commands.report import in_herdr
-from pstack_core.errors import Die, Exit
+from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
-from pstack_core.herdr import agent_status, herdr, pane_text
+from pstack_core.herdr import agent_kind, agent_status, herdr, pane_text
+from pstack_core.panes import new_pane, refuse_untrusted
+from pstack_core.permission import caller_pid, mode_of_this_shell
+from pstack_core.review import require_filled
+from pstack_core.send import submit_typed
 from pstack_core.spawn import field
-from pstack_core.store import event, pair_file, update
+from pstack_core.store import event, pair_file, update, update_or_jq
+
+from .jqx import pair_jq
 
 
 def close_role(store, role):
@@ -64,4 +73,147 @@ def close(ctx, args):
             failed = True
     if failed:
         raise Exit(5)
+    return 0
+
+
+def detect_model_arg():
+    """The --model of the Claude session this shell runs under, found by walking up the process tree (at most twelve parents): ps's parent,
+    name and arguments for each pid; node or bun running a claude script count as claude. '' when none."""
+    def ps(name, pid):
+        return subprocess.run(['ps', '-o', f'{name}=', '-p', str(pid)], capture_output=True, text=True, check=False).stdout
+
+    pid, depth = caller_pid(), 0
+    while pid > 1 and depth < 12:
+        ppid = ps('ppid', pid).replace(' ', '').replace('\n', '')
+        if not ppid:
+            break
+        comm = os.path.basename(ps('comm', pid).rstrip('\n'))
+        args = ps('args', pid).rstrip('\n')
+        if comm in ('node', 'bun') and 'claude' in args:
+            comm = 'claude'
+        if comm == 'claude':
+            m = re.match(r'.*--model[= ]([^ ]+).*', args)
+            return m.group(1) if m else ''
+        pid, depth = int(ppid), depth + 1
+    return ''
+
+
+SESSIONS_PROGRAM = """.master.previous = {name: $old, pane_id: $oldpane, session: $s}
+		 | .master.name = $new | .master.pane_id = $newpane | .master.registered_at = $now
+		 | .master.generation = ($g + 1) | .master.units_since_handoff = 0
+		 | .master.sessions = ([(.master.sessions // [])[] | select($s == "" or .session != $s)]
+		     + [{generation: $g, session: $s, handoff: $h, at: $now}])"""
+
+
+def section_has_text(path, heading):
+    """awk -v h="## <heading>" '$0 == h {p=1; next} /^## /{p=0} p && NF': whether the section holds a line with a field."""
+    inside = found = False
+    with open(path, 'rb') as f:
+        lines = f.read().decode('utf-8', 'surrogateescape').split('\n')
+    if lines and lines[-1] == '':
+        lines.pop()
+    for line in lines:
+        if line == heading:
+            inside = True
+            continue
+        if line.startswith('## '):
+            inside = False
+        if inside and line.split():
+            found = True
+    return found
+
+
+def herdr_session(name):
+    """`herdr agent get NAME | jq -r '.result.agent.agent_session.value // empty'`, with both stderrs dropped and a failure ignored."""
+    out = herdr('agent', 'get', name)[1]
+    r = subprocess.run(['jq', '-r', '.result.agent.agent_session.value // empty'], input=out.encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL, check=False)
+    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+
+
+def rotate_master(ctx, args):
+    in_herdr()
+    if not args:
+        raise Die('usage: kitchen.sh rotate-master <store> [--model MODEL]')
+    store, rest, model = args[0], args[1:], ''
+    while rest:
+        if rest[0] == '--model':
+            if len(rest) < 2:
+                raise unbound_arg()
+            model, rest = rest[1], rest[2:]
+        else:
+            raise Die(f'unknown option {rest[0]}')
+    pair_file(store)
+    handoff = f'{store}/session-handoff.md'
+    if not os.path.isfile(handoff):
+        raise Die(f'no handoff; write one first: kitchen.sh new-handoff {store}', 5)
+    require_filled(ctx, handoff)
+    for heading in ('Goal', 'Next'):
+        if not section_has_text(handoff, f'## {heading}'):
+            raise Die(f'{handoff}: the {heading} section is empty', 5)
+    name = field(store, 'master', 'name', check=True)
+    pane = field(store, 'master', 'pane_id', check=True)
+    if pair_jq(store, '.master.previous.name // empty'):
+        raise Die(f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first', 5)
+    if agent_status(name) == 'absent':
+        raise Die(f"master {name} is not live in {pane}; run this from the master's own session", 5)
+    kind = agent_kind(name)
+    if kind != 'claude':
+        raise Die(f'rotate-master restarts a Claude master; {name} is {kind}', 5)
+    model = model or detect_model_arg()
+    session = herdr_session(name)
+    gen = pair_jq(store, '.master.generation // 1', check=True)
+    # A rotation that never finished already recorded this session; it keeps that generation instead of skipping one.
+    if session and session == pair_jq(store, '.master.sessions[-1].session // empty'):
+        gen = pair_jq(store, '.master.sessions[-1].generation', check=True)
+    gen_n = int(gen)
+    next_gen = gen_n + 1
+    # Herdr names are unique, so the new master holds a generation name until take-master frees the run's own.
+    temp = f"{pair_jq(store, '.slug', check=True)}-master-g{next_gen}"
+    permission = pair_jq(store, '.master.permission_mode // empty', check=True) or mode_of_this_shell(False)
+    argv = list(permission_args('claude', permission))
+    if model:
+        argv += ['--model', model]
+    argv += mcp_args('claude')[0]
+    remote = os.environ.get('KITCHEN_MASTER_REMOTE_CONTROL', '1') != '0'
+    if remote:
+        argv += ['--remote-control', temp]
+    cwd = pair_jq(store, '.cwd', check=True)
+    new_pane_id = new_pane(store, 'master', pane, '', cwd)
+    sys.stdout.flush()
+    started = subprocess.run(['herdr', 'agent', 'start', temp, '--kind', 'claude', '--pane', new_pane_id, '--timeout', '60000', '--', *argv],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode == 0
+    if not started:
+        refuse_untrusted(new_pane_id, 'claude', cwd, True)
+        herdr('pane', 'close', new_pane_id)
+        event(store, 'master', 'rotate-failed', '-', f'generation:{next_gen}')
+        raise Die(f'the next master did not start in {new_pane_id}; you stay the master (generation {gen}), so carry on and rotate at a later boundary', 2)
+    os.makedirs(f'{store}/sessions', exist_ok=True)
+    copy = f'{store}/sessions/master-{gen}-handoff.md'
+    shutil.copyfile(handoff, copy)
+    now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+
+    def mutate(doc):
+        master = doc['master']
+        kept = [e for e in (master.get('sessions') or []) if session == '' or e['session'] != session]
+        master['previous'] = {'name': name, 'pane_id': pane, 'session': session}
+        master['name'], master['pane_id'], master['registered_at'] = temp, new_pane_id, now
+        master['generation'] = gen_n + 1
+        master['units_since_handoff'] = 0
+        master['sessions'] = kept + [{'generation': gen_n, 'session': session, 'handoff': copy, 'at': now}]
+
+    update_or_jq(store, mutate, SESSIONS_PROGRAM, '--arg', 's', session, '--arg', 'h', copy, '--arg', 'now', now, '--argjson', 'g', str(gen_n),
+                 '--arg', 'old', name, '--arg', 'oldpane', pane, '--arg', 'new', temp, '--arg', 'newpane', new_pane_id)
+    event(store, 'master', 'handoff', '-', f'generation:{gen}')
+    event(store, 'master', 'spawn', '-', f'claude:generation:{next_gen}')
+    skill = ctx.skill
+    herdr('agent', 'prompt', temp, f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {next_gen}). '
+          f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read {store}/session-handoff.md.', '--wait', '--until', 'working',
+          '--timeout', '30000')
+    submit_typed(temp, 'take-master')
+    out = sys.stdout
+    out.write(f'handoff recorded: {copy} (generation {gen}, session {session or "unknown"})\n')
+    out.write(f'next master: {temp} (generation {next_gen}) in {new_pane_id}{", remote control on" if remote else ""}; it closes this pane with take-master\n')
+    out.write(f'next: end your turn now, with no further commands, and act on no later prompt or task notification: generation {next_gen} owns the run. '
+              f'Resume this session later with: claude --resume {session or "<id>"}\n')
     return 0

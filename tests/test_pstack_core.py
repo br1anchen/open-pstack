@@ -520,7 +520,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'close', 'feedback', 'maintainer', 'new-handoff', 'retro', 'stop')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'close', 'feedback', 'maintainer', 'new-handoff', 'retro', 'rotate-master', 'stop')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -1805,6 +1805,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (top / 'state' / rel).mkdir(parents=True)
             stamp = time.time() - age
             os.utime(top / 'state' / rel, (stamp, stamp))
+        for rel, text in spec.get('fakefiles', {}).items():
+            (fake / rel).parent.mkdir(parents=True, exist_ok=True)
+            (fake / rel).write_text(text)
+        if spec.get('pstable'):
+            (top / 'ps.tsv').write_text(spec['pstable'])
+            env['FAKE_PS_TABLE'] = str(top / 'ps.tsv')
         for rel, target in spec.get('statelinks', {}).items():
             (top / 'state' / rel).parent.mkdir(parents=True, exist_ok=True)
             (top / 'state' / rel).symlink_to(target)
@@ -3856,6 +3862,70 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(out['an open verification and --force']['rc'], 0)
         self.assertIn('Cannot index string with string', out['a consultant that is a string']['stderr'])
         self.assertNotIn('closed consultant', out['a consultant that is a string']['stdout'])
+
+    HANDOFF_FILLED = '# Handoff\n\n## Goal\n\nfinish the port\n\n## Next\n\nunit 025\n'
+
+    def test_a_flag_with_no_value_dies_with_the_unbound_variable_message_without_a_line_number(self):
+        """Accepted (PARITY.md): `maintainer on --pane` and `rotate-master --model` with no value. The bash's set -u prints the shell's own
+        `kitchen.sh: line N: $2: unbound variable` (N is a line of the old kitchen.sh); the port prints `kitchen.sh: $2: unbound variable`. Both exit 1."""
+        for args in (['rotate-master', '{st}', '--model'], ['maintainer', 'on', '--pane']):
+            got, want = self.phase4_ab('unbound' + args[0], dict(args=args, pair={'slug': 'demo', 'master': {'name': 'm1', 'pane_id': 'p0'}},
+                                                               files={'session-handoff.md': self.HANDOFF_FILLED}, panes={'p0': 'm1'}))
+            self.assertEqual((want['rc'], got['rc']), (1, 1), args)
+            self.assertRegex(want['stderr'], r'kitchen\.sh: line [0-9]+: \$2: unbound variable\n$')
+            self.assertEqual(got['stderr'], 'pair.sh: $2: unbound variable\n')
+
+    def test_rotate_master_matches_the_bash_at_the_phase_4_base(self):
+        master = {'name': 'm1', 'pane_id': 'p0', 'generation': 1, 'permission_mode': 'auto'}
+        world = lambda **extra: {**dict(args=['rotate-master', '{st}'], pair={'slug': 'demo', 'master': master}, panes={'p0': 'm1'},
+                                        files={'session-handoff.md': self.HANDOFF_FILLED}), **extra}
+        with_master = lambda **changes: world(pair={'slug': 'demo', 'master': {**master, **changes}})
+        ps_found = 'SELF\t200\tbash\tbash kitchen.sh\n200\t300\tclaude\tclaude --model opus-x --resume abc\n300\t1\tinit\tinit\n'
+        ps_node = 'SELF\t200\tbash\tbash kitchen.sh\n200\t300\tnode\tnode /x/claude/cli.js --model=sonnet-y\n300\t1\tinit\tinit\n'
+        ps_none = 'SELF\t200\tbash\tbash kitchen.sh\n200\t1\tzsh\tzsh\n'
+        cases = {
+            'a filled handoff': world(),
+            'a handoff with a placeholder': world(files={'session-handoff.md': self.HANDOFF_FILLED.replace('unit 025', '{{{{what next}}}}')}),
+            'an empty Goal section': world(files={'session-handoff.md': '# H\n\n## Goal\n\n\n## Next\n\nx\n'}),
+            'an empty Next section': world(files={'session-handoff.md': '# H\n\n## Goal\n\nx\n\n## Next\n\n'}),
+            'no handoff': world(files={}),
+            '--model': dict(world(), args=['rotate-master', '{st}', '--model', 'opus-z']),
+            'an unknown option': dict(world(), args=['rotate-master', '{st}', '--bogus']),
+            'no arguments': dict(args=['rotate-master']),
+            'remote control off': dict(world(), env={'KITCHEN_MASTER_REMOTE_CONTROL': '0'}),
+            'the model found in the process tree': dict(world(), pstable=ps_found),
+            'the model found behind node': dict(world(), pstable=ps_node),
+            'no claude in the process tree': dict(world(), pstable=ps_none),
+            'the next master does not start': dict(world(), fakefiles={'start-fail': ''}),
+            'the next master asks for folder trust': dict(world(), fakefiles={'start-fail': '', 'screen/zzz': ''}),
+            'a hand-over already open': with_master(previous={'name': 'old', 'pane_id': 'p9'}),
+            'a master that is not live': dict(world(), master=None),
+            'a master that is not Claude': dict(world(), agents={'m1': 'idle codex'}),
+            'an unfinished rotation keeps its generation': dict(with_master(sessions=[{'generation': 4, 'session': 'sess-1', 'handoff': '/h', 'at': 't'}], generation=5),
+                                                                 fakefiles={'session-ids/m1': 'sess-1 /x'}),
+            'sessions are replaced by the same session': dict(with_master(sessions=[{'generation': 1, 'session': 'sess-1', 'handoff': '/h', 'at': 't'},
+                                                                                   {'generation': 2, 'session': 'sess-2', 'handoff': '/h', 'at': 't'}]),
+                                                               fakefiles={'session-ids/m1': 'sess-2 /x'}),
+            'a master that is a string ends with the jq error': dict(world(), pair={'slug': 'demo', 'master': 'm1'}),
+            'a master with sessions that is not a list': dict(with_master(sessions='x'), fakefiles={'session-ids/m1': 'sess-1 /x'}),
+            'no pair.json': dict(world(), nopair=True),
+            'outside herdr': dict(world(), noenv=True),
+        }
+        out = self.phase4_cases('rotm', cases)
+        ok = out['a filled handoff']
+        self.assertEqual(ok['rc'], 0, ok['stderr'])
+        self.assertIn('next master: demo-master-g2 (generation 2) in ', ok['stdout'])
+        self.assertIn('--permission-mode auto', ok['calls'])
+        self.assertIn('--remote-control demo-master-g2', ok['calls'])
+        self.assertIn('--model opus-x', out['the model found in the process tree']['calls'])
+        self.assertIn('--model sonnet-y', out['the model found behind node']['calls'])
+        self.assertNotIn('--model', out['no claude in the process tree']['calls'])
+        self.assertNotIn('--remote-control', out['remote control off']['calls'])
+        self.assertEqual(out['the next master does not start']['rc'], 2)
+        self.assertEqual(out['a handoff with a placeholder']['rc'], 1)
+        self.assertEqual(out['a master that is a string ends with the jq error']['rc'], 5)
+        self.assertIn('(generation 4, session sess-1)', out['an unfinished rotation keeps its generation']['stdout'])
+        self.assertIn('master-4-handoff.md', out['an unfinished rotation keeps its generation']['stdout'])
 
     def test_kitchen_spawn_matches_the_bash_at_the_phase_3_base(self):
         """kitchen.sh `spawn` (its bash wrapper over the captured pair command) at 04d2c13 and at the working tree, on the fake herdr: the roster's

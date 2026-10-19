@@ -2231,100 +2231,13 @@ cmd_new_handoff() { pycore new-handoff "$@"; }
 
 # The --model the master's own Claude was started with, so the next
 # generation runs the same model; empty when none is on its command line.
-detect_model_arg() {
-	local pid=$$ ppid comm args depth=0
-	while [ "$pid" -gt 1 ] && [ "$depth" -lt 12 ]; do
-		ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')" || break
-		[ -n "$ppid" ] || break
-		comm="$(basename "$(ps -o comm= -p "$pid" 2>/dev/null)")"
-		args="$(ps -o args= -p "$pid" 2>/dev/null)"
-		case "$comm" in node | bun) case "$args" in *claude*) comm=claude ;; esac ;; esac
-		if [ "$comm" = claude ]; then
-			sed -nE 's/.*--model[= ]([^ ]+).*/\1/p' <<<"$args"
-			return 0
-		fi
-		pid="$ppid"
-		depth=$((depth + 1))
-	done
-}
 
 # A hand-over, not a restart in place: the closing master starts the next
 # generation in a pane beside its own and points pair.json at it, and the new
 # master's first command, take-master, closes the old pane. The old session
 # never has to exit itself (a Claude with background tasks answers /exit with
 # a dialog), and a start that fails leaves the old master in charge.
-cmd_rotate_master() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: kitchen.sh rotate-master <store> [--model MODEL]"
-	local store="$1" model="" name pane kind gen next session handoff permission cwd temp
-	shift
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--model) model="$2"; shift 2 ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	pair_file "$store" >/dev/null
-	handoff="$store/session-handoff.md"
-	[ -f "$handoff" ] || die "no handoff; write one first: kitchen.sh new-handoff $store" 5
-	require_filled "$handoff"
-	for s in Goal Next; do
-		[ -n "$(awk -v h="## $s" '$0 == h {p=1; next} /^## /{p=0} p && NF' "$handoff")" ] || die "$handoff: the $s section is empty" 5
-	done
-	name="$(field "$store" .master.name)"
-	pane="$(field "$store" .master.pane_id)"
-	[ -z "$(field "$store" '.master.previous.name // empty')" ] ||
-		die "a hand-over is open: $name has not taken over yet; it runs kitchen.sh take-master $store first" 5
-	[ "$(agent_status "$name")" != absent ] || die "master $name is not live in $pane; run this from the master's own session" 5
-	kind="$(agent_kind "$name")"
-	[ "$kind" = claude ] || die "rotate-master restarts a Claude master; $name is $kind" 5
-	[ -n "$model" ] || model="$(detect_model_arg)"
-	session="$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_session.value // empty' 2>/dev/null || true)"
-	gen="$(field "$store" '.master.generation // 1')"
-	# A rotation that never finished already recorded this session; it keeps
-	# that generation instead of skipping one.
-	if [ -n "$session" ] && [ "$session" = "$(field "$store" '.master.sessions[-1].session // empty')" ]; then
-		gen="$(field "$store" '.master.sessions[-1].generation')"
-	fi
-	next=$((gen + 1))
-	# Herdr names are unique, so the new master holds a generation name until
-	# take-master frees the run's own.
-	temp="$(field "$store" .slug)-master-g$next"
-	permission="$(field "$store" '.master.permission_mode // empty')"
-	[ -n "$permission" ] || permission="$(detect_permission_mode)"
-	local -a args=()
-	mapfile -t args < <(permission_args claude "$permission")
-	[ -z "$model" ] || args+=(--model "$model")
-	mapfile -t -O "${#args[@]}" args < <(mcp_args claude)
-	[ "${KITCHEN_MASTER_REMOTE_CONTROL:-1}" = 0 ] || args+=(--remote-control "$temp")
-	cwd="$(field "$store" .cwd)"
-	new_pane "$store" master "$pane" "" "$cwd"
-	if ! herdr agent start "$temp" --kind claude --pane "$new_pane_id" --timeout 60000 -- "${args[@]}" >/dev/null 2>&1; then
-		refuse_untrusted "$new_pane_id" claude "$cwd" close
-		herdr pane close "$new_pane_id" >/dev/null 2>&1 || true
-		event "$store" master rotate-failed - "generation:$next"
-		die "the next master did not start in $new_pane_id; you stay the master (generation $gen), so carry on and rotate at a later boundary" 2
-	fi
-	mkdir -p "$store/sessions"
-	cp "$handoff" "$store/sessions/master-$gen-handoff.md"
-	json_update "$store" --arg s "$session" --arg h "$store/sessions/master-$gen-handoff.md" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		--argjson g "$gen" --arg old "$name" --arg oldpane "$pane" --arg new "$temp" --arg newpane "$new_pane_id" \
-		'.master.previous = {name: $old, pane_id: $oldpane, session: $s}
-		 | .master.name = $new | .master.pane_id = $newpane | .master.registered_at = $now
-		 | .master.generation = ($g + 1) | .master.units_since_handoff = 0
-		 | .master.sessions = ([(.master.sessions // [])[] | select($s == "" or .session != $s)]
-		     + [{generation: $g, session: $s, handoff: $h, at: $now}])'
-	event "$store" master handoff - "generation:$gen"
-	event "$store" master spawn - "claude:generation:$next"
-	herdr agent prompt "$temp" "Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the master role: $PAIR_SKILL MASTER $store (generation $next). Run ~/.agents/skills/$PAIR_SKILL/scripts/kitchen.sh take-master $store first, then read $store/session-handoff.md." \
-		--wait --until working --timeout 30000 >/dev/null 2>&1 || true
-	submit_typed "$temp" "take-master"
-	printf 'handoff recorded: %s (generation %s, session %s)\n' "$store/sessions/master-$gen-handoff.md" "$gen" "${session:-unknown}"
-	printf 'next master: %s (generation %s) in %s%s; it closes this pane with take-master\n' \
-		"$temp" "$next" "$new_pane_id" "$([ "${KITCHEN_MASTER_REMOTE_CONTROL:-1}" = 0 ] || printf ', remote control on')"
-	printf 'next: end your turn now, with no further commands, and act on no later prompt or task notification: generation %s owns the run. Resume this session later with: claude --resume %s\n' \
-		"$next" "${session:-<id>}"
-}
+cmd_rotate_master() { pycore rotate-master "$@"; }
 
 # The new master's first command after a hand-over: give the old master a
 # moment to end its turn, close its pane (and with it any background waits it
