@@ -2887,7 +2887,7 @@ esac
         self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
 
     def test_a_modified_file_whose_name_begins_with_a_tab_and_gains_a_line_cannot_use_the_skip(self):
-        name = 'src/\ttab.py'
+        name = '\ttab.py'
         self.skipped_unit(lambda: self.write(name, 'A = 1\n'), lambda: self.write(name, 'A = 1\nB = 2\n'))
         self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
 
