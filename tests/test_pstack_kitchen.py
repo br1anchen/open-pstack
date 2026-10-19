@@ -4584,6 +4584,38 @@ esac
         out = self.run_sh('verify', str(self.store), '--timeout', '60', '002', '--covers', '001', code=2)
         self.assertIn(f"unit 001's commits match by patch-id but {reverting[:9]} reverts them", out)
 
+    def test_a_revert_is_found_when_a_later_commit_edited_lines_near_the_unit(self):
+        """The unit adds a line after line 10 of a 30-line file; the next unit edits line 13, inside the revert's three lines of context; the
+        stack then reverts the first unit. With default-context patch-ids the revert no longer matches the inverse and the unit looks covered."""
+        self.write('src/long.py', ''.join(f'line {k}\n' for k in range(1, 31)))
+        self.commit('a 30-line file')
+        init = self.git('rev-parse', 'HEAD')
+        heads = []
+        for n, slug in ((1, 'util'), (2, 'next')):
+            b = self.brief(f'00{n}', slug, ['src/**', 'tests/**'])
+            self.dispatch(b)
+            lines = [f'line {k}\n' for k in range(1, 31)]
+            if n == 1:
+                lines.insert(10, 'line 10 and a half\n')
+            else:
+                lines = ([f'line {k}\n' for k in range(1, 11)] + ['line 10 and a half\n']
+                         + [f'line {k}\n' if k != 13 else 'line 13 edited\n' for k in range(11, 31)])
+            self.write('src/long.py', ''.join(lines))
+            heads.append(self.commit(slug))
+            self.done(b, heads[-1])
+            (self.store / f'reviews/00{n}-{slug}.md').write_text('verdict: accept\n')
+        trunk = self.stack_on_a_new_trunk(init, heads)
+        replayed_first = self.git('rev-parse', 'HEAD~1')
+        self.git('revert', '--no-edit', replayed_first)
+        reverting = self.git('rev-parse', 'HEAD')
+        self.write_landing_verdict(trunk, reverting)
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn(f"land-check: note: unit 001's commits match by patch-id but {reverting[:9]} reverts them", out)
+        self.assertNotIn('covered: unit 001', out)
+        (self.store / 'reports/002-next.md').write_text(f'# Report\n\nstatus: done\nhead: {reverting}\n')
+        out = self.run_sh('verify', str(self.store), '--timeout', '60', '002', '--covers', '001', code=2)
+        self.assertIn(f"unit 001's commits match by patch-id but {reverting[:9]} reverts them", out)
+
     def test_a_rebased_unit_stays_covered_when_a_later_unit_edits_its_lines(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         heads = []

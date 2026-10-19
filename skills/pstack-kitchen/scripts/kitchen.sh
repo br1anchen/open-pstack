@@ -243,29 +243,34 @@ unit_head() {
 # The patch-id of a commit's own change (or, with -R, of its inverse), from plumbing that ignores
 # diff.noprefix, diff.external and textconv. $1 root, $2 commit; $3 -R is the inverse: the diff from
 # the commit to its parent (not `diff-tree -R`, which swaps the a/ and b/ prefixes patch-id hashes).
+# $4 -U0 is the same patch with no context lines, which a later edit near the change cannot alter.
 commit_patch_id() {
+	local -a context=()
+	[ "${4:-}" != -U0 ] || context=(-U0)
 	if [ "${3:-}" = -R ]; then
-		git -C "$1" diff-tree -p --binary --full-index "$2" "$2^"
+		git -C "$1" diff-tree -p --binary --full-index "${context[@]}" "$2" "$2^"
 	else
-		git -C "$1" diff-tree -p --binary --full-index "$2"
+		git -C "$1" diff-tree -p --binary --full-index "${context[@]}" "$2"
 	fi | git patch-id --stable | cut -d' ' -f1
 }
 
 # The stack's patch-ids for <base>..<head> (merges left out), built once per call: stack_ids maps a
 # patch-id to its commit, stack_index a commit to its place from the oldest, stack_commits lists them
-# oldest first, and stack_id_of maps a commit to its patch-id. $1 root, $2 base, $3 head.
-declare -A stack_ids=() stack_index=() stack_id_of=()
+# oldest first, and stack_id_of and stack_id0_of map a commit to its patch-id with the default context
+# and with none (the revert scan reads the second). $1 root, $2 base, $3 head.
+declare -A stack_ids=() stack_index=() stack_id_of=() stack_id0_of=()
 declare -a stack_commits=()
 stack_ids_range=""
 stack_patch_ids() {
 	local c id n=0
 	[ "$stack_ids_range" != "$2..$3" ] || return 0
-	stack_ids=() stack_index=() stack_id_of=() stack_commits=()
+	stack_ids=() stack_index=() stack_id_of=() stack_id0_of=() stack_commits=()
 	while read -r c; do
 		id="$(commit_patch_id "$1" "$c")"
 		stack_commits+=("$c")
 		stack_index[$c]=$n
 		stack_id_of[$c]="$id"
+		stack_id0_of[$c]="$(commit_patch_id "$1" "$c" '' -U0)"
 		[ -z "$id" ] || stack_ids[$id]="$c"
 		n=$((n + 1))
 	done < <(git -C "$1" rev-list --reverse --no-merges "$2..$3")
@@ -274,8 +279,9 @@ stack_patch_ids() {
 
 # Whether a unit rebased into a stack: every commit of the unit's range (its dispatch head to its
 # head) has a patch-id among the commits of <stack base>..<stack head>, and no stack commit after the
-# one matching the unit's head reverts the unit (has the patch-id of the inverse of the unit's net
-# change or of one of its commits). Later edits of the unit's lines do not matter, a revert does. A
+# one matching the unit's head reverts the unit (has, with no context lines, the patch-id of the inverse
+# of the unit's net change or of one of its commits: a commit that edits lines near the unit's change
+# changes a revert's context but not its changes). Later edits of the unit's lines do not matter, a revert does. A
 # range that holds a merge is not matched (its patch-ids are not stable across a rebase); a unit
 # with commits but no net change is covered by its patch-ids alone. Sets rebased_sha to the stack
 # commit matching the unit's head, rebased_why to merge or reverted, and rebased_by to the reverting
@@ -299,16 +305,16 @@ unit_rebased_in() {
 		[ -n "${stack_ids[$id]:-}" ] || return 1
 		ids=$((ids + 1))
 		[ -n "$tip_id" ] || tip_id="$id"
-		inverted="$(commit_patch_id "$root" "$c" -R)"
+		inverted="$(commit_patch_id "$root" "$c" -R -U0)"
 		[ -z "$inverted" ] || undo[$inverted]=1
 	done < <(git -C "$root" rev-list --no-merges "$unit_base..$3")
 	[ "$ids" -gt 0 ] || return 1
-	net="$(git -C "$root" diff-tree -p --binary --full-index "$3" "$unit_base" | git patch-id --stable | cut -d' ' -f1)"
+	net="$(git -C "$root" diff-tree -p --binary --full-index -U0 "$3" "$unit_base" | git patch-id --stable | cut -d' ' -f1)"
 	[ -z "$net" ] || undo[$net]=1
 	rebased_sha="${stack_ids[$tip_id]}"
 	for ((i = ${stack_index[$rebased_sha]} + 1; i < ${#stack_commits[@]}; i++)); do
 		later="${stack_commits[i]}"
-		if [ -n "${stack_id_of[$later]}" ] && [ -n "${undo[${stack_id_of[$later]}]:-}" ]; then
+		if [ -n "${stack_id0_of[$later]}" ] && [ -n "${undo[${stack_id0_of[$later]}]:-}" ]; then
 			rebased_why=reverted rebased_by="$later" rebased_sha=""
 			return 1
 		fi
