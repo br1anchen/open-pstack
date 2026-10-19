@@ -2011,15 +2011,16 @@ manifest_warning() {
 }
 
 # Whether the unit's range only deletes: every changed path is deleted, or modified by removing
-# lines only (no line added, so no mode change either). It reads `git diff --name-status -z
-# --no-renames` and `--numstat -z` from the merge-base of the dispatch head and the unit head, the
-# range classify reads: NUL-separated, so a path is never quoted, and a rename is a delete plus an
-# add, which refuses. A binary file modified is a change; deleted it is not. Any failing git command
-# refuses (the output goes to files, so no pipe or substitution swallows a status).
+# lines only (no line added) with its mode unchanged. It reads `git diff --raw -z --no-renames` (the
+# status and both modes of each path) and `--numstat -z` from the merge-base of the dispatch head and
+# the unit head, the range classify reads: NUL-separated, so a path is never quoted, and a rename is
+# a delete plus an add, which refuses. A mode change refuses; so does a modified path the numstat
+# does not account for; a binary file modified is a change, deleted it is not. Any failing git
+# command refuses (the output goes to files, so no pipe or substitution swallows a status).
 # $1 store, $2 brief.
 unit_adds_no_lines() {
-	local root base head status added deleted path names nums ok=1
-	local -A modified=()
+	local root base head record path names nums ok=1 added deleted rest m1 m2 status
+	local -A modified=() counted=()
 	root="$(field "$1" .git_root)"
 	base="$(jq -r --arg u "$(basename "$2" .md)" '.heads[$u] // empty' "$1/pair.json")"
 	head="$(unit_head "$1" "$2")"
@@ -2027,19 +2028,31 @@ unit_adds_no_lines() {
 	git -C "$root" rev-parse --verify --quiet "$base^{commit}" >/dev/null || return 1
 	names="$(mktemp)"
 	nums="$(mktemp)"
-	if git -C "$root" diff --name-status -z --no-renames "$base...$head" >"$names" 2>/dev/null &&
+	if git -C "$root" diff --raw -z --no-renames "$base...$head" >"$names" 2>/dev/null &&
 		git -C "$root" diff --numstat -z --no-renames "$base...$head" >"$nums" 2>/dev/null; then
-		while IFS= read -r -d '' status && IFS= read -r -d '' path; do
+		while IFS= read -r -d '' record && IFS= read -r -d '' path; do
+			# ":<old mode> <new mode> <old sha> <new sha> <status>"
+			read -r m1 m2 _ _ status <<<"${record#:}"
 			case "$status" in
 			D) ;;
-			M) modified[$path]=1 ;;
+			M)
+				[ "$m1" = "$m2" ] || ok=0
+				modified[$path]=1 ;;
 			*) ok=0 ;;
 			esac
 		done <"$names"
-		while IFS=$'\t' read -r -d '' added deleted path; do
+		while IFS= read -r -d '' record; do
+			added="${record%%$'\t'*}"
+			rest="${record#*$'\t'}"
+			deleted="${rest%%$'\t'*}"
+			path="${rest#*$'\t'}"
 			[ -n "${modified[$path]:-}" ] || continue
+			counted[$path]=1
 			[[ "$added" =~ ^[0-9]+$ ]] && [[ "$deleted" =~ ^[0-9]+$ ]] && [ "$added" -eq 0 ] && [ "$deleted" -gt 0 ] || ok=0
 		done <"$nums"
+		for path in "${!modified[@]}"; do
+			[ -n "${counted[$path]:-}" ] || ok=0
+		done
 	else
 		ok=0
 	fi

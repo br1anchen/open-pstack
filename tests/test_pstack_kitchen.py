@@ -2881,6 +2881,21 @@ esac
         (self.store / 'pair.json').write_text(json.dumps(state))
         self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
 
+    def test_a_mode_change_with_deleted_lines_cannot_use_the_deletion_only_skip(self):
+        self.skipped_unit(lambda: self.write('src/run.sh', '#!/bin/sh\necho a\necho b\n'),
+                          lambda: (self.write('src/run.sh', '#!/bin/sh\necho a\n'), (self.repo / 'src/run.sh').chmod(0o755)))
+        self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
+
+    def test_a_modified_file_whose_name_begins_with_a_tab_and_gains_a_line_cannot_use_the_skip(self):
+        name = 'src/\ttab.py'
+        self.skipped_unit(lambda: self.write(name, 'A = 1\n'), lambda: self.write(name, 'A = 1\nB = 2\n'))
+        self.assertIn('skipped is only for a deletion-only range', self.run_sh('land-check', str(self.store), code=2))
+
+    def test_a_file_whose_name_ends_with_a_tab_and_loses_a_line_can_use_the_skip(self):
+        name = 'src/tab\t'
+        self.skipped_unit(lambda: self.write(name, 'A = 1\nB = 2\n'), lambda: self.write(name, 'A = 1\n'))
+        self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
+
     def test_a_deletion_that_removes_lines_from_a_text_file_can_use_the_skip(self):
         self.skipped_unit(lambda: self.write('src/lines.py', 'A = 1\nB = 2\nC = 3\n'), lambda: self.write('src/lines.py', 'A = 1\nC = 3\n'))
         self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
