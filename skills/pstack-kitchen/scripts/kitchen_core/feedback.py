@@ -15,6 +15,7 @@ from pstack_core.checkin import iso_epoch
 from pstack_core.collate import collate_key, glob_sorted
 from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.herdr import herdr
+from pstack_core.spawn import field
 from pstack_core.replies import file_mtime
 from pstack_core.store import alt, event, header_field, jq_raw, pair_file, pair_json
 
@@ -111,6 +112,26 @@ def mv(src, dst):
         raise Exit(1, f"mv: cannot move '{src}' to '{dst}': {os.strerror(e.errno)}\n") from None
 
 
+def jq_r(program, path=None, text=None):
+    """`jq -r PROGRAM` of a file, or of text on stdin (a here-string: the text and a newline), as a command substitution gives it: stdout without its trailing newlines. jq's own error
+    goes to stderr and its status is not looked at, as inside the bash's $( ) arguments and tests."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    argv = ['jq', '-r', program] + ([path] if path is not None else [])
+    r = subprocess.run(argv, input=None if text is None else (text + '\n').encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE, check=False)
+    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+
+
+def rm_f(path):
+    """rm -f: a missing file is fine; any other failure is rm's message and, under set -e, the end of the command with status 1."""
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        raise Exit(1, f"rm: cannot remove '{path}': {os.strerror(e.errno)}\n") from None
+
+
 def read_lines(path):
     with open(path, 'rb') as f:
         return f.read().decode('utf-8', 'surrogateescape').split('\n')
@@ -141,7 +162,7 @@ def inbox():
     now = int(time.time())
     rows = []
     for f in glob_sorted(glob.glob(f'{glob.escape(fb)}/inbox/*.md')):
-        if not os.path.lexists(f) or os.path.lexists(f'{fb}/done/{os.path.basename(f)}'):
+        if not os.path.exists(f) or os.path.exists(f'{fb}/done/{os.path.basename(f)}'):
             continue
         filed = header_field(f, 'filed')
         stamp = iso_epoch(filed)
@@ -153,6 +174,9 @@ def inbox():
         repo = (re.match(r'^.*\((.*)\)$', lines[0]) or [None, ''])[1] if lines else ''
         build = header_field(f, 'build').split(' ')[0]
         gaps = sum(1 for line in lines if line.startswith('### '))
+        if gaps == 0:
+            # rows+="...$(grep -c '^### ' "$f")...": the assignment takes the status of its last substitution, grep's 1, and set -e ends the command
+            raise Exit(1)
         rows.append((secs, [header_field(f, 'id'), run, repo, build, str(gaps), age_text((now - secs) // 60)]))
     if not rows:
         sys.stdout.write('feedback inbox: empty\n')
@@ -184,18 +208,12 @@ def close(args):
         with open(tmp, 'wb') as f:
             f.write(body.encode('utf-8', 'surrogateescape'))
         mv(tmp, done_file)
-        try:
-            os.unlink(inbox_file)
-        except OSError:
-            pass
+        rm_f(inbox_file)
         fb_unlock(fb)
         sys.stdout.write(f'closed: {id_} (commit {commit})\n')
         return 0
     fb_unlock(fb)
-    try:
-        os.unlink(inbox_file)
-    except OSError:
-        pass
+    rm_f(inbox_file)
     sys.stdout.write(f'already closed: {id_}\n')
     lines = read_lines(done_file)
     start = next((n for n, line in enumerate(lines) if line.startswith('## Closed')), None)
@@ -206,27 +224,21 @@ def close(args):
 
 
 def maintainer_problem(fb):
-    """Why the registered maintainer cannot be told, or '' when it can."""
+    """Why the registered maintainer cannot be told, or '' when it can. Every read is jq's, as in the bash: a maintainer.json or herdr answer
+    that is not what it expects gives jq's error and an empty value."""
     file = f'{fb}/maintainer.json'
     if not os.path.isfile(file):
         return 'no maintainer is registered'
-    with open(file, 'rb') as f:
-        entry = json.load(f)
-    name, pane, session = jq_raw(entry.get('name')), jq_raw(entry.get('pane')), alt(entry.get('session'), '')
-    code, out = herdr('agent', 'get', name)
+    name, pane, session = jq_r('.name', file), jq_r('.pane', file), jq_r('.session // empty', file)
+    code, info = herdr('agent', 'get', name)
     if code != 0:
         return f'agent {name} is gone'
-    try:
-        agent = json.loads(out)['result']['agent']
-    except (ValueError, KeyError, TypeError):
-        agent = {}
-    if alt(agent.get('pane_id'), '') != pane:
+    info = info.rstrip('\n')
+    if jq_r('.result.agent.pane_id // empty', text=info) != pane:
         return f'agent {name} moved off pane {pane}'
-    value = agent.get('agent_session')
-    value = alt(value.get('value') if isinstance(value, dict) else None, '')
-    if session and value != session:
+    if session and jq_r('.result.agent.agent_session.value // empty', text=info) != session:
         return f'agent {name} is a different session than the one registered'
-    return f'agent {name} is blocked on a dialog' if alt(agent.get('agent_status'), '') == 'blocked' else ''
+    return f'agent {name} is blocked on a dialog' if jq_r('.result.agent.agent_status // empty', text=info) == 'blocked' else ''
 
 
 def gap_found(path):
@@ -268,24 +280,33 @@ def file_report(ctx, args):
     tmp = mktemp(fb, '.filing-')
     fb_lock(fb)
     k, name = 1, stem
-    while os.path.lexists(f'{fb}/inbox/{name}.md') or os.path.lexists(f'{fb}/done/{name}.md'):
+    while os.path.exists(f'{fb}/inbox/{name}.md') or os.path.exists(f'{fb}/done/{name}.md'):
         k += 1
         name = f'{stem}-{k}'
-    master = pair.get('master')
-    master = master if isinstance(master, dict) else {}
-    builds = pair.get('skill_builds')
-    first_entry = builds[0] if isinstance(builds, list) and builds else None
-    first = jq_raw(alt(first_entry.get('path') if isinstance(first_entry, dict) else None, ''))
-    head = [f'# Kitchen feedback: {run} ({repo})', f'id: {name}',
-            f'run: {run}   store: {store}   repo: {git_root}   master: {jq_raw(alt(master.get("name"), "unknown"))} ({jq_raw(alt(master.get("pane_id"), "unknown"))})',
-            f'build: {build_rev(first) if first else "unknown"} ({first or "unknown"})']
+    out = open(tmp, 'wb')
+
+    def put(text):
+        out.write(text.encode('utf-8', 'surrogateescape'))
+        out.flush()
+
+    master_name, master_pane = field(store, 'master', 'name', default='unknown'), field(store, 'master', 'pane_id', default='unknown')
+    put(f'# Kitchen feedback: {run} ({repo})\nid: {name}\n')
+    put(f'run: {run}   store: {store}   repo: {git_root}   master: {master_name} ({master_pane})\n')
+    # first="$(field ...)" is a plain assignment: jq failing on a skill_builds that is not what it expects ends the command with its status,
+    # leaving the lock and the temp file (with the lines written so far) behind
+    sys.stdout.flush()
+    sys.stderr.flush()
+    r = subprocess.run(['jq', '-r', '.skill_builds[0].path // empty', f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
+    if r.returncode != 0:
+        raise Exit(r.returncode)
+    first = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    put(f'build: {build_rev(first) if first else "unknown"} ({first or "unknown"})\n')
     if first and first != skills_dir:
-        head.append(f'filed with: {build_rev(skills_dir)} ({skills_dir})')
-    head += [f'retro: {retro}', f'filed: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}', 'status: open', '']
+        put(f'filed with: {build_rev(skills_dir)} ({skills_dir})\n')
+    put(f'retro: {retro}\nfiled: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\nstatus: open\n\n')
     with open(src, 'rb') as f:
-        body = f.read()
-    with open(tmp, 'wb') as f:
-        f.write(('\n'.join(head) + '\n').encode('utf-8', 'surrogateescape') + body)
+        out.write(f.read())
+    out.close()
     mv(tmp, f'{fb}/inbox/{name}.md')
     fb_unlock(fb)
     path = f'{fb}/inbox/{name}.md'
@@ -294,10 +315,8 @@ def file_report(ctx, args):
     sys.stdout.flush()
     problem = maintainer_problem(fb)
     if not problem:
-        with open(f'{fb}/maintainer.json', 'rb') as f:
-            maintainer = jq_raw(json.load(f).get('name'))
-        if herdr('agent', 'prompt', maintainer, f'pstack-kitchen FEEDBACK {path}')[0] == 0:
-            sys.stdout.write(f'delivered: to maintainer {maintainer}\n')
+        if herdr('agent', 'prompt', jq_r('.name', f'{fb}/maintainer.json'), f'pstack-kitchen FEEDBACK {path}')[0] == 0:
+            sys.stdout.write(f'delivered: to maintainer {jq_r(".name", f"{fb}/maintainer.json")}\n')
             return 0
     problem = problem or 'the prompt to the maintainer failed'
     herdr('notification', 'show', 'pstack-kitchen: feedback filed', '--body', path, '--sound', 'request')
@@ -346,19 +365,14 @@ def maintainer(ctx, args):
                                stdout=out, check=False)
         if r.returncode != 0:
             raise Exit(r.returncode)
-        with open(tmp, 'rb') as f:
-            entry = json.load(f)
-        if not alt(entry.get('name'), ''):
-            os.unlink(tmp)
+        if jq_r('.name // empty', tmp) == '':
+            rm_f(tmp)
             raise Die(f'herdr reports no name for the agent on pane {pane}; name it first')
-        os.replace(tmp, file)
-        sys.stdout.write(f'maintainer: {jq_raw(entry.get("name"))} on {jq_raw(entry.get("pane"))}\n')
+        mv(tmp, file)
+        sys.stdout.write(f'maintainer: {jq_r(".name", file)} on {jq_r(".pane", file)}\n')
         return 0
     if sub == 'off':
-        try:
-            os.unlink(file)
-        except OSError:
-            pass
+        rm_f(file)
         sys.stdout.write('maintainer: none\n')
         return 0
     if sub == 'status':
@@ -366,8 +380,6 @@ def maintainer(ctx, args):
             sys.stdout.write('maintainer: none\n')
             return 0
         problem = maintainer_problem(fb)
-        with open(file, 'rb') as f:
-            entry = json.load(f)
-        sys.stdout.write(f'maintainer: {jq_raw(entry.get("name"))} on {jq_raw(entry.get("pane"))} since {jq_raw(entry.get("since"))}: {problem or "live"}\n')
+        sys.stdout.write(f'maintainer: {jq_r(".name", file)} on {jq_r(".pane", file)} since {jq_r(".since", file)}: {problem or "live"}\n')
         return 0
     raise Die(USAGE_MAINTAINER)

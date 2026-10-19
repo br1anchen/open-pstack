@@ -604,9 +604,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             info = seen[key][0]
             self.assertEqual((info['kitchen_core'], info['opened']), (False, []), (key, seen[key]))
         # each command ran: status prints its page, stop and spawn end in their own diagnostics
-        self.assertIn('# Pair status', seen['pair', 'status'][1])
-        self.assertIn('# Kitchen status', seen['kitchen', 'status'][1])
-        self.assertTrue(seen['pair', 'stop'][2] or seen['pair', 'stop'][1])
+        expected = {('pair', 'status'): (0, '# Pair status', 'stdout'), ('pair', 'stop'): (2, 'pair.sh: sidekick s1 is not live', 'stderr'),
+                    ('pair', 'spawn'): (1, '$2: unbound variable', 'stderr'), ('kitchen', 'status'): (0, '# Kitchen status', 'stdout'),
+                    ('kitchen', 'catch'): (1, 'usage: kitchen.sh catch <store> <layer> <text> [<unit>]', 'stderr')}
+        for key, (rc, line, stream) in expected.items():
+            self.assertEqual(seen[key][0]['rc'], rc, (key, seen[key]))
+            self.assertIn(line, seen[key][1] if stream == 'stdout' else seen[key][2], (key, seen[key]))
+        self.assertIsNotNone(seen['kitchen', 'stop'][0]['rc'])
+        self.assertTrue(seen['kitchen', 'stop'][2] or seen['kitchen', 'stop'][1], seen['kitchen', 'stop'])
         for name in ('status', 'stop'):
             info = seen['kitchen', name][0]
             self.assertFalse(info['kitchen_core'], (name, seen['kitchen', name]))
@@ -1800,6 +1805,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (top / 'state' / rel).mkdir(parents=True)
             stamp = time.time() - age
             os.utime(top / 'state' / rel, (stamp, stamp))
+        for rel, target in spec.get('statelinks', {}).items():
+            (top / 'state' / rel).parent.mkdir(parents=True, exist_ok=True)
+            (top / 'state' / rel).symlink_to(target)
+        for rel, mode in spec.get('statemodes', {}).items():
+            os.chmod(top / 'state' / rel, mode)
+            self.addCleanup(os.chmod, top / 'state' / rel, 0o755)
         for rel, age in spec.get('stateages', {}).items():
             stamp = time.time() - age
             os.utime(top / 'state' / rel, (stamp, stamp))
@@ -1816,6 +1827,19 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if spec.get('prompt_error_exits'):
                 (top / 'prompt_exits').write_text('')
             (wrap / 'herdr').write_text(f'#!/bin/sh\nif [ "$1 $2" = "agent prompt" ]; then cat "{top}/prompt_error.txt" >&2; [ ! -e "{top}/prompt_exits" ] || rm -f "$FAKE/agents/$3"; exit 1; fi\nexec {root / "tests/pstack-pair/bin/herdr"} "$@"\n')
+            (wrap / 'herdr').chmod(0o755)
+            env['PATH'] = f'{wrap}:{env["PATH"]}'
+        if spec.get('noexit') or spec.get('agent_get') is not None:
+            # a herdr that ignores the exit command (the agent stays), or answers `agent get` with exactly this text; the rest goes to the fake
+            wrap = top / 'wrapherdr'
+            wrap.mkdir()
+            body = '#!/bin/sh\n'
+            if spec.get('noexit'):
+                body += 'if [ "$1 $2" = "agent prompt" ] && { [ "$4" = /exit ] || [ "$4" = /quit ]; }; then printf "{}\\n"; exit 0; fi\n'
+            if spec.get('agent_get') is not None:
+                (top / 'agent_get.txt').write_text(spec['agent_get'])
+                body += f'if [ "$1 $2" = "agent get" ]; then cat "{top}/agent_get.txt"; exit 0; fi\n'
+            (wrap / 'herdr').write_text(body + f'exec {root / "tests/pstack-pair/bin/herdr"} "$@"\n')
             (wrap / 'herdr').chmod(0o755)
             env['PATH'] = f'{wrap}:{env["PATH"]}'
         if spec.get('hook'):
@@ -3463,7 +3487,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         """What a run left under the host state directory (the kitchen's ledger and timings), times masked."""
         found = {}
         for path in sorted(directory.rglob('*')) if directory.is_dir() else ():
-            if path.is_file():
+            if path.is_symlink():
+                found[re.sub(r'repo-[0-9a-f]{8}', 'repo-<H>', str(path.relative_to(directory)).replace(top.name, '<T>')) + '@'] = os.readlink(path)
+            elif path.is_dir():
+                found[re.sub(r'repo-[0-9a-f]{8}', 'repo-<H>', str(path.relative_to(directory)).replace(top.name, '<T>')) + '/'] = ''
+            elif path.is_file():
                 text = path.read_text(errors='replace').replace(str(top), '<T>')
                 found[re.sub(r'repo-[0-9a-f]{8}', 'repo-<H>', str(path.relative_to(directory)).replace(top.name, '<T>'))] = re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text))
         return found
@@ -3544,8 +3572,19 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual((want['rc'], got['rc']), (base_rc, 1), args[0])
             self.assertIn('parse error', want['stderr'])
             self.assertTrue(got['stderr'].endswith('pair.sh: Expecting value: line 1 column 1 (char 0)\n'), got['stderr'])
-            self.assertEqual(got['state'], {}, args[0])
-            self.assertEqual(bool(want['state']), args[0] == 'catch')
+            files = lambda tree: {k: v for k, v in tree.items() if not k.endswith('/')}
+            self.assertEqual(files(got['state']), {}, args[0])
+            self.assertEqual(bool(files(want['state'])), args[0] == 'catch')
+
+    def test_feedback_on_an_unparseable_pair_json_dies_with_pythons_message(self):
+        """Accepted (PARITY.md): the bash read the slug with jq in a plain assignment and stopped with jq's rc 5 after creating inbox/ and done/.
+        The port reads pair.json once: `kitchen.sh: Expecting value...`, rc 1, after the same two directories."""
+        got, want = self.phase4_ab('fbunp', dict(args=['feedback', '{st}', '{st}/report.md'], nopair=True, files={'pair.json': 'not json\n', 'report.md': self.FEEDBACK_REPORT}))
+        self.assertEqual((want['rc'], got['rc']), (5, 1))
+        self.assertIn('parse error', want['stderr'])
+        self.assertTrue(got['stderr'].endswith('pair.sh: Expecting value: line 1 column 1 (char 0)\n'), got['stderr'])
+        self.assertEqual(got['state'], want['state'])
+        self.assertIn('pstack/feedback/inbox/', got['state'])
 
     def test_new_handoff_matches_the_bash_at_the_phase_4_base(self):
         rich = self.kitchen_run_files()
@@ -3607,6 +3646,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'the name is taken once': {**base, 'statefiles': {f'pstack/feedback/inbox/{stem}.md': 'x\n'}},
             'the name is taken in inbox and done': {**base, 'statefiles': {f'pstack/feedback/inbox/{stem}.md': 'x\n', f'pstack/feedback/done/{stem}-2.md': 'x\n'}},
             'a stale lock is taken over': {**base, 'statelocks': {'pstack/feedback/.lock': 300}},
+            'a maintainer.json that is not JSON': {**base, 'statefiles': {'pstack/feedback/maintainer.json': 'not json\n'}},
+            'a maintainer.json that is an array': {**base, **live, 'statefiles': {'pstack/feedback/maintainer.json': '[1]\n'}},
+            'herdr answers an agent of null': {**base, 'statefiles': live['statefiles'], 'agent_get': '{"result":{"agent":null}}\n'},
+            'a master that is a string': {**base, 'pair': {'slug': 'demo', 'master': 'm1'}},
+            'a master that is an array': {**base, 'pair': {'slug': 'demo', 'master': [1]}},
+            'a skill_builds entry that is a number stops with jq, leaving the lock': {**base, 'pair': {'slug': 'demo', 'skill_builds': [1]}},
+            'a skill_builds entry that is an array': {**base, 'pair': {'slug': 'demo', 'skill_builds': [[1]]}},
+            'a skill_builds path that is a number': {**base, 'pair': {'slug': 'demo', 'skill_builds': [{'path': 3}]}},
+            'a dangling link at the name being allocated': {**base, 'statelinks': {f'pstack/feedback/inbox/{stem}.md': '/nonexistent/x'}},
             'a report with no gap': dict(base, files={'report.md': '# Feedback\n\n## Gaps\n\nnone\n\n## Other\n\n### 1. not a gap\n'}),
             'a missing report file': dict(base, args=['feedback', '{st}', '{st}/none.md']),
             'no pair.json': dict(base, nopair=True),
@@ -3626,6 +3674,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertTrue(any(k.endswith(f'{stem}-2.md') for k in out['the name is taken once']['state']))
         self.assertIn('filed with: ', out['builds: the same skills and another']['state'][f'pstack/feedback/inbox/{stem}.md'].replace('repo-<H>', ''))
         self.assertEqual(out['a report with no gap']['rc'], 1)
+        for name in ('a master that is a string', 'a master that is an array'):
+            self.assertEqual(out[name]['rc'], 0, name)
+            self.assertIn('Cannot index', out[name]['stderr'], name)
+            self.assertIn('master:  ()', out[name]['state'][f'pstack/feedback/inbox/{stem}.md'], name)
+        stopped = out['a skill_builds entry that is a number stops with jq, leaving the lock']
+        self.assertEqual(stopped['rc'], 5)
+        self.assertIn('pstack/feedback/.lock/', stopped['state'])
+        self.assertEqual(out['a dangling link at the name being allocated']['rc'], 0)
+        self.assertIn('filed: ', out['a master that is a string']['stdout'])
 
     def test_feedback_inbox_and_close_match_the_bash_at_the_phase_4_base(self):
         inbox = lambda *names: {f'pstack/feedback/inbox/{n}.md': self.feedback_inbox_file(n) for n in names}
@@ -3639,6 +3696,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an empty inbox': dict(args=['feedback', '--inbox']),
             'three reports of different ages': dict(args=['feedback', '--inbox'], statefiles=two, stateages={'pstack/feedback/inbox/20261002-repo-c.md': 7200 * 30}),
             'a report that is also in done is not listed': dict(args=['feedback', '--inbox'], statefiles=done_copy),
+            'an inbox file with no gap heading ends --inbox with status 1': dict(args=['feedback', '--inbox'], statefiles={**two, 'pstack/feedback/inbox/20261004-repo-d.md': 'no gaps here\nid: d\n'}),
+            'a dangling link in the inbox is skipped': dict(args=['feedback', '--inbox'], statefiles=inbox('20261003-repo-a'), statelinks={'pstack/feedback/inbox/20261009-repo-z.md': '/nonexistent/z'}),
+            'a dangling link in done does not hide a report': dict(args=['feedback', '--inbox'], statefiles=inbox('20261003-repo-a'), statelinks={'pstack/feedback/done/20261003-repo-a.md': '/nonexistent/z'}),
+            'a close whose rm fails keeps the lock': dict(args=close, statefiles=with_done(inbox('20261003-repo-a')), statemodes={'pstack/feedback/inbox': 0o555}),
+            'a second close whose rm fails': dict(args=close, statefiles=done_copy, statemodes={'pstack/feedback/inbox': 0o555}),
             'closing a report': dict(args=close, statefiles=with_done(inbox('20261003-repo-a'))),
             'closing with no done directory': dict(args=close, statefiles=inbox('20261003-repo-a')),
             'closing with the .md suffix and none': dict(args=['feedback', '--close', '20261003-repo-a.md', 'none', 'n'], statefiles=with_done(inbox('20261003-repo-a'))),
@@ -3655,6 +3717,17 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('closed: 20261003-repo-a (commit abc123)', out['closing a report']['stdout'])
         self.assertIn('already closed: 20261003-repo-a', out['closing twice']['stdout'])
         self.assertEqual(out['an unknown id']['rc'], 1)
+        self.assertEqual((out['an inbox file with no gap heading ends --inbox with status 1']['rc'], out['an inbox file with no gap heading ends --inbox with status 1']['stdout']), (1, ''))
+        self.assertIn('20261003-repo-a', out['a dangling link in the inbox is skipped']['stdout'])
+        self.assertNotIn('20261009-repo-z', out['a dangling link in the inbox is skipped']['stdout'])
+        self.assertIn('20261003-repo-a', out['a dangling link in done does not hide a report']['stdout'])
+        self.assertEqual(out['a close whose rm fails keeps the lock']['rc'], 1)
+        self.assertIn("rm: cannot remove", out['a close whose rm fails keeps the lock']['stderr'])
+        self.assertIn('pstack/feedback/.lock/', out['a close whose rm fails keeps the lock']['state'])
+        self.assertNotIn('pstack/feedback/.lock/', out['closing a report']['state'])
+        self.assertIn('pstack/feedback/.lock/', out['closing with no done directory']['state'])
+        self.assertEqual(out['a second close whose rm fails']['rc'], 1)
+        self.assertNotIn('already closed', out['a second close whose rm fails']['stdout'])
 
     def test_a_held_feedback_lock_ends_the_command_as_the_bash_does_after_a_hundred_tries(self):
         """The one test that waits: the lock is fresh, so neither side takes it, and each gives up after 100 tries at 0.1 s (about ten seconds)."""
@@ -3714,12 +3787,19 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'on for a pane with no agent': dict(args=['maintainer', 'on', '--pane', 'p9'], **live),
             'off': dict(args=['maintainer', 'off'], statefiles=registered),
             'off with none': dict(args=['maintainer', 'off']),
+            'off whose rm fails': dict(args=['maintainer', 'off'], statefiles=registered, statemodes={'pstack/feedback': 0o555}),
             'status with none': dict(args=['maintainer', 'status']),
             'status live': dict(args=['maintainer', 'status'], **live, statefiles=registered),
             'status gone': dict(args=['maintainer', 'status'], statefiles=registered),
             'status moved': dict(args=['maintainer', 'status'], agents={'mt': 'idle claude'}, panes={'p9': 'mt'}, statefiles=registered),
             'status blocked': dict(args=['maintainer', 'status'], agents={'mt': 'blocked claude'}, panes={'p7': 'mt'}, statefiles=registered),
             'status with another session': dict(args=['maintainer', 'status'], **live, statefiles={'pstack/feedback/maintainer.json': self.MAINTAINER_JSON.replace('null', '"other"')}),
+            'status with a maintainer.json that is not JSON': dict(args=['maintainer', 'status'], **live, statefiles={'pstack/feedback/maintainer.json': 'not json\n'}),
+            'status with a maintainer.json that is an array': dict(args=['maintainer', 'status'], **live, statefiles={'pstack/feedback/maintainer.json': '[1]\n'}),
+            'status with a maintainer.json that is a string': dict(args=['maintainer', 'status'], **live, statefiles={'pstack/feedback/maintainer.json': '"x"\n'}),
+            'status when herdr answers an agent of null': dict(args=['maintainer', 'status'], statefiles=registered, agent_get='{"result":{"agent":null}}\n'),
+            'status when herdr answers text that is not JSON': dict(args=['maintainer', 'status'], statefiles=registered, agent_get='nope\n'),
+            'on when herdr answers an agent of null': dict(args=['maintainer', 'on', '--pane', 'p7'], agent_get='{"result":{"agent":null}}\n'),
             'no arguments': dict(args=['maintainer']),
             'an unknown subcommand': dict(args=['maintainer', 'stop']),
         }
@@ -3728,6 +3808,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('"session": null', out['on with --pane']['state']['pstack/feedback/maintainer.json'])
         self.assertIn('maintainer: mt on p7 since <TS>: live', out['status live']['stdout'].replace('2026-10-01T10:00:00Z', '<TS>'))
         self.assertEqual(out['on for a pane with no agent']['rc'], 1)
+        for name in ('status with a maintainer.json that is not JSON', 'status with a maintainer.json that is an array', 'status with a maintainer.json that is a string'):
+            self.assertEqual(out[name]['rc'], 0, name)
+            self.assertIn('maintainer: ', out[name]['stdout'], name)
+            self.assertIn('jq: ', out[name]['stderr'], name)
+        self.assertIn('moved off pane p7', out['status when herdr answers an agent of null']['stdout'])
+        self.assertIn('herdr reports no name for the agent on pane p7', out['on when herdr answers an agent of null']['stderr'])
 
     CLOSE_ROLES = {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}, 'consultant': {'name': 'c1', 'pane_id': 'p2', 'kind': 'codex'},
                    'sidekick': {'name': 's1', 'pane_id': 'p1', 'kind': 'claude'}}
@@ -3751,6 +3837,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a verifying that is a string': dict(with_roles(verifying='x'), args=run),
             'a Prime role with a session': dict(with_roles(verifier={**self.CLOSE_ROLES['verifier'], 'kind': 'prime-agent', 'session': {'kind': 'path', 'value': '/t/v.jsonl'}}),
                                                   args=run + ['--force']),
+            'a role that does not exit keeps its pane': dict(live, args=run, noexit=True, clock=True),
             '--force is only read as the second argument': dict(live, args=['close', '--force', '{st}']),
             'a third argument is ignored': dict(live, args=run + ['--force', 'x']),
             'no arguments': dict(args=['close']),
@@ -3762,6 +3849,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(idle['rc'], 0, idle['stderr'])
         self.assertEqual(idle['stdout'].splitlines(), ['closed verifier v1 (p3)', 'closed consultant c1 (p2)', 'closed sidekick s1 (p1)'])
         self.assertEqual(out['an open verification refuses']['rc'], 5)
+        self.assertEqual(out['a role that does not exit keeps its pane']['rc'], 5)
+        self.assertIn('verifier v1 did not exit; its pane p3 stays open', out['a role that does not exit keeps its pane']['stderr'])
         self.assertIn('a verification is open (001)', out['an open verification refuses']['stderr'])
         self.assertEqual(out['a working sidekick refuses']['rc'], 5)
         self.assertEqual(out['an open verification and --force']['rc'], 0)

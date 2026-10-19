@@ -7,7 +7,7 @@ import time
 
 from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die, Exit
-from pstack_core.exits import exit_command, stop_prime_role
+from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
 from pstack_core.herdr import agent_status, herdr, pane_text
 from pstack_core.spawn import field
 from pstack_core.store import event, pair_file, update
@@ -29,12 +29,12 @@ def close_role(store, role):
             return False
     if agent_status(name) != 'absent':
         herdr('agent', 'prompt', name, exit_command(kind))
-        deadline = int(time.time()) + 15
+        deadline = exit_deadline()
         while agent_status(name) != 'absent' and int(time.time()) < deadline:
             if 'move to background and exit' in pane_text(name).lower():
                 herdr('agent', 'send-keys', name, '1')
                 herdr('agent', 'send-keys', name, 'enter')
-            time.sleep(1)
+            exit_poll()
     if agent_status(name) != 'absent':
         sys.stderr.write(f'{role} {name} did not exit; its pane {pane} stays open\n')
         return False
