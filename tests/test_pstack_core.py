@@ -520,7 +520,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'new-handoff', 'retro', 'stop')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'feedback', 'maintainer', 'new-handoff', 'retro', 'stop')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -1793,6 +1793,16 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (fake / 'screen' / agent).write_text(fill(text))
         for rel, stamp in spec.get('mtimes', {}).items():
             os.utime(st / rel, (stamp, stamp))
+        for rel, text in spec.get('statefiles', {}).items():
+            (top / 'state' / rel).parent.mkdir(parents=True, exist_ok=True)
+            (top / 'state' / rel).write_text(text)
+        for rel, age in spec.get('statelocks', {}).items():
+            (top / 'state' / rel).mkdir(parents=True)
+            stamp = time.time() - age
+            os.utime(top / 'state' / rel, (stamp, stamp))
+        for rel, age in spec.get('stateages', {}).items():
+            stamp = time.time() - age
+            os.utime(top / 'state' / rel, (stamp, stamp))
         for subcommand, script in spec.get('once', {}).items():
             (fake / 'once').mkdir(exist_ok=True)
             (fake / 'once' / subcommand).write_text(script)
@@ -3446,7 +3456,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         got = self.ab_run(f'{label}-port', root / 'skills', 'pstack-kitchen', spec)
         for outcome, tag in ((want, 'base'), (got, 'port')):
             outcome['state'] = self.state_tree(self.path / f'{label}-{tag}' / 'state', self.path / f'{label}-{tag}')
-        mask = lambda o, tree: json.loads(json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>'))
+        mask = lambda o, tree: json.loads(re.sub(r'(\.(?:closing|filing|maintainer)-)[A-Za-z0-9]{6}', r'\1<R>', json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>')))
         return mask(got, root / 'skills'), mask(want, bases)
 
     def state_tree(self, directory, top):
@@ -3570,6 +3580,154 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('Cannot index string with string ("generation")', string_master['stderr'])
         self.assertIn('Cannot index string with string ("brief")', out["a dispatch that is a string is jq's error and the command goes on"]['stderr'])
         self.assertNotIn('009-z', out['a dangling brief symlink is skipped']['files']['session-handoff.md'])
+
+    FEEDBACK_REPORT = '# Feedback\n\n## Gaps\n\n### 1. a gap\n\nit hurt\n\n### 2. another\n\nagain\n'
+    MAINTAINER_JSON = '{"name": "mt", "pane": "p7", "session": null, "since": "2026-10-01T10:00:00Z"}\n'
+
+    def feedback_inbox_file(self, id_, filed='2026-10-01T10:00:00Z', build='abc123 (x)', gaps=2, status='open'):
+        gap_text = ''.join(f'### {n}. gap\n\n' for n in range(1, gaps + 1))
+        head = f'# Kitchen feedback: run{id_[-1]} (repo{id_[-1]})\nid: {id_}\nrun: run{id_[-1]}   store: /s   repo: /r   master: m (p)\n'
+        return head + (f'build: {build}\n' if build else '') + (f'filed: {filed}\n' if filed else '') + f'status: {status}\n\n## Gaps\n\n{gap_text}'
+
+    def test_feedback_filing_matches_the_bash_at_the_phase_4_base(self):
+        stem = f'{time.strftime("%Y%m%d", time.gmtime())}-repo-demo'
+        file_args = ['feedback', '{st}', '{st}/report.md']
+        base = dict(args=file_args, files={'report.md': self.FEEDBACK_REPORT}, pair={'slug': 'demo'})
+        live = dict(agents={'mt': 'idle claude'}, panes={'p7': 'mt'}, statefiles={'pstack/feedback/maintainer.json': self.MAINTAINER_JSON})
+        cases = {
+            'no maintainer: the human is notified': base,
+            'a live maintainer is told': {**base, **live},
+            'a maintainer whose prompt fails': {**base, **live, 'promptfail': True},
+            'a dead maintainer': {**base, 'statefiles': live['statefiles']},
+            'a maintainer moved off its pane': {**base, **{**live, 'panes': {'p9': 'mt'}}},
+            'a maintainer with another session': {**base, **{**live, 'statefiles': {'pstack/feedback/maintainer.json': self.MAINTAINER_JSON.replace('null', '"other"')}}},
+            'a maintainer blocked on a dialog': {**base, **{**live, 'agents': {'mt': 'blocked claude'}}},
+            'builds: the same skills and another': {**base, 'pair': {'slug': 'demo', 'skill_builds': [{'path': '/x/skills'}]},
+                                                   'statefiles': {'pstack/builds.tsv': 'a\told\t/x/skills\nb\tabc123\t/x/skills\n'}},
+            'the name is taken once': {**base, 'statefiles': {f'pstack/feedback/inbox/{stem}.md': 'x\n'}},
+            'the name is taken in inbox and done': {**base, 'statefiles': {f'pstack/feedback/inbox/{stem}.md': 'x\n', f'pstack/feedback/done/{stem}-2.md': 'x\n'}},
+            'a stale lock is taken over': {**base, 'statelocks': {'pstack/feedback/.lock': 300}},
+            'a report with no gap': dict(base, files={'report.md': '# Feedback\n\n## Gaps\n\nnone\n\n## Other\n\n### 1. not a gap\n'}),
+            'a missing report file': dict(base, args=['feedback', '{st}', '{st}/none.md']),
+            'no pair.json': dict(base, nopair=True),
+            'no arguments': dict(args=['feedback']),
+            'one argument': dict(args=['feedback', '{st}']),
+            'three arguments': dict(args=file_args + ['x']),
+        }
+        out = self.phase4_cases('fbfile', cases)
+        self.assertIn('delivered: notification for the human (no maintainer is registered)', out['no maintainer: the human is notified']['stdout'])
+        self.assertIn('delivered: to maintainer mt', out['a live maintainer is told']['stdout'])
+        self.assertIn('prompt to the maintainer failed', out['a maintainer whose prompt fails']['stdout'])
+        self.assertIn('agent mt is gone', out['a dead maintainer']['stdout'])
+        self.assertIn('moved off pane p7', out['a maintainer moved off its pane']['stdout'])
+        self.assertIn('different session', out['a maintainer with another session']['stdout'])
+        self.assertIn('blocked on a dialog', out['a maintainer blocked on a dialog']['stdout'])
+        self.assertTrue(any(k.endswith(f'{stem}-3.md') for k in out['the name is taken in inbox and done']['state']), out['the name is taken in inbox and done']['state'].keys())
+        self.assertTrue(any(k.endswith(f'{stem}-2.md') for k in out['the name is taken once']['state']))
+        self.assertIn('filed with: ', out['builds: the same skills and another']['state'][f'pstack/feedback/inbox/{stem}.md'].replace('repo-<H>', ''))
+        self.assertEqual(out['a report with no gap']['rc'], 1)
+
+    def test_feedback_inbox_and_close_match_the_bash_at_the_phase_4_base(self):
+        inbox = lambda *names: {f'pstack/feedback/inbox/{n}.md': self.feedback_inbox_file(n) for n in names}
+        with_done = lambda files: {**files, 'pstack/feedback/done/.keep': ''}
+        old = self.feedback_inbox_file('20261001-repo-b', filed='2026-09-01T10:00:00Z', gaps=1)
+        no_filed = self.feedback_inbox_file('20261002-repo-c', filed='', build='')
+        two = {**inbox('20261003-repo-a'), 'pstack/feedback/inbox/20261001-repo-b.md': old, 'pstack/feedback/inbox/20261002-repo-c.md': no_filed}
+        done_copy = {**inbox('20261003-repo-a'), 'pstack/feedback/done/20261003-repo-a.md': self.feedback_inbox_file('20261003-repo-a', status='closed') + '\n## Closed\n\nclosed: x\ncommit: none\nnote: n\n'}
+        close = ['feedback', '--close', '20261003-repo-a', 'abc123', 'fixed in\ntwo lines']
+        cases = {
+            'an empty inbox': dict(args=['feedback', '--inbox']),
+            'three reports of different ages': dict(args=['feedback', '--inbox'], statefiles=two, stateages={'pstack/feedback/inbox/20261002-repo-c.md': 7200 * 30}),
+            'a report that is also in done is not listed': dict(args=['feedback', '--inbox'], statefiles=done_copy),
+            'closing a report': dict(args=close, statefiles=with_done(inbox('20261003-repo-a'))),
+            'closing with no done directory': dict(args=close, statefiles=inbox('20261003-repo-a')),
+            'closing with the .md suffix and none': dict(args=['feedback', '--close', '20261003-repo-a.md', 'none', 'n'], statefiles=with_done(inbox('20261003-repo-a'))),
+            'closing twice': dict(args=close, statefiles=done_copy),
+            'an unknown id': dict(args=close),
+            'close with too few arguments': dict(args=['feedback', '--close', 'x', 'none']),
+            'close with too many arguments': dict(args=close + ['x']),
+            'a stale lock is taken over on close': dict(args=close, statefiles=with_done(inbox('20261003-repo-a')), statelocks={'pstack/feedback/.lock': 300}),
+        }
+        out = self.phase4_cases('fbinbox', cases)
+        self.assertIn('feedback inbox: empty', out['an empty inbox']['stdout'])
+        rows = out['three reports of different ages']['stdout'].splitlines()
+        self.assertEqual(len(rows), 3, rows)
+        self.assertIn('closed: 20261003-repo-a (commit abc123)', out['closing a report']['stdout'])
+        self.assertIn('already closed: 20261003-repo-a', out['closing twice']['stdout'])
+        self.assertEqual(out['an unknown id']['rc'], 1)
+
+    def test_a_held_feedback_lock_ends_the_command_as_the_bash_does_after_a_hundred_tries(self):
+        """The one test that waits: the lock is fresh, so neither side takes it, and each gives up after 100 tries at 0.1 s (about ten seconds)."""
+        out = self.phase4_cases('fblock', {'a held lock': dict(args=['feedback', '--close', 'x', 'none', 'n'], statefiles={'pstack/feedback/inbox/x.md': 'x\n'},
+                                                                 statelocks={'pstack/feedback/.lock': 1})})
+        self.assertRegex(out['a held lock']['stderr'], r'the feedback inbox is locked \(<T>/state/pstack/feedback/\.lock\)')
+
+    def test_the_python_feedback_lock_is_the_bash_lock(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import feedback
+        fb = self.path / 'lockfb'
+        fb.mkdir()
+        # a lock the bash holds (mkdir): Python waits on it, then takes it when it goes, with the tries and delay the bash has
+        (fb / '.lock').mkdir()
+        slept = []
+
+        def release(delay):
+            slept.append(delay)
+            if len(slept) == 3:
+                (fb / '.lock').rmdir()
+
+        feedback.fb_lock(str(fb), sleep=release)
+        self.assertEqual(slept, [0.1, 0.1, 0.1])
+        self.assertTrue((fb / '.lock').is_dir())
+        # the lock Python holds blocks the bash: its function, cut out of the base kitchen.sh, makes no progress
+        base_text = (self.phase4_skills() / 'pstack-kitchen/scripts/kitchen.sh').read_text()
+        lock_fn = re.search(r'(?m)^fb_lock\(\) \{.*?^\}$', base_text, re.S).group(0)
+        blocked = subprocess.run(['timeout', '1', 'bash', '-c', f'die() {{ echo "$1" >&2; exit 1; }}\n{lock_fn}\nfb_lock {fb}; echo got'],
+                                 capture_output=True, text=True, check=False)
+        self.assertEqual((blocked.returncode, blocked.stdout), (124, ''))
+        # an old lock (over a minute) is taken over by both rules: the same age test
+        os.utime(fb / '.lock', (time.time() - 300, time.time() - 300))
+        feedback.fb_lock(str(fb), tries=1, sleep=lambda delay: self.fail('slept on a stale lock'))
+        # and gives up on the hundredth failure after ninety-nine waits
+        fresh = []
+        (fb / '.lock').rmdir() if (fb / '.lock').exists() else None
+        (fb / '.lock').mkdir()
+        with self.assertRaises(Exception) as caught:
+            feedback.fb_lock(str(fb), sleep=fresh.append)
+        self.assertEqual((len(fresh), caught.exception.message), (99, f'the feedback inbox is locked ({fb}/.lock)'))
+
+    def test_maintainer_matches_the_bash_at_the_phase_4_base(self):
+        live = dict(agents={'mt': 'idle claude'}, panes={'p7': 'mt'})
+        registered = {'pstack/feedback/maintainer.json': self.MAINTAINER_JSON}
+        cases = {
+            'on with --pane': dict(args=['maintainer', 'on', '--pane', 'p7'], **live),
+            'on with the pane of the shell': dict(args=['maintainer', 'on'], **live, env={'HERDR_PANE_ID': 'p7'}),
+            'on again replaces the registration': dict(args=['maintainer', 'on', '--pane', 'p7'], **live, statefiles={'pstack/feedback/maintainer.json': self.MAINTAINER_JSON.replace('mt', 'old')}),
+            'on without herdr': dict(args=['maintainer', 'on', '--pane', 'p7'], **live, noenv=True),
+            'on with no pane': dict(args=['maintainer', 'on'], **live, env={'HERDR_PANE_ID': ''}),
+            'on with an unknown option': dict(args=['maintainer', 'on', '--bogus']),
+            'on for a pane with no agent': dict(args=['maintainer', 'on', '--pane', 'p9'], **live),
+            'off': dict(args=['maintainer', 'off'], statefiles=registered),
+            'off with none': dict(args=['maintainer', 'off']),
+            'status with none': dict(args=['maintainer', 'status']),
+            'status live': dict(args=['maintainer', 'status'], **live, statefiles=registered),
+            'status gone': dict(args=['maintainer', 'status'], statefiles=registered),
+            'status moved': dict(args=['maintainer', 'status'], agents={'mt': 'idle claude'}, panes={'p9': 'mt'}, statefiles=registered),
+            'status blocked': dict(args=['maintainer', 'status'], agents={'mt': 'blocked claude'}, panes={'p7': 'mt'}, statefiles=registered),
+            'status with another session': dict(args=['maintainer', 'status'], **live, statefiles={'pstack/feedback/maintainer.json': self.MAINTAINER_JSON.replace('null', '"other"')}),
+            'no arguments': dict(args=['maintainer']),
+            'an unknown subcommand': dict(args=['maintainer', 'stop']),
+        }
+        out = self.phase4_cases('maint', cases)
+        self.assertIn('maintainer: mt on p7', out['on with --pane']['stdout'])
+        self.assertIn('"session": null', out['on with --pane']['state']['pstack/feedback/maintainer.json'])
+        self.assertIn('maintainer: mt on p7 since <TS>: live', out['status live']['stdout'].replace('2026-10-01T10:00:00Z', '<TS>'))
+        self.assertEqual(out['on for a pane with no agent']['rc'], 1)
 
     def test_kitchen_spawn_matches_the_bash_at_the_phase_3_base(self):
         """kitchen.sh `spawn` (its bash wrapper over the captured pair command) at 04d2c13 and at the working tree, on the fake herdr: the roster's
@@ -6678,7 +6836,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
              'busy_command', 'agent_session_error', 'muse_session_error', 'prime_role_error',
              'record_prime_session', 'require_not_paused',
              'require_fresh_session', 'submit_typed',
-             'iso_epoch', 'in_herdr', 'latest_advice', 'detect_permission_mode',
+             'in_herdr', 'latest_advice', 'detect_permission_mode',
              'permission_args', 'trust_args', 'mcp_args', 'has_mcp_arg', 'has_trust_arg', 'has_permission_arg', 'has_preflight', 'preflight_kind',
              'pick_direction', 'new_pane', 'refuse_untrusted', 'await_file')
     TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest', 'detect_permission_mode': 'detect'}
@@ -6739,7 +6897,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
     # commands the scripts call that a host may lack: column (kitchen.sh :1867, retro's table), setsid (pair-core.sh :212, the detach, which falls
     # back to perl) and perl (kitchen.sh :131 and :133, the brief header edits, and :1068, a verifier-outcome edit; consultant-core.sh :199 and :230;
     # the setsid fallback in pair-core.sh :215; and prime.py's timeout where coreutils has no timeout(1), which is Python, not bash, so not scanned)
-    OPTIONAL_HOST_COMMANDS = frozenset(('column', 'perl', 'setsid'))
+    OPTIONAL_HOST_COMMANDS = frozenset(('perl', 'setsid'))
 
     def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
         reach = self.reach()

@@ -77,6 +77,13 @@ def counters(store):
     return json.loads(out)
 
 
+def retro_line(store, c):
+    """The one-line count of a run: units reported and verified, first-try verdicts, wakes, escalations, failovers."""
+    return (f'run {slug_of(store)}: {json.dumps(c["done_units"])} unit reports, {json.dumps(c["verified_units"])} verified units '
+            f'({json.dumps(c["clean_first_try"])} clean verdicts on the first try), {json.dumps(c["wakes"])} master wakes, '
+            f'{json.dumps(c["escalations"])} escalations, {json.dumps(c["failovers"])} failovers')
+
+
 def repeated_rows(ledger):
     """The awk over the ledger: classes seen twice or more, "count layer-ish area in N runs", sorted as `sort -rn` does."""
     count, seen, runs = {}, set(), {}
@@ -117,9 +124,7 @@ def retro(ctx, args):
         raise Exit(rc)
     c = counters(store)
     out = sys.stdout
-    out.write(f'run {slug_of(store)}: {json.dumps(c["done_units"])} unit reports, {json.dumps(c["verified_units"])} verified units '
-              f'({json.dumps(c["clean_first_try"])} clean verdicts on the first try), {json.dumps(c["wakes"])} master wakes, '
-              f'{json.dumps(c["escalations"])} escalations, {json.dumps(c["failovers"])} failovers\n')
+    out.write(retro_line(store, c) + '\n')
     if c['verified_units'] != 0:
         out.write(f'master wakes per verified unit: {c["wakes"] / c["verified_units"]:.1f}\n')
     out.write('repeated across runs (the kitchen should catch these, not the master):\n')

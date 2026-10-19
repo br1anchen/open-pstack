@@ -204,9 +204,6 @@ file_mtime() {
 
 # Epoch seconds of a UTC stamp as the store writes them
 # (date -u +%Y-%m-%dT%H:%M:%SZ). jq parses it, since BSD date has no -d.
-iso_epoch() {
-	jq -rn --arg t "$1" '$t | fromdateiso8601'
-}
 
 # setsid(1) where util-linux has it. macOS ships none, so perl starts the
 # command in a session of its own.
