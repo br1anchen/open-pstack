@@ -33,6 +33,7 @@ import bash_reach  # noqa: E402
 LEGACY = 'd06a932'
 BASE = 'e6e83e3'
 PHASE3 = '04d2c13'
+PHASE4 = 'b632713'
 
 
 def die_prints_only_its_message(skills_dir):
@@ -374,6 +375,20 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             die_prints_only_its_message(Path(tmp.name) / 'skills')
             cls._phase3 = Path(tmp.name) / 'skills'
         return cls._phase3
+
+    def phase4_skills(self):
+        """skills/ as it was at PHASE4, the oracle for kitchen.sh's own commands (catch, retro, new-handoff, then the rest as they are ported)."""
+        cls = type(self)
+        if cls.__dict__.get('_phase4') is None:
+            tmp = tempfile.TemporaryDirectory()
+            self.addClassCleanup(tmp.cleanup)
+            git = subprocess.run(['git', '-C', str(root), 'archive', PHASE4, 'skills'], capture_output=True, check=False, timeout=120)
+            if git.returncode != 0:
+                raise unittest.SkipTest(f'{PHASE4} is not in this checkout')
+            subprocess.run(['tar', '-x', '-C', tmp.name], input=git.stdout, check=True, timeout=120)
+            # no die patch: PHASE4 comes after unit 006, so its `die` already prints only its message
+            cls._phase4 = Path(tmp.name) / 'skills'
+        return cls._phase4
 
     def init_run(self, label, skills, skill, spec):
         """`init` in a world with no store, then the spec's `then` step in the same world: the outputs of each run, and everything the runs left
@@ -3402,6 +3417,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a bootstrap that returns 3': run('--kind', 'claude', promptfail=True),
             'a fallback that returns 4': {**run('--kind', 'pi', '--fallback', 'devin', fake={'pi-fail': 'quota exhausted\n'}), 'hook': None, **quiet},
         }
+
+    def test_phase4_skills_extracts_the_kitchen_oracle(self):
+        script = self.phase4_skills() / 'pstack-kitchen/scripts/kitchen.sh'
+        self.assertTrue(script.is_file())
+        self.assertIn('claim_close()', script.read_text())
 
     def test_a_prime_spawn_over_a_sidekick_that_is_not_an_object_matches_the_bash_at_the_phase_3_base(self):
         """D27, Prime. `spawn --kind prime-agent` over a `.sidekick` that is a string, an array or false reaches spawn.py's Prime jq program and

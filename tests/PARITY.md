@@ -11,6 +11,7 @@ oracle for what, and lists every difference from the bash that was accepted, wit
 | d06a932 | phase 1: the helpers and the first ported commands | the original `bash()` harness against the tree it was cut from |
 | e6e83e3 | phase 2: wait, finish, notify, report, next, queue, step, dispatch, discuss, the plan gates, `report_ready`, `steps_due`, `open_notes` | `base_skills()` extracts `skills/` at that commit; `DELETED_BASH` names the helpers whose bash is gone from HEAD, and `bash()` runs any snippet that names one against this tree, asserting the tree defines it |
 | 04d2c13 | phase 3: init, permission, stop, steer, answer, spawn, rotate, failover, the pane helpers, `spawn_role`, the preflights, `stop_prime_role` | `phase3_skills()`; `phase3_ab()` and `leaf_both()` run a world through 04d2c13's script and the working tree's and compare stdout, stderr, status, the store, events.tsv rows and calls.log |
+| b632713 | phase 4: kitchen.sh's own commands (catch, retro, new-handoff in unit 022; the rest as later units port them) | `phase4_skills()` extracts `skills/` at that commit (no `die` patch: the commit is after unit 006); `phase4_ab()` runs a world through b632713's `kitchen.sh` and the working tree's and compares stdout, stderr, status, the store, events.tsv rows and calls.log |
 
 A test that drives deleted bash always reads it from one of these trees, never from HEAD, and a comparison is never replaced by a literal where a
 base can still run.
