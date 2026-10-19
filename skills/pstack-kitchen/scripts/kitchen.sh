@@ -930,8 +930,8 @@ fence_for() {
 # spelled out, $2 appears not inside a longer path and is followed by /, space, a quote, ), ;, &, | or the end.
 names_path() {
 	local text="$1" path="$2" quoted
-	text="$(printf '%s' "$text" | sed -E "s#(^|[[:space:]=:\"'(])(~|\\\$HOME|\\\$\\{HOME\\})/#\\1$HOME/#g")"
-	quoted="$(printf '%s' "$path" | sed 's/[][\.*^$/+?(){}|]/\\&/g')"
+	text="$(printf '%s' "$text" | sed -E "s#(^|[[:space:]=:\"'(])(~|\\\$HOME|\\\$\\{HOME\\}|\"\\\$HOME\"|\"\\\$\\{HOME\\}\")/#\\1$HOME/#g")"
+	quoted="$(printf '%s' "$path" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
 	printf '%s\n' "$text" | grep -qE "(^|[^A-Za-z0-9_./-])${quoted}(/|[[:space:]\"'\`);&|]|\$)"
 }
 
@@ -1646,12 +1646,12 @@ still_my_claim() {
 
 # Runs close_verifier (arguments as it takes them) in a subshell so that a die inside it, the Prime cleanup
 # failing, cannot leave this process's claim behind: the claim is released and the same status returned.
-# A return of 1 is "not ours to close" (closed elsewhere). $1 is the store, $5 the verdict.
+# close_verifier's own status 70 is "not ours to close" (closed elsewhere); any other nonzero status is a die. $1 is the store, $5 the verdict.
 run_close() {
 	local rc=0
 	( close_verifier "$@" ) || rc=$?
 	[ "$rc" -eq 0 ] && return 0
-	[ "$rc" -eq 1 ] && return 1
+	[ "$rc" -eq 70 ] && return 1
 	if my_claim "$1"; then
 		release_close "$1" "$5" "$(field "$1" '.verifying.closing.token // empty')"
 	fi
@@ -1659,12 +1659,12 @@ run_close() {
 }
 
 # Stops the open verification's verifier, closes its pane and removes its scratch,
-# unless .verifying no longer names the verification with verdict $5 or another call claimed it.
+# unless .verifying no longer names the verification with verdict $5 or another call claimed it (status 70).
 close_verifier() {
 	local store="$1" name="$2" kind="$3" pane="$4" gone scratch
 	# Of two closers only the first to claim the verification closes it; while it holds the claim nothing can
 	# replace the verification, so the pane and scratch below are its own.
-	claim_close "$store" "${5:-}" || return 1
+	claim_close "$store" "${5:-}" || return 70
 	scratch="$(field "$store" .verifying.scratch)"
 	if [ "$kind" = prime-agent ]; then
 		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5

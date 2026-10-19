@@ -3333,7 +3333,7 @@ esac
 
     def set_close_claim(self, token):
         state = self.state()
-        state['verifying']['closing'] = {'token': token}
+        state['verifying']['closing'] = {'token': token, 'at': int(time.time())}
         (self.store / 'pair.json').write_text(json.dumps(state))
 
     def test_a_cancel_while_a_live_process_holds_the_close_claim_prints_no_cancelled_and_changes_nothing(self):
@@ -3348,12 +3348,26 @@ esac
         self.assertEqual(self.state()['verifying']['verdict'], first['verdict'])
         self.assertNotIn(f'pane close {pane}', (self.fake / 'calls.log').read_text())
 
+    def test_a_die_with_status_1_inside_the_close_releases_the_claim(self):
+        """A scratch id that cannot be removed ends the close with status 1 after the claim is taken; that is a die, not "closed elsewhere", so
+        the claim goes and the next call is not left waiting on it."""
+        self.env['KITCHEN_VERIFIER_EXIT_S'] = '1'
+        self.open_slow_verification()
+        state = self.state()
+        state['verifying']['scratch'] = 'not a scratch id'
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        out = self.run_sh('verify', str(self.store), '--cancel', code=1)
+        self.assertNotIn('another call closed it', out)
+        self.assertNotIn('closing', self.state()['verifying'])
+
     def test_a_close_claim_from_another_host_is_never_taken_over(self):
         self.open_slow_verification()
         self.set_close_claim('elsewhere.example:1:held')
         self.assertIn('another call closed it', self.run_sh('verify', str(self.store), '--cancel', code=5))
 
     def test_a_close_claim_whose_process_is_gone_is_taken_over_at_once(self):
+        """The claim is fresh (written now): only the dead process, not its age, lets it be taken over. Fails on unit 017's claim_close,
+        which took over only a claim older than two minutes."""
         self.env.update({'KITCHEN_VERIFIER_EXIT_S': '1', 'HOSTNAME': 'claimhost'})
         first = self.open_slow_verification()
         gone = subprocess.Popen(['true'])
@@ -3606,10 +3620,11 @@ esac
         home = self.tmp.name
         repo_rel, store_rel = os.path.relpath(self.repo, home), os.path.relpath(self.store, home)
         commands = [f'cd {self.repo} && python3 tests/run.py', f'pytest "{self.repo}"', f'python3 {self.repo}/tools/check.py',
-                    f'cat {self.store}/standing-orders.md', f'cat ~/{store_rel}/x', f'cat $HOME/{store_rel}/x', f'cat ${{HOME}}/{repo_rel}/x',
+                    f'cat {self.store}/standing-orders.md', f'cat ~/{store_rel}/x', f'cat $HOME/{store_rel}/x', f'cat ${{HOME}}/{repo_rel}/x', f'cat "$HOME"/{store_rel}/x', f'cat "${{HOME}}"/{repo_rel}/x',
                     f'sh {self.repo}/.git/hooks/x', f'x {self.repo};y']
         own = ['/usr/bin/env python3 x.py', 'ls /tmp/x', f'echo /other{self.repo}/y']
-        _, packet = self.packet_with_verify('```bash\n' + '\n'.join(commands + own) + '\n```')
+        out, packet = self.packet_with_verify('```bash\n' + '\n'.join(commands + own) + '\n```')
+        self.assertNotIn('grep:', out)
         shown, _, apart = packet.partition('not for the verifier:')
         for c in commands:
             self.assertIn(f'(absolute path)\n```bash\n{c}\n```', apart, c)
