@@ -966,22 +966,30 @@ brief_commands() {
 	[ -z "$apart" ] || printf 'not for the verifier:\n\n%s' "$apart"
 }
 
+# Whether a unit is covered by a landing range: its head is in base..head (an ancestor of the head and not
+# of the base), or its commits were rebased into it (unit_rebased_in). Sets rebased_sha to the stack commit
+# for a rebased unit and to nothing otherwise. $1 store, $2 brief, $3 unit head, $4 base, $5 head.
+unit_in_landing_range() {
+	local root
+	root="$(field "$1" .git_root)"
+	rebased_sha="" rebased_why="" rebased_by=""
+	[ -n "$3" ] || return 1
+	if git -C "$root" merge-base --is-ancestor "$3" "$5" 2>/dev/null; then
+		! git -C "$root" merge-base --is-ancestor "$3" "$4" 2>/dev/null
+		return
+	fi
+	unit_rebased_in "$1" "$2" "$3" "$4" "$5"
+}
+
 # The done unit briefs a landing range holds: those whose head is in base..head, or whose commits
 # were rebased into it (the test land-check's `covered:` uses). A unit landed before the base is out.
 # $1 store, $2 base, $3 head.
 landing_covered_briefs() {
-	local root b uhead
-	root="$(field "$1" .git_root)"
+	local b
 	for b in "$1"/briefs/[0-9][0-9][0-9]-*.md; do
 		[ -e "$b" ] && [ "$(header_field "$(expected_report "$1" "$b")" status 2>/dev/null)" = "done" ] || continue
 		is_landing "$b" && continue
-		uhead="$(unit_head "$1" "$b")"
-		[ -n "$uhead" ] || continue
-		if git -C "$root" merge-base --is-ancestor "$uhead" "$3" 2>/dev/null; then
-			git -C "$root" merge-base --is-ancestor "$uhead" "$2" 2>/dev/null && continue
-		elif ! unit_rebased_in "$1" "$b" "$uhead" "$2" "$3"; then
-			continue
-		fi
+		unit_in_landing_range "$1" "$b" "$(unit_head "$1" "$b")" "$2" "$3" || continue
 		printf '%s\n' "$b"
 	done
 }
@@ -2074,7 +2082,9 @@ landing_unmatched_note() {
 	local root ubase
 	root="$(field "$1" .git_root)"
 	ubase="$(jq -r --arg u "$(basename "$3" .md)" '.heads[$u] // empty' "$1/pair.json")"
-	if [ "$rebased_why" = merge ]; then
+	if [ -n "$6" ] && git -C "$root" merge-base --is-ancestor "$4" "$6" 2>/dev/null; then
+		printf 'land-check: note: unit %s landed before the base of landing verdict %s; verify it on its own\n' "$2" "$5"
+	elif [ "$rebased_why" = merge ]; then
 		printf 'land-check: note: unit %s'"'"'s range holds a merge commit, so patch-ids do not cover it; verify --landing covers it\n' "$2"
 	elif [ "$rebased_why" = reverted ]; then
 		printf 'land-check: note: unit %s'"'"'s commits match by patch-id but %s reverts them\n' "$2" "${rebased_by:0:9}"
@@ -2134,14 +2144,14 @@ land_check() {
 		done
 		if [ -z "$verdict" ] && [ -n "$landing_head" ]; then
 			uhead="$(unit_head "$store" "$brief")"
-			if [ -n "$uhead" ] && git -C "$(field "$store" .git_root)" merge-base --is-ancestor "$uhead" "$landing_head" 2>/dev/null; then
-				verdict="$landing_verdict"
-				printf 'covered: unit %s by the clean landing verdict %s\n' "$seq" "$landing_verdict"
-			elif [ -n "$uhead" ]; then
-				# A unit rebased into the stack has other shas but the same patches.
-				if unit_rebased_in "$store" "$brief" "$uhead" "$landing_base" "$landing_head"; then
+			if [ -n "$uhead" ]; then
+				if unit_in_landing_range "$store" "$brief" "$uhead" "$landing_base" "$landing_head"; then
 					verdict="$landing_verdict"
-					printf 'covered: unit %s (rebased as %s) by the clean landing verdict %s\n' "$seq" "${rebased_sha:0:9}" "$landing_verdict"
+					if [ -n "$rebased_sha" ]; then
+						printf 'covered: unit %s (rebased as %s) by the clean landing verdict %s\n' "$seq" "${rebased_sha:0:9}" "$landing_verdict"
+					else
+						printf 'covered: unit %s by the clean landing verdict %s\n' "$seq" "$landing_verdict"
+					fi
 				else
 					landing_unmatched_note "$store" "$seq" "$brief" "$uhead" "$landing_verdict" "$landing_base" "$landing_head"
 				fi

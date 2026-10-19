@@ -3692,6 +3692,32 @@ esac
         out = self.run_sh('verify', str(self.store), '--landing', '--every', '0')
         self.assertIn('deadline +10m for the landing gates of app: 3 x 0m measured, 1 unmeasured at 10m each; now 55m', out)
 
+    def test_a_unit_landed_before_the_landing_base_is_neither_in_the_stack_nor_covered_by_the_landing_verdict(self):
+        """One test decides both: land-check's `covered:` and the packet's Stack call the same function."""
+        for n, slug in ((1, 'util'), (2, 'next')):
+            b = self.brief(f'00{n}', slug, ['src/**', 'tests/**'])
+            self.dispatch(b)
+            self.write(f'src/mod{n}.py', f'X = {n}\n')
+            self.write(f'tests/test_mod{n}.py', f'x = {n}\n')
+            head = self.commit(slug)
+            self.done(b, head)
+            (self.store / f'reviews/00{n}-{slug}.md').write_text('verdict: accept\n')
+            if n == 1:
+                landed = head
+                self.git('update-ref', 'refs/remotes/origin/main', landed)
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {landed[:9]}..{head[:9]}\n')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertNotIn('covered: unit 001', out)
+        self.assertIn(f'land-check: note: unit 001 landed before the base of landing verdict {landing}; verify it on its own', out)
+        self.assertIn('unverified: unit 001', out)
+        self.assertIn(f'covered: unit 002 by the clean landing verdict {landing}', out)
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--every', '0')
+        stack = (self.store / 'verdicts/landing-v2-packet.md').read_text().split('## Stack')[1].split('## Goals')[0]
+        self.assertIn('002-next.md', stack)
+        self.assertNotIn('001-util.md', stack)
+
     def test_a_landing_packet_holds_each_covered_briefs_goal(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)

@@ -202,7 +202,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    wins for the call) and is recorded only once the scratch worktree exists,
    `--parent none` clears it, and land-check reports a recorded parent that is
    no longer an ancestor of HEAD. The landing packet's `Stack` and `Goals` hold only the units the range
-   contains (not one landed before its base). `verify --landing --head REV` proves that commit or branch
+   contains, and land-check's `covered:` uses the same test: a unit landed before
+   the verdict's base is neither (`land-check: note: unit NNN landed before the
+   base of landing verdict ...; verify it on its own`). `verify --landing --head REV` proves that commit or branch
    instead of HEAD (the scratch checks out REV, the base comes from the same
    rule against REV, and the verdict's `range:` ends at REV); land-check
    counts that verdict for the units whose heads, or patch-ids, it holds. A unit rebased or cherry-picked into the stack counts as
