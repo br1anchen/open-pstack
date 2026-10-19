@@ -151,6 +151,6 @@ def _kitchen_command(module, function):
 
 KitchenVariant.commands = {**KitchenVariant.commands, 'catch': _kitchen_command('ledger', 'catch'), 'retro': _kitchen_command('ledger', 'retro'),
                            'new-handoff': _kitchen_command('handoff', 'new_handoff'), 'feedback': _kitchen_command('feedback', 'feedback'),
-                           'maintainer': _kitchen_command('feedback', 'maintainer')}
+                           'maintainer': _kitchen_command('feedback', 'maintainer'), 'close': _kitchen_command('master', 'close')}
 
 VARIANT = KitchenVariant

@@ -520,7 +520,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'feedback', 'maintainer', 'new-handoff', 'retro', 'stop')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'close', 'feedback', 'maintainer', 'new-handoff', 'retro', 'stop')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -3728,6 +3728,45 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('"session": null', out['on with --pane']['state']['pstack/feedback/maintainer.json'])
         self.assertIn('maintainer: mt on p7 since <TS>: live', out['status live']['stdout'].replace('2026-10-01T10:00:00Z', '<TS>'))
         self.assertEqual(out['on for a pane with no agent']['rc'], 1)
+
+    CLOSE_ROLES = {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}, 'consultant': {'name': 'c1', 'pane_id': 'p2', 'kind': 'codex'},
+                   'sidekick': {'name': 's1', 'pane_id': 'p1', 'kind': 'claude'}}
+
+    def test_close_matches_the_bash_at_the_phase_4_base(self):
+        live = dict(agents={'v1': 'idle claude', 'c1': 'idle codex', 's1': 'idle claude'}, panes={'p1': 's1', 'p2': 'c1', 'p3': 'v1'}, pair={**self.CLOSE_ROLES, 'slug': 'demo'})
+        with_roles = lambda **roles: {**live, 'pair': {**live['pair'], **roles}}
+        run = ['close', '{st}']
+        cases = {
+            'an idle run closes verifier, consultant and sidekick': dict(live, args=run),
+            'an open verification refuses': dict(with_roles(verifying={'verdict': '{st}/verdicts/x.md', 'units': '001'}), args=run),
+            'an open verification and --force': dict(with_roles(verifying={'verdict': '{st}/verdicts/x.md', 'units': '001'}), args=run + ['--force']),
+            'a working sidekick refuses': dict(live, agents={**live['agents'], 's1': 'working claude'}, args=run),
+            'a working sidekick and --force': dict(live, agents={**live['agents'], 's1': 'working claude'}, args=run + ['--force']),
+            'a role with no pane is skipped': dict(with_roles(consultant={'name': 'c1', 'kind': 'codex'}), args=run),
+            'a pane already gone': dict(live, agents={'s1': 'idle claude'}, args=run),
+            'a role already closed is skipped': dict(with_roles(verifier={**self.CLOSE_ROLES['verifier'], 'closed': True}), args=run),
+            'a consultant that is a string': dict(with_roles(consultant='c1'), args=run),
+            'a verifier that is an array': dict(with_roles(verifier=[1]), args=run),
+            'a sidekick that is false': dict(with_roles(sidekick=False), args=run),
+            'a verifying that is a string': dict(with_roles(verifying='x'), args=run),
+            'a Prime role with a session': dict(with_roles(verifier={**self.CLOSE_ROLES['verifier'], 'kind': 'prime-agent', 'session': {'kind': 'path', 'value': '/t/v.jsonl'}}),
+                                                  args=run + ['--force']),
+            '--force is only read as the second argument': dict(live, args=['close', '--force', '{st}']),
+            'a third argument is ignored': dict(live, args=run + ['--force', 'x']),
+            'no arguments': dict(args=['close']),
+            'no pair.json': dict(args=run, nopair=True),
+            'outside herdr': dict(live, args=run, noenv=True),
+        }
+        out = self.phase4_cases('close', cases)
+        idle = out['an idle run closes verifier, consultant and sidekick']
+        self.assertEqual(idle['rc'], 0, idle['stderr'])
+        self.assertEqual(idle['stdout'].splitlines(), ['closed verifier v1 (p3)', 'closed consultant c1 (p2)', 'closed sidekick s1 (p1)'])
+        self.assertEqual(out['an open verification refuses']['rc'], 5)
+        self.assertIn('a verification is open (001)', out['an open verification refuses']['stderr'])
+        self.assertEqual(out['a working sidekick refuses']['rc'], 5)
+        self.assertEqual(out['an open verification and --force']['rc'], 0)
+        self.assertIn('Cannot index string with string', out['a consultant that is a string']['stderr'])
+        self.assertNotIn('closed consultant', out['a consultant that is a string']['stdout'])
 
     def test_kitchen_spawn_matches_the_bash_at_the_phase_3_base(self):
         """kitchen.sh `spawn` (its bash wrapper over the captured pair command) at 04d2c13 and at the working tree, on the fake herdr: the roster's

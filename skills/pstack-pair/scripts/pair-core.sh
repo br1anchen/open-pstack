@@ -481,43 +481,6 @@ preflight_kind() { pycore __preflight_kind "$@"; }
 
 exit_command() { pycore __exit_command "$@"; }
 
-# Ends a role's agent and closes its pane, for a run that is over: the exit
-# command, then up to fifteen seconds for the agent to go (a Claude asking
-# what to do with its background tasks is told to stop them and exit). The
-# pane closes only once the agent is gone; an agent that stays keeps its pane
-# and the function returns 1. A role never spawned, or already closed, is
-# skipped.
-close_role() {
-	local store="$1" role="$2" name pane kind deadline
-	name="$(field "$store" ".$role.name // empty")"
-	pane="$(field "$store" ".$role.pane_id // empty")"
-	[ -n "$name" ] && [ -n "$pane" ] || return 0
-	[ "$(field "$store" ".$role.closed // false")" != true ] || return 0
-	kind="$(field "$store" ".$role.kind // empty")"
-	if [ "$kind" = prime-agent ]; then
-		stop_prime_role "$store" "$role" || return 1
-	fi
-	if [ "$(agent_status "$name")" != absent ]; then
-		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
-		deadline=$(( $(date +%s) + 15 ))
-		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$deadline" ]; do
-			if grep -qi 'move to background and exit' <<<"$(pane_text "$name")"; then
-				herdr agent send-keys "$name" 1 >/dev/null 2>&1 || true
-				herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
-			fi
-			sleep 1
-		done
-	fi
-	if [ "$(agent_status "$name")" != absent ]; then
-		printf '%s %s did not exit; its pane %s stays open\n' "$role" "$name" "$pane" >&2
-		return 1
-	fi
-	herdr pane close "$pane" >/dev/null 2>&1 || true
-	json_update "$store" --arg r "$role" '.[$r].closed = true'
-	event "$store" master close - "$role:$kind"
-	printf 'closed %s %s (%s)\n' "$role" "$name" "$pane"
-}
-
 cmd_failover() { pycore --exec failover "$@"; }
 
 cmd_rotate() { pycore --exec rotate "$@"; }

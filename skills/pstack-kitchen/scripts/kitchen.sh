@@ -2215,21 +2215,7 @@ cmd_catch() { pycore catch "$@"; }
 # A finished run's agents hold their memory until someone closes them (about
 # a gigabyte per run on this host, idle for days). The master asks the human
 # once after the retro; this is the yes.
-cmd_close() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: kitchen.sh close <store> [--force]"
-	local store="$1" force=0 role rc=0
-	[ "${2:-}" != --force ] || force=1
-	pair_file "$store" >/dev/null
-	if [ "$force" -eq 0 ]; then
-		[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "a verification is open ($(field "$store" '.verifying.units')); finish it (kitchen.sh verify $store --wait) or pass --force" 5
-		[ "$(agent_status "$(field "$store" .sidekick.name)")" != working ] || die "the sidekick is working; kitchen.sh stop $store first, or pass --force" 5
-	fi
-	for role in verifier consultant sidekick; do
-		close_role "$store" "$role" || rc=1
-	done
-	[ "$rc" -eq 0 ] || exit 5
-}
+cmd_close() { pycore close "$@"; }
 
 # The master's own session grows with every diff and file it reads, and
 # every model call re-reads all of it: on this host a master that served
