@@ -2242,42 +2242,7 @@ cmd_rotate_master() { pycore rotate-master "$@"; }
 # The new master's first command after a hand-over: give the old master a
 # moment to end its turn, close its pane (and with it any background waits it
 # left running), and take back the run's master name. Safe to repeat.
-cmd_take_master() {
-	in_herdr
-	[ $# -eq 1 ] || die "usage: kitchen.sh take-master <store>"
-	local store="$1" name pane prev prev_pane host base deadline closed=kept
-	pair_file "$store" >/dev/null
-	name="$(field "$store" .master.name)"
-	pane="$(field "$store" .master.pane_id)"
-	prev="$(field "$store" '.master.previous.name // empty')"
-	[ -n "$prev" ] || { printf 'no hand-over open; %s is the master in %s\n' "$name" "$pane"; return 0; }
-	[ "${HERDR_PANE_ID:-}" = "$pane" ] || die "take-master runs from the new master's pane $pane, not ${HERDR_PANE_ID:-an unknown pane}" 5
-	prev_pane="$(field "$store" .master.previous.pane_id)"
-	deadline=$(( $(date +%s) + ${KITCHEN_TAKEOVER_WAIT_S:-30} ))
-	while [ "$(agent_status "$prev")" = working ] && [ "$(date +%s)" -lt "$deadline" ]; do
-		sleep "${KITCHEN_ROTATE_POLL_S:-2}"
-	done
-	# Close the pane only while it still holds the old master, or nothing.
-	host="$(herdr agent get "$prev_pane" 2>/dev/null | jq -r '.result.agent.name // empty' 2>/dev/null || true)"
-	if ! herdr pane get "$prev_pane" >/dev/null 2>&1; then
-		closed=gone
-	elif [ -z "$host" ] || [ "$host" = "$prev" ]; then
-		herdr pane close "$prev_pane" >/dev/null 2>&1 && closed=closed
-	fi
-	base="$(field "$store" .slug)-master"
-	if [ "$name" != "$base" ] && herdr agent rename "$pane" "$base" >/dev/null 2>&1; then
-		name="$base"
-	fi
-	json_update "$store" --arg n "$name" '.master.name = $n | del(.master.previous)'
-	event "$store" master takeover - "generation:$(field "$store" .master.generation)"
-	case "$closed" in
-	closed) printf 'closed the old master %s (%s)\n' "$prev" "$prev_pane" ;;
-	gone) printf 'the old master pane %s is already gone\n' "$prev_pane" ;;
-	*) printf 'left pane %s open: it now holds %s, not the old master %s\n' "$prev_pane" "$host" "$prev" ;;
-	esac
-	printf 'master: %s in %s (generation %s)\n' "$name" "$pane" "$(field "$store" .master.generation)"
-	warn_unreviewed "$store"
-}
+cmd_take_master() { pycore take-master "$@"; }
 
 cmd_retro() { pycore retro "$@"; }
 

@@ -20,6 +20,7 @@ from pstack_core.spawn import field
 from pstack_core.store import event, pair_file, update, update_or_jq
 
 from .jqx import pair_jq
+from .reviews import warn_unreviewed
 
 
 def close_role(store, role):
@@ -216,4 +217,55 @@ def rotate_master(ctx, args):
     out.write(f'next master: {temp} (generation {next_gen}) in {new_pane_id}{", remote control on" if remote else ""}; it closes this pane with take-master\n')
     out.write(f'next: end your turn now, with no further commands, and act on no later prompt or task notification: generation {next_gen} owns the run. '
               f'Resume this session later with: claude --resume {session or "<id>"}\n')
+    return 0
+
+
+def take_master(ctx, args):
+    in_herdr()
+    if len(args) != 1:
+        raise Die('usage: kitchen.sh take-master <store>')
+    store = args[0]
+    pair_file(store)
+    name = field(store, 'master', 'name', check=True)
+    pane = field(store, 'master', 'pane_id', check=True)
+    prev = pair_jq(store, '.master.previous.name // empty', check=True)
+    if not prev:
+        sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
+        return 0
+    here = os.environ.get('HERDR_PANE_ID', '')
+    if here != pane:
+        raise Die(f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}", 5)
+    prev_pane = pair_jq(store, '.master.previous.pane_id', check=True)
+    deadline = int(time.time()) + int(os.environ.get('KITCHEN_TAKEOVER_WAIT_S') or 30)
+    while agent_status(prev) == 'working' and int(time.time()) < deadline:
+        time.sleep(float(os.environ.get('KITCHEN_ROTATE_POLL_S') or 2))
+    # Close the pane only while it still holds the old master, or nothing.
+    host = subprocess.run(['jq', '-r', '.result.agent.name // empty'], input=herdr('agent', 'get', prev_pane)[1].encode('utf-8', 'surrogateescape'),
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False).stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    closed = 'kept'
+    if herdr('pane', 'get', prev_pane)[0] != 0:
+        closed = 'gone'
+    elif not host or host == prev:
+        if herdr('pane', 'close', prev_pane)[0] == 0:
+            closed = 'closed'
+    base = f"{pair_jq(store, '.slug', check=True)}-master"
+    if name != base and herdr('agent', 'rename', pane, base)[0] == 0:
+        name = base
+
+    def mutate(doc):
+        doc['master']['name'] = name
+        doc['master'].pop('previous', None)
+
+    update_or_jq(store, mutate, '.master.name = $n | del(.master.previous)', '--arg', 'n', name)
+    event(store, 'master', 'takeover', '-', f"generation:{field(store, 'master', 'generation')}")
+    out = sys.stdout
+    if closed == 'closed':
+        out.write(f'closed the old master {prev} ({prev_pane})\n')
+    elif closed == 'gone':
+        out.write(f'the old master pane {prev_pane} is already gone\n')
+    else:
+        out.write(f'left pane {prev_pane} open: it now holds {host}, not the old master {prev}\n')
+    out.write(f"master: {name} in {pane} (generation {field(store, 'master', 'generation')})\n")
+    out.flush()
+    warn_unreviewed(store)
     return 0

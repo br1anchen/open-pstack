@@ -520,7 +520,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'close', 'feedback', 'maintainer', 'new-handoff', 'retro', 'rotate-master', 'stop')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'close', 'feedback', 'maintainer', 'new-handoff', 'retro', 'rotate-master', 'stop', 'take-master')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -3476,7 +3476,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def phase4_ab(self, label, spec):
         """One kitchen world run through b632713's kitchen.sh and the working tree's: (working tree, base), the two trees' paths masked."""
         bases = self.phase4_skills()
-        spec = {**spec, 'repo_files': {**spec.get('repo_files', {}), '.agents/kitchen.toml': self.KITCHEN_TOML}}
+        toml = self.KITCHEN_TOML + ('\n[review]\nengine = "joo"\n' if spec.get('review_engine') else '')
+        spec = {**spec, 'repo_files': {**spec.get('repo_files', {}), '.agents/kitchen.toml': toml}}
         want = self.ab_run(f'{label}-base', bases, 'pstack-kitchen', spec)
         got = self.ab_run(f'{label}-port', root / 'skills', 'pstack-kitchen', spec)
         for outcome, tag in ((want, 'base'), (got, 'port')):
@@ -3921,6 +3922,59 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(out['a master that is a string ends with the jq error']['rc'], 5)
         self.assertIn('(generation 4, session sess-1)', out['an unfinished rotation keeps its generation']['stdout'])
         self.assertIn('master-4-handoff.md', out['an unfinished rotation keeps its generation']['stdout'])
+
+    def test_take_master_matches_the_bash_at_the_phase_4_base(self):
+        prev = {'name': 'm1', 'pane_id': 'p0', 'session': 's'}
+        master = {'name': 'demo-master-g2', 'pane_id': 'p5', 'generation': 2, 'previous': prev}
+        world = lambda **extra: {**dict(args=['take-master', '{st}'], pair={'slug': 'demo', 'master': master}, panes={'p0': 'm1', 'p5': 'demo-master-g2'},
+                                        agents={'m1': 'idle claude', 'demo-master-g2': 'idle claude'}, env={'HERDR_PANE_ID': 'p5', 'KITCHEN_ROTATE_POLL_S': '0'}), **extra}
+        engine = dict(review_engine=True, files={'briefs/001-x.md': '# Brief\n\ncommit: yes\nplaybook: bug-fix\n', 'reviews/001-x.md': '# R\n\nverdict: accept\n'})
+        cases = {
+            'a previous master that is live': world(),
+            'a previous master that is gone but whose pane is there': world(agents={'demo-master-g2': 'idle claude'}),
+            'a previous pane that is already gone': world(panes={'p5': 'demo-master-g2'}, agents={'demo-master-g2': 'idle claude'}),
+            'a previous pane that holds another agent': world(panes={'p0': 'other', 'p5': 'demo-master-g2'}, agents={'other': 'idle claude', 'demo-master-g2': 'idle claude'}),
+            'a master already named for the run': world(pair={'slug': 'demo', 'master': {**master, 'name': 'demo-master'}}, agents={'m1': 'idle claude', 'demo-master': 'idle claude'},
+                                                        panes={'p0': 'm1', 'p5': 'demo-master'}),
+            'no hand-over open': world(pair={'slug': 'demo', 'master': {'name': 'demo-master', 'pane_id': 'p5', 'generation': 2}}),
+            'run from another pane': world(env={'HERDR_PANE_ID': 'p9', 'KITCHEN_ROTATE_POLL_S': '0'}),
+            'run from no pane': world(env={'HERDR_PANE_ID': '', 'KITCHEN_ROTATE_POLL_S': '0'}),
+            'a previous master still working when the wait is over': world(agents={'m1': 'working claude', 'demo-master-g2': 'idle claude'}, env={
+                'HERDR_PANE_ID': 'p5', 'KITCHEN_ROTATE_POLL_S': '0', 'KITCHEN_TAKEOVER_WAIT_S': '0'}),
+            'a previous master that settles during the wait': world(agents={'m1': 'working claude', 'demo-master-g2': 'idle claude'},
+                                                                    once={'get': 'printf "idle claude\\n" >"$FAKE/agents/m1"\n'}),
+            'a master that is a string': world(pair={'slug': 'demo', 'master': 'x'}),
+            'unreviewed units are listed': world(**engine),
+            'a review that cites the engine is not listed': world(review_engine=True, files={**engine['files'], 'reviews/001-x.md': '# R\n\nverdict: accept\nengine: joo /tmp/run.json\n'}),
+            'a skipped engine over an empty range': world(review_engine=True, pair={'slug': 'demo', 'master': master, 'heads': {'001-x': '{c3}'}},
+                                                          files={**engine['files'], 'reviews/001-x.md': '# R\n\nverdict: accept\nengine: skipped (deletion-only, proof: none)\n',
+                                                                 'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+            'a skipped engine over a range that adds lines': world(review_engine=True, pair={'slug': 'demo', 'master': master, 'heads': {'001-x': '{c1}'}},
+                                                                   files={**engine['files'], 'reviews/001-x.md': '# R\n\nverdict: accept\nengine: skipped (deletion-only, proof: none)\n',
+                                                                          'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}),
+            'a landing brief is not listed': world(review_engine=True, files={**engine['files'], 'briefs/001-x.md': '# B\n\ncommit: yes\nplaybook: shipping\n'}),
+            'a review not accepted is not listed': world(review_engine=True, files={**engine['files'], 'reviews/001-x.md': '# R\n\nverdict: reject\n'}),
+            'two arguments': world(args=['take-master', '{st}', 'x']),
+            'no arguments': dict(args=['take-master']),
+            'no pair.json': world(nopair=True),
+            'outside herdr': world(noenv=True),
+        }
+        out = self.phase4_cases('takem', cases)
+        live = out['a previous master that is live']
+        self.assertEqual(live['rc'], 0, live['stderr'])
+        self.assertIn('closed the old master m1 (p0)', live['stdout'])
+        self.assertIn('master: demo-master in p5 (generation 2)', live['stdout'])
+        self.assertIn('agent rename p5 demo-master', live['calls'])
+        self.assertIn('already gone', out['a previous pane that is already gone']['stdout'])
+        self.assertIn('left pane p0 open: it now holds other, not the old master m1', out['a previous pane that holds another agent']['stdout'])
+        self.assertIn('no hand-over open', out['no hand-over open']['stdout'])
+        self.assertEqual(out['run from another pane']['rc'], 5)
+        self.assertIn('warning: unreviewed: unit 001 cites no joo run', out['unreviewed units are listed']['stdout'])
+        self.assertNotIn('warning: unreviewed', out['a review that cites the engine is not listed']['stdout'])
+        self.assertNotIn('warning: unreviewed', out['a skipped engine over an empty range']['stdout'])
+        self.assertIn('skipped is only for a deletion-only range', out['a skipped engine over a range that adds lines']['stdout'])
+        self.assertNotIn('warning: unreviewed', out['a landing brief is not listed']['stdout'])
+        self.assertEqual(out['a master that is a string']['rc'], 5)
 
     def test_kitchen_spawn_matches_the_bash_at_the_phase_3_base(self):
         """kitchen.sh `spawn` (its bash wrapper over the captured pair command) at 04d2c13 and at the working tree, on the fake herdr: the roster's
