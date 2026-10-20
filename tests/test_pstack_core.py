@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'close', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'retro', 'revise', 'rotate-master', 'stop', 'take-master')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__verify_cancel', 'catch', 'close', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'retro', 'revise', 'rotate-master', 'stop', 'take-master')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -8298,6 +8298,85 @@ stop_prime_role "$store" sidekick && echo "stopped"
         self.assertEqual(self.kitchen_py(st, f'print(vs.claim_close(store, {verdict!r}))', env={'PAIR_SHELL_PID': str(dead)})[1], 'True\n')
         rc, out, err = self.phase4_bash(st, f'HOSTNAME=testhost; if claim_close "$STORE" {verdict}; then echo took; else echo refused; fi')
         self.assertEqual(out, 'took\n')
+
+    VERIFY_ENV = {'KITCHEN_VERIFY_POLL_S': '0', 'KITCHEN_VERIFY_GRACE_POLL_S': '0', 'KITCHEN_VERDICT_SETTLE_S': '0', 'KITCHEN_VERIFIER_EXIT_S': '0'}
+    VERDICT_FENCES = '\n## Evidence\n\n```\n$ true\n```\n\n```\nok\n```\n'
+
+    def verify_world(self, **extra):
+        """An open verification of unit 001-x by claude verifier v1 in pane p3, started 150 s ago with 30 minutes to run, on the fake herdr."""
+        now = int(time.time())
+        verifying = {'verdict': '{st}/verdicts/001-x-v1.md', 'units': '001', 'brief': '001-x', 'packet': '{st}/verdicts/001-x-v1-packet.md', 'scratch': '001-x-v1',
+                     'started': now - 150, 'deadline': now + 1800, 'risk': 'routine', 'sample': 0, 'unit': '001-x', 'delivered': True, 'argv': ['001'],
+                     **extra.pop('verifying', {})}
+        pair = {'slug': 'demo', 'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}, 'verifying': verifying, 'master': {'name': 'm1', 'units_since_handoff': 0},
+                **extra.pop('pair', {})}
+        files = {'verdicts/001-x-v1-packet.md': '# Packet\n\nverifier-outcome: running\n', **extra.pop('files', {})}
+        env = {**self.VERIFY_ENV, **extra.pop('env', {})}
+        return {'args': ['verify', '{st}', '--cancel'], 'pair': pair, 'agents': {'v1': 'idle claude', **extra.pop('agents', {})}, 'panes': {'p3': 'v1'}, 'files': files,
+                'env': env, **extra}
+
+    @staticmethod
+    def live_and_dead_token_hosts():
+        """The host the shell reads from $HOSTNAME, a pid that is alive for the whole test and one that is gone."""
+        host = subprocess.run(['bash', '-c', 'echo "$HOSTNAME"'], capture_output=True, text=True, check=True).stdout.strip()
+        dead = subprocess.Popen(['true'])
+        dead.wait()
+        return host, os.getpid(), dead.pid
+
+    def test_verify_cancel_matches_the_bash_at_the_phase_4_base(self):
+        host, live, dead = self.live_and_dead_token_hosts()
+        world = self.verify_world
+        cases = {
+            'a verification with no verdict is cancelled': world(),
+            'a verdict already written': world(files={'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n'}),
+            'nothing open': world(pair={'verifying': None}),
+            'a claim held by a live call': world(verifying={'closing': {'token': f'{host}:{live}:1'}}),
+            'a claim whose owner is gone': world(verifying={'closing': {'token': f'{host}:{dead}:1'}}),
+            'a claim from another host': world(verifying={'closing': {'token': f'elsewhere:{dead}:1'}}),
+            'a verifier that does not exit': world(noexit=True),
+            'a verifier already gone': world(agents={'v1': 'idle claude'}, panes={}, master=None),
+            'a scratch id the scratch command refuses': world(verifying={'scratch': 'bad id'}),
+            'a packet that is not there': world(verifying={'packet': '{st}/verdicts/none-packet.md'}),
+            'a verifying that is a string': world(pair={'verifying': 'x'}),
+            'a verifier that is a string': world(pair={'verifier': 'v1'}),
+            'a verifier that is false': world(pair={'verifier': False}),
+            'a master that is a string': world(pair={'master': 'm1'}),
+            '--cancel with --wait': world(args=['verify', '{st}', '--cancel', '--wait']),
+            '--cancel with a unit': world(args=['verify', '{st}', '--cancel', '001']),
+            'outside herdr': world(env={'HERDR_ENV': '0'}),
+        }
+        expect = {
+            'a verification with no verdict is cancelled': (0, 'cancelled: 001'),
+            'a verdict already written': (5, 'the verdict is written ('),
+            'nothing open': (5, 'no verification open'),
+            'a claim held by a live call': (5, 'no verification open (another call closed it)'),
+            'a claim whose owner is gone': (0, 'cancelled: 001'),
+            'a claim from another host': (5, 'no verification open (another call closed it)'),
+            'a verifier that does not exit': (0, 'cancelled: 001'),
+            'a verifier already gone': (0, 'cancelled: 001'),
+            'a scratch id the scratch command refuses': (1, 'scratch id must look like'),
+            'a packet that is not there': (0, 'cancelled: 001'),
+            'a verifying that is a string': (5, 'Cannot index string with string ("verdict")'),
+            'a verifier that is a string': (5, 'Cannot index string with string ("name")'),
+            'a verifier that is false': (5, 'Cannot index boolean with string ("name")'),
+            'a master that is a string': (0, 'cancelled: 001'),
+            '--cancel with --wait': (1, '--cancel takes no units, --landing or --wait'),
+            '--cancel with a unit': (1, '--cancel takes no units, --landing or --wait'),
+            'outside herdr': (1, 'not running inside Herdr'),
+        }
+        out = self.phase4_cases('vcancel', cases, expect)
+        done = out['a verification with no verdict is cancelled']
+        self.assertNotIn('"verifying"', done['files']['pair.json'])
+        self.assertIn('verifier-outcome: cancelled', done['files']['verdicts/001-x-v1-packet.md'])
+        self.assertIn('verify-cancel\t001-x\t001', '\n'.join(done['events']))
+        self.assertIn('pane close p3', done['calls'])
+        self.assertIn('agent prompt v1 /exit', done['calls'])
+        held = out['a claim held by a live call']
+        self.assertIn('"verifying"', held['files']['pair.json'])
+        self.assertNotIn('pane close', held['calls'])
+        refused = out['a scratch id the scratch command refuses']
+        self.assertNotIn('"closing"', refused['files']['pair.json'])
+        self.assertIn('"verifying"', refused['files']['pair.json'])
 
 
 class BashReachTests(unittest.TestCase):

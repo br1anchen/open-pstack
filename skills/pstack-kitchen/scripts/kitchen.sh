@@ -1038,7 +1038,7 @@ cmd_verify() {
 	pair_file "$store" >/dev/null
 	if [ "$cancel" -eq 1 ]; then
 		[ "$wait" -eq 0 ] && [ "${#units[@]}" -eq 0 ] && [ "$landing" -eq 0 ] || die "--cancel takes no units, --landing or --wait"
-		verify_cancel "$store"
+		HOSTNAME="${HOSTNAME:-localhost}" pycore --exec __verify_cancel "$store"
 	fi
 	if [ "$wait" -eq 1 ]; then
 		[ -n "$(field "$store" '.verifying.verdict // empty')" ] || die "no verification is open; start one with kitchen.sh verify $store <NNN>" 5
@@ -1536,29 +1536,6 @@ verify_grace() {
 		fi
 		sleep "${KITCHEN_VERIFY_GRACE_POLL_S:-5}"
 	done
-}
-
-# Cancels the open verification that has no verdict yet: its verifier and pane
-# stop, its scratch goes, and .verifying is cleared.
-verify_cancel() {
-	local store="$1" verdict units name kind brief packet
-	verdict="$(field "$store" '.verifying.verdict // empty')"
-	[ -n "$verdict" ] || die "no verification open" 5
-	if [ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ]; then
-		die "the verdict is written ($verdict); kitchen.sh verify $store --wait reads it" 5
-	fi
-	units="$(field "$store" .verifying.units)"
-	brief="$(field "$store" .verifying.brief)"
-	packet="$(field "$store" .verifying.packet)"
-	name="$(field "$store" .verifier.name)"
-	kind="$(field "$store" .verifier.kind)"
-	run_close "$store" "$name" "$kind" "$(field "$store" .verifier.pane_id)" "$verdict" || die "no verification open (another call closed it)" 5
-	still_my_claim "$store"
-	set_outcome "$packet" cancelled
-	drop_verifying "$store" "$verdict"
-	event "$store" master verify-cancel "$brief" "$units"
-	printf 'cancelled: %s\n' "$units"
-	exit 0
 }
 
 # Waits up to $2 minutes for the open verification's verdict. A verifier

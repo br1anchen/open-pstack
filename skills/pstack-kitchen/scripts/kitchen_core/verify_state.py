@@ -352,3 +352,8 @@ def verify_cancel(ctx, store):
     event(store, 'master', 'verify-cancel', brief, units)
     sys.stdout.write(f'cancelled: {units}\n')
     return 0
+
+
+def verify_cancel_command(ctx, args):
+    """pycore __verify_cancel <store>: the bash cmd_verify's `verify_cancel "$store"`, which always ended the command."""
+    return verify_cancel(ctx, args[0])

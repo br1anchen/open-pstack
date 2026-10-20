@@ -154,6 +154,7 @@ KitchenVariant.commands = {**KitchenVariant.commands, 'catch': _kitchen_command(
                            'maintainer': _kitchen_command('feedback', 'maintainer'), 'close': _kitchen_command('master', 'close'),
                            'rotate-master': _kitchen_command('master', 'rotate_master'),
                            'take-master': _kitchen_command('master', 'take_master'),
-                           'land-check': _kitchen_command('landing', 'land_check_command'), 'revise': _kitchen_command('landing', 'revise')}
+                           'land-check': _kitchen_command('landing', 'land_check_command'), 'revise': _kitchen_command('landing', 'revise'),
+                           '__verify_cancel': _kitchen_command('verify_state', 'verify_cancel_command')}
 
 VARIANT = KitchenVariant
