@@ -1936,6 +1936,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         # seconds it writes (.sent.epoch, steps and gates rows); <HM> the HH:MM that starts a progress line `step`. Nothing else.
         norm = lambda text: re.sub(r'(exit [0-9]+ )[0-9.]+s', r'\1<S>s', re.sub(r'(?m)^[0-9]{2}:[0-9]{2} step ', '<HM> step ', re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))))
         files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
+        # directories too (standing order 26): a lock left held, a scratch directory that was not emptied
+        files.update({str(d.relative_to(st)) + '/': '' for d in sorted(st.rglob('*')) if d.is_dir() and not d.is_symlink()})
         events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text(errors='surrogateescape').splitlines()]
         calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
         # Unit 006: an error a command prints under kitchen.sh now starts `kitchen.sh:`; the bases print `pair.sh:` there.
@@ -8113,6 +8115,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a claim held by a process of another user (EPERM; pid 1)': {**base, 'closing': {'token': 'testhost:1:7'}},
             'a token with no colon': {**base, 'closing': {'token': 'garbage'}},
             'a token with a pid that is no number': {**base, 'closing': {'token': 'testhost:abc:7'}},
+            'a token with a pid int() would take (1_2345)': {**base, 'closing': {'token': 'testhost:1_2345:7'}},
+            'a token with a pid in other digits': {**base, 'closing': {'token': 'testhost:\u0661\u0662:7'}},
             'an empty token': {**base, 'closing': {'token': ''}},
             'a token that is a number': {**base, 'closing': {'token': 5}},
             'a token that is false': {**base, 'closing': {'token': False}},
@@ -8145,6 +8149,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(outcomes['a claim from another host'][0], 'rc=1\n')
         self.assertTrue(outcomes['a token with a pid that is no number'][0].endswith('rc=0\n'))  # kill -0 abc fails: taken over
         self.assertEqual(outcomes['a verification that is another attempt'][0], 'rc=1\n')
+        for odd in ('a token with a pid int() would take (1_2345)', 'a token with a pid in other digits'):
+            self.assertTrue(outcomes[odd][0].endswith('rc=0\n'), odd)  # kill -0 refuses it: taken over
         self.assertIn('Cannot index', outcomes['closing that is a string'][1])
 
     def test_update_verifying_drop_verifying_release_close_and_the_claim_tests_equal_the_bash(self):
@@ -8189,25 +8195,29 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('closing', written['verifying'])
 
     def test_my_claim_and_still_my_claim_equal_the_bash(self):
-        for n, (name, doc) in enumerate({'a claim of this process': {'verdict': 'v', 'closing': {'token': 'testhost:4242:9'}},
-                                         'a claim of another process': {'verdict': 'v', 'closing': {'token': 'testhost:4243:9'}},
-                                         'a claim of another host': {'verdict': 'v', 'closing': {'token': 'other:4242:9'}},
-                                         'no claim': {'verdict': 'v'}}.items()):
-            results = []
-            for side in ('bash', 'py'):
-                st = self.claim_store(f'my{n}{side}', doc)
-                if side == 'bash':
-                    # $$ is the shell's pid: make it 4242 by running the functions in a shell whose $$ is replaced through a function
-                    rc, out, err = self.phase4_bash(st, 'HOSTNAME=testhost; set_pid() { eval "$1"; }; '
-                                                        'my_claim() { case "$(field "$1" \'.verifying.closing.token // empty\')" in "${HOSTNAME:-localhost}:4242:"*) return 0 ;; esac; return 1; }; '
-                                                        'still_my_claim() { my_claim "$1" && return 0; printf "verification closed elsewhere\\n"; exit 5; }; '
-                                                        'if my_claim "$STORE"; then echo mine; else echo notmine; fi; ( still_my_claim "$STORE" ); echo "rc=$?"')
-                else:
-                    rc, out, err = self.kitchen_py(st, 'print("mine" if vs.my_claim(store) else "notmine")\ntry:\n    vs.still_my_claim(store)\n    print("rc=0")\n'
-                                                       'except Exit as e:\n    print("rc=%d" % e.code)', env={'PAIR_SHELL_PID': '4242'})
-                results.append((out, err))
-            self.assertEqual(results[0], results[1], name)
-        self.assertIn('mine', results[0][0])
+        """b632713's functions as they are: the snippet writes the token from inside the shell, with its own `$$`, and the port then runs over the same
+        document with that pid as the shell's. Every case is compared."""
+        cases = {'a claim of this process': '$HOSTNAME:$$:9', 'a claim of another process': '$HOSTNAME:$(( $$ + 1 )):9', 'a claim of another host': 'other:$$:9',
+                 'a claim of this host with a longer pid': '$HOSTNAME:${$}0:9', 'no claim': ''}
+        seen = {}
+        for n, (name, token) in enumerate(cases.items()):
+            st = self.claim_store(f'my{n}', {'verdict': 'v'})
+            write = f'json_update "$STORE" --arg t "{token}" \'.verifying.closing = {{token: $t}}\'; ' if token else ''
+            rc, out, err = self.phase4_bash(st, 'HOSTNAME=testhost; echo "pid=$$"; ' + write + 'if my_claim "$STORE"; then echo mine; else echo notmine; fi; '
+                                                   '( still_my_claim "$STORE" ); echo "rc=$?"')
+            self.assertEqual(rc, 0, (name, err))
+            pid = out.splitlines()[0].removeprefix('pid=')
+            want = out.splitlines()[1:]
+            code = ('print("mine" if vs.my_claim(store) else "notmine")\ntry:\n    vs.still_my_claim(store)\n    print("rc=0")\n'
+                    'except Exit as e:\n    print("rc=%d" % e.code)')
+            prc, got, perr = self.kitchen_py(st, code, env={'PAIR_SHELL_PID': pid})
+            self.assertEqual((got.splitlines(), perr), (want, err), name)
+            seen[name] = want
+        self.assertEqual(seen['a claim of this process'][0], 'mine')
+        self.assertEqual(seen['a claim of another process'][0], 'notmine')
+        self.assertEqual(seen['a claim of another host'][0], 'notmine')
+        self.assertEqual(seen['no claim'][-1], 'rc=5')
+        self.assertEqual(seen['a claim of this process'][-1], 'rc=0')
 
     def test_cksum_and_audit_due_equal_the_commands(self):
         for text in ('001-x', '', 'landing', '002-y-fix', 'é', 'a' * 5000):
@@ -8581,6 +8591,39 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 self.assertEqual(results[0][2], results[1][2], (name, unit, env))
                 seen.add('master:' in results[0][0])
         self.assertEqual(seen, {True, False})
+
+    def test_a_close_or_a_wait_that_fails_inside_releases_its_claim_and_leaves_the_store_as_the_bash_does(self):
+        """Steer 027-s1. A damaged `KITCHEN_VERIFIER_EXIT_S`, a top-level `.scratch` that is a number (a traceback from the scratch command), a
+        `.verifying.idle_since` or `.verifying.started` that bash's arithmetic refuses: the command ends with status 1, the claim of the close is
+        released, and the store, the herdr calls and the files are the bash's. Only the shell's own message differs from ours (it names a line of the old
+        kitchen.sh; PARITY.md), so stderr is checked for the word and not compared."""
+        world, V = self.wait_world, self.vverdict
+        cases = {
+            'a verifier exit wait of abc': (world(files={'verdicts/001-x-v1.md': V()}, env={'KITCHEN_VERIFIER_EXIT_S': 'abc'}), 'abc'),
+            'a verifier exit wait of 1.5': (world(files={'verdicts/001-x-v1.md': V()}, env={'KITCHEN_VERIFIER_EXIT_S': '1.5'}), '1.5'),
+            'a top-level scratch that is a number, at a close': (world(files={'verdicts/001-x-v1.md': V()}, pair={'scratch': 5}), 'Traceback'),
+            'an idle_since of abc': (world(verifying={'idle_since': 'abc'}), 'abc'),
+            'an idle_since of 1.5': (world(verifying={'idle_since': 1.5}), '1.5'),
+            'an idle_since of true': (world(verifying={'idle_since': True}), 'true'),
+            'a started of abc': (world('0', agents={'v1': 'working claude'}, verifying={'started': 'abc'}), 'abc'),
+            'a started of 1.5': (world('0', agents={'v1': 'working claude'}, verifying={'started': 1.5}), '1.5'),
+            'a started of true': (world('0', agents={'v1': 'working claude'}, verifying={'started': True}), 'true'),
+        }
+        cancel = {
+            'a cancel with a verifier exit wait of abc': (self.verify_world(env={'KITCHEN_VERIFIER_EXIT_S': 'abc'}), 'abc'),
+            'a cancel with a top-level scratch that is a number': (self.verify_world(pair={'scratch': 5}), 'Traceback'),
+        }
+        for n, (name, (spec, word)) in enumerate({**cases, **cancel}.items()):
+            got, want = self.phase4_ab(f'vfail{n}', spec)
+            self.assertEqual({k: v for k, v in got.items() if k != 'stderr'}, {k: v for k, v in want.items() if k != 'stderr'}, name)
+            self.assertEqual(got['rc'], 1, (name, got['stderr']))
+            self.assertIn(word, want['stderr'], name)
+            self.assertIn(word, got['stderr'], name)
+            if 'exit wait' in name or 'scratch' in name:
+                self.assertNotIn('"closing"', got['files']['pair.json'], name)
+                self.assertIn('"verifying"', got['files']['pair.json'], name)
+            if 'idle_since' in name:
+                self.assertNotIn('pane close', got['calls'], name)
 
     def test_a_bash_waiter_and_a_python_closer_and_the_reverse_share_one_verification(self):
         """A6. A waiter of one tree is mid-wait (its first `agent get`) when the other tree cancels the verification, as another call would, and the

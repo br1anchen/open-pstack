@@ -7,6 +7,7 @@ a command substitution, where errexit is off, so a plain command that fails ther
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -28,6 +29,17 @@ NOT_GIVEN = object()
 
 def now_s():
     return int(time.time())
+
+
+def tdiv(a, b):
+    """Bash's integer division, which truncates toward zero."""
+    return int(a / b) if abs(a) < 2 ** 52 else (abs(a) // b) * (1 if a >= 0 else -1)
+
+
+def stall_limit(idle):
+    """`[ idle -ge "${KITCHEN_VERIFY_IDLE_S:-600}" ]`: a limit that is no integer is a test error, which is false."""
+    limit = bash_int(os.environ.get('KITCHEN_VERIFY_IDLE_S') or '600')
+    return limit is not None and idle >= limit
 
 
 def env_int(name, default):
@@ -128,8 +140,8 @@ def rejected_count(store, unit):
 
 
 class Waiter:
-    def __init__(self, ctx, store, every_m, closing=False):
-        self.ctx, self.store, self.closing = ctx, store, closing
+    def __init__(self, ctx, store, every_m, closing=False, retry=None):
+        self.ctx, self.store, self.closing, self.retry = ctx, store, closing, retry
         self.errexit = not closing
         self.every_m = every_m
         self.state = ''
@@ -242,9 +254,9 @@ class Waiter:
             if not (state != 'absent' and deadline is not None and now < deadline):
                 break
             if now >= until:
-                started = bash_int(vs.field(store, '.verifying.started')) or 0
-                span = ((deadline - started) // 60) if deadline - started >= 0 else -((started - deadline) // 60)
-                done = ((now - started) // 60) if now - started >= 0 else -((started - now) // 60)
+                started = vs.shell_arithmetic(vs.field(store, '.verifying.started'))
+                span = tdiv(deadline - started, 60)
+                done = tdiv(now - started, 60)
                 sys.stdout.write(f'verifying: units {vs.field(store, ".verifying.units")} by {kind}, {done}m of {span}m, verifier '
                                  f'{verifier_shown(store, state)}\n')
                 sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
@@ -267,7 +279,7 @@ class Waiter:
                         self.drop_idle(verdict)
                 elif not idle_since:
                     self.update(verdict, '.verifying.idle_since = $at', lambda v, at=now: v.__setitem__('idle_since', at), '--argjson', 'at', str(now))
-                elif now - (bash_int(idle_since) or 0) >= env_int('KITCHEN_VERIFY_IDLE_S', 600):
+                elif stall_limit(now - vs.shell_arithmetic(idle_since)):
                     self.stalled = True
                     break
             elif idle_since:
@@ -318,15 +330,20 @@ class Waiter:
             if retried == 'false' and fallback and fallback_kind != kind and argv:
                 sys.stdout.write(f'retry: verifying again on the fallback, {fallback_kind}\n')
                 sys.stdout.flush()
+                again = [store, *argv, '--retry-entry', fallback]
+                if self.retry is not None:  # verifying again on the fallback, as the exec of kitchen.sh verify did
+                    self.retry(again)
                 script = f'{ctx.skill_root}/scripts/kitchen.sh'
-                os.execv(script, [script, 'verify', store, *argv, '--retry-entry', fallback])
+                signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # the interpreter ignores these two; a shell does not
+                signal.signal(signal.SIGXFSZ, signal.SIG_DFL)
+                os.execv(script, [script, 'verify', *again])
             event(store, 'master', 'wake', brief, 'verify:provider')
             # A retried call carries its entry; the advice is for the master's own call.
             sys.stdout.write(f'next: wait for the limit, or kitchen.sh verify {store} {" ".join(self.shown(argv))} --kind <another kind>\n')
             raise Exit(2)
         if not present and self.stalled:
             event(store, 'master', 'wake', brief, 'verify:stalled')
-            raise Die(f'no verdict at {verdict}: the verifier sat idle {env_int("KITCHEN_VERIFY_IDLE_S", 600) // 60}m with nothing running; rerun: '
+            raise Die(f'no verdict at {verdict}: the verifier sat idle {tdiv(vs.shell_arithmetic(os.environ.get("KITCHEN_VERIFY_IDLE_S") or "600"), 60)}m with nothing running; rerun: '
                       f'kitchen.sh verify {store} {" ".join(self.shown(argv))}', 4)
         if not present:
             event(store, 'master', 'wake', brief, 'verify:missing')

@@ -11,11 +11,11 @@ pycore passes as PAIR_SHELL_PID; n a random number below 32768) written by the f
 import contextlib
 import io
 import os
+import subprocess
 import random
 import re
 import sys
 
-from pstack_core.commands import scratch as scratch_command
 from pstack_core.errors import Die, Exit
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.herdr import agent_status, herdr
@@ -94,9 +94,12 @@ def drop_verifying(store, verdict, errexit=True):
 
 def alive(pid):
     """`kill -0 $pid 2>/dev/null`: a process this user may signal. A process of another user (EPERM) and a pid that is no number read as gone."""
+    number = bash_int(pid)
+    if number is None:
+        return False
     try:
-        os.kill(int(pid), 0)
-    except (ValueError, OverflowError, OSError):
+        os.kill(number, 0)
+    except (OverflowError, OSError):
         return False
     return True
 
@@ -193,7 +196,7 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     else:
         herdr('agent', 'prompt', name, exit_command(kind))
         import time
-        gone = int(time.time()) + int(os.environ.get('KITCHEN_VERIFIER_EXIT_S') or 15)
+        gone = int(time.time()) + shell_arithmetic(os.environ.get('KITCHEN_VERIFIER_EXIT_S') or '15')
         while agent_status(name) != 'absent' and int(time.time()) < gone:
             bash_sleep('1')
     herdr('pane', 'close', pane)
@@ -202,15 +205,28 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     return remove_scratch(ctx, store, scratch)
 
 
+def pycore_argv(ctx, *command):
+    """The words of the bash's pycore: the core run as a process, with the context of this command."""
+    from pstack_core import cli
+    pair_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(cli.__file__))), 'pair.py')
+    return [sys.executable, '-I', pair_py, '--skill', ctx.skill, '--prog', cli.PROG, '--skill-root', ctx.skill_root, '--state-root', ctx.state_root,
+            '--store-label', ctx.store_label, '--roles', ' '.join(ctx.roles), '--store-dirs', ' '.join(ctx.store_dirs), '--slug-max', str(ctx.slug_max),
+            '--unfilled-re', ctx.unfilled_re, '--', *command]
+
+
+def scratch_process(ctx, store, scratch, *options, capture=False):
+    """`cmd_scratch "$store" "$scratch" OPTIONS` as the bash ran it, a pycore process: (status, stdout when captured). Its errors, a traceback
+    included, are its own stderr."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    env = {**os.environ, 'PAIR_SHELL_PID': str(shell_pid())}
+    r = subprocess.run(pycore_argv(ctx, 'scratch', store, scratch, *options), env=env, stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False)
+    return r.returncode, r.stdout.decode('utf-8', 'surrogateescape') if capture else ''
+
+
 def remove_scratch(ctx, store, scratch):
     """`cmd_scratch "$store" "$scratch" --remove >/dev/null`: its status."""
-    sink = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(sink):
-            return scratch_command.run(ctx, [store, scratch, '--remove']) or 0
-    except Die as e:
-        sys.stderr.write(f'pair.sh: {e.message}\n')
-        return e.code
+    return scratch_process(ctx, store, scratch, '--remove')[0]
 
 
 def run_close(ctx, store, name, kind, pane, verdict):
@@ -223,6 +239,9 @@ def run_close(ctx, store, name, kind, pane, verdict):
         rc = e.code
     except Exit as e:
         rc = e.code
+    except Exception as e:  # any failure of the close is a nonzero status of its subshell
+        sys.stderr.write(f'pair.sh: {e}\n')
+        rc = 1
     if rc == 0:
         return True
     if rc == 70:
