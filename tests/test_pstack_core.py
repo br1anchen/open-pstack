@@ -91,7 +91,7 @@ class CoreTests(unittest.TestCase):
                     'prompt_sidekick', 'prune_pending', 'queue_note', 'record_dispatch', 'record_sent', 'reply_mode', 'review_base', 'review_delta',
                     'scope_entry_exists', 'seen_reply', 'send_and_wait', 'sidekick_activity', 'status_paths', 'steer_scope_entries', 'tree_activity',
                     'unreviewed_steps', 'wait_for_reply', 'withheld_report', 'wait_opts', 'prime_steer', 'steps_due', 'report_ready',
-                    'provider_hint', 'bootstrap_recover', 'asks_no_approvals', 'plan_gate_extra', 'require_agreed_plan', 'open_notes', 'next_seq', 'new_from_template')
+                    'provider_hint', 'bootstrap_recover', 'asks_no_approvals', 'plan_gate_extra', 'require_agreed_plan', 'open_notes', 'next_seq', 'new_from_template', 'busy_command', 'agent_session_error', 'muse_session_error', 'prime_role_error')
 
     def bash(self, snippet, env=None, check=True, base=None):
         """snippet run with pair-core.sh sourced: the working tree's, or with base=True skills/ as it was at e6e83e3, the oracle for
@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__verify_cancel', 'catch', 'close', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'retro', 'revise', 'rotate-master', 'stop', 'take-master')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__verify_cancel', '__verify_wait', 'catch', 'close', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'retro', 'revise', 'rotate-master', 'stop', 'take-master')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -3498,7 +3498,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         got = self.ab_run(f'{label}-port', root / 'skills', skill, spec)
         # the two trees sit at two paths (calls.log and pair.json name references/no-mcp.json under them)
         mask = lambda o, tree: json.loads(json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>'))
-        return mask(got, root / 'skills'), mask(want, bases)
+        masked = [mask(got, root / 'skills'), mask(want, bases)]
+        for pattern, replacement in spec.get('mask', ()):
+            masked = [json.loads(re.sub(pattern, replacement, json.dumps(o))) for o in masked]
+        return masked[0], masked[1]
 
     def phase4_ab(self, label, spec):
         """One kitchen world run through b632713's kitchen.sh and the working tree's: (working tree, base), the two trees' paths masked."""
@@ -3510,7 +3513,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for outcome, tag in ((want, 'base'), (got, 'port')):
             outcome['state'] = self.state_tree(self.path / f'{label}-{tag}' / 'state', self.path / f'{label}-{tag}')
         mask = lambda o, tree: json.loads(re.sub(r'(\.(?:closing|filing|maintainer)-)[A-Za-z0-9]{6}', r'\1<R>', json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>')))
-        return mask(got, root / 'skills'), mask(want, bases)
+        masked = [mask(got, root / 'skills'), mask(want, bases)]
+        for pattern, replacement in spec.get('mask', ()):
+            masked = [json.loads(re.sub(pattern, replacement, json.dumps(o))) for o in masked]
+        return masked[0], masked[1]
 
     def state_tree(self, directory, top):
         """What a run left under the host state directory (the kitchen's ledger and timings), times masked."""
@@ -4592,9 +4598,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(seen[('a start that succeeds', form)][0], 0, form)
 
     def test_exit_command_matches_the_bash_at_the_phase_3_base(self):
+        """04d2c13's exit_command against exits.exit_command (the bash shim went when the kitchen's close left bash: unit 026)."""
         kinds = ('claude', 'codex', 'pi', 'devin', 'muse', 'prime-agent', 'grok', '', 'PI', 'pi ')
-        bash = ''.join(f'printf "[%s]" "$(exit_command {shlex.quote(k)})"; exit_command {shlex.quote(k)} | od -c | head -1\n' for k in kinds)
-        out = self.prime_both('exit-command', bash, '', shim=True)
+        bash = ''.join(f'printf "[%s]\\n" "$(exit_command {shlex.quote(k)})"\n' for k in kinds)
+        py = 'from pstack_core import exits\n' + ''.join(f'print("[%s]" % exits.exit_command({k!r}))\n' for k in kinds)
+        out = self.prime_both('exit-command', bash, py)
         self.assertIn('[/quit]', out[1])
         self.assertIn('[/exit]', out[1])
 
@@ -4628,11 +4636,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         }
 
     def test_stop_prime_role_matches_the_bash_at_the_phase_3_base(self):
-        """stop_prime_role, which its callers test with `||`: 04d2c13's function against the working tree's shim, over every client status and
+        """stop_prime_role, which its callers test with `||`: 04d2c13's function against exits.entry_stop_prime_role (the bash shim went with its last caller), over every client status and
         every way the cleanup stops short. The deadline cases run on a clock that jumps 100 s per `date +%s` and a sleep that returns at once (the
         port's deadline and poll are 0)."""
         bash = 'stop_prime_role "$store" sidekick || echo "returned rc=$?"; echo "after"'
-        out = {name: self.prime_both('spr-' + re.sub(r'\W+', '-', name), bash, '', shim=True, **spec) for name, spec in self.stop_prime_cases().items()}
+        py = 'import sys\nfrom pstack_core import exits\nrc = exits.entry_stop_prime_role(None, [store, "sidekick"])\nif 100 <= rc <= 127:\n    raise SystemExit(rc - 100)\nif rc:\n    print("returned rc=%d" % rc)\nprint("after")'
+        out = {name: self.prime_both('spr-' + re.sub(r'\W+', '-', name), bash, py, **spec) for name, spec in self.stop_prime_cases().items()}
         self.assertEqual(out['an idle client'][1], 'after\n')
         self.assertIn('"session_stopped": true', out['an idle client'][3])
         self.assertIn('["stop", "live-1"', out['an idle client'][4])
@@ -4659,67 +4668,41 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         bash = 'prime_active_session "$store" sidekick; rc=$?; printf "rc=%s id=[%s]\\n" "$rc" "${prime_active_id-unset}"'
         py = 'id = prime.prime_active_session(store, "sidekick")\nprint(f"rc={int(id is None)} id=[{\'unset\' if id is None else id}]")'
         stop = 'stop_prime_role "$store" sidekick || echo "returned rc=$?"; echo "after"'
+        stop_py = 'import sys\nfrom pstack_core import exits\nrc = exits.entry_stop_prime_role(None, [store, "sidekick"])\nif 100 <= rc <= 127:\n    raise SystemExit(rc - 100)\nif rc:\n    print("returned rc=%d" % rc)\nprint("after")'
         errors = {'x': 'invalid JSON text passed to --argjson', '["x"]': 'Cannot index array with string ("kind")', '3': 'Cannot index number with string ("kind")',
                   'true': 'Cannot index boolean with string ("kind")', '': 'no recorded Prime session for sidekick'}
         cases = (('a string', 'x', errors['x']), ('an array', ['x'], errors['["x"]']), ('a number', 3, errors['3']), ('true', True, errors['true']),
                  ('an empty string', '', errors['']), ('false', False, 'no recorded Prime session for sidekick'), ('an object without kind', {}, ''),
                  ('zero', 0, errors['3']), ('0.0', 0.0, errors['3']))
         for label, value, needle in cases:
-            for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
+            for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, stop_py, False)):
                 name = f'd26-{what}-{label}'.replace(' ', '-')
                 result = self.prime_both(name, snippet, python, shim=shim, agents={}, sidekick={'session': value})
                 self.assertIn(needle, result[2], (what, label))
                 self.assertNotIn('Traceback', result[2], (what, label))
         # the daemon's list fails: the bash still runs jq, so an invalid --argjson is said and a session jq could index is not (no input to index)
         for label, value, needle in (('a string', 'x', errors['x']), ('an array', ['x'], ''), ('zero', 0, '')):
-            for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
+            for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, stop_py, False)):
                 result = self.prime_both(f'd26-listfail-{what}-{label}'.replace(' ', '-'), snippet, python, shim=shim, agents={}, sidekick={'session': value},
                                          fake={'prime-list-fail': ''})
                 self.assertIn(needle, result[2], (what, label))
         # nothing live to index: jq takes the odd session without complaint and finds no match
-        for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, '', True)):
+        for what, snippet, python, shim in (('prime_active_session', bash, py, False), ('stop_prime_role', stop, stop_py, False)):
             result = self.prime_both(f'd26-empty-{what}', snippet, python, shim=shim, agents={}, sessions=[], sidekick={'session': ['x']})
             self.assertNotIn('Cannot index', result[2], what)
 
-    def test_the_kitchens_verifier_cleanup_matches_the_bash_at_the_phase_3_base_with_the_shims(self):
-        """kitchen.sh's verifier cleanup (the lines of its verdict collection that stop a Prime verifier with `stop_prime_role ... || die ... 5` or
-        exit any other kind and wait for it to go), cut out of kitchen.sh and run on its own against 04d2c13's helpers and the working tree's."""
-        lines = (root / 'skills/pstack-kitchen/scripts/kitchen.sh').read_text().splitlines()
-        first = next((n for n, line in enumerate(lines) if line == '\tif [ "$kind" = prime-agent ]; then' and 'stop_prime_role "$store" verifier' in lines[n + 1]), None)
-        self.assertIsNotNone(first, 'kitchen.sh no longer holds the lines `if [ "$kind" = prime-agent ]; then` / `stop_prime_role "$store" verifier`')
-        last = next((n for n in range(first, len(lines)) if lines[n].startswith('\t[ "$kind" != prime-agent ] || json_update "$store" \'.verifier.closed = true\'')), None)
-        self.assertIsNotNone(last, 'kitchen.sh no longer holds the line `[ "$kind" != prime-agent ] || json_update "$store" \'.verifier.closed = true\'`')
-        cleanup = '\n'.join(lines[first:last + 1])
-        self.assertIn('exit_command "$kind"', cleanup)
-        verifier = {'kind': 'prime-agent', 'name': 'v1', 'pane_id': 'p2', 'session': {'kind': 'path', 'value': '/t/v.jsonl'}}
-        row = {'activeSessionId': 'live-v', 'sessionId': 'sess-v', 'sessionFile': '/t/v.jsonl', 'name': 'v1'}
-        prime = dict(agents={'v1': 'idle prime-agent'}, panes={'p1': 's1', 'p2': 'v1'}, pair={'verifier': verifier},
-                     sessions=[row], fake={'sessions/v1': '/t/v.jsonl'})
-        bash = f'kind=$(jq -r .verifier.kind "$store/pair.json"); name=v1; pane=p2\n( {cleanup}\n echo "cleaned" ) ; echo "rc=$?"'
-        cases = {
-            'a Prime verifier whose cleanup succeeds': prime,
-            'a Prime verifier whose cleanup fails': {**prime, 'fake': {**prime['fake'], 'prime-stop-fail': ''}},
-            'a Prime verifier whose shell never takes the foreground': {**prime, 'clock': True, 'fake': {**prime['fake'], 'prime-client-stays': ''}},
-            'a claude verifier': dict(agents={'v1': 'idle claude'}, panes={'p1': 's1', 'p2': 'v1'}, pair={'verifier': {'kind': 'claude', 'name': 'v1', 'pane_id': 'p2'}}, clock=True),
-        }
-        out = {name: self.prime_both('vc-' + re.sub(r'\W+', '-', name), bash, '', shim=True, **spec) for name, spec in cases.items()}
-        self.assertIn('cleaned', out['a Prime verifier whose cleanup succeeds'][1])
-        self.assertIn('"closed": true', out['a Prime verifier whose cleanup succeeds'][3])
-        self.assertEqual(out['a Prime verifier whose cleanup fails'][1], 'rc=5\n')
-        self.assertIn('Prime verifier cleanup failed; its pane and scratch stay for inspection', out['a Prime verifier whose cleanup fails'][2])
-        self.assertIn('agent prompt v1 /exit', out['a claude verifier'][5])
-
     def test_the_prime_smoke_script_sources_pair_core_and_its_names_resolve(self):
         """tests/prime_herdr_smoke.py needs a real Prime, so only what can be proved here is: it sources pair-core.sh (which sources prime-agent.sh)
-        with no stubs of the helpers that file defines, and in that shell `stop_prime_role` and `pycore` are functions."""
+        with no stubs of the helpers that file defines, and in that shell `pycore` is a function and the core has the `__stop_prime_role` entry the script calls."""
         text = (root / 'tests/prime_herdr_smoke.py').read_text()
         self.assertIn('skills/pstack-pair/scripts/pair-core.sh', text)
         self.assertNotRegex(text, r'(?m)^(field|json_update|agent_status)\(\) \{')
         script = re.search(r'script = """(.*?)"""', text, re.S).group(1)
         core = root / 'skills/pstack-pair/scripts/pair-core.sh'
-        r = subprocess.run(['bash', '-c', script.split('stop_prime_role "$1"')[0] + 'type -t stop_prime_role pycore', 'smoke', 'unused', str(core)],
+        r = subprocess.run(['bash', '-c', script.split('pycore __stop_prime_role "$1"')[0] + 'type -t pycore', 'smoke', 'unused', str(core)],
                            capture_output=True, text=True, check=False, timeout=60)
-        self.assertEqual((r.returncode, r.stdout), (0, 'function\nfunction\n'), r.stderr)
+        self.assertEqual((r.returncode, r.stdout), (0, 'function\n'), r.stderr)
+        self.assertIn('pycore __stop_prime_role "$1" sidekick', text)
 
     def test_update_or_jq_waits_out_a_held_lock_in_its_jq_fallback(self):
         """The fallback (taken when the native mutate cannot apply) retries the held lock as update() does: the lock is held when the call starts and
@@ -4752,25 +4735,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             with self.assertRaises(Die) as caught:
                 store.update_or_jq(str(st), refuses, '.c = 3')
         self.assertIn('pair.json lock held for 10s', caught.exception.message)
-
-    def test_the_stop_prime_role_shim_returns_a_signal_status_and_exits_for_a_die(self):
-        """A pycore killed by a signal (143 for TERM) comes back from the shim as 143, not 43; a die the core reports as 100 plus its code (103) still
-        ends the shell with that code; 0 and 1 come back as returns."""
-        snippet = '''
-pycore() { sh -c 'kill -TERM $$'; }
-stop_prime_role "$store" sidekick || echo "signal rc=$?"
-pycore() { sh -c 'exit 103'; }
-( stop_prime_role "$store" sidekick || echo "die returned rc=$?" ); echo "die exit rc=$?"
-pycore() { return 1; }
-stop_prime_role "$store" sidekick || echo "answer rc=$?"
-pycore() { return 0; }
-stop_prime_role "$store" sidekick && echo "stopped"
-'''
-        top, st, env, fill = self.ab_world('shim-signal', {'master': None})
-        script = (f'set -euo pipefail\nskill_root={root / "skills/pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair\n'
-                  f'roles=(sidekick); store_dirs=(plans); slug_max=21\n. {root / "skills/pstack-pair/scripts/pair-core.sh"}\nstore={shlex.quote(str(st))}\nset +e\n{snippet}')
-        r = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, check=False, timeout=60)
-        self.assertEqual(r.stdout, 'signal rc=143\ndie exit rc=3\nanswer rc=1\nstopped\n')
 
     def test_close_role_matches_the_bash_at_the_phase_3_base_with_the_shims(self):
         """close_role: 04d2c13's pair-core function against kitchen_core.master's, which replaced it (unit 024; kitchen.sh `close` was its only caller)."""
@@ -7298,7 +7262,6 @@ stop_prime_role "$store" sidekick && echo "stopped"
              'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'json_update', 'pair_file',
              'expected_report', 'fresh_per_brief', 'file_mtime',
              'scope_entries',
-             'busy_command', 'agent_session_error', 'muse_session_error', 'prime_role_error',
              'record_prime_session', 'require_not_paused',
              'require_fresh_session', 'submit_typed',
              'in_herdr', 'latest_advice', 'detect_permission_mode',
@@ -7382,12 +7345,15 @@ stop_prime_role "$store" sidekick && echo "stopped"
         'unit_in_landing_range': ('units', 'inclusion', 'test_the_unit_model_equals_the_bash_functions_at_the_phase_4_base'),
         'unit_heads_in': ('units', 'heads_in', 'test_heads_in_equals_unit_heads_in_at_the_phase_4_base'),
         'verdict_range': ('units', 'Verdict', 'test_verdict_parse_equals_verdict_range_and_verdict_problem'),
-        'verdict_problem': ('units', 'Verdict', 'test_verdict_parse_equals_verdict_range_and_verdict_problem'),
         'manifest_warning': ('landing', 'manifest_warning', 'test_manifest_warning_equals_the_bash_including_the_no_warning_branch_and_the_head_argument'),
         'engine_met': ('landing', 'engine_met', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
         'cites_engine': ('landing', 'cites_engine', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
         'unit_adds_no_lines': ('landing', 'unit_adds_no_lines', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
         'warn_unreviewed': ('reviews', 'warn_unreviewed', 'test_take_master_matches_the_bash_at_the_phase_4_base'),
+        'set_outcome': ('verify_state', 'set_outcome', 'test_set_outcome_verify_prompt_and_handoff_due_equal_the_bash'),
+        'verify_prompt': ('verify_state', 'verify_prompt', 'test_set_outcome_verify_prompt_and_handoff_due_equal_the_bash'),
+        'handoff_due': ('verify_state', 'handoff_due', 'test_set_outcome_verify_prompt_and_handoff_due_equal_the_bash'),
+        'redeliver_packet': ('verify_state', 'redeliver_packet', 'test_verify_wait_matches_the_bash_at_the_phase_4_base_for_the_wait_itself'),
         'is_landing': ('landing', 'is_landing', 'test_latest_landing_verdict_equals_the_bash_and_is_landing_equals_the_bash'),
         'latest_landing_verdict': ('landing', 'latest_landing_verdict', 'test_latest_landing_verdict_equals_the_bash_and_is_landing_equals_the_bash'),
     }
@@ -8314,7 +8280,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
                 **extra.pop('pair', {})}
         files = {'verdicts/001-x-v1-packet.md': '# Packet\n\nverifier-outcome: running\n', **extra.pop('files', {})}
         env = {**self.VERIFY_ENV, **extra.pop('env', {})}
-        return {'args': ['verify', '{st}', '--cancel'], 'pair': pair, 'agents': {'v1': 'idle claude', **extra.pop('agents', {})}, 'panes': {'p3': 'v1'}, 'files': files,
+        return {'args': ['verify', '{st}', '--cancel'], 'pair': pair, 'agents': extra.pop('agents', {'v1': 'idle claude'}), 'panes': {'p3': 'v1'}, 'files': files,
                 'env': env, **extra}
 
     @staticmethod
@@ -8328,6 +8294,9 @@ stop_prime_role "$store" sidekick && echo "stopped"
     def test_verify_cancel_matches_the_bash_at_the_phase_4_base(self):
         host, live, dead = self.live_and_dead_token_hosts()
         world = self.verify_world
+        row = {'activeSessionId': 'live-v', 'sessionId': 'sess-v', 'sessionFile': '/t/v.jsonl', 'name': 'v1'}
+        prime = dict(agents={'v1': 'idle prime-agent'}, pair={'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'prime-agent', 'session': {'kind': 'path', 'value': '/t/v.jsonl'}}},
+                     fake={'prime-sessions.json': json.dumps([row]), 'sessions/v1': '/t/v.jsonl'})
         cases = {
             'a verification with no verdict is cancelled': world(),
             'a verdict already written': world(files={'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n'}),
@@ -8336,6 +8305,9 @@ stop_prime_role "$store" sidekick && echo "stopped"
             'a claim whose owner is gone': world(verifying={'closing': {'token': f'{host}:{dead}:1'}}),
             'a claim from another host': world(verifying={'closing': {'token': f'elsewhere:{dead}:1'}}),
             'a verifier that does not exit': world(noexit=True),
+            'a Prime verifier whose cleanup succeeds': world(**prime),
+            'a Prime verifier whose cleanup fails': world(**{**prime, 'fake': {**prime['fake'], 'prime-stop-fail': ''}}),
+            'a Prime verifier whose shell never takes the foreground': world(**{**prime, 'clock': True, 'fake': {**prime['fake'], 'prime-client-stays': ''}}),
             'a verifier already gone': world(agents={'v1': 'idle claude'}, panes={}, master=None),
             'a scratch id the scratch command refuses': world(verifying={'scratch': 'bad id'}),
             'a packet that is not there': world(verifying={'packet': '{st}/verdicts/none-packet.md'}),
@@ -8355,6 +8327,9 @@ stop_prime_role "$store" sidekick && echo "stopped"
             'a claim whose owner is gone': (0, 'cancelled: 001'),
             'a claim from another host': (5, 'no verification open (another call closed it)'),
             'a verifier that does not exit': (0, 'cancelled: 001'),
+            'a Prime verifier whose cleanup succeeds': (0, 'cancelled: 001'),
+            'a Prime verifier whose cleanup fails': (5, 'Prime verifier cleanup failed; its pane and scratch stay for inspection'),
+            'a Prime verifier whose shell never takes the foreground': (5, 'Prime client has not exited in p3'),
             'a verifier already gone': (0, 'cancelled: 001'),
             'a scratch id the scratch command refuses': (1, 'scratch id must look like'),
             'a packet that is not there': (0, 'cancelled: 001'),
@@ -8379,6 +8354,230 @@ stop_prime_role "$store" sidekick && echo "stopped"
         refused = out['a scratch id the scratch command refuses']
         self.assertNotIn('"closing"', refused['files']['pair.json'])
         self.assertIn('"verifying"', refused['files']['pair.json'])
+
+    @staticmethod
+    def vverdict(status='clean', units='001', evidence=True, findings='1. it broke\n'):
+        return (f'# Verdict\n\nstatus: {status}\nunits: {units}\n\n## Findings\n\n{findings}' + ('\n## Evidence\n\n```\n$ true\n```\n\n```\nok\n```\n' if evidence else ''))
+
+    def wait_world(self, every='5', **extra):
+        spec = self.verify_world(**extra)
+        spec['args'] = ['verify', '{st}', '--wait', '--every', every]
+        return spec
+
+    def wait_mask(self):
+        return [(r'grace [0-9]+s left', 'grace Ns left')]
+
+    def test_verify_wait_matches_the_bash_at_the_phase_4_base_for_verdicts(self):
+        world, V = self.wait_world, self.vverdict
+        verdict = lambda text, name='verdicts/001-x-v1.md': {name: text}
+        engine = dict(review_engine=True, files={'briefs/001-x.md': '# B\n\ncommit: yes\nplaybook: bug-fix\n', 'reviews/001-x.md': '# R\n\nverdict: accept\n',
+                                                 'verdicts/001-x-v1.md': V()})
+        cases = {
+            'a clean verdict': world(files=verdict(V())),
+            'a clean verdict that is sampled for audit': world(files=verdict(V()), verifying={'sample': 1}),
+            'a clean verdict that is the fifth since the handoff': world(files=verdict(V()), pair={'master': {'name': 'm1', 'units_since_handoff': 4}}),
+            'a clean verdict of a landing verification': world(files=verdict(V(units='landing'), 'verdicts/landing-v1.md'),
+                                                                verifying={'verdict': '{st}/verdicts/landing-v1.md', 'unit': 'landing', 'packet': '{st}/verdicts/landing-v1-packet.md'},
+                                                                pair={'master': {'name': 'm1', 'units_since_handoff': 4}}),
+            'a clean verdict and an unreviewed unit': world(**engine),
+            'a rejected verdict': world(files=verdict(V('reject'))),
+            'a second rejection of the unit': world(files={'verdicts/001-x-v1.md': V('reject'), 'verdicts/001-x-v2.md': V('reject'), 'verdicts/001-x-v3-packet.md': 'status: reject\n'}),
+            'a rejected landing verdict': world(files=verdict(V('reject', units='landing'), 'verdicts/landing-v1.md'),
+                                                 verifying={'verdict': '{st}/verdicts/landing-v1.md', 'unit': 'landing', 'packet': '{st}/verdicts/landing-v1-packet.md'}),
+            'a rejected verdict with many findings': world(files=verdict(V('reject', findings=''.join(f'{n}. finding {n}\n\n' for n in range(1, 30))))),
+            'an inconclusive verdict': world(files=verdict(V('inconclusive'))),
+            'a verdict with no evidence': world(files=verdict(V(evidence=False))),
+            'a verdict with a status that is none of the three': world(files=verdict(V('maybe'))),
+            'a verdict with no status line': world('0', files=verdict('# V\n\nunits: 001\n'), agents={'v1': 'working claude'}),
+            'a verdict closed with a claim whose owner is gone': world(files=verdict(V()), verifying={'closing': {'token': '@HOST@:@DEAD@:1'}}),
+            'a verdict while another live call holds the claim': world(files=verdict(V()), verifying={'closing': {'token': '@HOST@:@LIVE@:1'}}),
+            'a verdict whose scratch the scratch command refuses': world(files=verdict(V()), verifying={'scratch': 'bad id'}),
+            'a verdict while the verifier does not exit': world(files=verdict(V()), noexit=True),
+            'a verdict with a packet that is not there': world(files=verdict(V()), verifying={'packet': '{st}/verdicts/none-packet.md'}),
+            'a verdict of a verifier that is gone': world(files=verdict(V()), agents={}, panes={}, master=None),
+        }
+        host, live, dead = self.live_and_dead_token_hosts()
+        for spec in cases.values():
+            token = spec['pair']['verifying'].get('closing', {}).get('token')
+            if token:
+                spec['pair']['verifying']['closing']['token'] = token.replace('@HOST@', host).replace('@LIVE@', str(live)).replace('@DEAD@', str(dead))
+        expect = {
+            'a clean verdict': (0, 'audit: no'),
+            'a clean verdict that is sampled for audit': (0, 'audit: yes; read the review-delta yourself before accepting'),
+            'a clean verdict that is the fifth since the handoff': (0, 'master: 5 units verified since your last handoff'),
+            'a clean verdict of a landing verification': (0, 'audit: no'),
+            'a clean verdict and an unreviewed unit': (0, 'warning: unreviewed: unit 001 cites no joo run'),
+            'a rejected verdict': (2, 'next: kitchen.sh revise'),
+            'a second rejection of the unit': (2, 'next: second rejection of 001-x'),
+            'a rejected landing verdict': (2, '--landing again'),
+            'a rejected verdict with many findings': (2, '20. finding 20'),
+            'an inconclusive verdict': (2, "next: read the verdict; an inconclusive or invalid one is the master's to settle"),
+            'a verdict with no evidence': (2, 'status: invalid (no command output under Evidence)'),
+            'a verdict with a status that is none of the three': (2, 'status: invalid (status is not clean, reject, or inconclusive)'),
+            'a verdict with no status line': (4, 'verifying: units 001 by claude'),
+            'a verdict closed with a claim whose owner is gone': (0, 'status: clean'),
+            'a verdict while another live call holds the claim': (5, 'verification closed elsewhere'),
+            'a verdict whose scratch the scratch command refuses': (1, 'scratch id must look like'),
+            'a verdict while the verifier does not exit': (0, 'status: clean'),
+            'a verdict with a packet that is not there': (0, 'status: clean'),
+            'a verdict of a verifier that is gone': (0, 'status: clean'),
+        }
+        out = self.phase4_cases('vwait', {k: {**v, 'mask': self.wait_mask()} for k, v in cases.items()}, expect)
+        clean = out['a clean verdict']
+        self.assertNotIn('"verifying"', clean['files']['pair.json'])
+        self.assertIn('verifier-outcome: clean', clean['files']['verdicts/001-x-v1-packet.md'])
+        self.assertIn('verify\t001-x\tclean', '\n'.join(clean['events']))
+        self.assertIn('wake\t001-x\tverify:clean', '\n'.join(clean['events']))
+        self.assertIn('"units_since_handoff": 1', clean['files']['pair.json'])
+        self.assertIn('verifier-outcome: invalid', out['a verdict with no evidence']['files']['verdicts/001-x-v1-packet.md'])
+        self.assertIn('"verifying"', out['a verdict while another live call holds the claim']['files']['pair.json'])
+        self.assertNotIn('"closing"', out['a verdict whose scratch the scratch command refuses']['files']['pair.json'])
+
+    def test_the_interval_of_a_wait_is_read_as_the_bash_arithmetic_reads_it(self):
+        """Accepted (PARITY.md): `--every WORD` goes to `$(( now + every_m * 60 ))`. A whole number (decimal, octal with a leading 0, hexadecimal, a sign,
+        blanks) or an empty word gives the same minutes; a name (unbound under set -u), a decimal point, a digit string that is no octal number and an
+        expression end the command with status 1 in both, the bash with the shell's message and line, the port with the word. Expressions the shell
+        would evaluate (`1+1`) are refused by the port."""
+        wait = self.kitchen_core_module('verify_wait')
+        st = self.claim_store('arith', {'verdict': 'v'})
+        for word in ('5', '0', '010', '0x1F', '-1', '+3', '', '  7 ', '007'):
+            rc, out, err = self.phase4_bash(st, 'every_m="$1"; set -eu; echo $(( 100 + every_m * 60 ))'.replace('"$1"', repr(word)))
+            self.assertEqual(rc, 0, (word, err))
+            self.assertEqual(100 + 60 * wait.Waiter.arithmetic(word), int(out), word)
+        for word in ('abc', '1.5', '08', 'a b'):
+            rc, out, err = self.phase4_bash(st, 'bash -c \'every_m="$1"; set -eu; echo $(( 100 + every_m * 60 ))\' x ' + repr(word))
+            self.assertEqual(out, '', word)
+            self.assertNotEqual(err, '', word)
+            with self.assertRaises(Die) as caught:
+                wait.Waiter.arithmetic(word)
+            self.assertEqual(caught.exception.code, 1)
+
+    def test_verify_wait_matches_the_bash_at_the_phase_4_base_for_the_wait_itself(self):
+        world, V = self.wait_world, self.vverdict
+        flip = 'jq \'.verifying.verdict = "/elsewhere/other-v1.md"\' "$FAKE/../st/pair.json" >"$FAKE/../st/pair.tmp" && mv "$FAKE/../st/pair.tmp" "$FAKE/../st/pair.json"\n'
+        grace_hook = ('#!/bin/sh\ncase "$2" in Deadline*) printf \'# V\\n\\nstatus: clean\\nunits: 001\\n\\n## Evidence\\n\\n```\\n$ true\\n```\\n\\n```\\nok\\n```\\n\\n\' '
+                      '>"$FAKE/../st/verdicts/001-x-v1.md" ;; esac\n')
+        past = lambda **kw: dict(verifying={'deadline': int(time.time()) - 10, **kw.pop('verifying', {})}, **kw)
+        fallback = {'entry': {'fallback': {'kind': 'codex', 'args': []}}}
+        rate = {'v1': 'Error: rate limit exceeded, try later'}
+        pi_log = '{{"type":"message","message":{{"role":"assistant","stopReason":"error","errorMessage":"Reached free model rate limit."}}}}\n'
+        cases = {
+            'a verifier still working': world('0', agents={'v1': 'working claude'}),
+            'a verifier still working, a claim in the store': world('0', agents={'v1': 'working claude'}, verifying={'closing': {'token': 'x:1:1'}}),
+            'a verifier that is blocked': world('0', agents={'v1': 'blocked claude'}),
+            'a verifier that is idle, within its time': world('0', agents={'v1': 'idle claude'}),
+            'a verifier gone and no verdict': world(agents={}, panes={}, master=None),
+            'a verifier that sits idle past the limit': world(env={'KITCHEN_VERIFY_IDLE_S': '0'}),
+            'a verifier idle since long ago': world(verifying={'idle_since': int(time.time()) - 5000}),
+            'a stalled verifier with a retried call': world(env={'KITCHEN_VERIFY_IDLE_S': '0'}, verifying={'argv': ['001', '--retry-entry', '{{"kind":"codex"}}', '--covers', '002']}),
+            'a verifier past its deadline is prompted for what it proved': world('0', **past()),
+            'a devin verifier at its deadline is only waited on': world('0', agents={'v1': 'working devin'}, pair={'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'devin'}}, **past()),
+            'a deadline prompt that fails': world('0', promptfail=True, **past()),
+            'a grace already started is resumed without a prompt': world('0', **past(verifying={'grace_until': int(time.time()) + 500, 'grace_delivery': 'prompted'})),
+            'a grace that has run out': world('5', **past(verifying={'grace_until': int(time.time()) - 5, 'grace_delivery': 'prompted'})),
+            'a verifier that writes its verdict in the grace': world('5', hook=grace_hook, **past()),
+            'a blocked verifier at its deadline gets no prompt': world('5', agents={'v1': 'blocked claude'}, **past()),
+            'a provider error on the screen': world(screens=rate),
+            'a provider error with a fallback': world(screens=rate, verifying=fallback),
+            'a provider error with the same kind as its fallback': world(screens=rate, verifying={'entry': {'fallback': {'kind': 'claude', 'args': []}}}),
+            'a provider error on a retried call': world(screens=rate, verifying={**fallback, 'retried': True}),
+            'a provider error with a retry entry among the arguments': world(screens=rate, verifying={'argv': ['001', '--retry-entry', '{{"kind":"codex"}}']}),
+            'a provider error in the session log': world(files={'log.jsonl': pi_log}, verifying={'session': '{st}/log.jsonl'}),
+            'a verification closed elsewhere while waiting': world('5', agents={'v1': 'working claude'}, once={'get': flip}),
+            'a packet never delivered to an idle verifier': world('0', verifying={'delivered': False}),
+            'a packet never delivered to a working verifier': world('0', agents={'v1': 'working claude'}, verifying={'delivered': False}),
+            'nothing open': world(pair={'verifying': None}),
+            'a verifying that is a string': world(pair={'verifying': 'x'}),
+            'a verifier that is a string': world(pair={'verifier': 'v1'}),
+            'an interval that is empty': world('', agents={'v1': 'working claude'}),
+            'outside herdr': world(env={'HERDR_ENV': '0'}),
+        }
+        expect = {
+            'a verifier still working': (4, 'verifying: units 001 by claude, 2m of 32m, verifier working'),
+            'a verifier still working, a claim in the store': (4, 'verifying: units 001 by claude'),
+            'a verifier that is blocked': (4, 'verifier blocked'),
+            'a verifier that is idle, within its time': (4, 'verifier idle'),
+            'a verifier gone and no verdict': (4, '(verifier absent); read the packet and verify by hand, or rerun'),
+            'a verifier that sits idle past the limit': (4, 'the verifier sat idle 0m with nothing running; rerun: kitchen.sh verify'),
+            'a verifier idle since long ago': (4, 'the verifier sat idle 10m with nothing running'),
+            'a stalled verifier with a retried call': (4, 'rerun: kitchen.sh verify'),
+            'a verifier past its deadline is prompted for what it proved': (4, 'past its deadline; grace Ns left (prompted)'),
+            'a devin verifier at its deadline is only waited on': (4, '(skipped:devin-working)'),
+            'a deadline prompt that fails': (4, '(skipped:prompt-failed)'),
+            'a grace already started is resumed without a prompt': (4, 'past its deadline; grace Ns left (prompted)'),
+            'a grace that has run out': (4, 'no verdict at'),
+            'a verifier that writes its verdict in the grace': (0, 'status: clean'),
+            'a blocked verifier at its deadline gets no prompt': (4, 'no verdict at'),
+            'a provider error on the screen': (2, 'provider_error: '),
+            'a provider error with a fallback': (1, 'retry: verifying again on the fallback, codex'),
+            'a provider error with the same kind as its fallback': (2, 'next: wait for the limit, or kitchen.sh verify'),
+            'a provider error on a retried call': (2, 'next: wait for the limit'),
+            'a provider error with a retry entry among the arguments': (2, 'next: wait for the limit, or kitchen.sh verify {st} 001 --kind <another kind>'),
+            'a provider error in the session log': (2, 'provider_error: Reached free model rate limit.'),
+            'a verification closed elsewhere while waiting': (5, 'verification closed elsewhere'),
+            'a packet never delivered to an idle verifier': (4, 'redelivered: the verify that started this verifier stopped before sending its packet; sent it again'),
+            'a packet never delivered to a working verifier': (4, 'verifying: units 001'),
+            'nothing open': (5, 'no verification is open; start one with kitchen.sh verify'),
+            'a verifying that is a string': (5, 'no verification is open'),
+            'a verifier that is a string': (5, 'Cannot index string with string ("name")'),
+            'an interval that is empty': (4, 'verifying: units 001 by claude'),
+            'outside herdr': (1, 'not running inside Herdr'),
+        }
+        host = self.live_and_dead_token_hosts()[0]
+        out = self.phase4_cases('vwait2', {k: {**v, 'mask': self.wait_mask()} for k, v in cases.items()}, {k: (rc, text.replace('{st}', '<T>/st')) for k, (rc, text) in expect.items()})
+        self.assertIn('prompt v1 Deadline reached: write', out['a verifier past its deadline is prompted for what it proved']['calls'])
+        self.assertEqual(out['a grace already started is resumed without a prompt']['calls'].count('Deadline reached'), 0)
+        self.assertIn('"grace_delivery": "skipped:devin-working"', out['a devin verifier at its deadline is only waited on']['files']['pair.json'])
+        self.assertIn('verifier-outcome: provider', out['a provider error on the screen']['files']['verdicts/001-x-v1-packet.md'])
+        self.assertIn('verifier-outcome: stalled', out['a verifier that sits idle past the limit']['files']['verdicts/001-x-v1-packet.md'])
+        self.assertIn('verifier-outcome: missing', out['a verifier gone and no verdict']['files']['verdicts/001-x-v1-packet.md'])
+        self.assertIn('transcript: ', out['a provider error in the session log']['stdout'])
+        self.assertIn('packet: never reached the verifier', out['a provider error in the session log']['stdout'])
+        self.assertEqual(out['a verification closed elsewhere while waiting']['calls'].count('pane close'), 0)
+        self.assertIn('agent prompt v1 ', out['a packet never delivered to an idle verifier']['calls'])
+
+    def test_set_outcome_verify_prompt_and_handoff_due_equal_the_bash(self):
+        st = self.claim_store('twin2', {'verdict': 'v'})
+        packets = {'one outcome line': '# P\n\nverifier-outcome: prepared\n\nverdict: x\n', 'two outcome lines': 'verifier-outcome: a\nbody\nverifier-outcome: b\n',
+                   'none': '# P\n\nverdict: x\n', 'indented': '  verifier-outcome: no\nverifier-outcome:\n', 'no trailing newline': 'x\nverifier-outcome: y', 'empty': ''}
+        for n, (name, text) in enumerate(packets.items()):
+            for side in ('bash', 'py'):
+                packet = st / f'{side}-{n}.md'
+                packet.write_text(text)
+                if side == 'bash':
+                    self.phase4_bash(st, f'set_outcome {packet} "running (a|b)"')
+                else:
+                    self.kitchen_py(st, f'vs.set_outcome({str(packet)!r}, "running (a|b)")')
+            self.assertEqual((st / f'bash-{n}.md').read_text(), (st / f'py-{n}.md').read_text(), name)
+        self.assertEqual(self.phase4_bash(st, 'set_outcome "$STORE/none.md" x; echo "rc=$?"')[1], 'rc=0\n')
+        self.kitchen_py(st, 'vs.set_outcome(store + "/none.md", "x")')
+        self.assertFalse((st / 'none.md').exists())
+        want = self.phase4_bash(st, 'PAIR_SKILL=pstack-kitchen; verify_prompt /s/verdicts/001-x-v1-packet.md')[1]
+        got = self.kitchen_py(st, 'print(vs.verify_prompt(ctx, "/s/verdicts/001-x-v1-packet.md"), end="")')[1]
+        self.assertEqual(got, want)
+        self.assertIn('take the verifier role. pstack-kitchen VERIFY /s/verdicts/001-x-v1-packet.md', got)
+        masters = {'no master': None, 'zero': {'units_since_handoff': 0}, 'four': {'units_since_handoff': 4}, 'nine': {'units_since_handoff': 9},
+                   'ten': {'units_since_handoff': 10}, 'null': {'units_since_handoff': None}, 'false': {'units_since_handoff': False}, 'a string': 'x',
+                   'a string count': {'units_since_handoff': 'a'}, 'a float': {'units_since_handoff': 1.5}, 'an empty master': {}}
+        seen = set()
+        for n, (name, master) in enumerate(masters.items()):
+            for unit, env in (('001-x', {}), ('landing', {}), ('001-x', {'KITCHEN_MASTER_ROTATE_UNITS': '2'}), ('001-x', {'KITCHEN_MASTER_ROTATE_UNITS': '0'}),
+                              ('001-x', {'KITCHEN_MASTER_ROTATE_UNITS': 'x'}), ('001-x', {'KITCHEN_MASTER_ROTATE_UNITS': ''})):
+                results = []
+                for side in ('bash', 'py'):
+                    store = self.claim_store(f'ho{n}{side}{unit}{len(env)}{sorted(env.values())}'.replace("'", '').replace('[', '').replace(']', '').replace(' ', ''), {'verdict': 'v'}, {'master': master})
+                    if side == 'bash':
+                        exports = ''.join(f'export {k}={v!r}; ' for k, v in env.items())
+                        rc, out, err = self.phase4_bash(store, f'{exports}( set -e; handoff_due "$STORE" {unit} ); echo "rc=$?"')
+                    else:
+                        rc, out, err = self.kitchen_py(store, f'vs.handoff_due(store, {unit!r})\nprint("rc=0")', env=env)
+                        if rc != 0:
+                            out = f'rc={rc}\n'
+                    results.append((out.replace(str(store), '<S>').replace('rc=5', 'rc=ERR').replace('rc=1', 'rc=ERR'), err.replace(str(store), '<S>'), (store / 'pair.json').read_text()))
+                self.assertEqual(results[0][0], results[1][0], (name, unit, env))
+                self.assertEqual(results[0][2], results[1][2], (name, unit, env))
+                seen.add('master:' in results[0][0])
+        self.assertEqual(seen, {True, False})
 
 
 class BashReachTests(unittest.TestCase):

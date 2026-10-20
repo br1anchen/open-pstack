@@ -897,22 +897,6 @@ The kitchen reruns the brief's Verify commands at the unit's tip. Commit this as
 	core_finish "$@"
 }
 
-verdict_problem() {
-	# $1 verdict: empty when it is well formed, else what is wrong.
-	case "$(header_field "$1" status)" in
-	clean | reject | inconclusive) ;;
-	*) printf 'status is not clean, reject, or inconclusive'; return ;;
-	esac
-	awk '/^## Evidence/{e=1; next} /^## /{e=0} e && /^```/{n++} END{exit !(n >= 2)}' "$1" || printf 'no command output under Evidence'
-}
-
-audit_due() {
-	# $1 unit id, $2 sample rate: a stable draw per unit.
-	local h
-	h="$(printf '%s' "$1" | cksum | cut -d' ' -f1)"
-	awk -v h="$h" -v s="$2" 'BEGIN{exit !((h % 1000) < s * 1000)}'
-}
-
 # A code fence for $1: three backticks, or one more than the longest run of them in the text.
 fence_for() {
 	local longest
@@ -1042,7 +1026,7 @@ cmd_verify() {
 	fi
 	if [ "$wait" -eq 1 ]; then
 		[ -n "$(field "$store" '.verifying.verdict // empty')" ] || die "no verification is open; start one with kitchen.sh verify $store <NNN>" 5
-		verify_wait "$store" "$every_m"
+		HOSTNAME="${HOSTNAME:-localhost}" pycore --exec __verify_wait "$store" "$every_m"
 	fi
 	[ "$landing" -eq 1 ] || [ "${#units[@]}" -gt 0 ] || die "name at least one unit NNN, or --landing"
 	[ "$landing" -eq 0 ] || [ "${#units[@]}" -eq 0 ] || die "--landing verifies the whole stack; name no units"
@@ -1059,7 +1043,7 @@ cmd_verify() {
 				break
 			fi
 			closed_rc=0
-			closed="$(closing=1 verify_wait "$store" 0 2>&1)" || closed_rc=$?
+			closed="$(HOSTNAME="${HOSTNAME:-localhost}" pycore __verify_wait "$store" 0 --closing 2>&1)" || closed_rc=$?
 			closed_status="$(sed -n 's/^status: //p' <<<"$closed" | head -1)"
 			[ -z "$closed_status" ] || break
 			grep -q 'verification closed elsewhere' <<<"$closed" || break
@@ -1349,7 +1333,7 @@ cmd_verify() {
 	fi
 	json_update "$store" '.verifying.delivered = true'
 	record_verifier_session "$store" "$name"
-	verify_wait "$store" "$every_m"
+	HOSTNAME="${HOSTNAME:-localhost}" pycore --exec __verify_wait "$store" "$every_m"
 }
 
 # The verifier for a class: the host roster's entry, with the sidekick marker
@@ -1432,119 +1416,6 @@ record_verifier_session() {
 	[ -z "$session" ] || json_update "$1" --arg s "$session" '.verifying.session = $s'
 }
 
-# What the verifier's transcript says about an attempt that ended without a
-# clean or rejecting verdict: where it is, and whether the packet reached it.
-verifier_trail() {
-	local session="$1" packet="$2"
-	[ -n "$session" ] || return 0
-	printf 'transcript: %s\n' "$session"
-	[ -f "$session" ] || return 0
-	if grep -qF "VERIFY $packet" "$session"; then
-		printf 'packet: the verifier received it\n'
-	else
-		printf 'packet: never reached the verifier; this attempt says nothing about the work, so rerun it\n'
-	fi
-}
-
-# The verifier's latest provider error: from its screen while it is up, else
-# from the error stop its session log recorded. Empty when there is none.
-verifier_provider_error() {
-	local store="$1" name="$2" line="" session
-	# $3 is the session of the verification the caller owns, when it captured it.
-	if [ "$(field "$store" .verifier.kind)" = prime-agent ]; then
-		prime_role_error "$store" verifier
-		return 0
-	fi
-	[ "$(agent_status "$name")" = absent ] ||
-		line="$(grep -oiE ".{0,60}($provider_error_re).{0,100}" <<<"$(pane_text "$name")" | tail -1 || true)"
-	session="${3-$(field "$store" '.verifying.session // empty')}"
-	if [ -z "$line" ]; then
-		local cwd=""
-		[ "$(field "$store" .verifier.kind)" != pi ] && [ "$(field "$store" .verifier.kind)" != muse ] ||
-			cwd="$(readlink -f "$store/scratch/$(field "$store" .verifying.scratch)" 2>/dev/null || true)"
-		if [ "$(field "$store" .verifier.kind)" = muse ]; then
-			line="$(muse_session_error "$cwd")"
-		else
-			line="$(agent_session_error "$session" "$cwd")"
-		fi
-	fi
-	printf '%s' "${line:0:240}"
-}
-
-# The verifier's state for a progress line: working when its pane runs a command of its own.
-verifier_shown() {
-	local store="$1" state="$2" cmd
-	case "$state" in
-	idle | "done")
-		cmd="$(busy_command "$(field "$store" .verifier.pane_id)" "$(field "$store" .verifying.started)")"
-		if [ -n "$cmd" ]; then printf 'working (%s)' "$cmd"; return; fi ;;
-	esac
-	printf '%s' "$state"
-}
-
-# At the deadline a live verifier is asked, once, to write an inconclusive
-# verdict with what it proved and what it never reached, and given
-# KITCHEN_VERIFY_GRACE_S (default 600) to write it. The grace is part of the
-# attempt: its state is stored before the prompt is delivered, a later --wait
-# resumes the stored expiry and never prompts again, and while it runs the scratch
-# and the pane stay. A verdict already written wins and a provider error takes
-# the provider path before this runs. pi, claude and codex take the prompt
-# whether idle, done or working (their harnesses queue it); a working Devin does
-# not (Enter would cancel its command), so it is only waited on; a blocked or
-# unknown agent gets no prompt and no grace. $5 is this call's interval end.
-verify_grace() {
-	local store="$1" name="$2" kind="$3" verdict="$4" until="$5" brief="$6" session="$7" state now delivery grace_until text
-	# Before anything is read or the verifier is prompted: the verification must still be this wait's.
-	verification_still_open "$store" "$verdict"
-	grace_until="$(field "$store" '.verifying.grace_until // empty')"
-	if [ -z "$grace_until" ]; then
-		state="$(agent_status "$name")"
-		case "$state" in blocked | unknown | absent) return 0 ;; esac
-		now="$(date +%s)"
-		grace_until=$(( now + ${KITCHEN_VERIFY_GRACE_S:-600} ))
-		delivery=prompted
-		if [ "$kind" = devin ] && [ "$state" = working ]; then delivery=skipped:devin-working; fi
-		update_verifying "$store" "$verdict" '.verifying.grace_at = $at | .verifying.grace_until = $until | .verifying.grace_delivery = $d' \
-			--argjson at "$now" --argjson until "$grace_until" --arg d "$delivery"
-		if [ "$delivery" = prompted ]; then
-			text="Deadline reached: write $verdict now with status inconclusive, listing what you proved (with its evidence) and what you never reached, then end your turn. Stop any process you started first, and write the file complete in one write: create it under a temporary name in the same directory, then rename it into place."
-			if herdr agent prompt "$name" "$text" >/dev/null 2>&1; then
-				submit_typed "$name" "$(basename "$verdict")"
-			else
-				delivery=skipped:prompt-failed
-				update_verifying "$store" "$verdict" '.verifying.grace_delivery = $d' --arg d "$delivery"
-			fi
-		fi
-		event "$store" master verify-grace "$brief" "$delivery"
-	fi
-	while :; do
-		{ [ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ]; } && return 0
-		state="$(agent_status "$name")"
-		verification_still_open "$store" "$verdict"
-		[ "$state" != absent ] || return 0
-		now="$(date +%s)"
-		[ "$now" -lt "$grace_until" ] || return 0
-		case "$state" in
-		idle | "done" | blocked) [ -z "$(verifier_provider_error "$store" "$name" "$session")" ] || return 0 ;;
-		esac
-		if [ "$now" -ge "$until" ]; then
-			printf 'verifying: units %s by %s, past its deadline; grace %ss left (%s), verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
-				"$(( grace_until - now ))" "$(field "$store" .verifying.grace_delivery)" "$(verifier_shown "$store" "$state")"
-			printf 'next: other work, then kitchen.sh verify %s --wait\n' "$store"
-			event "$store" master wake "$brief" "verify:grace"
-			exit 4
-		fi
-		sleep "${KITCHEN_VERIFY_GRACE_POLL_S:-5}"
-	done
-}
-
-# Waits up to $2 minutes for the open verification's verdict. A verifier
-# still working at the interval leaves the verification open (exit 4, with
-# its progress); a verdict, a gone verifier, or the deadline closes it:
-# the pane is closed, the scratch removed, and the verdict read. So does a
-# stall: a verifier idle for KITCHEN_VERIFY_IDLE_S (default 600) with no
-# verdict and no process of its own still running in its pane, which would
-# otherwise sit out the whole deadline.
 verify_prompt() {
 	printf 'Load the %s skill from ~/.agents/skills/%s/SKILL.md and take the verifier role. %s VERIFY %s' "$PAIR_SKILL" "$PAIR_SKILL" "$PAIR_SKILL" "$1"
 }
@@ -1561,256 +1432,6 @@ redeliver_packet() {
 	printf 'redelivered: %s; sent it again\n' "$2"
 	herdr agent prompt "$name" "$(verify_prompt "$packet")" --wait --until working --timeout 30000 >/dev/null 2>&1 || true
 	submit_typed "$name" "$(basename "$packet")"
-}
-
-# Clears .verifying only while it still names the verification with verdict $2:
-# another call may have closed it and started the next.
-drop_verifying() {
-	json_update "$1" --arg v "$2" 'if .verifying.verdict == $v then del(.verifying) else . end'
-}
-
-# Applies jq update $3 to .verifying only while it still names the verification with verdict $2, so a
-# write that lands after another call closed it cannot bring .verifying back. $4... are jq arguments.
-update_verifying() {
-	local store="$1" v="$2" body="$3"
-	shift 3
-	json_update "$store" --arg v "$v" "$@" "if .verifying.verdict == \$v then ($body) else . end"
-}
-
-# Claims the close of the verification with verdict $2: one atomic update of pair.json that
-# succeeds for the first caller only. The claim names this host and process; a claim whose process
-# is gone on this host is taken over, one from another host is never touched, a live one is
-# respected. Returns 1 when the verification is gone or another call holds the claim. The claim ends
-# with the verification (drop_verifying) or, when the close dies, with release_my_claim.
-claim_close() {
-	local token current="" pid="" host="" here_host
-	here_host="${HOSTNAME:-localhost}"
-	token="$here_host:$$:$RANDOM"
-	current="$(field "$1" '.verifying.closing.token // empty')"
-	if [ -n "$current" ]; then
-		host="${current%%:*}"
-		pid="${current#*:}"
-		pid="${pid%%:*}"
-		[ "$host" = "$here_host" ] && ! kill -0 "$pid" 2>/dev/null || return 1
-	fi
-	update_verifying "$1" "$2" 'if (.verifying.closing.token // "") == $old then .verifying.closing = {token: $t} else . end' \
-		--arg t "$token" --arg old "$current"
-	[ "$(field "$1" '.verifying.closing.token // empty')" = "$token" ]
-}
-
-# Gives up the claim $3 on the verification with verdict $2, when it is still the holder's.
-release_close() {
-	update_verifying "$1" "$2" 'if .verifying.closing.token == $t then del(.verifying.closing) else . end' --arg t "$3" 2>/dev/null || true
-}
-
-# Whether the claim in the store is this process's (the token names this host and pid).
-my_claim() {
-	case "$(field "$1" '.verifying.closing.token // empty')" in "${HOSTNAME:-localhost}:$$:"*) return 0 ;; esac
-	return 1
-}
-
-# After close_verifier: the claim must still be this closer's before anything is written.
-still_my_claim() {
-	my_claim "$1" && return 0
-	printf 'verification closed elsewhere\n'
-	exit 5
-}
-
-# Runs close_verifier (arguments as it takes them) in a subshell so that a die inside it, the Prime cleanup
-# failing, cannot leave this process's claim behind: the claim is released and the same status returned.
-# close_verifier's own status 70 is "not ours to close" (closed elsewhere); any other nonzero status is a die. $1 is the store, $5 the verdict.
-run_close() {
-	local rc=0
-	( close_verifier "$@" ) || rc=$?
-	[ "$rc" -eq 0 ] && return 0
-	[ "$rc" -eq 70 ] && return 1
-	if my_claim "$1"; then
-		release_close "$1" "$5" "$(field "$1" '.verifying.closing.token // empty')"
-	fi
-	exit "$rc"
-}
-
-# Stops the open verification's verifier, closes its pane and removes its scratch,
-# unless .verifying no longer names the verification with verdict $5 or another call claimed it (status 70).
-close_verifier() {
-	local store="$1" name="$2" kind="$3" pane="$4" gone scratch
-	# Of two closers only the first to claim the verification closes it; while it holds the claim nothing can
-	# replace the verification, so the pane and scratch below are its own.
-	claim_close "$store" "${5:-}" || return 70
-	scratch="$(field "$store" .verifying.scratch)"
-	if [ "$kind" = prime-agent ]; then
-		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5
-	else
-		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
-		gone=$(( $(date +%s) + ${KITCHEN_VERIFIER_EXIT_S:-15} ))
-		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
-	fi
-	herdr pane close "$pane" >/dev/null 2>&1 || true
-	[ "$kind" != prime-agent ] || json_update "$store" '.verifier.closed = true'
-	cmd_scratch "$store" "$scratch" --remove >/dev/null
-}
-
-# A wait ends, touching nothing, when another call closed the verification it
-# started on (cancelled it, or read its verdict and began the next).
-verification_still_open() {
-	[ "$(field "$1" '.verifying.verdict // empty')" = "$2" ] && return 0
-	printf 'verification closed elsewhere\n'
-	exit 5
-}
-
-verify_wait() {
-	local store="$1" every_m="$2" verdict name kind until state="" now idle_since stalled=0
-	local brief risk sample unit pane packet session provider="" fallback="" retried
-	local -a argv=()
-	# The verification this wait took, read once: after another call closes it and starts the next, these
-	# still describe the one this wait owns, never the store's current one.
-	verdict="$(field "$store" .verifying.verdict)"
-	name="$(field "$store" .verifier.name)"
-	kind="$(field "$store" .verifier.kind)"
-	packet="$(field "$store" .verifying.packet)"
-	session="$(field "$store" '.verifying.session // empty')"
-	brief="$(field "$store" .verifying.brief)"
-	risk="$(field "$store" .verifying.risk)"
-	sample="$(field "$store" .verifying.sample)"
-	unit="$(field "$store" .verifying.unit)"
-	pane="$(field "$store" .verifier.pane_id)"
-	fallback="$(field "$store" '.verifying.entry.fallback // empty' | jq -c . 2>/dev/null || true)"
-	retried="$(field "$store" '.verifying.retried // false')"
-	mapfile -t argv < <(jq -r '.verifying.argv[]?' "$store/pair.json")
-	until=$(( $(date +%s) + every_m * 60 ))
-	# A verify stopped between the verifier's start and its packet leaves the
-	# verifier idle with nothing to do, until the stall check closes it.
-	if [ "$(field "$store" .verifying.delivered)" = false ] && [ ! -f "$verdict" ]; then
-		verification_still_open "$store" "$verdict"
-		case "$(agent_status "$name")" in
-		idle | "done") redeliver_packet "$store" "the verify that started this verifier stopped before sending its packet" "$name" "$packet" "$brief" "$kind" ;;
-		esac
-		update_verifying "$store" "$verdict" '.verifying.delivered = true'
-	fi
-	while :; do
-		[ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ] && break
-		state="$(agent_status "$name")"
-		verification_still_open "$store" "$verdict"
-		now="$(date +%s)"
-		[ "$state" != absent ] && [ "$now" -lt "$(field "$store" .verifying.deadline)" ] || break
-		if [ "$now" -ge "$until" ]; then
-			printf 'verifying: units %s by %s, %sm of %sm, verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
-				"$(( (now - $(field "$store" .verifying.started)) / 60 ))" "$(( ($(field "$store" .verifying.deadline) - $(field "$store" .verifying.started)) / 60 ))" "$(verifier_shown "$store" "$state")"
-			printf 'next: other work, then kitchen.sh verify %s --wait\n' "$store"
-			event "$store" master wake "$(field "$store" .verifying.brief)" "verify:progress"
-			exit 4
-		fi
-		# A verifier that ended its turn on a provider error will not write.
-		idle_since="$(field "$store" '.verifying.idle_since // empty')"
-		case "$state" in
-		blocked)
-			if [ "$(field "$store" .verifier.kind)" = prime-agent ] && [ -n "$(verifier_provider_error "$store" "$name" "$session")" ]; then
-				break
-			fi
-			[ -z "$idle_since" ] || update_verifying "$store" "$verdict" 'del(.verifying.idle_since)' ;;
-		idle | "done")
-			[ -z "$(verifier_provider_error "$store" "$name" "$session")" ] || break
-			if [ -n "$(busy_command "$(field "$store" .verifier.pane_id)" "$(field "$store" .verifying.started)")" ]; then
-				[ -z "$idle_since" ] || update_verifying "$store" "$verdict" 'del(.verifying.idle_since)'
-			elif [ -z "$idle_since" ]; then
-				update_verifying "$store" "$verdict" '.verifying.idle_since = $at' --argjson at "$now"
-			elif [ $(( now - idle_since )) -ge "${KITCHEN_VERIFY_IDLE_S:-600}" ]; then
-				stalled=1
-				break
-			fi ;;
-		*) [ -z "$idle_since" ] || update_verifying "$store" "$verdict" 'del(.verifying.idle_since)' ;;
-		esac
-		sleep "${KITCHEN_VERIFY_POLL_S:-10}"
-	done
-	verification_still_open "$store" "$verdict"
-	# A verifier still alive at the deadline is asked once for what it proved.
-	if { [ ! -f "$verdict" ] || [ -z "$(header_field "$verdict" status)" ]; } && [ "$state" != absent ] &&
-		[ "$(date +%s)" -ge "$(field "$store" .verifying.deadline)" ] && [ -z "$(verifier_provider_error "$store" "$name" "$session")" ]; then
-		verify_grace "$store" "$name" "$kind" "$verdict" "$until" "$brief" "$session"
-		verification_still_open "$store" "$verdict"
-	fi
-	# A verdict just written may still be closing; give the writer a moment.
-	[ ! -f "$verdict" ] || sleep "${KITCHEN_VERDICT_SETTLE_S:-3}"
-	verification_still_open "$store" "$verdict"
-	[ -f "$verdict" ] || provider="$(verifier_provider_error "$store" "$name" "$session")"
-	run_close "$store" "$name" "$kind" "$pane" "$verdict" || { printf 'verification closed elsewhere\n'; exit 5; }
-	# The wait may have been long (the verifier's exit); the claim must still be ours before anything is written.
-	still_my_claim "$store"
-	# The attempt's outcome is written to its packet before .verifying goes and
-	# before any fallback starts, so fleet can tell attempts apart.
-	local problem="" status=""
-	if [ -f "$verdict" ]; then
-		problem="$(verdict_problem "$verdict")"
-		status="$(header_field "$verdict" status)"
-		[ -z "$problem" ] || status=invalid
-		set_outcome "$packet" "$status"
-	elif [ -n "$provider" ]; then
-		set_outcome "$packet" provider
-	elif [ "$stalled" -eq 1 ]; then
-		set_outcome "$packet" stalled
-	else
-		set_outcome "$packet" missing
-	fi
-	drop_verifying "$store" "$verdict"
-	[ "$status" = clean ] || [ "$status" = reject ] || verifier_trail "$session" "$packet"
-	if [ ! -f "$verdict" ] && [ -n "$provider" ]; then
-		printf 'verdict: none\nstatus: inconclusive (the verifier hit its provider, not the work)\nprovider_error: %s\n' "$provider"
-		if [ "$retried" = false ] && [ -n "$fallback" ] && [ "$(jq -r .kind <<<"$fallback")" != "$kind" ] && [ "${#argv[@]}" -gt 0 ]; then
-			printf 'retry: verifying again on the fallback, %s\n' "$(jq -r .kind <<<"$fallback")"
-			exec "$here/kitchen.sh" verify "$store" "${argv[@]}" --retry-entry "$fallback"
-		fi
-		event "$store" master wake "$brief" "verify:provider"
-		# A retried call carries its entry; the advice is for the master's own call.
-		local -a shown=()
-		local i
-		for ((i = 0; i < ${#argv[@]}; i++)); do
-			if [ "${argv[i]}" = --retry-entry ]; then i=$((i + 1)); else shown+=("${argv[i]}"); fi
-		done
-		printf 'next: wait for the limit, or kitchen.sh verify %s %s --kind <another kind>\n' "$store" "${shown[*]}"
-		exit 2
-	fi
-	if [ ! -f "$verdict" ] && [ "$stalled" -eq 1 ]; then
-		event "$store" master wake "$brief" "verify:stalled"
-		local -a again=()
-		local j
-		for ((j = 0; j < ${#argv[@]}; j++)); do
-			if [ "${argv[j]}" = --retry-entry ]; then j=$((j + 1)); else again+=("${argv[j]}"); fi
-		done
-		die "no verdict at $verdict: the verifier sat idle $(( ${KITCHEN_VERIFY_IDLE_S:-600} / 60 ))m with nothing running; rerun: kitchen.sh verify $store ${again[*]}" 4
-	fi
-	if [ ! -f "$verdict" ]; then
-		event "$store" master wake "$brief" "verify:missing"
-		die "no verdict at $verdict (verifier ${state:-gone}); read the packet and verify by hand, or rerun" 4
-	fi
-	event "$store" master verify "$brief" "$status"
-	[ -n "${closing:-}" ] || event "$store" master wake "$brief" "verify:${status%% *}"
-	printf 'verdict: %s\nstatus: %s%s\n' "$verdict" "$status" "${problem:+ ($problem)}"
-	case "$status" in
-	clean)
-		if [ "$risk" = routine ] && audit_due "$unit" "$sample"; then
-			printf 'audit: yes; read the review-delta yourself before accepting, and kitchen.sh catch what the kitchen missed\n'
-		else
-			printf 'audit: no\n'
-		fi
-		warn_unreviewed "$store"
-		handoff_due "$store" "$unit"
-		exit 0 ;;
-	reject)
-		awk '/^## Findings/{p=1; next} /^## /{p=0} p' "$verdict" | sed '/^$/d' | head -20
-		local rejects
-		rejects="$(grep -l '^status: reject' "$store/verdicts/$unit"-v[0-9]*.md 2>/dev/null | grep -vc packet || true)"
-		if [ "$unit" = landing ]; then
-			printf 'next: kitchen.sh revise %s %s, then kitchen.sh verify %s --landing again\n' "$store" "$verdict" "$store"
-		elif [ "$rejects" -ge 2 ]; then
-			printf 'next: second rejection of %s; read the verdict and the unit yourself before another fix\n' "$unit"
-		else
-			printf 'next: kitchen.sh revise %s %s, then verify the fix with --covers %s\n' "$store" "$verdict" "${unit:0:3}"
-		fi
-		exit 2 ;;
-	*)
-		printf 'next: read the verdict; an inconclusive or invalid one is the master'"'"'s to settle\n'
-		exit 2 ;;
-	esac
 }
 
 # A fix brief from a rejected verdict, with the Scope, Acceptance, Verify and

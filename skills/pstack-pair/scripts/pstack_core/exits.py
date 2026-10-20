@@ -108,11 +108,6 @@ def stopped(store, role):
         return False
 
 
-def entry_exit_command(ctx, args):
-    sys.stdout.write(exit_command(args[0]) + '\n')
-    return 0
-
-
 def entry_stop_prime_role(ctx, args):
     """__stop_prime_role store role: 0 stopped, 1 the answer "no". The status a failed jq write returns comes back as it is; a die comes back as
     100 plus its code, which the bash shim turns into the exit the bash die made."""
@@ -128,4 +123,4 @@ def entry_stop_prime_role(ctx, args):
         return 100 + e.code
 
 
-COMMANDS = {'__exit_command': entry_exit_command, '__stop_prime_role': entry_stop_prime_role}
+COMMANDS = {'__stop_prime_role': entry_stop_prime_role}

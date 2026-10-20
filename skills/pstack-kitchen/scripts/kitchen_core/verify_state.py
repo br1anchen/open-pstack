@@ -304,6 +304,25 @@ def verdict_problem(verdict):
     return Verdict.parse(verdict).problem
 
 
+def shell_arithmetic(text):
+    """`$(( ... ))` over a word the user or the store gave: a whole number as bash reads it (0x is hexadecimal, a leading 0 octal), or an empty
+    word (0). Anything else ends the shell, status 1, with the shell's complaint, which names its file and line in the bash and here only the word: a
+    name is an unset variable under `set -u`, a digit string that is not octal is a value too great for its base, the rest a syntax error."""
+    word = text.strip(' \t\n')
+    if word == '':
+        return 0
+    m = re.fullmatch(r'([+-]?)(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)', word)
+    if m:
+        digits = m.group(2)
+        value = int(digits, 16) if digits[:2] in ('0x', '0X') else int(digits, 8) if digits.startswith('0') else int(digits)
+        return -value if m.group(1) == '-' else value
+    if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', word):
+        raise Die(f'{word}: unbound variable', 1)
+    if re.fullmatch(r'[+-]?0[0-9]+', word):
+        raise Die(f'{word}: value too great for base (error token is "{word}")', 1)
+    raise Die(f'{text}: arithmetic syntax error', 1)
+
+
 def handoff_due(store, unit, errexit=True):
     """Every clean unit verdict counts toward the master's next handoff; after KITCHEN_MASTER_ROTATE_UNITS (default 5) the verdict says to rotate, at
     the threshold and at each multiple of it."""
@@ -325,8 +344,7 @@ def handoff_due(store, unit, errexit=True):
     n = field(store, '.master.units_since_handoff')
     thr = bash_int(os.environ.get('KITCHEN_MASTER_ROTATE_UNITS') or '5')
     thr = 1 if thr is None or thr < 1 else thr
-    count = bash_int(n)
-    if count is None or count % thr != 0:
+    if shell_arithmetic(n) % thr != 0:
         return
     sys.stdout.write(f'master: {n} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, '
                      f'kitchen.sh rotate-master {store}\n')

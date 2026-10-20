@@ -211,33 +211,6 @@ expected_report() {
 	printf '%s/reports/%s.md\n' "$1" "$(basename "$2" .md | sed -E 's/-a[0-9]+$//')"
 }
 
-# A quiet progress log is not stale while a command the sidekick started
-# after its last line still runs (a ten-minute test suite). The sidekick's
-# processes are the ones carrying its pane's HERDR_PANE_ID, which a detached
-# gate inherits too; the master's own commands carry the master's. A pane id
-# is unique only within one Herdr server, so when this command runs under one
-# (HERDR_SOCKET_PATH) a process counts only if it carries the same socket.
-# Prints the longest-running one, preferring a command over the shell that
-# runs it, and its age; or nothing. Linux only.
-busy_command() {
-	# The trackers start below any etimes, so a process under a second old (etimes 0) is still picked.
-	local pane="$1" since="$2" now pid et comm best="" best_et=-1 shell="" shell_et=-1 env sock="${HERDR_SOCKET_PATH:-}"
-	[ -n "$pane" ] && [ -d /proc ] || return 0
-	now="$(date +%s)"
-	while read -r pid et comm; do
-		[ $((now - et)) -gt "$since" ] || continue
-		env="$(tr '\0' '\n' 2>/dev/null <"/proc/$pid/environ")" || continue
-		grep -qxF "HERDR_PANE_ID=$pane" <<<"$env" || continue
-		[ -z "$sock" ] || grep -qxF "HERDR_SOCKET_PATH=$sock" <<<"$env" || continue
-		case "$comm" in
-		bash | sh | zsh | dash | fish) [ "$et" -le "$shell_et" ] || { shell_et="$et"; shell="$comm"; } ;;
-		*) [ "$et" -le "$best_et" ] || { best_et="$et"; best="$comm"; } ;;
-		esac
-	done < <(ps -u "$(id -u)" -o pid=,etimes=,comm= 2>/dev/null)
-	[ -n "$best" ] || { best="$shell"; best_et="$shell_et"; }
-	[ -z "$best" ] || printf '%s for %dm' "$best" $((best_et / 60))
-}
-
 # A brief's Scope entries, one path or glob per line, for `may` (the
 # may write: list) or `mustnot` (must not write:). An entry is the text after
 # "- ", without a " — " annotation or a trailing "(...)" note; one pair of
@@ -329,37 +302,6 @@ steps_file() {
 }
 
 provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|billing verification failed|billing_error'
-
-# The error a pi agent stopped on, from its own session log: $1 the log herdr
-# reported, else the newest log in pi's session directory for cwd $2. Printed
-# only when the session's last assistant turn ended in an error, so a limit
-# pi recovered from is not reported. A pane that is gone still says why.
-agent_session_error() {
-	local f="$1" dir
-	if [ -z "$f" ] || [ ! -f "$f" ]; then
-		[ -n "${2:-}" ] || return 0
-		dir="$HOME/.pi/agent/sessions/--$(printf '%s' "${2#/}" | tr '/' '-')--"
-		f="$(ls -t "$dir"/*.jsonl 2>/dev/null | head -1 || true)"
-	fi
-	[ -n "$f" ] && [ -f "$f" ] || return 0
-	tail -n 200 "$f" | jq -r 'select(.message.role? == "assistant") | [.message.stopReason // "", .message.errorMessage // ""] | @tsv' 2>/dev/null |
-		tail -1 | awk -F '\t' '$1 == "error" && $2 != "" {print substr($2, 1, 240)}' || true
-}
-
-# The provider error a Muse Code session stopped on, from its own log: the
-# newest session.jsonl under Muse's session store that names working
-# directory $1 (Herdr reports no Muse session id). Muse writes its usage
-# limit as "Usage limit reached" and "wait for usage to reset at <time>", and
-# an account whose payment is not verified as HTTP 402 "Billing verification
-# failed" (billing_error).
-muse_session_error() {
-	local cwd="$1" f
-	[ -n "$cwd" ] || return 0
-	f="$(ls -t "${XDG_DATA_HOME:-$HOME/.local/share}"/muse/sessions/*/*/*/*/session.jsonl 2>/dev/null | head -20 |
-		while IFS= read -r x; do grep -qF -- "$cwd" "$x" && { printf '%s\n' "$x"; break; }; done)"
-	[ -n "$f" ] || return 0
-	tail -n 400 "$f" | grep -oiE ".{0,60}($provider_error_re).{0,100}" | tail -1 | cut -c1-240 || true
-}
 
 cmd_init() { pycore init "$@"; }
 
@@ -467,8 +409,6 @@ has_preflight() { pycore __has_preflight "$@" || { local pycore_rc=$?; case $pyc
 # have no check here. $1 kind, rest: the native args the agent starts with.
 # Prints the last lines of a failure on stderr.
 preflight_kind() { pycore __preflight_kind "$@"; }
-
-exit_command() { pycore __exit_command "$@"; }
 
 cmd_failover() { pycore --exec failover "$@"; }
 
