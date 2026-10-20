@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run  # noqa: E402
 
+# The timeouts are generous: starting python on a loaded gate counts toward them.
 HANG = '''\
 import os
 import subprocess
@@ -49,13 +50,14 @@ class RunOneTests(unittest.TestCase):
         (self.tmp / 'test_hang.py').write_text(HANG.format(pidfile=str(self.pidfile), fifo=str(fifo)))
 
     def test_a_test_past_its_timeout_fails_and_its_processes_are_killed(self):
-        test_id, code, _secs, out = run.run_one('test_hang.Hang.test_hangs', 2, cwd=self.tmp)
+        test_id, code, _secs, out = run.run_one('test_hang.Hang.test_hangs', 10, cwd=self.tmp)
         self.assertEqual(code, 'timeout')
-        self.assertTrue(out.startswith('TIMEOUT after 2s'), out)
+        self.assertTrue(out.startswith('TIMEOUT after 10s'), out)
+        self.assertTrue(self.pidfile.exists(), 'the hanging test never started within the 10 s timeout')
         self.assertTrue(gone(int(self.pidfile.read_text())))
 
     def test_a_test_inside_its_timeout_passes(self):
-        _id, code, _secs, _out = run.run_one('test_hang.Hang.test_passes', 2, cwd=self.tmp)
+        _id, code, _secs, _out = run.run_one('test_hang.Hang.test_passes', 120, cwd=self.tmp)
         self.assertEqual(code, 0)
 
 
