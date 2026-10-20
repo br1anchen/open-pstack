@@ -162,6 +162,7 @@ KitchenVariant.commands = {**KitchenVariant.commands, 'catch': _kitchen_command(
                            'consultant': _kitchen_command('setup', 'consultant'), 'fleet': _kitchen_command('setup', 'fleet'),
                            'wait': _kitchen_command('wait', 'wait'),
                            'dispatch': _kitchen_command('dispatch', 'dispatch'),
+                           '__record_skill_build': _kitchen_command('setup', 'record_skill_build_entry'),
                            'step': _kitchen_command('step', 'step'), 'finish': _kitchen_command('step', 'finish')}
 
 VARIANT = KitchenVariant

@@ -111,26 +111,8 @@ exit codes: the pair's, plus 2 for a failed gate, a rejected or invalid verdict,
 USAGE
 }
 
-# The stack's patch-ids for <base>..<head> (merges left out), built once per call: stack_ids maps a
-# patch-id to its commit, stack_index a commit to its place from the oldest, stack_commits lists them
-# oldest first, and stack_id_of and stack_id0_of map a commit to its patch-id with the default context
-# and with none (the revert scan reads the second). $1 root, $2 base, $3 head.
-declare -A stack_ids=() stack_index=() stack_id_of=() stack_id0_of=()
-declare -a stack_commits=()
-stack_ids_range=""
-# The repo's kitchen speaks through the standing orders too: the review
-# skills the sidekick runs before done, and how far landing goes.
-# The flake rev that built a skills directory, from the switch's builds.tsv
-# ("unknown" for a path no switch recorded, such as a working checkout).
-
-# A run stamped at init lists the skills directories its commands ran from; a
-# command from a different one adds a row. A run from before stamps stays unstamped.
-record_skill_build() {
-	[ "$(field "$1" '.skill_builds // empty | length')" != "" ] || return 0
-	[ "$(field "$1" '.skill_builds[-1].path')" != "$skills_dir" ] || return 0
-	json_update "$1" --arg p "$skills_dir" --arg a "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.skill_builds += [{path: $p, at: $a}]'
-}
-
+# Every command of the kitchen runs in Python (skills/pstack-kitchen/scripts/kitchen_core/, through pycore and the kitchen's variant.py): a shim below only
+# hands its arguments over. `--exec` replaces the shell, for the commands that wait (a SIGTERM to the shell must end the wait).
 cmd_init() { pycore init "$@"; }
 
 cmd_spawn() { pycore spawn "$@"; }
@@ -147,14 +129,10 @@ cmd_queue() { pycore queue "$@"; }
 
 cmd_discuss() { pycore discuss "$@"; }
 
-# A step is recorded only once the touched profiles' fast gates and the policy check pass on it; finish sends a done report only once the brief's Verify
-# commands, rerun by the kitchen, pass. Both are kitchen_core.step (the checks run detached and the command returns within KITCHEN_STEP_SLICE_S seconds).
 cmd_step() { pycore --exec step "$@"; }
 
 cmd_finish() { pycore --exec finish "$@"; }
 
-# verify starts a verification and waits for it in slices of --every minutes, so one call never outlasts a master's shell limit; the verifier
-# keeps working between calls, and `verify <store> --wait` picks it up. The open verification lives in pair.json .verifying, one at a time.
 cmd_verify() { HOSTNAME="${HOSTNAME:-localhost}" pycore --exec verify "$@"; }
 
 cmd_revise() { pycore revise "$@"; }
@@ -163,69 +141,24 @@ cmd_land_check() { pycore land-check "$@"; }
 
 cmd_catch() { pycore catch "$@"; }
 
-# The run's counts, read-only and from the same function fleet uses: sets
-# the rc_* globals. retro prints them and feedback quotes the same line.
-
-
-# Where the master was needed, and what repeated. Each repeated class is a
-# candidate for the kitchen: a rule, a lint, a profile command, a sharper
-# brief. Appends this run's classes to the repo's ledger, then counts across
-# runs.
-# A finished run's agents hold their memory until someone closes them (about
-# a gigabyte per run on this host, idle for days). The master asks the human
-# once after the retro; this is the yes.
 cmd_close() { pycore close "$@"; }
 
-# The master's own session grows with every diff and file it reads, and
-# every model call re-reads all of it: on this host a master that served
-# several runs re-read 500-900k tokens per call, at 27-31 calls per unit. A
-# handoff lets the master end its session at a unit boundary and start a
-# fresh one in the same pane, which reads the handoff and the store instead
-# of the history. new-handoff writes the template with the units' state
-# filled in; rotate-master records the filled handoff and the session it
-# closes, then hands the run to a new master beside it.
 cmd_new_handoff() { pycore new-handoff "$@"; }
 
-# One row per unit: brief, report status, latest verdict, review verdict.
-
-# The --model the master's own Claude was started with, so the next
-# generation runs the same model; empty when none is on its command line.
-
-# A hand-over, not a restart in place: the closing master starts the next
-# generation in a pane beside its own and points pair.json at it, and the new
-# master's first command, take-master, closes the old pane. The old session
-# never has to exit itself (a Claude with background tasks answers /exit with
-# a dialog), and a start that fails leaves the old master in charge.
 cmd_rotate_master() { pycore rotate-master "$@"; }
 
-# The new master's first command after a hand-over: give the old master a
-# moment to end its turn, close its pane (and with it any background waits it
-# left running), and take back the run's master name. Safe to repeat.
 cmd_take_master() { pycore take-master "$@"; }
 
 cmd_retro() { pycore retro "$@"; }
 
-# The host's feedback inbox: gaps in the kitchen itself, filed by masters
-# and read by whoever maintains pstack on this host.
-
-# One short lock around allocating an id and moving a report between
-# directories, so concurrent filings and closures never share a name.
-
-
-# Why the registered maintainer cannot take a pointer, or nothing when it can.
-
-# Open reports, oldest first: id, run, repo, build, gaps, age.
-
-# Move a report to done/ with a Closed block. Closing a closed id prints its
-# block and succeeds.
-
-# File a report: the master's text behind a header this command writes.
 cmd_feedback() { pycore feedback "$@"; }
 
-# Every run on the host and each skills build; read-only and repo-free.
 cmd_fleet() { pycore fleet "$@"; }
 
 cmd_maintainer() { pycore maintainer "$@"; }
 
-if [ $# -ge 2 ] && [ -f "$2/pair.json" ]; then record_skill_build "$2"; fi
+# A run stamped at init lists the skills directories its commands ran from; a command from a different one adds a row (kitchen_core.setup.record_skill_build).
+# A run from before stamps stays unstamped. It runs here, before pair_main, for every word the script is called with (help, an unknown command, any
+# command): no per-command shim reaches them all.
+if [ $# -ge 2 ] && [ -f "$2/pair.json" ]; then pycore __record_skill_build "$2"; fi
 pair_main "$@"

@@ -55,3 +55,6 @@ differ:
 - **A `pstack-kitchen NOTE <path>` message is a blocking review note.** Read it
   between tool calls: fix each blocking item first, as a fixup commit recorded
   with `kitchen.sh step ... --resolves <n-ids>`, then go on. A Devin gets it as a `NOTE:` line from its next `kitchen.sh step`, `progress` or `notes`; a clear note is never sent.
+- **`step` and `finish` are `scripts/kitchen_core/step.py`.** The gates and the Verify commands they start run in a detached `bash -c` of their own, so a
+  command that returns at `KITCHEN_STEP_SLICE_S` ("still running", exit 4) leaves them going, and the same command run again picks them up. The logs are
+  under `steps/jobs/` in the store: `out.N` for each run of a step's gates, `out` for the latest.

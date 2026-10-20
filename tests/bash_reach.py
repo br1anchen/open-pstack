@@ -1,9 +1,9 @@
 """Which bash function definitions can run from an entry script.
 
 A bounded model of the bash in skills/*/scripts, not a bash parser. It reads the entry scripts the way bash does at load time (source order,
-the last definition of a name wins, `copy_fn A B` snapshots A's body under B), takes the names in command position as the calls a body makes,
+the last definition of a name wins), takes the names in command position as the calls a body makes,
 and raises ReachError on anything it does not model: a dynamic command word, an `eval`, a `declare -f`, a `trap` handler, a `source` it cannot
-resolve, a `copy_fn` of a name with no earlier definition.
+resolve.
 
     reach = Reach([skills / 'pstack-pair/scripts/pair.sh', ...], base=skills)
     reach.reachable(entry)   # keys ('<path from base>:<name>') of the definitions that can run from that entry
@@ -25,15 +25,14 @@ FN_PARENS = re.compile(r'[ \t]*\([ \t]*\)')
 ARITH_COMMAND = re.compile(r'[ \t]*\(\(')
 SPECIAL = '@*#?$!-0123456789'
 # The only dynamic forms the scripts use, each pinned to the function and the exact command it models: pair_main runs `cmd_$1` (every final
-# cmd_* is a root), copy_fn builds `$2()` from `declare -f $1`, and pycore puts the variant's launcher words (`${run[@]}`) before python3.
-COPY_FN_EVAL = '"$2() $(declare -f "$1" | tail -n +2)"'
+# cmd_* is a root), and pycore puts the variant's launcher words (`${run[@]}`) before python3.
 
 
 class Def:
-    """One function definition, or the alias a `copy_fn` makes."""
+    """One function definition."""
 
-    def __init__(self, key, name, calls, body, alias_of=None):
-        self.key, self.name, self.calls, self.body, self.alias_of = key, name, calls, body, alias_of
+    def __init__(self, key, name, calls, body):
+        self.key, self.name, self.calls, self.body = key, name, calls, body
 
 
 class _Case:
@@ -293,11 +292,11 @@ class _Parser:
                     self.fail(at, f'dynamic command word after {name}')
                 name, args = args[0][1], args[1:]
                 raws = [a[0] for a in args]
-            if name == 'eval' and not (owner == 'copy_fn' and raws == [COPY_FN_EVAL]):
-                self.fail(at, 'eval is not modeled outside copy_fn')
+            if name == 'eval':
+                self.fail(at, 'eval is not modeled')
             if name in ('declare', 'typeset') and any(re.match(r'-[a-zA-Z]*[fF]', r) for r in raws):
-                if not ((owner == 'copy_fn' and raws == ['-f', '"$1"']) or (owner == 'pair_main' and raws == ['-F', '"$fn"'])):
-                    self.fail(at, f'{name} -f/-F is not modeled outside copy_fn and pair_main')
+                if not (owner == 'pair_main' and raws == ['-F', '"$fn"']):
+                    self.fail(at, f'{name} -f/-F is not modeled outside pair_main')
             if name == 'export' and any(re.match(r'-[a-zA-Z]*f', r) for r in raws):
                 self.fail(at, 'export -f is not modeled')
             if name == 'compgen' and any(a[1] == 'function' or a[0].startswith('-A') for a in args):
@@ -310,12 +309,6 @@ class _Parser:
                 if not args:
                     self.fail(at, 'source needs a path')
                 self.events.append(('source', args[0][0], self.line(at)))
-            elif name == 'copy_fn':
-                if owner is not None or close:
-                    self.fail(at, 'copy_fn is only modeled at the top level of a file')
-                if len(args) != 2 or any(a[1] is None for a in args):
-                    self.fail(at, 'copy_fn needs two literal names')
-                self.events.append(('copy', args[0][1], args[1][1], self.line(at)))
 
         while i < n:
             c = text[i]
@@ -503,7 +496,6 @@ class Reach:
         self.base = Path(base).resolve()
         self.entries = [Path(e).resolve() for e in entries]
         self.scans = {}
-        self.aliases = {}
         self.tables, self.roots, self.nodes = {}, {}, {}
         for entry in self.entries:
             table, roots = {}, []
@@ -545,14 +537,6 @@ class Reach:
             if ev[0] == 'def':
                 table[ev[1].name] = ev[1]
                 self.nodes[ev[1].key] = ev[1]
-            elif ev[0] == 'copy':
-                _, a, b, line = ev
-                if a not in table:
-                    raise ReachError(f'{self.rel(path)}:{line}: copy_fn {a} {b}: {a} has no earlier definition')
-                src = table[a]
-                alias = self.aliases.setdefault((path, line, src.key), Def(f'{self.rel(path)}:{b}', b, src.calls, src.body, src))
-                table[b] = alias
-                self.nodes[alias.key] = alias
             elif ev[0] == 'source':
                 self.run(self.resolve(ev[1], path, entry, ev[2]), entry, table, roots, stack + (path,))
             else:

@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', 'catch', 'classify', 'close', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', '__record_skill_build', 'catch', 'classify', 'close', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -7226,9 +7226,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # The bash bodies no entry script reaches. Phase 3 ended with none: a body that loses its last caller is deleted in the commit that orphans it,
     # and the guard has no baseline to add it to.
     KNOWN_DEAD = ()
-    # kitchen.sh keeps none of the pair's commands under core_* names (copy_fn is gone): every command it has is a pycore shim
-    KITCHEN_ALIASES = {}
-    KITCHEN_WRAPS = ()
 
     def reach(self):
         cls = type(self)
@@ -7288,7 +7285,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # kitchen.sh functions verify (units 026 and 027) still calls, with their kitchen_core twin and the test that runs both on the same fixtures. Unit 027
     # deletes the bash and this entry with it.
     KITCHEN_TWINS = {  # kitchen.sh functions with a kitchen_core twin that bash still calls
-        'record_skill_build': ('setup', 'record_skill_build', 'test_record_skill_build_equals_the_bash'),  # the top-level line of kitchen.sh still calls it (unit 029)
     }
 
     def test_each_kitchen_bash_twin_has_its_bash_definition_its_python_def_and_a_test_that_runs_both(self):
@@ -7307,16 +7303,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_ported_commands_are_pycore_shims_in_the_script_that_defines_their_final_body(self):
         reach = self.reach()
         shim = re.compile(r'\s*pycore (--exec )?\S+ "\$@";?\s*\Z')
-        wrapped = {'pstack-kitchen/scripts/kitchen.sh': self.KITCHEN_WRAPS}
         for entry in self.ENTRIES:
             for name in self.PORTED:
                 final = reach.final(root / 'skills' / entry, f'cmd_{name}')
                 self.assertIsNotNone(final, f'{entry}: cmd_{name} is not defined')
-                if name in wrapped.get(entry, ()):
-                    self.assertFalse(shim.fullmatch(final.body), f'{final.key} is a wrapper around core_{name}, not a shim')
-                    core = reach.final(root / 'skills' / entry, f'core_{name}')
-                    self.assertEqual(core.alias_of.key, f'{self.CORE}:cmd_{name}', f'{entry}: core_{name} is not a snapshot of the pair command')
-                elif (entry, name) == ('pstack-trio/scripts/pair.sh', 'discuss'):
+                if (entry, name) == ('pstack-trio/scripts/pair.sh', 'discuss'):
                     self.assertEqual(final.body.strip(), 'discuss_with_consultant "$@";')
                 else:
                     self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
@@ -7342,8 +7333,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         text = (root / 'skills/pstack-kitchen/scripts/kitchen.sh').read_text()
         self.assertNotIn('copy_fn', text)
         table = self.reach().tables[(root / 'skills/pstack-kitchen/scripts/kitchen.sh').resolve()]
-        self.assertEqual({name: d.alias_of.key for name, d in table.items() if d.alias_of}, self.KITCHEN_ALIASES)
-        self.assertEqual(self.KITCHEN_ALIASES, {})
         for name in ('init', 'spawn', 'queue', 'discuss', 'consultant', 'fleet', 'wait', 'dispatch', 'step', 'finish'):
             self.assertEqual(table[f'cmd_{name}'].key, f'pstack-kitchen/scripts/kitchen.sh:cmd_{name}')
             self.assertNotIn(f'core_{name}', table)
@@ -8649,7 +8638,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(statuses.count(0), len(calls), statuses)
 
     def test_record_skill_build_equals_the_bash(self):
-        """kitchen.sh still stamps a later skills directory on a stamped run from its last line, in bash; init's own stamp is the Python one. Both
+        """A later skills directory is stamped on a stamped run before any command: the bash function at b632713 and kitchen_core.setup.record_skill_build
         run on the same pair.json files: the document, the stderr and the status."""
         documents = {'no builds': {'master': {'name': 'm'}}, 'an empty list': {'skill_builds': []}, 'the same path last': {'skill_builds': [{'path': '/skills', 'at': 't'}]},
                      'another path last': {'skill_builds': [{'path': '/old', 'at': 't'}]}, 'two rows': {'skill_builds': [{'path': '/skills', 'at': 't'}, {'path': '/old', 'at': 't'}]},
@@ -8673,6 +8662,29 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 ways.append((out, re.sub(r'\S*pair\.json', 'pair.json', err), re.sub(r'"at": "[0-9TZ:-]+"', '"at": "<TS>"', text)))
             self.assertEqual(ways[1], ways[0], name)
         self.assertIn('"/skills"', ways[0][2])
+
+    def record_skill_build_cases(self):
+        stamped = {'skill_builds': [{'path': '/elsewhere', 'at': '2020-01-01T00:00:00Z'}]}
+        return {
+            'a stamped run from another build': dict(args=['status', '{st}'], pair=stamped),
+            'a run that was never stamped': dict(args=['status', '{st}']),
+            'a stamped run, the command being help': dict(args=['help', '{st}'], pair=stamped),
+            'a stamped run, the command being unknown': dict(args=['nonsense', '{st}'], pair=stamped),
+            'a pair.json that does not parse': dict(args=['status', '{st}'], nopair=True, files={'pair.json': '{{\n'}),
+        }
+
+    def test_every_kitchen_command_records_the_skills_build_like_the_bash(self):
+        cases = self.record_skill_build_cases()
+        expect = {
+            'a stamped run from another build': (0, '# Kitchen status'),
+            'a run that was never stamped': (0, '# Kitchen status'),
+            'a stamped run, the command being help': (0, 'usage: kitchen.sh'),
+            'a stamped run, the command being unknown': (1, 'nonsense'),
+            'a pair.json that does not parse': (1, 'parse error'),
+        }
+        out = self.phase4_cases('rsb', cases, expect)
+        self.assertRegex(out['a stamped run from another build']['files']['pair.json'], r'"path": "<SK>"')
+        self.assertNotIn('<SK>', out['a run that was never stamped']['files']['pair.json'])
 
     def test_brief_kitchen_equals_the_bash(self):
         st = self.claim_store('bk', {'verdict': 'v'})
@@ -9986,8 +9998,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 class BashReachTests(unittest.TestCase):
     """tests/bash_reach.py on small synthetic scripts."""
 
-    COPY_FN = 'copy_fn() {\n\teval "$2() $(declare -f "$1" | tail -n +2)"\n}\n'
-
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -10018,13 +10028,6 @@ class BashReachTests(unittest.TestCase):
         self.assertEqual(reach.dead(), set())
         self.assertEqual(reach.reachable(self.dir / 'other.sh'), {'lib.sh:cmd_x', 'lib.sh:helper', 'lib.sh:leaf'})
 
-    def test_a_copy_fn_alias_is_live_when_called_and_dead_when_not_and_its_body_resolves_late(self):
-        reach = self.reach(lib='orig() { leaf; }\nleaf() { :; }\n',
-                           entry=self.SOURCE_LIB + self.COPY_FN + 'copy_fn orig kept\ncopy_fn orig unused\norig() { :; }\ncmd_x() { kept; orig; }\n')
-        self.assertEqual(reach.dead(), {'lib.sh:orig', 'entry.sh:unused'})
-        self.assertEqual(reach.reachable(self.dir / 'entry.sh'), {'entry.sh:cmd_x', 'entry.sh:kept', 'entry.sh:orig', 'lib.sh:leaf', 'entry.sh:copy_fn'})
-        self.assertEqual(reach.final(self.dir / 'entry.sh', 'kept').alias_of.key, 'lib.sh:orig')
-
     def test_a_name_in_echo_quotes_a_comment_or_heredoc_data_is_not_a_call(self):
         script = ('helper() { :; }\nlive() { :; }\nhidden() { :; }\ncmd_x() {\n\techo helper\n\tprintf "%s\\n" "helper"  # helper\n'
                   '\tcat <<EOF\nhelper\n$(live)\nEOF\n\tcat <<\'EOF\'\n$(hidden)\nEOF\n}\n')
@@ -10038,12 +10041,11 @@ class BashReachTests(unittest.TestCase):
 
     def test_what_the_model_does_not_cover_raises(self):
         cases = {'a dynamic command word': ('lib', 'cmd_x() { "$fn" arg; }\n'),
-                 'an eval outside copy_fn': ('lib', 'cmd_x() { eval "$x"; }\n'),
-                 'declare -F outside pair_main and copy_fn': ('lib', 'cmd_x() { declare -F cmd_y; }\n'),
+                 'an eval': ('lib', 'cmd_x() { eval "$x"; }\n'),
+                 'declare -F outside pair_main': ('lib', 'cmd_x() { declare -F cmd_y; }\n'),
                  'a trap handler': ('lib', 'cmd_x() { trap cleanup EXIT; }\n'),
                  'a backtick substitution': ('lib', 'cmd_x() { v=`one`; }\n'),
-                 'a source path it cannot resolve': ('entry', '. "$elsewhere/lib.sh"\n'),
-                 'a copy_fn of a name with no earlier definition': ('entry', self.SOURCE_LIB + self.COPY_FN + 'copy_fn missing alias\n')}
+                 'a source path it cannot resolve': ('entry', '. "$elsewhere/lib.sh"\n')}
         for label, (where, text) in cases.items():
             with self.subTest(label):
                 files = {'lib': 'cmd_y() { :; }\n', 'entry': self.SOURCE_LIB}
@@ -10067,10 +10069,6 @@ class BashReachTests(unittest.TestCase):
             with self.subTest(label), self.assertRaises(bash_reach.ReachError):
                 self.reach(lib=script, entry=self.SOURCE_LIB)
 
-    def test_copy_fn_inside_a_function_raises(self):
-        with self.assertRaises(bash_reach.ReachError):
-            self.reach(lib='cmd_y() { :; }\n', entry=self.SOURCE_LIB + self.COPY_FN + 'later() {\n\tcopy_fn cmd_y alias\n}\n')
-
     def test_a_prefix_does_not_hide_a_form_the_model_rejects_and_time_does_not_hide_a_call(self):
         for label, body in {'builtin eval': 'builtin eval "$x"', 'command eval': 'command eval "$x"', 'builtin source of a missing file': 'builtin source "$here/none.sh"',
                             'compgen -A function': 'compgen -A function', 'export -f': 'export -f cmd_y', 'coproc': 'coproc cmd_y'}.items():
@@ -10080,12 +10078,12 @@ class BashReachTests(unittest.TestCase):
         self.assertEqual(self.reach(lib=script, entry=self.SOURCE_LIB).dead(), set())
 
     def test_each_dynamic_form_is_pinned_to_the_command_it_models(self):
-        ok = {'copy_fn': self.COPY_FN, 'pycore': 'pycore() {\n\tlocal run=()\n\t${run[@]+"${run[@]}"} python3 -I x -- "$@"\n}\n',
+        ok = {'pycore': 'pycore() {\n\tlocal run=()\n\t${run[@]+"${run[@]}"} python3 -I x -- "$@"\n}\n',
               'pair_main': 'pair_main() {\n\tlocal fn=cmd_y\n\tif declare -F "$fn" >/dev/null; then\n\t\t"$fn" "$@"\n\tfi\n}\n'}
         for name, text in ok.items():
             with self.subTest(name):
                 self.reach(lib='cmd_y() { :; }\n', entry=self.SOURCE_LIB + text)
-        changed = {'copy_fn': self.COPY_FN.replace('+2', '+3'), 'pycore': ok['pycore'].replace('python3 -I x', 'helper'),
+        changed = {'pycore': ok['pycore'].replace('python3 -I x', 'helper'),
                    'pair_main': ok['pair_main'].replace('"$fn" "$@"', '"$fn" extra')}
         for name, text in changed.items():
             with self.subTest(f'changed {name}'), self.assertRaises(bash_reach.ReachError):

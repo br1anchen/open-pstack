@@ -22,6 +22,15 @@ sidekicks, and shared rules holds here, with `kitchen.sh` in place of
 `pair.sh` and `pstack-kitchen` in every message. This file covers what
 differs.
 
+## Where the commands live
+
+`scripts/kitchen.sh` is a thin entry: `help`, one shim per command, and the line that records which skills build a run's commands came from. Every command
+runs in Python, in `scripts/kitchen_core/` through the kitchen's `scripts/variant.py` on top of the pair's `pstack_core`: `step.py` holds `step` and `finish`
+(the checks they start run detached and outlive the command), `wait.py` the quiet wait, `dispatch.py` `dispatch`, `discuss.py` `queue` and `discuss`,
+`setup.py` `init`, `spawn`, `consultant` and `fleet`, and the other modules the rest (`classify`, `verify`, `land-check`, `revise`, `catch`, `retro`, the
+master hand-over and the feedback inbox). `scripts/kitchen.py` reads the repo's kitchen and runs its gates; `kitchen_core/kpy.py` is the only way the commands
+reach it.
+
 ## Preconditions
 
 1. `test "${HERDR_ENV:-}" = 1`, the Herdr skill loaded, `jq`, `herdr`, and
