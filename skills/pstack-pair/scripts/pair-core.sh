@@ -305,82 +305,13 @@ provider_error_re='capacity issues|no api providers|no api key found|unauthorize
 
 cmd_init() { pycore init "$@"; }
 
-# The master's permission mode, in Claude Code vocabulary:
-# auto | acceptEdits | bypassPermissions | manual | dontAsk | plan.
-# Sources in order: the launching command line of the agent process above this
-# shell, the current Claude session transcript (a mode toggled at runtime lands
-# there), settings defaultMode, then auto.
-detect_permission_mode() { pycore __detect_permission_mode; }
-
-# Native arguments that give an agent of KIND the permission MODE. Empty for
-# kinds without a known translation; pass native flags after -- for those.
-permission_args() { pycore __permission_args "$@"; }
-
-# Native arguments that skip the kind's prompt to trust the working folder.
-# The prompt appears in any folder the agent has not seen (pi: any repo with
-# .agents/skills), would hang an unattended agent, and eats the bootstrap's
-# Enter. The master already works in that folder.
-trust_args() { pycore __trust_args "$@"; }
-
-# A spawned agent needs none of the human's MCP servers, and each one is a
-# process per session: the Railway server alone held 150-250 MB in every
-# sidekick and verifier on this host, and a Codex consultant's set (Chrome
-# DevTools, Firebase, Railway, a repo's own) over 600 MB. Claude starts with an
-# empty MCP configuration unless the native arguments name one. Codex has no
-# such switch: it starts with plugins off (the account's curated plugins, such
-# as Firebase and OpenAI Developers, each bring MCP servers `codex mcp list`
-# does not show; pstack roles load their skills from ~/.agents/skills, not
-# plugins), and each server `codex mcp list` reports in $2 (the agent's
-# working directory: a repo can add its own) is turned off by name. A name
-# that is not a bare TOML key is left on, since Codex rejects a quoted one.
-mcp_args() { pycore __mcp_args "$@"; }
-
-has_mcp_arg() { pycore __has_mcp_arg "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
-
-# True when the native arguments already decide folder trust.
-has_trust_arg() { pycore __has_trust_arg "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
-
-# True when the caller's native arguments already set a permission policy.
-has_permission_arg() { pycore __has_permission_arg "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
-
 cmd_permission() { pycore permission "$@"; }
-
-pick_direction() {
-	# Cells are about twice as tall as wide: a pane is visually wider than tall
-	# when width >= 2 * height. Split wide panes right and tall panes down.
-	local pane="$1" w h
-	read -r w h < <(herdr pane layout --pane "$pane" | jq -r --arg p "$pane" '.result.layout.panes[] | select(.pane_id == $p) | "\(.rect.width) \(.rect.height)"')
-	if [ "${w:-0}" -ge $((2 * ${h:-0})) ]; then printf 'right\n'; else printf 'down\n'; fi
-}
 
 # A dialog asking to trust the working folder (Claude, Codex) blocks an
 # agent at startup. Trusting a repo is the human's decision, never the
 # script's: decline it, which returns the pane to its shell, and stop with
 # what to do. Claude's dialog defaults to "No, exit", so an Enter would quit.
 trust_re='trust this folder|project you created or one you trust|do you trust the (files|contents)'
-
-# A new pane for a role: a split beside the anchor, or, with placement tab
-# (spawn --tab, or PSTACK_PLACEMENT=tab), a tab of its own in the master's
-# workspace, labelled with the role. Sets new_pane_id. $1 store, $2 role,
-# $3 anchor, $4 direction (empty picks one), $5 cwd, $6... each KEY=VALUE
-# an --env for the launched process.
-new_pane() {
-	local store="$1" role="$2" anchor="$3" direction="$4" cwd="$5" master env_args=() kv
-	shift 5
-	for kv in "$@"; do env_args+=(--env "$kv"); done
-	if [ "$(field "$store" '.placement // empty')" = tab ]; then
-		master="$(field "$store" .master.pane_id)"
-		new_pane_id="$(herdr tab create --workspace "${master%%:*}" --cwd "$cwd" --label "$(field "$store" .slug)-$role" --no-focus "${env_args[@]}" |
-			jq -r '.result.root_pane.pane_id')"
-		[ -n "$new_pane_id" ] && [ "$new_pane_id" != null ] || die "tab create returned no pane id" 2
-		printf 'tab %s-%s -> %s\n' "$(field "$store" .slug)" "$role" "$new_pane_id"
-	else
-		[ -n "$direction" ] || direction="$(pick_direction "$anchor")"
-		new_pane_id="$(herdr pane split --pane "$anchor" --direction "$direction" --cwd "$cwd" --no-focus "${env_args[@]}" | jq -r '.result.pane.pane_id')"
-		[ -n "$new_pane_id" ] && [ "$new_pane_id" != null ] || die "pane split returned no pane id" 2
-		printf 'split %s %s -> %s\n' "$anchor" "$direction" "$new_pane_id"
-	fi
-}
 
 # Kinds whose sidekick starts a fresh conversation for each completed brief:
 # Devin, Pi, and Prime, whose compacted conversation would otherwise carry every

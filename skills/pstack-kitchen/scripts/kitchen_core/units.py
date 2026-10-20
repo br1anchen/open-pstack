@@ -24,7 +24,7 @@ def _text(data):
     return data.decode('utf-8', 'surrogateescape')
 
 
-def git_root(store, quiet=False):
+def git_root(store, quiet=False, check=False):
     """`jq -r .git_root pair.json` (the bash's `field "$store" .git_root`): jq's own error on stderr and an empty answer for a pair.json that does not
     parse or is not an object, where the bash went on."""
     try:
@@ -33,7 +33,7 @@ def git_root(store, quiet=False):
             return jq_raw(doc.get('git_root'))
     except (ValueError, OSError):
         pass
-    return pair_jq(store, '.git_root', quiet=quiet)
+    return pair_jq(store, '.git_root', check=check, quiet=quiet)
 
 
 def git(root, *args, quiet=False, stdin=None):

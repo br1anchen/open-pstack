@@ -50,21 +50,22 @@ def pick_direction(pane):
     return 'right'
 
 
-def new_pane(store, role, anchor, direction, cwd):
+def new_pane(store, role, anchor, direction, cwd, env=()):
     """A new pane for a role: a split beside the anchor, or, with placement tab (spawn --tab, or PSTACK_PLACEMENT=tab), a tab of its own in the
-    master's workspace, labelled with the role. Prints where it went and returns its id."""
+    master's workspace, labelled with the role; each KEY=VALUE of env is an --env for the launched process. Prints where it went and returns its id."""
     pair = pair_json(store)
     slug = jq_raw(pair.get('slug'))
+    env_args = [part for kv in env for part in ('--env', kv)]
     if pair.get('placement') == 'tab':
         master = jq_raw((pair.get('master') or {}).get('pane_id') if isinstance(pair.get('master'), dict) else None)
-        made = herdr_json('tab', 'create', '--workspace', master.split(':', 1)[0], '--cwd', cwd, '--label', f'{slug}-{role}', '--no-focus')
+        made = herdr_json('tab', 'create', '--workspace', master.split(':', 1)[0], '--cwd', cwd, '--label', f'{slug}-{role}', '--no-focus', *env_args)
         pane = jq_raw(dig(made, 'result', 'root_pane', 'pane_id'))
         if not pane or pane == 'null':
             raise Die('tab create returned no pane id', 2)
         print(f'tab {slug}-{role} -> {pane}')
         return pane
     direction = direction or pick_direction(anchor)
-    made = herdr_json('pane', 'split', '--pane', anchor, '--direction', direction, '--cwd', cwd, '--no-focus')
+    made = herdr_json('pane', 'split', '--pane', anchor, '--direction', direction, '--cwd', cwd, '--no-focus', *env_args)
     pane = jq_raw(dig(made, 'result', 'pane', 'pane_id'))
     if not pane or pane == 'null':
         raise Die('pane split returned no pane id', 2)

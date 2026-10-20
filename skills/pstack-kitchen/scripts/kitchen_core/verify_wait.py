@@ -411,14 +411,3 @@ class Waiter:
         return text.removesuffix('\n').split('\n') if text else []
 
     arithmetic = staticmethod(vs.shell_arithmetic)
-
-
-def verify_wait(ctx, args):
-    """pycore __verify_wait <store> <every minutes> [--closing]"""
-    closing = args[2:] == ['--closing']
-    return Waiter(ctx, args[0], args[1], closing).run()
-
-
-def verify_cancel(ctx, args):
-    """pycore __verify_cancel <store>"""
-    return vs.verify_cancel(ctx, args[0])
