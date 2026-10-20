@@ -1340,11 +1340,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             call = f'refuse_untrusted p1 claude /work {close}'
             py = self.DIE.lstrip('\n') + f'run(lambda: panes.refuse_untrusted("p1", "claude", "/work", {bool(close)}))\nprint("returned")'
             self.leaf_both('pane-trust-' + label.replace(' ', '-'), f'{call}; echo "returned"', py, fake=fake)
-            # the shim in the working tree's bash ends the caller's shell with the die's status
-            out = self.leaf_both('pane-trust-shim-' + label.replace(' ', '-'), f'( {call} ); echo "rc=$?"; {call}; echo "after"', None, fake=fake)
-            if fake:
-                self.assertIn('rc=5', out[1])
-                self.assertNotIn('after', out[1])
         for label, (present, wait_ms) in {'a file that is there': (True, 300), 'a file that never comes': (False, 300), 'no time to wait': (False, 0)}.items():
             mk = 'touch "$store/f"; ' if present else ''
             self.leaf_both('pane-await-' + label.replace(' ', '-'), f'{mk}if await_file "$store/f" {wait_ms}; then echo yes; else echo no; fi',
@@ -7038,7 +7033,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
              'require_fresh_session', 'submit_typed',
              'in_herdr', 'latest_advice', 'detect_permission_mode',
              'permission_args', 'trust_args', 'mcp_args', 'has_mcp_arg', 'has_trust_arg', 'has_permission_arg', 'has_preflight', 'preflight_kind',
-             'pick_direction', 'new_pane', 'refuse_untrusted', 'await_file')
+             'pick_direction', 'new_pane', 'await_file')
     TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest', 'detect_permission_mode': 'detect'}
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
     # The bash bodies no entry script reaches. Phase 3 ended with none: a body that loses its last caller is deleted in the commit that orphans it,

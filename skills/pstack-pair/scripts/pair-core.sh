@@ -426,7 +426,6 @@ pick_direction() {
 # script's: decline it, which returns the pane to its shell, and stop with
 # what to do. Claude's dialog defaults to "No, exit", so an Enter would quit.
 trust_re='trust this folder|project you created or one you trust|do you trust the (files|contents)'
-refuse_untrusted() { pycore __refuse_untrusted "$@" || exit $?; }
 
 # A new pane for a role: a split beside the anchor, or, with placement tab
 # (spawn --tab, or PSTACK_PLACEMENT=tab), a tab of its own in the master's
