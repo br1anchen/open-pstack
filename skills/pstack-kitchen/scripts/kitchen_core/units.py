@@ -17,9 +17,23 @@ from pstack_core.review import steps_file, trunk_ref
 from pstack_core.store import expected_report, header_field, jq_raw, last_line, pair_json
 from pstack_core.variant import commit_of
 
+from .jqx import pair_jq
+
 
 def _text(data):
     return data.decode('utf-8', 'surrogateescape')
+
+
+def git_root(store, quiet=False):
+    """`jq -r .git_root pair.json` (the bash's `field "$store" .git_root`): jq's own error on stderr and an empty answer for a pair.json that does not
+    parse or is not an object, where the bash went on."""
+    try:
+        doc = pair_json(store)
+        if isinstance(doc, dict):
+            return jq_raw(doc.get('git_root'))
+    except (ValueError, OSError):
+        pass
+    return pair_jq(store, '.git_root', quiet=quiet)
 
 
 def git(root, *args, quiet=False, stdin=None):
@@ -62,7 +76,7 @@ def dispatch_head(store, brief):
 
 def unit_head(store, brief):
     """A unit's head: its report's head:, else its last recorded step; '' when neither names a commit."""
-    root = jq_raw(pair_json(store).get('git_root'))
+    root = git_root(store)
     report = expected_report(store, brief)
     head = ''
     if os.path.isfile(report):
@@ -92,7 +106,7 @@ class RecordedUnit:
         self.store = store
         self.brief = brief
         self.id = os.path.basename(brief)[:-3] if brief.endswith('.md') else os.path.basename(brief)
-        self.root = jq_raw(pair_json(store).get('git_root'))
+        self.root = git_root(store)
         self.head = unit_head(store, brief)
 
     def base(self):
@@ -198,7 +212,7 @@ def heads_in(store, head, units):
     a covered unit with none, at its last recorded step; one with no usable head passes with a note. Notes go to stderr; a unit that is not in
     the head ends the command with exit 2."""
     last = units[-1]
-    root = jq_raw(pair_json(store).get('git_root'))
+    root = git_root(store)
     for unit in units:
         if unit == last:
             continue

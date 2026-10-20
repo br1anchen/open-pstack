@@ -1,5 +1,6 @@
 """The Python core behind pair-core.sh: die parity and the store helpers it duplicates from bash."""
 import contextlib
+import inspect
 import io
 import json
 import os
@@ -7380,11 +7381,13 @@ stop_prime_role "$store" sidekick && echo "stopped"
         'unit_heads_in': ('units', 'heads_in', 'test_heads_in_equals_unit_heads_in_at_the_phase_4_base'),
         'verdict_range': ('units', 'Verdict', 'test_verdict_parse_equals_verdict_range_and_verdict_problem'),
         'verdict_problem': ('units', 'Verdict', 'test_verdict_parse_equals_verdict_range_and_verdict_problem'),
-        'manifest_warning': ('landing', 'manifest_warning', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
+        'manifest_warning': ('landing', 'manifest_warning', 'test_manifest_warning_equals_the_bash_including_the_no_warning_branch_and_the_head_argument'),
         'engine_met': ('landing', 'engine_met', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
         'cites_engine': ('landing', 'cites_engine', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
         'unit_adds_no_lines': ('landing', 'unit_adds_no_lines', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
         'warn_unreviewed': ('reviews', 'warn_unreviewed', 'test_take_master_matches_the_bash_at_the_phase_4_base'),
+        'is_landing': ('landing', 'is_landing', 'test_latest_landing_verdict_equals_the_bash_and_is_landing_equals_the_bash'),
+        'latest_landing_verdict': ('landing', 'latest_landing_verdict', 'test_latest_landing_verdict_equals_the_bash_and_is_landing_equals_the_bash'),
     }
 
     def test_each_kitchen_bash_twin_has_its_bash_definition_its_python_def_and_a_test_that_runs_both(self):
@@ -7394,6 +7397,11 @@ stop_prime_role "$store" sidekick && echo "stopped"
             source = (root / f'skills/pstack-kitchen/scripts/kitchen_core/{module}.py').read_text()
             self.assertRegex(source, rf'(?m)^(def|class) {python}\b', f'{name} has no Python twin {module}.{python}')
             self.assertTrue(hasattr(type(self), pin), f'{name}: pinned by {pin}, which does not exist')
+            # the pin must run the base bash: it names the bash function in a snippet sourced from b632713's kitchen.sh (phase4_bash), or it is an A/B
+            # of the whole command through b632713's kitchen.sh, which calls the function itself
+            body = inspect.getsource(getattr(type(self), pin))
+            self.assertTrue(re.search(rf'\b{name}\b', body) and 'phase4_bash(' in body or re.search(r'phase4_(cases|ab)\(', body),
+                            f'{name}: {pin} does not run the bash function or an A/B through b632713')
 
     def test_ported_commands_are_pycore_shims_in_the_script_that_defines_their_final_body(self):
         reach = self.reach()
@@ -7924,13 +7932,91 @@ stop_prime_role "$store" sidekick && echo "stopped"
 
     def test_a_landing_verdict_with_a_version_that_is_not_a_number_is_the_newest_and_the_bash_complains_on_stderr(self):
         """Accepted (PARITY.md): `landing-v1x.md` matches the glob; the bash's `[ 1x -le 0 ]` prints `line N: [: 1x: integer expected`, takes the file as
-        the newest, and so does every later one. The port takes it the same way without the shell's message. stdout and the status are equal."""
-        spec = self.land_world(files={'verdicts/landing-v1x.md': self.lc_verdict('{c1}..{c3}'), 'verdicts/landing-v2.md': self.lc_verdict('{c1}..{c3}', status='reject')})
-        got, want = self.phase4_ab('landv1x', spec)
-        self.assertEqual((got['rc'], got['stdout'], got['files']), (want['rc'], want['stdout'], want['files']))
-        self.assertIn('landing verification: ', got['stdout'])
-        self.assertRegex(want['stderr'], r'line [0-9]+: \[: 1x: integer expected')
-        self.assertEqual(got['stderr'], '')
+        the newest, and so does every later one. `1_0` (which Python's int() would accept) is such a version too: with a clean `landing-v1_0.md` beside a
+        rejected `landing-v5.md` the bash takes v5, and so does the port. The port prints no shell message. stdout and the status are equal."""
+        for n, version in enumerate(('1x', '1_0', '1\u0661')):
+            spec = self.land_world(files={f'verdicts/landing-v{version}.md': self.lc_verdict('{c1}..{c3}'),
+                                          'verdicts/landing-v5.md': self.lc_verdict('{c1}..{c3}', status='reject')})
+            got, want = self.phase4_ab(f'landv{n}', spec)
+            self.assertEqual((got['rc'], got['stdout'], got['files']), (want['rc'], want['stdout'], want['files']), version)
+            self.assertIn('landing verification: reject (<T>/st/verdicts/landing-v5.md)', got['stdout'])
+            self.assertRegex(want['stderr'], rf'line [0-9]+: \[: .*integer expected')
+            self.assertEqual(got['stderr'], '')
+
+    def test_land_check_over_a_pair_json_that_is_not_an_object_gives_the_bash_s_answer_with_jq_s_errors_counted_differently(self):
+        """Accepted (PARITY.md): `.git_root` of a pair.json that is an array, or that does not parse, is an empty answer plus jq's error in the bash, at
+        every read (a different number of reads per path). The port reads it through jq as well, with its own count of reads. stdout, status and
+        files are equal; both sides print jq's errors."""
+        for n, (label, text) in enumerate((('an array', '[]\n'), ('not JSON', 'not json\n'))):
+            for kind, extra in (('no verdict', {}), ('a landing verdict', {'verdicts/landing-v1.md': self.lc_verdict('{c1}..{c3}')})):
+                spec = self.land_world(nopair=True, files={'pair.json': text, **extra})
+                got, want = self.phase4_ab(f'landnp{n}{len(extra)}', spec)
+                self.assertEqual((got['rc'], got['stdout'], got['files']), (want['rc'], want['stdout'], want['files']), (label, kind))
+                self.assertIn('unverified: unit 001' if not extra else 'covered: unit 001', got['stdout'])
+                self.assertIn('jq: ', want['stderr'])
+                self.assertIn('jq: ', got['stderr'])
+
+    def test_latest_landing_verdict_equals_the_bash_and_is_landing_equals_the_bash(self):
+        landing = self.kitchen_core_module('landing')
+        st, repo, shas, stacks, recorded = self.units_world('ulatest')
+        names = ['landing-v1.md', 'landing-v2.md', 'landing-v10.md', 'landing-v3-packet.md', 'landing-v1_0.md', 'landing-v09.md']
+        sets = [[], names[:1], names[:3], names[:4], names[:3] + names[4:5], names[:3] + names[5:], names[5:] + names[:1]]
+        briefs = {'a': 'playbook: opening-a-pr\n', 'b': 'playbook: shipping\n', 'c': 'landing: yes\n', 'd': 'landing: no\nplaybook: feature\n', 'e': '', 'f': 'landing: yes \n'}
+        for key, text in briefs.items():
+            (st / f'briefs/9{key}.md').write_text('# B\n\n' + text)
+        for n, files in enumerate(sets):
+            for f in (st / 'verdicts').glob('landing-*'):
+                f.unlink()
+            for f in files:
+                (st / 'verdicts' / f).write_text('# V\n')
+            rc, out, err = self.phase4_bash(st, 'latest_landing_verdict "$STORE"')
+            self.assertEqual(landing.latest_landing_verdict(str(st)), out, files)
+        script = ''.join(f'if is_landing "$STORE/briefs/9{k}.md"; then echo {k}=yes; else echo {k}=no; fi\n' for k in briefs)
+        rc, out, err = self.phase4_bash(st, script)
+        got = ''.join(f'{k}={"yes" if landing.is_landing(str(st / f"briefs/9{k}.md")) else "no"}\n' for k in briefs)
+        self.assertEqual(got, out)
+        self.assertIn('a=yes', got)
+        self.assertIn('d=no', got)
+
+    def test_manifest_warning_equals_the_bash_including_the_no_warning_branch_and_the_head_argument(self):
+        landing = self.kitchen_core_module('landing')
+        top = self.path / 'mw'
+        repo, st = top / 'repo', top / 'st'
+        repo.mkdir(parents=True)
+        st.mkdir()
+        env = {**self.env, **self.GIT}
+        g = lambda *a: subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True).stdout.strip()
+
+        def commit(msg, **files):
+            for rel, text in files.items():
+                (repo / rel.replace('__', '/')).parent.mkdir(parents=True, exist_ok=True)
+                (repo / rel.replace('__', '/')).write_text(text)
+            g('add', '-A')
+            g('commit', '-q', '-m', msg)
+            return g('rev-parse', 'HEAD')
+
+        g('init', '-q', '-b', 'main')
+        (repo / '.agents').mkdir()
+        (repo / '.agents/kitchen.toml').write_text(self.KITCHEN_TOML.replace('paths = ["contracts/**"]\n', 'paths = ["contracts/**"]\nmanifests = ["requirements.txt"]\n'))
+        base = commit('base', **{'requirements.txt': 'a\n', 'a.txt': 'a\n'})
+        r2 = commit('manifest', **{'requirements.txt': 'b\n'})
+        r3 = commit('code', **{'src__x.py': 'x\n'})
+        g('checkout', '-q', '-b', 'side', base)
+        side = commit('side', **{'other.txt': 'o\n'})
+        g('checkout', '-q', 'main')
+        (st / 'pair.json').write_text(json.dumps({'git_root': str(repo)}) + '\n')
+        calls = [(r2, base, None), (r2, base, base), (base, r2, None), (r3, base, None), (r3, side, None), ('', base, None), (r2, '', None), (r2, r2, None),
+                 (r2, base, 'main'), (base, r3, r3)]
+        warned = 0
+        for verified, current, head in calls:
+            extra = f' {head}' if head else ''
+            rc, want, err = self.phase4_bash(st, f'manifest_warning "$STORE" "{verified}" "{current}"{extra}', cwd=repo)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                landing.manifest_warning(str(st), verified, current, head or '')
+            self.assertEqual(buf.getvalue(), want, (verified[:9], current[:9], head))
+            warned += bool(want)
+        self.assertEqual(warned, 4)
 
     def test_dispatch_of_a_landing_brief_goes_through_the_python_land_check(self):
         """cmd_dispatch's bash called land_check; it calls `pycore land-check` now. A landing brief with a unit that has no clean verdict is refused
@@ -7967,8 +8053,11 @@ stop_prime_role "$store" sidekick && echo "stopped"
             'a missing verdict': dict(args=['revise', '{st}', '{st}/verdicts/none.md'], files=files),
             'a verdict that names no unit': with_verdict('none'),
             'a unit with no brief': with_verdict('009'),
-            'a store with no landing unit briefs': dict(args=['revise', '{st}', '{st}/verdicts/landing-v1.md'], files={'verdicts/landing-v1.md': rejected('landing')},
-                                                         pair={'slug': 'demo'}),
+            'a landing verdict over a store whose briefs are the two default ones': dict(args=['revise', '{st}', '{st}/verdicts/landing-v1.md'],
+                                                                                        files={'verdicts/landing-v1.md': rejected('landing')}, pair={'slug': 'demo'}),
+            'a landing verdict over a store with no unit briefs to fix': dict(args=['revise', '{st}', '{st}/verdicts/landing-v1.md'],
+                                                                              files={'verdicts/landing-v1.md': rejected('landing'),
+                                                                                     'briefs/001-x.md': '# B\n\nplaybook: shipping\n', 'briefs/002-y.md': '# B\n\nlanding: yes\n'}),
             'a heads that is a string': dict(args=run, files=files, pair={'slug': 'demo', 'heads': 'x'}),
             'a dispatch that is a string': dict(args=run, files=files, pair={'slug': 'demo', 'dispatch': 'x'}),
             'no pair.json': dict(args=run, files=files, nopair=True),
@@ -7990,7 +8079,8 @@ stop_prime_role "$store" sidekick && echo "stopped"
             'a missing verdict': (1, 'pair.sh: verdict not found:'),
             'a verdict that names no unit': (1, 'names no unit (units: none)'),
             'a unit with no brief': (1, 'pair.sh: no brief for unit 009'),
-            'a store with no landing unit briefs': (0, '/st/briefs/003-landing-fix.md'),
+            'a landing verdict over a store whose briefs are the two default ones': (0, '/st/briefs/003-landing-fix.md'),
+            'a landing verdict over a store with no unit briefs to fix': (1, 'pair.sh: no unit briefs to fix in'),
             'a heads that is a string': (0, '/st/briefs/003-x-fix.md'),
             'a dispatch that is a string': (0, '/st/briefs/003-x-fix.md'),
             'no pair.json': (1, 'pair.sh: no pair.json in'),

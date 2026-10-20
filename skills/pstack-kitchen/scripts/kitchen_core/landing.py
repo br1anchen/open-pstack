@@ -16,11 +16,12 @@ from pstack_core.collate import glob_sorted
 from pstack_core.errors import Die
 from pstack_core.review import trunk_ref
 from pstack_core.spawn import field
-from pstack_core.store import alt, expected_report, header_field, jq_raw, new_from_template, pair_file, pair_json
+from pstack_core.store import bash_int, header_field, jq_raw, new_from_template, pair_file, pair_json
 from pstack_core.variant import commit_of
 
 from . import kpy
-from .units import RecordedUnit, StackIndex, Verdict, dispatch_head, git, inclusion, is_ancestor, unit_brief, unit_head
+from .jqx import pair_jq
+from .units import RecordedUnit, StackIndex, Verdict, dispatch_head, git, git_root, inclusion, is_ancestor, unit_brief, unit_head
 
 
 def out(text):
@@ -44,7 +45,7 @@ def review_engine(store):
 def validated_engine(store):
     """(ok, engine): the kitchen's [review].engine as `kpy --json validate | jq -r '.review_engine // empty'` reads it. Under pipefail the pipeline fails
     when kitchen.py does; land-check says so."""
-    rc, text, _ = kpy.run(jq_raw(pair_json(store).get('git_root')), ['--json', 'validate'])
+    rc, text, _ = kpy.run(git_root(store, quiet=True), ['--json', 'validate'])
     if rc != 0:
         return False, ''
     try:
@@ -64,7 +65,7 @@ def unit_adds_no_lines(store, brief):
     """Whether the unit's range only deletes: every changed path is deleted, or modified by removing lines only, with its mode unchanged. It reads
     `git diff --raw -z --no-renames` and `--numstat -z` from the merge-base of the dispatch head and the unit head, NUL-separated so a path is never
     quoted; a rename is a delete plus an add; a modified binary is a change; any failing git command refuses."""
-    root = jq_raw(pair_json(store).get('git_root'))
+    root = git_root(store)
     base, head = dispatch_head(store, brief), unit_head(store, brief)
     if not base or not head:
         return False
@@ -121,7 +122,7 @@ def manifest_warning(store, verified_base, current_base, head=''):
     the stack) is the stack's own lower commits, not a moved trunk: no warning."""
     if not verified_base or not current_base or verified_base == current_base:
         return
-    root = jq_raw(pair_json(store).get('git_root'))
+    root = git_root(store)
     if is_ancestor(root, current_base, verified_base) and is_ancestor(root, verified_base, head or 'HEAD'):
         return
     listed = subprocess.run(['git', '-C', root, 'diff', '--name-only', '-z', '--no-renames', verified_base, current_base], stdout=subprocess.PIPE,
@@ -135,17 +136,27 @@ def manifest_warning(store, verified_base, current_base, head=''):
         out(f'warning: dependency manifests changed since the verified base: {files}\n')
 
 
+def landing_field(store, key):
+    """`field "$store" '.landing.<key> // empty'`: spawn.field for an object pair.json, jq itself for a document that is not one."""
+    try:
+        if isinstance(pair_json(store), dict):
+            return field(store, 'landing', key, empty=True)
+    except (ValueError, OSError):
+        pass
+    return pair_jq(store, f'.landing.{key} // empty')
+
+
 def current_landing_base(store):
     """Where the stack at HEAD leaves trunk now (the recorded landing parent, else the merge-base with trunk), or nothing."""
-    root = jq_raw(pair_json(store).get('git_root'))
+    root = git_root(store)
     head = git(root, 'rev-parse', 'HEAD', quiet=True)[1].rstrip('\n')
-    parent = field(store, 'landing', 'parent', empty=True)
+    parent = landing_field(store, 'parent')
     if parent:
         pc = commit_of(root, parent) or ''
         if pc and pc != head and is_ancestor(root, pc, head):
             return pc
         sys.stdout.flush()
-        sys.stderr.write(f'landing base: recorded parent {field(store, "landing", "parent_ref", empty=True)} ({parent[:9]}) is no longer an ancestor of '
+        sys.stderr.write(f'landing base: recorded parent {landing_field(store, "parent_ref")} ({parent[:9]}) is no longer an ancestor of '
                          f'{head[:9]}; using the trunk merge-base\n')
     trunk = trunk_ref(root)
     if not trunk:
@@ -156,7 +167,7 @@ def current_landing_base(store):
 
 def landing_unmatched_note(store, seq, brief, uhead, landing_verdict, base, head, found):
     """Why a unit outside a clean landing verdict's range could not be matched by patch-id, as one land-check note."""
-    root = jq_raw(pair_json(store).get('git_root'))
+    root = git_root(store)
     ubase = dispatch_head(store, brief)
     if base and is_ancestor(root, uhead, base):
         out(f'land-check: note: unit {seq} landed before the base of landing verdict {landing_verdict}; verify it on its own\n')
@@ -181,10 +192,8 @@ def latest_landing_verdict(store):
             continue
         number = f.rpartition('-v')[2]
         number = number[:-3] if number.endswith('.md') else number
-        try:
-            newer = int(number) > int(best)
-        except ValueError:  # `[ 1x -le 0 ]` is an error, not a yes: the file counts as newer, and so does every later one
-            newer = True
+        n, b = bash_int(number), bash_int(str(best))
+        newer = True if n is None or b is None else n > b  # `[ 1_0 -le 0 ]` is an error, not a yes: the file counts as newer, and so does every later one
         if newer:
             best, found = number, f
     return found
@@ -224,12 +233,12 @@ def land_check(store):
     """Prints one line per problem; returns 1 when there is any. A unit with no clean verdict of its own is covered by the latest landing verdict
     when that one is clean and its range's head contains the unit's head. A kitchen that names a review engine requires each accepted unit's review
     note to cite a run of it: `engine: <name> <run id or artifact path>`."""
-    root = jq_raw(pair_json(store).get('git_root'))
     problems = 0
     ok, engine = validated_engine(store)
     if not ok:
         out('kitchen: validate fails (kitchen.py validate shows why)\n')
         return 1
+    root = git_root(store)
     landing_verdict = latest_landing_verdict(store)
     landing_head = landing_base = verdict_base_rev = verdict_head_rev = ''
     verdict = None
