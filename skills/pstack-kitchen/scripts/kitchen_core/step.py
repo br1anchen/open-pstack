@@ -78,7 +78,8 @@ def now():
 
 
 def slice_deadline():
-    return shell_arithmetic(f"{now()} + {os.environ.get('KITCHEN_STEP_SLICE_S') or '100'}")
+    # `$(( $(date +%s) + slice ))`: slice is a variable, whose value is itself evaluated as an expression (`5 == 5` adds 1, `2*3` adds 6)
+    return shell_arithmetic(f"{now()} + ({os.environ.get('KITCHEN_STEP_SLICE_S') or '100'})")
 
 
 def past(deadline):

@@ -44,14 +44,20 @@ def poll_sleep(text):
         raise Exit(code)
 
 
-def quiet_now():
-    """The epoch seconds, as `$(quiet_now)` gives them: KITCHEN_QUIET_CLOCK's text when that file is readable, else the clock."""
+def quiet_now(strict=False):
+    """The epoch seconds, as `$(quiet_now)` gives them: `cat "$KITCHEN_QUIET_CLOCK"` when that is readable, else the clock. A clock `cat` cannot read
+    (a directory) prints cat's message and the function fails: as the whole of an assignment (`start="$(quiet_now)"`, strict) that ends the command with
+    status 1; inside an arithmetic expansion it only leaves the text empty."""
     clock = os.environ.get('KITCHEN_QUIET_CLOCK')
     if clock and os.access(clock, os.R_OK):
         try:
             with open(clock, 'rb') as f:
                 return f.read().decode('utf-8', 'surrogateescape').rstrip('\n')
-        except OSError:
+        except OSError as e:
+            sys.stdout.flush()
+            sys.stderr.write(f'cat: {clock}: {os.strerror(e.errno)}\n')
+            if strict:
+                raise Exit(1)
             return ''
     import time
     return str(int(time.time()))
@@ -61,7 +67,8 @@ FLAGGED = re.compile(r'STALE|^outside scope: [1-9]|[1-9][0-9]* objected|[1-9][0-
 
 
 def quiet_flagged(text):
-    """Whether a check-in carries something the master must see: a flag, or a timebox overrun."""
+    """Whether a check-in carries something the master must see: a flag, or a timebox overrun. `[ "$spent" -gt "$box" ]` with a number it cannot
+    read (one past 64 bits) prints its complaint and is false."""
     if FLAGGED.search(text):
         return True
     spent = box = None
@@ -70,7 +77,17 @@ def quiet_flagged(text):
         if m:
             spent, box = m.group(1), m.group(2)
             break
-    return spent is not None and box is not None and int(spent) > int(box)
+    if spent is None or box is None:
+        return False
+    numbers = []
+    for operand in (spent, box):
+        n = bash_int(operand)
+        if n is None:
+            sys.stdout.flush()
+            sys.stderr.write(f'pair.sh: [: {operand}: integer expected\n')
+            return False
+        numbers.append(n)
+    return numbers[0] > numbers[1]
 
 
 def has_checkin(text):
@@ -122,7 +139,7 @@ def quiet_wait(ctx, store, rest):
             rest = rest[2:]
         else:
             args.append(rest.pop(0))
-    start_text = quiet_now()
+    start_text = quiet_now(strict=True)
     # One wait owns the store under this process's pid: the first inner wait claims it, the later ones only check it. A claim that could not be
     # made (the inner wait says `unowned:`) leaves the rest of this run unowned: its later waits must not read the missing claim as a newer owner.
     claim, unowned = 1, 0
