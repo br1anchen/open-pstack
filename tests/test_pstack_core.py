@@ -9309,12 +9309,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             held = top / 'held'
             held.mkdir()
             gate = top / 'older-ended'
-            (held / 'herdr').write_text(f'#!/bin/sh\nif [ "$1 $2" = "agent wait" ]; then while [ ! -e "{gate}" ]; do sleep 0.05; done; fi\nexec {root / "tests/pstack-pair/bin/herdr"} "$@"\n')
+            os.mkfifo(gate)
+            # the newer wait's first herdr wait blocks reading the fifo until the test opens it for writing, once the older wait has ended
+            (held / 'herdr').write_text(f'#!/bin/sh\nif [ "$1 $2" = "agent wait" ] && [ ! -e "{top}/released" ]; then cat "{gate}" >/dev/null; : >"{top}/released"; fi\nexec {root / "tests/pstack-pair/bin/herdr"} "$@"\n')
             (held / 'herdr').chmod(0o755)
             second = run(newer, {**env, 'PATH': f'{held}:{env["PATH"]}', 'KITCHEN_QUIET_MAX_S': '0'})
             self.addCleanup(second.kill)
             out, err = first.communicate(timeout=60)
-            gate.write_text('')
+            with open(gate, 'w'):
+                pass
             newer_out, newer_err = second.communicate(timeout=60)
             self.assertEqual((first.returncode, 'superseded: a newer wait owns this store' in out), (4, True), f'{label}: {out}{err}')
             self.assertEqual(second.returncode, 4, f'{label}: {newer_out}{newer_err}')
