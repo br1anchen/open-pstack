@@ -1,6 +1,7 @@
 """run.py fails a test that outlives its timeout and kills what the test started."""
 
 import os
+import signal
 import sys
 import tempfile
 import unittest
@@ -21,7 +22,7 @@ FIFO = {fifo!r}
 
 class Hang(unittest.TestCase):
     def test_hangs(self):
-        child = subprocess.Popen(['cat'], stdin=subprocess.PIPE)
+        child = subprocess.Popen(['cat', FIFO], stdout=None)
         with open(PIDFILE, 'w') as f:
             f.write(str(child.pid))
         open(FIFO).read()
@@ -39,6 +40,13 @@ def gone(pid):
         return True
 
 
+def kill_quietly(pid):
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 class RunOneTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -54,7 +62,9 @@ class RunOneTests(unittest.TestCase):
         self.assertEqual(code, 'timeout')
         self.assertTrue(out.startswith('TIMEOUT after 10s'), out)
         self.assertTrue(self.pidfile.exists(), 'the hanging test never started within the 10 s timeout')
-        self.assertTrue(gone(int(self.pidfile.read_text())))
+        pid = int(self.pidfile.read_text())
+        self.addCleanup(kill_quietly, pid)
+        self.assertTrue(gone(pid))
 
     def test_a_test_inside_its_timeout_passes(self):
         _id, code, _secs, _out = run.run_one('test_hang.Hang.test_passes', 120, cwd=self.tmp)
