@@ -8108,6 +8108,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a claim held by a live process': {**base, 'closing': {'token': f'testhost:{live}:7'}},
             'a claim whose owner is gone': {**base, 'closing': {'token': f'testhost:{dead}:7'}},
             'a claim from another host': {**base, 'closing': {'token': f'elsewhere:{dead}:7'}},
+            'a claim held by a process of another user (EPERM; pid 1)': {**base, 'closing': {'token': 'testhost:1:7'}},
             'a token with no colon': {**base, 'closing': {'token': 'garbage'}},
             'a token with a pid that is no number': {**base, 'closing': {'token': 'testhost:abc:7'}},
             'an empty token': {**base, 'closing': {'token': ''}},
@@ -8578,6 +8579,30 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 self.assertEqual(results[0][2], results[1][2], (name, unit, env))
                 seen.add('master:' in results[0][0])
         self.assertEqual(seen, {True, False})
+
+    def test_a_bash_waiter_and_a_python_closer_and_the_reverse_share_one_verification(self):
+        """A6. A waiter of one tree is mid-wait (its first `agent get`) when the other tree cancels the verification, as another call would, and the
+        next attempt's `.verifying` is written: the waiter says `verification closed elsewhere`, exits 5, and touches neither the new attempt nor the
+        panes. The cancel runs from the fake herdr's once hook, so the interleaving is fixed, with no sleeps."""
+        bases = self.phase4_skills() / 'pstack-kitchen/scripts/kitchen.sh'
+        head = root / 'skills/pstack-kitchen/scripts/kitchen.sh'
+        for n, (waiter, closer, label) in enumerate(((bases, head, 'a bash waiter and a Python closer'), (head, bases, 'a Python waiter and a bash closer'))):
+            hook = ('cd "$FAKE/.." || exit 1\n'
+                    f'{closer} verify "$FAKE/../st" --cancel >"$FAKE/closer.out" 2>&1\n'
+                    'jq \'.verifying = {verdict: "/next/002-y-v1.md", units: "002", idle_since: 77, scratch: "002-y-v1", brief: "002-y", packet: "/next/p.md", unit: "002-y"}\' '
+                    '"$FAKE/../st/pair.json" >"$FAKE/../st/pair.tmp" && mv "$FAKE/../st/pair.tmp" "$FAKE/../st/pair.json"\n')
+            spec = self.wait_world('5', agents={'v1': 'working claude'}, once={'get': hook})
+            spec = {**spec, 'repo_files': {'.agents/kitchen.toml': self.KITCHEN_TOML}}
+            top, st, env, fill = self.ab_world(f'interop{n}', spec)
+            r = subprocess.run([str(waiter), 'verify', str(st), '--wait', '--every', '5'], cwd=top / 'repo', env=env, capture_output=True, text=True, check=False, timeout=120)
+            self.assertEqual((r.returncode, r.stdout), (5, 'verification closed elsewhere\n'), (label, r.stderr))
+            closer_out = (top / 'fake/closer.out').read_text()
+            self.assertIn('cancelled: 001', closer_out, label)
+            doc = json.loads((st / 'pair.json').read_text())
+            self.assertEqual(doc['verifying']['verdict'], '/next/002-y-v1.md', label)
+            self.assertEqual(doc['verifying']['idle_since'], 77, label)
+            self.assertEqual((top / 'fake/calls.log').read_text().count('pane close'), 1, label)
+            self.assertIn('verifier-outcome: cancelled', (st / 'verdicts/001-x-v1-packet.md').read_text(), label)
 
 
 class BashReachTests(unittest.TestCase):
