@@ -9,6 +9,7 @@ own fake agents, state and Herdr socket, so the tests run side by side.
     python3 tests/run.py                      # every suite, one worker per core
     python3 tests/run.py -j 4 test_pstack_pair
     python3 tests/run.py -k rotate            # tests whose id contains "rotate"
+    python3 tests/run.py --timeout 300   # fail a test that runs longer (default 1200 s, or $PSTACK_TEST_TIMEOUT_S)
 
 Prints each failure's output, the slowest tests, and a summary; exits 1 when
 any test fails.
@@ -16,6 +17,7 @@ any test fails.
 
 import argparse
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -24,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 here = Path(__file__).resolve().parent
-SUITES = ['test_pstack_core', 'test_pstack_kitchen', 'test_pstack_pair', 'test_pstack_sync']
+SUITES = ['test_pstack_core', 'test_pstack_kitchen', 'test_pstack_pair', 'test_pstack_sync', 'test_run']
 
 
 def test_ids(suites):
@@ -43,11 +45,32 @@ def test_ids(suites):
     return ids
 
 
-def run_one(test_id):
+def as_text(data):
+    if data is None:
+        return ''
+    return data.decode(errors='replace') if isinstance(data, bytes) else data
+
+
+def run_one(test_id, timeout=0, *, cwd=here):
     start = time.monotonic()
-    r = subprocess.run([sys.executable, '-m', 'unittest', '-q', test_id], cwd=here,
-                       capture_output=True, text=True, check=False)
-    return test_id, r.returncode, time.monotonic() - start, r.stdout + r.stderr
+    p = subprocess.Popen([sys.executable, '-m', 'unittest', '-q', test_id], cwd=cwd,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    try:
+        out, _ = p.communicate(timeout=timeout or None)
+        return test_id, p.returncode, time.monotonic() - start, out
+    except subprocess.TimeoutExpired as e:
+        partial = as_text(e.output)
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            out, _ = p.communicate(timeout=10)
+        except subprocess.TimeoutExpired as e2:
+            out = as_text(e2.output) or partial
+        return (test_id, 'timeout', time.monotonic() - start,
+                f'TIMEOUT after {timeout}s\n{as_text(out)}')
 
 
 def main():
@@ -55,16 +78,19 @@ def main():
     ap.add_argument('suites', nargs='*', default=SUITES)
     ap.add_argument('-j', '--jobs', type=int, default=os.cpu_count() or 4)
     ap.add_argument('-k', '--keyword', default='')
+    ap.add_argument('--timeout', type=int,
+                    default=int(os.environ.get('PSTACK_TEST_TIMEOUT_S', '1200')),
+                    help='seconds a test may run; 0 for no limit')
     ap.add_argument('--slowest', type=int, default=8)
     args = ap.parse_args()
     ids = [i for i in test_ids(args.suites) if args.keyword in i]
     start = time.monotonic()
     failed, times = [], []
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        for fut in as_completed([pool.submit(run_one, i) for i in ids]):
+        for fut in as_completed([pool.submit(run_one, i, args.timeout) for i in ids]):
             test_id, code, secs, out = fut.result()
             times.append((secs, test_id))
-            if code != 0:
+            if code != 0:  # an int, or 'timeout'
                 failed.append(test_id)
                 print(f'FAIL {test_id} ({secs:.1f}s)\n{out}', flush=True)
     wall = time.monotonic() - start
