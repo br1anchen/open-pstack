@@ -262,7 +262,7 @@ cmd_dispatch() {
 	if is_landing "$2"; then
 		pycore land-check "$1" >/dev/null || die "landing refused: kitchen.sh land-check $1 fails" 2
 	else
-		pycore classify "$1" "$2"
+		pycore __classify_brief "$1" "$2"
 	fi
 	local -a waitargs=() sendargs=()
 	local a rc=0 out

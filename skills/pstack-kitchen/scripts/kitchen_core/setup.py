@@ -23,8 +23,7 @@ from pstack_core.wait import die_with_the_shell
 
 from . import kpy
 from .classify import jq, jq_lines
-from .discuss import field
-from .jqx import pair_jq
+from .jqx import field, pair_jq
 from .units import git, git_root
 from .verify import in_subshell
 

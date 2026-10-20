@@ -5,7 +5,6 @@ deliver_plan, latest_plan_advice, plan_answer). The trio keeps its bash copy of 
 The bash wrappers called the core's queue and discuss through pycore; here they call the core functions directly."""
 
 import glob
-import json
 import os
 import subprocess
 import sys
@@ -14,45 +13,22 @@ from pstack_core.collate import collate_key
 from pstack_core.commands import queue as core_queue
 from pstack_core.commands import rotate as rotate_command
 from pstack_core.commands import send as core_send
-from pstack_core.commands.report import MISSING_PAIR, in_herdr
+from pstack_core.commands.report import in_herdr
 from pstack_core.dispatch import fresh_per_brief
 from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.gates import require_not_paused
 from pstack_core.herdr import agent_status
 from pstack_core.panes import await_file
-from pstack_core.replies import latest_report
 from pstack_core.review import require_filled
 from pstack_core.send import require_fresh_session, submit_typed
-from pstack_core import spawn
 from pstack_core.store import bash_int, event, header_field, readlink_f
 from pstack_core.wait import agent_state, die_with_the_shell, jq_run
 
 from .classify import classify_brief, risk_of
-from .jqx import pair_jq
+from .jqx import field
 from .landing import is_landing
 from .verify import in_subshell
 from .verify_state import shell_arithmetic
-
-
-def field(store, role, key, check=False, default=None):
-    """`field "$store" .role.key` in a substitution: a store with no pair.json, or one that is no object, gets the messages jq and pair_file give and
-    an empty value; with check, the failure of the assignment ends the command with jq's status."""
-    path = f'{store}/pair.json'
-    if not os.path.isfile(path):
-        sys.stdout.flush()
-        sys.stderr.write(MISSING_PAIR.format(store=store))
-        sys.stderr.flush()
-        if check:
-            raise Exit(2)
-        return ''
-    try:
-        with open(path, 'rb') as f:
-            whole = json.load(f)
-    except ValueError:
-        whole = None
-    if not isinstance(whole, dict):
-        return pair_jq(store, f'.{role}.{key}' + (f' // "{default}"' if default is not None else ''), check=check)
-    return spawn.field(store, role, key, check=check, default=default)
 
 
 def devnull_stdout(call):
@@ -121,7 +97,11 @@ def discuss(ctx, args):
 
 def plan_answer(store, role, seq, plan):
     """The role's answer to this plan round: its latest report or advice for the plan's number, when it was written after the plan file; else ''."""
-    found = latest_report(store, seq) if role == 'sidekick' else latest_plan_advice(store, seq)
+    if role == 'sidekick':
+        reports = newest_first(store, 'reports', seq)
+        found = reports[0] if reports else None
+    else:
+        found = latest_plan_advice(store, seq)
     if found and os.path.exists(found) and (not os.path.exists(plan) or os.stat(found).st_mtime_ns > os.stat(plan).st_mtime_ns):
         return found
     return ''
@@ -136,11 +116,18 @@ def advice_is_stop(path):
 def latest_plan_advice(store, seq):
     """The newest advice for NNN that is not a stop (ls -t order), or None."""
     key = collate_key()
-    paths = glob.glob(os.path.join(glob.escape(store), 'advice', f'{glob.escape(seq)}-*.md'))
-    for path in sorted(paths, key=lambda p: (-os.lstat(p).st_mtime_ns, key(os.path.basename(p)))):
+    for path in newest_first(store, 'advice', seq):
         if not advice_is_stop(path):
             return path
     return None
+
+
+def newest_first(store, directory, seq):
+    """`ls -t "$store"/DIRECTORY/SEQ-*.md`: the paths spelled as the bash spells them (a store given with a trailing slash keeps its double slash),
+    newest first, ties by collated name."""
+    key = collate_key()
+    paths = glob.glob(f'{glob.escape(store)}/{directory}/{glob.escape(seq)}-*.md')
+    return sorted(paths, key=lambda p: (-os.lstat(p).st_mtime_ns, key(os.path.basename(p))))
 
 
 def deliver_plan(ctx, store, role, name, seq, plan):

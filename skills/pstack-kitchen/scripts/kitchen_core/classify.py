@@ -12,9 +12,9 @@ import sys
 from pstack_core.checkin import scope_entries
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
-from pstack_core.spawn import field
 from pstack_core.store import header_field, pair_file
 
+from .jqx import field
 from .kpy import Kitchen
 
 CLASSIFY_FAILED = 'kitchen.py classify failed; run kitchen.py validate in the repo'
@@ -26,7 +26,7 @@ def text_of(data):
 
 def risk_of(brief):
     """A brief's or plan's risk class: the first word of its risk: header, which a master may follow with the reason."""
-    words = header_field(brief, 'risk').split()
+    words = [w for w in re.split(r'[ \t\n]+', header_field(brief, 'risk')) if w]
     return words[0] if words else ''
 
 
@@ -123,6 +123,12 @@ def classify_brief(store, brief):
                                          '(.warnings[]? | "warn: \\(.)"), (if .bookkeeping then "bookkeeping: the Scope is outside the repo; gates only, nothing to escalate" else empty end)'))
     if risk == 'escalated' and agent_status(field(store, 'consultant', 'name')) == 'absent':
         sys.stdout.write(f'next: kitchen.sh consultant {store} --reason "{jq(classified, ".escalate[0]")}", then a plan round with it\n')
+
+
+def classify_brief_entry(ctx, args):
+    """__classify_brief store brief: the classify step alone, without cmd_classify's checks (dispatch called classify_brief as a function)."""
+    classify_brief(args[0], args[1])
+    return 0
 
 
 def classify(ctx, args):

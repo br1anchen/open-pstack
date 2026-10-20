@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'classify', 'close', 'consultant', 'discuss', 'feedback', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'stop', 'take-master', 'verify')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', 'catch', 'classify', 'close', 'consultant', 'discuss', 'feedback', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'stop', 'take-master', 'verify')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -8719,6 +8719,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an escalated plan with a consultant that is a string': dict(base, pair={'consultant': 'c1'}),
             'an escalated plan both roles answer': base,
             'an escalated plan answered before the call': dict(base, files=answered, mtimes=old, hook=None),
+            'a store given with a trailing slash, answered': dict(base, args=['discuss', '{st}/', '{st}/plans/001-x.md', '--timeout', '3'], files=answered, mtimes=old, hook=None),
+            'a store given with a trailing slash, answered by a hook': dict(base, args=['discuss', '{st}/', '{st}/plans/001-x.md', '--timeout', '3']),
+            'a risk word followed by a no-break space': dict(base, files={'plans/001-x.md': '# Plan 001-x\n\nrisk: escalated\u00a0(x)\n'}),
+            'a risk word followed by a vertical tab': dict(base, files={'plans/001-x.md': '# Plan 001-x\n\nrisk: escalated\x0b(x)\n'}),
+            'a risk word followed by a form feed': dict(base, files={'plans/001-x.md': '# Plan 001-x\n\nrisk: routine\x0c(x)\n'}),
+            'a risk word followed by tabs': dict(base, files={'plans/001-x.md': '# Plan 001-x\n\nrisk:\t\t escalated \t(x)\n'}),
             'an escalated plan whose consultant answered before': dict(base, files={'plans/001-x.md': plan(), 'advice/001-x.md': '# A\n\nstatus: agree\n'}),
             'an escalated plan whose sidekick answered before': dict(base, files={'plans/001-x.md': plan(), 'reports/001-x.md': '# R\n\nstatus: agree\n'}),
             'an escalated plan whose consultant only left a stop': dict(base, files={'plans/001-x.md': plan(), 'advice/001-x.md': '# A\n\nkind: stop\n'}),
@@ -8785,6 +8791,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an escalated plan with no consultant': (5, 'an escalated plan goes to the consultant too; start it: kitchen.sh consultant <T>/st --reason TEXT'),
             'an escalated plan with a consultant that is a string': (5, 'Cannot index string with string ("name")'),
             'an escalated plan both roles answer': (0, 'sent PLAN 001-x.md to sidekick s1\nsent PLAN 001-x.md to consultant c1\nsidekick_state: idle\n' + answers),
+            'a store given with a trailing slash, answered': (0, 'consultant_response: <T>/st//advice/001-x.md'),
+            'a store given with a trailing slash, answered by a hook': (0, 'consultant_response: <T>/st//advice/001-x.md'),
+            'a risk word followed by a no-break space': (2, 'risk: must start with routine or escalated'),
+            'a risk word followed by a vertical tab': (2, 'risk: must start with routine or escalated'),
+            'a risk word followed by a form feed': (2, 'risk: must start with routine or escalated'),
+            'a risk word followed by tabs': (0, 'consultant_status: agree'),
             'an escalated plan answered before the call': (0, 'sidekick_state: answered\nsidekick_response: <T>/st/reports/001-x.md\nsidekick_status: agree\nconsultant_state: answered\n'),
             'an escalated plan whose consultant answered before': (0, 'sent PLAN 001-x.md to sidekick s1\nsidekick_state: idle\n'),
             'an escalated plan whose sidekick answered before': (0, 'sent PLAN 001-x.md to consultant c1\nsidekick_state: answered\n'),
@@ -8864,6 +8876,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'too few arguments': world(args=['queue', '{st}']),
             'no pair.json': queue(path, nopair=True),
             'a sidekick that is a string': queue(path, pair={'sidekick': 's1'}),
+            'an escalated brief and no pair.json': queue(path, nopair=True, files={'briefs/002-y.md': self.launch_brief('002', 'y').replace('risk: routine', 'risk: escalated')}),
         }
 
     def test_queue_matches_the_bash_at_the_phase_4_base(self):
@@ -8895,6 +8908,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'too few arguments': (1, 'usage: kitchen.sh queue <store> <brief-path> [--replace] | pair.sh queue <store> --clear'),
             'no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'),
             'a sidekick that is a string': (3, 'sidekick null is absent; resolve that before queueing'),
+            'an escalated brief and no pair.json': (1, 'no pair.json in <T>/st; run: pair.sh init <slug>'),
         }
         out = self.phase4_cases('que', cases, expect)
         # the classify the queue runs is quiet on stdout and stamps the brief: the bytes are compared by the A/B, and the stamp is there
@@ -9156,6 +9170,19 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('demo ', out['one run']['stdout'])
         self.assertNotIn('demo ', out['one run since a later day']['stdout'])
 
+    def dispatch_cases(self):
+        world = self.launch_world
+        dispatch = lambda *a, **kw: world(args=['dispatch', '{st}', '{st}/briefs/002-y.md', '--timeout', '100', *a], agents={'m1': 'idle claude', 's1': 'idle claude'}, **kw)
+        return {
+            'a brief and no pair.json': dispatch(nopair=True),
+        }
+
+    def test_dispatch_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.dispatch_cases()
+        expect = {'a brief and no pair.json': (2, 'risk: routine')}
+        out = self.phase4_cases('disp', cases, expect)
+        self.assertIn('profiles: app', out['a brief and no pair.json']['files']['briefs/002-y.md'])
+
     def classify_cases(self):
         world = self.launch_world
         brief = self.launch_brief
@@ -9180,6 +9207,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                                                                          pair={'consultant': {'name': 'c1', 'pane_id': 'p2'}}),
             'an escalated brief with a consultant that is a string': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: escalated')},
                                                                              pair={'consultant': 'c1'}),
+            'a pair.json that is an array and an escalated brief': classify(path, nopair=True, files={'pair.json': '[]\n', 'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: escalated')}),
+            'a pair.json that does not parse and an escalated brief': classify(path, nopair=True, files={'pair.json': '{{\n', 'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: escalated')}),
+            'a risk word with a no-break space after it': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: routine\u00a0(x)')}),
             'a brief whose Scope lists several paths': classify(path, files={'briefs/001-x.md': scoped('src/a.py', 'docs/guide.md', 'tests/**')}),
             'a brief whose Scope is outside the repo': classify(path, files={'briefs/001-x.md': scoped('/tmp/outside/file.txt')}),
             'a brief whose Scope matches no profile': classify(path, files={'briefs/001-x.md': scoped('nodir/new.py')}),
@@ -9215,6 +9245,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an escalated brief with a live consultant': (0, 'escalate: the brief says risk: escalated'),
             'an escalated brief with a consultant that is gone': (0, 'next: kitchen.sh consultant <T>/st --reason "the brief says risk: escalated", then a plan round with it'),
             'an escalated brief with a consultant that is a string': (0, 'Cannot index string with string ("name")'),
+            'a pair.json that is an array and an escalated brief': (0, 'next: kitchen.sh consultant <T>/st --reason "the brief says risk: escalated", then a plan round with it'),
+            'a pair.json that does not parse and an escalated brief': (0, 'next: kitchen.sh consultant <T>/st --reason "the brief says risk: escalated", then a plan round with it'),
+            'a risk word with a no-break space after it': (0, 'risk: routine\n'),
             'a brief whose Scope lists several paths': (0, 'profiles: app, docs'),
             'a brief whose Scope is outside the repo': (0, 'bookkeeping: the Scope is outside the repo; gates only, nothing to escalate'),
             'a brief whose Scope matches no profile': (0, 'escalate: 1 files no profile covers: nodir/new.py'),
