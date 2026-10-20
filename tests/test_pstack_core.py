@@ -8100,6 +8100,205 @@ stop_prime_role "$store" sidekick && echo "stopped"
         self.assertIn('true 1', landing)
         self.assertIn('true 2', landing)
 
+    # ---- unit 026: kitchen_core.verify_state against kitchen.sh's own functions at b632713 ----
+
+    def kitchen_py(self, store, code, env=None):
+        """Python run in a fresh interpreter with kitchen_core.verify_state loaded as `vs` and a context `ctx`: (status, stdout, stderr)."""
+        pre = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nsys.path.insert(0, {str(root / "skills/pstack-kitchen/scripts")!r})\n'
+               'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import verify_state as vs\nfrom pstack_core.context import Context\n'
+               'from pstack_core.errors import Die, Exit\n'
+               f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "")\n'
+               f'store = {str(store)!r}\n')
+        r = subprocess.run([sys.executable, '-I', '-c', pre + code], env={**self.env, **self.GIT, 'HOSTNAME': 'testhost', **(env or {})}, capture_output=True,
+                           text=True, check=False, timeout=120)
+        return r.returncode, r.stdout, r.stderr
+
+    def claim_store(self, name, verifying, extra=None):
+        st = self.path / name
+        (st / 'verdicts').mkdir(parents=True)
+        (st / 'pair.json').write_text(json.dumps({'master': {'name': 'm1'}, 'verifying': verifying, **(extra or {})}, indent=2) + '\n')
+        return st
+
+    @staticmethod
+    def mask_token(text):
+        return re.sub(r'testhost:[0-9]+:[0-9]+', 'testhost:<PID>:<N>', text)
+
+    def spawn_live_and_dead_pids(self):
+        """A pid that is alive until the test ends, and one that is gone."""
+        live = subprocess.Popen(['sleep', '600'])
+        self.addCleanup(live.wait)
+        self.addCleanup(live.kill)
+        dead = subprocess.Popen(['true'])
+        dead.wait()
+        return live.pid, dead.pid
+
+    def test_claim_close_equals_the_bash_for_a_fresh_claim_a_held_one_a_dead_owner_and_odd_documents(self):
+        live, dead = self.spawn_live_and_dead_pids()
+        base = {'verdict': '/v/001-x-v1.md', 'units': '001'}
+        cases = {
+            'a fresh claim': base,
+            'a claim held by a live process': {**base, 'closing': {'token': f'testhost:{live}:7'}},
+            'a claim whose owner is gone': {**base, 'closing': {'token': f'testhost:{dead}:7'}},
+            'a claim from another host': {**base, 'closing': {'token': f'elsewhere:{dead}:7'}},
+            'a token with no colon': {**base, 'closing': {'token': 'garbage'}},
+            'a token with a pid that is no number': {**base, 'closing': {'token': 'testhost:abc:7'}},
+            'an empty token': {**base, 'closing': {'token': ''}},
+            'a token that is a number': {**base, 'closing': {'token': 5}},
+            'a token that is false': {**base, 'closing': {'token': False}},
+            'closing that is a string': {**base, 'closing': 'x'},
+            'closing that is an array': {**base, 'closing': [1]},
+            'a verification that is another attempt': {'verdict': '/v/001-x-v2.md', 'units': '001'},
+            'a verification that is a string': 'x',
+            'a verification that is an array': [1],
+            'no verification': None,
+        }
+        outcomes = {}
+        for n, (name, verifying) in enumerate(cases.items()):
+            extra = {} if verifying is not None else {'verifying': None}
+            results = []
+            for side in ('bash', 'py'):
+                st = self.claim_store(f'claim{n}{side}', verifying)
+                if side == 'bash':
+                    rc, out, err = self.phase4_bash(st, 'HOSTNAME=testhost; claim_close "$STORE" /v/001-x-v1.md; echo "rc=$?"')
+                else:
+                    rc, out, err = self.kitchen_py(st, 'print("rc=%d" % (0 if vs.claim_close(store, "/v/001-x-v1.md") else 1))', env={'PAIR_SHELL_PID': str(os.getpid())})
+                self.assertEqual(rc, 0, (name, side, err))
+                results.append((out, self.mask_token(err).replace(str(st), '<S>'), self.mask_token((st / 'pair.json').read_text()), self.mask_token(
+                    ''.join(sorted(p.name for p in st.iterdir())))))
+            self.assertEqual(results[0], results[1], name)
+            outcomes[name] = results[0]
+        self.assertTrue(outcomes['a fresh claim'][0].endswith('rc=0\n'))
+        self.assertIn('testhost:<PID>:<N>', outcomes['a fresh claim'][2])
+        self.assertEqual(outcomes['a claim held by a live process'][0], 'rc=1\n')
+        self.assertTrue(outcomes['a claim whose owner is gone'][0].endswith('rc=0\n'))
+        self.assertEqual(outcomes['a claim from another host'][0], 'rc=1\n')
+        self.assertTrue(outcomes['a token with a pid that is no number'][0].endswith('rc=0\n'))  # kill -0 abc fails: taken over
+        self.assertEqual(outcomes['a verification that is another attempt'][0], 'rc=1\n')
+        self.assertIn('Cannot index', outcomes['closing that is a string'][1])
+
+    def test_update_verifying_drop_verifying_release_close_and_the_claim_tests_equal_the_bash(self):
+        live, dead = self.spawn_live_and_dead_pids()
+        other_attempt = {'verdict': '/v/001-x-v2.md', 'units': '001', 'idle_since': 5}
+        mine = {'verdict': '/v/001-x-v1.md', 'units': '001', 'idle_since': 5, 'closing': {'token': 'testhost:4242:9'}}
+        bash_calls = {
+            'a stale-attempt write after the next attempt started': 'update_verifying "$STORE" /v/001-x-v1.md \'.verifying.idle_since = $at\' --argjson at 99',
+            'a write on the verification it holds': 'update_verifying "$STORE" /v/001-x-v1.md \'.verifying.idle_since = $at\' --argjson at 99',
+            'a drop on the verification it holds': 'drop_verifying "$STORE" /v/001-x-v1.md',
+            'a stale drop': 'drop_verifying "$STORE" /v/001-x-v1.md',
+            'a release with its own token': 'release_close "$STORE" /v/001-x-v1.md testhost:4242:9',
+            'a release with another token': 'release_close "$STORE" /v/001-x-v1.md testhost:1:1',
+            'a release on a stale verification': 'release_close "$STORE" /v/001-x-v1.md testhost:4242:9',
+            'a release over closing that is a string': 'release_close "$STORE" /v/001-x-v1.md testhost:4242:9',
+        }
+        py_calls = {
+            'a stale-attempt write after the next attempt started': 'vs.update_verifying(store, "/v/001-x-v1.md", ".verifying.idle_since = $at", lambda v: v.__setitem__("idle_since", 99), "--argjson", "at", "99")',
+            'a write on the verification it holds': 'vs.update_verifying(store, "/v/001-x-v1.md", ".verifying.idle_since = $at", lambda v: v.__setitem__("idle_since", 99), "--argjson", "at", "99")',
+            'a drop on the verification it holds': 'vs.drop_verifying(store, "/v/001-x-v1.md")',
+            'a stale drop': 'vs.drop_verifying(store, "/v/001-x-v1.md")',
+            'a release with its own token': 'vs.release_close(store, "/v/001-x-v1.md", "testhost:4242:9")',
+            'a release with another token': 'vs.release_close(store, "/v/001-x-v1.md", "testhost:1:1")',
+            'a release on a stale verification': 'vs.release_close(store, "/v/001-x-v1.md", "testhost:4242:9")',
+            'a release over closing that is a string': 'vs.release_close(store, "/v/001-x-v1.md", "testhost:4242:9")',
+        }
+        docs = {'a stale-attempt write after the next attempt started': other_attempt, 'a stale drop': other_attempt, 'a release on a stale verification': other_attempt,
+                'a release over closing that is a string': {**mine, 'closing': 'x'}}
+        for n, name in enumerate(bash_calls):
+            results = []
+            for side in ('bash', 'py'):
+                st = self.claim_store(f'upd{n}{side}', docs.get(name, mine))
+                if side == 'bash':
+                    rc, out, err = self.phase4_bash(st, f'{bash_calls[name]}; echo "rc=$?"')
+                else:
+                    rc, out, err = self.kitchen_py(st, py_calls[name] + '\nprint("rc=0")')
+                if side == 'py' and rc != 0:
+                    out = 'rc=%d\n' % rc
+                results.append((out, err.replace(str(st), '<S>'), (st / 'pair.json').read_text()))
+            self.assertEqual(results[0], results[1], name)
+        written = json.loads(self.claim_store('updx', mine).joinpath('pair.json').read_text())
+        self.assertIn('closing', written['verifying'])
+
+    def test_my_claim_and_still_my_claim_equal_the_bash(self):
+        for n, (name, doc) in enumerate({'a claim of this process': {'verdict': 'v', 'closing': {'token': 'testhost:4242:9'}},
+                                         'a claim of another process': {'verdict': 'v', 'closing': {'token': 'testhost:4243:9'}},
+                                         'a claim of another host': {'verdict': 'v', 'closing': {'token': 'other:4242:9'}},
+                                         'no claim': {'verdict': 'v'}}.items()):
+            results = []
+            for side in ('bash', 'py'):
+                st = self.claim_store(f'my{n}{side}', doc)
+                if side == 'bash':
+                    # $$ is the shell's pid: make it 4242 by running the functions in a shell whose $$ is replaced through a function
+                    rc, out, err = self.phase4_bash(st, 'HOSTNAME=testhost; set_pid() { eval "$1"; }; '
+                                                        'my_claim() { case "$(field "$1" \'.verifying.closing.token // empty\')" in "${HOSTNAME:-localhost}:4242:"*) return 0 ;; esac; return 1; }; '
+                                                        'still_my_claim() { my_claim "$1" && return 0; printf "verification closed elsewhere\\n"; exit 5; }; '
+                                                        'if my_claim "$STORE"; then echo mine; else echo notmine; fi; ( still_my_claim "$STORE" ); echo "rc=$?"')
+                else:
+                    rc, out, err = self.kitchen_py(st, 'print("mine" if vs.my_claim(store) else "notmine")\ntry:\n    vs.still_my_claim(store)\n    print("rc=0")\n'
+                                                       'except Exit as e:\n    print("rc=%d" % e.code)', env={'PAIR_SHELL_PID': '4242'})
+                results.append((out, err))
+            self.assertEqual(results[0], results[1], name)
+        self.assertIn('mine', results[0][0])
+
+    def test_cksum_and_audit_due_equal_the_commands(self):
+        for text in ('001-x', '', 'landing', '002-y-fix', 'é', 'a' * 5000):
+            want = subprocess.run(['cksum'], input=text.encode(), capture_output=True, check=True).stdout.split()[0].decode()
+            self.assertEqual(str(self.kitchen_core_module('verify_state').cksum(text.encode())), want, text[:20])
+        vs = self.kitchen_core_module('verify_state')
+        st = self.claim_store('audit', {'verdict': 'v'})
+        for unit in ('001-x', '002-y', '003-z', 'landing', '010-fix'):
+            for sample in ('0', '0.1', '0.5', '1', '', 'abc', '2'):
+                rc, out, err = self.phase4_bash(st, f'if audit_due "{unit}" "{sample}"; then echo yes; else echo no; fi')
+                self.assertEqual('yes\n' if vs.audit_due(unit, sample) else 'no\n', out, (unit, sample))
+
+    def test_a_failed_cleanup_releases_the_claim_and_run_close_ends_with_the_status_equal_to_the_bash(self):
+        """close_verifier's last command is the scratch removal: an id the scratch command refuses ends the close with its status, and the claim,
+        which this process took, is given back before the command ends."""
+        verifying = {'verdict': '/v/001-x-v1.md', 'units': '001', 'scratch': 'bad id', 'brief': '001-x', 'packet': '/nonexistent/p.md'}
+        extra = {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}, 'git_root': str(self.path)}
+        results = []
+        for side in ('bash', 'py'):
+            st = self.claim_store(f'rc{side}', verifying, extra)
+            if side == 'bash':
+                rc, out, err = self.phase4_bash(st, 'HOSTNAME=testhost; (run_close "$STORE" v1 claude p3 /v/001-x-v1.md); echo "rc=$?"')
+            else:
+                rc, out, err = self.kitchen_py(st, 'try:\n    vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\nexcept Exit as e:\n    print("rc=%d" % e.code)\n',
+                                               env={'PAIR_SHELL_PID': str(os.getpid())})
+            results.append((out, self.mask_token(err).replace(str(st), '<S>').replace('kitchen.sh: ', 'pair.sh: '), self.mask_token((st / 'pair.json').read_text())))
+        self.assertEqual(results[0], results[1])
+        self.assertIn('rc=1', results[0][0])
+        self.assertNotIn('closing', results[0][2])
+
+    def test_a_claim_written_by_one_side_binds_the_other_in_both_directions(self):
+        """The compatibility A6 names, for the claim: the Python closer's token is read by the bash closer as a live holder (while its process lives)
+        and as a dead one (after), the bash closer's token is taken over by the Python closer once its process is gone, and either side releases the
+        other's token."""
+        live, dead = self.spawn_live_and_dead_pids()
+        verdict = '/v/001-x-v1.md'
+        st = self.claim_store('compat', {'verdict': verdict, 'units': '001'})
+        # a Python closer, whose process is alive: the bash closer must refuse
+        self.assertEqual(self.kitchen_py(st, f'print(vs.claim_close(store, {verdict!r}))', env={'PAIR_SHELL_PID': str(live)})[1], 'True\n')
+        token = json.loads((st / 'pair.json').read_text())['verifying']['closing']['token']
+        self.assertRegex(token, rf'^testhost:{live}:[0-9]+$')
+        rc, out, err = self.phase4_bash(st, f'HOSTNAME=testhost; if claim_close "$STORE" {verdict}; then echo took; else echo refused; fi')
+        self.assertEqual(out, 'refused\n')
+        self.assertEqual(json.loads((st / 'pair.json').read_text())['verifying']['closing']['token'], token)
+        # the bash closer releases the Python closer's token
+        rc, out, err = self.phase4_bash(st, f'HOSTNAME=testhost; release_close "$STORE" {verdict} {token}')
+        self.assertNotIn('closing', json.loads((st / 'pair.json').read_text())['verifying'])
+        # a bash closer that has gone (its token names a dead pid): the Python closer takes over, and releases with its own token
+        rc, out, err = self.phase4_bash(st, 'HOSTNAME=testhost; claim_close "$STORE" ' + verdict)
+        bash_token = json.loads((st / 'pair.json').read_text())['verifying']['closing']['token']
+        self.assertRegex(bash_token, r'^testhost:[0-9]+:[0-9]+$')
+        self.assertEqual(self.kitchen_py(st, f'print(vs.claim_close(store, {verdict!r}))', env={'PAIR_SHELL_PID': str(live)})[1], 'True\n')
+        mine = json.loads((st / 'pair.json').read_text())['verifying']['closing']['token']
+        self.assertRegex(mine, rf'^testhost:{live}:')
+        self.assertNotEqual(mine, bash_token)
+        self.kitchen_py(st, f'vs.release_close(store, {verdict!r}, {mine!r})')
+        self.assertNotIn('closing', json.loads((st / 'pair.json').read_text())['verifying'])
+        # the Python closer's token names a process that has gone: the bash closer takes over
+        self.assertEqual(self.kitchen_py(st, f'print(vs.claim_close(store, {verdict!r}))', env={'PAIR_SHELL_PID': str(dead)})[1], 'True\n')
+        rc, out, err = self.phase4_bash(st, f'HOSTNAME=testhost; if claim_close "$STORE" {verdict}; then echo took; else echo refused; fi')
+        self.assertEqual(out, 'took\n')
+
 
 class BashReachTests(unittest.TestCase):
     """tests/bash_reach.py on small synthetic scripts."""
