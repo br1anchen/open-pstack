@@ -196,7 +196,12 @@ def rotate_master(ctx, args):
 
     def mutate(doc):
         master = doc['master']
-        kept = [e for e in (master.get('sessions') or []) if session == '' or e['session'] != session]
+        listed = master.get('sessions')
+        if listed is None or listed is False:  # jq's `// []`: only null and false count as missing, so 0 and "" go on to `[]` and fail in jq
+            listed = []
+        elif not isinstance(listed, list):
+            raise TypeError('sessions is not an array')
+        kept = [e for e in listed if session == '' or e['session'] != session]
         master['previous'] = {'name': name, 'pane_id': pane, 'session': session}
         master['name'], master['pane_id'], master['registered_at'] = temp, new_pane_id, now
         master['generation'] = gen_n + 1

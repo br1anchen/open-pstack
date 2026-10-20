@@ -14,7 +14,7 @@ import sys
 from pstack_core.collate import glob_sorted
 from pstack_core.errors import Die
 from pstack_core.review import steps_file, trunk_ref
-from pstack_core.store import expected_report, header_field, jq_raw, pair_json
+from pstack_core.store import expected_report, header_field, jq_raw, last_line, pair_json
 from pstack_core.variant import commit_of
 
 
@@ -70,9 +70,9 @@ def unit_head(store, brief):
     if not head:
         steps = steps_file(store, brief)
         if os.path.isfile(steps) and os.path.getsize(steps) > 0:
-            with open(steps, 'rb') as f:
-                last = _text(f.read()).rstrip('\n').split('\n')[-1].split('\t')
-            head = commit_of(root, last[1] if len(last) > 1 else '') or ''
+            row = last_line(steps)
+            cols = row.split('\t')
+            head = commit_of(root, cols[1] if len(cols) > 1 else row) or ''
     return head
 
 

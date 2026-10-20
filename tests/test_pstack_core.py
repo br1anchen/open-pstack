@@ -610,8 +610,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for key, (rc, line, stream) in expected.items():
             self.assertEqual(seen[key][0]['rc'], rc, (key, seen[key]))
             self.assertIn(line, seen[key][1] if stream == 'stdout' else seen[key][2], (key, seen[key]))
-        self.assertIsNotNone(seen['kitchen', 'stop'][0]['rc'])
-        self.assertTrue(seen['kitchen', 'stop'][2] or seen['kitchen', 'stop'][1], seen['kitchen', 'stop'])
+        self.assertEqual(seen['kitchen', 'stop'][0]['rc'], 0, seen['kitchen', 'stop'])
+        self.assertIn('sidekick s1 is not live\nconsultant null is not live\nverifier null is not live\n', seen['kitchen', 'stop'][1])
         for name in ('status', 'stop'):
             info = seen['kitchen', name][0]
             self.assertFalse(info['kitchen_core'], (name, seen['kitchen', name]))
@@ -1339,7 +1339,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for label, (fake, close) in {'no dialog': ({}, ''), 'a dialog': (dialog, ''), 'a dialog and a close': (dialog, 'close')}.items():
             call = f'refuse_untrusted p1 claude /work {close}'
             py = self.DIE.lstrip('\n') + f'run(lambda: panes.refuse_untrusted("p1", "claude", "/work", {bool(close)}))\nprint("returned")'
-            self.leaf_both('pane-trust-' + label.replace(' ', '-'), f'{call}; echo "returned"', py, fake=fake)
+            bash_out = self.leaf_both('pane-trust-' + label.replace(' ', '-'), f'{call}; echo "returned"', py, fake=fake)
+            # a trust dialog dies with status 5 and says so; no dialog returns
+            self.assertEqual(bash_out[0], 5 if fake else 0, (label, bash_out))
+            self.assertEqual('asks whether to trust' in bash_out[2], bool(fake), (label, bash_out))
+            self.assertEqual('returned' in bash_out[1], not fake, (label, bash_out))
         for label, (present, wait_ms) in {'a file that is there': (True, 300), 'a file that never comes': (False, 300), 'no time to wait': (False, 0)}.items():
             mk = 'touch "$store/f"; ' if present else ''
             self.leaf_both('pane-await-' + label.replace(' ', '-'), f'{mk}if await_file "$store/f" {wait_ms}; then echo yes; else echo no; fi',
@@ -3498,13 +3502,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 found[re.sub(r'repo-[0-9a-f]{8}', 'repo-<H>', str(path.relative_to(directory)).replace(top.name, '<T>'))] = re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text))
         return found
 
-    def phase4_cases(self, label, cases):
-        """Every case through both trees; they must be equal. Returns the outcomes by name."""
+    def phase4_cases(self, label, cases, expect):
+        """Every case through both trees; they must be equal, and the working tree's run must have done what the case says: `expect` maps every case
+        to (rc, text), its exit status and a piece of its stdout or stderr. A case with no entry, or an entry with no case, fails the test, so a
+        case whose setup stops it short (a dead world, a usage error) cannot pass as an equal pair of failures. Returns the outcomes by name."""
+        self.assertEqual(sorted(expect), sorted(cases), f'{label}: expect names exactly the cases')
         outcomes = {}
         for n, (name, spec) in enumerate(cases.items()):
             got, want = self.phase4_ab(f'{label}{n}', spec)
             self.maxDiff = None
             self.assertEqual(got, want, name)
+            rc, text = expect[name]
+            self.assertEqual(got['rc'], rc, f'{name}: {got["stdout"]}{got["stderr"]}')
+            self.assertIn(text, f'{got["stdout"]}\n{got["stderr"]}', name)
+            if not text:
+                self.assertEqual((got['stdout'], got['stderr']), ('', ''), f'{name}: an expectation of no text is for a run that prints nothing')
             outcomes[name] = got
         return outcomes
 
@@ -3522,7 +3534,18 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'too many arguments': dict(args=run + ['001', 'extra']),
             'no pair.json': dict(args=run, nopair=True),
         }
-        out = self.phase4_cases('catch', cases)
+        out = self.phase4_cases('catch', cases, {
+            'a catch': (0, 'caught at gate: a missed lint'),
+            'a catch with a unit': (0, 'caught at gate: a missed lint'),
+            'a text that starts with a dash': (0, 'caught at review: --not-an-option'),
+            'a bad layer': (1, 'pair.sh: layer is gate, policy, self, verify, review, triage, or escalation: the one that '),
+            'a git_root that is not a repository': (1, 'kitchen: not a git repository: /nonexistent/repo'),
+            'a bad unit': (1, "pair.sh: unit is a brief's number, like 003"),
+            'too few arguments': (1, 'pair.sh: usage: kitchen.sh catch'),
+            'a unit with no brief': (1, 'kitchen: no brief for unit 009 in'),
+            'too many arguments': (1, 'pair.sh: usage: kitchen.sh catch'),
+            'no pair.json': (1, 'pair.sh: no pair.json in'),
+        })
         self.assertEqual(out['a catch']['rc'], 0)
         self.assertIn('caught at gate: a missed lint', out['a catch']['stdout'])
         self.assertTrue(any('ledger.tsv' in k and 'a missed lint' in v for k, v in out['a catch']['state'].items()), out['a catch']['state'])
@@ -3556,7 +3579,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'too many arguments': dict(args=run + ['x']),
             'no arguments': dict(args=['retro']),
         }
-        out = self.phase4_cases('retro', cases)
+        out = self.phase4_cases('retro', cases, {
+            'a store with briefs only': (0, 'run null: 0 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
+            'units, verdicts, steers and events': (0, 'run demo: 1 unit reports, 2 verified units (1 clean verdicts on the first try), 0 master w'),
+            'no verified unit': (0, 'run null: 1 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
+            'a git_root that is not a repository': (1, 'kitchen: not a git repository: /nonexistent/repo'),
+            'no pair.json': (1, 'pair.sh: no pair.json in'),
+            'too many arguments': (1, 'pair.sh: usage: kitchen.sh retro'),
+            'no arguments': (1, 'pair.sh: usage: kitchen.sh retro'),
+        })
         rich_out = out['units, verdicts, steers and events']
         self.assertEqual(rich_out['rc'], 0, rich_out['stderr'])
         self.assertIn('master wakes per verified unit:', rich_out['stdout'])
@@ -3605,7 +3636,19 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'too many arguments': dict(args=run + ['x']),
             'no arguments': dict(args=['new-handoff']),
         }
-        out = self.phase4_cases('handoff', cases)
+        out = self.phase4_cases('handoff', cases, {
+            'a store with units in every state': (0, 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master'),
+            'a store with briefs only': (0, 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master'),
+            'an existing handoff is overwritten': (0, 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master'),
+            'a master with no generation': (0, 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master'),
+            'a master that is a string ends with the jq error': (5, '/st/pair.json:15): Cannot index string with string ("generation")'),
+            "a dispatch that is a string is jq's error and the command goes on": (0, 'Cannot index string with string ("brief")'),
+            'a verifying that is an array': (0, 'Cannot index array with string ("unit")'),
+            'a dangling brief symlink is skipped': (0, 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master'),
+            'no pair.json': (1, 'pair.sh: no pair.json in'),
+            'too many arguments': (1, 'pair.sh: usage: kitchen.sh new-handoff'),
+            'no arguments': (1, 'pair.sh: usage: kitchen.sh new-handoff'),
+        })
         first = out['a store with units in every state']
         self.assertEqual(first['rc'], 0, first['stderr'])
         text = first['files']['session-handoff.md']
@@ -3664,7 +3707,34 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'one argument': dict(args=['feedback', '{st}']),
             'three arguments': dict(args=file_args + ['x']),
         }
-        out = self.phase4_cases('fbfile', cases)
+        out = self.phase4_cases('fbfile', cases, {
+            'no maintainer: the human is notified': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
+            'a live maintainer is told': (0, 'delivered: to maintainer mt'),
+            'a maintainer whose prompt fails': (0, 'delivered: notification for the human (the prompt to the maintainer failed); read it with:'),
+            'a dead maintainer': (0, 'delivered: notification for the human (agent mt is gone); read it with: cat'),
+            'a maintainer moved off its pane': (0, 'delivered: notification for the human (agent mt moved off pane p7); read it with: cat'),
+            'a maintainer with another session': (0, 'delivered: notification for the human (agent mt is a different session than the one regist'),
+            'a maintainer blocked on a dialog': (0, 'delivered: notification for the human (agent mt is blocked on a dialog); read it with: cat'),
+            'builds: the same skills and another': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
+            'the name is taken once': (0, '-repo-demo-2.md'),
+            'the name is taken in inbox and done': (0, '-repo-demo-3.md'),
+            'a stale lock is taken over': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
+            'a maintainer.json that is not JSON': (0, 'delivered: notification for the human (agent  is gone); read it with: cat'),
+            'a maintainer.json that is an array': (0, 'delivered: notification for the human (agent  is gone); read it with: cat'),
+            'herdr answers an agent of null': (0, 'delivered: notification for the human (agent mt moved off pane p7); read it with: cat'),
+            'a master that is a string': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
+            'a master that is an array': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
+            'a skill_builds entry that is a number stops with jq, leaving the lock': (5, '/st/pair.json:20): Cannot index number with string ("path")'),
+            'a skill_builds entry that is an array': (5, '/st/pair.json:22): Cannot index array with string ("path")'),
+            'a skill_builds path that is a number': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
+            'a dangling link at the name being allocated': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
+            'a report with no gap': (1, '/pstack-kitchen/references/feedback-template.md)'),
+            'a missing report file': (1, 'pair.sh: no such file:'),
+            'no pair.json': (1, 'pair.sh: no pair.json in'),
+            'no arguments': (1, 'pair.sh: usage: kitchen.sh feedback'),
+            'one argument': (1, 'pair.sh: usage: kitchen.sh feedback'),
+            'three arguments': (1, 'pair.sh: usage: kitchen.sh feedback'),
+        })
         self.assertIn('delivered: notification for the human (no maintainer is registered)', out['no maintainer: the human is notified']['stdout'])
         self.assertIn('delivered: to maintainer mt', out['a live maintainer is told']['stdout'])
         self.assertIn('prompt to the maintainer failed', out['a maintainer whose prompt fails']['stdout'])
@@ -3712,7 +3782,24 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'close with too many arguments': dict(args=close + ['x']),
             'a stale lock is taken over on close': dict(args=close, statefiles=with_done(inbox('20261003-repo-a')), statelocks={'pstack/feedback/.lock': 300}),
         }
-        out = self.phase4_cases('fbinbox', cases)
+        out = self.phase4_cases('fbinbox', cases, {
+            'an empty inbox': (0, 'feedback inbox: empty'),
+            'three reports of different ages': (0, '20261002-repo-c  runc  repoc          2  2d'),
+            'a report that is also in done is not listed': (0, 'feedback inbox: empty'),
+            'an inbox file with no gap heading ends --inbox with status 1': (1, ''),
+            'a dangling link in the inbox is skipped': (0, '20261003-repo-a  runa  repoa  abc123  2  18d'),
+            'a dangling link in done does not hide a report': (0, '20261003-repo-a  runa  repoa  abc123  2  18d'),
+            'a close whose rm fails keeps the lock': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
+            'a second close whose rm fails': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
+            'closing a report': (0, 'closed: 20261003-repo-a (commit abc123)'),
+            'closing with no done directory': (1, "/state/pstack/feedback/done/20261003-repo-a.md': No such file or directory"),
+            'closing with the .md suffix and none': (0, 'closed: 20261003-repo-a (commit none)'),
+            'closing twice': (0, 'note: n'),
+            'an unknown id': (1, 'pair.sh: no feedback report 20261003-repo-a in'),
+            'close with too few arguments': (1, 'pair.sh: usage: kitchen.sh feedback --close'),
+            'close with too many arguments': (1, 'pair.sh: usage: kitchen.sh feedback --close'),
+            'a stale lock is taken over on close': (0, 'closed: 20261003-repo-a (commit abc123)'),
+        })
         self.assertIn('feedback inbox: empty', out['an empty inbox']['stdout'])
         rows = out['three reports of different ages']['stdout'].splitlines()
         self.assertEqual(len(rows), 3, rows)
@@ -3734,7 +3821,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_a_held_feedback_lock_ends_the_command_as_the_bash_does_after_a_hundred_tries(self):
         """The one test that waits: the lock is fresh, so neither side takes it, and each gives up after 100 tries at 0.1 s (about ten seconds)."""
         out = self.phase4_cases('fblock', {'a held lock': dict(args=['feedback', '--close', 'x', 'none', 'n'], statefiles={'pstack/feedback/inbox/x.md': 'x\n'},
-                                                                 statelocks={'pstack/feedback/.lock': 1})})
+                                                                 statelocks={'pstack/feedback/.lock': 1})},
+                                 {'a held lock': (1, 'the feedback inbox is locked')})
         self.assertRegex(out['a held lock']['stderr'], r'the feedback inbox is locked \(<T>/state/pstack/feedback/\.lock\)')
 
     def test_the_python_feedback_lock_is_the_bash_lock(self):
@@ -3789,7 +3877,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'on for a pane with no agent': dict(args=['maintainer', 'on', '--pane', 'p9'], **live),
             'off': dict(args=['maintainer', 'off'], statefiles=registered),
             'off with none': dict(args=['maintainer', 'off']),
-            'off whose rm fails': dict(args=['maintainer', 'off'], statefiles=registered, statemodes={'pstack/feedback': 0o555}),
+            'off whose rm fails': dict(args=['maintainer', 'off'], statefiles={'pstack/feedback/maintainer.json/held': 'x\n'}),
             'status with none': dict(args=['maintainer', 'status']),
             'status live': dict(args=['maintainer', 'status'], **live, statefiles=registered),
             'status gone': dict(args=['maintainer', 'status'], statefiles=registered),
@@ -3805,7 +3893,32 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'no arguments': dict(args=['maintainer']),
             'an unknown subcommand': dict(args=['maintainer', 'stop']),
         }
-        out = self.phase4_cases('maint', cases)
+        out = self.phase4_cases('maint', cases, {
+            'on with --pane': (0, 'maintainer: mt on p7'),
+            'on with the pane of the shell': (0, 'maintainer: mt on p7'),
+            'on again replaces the registration': (0, 'maintainer: mt on p7'),
+            'on without herdr': (0, 'maintainer: mt on p7'),
+            'on with no pane': (1, 'pair.sh: no pane: pass --pane ID'),
+            'on with an unknown option': (1, 'pair.sh: unknown option --bogus'),
+            'on for a pane with no agent': (1, 'pair.sh: herdr has no agent on pane p9'),
+            'off': (0, 'maintainer: none'),
+            'off with none': (0, 'maintainer: none'),
+            'off whose rm fails': (1, "/state/pstack/feedback/maintainer.json': Is a directory"),
+            'status with none': (0, 'maintainer: none'),
+            'status live': (0, 'maintainer: mt on p7 since'),
+            'status gone': (0, 'maintainer: mt on p7 since'),
+            'status moved': (0, ': agent mt moved off pane p7'),
+            'status blocked': (0, ': agent mt is blocked on a dialog'),
+            'status with another session': (0, ': agent mt is a different session than the one registered'),
+            'status with a maintainer.json that is not JSON': (0, 'maintainer:  on  since : agent  is gone'),
+            'status with a maintainer.json that is an array': (0, 'maintainer:  on  since : agent  is gone'),
+            'status with a maintainer.json that is a string': (0, 'maintainer:  on  since : agent  is gone'),
+            'status when herdr answers an agent of null': (0, ': agent mt moved off pane p7'),
+            'status when herdr answers text that is not JSON': (0, ': agent mt moved off pane p7'),
+            'on when herdr answers an agent of null': (1, 'pair.sh: herdr reports no name for the agent on pane p7; name it first'),
+            'no arguments': (1, 'pair.sh: usage: kitchen.sh maintainer on [--pane ID] | off | status'),
+            'an unknown subcommand': (1, 'pair.sh: usage: kitchen.sh maintainer on [--pane ID] | off | status'),
+        })
         self.assertIn('maintainer: mt on p7', out['on with --pane']['stdout'])
         self.assertIn('"session": null', out['on with --pane']['state']['pstack/feedback/maintainer.json'])
         self.assertIn('maintainer: mt on p7 since <TS>: live', out['status live']['stdout'].replace('2026-10-01T10:00:00Z', '<TS>'))
@@ -3846,7 +3959,27 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'no pair.json': dict(args=run, nopair=True),
             'outside herdr': dict(live, args=run, noenv=True),
         }
-        out = self.phase4_cases('close', cases)
+        out = self.phase4_cases('close', cases, {
+            'an idle run closes verifier, consultant and sidekick': (0, 'closed verifier v1 (p3)'),
+            'an open verification refuses': (5, 'pair.sh: a verification is open (001); finish it (kitchen.sh verify'),
+            'an open verification and --force': (0, 'closed verifier v1 (p3)'),
+            'a working sidekick refuses': (5, 'pair.sh: the sidekick is working; kitchen.sh stop'),
+            'a working sidekick and --force': (0, 'closed verifier v1 (p3)'),
+            'a role with no pane is skipped': (0, 'closed sidekick s1 (p1)'),
+            'a pane already gone': (0, 'closed verifier v1 (p3)'),
+            'a role already closed is skipped': (0, 'closed consultant c1 (p2)'),
+            'a consultant that is a string': (0, 'closed verifier v1 (p3)'),
+            'a verifier that is an array': (0, 'closed consultant c1 (p2)'),
+            'a sidekick that is false': (0, 'closed verifier v1 (p3)'),
+            'a verifying that is a string': (0, 'closed verifier v1 (p3)'),
+            'a Prime role with a session': (5, 'closed consultant c1 (p2)'),
+            'a role that does not exit keeps its pane': (5, 'verifier v1 did not exit; its pane p3 stays open'),
+            '--force is only read as the second argument': (1, 'pair.sh: no pair.json in --force; run: pair.sh init'),
+            'a third argument is ignored': (0, 'closed verifier v1 (p3)'),
+            'no arguments': (1, 'pair.sh: usage: kitchen.sh close'),
+            'no pair.json': (1, 'pair.sh: no pair.json in'),
+            'outside herdr': (0, 'closed verifier v1 (p3)'),
+        })
         idle = out['an idle run closes verifier, consultant and sidekick']
         self.assertEqual(idle['rc'], 0, idle['stderr'])
         self.assertEqual(idle['stdout'].splitlines(), ['closed verifier v1 (p3)', 'closed consultant c1 (p2)', 'closed sidekick s1 (p1)'])
@@ -3893,7 +4026,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'the model found behind node': dict(world(), pstable=ps_node),
             'no claude in the process tree': dict(world(), pstable=ps_none),
             'the next master does not start': dict(world(), fakefiles={'start-fail': ''}),
-            'the next master asks for folder trust': dict(world(), fakefiles={'start-fail': '', 'screen/zzz': ''}),
+            'the next master asks for folder trust': dict(world(), fakefiles={'start-fail': '', 'trust-dialog': ''}),
             'a hand-over already open': with_master(previous={'name': 'old', 'pane_id': 'p9'}),
             'a master that is not live': dict(world(), master=None),
             'a master that is not Claude': dict(world(), agents={'m1': 'idle codex'}),
@@ -3904,10 +4037,42 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                                                                fakefiles={'session-ids/m1': 'sess-2 /x'}),
             'a master that is a string ends with the jq error': dict(world(), pair={'slug': 'demo', 'master': 'm1'}),
             'a master with sessions that is not a list': dict(with_master(sessions='x'), fakefiles={'session-ids/m1': 'sess-1 /x'}),
+            'a master with sessions that is 0': dict(with_master(sessions=0), fakefiles={'session-ids/m1': 'sess-1 /x'}),
+            'a master with sessions that is an empty string': dict(with_master(sessions=''), fakefiles={'session-ids/m1': 'sess-1 /x'}),
+            'a master with sessions that is false': dict(with_master(sessions=False), fakefiles={'session-ids/m1': 'sess-1 /x'}),
+            'a master with sessions that is null': dict(with_master(sessions=None), fakefiles={'session-ids/m1': 'sess-1 /x'}),
             'no pair.json': dict(world(), nopair=True),
             'outside herdr': dict(world(), noenv=True),
         }
-        out = self.phase4_cases('rotm', cases)
+        out = self.phase4_cases('rotm', cases, {
+            'a filled handoff': (0, '/st/sessions/master-1-handoff.md (generation 1, session unknown)'),
+            'a handoff with a placeholder': (1, '/st/session-handoff.md still has unfilled placeholders'),
+            'an empty Goal section': (5, '/st/session-handoff.md: the Goal section is empty'),
+            'an empty Next section': (5, '/st/session-handoff.md: the Next section is empty'),
+            'no handoff': (5, 'pair.sh: no handoff; write one first: kitchen.sh new-handoff'),
+            '--model': (0, '/st/sessions/master-1-handoff.md (generation 1, session unknown)'),
+            'an unknown option': (1, 'pair.sh: unknown option --bogus'),
+            'no arguments': (1, 'pair.sh: usage: kitchen.sh rotate-master'),
+            'remote control off': (0, '/st/sessions/master-1-handoff.md (generation 1, session unknown)'),
+            'the model found in the process tree': (0, '/st/sessions/master-1-handoff.md (generation 1, session unknown)'),
+            'the model found behind node': (0, '/st/sessions/master-1-handoff.md (generation 1, session unknown)'),
+            'no claude in the process tree': (0, '/st/sessions/master-1-handoff.md (generation 1, session unknown)'),
+            'the next master does not start': (2, 'pair.sh: the next master did not start in p1; you stay the master (generation 1), so carry'),
+            'the next master asks for folder trust': (5, 'asks whether to trust'),
+            'a hand-over already open': (5, 'pair.sh: a hand-over is open: m1 has not taken over yet; it runs kitchen.sh take-master'),
+            'a master that is not live': (5, "pair.sh: master m1 is not live in p0; run this from the master's own session"),
+            'a master that is not Claude': (5, 'pair.sh: rotate-master restarts a Claude master; m1 is codex'),
+            'an unfinished rotation keeps its generation': (0, '/st/sessions/master-4-handoff.md (generation 4, session sess-1)'),
+            'sessions are replaced by the same session': (0, '/st/sessions/master-2-handoff.md (generation 2, session sess-2)'),
+            'a master that is a string ends with the jq error': (5, '/st/pair.json:15): Cannot index string with string ("name")'),
+            'a master with sessions that is not a list': (5, 'Cannot iterate over string ("x")'),
+            'a master with sessions that is 0': (5, 'Cannot iterate over number (0)'),
+            'a master with sessions that is an empty string': (5, 'Cannot iterate over string ("")'),
+            'a master with sessions that is false': (0, '/st/sessions/master-1-handoff.md (generation 1, session sess-1)'),
+            'a master with sessions that is null': (0, '/st/sessions/master-1-handoff.md (generation 1, session sess-1)'),
+            'no pair.json': (1, 'pair.sh: no pair.json in'),
+            'outside herdr': (0, '/st/sessions/master-1-handoff.md (generation 1, session unknown)'),
+        })
         ok = out['a filled handoff']
         self.assertEqual(ok['rc'], 0, ok['stderr'])
         self.assertIn('next master: demo-master-g2 (generation 2) in ', ok['stdout'])
@@ -3931,7 +4096,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         engine = dict(review_engine=True, files={'briefs/001-x.md': '# Brief\n\ncommit: yes\nplaybook: bug-fix\n', 'reviews/001-x.md': '# R\n\nverdict: accept\n'})
         cases = {
             'a previous master that is live': world(),
-            'a previous master that is gone but whose pane is there': world(agents={'demo-master-g2': 'idle claude'}),
+            'a previous master that is gone but whose pane is there': world(agents={'demo-master-g2': 'idle claude'}, master=None),
             'a previous pane that is already gone': world(panes={'p5': 'demo-master-g2'}, agents={'demo-master-g2': 'idle claude'}),
             'a previous pane that holds another agent': world(panes={'p0': 'other', 'p5': 'demo-master-g2'}, agents={'other': 'idle claude', 'demo-master-g2': 'idle claude'}),
             'a master already named for the run': world(pair={'slug': 'demo', 'master': {**master, 'name': 'demo-master'}}, agents={'m1': 'idle claude', 'demo-master': 'idle claude'},
@@ -3942,7 +4107,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a previous master still working when the wait is over': world(agents={'m1': 'working claude', 'demo-master-g2': 'idle claude'}, env={
                 'HERDR_PANE_ID': 'p5', 'KITCHEN_ROTATE_POLL_S': '0', 'KITCHEN_TAKEOVER_WAIT_S': '0'}),
             'a previous master that settles during the wait': world(agents={'m1': 'working claude', 'demo-master-g2': 'idle claude'},
-                                                                    once={'get': 'printf "idle claude\\n" >"$FAKE/agents/m1"\n'}),
+                                                                    # the first `agent get` still says working and arms the hook for the next one, which flips m1
+                                                                    once={'get': 'printf \'#!/bin/sh\\nprintf "idle claude\\\\n" >"$FAKE/agents/m1"\\n\' >"$FAKE/once/get"\nchmod +x "$FAKE/once/get"\n'}),
             'a master that is a string': world(pair={'slug': 'demo', 'master': 'x'}),
             'unreviewed units are listed': world(**engine),
             'a review that cites the engine is not listed': world(review_engine=True, files={**engine['files'], 'reviews/001-x.md': '# R\n\nverdict: accept\nengine: joo /tmp/run.json\n'}),
@@ -3959,12 +4125,39 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'no pair.json': world(nopair=True),
             'outside herdr': world(noenv=True),
         }
-        out = self.phase4_cases('takem', cases)
+        out = self.phase4_cases('takem', cases, {
+            'a previous master that is live': (0, 'closed the old master m1 (p0)'),
+            'a previous master that is gone but whose pane is there': (0, 'closed the old master m1 (p0)'),
+            'a previous pane that is already gone': (0, 'the old master pane p0 is already gone'),
+            'a previous pane that holds another agent': (0, 'left pane p0 open: it now holds other, not the old master m1'),
+            'a master already named for the run': (0, 'closed the old master m1 (p0)'),
+            'no hand-over open': (0, 'no hand-over open; demo-master is the master in p5'),
+            'run from another pane': (5, "pair.sh: take-master runs from the new master's pane p5, not p9"),
+            'run from no pane': (5, "pair.sh: take-master runs from the new master's pane p5, not an unknown pane"),
+            'a previous master still working when the wait is over': (0, 'closed the old master m1 (p0)'),
+            'a previous master that settles during the wait': (0, 'closed the old master m1 (p0)'),
+            'a master that is a string': (5, '/st/pair.json:15): Cannot index string with string ("name")'),
+            'unreviewed units are listed': (0, 'warning: unreviewed: unit 001 cites no joo run'),
+            'a review that cites the engine is not listed': (0, 'master: demo-master in p5 (generation 2)'),
+            'a skipped engine over an empty range': (0, 'master: demo-master in p5 (generation 2)'),
+            'a skipped engine over a range that adds lines': (0, 'skipped is only for a deletion-only range'),
+            'a landing brief is not listed': (0, 'master: demo-master in p5 (generation 2)'),
+            'a review not accepted is not listed': (0, 'master: demo-master in p5 (generation 2)'),
+            'two arguments': (1, 'pair.sh: usage: kitchen.sh take-master'),
+            'no arguments': (1, 'pair.sh: usage: kitchen.sh take-master'),
+            'no pair.json': (1, 'pair.sh: no pair.json in'),
+            'outside herdr': (0, 'closed the old master m1 (p0)'),
+        })
         live = out['a previous master that is live']
         self.assertEqual(live['rc'], 0, live['stderr'])
         self.assertIn('closed the old master m1 (p0)', live['stdout'])
         self.assertIn('master: demo-master in p5 (generation 2)', live['stdout'])
         self.assertIn('agent rename p5 demo-master', live['calls'])
+        calls = lambda name: out[name]['calls'].splitlines()
+        self.assertEqual(calls('a previous master that settles during the wait').count('agent get m1'), 2)
+        self.assertEqual(calls('a previous master that is live').count('agent get m1'), 1)
+        self.assertIn('agent read m1 --source visible --lines 40', calls('a previous master that is live'))
+        self.assertNotIn('agent read m1 --source visible --lines 40', calls('a previous master that is gone but whose pane is there'))
         self.assertIn('already gone', out['a previous pane that is already gone']['stdout'])
         self.assertIn('left pane p0 open: it now holds other, not the old master m1', out['a previous pane that holds another agent']['stdout'])
         self.assertIn('no hand-over open', out['no hand-over open']['stdout'])
@@ -4776,7 +4969,7 @@ stop_prime_role "$store" sidekick && echo "stopped"
         toml = {'.agents/kitchen.toml': self.KITCHEN_TOML}
         brief = '# Brief 003-z\n\nplaybook: investigation\ntimebox: 45\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- lib/**\n'
         due = self.rotation_world()
-        base = dict(due, args=['dispatch', '{st}', '{st}/briefs/003-z.md', '--timeout', '20000'], files={'briefs/003-z.md': brief},
+        base = dict(due, args=['dispatch', '{st}', '{st}/briefs/003-z.md', '--timeout', '40000'], files={'briefs/003-z.md': brief},
                     repo_files={'src/a.py': 'x', **toml}, report_after='1 {st}/reports/003-z.md partial')
         base['env'] = {**base['env'], 'KITCHEN_QUIET_POLL_S': '0', 'KITCHEN_QUIET_MAX_S': '2'}
         cases = {
@@ -7464,6 +7657,11 @@ stop_prime_role "$store" sidekick && echo "stopped"
     def test_unit_head_and_unit_brief_equal_the_bash(self):
         units = self.kitchen_core_module('units')
         st, repo, shas, stacks, recorded = self.units_world('uhead')
+        # a steps file whose last row is blank reads as no head; a last row with no tab is the whole row
+        (st / 'steps/011-blank.tsv').write_text(f'1\t{shas["u1"]}\tfirst\n\n')
+        (st / 'steps/012-notab.tsv').write_text(f'1\tabc\tfirst\n{shas["u2"]}\n')
+        (st / 'steps/013-tabs.tsv').write_text(f'1\t{shas["u1"]}\n2\t\tx\n')
+        recorded = {**recorded, '011-blank': None, '012-notab': None, '013-tabs': None}
         script = ('for n in ' + ' '.join(recorded) + ' 010-nobrief; do b="$STORE/briefs/$n.md"; printf "head %s %s\\n" "$n" "$(unit_head "$STORE" "$b")"; done\n'
                   'for n in 001 002 009 010 011; do printf "brief %s %s\\n" "$n" "$(unit_brief "$STORE" "$n" 2>&1 | sed "s|$STORE|<S>|")"; done\n')
         rc, out, err = self.phase4_bash(st, script)
@@ -7477,6 +7675,8 @@ stop_prime_role "$store" sidekick && echo "stopped"
             got.append(f'brief {n} {found}')
         self.assertEqual(got, out.splitlines())
         self.assertIn(f'head 007-steps {shas["u1"]}', got)
+        self.assertIn(f'head 012-notab {shas["u2"]}', got)
+        self.assertIn('head 011-blank ', got)
         self.assertIn('brief 010 kitchen.sh: no brief for unit 010', got)
 
     def test_verdict_parse_equals_verdict_range_and_verdict_problem(self):
