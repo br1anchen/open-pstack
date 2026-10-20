@@ -544,7 +544,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertIn('commands', cls.__dict__, cls.__name__)
             self.assertIsInstance(cls.__dict__['commands'], dict, cls.__name__)
 
-    def test_only_an_overridable_name_asks_the_variant_and_an_internal_entry_never_does(self):
+    def test_only_an_overridable_name_or_one_the_core_lacks_asks_the_variant(self):
         class Exploding:
             @property
             def commands(self):
@@ -555,19 +555,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for name in cli.COMMANDS:
             if name not in cli.OVERRIDABLE:
                 self.assertIs(cli.resolve(ctx, name), cli.COMMANDS[name], name)
-        self.assertIsNone(cli.resolve(ctx, '__nothing'))
+        with self.assertRaises(AssertionError):
+            cli.resolve(ctx, '__nothing')  # an internal entry the core lacks is the variant's to supply, so the variant is asked
         ctx._variant = type('V', (), {'commands': {'answer': 'mine', 'status': 'not asked', '__detect_permission_mode': 'not asked'}})()
         self.assertEqual((cli.resolve(ctx, 'answer'), cli.resolve(ctx, 'status'), cli.resolve(ctx, '__detect_permission_mode')),
                          ('mine', cli.COMMANDS['status'], cli.COMMANDS['__detect_permission_mode']))
 
-    def test_a_name_the_core_lacks_asks_the_variant_and_an_internal_entry_still_does_not(self):
+    def test_a_name_the_core_lacks_asks_the_variant_internal_entries_included(self):
         class Mine:
-            commands = {'catch': 'kitchen catch', '__hidden': 'never'}
+            commands = {'catch': 'kitchen catch', '__bridge': 'kitchen bridge'}
 
         ctx = Context('pstack-pair', '/nowhere/pstack-pair', '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
         ctx._variant = Mine()
         self.assertEqual(cli.resolve(ctx, 'catch'), 'kitchen catch')
-        self.assertIsNone(cli.resolve(ctx, '__hidden'))
+        self.assertEqual(cli.resolve(ctx, '__bridge'), 'kitchen bridge')
+        self.assertIsNone(cli.resolve(ctx, '__nothing'))
         self.assertIsNone(cli.resolve(ctx, 'nothing-like-it'))
         self.assertIs(cli.resolve(ctx, 'status'), cli.COMMANDS['status'])
 
