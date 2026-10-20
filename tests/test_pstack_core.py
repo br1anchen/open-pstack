@@ -9651,6 +9651,31 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 self.assertEqual(dict(os.environ), snapshot, args)
         self.assertEqual(dict(os.environ), before)
 
+    def test_step_kpy_call_leaves_the_environment_alone(self):
+        """step reaches kitchen.py's `--json classify --base --head` in process (the gates, the policy check and brief-verify run in the detached scripts, as
+        `python3 kitchen.py` children, so what they write to os.environ is theirs)."""
+        kpy = self.kitchen_core_module('kpy')
+        top = self.path / 'kpystep'
+        repo = top / 'repo'
+        (repo / '.agents').mkdir(parents=True)
+        (repo / '.agents/kitchen.toml').write_text(self.LAUNCH_TOML)
+        env = {**self.env, **self.GIT}
+        shas = []
+        for name in ('src/app.py', 'src/b.py'):
+            (repo / name).parent.mkdir(exist_ok=True)
+            (repo / name).write_text('x = 1\n')
+            for args in (['add', '-A'], ['commit', '-q', '-m', name]) if shas else (['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '-m', name]):
+                subprocess.run(['git', '-C', str(repo), *args], env=env, check=True, capture_output=True)
+            shas.append(subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], env=env, check=True, capture_output=True, text=True).stdout.strip())
+        before = dict(os.environ)
+        with mock.patch.dict(os.environ, {'HOME': str(top), 'XDG_STATE_HOME': str(top / 'state')}):
+            snapshot = dict(os.environ)
+            status, out, _ = kpy.run(str(repo), ['--json', 'classify', '--base', shas[0], '--head', shas[1]])
+            self.assertEqual(status, 0)
+            self.assertEqual(json.loads(out)['profiles'], ['app'])
+            self.assertEqual(dict(os.environ), snapshot)
+        self.assertEqual(dict(os.environ), before)
+
     def test_setup_kpy_calls_leave_the_environment_alone(self):
         """init, spawn, consultant and fleet reach kitchen.py's `--json roster`, `--json validate`, `setup --role sidekick` and `fleet` in process; none
         of them writes os.environ (the writes are in `gate` and `brief-verify`, kitchen.py :745, :771, :1023, :1038). `setup` runs the repo's commands
