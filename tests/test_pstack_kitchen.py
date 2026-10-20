@@ -4703,6 +4703,107 @@ esac
         out = self.run_sh('land-check', str(self.store))
         self.assertRegex(out, r'covered: unit 001 \(rebased as [0-9a-f]{9}\)')
 
+    PHASE4 = 'b632713'
+
+    def base_script(self):
+        """kitchen.sh as it was at b632713, the bash the Python land-check must equal."""
+        tree = Path(self.tmp.name) / 'phase4'
+        if not tree.exists():
+            tree.mkdir()
+            archive = subprocess.run(['git', '-C', str(root), 'archive', self.PHASE4, 'skills'], capture_output=True, check=False, timeout=120)
+            if archive.returncode != 0:
+                self.skipTest(f'{self.PHASE4} is not in this checkout')
+            subprocess.run(['tar', '-x', '-C', str(tree)], input=archive.stdout, check=True, timeout=120)
+        return tree / 'skills/pstack-kitchen/scripts/kitchen.sh'
+
+    def land_check_both(self, code):
+        """land-check through the working tree and through b632713's bash, on this one store: the two outputs must be equal. Returns the output."""
+        port = self.run_sh('land-check', str(self.store), code=code)
+        script, self.script = self.script, self.base_script()
+        try:
+            base = self.run_sh('land-check', str(self.store), code=code)
+        finally:
+            self.script = script
+        self.assertEqual(port, base)
+        return port
+
+    def revert_scan_world(self, before, unit_text, stack):
+        """Unit 001 turns src/f.txt from `before` into `unit_text`; the stack, on a moved trunk, replays it and then applies each step of `stack`
+        (a ('write', text) or ('revert', k) for the k-th stack commit). A clean landing verdict covers exactly that stack. Returns (unit sha, stack shas)."""
+        self.write('src/f.txt', before)
+        start = self.commit('f before the unit')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/f.txt', unit_text)
+        unit = self.commit('the unit')
+        self.done(b, unit)
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        trunk = self.stack_on_a_new_trunk(start, [unit])
+        made = [self.git('rev-parse', 'HEAD')]
+        for kind, arg in stack:
+            if kind == 'write':
+                self.write('src/f.txt', arg)
+                made.append(self.commit('stack edit'))
+            else:
+                self.git('revert', '--no-edit', made[arg])
+                made.append(self.git('rev-parse', 'HEAD'))
+        self.write_landing_verdict(trunk, made[-1])
+        return unit, made
+
+    def test_an_unrelated_identical_one_line_deletion_is_called_reverted_by_the_u0_scan_in_b632713_and_here(self):
+        """Known limitation (PARITY.md): the revert scan compares no-context patch-ids, which ignore line numbers. The unit adds a second `dup` line;
+        the stack then deletes the first, unrelated `dup`. That commit's patch equals the inverse of the unit's, so b632713 says the unit is reverted
+        (the conservative, fail-closed answer), though its line is still there."""
+        before = 'alpha\ndup\nbeta\ngamma\n'
+        unit, made = self.revert_scan_world(before, before + 'dup\n', [('write', 'alpha\nbeta\ngamma\ndup\n')])
+        out = self.land_check_both(2)
+        self.assertIn(f"land-check: note: unit 001's commits match by patch-id but {made[-1][:9]} reverts them", out)
+        self.assertIn('unverified: unit 001', out)
+        self.assertNotIn('covered: unit 001', out)
+
+    def test_a_real_git_revert_after_a_nearby_edit_is_called_reverted_in_b632713_and_here(self):
+        lines = [f'line {k}\n' for k in range(1, 31)]
+        unit_text = ''.join(lines[:10] + ['added\n'] + lines[10:])
+        nearby = ''.join(lines[:10] + ['added\n'] + lines[10:12] + ['line 13 edited\n'] + lines[13:])
+        unit, made = self.revert_scan_world(''.join(lines), unit_text, [('write', nearby), ('revert', 0)])
+        out = self.land_check_both(2)
+        self.assertIn(f"land-check: note: unit 001's commits match by patch-id but {made[-1][:9]} reverts them", out)
+        self.assertNotIn('covered: unit 001', out)
+
+    def test_a_block_moved_later_in_the_stack_leaves_the_unit_covered_in_b632713_and_here(self):
+        """The unit adds three lines at the top; a later stack commit moves them to the bottom. That commit's patch is a deletion and an addition,
+        which is not the inverse of the unit's patch, so the scan finds no revert and the unit stays covered."""
+        before = ''.join(f'line {k}\n' for k in range(1, 11))
+        block = 'm1\nm2\nm3\n'
+        unit, made = self.revert_scan_world(before, block + before, [('write', before + block)])
+        out = self.land_check_both(0)
+        self.assertRegex(out, r'covered: unit 001 \(rebased as [0-9a-f]{9}\) by the clean landing verdict')
+        self.assertNotIn('reverts them', out)
+
+    def test_a_deletion_only_unit_reapplied_after_its_lines_were_restored_is_covered_by_the_newest_replay_in_b632713_and_here(self):
+        """The unit deletes `gone`; the stack replays it, restores the line, and deletes it again with a commit of the same patch. The newest stack
+        commit carrying the unit's patch-id is the last deletion, and nothing after it undoes the unit."""
+        before = 'alpha\ngone\nbeta\n'
+        after = 'alpha\nbeta\n'
+        unit, made = self.revert_scan_world(before, after, [('write', before), ('write', after)])
+        out = self.land_check_both(0)
+        self.assertRegex(out, rf'covered: unit 001 \(rebased as {made[-1][:9]}\) by the clean landing verdict')
+
+    def test_a_deletion_only_unit_whose_lines_were_restored_is_called_reverted_in_b632713_and_here(self):
+        before = 'alpha\ngone\nbeta\n'
+        unit, made = self.revert_scan_world(before, 'alpha\nbeta\n', [('write', before)])
+        out = self.land_check_both(2)
+        self.assertIn(f"land-check: note: unit 001's commits match by patch-id but {made[-1][:9]} reverts them", out)
+
+    def test_a_unit_reverted_and_then_reapplied_is_covered_by_the_reapplication_in_b632713_and_here(self):
+        """git revert, then the unit's own commit cherry-picked again: the newest stack commit with the unit's patch-id is the reapplication, and
+        the revert before it does not count."""
+        before = ''.join(f'line {k}\n' for k in range(1, 11))
+        unit_text = before + 'added\n'
+        unit, made = self.revert_scan_world(before, unit_text, [('revert', 0), ('write', unit_text)])
+        out = self.land_check_both(0)
+        self.assertRegex(out, rf'covered: unit 001 \(rebased as {made[-1][:9]}\) by the clean landing verdict')
+
     def test_verify_covers_a_rebased_unit_by_patch_id_and_says_so(self):
         init, heads = self.two_unit_stack()
         landing, tip = self.land_on_new_trunk(init, heads)

@@ -193,6 +193,12 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    its head is in HEAD's history, and as `not in HEAD's history (rebased or
    another branch)` when it is not (a `--head` branch, a verdict from before a
    rebase).
+   The check that a rebased unit was not reverted later in the stack
+   compares patches without context lines, so a commit that deletes an
+   identical line elsewhere in the same file reads as a revert and leaves the
+   unit uncovered (`land-check: note: unit NNN's commits match by patch-id but
+   <sha> reverts them`). That is a known limitation, and it fails closed:
+   `verify --landing` covers the unit.
    When the stack does not leave trunk where the merge-base says (stacked on
    another branch), `verify --landing --parent REF` records that parent in
    `pair.json` (`.landing.parent`); later landings start there while it is an ancestor of the head being
