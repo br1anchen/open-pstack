@@ -1,4 +1,5 @@
 """The Python core behind pair-core.sh: die parity and the store helpers it duplicates from bash."""
+import calendar
 import contextlib
 import inspect
 import io
@@ -3693,7 +3694,20 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     FEEDBACK_REPORT = '# Feedback\n\n## Gaps\n\n### 1. a gap\n\nit hurt\n\n### 2. another\n\nagain\n'
     MAINTAINER_JSON = '{"name": "mt", "pane": "p7", "session": null, "since": "2026-10-01T10:00:00Z"}\n'
 
-    def feedback_inbox_file(self, id_, filed='2026-10-01T10:00:00Z', build='abc123 (x)', gaps=2, status='open'):
+    @staticmethod
+    def feedback_filed(now=None, days=19):
+        """The `filed:` stamp of a report filed `days` days (and an hour, so the age is whole days for a day) before `now`: the age --inbox prints is then
+        the same on every date the test runs."""
+        return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime((time.time() if now is None else now) - days * 86400 - 3600))
+
+    def test_feedback_filed_is_the_same_distance_from_any_date(self):
+        stamp = lambda y, m, d: calendar.timegm((y, m, d, 12, 0, 0))
+        for day in (stamp(2026, 10, 21), stamp(2026, 12, 31), stamp(2027, 3, 1)):
+            filed = calendar.timegm(time.strptime(self.feedback_filed(day), '%Y-%m-%dT%H:%M:%SZ'))
+            self.assertEqual(day - filed, 19 * 86400 + 3600)
+
+    def feedback_inbox_file(self, id_, filed=None, build='abc123 (x)', gaps=2, status='open'):
+        filed = self.feedback_filed() if filed is None else filed
         gap_text = ''.join(f'### {n}. gap\n\n' for n in range(1, gaps + 1))
         head = f'# Kitchen feedback: run{id_[-1]} (repo{id_[-1]})\nid: {id_}\nrun: run{id_[-1]}   store: /s   repo: /r   master: m (p)\n'
         return head + (f'build: {build}\n' if build else '') + (f'filed: {filed}\n' if filed else '') + f'status: {status}\n\n## Gaps\n\n{gap_text}'
@@ -3812,8 +3826,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'three reports of different ages': (0, '20261002-repo-c  runc  repoc          2  2d'),
             'a report that is also in done is not listed': (0, 'feedback inbox: empty'),
             'an inbox file with no gap heading ends --inbox with status 1': (1, ''),
-            'a dangling link in the inbox is skipped': (0, '20261003-repo-a  runa  repoa  abc123  2  1'),
-            'a dangling link in done does not hide a report': (0, '20261003-repo-a  runa  repoa  abc123  2  1'),
+            'a dangling link in the inbox is skipped': (0, '20261003-repo-a  runa  repoa  abc123  2  19d'),
+            'a dangling link in done does not hide a report': (0, '20261003-repo-a  runa  repoa  abc123  2  19d'),
             'a close whose rm fails keeps the lock': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
             'a second close whose rm fails': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
             'closing a report': (0, 'closed: 20261003-repo-a (commit abc123)'),
