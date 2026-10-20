@@ -238,20 +238,22 @@ def land_check(store):
     if not ok:
         out('kitchen: validate fails (kitchen.py validate shows why)\n')
         return 1
-    root = git_root(store)
+    root = ''
     landing_verdict = latest_landing_verdict(store)
     landing_head = landing_base = verdict_base_rev = verdict_head_rev = ''
     verdict = None
     if landing_verdict:
         verdict = Verdict.parse(landing_verdict)
         base_ref, head_ref = verdict.refs()
-        verdict_base_rev = commit_of(root, base_ref) or ''
+        # the bash reads .git_root where it uses it: once for each of these two lookups, and nowhere when no verdict exists
+        verdict_base_rev = commit_of(git_root(store), base_ref) or ''
+        root = git_root(store)
         verdict_head_rev = commit_of(root, head_ref) or ''
     if landing_verdict and verdict.status == 'clean':
         landing_head, landing_base = verdict_head_rev, verdict_base_rev
         if not landing_head:
             out(f'land-check: note: landing verdict {landing_verdict} range head does not resolve; no unit is covered by it\n')
-    index = StackIndex.build(root, landing_base, landing_head)
+    index = None
     for review, seq, brief in accepted_units(store):
         if engine:
             met, gap = engine_met(store, brief, review, engine)
@@ -263,6 +265,8 @@ def land_check(store):
         if not covering and landing_head:
             unit = RecordedUnit(store, brief)
             if unit.head:
+                if index is None:
+                    index = StackIndex.build(root, landing_base, landing_head)
                 found = inclusion(unit, index)
                 if found.covered:
                     covering = landing_verdict

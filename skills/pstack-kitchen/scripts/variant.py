@@ -159,6 +159,7 @@ KitchenVariant.commands = {**KitchenVariant.commands, 'catch': _kitchen_command(
                            'queue': _kitchen_command('discuss', 'queue'), 'discuss': _kitchen_command('discuss', 'discuss'),
                            'init': _kitchen_command('setup', 'init'), 'spawn': _kitchen_command('setup', 'spawn'),
                            'consultant': _kitchen_command('setup', 'consultant'), 'fleet': _kitchen_command('setup', 'fleet'),
-                           'wait': _kitchen_command('wait', 'wait')}
+                           'wait': _kitchen_command('wait', 'wait'),
+                           'dispatch': _kitchen_command('dispatch', 'dispatch')}
 
 VARIANT = KitchenVariant

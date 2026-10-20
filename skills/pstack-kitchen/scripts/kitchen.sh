@@ -116,8 +116,6 @@ copy_fn() {
 	# replaces $1.
 	eval "$2() $(declare -f "$1" | tail -n +2)"
 }
-copy_fn cmd_dispatch core_dispatch
-copy_fn cmd_wait core_wait
 copy_fn cmd_step core_step
 copy_fn cmd_finish core_finish
 
@@ -164,124 +162,9 @@ brief_kitchen() {
 
 cmd_classify() { pycore classify "$@"; }
 
-is_landing() {
-	case "$(header_field "$1" playbook)" in
-	opening-a-pr | shipping) return 0 ;;
-	esac
-	[ "$(header_field "$1" landing)" = yes ]
-}
-
-# A routine check-in is a wake with nothing to act on, so a kitchen wait
-# stays quiet through it: it returns for a report, a steps wake, a blocked
-# sidekick, or a check-in that carries a flag (a stale log, a write outside
-# Scope, an objection, an open blocking note, a timebox overrun, a pause),
-# or after --max minutes (KITCHEN_QUIET_MAX_S; default an hour) with the
-# latest digest. Run it in the harness's background mode where there is one.
-# KITCHEN_QUIET_CLOCK, a file holding epoch seconds, replaces the wall clock
-# for that --max check; tests move it at a fixed point instead of waiting.
-quiet_now() {
-	if [ -n "${KITCHEN_QUIET_CLOCK:-}" ] && [ -r "$KITCHEN_QUIET_CLOCK" ]; then cat "$KITCHEN_QUIET_CLOCK"; else date +%s; fi
-}
-
-quiet_flagged() {
-	grep -qE 'STALE|^outside scope: [1-9]|[1-9][0-9]* objected|[1-9][0-9]* blocking notes open|^paused:' <<<"$1" && return 0
-	local spent box
-	read -r spent box < <(sed -nE 's/^check-in: .*elapsed ([0-9]+)m of ([0-9]+)m.*/\1 \2/p' <<<"$1") || true
-	[ -n "${spent:-}" ] && [ -n "${box:-}" ] && [ "$spent" -gt "$box" ]
-}
-
-# The one wake row for a wait or dispatch that returns on a check-in: the pair
-# core logs none of its own under PAIR_QUIET_WAIT. $1 store, $2 the output.
-log_checkin_wake() {
-	event "$1" master wake "$(field "$1" '.dispatch.brief // empty')" \
-		"$(grep -q 'written but not ready' <<<"$2" && echo report:unready || echo checkin)"
-}
-
-quiet_wait() {
-	local store="$1" max="${KITCHEN_QUIET_MAX_S:-3600}" start out rc
-	shift
-	local -a args=()
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--max) max=$(( $2 * 60 )); shift 2 ;;
-		*) args+=("$1"); shift ;;
-		esac
-	done
-	start="$(quiet_now)"
-	# One wait owns the store under this shell's pid: the first inner wait claims it, the later ones only check it. A claim that could not be
-	# made (the inner wait says `unowned:`) leaves the rest of this run unowned: its later waits must not read the missing claim as a newer owner.
-	local claim=1 unowned=0
-	while :; do
-		rc=0
-		out="$(PAIR_WAIT_OWNER=$$ PAIR_WAIT_CLAIM=$claim PAIR_WAIT_UNOWNED=$unowned PAIR_QUIET_WAIT=1 core_wait "$store" "${args[@]}")" || rc=$?
-		claim=0
-		if grep -q '^unowned:' <<<"$out"; then
-			unowned=1
-			out="$(grep -v '^unowned:' <<<"$out" || true)"
-		fi
-		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out" && [ $(( $(quiet_now) - start )) -lt "$max" ]; then
-			sleep "${KITCHEN_QUIET_POLL_S:-1}"
-			continue
-		fi
-		[ "$rc" -ne 4 ] || ! grep -q '^check-in:' <<<"$out" || quiet_flagged "$out" ||
-			printf 'quiet: %sm with nothing flagged; the sidekick works on\n' "$(( ($(quiet_now) - start) / 60 ))"
-		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then log_checkin_wake "$store" "$out"; fi
-		printf '%s\n' "$out"
-		# in a substitution: core_wait is `pycore --exec`, which replaces the shell it runs in, so outside $( ) it would replace this one and
-		# skip the exit "$rc" below
-		: "$(PAIR_WAIT_OWNER=$$ core_wait "$store" --release 2>&1)" || true
-		exit "$rc"
-	done
-}
-
 cmd_wait() { pycore --exec wait "$@"; }
 
-# A sidekick that starts fresh per brief (pi, prime-agent, devin) is rotated before the
-# next brief or plan once its last unit is done, so the rotation costs the
-# master no extra wake. Partial or blocked work never sets rotation_required
-# and keeps its session. $1 store, $2 what comes next (brief or plan).
-rotate_if_due() {
-	local out rc=0
-	fresh_per_brief "$(field "$1" .sidekick.kind)" && [ "$(field "$1" '.sidekick.rotation_required // false')" = true ] || return 0
-	# The report lands a moment before the sidekick's turn ends.
-	herdr agent wait "$(field "$1" .sidekick.name)" --until idle --until "done" --timeout 60000 >/dev/null 2>&1 || true
-	out="$(cmd_rotate "$1" 2>&1)" || rc=$?
-	[ "$rc" -eq 0 ] || die "rotating the sidekick before this $2 failed:
-$out" "$rc"
-	printf 'rotated: the %s sidekick starts this %s in a fresh session\n' "$(field "$1" .sidekick.kind)" "$2"
-}
-
-cmd_dispatch() {
-	[ $# -ge 2 ] || die "usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]"
-	# A brief path may be given relative to the store (briefs/NNN-x.md).
-	if [ ! -f "$2" ] && [ -f "$1/$2" ]; then set -- "$1" "$1/$2" "${@:3}"; fi
-	[ -f "$2" ] || die "brief not found: $2"
-	if is_landing "$2"; then
-		pycore land-check "$1" >/dev/null || die "landing refused: kitchen.sh land-check $1 fails" 2
-	else
-		pycore __classify_brief "$1" "$2"
-	fi
-	local -a waitargs=() sendargs=()
-	local a rc=0 out
-	rotate_if_due "$1" brief
-	for a in "${@:3}"; do waitargs+=("$a"); done
-	# --max belongs to the quiet wait, not to the pair's dispatch.
-	set -- "$1" "$2"
-	local i=0
-	while [ "$i" -lt "${#waitargs[@]}" ]; do
-		if [ "${waitargs[$i]}" = --max ]; then i=$((i + 2)); else sendargs+=("${waitargs[$i]}"); i=$((i + 1)); fi
-	done
-	out="$(PAIR_QUIET_WAIT=1 core_dispatch "$@" "${sendargs[@]}")" || rc=$?
-	if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then
-		if ! quiet_flagged "$out"; then
-			printf '%s\n' "$(grep -v -e '^check-in:' -e '^progress:' -e '^touched:' -e '^  ' -e '^steers:' -e '^steps:' -e '^report: missing' <<<"$out")"
-			quiet_wait "$1" "${waitargs[@]}"
-		fi
-		log_checkin_wake "$1" "$out"
-	fi
-	printf '%s\n' "$out"
-	exit "$rc"
-}
+cmd_dispatch() { pycore --exec dispatch "$@"; }
 
 cmd_queue() { pycore queue "$@"; }
 

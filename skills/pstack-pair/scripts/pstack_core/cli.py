@@ -19,7 +19,7 @@ COMMANDS = {'init': init.run, 'log': log.run, 'new-plan': templates.new_plan, 'n
 
 # The commands a variant may replace whole. Only these names, and a name the core lacks, ask the variant (loading it), so every other
 # command runs without it: an internal entry (a name starting with __) the core defines never goes through it, and one it lacks is the variant's.
-OVERRIDABLE = ('answer', 'discuss', 'init', 'queue', 'spawn', 'stop', 'wait')
+OVERRIDABLE = ('answer', 'discuss', 'dispatch', 'init', 'queue', 'spawn', 'stop', 'wait')
 
 
 def resolve(ctx, cmd):

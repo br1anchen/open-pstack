@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', 'catch', 'classify', 'close', 'consultant', 'discuss', 'feedback', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'stop', 'take-master', 'verify', 'wait')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', 'catch', 'classify', 'close', 'consultant', 'discuss', 'dispatch', 'feedback', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'stop', 'take-master', 'verify', 'wait')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -7225,9 +7225,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # and the guard has no baseline to add it to.
     KNOWN_DEAD = ()
     # kitchen.sh keeps the pair's commands under core_* names (copy_fn) and wraps them
-    KITCHEN_ALIASES = {'core_dispatch': 'pstack-pair/scripts/pair-core.sh:cmd_dispatch', 'core_wait': 'pstack-pair/scripts/pair-core.sh:cmd_wait',
-                       'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
-    KITCHEN_WRAPS = ('dispatch', 'step', 'finish')
+    KITCHEN_ALIASES = {'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
+    KITCHEN_WRAPS = ('step', 'finish')
 
     def reach(self):
         cls = type(self)
@@ -7289,11 +7288,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     KITCHEN_TWINS = {  # kitchen.sh functions with a kitchen_core twin that bash still calls (step and finish use brief_kitchen; unit 029 deletes it)
         'brief_kitchen': ('classify', 'brief_kitchen', 'test_brief_kitchen_equals_the_bash'),
         'record_skill_build': ('setup', 'record_skill_build', 'test_record_skill_build_equals_the_bash'),  # the top-level line of kitchen.sh still calls it (unit 029)
-        'rotate_if_due': ('discuss', 'rotate_if_due', 'test_discuss_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
-        'quiet_now': ('wait', 'quiet_now', 'test_the_quiet_wait_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
-        'quiet_flagged': ('wait', 'quiet_flagged', 'test_the_quiet_wait_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
-        'log_checkin_wake': ('wait', 'log_checkin_wake', 'test_the_quiet_wait_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
-        'quiet_wait': ('wait', 'quiet_wait', 'test_the_quiet_wait_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
     }
 
     def test_each_kitchen_bash_twin_has_its_bash_definition_its_python_def_and_a_test_that_runs_both(self):
@@ -7327,7 +7321,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
                     # the trio's and the kitchen's stop is consultant-core's; every other ported command's final body is pair-core's
                     home = self.CONSULTANT_CORE if name == 'stop' and entry in self.CONSULTANT_ENTRIES else self.CORE
-                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'init', 'spawn', 'wait'):
+                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'dispatch', 'init', 'spawn', 'wait'):
                         home = entry  # the kitchen's own command, run from its variant
                     if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
                         home = entry  # the trio's own command, run from its variant
@@ -7345,7 +7339,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_kitchen_keeps_exactly_these_copy_fn_snapshots_of_the_pair_core_bodies(self):
         table = self.reach().tables[(root / 'skills/pstack-kitchen/scripts/kitchen.sh').resolve()]
         self.assertEqual({name: d.alias_of.key for name, d in table.items() if d.alias_of}, self.KITCHEN_ALIASES)
-        for name in ('init', 'spawn', 'queue', 'discuss', 'consultant', 'fleet'):
+        for name in ('init', 'spawn', 'queue', 'discuss', 'consultant', 'fleet', 'wait', 'dispatch'):
             self.assertEqual(table[f'cmd_{name}'].key, f'pstack-kitchen/scripts/kitchen.sh:cmd_{name}')
             self.assertNotIn(f'core_{name}', table)
 
@@ -9186,16 +9180,77 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def dispatch_cases(self):
         world = self.launch_world
-        dispatch = lambda *a, **kw: world(args=['dispatch', '{st}', '{st}/briefs/002-y.md', '--timeout', '100', *a], agents={'m1': 'idle claude', 's1': 'idle claude'}, **kw)
+        # the quiet wait's clock: each poll's sleep moves the clock file on 1500 s, so a dispatch that waits quietly makes a fixed number of polls
+        clock = dict(topfiles={'clock': ('1000\n', 0o644)}, envfill={'KITCHEN_QUIET_CLOCK': '{T}/clock'}, tick=1500)
+        env = {'KITCHEN_QUIET_POLL_S': '0.0123', 'KITCHEN_QUIET_MAX_S': '3600'}
+        mask = self.SETUP_MASK + [(r'elapsed [0-9]+m', 'elapsed Nm'), (r'last -?[0-9]+m ago', 'last Nm ago'), (r'quiet: [0-9]+m', 'quiet: Nm')]
+        sidekick = {'sidekick': {'kind': 'claude', 'generation': 1, 'name': 's1', 'pane_id': 'p1'}}
+        agents = {'m1': 'idle claude', 's1': 'idle claude'}
+        panes = {'p0': 'm1', 'p1': 's1'}
+        path = '{st}/briefs/002-y.md'
+        fresh = {'progress/002-y.md': '10:00 one\n'}
+        # no report for unit 002: a report already there makes the core's loop end on a path that depends on how many herdr looks it takes
+        dispatch = lambda *a, **kw: world(**{**dict(args=['dispatch', '{st}', *(a or (path, '--timeout', '0'))], agents=agents, panes=panes, mask=mask, pair=sidekick, env=env),
+                                              **kw, 'files': {'reports/002-y.md': None, **kw.get('files', {})}})
+        quiet = lambda *a, **kw: dispatch(*a, **{**clock, 'once': {'prompt': 'printf "working claude\\n" >"$FAKE/agents/s1"\n'}, 'mtimes': {'progress/002-y.md': 4_000_000_000}, **kw, 'files': {**fresh, **kw.get('files', {})}})
+        landing = lambda extra: {'briefs/002-y.md': self.launch_brief('002', 'y', extra)}
         return {
-            'a brief and no pair.json': dispatch(nopair=True),
+            'a brief and no pair.json': dispatch(path, '--timeout', '100', nopair=True, agents={'m1': 'idle claude', 's1': 'idle claude'}),
+            'a quiet check-in, then the quiet wait': quiet(),
+            'a quiet check-in, then --max ends it': quiet(path, '--timeout', '0', '--max', '1'),
+            'a quiet check-in and --max with no value': quiet(path, '--timeout', '0', '--max'),
+            'a stale log is not swallowed': quiet(mtimes={'progress/002-y.md': 1000}),
+            'a brief given relative to the store': quiet('briefs/002-y.md', '--timeout', '0'),
+            'send only': dispatch(path, '--send-only'),
+            'an option the dispatch does not know': dispatch(path, '--bogus'),
+            'a brief that is not there': dispatch('{st}/briefs/009-none.md', '--timeout', '0'),
+            'one argument': dispatch('{st}'),
+            'a paused store': dispatch(path, '--timeout', '0', files={'paused': 'lunch\n'}),
+            'the queue holds another brief': dispatch(path, '--timeout', '0', files={'queue': '{st}/briefs/001-x.md\n'}),
+            'no brief argument': dispatch(args=['dispatch', '{st}']),
+            'a landing brief that land-check passes': quiet(path, '--timeout', '0', files=landing('landing: yes\n')),
+            'a landing brief under the shipping playbook': quiet(path, '--timeout', '0', files={'briefs/002-y.md': self.launch_brief('002', 'y').replace('playbook: feature', 'playbook: shipping')}),
+            'a landing brief under a kitchen that does not validate': dispatch(path, '--timeout', '0', files=landing('landing: yes\n'), toml='version = 1\n[profile.app]\npaths = 3\n'),
+            'a landing brief and no pair.json': dispatch(path, '--timeout', '0', nopair=True, files=landing('landing: yes\n')),
+            'a brief that classify refuses': dispatch(path, '--timeout', '0', files={'briefs/002-y.md': self.launch_brief('002', 'y').replace('- src/**\n', '')}),
+            'an escalated brief': dispatch(path, '--timeout', '0', files={'briefs/002-y.md': self.launch_brief('002', 'y').replace('risk: routine', 'risk: escalated')}),
+            'a sidekick that is blocked': dispatch(path, '--timeout', '0', agents={**agents, 's1': 'blocked claude'}),
+            'outside herdr': dispatch(path, '--timeout', '0', env={**env, 'HERDR_ENV': '0'}),
         }
 
     def test_dispatch_matches_the_bash_at_the_phase_4_base(self):
         cases = self.dispatch_cases()
-        expect = {'a brief and no pair.json': (2, 'risk: routine')}
+        quiet = (4, 'quiet: Nm with nothing flagged; the sidekick works on')
+        expect = {
+            'a brief and no pair.json': (2, 'no pair.json in'),
+            'a quiet check-in, then the quiet wait': quiet,
+            'a quiet check-in, then --max ends it': quiet,
+            'a quiet check-in and --max with no value': (1, '$2: unbound variable'),
+            'a stale log is not swallowed': (4, 'STALE'),
+            'a brief given relative to the store': quiet,
+            'send only': (0, 'sent: BRIEF'),
+            'an option the dispatch does not know': (1, 'unknown option --bogus'),
+            'a brief that is not there': (1, 'brief not found: <T>/st/briefs/009-none.md'),
+            'one argument': (1, 'brief not found: <T>/st'),
+            'no brief argument': (1, 'usage: kitchen.sh dispatch <store> <brief-path>'),
+            'a paused store': (5, 'the store is paused (lunch)'),
+            'the queue holds another brief': (5, 'the queue holds'),
+            'a landing brief that land-check passes': quiet,
+            'a landing brief under the shipping playbook': quiet,
+            'a landing brief under a kitchen that does not validate': (2, 'landing refused: kitchen.sh land-check <T>/st fails'),
+            'a landing brief and no pair.json': (2, 'warning: Scope entry'),
+            'a brief that classify refuses': (1, "lists nothing under Scope's may write:"),
+            'an escalated brief': (6, 'playbook feature needs an agreed plan'),
+            'a sidekick that is blocked': (3, 'sidekick s1 is blocked'),
+            'outside herdr': (1, 'not running inside Herdr'),
+        }
         out = self.phase4_cases('disp', cases, expect)
-        self.assertIn('profiles: app', out['a brief and no pair.json']['files']['briefs/002-y.md'])
+        # the quiet path swallows the digest and leaves the wake row to the quiet wait; a flagged digest is printed whole and logged once
+        self.assertEqual(out['a quiet check-in, then the quiet wait']['events'].count('master\twake\t002-y\tcheckin'), 1)
+        self.assertEqual(out['a stale log is not swallowed']['events'].count('master\twake\t002-y\tcheckin'), 1)
+        self.assertIn('risk: routine', out['a quiet check-in, then the quiet wait']['stdout'])
+        for name in ('a landing brief that land-check passes', 'a landing brief under the shipping playbook'):
+            self.assertNotIn('risk:', out[name]['stdout'], f'{name}: a landing brief is not classified')
 
     def quiet_wait_cases(self):
         T = int(time.time())
