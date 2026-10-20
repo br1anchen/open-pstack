@@ -9375,6 +9375,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an untracked file in the checkout': finish(gitops=[*self.LAUNCH_OPS, ('write', 'scratch.txt', 'y\n')]),
             'an untracked file and a brief that does not commit': finish(gitops=[*self.LAUNCH_OPS, ('write', 'scratch.txt', 'y\n')],
                                                                          files={**done(), 'briefs/002-y.md': self.launch_brief('002', 'y').replace('commit: yes', 'commit: no')}),
+            'a checkout whose index git cannot read': finish(gitops=[*self.LAUNCH_OPS, ('write', '.git/index', 'garbage')]),
             'a brief stamped with a kitchen snapshot': finish(topfiles={'snap.toml': (self.LAUNCH_TOML, 0o644)},
                                                             files={**done(), 'briefs/002-y.md': self.launch_brief('002', 'y', 'kitchen: {T}/snap.toml\n')}),
             'no report file': finish(files={}),
@@ -9403,6 +9404,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an untracked file in the checkout': (1, '?? scratch.txt'),
             'an untracked file and a brief that does not commit': (0, 'verify: pass'),
             'a brief stamped with a kitchen snapshot': (0, 'verify: pass'),
+            'a checkout whose index git cannot read': (128, 'index file smaller than expected'),
             'no report file': (1, 'the checkout is at'),
             'one argument': (1, 'report not found'),
             'a report the pair would withhold': (7, 'blocking review notes are still open on 002-y'),
@@ -9417,6 +9419,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(out['a failing run reruns on the next finish']['second'][0], 2)
         self.assertEqual(events('a done report whose Verify commands pass, finished twice').count(['sidekick', 'finish-verify-pass']), 2)
         self.assertEqual(out['a done report whose Verify commands pass, finished twice']['second'][0], 0)
+        # git failing in the dirty check ends finish at once: no job directory, no Verify run, no prompt to the master
+        self.assertFalse([name for name in out['a checkout whose index git cannot read']['files'] if name.startswith('steps/jobs')])
+        self.assertNotIn('prompted', out['a checkout whose index git cannot read']['stdout'])
 
     def quiet_wait_cases(self):
         T = int(time.time())

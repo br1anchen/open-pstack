@@ -269,7 +269,11 @@ def finish(ctx, args):
         raise Die(f"the checkout is at {cur[:9]}, not the report's head: {head[:9]}; the kitchen reruns the brief's Verify commands at the unit's tip, so check out that "
                   'head (or fix head:) and finish again')
     if not header_field(brief, 'commit').startswith('no'):
-        dirty = git(root, 'status', '--porcelain', '--untracked-files=normal')[1].rstrip('\n')
+        # a plain assignment: git failing (a damaged index) ends the command with git's status, before any job directory exists
+        status, listed = git(root, 'status', '--porcelain', '--untracked-files=normal')
+        if status != 0:
+            raise Exit(status)
+        dirty = listed.rstrip('\n')
         if dirty:
             raise Die(f"the checkout holds work the unit's head does not:\n{dirty}\nThe kitchen reruns the brief's Verify commands at the unit's tip. Commit this as a "
                       'step (kitchen.sh step) and name it in head:, or remove it, then finish again')
