@@ -22,7 +22,7 @@ def pair_jq(store, program, check=False, quiet=False):
     return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
 
 
-def field(store, role, key, check=False, default=None):
+def field(store, role, key, check=False, default=None, empty=False):
     """`field "$store" .role.key` in a substitution: a store with no pair.json, or one that is no object, gets the messages jq and pair_file give and
     an empty value; with check, the failure of the assignment ends the command with jq's status."""
     path = f'{store}/pair.json'
@@ -39,5 +39,6 @@ def field(store, role, key, check=False, default=None):
     except ValueError:
         whole = None
     if not isinstance(whole, dict):
-        return pair_jq(store, f'.{role}.{key}' + (f' // "{default}"' if default is not None else ''), check=check)
-    return spawn.field(store, role, key, check=check, default=default)
+        suffix = f' // "{default}"' if default is not None else (' // empty' if empty else '')
+        return pair_jq(store, f'.{role}.{key}' + suffix, check=check)
+    return spawn.field(store, role, key, check=check, default=default, empty=empty)

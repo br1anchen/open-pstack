@@ -234,10 +234,7 @@ quiet_wait() {
 	done
 }
 
-cmd_wait() {
-	[ $# -ge 1 ] || die "usage: kitchen.sh wait <store> [--timeout MS | --every MIN] [--max MIN]"
-	quiet_wait "$@"
-}
+cmd_wait() { pycore --exec wait "$@"; }
 
 # A sidekick that starts fresh per brief (pi, prime-agent, devin) is rotated before the
 # next brief or plan once its last unit is done, so the rotation costs the

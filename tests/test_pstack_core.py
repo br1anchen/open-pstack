@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', 'catch', 'classify', 'close', 'consultant', 'discuss', 'feedback', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'stop', 'take-master', 'verify')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', 'catch', 'classify', 'close', 'consultant', 'discuss', 'feedback', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'stop', 'take-master', 'verify', 'wait')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -1822,6 +1822,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for rel, age in spec.get('stateages', {}).items():
             stamp = time.time() - age
             os.utime(top / 'state' / rel, (stamp, stamp))
+        if spec.get('tick'):
+            # a `sleep` that, given KITCHEN_QUIET_POLL_S (any other sleep is the real one), moves the KITCHEN_QUIET_CLOCK file on by this many seconds (when it holds a number), so a quiet wait's polls end at a fixed count
+            ticks = top / 'ticks'
+            ticks.mkdir()
+            (ticks / 'sleep').write_text(f'#!/bin/sh\n[ "$1" = "$KITCHEN_QUIET_POLL_S" ] || exec {shutil.which("sleep")} "$@"\nn=$(cat "$KITCHEN_QUIET_CLOCK" 2>/dev/null)\ncase "$n" in\n  ""|*[!0-9]*) ;;\n  *) echo $((n + {int(spec["tick"])})) >"$KITCHEN_QUIET_CLOCK" ;;\nesac\n')
+            (ticks / 'sleep').chmod(0o755)
+            env['PATH'] = f'{ticks}:{env["PATH"]}'
         for subcommand, script in spec.get('once', {}).items():
             (fake / 'once').mkdir(exist_ok=True)
             (fake / 'once' / subcommand).write_text(script)
@@ -1856,6 +1863,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         if spec.get('report_after'):
             (fake / 'report-after').write_text(fill(spec['report_after']) + '\n')
         env.update(spec.get('env', {}))
+        env.update({k: fill(v) for k, v in spec.get('envfill', {}).items()})
         if spec.get('clock'):
             # A clock that runs 100 s on every `date +%s`, and a sleep that returns at once: the bash's 15 s deadline is past at its second look, with
             # no waiting. The port's deadline and poll are set to 0 for the same effect.
@@ -1916,6 +1924,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         # seconds it writes (.sent.epoch, steps and gates rows); <HM> the HH:MM that starts a progress line `step`. Nothing else.
         norm = lambda text: re.sub(r'(exit [0-9]+ )[0-9.]+s', r'\1<S>s', re.sub(r'(?m)^[0-9]{2}:[0-9]{2} step ', '<HM> step ', re.sub(r'\b1[0-9]{9}\b', '<EPOCH>', re.sub(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z', '<TS>', text.replace(str(top), '<T>')))))
         files = {str(f.relative_to(st)): norm(f.read_text(errors='replace')) for f in sorted(st.rglob('*')) if f.is_file() and f.name != 'events.tsv'}
+        # a wait's claim file holds its process id (the bash's $$, the port's own pid): a number that differs between two worlds by nature
+        files = {rel: re.sub(r'\A[0-9]+\n\Z', '<PID>\n', text) if rel.endswith('wait.pid') else text for rel, text in files.items()}
         # directories too (standing order 26): a lock left held, a scratch directory that was not emptied
         files.update({str(d.relative_to(st)) + '/': '' for d in sorted(st.rglob('*')) if d.is_dir() and not d.is_symlink()})
         events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text(errors='surrogateescape').splitlines()]
@@ -3800,8 +3810,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'three reports of different ages': (0, '20261002-repo-c  runc  repoc          2  2d'),
             'a report that is also in done is not listed': (0, 'feedback inbox: empty'),
             'an inbox file with no gap heading ends --inbox with status 1': (1, ''),
-            'a dangling link in the inbox is skipped': (0, '20261003-repo-a  runa  repoa  abc123  2  18d'),
-            'a dangling link in done does not hide a report': (0, '20261003-repo-a  runa  repoa  abc123  2  18d'),
+            'a dangling link in the inbox is skipped': (0, '20261003-repo-a  runa  repoa  abc123  2  1'),
+            'a dangling link in done does not hide a report': (0, '20261003-repo-a  runa  repoa  abc123  2  1'),
             'a close whose rm fails keeps the lock': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
             'a second close whose rm fails': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
             'closing a report': (0, 'closed: 20261003-repo-a (commit abc123)'),
@@ -7217,7 +7227,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # kitchen.sh keeps the pair's commands under core_* names (copy_fn) and wraps them
     KITCHEN_ALIASES = {'core_dispatch': 'pstack-pair/scripts/pair-core.sh:cmd_dispatch', 'core_wait': 'pstack-pair/scripts/pair-core.sh:cmd_wait',
                        'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
-    KITCHEN_WRAPS = ('dispatch', 'wait', 'step', 'finish')
+    KITCHEN_WRAPS = ('dispatch', 'step', 'finish')
 
     def reach(self):
         cls = type(self)
@@ -7280,6 +7290,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'brief_kitchen': ('classify', 'brief_kitchen', 'test_brief_kitchen_equals_the_bash'),
         'record_skill_build': ('setup', 'record_skill_build', 'test_record_skill_build_equals_the_bash'),  # the top-level line of kitchen.sh still calls it (unit 029)
         'rotate_if_due': ('discuss', 'rotate_if_due', 'test_discuss_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
+        'quiet_now': ('wait', 'quiet_now', 'test_the_quiet_wait_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
+        'quiet_flagged': ('wait', 'quiet_flagged', 'test_the_quiet_wait_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
+        'log_checkin_wake': ('wait', 'log_checkin_wake', 'test_the_quiet_wait_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
+        'quiet_wait': ('wait', 'quiet_wait', 'test_the_quiet_wait_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
     }
 
     def test_each_kitchen_bash_twin_has_its_bash_definition_its_python_def_and_a_test_that_runs_both(self):
@@ -7313,7 +7327,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
                     # the trio's and the kitchen's stop is consultant-core's; every other ported command's final body is pair-core's
                     home = self.CONSULTANT_CORE if name == 'stop' and entry in self.CONSULTANT_ENTRIES else self.CORE
-                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'init', 'spawn'):
+                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'init', 'spawn', 'wait'):
                         home = entry  # the kitchen's own command, run from its variant
                     if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
                         home = entry  # the trio's own command, run from its variant
@@ -8916,7 +8930,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotIn('profiles:', out['a landing brief']['files']['briefs/002-y.md'])
 
     SETUP_HOOK = {'hook': READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}}
-    SETUP_MASK = [(r'<SK>[^\s"\\]*(kitchen|pair-core|consultant-core)\.sh: line [0-9]+: (\$2|abc): unbound variable', r'pair.sh: \2: unbound variable'), (r'<SK>[^\s"\\]*(consultant|pair)-core\.sh: line [0-9]+: \[: ', 'pair.sh: [: '), (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'), (r'repo-[0-9a-f]{8}', 'repo-H')]
+    SETUP_MASK = [(r'<SK>[^\s"\\]*(kitchen|pair-core|consultant-core)\.sh: line [0-9]+: (\$2|abc): unbound variable', r'pair.sh: \2: unbound variable'), (r'<SK>[^\s"\\]*(consultant-core|pair-core|kitchen)\.sh: line [0-9]+: \[: ', 'pair.sh: [: '), (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'), (r'repo-[0-9a-f]{8}', 'repo-H')]
 
     def init_command_cases(self):
         full = self.KITCHEN_TOML + '\n[review]\nself = ["pstack-review", "ce-review"]\n\n[landing]\nmode = "pr"\n'
@@ -9182,6 +9196,131 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         expect = {'a brief and no pair.json': (2, 'risk: routine')}
         out = self.phase4_cases('disp', cases, expect)
         self.assertIn('profiles: app', out['a brief and no pair.json']['files']['briefs/002-y.md'])
+
+    def quiet_wait_cases(self):
+        T = int(time.time())
+        at = lambda minutes: time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(T - minutes * 60))
+        sent = {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': T + 3600}
+        pair = lambda minutes=20, **kw: {'sent': sent, 'pending': ['{st}/briefs/001-x.md'], 'dispatch': {'brief': '{st}/briefs/001-x.md', 'at': at(minutes), 'head': '{c3}'}, **kw}
+        brief = lambda risk='routine', box=45: {'briefs/001-x.md': f'# Brief\n\nrisk: {risk}\ntimebox: {box}\n\n## Scope\n\nmay write:\n- src/**\n\nmust not write:\n- lib/**\n'}
+        fresh = {'progress/001-x.md': '10:00 one\n'}
+        steps = {'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n2\t{c2}\t6\t\ttwo\n'}
+        env = {'KITCHEN_QUIET_POLL_S': '0.0123', 'KITCHEN_QUIET_MAX_S': '3600'}
+        working = {'s1': 'working claude'}
+        # every poll's sleep moves the clock file on 1500 s, so the polls a wait makes before --max ends it are a fixed number
+        clock = dict(topfiles={'clock': ('1000\n', 0o644)}, envfill={'KITCHEN_QUIET_CLOCK': '{T}/clock'}, tick=1500)
+        base = dict(args=['wait', '{st}', '--timeout', '0'], pair=pair(), agents=working, files={**brief(), **fresh}, env=env, **clock,
+                    mask=self.SETUP_MASK + [(r'<SK>[^\s"\\]*kitchen\.sh: line [0-9]+: 1 2 - start : arithmetic syntax error in expression \(error token is \\?"2 - start \\?"\)', r'pair.sh: 1 2: arithmetic syntax error in expression (error token is \\"2\\")'), (r'elapsed [0-9]+m', 'elapsed Nm'), (r'last -?[0-9]+m ago', 'last Nm ago'), (r'quiet: [0-9]+m', 'quiet: Nm')])
+
+        def run(*a, **kw):
+            spec = {**base, 'args': ['wait', '{st}', *(a if '--timeout' in a else ('--timeout', '0', *a))], **kw}
+            # a log written in the future is never stale (--timeout 0 makes the check-in interval 0)
+            if 'progress/001-x.md' in spec['files']:
+                spec['mtimes'] = {'progress/001-x.md': T + 7200, **spec.get('mtimes', {})}
+            return spec
+        done = {'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'}
+        return {
+            'a report at once': run(pair={'sent': {**sent, 'epoch': 1}}, files={**done, **brief()}),
+            'a done report whose verify has not passed': run(pair={'sent': {**sent, 'epoch': 1}, 'dispatch': {'brief': '{st}/briefs/001-x.md'}}, files={**done, **brief()}),
+            'steps wake an escalated brief': run(files={**steps, **fresh, **brief('escalated (a contract)')}),
+            'steps do not wake a routine brief': run(files={**steps, **fresh, **brief()}),
+            'a blocked sidekick': run(agents={'s1': 'blocked claude'}),
+            'a quiet check-in, then max runs out': run('--max', '1'),
+            'a quiet check-in, then the default max': run(env={**env, 'KITCHEN_QUIET_MAX_S': '2000'}),
+            'a quiet check-in followed by a report': run(report_after='3 {st}/reports/001-x.md partial'),
+            'a stale log': run(mtimes={'progress/001-x.md': 1000}),
+            'no log at all': run(files=brief()),
+            'a write outside Scope': run(gitops=[('write', 'lib/out.py', 'x')]),
+            'a steer objected to': run(files={**brief(), **fresh, 'steers/001-x-s1.md': '# S\n', 'reports/001-x-s1.md': '# R\n\nstatus: object\n'}),
+            'a blocking note open': run(files={**brief(), **fresh, **steps, 'notes/001-x-n1.md': '# N\n\nstatus: blocking\n'}),
+            'a timebox overrun': run(pair=pair(70), files={**brief(box=10), **fresh}),
+            'a paused store': run(files={**brief(), **fresh, 'paused': 'lunch\n'}),
+            'an unowned first claim': run(report_after='3 {st}/reports/001-x.md partial', files={**brief(), **fresh, '.pair.lock/hold': ''}, env={**env, 'PAIR_LOCK_TRIES': '1', 'PAIR_LOCK_POLL_S': '0'},
+                                          once={'wait': 'rm -rf "$FAKE/../st/.pair.lock"\n'}),
+            'a wait a newer wait supersedes': run(once={'wait': 'printf "other\\n" >"$FAKE/../st/wait.pid"\n'}),
+            'an inner wait that refuses': run('--bogus'),
+            '--max with an expression': run('--max', '1+1'),
+            '--max with no value': run('--max'),
+            '--max that is a name': run('--max', 'abc'),
+            '--max given twice': run('--max', '1', '--max', '2'),
+            'a max that is no number': run(env={**env, 'KITCHEN_QUIET_MAX_S': 'abc'}),
+            'a clock file that is not a number': run(topfiles={'clock': ('1 2\n', 0o644)}),
+            'no store argument': dict(base, args=['wait']),
+            'a store with no pair.json': run(nopair=True),
+            'outside herdr': run(env={**env, 'HERDR_ENV': '0'}),
+        }
+
+    def test_the_quiet_wait_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.quiet_wait_cases()
+        quiet = (4, 'quiet: Nm with nothing flagged; the sidekick works on')
+        expect = {
+            'a report at once': (4, "written but not ready: the brief's Verify commands have not passed"),
+            'a done report whose verify has not passed': (4, "written but not ready: the brief's Verify commands have not passed"),
+            'steps wake an escalated brief': (0, 'steps: 2 to review on 001-x'),
+            'steps do not wake a routine brief': quiet,
+            'a blocked sidekick': (3, 'state: blocked'),
+            'a quiet check-in, then max runs out': quiet,
+            'a quiet check-in, then the default max': quiet,
+            'a quiet check-in followed by a report': (0, 'report_status: partial'),
+            'a stale log': (4, 'STALE'),
+            'no log at all': (4, 'progress: none yet'),
+            'a write outside Scope': (4, 'outside scope: 1'),
+            'a steer objected to': (4, '1 objected'),
+            'a blocking note open': (4, '1 blocking notes open'),
+            'a timebox overrun': (4, 'elapsed Nm of 10m'),
+            'a paused store': (4, 'paused: lunch'),
+            'an unowned first claim': (0, 'could not claim wait.pid'),
+            'a wait a newer wait supersedes': (4, 'superseded: a newer wait owns this store'),
+            'an inner wait that refuses': (1, 'unknown option --bogus'),
+            '--max with an expression': quiet,
+            '--max with no value': (1, '$2: unbound variable'),
+            '--max that is a name': (1, 'abc: unbound variable'),
+            '--max given twice': quiet,
+            'a max that is no number': (4, '[: abc: integer expected'),
+            'a clock file that is not a number': (1, 'arithmetic syntax error'),
+            'no store argument': (1, 'usage: kitchen.sh wait <store>'),
+            'a store with no pair.json': (2, 'no pair.json in'),
+            'outside herdr': (1, 'not running inside Herdr'),
+        }
+        out = self.phase4_cases('qw', cases, expect)
+        # the quiet wait polls (sleep moves the clock 1500 s each time) until --max ends it, then names the minutes it was quiet
+        self.assertIn('quiet: Nm', out['--max given twice']['stdout'])
+
+    def test_a_bash_quiet_wait_and_a_python_one_refuse_each_others_live_claim(self):
+        """Compatibility across the port: a quiet wait of one build is running (its pid in wait.pid), and a wait of the other build starts on the same
+        store. The newer one owns the store, and the older one, reading a pid that is not its own, ends with `superseded` as it would for its own
+        build's newer wait. The newer wait is held inside its first herdr wait until the older one has ended, so the order is fixed."""
+        cases = self.quiet_wait_cases()
+        bases = self.phase4_skills()
+        for older, newer, label in ((bases, root / 'skills', 'bash-then-python'), (root / 'skills', bases, 'python-then-bash')):
+            spec = {k: v for k, v in cases['steps do not wake a routine brief'].items() if k not in ('tick', 'topfiles', 'envfill')}
+            spec = {**spec, 'repo_files': {'.agents/kitchen.toml': self.KITCHEN_TOML}, 'env': {**spec['env'], 'KITCHEN_QUIET_POLL_S': '0.05'}, 'args': ['wait', '{st}', '--timeout', '0']}
+            top, st, env, fill = self.ab_world(f'qwcompat-{label}', spec)
+            args = [fill(a) for a in spec['args']]
+            run = lambda skills, env, **kw: subprocess.Popen([str(skills / 'pstack-kitchen/scripts/kitchen.sh'), *args], cwd=top / 'repo', env=env, text=True,
+                                                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
+            first = run(older, env)
+            self.addCleanup(first.kill)
+            for _ in range(600):
+                if (st / 'wait.pid').exists():
+                    break
+                time.sleep(0.05)  # kitchen-allow: test-sleep (a bounded wait for the older wait's claim file; a passing run leaves at once)
+            self.assertTrue((st / 'wait.pid').exists(), f'{label}: the older wait never claimed the store')
+            held = top / 'held'
+            held.mkdir()
+            gate = top / 'older-ended'
+            (held / 'herdr').write_text(f'#!/bin/sh\nif [ "$1 $2" = "agent wait" ]; then while [ ! -e "{gate}" ]; do sleep 0.05; done; fi\nexec {root / "tests/pstack-pair/bin/herdr"} "$@"\n')
+            (held / 'herdr').chmod(0o755)
+            second = run(newer, {**env, 'PATH': f'{held}:{env["PATH"]}', 'KITCHEN_QUIET_MAX_S': '0'})
+            self.addCleanup(second.kill)
+            out, err = first.communicate(timeout=60)
+            gate.write_text('')
+            newer_out, newer_err = second.communicate(timeout=60)
+            self.assertEqual((first.returncode, 'superseded: a newer wait owns this store' in out), (4, True), f'{label}: {out}{err}')
+            self.assertEqual(second.returncode, 4, f'{label}: {newer_out}{newer_err}')
+            self.assertIn('check-in:', newer_out, label)
+            self.assertNotIn('superseded', newer_out, label)
+            self.assertFalse((st / 'wait.pid').exists(), f'{label}: the newer wait gives its claim back')
 
     def classify_cases(self):
         world = self.launch_world
