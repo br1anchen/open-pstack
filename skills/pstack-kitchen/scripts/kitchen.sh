@@ -116,8 +116,6 @@ copy_fn() {
 	# replaces $1.
 	eval "$2() $(declare -f "$1" | tail -n +2)"
 }
-copy_fn cmd_init core_init
-copy_fn cmd_spawn core_spawn
 copy_fn cmd_dispatch core_dispatch
 copy_fn cmd_wait core_wait
 copy_fn cmd_step core_step
@@ -150,118 +148,11 @@ record_skill_build() {
 	json_update "$1" --arg p "$skills_dir" --arg a "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.skill_builds += [{path: $p, at: $a}]'
 }
 
-cmd_init() {
-	local out store json orders
-	out="$(core_init "$@")"
-	printf '%s\n' "$out"
-	orders="$(sed -n 's/^standing orders: //p' <<<"$out")"
-	store="$(dirname "$orders")"
-	json_update "$store" --arg p "$skills_dir" --arg a "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.skill_builds = [{path: $p, at: $a}]'
-	json="$(kpy "$store" --json validate 2>/dev/null)" || { printf 'kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching\n' >&2; return 0; }
-	grep -q 'kitchen.toml review.self' "$orders" || [ "$(jq '.self | length' <<<"$json")" -eq 0 ] ||
-		printf '16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: %s (kitchen.toml review.self).\n' \
-			"$(jq -r '.self | join(", ")' <<<"$json")" >>"$orders"
-	grep -q 'kitchen.toml landing.mode' "$orders" ||
-		printf '17. Landing goes as far as `%s` (kitchen.toml landing.mode) and never merges.\n' "$(jq -r .landing <<<"$json")" >>"$orders"
-	worktree_setup "$store" "$json"
-}
+cmd_init() { pycore init "$@"; }
 
-# A run in a linked worktree (git worktree add, a jj workspace) starts without
-# the main checkout's untracked dependencies, so its gates would run whatever
-# tool the PATH has instead of the repo's pinned one. init prepares it once
-# the way verifier scratches are prepared: the repo's [scratch].setup, as the
-# sidekick. A failed setup stops init with its log. $2 is validate's JSON.
-worktree_setup() {
-	local store="$1" root out rc=0
-	root="$(field "$store" .git_root)"
-	[ "$(jq '.setup | length' <<<"$2")" -gt 0 ] || return 0
-	[ "$(git -C "$root" rev-parse --path-format=absolute --git-dir)" != "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)" ] || return 0
-	out="$(kpy "$store" setup --role sidekick 2>&1)" || rc=$?
-	event "$store" master setup - "$([ "$rc" -eq 0 ] && echo pass || echo fail)"
-	[ "$rc" -eq 0 ] || die "this run is in a linked worktree and its [scratch].setup failed:
-$out" 2
-	printf 'worktree: prepared with [scratch].setup (%s)\n' "$out"
-}
+cmd_spawn() { pycore spawn "$@"; }
 
-cmd_spawn() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: kitchen.sh spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [-- agent-args...]"
-	local store="$1" kind="" fallback="" roster rest=() native=() fb_args=() a
-	shift
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--kind) kind="$2"; shift 2 ;;
-		--fallback) fallback="$2"; shift 2 ;;
-		--) shift; native=("$@"); break ;;
-		*) rest+=("$1"); shift ;;
-		esac
-	done
-	roster="$(python3 "$here/kitchen.py" --json roster)"
-	if [ -z "$kind" ]; then
-		kind="$(jq -r '.sidekick.kind' <<<"$roster")"
-		[ -n "$kind" ] || die "no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)"
-		[ "${#native[@]}" -gt 0 ] || mapfile -t native < <(jq -r '.sidekick.args[]' <<<"$roster")
-	fi
-	if [ -z "$fallback" ] && [ "$kind" = "$(jq -r '.sidekick.kind' <<<"$roster")" ]; then
-		fallback="$(jq -r '.sidekick.fallback.kind' <<<"$roster")"
-		mapfile -t fb_args < <(jq -r '.sidekick.fallback.args[]' <<<"$roster")
-	fi
-	[ -z "$fallback" ] || rest+=(--fallback "$fallback")
-	for a in "${fb_args[@]}"; do rest+=(--fallback-arg "$a"); done
-	core_spawn "$store" --kind "$kind" "${rest[@]}" -- "${native[@]}"
-}
-
-# The consultant joins only when a unit escalates: the scarcest quota is
-# spent on design questions that warrant it.
-cmd_consultant() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: kitchen.sh consultant <store> --reason TEXT [--kind KIND] [--permission MODE|none] [-- agent-args...]"
-	local store="$1" reason="" kind="" permission="" native=()
-	shift
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--reason) reason="$2"; shift 2 ;;
-		--kind) kind="$2"; shift 2 ;;
-		--permission) permission="$2"; shift 2 ;;
-		--) shift; native=("$@"); break ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	pair_file "$store" >/dev/null
-	[ -n "$reason" ] || die "--reason is required: the escalation that warrants the consultant"
-	local fallback="" why
-	local -a fb_args=()
-	if [ -z "$kind" ]; then
-		local roster
-		roster="$(python3 "$here/kitchen.py" --json roster)"
-		kind="$(jq -r '.consultant.kind' <<<"$roster")"
-		[ "${#native[@]}" -gt 0 ] || mapfile -t native < <(jq -r '.consultant.args[]' <<<"$roster")
-		fallback="$(jq -r '.consultant.fallback.kind // empty' <<<"$roster")"
-		mapfile -t fb_args < <(jq -r '.consultant.fallback.args[]?' <<<"$roster")
-	fi
-	[ -n "$kind" ] || die "no --kind and no [consultant] kind in the host roster"
-	# A consultant whose kind has a preflight (Muse, pi, Prime) is checked
-	# before its pane starts, as the sidekick is: a logged-out account or a
-	# spent plan starts the roster's [consultant.fallback] instead.
-	if has_preflight "$kind" && [ "$(agent_status "$(field "$store" .consultant.name)")" = absent ]; then
-		if ! why="$(preflight_kind "$kind" "${native[@]}" 2>&1)"; then
-			[ -n "$fallback" ] && [ "$fallback" != "$kind" ] ||
-				die "consultant $kind failed its preflight and the roster names no other fallback: ${why:-no answer}" 2
-			printf 'failover: consultant %s -> %s (preflight: %s)\n' "$kind" "$fallback" "$(tr '\n' ' ' <<<"${why:-no answer}" | cut -c1-200)"
-			json_update "$store" --arg from "$kind" --arg to "$fallback" --arg why "preflight: ${why:-no answer}" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-				'.consultant.failovers = ((.consultant.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])'
-			event "$store" master failover - "consultant:$kind:$fallback"
-			kind="$fallback"
-			native=("${fb_args[@]}")
-		fi
-	fi
-	# The escalation is recorded once the consultant is up, so a start that
-	# fails (a trust prompt) and is retried counts it once.
-	spawn_consultant "$store" "$kind" "$permission" 60000 "${native[@]}"
-	json_update "$store" --arg why "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'.escalations = ((.escalations // []) + [{reason: $why, at: $now}])'
-	event "$store" master escalate - "$reason"
-}
+cmd_consultant() { pycore consultant "$@"; }
 
 # --config <snapshot> for $1 brief, in kitchen_cfg; empty for a repo kitchen.
 brief_kitchen() {
@@ -667,9 +558,7 @@ cmd_retro() { pycore retro "$@"; }
 cmd_feedback() { pycore feedback "$@"; }
 
 # Every run on the host and each skills build; read-only and repo-free.
-cmd_fleet() {
-	python3 "$here/kitchen.py" fleet "$@"
-}
+cmd_fleet() { pycore fleet "$@"; }
 
 cmd_maintainer() { pycore maintainer "$@"; }
 

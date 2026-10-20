@@ -5,11 +5,6 @@
 # caller sets roles to include consultant and ships consult-template.md under
 # $skill_root/references.
 
-# The consultant splits from the sidekick's pane so the master keeps its
-# height. $1 store, $2 kind, $3 permission, $4 timeout, then agent args. Returns
-# 3 when the bootstrap did not settle and 4 when it settled without the ready file.
-spawn_consultant() { pycore __spawn_consultant "$@" || { local pycore_rc=$?; case $pycore_rc in 3 | 4) return $pycore_rc ;; *) exit $pycore_rc ;; esac; }; }
-
 # A plan round goes to the sidekick and the consultant at once; each answers
 # in its own file and the master merges. A sidekick busy on a unit does not
 # hold the round up: the consultant gets the plan now and the sidekick's half

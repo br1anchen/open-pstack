@@ -306,18 +306,6 @@ require_fresh_session() {
 	fi
 }
 
-has_preflight() { pycore __has_preflight "$@" || { local pycore_rc=$?; case $pycore_rc in 1) return 1 ;; *) exit $pycore_rc ;; esac; }; }
-
-# Muse Code: one headless prompt on the role's model proves the account is
-# logged in and its plan has usage left. Only the arguments `muse exec`
-# shares with the TUI pass through.
-# Proves a kind's model answers before a pane starts. pi reaches some models
-# through community provider packages that can break or run out of capacity,
-# so it gets one print-mode prompt, without the repo's resources. Other kinds
-# have no check here. $1 kind, rest: the native args the agent starts with.
-# Prints the last lines of a failure on stderr.
-preflight_kind() { pycore __preflight_kind "$@"; }
-
 cmd_failover() { pycore --exec failover "$@"; }
 
 cmd_rotate() { pycore --exec rotate "$@"; }

@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'classify', 'close', 'discuss', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'stop', 'take-master', 'verify')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'classify', 'close', 'consultant', 'discuss', 'feedback', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'stop', 'take-master', 'verify')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -535,8 +535,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIsNot(kitchen.commands, trio.commands)
         for table in (trio.commands, kitchen.commands):
             self.assertEqual((table['stop'].__name__, table['stop'].__code__.co_filename), ('stop', str(root / 'skills/pstack-trio/scripts/variant.py')))
-        self.assertNotIn('spawn', kitchen.commands)
-        # the trio's spawn is its own command, in its variant; the kitchen's (the captured pair command under its bash wrapper) is the core's
+        # the trio's spawn is its own command, in its variant; the kitchen's is kitchen_core.setup's (roster kind and args, then the core's spawn)
+        self.assertEqual(kitchen.commands['spawn'].__name__, 'spawn')
+        self.assertNotEqual(kitchen.commands['spawn'].__code__.co_filename, trio.commands['spawn'].__code__.co_filename)
         self.assertEqual((trio.commands['spawn'].__name__, trio.commands['spawn'].__code__.co_filename), ('spawn', str(root / 'skills/pstack-trio/scripts/variant.py')))
 
     def test_every_variant_class_defines_its_own_commands(self):
@@ -1767,9 +1768,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 git('commit', '-q', '-m', op[1])
                 shas[op[1]] = git('rev-parse', 'HEAD')
             elif op[0] == 'git':
-                git(*(a.format(**shas) for a in op[1:]))
+                git(*(a.format(**shas, T=str(top)) for a in op[1:]))
             elif op[0] == 'git>':
-                shas[op[1]] = git(*(a.format(**shas) for a in op[2:]))
+                shas[op[1]] = git(*(a.format(**shas, T=str(top)) for a in op[2:]))
         sub = {**shas, **{f'{k}s': v[:9] for k, v in shas.items()}, 'st': str(st), 'T': str(top), 'repo': str(repo)}
         fill = lambda text: text.format(**sub)
         pair = {'master': {'name': 'm1'}, 'sidekick': {'kind': spec.get('kind', 'claude'), 'generation': 1, 'name': 's1'},
@@ -1898,7 +1899,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             entry = top / 'pair-background.sh'
             entry.write_text(text.replace(here, f'here="{scripts_dir}"').removesuffix('pair_main "$@"\n') + '( pair_main "$@" ) &\nwait $!\n')
             entry.chmod(0o755)
-        run = lambda: subprocess.run([str(entry), *(fill(a) for a in spec['args'])], cwd=top / 'repo', env=env, timeout=120,
+        run = lambda: subprocess.run([str(entry), *(fill(a) for a in spec['args'])], cwd=top / spec.get('cwd', 'repo'), env=env, timeout=120,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT if spec.get('merged') else subprocess.PIPE, text=True, errors='surrogateescape', check=False)
         r = run()
         second = None
@@ -4319,7 +4320,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     if 'pair-core.sh' in got['stderr']:
                         shim = self.shim_line('pstack-pair/scripts/pair-core.sh', 'cmd_spawn')
                         self.assertRegex(got['stderr'], rf'pair-core\.sh: line {shim}: \$2: unbound variable\n')
-                    mask = lambda text: re.sub(r'\S*(pair-core|kitchen)\.sh: line [0-9]+', '<core>: line N', text)
+                    mask = lambda text: re.sub(r'(?m)^pair\.sh: \$2: unbound', '<core>: line N: $2: unbound', re.sub(r'\S*(pair-core|kitchen)\.sh: line [0-9]+', '<core>: line N', text))
                     got, want = dict(got, stderr=mask(got['stderr'])), dict(want, stderr=mask(want['stderr']))
                 self.assertEqual(got, want, name)
                 outcomes[name] = got
@@ -4539,46 +4540,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual((outcomes[name]['rc'], outcomes[name]['calls']), (5, ''), name)
             self.assertIn('jq: error', outcomes[name]['stderr'], name)
         self.assertIn('failover: consultant pi -> codex', outcomes['the roster kind failing its preflight']['stdout'])
-
-    SPAWN_CONSULTANT_FORMS = {
-        'with an or': 'rc=0; spawn_consultant "$store" {a} || rc=$?; echo "returned rc=$rc"',
-        'as a plain command': 'spawn_consultant "$store" {a}; echo "returned"',
-        'as a plain command under errexit': 'set -e\nspawn_consultant "$store" {a}\necho "returned"',
-    }
-
-    def test_spawn_consultant_matches_the_bash_at_the_phase_3_base_in_every_call_form(self):
-        """consultant-core.sh's spawn_consultant (04d2c13's function against the working tree's shim) from the forms its callers use: kitchen.sh
-        `consultant` calls it as a plain command under set -e, and `|| rc=$?` and a plain command with errexit off are the other two. The shim returns
-        3 and 4 and ends the caller on anything else: a die (here 5) must end the caller in the form where a return would not."""
-        env = {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300'}
-        pair = lambda **kw: {'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None},
-                             'consultant': {'name': 'c1', 'kind': 'codex', 'generation': 1, 'pane_id': None}, **kw}
-        world = dict(pair=pair(), panes={'p0': 'm1'}, hook=self.READY_HOOK, env=env)
-        call = lambda kind='codex', perm='', *args: shlex.join([kind, perm, '5000', *args])
-        cases = {
-            'a start that succeeds': (world, call()),
-            'a start that returns 4': ({**world, 'hook': None}, call()),
-            'a start that returns 3': ({**world, 'promptfail': True}, call()),
-            'a start that dies with 5': (world, call('devin', '', '--resume')),
-            'a start that dies with 2': ({**world, 'fake': {'start-fail': ''}}, call()),
-            'an anchor on the sidekick pane': ({**world, 'agents': {'s1': 'idle claude'}, 'panes': {'p0': 'm1', 'p1': 's1'},
-                                                'pair': pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p1'})}, call()),
-            'an anchor pane that is gone': ({**world, 'agents': {'s1': 'idle claude'}, 'pair': pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p9'})}, call()),
-            'a permission and native arguments': (world, call('codex', 'plan', '--model', 'm')),
-            'a live consultant': ({**world, 'agents': {'c1': 'idle codex'}}, call()),
-        }
-        seen = {}
-        for n, (name, (spec, argv)) in enumerate(cases.items()):
-            for form, template in self.SPAWN_CONSULTANT_FORMS.items():
-                seen[(name, form)] = self.leaf_both(f'sc-{n}-{len(seen)}', template.format(a=argv), None, sources=('pstack-trio/scripts/consultant-core.sh',), **spec)
-        self.assertEqual((seen[('a start that returns 4', 'with an or')][0], 'returned rc=4' in seen[('a start that returns 4', 'with an or')][1]), (0, True))
-        self.assertEqual(seen[('a start that returns 4', 'as a plain command under errexit')][0], 4)
-        self.assertEqual(seen[('a start that returns 3', 'with an or')][1].count('returned rc=3'), 1)
-        for form in self.SPAWN_CONSULTANT_FORMS:
-            self.assertEqual(seen[('a start that dies with 5', form)][0], 5, form)
-            self.assertNotIn('returned', seen[('a start that dies with 5', form)][1], form)
-            self.assertEqual(seen[('a start that dies with 2', form)][0], 2, form)
-            self.assertEqual(seen[('a start that succeeds', form)][0], 0, form)
 
     def test_exit_command_matches_the_bash_at_the_phase_3_base(self):
         """04d2c13's exit_command against exits.exit_command (the bash shim went when the kitchen's close left bash: unit 026)."""
@@ -7246,7 +7207,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
              'expected_report', 'fresh_per_brief', 'file_mtime',
              'require_not_paused',
              'require_fresh_session', 'submit_typed',
-             'in_herdr', 'latest_advice', 'has_preflight', 'preflight_kind',
+             'in_herdr', 'latest_advice', 
              'await_file')
     TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest'}
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
@@ -7254,10 +7215,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # and the guard has no baseline to add it to.
     KNOWN_DEAD = ()
     # kitchen.sh keeps the pair's commands under core_* names (copy_fn) and wraps them
-    KITCHEN_ALIASES = {'core_init': 'pstack-pair/scripts/pair-core.sh:cmd_init', 'core_spawn': 'pstack-pair/scripts/pair-core.sh:cmd_spawn',
-                       'core_dispatch': 'pstack-pair/scripts/pair-core.sh:cmd_dispatch', 'core_wait': 'pstack-pair/scripts/pair-core.sh:cmd_wait',
+    KITCHEN_ALIASES = {'core_dispatch': 'pstack-pair/scripts/pair-core.sh:cmd_dispatch', 'core_wait': 'pstack-pair/scripts/pair-core.sh:cmd_wait',
                        'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
-    KITCHEN_WRAPS = ('init', 'dispatch', 'wait', 'step', 'finish', 'spawn')
+    KITCHEN_WRAPS = ('dispatch', 'wait', 'step', 'finish')
 
     def reach(self):
         cls = type(self)
@@ -7318,6 +7278,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # deletes the bash and this entry with it.
     KITCHEN_TWINS = {  # kitchen.sh functions with a kitchen_core twin that bash still calls (step and finish use brief_kitchen; unit 029 deletes it)
         'brief_kitchen': ('classify', 'brief_kitchen', 'test_brief_kitchen_equals_the_bash'),
+        'record_skill_build': ('setup', 'record_skill_build', 'test_record_skill_build_equals_the_bash'),  # the top-level line of kitchen.sh still calls it (unit 029)
         'rotate_if_due': ('discuss', 'rotate_if_due', 'test_discuss_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
     }
 
@@ -7352,7 +7313,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
                     # the trio's and the kitchen's stop is consultant-core's; every other ported command's final body is pair-core's
                     home = self.CONSULTANT_CORE if name == 'stop' and entry in self.CONSULTANT_ENTRIES else self.CORE
-                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss'):
+                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'init', 'spawn'):
                         home = entry  # the kitchen's own command, run from its variant
                     if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
                         home = entry  # the trio's own command, run from its variant
@@ -7370,9 +7331,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_kitchen_keeps_exactly_these_copy_fn_snapshots_of_the_pair_core_bodies(self):
         table = self.reach().tables[(root / 'skills/pstack-kitchen/scripts/kitchen.sh').resolve()]
         self.assertEqual({name: d.alias_of.key for name, d in table.items() if d.alias_of}, self.KITCHEN_ALIASES)
-        for name in ('init', 'spawn'):
-            self.assertEqual(table[f'core_{name}'].alias_of.key, f'{self.CORE}:cmd_{name}')
+        for name in ('init', 'spawn', 'queue', 'discuss', 'consultant', 'fleet'):
             self.assertEqual(table[f'cmd_{name}'].key, f'pstack-kitchen/scripts/kitchen.sh:cmd_{name}')
+            self.assertNotIn(f'core_{name}', table)
 
     def test_pair_sh_stops_with_a_message_when_python3_is_not_on_path(self):
         bin_dir = self.path / 'bin-without-python3'
@@ -8674,6 +8635,32 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(dict(os.environ), before)
         self.assertEqual(statuses.count(0), len(calls), statuses)
 
+    def test_record_skill_build_equals_the_bash(self):
+        """kitchen.sh still stamps a later skills directory on a stamped run from its last line, in bash; init's own stamp is the Python one. Both
+        run on the same pair.json files: the document, the stderr and the status."""
+        documents = {'no builds': {'master': {'name': 'm'}}, 'an empty list': {'skill_builds': []}, 'the same path last': {'skill_builds': [{'path': '/skills', 'at': 't'}]},
+                     'another path last': {'skill_builds': [{'path': '/old', 'at': 't'}]}, 'two rows': {'skill_builds': [{'path': '/skills', 'at': 't'}, {'path': '/old', 'at': 't'}]},
+                     'a string': {'skill_builds': 'x'}, 'an object': {'skill_builds': {}}, 'a number': {'skill_builds': 3}, 'null': {'skill_builds': None}, 'false': {'skill_builds': False},
+                     'rows that are strings': {'skill_builds': ['a']}}
+        for n, (name, doc) in enumerate(documents.items()):
+            ways = []
+            for how in ('bash', 'python'):
+                st = self.path / f'rsb{n}{how}'
+                st.mkdir()
+                (st / 'pair.json').write_text(json.dumps(doc, indent=2) + '\n')
+                if how == 'bash':
+                    rc, out, err = self.phase4_bash(st, 'skills_dir=/skills\nrecord_skill_build "$STORE"; echo "rc=$?"')
+                else:
+                    class Ctx:
+                        skill_root = '/skills/pstack-kitchen'
+                    code = ('import sys\nfrom kitchen_core import setup\nfrom pstack_core.errors import Exit\ntry:\n    setup.record_skill_build(Ctx, store)\n    code = 0\n'
+                            'except Exit as e:\n    sys.stderr.write(e.stderr)\n    code = e.code\nprint("rc=%d" % code)')
+                    rc, out, err = self.kitchen_py(st, 'class Ctx:\n    skill_root = "/skills/pstack-kitchen"\n' + code)
+                text = (st / 'pair.json').read_text()
+                ways.append((out, re.sub(r'\S*pair\.json', 'pair.json', err), re.sub(r'"at": "[0-9TZ:-]+"', '"at": "<TS>"', text)))
+            self.assertEqual(ways[1], ways[0], name)
+        self.assertIn('"/skills"', ways[0][2])
+
     def test_brief_kitchen_equals_the_bash(self):
         st = self.claim_store('bk', {'verdict': 'v'})
         for n, text in enumerate(('', 'kitchen: repo', 'kitchen: /tmp/snap.toml', 'kitchen:   /tmp/spaced.toml  ', 'risk: routine')):
@@ -8755,6 +8742,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a prompt whose error is no json': dict(base, prompt_error='broken\n'),
             '--every': with_args(base, '--every', '1'),
             '--every with an expression': with_args(base, '--every', '1+1'),
+            '--timeout with no value': dict(with_args(base, '--timeout'), mask=self.SETUP_MASK),
+            '--every with no value': dict(with_args(base, '--every'), mask=self.SETUP_MASK),
+            '--every with a name': dict(with_args(base, '--every', 'abc'), mask=self.SETUP_MASK),
+            '--timeout that is no number': dict(with_args(base, '--timeout', 'abc'), mask=self.SETUP_MASK),
+            '--timeout that is no number with nobody answering': dict(with_args(base, '--timeout', 'abc'), mask=self.SETUP_MASK, hook=None),
             '--timeout with an unknown option after': with_args(base, '--timeout', '3', '--bogus'),
             'an unknown option': with_args(base, '--bogus'),
             'outside herdr': dict(base, env={**env, 'HERDR_ENV': '0'}),
@@ -8817,6 +8809,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a prompt whose error is no json': (2, 'broken\n'),
             '--every': (0, 'consultant_status: agree\n'),
             '--every with an expression': (0, 'consultant_status: agree\n'),
+            '--timeout with no value': (1, '$2: unbound variable'),
+            '--every with no value': (1, '$2: unbound variable'),
+            '--every with a name': (1, 'abc: unbound variable'),
+            '--timeout that is no number': (0, 'consultant_status: agree\n'),
+            '--timeout that is no number with nobody answering': (4, 'settled without a response; polling for the file'),
             '--timeout with an unknown option after': (1, 'unknown option --bogus'),
             'an unknown option': (1, 'unknown option --bogus'),
             'outside herdr': (1, 'not running inside Herdr (HERDR_ENV != 1)'),
@@ -8903,6 +8900,261 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         # the classify the queue runs is quiet on stdout and stamps the brief: the bytes are compared by the A/B, and the stamp is there
         self.assertIn('profiles: app', out['a brief queued behind a working sidekick']['files']['briefs/002-y.md'])
         self.assertNotIn('profiles:', out['a landing brief']['files']['briefs/002-y.md'])
+
+    SETUP_HOOK = {'hook': READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}}
+    SETUP_MASK = [(r'<SK>[^\s"\\]*(kitchen|pair-core|consultant-core)\.sh: line [0-9]+: (\$2|abc): unbound variable', r'pair.sh: \2: unbound variable'), (r'<SK>[^\s"\\]*(consultant|pair)-core\.sh: line [0-9]+: \[: ', 'pair.sh: [: '), (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'), (r'repo-[0-9a-f]{8}', 'repo-H')]
+
+    def init_command_cases(self):
+        full = self.KITCHEN_TOML + '\n[review]\nself = ["pstack-review", "ce-review"]\n\n[landing]\nmode = "pr"\n'
+        setup = self.KITCHEN_TOML + '\n[scratch]\nsetup = ["echo prepared", "touch ready.txt"]\n'
+        failing = self.KITCHEN_TOML + '\n[scratch]\nsetup = ["echo before", "exit 3"]\n'
+        init = lambda *a, **kw: dict(args=['init', 'demo', '--store', '{st}', *a], mask=self.SETUP_MASK, **kw)
+        both = {'standing-orders.md': '# Standing orders\n\n16. kept (kitchen.toml review.self)\n17. kept (kitchen.toml landing.mode)\n'}
+        worktree = [('git', 'worktree', 'add', '-q', '{T}/wt')]
+        return {
+            'a re-init under a repo kitchen': init(),
+            'a kitchen with review.self and a landing mode': init(toml=full),
+            'orders that hold both lines already': init(toml=full, files=both),
+            'orders that hold one line': init(toml=full, files={'standing-orders.md': '# O\n\n17. kept (kitchen.toml landing.mode)\n'}),
+            'a store that is new': dict(args=['init', 'demo', '--store', '{T}/new'], mask=self.SETUP_MASK),
+            'no kitchen at all': init(toml=None),
+            'a kitchen that does not parse': init(toml='version = 1\n[profile.app]\npaths = 3\n'),
+            'a pair.json that already lists builds': init(pair={'skill_builds': [{'path': '/old', 'at': '2026-01-01T00:00:00Z'}]}),
+            'a pair.json that is an array': init(files={'pair.json': '[]\n'}),
+            'a main checkout with a setup': init(toml=setup),
+            'a linked worktree with no setup': dict(args=['init', 'demo', '--store', '{T}/new'], mask=self.SETUP_MASK, toml=full, gitops=worktree, cwd='wt'),
+            'a linked worktree with a setup': dict(args=['init', 'demo', '--store', '{T}/new'], mask=self.SETUP_MASK, toml=setup, gitops=worktree, cwd='wt'),
+            'a linked worktree whose setup fails': dict(args=['init', 'demo', '--store', '{T}/new'], mask=self.SETUP_MASK, toml=failing, gitops=worktree, cwd='wt'),
+            'no slug': dict(args=['init'], mask=self.SETUP_MASK),
+            'outside herdr': init(env={'HERDR_ENV': '0'}),
+            'an unknown option': init('--force'),
+            '--pane with no value': init('--pane'),
+            '--store with no value': dict(args=['init', 'demo', '--store'], mask=self.SETUP_MASK),
+            'a stale --pane': init('--pane', 'gone2'),
+            'a slug that is not one': dict(args=['init', 'Demo', '--store', '{st}'], mask=self.SETUP_MASK),
+        }
+
+    def spawn_command4_cases(self):
+        roster = {'home/.config/pstack/kitchen.toml': (self.ROSTER_TOML, 0o644)}
+        bare = {'home/.config/pstack/kitchen.toml': ('[sidekick]\nkind = "claude"\nargs = ["--model", "m1"]\n', 0o644)}
+        broken = {'home/.config/pstack/kitchen.toml': ('[sidekick\n', 0o644)}
+        side = lambda **kw: {'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None, **kw}}
+        base = dict(args=['spawn', '{st}'], topfiles=roster, mask=self.SETUP_MASK, **self.SETUP_HOOK, pair=side())
+        run = lambda *a, **kw: {**base, 'args': ['spawn', '{st}', *a], **kw}
+        return {
+            'the roster default kind': base,
+            'the roster default kind and a trailing native arg': run('--', '--x'),
+            '--kind over the roster': run('--kind', 'codex'),
+            '--kind equal to the roster kind takes its fallback': run('--kind', 'claude'),
+            '--kind with an explicit fallback': run('--kind', 'codex', '--fallback', 'pi'),
+            '--kind with native arguments': run('--kind', 'codex', '--', '--a', '--b'),
+            'the roster kind with a fallback of its own named': run('--fallback', 'pi'),
+            'a roster with no fallback': run(topfiles=bare),
+            '--tab': run('--tab', pair={**side(), 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}),
+            'an option for the core': run('--kind', 'claude', '--bogus'),
+            '--kind with no value': run('--kind'),
+            '--fallback with no value': run('--kind', 'claude', '--fallback'),
+            'an empty roster and no --kind': run(topfiles={}),
+            'an empty roster and a --kind': run('--kind', 'claude', topfiles={}),
+            'a roster that does not parse': run(topfiles=broken),
+            'a roster that does not parse and a --kind': run('--kind', 'claude', topfiles=broken),
+            'no store argument': dict(base, args=['spawn']),
+            'a store with no pair.json': run('--kind', 'claude', nopair=True),
+            'outside herdr': run(env={**self.SETUP_HOOK['env'], 'HERDR_ENV': '0'}),
+            'a pi preflight that fails with the roster fallback': run('--kind', 'pi', topfiles={'home/.config/pstack/kitchen.toml': ('[sidekick]\nkind = "pi"\n[sidekick.fallback]\nkind = "devin"\nargs = ["--fb"]\n', 0o644)},
+                                                                       fake={'pi-fail': 'quota\n'}),
+            'a bootstrap that returns 4': run(hook=None),
+        }
+
+    def consultant_command_cases(self):
+        roster = {'home/.config/pstack/kitchen.toml': ('[consultant]\nkind = "pi"\nargs = ["--model", "c"]\n\n[consultant.fallback]\nkind = "codex"\nargs = ["--fb"]\n', 0o644)}
+        nofb = {'home/.config/pstack/kitchen.toml': ('[consultant]\nkind = "pi"\nargs = ["--model", "c"]\n', 0o644)}
+        same = {'home/.config/pstack/kitchen.toml': ('[consultant]\nkind = "pi"\n[consultant.fallback]\nkind = "pi"\n', 0o644)}
+        broken = {'home/.config/pstack/kitchen.toml': ('[consultant\n', 0o644)}
+        pair = lambda **kw: {'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': None},
+                             'consultant': {'name': 'c1', 'kind': 'codex', 'generation': 1, 'pane_id': None}, **kw}
+        base = dict(pair=pair(), panes={'p0': 'm1'}, hook=self.READY_HOOK, env=self.SETUP_HOOK['env'], mask=self.SETUP_MASK, args=['consultant', '{st}', '--reason', 'a contract'])
+        run = lambda *a, **kw: {**base, 'args': [*base['args'], *a], **kw}
+        bare = lambda *a, **kw: {**base, 'args': ['consultant', '{st}', *a], **kw}
+        return {
+            'a start that succeeds': run('--kind', 'codex'),
+            'a start anchored on the sidekick pane': run('--kind', 'codex', agents={'s1': 'idle claude'}, panes={'p0': 'm1', 'p1': 's1'},
+                                                         pair=pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p1'})),
+            'a start whose anchor pane is gone': run('--kind', 'codex', agents={'s1': 'idle claude'}, pair=pair(sidekick={'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p9'})),
+            'a master that is a string': run('--kind', 'codex', pair=pair(master='x')),
+            'a start that returns 4': run('--kind', 'codex', hook=None),
+            'a start that returns 3': run('--kind', 'codex', promptfail=True),
+            'a start that dies with 5': run('--kind', 'devin', '--', '--resume'),
+            'a permission': run('--kind', 'codex', '--permission', 'none'),
+            'native arguments after --': run('--kind', 'codex', '--', '--x', '--y'),
+            'the roster kind and its native args': run(topfiles=roster),
+            'the roster kind failing its preflight takes the fallback': run(topfiles=roster, fake={'pi-fail': 'quota\n'}),
+            'a failover over earlier failovers': run(topfiles=roster, fake={'pi-fail': 'quota\n'}, pair=pair(consultant={'name': 'c1', 'kind': 'codex', 'generation': 1, 'pane_id': None, 'failovers': [{'from': 'a', 'to': 'b'}]})),
+            'a failover over failovers that are no array': run(topfiles=roster, fake={'pi-fail': 'quota\n'}, pair=pair(consultant={'name': 'c1', 'kind': 'codex', 'generation': 1, 'pane_id': None, 'failovers': 'x'})),
+            'the roster kind failing its preflight with no fallback': run(topfiles=nofb, fake={'pi-fail': 'quota\n'}),
+            'a fallback that is the kind itself': run(topfiles=same, fake={'pi-fail': 'quota\n'}),
+            'a failing preflight that says nothing': run(topfiles=roster, fake={'pi-fail': '\n'}),
+            'a failing preflight with a long message': run(topfiles=roster, fake={'pi-fail': 'x' * 300 + '\nsecond line\n'}),
+            'a roster kind that returns 4 after its preflight': run(topfiles=roster, hook=None),
+            'a live consultant skips the preflight': run(topfiles=roster, agents={'c1': 'idle codex'}, fake={'pi-fail': 'quota\n'}),
+            'a consultant that is a string': run(topfiles=roster, fake={'pi-fail': 'quota\n'}, pair=pair(consultant='c1')),
+            'escalations already recorded': run('--kind', 'codex', pair=pair(escalations=[{'reason': 'old', 'at': 'then'}])),
+            'escalations that are no array': run('--kind', 'codex', pair=pair(escalations='x')),
+            'an empty roster and no --kind': run(),
+            'a roster that does not parse': run(topfiles=broken),
+            'no reason': bare('--kind', 'codex'),
+            '--reason with no value': bare('--reason'),
+            '--kind with no value': run('--kind'),
+            'an unknown option': run('--kind', 'codex', '--bogus'),
+            'no store argument': dict(base, args=['consultant']),
+            'a store with no pair.json': run('--kind', 'codex', nopair=True),
+            'outside herdr': run('--kind', 'codex', env={**self.SETUP_HOOK['env'], 'HERDR_ENV': '0'}),
+        }
+
+    def fleet_cases(self):
+        run_state = lambda started: {'pstack/kitchen/runs/demo/pair.json': json.dumps({'slug': 'demo', 'master': {'name': 'm1'}, 'sidekick': {'name': 's1', 'kind': 'claude'}, 'started': started}) + '\n',
+                                     'pstack/kitchen/runs/demo/events.tsv': '2026-01-01T00:00:00Z\t1767225600\tmaster\tinit\t-\tx\n'}
+        return {
+            'no runs': dict(args=['fleet']),
+            'no runs, json': dict(args=['fleet', '--json']),
+            'one run': dict(args=['fleet'], statefiles=run_state(1767225600)),
+            'one run, json': dict(args=['fleet', '--json'], statefiles=run_state(1767225600)),
+            'one run since a later day': dict(args=['fleet', '--since', '2027-01-01'], statefiles=run_state(1767225600)),
+            'a runs directory that is not there': dict(args=['fleet', '--runs', '{T}/nope']),
+            'a runs directory given': dict(args=['fleet', '--runs', '{T}/state/pstack/kitchen/runs'], statefiles=run_state(1767225600)),
+            'an unknown option': dict(args=['fleet', '--bogus']),
+            '--since with no value': dict(args=['fleet', '--since']),
+            'a --since that is no date': dict(args=['fleet', '--since', 'soon']),
+        }
+
+    def test_init_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.init_command_cases()
+        expect = {
+            'a re-init under a repo kitchen': (0, 'store: <T>/st (re-registered master demo-master in p0)'),
+            'a kitchen with review.self and a landing mode': (0, 'store: <T>/st (re-registered master demo-master in p0)'),
+            'orders that hold both lines already': (0, 'store: <T>/st (re-registered master demo-master in p0)'),
+            'orders that hold one line': (0, 'store: <T>/st (re-registered master demo-master in p0)'),
+            'a store that is new': (0, 'store: <T>/new (master demo-master in p0)'),
+            'no kitchen at all': (0, 'kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching'),
+            'a kitchen that does not parse': (0, 'kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching'),
+            'a pair.json that already lists builds': (0, 'store: <T>/st (re-registered master demo-master in p0)'),
+            'a pair.json that is an array': (5, 'jq: error (at <T>/st/pair.json:1): Cannot index array with string ("master")'),
+            'a main checkout with a setup': (0, 'store: <T>/st (re-registered master demo-master in p0)'),
+            'a linked worktree with no setup': (0, 'store: <T>/new (master demo-master in p0)'),
+            'a linked worktree with a setup': (0, 'store: <T>/new (master demo-master in p0)'),
+            'a linked worktree whose setup fails': (2, 'pair.sh: this run is in a linked worktree and its [scratch].setup failed:'),
+            'no slug': (1, 'pair.sh: usage: kitchen.sh init <slug> [--store DIR] [--pane ID]'),
+            'outside herdr': (1, 'pair.sh: not running inside Herdr (HERDR_ENV != 1)'),
+            'an unknown option': (1, 'pair.sh: unknown option --force'),
+            '--pane with no value': (1, 'pair.sh: $2: unbound variable'),
+            '--store with no value': (1, 'pair.sh: $2: unbound variable'),
+            'a stale --pane': (2, 'pair.sh: pane gone2 is not a live Herdr pane; HERDR_PANE_ID is stale when a harness runs commands through a sh'),
+            'a slug that is not one': (1, "pair.sh: slug must match [a-z][a-z0-9_-]{0,20} (so <slug>-consultant fits Herdr's 32-char name limit)"),
+        }
+        out = self.phase4_cases('init', cases, expect)
+        orders = lambda name: out[name]['files'].get('standing-orders.md', '')
+        self.assertIn('16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: pstack-review, ce-review (kitchen.toml review.self).', orders('a kitchen with review.self and a landing mode'))
+        self.assertIn('17. Landing goes as far as `pr` (kitchen.toml landing.mode) and never merges.', orders('a kitchen with review.self and a landing mode'))
+        self.assertIn('17. Landing goes as far as `commit` (kitchen.toml landing.mode)', orders('a re-init under a repo kitchen'))
+        self.assertNotIn('16. Before', orders('a re-init under a repo kitchen'))
+        self.assertEqual(orders('orders that hold both lines already').count('kept'), 2)
+        self.assertNotIn('Landing goes as far as', orders('orders that hold both lines already'))
+        self.assertEqual(orders('orders that hold one line').count('landing.mode'), 1)
+        self.assertIn('16. Before', orders('orders that hold one line'))
+        self.assertIn('worktree: prepared with [scratch].setup (setup: ok (2 commands', out['a linked worktree with a setup']['stdout'])
+        self.assertNotIn('worktree:', out['a main checkout with a setup']['stdout'])
+        self.assertIn('"path"', out['a re-init under a repo kitchen']['files']['pair.json'])
+
+    def test_spawn_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.spawn_command4_cases()
+        expect = {
+            'the roster default kind': (0, 'sidekick s1 (claude) started in p0'),
+            'the roster default kind and a trailing native arg': (0, 'started in'),
+            '--kind over the roster': (0, 'started in'),
+            '--kind equal to the roster kind takes its fallback': (0, 'started in'),
+            '--kind with an explicit fallback': (0, 'sidekick s1 (codex) started in p0'),
+            '--kind with native arguments': (0, 'started in'),
+            'the roster kind with a fallback of its own named': (0, 'started in'),
+            'a roster with no fallback': (0, 'started in'),
+            '--tab': (0, 'started in'),
+            'an option for the core': (1, 'pair.sh: unknown option --bogus'),
+            '--kind with no value': (1, 'pair.sh: $2: unbound variable'),
+            '--fallback with no value': (1, 'pair.sh: $2: unbound variable'),
+            'an empty roster and no --kind': (1, 'pair.sh: no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)'),
+            'an empty roster and a --kind': (0, 'started in'),
+            'a roster that does not parse': (1, 'Traceback (most recent call last):'),
+            'a roster that does not parse and a --kind': (1, 'Traceback (most recent call last):'),
+            'no store argument': (1, 'pair.sh: usage: kitchen.sh spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [-- agent-arg'),
+            'a store with no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>'),
+            'outside herdr': (1, 'pair.sh: not running inside Herdr (HERDR_ENV != 1)'),
+            'a pi preflight that fails with the roster fallback': (0, 'pi failed preflight: pi 1.0.2 at'),
+            'a bootstrap that returns 4': (4, 'sidekick settled but reports/000-ready.md is missing; state=idle. Read the pane before prompting again.'),
+        }
+        out = self.phase4_cases('spawn', cases, expect)
+        self.assertIn('"kind": "devin"', out['--kind equal to the roster kind takes its fallback']['files']['pair.json'])
+        self.assertIn('"kind": "codex"', out['--kind over the roster']['files']['pair.json'])
+        self.assertIn('"kind": "devin"', out['a pi preflight that fails with the roster fallback']['files']['pair.json'])
+
+    def test_consultant_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.consultant_command_cases()
+        expect = {
+            'a start that succeeds': (0, 'consultant c1 (codex) started in p1'),
+            'a start anchored on the sidekick pane': (0, 'started in'),
+            'a start whose anchor pane is gone': (0, 'started in'),
+            'a master that is a string': (5, 'jq: error (at <T>/st/pair.json:21): Cannot index string with string ("pane_id")'),
+            'a start that returns 4': (4, 'consultant settled but advice/000-ready.md is missing; state=idle. Read the pane before prompting again.'),
+            'a start that returns 3': (3, 'consultant bootstrap did not settle: {"error":{"code":"prompt_failed"}}'),
+            'a start that dies with 5': (5, 'pair.sh: devin task sessions start fresh; recover partial work from the store instead of passing --resume'),
+            'a permission': (0, 'started in'),
+            'native arguments after --': (0, 'started in'),
+            'the roster kind and its native args': (0, 'consultant c1 (pi) started in p1'),
+            'the roster kind failing its preflight takes the fallback': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
+            'a failover over earlier failovers': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
+            'a failover over failovers that are no array': (5, 'jq: error (at <T>/st/pair.json:25): string ("x") and array ([{"from":"pi","to":"codex...]) cannot be added'),
+            'the roster kind failing its preflight with no fallback': (2, 'pair.sh: consultant pi failed its preflight and the roster names no other fallback: pi 1.0.2 at'),
+            'a fallback that is the kind itself': (2, 'pair.sh: consultant pi failed its preflight and the roster names no other fallback: pi 1.0.2 at'),
+            'a failing preflight that says nothing': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
+            'a failing preflight with a long message': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
+            'a roster kind that returns 4 after its preflight': (4, 'consultant settled but advice/000-ready.md is missing; state=idle. Read the pane before prompting again.'),
+            'a live consultant skips the preflight': (0, 'consultant c1 already live (idle) in null'),
+            'a consultant that is a string': (5, 'jq: error (at <T>/st/pair.json:19): Cannot index string with string ("name")'),
+            'escalations already recorded': (0, 'started in'),
+            'escalations that are no array': (5, 'jq: error (at <T>/st/pair.json:38): string ("x") and array ([{"reason":"a contract","...]) cannot be added'),
+            'an empty roster and no --kind': (1, 'pair.sh: no --kind and no [consultant] kind in the host roster'),
+            'a roster that does not parse': (1, 'Traceback (most recent call last):'),
+            'no reason': (1, 'pair.sh: --reason is required: the escalation that warrants the consultant'),
+            '--reason with no value': (1, 'pair.sh: $2: unbound variable'),
+            '--kind with no value': (1, 'pair.sh: $2: unbound variable'),
+            'an unknown option': (1, 'pair.sh: unknown option --bogus'),
+            'no store argument': (1, 'pair.sh: usage: kitchen.sh consultant <store> --reason TEXT [--kind KIND] [--permission MODE|none] [-- agent-a'),
+            'a store with no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>'),
+            'outside herdr': (1, 'pair.sh: not running inside Herdr (HERDR_ENV != 1)'),
+        }
+        out = self.phase4_cases('cons', cases, expect)
+        self.assertIn('a contract', out['a start that succeeds']['files']['pair.json'])
+        self.assertIn('master\tescalate', '\n'.join(out['a start that succeeds']['events']))
+        self.assertNotIn('a contract', out['a start that returns 4']['files']['pair.json'])
+        self.assertIn('"failovers"', out['the roster kind failing its preflight takes the fallback']['files']['pair.json'])
+        self.assertIn('consultant:pi:codex', '\n'.join(out['the roster kind failing its preflight takes the fallback']['events']))
+        self.assertNotIn('failover', ''.join(out['a live consultant skips the preflight']['stdout']))
+
+    def test_fleet_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.fleet_cases()
+        expect = {
+            'no runs': (0, 'run                      repo           build'),
+            'no runs, json': (2, 'usage: kitchen.py [-h] [--repo REPO] [--config CONFIG] [--at AT] [--json]'),
+            'one run': (0, 'run                      repo           build'),
+            'one run, json': (2, 'usage: kitchen.py [-h] [--repo REPO] [--config CONFIG] [--at AT] [--json]'),
+            'one run since a later day': (0, 'run                      repo           build'),
+            'a runs directory that is not there': (0, 'run                      repo           build'),
+            'a runs directory given': (0, 'run                      repo           build'),
+            'an unknown option': (2, 'usage: kitchen.py [-h] [--repo REPO] [--config CONFIG] [--at AT] [--json]'),
+            '--since with no value': (2, 'usage: kitchen.py fleet [-h] [--since YYYY-MM-DD] [--runs RUNS]'),
+            'a --since that is no date': (0, 'run                      repo           build'),
+        }
+        out = self.phase4_cases('fleet', cases, expect)
+        self.assertIn('demo ', out['one run']['stdout'])
+        self.assertNotIn('demo ', out['one run since a later day']['stdout'])
 
     def classify_cases(self):
         world = self.launch_world
@@ -9014,6 +9266,26 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             snapshot = dict(os.environ)
             for args in (['snapshot', str(top / 'kitchens')], ['--json', 'classify', '--paths', 'src/**'], ['lessons', 'stamp', str(brief)]):
                 self.assertEqual(kpy.run(str(repo), args)[0], 0, args)
+                self.assertEqual(dict(os.environ), snapshot, args)
+        self.assertEqual(dict(os.environ), before)
+
+    def test_setup_kpy_calls_leave_the_environment_alone(self):
+        """init, spawn, consultant and fleet reach kitchen.py's `--json roster`, `--json validate`, `setup --role sidekick` and `fleet` in process; none
+        of them writes os.environ (the writes are in `gate` and `brief-verify`, kitchen.py :745, :771, :1023, :1038). `setup` runs the repo's commands
+        as a child process with a copy of the environment."""
+        kpy = self.kitchen_core_module('kpy')
+        top = self.path / 'kpyset'
+        repo = top / 'repo'
+        (repo / '.agents').mkdir(parents=True)
+        (repo / '.agents/kitchen.toml').write_text(self.LAUNCH_TOML + '\n[scratch]\nsetup = ["true"]\n')
+        env = {**self.env, **self.GIT}
+        for args in (['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '-m', 'c1']):
+            subprocess.run(['git', '-C', str(repo), *args], env=env, check=True, capture_output=True)
+        before = dict(os.environ)
+        with mock.patch.dict(os.environ, {'HOME': str(top), 'XDG_STATE_HOME': str(top / 'state')}):
+            snapshot = dict(os.environ)
+            for repo_arg, args in ((None, ['--json', 'roster']), (str(repo), ['--json', 'validate']), (str(repo), ['setup', '--role', 'sidekick']), (None, ['fleet'])):
+                self.assertEqual(kpy.run(repo_arg, args)[0], 0, args)
                 self.assertEqual(dict(os.environ), snapshot, args)
         self.assertEqual(dict(os.environ), before)
 

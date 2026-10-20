@@ -24,7 +24,7 @@ from pstack_core.replies import latest_report
 from pstack_core.review import require_filled
 from pstack_core.send import require_fresh_session, submit_typed
 from pstack_core import spawn
-from pstack_core.store import event, header_field, readlink_f
+from pstack_core.store import bash_int, event, header_field, readlink_f
 from pstack_core.wait import agent_state, die_with_the_shell, jq_run
 
 from .classify import classify_brief, risk_of
@@ -259,7 +259,14 @@ def discuss_with_consultant(ctx, args, one_wake=False):
                 write(f'{role} settled without a response; polling for the file\n')
                 sys.stdout.flush()
                 reply = f'{store}/reports/{seq}-{slug}.md' if role == 'sidekick' else f'{store}/advice/{seq}-{slug}.md'
-                await_file(reply, int(timeout))
+                limit = bash_int(timeout)
+                if os.path.isfile(reply):
+                    pass
+                elif limit is None:
+                    sys.stdout.flush()
+                    sys.stderr.write(f'pair.sh: [: {timeout}: integer expected\n')
+                else:
+                    await_file(reply, limit)
                 found = plan_answer(store, role, seq, plan)
         write(f'{role}_state: {status}\n')
         if found:

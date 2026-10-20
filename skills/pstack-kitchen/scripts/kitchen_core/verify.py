@@ -258,9 +258,9 @@ def record_verifier_session(store, name):
         update_or_jq(store, lambda doc: vs.set_member(doc, 'verifying', 'session', session), '.verifying.session = $s', '--arg', 's', session)
 
 
-def in_subshell(call):
-    """`$(call 2>&1)`: call runs in a child process, its stdout and stderr on one pipe: (status, text without its trailing newlines). A process that
-    execs away inside it (the retry) takes the child's place, as it takes a subshell's."""
+def in_subshell(call, merge=True):
+    """`$(call 2>&1)`, or with merge off `$(call)`: call runs in a child process, its stdout (and stderr, merged) on one pipe: (status, text without its
+    trailing newlines). A process that execs away inside it (the retry) takes the child's place, as it takes a subshell's."""
     sys.stdout.flush()
     sys.stderr.flush()
     reader, writer = os.pipe()
@@ -270,7 +270,8 @@ def in_subshell(call):
         try:
             os.close(reader)
             os.dup2(writer, 1)
-            os.dup2(writer, 2)
+            if merge:
+                os.dup2(writer, 2)
             try:
                 call()
                 code = 0
