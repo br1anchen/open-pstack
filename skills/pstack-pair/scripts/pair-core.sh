@@ -211,29 +211,6 @@ expected_report() {
 	printf '%s/reports/%s.md\n' "$1" "$(basename "$2" .md | sed -E 's/-a[0-9]+$//')"
 }
 
-# A brief's Scope entries, one path or glob per line, for `may` (the
-# may write: list) or `mustnot` (must not write:). An entry is the text after
-# "- ", without a " — " annotation or a trailing "(...)" note; one pair of
-# surrounding backquotes is removed and what is inside is kept whole, commas and
-# spaces included. Braces are literal, as in kitchen.py's glob language. Every
-# consumer (the digest, the kitchen's classifier) reads Scope through this.
-scope_entries() {
-	awk -v want="$2" '
-		/^may write:/ { f = (want == "may"); next }
-		/^must not write:/ { f = (want == "mustnot"); next }
-		/^## / { f = 0 }
-		f && /^- / {
-			sub(/^- /, "")
-			if (substr($0, 1, 1) == "`") {
-				e = substr($0, 2); i = index(e, "`")
-				if (i > 0) e = substr(e, 1, i - 1)
-			} else {
-				e = $0; sub(/ +(—|–|--) .*$/, "", e); sub(/ +\(.*\)$/, "", e)
-			}
-			if (e != "") print e
-		}' "$1"
-}
-
 # The repo's trunk: origin's default branch, else main or master; never the
 # checked-out branch itself. Prints the ref, or nothing.
 trunk_ref() {

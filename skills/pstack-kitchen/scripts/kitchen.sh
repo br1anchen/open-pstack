@@ -138,21 +138,6 @@ kpy() {
 	python3 "$here/kitchen.py" --repo "$(field "$store" .git_root)" "$@"
 }
 
-set_header() {
-	# $1 file, $2 key, $3 value: replace the key's header line, or add it
-	# after the plan: line.
-	if grep -q "^$2:" "$1"; then
-		KEY="$2" VAL="$3" perl -i -pe 's/^\Q$ENV{KEY}\E:.*$/$ENV{KEY}: $ENV{VAL}/ if !$done && /^\Q$ENV{KEY}\E:/ && ($done = 1)' "$1"
-	else
-		KEY="$2" VAL="$3" perl -i -pe '$_ .= "$ENV{KEY}: $ENV{VAL}\n" if !$done && /^plan:/ && ($done = 1)' "$1"
-	fi
-}
-
-scope_globs() {
-	# The brief's may-write entries, without their notes.
-	scope_entries "$1" may
-}
-
 # The stack's patch-ids for <base>..<head> (merges left out), built once per call: stack_ids maps a
 # patch-id to its commit, stack_index a commit to its place from the oldest, stack_commits lists them
 # oldest first, and stack_id_of and stack_id0_of map a commit to its patch-id with the default context
@@ -286,25 +271,6 @@ cmd_consultant() {
 	event "$store" master escalate - "$reason"
 }
 
-# Why a brief is escalated beyond its paths, one line each: the master wrote
-# risk: escalated on it, or its plan is escalated. Classify only raises a
-# brief's risk from these, never lowers it.
-brief_escalations() {
-	local plan
-	[ "$(risk_of "$1")" != escalated ] || printf 'the brief says risk: escalated\n'
-	plan="$(header_field "$1" plan)"
-	case "$plan" in "" | none) return 0 ;; esac
-	[ ! -f "$plan" ] || [ "$(risk_of "$plan")" != escalated ] || printf 'escalated plan: %s\n' "$(basename "$plan")"
-}
-
-# A host kitchen has no history, so a brief is classified, stepped and
-# verified against the copy taken when it was classified (kitchen: in its
-# header), the way a repo kitchen is read at the unit's commit. $1 store;
-# prints the copy, or nothing for a repo kitchen.
-kitchen_snapshot() {
-	kpy "$1" snapshot "$1/kitchens" || die "kitchen.py snapshot failed; run kitchen.py validate in the repo"
-}
-
 # --config <snapshot> for $1 brief, in kitchen_cfg; empty for a repo kitchen.
 brief_kitchen() {
 	local snap
@@ -313,41 +279,7 @@ brief_kitchen() {
 	case "$snap" in "" | repo) ;; *) kitchen_cfg=(--config "$snap") ;; esac
 }
 
-classify_brief() {
-	# $1 store, $2 brief: stamp risk, profiles, verify, kitchen; print the summary.
-	local store="$1" brief="$2" json risk reason snap
-	local -a globs esc=()
-	mapfile -t globs < <(scope_globs "$brief")
-	[ "${#globs[@]}" -gt 0 ] || die "$brief lists nothing under Scope's may write:"
-	while IFS= read -r reason; do esc+=(--escalate "$reason"); done < <(brief_escalations "$brief")
-	snap="$(kitchen_snapshot "$store")"
-	if [ -n "$snap" ]; then
-		set_header "$brief" kitchen "$snap"
-	elif [ -n "$(header_field "$brief" kitchen)" ]; then
-		set_header "$brief" kitchen repo
-	fi
-	brief_kitchen "$brief"
-	json="$(kpy "$store" "${kitchen_cfg[@]}" --json classify --paths "${globs[@]}" "${esc[@]}")" || die "kitchen.py classify failed; run kitchen.py validate in the repo"
-	risk="$(jq -r .risk <<<"$json")"
-	# The master may have written a reason after the class (`escalated (contract change)`): rewrite the line only when the class changes.
-	[ "$(risk_of "$brief")" = "$risk" ] || set_header "$brief" risk "$risk"
-	set_header "$brief" profiles "$(jq -r '.profiles | join(", ") | if . == "" then "none" else . end' <<<"$json")"
-	set_header "$brief" verify "$(jq -r '"\(.verify.mode) by \(.verify.kind) verifier"' <<<"$json")"
-	printf 'risk: %s\n' "$risk"
-	kpy "$store" "${kitchen_cfg[@]}" lessons stamp "$brief" || die "kitchen.py lessons stamp failed; run kitchen.py lessons in the repo"
-	jq -r '"profiles: \(.profiles | join(", "))", "verify: \(.verify.mode) by \(.verify.kind) verifier", (.escalate[] | "escalate: \(.)"), (.warnings[]? | "warn: \(.)"),
-		(if .bookkeeping then "bookkeeping: the Scope is outside the repo; gates only, nothing to escalate" else empty end)' <<<"$json"
-	if [ "$risk" = escalated ] && [ "$(agent_status "$(field "$store" .consultant.name)")" = absent ]; then
-		printf 'next: kitchen.sh consultant %s --reason "%s", then a plan round with it\n' "$store" "$(jq -r '.escalate[0]' <<<"$json")"
-	fi
-}
-
-cmd_classify() {
-	[ $# -eq 2 ] || die "usage: kitchen.sh classify <store> <brief-path>"
-	pair_file "$1" >/dev/null
-	[ -f "$2" ] || die "brief not found: $2"
-	classify_brief "$1" "$2"
-}
+cmd_classify() { pycore classify "$@"; }
 
 is_landing() {
 	case "$(header_field "$1" playbook)" in
@@ -447,7 +379,7 @@ cmd_dispatch() {
 	if is_landing "$2"; then
 		pycore land-check "$1" >/dev/null || die "landing refused: kitchen.sh land-check $1 fails" 2
 	else
-		classify_brief "$1" "$2"
+		pycore classify "$1" "$2"
 	fi
 	local -a waitargs=() sendargs=()
 	local a rc=0 out
@@ -475,7 +407,7 @@ cmd_queue() {
 	# A brief path may be given relative to the store (briefs/NNN-x.md), as for dispatch.
 	if [ $# -ge 2 ] && [ "$2" != --clear ] && [ ! -f "$2" ] && [ -f "$1/$2" ]; then set -- "$1" "$1/$2" "${@:3}"; fi
 	if [ $# -ge 2 ] && [ "$2" != --clear ] && [ -f "$2" ] && ! is_landing "$2"; then
-		classify_brief "$1" "$2" >/dev/null
+		pycore classify "$1" "$2" >/dev/null
 	fi
 	core_queue "$@"
 }

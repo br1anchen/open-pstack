@@ -324,22 +324,144 @@ def verdict_problem(verdict):
 
 
 def shell_arithmetic(text):
-    """`$(( ... ))` over a word the user or the store gave: a whole number as bash reads it (0x is hexadecimal, a leading 0 octal), or an empty
-    word (0). Anything else ends the shell, status 1, with the shell's complaint, which names its file and line in the bash and here only the word: a
-    name is an unset variable under `set -u`, a digit string that is not octal is a value too great for its base, the rest a syntax error."""
-    word = text.strip(' \t\n')
-    if word == '':
+    """`$(( ... ))` over a word the user or the store gave, which the shell reads as an expression: integers (decimal, octal with a leading 0,
+    hexadecimal), parentheses, the unary + - ! ~, the binary ** * / % + - << >> < <= > >= == != & ^ | && ||, ?: and the comma. An empty word is 0.
+    Anything else ends the shell with status 1 and its complaint, which names its file and line in the bash and here only the word: a name is an unset
+    variable under `set -u`, a digit string that is not octal is a value too great for its base, the rest a syntax error."""
+    tokens = []
+    pos = 0
+    word = text
+    while pos < len(word):
+        c = word[pos]
+        if c in ' \t\n':
+            pos += 1
+            continue
+        m = re.compile(r'0[xX][0-9a-fA-F]+|[0-9][0-9]*|[A-Za-z_][A-Za-z0-9_]*|\*\*|<<|>>|<=|>=|==|!=|&&|\|\||[-+*/%()!~<>&^|?:,]').match(word, pos)
+        if not m:
+            raise Die(f'{text}: arithmetic syntax error: invalid arithmetic operator (error token is "{word[pos:]}")', 1)
+        tokens.append(m.group(0))
+        pos = m.end()
+    if not tokens:
         return 0
-    m = re.fullmatch(r'([+-]?)(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)', word)
-    if m:
-        digits = m.group(2)
-        value = int(digits, 16) if digits[:2] in ('0x', '0X') else int(digits, 8) if digits.startswith('0') else int(digits)
-        return -value if m.group(1) == '-' else value
-    if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', word):
-        raise Die(f'{word}: unbound variable', 1)
-    if re.fullmatch(r'[+-]?0[0-9]+', word):
-        raise Die(f'{word}: value too great for base (error token is "{word}")', 1)
-    raise Die(f'{text}: arithmetic syntax error', 1)
+    state = {'i': 0}
+
+    def peek():
+        return tokens[state['i']] if state['i'] < len(tokens) else None
+
+    def take():
+        state['i'] += 1
+        return tokens[state['i'] - 1]
+
+    def fail(why='syntax error: operand expected'):
+        raise Die(f'{text}: arithmetic {why}', 1)
+
+    def number(tok):
+        if tok[:2] in ('0x', '0X'):
+            return int(tok, 16)
+        if tok.startswith('0') and len(tok) > 1:
+            if re.search('[89]', tok):
+                raise Die(f'{tok}: value too great for base (error token is "{tok}")', 1)
+            return int(tok, 8)
+        return int(tok)
+
+    def primary():
+        tok = peek()
+        if tok is None:
+            fail()
+        if tok == '(':
+            take()
+            value = comma()
+            if peek() != ')':
+                fail("syntax error: missing ')'")
+            take()
+            return value
+        if tok in ('+', '-', '!', '~'):
+            take()
+            value = primary()
+            return {'+': value, '-': -value, '!': int(not value), '~': ~value}[tok]
+        take()
+        if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', tok):
+            raise Die(f'{tok}: unbound variable', 1)
+        if re.fullmatch(r'[0-9].*', tok):
+            return number(tok)
+        fail()
+
+    def power():
+        base = primary()
+        if peek() == '**':
+            take()
+            exponent = power()
+            if exponent < 0:
+                raise Die(f'{text}: arithmetic exponent less than 0', 1)
+            return base ** exponent
+        return base
+
+    def tdiv(a, b, mod):
+        if b == 0:
+            raise Die(f'{text}: division by 0', 1)
+        q = abs(a) // abs(b) * (1 if (a >= 0) == (b >= 0) else -1)
+        return a - q * b if mod else q
+
+    levels = [('*', '/', '%'), ('+', '-'), ('<<', '>>'), ('<', '<=', '>', '>='), ('==', '!='), ('&',), ('^',), ('|',), ('&&',), ('||',)]
+
+    def binary(level):
+        if level < 0:
+            return power()
+        left = binary(level - 1)
+        while peek() in levels[level] if level < len(levels) else False:
+            op = take()
+            right = binary(level - 1)
+            if op == '*':
+                left = left * right
+            elif op == '/':
+                left = tdiv(left, right, False)
+            elif op == '%':
+                left = tdiv(left, right, True)
+            elif op == '+':
+                left = left + right
+            elif op == '-':
+                left = left - right
+            elif op == '<<':
+                left = left << right if 0 <= right < 64 else 0
+            elif op == '>>':
+                left = left >> right if 0 <= right < 64 else 0
+            elif op in ('<', '<=', '>', '>=', '==', '!='):
+                left = int({'<': left < right, '<=': left <= right, '>': left > right, '>=': left >= right, '==': left == right, '!=': left != right}[op])
+            elif op == '&':
+                left = left & right
+            elif op == '^':
+                left = left ^ right
+            elif op == '|':
+                left = left | right
+            elif op == '&&':
+                left = int(bool(left) and bool(right))
+            else:
+                left = int(bool(left) or bool(right))
+        return left
+
+    def ternary():
+        cond = binary(len(levels) - 1)
+        if peek() == '?':
+            take()
+            yes = comma()
+            if peek() != ':':
+                fail("syntax error: expected ':'")
+            take()
+            no = ternary()
+            return yes if cond else no
+        return cond
+
+    def comma():
+        value = ternary()
+        while peek() == ',':
+            take()
+            value = ternary()
+        return value
+
+    value = comma()
+    if peek() is not None:
+        fail(f'syntax error in expression (error token is "{peek()}")')
+    return (value + 2 ** 63) % 2 ** 64 - 2 ** 63
 
 
 def handoff_due(store, unit, errexit=True):

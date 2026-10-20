@@ -7,7 +7,6 @@ a command substitution, where errexit is off, so a plain command that fails ther
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import time
@@ -331,12 +330,7 @@ class Waiter:
                 sys.stdout.write(f'retry: verifying again on the fallback, {fallback_kind}\n')
                 sys.stdout.flush()
                 again = [store, *argv, '--retry-entry', fallback]
-                if self.retry is not None:  # verifying again on the fallback, as the exec of kitchen.sh verify did
-                    self.retry(again)
-                script = f'{ctx.skill_root}/scripts/kitchen.sh'
-                signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # the interpreter ignores these two; a shell does not
-                signal.signal(signal.SIGXFSZ, signal.SIG_DFL)
-                os.execv(script, [script, 'verify', *again])
+                self.retry(again)  # verifying again on the fallback, as the exec of kitchen.sh verify did; it never returns
             event(store, 'master', 'wake', brief, 'verify:provider')
             # A retried call carries its entry; the advice is for the master's own call.
             sys.stdout.write(f'next: wait for the limit, or kitchen.sh verify {store} {" ".join(self.shown(argv))} --kind <another kind>\n')

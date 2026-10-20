@@ -91,7 +91,7 @@ class CoreTests(unittest.TestCase):
                     'prompt_sidekick', 'prune_pending', 'queue_note', 'record_dispatch', 'record_sent', 'reply_mode', 'review_base', 'review_delta',
                     'scope_entry_exists', 'seen_reply', 'send_and_wait', 'sidekick_activity', 'status_paths', 'steer_scope_entries', 'tree_activity',
                     'unreviewed_steps', 'wait_for_reply', 'withheld_report', 'wait_opts', 'prime_steer', 'steps_due', 'report_ready',
-                    'provider_hint', 'bootstrap_recover', 'asks_no_approvals', 'plan_gate_extra', 'require_agreed_plan', 'open_notes', 'next_seq', 'new_from_template', 'busy_command', 'agent_session_error', 'muse_session_error', 'prime_role_error', 'record_prime_session', 'detect_permission_mode', 'permission_args', 'trust_args', 'mcp_args', 'has_mcp_arg', 'has_trust_arg', 'has_permission_arg', 'pick_direction', 'new_pane')
+                    'provider_hint', 'bootstrap_recover', 'asks_no_approvals', 'plan_gate_extra', 'require_agreed_plan', 'open_notes', 'next_seq', 'new_from_template', 'busy_command', 'agent_session_error', 'muse_session_error', 'prime_role_error', 'scope_entries', 'record_prime_session', 'detect_permission_mode', 'permission_args', 'trust_args', 'mcp_args', 'has_mcp_arg', 'has_trust_arg', 'has_permission_arg', 'pick_direction', 'new_pane')
 
     def bash(self, snippet, env=None, check=True, base=None):
         """snippet run with pair-core.sh sourced: the working tree's, or with base=True skills/ as it was at e6e83e3, the oracle for
@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'close', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'retro', 'revise', 'rotate-master', 'stop', 'take-master', 'verify')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'classify', 'close', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'retro', 'revise', 'rotate-master', 'stop', 'take-master', 'verify')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -3487,8 +3487,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def phase4_ab(self, label, spec):
         """One kitchen world run through b632713's kitchen.sh and the working tree's: (working tree, base), the two trees' paths masked."""
         bases = self.phase4_skills()
-        toml = spec.get('toml', self.KITCHEN_TOML) + ('\n[review]\nengine = "joo"\n' if spec.get('review_engine') else '')
-        spec = {**spec, 'repo_files': {**spec.get('repo_files', {}), '.agents/kitchen.toml': toml}}
+        toml = (spec.get('toml') or self.KITCHEN_TOML) + ('\n[review]\nengine = "joo"\n' if spec.get('review_engine') else '')
+        spec = {**spec, 'repo_files': {**spec.get('repo_files', {}), **({} if spec.get('toml', 1) is None else {'.agents/kitchen.toml': toml})}}
         want = self.ab_run(f'{label}-base', bases, 'pstack-kitchen', spec)
         got = self.ab_run(f'{label}-port', root / 'skills', 'pstack-kitchen', spec)
         for outcome, tag in ((want, 'base'), (got, 'port')):
@@ -7244,7 +7244,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
              'steps_file', 'trunk_ref', 'range_floor', 'require_filled',
              'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'json_update', 'pair_file',
              'expected_report', 'fresh_per_brief', 'file_mtime',
-             'scope_entries',
              'require_not_paused',
              'require_fresh_session', 'submit_typed',
              'in_herdr', 'latest_advice', 'has_preflight', 'preflight_kind',
@@ -7318,9 +7317,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     # kitchen.sh functions verify (units 026 and 027) still calls, with their kitchen_core twin and the test that runs both on the same fixtures. Unit 027
     # deletes the bash and this entry with it.
-    KITCHEN_TWINS = {  # kitchen.sh functions with a kitchen_core twin that bash still calls (classify and step use these two; unit 028 deletes them)
-        'kitchen_snapshot': ('verify', 'kitchen_snapshot', 'test_kitchen_snapshot_and_brief_kitchen_equal_the_bash'),
-        'brief_kitchen': ('verify', 'brief_kitchen', 'test_kitchen_snapshot_and_brief_kitchen_equal_the_bash'),
+    KITCHEN_TWINS = {  # kitchen.sh functions with a kitchen_core twin that bash still calls (step and finish use brief_kitchen; unit 029 deletes it)
+        'brief_kitchen': ('classify', 'brief_kitchen', 'test_brief_kitchen_equals_the_bash'),
     }
 
     def test_each_kitchen_bash_twin_has_its_bash_definition_its_python_def_and_a_test_that_runs_both(self):
@@ -8414,11 +8412,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         would evaluate (`1+1`) are refused by the port."""
         wait = self.kitchen_core_module('verify_wait')
         st = self.claim_store('arith', {'verdict': 'v'})
-        for word in ('5', '0', '010', '0x1F', '-1', '+3', '', '  7 ', '007'):
+        for word in ('5', '0', '010', '0x1F', '-1', '+3', '', '  7 ', '007', '1+1', '2*15', '(2+3)*4', '7/2', '-7%3', '2**3', '1<<2', '3>2', '1?2:3', '1,2', '!0', '~0', '- -1'):
             rc, out, err = self.phase4_bash(st, 'every_m="$1"; set -eu; echo $(( 100 + every_m * 60 ))'.replace('"$1"', repr(word)))
             self.assertEqual(rc, 0, (word, err))
             self.assertEqual(100 + 60 * wait.Waiter.arithmetic(word), int(out), word)
-        for word in ('abc', '1.5', '08', 'a b'):
+        for word in ('abc', '1.5', '08', 'a b', '1+', '(1', '5%0', '2**-1', '1 2'):
             rc, out, err = self.phase4_bash(st, 'bash -c \'every_m="$1"; set -eu; echo $(( 100 + every_m * 60 ))\' x ' + repr(word))
             self.assertEqual(out, '', word)
             self.assertNotEqual(err, '', word)
@@ -8674,7 +8672,16 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(dict(os.environ), before)
         self.assertEqual(statuses.count(0), len(calls), statuses)
 
-    def test_kitchen_snapshot_and_brief_kitchen_equal_the_bash(self):
+    def test_brief_kitchen_equals_the_bash(self):
+        st = self.claim_store('bk', {'verdict': 'v'})
+        for n, text in enumerate(('', 'kitchen: repo', 'kitchen: /tmp/snap.toml', 'kitchen:   /tmp/spaced.toml  ', 'risk: routine')):
+            brief = self.path / f'kb{n}.md'
+            brief.write_text('# B\n\n' + text + '\n')
+            rc, want, err = self.phase4_bash(st, f'brief_kitchen {brief}; echo "[${{kitchen_cfg[*]-}}] ${{#kitchen_cfg[@]}}"')
+            got = self.kitchen_py(st, f'from kitchen_core import classify\ncfg = classify.brief_kitchen({str(brief)!r})\nprint("[%s] %d" % (" ".join(cfg), len(cfg)))')[1]
+            self.assertEqual(got, want, text)
+
+    def test_kitchen_snapshot_equals_the_bash(self):
         st = self.claim_store('ksnap', {'verdict': 'v'})
         repo = self.path / 'ksnap-repo'
         (repo / '.agents').mkdir(parents=True)
@@ -8683,17 +8690,124 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for good in (True, False):
             (repo / '.agents/kitchen.toml').write_text(self.LAUNCH_TOML if good else 'version = 1\n[profile.app]\npaths = 3\n')
             rc, want, err = self.phase4_bash(st, '( set -e; x="$(kitchen_snapshot "$STORE")"; echo "[$x]" ); echo "rc=$?"', cwd=repo)
-            code = ('import sys\nfrom pstack_core.errors import Die\nkit = verify.Kitchen(store, %r)\ntry:\n    print("[%%s]" %% verify.kitchen_snapshot(kit))\n    code = 0\n'
-                    'except Die as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n    code = e.code\nprint("rc=%%d" %% code)' % str(repo))
+            code = ('import sys\nfrom pstack_core.errors import Die\nfrom kitchen_core import classify\ntry:\n    print("[%s]" % classify.kitchen_snapshot(store))\n    code = 0\n'
+                    'except Die as e:\n    sys.stderr.write("pair.sh: %s\\n" % e.message)\n    code = e.code\nprint("rc=%d" % code)')
             prc, got, perr = self.kitchen_py(st, code, cwd=repo)
             self.assertEqual((got, perr.replace(str(repo), '<R>')), (want, err.replace('kitchen.sh: ', 'pair.sh: ').replace(str(repo), '<R>')), good)
             self.assertIn('rc=0' if good else 'rc=1', want)
-        for n, text in enumerate(('', 'kitchen: repo', 'kitchen: /tmp/snap.toml', 'kitchen:   /tmp/spaced.toml  ', 'risk: routine')):
-            brief = self.path / f'kb{n}.md'
-            brief.write_text('# B\n\n' + text + '\n')
-            rc, want, err = self.phase4_bash(st, f'brief_kitchen {brief}; echo "[${{kitchen_cfg[*]-}}] ${{#kitchen_cfg[@]}}"')
-            got = self.kitchen_py(st, f'cfg = verify.brief_kitchen({str(brief)!r})\nprint("[%s] %d" % (" ".join(cfg), len(cfg)))')[1]
-            self.assertEqual(got, want, text)
+
+    def classify_cases(self):
+        world = self.launch_world
+        brief = self.launch_brief
+        classify = lambda *a, **kw: world(args=['classify', '{st}', *a], **kw)
+        path = '{st}/briefs/001-x.md'
+        scoped = lambda *entries, extra='': brief('001', 'x', extra).replace('- src/**\n', ''.join(f'- {e}\n' for e in entries))
+        plan = lambda risk: f'# Plan\n\nrisk: {risk}\nscale: small\n'
+        host = ('home/.config/pstack/kitchens/github.com__Acme__Widget.toml', (self.LAUNCH_TOML, 0o644))
+        return {
+            'a routine brief': classify(path),
+            'a brief that says risk: escalated': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: escalated')}),
+            'a brief whose reason after the class is kept': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: escalated (contract X)')}),
+            'a routine brief with a reason kept': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: routine (small)')}),
+            'a brief whose class changes': classify(path, files={'briefs/001-x.md': scoped('contracts/**')}),
+            'a brief with no risk line': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine\n', '')}),
+            'a brief under an escalated plan': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('plan: none', 'plan: {st}/plans/001-p.md'), 'plans/001-p.md': plan('escalated (new contract)')}),
+            'a brief under a routine plan': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('plan: none', 'plan: {st}/plans/001-p.md'), 'plans/001-p.md': plan('routine')}),
+            'a brief under a plan that is not there': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('plan: none', 'plan: {st}/plans/none.md')}),
+            'an escalated brief with a live consultant': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: escalated')},
+                                                                 pair={'consultant': {'name': 'c1', 'pane_id': 'p2'}}, agents={'m1': 'idle claude', 'c1': 'idle codex'}),
+            'an escalated brief with a consultant that is gone': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: escalated')},
+                                                                         pair={'consultant': {'name': 'c1', 'pane_id': 'p2'}}),
+            'an escalated brief with a consultant that is a string': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: escalated')},
+                                                                             pair={'consultant': 'c1'}),
+            'a brief whose Scope lists several paths': classify(path, files={'briefs/001-x.md': scoped('src/a.py', 'docs/guide.md', 'tests/**')}),
+            'a brief whose Scope is outside the repo': classify(path, files={'briefs/001-x.md': scoped('/tmp/outside/file.txt')}),
+            'a brief whose Scope matches no profile': classify(path, files={'briefs/001-x.md': scoped('nodir/new.py')}),
+            'a brief with an empty Scope': classify(path, files={'briefs/001-x.md': scoped()}),
+            'a brief that is a landing brief': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('playbook: feature', 'playbook: shipping')}),
+            'a host kitchen takes a snapshot': classify(path, toml=None, topfiles=dict([host]), gitops=[*self.LAUNCH_OPS, ('git', 'remote', 'add', 'origin', 'git@github.com:Acme/Widget.git')]),
+            'a brief stamped from a host kitchen, now under a repo kitchen': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: routine\nkitchen: /tmp/old.toml')}),
+            'a brief with a kitchen line and a repo kitchen': classify(path, files={'briefs/001-x.md': brief('001', 'x').replace('risk: routine', 'risk: routine\nkitchen: repo')}),
+            'a kitchen that does not parse': classify(path, toml='version = 1\n[profile.app]\npaths = 3\n'),
+            'no kitchen at all': classify(path, toml=None, mask=[(r'repo-[0-9a-f]{8}', 'repo-H')]),
+            'a brief that is not there': classify('{st}/briefs/009-none.md'),
+            'a brief given relative to the store': classify('briefs/001-x.md'),
+            'too few arguments': world(args=['classify', '{st}']),
+            'too many arguments': classify(path, 'x'),
+            'no pair.json': classify(path, nopair=True),
+            'a pair.json that is an array': classify(path, nopair=True, files={'pair.json': '[]\n'}),
+            'a git_root that is not a repository': classify(path, pair={'git_root': '/nonexistent/repo'}),
+        }
+
+    def test_classify_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.classify_cases()
+        brief = 'briefs/001-x.md'
+        expect = {
+            'a routine brief': (0, 'risk: routine\nprofiles: app\nverify: batch by routine verifier\n'),
+            'a brief that says risk: escalated': (0, 'escalate: the brief says risk: escalated'),
+            'a brief whose reason after the class is kept': (0, 'risk: escalated\n'),
+            'a routine brief with a reason kept': (0, 'risk: routine\n'),
+            'a brief whose class changes': (0, 'escalate: escalate path: contracts/api.json'),
+            'a brief with no risk line': (0, 'risk: routine\n'),
+            'a brief under an escalated plan': (0, 'escalate: escalated plan: 001-p.md'),
+            'a brief under a routine plan': (0, 'risk: routine\n'),
+            'a brief under a plan that is not there': (0, 'risk: routine\n'),
+            'an escalated brief with a live consultant': (0, 'escalate: the brief says risk: escalated'),
+            'an escalated brief with a consultant that is gone': (0, 'next: kitchen.sh consultant <T>/st --reason "the brief says risk: escalated", then a plan round with it'),
+            'an escalated brief with a consultant that is a string': (0, 'Cannot index string with string ("name")'),
+            'a brief whose Scope lists several paths': (0, 'profiles: app, docs'),
+            'a brief whose Scope is outside the repo': (0, 'bookkeeping: the Scope is outside the repo; gates only, nothing to escalate'),
+            'a brief whose Scope matches no profile': (0, 'escalate: 1 files no profile covers: nodir/new.py'),
+            'a brief with an empty Scope': (1, "lists nothing under Scope's may write:"),
+            'a brief that is a landing brief': (0, 'risk: routine\n'),
+            'a host kitchen takes a snapshot': (0, 'risk: routine\n'),
+            'a brief stamped from a host kitchen, now under a repo kitchen': (0, 'risk: routine\n'),
+            'a brief with a kitchen line and a repo kitchen': (0, 'risk: routine\n'),
+            'a kitchen that does not parse': (1, 'kitchen.py snapshot failed; run kitchen.py validate in the repo'),
+            'no kitchen at all': (1, 'kitchen: no kitchen at <T>/repo/.agents/kitchen.toml or'),
+            'a brief that is not there': (1, 'brief not found: <T>/st/briefs/009-none.md'),
+            'a brief given relative to the store': (1, 'brief not found: briefs/001-x.md'),
+            'too few arguments': (1, 'usage: kitchen.sh classify <store> <brief-path>'),
+            'too many arguments': (1, 'usage: kitchen.sh classify <store> <brief-path>'),
+            'no pair.json': (1, 'no pair.json in'),
+            'a pair.json that is an array': (0, 'Cannot index array with string ("git_root")'),
+            'a git_root that is not a repository': (1, 'kitchen: not a git repository: /nonexistent/repo'),
+        }
+        out = self.phase4_cases('classify', cases, expect)
+        self.assertIn('risk: escalated', out['a brief whose reason after the class is kept']['files'][brief])
+        self.assertIn('risk: escalated (contract X)', out['a brief whose reason after the class is kept']['files'][brief])
+        self.assertIn('risk: routine (small)', out['a routine brief with a reason kept']['files'][brief])
+        changed = out['a brief whose class changes']['files'][brief]
+        self.assertRegex(changed, r'(?m)^risk: escalated$')
+        self.assertIn('profiles: contracts', changed)
+        self.assertIn('verify: unit by escalated verifier', changed)
+        self.assertRegex(out['a brief with no risk line']['files'][brief], r'(?m)^profiles: app$')
+        host = out['a host kitchen takes a snapshot']
+        self.assertRegex(host['files'][brief], r'(?m)^kitchen: <T>/st/kitchens/[0-9a-f]+\.toml$')
+        self.assertTrue(any(name.startswith('kitchens/') and name.endswith('.toml') for name in host['files']))
+        self.assertRegex(out['a brief stamped from a host kitchen, now under a repo kitchen']['files'][brief], r'(?m)^kitchen: repo$')
+        self.assertNotIn('kitchen:', out['a routine brief']['files'][brief])
+
+    def test_classify_kpy_calls_leave_the_environment_alone(self):
+        """classify reaches kitchen.py's snapshot, `--json classify` and `lessons stamp` in process; none of them writes os.environ (the writes are in
+        `gate` and `brief-verify`, kitchen.py :745, :771, :1023, :1038)."""
+        kpy = self.kitchen_core_module('kpy')
+        top = self.path / 'kpycls'
+        repo = top / 'repo'
+        (repo / '.agents').mkdir(parents=True)
+        (repo / '.agents/kitchen.toml').write_text(self.LAUNCH_TOML)
+        env = {**self.env, **self.GIT}
+        for args in (['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '-m', 'c1']):
+            subprocess.run(['git', '-C', str(repo), *args], env=env, check=True, capture_output=True)
+        brief = top / 'brief.md'
+        brief.write_text(self.launch_brief('001', 'x'))
+        before = dict(os.environ)
+        with mock.patch.dict(os.environ, {'HOME': str(top), 'XDG_STATE_HOME': str(top / 'state')}):
+            snapshot = dict(os.environ)
+            for args in (['snapshot', str(top / 'kitchens')], ['--json', 'classify', '--paths', 'src/**'], ['lessons', 'stamp', str(brief)]):
+                self.assertEqual(kpy.run(str(repo), args)[0], 0, args)
+                self.assertEqual(dict(os.environ), snapshot, args)
+        self.assertEqual(dict(os.environ), before)
 
     def test_verify_matches_the_bash_at_the_phase_4_base(self):
         cases = self.launch_cases()
@@ -8711,6 +8825,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             '--kind claude': (4, started + 'claude (model unspecified)) in p1 on'),
             '--kind pi, whose session is a path': (4, started + 'pi (model unspecified)) in p1 on'),
             '--timeout': (4, 'deadline 20m (--timeout)'),
+            'a tab launch, whose env words reach tab create': (4, started),
+            'a tab launch whose master is a string, with a live sidekick pane': (5, 'Cannot index string with string ("pane_id")'),
+            '--timeout as the sum 1+1': (4, 'deadline 1+1m (--timeout)'),
+            '--timeout as the product 2*15': (4, 'deadline 2*15m (--timeout)'),
+            '--timeout in octal': (4, 'deadline 010m (--timeout)'),
+            'a roster that does not parse, with --kind': (2, 'Traceback'),
             '--base': (4, started),
             '--base that is no commit': (1, '--base nothere is not a commit'),
             'a unit with a recorded base behind where its branch leaves trunk': (4, "is behind where its branch leaves remotes/origin/main; measuring from"),
@@ -8771,16 +8891,28 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('verdict: <T>/st/verdicts/003-docs-v1.md', out['a unit the docs profile verifies by gates']['stdout'])
         self.assertIn('003-docs', out['a unit the docs profile verifies by gates']['files']['verdicts/003-docs-v1.md'])
         self.assertIn('"session":', out['--kind pi, whose session is a path']['files']['pair.json'])
+        tab = out['a tab launch, whose env words reach tab create']
+        self.assertRegex(tab['calls'], r'tab create --workspace w1 --cwd \S+ --label demo-verifier --no-focus --env PSTACK_KITCHEN_ROLE=verifier --env PSTACK_KITCHEN_RUN=demo')
+        self.assertNotIn('tab create', out['a tab launch whose master is a string, with a live sidekick pane']['calls'])
+        self.assertNotIn('"verifying"', out['a roster that does not parse, with --kind']['files']['pair.json'])
+        self.assertIn('deadline', out['--timeout as the sum 1+1']['stdout'])
+        self.assertIn('0m of 2m', out['--timeout as the sum 1+1']['stdout'])
+        self.assertIn('0m of 30m', out['--timeout as the product 2*15']['stdout'])
+        self.assertIn('0m of 8m', out['--timeout in octal']['stdout'])
 
     def test_a_timeout_the_shell_cannot_read_and_a_flag_with_no_value_end_verify_as_the_bash_does(self):
-        """Accepted (PARITY.md): `--timeout abc` is an unbound variable to `$(( ... ))` after the scratch is made, and `--timeout` with no value is the
-        shell's `$2: unbound variable`; both end with status 1 and the same store and calls. The shell names a line of the old kitchen.sh, we name the word."""
-        for n, (args, word) in enumerate(((['001', '--timeout', 'abc', '--every', '0'], 'abc'), (['001', '--timeout'], '$2'))):
+        """Accepted (PARITY.md): `--timeout abc` is an unbound variable and `--timeout 1+` a syntax error to `$(( ... ))`, which runs after the scratch is
+        made, and `--timeout` with no value is the shell's `$2: unbound variable`; all end with status 1 and the same store and calls. The shell names a
+        line of the old kitchen.sh, we name the word."""
+        cases = ((['001', '--timeout', 'abc', '--every', '0'], r'abc: unbound variable', 'abc: unbound variable'),
+                 (['001', '--timeout', '1+', '--every', '0'], r'1\+: arithmetic syntax error: operand expected', '1+: arithmetic syntax error: operand expected'),
+                 (['001', '--timeout'], r'\$2: unbound variable', '$2: unbound variable'))
+        for n, (args, pattern, ours) in enumerate(cases):
             got, want = self.phase4_ab(f'vtimeout{n}', self.launch_world(args=['verify', '{st}', *args]))
             self.assertEqual({k: v for k, v in got.items() if k != 'stderr'}, {k: v for k, v in want.items() if k != 'stderr'})
             self.assertEqual(got['rc'], 1)
-            self.assertIn(f'{word}: unbound variable', got['stderr'])
-            self.assertRegex(want['stderr'], rf'kitchen\.sh: line [0-9]+: {re.escape(word)}: unbound variable')
+            self.assertIn(ours, got['stderr'])
+            self.assertRegex(want['stderr'], rf'kitchen\.sh: line [0-9]+: {pattern}')
 
     def test_a_pane_that_will_not_split_ends_verify_with_the_core_s_message_where_the_bash_ended_silently(self):
         """Accepted (PARITY.md, D8): `new_pane_id="$(herdr pane split ... | jq ...)"` under errexit ended the bash with status 1 and no message when herdr
@@ -8967,6 +9099,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a provider error on the first verifier, with the sidekick\'s fallback': verify('001', '--every', '5', screens=rate,
                                                                                        pair={'sidekick': {'kind': 'claude', 'name': 's1', 'generation': 1, 'fallback': {'kind': 'pi', 'args': ['--model', 'm']}}}),
             'a provider error on the first verifier, with none': verify('001', '--every', '5', screens=rate),
+            'a tab launch, whose env words reach tab create': verify('001', '--every', '0', pair={'placement': 'tab', 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}),
+            'a tab launch whose master is a string, with a live sidekick pane': verify('001', '--every', '0', agents={'m1': 'idle claude', 's1': 'idle claude'}, panes={'p0': 'm1', 'p1': 's1'},
+                                                                                    pair={'placement': 'tab', 'master': 'x', 'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p1'}}),
+            'a roster that does not parse, with --kind': verify('001', '--kind', 'claude', '--every', '0', topfiles={'home/.config/pstack/kitchen.toml': ('x = [\n', 0o644)}),
+            '--timeout as the sum 1+1': verify('001', '--timeout', '1+1', '--every', '0'),
+            '--timeout as the product 2*15': verify('001', '--timeout', '2*15', '--every', '0'),
+            '--timeout in octal': verify('001', '--timeout', '010', '--every', '0'),
             'a verifier that cannot start': verify('001', '--every', '0', fakefiles={'start-fail': ''}),
             'a verifier that asks whether to trust the folder': verify('001', '--every', '0', fakefiles={'start-fail': '', 'trust-dialog': ''}),
             'a prompt the verifier does not take': verify('001', '--every', '0', promptfail=True),

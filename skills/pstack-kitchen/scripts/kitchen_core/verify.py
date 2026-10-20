@@ -36,7 +36,9 @@ from pstack_core.store import bash_int, event, expected_report, header_field, pa
 from pstack_core.variant import commit_of
 
 from . import kpy
+from .kpy import Kitchen
 from . import verify_state as vs
+from .classify import brief_kitchen, kitchen_snapshot
 from .jqx import pair_jq
 from .landing import is_landing, latest_landing_verdict, manifest_warning
 from .reviews import warn_unreviewed
@@ -132,45 +134,6 @@ def names_path(text, path):
     return status == 0
 
 
-class Kitchen:
-    """The bash's kpy for one store: kitchen.py against the store's repo, in process."""
-
-    def __init__(self, store, root):
-        self.store = store
-        self.root = root
-
-    def call(self, args, show=False):
-        """`kpy "$store" ARGS` as a plain command or assignment: stdout (shown as it was written when show is set, the command's own output). kitchen.py's
-        stderr is shown; a failure ends verify with its status."""
-        status, stdout, stderr = kpy.run(self.root, args)
-        if show:
-            out(stdout)
-        if stderr:
-            warn(stderr)
-        if status != 0:
-            raise Exit(status)
-        return stdout
-
-    def soft(self, args):
-        """`kpy "$store" ARGS` where the caller tests the status: (status, stdout); stderr is shown."""
-        status, stdout, stderr = kpy.run(self.root, args)
-        if stderr:
-            warn(stderr)
-        return status, stdout
-
-    def merged(self, args):
-        """`kpy "$store" ARGS 2>&1`: (status, stdout and stderr together)."""
-        status, stdout, stderr = kpy.run(self.root, args)
-        return status, stdout + stderr
-
-    def elsewhere(self, args):
-        """`python3 kitchen.py ARGS` with no --repo (the roster and the lessons are not the repo's): (status, stdout); stderr is shown."""
-        status, stdout, stderr = kpy.run(None, args)
-        if stderr:
-            warn(stderr)
-        return status, stdout
-
-
 def brief_commands(kit, brief, unit):
     """The brief's Verify commands for a verifier's packet, each in a block of its own, run from the scratch root. A command that ends in
     `# master-only` (on its first or last line) writes the store, and one that names the main checkout or the store cannot run in the scratch; both are
@@ -216,20 +179,6 @@ def landing_covered_briefs(store, root, base, head):
         if inclusion(RecordedUnit(store, brief), index).covered:
             covered.append(brief)
     return covered
-
-
-def kitchen_snapshot(kit):
-    """`kpy "$1" snapshot "$1/kitchens"`: the copy of a host kitchen taken now, or nothing for a repo kitchen."""
-    status, found = kit.soft(['snapshot', f'{kit.store}/kitchens'])
-    if status != 0:
-        raise Die('kitchen.py snapshot failed; run kitchen.py validate in the repo')
-    return found.rstrip('\n')
-
-
-def brief_kitchen(brief):
-    """--config <snapshot> for the brief, as a list; empty for a repo kitchen."""
-    snap = header_field(brief, 'kitchen')
-    return [] if snap in ('', 'repo') else ['--config', snap]
 
 
 def verifier_entry(kit, cls):
@@ -473,7 +422,7 @@ def verify(ctx, args):
             prior_ref = Verdict.parse(prior).refs()[0]
             manifest_warning(store, commit_of(root, prior_ref) or '', base, head)
         # The stack lands under the kitchen as it is now.
-        snap = kitchen_snapshot(kit)
+        snap = kitchen_snapshot(store, root)
         cfg = ['--config', snap] if snap else []
         classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head])
         risk, mode, cls = 'landing', 'unit', 'escalated'
@@ -579,6 +528,8 @@ def verify(ctx, args):
     anchor = field(store, 'sidekick', 'pane_id', empty=True, check=True)
     if not (anchor and herdr('pane', 'get', anchor)[0] == 0):
         anchor = field(store, 'master', 'pane_id', check=True)
+    if pair_jq(store, '.placement // empty') == 'tab':
+        field(store, 'master', 'pane_id', check=True)  # new_pane's `master="$(field ...)"`: a master that is no object ends verify before any herdr call
     with contextlib.redirect_stdout(io.StringIO()):
         pane = new_pane(store, 'verifier', anchor, '', scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={pair_jq(store, ".slug")}'))
     sys.stdout.flush()
@@ -601,7 +552,6 @@ def verify(ctx, args):
     unit_label = 'landing' if landing else f'{last}-{slug}'
     units_label = ' '.join(allunits) if allunits else 'landing'
     deadline = started_at + vs.shell_arithmetic(timeout_m) * 60
-    entry_data = json.loads(entry) if entry else None
     native = list(args_list)
 
     def record_start(doc):
@@ -611,7 +561,7 @@ def verify(ctx, args):
             verifier = doc['verifier']
             verifier['start_args'], verifier['session'], verifier['session_stopped'], verifier['closed'], verifier['launch_cwd'] = native, None, False, False, scratch
         doc['verifying'] = {'verdict': verdict, 'packet': packet, 'brief': brief, 'scratch': scratch_id, 'units': units_label, 'risk': risk, 'sample': sample,
-                            'unit': unit_label, 'started': started_at, 'deadline': deadline, 'class': cls, 'entry': entry_data, 'retried': bool(retry_entry),
+                            'unit': unit_label, 'started': started_at, 'deadline': deadline, 'class': cls, 'entry': json.loads(entry), 'retried': bool(retry_entry),
                             'argv': argv, 'delivered': False}
 
     program = ('.verifier.pane_id = $pane | .verifier.kind = $kind\n'
@@ -622,7 +572,7 @@ def verify(ctx, args):
     update_or_jq(store, record_start, program, '--arg', 'pane', pane, '--arg', 'kind', kind, '--arg', 'verdict', verdict, '--arg', 'packet', packet,
                  '--arg', 'brief', brief, '--arg', 'scratch', scratch_id, '--arg', 'units', units_label, '--arg', 'risk', risk,
                  '--argjson', 'sample', json.dumps(sample), '--arg', 'unit', unit_label, '--argjson', 'started', str(started_at),
-                 '--argjson', 'deadline', str(deadline), '--arg', 'class', cls, '--argjson', 'entry', entry or 'null',
+                 '--argjson', 'deadline', str(deadline), '--arg', 'class', cls, '--argjson', 'entry', entry,
                  '--argjson', 'retried', 'true' if retry_entry else 'false', '--argjson', 'argv', json.dumps(argv), '--argjson', 'native', json.dumps(native),
                  '--arg', 'launch_cwd', scratch)
     vs.set_outcome(packet, 'running')
