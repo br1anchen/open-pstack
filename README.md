@@ -2,9 +2,9 @@
 
 Pstack skills for coding agents (Claude Code, Codex, Pi, Grok Build), with the
 local multi-agent workflows built on them: `pstack-pair`, `pstack-trio` and
-`pstack-kitchen` over Herdr. Split out of a
-Home Manager configuration repo (`nixpkgs-config`) with its history; that repo
-installs it.
+`pstack-kitchen` over Herdr. It needs no particular package or dotfile
+manager: [Install and update](#install-and-update) links the skills from a
+checkout or from any pinned copy.
 
 This repo owns 60 pstack skills in `skills/`, their reference files, helper
 scripts, and MIT license. Start with the
@@ -63,18 +63,15 @@ the shared-skill boundary and adapter approach. Its Claude plugin hooks and
 Claude-specific defaults are not installed. Cursor's tutorial and marketplace
 artwork are not runtime dependencies.
 
-## Sync and update
+## Install and update
 
-The `nixpkgs-config` Home Manager repo takes this repo
-as a flake input (`flake = false`); its `home-manager/pstack.nix` runs the same
-sync script used below against the input's Nix-store snapshot and records the
-input's rev in `~/.local/state/pstack/builds.tsv`. It exposes individual skill links in
-`~/.agents/skills`, `~/.claude/skills`, `~/.pi/agent/skills`, and `~/.grok/skills`.
+`scripts/pstack-sync.py` installs individual skill links in `~/.agents/skills`,
+`~/.claude/skills`, `~/.pi/agent/skills`, and `~/.grok/skills`.
 Existing directory-wide aliases are respected. Codex and generic Agent Skills
 consumers use the shared `.agents` path. Pi and Grok also support that shared
 path; their native links support installations that use only native discovery.
 
-For live editing, sync directly from the checkout:
+From a checkout, the links point at the working tree, so edits are live:
 
 ```bash
 python3 scripts/pstack-sync.py          # status; exit 1 means drift
@@ -85,14 +82,20 @@ python3 scripts/pstack-sync.py          # should show no changes
 Replaced directories, files, and links go under
 `~/.local/state/pstack/backups/install-*/`, preserving their original relative
 paths. Unrelated skills stay in place. A second sync is a no-op. To restore an
-old skill, remove only its generated link and move its saved entry back. For
-links pointing at obsolete Nix generations, prefer rebuilding that generation;
-old store paths can be garbage-collected.
+old skill, remove only its generated link and move its saved entry back.
 
-Edit the repo files, not Nix-store links. A subsequent Home Manager activation
-switches checkout links back to the generation's snapshot. Reload skills or
-start a fresh agent session after changing the installed set. This does not
-install an auto-start hook or enable background services.
+A dotfile manager (Home Manager, chezmoi, yadm, or a plain install
+script) can pin a revision of this repo, put that copy at a stable path, and run
+`python3 <copy>/scripts/pstack-sync.py --apply` (it links the skills beside it) on each
+switch. Edit the checkout, not the pinned copy; the manager's next switch
+points the links back at its copy. To let `kitchen.sh fleet` and kitchen
+feedback name the build a run used, the install step can also append a
+tab-separated line, `<time> <rev> <skills path>`, to
+`${XDG_STATE_HOME:-~/.local/state}/pstack/builds.tsv`; without it the build
+shows as `unknown`.
+
+Reload skills or start a fresh agent session after changing the installed set.
+This does not install an auto-start hook or enable background services.
 
 To update upstream, compare against the pinned revision in `sources.json`,
 merge changes into this vendored tree, and review the runtime adapter and local

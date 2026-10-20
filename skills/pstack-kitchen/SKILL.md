@@ -213,8 +213,8 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `pair.json` `.master.previous` | `kitchen.sh rotate-master`, cleared by `take-master` | the old master during a hand-over, whose pane the new master closes |
 
 Each store's `pair.json` `.skill_builds` lists the skills directories its commands ran from, stamped
-at `init`; a run from before stamps has none and counts as `unknown`. `pstack/builds.tsv`, written at
-each switch, maps a skills directory to the flake rev that built it. `kitchen.sh fleet` reads both,
+at `init`; a run from before stamps has none and counts as `unknown`. `pstack/builds.tsv`, which an install
+step may append to at each switch, maps a skills directory to the revision that built it. `kitchen.sh fleet` reads both,
 and every store, without writing: a row per run and a row per build (`mixed` runs, which ran on more
 than one build, and `unknown` ones stay in their own rows). `retro` takes its verified-unit count from
 the same function: the union of unit ids over clean, non-landing verdicts.
