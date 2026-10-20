@@ -1,5 +1,6 @@
 """The Python core behind pair-core.sh: die parity and the store helpers it duplicates from bash."""
 import calendar
+import functools
 import contextlib
 import inspect
 import io
@@ -8316,7 +8317,23 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         return spec
 
     def wait_mask(self):
-        return [(r'grace [0-9]+s left', 'grace Ns left')]
+        return [(r'grace [0-9]+s left', 'grace Ns left'), (r'\b[0-9]+m of 32m', 'Nm of 32m')]
+
+    def test_the_verify_wait_hides_the_minute_count_it_prints(self):
+        """`verifying: units 001 by claude, Nm of 32m` counts whole minutes since the verification started, and the base run and the port run are two
+        runs: a minute can tick between them. The port side here starts one minute earlier (started and deadline both moved back 60 s, as a tick does),
+        so the two raw outputs differ and the masked ones must not."""
+        now = int(time.time())
+
+        def spec(shift):
+            world = self.wait_world('0', agents={'v1': 'working claude'}, verifying={'started': now - 150 - shift, 'deadline': now + 1800 - shift})
+            return {**world, 'repo_files': {'.agents/kitchen.toml': world.get('toml') or self.KITCHEN_TOML}}
+        want = self.ab_run('vwait20-base', self.phase4_skills(), 'pstack-kitchen', spec(0))
+        got = self.ab_run('vwait20-port', root / 'skills', 'pstack-kitchen', spec(60))
+        self.assertIn('2m of 32m', want['stdout'])
+        self.assertIn('3m of 32m', got['stdout'])
+        masked = lambda text: functools.reduce(lambda t, rule: re.sub(rule[0], rule[1], t), self.wait_mask(), text)
+        self.assertEqual(masked(got['stdout']), masked(want['stdout']))
 
     def test_verify_wait_matches_the_bash_at_the_phase_4_base_for_verdicts(self):
         world, V = self.wait_world, self.vverdict
@@ -8444,7 +8461,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'outside herdr': world(env={'HERDR_ENV': '0'}),
         }
         expect = {
-            'a verifier still working': (4, 'verifying: units 001 by claude, 2m of 32m, verifier working'),
+            'a verifier still working': (4, 'verifying: units 001 by claude, Nm of 32m, verifier working'),
             'a verifier still working, a claim in the store': (4, 'verifying: units 001 by claude'),
             'a verifier that is blocked': (4, 'verifier blocked'),
             'a verifier that is idle, within its time': (4, 'verifier idle'),
