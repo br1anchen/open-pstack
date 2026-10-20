@@ -87,3 +87,30 @@ note: owner deferred to master 2026-10-18: 2 redirect steers in 2 runs over hung
 evidence:
 - 2026-10-16 python-port-2 007: redirect: The step gate for f0a7c9a has hung for over 15 minutes. `test_wait_ab_signals_end_the_command_as_they_end_the_bash`, case sig-4, signalled the base bash `pair.sh wait`. But non-interactive …
 - 2026-10-17 python-port-3 012: redirect: Dropping `--timeout 2000` from 'a working devin whose text stays typed' makes it run on stop's 300000 ms default. The uncommitted run of `test_stop_matches_..._never_sent_the_text` (pid 425…
+
+## L007: When a change narrows the values a command accepts (a status allow-list, a choice set), grep every caller that sends it a value and add a test per value they send before the step.
+
+status: proposed
+kind: catch
+class: gate
+layer: gate
+area: skills/pstack-pair
+since: 2026-10-20
+evidence:
+- 2026-10-18 python-port-4 006: finish's new status allow-list broke plan responses (agree) and guided asks (asking); no test runs finish on either
+
+## L008: A test that waits for a state change triggers it at a fixed point (fake herdr $FAKE/once hooks or a fifo), never waits on time; the test-sleep policy refuses it.
+
+status: proposed
+kind: gate-fail
+class: policy
+match: test-sleep
+layer: policy
+area: skills/pstack-pair
+since: 2026-10-20
+evidence:
+- 2026-10-16 python-port-2 006: tests/test_pstack_core.py:850: [test-sleep] trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BUS…
+- 2026-10-17 python-port-3 009: tests/test_pstack_core.py:703: [test-sleep] trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BUS…
+- 2026-10-17 python-port-3 010: tests/test_pstack_core.py:1092: [test-sleep] trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BU…
+- 2026-10-20 python-port-4 013: tests/test_pstack_kitchen.py:3040: [test-sleep] trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR…
+- 2026-10-20 python-port-4 029: tests/test_pstack_core.py:9312: [test-sleep] trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BU…
