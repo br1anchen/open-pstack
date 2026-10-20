@@ -76,7 +76,7 @@ evidence:
 
 ## L006: A test that drives a waiting command passes it an explicit small timeout or poll bound, never its default; a hung step gate means a test lacks one.
 
-status: active
+status: promoted
 kind: steer
 class: brief
 match: redirect
@@ -84,7 +84,7 @@ layer: brief
 area: skills/pstack-pair
 since: 2026-10-17
 active: 2026-10-17T22:31:31Z
-note: owner deferred to master 2026-10-18: 2 redirect steers in 2 runs over hung step gates
+note: 0786412..55a2e2b tests/run.py per-test timeout with process-group kill, pinned by tests/test_run.py
 evidence:
 - 2026-10-16 python-port-2 007: redirect: The step gate for f0a7c9a has hung for over 15 minutes. `test_wait_ab_signals_end_the_command_as_they_end_the_bash`, case sig-4, signalled the base bash `pair.sh wait`. But non-interactive …
 - 2026-10-17 python-port-3 012: redirect: Dropping `--timeout 2000` from 'a working devin whose text stays typed' makes it run on stop's 300000 ms default. The uncommitted run of `test_stop_matches_..._never_sent_the_text` (pid 425…
