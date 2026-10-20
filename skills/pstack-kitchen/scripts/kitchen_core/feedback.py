@@ -20,6 +20,7 @@ from pstack_core.replies import file_mtime
 from pstack_core.store import alt, event, header_field, jq_raw, pair_file, pair_json
 
 from . import kpy
+from .jqx import exit_status
 from .ledger import counters, retro_line, slug_of
 
 USAGE_FILE = 'usage: kitchen.sh feedback <store> <file>'
@@ -298,7 +299,7 @@ def file_report(ctx, args):
     sys.stderr.flush()
     r = subprocess.run(['jq', '-r', '.skill_builds[0].path // empty', f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
     if r.returncode != 0:
-        raise Exit(r.returncode)
+        raise Exit(exit_status(r.returncode))
     first = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
     put(f'build: {build_rev(first) if first else "unknown"} ({first or "unknown"})\n')
     if first and first != skills_dir:
@@ -364,7 +365,7 @@ def maintainer(ctx, args):
             r = subprocess.run(['jq', '-n', '--argjson', 'i', info.rstrip('\n'), '--arg', 'since', time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), program],
                                stdout=out, check=False)
         if r.returncode != 0:
-            raise Exit(r.returncode)
+            raise Exit(exit_status(r.returncode))
         if jq_r('.name // empty', tmp) == '':
             rm_f(tmp)
             raise Die(f'herdr reports no name for the agent on pane {pane}; name it first')

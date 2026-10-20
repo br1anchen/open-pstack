@@ -9670,6 +9670,18 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 self.assertEqual(dict(os.environ), snapshot, args)
         self.assertEqual(dict(os.environ), before)
 
+    def test_a_child_killed_by_a_signal_has_the_status_a_shell_gives_it(self):
+        """A `$( )` whose command is killed by signal N gives 128+N; waitpid and subprocess say -N, which `sys.exit` would turn into 256-N."""
+        verify, jqx = self.kitchen_core_module('verify'), self.kitchen_core_module('jqx')
+        for name, number, want in (('TERM', signal.SIGTERM, 143), ('KILL', signal.SIGKILL, 137), ('HUP', signal.SIGHUP, 129)):
+            bash = subprocess.run(['bash', '-c', f'out="$(sh -c "kill -{name} \\$\\$")"; echo $?'], capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(bash, str(want))
+            code, out = verify.in_subshell(lambda: os.kill(os.getpid(), number))
+            self.assertEqual((code, out), (want, ''), name)
+            sub = subprocess.run(['sh', '-c', f'kill -{name} $$'], check=False)
+            self.assertEqual(jqx.exit_status(sub.returncode), want, name)
+        self.assertEqual([jqx.exit_status(n) for n in (0, 1, 4, 255)], [0, 1, 4, 255])
+
     def test_step_kpy_call_leaves_the_environment_alone(self):
         """step reaches kitchen.py's `--json classify --base --head` in process (the gates, the policy check and brief-verify run in the detached scripts, as
         `python3 kitchen.py` children, so what they write to os.environ is theirs)."""

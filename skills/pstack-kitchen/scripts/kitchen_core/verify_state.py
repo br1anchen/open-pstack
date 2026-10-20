@@ -23,7 +23,7 @@ from pstack_core.store import bash_int, event, header_field, update, update_or_j
 from pstack_core.send import submit_typed
 from pstack_core.wait import bash_sleep
 
-from .jqx import pair_jq
+from .jqx import exit_status, pair_jq
 
 
 def hostname():
@@ -221,7 +221,7 @@ def scratch_process(ctx, store, scratch, *options, capture=False):
     sys.stderr.flush()
     env = {**os.environ, 'PAIR_SHELL_PID': str(shell_pid())}
     r = subprocess.run(pycore_argv(ctx, 'scratch', store, scratch, *options), env=env, stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False)
-    return r.returncode, r.stdout.decode('utf-8', 'surrogateescape') if capture else ''
+    return exit_status(r.returncode), r.stdout.decode('utf-8', 'surrogateescape') if capture else ''
 
 
 def remove_scratch(ctx, store, scratch):

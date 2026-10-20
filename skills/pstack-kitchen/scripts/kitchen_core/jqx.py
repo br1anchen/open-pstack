@@ -11,6 +11,11 @@ from pstack_core.commands.report import MISSING_PAIR
 from pstack_core.errors import Exit
 
 
+def exit_status(returncode):
+    """The status a shell reports for a child: 128 plus the signal number when a signal killed it (subprocess and waitpid give -N)."""
+    return 128 - returncode if returncode < 0 else returncode
+
+
 def pair_jq(store, program, check=False, quiet=False):
     """`jq -r PROGRAM pair.json`, stdout without its trailing newlines. With check, a jq failure ends the command with jq's status, as a failing
     assignment does under set -e."""
@@ -18,7 +23,7 @@ def pair_jq(store, program, check=False, quiet=False):
     sys.stderr.flush()
     r = subprocess.run(['jq', '-r', program, f'{store}/pair.json'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL if quiet else None, check=False)
     if check and r.returncode != 0:
-        raise Exit(r.returncode)
+        raise Exit(exit_status(r.returncode))
     return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
 
 

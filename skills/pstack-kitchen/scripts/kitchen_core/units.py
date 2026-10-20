@@ -18,7 +18,7 @@ from pstack_core.review import range_floor, steps_file, trunk_ref
 from pstack_core.store import expected_report, header_field, jq_raw, last_line, pair_json
 from pstack_core.variant import commit_of
 
-from .jqx import pair_jq
+from .jqx import exit_status, pair_jq
 
 
 def _text(data):
@@ -50,7 +50,7 @@ def git(root, *args, quiet=False, stdin=None):
     sys.stdout.flush()
     sys.stderr.flush()
     r = subprocess.run(['git', '-C', root, *args], input=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL if quiet else None, check=False)
-    return r.returncode, _text(r.stdout)
+    return exit_status(r.returncode), _text(r.stdout)
 
 
 def is_ancestor(root, older, newer):

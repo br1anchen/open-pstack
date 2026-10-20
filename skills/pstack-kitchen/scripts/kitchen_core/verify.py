@@ -39,7 +39,7 @@ from . import kpy
 from .kpy import Kitchen
 from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
-from .jqx import pair_jq
+from .jqx import exit_status, pair_jq
 from .landing import is_landing, latest_landing_verdict, manifest_warning
 from .reviews import warn_unreviewed
 from .units import StackIndex, Verdict, brief_or_nothing, git, git_root, heads_in, inclusion, is_ancestor, landing_base, unit_brief, unit_head, unit_range
@@ -72,7 +72,7 @@ def run(argv, stdin=None, stderr=None):
     sys.stdout.flush()
     sys.stderr.flush()
     r = subprocess.run(argv, input=None if stdin is None else data_of(stdin), stdout=subprocess.PIPE, stderr=stderr, check=False)
-    return r.returncode, text_of(r.stdout)
+    return exit_status(r.returncode), text_of(r.stdout)
 
 
 def jq(text, program, *args, compact=False, quiet=False):
@@ -297,7 +297,7 @@ def in_subshell(call, merge=True):
         chunks.append(chunk)
     os.close(reader)
     _, status = os.waitpid(pid, 0)
-    return os.waitstatus_to_exitcode(status), text_of(b''.join(chunks)).rstrip('\n')
+    return exit_status(os.waitstatus_to_exitcode(status)), text_of(b''.join(chunks)).rstrip('\n')
 
 
 def tail_lines(text, count):

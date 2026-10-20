@@ -20,7 +20,7 @@ from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.store import bash_int, event
 from pstack_core.wait import die_with_the_shell
 
-from .jqx import field
+from .jqx import exit_status, field
 from .verify import in_subshell
 from .verify_state import shell_arithmetic
 
@@ -29,7 +29,7 @@ def poll_sleep(text):
     """`sleep "$KITCHEN_QUIET_POLL_S"`: the sleep command itself, as the bash ran it (a PATH that puts another sleep first, as a test's, is honoured), and
     a refusal ends the wait as set -e does."""
     sys.stdout.flush()
-    code = subprocess.run(['sleep', text], check=False).returncode
+    code = exit_status(subprocess.run(['sleep', text], check=False).returncode)
     if code:
         raise Exit(code)
 

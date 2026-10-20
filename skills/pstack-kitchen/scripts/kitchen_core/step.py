@@ -27,7 +27,7 @@ from pstack_core.wait import die_with_the_shell
 
 from . import kpy
 from .classify import brief_kitchen
-from .jqx import field, pair_jq
+from .jqx import exit_status, field, pair_jq
 from .units import git
 from .verify_state import shell_arithmetic
 from .wait import poll_sleep
@@ -179,7 +179,7 @@ def step(ctx, args):
         with open(f'{job}/profiles', 'wb') as f:
             f.write(listed.stdout)
         if listed.returncode != 0:
-            raise Exit(listed.returncode)
+            raise Exit(exit_status(listed.returncode))
         with open(f'{job}/base', 'w') as f:
             f.write(base + '\n')
         detached(STEP_SCRIPT, ['kitchen-step', root, str(kpy.KITCHEN_PY), job, base, full, cfg[1] if cfg else ''], f'{job}/out.{run}', store)
