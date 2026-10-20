@@ -9,38 +9,11 @@ import sys
 import tempfile
 
 from pstack_core.collate import glob_sorted
-from pstack_core.review import steps_file
 from pstack_core.spawn import field
-from pstack_core.store import expected_report, header_field, jq_raw, pair_json
-from pstack_core.variant import commit_of
+from pstack_core.store import header_field, jq_raw, pair_json
 
 from . import kpy
-
-
-def unit_head(store, brief):
-    """A unit's head: its report's head:, else its last recorded step; '' when neither names a commit."""
-    root = jq_raw(pair_json(store).get('git_root'))
-    report = expected_report(store, brief)
-    head = ''
-    if os.path.isfile(report):
-        head = commit_of(root, header_field(report, 'head')) or ''
-    if not head:
-        steps = steps_file(store, brief)
-        if os.path.isfile(steps) and os.path.getsize(steps) > 0:
-            with open(steps, 'rb') as f:
-                last = f.read().decode('utf-8', 'surrogateescape').rstrip('\n').split('\n')[-1].split('\t')
-            head = commit_of(root, last[1] if len(last) > 1 else '') or ''
-    return head
-
-
-def dispatch_head(store, brief):
-    """`jq -r --arg u <brief name> '.heads[$u] // empty' pair.json`: jq's own error for a heads that is not an object."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    name = os.path.basename(brief)
-    name = name[:-3] if name.endswith('.md') else name
-    r = subprocess.run(['jq', '-r', '--arg', 'u', name, '.heads[$u] // empty', f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
-    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+from .units import dispatch_head, unit_head
 
 
 def git_ok(root, *args, output=None):

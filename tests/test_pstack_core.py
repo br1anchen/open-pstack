@@ -7251,6 +7251,282 @@ stop_prime_role "$store" sidekick && echo "stopped"
             r = run('log', str(store), 'p')
             self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>\n'), skill)
 
+    # ---- unit 025: kitchen_core.units against kitchen.sh's own functions at b632713 ----
+
+    def kitchen_core_module(self, name):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        return __import__(f'kitchen_core.{name}', fromlist=[name])
+
+    def phase4_bash(self, store, snippet, cwd=None):
+        """snippet run with b632713's kitchen.sh sourced (its last two lines, which run the command, left out): (status, stdout, stderr)."""
+        lib = self.phase4_skills() / 'pstack-kitchen/scripts/kitchen-lib.sh'
+        if not lib.exists():
+            lib.write_text(''.join(lib.with_name('kitchen.sh').read_text().splitlines(keepends=True)[:-2]))
+        env = {**self.env, **self.GIT, 'HOME': str(self.path / 'home'), 'STORE': str(store)}
+        r = subprocess.run(['bash', '-c', f'. {shlex.quote(str(lib))}\nset +e\n{snippet}'], env=env, cwd=cwd or self.path, capture_output=True, text=True,
+                           check=False, timeout=300)
+        return r.returncode, r.stdout, r.stderr
+
+    def units_world(self, name):
+        """A repo and store for the unit model: a unit branch (u1 adds a line after line 10, u2 a file), a deletion-only unit, a merge unit and a
+        trunk; stacks built on the trunk by cherry-picking, reverting, editing and squashing them."""
+        top = self.path / name
+        repo, st = top / 'repo', top / 'st'
+        env = {**self.env, **self.GIT}
+        repo.mkdir(parents=True)
+        for d in ('briefs', 'reports', 'steps', 'verdicts'):
+            (st / d).mkdir(parents=True)
+
+        def g(*a):
+            return subprocess.run(['git', '-C', str(repo), *a], env=env, capture_output=True, text=True, check=True, timeout=120).stdout.strip()
+
+        def w(rel, text):
+            (repo / rel).write_text(text)
+
+        def commit(msg):
+            g('add', '-A')
+            g('commit', '-q', '-m', msg)
+            return g('rev-parse', 'HEAD')
+
+        lines = [f'line {k}\n' for k in range(1, 31)]
+        g('init', '-q', '-b', 'main')
+        w('a.txt', ''.join(lines))
+        w('d.txt', ''.join(f'd{k}\n' for k in range(1, 6)))
+        base = commit('base')
+        g('checkout', '-q', '-b', 'unit')
+        w('a.txt', ''.join(lines[:10] + ['half\n'] + lines[10:]))
+        u1 = commit('u1')
+        w('c.txt', 'C\n')
+        u2 = commit('u2')
+        g('checkout', '-q', '-b', 'del', base)
+        w('d.txt', 'd1\nd2\nd3\n')
+        del1 = commit('del')
+        g('checkout', '-q', '-b', 'mrg', base)
+        w('m1.txt', 'm1\n')
+        m1 = commit('m1')
+        g('checkout', '-q', '-b', 'side', base)
+        w('m2.txt', 'm2\n')
+        s1 = commit('s1')
+        g('checkout', '-q', 'mrg')
+        g('merge', '--no-ff', '-q', '-m', 'merge', 'side')
+        merged = g('rev-parse', 'HEAD')
+        g('checkout', '-q', '-b', 'trunk', base)
+        w('t.txt', 'T\n')
+        trunk = commit('trunk')
+        g('update-ref', 'refs/remotes/origin/main', trunk)
+        stacks = {'unit': (base, u2)}
+
+        def stack(label, steps):
+            g('checkout', '-q', '-b', label, trunk)
+            made = []
+            for step in steps:
+                if step[0] == 'pick':
+                    g('cherry-pick', step[1])
+                elif step[0] == 'revert':
+                    g('revert', '--no-edit', made[step[1]])
+                elif step[0] == 'edit':
+                    w(step[1], step[2])
+                    commit(step[3])
+                elif step[0] == 'squash':
+                    g('cherry-pick', '-n', *step[1])
+                    commit('squash')
+                made.append(g('rev-parse', 'HEAD'))
+            stacks[label] = (trunk, g('rev-parse', 'HEAD'))
+            return made
+
+        near = ''.join(lines[:10] + ['half\n'] + lines[10:12] + ['line 13 edited\n'] + lines[13:])
+        stack('plain', [('pick', u1), ('pick', u2)])
+        stack('reverted', [('pick', u1), ('pick', u2), ('revert', 0)])
+        stack('nearby', [('pick', u1), ('edit', 'a.txt', near, 'nearby'), ('pick', u2), ('revert', 0)])
+        stack('squash', [('squash', [u1, u2])])
+        stack('partial', [('pick', u1)])
+        stack('reapplied', [('pick', u1), ('pick', u2), ('revert', 0), ('pick', u1)])
+        stack('moved', [('pick', u1), ('edit', 'a.txt', ''.join(lines[:20] + ['half\n'] + lines[20:]), 'moved'), ('pick', u2)])
+        stack('deletion', [('pick', del1)])
+        stack('merges', [('pick', m1)])
+        g('checkout', '-q', 'main')
+        shas = {'base': base, 'u1': u1, 'u2': u2, 'del': del1, 'merged': merged, 'trunk': trunk, 'm1': m1, 's1': s1}
+        units = {'001-a': u2, '002-b': u1, '003-del': del1, '004-mrg': merged, '005-nobase': u2, '006-nohead': None, '007-steps': None,
+                 '008-badbase': u2, '009-badreport': None}
+        heads = {n: base for n in units if n not in ('005-nobase',)}
+        heads['008-badbase'] = 'nothere'
+        pair = {'git_root': str(repo), 'cwd': str(repo), 'heads': heads, 'master': {'name': 'm1'}}
+        (st / 'pair.json').write_text(json.dumps(pair, indent=2) + '\n')
+        for n, head in units.items():
+            (st / f'briefs/{n}.md').write_text(f'# Brief {n}\n\ncommit: yes\n')
+            if head:
+                (st / f'reports/{n}.md').write_text(f'# Report\n\nstatus: done\nhead: {head}\n')
+        (st / 'reports/009-badreport.md').write_text('# Report\n\nstatus: done\nhead: not-a-commit\n')
+        (st / 'steps/007-steps.tsv').write_text(f'1\t{u1}\tfirst\n')
+        return st, repo, shas, stacks, units
+
+    @staticmethod
+    def inclusion_row(unit, inc):
+        """The bash's `rc sha why by` for an Inclusion: rc 0 when the unit is covered."""
+        return [0 if inc.covered else 1, inc.sha, inc.reason, inc.by]
+
+    def test_the_unit_model_equals_the_bash_functions_at_the_phase_4_base(self):
+        units = self.kitchen_core_module('units')
+        st, repo, shas, stacks, recorded = self.units_world('uworld')
+        names = list(recorded)
+        bases = {'trunk': None, 'empty': '', 'base': shas['base']}
+        seen = {}
+        for label, (stack_base, head) in stacks.items():
+            for which, override in bases.items():
+                sbase = stack_base if override is None else override
+                script = (f'for n in {" ".join(names)}; do b="$STORE/briefs/$n.md"; uh="$(unit_head "$STORE" "$b")"\n'
+                          f'  if unit_in_landing_range "$STORE" "$b" "$uh" "{sbase}" "{head}"; then rc=0; else rc=$?; fi\n'
+                          '  printf "range %s %s %s|%s|%s|%s\\n" "$n" "${uh:0:9}" "$rc" "$rebased_sha" "$rebased_why" "$rebased_by"\n'
+                          f'  if unit_rebased_in "$STORE" "$b" "$uh" "{sbase}" "{head}"; then rc=0; else rc=$?; fi\n'
+                          '  printf "rebased %s %s|%s|%s|%s\\n" "$n" "$rc" "$rebased_sha" "$rebased_why" "$rebased_by"\n'
+                          'done\n')
+                rc, out, err = self.phase4_bash(st, script)
+                self.assertEqual(rc, 0, (label, which, err))
+                index = units.StackIndex.build(str(repo), sbase, head)
+                got = []
+                for n in names:
+                    unit = units.RecordedUnit(str(st), f'{st}/briefs/{n}.md')
+                    row = self.inclusion_row(unit, units.inclusion(unit, index))
+                    got.append(f'range {n} {unit.head[:9]} {row[0]}|{row[1]}|{row[2]}|{row[3]}')
+                    row = self.inclusion_row(unit, units.rebased_in(unit, index))
+                    got.append(f'rebased {n} {row[0]}|{row[1]}|{row[2]}|{row[3]}')
+                self.assertEqual(got, out.splitlines(), (label, which))
+                seen[label, which] = got
+        rows = [re.fullmatch(r'range (\S+) (\S*) (\d)\|(\w*)\|(\w*)\|(\w*)', line) for lines in seen.values() for line in lines if line.startswith('range')]
+        self.assertNotIn(None, rows)
+        shapes = {('covered' if m[3] == '0' else 'not covered', 'sha' if m[4] else 'no sha', m[5]) for m in rows}
+        # a rebased unit, a direct one, a refused merge, a revert, and units the stack does not carry
+        self.assertEqual(shapes, {('covered', 'sha', ''), ('covered', 'no sha', ''), ('not covered', 'no sha', ''), ('not covered', 'no sha', 'merge'),
+                                  ('not covered', 'no sha', 'reverted')})
+        reverted = seen['reverted', 'trunk']
+        self.assertTrue(any(line.startswith('range 002-b') and '|reverted|' in line for line in reverted), reverted)
+
+    def test_the_patch_ids_the_unit_model_reads_equal_the_bash_commit_patch_id(self):
+        units = self.kitchen_core_module('units')
+        st, repo, shas, stacks, recorded = self.units_world('upatch')
+        commits = [c for c in subprocess.run(['git', '-C', str(repo), 'rev-list', '--all'], capture_output=True, text=True, check=True).stdout.split()]
+        script = ('for c in ' + ' '.join(commits) + '; do\n'
+                  f'  printf "%s|%s|%s|%s|%s\\n" "$c" "$(commit_patch_id {repo} "$c")" "$(commit_patch_id {repo} "$c" "" -U0)" '
+                  f'"$(commit_patch_id {repo} "$c" -R)" "$(commit_patch_id {repo} "$c" -R -U0)"\n'
+                  'done\n')
+        rc, out, err = self.phase4_bash(st, script)
+        self.assertEqual(rc, 0, err)
+        got = [f'{c}|{units.patch_id(str(repo), c)}|{units.patch_id(str(repo), c, u0=True)}|{units.patch_id(str(repo), c, inverse=True)}|'
+               f'{units.patch_id(str(repo), c, inverse=True, u0=True)}' for c in commits]
+        self.assertEqual(got, out.splitlines())
+        self.assertTrue(any(line.split('|')[1] for line in got))
+
+    def test_the_stack_index_matches_the_bash_stack_arrays_and_gives_a_shared_patch_id_to_the_newer_commit(self):
+        units = self.kitchen_core_module('units')
+        st, repo, shas, stacks, recorded = self.units_world('uindex')
+        base, head = stacks['reapplied']
+        script = (f'stack_patch_ids {repo} {base} {head}\n'
+                  'for c in "${stack_commits[@]}"; do printf "%s %s %s %s\\n" "$c" "${stack_index[$c]}" "${stack_id_of[$c]}" "${stack_id0_of[$c]}"; done\n'
+                  'for i in "${!stack_ids[@]}"; do printf "id %s %s\\n" "$i" "${stack_ids[$i]}"; done | sort\n')
+        rc, out, err = self.phase4_bash(st, script)
+        self.assertEqual(rc, 0, err)
+        index = units.StackIndex.build(str(repo), base, head).load()
+        got = [f'{c} {index.position[c]} {index.id_of[c]} {index.id0_of[c]}' for c in index.commits]
+        got += sorted(f'id {i} {c}' for i, c in index.by_id.items())
+        self.assertEqual(got, out.splitlines())
+        # u1 was picked twice: its patch-id belongs to the newer pick
+        self.assertEqual(index.by_id[index.id_of[index.commits[0]]], index.commits[-1])
+
+    def test_heads_in_equals_unit_heads_in_at_the_phase_4_base(self):
+        units = self.kitchen_core_module('units')
+        st, repo, shas, stacks, recorded = self.units_world('uheads')
+        lists = [['002', '001'], ['001', '002'], ['003', '001'], ['007', '001'], ['006', '001'], ['004', '001'], ['009', '001'], ['002', '003', '001'], ['001'], ['010', '001']]
+        outcomes, said = set(), ''
+        for label, (stack_base, head) in stacks.items():
+            subprocess.run(['git', '-C', str(repo), 'checkout', '-q', label], check=True, env={**self.env, **self.GIT})
+            for names in lists:
+                rc, out, err = self.phase4_bash(st, f'( set -e; unit_heads_in "$STORE" {head} {" ".join(names)} ); echo "rc=$?"', cwd=repo)
+                buf, status = io.StringIO(), 0
+                with contextlib.redirect_stderr(buf):
+                    try:
+                        units.heads_in(str(st), head, names)
+                    except Die as e:
+                        buf.write(f'kitchen.sh: {e.message}\n')
+                        status = e.code
+                lines = out.splitlines()
+                self.assertEqual((status, buf.getvalue()), (int(lines[-1].removeprefix('rc=')), err), (label, names))
+                outcomes.add(err.split(':')[0] if err else '')
+                said += err
+        self.assertTrue({'note', '', 'kitchen.sh'} <= outcomes, outcomes)
+        for text in ('has no usable head', '(rebased as ', 'reverts them in the checked-out head', 'is not in the checked-out head', 'no brief for unit'):
+            self.assertIn(text, said)
+
+    def test_unit_head_and_unit_brief_equal_the_bash(self):
+        units = self.kitchen_core_module('units')
+        st, repo, shas, stacks, recorded = self.units_world('uhead')
+        script = ('for n in ' + ' '.join(recorded) + ' 010-nobrief; do b="$STORE/briefs/$n.md"; printf "head %s %s\\n" "$n" "$(unit_head "$STORE" "$b")"; done\n'
+                  'for n in 001 002 009 010 011; do printf "brief %s %s\\n" "$n" "$(unit_brief "$STORE" "$n" 2>&1 | sed "s|$STORE|<S>|")"; done\n')
+        rc, out, err = self.phase4_bash(st, script)
+        self.assertEqual(rc, 0, err)
+        got = [f'head {n} {units.unit_head(str(st), f"{st}/briefs/{n}.md")}' for n in [*recorded, '010-nobrief']]
+        for n in ('001', '002', '009', '010', '011'):
+            try:
+                found = units.unit_brief(str(st), n).replace(str(st), '<S>')
+            except Die as e:
+                found = f'kitchen.sh: {e.message}'
+            got.append(f'brief {n} {found}')
+        self.assertEqual(got, out.splitlines())
+        self.assertIn(f'head 007-steps {shas["u1"]}', got)
+        self.assertIn('brief 010 kitchen.sh: no brief for unit 010', got)
+
+    def test_verdict_parse_equals_verdict_range_and_verdict_problem(self):
+        units = self.kitchen_core_module('units')
+        st, repo, shas, stacks, recorded = self.units_world('uverdict')
+        fence = '```'
+        body = f'## Evidence\n\n{fence}\nout\n{fence}\n{fence}\nmore\n{fence}\n'
+        cases = {
+            'clean': f'# V\n\nstatus: clean\nunits: landing\nrange: a..b\n\n{body}',
+            'words after the head': f'# V\n\nstatus: clean\nunits: landing 001\nrange: aaa..bbb from the packet\n\n{body}',
+            'no dots': '# V\n\nstatus: reject\nunits: 001\nrange: abc\n\n' + body,
+            'no range': '# V\n\nstatus: reject\nunits: 001\n\n' + body,
+            'empty base': f'# V\n\nstatus: clean\nunits: landing\nrange: ..bbb\n\n{body}',
+            'empty head': f'# V\n\nstatus: clean\nunits: landing\nrange: aaa..\n\n{body}',
+            'two dots twice': f'# V\n\nstatus: clean\nunits: landing\nrange: a..b..c\n\n{body}',
+            'a tab after the head': f'# V\n\nstatus: clean\nunits: landing\nrange: a..b\tx\n\n{body}',
+            'a bad status': f'# V\n\nstatus: maybe\nunits: 001\nrange: a..b\n\n{body}',
+            'no status': f'# V\n\nunits: 001\nrange: a..b\n\n{body}',
+            'one fence': f'# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n{fence}\nout\n',
+            'fences after another section': f'# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n{fence}\n## Notes\n{fence}\n',
+            'evidence heading with words': f'# V\n\nstatus: clean\nunits: 001\n\n## Evidence of it\n{fence}\n{fence}\n',
+        }
+        paths = {}
+        for n, (name, text) in enumerate(cases.items()):
+            paths[name] = st / f'verdicts/{n:03d}-v1.md'
+            paths[name].write_text(text)
+        packet = st / 'verdicts/001-v1-packet.md'
+        packet.write_text('# P\n\nrange: pppp..qqqq\n')
+        script = ('for v in ' + ' '.join(shlex.quote(str(p)) for p in [*paths.values(), st / 'verdicts/missing.md']) + '; do\n'
+                  '  printf "%s|%s|%s|%s\\n" "$(verdict_range "$v")" "$(header_field "$v" status)" "$(header_field "$v" units)" "$(verdict_problem "$v")"\n'
+                  'done\n')
+        rc, out, err = self.phase4_bash(st, script)
+        self.assertEqual(rc, 0, err)
+        got = []
+        for p in [*paths.values(), st / 'verdicts/missing.md']:
+            v = units.Verdict.parse(str(p))
+            got.append(f'{" ".join(v.refs())}|{v.status}|{v.units}|{v.problem}')
+        # verdict_range prints "<base> <head>" before `read -r` splits it, so the raw halves are compared as printed
+        raw = []
+        for p in [*paths.values(), st / 'verdicts/missing.md']:
+            v = units.Verdict.parse(str(p))
+            raw.append(f'{v.range_base} {v.range_head}|{v.status}|{v.units}|{v.problem}')
+        self.assertEqual(raw, out.splitlines())
+        self.assertTrue(units.Verdict.parse(str(paths['words after the head'])).landing)
+        self.assertFalse(units.Verdict.parse(str(paths['no dots'])).landing)
+        self.assertEqual(units.Verdict.parse(str(paths['empty base'])).refs(), ('bbb', ''))
+        # the packet beside a verdict wins
+        self.assertEqual(got[1].split('|')[0], 'pppp qqqq')
+        self.assertEqual(got[0].split('|')[0], 'a b')
+
 
 class BashReachTests(unittest.TestCase):
     """tests/bash_reach.py on small synthetic scripts."""
