@@ -87,7 +87,7 @@ class CoreTests(unittest.TestCase):
 
     # Bash helpers whose bodies left the working tree once their last caller moved to Python. A snippet that names one runs from the tree at
     # e6e83e3, where they are still defined: the oracle the Python twins are compared with.
-    DELETED_BASH = ('check_scope', 'checkin', 'finish_wait', 'fresh_reply', 'mark_seen', 'noted_through', 'pending_report', 'progress_path',
+    DELETED_BASH = ('expected_report', 'file_mtime', 'trunk_ref', 'range_floor', 'steps_file', 'detached', 'check_scope', 'checkin', 'finish_wait', 'fresh_reply', 'mark_seen', 'noted_through', 'pending_report', 'progress_path',
                     'prompt_sidekick', 'prune_pending', 'queue_note', 'record_dispatch', 'record_sent', 'reply_mode', 'review_base', 'review_delta',
                     'scope_entry_exists', 'seen_reply', 'send_and_wait', 'sidekick_activity', 'status_paths', 'steer_scope_entries', 'tree_activity',
                     'unreviewed_steps', 'wait_for_reply', 'withheld_report', 'wait_opts', 'prime_steer', 'steps_due', 'report_ready',
@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', 'catch', 'classify', 'close', 'consultant', 'discuss', 'dispatch', 'feedback', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'stop', 'take-master', 'verify', 'wait')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', 'catch', 'classify', 'close', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -1928,6 +1928,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         files = {rel: re.sub(r'\A[0-9]+\n\Z', '<PID>\n', text) if rel.endswith('wait.pid') else text for rel, text in files.items()}
         # directories too (standing order 26): a lock left held, a scratch directory that was not emptied
         files.update({str(d.relative_to(st)) + '/': '' for d in sorted(st.rglob('*')) if d.is_dir() and not d.is_symlink()})
+        # skip: store paths a case leaves out of the comparison because a detached job is still writing under them when the command returns
+        files = {rel: text for rel, text in files.items() if not rel.startswith(tuple(spec.get('skip', ('\0',))))}
         events = [norm(l).split('\t', 2)[2] for l in (st / 'events.tsv').read_text(errors='surrogateescape').splitlines()]
         calls = norm((top / 'fake/calls.log').read_text()) if (top / 'fake/calls.log').exists() else ''
         # Unit 006: an error a command prints under kitchen.sh now starts `kitchen.sh:`; the bases print `pair.sh:` there.
@@ -3503,7 +3505,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         want = self.ab_run(f'{label}-base', bases, 'pstack-kitchen', spec)
         got = self.ab_run(f'{label}-port', root / 'skills', 'pstack-kitchen', spec)
         for outcome, tag in ((want, 'base'), (got, 'port')):
-            outcome['state'] = self.state_tree(self.path / f'{label}-{tag}' / 'state', self.path / f'{label}-{tag}')
+            outcome['state'] = {} if spec.get('skip') else self.state_tree(self.path / f'{label}-{tag}' / 'state', self.path / f'{label}-{tag}')
         mask = lambda o, tree: json.loads(re.sub(r'(\.(?:closing|filing|maintainer)-)[A-Za-z0-9]{6}', r'\1<R>', json.dumps(o).replace(json.dumps(str(tree))[1:-1], '<SK>')))
         masked = [mask(got, root / 'skills'), mask(want, bases)]
         # the scratch worktree is named for the store's directory, and the two worlds' directories carry the label
@@ -7212,9 +7214,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss', 'spawn')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
     TWINS = ('event', 'header_field', 'paused_reason',
-             'steps_file', 'trunk_ref', 'range_floor', 'require_filled',
+             'require_filled',
              'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'json_update', 'pair_file',
-             'expected_report', 'fresh_per_brief', 'file_mtime',
+             'fresh_per_brief',
              'require_not_paused',
              'require_fresh_session', 'submit_typed',
              'in_herdr', 'latest_advice', 
@@ -7224,9 +7226,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # The bash bodies no entry script reaches. Phase 3 ended with none: a body that loses its last caller is deleted in the commit that orphans it,
     # and the guard has no baseline to add it to.
     KNOWN_DEAD = ()
-    # kitchen.sh keeps the pair's commands under core_* names (copy_fn) and wraps them
-    KITCHEN_ALIASES = {'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
-    KITCHEN_WRAPS = ('step', 'finish')
+    # kitchen.sh keeps none of the pair's commands under core_* names (copy_fn is gone): every command it has is a pycore shim
+    KITCHEN_ALIASES = {}
+    KITCHEN_WRAPS = ()
 
     def reach(self):
         cls = type(self)
@@ -7274,7 +7276,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # commands the scripts call that a host may lack: column (kitchen.sh :1867, retro's table), setsid (pair-core.sh :212, the detach, which falls
     # back to perl) and perl (kitchen.sh :131 and :133, the brief header edits, and :1068, a verifier-outcome edit; consultant-core.sh :199 and :230;
     # the setsid fallback in pair-core.sh :215; and prime.py's timeout where coreutils has no timeout(1), which is Python, not bash, so not scanned)
-    OPTIONAL_HOST_COMMANDS = frozenset(('perl', 'setsid'))
+    OPTIONAL_HOST_COMMANDS = frozenset(('perl',))
 
     def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
         reach = self.reach()
@@ -7285,8 +7287,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     # kitchen.sh functions verify (units 026 and 027) still calls, with their kitchen_core twin and the test that runs both on the same fixtures. Unit 027
     # deletes the bash and this entry with it.
-    KITCHEN_TWINS = {  # kitchen.sh functions with a kitchen_core twin that bash still calls (step and finish use brief_kitchen; unit 029 deletes it)
-        'brief_kitchen': ('classify', 'brief_kitchen', 'test_brief_kitchen_equals_the_bash'),
+    KITCHEN_TWINS = {  # kitchen.sh functions with a kitchen_core twin that bash still calls
         'record_skill_build': ('setup', 'record_skill_build', 'test_record_skill_build_equals_the_bash'),  # the top-level line of kitchen.sh still calls it (unit 029)
     }
 
@@ -7321,7 +7322,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
                     # the trio's and the kitchen's stop is consultant-core's; every other ported command's final body is pair-core's
                     home = self.CONSULTANT_CORE if name == 'stop' and entry in self.CONSULTANT_ENTRIES else self.CORE
-                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'dispatch', 'init', 'spawn', 'wait'):
+                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'dispatch', 'finish', 'init', 'spawn', 'step', 'wait'):
                         home = entry  # the kitchen's own command, run from its variant
                     if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
                         home = entry  # the trio's own command, run from its variant
@@ -7336,10 +7337,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if entry != 'pstack-pair-guided/scripts/pair.sh':
                 self.assertIsNone(reach.final(root / 'skills' / entry, 'cmd_answer'), entry)
 
-    def test_kitchen_keeps_exactly_these_copy_fn_snapshots_of_the_pair_core_bodies(self):
+    def test_kitchen_sh_keeps_no_copy_fn_snapshot_of_a_pair_core_body(self):
+        """Unit 029 ended the last snapshots: every command kitchen.sh has is a pycore shim, and none of the pair's commands lives on under a core_* name."""
+        text = (root / 'skills/pstack-kitchen/scripts/kitchen.sh').read_text()
+        self.assertNotIn('copy_fn', text)
         table = self.reach().tables[(root / 'skills/pstack-kitchen/scripts/kitchen.sh').resolve()]
         self.assertEqual({name: d.alias_of.key for name, d in table.items() if d.alias_of}, self.KITCHEN_ALIASES)
-        for name in ('init', 'spawn', 'queue', 'discuss', 'consultant', 'fleet', 'wait', 'dispatch'):
+        self.assertEqual(self.KITCHEN_ALIASES, {})
+        for name in ('init', 'spawn', 'queue', 'discuss', 'consultant', 'fleet', 'wait', 'dispatch', 'step', 'finish'):
             self.assertEqual(table[f'cmd_{name}'].key, f'pstack-kitchen/scripts/kitchen.sh:cmd_{name}')
             self.assertNotIn(f'core_{name}', table)
 
@@ -9251,6 +9256,141 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('risk: routine', out['a quiet check-in, then the quiet wait']['stdout'])
         for name in ('a landing brief that land-check passes', 'a landing brief under the shipping playbook'):
             self.assertNotIn('risk:', out[name]['stdout'], f'{name}: a landing brief is not classified')
+
+    def step_world(self, *args, **extra):
+        """Unit 002 dispatched at u1 on the launch world's repo (HEAD is k1, the last commit); `step <store> ARGS`. Each gate command is `true`, so the
+        profiles the commits touch pass, unless a case brings its own kitchen."""
+        sidekick = {'sidekick': {'kind': 'claude', 'generation': 1, 'name': 's1', 'pane_id': 'p1'}, 'dispatch': {'brief': '{st}/briefs/002-y.md', 'head': '{u1}'}}
+        env = {'KITCHEN_STEP_POLL_S': '0.05', 'PSTACK_KITCHEN_SLOT_POLL_S': '0.05', 'KITCHEN_STEP_SLICE_S': '60', 'PSTACK_KITCHEN_RETRY_LOAD': 'off', **extra.pop('env', {})}
+        pair = {**sidekick, **extra.pop('pair', {})}
+        return self.launch_world(**{**dict(args=['step', '{st}', *args], agents={'m1': 'idle claude', 's1': 'idle claude'}, panes={'p0': 'm1', 'p1': 's1'}, pair=pair, env=env,
+                                           mask=self.SETUP_MASK + [(r'\([0-9]+s so far', '(Ns so far'), (r'logs/[0-9]{8}T[0-9]{6}', 'logs/<STAMP>')]), **extra})
+
+    def step_cases(self):
+        step = self.step_world
+        failing = self.LAUNCH_TOML.replace('fast = ["true"]', 'fast = ["false"]')
+        flaky = self.LAUNCH_TOML.replace('[profile.app]\npaths = ["src/**", "tests/**"]\nfast = ["true"]', '[profile.app]\npaths = ["src/**", "tests/**"]\nfast = ["test -e .flaky || { touch .flaky; exit 1; }"]')
+        extra_commit = [*self.LAUNCH_OPS, ('write', 'notes.txt', 'x\n'), ('commit', 'n1')]
+        return {
+            'a first step': step('{k1}', 'did a thing'),
+            'a step whose gate fails': step('{k1}', 'did a thing', toml=failing),
+            'a step whose gate fails twice in a row': step('{k1}', 'did a thing', toml=failing, twice=True),
+            'a step no profile covers': step('{n1}', 'notes', gitops=extra_commit, pair={'heads': {'002-y': '{k1}'}}),
+            'a gate that passed after a rerun under load': step('{k1}', 'did a thing', toml=flaky, env={'PSTACK_KITCHEN_RETRY_LOAD': '0'}, mask=self.SETUP_MASK + [(r'logs/[0-9]{8}T[0-9]{6}', 'logs/<STAMP>'), (r'at load [0-9.]+', 'at load N')]),
+            'a step already recorded': step('{k1}', 'again', files={'steps/002-y.tsv': '1\t{k1}\t5\t\tone\n'}),
+            'a step whose gates are still running': step('{k1}', 'did a thing', env={'KITCHEN_STEP_SLICE_S': '0'}, skip=['steps/jobs/']),
+            'a sha that is not HEAD': step('{u2}', 'x'),
+            'a tracked file edited since': step('{k1}', 'x', gitops=[*self.LAUNCH_OPS, ('write', 'src/app.py', 'y = 2\n')]),
+            'a sha that is not a commit': step('f' * 40, 'x'),
+            'no brief dispatched': step('{k1}', 'x', pair={'dispatch': {}}),
+            'no base for the unit': step('{k1}', 'x', pair={'heads': {}}),
+            'a step on the unit base, so an empty range': step('{k1}', 'x', pair={'heads': {'002-y': '{k1}'}}),
+            'a step that resolves a note': step('{k1}', 'fix', '--resolves', 'n1', files={'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}),
+            'a brief stamped with a kitchen snapshot': step('{k1}', 'x', topfiles={'snap.toml': (self.LAUNCH_TOML, 0o644)},
+                                                          files={'briefs/002-y.md': self.launch_brief('002', 'y', 'kitchen: {T}/snap.toml\n')}),
+            'a base behind where the branch leaves trunk': step('{k1}', 'x', pair={'heads': {'002-y': '{u0}'}}),
+            'two arguments': step('{k1}'),
+            'no pair.json': step('{k1}', 'x', nopair=True),
+            'a pair.json that is an array': step('{k1}', 'x', nopair=True, files={'pair.json': '[]\n'}),
+        }
+
+    def test_step_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.step_cases()
+        recorded = (0, 'step 1 recorded at')
+        expect = {
+            'a first step': (0, 'gates: pass (app,contracts,docs)'),
+            'a step whose gate fails': (2, 'next: fix it in a new commit and run kitchen.sh step <T>/st <new-sha> "did a thing" again'),
+            'a step whose gate fails twice in a row': (2, 'next: fix it in a new commit'),
+            'a step no profile covers': (0, 'gates: none ran; no profile covers notes.txt'),
+            'a gate that passed after a rerun under load': (0, 'flaky under load: app failed, then passed on a rerun'),
+            'a step already recorded': (0, 'already recorded'),
+            'a step whose gates are still running': (4, 'gates: still running for'),
+            'a sha that is not HEAD': (1, 'HEAD is'),
+            'a tracked file edited since': (1, 'the tree has uncommitted changes to tracked files'),
+            'a sha that is not a commit': (1, 'not a commit: ffffffffffffffffffffffffffffffffffffffff'),
+            'no brief dispatched': (1, 'no brief dispatched; a step belongs to a running brief'),
+            'no base for the unit': (1, 'no base for 002-y; was it dispatched?'),
+            'a step on the unit base, so an empty range': (0, 'gates: pass (contracts)'),
+            'a step that resolves a note': recorded,
+            'a brief stamped with a kitchen snapshot': recorded,
+            'a base behind where the branch leaves trunk': recorded,
+            'two arguments': (1, 'usage: kitchen.sh step <store> <sha> <summary>'),
+            'no pair.json': (1, 'no pair.json in'),
+            'a pair.json that is an array': (5, 'Cannot index array with string ("dispatch")'),
+        }
+        out = self.phase4_cases('step', cases, expect)
+        # the second of two failing steps counts the failures in a row; a step whose gates run on leaves a job directory with its log and a link to it
+        self.assertIn('2 failed checks in a row; write the report as blocked', out['a step whose gate fails twice in a row']['second'][1])
+        self.assertTrue(any(name.endswith('/out.1') for name in out['a first step']['files']))
+        self.assertIn('gates: pass', out['a first step']['stdout'])
+        self.assertEqual(out['a step whose gate fails']['events'][-1].split('\t')[:2], ['sidekick', 'gate-fail'])
+        self.assertEqual(out['a gate that passed after a rerun under load']['events'][-2].split('\t')[:2], ['sidekick', 'gate-flaky'])
+        self.assertTrue(any('002-y' in name and name.endswith('.tsv') for name in out['a first step']['files']))
+
+    def finish_cases(self):
+        world = self.step_world
+        path = '{st}/reports/002-y.md'
+        done = lambda head='{k1}': {'reports/002-y.md': f'# R\n\nstatus: done\nhead: {head}\n'}
+        finish = lambda *a, **kw: world(**{**dict(args=['finish', '{st}', *(a or (path,))], files={**done()}, env={'KITCHEN_STEP_POLL_S': '0.05', 'KITCHEN_STEP_SLICE_S': '60'}), **kw})
+        failing = lambda: {'briefs/002-y.md': self.launch_brief('002', 'y').replace('```bash\ntrue\n```', '```bash\necho before\nfalse\n```')}
+        return {
+            'a done report whose Verify commands pass': finish(),
+            'a done report whose Verify commands pass, finished twice': finish(twice=True),
+            'a done report whose Verify commands fail': finish(files={**done(), **failing()}),
+            'a failing run reruns on the next finish': finish(files={**done(), **failing()}, twice=True),
+            'Verify commands still running': finish(env={'KITCHEN_STEP_POLL_S': '0.05', 'KITCHEN_STEP_SLICE_S': '0'}, skip=['steps/jobs/']),
+            'a partial report goes straight on': finish(files={'reports/002-y.md': '# R\n\nstatus: partial\nhead: {k1}\n'}),
+            'a done report for another unit': finish('{st}/reports/001-x.md', files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {u1}\n'}),
+            'a done report with a head that is a placeholder': finish(files=done('<sha>')),
+            'a done report with no head': finish(files={'reports/002-y.md': '# R\n\nstatus: done\n'}),
+            'a head that is not a commit': finish(files=done('f' * 40)),
+            'a checkout that is not at the head': finish(files=done('{u2}')),
+            'a dirty checkout': finish(gitops=[*self.LAUNCH_OPS, ('write', 'src/app.py', 'y = 2\n')]),
+            'an untracked file in the checkout': finish(gitops=[*self.LAUNCH_OPS, ('write', 'scratch.txt', 'y\n')]),
+            'an untracked file and a brief that does not commit': finish(gitops=[*self.LAUNCH_OPS, ('write', 'scratch.txt', 'y\n')],
+                                                                         files={**done(), 'briefs/002-y.md': self.launch_brief('002', 'y').replace('commit: yes', 'commit: no')}),
+            'a brief stamped with a kitchen snapshot': finish(topfiles={'snap.toml': (self.LAUNCH_TOML, 0o644)},
+                                                            files={**done(), 'briefs/002-y.md': self.launch_brief('002', 'y', 'kitchen: {T}/snap.toml\n')}),
+            'no report file': finish(files={}),
+            'one argument': finish('{st}'),
+            'a report the pair would withhold': finish(files={**done(), 'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}),
+            'no pair.json': finish(nopair=True),
+            'outside herdr': finish(env={'HERDR_ENV': '0', 'KITCHEN_STEP_SLICE_S': '60'}),
+        }
+
+    def test_finish_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.finish_cases()
+        sent = (0, 'prompted master m1')
+        expect = {
+            'a done report whose Verify commands pass': (0, 'verify: pass (1 commands from the brief)'),
+            'a done report whose Verify commands pass, finished twice': (0, 'verify: pass (1 commands from the brief)'),
+            'a done report whose Verify commands fail': (2, 'verify: FAIL (2 commands from the brief)'),
+            'a failing run reruns on the next finish': (2, 'next: the master did not get this report'),
+            'Verify commands still running': (4, "verify: the brief's Verify commands are still running at"),
+            'a partial report goes straight on': sent,
+            'a done report for another unit': sent,
+            'a done report with a head that is a placeholder': (1, "a done report needs the report template's header"),
+            'a done report with no head': (1, "a done report needs the report template's header"),
+            'a head that is not a commit': (1, 'is not a commit; name the unit\'s last commit and finish again'),
+            'a checkout that is not at the head': (1, "the checkout is at"),
+            'a dirty checkout': (1, "the checkout holds work the unit's head does not:\n M src/app.py"),
+            'an untracked file in the checkout': (1, '?? scratch.txt'),
+            'an untracked file and a brief that does not commit': (0, 'verify: pass'),
+            'a brief stamped with a kitchen snapshot': (0, 'verify: pass'),
+            'no report file': (1, 'the checkout is at'),
+            'one argument': (1, 'report not found'),
+            'a report the pair would withhold': (7, 'blocking review notes are still open on 002-y'),
+            'no pair.json': (1, 'no pair.json in'),
+            'outside herdr': (1, 'not running inside Herdr'),
+        }
+        out = self.phase4_cases('fin', cases, expect)
+        events = lambda name: [e.split('\t')[:2] for e in out[name]['events']]
+        self.assertIn(['sidekick', 'finish-verify-pass'], events('a done report whose Verify commands pass'))
+        self.assertIn(['sidekick', 'finish-verify-fail'], events('a done report whose Verify commands fail'))
+        # a failure is not kept: the second finish of a failing report runs the commands again and fails again; a pass is kept for that head and block
+        self.assertEqual(out['a failing run reruns on the next finish']['second'][0], 2)
+        self.assertEqual(events('a done report whose Verify commands pass, finished twice').count(['sidekick', 'finish-verify-pass']), 2)
+        self.assertEqual(out['a done report whose Verify commands pass, finished twice']['second'][0], 0)
 
     def quiet_wait_cases(self):
         T = int(time.time())

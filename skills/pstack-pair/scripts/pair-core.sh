@@ -188,66 +188,8 @@ require_filled() {
 # --every or --timeout by the command; nine minutes stays under the shell cap.
 checkin_interval_m=9
 
-file_mtime() {
-	stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
-}
-
 # Epoch seconds of a UTC stamp as the store writes them
 # (date -u +%Y-%m-%dT%H:%M:%SZ). jq parses it, since BSD date has no -d.
-
-# setsid(1) where util-linux has it. macOS ships none, so perl starts the
-# command in a session of its own.
-detached() {
-	if command -v setsid >/dev/null 2>&1; then
-		setsid "$@"
-	else
-		perl -MPOSIX -e 'POSIX::setsid(); exec { $ARGV[0] } @ARGV or exit 127' "$@"
-	fi
-}
-
-# The report a message asks for: reports/<NNN-slug>.md, where an answer's
-# -a<k> suffix names the brief it answers.
-expected_report() {
-	printf '%s/reports/%s.md\n' "$1" "$(basename "$2" .md | sed -E 's/-a[0-9]+$//')"
-}
-
-# The repo's trunk: origin's default branch, else main or master; never the
-# checked-out branch itself. Prints the ref, or nothing.
-trunk_ref() {
-	local root="$1" ref current candidates
-	current="$(git -C "$root" symbolic-ref --quiet HEAD 2>/dev/null || true)"
-	candidates="$(git -C "$root" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
-	for ref in $candidates refs/remotes/origin/main refs/remotes/origin/master refs/heads/main refs/heads/master; do
-		[ "$ref" != "$current" ] || continue
-		git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null && { printf '%s\n' "$ref"; return 0; }
-	done
-	return 0
-}
-
-# Where a unit's range should start: never from before the point its branch
-# leaves trunk. A unit dispatched before a landing, or rebased onto a moved
-# trunk, keeps a recorded base that trunk has since replaced, and measuring
-# from it takes trunk's commits in. $2 is the recorded base, $3 the range's
-# tip. Sets range_floor_rev (the base to use) and range_floor_note (why it
-# moved, or empty); call it directly, not in a command substitution. The floor
-# moves only when merge-base(base, tip) is an ancestor of merge-base(trunk,
-# tip), and, for a verification range that must not be empty, never to the tip
-# itself. A digest passes --allow-head: zero own commits after a rebase is a
-# real state there. With no trunk ref the base stays as it was.
-range_floor() {
-	local root="$1" base="$2" tip="$3" allow="${4:-}" mb trunk tmb
-	range_floor_rev="$base"
-	range_floor_note=""
-	trunk="$(trunk_ref "$root")"
-	[ -n "$trunk" ] || return 0
-	mb="$(git -C "$root" merge-base "$base" "$tip" 2>/dev/null || printf '%s' "$base")"
-	tmb="$(git -C "$root" merge-base "$trunk" "$tip" 2>/dev/null)" || return 0
-	[ "$tmb" != "$mb" ] || return 0
-	[ "$tmb" != "$tip" ] || [ "$allow" = --allow-head ] || return 0
-	git -C "$root" merge-base --is-ancestor "$mb" "$tmb" 2>/dev/null || return 0
-	range_floor_note="recorded base ${base:0:9} is behind where its branch leaves ${trunk#refs/}; measuring from ${tmb:0:9}"
-	range_floor_rev="$tmb"
-}
 
 # A pause asked for at the next safe point: the sidekick stops at its next
 # step or progress boundary with its work committed, and the master starts
@@ -272,11 +214,6 @@ cmd_resume() { pycore resume "$@"; }
 # note: blocking items the sidekick resolves at its next step boundary, and
 # follow-ups that go to followups.md instead of widening the unit. The final
 # review then reads only the diff since the last note.
-
-# steps/<unit>.tsv, one row per step: k, sha, epoch, notes it resolves, summary.
-steps_file() {
-	printf '%s/steps/%s.tsv\n' "$1" "$(basename "$2" .md)"
-}
 
 provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|billing verification failed|billing_error'
 

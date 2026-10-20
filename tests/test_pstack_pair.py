@@ -251,7 +251,8 @@ class RangeFloorTests(unittest.TestCase):
         return self.git('rev-parse', 'HEAD')
 
     def floor(self, base, tip, *flags):
-        core = (skills / 'pstack-pair/scripts/pair-core.sh').read_text()
+        # pair-core.sh no longer has these bodies (the Python range_floor replaced them): the oracle is the file as it was at b632713
+        core = subprocess.run(['git', '-C', str(root), 'show', 'b632713:skills/pstack-pair/scripts/pair-core.sh'], capture_output=True, text=True, check=True).stdout
         fns = '\n'.join(re.search(rf'^{name}\(\) \{{.*?^\}}$', core, re.MULTILINE | re.DOTALL).group(0)
                         for name in ('trunk_ref', 'range_floor'))
         script = f'{fns}\nrange_floor "$1" "$2" "$3" "$4"\nprintf "%s|%s\\n" "$range_floor_rev" "$range_floor_note"'

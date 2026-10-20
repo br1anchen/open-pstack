@@ -1690,7 +1690,9 @@ esac
 
     def test_verify_job_matches_cksum(self):
         module = self.kitchen_variant()
-        fn = re.search(r'^verify_job\(\) \{.*?^\}$', (skill / 'scripts/kitchen.sh').read_text(), re.MULTILINE | re.DOTALL).group(0)
+        # kitchen.sh no longer has verify_job (kitchen_core.step keeps the path): the oracle is the function as it was at b632713
+        base_text = subprocess.run(['git', '-C', str(root), 'show', 'b632713:skills/pstack-kitchen/scripts/kitchen.sh'], capture_output=True, text=True, check=True).stdout
+        fn = re.search(r'^verify_job\(\) \{.*?^\}$', base_text, re.MULTILINE | re.DOTALL).group(0)
         blocks = {'empty': b'', 'no trailing newline': b'true', 'plain': b'python3 tests/run.py -k x\ngit diff --exit-code\n',
                   'non-ascii': 'echo \u00e9 \u2192 \U0001F600\n'.encode(), 'over 4 KiB': b'echo ' + b'x' * 5000 + b'\n' + b'true\n' * 900}
         for name, block in blocks.items():
@@ -2474,7 +2476,11 @@ esac
 
     def core_finish(self, report):
         """finish as the Python core runs it for the kitchen, past kitchen.sh's own Verify run."""
-        argv = [sys.executable, '-I', str(root / 'skills/pstack-pair/scripts/pair.py'), '--skill', 'pstack-kitchen', '--skill-root', str(skill),
+        # the core's own finish: the kitchen's finish (kitchen_core.step) runs the Verify commands first and then this one, so the driver takes `finish` out of
+        # the names the variant may replace
+        driver = ('import sys; sys.path.insert(0, sys.argv[1]); from pstack_core import cli; '
+                  "cli.OVERRIDABLE = tuple(n for n in cli.OVERRIDABLE if n != 'finish'); sys.exit(cli.main(sys.argv[2:]))")
+        argv = [sys.executable, '-I', '-c', driver, str(root / 'skills/pstack-pair/scripts'), '--skill', 'pstack-kitchen', '--skill-root', str(skill),
                 '--state-root', str(self.store.parent), '--store-label', 'Kitchen', '--roles', 'sidekick verifier consultant',
                 '--store-dirs', 'plans briefs reports reviews progress steers consults advice scratch verdicts', '--slug-max', '20',
                 '--unfilled-re', '', '--', 'finish', str(self.store), str(report)]
