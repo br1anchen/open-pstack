@@ -33,20 +33,20 @@ evidence:
 
 ## L003: Porting set -e bash: decide each failing assignment, command or pipeline stage by running the base bash, never by reading it, and pin the result with a parity test.
 
-status: active
+status: retired
 kind: reject
 class: verify
 layer: verify
 area: skills
 since: 2026-10-16
 active: 2026-10-16T11:33:46Z
-note: owner 2026-10-18: keep active, not promoted (no mechanical check)
+note: owner 2026-10-20: phase 4 ended bash porting; de-bash units are held to goldens and a behaviour spec (standing order 27)
 evidence:
 - 2026-10-16 python-port 003: Acceptance "stdout, stderr, exit codes and store files stay unchanged" fails on one error path (Evidence E5, E6).
 
 ## L004: Commit a source change under skills/pstack-pair in the same step as the test that pins it; the test-touch gate refuses a step that changes source without a test.
 
-status: active
+status: promoted
 kind: gate-fail
 class: policy
 match: test-touch
@@ -54,7 +54,7 @@ layer: policy
 area: skills/pstack-pair
 since: 2026-10-17
 active: 2026-10-17T22:31:31Z
-note: owner deferred to master 2026-10-18: 5 test-touch gate failures in 3 runs
+note: 50dbdd0 AGENTS.md Testing Guidelines; the test-touch policy is the check
 evidence:
 - 2026-10-16 python-port 002: skills/pstack-pair/scripts/pair-core.sh: [test-touch] profile pstack requires tests: 1 source files changed and no file matching tests/** (.agents/kitchen.toml)
 - 2026-10-16 python-port 007: skills/pstack-pair/scripts/pair-core.sh: [test-touch] profile pstack requires tests: 1 source files changed and no file matching tests/** (.agents/kitchen.toml)
@@ -64,12 +64,13 @@ evidence:
 
 ## L005: An A/B helper's test proves it runs HEAD's code: mutate HEAD's side once and see the comparison fail before trusting a pass.
 
-status: proposed
+status: retired
 kind: catch
 class: review
 layer: review
 area: skills/pstack-pair
 since: 2026-10-17
+note: owner 2026-10-20: the de-bash plan deletes the A/B parity helpers
 evidence:
 - 2026-10-17 python-port-3 010: leaf_both ran B3 against B3 when no Python snippet was given, so 010's shim-form test never ran HEAD's shims; the master's n3 review read the diff and missed it
 
@@ -90,24 +91,28 @@ evidence:
 
 ## L007: When a change narrows the values a command accepts (a status allow-list, a choice set), grep every caller that sends it a value and add a test per value they send before the step.
 
-status: proposed
+status: active
 kind: catch
 class: gate
 layer: gate
 area: skills/pstack-pair
 since: 2026-10-20
+active: 2026-10-20T18:16:33Z
+note: owner 2026-10-20
 evidence:
 - 2026-10-18 python-port-4 006: finish's new status allow-list broke plan responses (agree) and guided asks (asking); no test runs finish on either
 
 ## L008: A test that waits for a state change triggers it at a fixed point (fake herdr $FAKE/once hooks or a fifo), never waits on time; the test-sleep policy refuses it.
 
-status: proposed
+status: active
 kind: gate-fail
 class: policy
 match: test-sleep
 layer: policy
 area: skills/pstack-pair
 since: 2026-10-20
+active: 2026-10-20T18:16:33Z
+note: owner 2026-10-20
 evidence:
 - 2026-10-16 python-port-2 006: tests/test_pstack_core.py:850: [test-sleep] trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BUS…
 - 2026-10-17 python-port-3 009: tests/test_pstack_core.py:703: [test-sleep] trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BUS…
