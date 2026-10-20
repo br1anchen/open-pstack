@@ -125,12 +125,6 @@ def classify_brief(store, brief):
         sys.stdout.write(f'next: kitchen.sh consultant {store} --reason "{jq(classified, ".escalate[0]")}", then a plan round with it\n')
 
 
-def classify_brief_entry(ctx, args):
-    """__classify_brief store brief: the classify step alone, without cmd_classify's checks (dispatch called classify_brief as a function)."""
-    classify_brief(args[0], args[1])
-    return 0
-
-
 def classify(ctx, args):
     if len(args) != 2:
         raise Die('usage: kitchen.sh classify <store> <brief-path>')

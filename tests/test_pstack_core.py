@@ -523,7 +523,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__classify_brief', '__record_skill_build', 'catch', 'classify', 'close', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__record_skill_build', 'catch', 'classify', 'close', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -2888,8 +2888,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(got[1:3], want[1:3])
 
     def test_wait_ab_kitchen_signal_to_the_shell_alone(self):
-        # kitchen.sh runs the wait in a command substitution, so the signalled shell and the wait are two processes. TERM kills the shell
-        # at once, as in the base; the Python wait must not outlive it (the base's subshell does run on). INT is held by the shell until
+        # kitchen.sh's wait is `pycore --exec wait`: the shell is replaced by the Python quiet wait, so TERM goes to the wait itself, and it ends at once.
+        # The base's was a bash loop whose inner wait ran in a command substitution (two processes, the subshell running on after the shell died); the
+        # port's inner waits are children of the quiet wait with a parent-death signal, so none of them may outlive it. INT is held by the shell until
         # the wait ends, in the base too, so it is not signalled here.
         # A short timeout: the base's subshell outlives the signalled shell and runs to the end of its wait, which the test then waits for.
         got = self.wait_signalled(root / 'skills', signal.SIGTERM, False, 'pstack-kitchen', timeout_ms=3000)
@@ -9250,6 +9251,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a stale log is not swallowed': quiet(mtimes={'progress/002-y.md': 1000}),
             'a brief given relative to the store': quiet('briefs/002-y.md', '--timeout', '0'),
             'send only': dispatch(path, '--send-only'),
+            'a report that is already written': dispatch(path, '--timeout', '0', files={'reports/002-y.md': '# R\n\nstatus: partial\nhead: {u2}\n'}, mtimes={'reports/002-y.md': 4_000_000_000}),
+            'a sidekick that is due a rotation': dispatch(path, '--timeout', '0', agents={'m1': 'idle claude', 's1': 'idle pi'}, panes={'p0': 'm1', 'p1': ''}, hook=self.READY_HOOK,
+                                                          pair={'sidekick': {'name': 's1', 'kind': 'pi', 'generation': 1, 'pane_id': 'p1', 'rotation_required': True, 'start_args': ['--model', 'm']}},
+                                                          env={**env, 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300'}),
             'an option the dispatch does not know': dispatch(path, '--bogus'),
             'a brief that is not there': dispatch('{st}/briefs/009-none.md', '--timeout', '0'),
             'one argument': dispatch('{st}'),
@@ -9277,6 +9282,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a stale log is not swallowed': (4, 'STALE'),
             'a brief given relative to the store': quiet,
             'send only': (0, 'sent: BRIEF'),
+            'a report that is already written': (4, 'the reply to 002-y.md was already shown'),
+            'a sidekick that is due a rotation': (4, 'rotated: the pi sidekick starts this brief in a fresh session'),
             'an option the dispatch does not know': (1, 'unknown option --bogus'),
             'a brief that is not there': (1, 'brief not found: <T>/st/briefs/009-none.md'),
             'one argument': (1, 'brief not found: <T>/st'),
@@ -9601,18 +9608,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         bases = self.phase4_skills()
         for older, newer, label in ((bases, root / 'skills', 'bash-then-python'), (root / 'skills', bases, 'python-then-bash')):
             spec = {k: v for k, v in cases['steps do not wake a routine brief'].items() if k not in ('tick', 'topfiles', 'envfill')}
-            spec = {**spec, 'repo_files': {'.agents/kitchen.toml': self.KITCHEN_TOML}, 'env': {**spec['env'], 'KITCHEN_QUIET_POLL_S': '0.05'}, 'args': ['wait', '{st}', '--timeout', '0']}
+            spec = {**spec, 'repo_files': {'.agents/kitchen.toml': self.KITCHEN_TOML}, 'env': {**spec['env'], 'KITCHEN_QUIET_POLL_S': '0.05'}, 'args': ['wait', '{st}', '--timeout', '0'],
+                    'once': {'wait': 'echo >"$FAKE/../claimed"\n'}}
             top, st, env, fill = self.ab_world(f'qwcompat-{label}', spec)
+            os.mkfifo(top / 'claimed')
             args = [fill(a) for a in spec['args']]
             run = lambda skills, env, **kw: subprocess.Popen([str(skills / 'pstack-kitchen/scripts/kitchen.sh'), *args], cwd=top / 'repo', env=env, text=True,
                                                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
             first = run(older, env)
             self.addCleanup(first.kill)
-            for _ in range(600):
-                if (st / 'wait.pid').exists():
-                    break
-                time.sleep(0.05)  # kitchen-allow: test-sleep (a bounded wait for the older wait's claim file; a passing run leaves at once)
-            self.assertTrue((st / 'wait.pid').exists(), f'{label}: the older wait never claimed the store')
+            # the older wait's first herdr wait (after it claimed the store) runs the `once` hook, which writes to a fifo: the test reads it, bounded, so it
+            # goes on at that fixed point and no clock is involved
+            fd = os.open(top / 'claimed', os.O_RDONLY | os.O_NONBLOCK)
+            ready = select.select([fd], [], [], 60)[0]
+            os.close(fd)
+            self.assertTrue(ready and (st / 'wait.pid').exists(), f'{label}: the older wait never claimed the store')
             held = top / 'held'
             held.mkdir()
             gate = top / 'older-ended'
