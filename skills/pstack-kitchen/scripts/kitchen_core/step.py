@@ -13,6 +13,7 @@ detached scripts run)."""
 
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -56,13 +57,21 @@ def verify_job(ctx, store, brief, head):
     return ctx.variant.verify_job(store, brief, head)
 
 
+def ignore_interrupts():
+    """A command the shell starts with `&` while job control is off (a script) has SIGINT and SIGQUIT ignored, and the gate run was one: a ^C at the
+    terminal that ended the step does not reach it."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGQUIT, signal.SIG_IGN)
+
+
 def detached(script, argv, log, store):
     """`PSTACK_KITCHEN_RUN="$(field "$store" .slug)" detached bash -c SCRIPT ARGV... >LOG 2>&1 </dev/null &` and `disown`."""
     env = {**os.environ, 'PSTACK_KITCHEN_RUN': pair_jq(store, '.slug')}
     sys.stdout.flush()
     sys.stderr.flush()
     with open(log, 'wb') as out:
-        subprocess.Popen(['bash', '-c', script, *argv], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+        subprocess.Popen(['bash', '-c', script, *argv], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env, start_new_session=True,
+                         preexec_fn=ignore_interrupts)
 
 
 def now():

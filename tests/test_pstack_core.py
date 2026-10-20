@@ -9353,6 +9353,24 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(out['a gate that passed after a rerun under load']['events'][-2].split('\t')[:2], ['sidekick', 'gate-flaky'])
         self.assertTrue(any('002-y' in name and name.endswith('.tsv') for name in out['a first step']['files']))
 
+    def test_the_detached_gate_and_verify_runs_ignore_the_signals_the_bashs_did(self):
+        """`setsid ... &` in a script starts the job with SIGINT and SIGQUIT ignored (SigIgn 0x6 at b632713): the port's detached runs match, read from
+        /proc by the gate's own command and the brief's Verify command."""
+        gate = self.LAUNCH_TOML.replace('[profile.app]\npaths = ["src/**", "tests/**"]\nfast = ["true"]', '[profile.app]\npaths = ["src/**", "tests/**"]\nfast = ["grep SigIgn /proc/self/status >../sigign"]')
+        verify = self.launch_brief('002', 'y').replace('```bash\ntrue\n```', '```bash\ngrep SigIgn /proc/self/status >../sigign\n```')
+        specs = {'step': self.step_world('{k1}', 'x', toml=gate, env={'PSTACK_KITCHEN_RETRY_LOAD': 'off'}),
+                 'finish': self.step_world(files={'reports/002-y.md': '# R\n\nstatus: done\nhead: {k1}\n', 'briefs/002-y.md': verify}, args=['finish', '{st}', '{st}/reports/002-y.md'])}
+        specs['finish']['args'] = ['finish', '{st}', '{st}/reports/002-y.md']
+        found = {}
+        for name, spec in specs.items():
+            spec = {**spec, 'repo_files': {'.agents/kitchen.toml': spec.get('toml') or self.KITCHEN_TOML}}
+            for tag, skills in (('base', self.phase4_skills()), ('port', root / 'skills')):
+                got = self.ab_run(f'sig{name}-{tag}', skills, 'pstack-kitchen', spec)
+                self.assertEqual(got['rc'], 0, f'{name} {tag}: {got["stdout"]}{got["stderr"]}')
+                found[name, tag] = (self.path / f'sig{name}-{tag}' / 'sigign').read_text().strip()
+            self.assertEqual(found[name, 'port'], found[name, 'base'], name)
+            self.assertEqual(int(found[name, 'base'].split()[-1], 16) & 0x6, 0x6, f'{name}: SIGINT and SIGQUIT ignored in the base')
+
     def finish_cases(self):
         world = self.step_world
         path = '{st}/reports/002-y.md'
