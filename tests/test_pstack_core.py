@@ -7354,6 +7354,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'verify_prompt': ('verify_state', 'verify_prompt', 'test_set_outcome_verify_prompt_and_handoff_due_equal_the_bash'),
         'handoff_due': ('verify_state', 'handoff_due', 'test_set_outcome_verify_prompt_and_handoff_due_equal_the_bash'),
         'redeliver_packet': ('verify_state', 'redeliver_packet', 'test_verify_wait_matches_the_bash_at_the_phase_4_base_for_the_wait_itself'),
+        'landing_base': ('units', 'landing_base', 'test_landing_base_equals_the_bash_at_the_phase_4_base'),
+        'unit_range': ('units', 'unit_range', 'test_unit_range_equals_the_bash_at_the_phase_4_base'),
         'is_landing': ('landing', 'is_landing', 'test_latest_landing_verdict_equals_the_bash_and_is_landing_equals_the_bash'),
         'latest_landing_verdict': ('landing', 'latest_landing_verdict', 'test_latest_landing_verdict_equals_the_bash_and_is_landing_equals_the_bash'),
     }
@@ -8070,15 +8072,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     # ---- unit 026: kitchen_core.verify_state against kitchen.sh's own functions at b632713 ----
 
-    def kitchen_py(self, store, code, env=None):
+    def kitchen_py(self, store, code, env=None, cwd=None):
         """Python run in a fresh interpreter with kitchen_core.verify_state loaded as `vs` and a context `ctx`: (status, stdout, stderr)."""
         pre = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nsys.path.insert(0, {str(root / "skills/pstack-kitchen/scripts")!r})\n'
-               'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import verify_state as vs\nfrom pstack_core.context import Context\n'
+               'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import units, verify_state as vs\nfrom pstack_core.context import Context\n'
                'from pstack_core.errors import Die, Exit\n'
                f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "")\n'
                f'store = {str(store)!r}\n')
         r = subprocess.run([sys.executable, '-I', '-c', pre + code], env={**self.env, **self.GIT, 'HOSTNAME': 'testhost', **(env or {})}, capture_output=True,
-                           text=True, check=False, timeout=120)
+                           text=True, check=False, timeout=120, cwd=cwd)
         return r.returncode, r.stdout, r.stderr
 
     def claim_store(self, name, verifying, extra=None):
@@ -8603,6 +8605,93 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(doc['verifying']['idle_since'], 77, label)
             self.assertEqual((top / 'fake/calls.log').read_text().count('pane close'), 1, label)
             self.assertIn('verifier-outcome: cancelled', (st / 'verdicts/001-x-v1-packet.md').read_text(), label)
+
+    def range_world(self, name):
+        """The 025 unit world with the reports unit_range tells apart: statuses, a head that is not a commit, no head, a unit on a moved trunk."""
+        st, repo, shas, stacks, recorded = self.units_world(name)
+        report = lambda n, text, base=shas['base']: ((st / f'reports/{n}.md').write_text(text), (st / f'briefs/{n}.md').write_text(f'# Brief {n}\n\ncommit: yes\n'))
+        heads = json.loads((st / 'pair.json').read_text())
+        for n, text in {'011-partial': f'status: partial\nhead: {shas["u2"]}\n', '012-blocked': f'status: blocked\nhead: {shas["u2"]}\n',
+                        '013-failed': f'status: failed\nhead: {shas["u2"]}\n', '014-nostatus': f'head: {shas["u2"]}\n', '015-weird': f'status: weird\nhead: {shas["u2"]}\n',
+                        '016-onstack': f'status: done\nhead: {stacks["plain"][1]}\n', '017-nohead': 'status: done\n', '018-badhead': 'status: done\nhead: nothere\n',
+                        '019-done': f'status: done\nhead: {shas["u1"]}\n'}.items():
+            report(n, '# R\n\n' + text)
+            heads['heads'][n] = shas['base']
+        (st / 'pair.json').write_text(json.dumps(heads, indent=2) + '\n')
+        return st, repo, shas, stacks
+
+    def test_unit_range_equals_the_bash_at_the_phase_4_base(self):
+        units = self.kitchen_core_module('units')
+        st, repo, shas, stacks = self.range_world('urange')
+        subprocess.run(['git', '-C', str(repo), 'checkout', '-q', 'main'], check=True, env={**self.env, **self.GIT})
+        calls = [(['001'], [], ''), (['001', '002'], [], ''), (['002', '001'], [], ''), (['001', '019', '002'], [], ''), (['019', '001'], [], ''),
+                 (['001', '006'], [], ''), (['001', '006'], ['006'], ''), (['006'], [], ''), (['001', '011'], [], ''), (['001', '012', '013'], [], ''),
+                 (['001', '014'], [], ''), (['001', '015'], [], ''), (['001', '017'], [], ''), (['001', '018'], [], ''), (['011', '001'], ['011'], ''),
+                 (['016'], [], ''), (['016', '001'], [], ''), (['001', '016'], [], ''), (['016'], [], shas['base']), (['001'], [], shas['trunk']),
+                 (['001'], [], 'nothere'), (['005'], [], ''), (['009', '001'], [], ''), (['001', '010'], [], ''), (['001', '010'], ['010'], ''),
+                 (['010', '001'], [], ''), (['008'], [], ''), (['001', '009'], [], '')]
+        said = ''
+        for n, (names, covered, range_base) in enumerate(calls):
+            script = (f'covered=({" ".join(covered)}); range_base={range_base!r}; ( unit_range "$STORE" {" ".join(names)} ); echo "rc=$?"')
+            rc, want, err = self.phase4_bash(st, script, cwd=repo)
+            py = ('try:\n    base, head = units.unit_range(store, %r, %r, %r)\n    print(base, head)\n    code = 0\nexcept Die as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
+                  '    code = e.code\nprint("rc=%%d" %% code)' % (names, covered, range_base))
+            prc, got, perr = self.kitchen_py(st, py, env={'PAIR_SHELL_PID': str(os.getpid())}, cwd=repo)
+            self.assertEqual((got, perr), (want, err.replace('kitchen.sh: ', 'pair.sh: ')), (names, covered, range_base))
+            said += want + err
+        for text in ('rc=1', 'rc=0', 'was never dispatched', 'has no report', 'has no status:', 'not done, partial, blocked, or failed', 'has no head:', 'is not a commit',
+                     "report is partial; checking the head it names", 'is behind where its branch leaves', 'no brief for unit'):
+            self.assertIn(text, said)
+
+    def test_landing_base_equals_the_bash_at_the_phase_4_base(self):
+        st, repo, shas, stacks = self.range_world('ulbase')
+        git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], check=True, env={**self.env, **self.GIT}, capture_output=True, text=True).stdout.strip()
+        git('checkout', '-q', 'plain')
+        tip, trunk = stacks['plain'][1], shas['trunk']
+        side = git('rev-parse', 'unit')
+        base_doc = json.loads((st / 'pair.json').read_text())
+        cases = [('no parent recorded', {}, {}), ('a recorded parent that is an ancestor', {'landing': {'parent': trunk, 'parent_ref': 'rel'}}, {}),
+                 ('a recorded parent that is not an ancestor', {'landing': {'parent': side, 'parent_ref': 'rel'}}, {}),
+                 ('a recorded parent that is the head', {'landing': {'parent': tip, 'parent_ref': 'rel'}}, {}),
+                 ('a recorded parent that is no commit', {'landing': {'parent': 'nothere', 'parent_ref': 'rel'}}, {}),
+                 ('an override that is an ancestor', {}, {'override': trunk, 'label': 'given'}),
+                 ('an override that is not an ancestor', {}, {'override': side, 'label': 'given'}),
+                 ('an override that is the head', {}, {'override': tip, 'label': 'given'}),
+                 ('none clears a recorded parent', {'landing': {'parent': trunk, 'parent_ref': 'rel'}}, {'label': 'none'}),
+                 ('--base leaves the recorded parent unread', {'landing': {'parent': trunk, 'parent_ref': 'rel'}}, {'range_base': shas['base']}),
+                 ('--base with an override that is not an ancestor', {}, {'override': side, 'label': 'given', 'range_base': shas['base']}),
+                 ('landing a string', {'landing': 'x'}, {}), ('landing an array', {'landing': [1]}, {}), ('a parent that is a number', {'landing': {'parent': 5, 'parent_ref': 'r'}}, {}),
+                 ('a parent with no ref', {'landing': {'parent': trunk}}, {})]
+        said = ''
+        for n, (name, landing, opts) in enumerate(cases):
+            doc = {**base_doc, **landing}
+            (st / 'pair.json').write_text(json.dumps(doc, indent=2) + '\n')
+            env_set = f'landing_parent_override={opts.get("override", "")!r}; landing_parent_label={opts.get("label", "")!r}; range_base={opts.get("range_base", "")!r}; '
+            rc, want, err = self.phase4_bash(st, env_set + f'( set -e; landing_base {repo} {tip} "$STORE"; echo "rev=$landing_base_rev" ); echo "rc=$?"', cwd=repo)
+            py = ('try:\n    rev = units.landing_base(store, %r, %r, %r, %r, %r)\n    print("rev=" + rev)\n    code = 0\nexcept Die as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
+                  '    code = e.code\nprint("rc=%%d" %% code)' % (str(repo), tip, opts.get('override', ''), opts.get('label', ''), opts.get('range_base', '')))
+            prc, got, perr = self.kitchen_py(st, py, cwd=repo)
+            self.assertEqual((got, perr), (want, err.replace('kitchen.sh: ', 'pair.sh: ')), name)
+            said += want + err
+        # no trunk, and a head on the trunk
+        git('remote', 'add', 'origin', str(repo))
+        for text in ('recorded parent rel (', 'no longer an ancestor', 'merge-base of remotes/origin/main and HEAD', 'must be an ancestor of', 'rc=1', 'rc=0'):
+            self.assertIn(text, said)
+        git('update-ref', '-d', 'refs/remotes/origin/main')
+        git('checkout', '-q', 'main')
+        (st / 'pair.json').write_text(json.dumps(base_doc, indent=2) + '\n')
+        main = git('rev-parse', 'main')
+        for name, head in (('a head that is the trunk', main), ('no trunk at all', None)):
+            if head is None:
+                git('checkout', '-q', '--detach', tip)
+                git('update-ref', '-d', 'refs/heads/main')
+                head = tip
+            rc, want, err = self.phase4_bash(st, f'( set -e; landing_base {repo} {head} "$STORE"; echo "rev=$landing_base_rev" ); echo "rc=$?"', cwd=repo)
+            py = ('try:\n    print("rev=" + units.landing_base(store, %r, %r))\n    code = 0\nexcept Die as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
+                  '    code = e.code\nprint("rc=%%d" %% code)' % (str(repo), head))
+            prc, got, perr = self.kitchen_py(st, py, cwd=repo)
+            self.assertEqual((got, perr), (want, err.replace('kitchen.sh: ', 'pair.sh: ')), name)
+            self.assertIn('rc=1', got)
 
 
 class BashReachTests(unittest.TestCase):

@@ -13,7 +13,7 @@ import sys
 
 from pstack_core.collate import glob_sorted
 from pstack_core.errors import Die
-from pstack_core.review import steps_file, trunk_ref
+from pstack_core.review import range_floor, steps_file, trunk_ref
 from pstack_core.store import expected_report, header_field, jq_raw, last_line, pair_json
 from pstack_core.variant import commit_of
 
@@ -278,3 +278,94 @@ class Verdict:
             if evidence and line.startswith('```'):
                 fences += 1
         return '' if fences >= 2 else 'no command output under Evidence'
+
+
+def landing_base(store, root, head, parent_override='', parent_label='', range_base=''):
+    """Where a stack at head leaves trunk, or at the parent recorded in the store (the one `verify --landing --parent` recorded earlier, else the
+    override of this call), while that parent is an ancestor of head. Prints the `landing base:` line and returns the revision; its refusals end
+    the command. parent_override and parent_label are the bash's `landing_parent_override` and `landing_parent_label` ('none' clears the recorded
+    one); range_base is `--base`, which leaves the recorded parent unread."""
+    parent, label = parent_override, parent_label
+    if not parent and label != 'none':
+        parent = pair_jq(store, '.landing.parent // empty', quiet=True)
+        label = pair_jq(store, '.landing.parent_ref // empty', quiet=True)
+    if parent and not range_base:
+        found = commit_of(root, parent) or ''
+        if found and found != head and is_ancestor(root, found, head):
+            sys.stdout.write(f'landing base: recorded parent {label} ({found[:9]})\n')
+            return found
+        if parent_override:
+            raise Die(f'--parent {label} ({parent[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts')
+        sys.stdout.write(f'landing base: recorded parent {label} ({parent[:9]}) is no longer an ancestor of {head[:9]}; using the trunk merge-base\n')
+    trunk = trunk_ref(root) or ''
+    if not trunk:
+        raise Die("cannot tell this repo's trunk; pass --base <trunk ref or commit>")
+    status, out = git(root, 'merge-base', trunk, head)
+    base = out.rstrip('\n')
+    if status != 0:
+        raise Die(f'no merge-base between {trunk} and HEAD; pass --base')
+    name = trunk.removeprefix('refs/')
+    if base == head:
+        raise Die(f'HEAD is already on {name}, so the landing range is empty; pass --base <where the stack starts>')
+    sys.stdout.write(f'landing base: merge-base of {name} and HEAD ({base[:9]})\n')
+    return base
+
+
+def brief_or_nothing(store, nnn):
+    """`$(unit_brief "$store" NNN)` inside another command's arguments: a missing brief says so on stderr and gives an empty path, and the command
+    around it goes on."""
+    try:
+        return unit_brief(store, nnn)
+    except Die as e:
+        sys.stdout.flush()
+        sys.stderr.write(f'pair.sh: {e.message}\n')
+        return ''
+
+
+def unit_range(store, units, covered=(), range_base=''):
+    """(base, head) for the units, first to last, from their dispatch heads and done reports. A unit named in covered needs no done report: a later
+    fix unit carries it. A partial, blocked or failed unit can still be checked at the head its report names (a note says it is not done). The
+    base moves up to where the unit's branch leaves trunk when trunk has replaced the recorded one (a note says so), unless range_base is given."""
+    first, last = units[0], units[-1]
+    brief = brief_or_nothing(store, first)
+    base = dispatch_head(store, brief)
+    if not base:
+        raise Die(f'unit {first} was never dispatched')
+    for unit in units:
+        if unit in covered:
+            continue
+        report = expected_report(store, brief_or_nothing(store, unit))
+        if not os.path.isfile(report):
+            raise Die(f'unit {unit} has no report')
+        status = header_field(report, 'status')
+        if status == 'done':
+            continue
+        if status in ('partial', 'blocked', 'failed'):
+            sys.stdout.flush()
+            sys.stderr.write(f"note: unit {unit}'s report is {status}; checking the head it names\n")
+        elif status == '':
+            raise Die(f"unit {unit}'s report has no status:")
+        else:
+            raise Die(f"unit {unit}'s report is {status}, not done, partial, blocked, or failed")
+    report = expected_report(store, brief_or_nothing(store, last))
+    if not os.path.exists(report):  # the bash reads the head with grep, which says so
+        sys.stdout.flush()
+        sys.stderr.write(f'grep: {report}: No such file or directory\n')
+    head = header_field(report, 'head')
+    if not head:
+        raise Die(f"unit {last}'s report has no head:")
+    root = git_root(store)
+    resolved = commit_of(root, head)
+    if resolved is None:
+        raise Die(f"unit {last}'s head is not a commit")
+    head = resolved
+    if range_base:
+        base = commit_of(root, range_base)
+        if base is None:
+            raise Die(f'--base {range_base} is not a commit')
+    else:
+        base, note = range_floor(root, base, head)
+        if note:
+            sys.stdout.flush()
+            sys.stderr.write(f"note: unit {first}'s {note}\n")
+    return base, head
