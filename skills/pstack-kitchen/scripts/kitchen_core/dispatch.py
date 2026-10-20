@@ -11,13 +11,12 @@ import sys
 
 from pstack_core.commands import send
 from pstack_core.errors import Die, Exit
-from pstack_core.wait import die_with_the_shell
 
 from .classify import classify_brief
 from .discuss import rotate_if_due
 from .landing import is_landing, land_check
 from .verify import in_subshell
-from .wait import has_checkin, log_checkin_wake, quiet_flagged, quiet_wait
+from .wait import has_checkin, plain_signals, log_checkin_wake, quiet_flagged, quiet_wait
 
 # grep -v -e '^check-in:' -e '^progress:' -e '^touched:' -e '^  ' -e '^steers:' -e '^steps:' -e '^report: missing': what a quiet dispatch prints of the
 # digest it swallowed
@@ -45,7 +44,7 @@ def core_dispatch(ctx, args):
 
 
 def dispatch(ctx, args):
-    die_with_the_shell()
+    plain_signals()
     if len(args) < 2:
         raise Die('usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]')
     store, brief = args[0], args[1]

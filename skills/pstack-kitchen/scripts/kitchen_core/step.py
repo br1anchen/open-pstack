@@ -24,14 +24,13 @@ from pstack_core.errors import Die, Exit
 from pstack_core.replies import file_mtime
 from pstack_core.review import awk_equal, range_floor, steps_file
 from pstack_core.store import bash_int, event, expected_report, header_field, last_line, pair_file, read_text, readlink_f, unit_name
-from pstack_core.wait import die_with_the_shell
 
 from . import kpy
 from .classify import brief_kitchen
 from .jqx import exit_status, field, pair_jq
 from .units import git
 from .verify_state import shell_arithmetic
-from .wait import poll_sleep
+from .wait import plain_signals, poll_sleep
 
 STEP_SCRIPT = '''
 \t\t\tcd "$1" || exit 1
@@ -123,7 +122,7 @@ def cat_n(path):
 
 
 def step(ctx, args):
-    die_with_the_shell()
+    plain_signals()
     if len(args) < 3:
         raise Die('usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha = args[0], args[1]
@@ -251,7 +250,7 @@ def _jq_string(text):
 
 def finish(ctx, args):
     core_report.in_herdr()
-    die_with_the_shell()
+    plain_signals()
     if len(args) != 2:
         return core_report.finish(ctx, args)
     store = args[0]

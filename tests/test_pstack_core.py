@@ -9371,6 +9371,44 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(found[name, 'port'], found[name, 'base'], name)
             self.assertEqual(int(found[name, 'base'].split()[-1], 16) & 0x6, 0x6, f'{name}: SIGINT and SIGQUIT ignored in the base')
 
+    @staticmethod
+    def kill_group(group):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(group, signal.SIGKILL)
+
+    def test_step_and_finish_outlive_the_shell_that_ran_them_as_the_bashs_did(self):
+        """cmd_step and cmd_finish were bash with no parent-death signal (and the core step and finish never set one): `sh -c 'kitchen.sh step ...; :'`
+        with the `sh` killed mid-gate still recorded the step. The gate (or the Verify command) blocks on a fifo the test opens after it killed the
+        shell, so nothing here waits on a clock."""
+        blocked = 'mkfifo ../gate.fifo; cat ../gate.fifo >/dev/null'
+        gate = self.LAUNCH_TOML.replace('[profile.app]\npaths = ["src/**", "tests/**"]\nfast = ["true"]', f'[profile.app]\npaths = ["src/**", "tests/**"]\nfast = ["{blocked}"]')
+        verify = self.launch_brief('002', 'y').replace('```bash\ntrue\n```', f'```bash\n{blocked}\n```')
+        done = {'reports/002-y.md': '# R\n\nstatus: done\nhead: {k1}\n', 'briefs/002-y.md': verify}
+        specs = {'step': (self.step_world('{k1}', 'x', toml=gate), lambda st: (st / 'gates.tsv').read_text().count('\t002-y\t')),
+                 'finish': (self.step_world(files=done), lambda st: (st / 'events.tsv').read_text().count('finish-verify-pass'))}
+        specs['finish'][0]['args'] = ['finish', '{st}', '{st}/reports/002-y.md']
+        for name, (spec, recorded) in specs.items():
+            spec = {**spec, 'repo_files': {'.agents/kitchen.toml': spec.get('toml') or self.KITCHEN_TOML}}
+            for tag, skills in (('base', self.phase4_skills()), ('port', root / 'skills')):
+                top, st, env, fill = self.ab_world(f'orphan{name}-{tag}', spec)
+                shell = subprocess.Popen(['sh', '-c', '"$0" "$@"; :', str(skills / 'pstack-kitchen/scripts/kitchen.sh'), *(fill(a) for a in spec['args'])], cwd=top / 'repo',
+                                         env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                self.addCleanup(self.kill_group, shell.pid)
+                for _ in range(1200):
+                    if (top / 'gate.fifo').exists():
+                        break
+                    time.sleep(0.05)  # kitchen-allow: test-sleep (a bounded wait, at most 60 s, for the gate to start and make its fifo; a passing run leaves at once)
+                self.assertTrue((top / 'gate.fifo').exists(), f'{name} {tag}: the gate never started')
+                shell.kill()
+                shell.wait()
+                with open(top / 'gate.fifo', 'w'):
+                    pass
+                for _ in range(1200):
+                    if (st / ('gates.tsv' if name == 'step' else 'events.tsv')).exists() and recorded(st):
+                        break
+                    time.sleep(0.05)  # kitchen-allow: test-sleep (a bounded wait, at most 60 s, for the command that outlived its shell to record; a passing run leaves at once)
+                self.assertEqual(recorded(st), 1, f'{name} {tag}: the command did not outlive the shell that ran it')
+
     def finish_cases(self):
         world = self.step_world
         path = '{st}/reports/002-y.md'
