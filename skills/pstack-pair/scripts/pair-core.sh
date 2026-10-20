@@ -122,16 +122,6 @@ agent_kind() {
 	herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent // empty' || true
 }
 
-next_seq() {
-	local store="$1" max=0 n
-	for f in "$store"/briefs/[0-9][0-9][0-9]-*.md "$store"/plans/[0-9][0-9][0-9]-*.md "$store"/reports/[0-9][0-9][0-9]-*.md; do
-		[ -e "$f" ] || continue
-		n=$((10#$(basename "$f" | cut -c1-3)))
-		[ "$n" -gt "$max" ] && max=$n
-	done
-	printf '%03d\n' $((max + 1))
-}
-
 latest_report() {
 	local store="$1" want="${2:-}" f
 	if [ -n "$want" ]; then
@@ -485,18 +475,6 @@ cmd_failover() { pycore --exec failover "$@"; }
 cmd_rotate() { pycore --exec rotate "$@"; }
 
 cmd_spawn() { pycore --exec spawn "$@"; }
-
-new_from_template() {
-	# $1 store, $2 slug, $3 directory (plans|briefs), $4 template name
-	local store="$1" slug="$2" dir="$3" seq path
-	pair_file "$store" >/dev/null
-	[[ "$slug" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "${dir%s} slug must be lowercase [a-z0-9_-]"
-	seq="$(next_seq "$store")"
-	path="$store/$dir/$seq-$slug.md"
-	sed -e "s|{{SEQ}}|$seq|g" -e "s|{{SLUG}}|$slug|g" -e "s|{{STORE}}|$store|g" \
-		"$skill_root/references/$4" >"$path"
-	printf '%s\n' "$path"
-}
 
 cmd_new_plan() { pycore new-plan "$@"; }
 

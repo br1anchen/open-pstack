@@ -153,6 +153,7 @@ KitchenVariant.commands = {**KitchenVariant.commands, 'catch': _kitchen_command(
                            'new-handoff': _kitchen_command('handoff', 'new_handoff'), 'feedback': _kitchen_command('feedback', 'feedback'),
                            'maintainer': _kitchen_command('feedback', 'maintainer'), 'close': _kitchen_command('master', 'close'),
                            'rotate-master': _kitchen_command('master', 'rotate_master'),
-                           'take-master': _kitchen_command('master', 'take_master')}
+                           'take-master': _kitchen_command('master', 'take_master'),
+                           'land-check': _kitchen_command('landing', 'land_check_command'), 'revise': _kitchen_command('landing', 'revise')}
 
 VARIANT = KitchenVariant

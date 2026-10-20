@@ -90,7 +90,7 @@ class CoreTests(unittest.TestCase):
                     'prompt_sidekick', 'prune_pending', 'queue_note', 'record_dispatch', 'record_sent', 'reply_mode', 'review_base', 'review_delta',
                     'scope_entry_exists', 'seen_reply', 'send_and_wait', 'sidekick_activity', 'status_paths', 'steer_scope_entries', 'tree_activity',
                     'unreviewed_steps', 'wait_for_reply', 'withheld_report', 'wait_opts', 'prime_steer', 'steps_due', 'report_ready',
-                    'provider_hint', 'bootstrap_recover', 'asks_no_approvals', 'plan_gate_extra', 'require_agreed_plan', 'open_notes')
+                    'provider_hint', 'bootstrap_recover', 'asks_no_approvals', 'plan_gate_extra', 'require_agreed_plan', 'open_notes', 'next_seq', 'new_from_template')
 
     def bash(self, snippet, env=None, check=True, base=None):
         """snippet run with pair-core.sh sourced: the working tree's, or with base=True skills/ as it was at e6e83e3, the oracle for
@@ -520,7 +520,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'close', 'feedback', 'maintainer', 'new-handoff', 'retro', 'rotate-master', 'stop', 'take-master')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'close', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'retro', 'revise', 'rotate-master', 'stop', 'take-master')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -1768,6 +1768,26 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             git('add', '-A')
             git('commit', '-q', '-m', name)
             shas[name] = git('rev-parse', 'HEAD')
+        for op in spec.get('gitops', ()):
+            # history beyond c1 < c2 < c3: ('write', path, text), ('writeb', path, bytes), ('chmod', path, mode), ('commit', name) naming the new commit,
+            # ('git', *args) and ('git>', name, *args) naming the sha it prints; arguments are formatted with the names so far
+            if op[0] == 'write':
+                (repo / op[1]).parent.mkdir(parents=True, exist_ok=True)
+                (repo / op[1]).write_text(op[2])
+            elif op[0] == 'writeb':
+                (repo / op[1]).write_bytes(op[2])
+            elif op[0] == 'chmod':
+                os.chmod(repo / op[1], op[2])
+            elif op[0] == 'rename':
+                os.rename(repo / op[1], repo / op[2])
+            elif op[0] == 'commit':
+                git('add', '-A')
+                git('commit', '-q', '-m', op[1])
+                shas[op[1]] = git('rev-parse', 'HEAD')
+            elif op[0] == 'git':
+                git(*(a.format(**shas) for a in op[1:]))
+            elif op[0] == 'git>':
+                shas[op[1]] = git(*(a.format(**shas) for a in op[2:]))
         sub = {**shas, **{f'{k}s': v[:9] for k, v in shas.items()}, 'st': str(st), 'T': str(top), 'repo': str(repo)}
         fill = lambda text: text.format(**sub)
         pair = {'master': {'name': 'm1'}, 'sidekick': {'kind': spec.get('kind', 'claude'), 'generation': 1, 'name': 's1'},
@@ -3480,7 +3500,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def phase4_ab(self, label, spec):
         """One kitchen world run through b632713's kitchen.sh and the working tree's: (working tree, base), the two trees' paths masked."""
         bases = self.phase4_skills()
-        toml = self.KITCHEN_TOML + ('\n[review]\nengine = "joo"\n' if spec.get('review_engine') else '')
+        toml = spec.get('toml', self.KITCHEN_TOML) + ('\n[review]\nengine = "joo"\n' if spec.get('review_engine') else '')
         spec = {**spec, 'repo_files': {**spec.get('repo_files', {}), '.agents/kitchen.toml': toml}}
         want = self.ab_run(f'{label}-base', bases, 'pstack-kitchen', spec)
         got = self.ab_run(f'{label}-port', root / 'skills', 'pstack-kitchen', spec)
@@ -7270,8 +7290,8 @@ stop_prime_role "$store" sidekick && echo "stopped"
     PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'steer', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss', 'spawn')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
-    TWINS = ('event', 'header_field', 'next_seq', 'paused_reason',
-             'new_from_template', 'steps_file', 'trunk_ref', 'range_floor', 'require_filled',
+    TWINS = ('event', 'header_field', 'paused_reason',
+             'steps_file', 'trunk_ref', 'range_floor', 'require_filled',
              'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'json_update', 'pair_file',
              'expected_report', 'fresh_per_brief', 'file_mtime',
              'scope_entries',
@@ -7347,6 +7367,33 @@ stop_prime_role "$store" sidekick && echo "stopped"
         for helper in self.TWINS:
             self.assertTrue(any(f'{f}:{helper}' in reach.nodes for f in self.HELPER_FILES), f'{helper} has no bash definition: remove it from TWINS')
             self.assertRegex(python, rf'(?m)^\s*def {self.TWIN_NAMES.get(helper, helper)}\(', f'{helper} has no Python twin')
+
+    # kitchen.sh functions verify (units 026 and 027) still calls, with their kitchen_core twin and the test that runs both on the same fixtures. Unit 027
+    # deletes the bash and this entry with it.
+    KITCHEN_TWINS = {
+        'unit_head': ('units', 'unit_head', 'test_unit_head_and_unit_brief_equal_the_bash'),
+        'unit_brief': ('units', 'unit_brief', 'test_unit_head_and_unit_brief_equal_the_bash'),
+        'commit_patch_id': ('units', 'patch_id', 'test_the_patch_ids_the_unit_model_reads_equal_the_bash_commit_patch_id'),
+        'stack_patch_ids': ('units', 'StackIndex', 'test_the_stack_index_matches_the_bash_stack_arrays_and_gives_a_shared_patch_id_to_the_newer_commit'),
+        'unit_rebased_in': ('units', 'rebased_in', 'test_the_unit_model_equals_the_bash_functions_at_the_phase_4_base'),
+        'unit_in_landing_range': ('units', 'inclusion', 'test_the_unit_model_equals_the_bash_functions_at_the_phase_4_base'),
+        'unit_heads_in': ('units', 'heads_in', 'test_heads_in_equals_unit_heads_in_at_the_phase_4_base'),
+        'verdict_range': ('units', 'Verdict', 'test_verdict_parse_equals_verdict_range_and_verdict_problem'),
+        'verdict_problem': ('units', 'Verdict', 'test_verdict_parse_equals_verdict_range_and_verdict_problem'),
+        'manifest_warning': ('landing', 'manifest_warning', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
+        'engine_met': ('landing', 'engine_met', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
+        'cites_engine': ('landing', 'cites_engine', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
+        'unit_adds_no_lines': ('landing', 'unit_adds_no_lines', 'test_land_check_matches_the_bash_at_the_phase_4_base'),
+        'warn_unreviewed': ('reviews', 'warn_unreviewed', 'test_take_master_matches_the_bash_at_the_phase_4_base'),
+    }
+
+    def test_each_kitchen_bash_twin_has_its_bash_definition_its_python_def_and_a_test_that_runs_both(self):
+        bash = (root / 'skills/pstack-kitchen/scripts/kitchen.sh').read_text()
+        for name, (module, python, pin) in self.KITCHEN_TWINS.items():
+            self.assertRegex(bash, rf'(?m)^{name}\(\) \{{', f'{name} has no bash definition: remove it from KITCHEN_TWINS')
+            source = (root / f'skills/pstack-kitchen/scripts/kitchen_core/{module}.py').read_text()
+            self.assertRegex(source, rf'(?m)^(def|class) {python}\b', f'{name} has no Python twin {module}.{python}')
+            self.assertTrue(hasattr(type(self), pin), f'{name}: pinned by {pin}, which does not exist')
 
     def test_ported_commands_are_pycore_shims_in_the_script_that_defines_their_final_body(self):
         reach = self.reach()
@@ -7726,6 +7773,242 @@ stop_prime_role "$store" sidekick && echo "stopped"
         # the packet beside a verdict wins
         self.assertEqual(got[1].split('|')[0], 'pppp qqqq')
         self.assertEqual(got[0].split('|')[0], 'a b')
+
+    LC_BRIEF = '# Brief 001: x\n\nplaybook: bug-fix\ntimebox: 30\ncommit: yes\n'
+    LC_DONE = '# R\n\nstatus: done\nhead: {c2}\n'
+
+    def land_world(self, **extra):
+        """land-check over one accepted unit, 001-x: dispatched at c1, done at c2, with no verdict yet."""
+        files = {'briefs/001-x.md': self.LC_BRIEF, 'reports/001-x.md': self.LC_DONE, 'reviews/001-x.md': '# R\n\nverdict: accept\n', **extra.pop('files', {})}
+        pair = {'slug': 'demo', 'heads': {'001-x': '{c1}'}, **extra.pop('pair', {})}
+        return {'args': ['land-check', '{st}'], 'files': files, 'pair': pair, **extra}
+
+    @staticmethod
+    def lc_verdict(rng, status='clean', units='landing'):
+        return f'# V\n\nstatus: {status}\nunits: {units}\nrange: {rng}\n'
+
+    def test_land_check_matches_the_bash_at_the_phase_4_base(self):
+        world, verdict = self.land_world, self.lc_verdict
+        clean = {'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n'}
+        landing = lambda rng, **kw: {'verdicts/landing-v1.md': verdict(rng, **kw)}
+        stack = [('git', 'checkout', '-q', '-b', 'stack', '{c1}'), ('write', 't.txt', 'T\n'), ('commit', 'trunk'), ('git', 'cherry-pick', '{c2}'),
+                 ('git>', 'tip', 'rev-parse', 'HEAD')]
+        reverted = [*stack, ('git', 'revert', '--no-edit', 'HEAD'), ('git>', 'tip2', 'rev-parse', 'HEAD')]
+        squashed = [('git', 'checkout', '-q', '-b', 'stack', '{c1}'), ('write', 't.txt', 'T\n'), ('commit', 'trunk'), ('git', 'cherry-pick', '-n', '{c2}', '{c3}'),
+                    ('commit', 'squash')]
+        merged = [('git', 'checkout', '-q', '-b', 'side', '{c1}'), ('write', 'm.txt', 'M\n'), ('commit', 'side'), ('git', 'checkout', '-q', 'main'),
+                  ('git', 'merge', '--no-ff', '-q', '-m', 'merge', 'side'), ('git>', 'merged', 'rev-parse', 'HEAD'),
+                  ('git', 'checkout', '-q', '-b', 'stack', '{c1}'), ('write', 't.txt', 'T\n'), ('commit', 'trunk'), ('git', 'cherry-pick', '{c2}'),
+                  ('git>', 'tip', 'rev-parse', 'HEAD')]
+        deletion = [('write', 'd.txt', 'a\nb\nc\n'), ('commit', 'b0'), ('write', 'd.txt', 'a\n'), ('commit', 'h')]
+        skipped = {'reviews/001-x.md': '# R\n\nverdict: accept\nengine: skipped (deletion-only, proof: true)\n', 'reports/001-x.md': '# R\n\nstatus: done\nhead: {h}\n'}
+        skip = lambda ops, files=None, pair=None: world(review_engine=True, gitops=ops, pair={'heads': {'001-x': '{b0}'}, **(pair or {})}, files={**skipped, **clean, **(files or {})})
+        toml_manifests = self.KITCHEN_TOML.replace('paths = ["contracts/**"]\n', 'paths = ["contracts/**"]\nmanifests = ["requirements.txt"]\n')
+        gap = 'skipped is only for a deletion-only range'
+        cases = {
+            'a verified unit passes': world(files=clean),
+            'an unverified unit': world(),
+            'a unit covered by the landing verdict': world(files=landing('{c1}..{c3}')),
+            'a landing verdict that is not clean': world(files=landing('{c1}..{c3}', status='reject')),
+            'a landing verdict whose head does not resolve': world(files=landing('{c1}..deadbeef0')),
+            'a unit landed before the landing base': world(files={**landing('{c2}..{c3}'), 'reports/001-x.md': '# R\n\nstatus: done\nhead: {c1}\n'}),
+            'a unit newer than the landing verdict': world(files={**landing('{c1}..{c2}'), 'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'},
+                                                      pair={'heads': {'001-x': '{c2}'}}),
+            'a unit rebased into the stack': world(gitops=stack, files=landing('{trunk}..{tip}')),
+            'a rebased unit whose patch was reverted later': world(gitops=reverted, files=landing('{trunk}..{tip2}')),
+            'a unit squashed into the stack': world(gitops=squashed, files=landing('{trunk}..{squash}')),
+            'a landing verdict with no base that resolves, over a rebased unit': world(gitops=stack, files=landing('deadbeef0..{tip}')),
+            'a unit whose range holds a merge': world(gitops=merged, files={**landing('{trunk}..{tip}'), 'reports/001-x.md': '# R\n\nstatus: done\nhead: {merged}\n'}),
+            'a unit with no head': world(files={**landing('{c1}..{c3}'), 'reports/001-x.md': '# R\n\nstatus: partial\n'}),
+            'a unit whose head is its last recorded step': world(files={**landing('{c1}..{c3}'), 'reports/001-x.md': '# R\n\nstatus: partial\n',
+                                                                       'steps/001-x.tsv': '1\t{c2}\tfirst\n'}),
+            'the newest landing verdict counts': world(files={'verdicts/landing-v2.md': verdict('{c1}..{c3}'), 'verdicts/landing-v10.md': verdict('{c1}..{c3}', status='reject')}),
+            'a packet range beats the verdict range': world(files={**landing('{c1}..{c1}'), 'verdicts/landing-v1-packet.md': '# P\n\nrange: {c1}..{c3}\n'}),
+            'words after the range': world(files=landing('{c1}..{c3} from the packet')),
+            'a landing verdict behind HEAD': world(files=landing('{c1}..{c2}')),
+            "a landing verdict not in HEAD's history": world(gitops=stack, files=landing('{c1}..{c3}')),
+            'a unit named by a clean landing verdict units line': world(files={'verdicts/landing-v1.md': verdict('{c1}..{c3}', units='landing 001 002')}),
+            'a landing brief needs nothing': world(files={'briefs/001-x.md': '# B\n\nplaybook: shipping\ncommit: yes\n'}),
+            'a review that is not accepted': world(files={'reviews/001-x.md': '# R\n\nverdict: reject\n'}),
+            'a brief that does not commit': world(files={'briefs/001-x.md': '# B\n\ncommit: no\n'}),
+            'a recorded landing parent that is no longer an ancestor': world(gitops=stack, files=landing('{trunk}..{tip}'),
+                                                                            pair={'landing': {'parent': '{c3}', 'parent_ref': 'rel'}}),
+            'a manifest changed since the verified base': world(gitops=[('write', 'requirements.txt', 'a\n'), ('commit', 'reqs'),
+                                                                        ('git', 'checkout', '-q', '-b', 'stack', '{c1}')],
+                                                                toml=toml_manifests, files={**landing('{reqs}..{reqs}'), **clean}),
+            'a heads that is a string': world(gitops=stack, files=landing('{trunk}..{tip}'), pair={'heads': 'x'}),
+            'a dispatch that is a string': world(files=clean, pair={'dispatch': 'x'}),
+            'a landing that is a string': world(files=landing('{c1}..{c3}'), pair={'landing': 'x'}),
+            'a master that is a string': world(files=clean, pair={'master': 'm1'}),
+            'a missing engine run': world(review_engine=True, files=clean),
+            'a cited engine run': world(review_engine=True, files={**clean, 'reviews/001-x.md': '# R\n\nverdict: accept\nengine: joo /tmp/run.json\n'}),
+            'an engine named with no run': world(review_engine=True, files={**clean, 'reviews/001-x.md': '# R\n\nverdict: accept\nengine: joo\n'}),
+            'a deletion-only skip': skip(deletion),
+            'a skip over a mode change': skip([('write', 'd.txt', 'a\nb\nc\n'), ('commit', 'b0'), ('write', 'd.txt', 'a\n'), ('chmod', 'd.txt', 0o755), ('commit', 'h')]),
+            'a skip over a file with a tab in its name': skip([('write', 'a\tb.txt', 'a\nb\nc\n'), ('commit', 'b0'), ('write', 'a\tb.txt', 'a\n'), ('commit', 'h')]),
+            'a skip over a deleted tab-named file': skip([('write', 'a\tb.txt', 'a\nb\nc\n'), ('commit', 'b0'), ('git', 'rm', '-q', 'a\tb.txt'), ('commit', 'h')]),
+            'a skip over a modified binary file': skip([('writeb', 'b.bin', bytes(range(256))), ('commit', 'b0'), ('writeb', 'b.bin', bytes(range(128))), ('commit', 'h')]),
+            'a skip over a deleted binary file': skip([('writeb', 'b.bin', bytes(range(256))), ('commit', 'b0'), ('git', 'rm', '-q', 'b.bin'), ('commit', 'h')]),
+            'a skip over a rename': skip([('write', 'd.txt', 'a\nb\nc\n'), ('commit', 'b0'), ('rename', 'd.txt', 'e.txt'), ('commit', 'h')]),
+            'a skip over added lines': skip([('write', 'd.txt', 'a\n'), ('commit', 'b0'), ('write', 'd.txt', 'a\nb\n'), ('commit', 'h')]),
+            'a skip over a dangling dispatch head': skip(deletion, pair={'heads': {'001-x': 'deadbeef0000'}}),
+            'a skip with no dispatch head': skip(deletion, pair={'heads': {}}),
+            'a skip with a heads that is a string': skip(deletion, pair={'heads': 'x'}),
+            'a skip with no head': skip(deletion, files={'reports/001-x.md': '# R\n\nstatus: partial\n'}),
+            'a skip with no proof': skip(deletion, files={'reviews/001-x.md': '# R\n\nverdict: accept\nengine: skipped (deletion-only, proof: )\n'}),
+            'a kitchen that does not validate': world(files=clean, toml='version = 1\n[profile.app]\npaths = 3\n'),
+            'no pair.json': world(nopair=True),
+            'no arguments': dict(args=['land-check']),
+            'two arguments': dict(args=['land-check', '{st}', 'x']),
+        }
+        expect = {
+            'a verified unit passes': (0, 'land-check: pass (review engine: none)'),
+            'an unverified unit': (2, 'unverified: unit 001 has no clean verdict'),
+            'a unit covered by the landing verdict': (0, 'covered: unit 001 by the clean landing verdict'),
+            'a landing verdict that is not clean': (2, 'landing verification: reject'),
+            'a landing verdict whose head does not resolve': (2, 'range head does not resolve; no unit is covered by it'),
+            'a unit landed before the landing base': (2, 'landed before the base of landing verdict'),
+            'a unit newer than the landing verdict': (2, 'is newer than landing verdict'),
+            'a unit rebased into the stack': (0, 'covered: unit 001 (rebased as'),
+            'a rebased unit whose patch was reverted later': (2, "commits match by patch-id but"),
+            'a unit squashed into the stack': (2, '(squashed?); verify --landing covers it'),
+            'a landing verdict with no base that resolves, over a rebased unit': (2, 'has no base that resolves; unit 001 cannot be matched by patch-id'),
+            'a unit whose range holds a merge': (2, "range holds a merge commit, so patch-ids do not cover it"),
+            'a unit with no head': (2, 'unverified: unit 001'),
+            'a unit whose head is its last recorded step': (0, 'covered: unit 001 by the clean landing verdict'),
+            'the newest landing verdict counts': (2, 'landing verification: reject'),
+            'a packet range beats the verdict range': (0, 'covered: unit 001 by the clean landing verdict'),
+            'words after the range': (0, 'covered: unit 001 by the clean landing verdict'),
+            'a landing verdict behind HEAD': (0, '1 commit behind HEAD'),
+            "a landing verdict not in HEAD's history": (0, "not in HEAD's history (rebased or another branch)"),
+            'a unit named by a clean landing verdict units line': (0, 'land-check: pass'),
+            'a landing brief needs nothing': (0, 'land-check: pass (review engine: none)'),
+            'a review that is not accepted': (0, 'land-check: pass (review engine: none)'),
+            'a brief that does not commit': (0, 'land-check: pass (review engine: none)'),
+            'a recorded landing parent that is no longer an ancestor': (0, 'is no longer an ancestor of'),
+            'a manifest changed since the verified base': (0, 'warning: dependency manifests changed since the verified base: requirements.txt'),
+            'a heads that is a string': (2, 'Cannot index string with string ("001-x")'),
+            'a dispatch that is a string': (0, 'land-check: pass'),
+            'a landing that is a string': (0, 'Cannot index string with string ("parent")'),
+            'a master that is a string': (0, 'land-check: pass'),
+            'a missing engine run': (2, 'unreviewed: unit 001 cites no joo run'),
+            'a cited engine run': (0, 'land-check: pass (review engine: joo)'),
+            'an engine named with no run': (2, 'unreviewed: unit 001 cites no joo run'),
+            'a deletion-only skip': (0, 'land-check: pass (review engine: joo)'),
+            'a skip over a mode change': (2, gap),
+            'a skip over a file with a tab in its name': (0, 'land-check: pass (review engine: joo)'),
+            'a skip over a deleted tab-named file': (0, 'land-check: pass (review engine: joo)'),
+            'a skip over a modified binary file': (2, gap),
+            'a skip over a deleted binary file': (0, 'land-check: pass (review engine: joo)'),
+            'a skip over a rename': (2, gap),
+            'a skip over added lines': (2, gap),
+            'a skip over a dangling dispatch head': (2, gap),
+            'a skip with no dispatch head': (2, gap),
+            'a skip with a heads that is a string': (2, 'Cannot index string with string ("001-x")'),
+            'a skip with no head': (2, gap),
+            'a skip with no proof': (2, 'unreviewed: unit 001 cites no joo run'),
+            'a kitchen that does not validate': (2, 'kitchen: validate fails (kitchen.py validate shows why)'),
+            'no pair.json': (1, 'pair.sh: no pair.json in'),
+            'no arguments': (1, 'pair.sh: usage: kitchen.sh land-check <store>'),
+            'two arguments': (1, 'pair.sh: usage: kitchen.sh land-check <store>'),
+        }
+        out = self.phase4_cases('landck', cases, expect)
+        self.assertRegex(out['a unit rebased into the stack']['stdout'], r'covered: unit 001 \(rebased as [0-9a-f]{9}\) by the clean landing verdict <T>/st/verdicts/landing-v1\.md')
+        self.assertIn('reverts them', out['a rebased unit whose patch was reverted later']['stdout'])
+        self.assertNotIn('covered', out['a unit squashed into the stack']['stdout'])
+        self.assertIn('landing verification: clean (<T>/st/verdicts/landing-v10.md)'.replace('clean', 'reject'), out['the newest landing verdict counts']['stdout'])
+        self.assertIn('is no longer an ancestor of', out['a recorded landing parent that is no longer an ancestor']['stderr'])
+        self.assertIn('Cannot index string with string ("parent")', out['a landing that is a string']['stderr'])
+        self.assertIn(gap, out['a skip over a dangling dispatch head']['stdout'])
+        self.assertIn('unit 001 cites no joo run', out['a skip with no proof']['stdout'])
+
+    def test_a_landing_verdict_with_a_version_that_is_not_a_number_is_the_newest_and_the_bash_complains_on_stderr(self):
+        """Accepted (PARITY.md): `landing-v1x.md` matches the glob; the bash's `[ 1x -le 0 ]` prints `line N: [: 1x: integer expected`, takes the file as
+        the newest, and so does every later one. The port takes it the same way without the shell's message. stdout and the status are equal."""
+        spec = self.land_world(files={'verdicts/landing-v1x.md': self.lc_verdict('{c1}..{c3}'), 'verdicts/landing-v2.md': self.lc_verdict('{c1}..{c3}', status='reject')})
+        got, want = self.phase4_ab('landv1x', spec)
+        self.assertEqual((got['rc'], got['stdout'], got['files']), (want['rc'], want['stdout'], want['files']))
+        self.assertIn('landing verification: ', got['stdout'])
+        self.assertRegex(want['stderr'], r'line [0-9]+: \[: 1x: integer expected')
+        self.assertEqual(got['stderr'], '')
+
+    def test_dispatch_of_a_landing_brief_goes_through_the_python_land_check(self):
+        """cmd_dispatch's bash called land_check; it calls `pycore land-check` now. A landing brief with a unit that has no clean verdict is refused
+        with the same message by both trees."""
+        landing_brief = '# Brief 003-ship\n\nplaybook: shipping\ntimebox: 30\ncommit: no\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- lib/**\n'
+        spec = self.land_world(args=['dispatch', '{st}', '{st}/briefs/003-ship.md', '--timeout', '1000'], files={'briefs/003-ship.md': landing_brief},
+                               repo_files={'src/a.py': 'x'})
+        out = self.phase4_cases('landdisp', {'a landing brief with an unverified unit': spec},
+                                {'a landing brief with an unverified unit': (2, 'landing refused: kitchen.sh land-check')})
+        self.assertIn('landing refused', out['a landing brief with an unverified unit']['stderr'])
+
+    def test_revise_matches_the_bash_at_the_phase_4_base(self):
+        def brief(n, scope, extra=''):
+            return (f'# Brief 00{n}: x\n\nplaybook: feature\ntimebox: {20 + n}\ncommit: yes\nplan: none\nrisk: routine\n{extra}\n## Goal\n\nDo it.\n\n## Scope\n\n'
+                    f'may write:\n' + ''.join(f'- {g}\n' for g in scope) + f'\nmust not write:\n- lib/**\n\n## Steps\n\n1. s\n\n## Acceptance\n\n- works {n}\n- shared\n\n'
+                    f'## Verify\n\n```bash\ntrue {n}\n```\n\n## Forbidden\n\n- nothing {n}\n- shared\n')
+        rejected = lambda units, status='reject': f'# V\n\nstatus: {status}\nunits: {units}\n\n## Findings\n\n1. broke\n\n## Evidence\n\n```\nout\n```\n'
+        files = {'briefs/001-x.md': brief(1, ['src/a.py', 'docs/**']), 'briefs/002-y.md': brief(2, ['src/a.py', 'tests/**']), 'verdicts/001-x-v1.md': rejected('001')}
+        run = ['revise', '{st}', '{st}/verdicts/001-x-v1.md']
+        with_verdict = lambda units, name='verdicts/001-x-v1.md', **kw: dict(args=['revise', '{st}', '{st}/' + name], files={**files, name: rejected(units, **kw)})
+        cases = {
+            'a rejected unit verdict': dict(args=run, files=files),
+            'a rejected unit verdict of a fix brief': dict(args=['revise', '{st}', '{st}/verdicts/003-x-fix2-v1.md'],
+                                                           files={**files, 'briefs/003-x-fix2.md': brief(3, ['src/b.py']), 'verdicts/003-x-fix2-v1.md': rejected('003')}),
+            'the last unit named wins': with_verdict('001 002'),
+            'a rejected landing verdict names the union of the Scopes': with_verdict('landing 001 002', 'verdicts/landing-v1.md'),
+            'a rejected landing verdict that names no unit takes every unit brief': with_verdict('landing', 'verdicts/landing-v1.md'),
+            'a landing verdict skips landing briefs': dict(with_verdict('landing', 'verdicts/landing-v1.md'),
+                                                           files={**files, 'verdicts/landing-v1.md': rejected('landing'), 'briefs/003-ship.md': brief(3, ['x'], 'landing: yes\n')}),
+            'a landing verdict whose unit has no brief': with_verdict('landing 009', 'verdicts/landing-v1.md'),
+            'a clean verdict is refused': dict(args=run, files={**files, 'verdicts/001-x-v1.md': rejected('001', status='clean')}),
+            'an inconclusive verdict is refused': dict(args=run, files={**files, 'verdicts/001-x-v1.md': rejected('001', status='inconclusive')}),
+            'a verdict with no status': dict(args=run, files={**files, 'verdicts/001-x-v1.md': '# V\n\nunits: 001\n'}),
+            'a missing verdict': dict(args=['revise', '{st}', '{st}/verdicts/none.md'], files=files),
+            'a verdict that names no unit': with_verdict('none'),
+            'a unit with no brief': with_verdict('009'),
+            'a store with no landing unit briefs': dict(args=['revise', '{st}', '{st}/verdicts/landing-v1.md'], files={'verdicts/landing-v1.md': rejected('landing')},
+                                                         pair={'slug': 'demo'}),
+            'a heads that is a string': dict(args=run, files=files, pair={'slug': 'demo', 'heads': 'x'}),
+            'a dispatch that is a string': dict(args=run, files=files, pair={'slug': 'demo', 'dispatch': 'x'}),
+            'no pair.json': dict(args=run, files=files, nopair=True),
+            'no arguments': dict(args=['revise']),
+            'one argument': dict(args=['revise', '{st}']),
+            'three arguments': dict(args=run + ['x']),
+        }
+        expect = {
+            'a rejected unit verdict': (0, '/st/briefs/003-x-fix.md'),
+            'a rejected unit verdict of a fix brief': (0, '/st/briefs/004-x-fix.md'),
+            'the last unit named wins': (0, '/st/briefs/003-y-fix.md'),
+            'a rejected landing verdict names the union of the Scopes': (0, '/st/briefs/003-landing-fix.md'),
+            'a rejected landing verdict that names no unit takes every unit brief': (0, '/st/briefs/003-landing-fix.md'),
+            'a landing verdict skips landing briefs': (0, '/st/briefs/004-landing-fix.md'),
+            'a landing verdict whose unit has no brief': (1, 'pair.sh: no brief for unit 009'),
+            'a clean verdict is refused': (1, 'pair.sh: only a rejected verdict needs a fix brief'),
+            'an inconclusive verdict is refused': (1, 'pair.sh: only a rejected verdict needs a fix brief'),
+            'a verdict with no status': (1, 'pair.sh: only a rejected verdict needs a fix brief'),
+            'a missing verdict': (1, 'pair.sh: verdict not found:'),
+            'a verdict that names no unit': (1, 'names no unit (units: none)'),
+            'a unit with no brief': (1, 'pair.sh: no brief for unit 009'),
+            'a store with no landing unit briefs': (0, '/st/briefs/003-landing-fix.md'),
+            'a heads that is a string': (0, '/st/briefs/003-x-fix.md'),
+            'a dispatch that is a string': (0, '/st/briefs/003-x-fix.md'),
+            'no pair.json': (1, 'pair.sh: no pair.json in'),
+            'no arguments': (1, 'pair.sh: usage: kitchen.sh revise <store> <verdict-path>'),
+            'one argument': (1, 'pair.sh: usage: kitchen.sh revise <store> <verdict-path>'),
+            'three arguments': (1, 'pair.sh: usage: kitchen.sh revise <store> <verdict-path>'),
+        }
+        out = self.phase4_cases('revise', cases, expect)
+        unit = out['a rejected unit verdict']['files']['briefs/003-x-fix.md']
+        self.assertIn('playbook: bug-fix', unit)
+        self.assertIn('- verdict: <T>/st/verdicts/001-x-v1.md', unit)
+        self.assertIn('true 1', unit)
+        landing = out['a rejected landing verdict names the union of the Scopes']['files']['briefs/003-landing-fix.md']
+        self.assertEqual(landing.count('- src/a.py'), 1)
+        self.assertIn('- docs/**', landing)
+        self.assertIn('- tests/**', landing)
+        self.assertIn('true 1', landing)
+        self.assertIn('true 2', landing)
 
 
 class BashReachTests(unittest.TestCase):

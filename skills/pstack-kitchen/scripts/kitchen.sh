@@ -646,7 +646,7 @@ cmd_dispatch() {
 	if [ ! -f "$2" ] && [ -f "$1/$2" ]; then set -- "$1" "$1/$2" "${@:3}"; fi
 	[ -f "$2" ] || die "brief not found: $2"
 	if is_landing "$2"; then
-		land_check "$1" >/dev/null || die "landing refused: kitchen.sh land-check $1 fails" 2
+		pycore land-check "$1" >/dev/null || die "landing refused: kitchen.sh land-check $1 fails" 2
 	else
 		classify_brief "$1" "$2"
 	fi
@@ -1855,89 +1855,7 @@ handoff_due() {
 	printf 'master: %s units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff %s, fill it, kitchen.sh rotate-master %s\n' "$n" "$store" "$store"
 }
 
-cmd_revise() {
-	[ $# -eq 2 ] || die "usage: kitchen.sh revise <store> <verdict-path>"
-	local store="$1" verdict="$2" units slug path b u landing=0
-	local -a briefs=()
-	[ -f "$verdict" ] || die "verdict not found: $verdict"
-	[ "$(header_field "$verdict" status)" = reject ] || die "only a rejected verdict needs a fix brief"
-	units="$(header_field "$verdict" units)"
-	if [[ "$units" == landing* ]]; then
-		landing=1
-		for u in $(grep -oE '[0-9]{3}' <<<"$units" || true); do
-			b="$(unit_brief "$store" "$u")"
-			briefs+=("$b")
-		done
-		if [ "${#briefs[@]}" -eq 0 ]; then
-			for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
-				[ -f "$b" ] && ! is_landing "$b" && briefs+=("$b")
-			done
-		fi
-		[ "${#briefs[@]}" -gt 0 ] || die "no unit briefs to fix in $store/briefs"
-		slug=landing-fix
-	else
-		u="$(grep -oE '[0-9]{3}' <<<"$units" | tail -1 || true)"
-		[ -n "$u" ] || die "$verdict names no unit (units: $units)"
-		b="$(unit_brief "$store" "$u")"
-		briefs=("$b")
-		slug="$(basename "${briefs[0]}" .md | cut -c5- | sed -E 's/-fix[0-9]*$//')-fix"
-	fi
-	path="$(new_from_template "$store" "$slug" briefs brief-template.md)"
-	VERDICT="$verdict" STORE="$store" LANDING="$landing" python3 - "$path" "${briefs[@]}" <<'PY'
-import os, re, sys
-path, briefs = sys.argv[1], sys.argv[2:]
-verdict, store, landing = os.environ['VERDICT'], os.environ['STORE'], os.environ['LANDING'] == '1'
-olds, new = [open(b).read() for b in briefs], open(path).read()
-def section(text, name):
-    m = re.search(rf'^## {name}\n(.*?)(?=^## |\Z)', text, re.M | re.S)
-    return m.group(1) if m else ''
-def header(text, key):
-    m = re.search(rf'^{key}: (.*)$', text, re.M)
-    return m.group(1) if m else ''
-def union(lines):
-    return list(dict.fromkeys(lines))
-def scope(texts):
-    may, mustnot = [], []
-    for t in texts:
-        cur = None
-        for line in section(t, 'Scope').splitlines():
-            if line.startswith('may write:'):
-                cur = may
-            elif line.startswith('must not write:'):
-                cur = mustnot
-            elif cur is not None and line.startswith('- '):
-                cur.append(line)
-    return '\nmay write:\n' + '\n'.join(union(may)) + '\n\nmust not write:\n' + '\n'.join(union(mustnot) or ['- none']) + '\n\n'
-def lines(texts, name):
-    body = union(l for t in texts for l in section(t, name).strip('\n').splitlines() if l.strip())
-    return '\n' + '\n'.join(body) + '\n\n'
-last = olds[-1]
-new = re.sub(r'^playbook: .*$', 'playbook: bug-fix', new, count=1, flags=re.M)
-for key in ('timebox', 'commit'):
-    new = re.sub(rf'^{key}: .*$', f'{key}: {header(last, key)}', new, count=1, flags=re.M)
-new = re.sub(r'^plan: .*$', f'plan: {"none" if landing else header(last, "plan")}', new, count=1, flags=re.M)
-if landing:
-    fills = {
-        'Goal': f'\nFix every finding in the landing verdict {verdict}, so a fresh `kitchen.sh verify {store} --landing` of the stack passes.\n\n',
-        'Steps': '\n1. One commit per finding in the verdict: the change, and the check that shows the finding is gone.\n\n',
-        'Context': f'\n- verdict: {verdict}\n' + ''.join(f'- unit brief: {b}\n' for b in briefs) + '\n',
-        'Scope': scope(olds), 'Acceptance': lines(olds, 'Acceptance'), 'Forbidden': lines(olds, 'Forbidden'),
-        'Verify': '\n' + ''.join(section(t, 'Verify').strip('\n') + '\n\n' for t in olds),
-    }
-else:
-    fills = {
-        'Goal': f'\nFix every finding in the verifier\'s verdict {verdict}, so a fresh verification of the same acceptance passes.\n\n',
-        'Steps': '\n1. One commit per finding in the verdict: the change, and the check that shows the finding is gone.\n\n',
-        'Context': f'\n- verdict: {verdict}\n- original brief: {briefs[0]}\n\n',
-    }
-    for name in ('Scope', 'Acceptance', 'Verify', 'Forbidden'):
-        fills[name] = section(last, name)
-for name, body in fills.items():
-    new = re.sub(rf'(^## {name}\n)(.*?)(?=^## |\Z)', lambda m, b=body: m.group(1) + b, new, count=1, flags=re.M | re.S)
-open(path, 'w').write(new)
-PY
-	printf '%s\n' "$path"
-}
+cmd_revise() { pycore revise "$@"; }
 
 # Whether a review note cites a run of the required engine: "engine: <name> <run id or artifact path>".
 cites_engine() {
@@ -1956,26 +1874,6 @@ latest_landing_verdict() {
 		[ "$lk" -le "$best" ] || { best="$lk"; found="$f"; }
 	done
 	printf '%s' "$found"
-}
-
-# Where the stack at HEAD leaves trunk now (the recorded landing parent, else
-# the merge-base with trunk), or nothing. $1 store.
-current_landing_base() {
-	local root parent trunk pc head
-	root="$(field "$1" .git_root)"
-	head="$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
-	parent="$(field "$1" '.landing.parent // empty')"
-	if [ -n "$parent" ]; then
-		pc="$(git -C "$root" rev-parse --verify --quiet "$parent^{commit}" 2>/dev/null || true)"
-		if [ -n "$pc" ] && [ "$pc" != "$head" ] && git -C "$root" merge-base --is-ancestor "$pc" "$head" 2>/dev/null; then
-			printf '%s\n' "$pc"
-			return 0
-		fi
-		printf 'landing base: recorded parent %s (%s) is no longer an ancestor of %s; using the trunk merge-base\n' \
-			"$(field "$1" '.landing.parent_ref // empty')" "${parent:0:9}" "${head:0:9}" >&2
-	fi
-	trunk="$(trunk_ref "$root")"
-	[ -z "$trunk" ] || git -C "$root" merge-base "$trunk" HEAD 2>/dev/null || true
 }
 
 # The base and head a landing verdict used, as "base head" (the refs as written): its packet's range
@@ -2089,118 +1987,7 @@ warn_unreviewed() {
 	done
 }
 
-# Why a unit outside a clean landing verdict's range could not be matched by
-# patch-id, as one land-check note. $1 store, $2 unit NNN, $3 brief, $4 unit head,
-# $5 landing verdict, $6 its base, $7 its head.
-landing_unmatched_note() {
-	local root ubase
-	root="$(field "$1" .git_root)"
-	ubase="$(jq -r --arg u "$(basename "$3" .md)" '.heads[$u] // empty' "$1/pair.json")"
-	if [ -n "$6" ] && git -C "$root" merge-base --is-ancestor "$4" "$6" 2>/dev/null; then
-		printf 'land-check: note: unit %s landed before the base of landing verdict %s; verify it on its own\n' "$2" "$5"
-	elif [ "$rebased_why" = merge ]; then
-		printf 'land-check: note: unit %s'"'"'s range holds a merge commit, so patch-ids do not cover it; verify --landing covers it\n' "$2"
-	elif [ "$rebased_why" = reverted ]; then
-		printf 'land-check: note: unit %s'"'"'s commits match by patch-id but %s reverts them\n' "$2" "${rebased_by:0:9}"
-	elif [ -z "$6" ]; then
-		printf 'land-check: note: landing verdict %s has no base that resolves; unit %s cannot be matched by patch-id; verify --landing covers it\n' "$5" "$2"
-	elif [ -n "$ubase" ] && git -C "$root" merge-base --is-ancestor "$7" "$ubase" 2>/dev/null; then
-		printf 'land-check: note: unit %s is newer than landing verdict %s; verify --landing again\n' "$2" "$5"
-	else
-		printf 'land-check: note: unit %s'"'"'s head is not in the stack and its commits do not match by patch-id (squashed?); verify --landing covers it\n' "$2"
-	fi
-}
-
-land_check() {
-	# Prints one line per problem; returns 1 when there is any. A unit with no
-	# clean verdict of its own is covered by the latest landing verdict when
-	# that one is clean and its range's head contains the unit's head. A
-	# kitchen that names a review engine requires each accepted unit's review
-	# note to cite a run of it: "engine: <name> <run id or artifact path>".
-	local store="$1" r seq brief verdict f problems=0 uhead engine
-	local landing_verdict="" landing_head="" landing_base="" lk best=0 behind vhead verdict_base_ref verdict_head_ref verdict_base_rev verdict_head_rev
-	engine="$(kpy "$store" --json validate 2>/dev/null | jq -r '.review_engine // empty')" ||
-		{ printf 'kitchen: validate fails (kitchen.py validate shows why)\n'; return 1; }
-	for f in "$store"/verdicts/landing-v[0-9]*.md; do
-		[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
-		lk="${f##*-v}"
-		lk="${lk%.md}"
-		[ "$lk" -le "$best" ] || { best="$lk"; landing_verdict="$f"; }
-	done
-	if [ -n "$landing_verdict" ]; then
-		read -r verdict_base_ref verdict_head_ref <<<"$(verdict_range "$landing_verdict")"
-		verdict_base_rev="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$verdict_base_ref^{commit}" 2>/dev/null || true)"
-		verdict_head_rev="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$verdict_head_ref^{commit}" 2>/dev/null || true)"
-	fi
-	if [ -n "$landing_verdict" ] && [ "$(header_field "$landing_verdict" status)" = clean ]; then
-		landing_head="$verdict_head_rev"
-		landing_base="$verdict_base_rev"
-		[ -n "$landing_head" ] || printf 'land-check: note: landing verdict %s range head does not resolve; no unit is covered by it\n' "$landing_verdict"
-	fi
-	for r in "$store"/reviews/[0-9][0-9][0-9]-*.md; do
-		[ -e "$r" ] || continue
-		[ "$(header_field "$r" verdict)" = accept ] || continue
-		seq="$(basename "$r" | cut -c1-3)"
-		brief="$(ls "$store"/briefs/"$seq"-*.md 2>/dev/null | head -1 || true)"
-		[ -n "$brief" ] && [ "$(header_field "$brief" commit | cut -c1-3)" = yes ] || continue
-		is_landing "$brief" && continue
-		if [ -n "$engine" ]; then
-			if ! engine_met "$store" "$brief" "$r" "$engine"; then
-				printf 'unreviewed: unit %s cites no %s run; review its range with %s and add "engine: %s <run id or artifact path>" to %s%s\n' \
-					"$seq" "$engine" "$engine" "$engine" "$r" "$engine_gap"
-				problems=$((problems + 1))
-			fi
-		fi
-		verdict=""
-		for f in "$store"/verdicts/*-v[0-9]*.md; do
-			[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
-			grep -qE "^units:(.* )?$seq( |$)" "$f" && [ "$(header_field "$f" status)" = clean ] && verdict="$f"
-		done
-		if [ -z "$verdict" ] && [ -n "$landing_head" ]; then
-			uhead="$(unit_head "$store" "$brief")"
-			if [ -n "$uhead" ]; then
-				if unit_in_landing_range "$store" "$brief" "$uhead" "$landing_base" "$landing_head"; then
-					verdict="$landing_verdict"
-					if [ -n "$rebased_sha" ]; then
-						printf 'covered: unit %s (rebased as %s) by the clean landing verdict %s\n' "$seq" "${rebased_sha:0:9}" "$landing_verdict"
-					else
-						printf 'covered: unit %s by the clean landing verdict %s\n' "$seq" "$landing_verdict"
-					fi
-				else
-					landing_unmatched_note "$store" "$seq" "$brief" "$uhead" "$landing_verdict" "$landing_base" "$landing_head"
-				fi
-			fi
-		fi
-		if [ -z "$verdict" ]; then
-			printf 'unverified: unit %s has no clean verdict (kitchen.sh verify %s %s)\n' "$seq" "$store" "$seq"
-			problems=$((problems + 1))
-		fi
-	done
-	# A landing verification is reported, not required.
-	if [ -n "$landing_verdict" ]; then
-		manifest_warning "$store" "$verdict_base_rev" "$(current_landing_base "$store")"
-		printf 'landing verification: %s (%s)\n' "$(header_field "$landing_verdict" status)" "$landing_verdict"
-		vhead="$verdict_head_rev"
-		if [ -n "$vhead" ]; then
-			if git -C "$(field "$store" .git_root)" merge-base --is-ancestor "$vhead" HEAD 2>/dev/null; then
-				behind="$(git -C "$(field "$store" .git_root)" rev-list --count "$vhead..HEAD" 2>/dev/null || true)"
-				[ "${behind:-0}" -eq 0 ] || printf 'landing verdict %s at %s, %s commit%s behind HEAD\n' "$landing_verdict" "${vhead:0:9}" "$behind" "$([ "$behind" -eq 1 ] || printf s)"
-			else
-				printf 'landing verdict %s at %s, not in HEAD'"'"'s history (rebased or another branch); verify --landing again\n' "$landing_verdict" "${vhead:0:9}"
-			fi
-		fi
-	else
-		printf 'landing verification: none; kitchen.sh verify %s --landing proves the stack tip with a fresh verifier\n' "$store"
-	fi
-	[ "$problems" -eq 0 ] || return 1
-	printf 'land-check: pass (review engine: %s)\n' "${engine:-none}"
-}
-
-cmd_land_check() {
-	[ $# -eq 1 ] || die "usage: kitchen.sh land-check <store>"
-	pair_file "$1" >/dev/null
-	land_check "$1" || exit 2
-}
+cmd_land_check() { pycore land-check "$@"; }
 
 cmd_catch() { pycore catch "$@"; }
 
