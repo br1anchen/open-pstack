@@ -521,7 +521,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'classify', 'close', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'retro', 'revise', 'rotate-master', 'stop', 'take-master', 'verify')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('catch', 'classify', 'close', 'discuss', 'feedback', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'stop', 'take-master', 'verify')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -7256,9 +7256,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # kitchen.sh keeps the pair's commands under core_* names (copy_fn) and wraps them
     KITCHEN_ALIASES = {'core_init': 'pstack-pair/scripts/pair-core.sh:cmd_init', 'core_spawn': 'pstack-pair/scripts/pair-core.sh:cmd_spawn',
                        'core_dispatch': 'pstack-pair/scripts/pair-core.sh:cmd_dispatch', 'core_wait': 'pstack-pair/scripts/pair-core.sh:cmd_wait',
-                       'core_queue': 'pstack-pair/scripts/pair-core.sh:cmd_queue', 'core_discuss': 'pstack-pair/scripts/pair-core.sh:cmd_discuss',
                        'core_step': 'pstack-pair/scripts/pair-core.sh:cmd_step', 'core_finish': 'pstack-pair/scripts/pair-core.sh:cmd_finish'}
-    KITCHEN_WRAPS = ('init', 'dispatch', 'wait', 'queue', 'step', 'finish', 'discuss', 'spawn')
+    KITCHEN_WRAPS = ('init', 'dispatch', 'wait', 'step', 'finish', 'spawn')
 
     def reach(self):
         cls = type(self)
@@ -7319,6 +7318,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # deletes the bash and this entry with it.
     KITCHEN_TWINS = {  # kitchen.sh functions with a kitchen_core twin that bash still calls (step and finish use brief_kitchen; unit 029 deletes it)
         'brief_kitchen': ('classify', 'brief_kitchen', 'test_brief_kitchen_equals_the_bash'),
+        'rotate_if_due': ('discuss', 'rotate_if_due', 'test_discuss_matches_the_bash_at_the_phase_4_base'),  # dispatch still calls it (unit 029)
     }
 
     def test_each_kitchen_bash_twin_has_its_bash_definition_its_python_def_and_a_test_that_runs_both(self):
@@ -7352,6 +7352,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
                     # the trio's and the kitchen's stop is consultant-core's; every other ported command's final body is pair-core's
                     home = self.CONSULTANT_CORE if name == 'stop' and entry in self.CONSULTANT_ENTRIES else self.CORE
+                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss'):
+                        home = entry  # the kitchen's own command, run from its variant
                     if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
                         home = entry  # the trio's own command, run from its variant
                     self.assertEqual(final.key, f'{home}:cmd_{name}', f'{entry}: the final cmd_{name} is not {home}')
@@ -8695,6 +8697,212 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             prc, got, perr = self.kitchen_py(st, code, cwd=repo)
             self.assertEqual((got, perr.replace(str(repo), '<R>')), (want, err.replace('kitchen.sh: ', 'pair.sh: ').replace(str(repo), '<R>')), good)
             self.assertIn('rc=0' if good else 'rc=1', want)
+
+    READY_PLAN_HOOK = ('#!/bin/sh\ncase "$2" in *" PLAN "*) ;; *) exit 0 ;; esac\ncase "$1" in\n'
+                       's1) printf "# R\\n\\nstatus: agree\\n" >"$FAKE/../st/reports/001-x.md" ;;\n'
+                       'c1) printf "# A\\n\\nstatus: agree\\n" >"$FAKE/../st/advice/001-x.md" ;;\nesac\n')
+
+    ROTATE_PLAN_HOOK = READY_HOOK.replace('exit 0\n', '') + READY_PLAN_HOOK.split('\n', 1)[1]
+
+    def discuss_cases(self):
+        plan = lambda risk='escalated': f'# Plan 001-x\n\nrisk: {risk}\n'
+        consultant = {'consultant': {'name': 'c1', 'kind': 'codex', 'pane_id': 'p2'}}
+        env = {'PAIR_FILE_POLL_MS': '1'}
+        old = {'plans/001-x.md': 1000}
+        base = dict(args=['discuss', '{st}', '{st}/plans/001-x.md', '--timeout', '3'], files={'plans/001-x.md': plan()}, mtimes=old,
+                    agents={'m1': 'idle claude', 's1': 'idle claude', 'c1': 'idle codex'}, pair=consultant, env=env, hook=self.READY_PLAN_HOOK)
+        routine = dict(base, files={'plans/001-x.md': plan('routine')}, agents={'s1': 'idle claude'}, pair={})
+        with_args = lambda spec, *extra: dict(spec, args=['discuss', '{st}', '{st}/plans/001-x.md', *extra])
+        answered = {'plans/001-x.md': plan(), 'reports/001-x.md': '# R\n\nstatus: agree\n', 'advice/001-x.md': '# A\n\nstatus: agree\n'}
+        due = self.rotation_world('pi')
+        rotating = lambda **kw: {**due, 'args': base['args'], 'files': {'plans/001-x.md': plan('routine')}, 'mtimes': old, **kw}
+        return {
+            'a routine plan answered by a hook': dict(routine, hook=self.READY_PLAN_HOOK, report_after='1 {st}/reports/001-x.md agree'),
+            'a routine plan whose sidekick is working': dict(routine, agents={'s1': 'working claude'}),
+            'a routine plan with the sidekick absent': dict(routine, agents={}),
+            'a routine plan with the sidekick blocked': dict(routine, agents={'s1': 'blocked claude'}),
+            'a routine plan in a paused store': dict(routine, files={'plans/001-x.md': plan('routine'), 'paused': 'lunch\n'}),
+            'a routine plan with a placeholder': dict(routine, files={'plans/001-x.md': plan('routine') + '\n{{{{path}}}}\n'}),
+            'a plan that is not there': dict(base, args=['discuss', '{st}', '{st}/plans/009-none.md']),
+            'a plan with no risk': dict(base, files={'plans/001-x.md': '# Plan 001-x\n'}),
+            'a plan whose risk is neither class': dict(base, files={'plans/001-x.md': plan('maybe')}),
+            'a plan whose risk keeps its reason': dict(base, files={'plans/001-x.md': plan('escalated (a contract)')}),
+            'too few arguments': dict(base, args=['discuss', '{st}']),
+            'an escalated plan with no consultant': dict(base, pair={}, agents={'m1': 'idle claude', 's1': 'idle claude'}),
+            'an escalated plan with a consultant that is a string': dict(base, pair={'consultant': 'c1'}),
+            'an escalated plan both roles answer': base,
+            'an escalated plan answered before the call': dict(base, files=answered, mtimes=old, hook=None),
+            'an escalated plan whose consultant answered before': dict(base, files={'plans/001-x.md': plan(), 'advice/001-x.md': '# A\n\nstatus: agree\n'}),
+            'an escalated plan whose sidekick answered before': dict(base, files={'plans/001-x.md': plan(), 'reports/001-x.md': '# R\n\nstatus: agree\n'}),
+            'an escalated plan whose consultant only left a stop': dict(base, files={'plans/001-x.md': plan(), 'advice/001-x.md': '# A\n\nkind: stop\n'}),
+            'a stop named for it with no kind line': dict(base, files={'plans/001-x.md': plan(), 'advice/001-x-stop.md': '# A\n'}),
+            'a stop and an answer': dict(base, files={'plans/001-x.md': plan(), 'advice/001-x.md': '# A\n\nstatus: agree\n', 'advice/001-x-late.md': '# A\n\nkind: stop\n'}, hook=None),
+            'a sidekick at work, the consultant idle': dict(base, agents={'m1': 'idle claude', 's1': 'working claude', 'c1': 'idle codex'}),
+            'a sidekick at work, the consultant working': dict(base, agents={'m1': 'idle claude', 's1': 'working claude', 'c1': 'working codex'}),
+            'a sidekick at work, the consultant answered': dict(base, agents={'m1': 'idle claude', 's1': 'working claude', 'c1': 'idle codex'}, files={'plans/001-x.md': plan(), 'advice/001-x.md': '# A\n\nstatus: agree\n'}),
+            'the sidekick working, the consultant gone': dict(base, agents={'m1': 'idle claude', 's1': 'working claude'}),
+            'a sidekick that is gone': dict(base, agents={'m1': 'idle claude', 'c1': 'idle codex'}),
+            'a sidekick that is blocked': dict(base, agents={'m1': 'idle claude', 's1': 'blocked claude', 'c1': 'idle codex'}),
+            'a consultant that is blocked': dict(base, agents={'m1': 'idle claude', 's1': 'idle claude', 'c1': 'blocked codex'}),
+            'a consultant that is working': dict(base, agents={'m1': 'idle claude', 's1': 'idle claude', 'c1': 'working codex'}),
+            'nobody answers': dict(base, hook=None),
+            'only the consultant answers': dict(base, hook=self.READY_PLAN_HOOK.replace('s1)', 'zz)')),
+            'a role that blocks after the prompt': dict(base, once={'wait': 'printf "blocked claude\\n" >"$FAKE/agents/s1"\n'}, hook=None),
+            'a prompt the first time stalls': dict(base, fakefiles={'prompt-drop': ''}),
+            'a prompt that fails': dict(base, promptfail=True),
+            'a prompt that fails with another code': dict(base, prompt_error='{"error":{"code":"boom"}}\n'),
+            'a prompt that times out': dict(base, prompt_error='{"error":{"code":"timeout"}}\n'),
+            'a prompt whose error is no json': dict(base, prompt_error='broken\n'),
+            '--every': with_args(base, '--every', '1'),
+            '--every with an expression': with_args(base, '--every', '1+1'),
+            '--timeout with an unknown option after': with_args(base, '--timeout', '3', '--bogus'),
+            'an unknown option': with_args(base, '--bogus'),
+            'outside herdr': dict(base, env={**env, 'HERDR_ENV': '0'}),
+            'a pair.json that is an array': dict(base, nopair=True, files={'plans/001-x.md': plan(), 'pair.json': '[]\n'}),
+            'no pair.json': dict(base, nopair=True),
+            'a sidekick that is a string': dict(base, pair={**consultant, 'sidekick': 's1'}),
+            'a rotation that succeeds before a routine plan': rotating(hook=self.ROTATE_PLAN_HOOK),
+            'a rotation flag that is the string true': rotating(pair={**due['pair'], 'sidekick': {**due['pair']['sidekick'], 'rotation_required': 'true'}}),
+            'a rotation that is not due': rotating(pair={**due['pair'], 'sidekick': {**due['pair']['sidekick'], 'rotation_required': False}}),
+            'a rotation whose exit prompt fails': rotating(prompt_error='{"error":{"code":"boom"}}\n'),
+            'a rotation that does not exit in time': rotating(prompt_error='{"error":{"code":"not_found"}}\n', clock=True),
+            'a rotation whose spawn returns 4': rotating(hook=None),
+            'a rotation in a paused store': rotating(files={'plans/001-x.md': plan('routine'), 'paused': 'lunch\n'}),
+            'a rotation before an escalated plan': dict(due, args=base['args'], files={'plans/001-x.md': plan()}, mtimes=old, agents={'s1': 'idle pi', 'c1': 'idle codex'},
+                                                       pair={**due['pair'], **consultant}, hook=self.ROTATE_PLAN_HOOK, env={**due['env'], **env}),
+            'a rotation that leaves the plan unanswered': rotating(),
+            'a sidekick that is a string with a consultant due': dict(base, pair={**consultant, 'sidekick': 'pi'}, files={'plans/001-x.md': plan('routine')}),
+            'a prime-agent rotation': dict(self.rotation_world('prime-agent'), args=base['args'], files={'plans/001-x.md': plan('routine')}, mtimes=old),
+        }
+
+    def test_discuss_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.discuss_cases()
+        answers = 'sidekick_response: <T>/st/reports/001-x.md\nsidekick_status: agree\nconsultant_state: idle\nconsultant_response: <T>/st/advice/001-x.md'
+        expect = {
+            'a routine plan answered by a hook': (0, 'state: idle\nreport: <T>/st/reports/001-x.md\nreport_status: agree\n'),
+            'a routine plan whose sidekick is working': (5, 'sidekick s1 is working; run: pair.sh wait'),
+            'a routine plan with the sidekick absent': (2, 'sidekick s1 is not live; run: pair.sh spawn'),
+            'a routine plan with the sidekick blocked': (3, 'sidekick s1 is blocked; inspect: herdr agent read s1'),
+            'a routine plan in a paused store': (5, 'the store is paused (lunch)'),
+            'a routine plan with a placeholder': (1, 'still has unfilled placeholders'),
+            'a plan that is not there': (1, 'plan not found: <T>/st/plans/009-none.md'),
+            'a plan with no risk': (2, 'risk: must start with routine or escalated, as kitchen.sh classify prints it'),
+            'a plan whose risk is neither class': (2, 'risk: must start with routine or escalated, as kitchen.sh classify prints it'),
+            'a plan whose risk keeps its reason': (0, 'sent PLAN 001-x.md to consultant c1\n'),
+            'too few arguments': (1, 'usage: kitchen.sh discuss <store> <plan-path> [--timeout MS]'),
+            'an escalated plan with no consultant': (5, 'an escalated plan goes to the consultant too; start it: kitchen.sh consultant <T>/st --reason TEXT'),
+            'an escalated plan with a consultant that is a string': (5, 'Cannot index string with string ("name")'),
+            'an escalated plan both roles answer': (0, 'sent PLAN 001-x.md to sidekick s1\nsent PLAN 001-x.md to consultant c1\nsidekick_state: idle\n' + answers),
+            'an escalated plan answered before the call': (0, 'sidekick_state: answered\nsidekick_response: <T>/st/reports/001-x.md\nsidekick_status: agree\nconsultant_state: answered\n'),
+            'an escalated plan whose consultant answered before': (0, 'sent PLAN 001-x.md to sidekick s1\nsidekick_state: idle\n'),
+            'an escalated plan whose sidekick answered before': (0, 'sent PLAN 001-x.md to consultant c1\nsidekick_state: answered\n'),
+            'an escalated plan whose consultant only left a stop': (0, 'consultant_response: <T>/st/advice/001-x.md\nconsultant_status: agree\n'),
+            'a stop named for it with no kind line': (0, 'consultant_response: <T>/st/advice/001-x.md\nconsultant_status: agree\n'),
+            'a stop and an answer': (4, 'consultant_state: answered\nconsultant_response: <T>/st/advice/001-x.md\nconsultant_status: agree'),
+            'a sidekick at work, the consultant idle': (4, 'sidekick_response: deferred (it is working on a unit); run discuss again once it reports, to send it this plan\n'),
+            'a sidekick at work, the consultant working': (5, 'consultant c1 is working; wait for it before a plan round'),
+            'a sidekick at work, the consultant answered': (4, 'consultant_state: answered\n'),
+            'the sidekick working, the consultant gone': (5, 'an escalated plan goes to the consultant too'),
+            'a sidekick that is gone': (2, 'sidekick s1 is not live; run: pair.sh spawn <T>/st --only sidekick --sidekick <kind>'),
+            'a sidekick that is blocked': (3, 'sidekick s1 is blocked'),
+            'a consultant that is blocked': (3, 'consultant c1 is blocked'),
+            'a consultant that is working': (5, 'consultant c1 is working; wait for it before a plan round'),
+            'nobody answers': (4, 'redelivered: consultant c1 sat idle without the plan; sent it again\n'),
+            'only the consultant answers': (4, 'sidekick settled without a response; polling for the file\nsidekick_state: idle\nsidekick_response: missing\n'),
+            'a role that blocks after the prompt': (4, 'sidekick_state: blocked\nsidekick_response: missing\n'),
+            'a prompt the first time stalls': (0, 'redelivered: sidekick s1 sat idle without the plan; sent it again\n'),
+            'a prompt that fails': (2, 'herdr prompt failed for s1'),
+            'a prompt that fails with another code': (2, 'herdr prompt failed for s1'),
+            'a prompt that times out': (4, 'sidekick settled without a response; polling for the file'),
+            'a prompt whose error is no json': (2, 'broken\n'),
+            '--every': (0, 'consultant_status: agree\n'),
+            '--every with an expression': (0, 'consultant_status: agree\n'),
+            '--timeout with an unknown option after': (1, 'unknown option --bogus'),
+            'an unknown option': (1, 'unknown option --bogus'),
+            'outside herdr': (1, 'not running inside Herdr (HERDR_ENV != 1)'),
+            'a pair.json that is an array': (5, 'Cannot index array with string ("consultant")'),
+            'no pair.json': (5, 'no pair.json in <T>/st; run: pair.sh init <slug>'),
+            'a sidekick that is a string': (5, 'Cannot index string with string ("name")'),
+            'a rotation that succeeds before a routine plan': (0, 'rotated: the pi sidekick starts this plan in a fresh session\nstate: idle\nreport: <T>/st/reports/001-x.md\n'),
+            'a rotation flag that is the string true': (4, 'rotated: the pi sidekick starts this plan in a fresh session\n'),
+            'a rotation that is not due': (4, 'state: idle\nreport: missing\n'),
+            'a rotation whose exit prompt fails': (2, 'rotating the sidekick before this plan failed:\npair.sh: pi exit failed'),
+            'a rotation that does not exit in time': (5, 'rotating the sidekick before this plan failed:\npair.sh: pi has not exited; inspect s1 before retrying rotate'),
+            'a rotation whose spawn returns 4': (4, 'rotating the sidekick before this plan failed:\nreused pane p1\n'),
+            'a rotation in a paused store': (5, 'rotating the sidekick before this plan failed:\npair.sh: the store is paused (lunch)'),
+            'a rotation before an escalated plan': (0, 'rotated: the pi sidekick starts this plan in a fresh session\nsent PLAN 001-x.md to sidekick s1\n'),
+            'a rotation that leaves the plan unanswered': (4, 'rotated: the pi sidekick starts this plan in a fresh session\n'),
+            'a sidekick that is a string with a consultant due': (5, 'Cannot index string with string ("kind")'),
+            'a prime-agent rotation': (4, 'rotated: the prime-agent sidekick starts this plan in a fresh session\n'),
+        }
+        self.phase4_cases('disc', cases, expect)
+
+    def queue_cases(self):
+        world = self.launch_world
+        queue = lambda *a, **kw: world(args=['queue', '{st}', *a], agents={'m1': 'idle claude', 's1': 'working claude'}, **kw)
+        path = '{st}/briefs/002-y.md'
+        return {
+            'a brief queued behind a working sidekick': queue(path),
+            'a brief given relative to the store': queue('briefs/002-y.md'),
+            'a replace': queue(path, '--replace', files={'queue': '{st}/briefs/001-x.md\n'}),
+            'another brief already queued': queue(path, files={'queue': '{st}/briefs/001-x.md\n'}),
+            'the same brief already queued': queue(path, files={'queue': '{st}/briefs/002-y.md\n'}),
+            'the queue cleared': queue('--clear', files={'queue': '{st}/briefs/001-x.md\n'}),
+            'a clear with nothing queued': queue('--clear'),
+            'a clear with an extra word': queue('--clear', 'x'),
+            'an idle sidekick': world(args=['queue', '{st}', path], agents={'m1': 'idle claude', 's1': 'idle claude'}),
+            'a blocked sidekick': world(args=['queue', '{st}', path], agents={'m1': 'idle claude', 's1': 'blocked claude'}),
+            'an absent sidekick': world(args=['queue', '{st}', path], agents={'m1': 'idle claude'}),
+            'a landing brief': queue(path, files={'briefs/002-y.md': self.launch_brief('002', 'y').replace('playbook: feature', 'playbook: shipping')}),
+            'a landing brief marked by landing: yes': queue(path, files={'briefs/002-y.md': self.launch_brief('002', 'y', 'landing: yes\n')}),
+            'a brief with an empty Scope': queue(path, files={'briefs/002-y.md': self.launch_brief('002', 'y').replace('- src/**\n', '')}),
+            'a brief that escalates': queue(path, files={'briefs/002-y.md': self.launch_brief('002', 'y').replace('risk: routine', 'risk: escalated')}),
+            'a brief that changes class': queue(path, files={'briefs/002-y.md': self.launch_brief('002', 'y').replace('- src/**\n', '- contracts/**\n')}),
+            'a brief outside a kitchen': queue(path, toml=None, mask=[(r'repo-[0-9a-f]{8}', 'repo-H')]),
+            'a kitchen that does not parse': queue(path, toml='version = 1\n[profile.app]\npaths = 3\n'),
+            'a brief that is not there': queue('{st}/briefs/009-none.md'),
+            'an unknown option': queue(path, '--bogus'),
+            'a paused store': queue(path, files={'paused': 'lunch\n'}),
+            'a brief with a placeholder': queue(path, files={'briefs/002-y.md': self.launch_brief('002', 'y').replace('Do y.', '{{{{path}}}}')}),
+            'too few arguments': world(args=['queue', '{st}']),
+            'no pair.json': queue(path, nopair=True),
+            'a sidekick that is a string': queue(path, pair={'sidekick': 's1'}),
+        }
+
+    def test_queue_matches_the_bash_at_the_phase_4_base(self):
+        cases = self.queue_cases()
+        queued = 'queued <T>/st/briefs/002-y.md; the sidekick takes it when its current report is written\n'
+        expect = {
+            'a brief queued behind a working sidekick': (0, queued),
+            'a brief given relative to the store': (0, queued),
+            'a replace': (0, queued),
+            'another brief already queued': (5, 'the queue holds <T>/st/briefs/001-x.md; pass --replace to swap it'),
+            'the same brief already queued': (0, queued),
+            'the queue cleared': (0, 'queue cleared\n'),
+            'a clear with nothing queued': (0, 'queue cleared\n'),
+            'a clear with an extra word': (0, 'queue cleared\n'),
+            'an idle sidekick': (5, 'sidekick s1 is idle; dispatch instead: pair.sh dispatch'),
+            'a blocked sidekick': (3, 'sidekick s1 is blocked; resolve that before queueing'),
+            'an absent sidekick': (3, 'sidekick s1 is absent; resolve that before queueing'),
+            'a landing brief': (0, queued),
+            'a landing brief marked by landing: yes': (0, queued),
+            'a brief with an empty Scope': (1, "lists nothing under Scope's may write:"),
+            'a brief that escalates': (6, 'playbook feature needs an agreed plan; brief has plan: none'),
+            'a brief that changes class': (6, 'playbook feature needs an agreed plan; brief has plan: none'),
+            'a brief outside a kitchen': (1, 'kitchen.py snapshot failed; run kitchen.py validate in the repo'),
+            'a kitchen that does not parse': (1, 'kitchen.py snapshot failed; run kitchen.py validate in the repo'),
+            'a brief that is not there': (1, 'brief not found: <T>/st/briefs/009-none.md'),
+            'an unknown option': (1, 'unknown option --bogus'),
+            'a paused store': (5, 'the store is paused (lunch)'),
+            'a brief with a placeholder': (1, 'still has unfilled placeholders'),
+            'too few arguments': (1, 'usage: kitchen.sh queue <store> <brief-path> [--replace] | pair.sh queue <store> --clear'),
+            'no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'),
+            'a sidekick that is a string': (3, 'sidekick null is absent; resolve that before queueing'),
+        }
+        out = self.phase4_cases('que', cases, expect)
+        # the classify the queue runs is quiet on stdout and stamps the brief: the bytes are compared by the A/B, and the stamp is there
+        self.assertIn('profiles: app', out['a brief queued behind a working sidekick']['files']['briefs/002-y.md'])
+        self.assertNotIn('profiles:', out['a landing brief']['files']['briefs/002-y.md'])
 
     def classify_cases(self):
         world = self.launch_world

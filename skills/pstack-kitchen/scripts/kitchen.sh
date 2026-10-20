@@ -120,16 +120,8 @@ copy_fn cmd_init core_init
 copy_fn cmd_spawn core_spawn
 copy_fn cmd_dispatch core_dispatch
 copy_fn cmd_wait core_wait
-copy_fn cmd_queue core_queue
-copy_fn cmd_discuss core_discuss
 copy_fn cmd_step core_step
 copy_fn cmd_finish core_finish
-
-# A plan's or brief's risk class: the first word of its risk: header, which
-# a master may follow with the reason ("escalated (contract X)").
-risk_of() {
-	header_field "$1" risk | awk '{print $1}'
-}
 
 kpy() {
 	# kitchen.py against the store's repo: $1 store, rest: its arguments.
@@ -403,32 +395,9 @@ cmd_dispatch() {
 	exit "$rc"
 }
 
-cmd_queue() {
-	# A brief path may be given relative to the store (briefs/NNN-x.md), as for dispatch.
-	if [ $# -ge 2 ] && [ "$2" != --clear ] && [ ! -f "$2" ] && [ -f "$1/$2" ]; then set -- "$1" "$1/$2" "${@:3}"; fi
-	if [ $# -ge 2 ] && [ "$2" != --clear ] && [ -f "$2" ] && ! is_landing "$2"; then
-		pycore classify "$1" "$2" >/dev/null
-	fi
-	core_queue "$@"
-}
+cmd_queue() { pycore queue "$@"; }
 
-cmd_discuss() {
-	[ $# -ge 2 ] || die "usage: kitchen.sh discuss <store> <plan-path> [--timeout MS]"
-	[ -f "$2" ] || die "plan not found: $2"
-	case "$(risk_of "$2")" in
-	routine | escalated) ;;
-	*) die "$2: risk: must start with routine or escalated, as kitchen.sh classify prints it" 2 ;;
-	esac
-	if [ "$(risk_of "$2")" = escalated ]; then
-		[ "$(agent_status "$(field "$1" .consultant.name)")" != absent ] || die "an escalated plan goes to the consultant too; start it: kitchen.sh consultant $1 --reason TEXT" 5
-	fi
-	rotate_if_due "$1" plan
-	if [ "$(risk_of "$2")" = escalated ]; then
-		PAIR_ONE_WAKE=1 discuss_with_consultant "$@"
-	else
-		core_discuss "$@"
-	fi
-}
+cmd_discuss() { pycore discuss "$@"; }
 
 # A step is recorded only once the touched profiles' fast gates and the
 # policy check pass on it. Two failures in a row are an exception for the

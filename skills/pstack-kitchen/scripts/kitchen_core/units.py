@@ -12,7 +12,8 @@ import subprocess
 import sys
 
 from pstack_core.collate import glob_sorted
-from pstack_core.errors import Die
+from pstack_core.commands.report import MISSING_PAIR
+from pstack_core.errors import Die, Exit
 from pstack_core.review import range_floor, steps_file, trunk_ref
 from pstack_core.store import expected_report, header_field, jq_raw, last_line, pair_json
 from pstack_core.variant import commit_of
@@ -26,7 +27,15 @@ def _text(data):
 
 def git_root(store, quiet=False, check=False):
     """`jq -r .git_root pair.json` (the bash's `field "$store" .git_root`): jq's own error on stderr and an empty answer for a pair.json that does not
-    parse or is not an object, where the bash went on."""
+    parse or is not an object, where the bash went on. A store with no pair.json gets pair_file's message and jq's, and an empty answer."""
+    if not os.path.isfile(f'{store}/pair.json'):
+        if not quiet:
+            sys.stdout.flush()
+            sys.stderr.write(MISSING_PAIR.format(store=store))
+            sys.stderr.flush()
+        if check:
+            raise Exit(2)
+        return ''
     try:
         doc = pair_json(store)
         if isinstance(doc, dict):
