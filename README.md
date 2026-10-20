@@ -2,9 +2,9 @@
 
 Pstack skills for coding agents (Claude Code, Codex, Pi, Grok Build), with the
 local multi-agent workflows built on them: `pstack-pair`, `pstack-trio` and
-`pstack-kitchen` over Herdr. Split out of
-[br1anchen/nixpkgs-config](https://github.com/br1anchen/nixpkgs-config) with its
-history; that repo installs it with Home Manager.
+`pstack-kitchen` over Herdr. Split out of a
+Home Manager configuration repo (`nixpkgs-config`) with its history; that repo
+installs it.
 
 This repo owns 60 pstack skills in `skills/`, their reference files, helper
 scripts, and MIT license. Start with the
@@ -65,7 +65,7 @@ artwork are not runtime dependencies.
 
 ## Sync and update
 
-[nixpkgs-config](https://github.com/br1anchen/nixpkgs-config) takes this repo
+The `nixpkgs-config` Home Manager repo takes this repo
 as a flake input (`flake = false`); its `home-manager/pstack.nix` runs the same
 sync script used below against the input's Nix-store snapshot and records the
 input's rev in `~/.local/state/pstack/builds.tsv`. It exposes individual skill links in
