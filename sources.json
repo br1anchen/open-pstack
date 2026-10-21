@@ -70,6 +70,11 @@
     "correct": "pstack/skills/correct",
     "principle-explain-the-number": "pstack/skills/principle-explain-the-number"
   },
+  "excluded": {},
+  "watch": {
+    "pstack-tdd": "pstack/skills/tdd",
+    "pstack-teach": "pstack/skills/teach"
+  },
   "previous_install": {
     "architect": {
       "kind": "directory",
