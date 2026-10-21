@@ -76,7 +76,7 @@ class WorktreeAuditTests(unittest.TestCase):
             script = Path(__file__).resolve().parents[1] / 'skills/poteto-mode/scripts/worktree-audit.sh'
             env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
                        PSTACK_TRANSCRIPTS_DIR='')
-            result = subprocess.run(['bash', str(script), str(repo)], env=env,
+            result = subprocess.run(['bash', str(script), '-b', 'main', str(repo)], env=env,
                                     capture_output=True, text=True, check=True)
             self.assertIn('review-no-transcripts', result.stdout)
             self.assertIn(str(worktree), result.stdout)
@@ -85,7 +85,7 @@ class WorktreeAuditTests(unittest.TestCase):
             transcripts.mkdir()
             (transcripts / 'session.jsonl').write_text('{"cwd": ' + repr(str(worktree)).replace("'", '"') + '}\n')
             env['PSTACK_TRANSCRIPTS_DIR'] = str(transcripts)
-            recent = subprocess.run(['bash', str(script), str(repo)], env=env,
+            recent = subprocess.run(['bash', str(script), '-b', 'main', str(repo)], env=env,
                                     capture_output=True, text=True, check=True)
             self.assertIn('verify-recent-chat', recent.stdout)
 
