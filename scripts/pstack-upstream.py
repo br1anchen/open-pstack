@@ -181,23 +181,28 @@ class Tree:
         self.manifest_path.write_text(json.dumps(self.manifest, indent=2, ensure_ascii=False) + '\n')
 
 
+def merge_files(ours, base, theirs, base_rev, to_rev):
+    """git merge-file with diff3 markers on three paths. Returns (bytes, conflict count)."""
+    cmd = ['git', 'merge-file', '-p', '--diff3', '-L', 'local', '-L', f'upstream {base_rev[:7]}',
+           '-L', f'upstream {to_rev[:7]}', ours, base, theirs]
+    try:
+        result = subprocess.run(cmd, capture_output=True)
+    except OSError as error:
+        raise Stop(EXIT_ERROR, f'git merge-file did not run: {error}')
+    # 0 is clean and 1-127 is the conflict count; anything else, a signal included, is a tool failure.
+    if 0 <= result.returncode <= 127:
+        return result.stdout, result.returncode
+    raise Stop(EXIT_ERROR, f'git merge-file failed with exit {result.returncode}: {result.stderr.decode().strip()}')
+
+
 def merge3(ours, base, theirs, base_rev, to_rev):
-    """git merge-file with diff3 markers. Returns (bytes, conflict count)."""
     with tempfile.TemporaryDirectory() as tmp:
-        files = []
+        paths = []
         for name, data in (('ours', ours), ('base', base), ('theirs', theirs)):
             path = Path(tmp) / name
             path.write_bytes(data)
-            files.append(str(path))
-        cmd = ['git', 'merge-file', '-p', '--diff3', '-L', 'local', '-L', f'upstream {base_rev[:7]}',
-               '-L', f'upstream {to_rev[:7]}', *files]
-        try:
-            result = subprocess.run(cmd, capture_output=True)
-        except OSError as error:
-            raise Stop(EXIT_ERROR, f'git merge-file did not run: {error}')
-    if result.returncode == 0 or 1 <= result.returncode <= 127:
-        return result.stdout, result.returncode
-    raise Stop(EXIT_ERROR, f'git merge-file failed with exit {result.returncode}: {result.stderr.decode().strip()}')
+            paths.append(str(path))
+        return merge_files(*paths, base_rev, to_rev)
 
 
 def is_binary(*blobs):
@@ -259,9 +264,10 @@ def modified(delta, dest, ours, theirs, local, rel, up, base, to):
     if MARKER.encode() in ours:
         return Row('judge', dest, 'holds conflict markers')
     old = adapt(local, rel, up.blob(delta.old_sha))
-    if ours == theirs:
+    mode_changed = delta.old_mode != delta.new_mode
+    if ours == theirs and not mode_changed:
         return Row('noop', dest)
-    if ours == old:
+    if ours == old or ours == theirs:
         return Row('fast-forward', dest, '', theirs, delta.new_mode)
     if is_binary(ours, old, theirs):
         return Row('judge', dest, 'binary file customized locally')
@@ -496,7 +502,7 @@ def cmd_audit(args):
     return 0
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1], help='the repo to update')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -507,7 +513,7 @@ def main():
             command.add_argument('--rev', help='revision to compare with; default the pinned one')
         else:
             command.add_argument('--to', help='target revision; default the checkout HEAD')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         return {'audit': cmd_audit, 'plan': cmd_plan, 'apply': cmd_apply}[args.command](args)
     except Stop as stop:
