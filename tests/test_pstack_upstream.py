@@ -444,6 +444,75 @@ class JudgeTests(UpdateCase):
         self.assertBlocked('holds conflict markers')
 
 
+CHECK = SCRIPT.parent / 'check-pstack.py'
+ADAPTED = '---\nname: {0}\ndescription: d\n---\n\nRead [the runtime adapter](../pstack/references/runtime.md) first.\n\n{1}\n'
+
+
+class CheckPstackTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / 'skills/pstack/references').mkdir(parents=True)
+        (self.root / 'skills/pstack/LICENSE').write_text('MIT\n')
+        (self.root / 'skills/pstack/references/runtime.md').write_text('# Runtime\n')
+        self.write('skills/pstack/SKILL.md', ADAPTED.format('pstack', 'Entry.'))
+        self.write('skills/a/SKILL.md', ADAPTED.format('a', 'Body.'))
+        self.manifest()
+
+    def manifest(self, **upstream):
+        data = {'upstream': {'revision': 'r', 'version': '1', **upstream}, 'skills': {'pstack': 'x', 'a': 'y'}, 'previous_install': {}}
+        (self.root / 'sources.json').write_text(json.dumps(data))
+
+    def write(self, path, text):
+        file = self.root / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text)
+
+    def check(self):
+        return subprocess.run(['python3', str(CHECK), str(self.root)], capture_output=True, text=True)
+
+    def assertFails(self, needle):
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn(needle, result.stderr)
+
+    def test_a_clean_tree_passes(self):
+        result = self.check()
+        self.assertEqual((result.returncode, result.stdout), (0, '2 skills checked; all 0 previous skills covered\n'))
+
+    def test_a_conflict_marker_anywhere_in_skills_fails(self):
+        for path in ('skills/a/SKILL.md', 'skills/a/scripts/run.sh', 'skills/a/references/x.txt'):
+            with self.subTest(path):
+                self.write(path, 'before\n<<<<<<< local\nours\n=======\ntheirs\n>>>>>>> upstream 1234567\n')
+                self.assertFails('unresolved merge conflict marker')
+                self.write(path, ADAPTED.format('a', 'Body.') if path.endswith('SKILL.md') else 'clean\n')
+        self.assertEqual(self.check().returncode, 0)
+
+    def test_a_marker_in_a_copy_of_a_real_skill_file_fails(self):
+        real_skill = (SCRIPT.parents[1] / 'skills/how/SKILL.md').read_text()
+        self.write('skills/a/SKILL.md', real_skill + '\n<<<<<<< local\n')
+        self.assertFails('unresolved merge conflict marker')
+
+    def test_an_unresolved_upstream_update_fails(self):
+        self.manifest(pending={'revision': 'abc', 'conflicts': []})
+        self.assertFails('unresolved upstream update')
+
+    def test_anchors_follow_github_slugs_duplicates_fences_and_explicit_ids(self):
+        self.write('skills/a/references/t.md', '# Top Title\n\n## Same\n\n## Same\n\n### `Code` & **bold** [link](u.md)\n\n'
+                   '```\n# Fenced Heading\n```\n\n<a id="Explicit"></a>\n\n## Under_score: and-dash?\n')
+        links = ['t.md#top-title', 't.md#same', 't.md#same-1', 't.md#code--bold-link', 't.md#explicit', 't.md#under_score-and-dash']
+        self.write('skills/a/references/u.md', ''.join(f'[x]({link})\n' for link in links) + '[self](#own)\n\n# Own\n')
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+        for broken in ('t.md#fenced-heading', 't.md#same-2', 't.md#nope', '#missing'):
+            with self.subTest(broken):
+                self.write('skills/a/references/v.md', f'[x]({broken})\n')
+                self.assertFails('no heading for ' + broken)
+        (self.root / 'skills/a/references/v.md').unlink()
+        self.write('skills/a/references/w.md', '[x](https://example.com/page#frag) [y](../SKILL.md)\n')
+        self.assertEqual(self.check().returncode, 0)
+
+
 @unittest.skipUnless(os.environ.get('PSTACK_UPSTREAM_CHECKOUT'), 'PSTACK_UPSTREAM_CHECKOUT names a cursor/plugins checkout')
 class RealCheckoutTests(unittest.TestCase):
     def test_real_checkout_audit_names_every_customization(self):

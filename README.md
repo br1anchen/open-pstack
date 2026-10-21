@@ -97,11 +97,36 @@ shows as `unknown`.
 Reload skills or start a fresh agent session after changing the installed set.
 This does not install an auto-start hook or enable background services.
 
-To update upstream, compare against the pinned revision in `sources.json`,
-merge changes into this vendored tree, and review the runtime adapter and local
-customizations. Update the skill inventory for additions/removals, then run the
-checks below. Sync does not fetch upstream or delete removed skill names; remove
-obsolete generated links explicitly after reviewing their local contents.
+To take an upstream release, fetch a `cursor/plugins` checkout yourself (the
+script never fetches), then run `scripts/pstack-upstream.py` against it:
+
+```bash
+python3 scripts/pstack-upstream.py audit --upstream <checkout>           # our customizations, local-only files, watched skills
+python3 scripts/pstack-upstream.py plan  --upstream <checkout> --to REV  # one row per change; writes nothing
+python3 scripts/pstack-upstream.py apply --upstream <checkout> --to REV  # write it; needs a clean tree
+```
+
+`apply` fast-forwards the files we never changed, three-way merges the ones we
+did, adds new upstream skills under their own names, and keeps a file upstream
+deleted. It moves `upstream.revision` and `upstream.version` in `sources.json`
+last. Skills we fork from upstream (`watch` in `sources.json`) are reported and
+never written, and `excluded` names upstream skills to leave out. Then run the
+checks below.
+
+- **Exit 3, conflicts.** Files hold `<<<<<<< local` markers and `sources.json`
+  carries `upstream.pending`. Resolve each file, committed or not, and rerun the
+  same `--to`. The rerun finalizes the pin without merging again, and
+  `check-pstack.py` fails until it does. To accept a conflicted file's deletion, list
+  its path in `upstream.pending.deleted`.
+- **Exit 4, judge rows.** A customized file was renamed or is binary, or a new
+  upstream skill or file collides with one of ours. Nothing was written. Name
+  the skill in `excluded`, or commit a hand change that settles the file, and rerun.
+- **Exit 2, refused or tool failure.** Nothing was written. The error says
+  whether an affected path has uncommitted changes, git failed, or `--to` differs
+  from an unresolved update.
+
+Sync does not fetch upstream or delete removed skill names; remove obsolete
+generated links explicitly after reviewing their local contents.
 
 ## Runtime translation
 

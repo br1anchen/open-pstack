@@ -255,7 +255,7 @@ def build(tree, up, base, to):
     for row in rows:
         if row.disposition == 'add' and row.note == 'new skill':
             row.new_skill = next((n, d) for n, d in mapped_new.items() if row.path.startswith(f'skills/{n}/'))
-    return sorted((r for r in rows if r is not None), key=lambda r: (r.path, r.disposition))
+    return sorted(rows, key=lambda r: (r.path, r.disposition))
 
 
 def modified(delta, dest, ours, theirs, local, rel, up, base, to):
