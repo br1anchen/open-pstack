@@ -15,8 +15,9 @@ that this agent can dispatch it.
    model families, panel lists, and aliases; drop retired role labels absent
    from the table below and report which labels were dropped.
 2. Offer the current budget and four choices through the host
-   question tool: `unlimited — keep max`, `large — xhigh reasoning`,
-   `medium — high reasoning`, and `small — medium reasoning`. Apply any
+   question tool: `unlimited — max reasoning`, `large — xhigh reasoning`,
+   `medium — high reasoning`, and `small — medium reasoning`. With no budget
+   recorded, say that `large` matches the skill defaults. Apply any
    preference the user already supplied. An absent budget preserves existing
    settings until the user chooses. Apply the selected budget as described
    below, then present the current roles and available models. Ask only for
@@ -34,7 +35,7 @@ that this agent can dispatch it.
    rewrite is needed. When the host forbids model overrides, report that limit.
 
 ```text
-# budget: unlimited (preserve configured efforts)
+# budget: large (xhigh)
 feature, refactoring: inherit-parent
 bug-fix: inherit-parent
 perf-issue: inherit-parent
@@ -59,9 +60,10 @@ models are role-separated passes, not a diverse-model panel.
 
 ## Apply the reasoning budget
 
-`unlimited` leaves the configured efforts unchanged. `large`, `medium`, and
-`small` target `xhigh`, `high`, and `medium` respectively, for every real model
-entry, including panels. `inherit-parent` and `auto` stay unchanged. A budget
+`unlimited`, `large`, `medium`, and `small` target `max`, `xhigh`, `high`, and
+`medium` respectively, for every real model entry, including panels. A family
+with no `max` slug (Grok tops out at `xhigh`) falls back to its highest effort at
+or below the target. `inherit-parent` and `auto` stay unchanged. A budget
 alone does not authorize changing the parent session's model or reasoning.
 
 Use the host's actual schema. If reasoning is encoded in supported model IDs,
@@ -75,3 +77,18 @@ there is no effort control, preserve the model and report that limitation.
 
 Re-running setup preserves user choices of family, panel size, and aliases.
 Show the effective role table and any unsupported budget choices before writing.
+
+## Offer project verification skills (optional)
+
+Check whether the project has a way to drive the real app for proof (a `verify-*`
+skill, or an existing harness). If not, offer once: "want a project-local
+verification skill, so agents can drive the app the way a user does and prove
+changes work? I can generate one with /create-verification-skill." On yes, invoke
+`/create-verification-skill`. On no, move on without pushing.
+
+Then check whether the project already has a formal verification skill (a project
+skill that runs a model checker, a proof, or another verifier against the code). If
+not, offer once: "want a formal verification skill, so agents can prove a key
+property of your code holds in every case in scope, not only the cases tests
+reach? I can generate one with /create-formal-verification-skill." On yes, invoke
+`/create-formal-verification-skill`. On no, move on without pushing.

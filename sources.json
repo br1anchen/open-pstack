@@ -1,8 +1,8 @@
 {
   "upstream": {
     "repository": "https://github.com/cursor/plugins",
-    "revision": "e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a",
-    "version": "0.15.9"
+    "revision": "699e1e7488c53c05ca13409f40da83cd37682091",
+    "version": "0.15.29"
   },
   "inspiration": {
     "repository": "https://github.com/michael-denyer/pstack-claude",
@@ -68,7 +68,13 @@
     "ask-poteto": "local scenario advisor",
     "benchmark-checklist": "pstack/skills/benchmark-checklist",
     "correct": "pstack/skills/correct",
-    "principle-explain-the-number": "pstack/skills/principle-explain-the-number"
+    "principle-explain-the-number": "pstack/skills/principle-explain-the-number",
+    "create-formal-verification-skill": "pstack/skills/create-formal-verification-skill",
+    "in-your-own-words": "pstack/skills/in-your-own-words",
+    "ketchup": "pstack/skills/ketchup",
+    "maintain-formal-verification-skill": "pstack/skills/maintain-formal-verification-skill",
+    "poteto-help": "pstack/skills/poteto-help",
+    "sharpen": "pstack/skills/sharpen"
   },
   "excluded": {},
   "watch": {
