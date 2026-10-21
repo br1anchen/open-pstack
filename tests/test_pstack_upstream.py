@@ -19,6 +19,8 @@ pu = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pu)
 
 PINNED = 'e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a'
+# The commit whose skills/ tree is 0.15.9 (e43c7ee) adapted, before any update was applied.
+TREE_AT = '14f6bdc16b9a34c91cbe5bf29850be68b34406bd'
 # audit's account of this repo against the pinned revision, reviewed file by
 # file. A change to adapt() that hides one of these edits drops it from the
 # list and fails test_real_checkout_audit_names_every_customization.
@@ -445,13 +447,20 @@ class JudgeTests(UpdateCase):
 @unittest.skipUnless(os.environ.get('PSTACK_UPSTREAM_CHECKOUT'), 'PSTACK_UPSTREAM_CHECKOUT names a cursor/plugins checkout')
 class RealCheckoutTests(unittest.TestCase):
     def test_real_checkout_audit_names_every_customization(self):
-        root = Path(__file__).resolve().parents[1]
-        tree = pu.Tree(root)
-        if tree.manifest['upstream']['revision'] != PINNED:
-            self.skipTest('the repo has moved off the pinned revision this list describes')
-        report = pu.audit(tree, pu.Upstream(os.environ['PSTACK_UPSTREAM_CHECKOUT']), PINNED)
+        """Audit our skills as they were at TREE_AT against upstream at PINNED, whatever sources.json pins now."""
+        repo = Path(__file__).resolve().parents[1]
+        checkout = os.environ['PSTACK_UPSTREAM_CHECKOUT']
+        for root, rev in ((repo, TREE_AT), (checkout, PINNED)):
+            if subprocess.run(['git', 'cat-file', '-e', f'{rev}^{{commit}}'], cwd=root, capture_output=True).returncode:
+                self.skipTest(f'{root} has no commit {rev}')
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = subprocess.run(['git', 'archive', TREE_AT, 'skills', 'sources.json'], cwd=repo, capture_output=True, check=True)
+            subprocess.run(['tar', '-x', '-C', tmp], input=archive.stdout, check=True)
+            report = pu.audit(pu.Tree(tmp), pu.Upstream(checkout), PINNED)
         self.assertEqual(sorted(path for path, _, _ in report['customized']), CUSTOMIZED_AT_PINNED)
-        self.assertEqual((report['binary'], report['absent'], report['local_only_files'], report['unmapped']), ([], [], [], []))
+        # tdd and teach are unmapped here only because sources.json had no `watch` key at TREE_AT.
+        self.assertEqual((report['binary'], report['absent'], report['local_only_files'], report['unmapped']),
+                         ([], [], [], ['tdd', 'teach']))
 
 
 if __name__ == '__main__':

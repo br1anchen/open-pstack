@@ -484,7 +484,7 @@ def audit(tree, up, rev):
 def cmd_audit(args):
     tree = Tree(args.root)
     up = Upstream(args.upstream)
-    rev = up.commit(args.rev or tree.manifest['upstream']['revision'])
+    rev = up.commit(args.at or tree.manifest['upstream']['revision'])
     report = audit(tree, up, rev)
     print(f'audit against upstream {rev[:7]}')
     print(f'customized upstream files ({len(report["customized"])}):')
@@ -510,7 +510,7 @@ def main(argv=None):
         command = sub.add_parser(name)
         command.add_argument('--upstream', type=Path, required=True, help='a fetched cursor/plugins checkout')
         if name == 'audit':
-            command.add_argument('--rev', help='revision to compare with; default the pinned one')
+            command.add_argument('--at', help='revision to compare with; default the pinned one')
         else:
             command.add_argument('--to', help='target revision; default the checkout HEAD')
     args = parser.parse_args(argv)
