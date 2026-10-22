@@ -25,7 +25,7 @@ def write_rc(job, rc):
 def step(repo, py, job, base, head, config=''):
     path = f'{job}/profiles'
     if not os.path.isfile(path):
-        print(f'no profiles file: {path}')
+        print(f'no profiles file: {path}', flush=True)
         write_rc(job, 2)
         return
     rc = 0

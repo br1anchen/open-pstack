@@ -5283,7 +5283,7 @@ class CoreTests(unittest.TestCase):
         """TERM, INT and HUP end the command with the signal as its status and nothing on stderr; a signal the parent ignored stays ignored."""
         ready = 'end_with_parent()\nprint("ready", flush=True)\nsignal.pause()\n'
         for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-            # a gate that runs as a background job hands its children SIGINT ignored; the signal under test must be deliverable
+            # a gate that runs as a background job hands its children INT, TERM or HUP ignored; the signal under test must be deliverable
             proc = self.end_with_parent_process(ready, preexec_fn=lambda: [signal.signal(each, signal.SIG_DFL) for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)])
             self.addCleanup(proc.kill)
             self.assertEqual(proc.stdout.readline(), 'ready\n')
@@ -5690,6 +5690,23 @@ class CoreTests(unittest.TestCase):
         r = subprocess.run([str(scripts / 'pair.sh'), 'notify', '', str(report)], env=env, cwd=here, capture_output=True, text=True, check=False, timeout=120)
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertEqual(sorted(p.name for p in here.iterdir()), [])
+
+    def test_a_generation_or_shown_count_that_is_a_string_is_damage_and_changes_nothing(self):
+        from pstack_core import variant as pair_variant
+        st = self.claim_store('gen', None, {'sidekick': {'generation': 'x'}})
+        before = (st / 'pair.json').read_text()
+        with mock.patch.object(dispatch.subprocess, 'run'), self.assertRaises(Die) as caught:
+            dispatch.record_dispatch(str(st), str(st / 'briefs/001-x.md'), now=0)
+        self.assertEqual((caught.exception.code, caught.exception.message), (1, 'pair.json is damaged: generation is string, not an integer'))
+        self.assertEqual((st / 'pair.json').read_text(), before)
+        shown = self.claim_store('shown', None, {'shown': {'001-x': 'a'}})
+        (shown / 'steps').mkdir()
+        (shown / 'steps/001-x.tsv').write_text('1\tabc\t0\t\tdid it\n')
+        before = (shown / 'pair.json').read_text()
+        with mock.patch('pstack_core.replies.unreviewed_steps', return_value=[]), self.assertRaises(Die) as caught:
+            pair_variant.steps_due_in(None, str(shown), str(shown / 'briefs/001-x.md'))
+        self.assertEqual((caught.exception.code, caught.exception.message), (1, 'pair.json is damaged: 001-x is string, not an integer'))
+        self.assertEqual((shown / 'pair.json').read_text(), before)
 
     def test_a_dispatch_to_a_store_with_no_cwd_records_an_empty_head_and_runs_no_git(self):
         st = self.claim_store('nocwd', None)
