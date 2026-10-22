@@ -36,7 +36,7 @@ def gone(pid):
     try:
         with open(f'/proc/{pid}/stat') as f:
             return f.read().rsplit(')', 1)[1].split()[0] == 'Z'
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return True
 
 
