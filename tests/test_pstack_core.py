@@ -2895,6 +2895,57 @@ class CoreTests(unittest.TestCase):
         self.assertEqual((r.returncode, r.stderr), (2, f'pair.sh: no pair.json in {st}; run: pair.sh init <slug>\n'))
         self.assertTrue(r.stdout.startswith('# Pair status\n'))
 
+    def test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words(self):
+        """Each message names the command (pair.sh) and the path or value at fault; none leaves a pair.json.tmp behind."""
+        # status.md that cannot be opened: the status text still prints
+        from pstack_core.commands.status import Tee
+        target = self.path / 'status-dir'
+        target.mkdir()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            tee = Tee(str(target))
+        self.assertEqual((err.getvalue(), tee.failed), (f'pair.sh: cannot write {target}: Is a directory\n', True))
+        # stop on a store whose pair.json is gone
+        from pstack_core.commands import stop as stop_command
+        bare = self.path / 'bare'
+        bare.mkdir()
+        with self.assertRaises(Exit) as caught:
+            stop_command.clear_queue(str(bare))
+        self.assertEqual((caught.exception.code, caught.exception.stderr), (2, f'pair.sh: pair.json is missing from {bare}\n'))
+        self.assertEqual(sorted(os.listdir(bare)), [])
+        # a report that is gone when the wait reads its status
+        gone = str(self.path / 'gone.md')
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(wait.status_of(gone), '')
+        self.assertEqual(err.getvalue(), f'pair.sh: cannot read {gone}: No such file or directory\n')
+        # a covered last unit whose report is gone
+        units = self.kitchen_core_module('units')
+        err = io.StringIO()
+        with mock.patch.object(units, 'brief_or_nothing', return_value='/b/001-x.md'), mock.patch.object(units, 'dispatch_head', return_value='abc'), \
+                mock.patch.object(units, 'expected_report', return_value=gone), contextlib.redirect_stderr(err), self.assertRaises(Die) as caught:
+            units.unit_range('/st', ['001'], covered=['001'])
+        self.assertEqual((err.getvalue(), caught.exception.message), (f'pair.sh: cannot read {gone}: No such file or directory\n', "unit 001's report has no head:"))
+        # a step row whose first column is not a JSON number
+        spec = self.quiet_wait_cases()['steps wake an escalated brief']
+        got = self.kitchen_world('badrow', {**spec, 'files': {**spec['files'], 'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n02\t{c2}\t6\t\ttwo\n'}})
+        self.assertEqual((got['rc'], got['stderr']), (2, "pair.sh: the last step row does not start with a JSON step number: '02'\n"), got['stdout'])
+        self.assertNotIn('pair.json.tmp', got['files'])
+        # an unreadable steps file, and an unreadable steer
+        top, st, run = self.own_world('unreadable', files={'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n'})
+        steps = st / 'steps/001-x.tsv'
+        steps.chmod(0)
+        r = run('step', '{st}', '{c2}', 'two')
+        steps.chmod(0o644)
+        self.assertEqual((r.returncode, r.stderr), (2, f'pair.sh: cannot read {steps}: Permission denied\n'), r.stdout)
+        steer = st / 'steers/001-x-s1.md'
+        steer.write_text('## Direction\n\nx\n')
+        steer.chmod(0)
+        r = run('steer', '{st}', str(steer))
+        steer.chmod(0o644)
+        self.assertEqual(r.stderr, f'pair.sh: cannot read {steer}: Permission denied\npair.sh: not a steer file: {steer}\n', r.stdout)
+        self.assertEqual(r.returncode, 1)
+
     def test_no_pair_command_starts_jq(self):
         """The failing jq of tests/run.py logs its arguments. The pair scenario drives every ported command but failover through the real
         pair.sh against the fake herdr, and failover is driven here: no call reaches jq."""
