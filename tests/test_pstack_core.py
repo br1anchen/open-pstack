@@ -12,6 +12,7 @@ import shlex
 import select
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -3895,7 +3896,7 @@ class CoreTests(unittest.TestCase):
                'from pstack_core.errors import Die, Exit\n'
                f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "")\n'
                f'store = {str(store)!r}\n' + (f'vs.PID = {pid}\n' if pid else ''))
-        r = subprocess.run([sys.executable, '-I', '-c', pre + code], env={**self.env, **self.GIT, 'HOSTNAME': 'testhost', **(env or {})}, capture_output=True,
+        r = subprocess.run([sys.executable, '-I', '-c', pre + code], env={k: v for k, v in {**self.env, **self.GIT, 'HOSTNAME': 'testhost', **(env or {})}.items() if v is not None}, capture_output=True,
                            text=True, check=False, timeout=120, cwd=cwd)
         return r.returncode, r.stdout, r.stderr
 
@@ -4020,6 +4021,12 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(self.mask_token(err).replace(str(st), '<S>'), 'kitchen.sh: scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review\n')
         self.assertNotIn('closing', (st / 'pair.json').read_text())
 
+    def test_a_claim_made_with_hostname_unset_names_the_machines_host(self):
+        st = self.claim_store('nohostname', {'verdict': '/v/001-x-v1.md', 'units': '001'})
+        self.assertEqual(self.kitchen_py(st, 'print(vs.claim_close(store, "/v/001-x-v1.md"))', env={'HOSTNAME': None}, pid=os.getpid())[1], 'True\n')
+        token = json.loads((st / 'pair.json').read_text())['verifying']['closing']['token']
+        self.assertEqual(token.split(':')[0], socket.gethostname())
+
     def test_a_claim_taken_by_a_closer_binds_the_next_closer_while_its_process_lives_and_no_longer_after(self):
         """A closer's token is read by the next closer as a live holder (while its process lives) and as a dead one (after); a closer releases a token
         only if it is its own."""
@@ -4064,7 +4071,7 @@ class CoreTests(unittest.TestCase):
     @staticmethod
     def live_and_dead_token_hosts():
         """The host a claim token names (HOSTNAME from the environment, else localhost), a pid that is alive for the whole test and one that is gone."""
-        host = os.environ.get('HOSTNAME') or 'localhost'
+        host = os.environ.get('HOSTNAME') or socket.gethostname()
         dead = subprocess.Popen(['true'])
         dead.wait()
         return host, os.getpid(), dead.pid

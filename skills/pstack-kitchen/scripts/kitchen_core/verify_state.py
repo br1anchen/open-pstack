@@ -21,6 +21,7 @@ import os
 import subprocess
 import random
 import re
+import socket
 import sys
 
 from pstack_core.errors import Die, Exit
@@ -33,7 +34,7 @@ from .units import exit_status
 
 
 def hostname():
-    return os.environ.get('HOSTNAME') or 'localhost'
+    return os.environ.get('HOSTNAME') or socket.gethostname() or 'localhost'
 
 
 # the pid of the process that runs the command; a forked child keeps its parent's value
