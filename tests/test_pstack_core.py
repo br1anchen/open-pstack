@@ -264,7 +264,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__record_skill_build', 'catch', 'classify', 'close', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__record_skill_build', 'advice', 'catch', 'classify', 'close', 'consult', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-consult', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -3287,7 +3287,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     ENTRIES = ('pstack-pair/scripts/pair.sh', 'pstack-pair-guided/scripts/pair.sh', 'pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
     CORE = 'pstack-pair/scripts/pair-core.sh'
     CONSULTANT_CORE = 'pstack-trio/scripts/consultant-core.sh'
-    CONSULTANT_ENTRIES = ('pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
+    CONSULTANT_ENTRIES = ('pstack-trio/scripts/pair.sh',)
     HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
     PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'steer', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss', 'spawn')
