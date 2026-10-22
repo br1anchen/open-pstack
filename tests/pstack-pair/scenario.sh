@@ -12,7 +12,7 @@ trio) skill=pstack-trio prefix=pstack-trio ;;
 esac
 # Resolved, as the scripts see it (macOS keeps temp dirs under the /var link).
 T="$(cd "$(mktemp -d)" && pwd -P)"
-export PAIR_SETTLE_HOLD=10 PAIR_SUBMIT_CHECK_S=0 PAIR_BUSY_POLL=1 PAIR_SETTLE_POLL_S=0.2 PAIR_FILE_POLL_MS=200 PAIR_STOP_POLL_S=0.2 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_SOCKET_PATH="$T/herdr.sock" HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
+export PAIR_SETTLE_HOLD=1 PAIR_SUBMIT_CHECK_S=0 PAIR_BUSY_POLL=0.2 PAIR_SETTLE_POLL_S=0.05 PAIR_FILE_POLL_MS=50 PAIR_STOP_POLL_S=0.05 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_SOCKET_PATH="$T/herdr.sock" HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
 unset CLAUDE_CODE_SESSION_ID
 unset PSTACK_KITCHEN_ROLE PSTACK_KITCHEN_RUN
 mkdir -p "$FAKE" "$T/repo" "$T/home"
@@ -39,7 +39,7 @@ Load*) [ \$role = sidekick ] && body ready done >"\$store/reports/000-ready.md";
 "$prefix STEER "*) st="\${text#* STEER }"; b="\$(basename "\$st" .md | sed -E 's/-s[0-9]+\$//')"
 	# A paused sidekick answers a superseding steer by finishing the brief.
 	[ "\$(cut -d' ' -f1 "\$FAKE/agents/\$name")" = idle ] && body report done >"\$store/reports/\$b.md" ;;
-"$prefix STOP "*) sleep 1.1; body stop partial >"\$store/reports/\$(ls \$store/briefs | tail -1 | cut -c1-3)-stop.md" ;;
+"$prefix STOP "*) body stop partial >"\$store/reports/\$(ls \$store/briefs | tail -1 | cut -c1-3)-stop.md" ;;
 esac
 exit 0
 HOOK
@@ -55,14 +55,27 @@ collapse_polls() {
 norm() { T="$T" perl -pe 's#\Q$ENV{T}\E#<T>#g; s/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/<TS>/g; s#/tmp/tmp\.[A-Za-z0-9]+#<TMP>#g;
 	s#/tmp/pair-spawn-err\.[0-9]+#<ERR>#g; s/(^| )[0-9]{2}:[0-9]{2} /$1<HM> /; s/elapsed [0-9]+m/elapsed <N>m/; s/last [0-9]+m ago/last <N>m ago/; s/last change [0-9]+m ago/last change <N>m ago/;
 	s/\b1[0-9]{9}\b/<EPOCH>/g; s/[0-9a-f]{7,40}/<SHA>/g'; }
+# A report counts as the reply to a STOP only when it is not older than the send's second; ageing the earlier ones stands in for waiting out a clock tick.
+age_reports() { perl -e 'for (@ARGV) { $m = (stat)[9] - 10; utime $m, $m, $_ }' "$store"/reports/*; }
+# A deadline the scenario runs into passes in fake-herdr slices, so a fifth of it reaches the same decisions; the transcript keeps the printed value.
+shrink() {
+	ARGS=() UNSHRINK='s/$^//'
+	local prev=
+	for a in "$@"; do
+		if [ "$prev" = --timeout ] && [ "$a" -lt 5000 ] 2>/dev/null; then ARGS+=("$((a / 5))"); UNSHRINK="s/ --timeout $((a / 5))\$/ --timeout $a/"; else ARGS+=("$a"); fi
+		prev="$a"
+	done
+}
 run() {
+	[ "$1" = stop ] && age_reports
 	printf '\n$ pair.sh %s\n' "$*" | norm
 	local out code
-	out="$("$P" "$@" 2>&1)"; code=$?
+	shrink "$@"
+	out="$("$P" "${ARGS[@]}" 2>&1)"; code=$?
 	printf '%s\n[exit %s]\n' "$out" "$code" | norm
 	# A sliced wait polls herdr a timing-dependent number of times; fold repeats.
 	# Slice lengths follow the clock, so they are masked before folding.
-	if [ -s "$FAKE/calls.log" ]; then sed -E 's/^(agent wait .*--timeout )[0-9]+$/\1<MS>/' "$FAKE/calls.log" | sed 's/^/  herdr /' | norm | collapse_polls; : >"$FAKE/calls.log"; fi
+	if [ -s "$FAKE/calls.log" ]; then sed -E 's/^(agent wait .*--timeout )[0-9]+$/\1<MS>/' "$FAKE/calls.log" | sed "$UNSHRINK" | sed 's/^/  herdr /' | norm | collapse_polls; : >"$FAKE/calls.log"; fi
 }
 fill() { perl -0pi -e 's/\{\{.*?\}\}/x/gs' "$1"; }
 set_hdr() { KEY="$2" VAL="$3" perl -i -pe 's/^\Q$ENV{KEY}\E:.*/$ENV{KEY}: $ENV{VAL}/' "$1"; }
@@ -224,7 +237,7 @@ run dispatch "$store" "$q8" --timeout 1000
 # a settle that holds with no report ends the wait at its interval
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 q4="$("$P" new-brief "$store" qfour)"; fill "$q4"; set_hdr "$q4" playbook investigation; set_hdr "$q4" plan none
-"$P" dispatch "$store" "$q4" --timeout 1000 >/dev/null 2>&1; : >"$FAKE/calls.log"
+"$P" dispatch "$store" "$q4" --timeout 200 >/dev/null 2>&1; : >"$FAKE/calls.log"
 rm -f "$store/reports/$(basename "$q4")"
 run wait "$store" --timeout 3000
 # a unit rechecked at its commit while the tree moves on
@@ -239,7 +252,7 @@ run scratch "$store" "$rid" --remove
 qs="$("$P" new-brief "$store" qsteps)"; fill "$qs"; set_hdr "$qs" playbook investigation; set_hdr "$qs" plan none
 qn="$(basename "$qs" | cut -c1-3)"
 status "demo-sidekick" idle devin; : >"$FAKE/brief-working"
-"$P" dispatch "$store" "$qs" --timeout 1000 >/dev/null 2>&1; : >"$FAKE/calls.log"
+"$P" dispatch "$store" "$qs" --timeout 200 >/dev/null 2>&1; : >"$FAKE/calls.log"
 commit() { git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "$1"; git rev-parse HEAD; }
 s1="$(commit "step one")"
 run step "$store" "$s1" "parser reads v2"
@@ -312,7 +325,7 @@ rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 # at its next step or progress boundary, reports partial, and ends the turn
 q9="$("$P" new-brief "$store" qnine)"; fill "$q9"; set_hdr "$q9" playbook investigation; set_hdr "$q9" plan none
 status "demo-sidekick" idle devin; : >"$FAKE/brief-working"
-"$P" dispatch "$store" "$q9" --timeout 1000 >/dev/null 2>&1; : >"$FAKE/calls.log"
+"$P" dispatch "$store" "$q9" --timeout 200 >/dev/null 2>&1; : >"$FAKE/calls.log"
 run pause "$store" --reason "skill upgrade"
 run queue "$store" "$q9"
 run progress "$store" "half of step one"
@@ -340,7 +353,7 @@ rm -f "$FAKE/devin-input" "$FAKE/queued/demo-sidekick"
 # a report written in the same second as the STOP still counts; only reports
 # that existed before the send are ignored
 cp "$FAKE/hook" "$FAKE/hook.same"
-perl -i -pe 's#sleep 1\.1; body stop partial >"(.*)-stop\.md"#body STOP partial >"$1-same-second.md"#' "$FAKE/hook"
+perl -i -pe 's#body stop partial >"(.*)-stop\.md"#body STOP partial >"$1-same-second.md"#' "$FAKE/hook"
 status "demo-sidekick" working devin
 run stop "$store"
 # a STOP the pane never shows gets one fallback Enter and a warning, and the

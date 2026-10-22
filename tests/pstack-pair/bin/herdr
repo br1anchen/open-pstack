@@ -108,7 +108,7 @@ case "$1 $2" in
 		fi
 		printf '%s %s %s\n' $((n - 1)) "$path" "${rstatus:-}" >"$FAKE/report-after"
 	fi
-	if [ "$s" = working ]; then sleep 0.2; printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
+	if [ "$s" = working ]; then sleep 0.05; printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
 	ok "$s" ;;
 "agent send-keys")
 	if [ "${4:-}" = ctrl+d ] && [ "$(kind_of "$3")" = prime-agent ]; then
