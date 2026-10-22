@@ -23,7 +23,7 @@ from pstack_core.store import bash_int, count, damaged, event, header_field, jso
 from pstack_core.send import submit_typed
 from pstack_core.wait import bash_sleep
 
-from .jqx import exit_status, pair_jq
+from .jqx import exit_status, pair_text
 
 
 def hostname():
@@ -36,7 +36,7 @@ def shell_pid():
 
 @contextlib.contextmanager
 def quiet_stderr():
-    """File descriptor 2 pointed at /dev/null, for what the bash ran under `2>/dev/null` (jq's own error included)."""
+    """File descriptor 2 pointed at /dev/null, for what the bash ran under `2>/dev/null` (a tool's own error included)."""
     sys.stderr.flush()
     saved = os.dup(2)
     null = os.open(os.devnull, os.O_WRONLY)
@@ -91,7 +91,7 @@ def claim_close(store, verdict):
     respected. False when the verification is gone or another call holds the claim."""
     here = hostname()
     token = f'{here}:{shell_pid()}:{random.randrange(32768)}'
-    current = pair_jq(store, '.verifying.closing.token // empty')
+    current = pair_text(store, 'verifying.closing.token', empty=True)
     if current:
         host = current.partition(':')[0]
         rest = current.partition(':')[2] if ':' in current else current
@@ -104,11 +104,11 @@ def claim_close(store, verdict):
             verifying['closing'] = {'token': token}
 
     update_verifying(store, verdict, apply)
-    return pair_jq(store, '.verifying.closing.token // empty') == token
+    return pair_text(store, 'verifying.closing.token', empty=True) == token
 
 
 def alt_token(closing):
-    """jq's `.closing.token // empty` over a value the document holds: a string token, or None."""
+    """The `.closing.token` of a value the document holds, null and false counting as none: a string token, or None."""
     if isinstance(closing, dict):
         token = closing.get('token')
         return token if token not in (None, False) else None
@@ -133,7 +133,7 @@ def release_close(store, verdict, token):
 
 def my_claim(store):
     """Whether the claim in the store is this process's (the token names this host and pid)."""
-    return pair_jq(store, '.verifying.closing.token // empty').startswith(f'{hostname()}:{shell_pid()}:')
+    return pair_text(store, 'verifying.closing.token', empty=True).startswith(f'{hostname()}:{shell_pid()}:')
 
 
 def still_my_claim(store):
@@ -146,7 +146,7 @@ def still_my_claim(store):
 
 def verification_still_open(store, verdict):
     """A wait ends, touching nothing, when another call closed the verification it started on."""
-    if pair_jq(store, '.verifying.verdict // empty') == verdict:
+    if pair_text(store, 'verifying.verdict', empty=True) == verdict:
         return
     sys.stdout.write('verification closed elsewhere\n')
     raise Exit(5)
@@ -162,7 +162,7 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     verdict or another call claimed it. Returns 70 then, else the status of the scratch removal (the last command, as in the bash)."""
     if not claim_close(store, verdict):
         return 70
-    scratch = pair_jq(store, '.verifying.scratch')
+    scratch = pair_text(store, 'verifying.scratch')
     if kind == 'prime-agent':
         if not stop_prime_role(store, 'verifier'):
             raise Die('Prime verifier cleanup failed; its pane and scratch stay for inspection', 5)
@@ -220,7 +220,7 @@ def run_close(ctx, store, name, kind, pane, verdict):
     if rc == 70:
         return False
     if my_claim(store):
-        release_close(store, verdict, pair_jq(store, '.verifying.closing.token // empty'))
+        release_close(store, verdict, pair_text(store, 'verifying.closing.token', empty=True))
     raise Exit(rc)
 
 
@@ -243,10 +243,10 @@ def verify_prompt(ctx, packet):
 def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind=''):
     """Sends the open verification's packet once more. The name, packet, brief and kind are the verification the caller captured (a wait does);
     an empty one is read from the store."""
-    name = name or pair_jq(store, '.verifier.name')
-    packet = packet or pair_jq(store, '.verifying.packet')
-    brief = brief or pair_jq(store, '.verifying.brief')
-    kind = kind or pair_jq(store, '.verifier.kind')
+    name = name or pair_text(store, 'verifier.name')
+    packet = packet or pair_text(store, 'verifying.packet')
+    brief = brief or pair_text(store, 'verifying.brief')
+    kind = kind or pair_text(store, 'verifier.kind')
     event(store, 'master', 'verify-redeliver', brief, kind)
     sys.stdout.write(f'redelivered: {why}; sent it again\n')
     sys.stdout.flush()
@@ -447,7 +447,7 @@ def handoff_due(store, unit):
         master['units_since_handoff'] = count(master, 'units_since_handoff') + 1
 
     update(store, bump)
-    n = pair_jq(store, '.master.units_since_handoff')
+    n = pair_text(store, 'master.units_since_handoff')
     thr = bash_int(os.environ.get('KITCHEN_MASTER_ROTATE_UNITS') or '5')
     thr = 1 if thr is None or thr < 1 else thr
     if shell_arithmetic(n) % thr != 0:
@@ -458,17 +458,17 @@ def handoff_due(store, unit):
 
 def verify_cancel(ctx, store):
     """Cancels the open verification that has no verdict yet: its verifier and pane stop, its scratch goes, and `.verifying` is cleared."""
-    verdict = pair_jq(store, '.verifying.verdict // empty', check=True)
+    verdict = pair_text(store, 'verifying.verdict', empty=True, check=True)
     if not verdict:
         raise Die('no verification open', 5)
     if os.path.isfile(verdict) and header_field(verdict, 'status'):
         raise Die(f'the verdict is written ({verdict}); kitchen.sh verify {store} --wait reads it', 5)
-    units = pair_jq(store, '.verifying.units', check=True)
-    brief = pair_jq(store, '.verifying.brief', check=True)
-    packet = pair_jq(store, '.verifying.packet', check=True)
-    name = pair_jq(store, '.verifier.name', check=True)
-    kind = pair_jq(store, '.verifier.kind', check=True)
-    if not run_close(ctx, store, name, kind, pair_jq(store, '.verifier.pane_id', check=True), verdict):
+    units = pair_text(store, 'verifying.units', check=True)
+    brief = pair_text(store, 'verifying.brief', check=True)
+    packet = pair_text(store, 'verifying.packet', check=True)
+    name = pair_text(store, 'verifier.name', check=True)
+    kind = pair_text(store, 'verifier.kind', check=True)
+    if not run_close(ctx, store, name, kind, pair_text(store, 'verifier.pane_id', check=True), verdict):
         raise Die('no verification open (another call closed it)', 5)
     still_my_claim(store)
     set_outcome(packet, 'cancelled')

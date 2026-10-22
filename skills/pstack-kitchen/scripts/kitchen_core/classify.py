@@ -4,17 +4,17 @@ kitchen_snapshot, brief_kitchen, set_header, classify_brief and cmd_classify).
 Every kitchen.py call here (`snapshot`, `--json classify` and `lessons stamp`) goes through kpy.run, in process. None of them writes os.environ or
 reads INVOCATION: those belong to `gate` and to `brief-verify` without --list. test_classify_kpy_calls_leave_the_environment_alone pins that."""
 
+import json
 import os
 import re
-import subprocess
 import sys
 
 from pstack_core.checkin import scope_entries
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
-from pstack_core.store import header_field, pair_file, text_of
+from pstack_core.store import header_field, jq_raw, json_type, pair_file
 
-from .jqx import tolerant_field
+from .jqx import pair_field
 from .kpy import Kitchen
 
 CLASSIFY_FAILED = 'kitchen.py classify failed; run kitchen.py validate in the repo'
@@ -26,20 +26,24 @@ def risk_of(brief):
     return words[0] if words else ''
 
 
-def jq(text, program, *args):
-    """`jq -r PROGRAM <<<TEXT`: stdout without its trailing newlines; jq's own errors on stderr."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    r = subprocess.run(['jq', '-r', *args, program], input=(text + '\n').encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE, check=False)
-    return text_of(r.stdout, True)
+def parse_json(text, what):
+    """The object kitchen.py printed. A caller gets one stderr line naming what was wrong, and jq's exit 2 for text that does not parse or 5 for
+    a value of another shape."""
+    try:
+        doc = json.loads(text)
+    except ValueError as e:
+        raise Die(f'{what} is not JSON: {e}', 2)
+    if not isinstance(doc, dict):
+        raise Die(f'{what} is {json_type(doc)}, not an object', 5)
+    return doc
 
 
-def jq_lines(text, program):
-    """`jq -r PROGRAM <<<TEXT` with its output as it was printed: every line, each ending in a newline."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    r = subprocess.run(['jq', '-r', program], input=(text + '\n').encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE, check=False)
-    return text_of(r.stdout)
+def array_of(doc, key, what, strings=True):
+    """The array at doc[key], which a missing key or any other type makes an error; with strings, its items are strings."""
+    value = doc.get(key)
+    if not isinstance(value, list) or (strings and not all(isinstance(item, str) for item in value)):
+        raise Die(f'{what} {key} is {json_type(value)}, not {"an array of strings" if strings else "an array"}', 5)
+    return value
 
 
 def set_header(path, key, value):
@@ -105,20 +109,29 @@ def classify_brief(store, brief):
     status, classified = kit.soft([*cfg, '--json', 'classify', '--paths', *globs, *esc])
     if status != 0:
         raise Die(CLASSIFY_FAILED)
-    risk = jq(classified, '.risk')
+    data = parse_json(classified, 'kitchen.py classify output')
+    risk, verify = jq_raw(data.get('risk')), data.get('verify')
+    if not isinstance(verify, dict):
+        raise Die(f'kitchen.py classify output verify is {json_type(verify)}, not an object', 5)
+    profiles, escalate = array_of(data, 'profiles', 'kitchen.py classify output'), array_of(data, 'escalate', 'kitchen.py classify output')
+    verify_line = f'{jq_raw(verify.get("mode"))} by {jq_raw(verify.get("kind"))} verifier'
     # The master may have written a reason after the class (`escalated (contract change)`): rewrite the line only when the class changes.
     if risk_of(brief) != risk:
         set_header(brief, 'risk', risk)
-    set_header(brief, 'profiles', jq(classified, '.profiles | join(", ") | if . == "" then "none" else . end'))
-    set_header(brief, 'verify', jq(classified, '"\\(.verify.mode) by \\(.verify.kind) verifier"'))
+    set_header(brief, 'profiles', ", ".join(profiles) or 'none')
+    set_header(brief, 'verify', verify_line)
     sys.stdout.write(f'risk: {risk}\n')
     status, _ = kit.soft([*cfg, 'lessons', 'stamp', brief], show=True)
     if status != 0:
         raise Die('kitchen.py lessons stamp failed; run kitchen.py lessons in the repo')
-    sys.stdout.write(jq_lines(classified, '"profiles: \\(.profiles | join(", "))", "verify: \\(.verify.mode) by \\(.verify.kind) verifier", (.escalate[] | "escalate: \\(.)"), '
-                                         '(.warnings[]? | "warn: \\(.)"), (if .bookkeeping then "bookkeeping: the Scope is outside the repo; gates only, nothing to escalate" else empty end)'))
-    if risk == 'escalated' and agent_status(tolerant_field(store, 'consultant', 'name')) == 'absent':
-        sys.stdout.write(f'next: kitchen.sh consultant {store} --reason "{jq(classified, ".escalate[0]")}", then a plan round with it\n')
+    lines = [f'profiles: {", ".join(profiles)}', f'verify: {verify_line}', *(f'escalate: {reason}' for reason in escalate)]
+    lines += [f'warn: {jq_raw(warning)}' for warning in data.get('warnings') or []]
+    if data.get('bookkeeping'):
+        lines.append('bookkeeping: the Scope is outside the repo; gates only, nothing to escalate')
+    sys.stdout.write(''.join(f'{line}\n' for line in lines))
+    first_reason = escalate[0] if escalate else 'null'
+    if risk == 'escalated' and agent_status(pair_field(store, 'consultant', 'name')) == 'absent':
+        sys.stdout.write(f'next: kitchen.sh consultant {store} --reason "{first_reason}", then a plan round with it\n')
 
 
 def classify(ctx, args):

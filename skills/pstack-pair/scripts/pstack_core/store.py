@@ -238,6 +238,24 @@ def get(store, path, default=None):
     return value
 
 
+def read(store, path, empty=False, default=None):
+    """jq -r '.a.b' on pair.json, as a command substitution gives it: a scalar raw, an object or array as indented JSON. A step over a null gives
+    null; a step over any other value that is no object is damage. With empty the filter is '.a.b // empty'; with default, '.a.b // default'."""
+    from .wait import as_text
+    value, held = load(store), None
+    for key in path.split('.'):
+        if value is None:
+            break
+        if not isinstance(value, dict):
+            raise damaged(f'{held} is {json_type(value)}, not an object')
+        value, held = value.get(key), key
+    if default is not None:
+        value = alt(value, default)
+    elif empty:
+        value = alt(value, '')
+    return as_text(value)
+
+
 def field(store, role, key, empty=False, default=None):
     """jq -r '.role.key': a role that is not an object is damage. With empty, the filter is '.role.key // empty'; with default,
     '.role.key // "<default>"'."""

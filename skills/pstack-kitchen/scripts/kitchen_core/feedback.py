@@ -7,7 +7,6 @@ import os
 import random
 import re
 import string
-import subprocess
 import sys
 import time
 
@@ -15,12 +14,13 @@ from pstack_core.checkin import iso_epoch
 from pstack_core.collate import collate_key, glob_sorted
 from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.herdr import herdr
+from pstack_core.wait import as_text
 from pstack_core.store import field
 from pstack_core.replies import file_mtime
-from pstack_core.store import alt, event, header_field, jq_raw, pair_file, load
+from pstack_core.store import alt, damaged, event, header_field, jq_raw, json_type, load, pair_file
 
 from . import kpy
-from .jqx import exit_status
+from .jqx import herdr_raw, herdr_value
 from .ledger import counters, retro_line, slug_of
 
 USAGE_FILE = 'usage: kitchen.sh feedback <store> <file>'
@@ -113,14 +113,44 @@ def mv(src, dst):
         raise Exit(1, f"mv: cannot move '{src}' to '{dst}': {os.strerror(e.errno)}\n") from None
 
 
-def jq_r(program, path=None, text=None):
-    """`jq -r PROGRAM` of a file, or of text on stdin (a here-string: the text and a newline), as a command substitution gives it: stdout without its trailing newlines. jq's own error
-    goes to stderr and its status is not looked at, as inside the bash's $( ) arguments and tests."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    argv = ['jq', '-r', program] + ([path] if path is not None else [])
-    r = subprocess.run(argv, input=None if text is None else (text + '\n').encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE, check=False)
-    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+NOT_READ = object()
+
+
+def maintainer_record(path):
+    """maintainer.json, the object `maintainer on` wrote; None, after one stderr line, for a file that is not one."""
+    try:
+        with open(path, 'rb') as f:
+            doc = json.load(f)
+        problem = '' if isinstance(doc, dict) else f'is {json_type(doc)}, not an object'
+    except ValueError as e:
+        problem = f'is not JSON: {e}'
+    if problem:
+        sys.stdout.flush()
+        sys.stderr.write(f'{path} {problem}\n')
+        sys.stderr.flush()
+        return None
+    return doc
+
+
+def registered(record, key, empty=False):
+    """The text of a maintainer.json field; empty for a file that could not be read."""
+    if record is None:
+        return ''
+    value = record.get(key)
+    return as_text(alt(value, '') if empty else value)
+
+
+def first_build(store):
+    """The path of the first skills build pair.json lists, empty for a run from before the stamps."""
+    builds = alt(load(store).get('skill_builds'), None)
+    if builds is None:
+        return ''
+    if not isinstance(builds, list):
+        raise damaged(f'skill_builds is {json_type(builds)}, not an array')
+    first = builds[0] if builds else None
+    if first is not None and not isinstance(first, dict):
+        raise damaged(f'skill_builds holds {json_type(first)}, not an object')
+    return as_text(alt((first or {}).get('path'), ''))
 
 
 def rm_f(path):
@@ -224,22 +254,23 @@ def close(args):
     return 0
 
 
-def maintainer_problem(fb):
-    """Why the registered maintainer cannot be told, or '' when it can. Every read is jq's, as in the bash: a maintainer.json or herdr answer
-    that is not what it expects gives jq's error and an empty value."""
+def maintainer_problem(fb, record=NOT_READ):
+    """Why the registered maintainer cannot be told, or '' when it can. A herdr answer that is not what it expects gives one stderr line and an
+    empty value."""
     file = f'{fb}/maintainer.json'
     if not os.path.isfile(file):
         return 'no maintainer is registered'
-    name, pane, session = jq_r('.name', file), jq_r('.pane', file), jq_r('.session // empty', file)
+    record = maintainer_record(file) if record is NOT_READ else record
+    name, pane, session = registered(record, 'name'), registered(record, 'pane'), registered(record, 'session', empty=True)
     code, info = herdr('agent', 'get', name)
     if code != 0:
         return f'agent {name} is gone'
     info = info.rstrip('\n')
-    if jq_r('.result.agent.pane_id // empty', text=info) != pane:
+    if herdr_value(info, 'result', 'agent', 'pane_id') != pane:
         return f'agent {name} moved off pane {pane}'
-    if session and jq_r('.result.agent.agent_session.value // empty', text=info) != session:
+    if session and herdr_value(info, 'result', 'agent', 'agent_session', 'value') != session:
         return f'agent {name} is a different session than the one registered'
-    return f'agent {name} is blocked on a dialog' if jq_r('.result.agent.agent_status // empty', text=info) == 'blocked' else ''
+    return f'agent {name} is blocked on a dialog' if herdr_value(info, 'result', 'agent', 'agent_status') == 'blocked' else ''
 
 
 def gap_found(path):
@@ -270,6 +301,7 @@ def file_report(ctx, args):
     os.makedirs(f'{fb}/inbox', exist_ok=True)
     os.makedirs(f'{fb}/done', exist_ok=True)
     pair = load(store)
+    first = first_build(store)
     run = jq_raw(pair.get('slug'))
     counts = counters(store)
     repo = jq_raw(counts.get('repo'))
@@ -293,14 +325,6 @@ def file_report(ctx, args):
     master_name, master_pane = field(store, 'master', 'name', default='unknown'), field(store, 'master', 'pane_id', default='unknown')
     put(f'# Kitchen feedback: {run} ({repo})\nid: {name}\n')
     put(f'run: {run}   store: {store}   repo: {git_root}   master: {master_name} ({master_pane})\n')
-    # first="$(field ...)" is a plain assignment: jq failing on a skill_builds that is not what it expects ends the command with its status,
-    # leaving the lock and the temp file (with the lines written so far) behind
-    sys.stdout.flush()
-    sys.stderr.flush()
-    r = subprocess.run(['jq', '-r', '.skill_builds[0].path // empty', f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
-    if r.returncode != 0:
-        raise Exit(exit_status(r.returncode))
-    first = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
     put(f'build: {build_rev(first) if first else "unknown"} ({first or "unknown"})\n')
     if first and first != skills_dir:
         put(f'filed with: {build_rev(skills_dir)} ({skills_dir})\n')
@@ -314,10 +338,11 @@ def file_report(ctx, args):
     event(store, 'master', 'feedback', '-', name)
     sys.stdout.write(f'filed: {path}\n')
     sys.stdout.flush()
-    problem = maintainer_problem(fb)
+    record = maintainer_record(f'{fb}/maintainer.json') if os.path.isfile(f'{fb}/maintainer.json') else None
+    problem = maintainer_problem(fb, record)
     if not problem:
-        if herdr('agent', 'prompt', jq_r('.name', f'{fb}/maintainer.json'), f'pstack-kitchen FEEDBACK {path}')[0] == 0:
-            sys.stdout.write(f'delivered: to maintainer {jq_r(".name", f"{fb}/maintainer.json")}\n')
+        if herdr('agent', 'prompt', registered(record, 'name'), f'pstack-kitchen FEEDBACK {path}')[0] == 0:
+            sys.stdout.write(f'delivered: to maintainer {registered(record, "name")}\n')
             return 0
     problem = problem or 'the prompt to the maintainer failed'
     herdr('notification', 'show', 'pstack-kitchen: feedback filed', '--body', path, '--sound', 'request')
@@ -360,17 +385,18 @@ def maintainer(ctx, args):
             raise Die(f'herdr has no agent on pane {pane}')
         os.makedirs(fb, exist_ok=True)
         tmp = mktemp(fb, '.maintainer-')
-        program = '{name: $i.result.agent.name, pane: $i.result.agent.pane_id, session: ($i.result.agent.agent_session.value // null), since: $since}'
+        agent = herdr_raw(info, 'result', 'agent')
+        agent = agent if isinstance(agent, dict) else {}
+        session = agent.get('agent_session')
+        record = {'name': agent.get('name'), 'pane': agent.get('pane_id'), 'session': alt(session.get('value') if isinstance(session, dict) else None, None),
+                  'since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
         with open(tmp, 'wb') as out:
-            r = subprocess.run(['jq', '-n', '--argjson', 'i', info.rstrip('\n'), '--arg', 'since', time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), program],
-                               stdout=out, check=False)
-        if r.returncode != 0:
-            raise Exit(exit_status(r.returncode))
-        if jq_r('.name // empty', tmp) == '':
+            out.write((as_text(record) + '\n').encode('utf-8', 'surrogateescape'))
+        if as_text(alt(record['name'], '')) == '':
             rm_f(tmp)
             raise Die(f'herdr reports no name for the agent on pane {pane}; name it first')
         mv(tmp, file)
-        sys.stdout.write(f'maintainer: {jq_r(".name", file)} on {jq_r(".pane", file)}\n')
+        sys.stdout.write(f'maintainer: {as_text(record["name"])} on {as_text(record["pane"])}\n')
         return 0
     if sub == 'off':
         rm_f(file)
@@ -380,7 +406,8 @@ def maintainer(ctx, args):
         if not os.path.isfile(file):
             sys.stdout.write('maintainer: none\n')
             return 0
-        problem = maintainer_problem(fb)
-        sys.stdout.write(f'maintainer: {jq_r(".name", file)} on {jq_r(".pane", file)} since {jq_r(".since", file)}: {problem or "live"}\n')
+        record = maintainer_record(file)
+        problem = maintainer_problem(fb, record)
+        sys.stdout.write(f'maintainer: {registered(record, "name")} on {registered(record, "pane")} since {registered(record, "since")}: {problem or "live"}\n')
         return 0
     raise Die(USAGE_MAINTAINER)

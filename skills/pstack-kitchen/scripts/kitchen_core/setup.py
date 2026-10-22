@@ -17,23 +17,43 @@ from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.gates import gnu_dirname
 from pstack_core.herdr import agent_status
-from pstack_core.store import alt, cut_chars, damaged, event, json_type, listing, member, now, pair_file, update
-from pstack_core.wait import die_with_the_shell
+from pstack_core.store import alt, cut_chars, damaged, event, jq_raw, json_type, listing, load, member, now, pair_file, update
+from pstack_core.wait import as_text, die_with_the_shell
 
 from . import kpy
-from .classify import jq, jq_lines
-from .jqx import tolerant_field, pair_jq
+from .classify import parse_json
+from .jqx import no_pair, pair_field
 from .units import git, git_root
 from .verify import in_subshell
+
+
+def array_len(data, key):
+    """`.key | length` for the array validate prints there, 0 for null."""
+    value = data.get(key)
+    if value is not None and not isinstance(value, list):
+        raise Die(f'kitchen.py validate output {key} is {json_type(value)}, not an array', 5)
+    return len(value or [])
+
+
+def last_build_path(builds):
+    last = builds[-1]
+    if not isinstance(last, dict):
+        raise damaged(f'skill_builds holds {json_type(last)}, not an object')
+    return jq_raw(last.get('path'))
 
 
 def record_skill_build(ctx, store):
     """A run stamped at init lists the skills directories its commands ran from; a command from a different one adds a row. A run from before
     stamps stays unstamped."""
     skills_dir = os.path.dirname(ctx.skill_root)
-    if pair_jq(store, '.skill_builds // empty | length') == '':
+    if no_pair(store, quiet=True):
         return
-    if pair_jq(store, '.skill_builds[-1].path') == skills_dir:
+    builds = alt(load(store).get('skill_builds'), None)
+    if builds is None:
+        return
+    if not isinstance(builds, list):
+        raise damaged(f'skill_builds is {json_type(builds)}, not an array')
+    if builds and last_build_path(builds) == skills_dir:
         return
 
     def mutate(doc):
@@ -86,12 +106,13 @@ def init(ctx, args):
         return 0
     with open(orders, 'rb') as f:
         text = f.read()
-    if b'kitchen.toml review.self' not in text and jq(found, '.self | length') != '0':
+    data = parse_json(found, 'kitchen.py validate output')
+    if b'kitchen.toml review.self' not in text and array_len(data, 'self') != 0:
         with open(orders, 'a') as f:
-            f.write(f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {jq(found, ".self | join(\", \")")} (kitchen.toml review.self).\n')
+            f.write(f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {", ".join(jq_raw(s) for s in data["self"])} (kitchen.toml review.self).\n')
     if b'kitchen.toml landing.mode' not in text:
         with open(orders, 'a') as f:
-            f.write(f'17. Landing goes as far as `{jq(found, ".landing")}` (kitchen.toml landing.mode) and never merges.\n')
+            f.write(f'17. Landing goes as far as `{jq_raw(data.get("landing"))}` (kitchen.toml landing.mode) and never merges.\n')
     worktree_setup(store, found)
     return 0
 
@@ -101,10 +122,7 @@ def worktree_setup(store, found):
     whatever tool the PATH has instead of the repo's pinned one. init prepares it once the way verifier scratches are prepared: the repo's
     [scratch].setup, as the sidekick. A failed setup stops init with its log. found is validate's JSON."""
     root = git_root(store, check=True)
-    try:
-        if int(jq(found, '.setup | length')) <= 0:
-            return
-    except ValueError:
+    if array_len(parse_json(found, 'kitchen.py validate output'), 'setup') <= 0:
         return
     if git(root, 'rev-parse', '--path-format=absolute', '--git-dir')[1].rstrip('\n') == git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir')[1].rstrip('\n'):
         return
@@ -127,9 +145,32 @@ def roster_json():
     return out.rstrip('\n')
 
 
-def lines_of(text):
-    """`mapfile -t array < <(jq -r ...)`: one element per output line."""
-    return text.split('\n')[:-1] if text else []
+def roster_value(roster, *keys):
+    """The value at keys in kitchen.py's roster JSON; a step over null gives null, and a step over any other value that is no object is an error."""
+    value = roster
+    for key in keys:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise Die(f'kitchen.py roster output {key} is read from {json_type(value)}, not an object', 5)
+        value = value.get(key)
+    return value
+
+
+def roster_text(roster, *keys, empty=False):
+    """`jq -r '.a.b'`, or `.a.b // empty`, on the roster."""
+    value = roster_value(roster, *keys)
+    return as_text(alt(value, '') if empty else value)
+
+
+def roster_lines(roster, *keys):
+    """`mapfile -t array < <(jq -r '.a.b[]?')`: the elements of an array, each as its printed text."""
+    value = roster_value(roster, *keys)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise Die(f'kitchen.py roster output {keys[-1]} is {json_type(value)}, not an array', 5)
+    return [as_text(item) for item in value]
 
 
 def spawn(ctx, args):
@@ -154,16 +195,16 @@ def spawn(ctx, args):
         else:
             rest.append(flag)
             rest_in = rest_in[1:]
-    roster = roster_json()
+    roster = parse_json(roster_json(), 'kitchen.py roster output')
     if not kind:
-        kind = jq(roster, '.sidekick.kind')
+        kind = roster_text(roster, 'sidekick', 'kind')
         if not kind:
             raise Die('no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)')
         if not native:
-            native = lines_of(jq_lines(roster, '.sidekick.args[]'))
-    if not fallback and kind == jq(roster, '.sidekick.kind'):
-        fallback = jq(roster, '.sidekick.fallback.kind')
-        fb_args = lines_of(jq_lines(roster, '.sidekick.fallback.args[]'))
+            native = roster_lines(roster, 'sidekick', 'args')
+    if not fallback and kind == roster_text(roster, 'sidekick', 'kind'):
+        fallback = roster_text(roster, 'sidekick', 'fallback', 'kind')
+        fb_args = roster_lines(roster, 'sidekick', 'fallback', 'args')
     if fallback:
         rest += ['--fallback', fallback]
     for a in fb_args:
@@ -200,17 +241,17 @@ def consultant(ctx, args):
         raise Die('--reason is required: the escalation that warrants the consultant')
     fallback, fb_args = '', []
     if not kind:
-        roster = roster_json()
-        kind = jq(roster, '.consultant.kind')
+        roster = parse_json(roster_json(), 'kitchen.py roster output')
+        kind = roster_text(roster, 'consultant', 'kind')
         if not native:
-            native = lines_of(jq_lines(roster, '.consultant.args[]'))
-        fallback = jq(roster, '.consultant.fallback.kind // empty')
-        fb_args = lines_of(jq_lines(roster, '.consultant.fallback.args[]?'))
+            native = roster_lines(roster, 'consultant', 'args')
+        fallback = roster_text(roster, 'consultant', 'fallback', 'kind', empty=True)
+        fb_args = roster_lines(roster, 'consultant', 'fallback', 'args')
     if not kind:
         raise Die('no --kind and no [consultant] kind in the host roster')
     # A consultant whose kind has a preflight (Muse, pi, Prime) is checked before its pane starts, as the sidekick is: a logged-out account or a
     # spent plan starts the roster's [consultant.fallback] instead.
-    if agents.has_preflight(kind) and agent_status(tolerant_field(store, 'consultant', 'name')) == 'absent':
+    if agents.has_preflight(kind) and agent_status(pair_field(store, 'consultant', 'name')) == 'absent':
         code, why = pair_spawn.preflight_reason(kind, native)
         if code != 0:
             if not fallback or fallback == kind:

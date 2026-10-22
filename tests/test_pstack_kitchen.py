@@ -26,6 +26,8 @@ script = skill / 'scripts/kitchen.py'
 sys.path.insert(0, str(script.parent))
 import kitchen
 
+sys.path.insert(0, str(root / 'tests'))
+from test_pstack_core import watch_jq  # noqa: E402
 
 LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
 
@@ -1532,6 +1534,7 @@ class KitchenScriptTests(unittest.TestCase):
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
+        watch_jq(self, self.env)
         self.git('init', '-q')
         kitchen_toml = KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["test ! -e FAIL"]') \
             + '\n[review]\nself = ["no-comments"]\n'

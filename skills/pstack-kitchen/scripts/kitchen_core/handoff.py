@@ -49,7 +49,7 @@ def handoff_units(store):
         rv = header_field(review, 'verdict') if os.path.isfile(review) else '-'
         out.append(f'| {seq} {slug} | {rstatus or "-"} | {vstatus or "-"} | {rv or "-"} |')
     text = '\n'.join(out) + '\n'
-    # jq answers for a .dispatch or .verifying that is not an object: its error on stderr, an empty value, and the command goes on
+    # a .dispatch or .verifying that is not an object is damage, found where it is read
     brief = field(store, 'dispatch', 'brief', empty=True)
     if brief:
         text += f'\ndispatched: {basename(brief)}\n'
@@ -69,7 +69,7 @@ def new_handoff(ctx, args):
     pair_file(store)
     pair = load(store)
     path = f'{store}/session-handoff.md'
-    # a plain assignment: a .master that is not an object ends the command with jq's status and error, before any file is written
+    # a .master that is not an object ends the command before any file is written
     generation = field(store, 'master', 'generation', default='1')
     units = handoff_units(store).rstrip('\n')
     with open(f'{ctx.skill_root}/references/handoff-template.md', encoding='utf-8', errors='surrogateescape') as f:

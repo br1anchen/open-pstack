@@ -32,14 +32,15 @@ from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
 from pstack_core.store import field
-from pstack_core.store import bash_int, event, expected_report, header_field, pair_file, peek, readlink_f, text_of, update
+from pstack_core.store import alt, bash_int, event, expected_report, header_field, load, pair_file, peek, readlink_f, text_of, update
+from pstack_core.wait import as_text, json_values, truthy
 from pstack_core.variant import commit_of
 
 from . import kpy
 from .kpy import Kitchen
 from . import verify_state as vs
-from .classify import brief_kitchen, kitchen_snapshot
-from .jqx import exit_status, pair_jq
+from .classify import array_of, brief_kitchen, kitchen_snapshot, parse_json
+from .jqx import exit_status, herdr_raw, pair_text
 from .landing import is_landing, latest_landing_verdict, manifest_warning
 from .reviews import warn_unreviewed
 from .units import StackIndex, Verdict, brief_or_nothing, git, git_root, heads_in, inclusion, is_ancestor, landing_base, unit_brief, unit_head, unit_range
@@ -69,12 +70,6 @@ def run(argv, stdin=None, stderr=None):
     sys.stderr.flush()
     r = subprocess.run(argv, input=None if stdin is None else data_of(stdin), stdout=subprocess.PIPE, stderr=stderr, check=False)
     return exit_status(r.returncode), text_of(r.stdout)
-
-
-def jq(text, program, *args, compact=False, quiet=False):
-    """`jq -r PROGRAM <<<TEXT` (-c for compact JSON): (status, stdout without its trailing newlines); jq's own errors on stderr unless quiet."""
-    status, found = run(['jq', '-c' if compact else '-r', *args, program], stdin=text + '\n', stderr=subprocess.DEVNULL if quiet else None)
-    return status, found.rstrip('\n')
 
 
 def mapfile(text):
@@ -141,11 +136,9 @@ def brief_commands(kit, brief, unit):
         warn(f'warning: unit {unit or "?"}: brief-verify: {first}\n')
         return f'Brief commands: none (brief-verify: {first})\n\n'
     text, n, apart = '', 0, ''
-    _, lines = jq(listed, '.commands[]?', compact=True, quiet=True)
-    for item in mapfile(lines):
-        if item == '':
-            continue
-        _, command = jq(item, '.')
+    values, _ = json_values(listed)
+    commands = values[0].get('commands') if values and isinstance(values[0], dict) else None
+    for command in map(as_text, commands if isinstance(commands, list) else []):
         parts = command.split('\n')
         first, last = parts[0], parts[-1]
         fence = fence_for(command)
@@ -179,22 +172,29 @@ def landing_covered_briefs(store, root, base, head):
 
 def verifier_entry(kit, cls):
     """The verifier for a class: the host roster's entry, with the sidekick marker resolved from the run (so after a failover it is the agent now
-    implementing) and the master sentinel resolved to the master's own kind. One compact JSON object: kind, args, fallback and where it came from.
-    Returns (entry, status): the bash function ran in a command substitution, where only its last command's status survives, and a failing one ends the
-    assignment that captured it."""
+    implementing) and the master sentinel resolved to the master's own kind. One object: kind, args, fallback and where it came from."""
     store = kit.store
-    _, roster = kit.elsewhere(['--json', 'roster'])
-    _, entry = jq(roster, '.verifier[$c]', '--arg', 'c', cls, compact=True)
-    _, kind = jq(entry, '.kind')
+    roster = parse_entry(kit.elsewhere(['--json', 'roster'])[1])
+    verifiers = roster.get('verifier') if isinstance(roster, dict) else None
+    entry = verifiers.get(cls) if isinstance(verifiers, dict) else None
+    kind = as_text(entry.get('kind')) if isinstance(entry, dict) else 'null'
     if kind == 'sidekick':
-        status, found = run(['jq', '-c', '{kind: .sidekick.kind, args: (.sidekick.start_args // []), source: "sidekick", fallback: (if .sidekick.fallback.kind then '
-                            '{kind: .sidekick.fallback.kind, args: (.sidekick.fallback.args // [])} else null end)}', f'{store}/pair.json'])
-        return found.rstrip('\n'), status
+        sidekick = peek(load(store), 'sidekick')
+        fallback = sidekick.get('fallback')
+        fallback = fallback if isinstance(fallback, dict) else {}
+        return {'kind': sidekick.get('kind'), 'args': alt(sidekick.get('start_args'), []), 'source': 'sidekick',
+                'fallback': {'kind': fallback['kind'], 'args': alt(fallback.get('args'), [])} if truthy(fallback.get('kind')) else None}
     if kind == 'master':
-        master_kind = agent_kind(field(store, 'master', 'pane_id'))
-        status, found = jq(entry, '.kind = $k | .args = [] | .source = "master"', '--arg', 'k', master_kind, compact=True)
-        return found, status
-    return entry, 0
+        return {**entry, 'kind': agent_kind(field(store, 'master', 'pane_id')), 'args': [], 'source': 'master'}
+    return entry
+
+
+def parse_entry(text):
+    """The roster or a retried call's entry as an object; text that is not JSON is the one error."""
+    try:
+        return json.loads(text)
+    except ValueError as e:
+        raise Die(f'verifier entry is not JSON: {e}', 2)
 
 
 def verifier_identity(kind, args):
@@ -218,9 +218,9 @@ def verifier_identity(kind, args):
 
 def verifier_args(kind, entry, directory):
     """A verifier starts with its entry's arguments, then its kind's permission default, trust flag and MCP opt-out when they are missing; entry is the
-    entry as JSON (or an empty string for a kind the class does not name), directory the repo the scratch is checked out from, whose MCP servers the
+    entry as an object (or None for a kind the class does not name), directory the repo the scratch is checked out from, whose MCP servers the
     opt-out names. The arguments as the bash's mapfile read them from the lines it printed."""
-    args = mapfile(run(['jq', '-r', '.args[]?'], stdin=entry + '\n')[1]) if entry else []
+    args = [as_text(a) for a in entry.get('args') or []] if isinstance(entry, dict) and isinstance(entry.get('args'), list) else []
     lines = []
     if not has_permission_arg(args):
         permission = 'bypassPermissions' if kind == 'devin' else mode_of_this_shell(False)
@@ -239,13 +239,17 @@ def record_verifier_session(store, name):
     code, info = herdr('agent', 'get', name)
     if code != 0:
         return
-    session = jq(info, '.result.agent.agent_session | select(.kind == "path") | .value', quiet=True)[1]
+    agent = herdr_raw(info, 'result', 'agent', quiet=True)
+    agent = agent if isinstance(agent, dict) else {}
+    held = agent.get('agent_session')
+    held = held if isinstance(held, dict) else {}
+    session = as_text(alt(held.get('value'), '')) if held.get('kind') == 'path' else ''
     if not session:
-        ident = jq(info, '.result.agent | select(.agent == "claude") | .agent_session | select(.kind == "id") | .value', quiet=True)[1]
-        cwd = jq(info, '.result.agent.cwd // empty', quiet=True)[1]
+        ident = as_text(alt(held.get('value'), '')) if agent.get('agent') == 'claude' and held.get('kind') == 'id' else ''
+        cwd = as_text(alt(agent.get('cwd'), ''))
         if not cwd:
             try:
-                cwd = readlink_f(f'{store}/scratch/{pair_jq(store, ".verifying.scratch // empty")}')
+                cwd = readlink_f(f'{store}/scratch/{pair_text(store, "verifying.scratch", empty=True)}')
             except Exit:
                 cwd = ''
         if ident and cwd:
@@ -374,7 +378,7 @@ def verify(ctx, args):
         vs.verify_cancel(ctx, store)
         raise Exit(0)
     if wait:
-        if not pair_jq(store, '.verifying.verdict // empty'):
+        if not pair_text(store, 'verifying.verdict', empty=True):
             raise Die(f'no verification is open; start one with kitchen.sh verify {store} <NNN>', 5)
         Waiter(ctx, store, every_m, retry=lambda again: verify(ctx, again)).run()
     if not landing and not units:
@@ -382,8 +386,8 @@ def verify(ctx, args):
     if landing and units:
         raise Die('--landing verifies the whole stack; name no units')
     close_unread(ctx, store)
-    if pair_jq(store, '.verifying.verdict // empty'):
-        raise Die(f'a verification is open ({pair_jq(store, ".verifying.units")}); kitchen.sh verify {store} --wait', 5)
+    if pair_text(store, 'verifying.verdict', empty=True):
+        raise Die(f'a verification is open ({pair_text(store, "verifying.units")}); kitchen.sh verify {store} --wait', 5)
     allunits = [*covered, *units]
     root = git_root(store, check=True)
     if land_head and not landing:
@@ -422,6 +426,7 @@ def verify(ctx, args):
         snap = kitchen_snapshot(store, root)
         cfg = ['--config', snap] if snap else []
         classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head])
+        data = parse_json(classified, 'kitchen.py classify output')
         risk, mode, cls = 'landing', 'unit', 'escalated'
     else:
         base, head = unit_range(store, allunits, covered, range_base)
@@ -433,11 +438,12 @@ def verify(ctx, args):
                 esc += ['--escalate', f'unit {u} was dispatched as escalated']
         cfg = brief_kitchen(brief_or_nothing(store, allunits[-1]))
         classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head, *esc])
-        data = json.loads(classified)
-        risk, mode, cls = (jq_text(data.get('risk')), jq_text((data.get('verify') or {}).get('mode')), jq_text((data.get('verify') or {}).get('kind')))
+        data = parse_json(classified, 'kitchen.py classify output')
+        verify_class = data.get('verify') or {}
+        risk, mode, cls = as_text(data.get('risk')), as_text(verify_class.get('mode')), as_text(verify_class.get('kind'))
     # A batch of independent units has a size cap; a fix verified with the unit it fixes does not, since splitting it would re-reject the first.
-    if not covered and len(units) > 1 and jq(classified, '.diff_lines > .max_batch_diff')[1] == 'true':
-        raise Die(f'batch of {jq(classified, ".diff_lines", compact=True)[1]} diff lines is over review.max_batch_diff; verify each unit', 2)
+    if not covered and len(units) > 1 and is_number(data.get('diff_lines')) and is_number(data.get('max_batch_diff')) and data['diff_lines'] > data['max_batch_diff']:
+        raise Die(f'batch of {json.dumps(data["diff_lines"])} diff lines is over review.max_batch_diff; verify each unit', 2)
     if landing:
         last, brief, slug = 'landing', '-', ''
         k = next_index(f'{store}/verdicts', 'landing', 'v')
@@ -460,20 +466,21 @@ def verify(ctx, args):
     # machine's load at the start (capped at 3x), and never under 45 minutes. The parts are printed; --timeout wins.
     if not timeout_m:
         dlargs = ['timing', '--deadline', '--stage', 'behavioral']
-        if jq(classified, '.scratch_setup | length')[1] != '0':
+        if array_of(data, 'scratch_setup', 'kitchen.py classify output', strings=False):
             dlargs.append('--with-setup')
-        dlargs += mapfile(jq(classified, '.behavioral[]')[1] + '\n') if jq(classified, '.behavioral[]')[1] else []
-        minutes = jq(kit.call(['--json', *dlargs]), '.minutes')[1]
+        dlargs += array_of(data, 'behavioral', 'kitchen.py classify output', strings=False)
+        minutes = as_text(parse_json(kit.call(['--json', *dlargs]), 'kitchen.py timing output').get('minutes'))
         timeout_m = minutes
         kit.call(dlargs, show=True)
         # A landing verification also runs the touched profiles' landing commands: 3 x their measured time, and a fixed ten minutes for each that has
         # no measured run.
         if landing:
-            profiles = mapfile(jq(classified, '.landing[]?')[1] + '\n') if jq(classified, '.landing[]?')[1] else []
+            profiles = [as_text(p) for p in data.get('landing') or []]
             if profiles:
                 timing = kit.call(['--json', 'timing', '--stage', 'landing', *profiles])
-                seconds = jq(timing, '.seconds')[1]
-                unmeasured = jq(timing, '.unmeasured | length')[1]
+                timed = parse_json(timing, 'kitchen.py timing output')
+                seconds = as_text(timed.get('seconds'))
+                unmeasured = str(len(array_of(timed, 'unmeasured', 'kitchen.py timing output', strings=False)))
                 added = awk_landing_minutes(seconds, unmeasured)
                 timeout_m = str(vs.shell_arithmetic(timeout_m) + added)
                 measured = awk_round_minutes(seconds)
@@ -481,19 +488,18 @@ def verify(ctx, args):
                     f'{"" if bash_int(unmeasured) == 0 else f", {unmeasured} unmeasured at 10m each"}; now {timeout_m}m\n')
     else:
         out(f'deadline {timeout_m}m (--timeout)\n')
-    entry, entry_status = verifier_entry(kit, cls)
-    if entry_status != 0:
-        raise Exit(entry_status)
+    entry = verifier_entry(kit, cls)
     if retry_entry:
-        kind = jq(retry_entry, '.kind')[1]
-        picked = jq(retry_entry, '{kind, args}', compact=True)[1]
+        retried = parse_entry(retry_entry)
+        kind = as_text(retried.get('kind') if isinstance(retried, dict) else None)
+        picked = {'kind': retried.get('kind'), 'args': retried.get('args')} if isinstance(retried, dict) else None
         args_list = verifier_args(kind, picked, root)
     elif kind_override:
         kind = kind_override
         picked = pick_entry(entry, kind)
         args_list = verifier_args(kind, picked, root)
     else:
-        kind = jq(entry, '.kind')[1]
+        kind = as_text(entry.get('kind') if isinstance(entry, dict) else None)
         args_list = verifier_args(kind, entry, root)
     if not kind or kind == 'null':
         raise Die(f'cannot tell which agent kind verifies ({cls})')
@@ -522,10 +528,10 @@ def verify(ctx, args):
     anchor = field(store, 'sidekick', 'pane_id', empty=True)
     if not (anchor and herdr('pane', 'get', anchor)[0] == 0):
         anchor = field(store, 'master', 'pane_id')
-    if pair_jq(store, '.placement // empty') == 'tab':
+    if pair_text(store, 'placement', empty=True) == 'tab':
         field(store, 'master', 'pane_id')  # new_pane's `master="$(field ...)"`: a master that is no object ends verify before any herdr call
     with contextlib.redirect_stdout(io.StringIO()):
-        pane = new_pane(store, 'verifier', anchor, '', scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={pair_jq(store, ".slug")}'))
+        pane = new_pane(store, 'verifier', anchor, '', scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={pair_text(store, "slug")}'))
     sys.stdout.flush()
     started = subprocess.run(['herdr', 'agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', '60000', '--', *args_list],
                              stdout=subprocess.DEVNULL, check=False).returncode == 0
@@ -542,15 +548,11 @@ def verify(ctx, args):
         vs.set_outcome(packet, 'start-failed')
         raise Die(why, 5)
     started_at = int(time.time())
-    sample = 0 if landing else json.loads(jq(classified, '.sample', compact=True)[1])
+    sample = 0 if landing else data.get('sample')
     unit_label = 'landing' if landing else f'{last}-{slug}'
     units_label = ' '.join(allunits) if allunits else 'landing'
     deadline = started_at + vs.shell_arithmetic(timeout_m) * 60
     native = list(args_list)
-    try:
-        entry_value = json.loads(entry)
-    except ValueError as e:
-        raise Die(f'verifier entry is not JSON: {e}', 2)
 
     def record_start(doc):
         # .verifier.pane_id and .verifier.kind; for a prime-agent also .verifier.start_args, .verifier.session, .verifier.session_stopped, .verifier.closed and .verifier.launch_cwd
@@ -560,7 +562,7 @@ def verify(ctx, args):
             verifier = doc['verifier']
             verifier['start_args'], verifier['session'], verifier['session_stopped'], verifier['closed'], verifier['launch_cwd'] = native, None, False, False, scratch
         doc['verifying'] = {'verdict': verdict, 'packet': packet, 'brief': brief, 'scratch': scratch_id, 'units': units_label, 'risk': risk, 'sample': sample,
-                            'unit': unit_label, 'started': started_at, 'deadline': deadline, 'class': cls, 'entry': entry_value, 'retried': bool(retry_entry),
+                            'unit': unit_label, 'started': started_at, 'deadline': deadline, 'class': cls, 'entry': entry, 'retried': bool(retry_entry),
                             'argv': argv, 'delivered': False}
 
     update(store, record_start)
@@ -589,21 +591,16 @@ def verify(ctx, args):
     Waiter(ctx, store, every_m, retry=lambda again: verify(ctx, again)).run()
 
 
-def jq_text(value):
-    """jq -r of a JSON value read as Python."""
-    if value is None:
-        return 'null'
-    if isinstance(value, bool):
-        return 'true' if value else 'false'
-    return value if isinstance(value, str) else json.dumps(value)
-
-
 def pick_entry(entry, kind):
-    """`jq -c --arg k KIND '[., .fallback][] | select(. != null and .kind == $k) | {kind, args}' <<<"$entry" | head -1`."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    status, found = jq(entry, '[., .fallback][] | select(. != null and .kind == $k) | {kind, args}', '--arg', 'k', kind, compact=True)
-    return found.split('\n')[0]
+    """The first of the entry and its fallback that names the kind, as {kind, args}; None when neither does."""
+    for candidate in (entry, entry.get('fallback') if isinstance(entry, dict) else None):
+        if isinstance(candidate, dict) and candidate.get('kind') == kind:
+            return {'kind': candidate.get('kind'), 'args': candidate.get('args')}
+    return None
+
+
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def awk_round_minutes(seconds):
@@ -661,13 +658,13 @@ def gates_verdict(store, verdict, last, slug, allunits, base, head):
 
 def close_unread(ctx, store):
     """A verdict written but never read closes the verification it belonged to; the new one starts after it."""
-    open_verdict = pair_jq(store, '.verifying.verdict // empty', check=True)
+    open_verdict = pair_text(store, 'verifying.verdict', empty=True, check=True)
     if not (open_verdict and os.path.isfile(open_verdict) and header_field(open_verdict, 'status')):
         return
-    closed_brief = pair_jq(store, '.verifying.brief', check=True)
+    closed_brief = pair_text(store, 'verifying.brief', check=True)
     waiting_since, by_another, closed, closed_rc, closed_status = None, False, '', 0, ''
     while True:
-        if pair_jq(store, '.verifying.verdict // empty') != open_verdict:
+        if pair_text(store, 'verifying.verdict', empty=True) != open_verdict:
             by_another = True
             break
         closed_rc, closed = in_subshell(lambda: Waiter(ctx, store, '0', closing=True, retry=lambda again: verify(ctx, again)).run())
@@ -781,22 +778,22 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
         parts.append('## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo\'s scripts give you\n'
                      'your own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n'
                      '```bash\nexport PSTACK_KITCHEN_ROLE=verifier')
-        parts.append(f' PSTACK_KITCHEN_RUN={pair_jq(store, ".slug")}\n')
+        parts.append(f' PSTACK_KITCHEN_RUN={pair_text(store, "slug")}\n')
         config = cfg[1] if len(cfg) > 1 else ''
         tool = f'{here}/kitchen.py' + (f' --config {config}' if config else '')
-        data = json.loads(classified)
+        data = parse_json(classified, 'kitchen.py classify output')
         if (data.get('scratch_setup') or []):
             parts.append(f'python3 {tool} --repo {scratch} setup\n')
         merge_base = git(root, 'merge-base', base, head, quiet=True)
         merge_base = merge_base[1].rstrip('\n') if merge_base[0] == 0 else base
         for profile in data.get('behavioral') or []:
-            parts.append(f'python3 {tool} --repo {scratch} gate {jq_text(profile)} behavioral --role verifier --base {merge_base}\n')
+            parts.append(f'python3 {tool} --repo {scratch} gate {as_text(profile)} behavioral --role verifier --base {merge_base}\n')
         # A landing verification also runs the touched profiles' landing commands.
         if risk == 'landing':
             for profile in data.get('landing') or []:
-                parts.append(f'python3 {tool} --repo {scratch} gate {jq_text(profile)} landing --role verifier --base {merge_base}\n')
+                parts.append(f'python3 {tool} --repo {scratch} gate {as_text(profile)} landing --role verifier --base {merge_base}\n')
         features = data.get('features') or []
-        parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(jq_text(f) for f in features)) + '\n')
+        parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(as_text(f) for f in features)) + '\n')
         skills = glob_sorted([p + '/' for p in glob.glob(f'{glob.escape(root)}/.agents/skills/verify-*') if os.path.isdir(p)])
         parts.append('verification skill: ' + ''.join(s + ' ' for s in skills) + '\n')
     finally:

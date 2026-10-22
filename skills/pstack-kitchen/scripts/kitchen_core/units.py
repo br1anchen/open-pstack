@@ -2,8 +2,8 @@
 (`StackIndex`), and the answer for one against the other (`Inclusion`). `Verdict` reads a verdict file. Ported from kitchen.sh at b632713: unit_head,
 unit_brief, commit_patch_id, stack_patch_ids, unit_rebased_in, unit_heads_in, unit_in_landing_range, verdict_range and verdict_problem.
 
-The bash ran these where `set -e` is off (inside `if` and `||`), so a failing git or jq command is an empty answer and the function goes on; here a
-git result is read for what it prints. A git or jq stderr the bash did not redirect stays on stderr."""
+The bash ran these where `set -e` is off (inside `if` and `||`), so a failing git command is an empty answer and the function goes on; here a
+git result is read for what it prints. A git stderr the bash did not redirect stays on stderr."""
 
 import glob
 import os
@@ -18,7 +18,7 @@ from pstack_core.review import range_floor, steps_file, trunk_ref
 from pstack_core.store import expected_report, get, header_field, jq_raw, last_line
 from pstack_core.variant import commit_of
 
-from .jqx import exit_status, pair_jq
+from .jqx import exit_status, head_of, pair_text
 
 
 def _text(data):
@@ -26,8 +26,8 @@ def _text(data):
 
 
 def git_root(store, quiet=False, check=False):
-    """`jq -r .git_root pair.json` (the bash's `field "$store" .git_root`). A store with no pair.json gets pair_file's message and jq's, and an empty
-    answer; a damaged one is store.load's message."""
+    """`.git_root` of pair.json. A store with no pair.json gets pair_file's message and a missing file's, and an empty answer; a damaged one is
+    store.load's message."""
     if not os.path.isfile(f'{store}/pair.json'):
         if not quiet:
             sys.stdout.flush()
@@ -68,13 +68,9 @@ def first_field(diff):
 
 
 def dispatch_head(store, brief):
-    """`jq -r --arg u <brief name> '.heads[$u] // empty' pair.json`: jq's own error for a heads that is not an object, on every call."""
-    sys.stdout.flush()
-    sys.stderr.flush()
+    """The base recorded for the brief's unit; a heads that is not an object is damage."""
     name = os.path.basename(brief)
-    name = name[:-3] if name.endswith('.md') else name
-    r = subprocess.run(['jq', '-r', '--arg', 'u', name, '.heads[$u] // empty', f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
-    return _text(r.stdout).rstrip('\n')
+    return head_of(store, name[:-3] if name.endswith('.md') else name)
 
 
 def unit_head(store, brief):
@@ -102,8 +98,8 @@ def unit_brief(store, nnn):
 
 
 class RecordedUnit:
-    """What the store records of a unit: its brief, the repo, and its head (`unit_head`). The dispatch head is read on each call, as the bash ran its
-    jq on each call: a `.heads` that is not an object makes jq print its error every time."""
+    """What the store records of a unit: its brief, the repo, and its head (`unit_head`). The dispatch head is read on each call: a `.heads` that is not an object
+    is damage every time."""
 
     def __init__(self, store, brief):
         self.store = store
@@ -290,8 +286,8 @@ def landing_base(store, root, head, parent_override='', parent_label='', range_b
     one); range_base is `--base`, which leaves the recorded parent unread."""
     parent, label = parent_override, parent_label
     if not parent and label != 'none':
-        parent = pair_jq(store, '.landing.parent // empty', quiet=True)
-        label = pair_jq(store, '.landing.parent_ref // empty', quiet=True)
+        parent = pair_text(store, 'landing.parent', empty=True, quiet=True)
+        label = pair_text(store, 'landing.parent_ref', empty=True, quiet=True)
     if parent and not range_base:
         found = commit_of(root, parent) or ''
         if found and found != head and is_ancestor(root, found, head):

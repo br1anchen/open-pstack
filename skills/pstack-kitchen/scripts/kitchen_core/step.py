@@ -26,8 +26,8 @@ from pstack_core.review import awk_equal, range_floor, steps_file
 from pstack_core.store import bash_int, event, expected_report, header_field, last_line, pair_file, read_text, readlink_f, unit_name
 
 from . import kpy
-from .classify import brief_kitchen
-from .jqx import exit_status, pair_jq, tolerant_field
+from .classify import array_of, brief_kitchen, parse_json
+from .jqx import exit_status, head_of, pair_field, pair_text
 from .units import git
 from .verify_state import shell_arithmetic
 from .wait import plain_signals, poll_sleep
@@ -65,7 +65,7 @@ def ignore_interrupts():
 
 def detached(script, argv, log, store):
     """`PSTACK_KITCHEN_RUN="$(field "$store" .slug)" detached bash -c SCRIPT ARGV... >LOG 2>&1 </dev/null &` and `disown`."""
-    env = {**os.environ, 'PSTACK_KITCHEN_RUN': pair_jq(store, '.slug')}
+    env = {**os.environ, 'PSTACK_KITCHEN_RUN': pair_text(store, 'slug')}
     sys.stdout.flush()
     sys.stderr.flush()
     with open(log, 'wb') as out:
@@ -124,11 +124,11 @@ def step(ctx, args):
         raise Die('usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha = args[0], args[1]
     pair_file(store)
-    brief = tolerant_field(store, 'dispatch', 'brief', check=True, empty=True)
+    brief = pair_field(store, 'dispatch', 'brief', check=True, empty=True)
     if not brief:
         raise Die('no brief dispatched; a step belongs to a running brief')
     unit = unit_name(brief)
-    root = pair_jq(store, '.git_root', check=True)
+    root = pair_text(store, 'git_root', check=True)
     status, full = git(root, 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}')
     full = full.rstrip('\n')
     if status != 0:
@@ -147,7 +147,7 @@ def step(ctx, args):
         tail = last_line(file)
         base = tail.split('\t')[1] if '\t' in tail else tail
     else:
-        base = pair_jq(store, f'.heads[{_jq_string(unit)}] // empty', check=True)
+        base = head_of(store, unit)
     if not base:
         raise Die(f'no base for {unit}; was it dispatched?')
     # A commit made before this brief was dispatched (a resumed unit) is the brief's own base, which leaves an empty range; check its own diff.
@@ -177,14 +177,12 @@ def step(ctx, args):
             sys.stderr.write(err)
         if code != 0:
             raise Exit(code)
-        json = found.rstrip('\n')
+        text = found.rstrip('\n')
         with open(f'{job}/classify.json', 'w') as f:
-            f.write(json + '\n')
-        listed = subprocess.run(['jq', '-r', '.profiles[]'], input=(json + '\n').encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE, check=False)
-        with open(f'{job}/profiles', 'wb') as f:
-            f.write(listed.stdout)
-        if listed.returncode != 0:
-            raise Exit(exit_status(listed.returncode))
+            f.write(text + '\n')
+        profiles = array_of(parse_json(text, 'kitchen.py classify output'), 'profiles', 'kitchen.py classify output')
+        with open(f'{job}/profiles', 'w') as f:
+            f.write(''.join(f'{name}\n' for name in profiles))
         with open(f'{job}/base', 'w') as f:
             f.write(base + '\n')
         detached(STEP_SCRIPT, ['kitchen-step', root, str(kpy.KITCHEN_PY), job, base, full, cfg[1] if cfg else ''], f'{job}/out.{run}', store)
@@ -199,7 +197,7 @@ def step(ctx, args):
         poll_sleep(os.environ.get('KITCHEN_STEP_POLL_S') or '2')
     open(f'{job}/consumed', 'w').close()
     rc = cat_n(f'{job}/rc')
-    json = cat_n(f'{job}/classify.json')
+    classified = cat_n(f'{job}/classify.json')
     profiles = [l for l in read_text(f'{job}/profiles').split('\n')][:-1] if read_text(f'{job}/profiles') else []
     # A step with no profile ran no gate: it is recorded as none, never pass.
     if not_zero(rc):
@@ -225,8 +223,7 @@ def step(ctx, args):
             sys.stdout.write(f'next: fix it in a new commit and run kitchen.sh step {store} <new-sha> "{args[2]}" again\n')
         raise Exit(2)
     if state == 'none':
-        unmapped = subprocess.run(['jq', '-r', '.unmapped | join(", ") | if . == "" then "these changes" else . end'], input=(json + '\n').encode('utf-8', 'surrogateescape'),
-                                  stdout=subprocess.PIPE, check=False).stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+        unmapped = ', '.join(array_of(parse_json(classified, 'kitchen.py classify output'), 'unmapped', 'kitchen.py classify output')) or 'these changes'
         sys.stdout.write(f'gates: none ran; no profile covers {unmapped}\n')
     else:
         sys.stdout.write(f'gates: pass ({",".join(profiles)})\n')
@@ -240,11 +237,6 @@ def step(ctx, args):
     return core_step.step(ctx, args)
 
 
-def _jq_string(text):
-    import json
-    return json.dumps(text, ensure_ascii=False)
-
-
 def finish(ctx, args):
     core_report.in_herdr()
     plain_signals()
@@ -253,7 +245,7 @@ def finish(ctx, args):
     store = args[0]
     report = readlink_f(args[1])
     pair_file(store)
-    brief = tolerant_field(store, 'dispatch', 'brief', check=True, empty=True)
+    brief = pair_field(store, 'dispatch', 'brief', check=True, empty=True)
     # Everything but the dispatched unit's done report, and a report the pair's checks refuse anyway (no head:, open notes), goes straight on.
     if (not os.path.isfile(report) or header_field(report, 'status') != 'done' or not brief or report != expected_report(store, brief)
             or core_report.pair_report_ready(ctx, [store, report]) != 0):
@@ -261,7 +253,7 @@ def finish(ctx, args):
     wanted = header_field(report, 'head')
     if wanted == '' or wanted.startswith('<'):
         return core_report.finish(ctx, args)
-    root = pair_jq(store, '.git_root', check=True)
+    root = pair_text(store, 'git_root', check=True)
     found = git(root, 'rev-parse', '--verify', '--quiet', f'{header_field(report, "head")}^{{commit}}')
     if found[0] != 0:
         raise Die(f'{os.path.basename(report)}: head: {header_field(report, "head")} is not a commit; name the unit\'s last commit and finish again')
@@ -289,7 +281,7 @@ def finish(ctx, args):
     if not os.path.isdir(job):
         os.makedirs(job, exist_ok=True)
         cfg = brief_kitchen(brief)
-        base = pair_jq(store, f'.heads[{_jq_string(unit)}] // empty', check=True)
+        base = head_of(store, unit)
         detached(FINISH_SCRIPT, ['kitchen-finish', root, str(kpy.KITCHEN_PY), brief, job, cfg[1] if cfg else '', base], f'{job}/out', store)
     deadline = slice_deadline()
     while not os.path.isfile(f'{job}/rc'):

@@ -17,9 +17,10 @@ from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
 from pstack_core.store import field
-from pstack_core.store import damaged, event, json_type, listing, member, pair_file, update
+from pstack_core.store import alt, damaged, event, json_type, listing, load, member, pair_file, peek, update
+from pstack_core.wait import as_text
 
-from .jqx import pair_jq
+from .jqx import herdr_value, pair_text
 from .reviews import warn_unreviewed
 
 
@@ -118,11 +119,8 @@ def section_has_text(path, heading):
 
 
 def herdr_session(name):
-    """`herdr agent get NAME | jq -r '.result.agent.agent_session.value // empty'`, with both stderrs dropped and a failure ignored."""
-    out = herdr('agent', 'get', name)[1]
-    r = subprocess.run(['jq', '-r', '.result.agent.agent_session.value // empty'], input=out.encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE,
-                       stderr=subprocess.DEVNULL, check=False)
-    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    """the session value of `herdr agent get NAME`, a reply that cannot be read ignored."""
+    return herdr_value(herdr('agent', 'get', name)[1], 'result', 'agent', 'agent_session', 'value', quiet=True)
 
 
 def rotate_master(ctx, args):
@@ -147,7 +145,7 @@ def rotate_master(ctx, args):
             raise Die(f'{handoff}: the {heading} section is empty', 5)
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')
-    if pair_jq(store, '.master.previous.name // empty'):
+    if pair_text(store, 'master.previous.name', empty=True):
         raise Die(f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first', 5)
     if agent_status(name) == 'absent':
         raise Die(f"master {name} is not live in {pane}; run this from the master's own session", 5)
@@ -156,15 +154,18 @@ def rotate_master(ctx, args):
         raise Die(f'rotate-master restarts a Claude master; {name} is {kind}', 5)
     model = model or detect_model_arg()
     session = herdr_session(name)
-    gen = pair_jq(store, '.master.generation // 1', check=True)
+    gen = pair_text(store, 'master.generation', default=1)
     # A rotation that never finished already recorded this session; it keeps that generation instead of skipping one.
-    if session and session == pair_jq(store, '.master.sessions[-1].session // empty'):
-        gen = pair_jq(store, '.master.sessions[-1].generation', check=True)
+    sessions = listing(peek(load(store), 'master'), 'sessions')
+    if sessions and not isinstance(sessions[-1], dict):
+        raise damaged(f'master.sessions holds {json_type(sessions[-1])}, not an object')
+    if session and sessions and session == as_text(alt(sessions[-1].get('session'), '')):
+        gen = as_text(sessions[-1].get('generation'))
     gen_n = int(gen)
     next_gen = gen_n + 1
     # Herdr names are unique, so the new master holds a generation name until take-master frees the run's own.
-    temp = f"{pair_jq(store, '.slug', check=True)}-master-g{next_gen}"
-    permission = pair_jq(store, '.master.permission_mode // empty', check=True) or mode_of_this_shell(False)
+    temp = f"{pair_text(store, 'slug', check=True)}-master-g{next_gen}"
+    permission = pair_text(store, 'master.permission_mode', empty=True, check=True) or mode_of_this_shell(False)
     argv = list(permission_args('claude', permission))
     if model:
         argv += ['--model', model]
@@ -172,7 +173,7 @@ def rotate_master(ctx, args):
     remote = os.environ.get('KITCHEN_MASTER_REMOTE_CONTROL', '1') != '0'
     if remote:
         argv += ['--remote-control', temp]
-    cwd = pair_jq(store, '.cwd', check=True)
+    cwd = pair_text(store, 'cwd', check=True)
     new_pane_id = new_pane(store, 'master', pane, '', cwd)
     sys.stdout.flush()
     started = subprocess.run(['herdr', 'agent', 'start', temp, '--kind', 'claude', '--pane', new_pane_id, '--timeout', '60000', '--', *argv],
@@ -225,27 +226,26 @@ def take_master(ctx, args):
     pair_file(store)
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')
-    prev = pair_jq(store, '.master.previous.name // empty', check=True)
+    prev = pair_text(store, 'master.previous.name', empty=True, check=True)
     if not prev:
         sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
         return 0
     here = os.environ.get('HERDR_PANE_ID', '')
     if here != pane:
         raise Die(f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}", 5)
-    prev_pane = pair_jq(store, '.master.previous.pane_id', check=True)
+    prev_pane = pair_text(store, 'master.previous.pane_id', check=True)
     deadline = int(time.time()) + int(os.environ.get('KITCHEN_TAKEOVER_WAIT_S') or 30)
     while agent_status(prev) == 'working' and int(time.time()) < deadline:
         time.sleep(float(os.environ.get('KITCHEN_ROTATE_POLL_S') or 2))
     # Close the pane only while it still holds the old master, or nothing.
-    host = subprocess.run(['jq', '-r', '.result.agent.name // empty'], input=herdr('agent', 'get', prev_pane)[1].encode('utf-8', 'surrogateescape'),
-                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False).stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    host = herdr_value(herdr('agent', 'get', prev_pane)[1], 'result', 'agent', 'name', quiet=True)
     closed = 'kept'
     if herdr('pane', 'get', prev_pane)[0] != 0:
         closed = 'gone'
     elif not host or host == prev:
         if herdr('pane', 'close', prev_pane)[0] == 0:
             closed = 'closed'
-    base = f"{pair_jq(store, '.slug', check=True)}-master"
+    base = f"{pair_text(store, 'slug', check=True)}-master"
     if name != base and herdr('agent', 'rename', pane, base)[0] == 0:
         name = base
 

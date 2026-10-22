@@ -38,6 +38,41 @@ def inherited_env():
     return {k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT' and not k.startswith(LEAKED_PREFIXES)}
 
 
+PASS_THROUGH_JQ = (
+    '#!/bin/bash\n'
+    'pid=$PPID\n'
+    'while :; do\n'
+    '  exe=$(basename "$(readlink /proc/$pid/exe)")\n'
+    '  case $exe in timeout|perl|env) pid=$(sed "s/.*) //" /proc/$pid/stat | cut -d" " -f2) ;; *) break ;; esac\n'
+    'done\n'
+    'case $exe in python*) who=python ;; bash|sh|dash) who=bash ;; *) who="other:$exe" ;; esac\n'
+    'printf "%s\\t%s\\n" "$who" "$*" >>"$TRIPWIRE_LOG"\n'
+    'here=$(dirname "$0")\n'
+    'IFS=:\n'
+    'for dir in $PATH; do [ "$dir" = "$here" ] || [ ! -x "$dir/jq" ] || exec "$dir/jq" "$@"; done\n'
+    'exit 127\n')
+
+
+def watch_jq(test, env):
+    """Puts a jq first on env's PATH that logs which process started it (the first one above it that is neither timeout, perl nor env: python,
+    bash or another) and then runs the real jq, so bash code behaves as before. When the test ends, any call that is not bash's fails it. The PATH is
+    left alone when it holds no jq."""
+    if not shutil.which('jq', path=env['PATH']):
+        return
+    directory = Path(test.tmp.name) / 'jq-tripwire'
+    directory.mkdir()
+    (directory / 'jq').write_text(PASS_THROUGH_JQ)
+    (directory / 'jq').chmod(0o755)
+    log = Path(test.tmp.name) / 'jq-tripwire.log'
+    env.update({'PATH': f'{directory}:{env["PATH"]}', 'TRIPWIRE_LOG': str(log)})
+
+    def check():
+        calls = log.read_text().splitlines() if log.exists() else []
+        test.assertEqual([call for call in calls if not call.startswith('bash\t')], [], f'{test.id()}: jq started by something that is not bash')
+
+    test.addCleanup(check)
+
+
 def core_args(skill_root='/nowhere/pstack-pair'):
     return ['--skill', 'pstack-pair', '--skill-root', skill_root, '--state-root', '/s', '--store-label', 'Pair',
             '--roles', 'sidekick', '--store-dirs', 'plans briefs', '--slug-max', '21', '--unfilled-re', '', '--']
@@ -57,6 +92,7 @@ class CoreTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name)
         self.env = {**inherited_env(), 'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}'}
+        watch_jq(self, self.env)
 
     def pair_py(self, *args):
         return subprocess.run([sys.executable, '-I', str(scripts / 'pair.py'), *core_args(), *args],
@@ -1859,7 +1895,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'herdr answers an agent of null': {**base, 'statefiles': live['statefiles'], 'agent_get': '{"result":{"agent":null}}\n'},
             'a master that is a string': {**base, 'pair': {'slug': 'demo', 'master': 'm1'}},
             'a master that is an array': {**base, 'pair': {'slug': 'demo', 'master': [1]}},
-            'a skill_builds entry that is a number stops with jq, leaving the lock': {**base, 'pair': {'slug': 'demo', 'skill_builds': [1]}},
+            'a skill_builds entry that is a number stops before the lock is taken': {**base, 'pair': {'slug': 'demo', 'skill_builds': [1]}},
             'a skill_builds entry that is an array': {**base, 'pair': {'slug': 'demo', 'skill_builds': [[1]]}},
             'a skill_builds path that is a number': {**base, 'pair': {'slug': 'demo', 'skill_builds': [{'path': 3}]}},
             'a dangling link at the name being allocated': {**base, 'statelinks': {f'pstack/feedback/inbox/{stem}.md': '/nonexistent/x'}},
@@ -1887,8 +1923,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'herdr answers an agent of null': (0, 'delivered: notification for the human (agent mt moved off pane p7); read it with: cat'),
             'a master that is a string': (1, 'pair.json is damaged: master is string, not an object'),
             'a master that is an array': (1, 'pair.json is damaged: master is array, not an object'),
-            'a skill_builds entry that is a number stops with jq, leaving the lock': (5, '/st/pair.json:20): Cannot index number with string ("path")'),
-            'a skill_builds entry that is an array': (5, '/st/pair.json:22): Cannot index array with string ("path")'),
+            'a skill_builds entry that is a number stops before the lock is taken': (1, 'pair.json is damaged: skill_builds holds number, not an object'),
+            'a skill_builds entry that is an array': (1, 'pair.json is damaged: skill_builds holds array, not an object'),
             'a skill_builds path that is a number': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
             'a dangling link at the name being allocated': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
             'a report with no gap': (1, '/pstack-kitchen/references/feedback-template.md)'),
@@ -1913,9 +1949,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(out[name]['rc'], 1, name)
             self.assertIn('pair.json is damaged: master is', out[name]['stderr'], name)
             self.assertNotIn(f'pstack/feedback/inbox/{stem}.md', out[name]['state'], name)
-        stopped = out['a skill_builds entry that is a number stops with jq, leaving the lock']
-        self.assertEqual(stopped['rc'], 5)
-        self.assertIn('pstack/feedback/.lock/', stopped['state'])
+        stopped = out['a skill_builds entry that is a number stops before the lock is taken']
+        self.assertEqual(stopped['rc'], 1)
+        self.assertNotIn('pstack/feedback/.lock/', stopped['state'])
         self.assertEqual(out['a dangling link at the name being allocated']['rc'], 0)
 
     def test_feedback_inbox_and_close_match_the_bash_at_the_phase_4_base(self):
@@ -2082,7 +2118,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for name in ('status with a maintainer.json that is not JSON', 'status with a maintainer.json that is an array', 'status with a maintainer.json that is a string'):
             self.assertEqual(out[name]['rc'], 0, name)
             self.assertIn('maintainer: ', out[name]['stdout'], name)
-            self.assertIn('jq: ', out[name]['stderr'], name)
+            self.assertRegex(out[name]['stderr'], r'maintainer\.json is (not JSON|\w+, not an object)', name)
         self.assertIn('moved off pane p7', out['status when herdr answers an agent of null']['stdout'])
         self.assertIn('herdr reports no name for the agent on pane p7', out['on when herdr answers an agent of null']['stderr'])
 
@@ -3783,7 +3819,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a brief that does not commit': (0, 'land-check: pass (review engine: none)'),
             'a recorded landing parent that is no longer an ancestor': (0, 'is no longer an ancestor of'),
             'a manifest changed since the verified base': (0, 'warning: dependency manifests changed since the verified base: requirements.txt'),
-            'a heads that is a string': (2, 'Cannot index string with string ("001-x")'),
+            'a heads that is a string': (1, 'pair.json is damaged: heads is string, not an object'),
             'a dispatch that is a string': (0, 'land-check: pass'),
             'a landing that is a string': (1, 'pair.json is damaged: landing is string, not an object'),
             'a master that is a string': (0, 'land-check: pass'),
@@ -3800,7 +3836,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a skip over added lines': (2, gap),
             'a skip over a dangling dispatch head': (2, gap),
             'a skip with no dispatch head': (2, gap),
-            'a skip with a heads that is a string': (2, 'Cannot index string with string ("001-x")'),
+            'a skip with a heads that is a string': (1, 'pair.json is damaged: heads is string, not an object'),
             'a skip with no head': (2, gap),
             'a skip with no proof': (2, 'unreviewed: unit 001 cites no joo run'),
             'a kitchen that does not validate': (2, 'kitchen: validate fails (kitchen.py validate shows why)'),
@@ -4201,9 +4237,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a verifier already gone': (0, 'cancelled: 001'),
             'a scratch id the scratch command refuses': (1, 'scratch id must look like'),
             'a packet that is not there': (0, 'cancelled: 001'),
-            'a verifying that is a string': (5, 'Cannot index string with string ("verdict")'),
-            'a verifier that is a string': (5, 'Cannot index string with string ("name")'),
-            'a verifier that is false': (5, 'Cannot index boolean with string ("name")'),
+            'a verifying that is a string': (1, 'pair.json is damaged: verifying is string, not an object'),
+            'a verifier that is a string': (1, 'pair.json is damaged: verifier is string, not an object'),
+            'a verifier that is false': (1, 'pair.json is damaged: verifier is boolean, not an object'),
             'a master that is a string': (0, 'cancelled: 001'),
             '--cancel with --wait': (1, '--cancel takes no units, --landing or --wait'),
             '--cancel with a unit': (1, '--cancel takes no units, --landing or --wait'),
@@ -4372,6 +4408,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'nothing open': world(pair={'verifying': None}),
             'a verifying that is a string': world(pair={'verifying': 'x'}),
             'a verifier that is a string': world(pair={'verifier': 'v1'}),
+            'a verifying argv that is a string': world(verifying={'argv': 'x'}),
+            'a verifying entry whose fallback is a string': world(verifying={'entry': {'fallback': 'x'}}),
             'an interval that is empty': world('', agents={'v1': 'working claude'}),
             'outside herdr': world(env={'HERDR_ENV': '0'}),
         }
@@ -4401,8 +4439,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a packet never delivered to an idle verifier': (4, 'redelivered: the verify that started this verifier stopped before sending its packet; sent it again'),
             'a packet never delivered to a working verifier': (4, 'verifying: units 001'),
             'nothing open': (5, 'no verification is open; start one with kitchen.sh verify'),
-            'a verifying that is a string': (5, 'no verification is open'),
-            'a verifier that is a string': (5, 'Cannot index string with string ("name")'),
+            'a verifying that is a string': (1, 'pair.json is damaged: verifying is string, not an object'),
+            'a verifier that is a string': (1, 'pair.json is damaged: verifier is string, not an object'),
+            'a verifying argv that is a string': (1, 'pair.json is damaged: argv is string, not an array'),
+            'a verifying entry whose fallback is a string': (1, 'pair.json is damaged: verifying.entry.fallback is string, not an object'),
             'an interval that is empty': (4, 'verifying: units 001 by claude'),
             'outside herdr': (1, 'not running inside Herdr'),
         }
@@ -4555,7 +4595,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'prime-agent': ['', '--model m', '--approve', '-a never', '--permission-mode plan --strict-mcp-config'],
         }
         for kind, rows in expected.items():
-            code = ''.join(f'print(" ".join(verify.verifier_args({kind!r}, {e!r}, "/tmp")))\n' for e in entries)
+            code = ''.join(f'print(" ".join(verify.verifier_args({kind!r}, {json.loads(e) if e else None!r}, "/tmp")))\n' for e in entries)
             got = self.kitchen_py(st, code, env={'PAIR_SHELL_PID': str(os.getpid())}, cwd='/tmp')[1].splitlines()
             self.assertEqual(got, rows, kind)
 
@@ -4611,7 +4651,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a number': ({'skill_builds': 3}, 1, 3, 'pair.json is damaged: skill_builds is number, not an array'),
             'null': ({'skill_builds': None}, 0, None, ''),
             'false': ({'skill_builds': False}, 0, False, ''),
-            'rows that are strings': ({'skill_builds': ['a']}, 0, ['a', stamp()], 'Cannot index string with string ("path")'),
+            'rows that are strings': ({'skill_builds': ['a']}, 1, ['a'], 'pair.json is damaged: skill_builds holds string, not an object'),
         }
         for n, (name, (doc, status, builds, said)) in enumerate(documents.items()):
             st = self.path / f'rsb{n}'
@@ -4634,6 +4674,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a stamped run, the command being help': dict(args=['help', '{st}'], pair=stamped),
             'a stamped run, the command being unknown': dict(args=['nonsense', '{st}'], pair=stamped),
             'a pair.json that does not parse': dict(args=['status', '{st}'], nopair=True, files={'pair.json': '{{\n'}),
+            'a skill_builds that is a string': dict(args=['status', '{st}'], pair={'skill_builds': 'x'}),
+            'a skill_builds row that is a string': dict(args=['status', '{st}'], pair={'skill_builds': ['x']}),
         }
 
     def test_every_kitchen_command_records_the_skills_build(self):
@@ -4644,6 +4686,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a stamped run, the command being help': (0, 'usage: kitchen.sh'),
             'a stamped run, the command being unknown': (1, 'nonsense'),
             'a pair.json that does not parse': (1, 'pair.json is damaged: '),
+            'a skill_builds that is a string': (1, 'pair.json is damaged: skill_builds is string, not an array'),
+            'a skill_builds row that is a string': (1, 'pair.json is damaged: skill_builds holds string, not an object'),
         }
         out = self.kitchen_cases('rsb', cases, expect)
         self.assertRegex(out['a stamped run from another build']['files']['pair.json'], r'"path": "<SK>"')
@@ -5267,6 +5311,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a sha that is not a commit': step('f' * 40, 'x'),
             'no brief dispatched': step('{k1}', 'x', pair={'dispatch': {}}),
             'no base for the unit': step('{k1}', 'x', pair={'heads': {}}),
+            'a heads that is a string': step('{k1}', 'x', pair={'heads': 'x'}),
             'a step on the unit base, so an empty range': step('{k1}', 'x', pair={'heads': {'002-y': '{k1}'}}),
             'a step that resolves a note': step('{k1}', 'fix', '--resolves', 'n1', files={'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}),
             'a brief stamped with a kitchen snapshot': step('{k1}', 'x', topfiles={'snap.toml': (self.LAUNCH_TOML, 0o644)},
@@ -5294,6 +5339,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a sha that is not a commit': (1, 'not a commit: ffffffffffffffffffffffffffffffffffffffff'),
             'no brief dispatched': (1, 'no brief dispatched; a step belongs to a running brief'),
             'no base for the unit': (1, 'no base for 002-y; was it dispatched?'),
+            'a heads that is a string': (1, 'pair.json is damaged: heads is string, not an object'),
             'a step on the unit base, so an empty range': (0, 'gates: pass (contracts)'),
             'a step that resolves a note': recorded,
             'a brief stamped with a kitchen snapshot': recorded,
@@ -5803,9 +5849,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'too few arguments': (1, 'usage: kitchen.sh verify <store> <NNN>...'),
             'a pair.json that is an array': (1, 'pair.json is damaged: expected an object'),
             'a verifier that is a string': (1, 'pair.json is damaged: verifier is string, not an object'),
-            'a heads that is a string': (1, 'Cannot index string with string ("001-x")'),
+            'a heads that is a string': (1, 'pair.json is damaged: heads is string, not an object'),
             'a master that is a string': (1, 'pair.json is damaged: master is string, not an object'),
-            'a sidekick that is a string': (5, 'Cannot index string with string ("kind")'),
+            'a sidekick that is a string': (1, 'pair.json is damaged: sidekick is string, not an object'),
             'outside herdr': (1, 'not running inside Herdr'),
         }
         out = self.kitchen_cases('launch', cases, expect)
@@ -5953,7 +5999,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                  ('none clears a recorded parent', {'landing': {'parent': trunk, 'parent_ref': 'rel'}}, {'label': 'none'}, 0, merge_base),
                  ('--base leaves the recorded parent unread', {'landing': {'parent': trunk, 'parent_ref': 'rel'}}, {'range_base': shas['base']}, 0, merge_base),
                  ('--base with an override that is not an ancestor', {}, {'override': side, 'label': 'given', 'range_base': shas['base']}, 0, merge_base),
-                 ('landing a string', {'landing': 'x'}, {}, 0, merge_base), ('landing an array', {'landing': [1]}, {}, 0, merge_base),
+                 ('landing a string', {'landing': 'x'}, {}, 1, 'pair.json is damaged: landing is string, not an object\n'),
+                 ('landing an array', {'landing': [1]}, {}, 1, 'pair.json is damaged: landing is array, not an object\n'),
                  ('a parent that is a number', {'landing': {'parent': 5, 'parent_ref': 'r'}}, {}, 0, stale('r', '5')),
                  ('a parent with no ref', {'landing': {'parent': trunk}}, {}, 0, f'landing base: recorded parent  ({short(trunk)})\n')]
         for name, landing, opts, status, said in cases:

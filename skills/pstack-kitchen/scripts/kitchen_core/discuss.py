@@ -25,7 +25,7 @@ from pstack_core.store import bash_int, event, header_field, readlink_f
 from pstack_core.wait import agent_state, die_with_the_shell, error_code
 
 from .classify import classify_brief, risk_of
-from .jqx import tolerant_field
+from .jqx import pair_field
 from .landing import is_landing
 from .verify import in_subshell
 from .verify_state import shell_arithmetic
@@ -59,10 +59,10 @@ def queue(ctx, args):
 def rotate_if_due(ctx, store, what):
     """A sidekick that starts fresh per brief (pi, prime-agent, devin) is rotated before the next brief or plan once its last unit is done, so
     the rotation costs the master no extra wake. Partial or blocked work never sets rotation_required and keeps its session."""
-    if not (fresh_per_brief(tolerant_field(store, 'sidekick', 'kind')) and tolerant_field(store, 'sidekick', 'rotation_required', default='false') == 'true'):
+    if not (fresh_per_brief(pair_field(store, 'sidekick', 'kind')) and pair_field(store, 'sidekick', 'rotation_required', default='false') == 'true'):
         return
     # The report lands a moment before the sidekick's turn ends.
-    subprocess.run(['herdr', 'agent', 'wait', tolerant_field(store, 'sidekick', 'name'), '--until', 'idle', '--until', 'done', '--timeout', '60000'],
+    subprocess.run(['herdr', 'agent', 'wait', pair_field(store, 'sidekick', 'name'), '--until', 'idle', '--until', 'done', '--timeout', '60000'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
     def rotate_in_the_substitution():
@@ -75,7 +75,7 @@ def rotate_if_due(ctx, store, what):
     rc, out = in_subshell(rotate_in_the_substitution)
     if rc != 0:
         raise Die(f'rotating the sidekick before this {what} failed:\n{out}', rc)
-    sys.stdout.write(f"rotated: the {tolerant_field(store, 'sidekick', 'kind')} sidekick starts this {what} in a fresh session\n")
+    sys.stdout.write(f"rotated: the {pair_field(store, 'sidekick', 'kind')} sidekick starts this {what} in a fresh session\n")
 
 
 def discuss(ctx, args):
@@ -87,7 +87,7 @@ def discuss(ctx, args):
     if risk_of(plan) not in ('routine', 'escalated'):
         raise Die(f'{plan}: risk: must start with routine or escalated, as kitchen.sh classify prints it', 2)
     escalated = risk_of(plan) == 'escalated'
-    if escalated and agent_status(tolerant_field(store, 'consultant', 'name')) == 'absent':
+    if escalated and agent_status(pair_field(store, 'consultant', 'name')) == 'absent':
         raise Die(f'an escalated plan goes to the consultant too; start it: kitchen.sh consultant {store} --reason TEXT', 5)
     rotate_if_due(ctx, store, 'plan')
     if escalated:
@@ -189,7 +189,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     seq, slug = base[:3], base[:-3][4:] if base.endswith('.md') else base[4:]
     send, wait_on, deferred, answered = [], [], '', []
     for role in ('sidekick', 'consultant'):
-        name = tolerant_field(store, role, 'name', check=True)
+        name = pair_field(store, role, 'name', check=True)
         if plan_answer(store, role, seq, plan):
             answered.append(role)
             wait_on.append(role)
@@ -206,11 +206,11 @@ def discuss_with_consultant(ctx, args, one_wake=False):
                 raise Die(f'{role} {name} is {status}; wait for it before a plan round', 5)
             deferred = 'sidekick'
     if deferred and 'consultant' not in send and 'consultant' not in answered:
-        raise Die(f"sidekick {tolerant_field(store, 'sidekick', 'name')} is working and the consultant has nothing to answer; wait for the sidekick before a plan round", 5)
+        raise Die(f"sidekick {pair_field(store, 'sidekick', 'name')} is working and the consultant has nothing to answer; wait for the sidekick before a plan round", 5)
     if 'sidekick' in send:
         require_fresh_session(store)
     for role in send:
-        name = tolerant_field(store, role, 'name', check=True)
+        name = pair_field(store, role, 'name', check=True)
         deliver_plan(ctx, store, role, name, seq, plan)
         event(store, 'master', 'send-plan', plan, role)
         write(f'sent PLAN {base} to {role} {name}\n')
@@ -224,7 +224,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
             continue
         if role not in wait_on:
             continue
-        name = tolerant_field(store, role, 'name', check=True)
+        name = pair_field(store, role, 'name', check=True)
         # Only a role that had answered before this call skips the wait; one sent the plan now is waited on, however fast its answer lands.
         found, status = '', 'answered'
         if role in answered:
