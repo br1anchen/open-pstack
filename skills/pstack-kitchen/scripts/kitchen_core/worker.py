@@ -41,8 +41,7 @@ def finish(repo, py, brief, job, config='', base=''):
 def main(argv):
     commands = {'step': step, 'finish': finish}
     if not argv or argv[0] not in commands:
-        sys.stderr.write('usage: worker.py step|finish <args>\n')
-        return 2
+        raise SystemExit('usage: worker.py step|finish <args>')
     try:
         os.chdir(argv[1])
     except OSError:
