@@ -8,7 +8,6 @@ to `gate` and to `brief-verify` without --list). test_setup_kpy_calls_leave_the_
 
 import os
 import sys
-import time
 
 from pstack_core import agents
 from pstack_core import spawn as pair_spawn
@@ -18,18 +17,14 @@ from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.gates import gnu_dirname
 from pstack_core.herdr import agent_status
-from pstack_core.store import alt, cut_chars, event, pair_file, update_or_jq
+from pstack_core.store import alt, cut_chars, event, now, pair_file, update_or_jq
 from pstack_core.wait import die_with_the_shell
 
 from . import kpy
 from .classify import jq, jq_lines
-from .jqx import field, pair_jq
+from .jqx import tolerant_field, pair_jq
 from .units import git, git_root
 from .verify import in_subshell
-
-
-def now():
-    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
 
 def record_skill_build(ctx, store):
@@ -215,7 +210,7 @@ def consultant(ctx, args):
         raise Die('no --kind and no [consultant] kind in the host roster')
     # A consultant whose kind has a preflight (Muse, pi, Prime) is checked before its pane starts, as the sidekick is: a logged-out account or a
     # spent plan starts the roster's [consultant.fallback] instead.
-    if agents.has_preflight(kind) and agent_status(field(store, 'consultant', 'name')) == 'absent':
+    if agents.has_preflight(kind) and agent_status(tolerant_field(store, 'consultant', 'name')) == 'absent':
         code, why = pair_spawn.preflight_reason(kind, native)
         if code != 0:
             if not fallback or fallback == kind:

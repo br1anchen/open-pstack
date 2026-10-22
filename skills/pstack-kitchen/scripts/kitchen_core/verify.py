@@ -32,7 +32,7 @@ from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
 from pstack_core.store import field
-from pstack_core.store import bash_int, event, expected_report, header_field, pair_file, readlink_f, update_or_jq
+from pstack_core.store import bash_int, event, expected_report, header_field, pair_file, readlink_f, text_of, update_or_jq
 from pstack_core.variant import commit_of
 
 from . import kpy
@@ -57,10 +57,6 @@ def out(text):
 def warn(text):
     sys.stdout.flush()
     sys.stderr.write(text)
-
-
-def text_of(data):
-    return data.decode('utf-8', 'surrogateescape')
 
 
 def data_of(text):

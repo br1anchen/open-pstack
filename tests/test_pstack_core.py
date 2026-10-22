@@ -1760,12 +1760,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(files(got['state']), {}, args[0])
 
     def test_feedback_on_an_unparseable_pair_json_dies_with_pythons_message(self):
-        """feedback reads pair.json once: `kitchen.sh: Expecting value...`, rc 1, after creating the inbox and done directories."""
+        """feedback over a pair.json that does not parse: the damaged-store message, rc 1."""
         got = self.kitchen_world('fbunp', dict(args=['feedback', '{st}', '{st}/report.md'], nopair=True, files={'pair.json': 'not json\n', 'report.md': self.FEEDBACK_REPORT}))
         self.assertEqual(got['rc'], 1)
         self.assertIn('pair.sh: pair.json is damaged: Expecting value: line 1 column 1 (char 0)\n', got['stderr'])
-        self.assertIn('pstack/feedback/inbox/', got['state'])
-        self.assertIn('pstack/feedback/done/', got['state'])
 
     def test_new_handoff_behaviour(self):
         rich = self.kitchen_run_files()
@@ -4538,7 +4536,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a run that was never stamped': (0, '# Kitchen status'),
             'a stamped run, the command being help': (0, 'usage: kitchen.sh'),
             'a stamped run, the command being unknown': (1, 'nonsense'),
-            'a pair.json that does not parse': (1, 'parse error'),
+            'a pair.json that does not parse': (1, 'pair.json is damaged: '),
         }
         out = self.kitchen_cases('rsb', cases, expect)
         self.assertRegex(out['a stamped run from another build']['files']['pair.json'], r'"path": "<SK>"')
@@ -4713,7 +4711,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             '--timeout with an unknown option after': (1, 'unknown option --bogus'),
             'an unknown option': (1, 'unknown option --bogus'),
             'outside herdr': (1, 'not running inside Herdr (HERDR_ENV != 1)'),
-            'a pair.json that is an array': (5, 'Cannot index array with string ("consultant")'),
+            'a pair.json that is an array': (1, 'pair.json is damaged: expected an object'),
             'no pair.json': (5, 'no pair.json in <T>/st; run: pair.sh init <slug>'),
             'a sidekick that is a string': (5, 'Cannot index string with string ("name")'),
             'a rotation that succeeds before a routine plan': (0, 'rotated: the pi sidekick starts this plan in a fresh session\nstate: idle\nreport: <T>/st/reports/001-x.md\n'),
@@ -5195,7 +5193,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a base behind where the branch leaves trunk': recorded,
             'two arguments': (1, 'usage: kitchen.sh step <store> <sha> <summary>'),
             'no pair.json': (1, 'no pair.json in'),
-            'a pair.json that is an array': (5, 'Cannot index array with string ("dispatch")'),
+            'a pair.json that is an array': (1, 'pair.json is damaged: expected an object'),
         }
         out = self.kitchen_cases('step', cases, expect)
         # the second of two failing steps counts the failures in a row; a step whose gates run on leaves a job directory with its log and a link to it
@@ -5696,7 +5694,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             '--cancel with --wait': (1, '--cancel takes no units, --landing or --wait'),
             '--wait with nothing open': (5, 'no verification is open; start one with kitchen.sh verify'),
             'too few arguments': (1, 'usage: kitchen.sh verify <store> <NNN>...'),
-            'a pair.json that is an array': (5, 'Cannot index array with string ("verifying")'),
+            'a pair.json that is an array': (1, 'pair.json is damaged: expected an object'),
             'a verifier that is a string': (5, 'Cannot index string with string ("name")'),
             'a heads that is a string': (1, 'Cannot index string with string ("001-x")'),
             'a master that is a string': (5, 'Cannot index string with string ("pane_id")'),

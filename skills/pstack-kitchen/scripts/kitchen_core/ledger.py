@@ -3,11 +3,10 @@
 import json
 import re
 import sys
-import time
 
 from pstack_core.collate import collate_key
 from pstack_core.errors import Die, Exit
-from pstack_core.store import event, jq_raw, pair_file, load
+from pstack_core.store import event, jq_raw, load, now, pair_file
 
 from . import kpy
 
@@ -19,10 +18,6 @@ HINT = '''encode a repeated class at the highest level that works (the correct s
   steer brief          briefs miss a decision the master keeps making: a standing order or plan template line
   catch <layer>        the layer that should have caught it gets the check
 '''
-
-
-def now():
-    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
 
 def relay(result):

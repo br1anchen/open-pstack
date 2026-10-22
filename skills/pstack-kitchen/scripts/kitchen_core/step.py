@@ -27,7 +27,7 @@ from pstack_core.store import bash_int, event, expected_report, header_field, la
 
 from . import kpy
 from .classify import brief_kitchen
-from .jqx import exit_status, field, pair_jq
+from .jqx import exit_status, pair_jq, tolerant_field
 from .units import git
 from .verify_state import shell_arithmetic
 from .wait import plain_signals, poll_sleep
@@ -73,17 +73,13 @@ def detached(script, argv, log, store):
                          preexec_fn=ignore_interrupts)
 
 
-def now():
-    return int(time.time())
-
-
 def slice_deadline():
     # `$(( $(date +%s) + slice ))`: slice is a variable, whose value is itself evaluated as an expression (`5 == 5` adds 1, `2*3` adds 6)
-    return shell_arithmetic(f"{now()} + ({os.environ.get('KITCHEN_STEP_SLICE_S') or '100'})")
+    return shell_arithmetic(f"{int(time.time())} + ({os.environ.get('KITCHEN_STEP_SLICE_S') or '100'})")
 
 
 def past(deadline):
-    return now() >= deadline
+    return int(time.time()) >= deadline
 
 
 def not_zero(text):
@@ -128,7 +124,7 @@ def step(ctx, args):
         raise Die('usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha = args[0], args[1]
     pair_file(store)
-    brief = field(store, 'dispatch', 'brief', check=True, empty=True)
+    brief = tolerant_field(store, 'dispatch', 'brief', check=True, empty=True)
     if not brief:
         raise Die('no brief dispatched; a step belongs to a running brief')
     unit = unit_name(brief)
@@ -195,7 +191,7 @@ def step(ctx, args):
     deadline = slice_deadline()
     while not os.path.isfile(f'{job}/rc'):
         if past(deadline):
-            sys.stdout.write(f'gates: still running for {full[:9]} ({now() - file_mtime(f"{job}/base")}s so far; log: {job}/out)\n')
+            sys.stdout.write(f'gates: still running for {full[:9]} ({int(time.time()) - file_mtime(f"{job}/base")}s so far; log: {job}/out)\n')
             sys.stdout.write(queue_line(f'{job}/out'))
             sys.stdout.write(f'next: this step is not recorded yet; do not end your turn. Run the same command again now, in the foreground, until it records: '
                              f'kitchen.sh step {store} {sha} "{args[2]}"\n')
@@ -214,7 +210,7 @@ def step(ctx, args):
         state = 'pass'
     os.makedirs(f'{store}/steps', exist_ok=True)
     with open(f'{store}/gates.tsv', 'a') as f:
-        f.write(f'{now()}\t{unit}\t{full[:9]}\t{state}\t{",".join(profiles)}\n')
+        f.write(f'{int(time.time())}\t{unit}\t{full[:9]}\t{state}\t{",".join(profiles)}\n')
     if not_zero(rc):
         cat(f'{job}/out')
         event(store, 'sidekick', 'gate-fail', brief, f'{full[:9]} {job}/{os.readlink(f"{job}/out")}')
@@ -257,7 +253,7 @@ def finish(ctx, args):
     store = args[0]
     report = readlink_f(args[1])
     pair_file(store)
-    brief = field(store, 'dispatch', 'brief', check=True, empty=True)
+    brief = tolerant_field(store, 'dispatch', 'brief', check=True, empty=True)
     # Everything but the dispatched unit's done report, and a report the pair's checks refuse anyway (no head:, open notes), goes straight on.
     if (not os.path.isfile(report) or header_field(report, 'status') != 'done' or not brief or report != expected_report(store, brief)
             or core_report.pair_report_ready(ctx, [store, report]) != 0):

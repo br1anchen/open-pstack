@@ -12,16 +12,12 @@ import sys
 from pstack_core.checkin import scope_entries
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
-from pstack_core.store import header_field, pair_file
+from pstack_core.store import header_field, pair_file, text_of
 
-from .jqx import field
+from .jqx import tolerant_field
 from .kpy import Kitchen
 
 CLASSIFY_FAILED = 'kitchen.py classify failed; run kitchen.py validate in the repo'
-
-
-def text_of(data):
-    return data.decode('utf-8', 'surrogateescape')
 
 
 def risk_of(brief):
@@ -35,7 +31,7 @@ def jq(text, program, *args):
     sys.stdout.flush()
     sys.stderr.flush()
     r = subprocess.run(['jq', '-r', *args, program], input=(text + '\n').encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE, check=False)
-    return text_of(r.stdout).rstrip('\n')
+    return text_of(r.stdout, True)
 
 
 def jq_lines(text, program):
@@ -121,7 +117,7 @@ def classify_brief(store, brief):
         raise Die('kitchen.py lessons stamp failed; run kitchen.py lessons in the repo')
     sys.stdout.write(jq_lines(classified, '"profiles: \\(.profiles | join(", "))", "verify: \\(.verify.mode) by \\(.verify.kind) verifier", (.escalate[] | "escalate: \\(.)"), '
                                          '(.warnings[]? | "warn: \\(.)"), (if .bookkeeping then "bookkeeping: the Scope is outside the repo; gates only, nothing to escalate" else empty end)'))
-    if risk == 'escalated' and agent_status(field(store, 'consultant', 'name')) == 'absent':
+    if risk == 'escalated' and agent_status(tolerant_field(store, 'consultant', 'name')) == 'absent':
         sys.stdout.write(f'next: kitchen.sh consultant {store} --reason "{jq(classified, ".escalate[0]")}", then a plan round with it\n')
 
 

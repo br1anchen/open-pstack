@@ -26,8 +26,8 @@ def _text(data):
 
 
 def git_root(store, quiet=False, check=False):
-    """`jq -r .git_root pair.json` (the bash's `field "$store" .git_root`): jq's own error on stderr and an empty answer for a pair.json that does not
-    parse or is not an object, where the bash went on. A store with no pair.json gets pair_file's message and jq's, and an empty answer."""
+    """`jq -r .git_root pair.json` (the bash's `field "$store" .git_root`). A store with no pair.json gets pair_file's message and jq's, and an empty
+    answer; a damaged one is store.load's message."""
     if not os.path.isfile(f'{store}/pair.json'):
         if not quiet:
             sys.stdout.flush()
@@ -36,13 +36,7 @@ def git_root(store, quiet=False, check=False):
         if check:
             raise Exit(2)
         return ''
-    try:
-        doc = load(store)
-        if isinstance(doc, dict):
-            return jq_raw(doc.get('git_root'))
-    except (ValueError, OSError):
-        pass
-    return pair_jq(store, '.git_root', check=check, quiet=quiet)
+    return jq_raw(load(store).get('git_root'))
 
 
 def git(root, *args, quiet=False, stdin=None):

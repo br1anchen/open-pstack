@@ -17,10 +17,11 @@ from pstack_core.herdr import agent_status, herdr, pane_text
 from pstack_core.providers import agent_session_error, grep_o_context, muse_session_error, prime_role_error
 from pstack_core.review import jq_raw
 from pstack_core.send import submit_typed
-from pstack_core.store import bash_int, event, header_field, readlink_f
+from pstack_core.store import bash_int, env_int, event, header_field, readlink_f
 from pstack_core.wait import bash_sleep
 
 from . import verify_state as vs
+from .jqx import pair_jq
 from .reviews import warn_unreviewed
 
 NOT_GIVEN = object()
@@ -41,18 +42,10 @@ def stall_limit(idle):
     return limit is not None and idle >= limit
 
 
-def env_int(name, default):
-    """`${NAME:-default}` as bash arithmetic reads it for the cases the kitchen sets: a whole number."""
-    value = bash_int(os.environ.get(name) or str(default))
-    if value is None:
-        raise Exit(1)
-    return value
-
-
 def verifier_provider_error(store, name, session=NOT_GIVEN):
     """The verifier's latest provider error: from its screen while it is up, else from the error stop its session log recorded. Empty when there is
     none. session is the one of the verification the caller owns, when it captured it."""
-    kind = vs.field(store, '.verifier.kind')
+    kind = pair_jq(store, '.verifier.kind')
     if kind == 'prime-agent':
         return prime_role_error(store, 'verifier')
     line = ''
@@ -60,15 +53,15 @@ def verifier_provider_error(store, name, session=NOT_GIVEN):
         matches = grep_o_context(pane_text(name).rstrip('\n'), 60, 100)
         line = matches[-1] if matches else ''
     if session is NOT_GIVEN:
-        session = vs.field(store, '.verifying.session // empty')
+        session = pair_jq(store, '.verifying.session // empty')
     if not line:
         cwd = ''
-        if vs.field(store, '.verifier.kind') in ('pi', 'muse'):
+        if pair_jq(store, '.verifier.kind') in ('pi', 'muse'):
             try:
-                cwd = readlink_f(f'{store}/scratch/{vs.field(store, ".verifying.scratch")}')
+                cwd = readlink_f(f'{store}/scratch/{pair_jq(store, ".verifying.scratch")}')
             except Exit:  # `readlink -f ... 2>/dev/null || true`
                 cwd = ''
-        if vs.field(store, '.verifier.kind') == 'muse':
+        if pair_jq(store, '.verifier.kind') == 'muse':
             line = muse_session_error(cwd)
         else:
             line = agent_session_error(session, cwd)
@@ -97,8 +90,8 @@ def verifier_trail(session, packet):
 def verifier_shown(store, state):
     """The verifier's state for a progress line: working when its pane runs a command of its own."""
     if state in ('idle', 'done'):
-        since = bash_int(vs.field(store, '.verifying.started'))
-        command = busy_command(vs.field(store, '.verifier.pane_id'), since, now_s()) if since is not None else ''
+        since = bash_int(pair_jq(store, '.verifying.started'))
+        command = busy_command(pair_jq(store, '.verifier.pane_id'), since, now_s()) if since is not None else ''
         if command:
             return f'working ({command})'
     return state
@@ -148,7 +141,7 @@ class Waiter:
 
     def rd(self, program):
         """A plain `x="$(field ...)"`: under errexit a failing read ends the command with jq's status."""
-        return vs.field(self.store, program, check=self.errexit)
+        return pair_jq(self.store, program, check=self.errexit)
 
     def sleep(self, text):
         try:
@@ -171,7 +164,7 @@ class Waiter:
         working Devin does not (Enter would cancel its command), so it is only waited on; a blocked or unknown agent gets no prompt and no grace."""
         store = self.store
         vs.verification_still_open(store, verdict)
-        grace_until = vs.field(store, '.verifying.grace_until // empty')
+        grace_until = pair_jq(store, '.verifying.grace_until // empty')
         if not grace_until:
             state = agent_status(name)
             if state in ('blocked', 'unknown', 'absent'):
@@ -211,8 +204,8 @@ class Waiter:
             if state in ('idle', 'done', 'blocked') and verifier_provider_error(store, name, session):
                 return
             if now >= until:
-                sys.stdout.write(f'verifying: units {vs.field(store, ".verifying.units")} by {kind}, past its deadline; grace {limit - now}s left '
-                                 f'({vs.field(store, ".verifying.grace_delivery")}), verifier {verifier_shown(store, state)}\n')
+                sys.stdout.write(f'verifying: units {pair_jq(store, ".verifying.units")} by {kind}, past its deadline; grace {limit - now}s left '
+                                 f'({pair_jq(store, ".verifying.grace_delivery")}), verifier {verifier_shown(store, state)}\n')
                 sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
                 event(store, 'master', 'wake', brief, 'verify:grace')
                 raise Exit(4)
@@ -237,7 +230,7 @@ class Waiter:
         every = self.arithmetic(self.every_m)
         until = now_s() + every * 60
         # A verify stopped between the verifier's start and its packet leaves the verifier idle with nothing to do, until the stall check closes it.
-        if vs.field(store, '.verifying.delivered') == 'false' and not os.path.isfile(verdict):
+        if pair_jq(store, '.verifying.delivered') == 'false' and not os.path.isfile(verdict):
             vs.verification_still_open(store, verdict)
             if agent_status(name) in ('idle', 'done'):
                 vs.redeliver_packet(ctx, store, 'the verify that started this verifier stopped before sending its packet', name, packet, brief, kind)
@@ -249,30 +242,30 @@ class Waiter:
             state = agent_status(name)
             vs.verification_still_open(store, verdict)
             now = now_s()
-            deadline = bash_int(vs.field(store, '.verifying.deadline'))
+            deadline = bash_int(pair_jq(store, '.verifying.deadline'))
             if not (state != 'absent' and deadline is not None and now < deadline):
                 break
             if now >= until:
-                started = vs.shell_arithmetic(vs.field(store, '.verifying.started'))
+                started = vs.shell_arithmetic(pair_jq(store, '.verifying.started'))
                 span = tdiv(deadline - started, 60)
                 done = tdiv(now - started, 60)
-                sys.stdout.write(f'verifying: units {vs.field(store, ".verifying.units")} by {kind}, {done}m of {span}m, verifier '
+                sys.stdout.write(f'verifying: units {pair_jq(store, ".verifying.units")} by {kind}, {done}m of {span}m, verifier '
                                  f'{verifier_shown(store, state)}\n')
                 sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
-                event(store, 'master', 'wake', vs.field(store, '.verifying.brief'), 'verify:progress')
+                event(store, 'master', 'wake', pair_jq(store, '.verifying.brief'), 'verify:progress')
                 raise Exit(4)
             # A verifier that ended its turn on a provider error will not write.
-            idle_since = vs.field(store, '.verifying.idle_since // empty')
+            idle_since = pair_jq(store, '.verifying.idle_since // empty')
             if state == 'blocked':
-                if vs.field(store, '.verifier.kind') == 'prime-agent' and verifier_provider_error(store, name, session):
+                if pair_jq(store, '.verifier.kind') == 'prime-agent' and verifier_provider_error(store, name, session):
                     break
                 if idle_since:
                     self.drop_idle(verdict)
             elif state in ('idle', 'done'):
                 if verifier_provider_error(store, name, session):
                     break
-                started = bash_int(vs.field(store, '.verifying.started'))
-                busy = busy_command(vs.field(store, '.verifier.pane_id'), started, now_s()) if started is not None else ''
+                started = bash_int(pair_jq(store, '.verifying.started'))
+                busy = busy_command(pair_jq(store, '.verifier.pane_id'), started, now_s()) if started is not None else ''
                 if busy:
                     if idle_since:
                         self.drop_idle(verdict)
@@ -288,7 +281,7 @@ class Waiter:
         vs.verification_still_open(store, verdict)
         # A verifier still alive at the deadline is asked once for what it proved.
         written = os.path.isfile(verdict) and header_field(verdict, 'status')
-        deadline = bash_int(vs.field(store, '.verifying.deadline'))
+        deadline = bash_int(pair_jq(store, '.verifying.deadline'))
         if (not written and state != 'absent' and deadline is not None and now_s() >= deadline
                 and not verifier_provider_error(store, name, session)):
             self.grace(name, kind, verdict, until, brief, session)
@@ -390,7 +383,7 @@ class Waiter:
 
     def fallback(self):
         """`field "$store" '.verifying.entry.fallback // empty' | jq -c . 2>/dev/null || true`."""
-        raw = vs.field(self.store, '.verifying.entry.fallback // empty')
+        raw = pair_jq(self.store, '.verifying.entry.fallback // empty')
         if not raw:
             return ''
         r = subprocess.run(['jq', '-c', '.'], input=raw.encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
