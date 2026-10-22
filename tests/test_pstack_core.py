@@ -5725,6 +5725,17 @@ class CoreTests(unittest.TestCase):
             with mock.patch.object(landing, 'git_root', return_value='/repo'), mock.patch.object(landing.kpy, 'run', return_value=answer):
                 self.assertEqual(landing.validated_engine('/st'), want, name)
 
+    def test_the_modules_merged_into_their_callers_homes_are_gone_and_their_commands_still_resolve(self):
+        pair, kitchen = root / 'skills/pstack-pair/scripts/pstack_core', root / 'skills/pstack-kitchen/scripts/kitchen_core'
+        gone = [pair / f'{n}.py' for n in ('context', 'errors', 'herdr', 'dispatch')]
+        gone += [pair / 'commands' / f'{n}.py' for n in ('log', 'progress', 'pause', 'spawn', 'send', 'templates', 'queue', 'failover')]
+        gone += [kitchen / f'{n}.py' for n in ('reviews', 'discuss')]
+        self.assertEqual([str(p.relative_to(root)) for p in gone if p.exists()], [])
+        dispatch = self.kitchen_core_module('dispatch')
+        self.assertTrue(callable(dispatch.queue) and callable(dispatch.discuss))
+        self.assertTrue(all(callable(command) for command in cli.COMMANDS.values()))
+        self.assertEqual([cli.COMMANDS[n].__name__ for n in ('log', 'progress', 'pause', 'resume', 'queue', 'failover')], ['log', 'progress', 'pause', 'resume', 'queue', 'failover'])
+
     def test_last_line_reads_a_block_from_the_end_of_a_file_longer_than_a_block(self):
         f = self.path / 'events.tsv'
         for name, body, want in (('no newline at the end', 'a\n' * 9000 + 'last', 'last'), ('a newline at the end', 'a\n' * 9000 + 'last\n', 'last'),
