@@ -11,6 +11,7 @@ import sys
 
 from pstack_core.commands import send
 from pstack_core.errors import Die, Exit
+from pstack_core.store import whole_number
 
 from .classify import classify_brief
 from .discuss import rotate_if_due
@@ -44,11 +45,18 @@ def core_dispatch(ctx, args):
     return in_subshell(run, merge=False)
 
 
+NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}
+
+
 def dispatch(ctx, args):
     plain_signals()
     if len(args) < 2:
         raise Die('usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]')
     store, brief = args[0], args[1]
+    # every number flag is read before the command changes anything
+    for flag, value in zip(args[2:], args[3:]):
+        if flag in NUMBER_FLAGS:
+            whole_number(value, flag, NUMBER_FLAGS[flag])
     # A brief path may be given relative to the store (briefs/NNN-x.md).
     if not os.path.isfile(brief) and os.path.isfile(f'{store}/{brief}'):
         brief = f'{store}/{brief}'

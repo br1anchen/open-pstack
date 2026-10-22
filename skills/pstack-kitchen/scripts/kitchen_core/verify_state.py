@@ -275,13 +275,15 @@ def handoff_due(store, unit):
     the threshold and at each multiple of it."""
     if unit == 'landing':
         return
+    every = max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 5), 1)
+
     def bump(doc):
         master = member(doc, 'master')
         master['units_since_handoff'] = count(master, 'units_since_handoff') + 1
 
     update(store, bump)
     n = read_int(store, 'master.units_since_handoff')
-    if n % max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 5), 1) != 0:
+    if n % every != 0:
         return
     sys.stdout.write(f'master: {n} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, '
                      f'kitchen.sh rotate-master {store}\n')

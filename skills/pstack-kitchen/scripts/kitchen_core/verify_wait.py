@@ -324,8 +324,9 @@ class Waiter:
             sys.stdout.write(f'next: wait for the limit, or kitchen.sh verify {store} {" ".join(self.shown(argv))} --kind <another kind>\n')
             raise Exit(2)
         if not present and self.stalled:
+            idle_limit = env_int('KITCHEN_VERIFY_IDLE_S', 600)
             event(store, 'master', 'wake', brief, 'verify:stalled')
-            raise Die(f'no verdict at {verdict}: the verifier sat idle {env_int('KITCHEN_VERIFY_IDLE_S', 600) // 60}m with nothing running; rerun: '
+            raise Die(f'no verdict at {verdict}: the verifier sat idle {idle_limit // 60}m with nothing running; rerun: '
                       f'kitchen.sh verify {store} {" ".join(self.shown(argv))}', 4)
         if not present:
             event(store, 'master', 'wake', brief, 'verify:missing')

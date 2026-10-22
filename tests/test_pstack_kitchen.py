@@ -1739,6 +1739,19 @@ esac
         got = ready(report)
         self.assertEqual((got.ready, got.open, got.why), (False, str(self.store / 'notes/001-util-n1.md'), 'open blocking notes n1'), 'the pair says no first')
 
+    def test_a_dispatch_with_a_number_flag_that_is_no_whole_number_sends_nothing(self):
+        """--max, --timeout and --every are read before the command changes anything: `dispatch --max -5` ends with status 1 and the usage error, and
+        no brief is recorded and nothing is sent."""
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        before = self.state()
+        calls = (self.fake / 'calls.log').read_text() if (self.fake / 'calls.log').exists() else ''
+        for flag, word, unit in (('--max', '-5', 'minutes'), ('--max', 'x', 'minutes'), ('--timeout', '1.5', 'milliseconds'), ('--every', '1+1', 'minutes')):
+            out = self.run_sh('dispatch', str(self.store), str(b), flag, word, code=1)
+            self.assertIn(f'{flag} must be a whole number of {unit}', out)
+            self.assertEqual(self.state(), before, (flag, word))
+            after = (self.fake / 'calls.log').read_text() if (self.fake / 'calls.log').exists() else ''
+            self.assertNotIn('agent prompt', after[len(calls):], (flag, word))
+
     def test_a_verify_job_under_the_old_cksum_key_is_ignored_and_never_collides_with_the_crc32_key(self):
         """Plan 043 U5 switched the Verify job key from POSIX cksum to crc32. A completed job directory under the old key (rc 0) does not make a
         done report ready and is not the directory finish uses now, so the first finish after the switch runs the Verify block again."""

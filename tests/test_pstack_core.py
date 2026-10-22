@@ -4525,6 +4525,26 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual((rc, out), (1, ''), name)
             self.assertIn(word, err, name)
 
+    def test_a_bad_rotate_units_setting_leaves_pair_json_unchanged(self):
+        """KITCHEN_MASTER_ROTATE_UNITS is read before the verified-units count is bumped: a word there ends the command with status 1 naming the
+        variable and pair.json stays as it was."""
+        store = self.claim_store('horot', {'verdict': 'v'}, {'master': {'units_since_handoff': 3}})
+        before = (store / 'pair.json').read_text()
+        rc, out, err = self.kitchen_py(store, 'vs.handoff_due(store, "001-x")\nprint("rc=0")', env={'KITCHEN_MASTER_ROTATE_UNITS': 'x'})
+        self.assertEqual((rc, out), (1, ''))
+        self.assertIn('KITCHEN_MASTER_ROTATE_UNITS must be a whole number', err)
+        self.assertEqual((store / 'pair.json').read_text(), before)
+
+    def test_every_skill_script_compiles_under_python_3_11(self):
+        """The floor is Python 3.11 (AGENTS.md): a 3.12-only construct, such as a quote reused inside an f-string's braces, fails to compile there."""
+        python = shutil.which('python3.11') or shutil.which('python3.11', path=str(Path.home() / '.local/bin'))
+        if python is None:
+            self.skipTest('no python3.11 on PATH or in ~/.local/bin')
+        files = sorted(str(p) for p in (root / 'skills').rglob('*.py'))
+        code = 'import ast, sys\nfor f in sys.argv[1:]:\n    ast.parse(open(f, encoding="utf-8").read(), f)\n'
+        r = subprocess.run([python, '-c', code, *files], capture_output=True, text=True, check=False)
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+
     def test_a_close_or_a_wait_that_fails_inside_releases_its_claim_and_leaves_the_verification_open(self):
         """A damaged `KITCHEN_VERIFIER_EXIT_S`, a top-level `.scratch` that is a number (a traceback from the scratch command), a `.verifying.idle_since`
         or `.verifying.started` that is no whole number: the command ends with status 1 naming the word, the claim of the close is released,

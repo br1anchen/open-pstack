@@ -73,7 +73,6 @@ def detached(script, argv, log, store):
 
 
 def slice_deadline():
-    # `$(( $(date +%s) + slice ))`: slice is a variable, whose value is itself evaluated as an expression (`5 == 5` adds 1, `2*3` adds 6)
     return int(time.time()) + env_int('KITCHEN_STEP_SLICE_S', 100)
 
 
