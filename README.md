@@ -53,8 +53,8 @@ reviews it, and a consultant joins only escalated units. Its
 See their SKILL.md files. The four share one script core,
 `pstack-pair/scripts/pair-core.sh`; each skill's `scripts/pair.sh` sets its
 variant, adds its own commands, and sources it (the kitchen's is `scripts/kitchen.sh`). The consultant's commands
-(spawn, plan rounds, consults, multi-role stop) live in
-`pstack-trio/scripts/consultant-core.sh`, sourced after the core. `pstack-pair/scripts/pair.py` and `pstack_core/` are a stdlib-only Python core (each variant's hooks are Python in its skill's `scripts/variant.py`): the ported commands run in it through `pair-core.sh`, and `tests/test_pstack_core.py` checks them against the bash at three commits: d06a932 for phase 1, e6e83e3 for phase 2, whose `base_skills()` extracts the bash those commands ran in, and 04d2c13 for phase 3 (`phase3_skills()`), the oracle for init, permission, stop, steer, answer, spawn, rotate and failover. `tests/test_pstack_pair.py`
+(plan rounds, consults, advice) live in Python, in
+`pstack-pair/scripts/pstack_core/consult.py`; the trio's `variant.py` registers them with its spawn and multi-role stop, and the kitchen's registers them too. `pstack-pair/scripts/pair.py` and `pstack_core/` are a stdlib-only Python core (each variant's hooks are Python in its skill's `scripts/variant.py`): the ported commands run in it through `pair-core.sh`, and `tests/test_pstack_core.py` checks them against the bash at three commits: d06a932 for phase 1, e6e83e3 for phase 2, whose `base_skills()` extracts the bash those commands ran in, and 04d2c13 for phase 3 (`phase3_skills()`), the oracle for init, permission, stop, steer, answer, spawn, rotate and failover. `tests/test_pstack_pair.py`
 drives all three against a fake `herdr` and compares golden transcripts. Other workflows use the current
 upstream revision plus the runtime adaptation. The old installation is backed
 up on sync, including any local edits outside SKILL.md.

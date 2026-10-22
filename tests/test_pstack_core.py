@@ -2860,6 +2860,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 store.env_float('N', 1.5)
             self.assertEqual(caught.exception.message, 'N must be a number', text)
 
+    def test_with_timeout_gives_the_commands_exit_124_when_it_runs_out_and_127_when_it_is_missing(self):
+        from pstack_core import prime
+        done = prime.with_timeout('5', ['sh', '-c', 'echo out; exit 3'])
+        self.assertEqual((done.returncode, done.stdout), (3, b'out\n'))
+        self.assertEqual(prime.with_timeout('0.2', ['tail', '-f', os.devnull]).returncode, 124)
+        self.assertEqual(prime.with_timeout('5', ['no-such-command-here']).returncode, 127)
+
     def test_fresh_per_brief_is_devin_pi_and_prime_agent_only(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
             self.assertEqual(dispatch.fresh_per_brief(kind), kind in ('devin', 'pi', 'prime-agent'), kind)
@@ -3266,6 +3273,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
     PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'steer', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss', 'spawn')
+    # the consultant's commands, which only the trio and the kitchen have, each a shim in the entry script itself
+    CONSULTANT_PORTED = ('new_consult', 'consult', 'advice')
+    CONSULTANT_ENTRIES = ('pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
     TWINS = ('header_field', 'pair_file')
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
@@ -3316,9 +3326,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     EXTERNAL_COMMANDS = frozenset((
         'awk', 'basename', 'cat', 'cksum', 'cp', 'cut', 'date', 'dirname', 'find', 'git', 'grep', 'head', 'herdr', 'id', 'jq', 'ln', 'ls', 'mkdir',
         'mktemp', 'mv', 'paste', 'ps', 'python3', 'readlink', 'rm', 'rmdir', 'sed', 'sleep', 'sort', 'stat', 'tail', 'tr', 'wc'))
-    # commands the scripts call that a host may lack: column (kitchen.sh :1867, retro's table), setsid (pair-core.sh :212, the detach, which falls
-    # back to perl) and perl (kitchen.sh :131 and :133, the brief header edits, and :1068, a verifier-outcome edit;
-    # the setsid fallback in pair-core.sh :215; and prime.py's timeout where coreutils has no timeout(1), which is Python, not bash, so not scanned)
+    # commands the scripts call that a host may lack: none now (the kitchen's retro table and the setsid detach are Python); a name added here
+    # must be one a script calls, which test_every_name_the_bash_calls_resolves_to_a_definition_or_a_command checks
     OPTIONAL_HOST_COMMANDS = frozenset()
 
     def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
@@ -3332,7 +3341,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         reach = self.reach()
         shim = re.compile(r'\s*pycore (--exec )?\S+ "\$@";?\s*\Z')
         for entry in self.ENTRIES:
-            for name in self.PORTED:
+            for name in self.PORTED + (self.CONSULTANT_PORTED if entry in self.CONSULTANT_ENTRIES else ()):
                 final = reach.final(root / 'skills' / entry, f'cmd_{name}')
                 self.assertIsNotNone(final, f'{entry}: cmd_{name} is not defined')
                 self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
@@ -3341,6 +3350,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                     home = entry  # the kitchen's own command, run from its variant
                 if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
                     home = entry  # the trio's own command, run from its variant
+                if name in self.CONSULTANT_PORTED:
+                    home = entry  # the consultant's commands run from pstack_core.consult, through a shim in the entry script
                 self.assertEqual(final.key, f'{home}:cmd_{name}', f'{entry}: the final cmd_{name} is not {home}')
 
     def test_answer_is_guided_only_and_a_pycore_shim_there(self):
@@ -6460,8 +6471,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'advice with none on file': (4, 'no advice found'),
         }, 'pstack-trio')
 
-    def test_a_trio_plan_round_a_consult_and_advice_run_with_no_jq(self):
-        """The consultant's commands are Python: with a jq on PATH that fails, pair.sh discuss, consult and advice still end as they do with one."""
+    def test_a_trio_plan_round_and_the_consult_commands_run_with_no_jq(self):
+        """The consultant's commands are Python: with a jq on PATH that fails, pair.sh discuss, new-consult, consult and advice still end as they do with one."""
         no_jq = dict(topfiles={'nojq/jq': ('#!/bin/sh\necho "jq was started" >&2\nexit 127\n', 0o755)}, envfill={'PATH': '{T}/nojq:' + self.env['PATH']})
         consultant = {'consultant': {'name': 'c1', 'kind': 'codex', 'pane_id': 'p2'}}
         consult = '# C\n\nkind: finding\nsidekick state at send: x\n\n## Question\nq\n'
@@ -6469,6 +6480,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                        agents={'s1': 'idle claude', 'c1': 'idle codex'}, env={'PAIR_FILE_POLL_MS': '1'}, **no_jq)
         cases = {
             'a plan round': (dict(self.discuss_cases()['an escalated plan both roles answer'], **no_jq), 0, 'consultant_status: agree'),
+            'a new consult': (dict(advised, args=['new-consult', '{st}', '001', '--kind', 'finding'], files={'briefs/001-x.md': '# B\n'}), 0,
+                              '<T>/st/consults/001-x-c1.md'),
             'a consult': (dict(advised, args=['consult', '{st}', '{st}/consults/001-x-c1.md', '--timeout', '3000']), 0, 'advice_status: answered'),
             'advice': (dict(advised, args=['advice', '{st}']), 0, '<T>/st/advice/001-x-c1.md'),
         }

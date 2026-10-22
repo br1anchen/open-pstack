@@ -2,7 +2,6 @@
 the steer that reaches it. stop_prime_role (exits.py) uses them."""
 import json
 import os
-import shutil
 import subprocess
 import sys
 
@@ -11,19 +10,22 @@ from .review import jq_raw
 from .store import alt, load
 from .wait import as_text, json_values
 
-PERL_TIMEOUT = ('my $s = shift; my $p = fork // die "fork: $!\n";\n'
-                'unless ($p) { exec { $ARGV[0] } @ARGV or exit 127 }\n'
-                'local $SIG{ALRM} = sub { kill "TERM", $p; waitpid $p, 0; exit 124 };\n'
-                'alarm $s; waitpid $p, 0; exit($? & 127 ? 128 + ($? & 127) : $? >> 8)')
-
-
 def with_timeout(seconds, argv, **kwargs):
-    """with_timeout: timeout(1) where coreutils has it, else perl with the same contract (exit 124 when the command runs out). Keyword
+    """The command with a time limit: exit 124 when it runs out (after a TERM), 127 when it is not there, as timeout(1) gives. Keyword
     arguments go to subprocess.run; stdout is a pipe unless given."""
     kwargs.setdefault('stdout', subprocess.PIPE)
-    if shutil.which('timeout'):
-        return subprocess.run(['timeout', seconds, *argv], check=False, **kwargs)
-    return subprocess.run(['perl', '-e', PERL_TIMEOUT, seconds, *argv], check=False, **kwargs)
+    try:
+        child = subprocess.Popen(argv, **kwargs)
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(argv, 127, b'' if kwargs['stdout'] == subprocess.PIPE else None, None)
+    with child:
+        try:
+            out, err = child.communicate(timeout=float(seconds))
+        except subprocess.TimeoutExpired:
+            child.terminate()
+            out, err = child.communicate()
+            return subprocess.CompletedProcess(argv, 124, out, err)
+    return subprocess.CompletedProcess(argv, child.returncode, out, err)
 
 
 def section(pair, role):
