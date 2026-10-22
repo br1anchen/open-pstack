@@ -55,10 +55,10 @@ PASS_THROUGH_JQ = (
 
 def watch_jq(test, env):
     """Puts a jq first on env's PATH that logs which process started it (the first one above it that is neither timeout, perl nor env: python,
-    bash or another) and then runs the real jq, so bash code behaves as before. When the test ends, any call that is not bash's fails it. The PATH is
-    left alone when it holds no jq."""
+    bash or another) and then runs the real jq, so bash code behaves as before. When the test ends, any call that is not bash's fails it. A PATH
+    with no jq fails the test: the tripwire could not pass calls through."""
     if not shutil.which('jq', path=env['PATH']):
-        return
+        test.fail('jq not on PATH: the tripwire cannot pass calls through')
     directory = Path(test.tmp.name) / 'jq-tripwire'
     directory.mkdir()
     (directory / 'jq').write_text(PASS_THROUGH_JQ)
@@ -93,6 +93,11 @@ class CoreTests(unittest.TestCase):
         self.path = Path(self.tmp.name)
         self.env = {**inherited_env(), 'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}'}
         watch_jq(self, self.env)
+
+    def test_the_jq_tripwire_fails_a_test_whose_path_has_no_jq(self):
+        with self.assertRaises(AssertionError) as caught:
+            watch_jq(self, {'PATH': str(self.path)})
+        self.assertEqual(str(caught.exception), 'jq not on PATH: the tripwire cannot pass calls through')
 
     def pair_py(self, *args):
         return subprocess.run([sys.executable, '-I', str(scripts / 'pair.py'), *core_args(), *args],

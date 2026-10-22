@@ -23,6 +23,8 @@ import unittest
 tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
 
 root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(root / 'tests'))
+from test_pstack_core import watch_jq  # noqa: E402
 here = root / 'tests/pstack-pair'
 skills = root / 'skills'
 
@@ -38,7 +40,10 @@ def inherited_env():
 
 class PairScriptTests(unittest.TestCase):
     def check(self, variant):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         env = inherited_env()
+        watch_jq(self, env)
         out = subprocess.run([here / 'scenario.sh', skills, variant], env=env, capture_output=True, text=True, check=True).stdout
         golden = here / 'golden' / f'{variant}.txt'
         if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
@@ -69,6 +74,7 @@ class DevinSessionTests(unittest.TestCase):
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
+        watch_jq(self, self.env)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
         self.store = self.path / 'state/pstack/pair/demo'
         self.run_command('init', 'demo')
@@ -336,6 +342,7 @@ class ReadinessTests(unittest.TestCase):
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0', 'PAIR_BUSY_POLL': '0.2',
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
+        watch_jq(self, self.env)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
         self.store = self.path / 'state/pstack/pair/demo'
         self.git('init', '-q')
@@ -764,6 +771,7 @@ class PiSidekickTests(unittest.TestCase):
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0',
                     'PAIR_PREFLIGHT_RETRY_S': '0'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
+        watch_jq(self, self.env)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
         self.store = self.path / 'state/pstack/pair/demo'
         self.run_command('init', 'demo')
