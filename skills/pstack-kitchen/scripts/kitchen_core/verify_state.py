@@ -6,7 +6,12 @@ verdict_problem and handoff_due).
 This module alone writes `.verifying` and `.verifying.closing`. A parsed snapshot of `.verifying` is never authority: each write goes through
 `update_verifying`, which re-reads pair.json under the lock and acts only while `.verifying.verdict` is still the verdict the caller holds (the
 compare-and-set), and the claim of a close is the token `<host>:<pid>:<n>` (host from `$HOSTNAME`, as the bash reads it; pid the shell's, which
-pycore passes as PAIR_SHELL_PID; n a random number below 32768) written by the first closer only."""
+pycore passes as PAIR_SHELL_PID; n a random number below 32768) written by the first closer only.
+
+The pair.json fields the kitchen reads by name (path strings given to the store readers):
+.consultant.args .consultant.fallback .consultant.kind .master.permission_mode .sidekick.args .sidekick.start_args .verifier.name
+.verifying.argv .verifying.brief .verifying.deadline .verifying.delivered .verifying.entry .verifying.idle_since .verifying.packet
+.verifying.retried .verifying.risk .verifying.sample .verifying.scratch .verifying.session .verifying.started .verifying.unit .verifying.units"""
 
 import contextlib
 import io
@@ -19,11 +24,11 @@ import sys
 from pstack_core.errors import Die, Exit
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.herdr import agent_status, herdr
-from pstack_core.store import bash_int, count, damaged, event, header_field, json_type, member, peek, update
+from pstack_core.store import bash_int, count, damaged, event, header_field, json_type, member, peek, read, update
 from pstack_core.send import submit_typed
 from pstack_core.wait import bash_sleep
 
-from .jqx import exit_status, pair_text
+from .units import exit_status
 
 
 def hostname():
@@ -91,7 +96,7 @@ def claim_close(store, verdict):
     respected. False when the verification is gone or another call holds the claim."""
     here = hostname()
     token = f'{here}:{shell_pid()}:{random.randrange(32768)}'
-    current = pair_text(store, 'verifying.closing.token', empty=True)
+    current = read(store, 'verifying.closing.token', empty=True)
     if current:
         host = current.partition(':')[0]
         rest = current.partition(':')[2] if ':' in current else current
@@ -104,7 +109,7 @@ def claim_close(store, verdict):
             verifying['closing'] = {'token': token}
 
     update_verifying(store, verdict, apply)
-    return pair_text(store, 'verifying.closing.token', empty=True) == token
+    return read(store, 'verifying.closing.token', empty=True) == token
 
 
 def alt_token(closing):
@@ -133,7 +138,7 @@ def release_close(store, verdict, token):
 
 def my_claim(store):
     """Whether the claim in the store is this process's (the token names this host and pid)."""
-    return pair_text(store, 'verifying.closing.token', empty=True).startswith(f'{hostname()}:{shell_pid()}:')
+    return read(store, 'verifying.closing.token', empty=True).startswith(f'{hostname()}:{shell_pid()}:')
 
 
 def still_my_claim(store):
@@ -146,7 +151,7 @@ def still_my_claim(store):
 
 def verification_still_open(store, verdict):
     """A wait ends, touching nothing, when another call closed the verification it started on."""
-    if pair_text(store, 'verifying.verdict', empty=True) == verdict:
+    if read(store, 'verifying.verdict', empty=True) == verdict:
         return
     sys.stdout.write('verification closed elsewhere\n')
     raise Exit(5)
@@ -162,7 +167,7 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     verdict or another call claimed it. Returns 70 then, else the status of the scratch removal (the last command, as in the bash)."""
     if not claim_close(store, verdict):
         return 70
-    scratch = pair_text(store, 'verifying.scratch')
+    scratch = read(store, 'verifying.scratch')
     if kind == 'prime-agent':
         if not stop_prime_role(store, 'verifier'):
             raise Die('Prime verifier cleanup failed; its pane and scratch stay for inspection', 5)
@@ -220,7 +225,7 @@ def run_close(ctx, store, name, kind, pane, verdict):
     if rc == 70:
         return False
     if my_claim(store):
-        release_close(store, verdict, pair_text(store, 'verifying.closing.token', empty=True))
+        release_close(store, verdict, read(store, 'verifying.closing.token', empty=True))
     raise Exit(rc)
 
 
@@ -243,10 +248,10 @@ def verify_prompt(ctx, packet):
 def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind=''):
     """Sends the open verification's packet once more. The name, packet, brief and kind are the verification the caller captured (a wait does);
     an empty one is read from the store."""
-    name = name or pair_text(store, 'verifier.name')
-    packet = packet or pair_text(store, 'verifying.packet')
-    brief = brief or pair_text(store, 'verifying.brief')
-    kind = kind or pair_text(store, 'verifier.kind')
+    name = name or read(store, 'verifier.name')
+    packet = packet or read(store, 'verifying.packet')
+    brief = brief or read(store, 'verifying.brief')
+    kind = kind or read(store, 'verifier.kind')
     event(store, 'master', 'verify-redeliver', brief, kind)
     sys.stdout.write(f'redelivered: {why}; sent it again\n')
     sys.stdout.flush()
@@ -447,7 +452,7 @@ def handoff_due(store, unit):
         master['units_since_handoff'] = count(master, 'units_since_handoff') + 1
 
     update(store, bump)
-    n = pair_text(store, 'master.units_since_handoff')
+    n = read(store, 'master.units_since_handoff')
     thr = bash_int(os.environ.get('KITCHEN_MASTER_ROTATE_UNITS') or '5')
     thr = 1 if thr is None or thr < 1 else thr
     if shell_arithmetic(n) % thr != 0:
@@ -458,17 +463,17 @@ def handoff_due(store, unit):
 
 def verify_cancel(ctx, store):
     """Cancels the open verification that has no verdict yet: its verifier and pane stop, its scratch goes, and `.verifying` is cleared."""
-    verdict = pair_text(store, 'verifying.verdict', empty=True, check=True)
+    verdict = read(store, 'verifying.verdict', empty=True)
     if not verdict:
         raise Die('no verification open', 5)
     if os.path.isfile(verdict) and header_field(verdict, 'status'):
         raise Die(f'the verdict is written ({verdict}); kitchen.sh verify {store} --wait reads it', 5)
-    units = pair_text(store, 'verifying.units', check=True)
-    brief = pair_text(store, 'verifying.brief', check=True)
-    packet = pair_text(store, 'verifying.packet', check=True)
-    name = pair_text(store, 'verifier.name', check=True)
-    kind = pair_text(store, 'verifier.kind', check=True)
-    if not run_close(ctx, store, name, kind, pair_text(store, 'verifier.pane_id', check=True), verdict):
+    units = read(store, 'verifying.units')
+    brief = read(store, 'verifying.brief')
+    packet = read(store, 'verifying.packet')
+    name = read(store, 'verifier.name')
+    kind = read(store, 'verifier.kind')
+    if not run_close(ctx, store, name, kind, read(store, 'verifier.pane_id'), verdict):
         raise Die('no verification open (another call closed it)', 5)
     still_my_claim(store)
     set_outcome(packet, 'cancelled')

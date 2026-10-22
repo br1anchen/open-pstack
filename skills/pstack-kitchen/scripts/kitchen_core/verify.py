@@ -31,16 +31,15 @@ from pstack_core.panes import TRUST_RE, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
-from pstack_core.store import field
-from pstack_core.store import alt, bash_int, event, expected_report, header_field, load, pair_file, peek, readlink_f, text_of, update
-from pstack_core.wait import as_text, json_values, truthy
+from pstack_core.store import alt, bash_int, event, expected_report, field, header_field, load, pair_file, peek, read, readlink_f, text_of, update
+from pstack_core.wait import as_text, json_values, reply_at, truthy
 from pstack_core.variant import commit_of
 
 from . import kpy
 from .kpy import Kitchen
 from . import verify_state as vs
 from .classify import array_of, brief_kitchen, kitchen_snapshot, parse_json
-from .jqx import exit_status, herdr_raw, pair_text
+from .units import exit_status
 from .landing import is_landing, latest_landing_verdict, manifest_warning
 from .reviews import warn_unreviewed
 from .units import StackIndex, Verdict, brief_or_nothing, git, git_root, heads_in, inclusion, is_ancestor, landing_base, unit_brief, unit_head, unit_range
@@ -239,7 +238,7 @@ def record_verifier_session(store, name):
     code, info = herdr('agent', 'get', name)
     if code != 0:
         return
-    agent = herdr_raw(info, 'result', 'agent', quiet=True)
+    agent = reply_at(info, 'result', 'agent')
     agent = agent if isinstance(agent, dict) else {}
     held = agent.get('agent_session')
     held = held if isinstance(held, dict) else {}
@@ -249,7 +248,7 @@ def record_verifier_session(store, name):
         cwd = as_text(alt(agent.get('cwd'), ''))
         if not cwd:
             try:
-                cwd = readlink_f(f'{store}/scratch/{pair_text(store, "verifying.scratch", empty=True)}')
+                cwd = readlink_f(f'{store}/scratch/{read(store, "verifying.scratch", empty=True)}')
             except Exit:
                 cwd = ''
         if ident and cwd:
@@ -378,7 +377,7 @@ def verify(ctx, args):
         vs.verify_cancel(ctx, store)
         raise Exit(0)
     if wait:
-        if not pair_text(store, 'verifying.verdict', empty=True):
+        if not read(store, 'verifying.verdict', empty=True):
             raise Die(f'no verification is open; start one with kitchen.sh verify {store} <NNN>', 5)
         Waiter(ctx, store, every_m, retry=lambda again: verify(ctx, again)).run()
     if not landing and not units:
@@ -386,8 +385,8 @@ def verify(ctx, args):
     if landing and units:
         raise Die('--landing verifies the whole stack; name no units')
     close_unread(ctx, store)
-    if pair_text(store, 'verifying.verdict', empty=True):
-        raise Die(f'a verification is open ({pair_text(store, "verifying.units")}); kitchen.sh verify {store} --wait', 5)
+    if read(store, 'verifying.verdict', empty=True):
+        raise Die(f'a verification is open ({read(store, "verifying.units")}); kitchen.sh verify {store} --wait', 5)
     allunits = [*covered, *units]
     root = git_root(store, check=True)
     if land_head and not landing:
@@ -528,10 +527,10 @@ def verify(ctx, args):
     anchor = field(store, 'sidekick', 'pane_id', empty=True)
     if not (anchor and herdr('pane', 'get', anchor)[0] == 0):
         anchor = field(store, 'master', 'pane_id')
-    if pair_text(store, 'placement', empty=True) == 'tab':
+    if read(store, 'placement', empty=True) == 'tab':
         field(store, 'master', 'pane_id')  # new_pane's `master="$(field ...)"`: a master that is no object ends verify before any herdr call
     with contextlib.redirect_stdout(io.StringIO()):
-        pane = new_pane(store, 'verifier', anchor, '', scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={pair_text(store, "slug")}'))
+        pane = new_pane(store, 'verifier', anchor, '', scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={read(store, "slug")}'))
     sys.stdout.flush()
     started = subprocess.run(['herdr', 'agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', '60000', '--', *args_list],
                              stdout=subprocess.DEVNULL, check=False).returncode == 0
@@ -658,13 +657,13 @@ def gates_verdict(store, verdict, last, slug, allunits, base, head):
 
 def close_unread(ctx, store):
     """A verdict written but never read closes the verification it belonged to; the new one starts after it."""
-    open_verdict = pair_text(store, 'verifying.verdict', empty=True, check=True)
+    open_verdict = read(store, 'verifying.verdict', empty=True)
     if not (open_verdict and os.path.isfile(open_verdict) and header_field(open_verdict, 'status')):
         return
-    closed_brief = pair_text(store, 'verifying.brief', check=True)
+    closed_brief = read(store, 'verifying.brief')
     waiting_since, by_another, closed, closed_rc, closed_status = None, False, '', 0, ''
     while True:
-        if pair_text(store, 'verifying.verdict', empty=True) != open_verdict:
+        if read(store, 'verifying.verdict', empty=True) != open_verdict:
             by_another = True
             break
         closed_rc, closed = in_subshell(lambda: Waiter(ctx, store, '0', closing=True, retry=lambda again: verify(ctx, again)).run())
@@ -778,7 +777,7 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
         parts.append('## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo\'s scripts give you\n'
                      'your own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n'
                      '```bash\nexport PSTACK_KITCHEN_ROLE=verifier')
-        parts.append(f' PSTACK_KITCHEN_RUN={pair_text(store, "slug")}\n')
+        parts.append(f' PSTACK_KITCHEN_RUN={read(store, "slug")}\n')
         config = cfg[1] if len(cfg) > 1 else ''
         tool = f'{here}/kitchen.py' + (f' --config {config}' if config else '')
         data = parse_json(classified, 'kitchen.py classify output')

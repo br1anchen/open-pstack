@@ -12,9 +12,8 @@ import sys
 from pstack_core.checkin import scope_entries
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
-from pstack_core.store import header_field, jq_raw, json_type, pair_file
+from pstack_core.store import field, header_field, jq_raw, json_type, pair_file
 
-from .jqx import pair_field
 from .kpy import Kitchen
 
 CLASSIFY_FAILED = 'kitchen.py classify failed; run kitchen.py validate in the repo'
@@ -130,7 +129,7 @@ def classify_brief(store, brief):
         lines.append('bookkeeping: the Scope is outside the repo; gates only, nothing to escalate')
     sys.stdout.write(''.join(f'{line}\n' for line in lines))
     first_reason = escalate[0] if escalate else 'null'
-    if risk == 'escalated' and agent_status(pair_field(store, 'consultant', 'name')) == 'absent':
+    if risk == 'escalated' and agent_status(field(store, 'consultant', 'name')) == 'absent':
         sys.stdout.write(f'next: kitchen.sh consultant {store} --reason "{first_reason}", then a plan round with it\n')
 
 

@@ -15,28 +15,45 @@ from pstack_core.collate import glob_sorted
 from pstack_core.commands.report import MISSING_PAIR
 from pstack_core.errors import Die, Exit
 from pstack_core.review import range_floor, steps_file, trunk_ref
-from pstack_core.store import expected_report, get, header_field, jq_raw, last_line
+from pstack_core.store import alt, expected_report, get, header_field, jq_raw, last_line, load, peek, read
 from pstack_core.variant import commit_of
+from pstack_core.wait import as_text
 
-from .jqx import exit_status, head_of, pair_text
 
 
 def _text(data):
     return data.decode('utf-8', 'surrogateescape')
 
 
+def exit_status(returncode):
+    """The status a shell reports for a child: 128 plus the signal number when a signal killed it (subprocess and waitpid give -N)."""
+    return 128 - returncode if returncode < 0 else returncode
+
+
+def has_pair(store, check=False, quiet=False):
+    """Whether the store has a pair.json. A command calls this once, before its first read; a store without one gets the two lines a missing
+    pair.json gets (quiet leaves them out) and, with check, the command ends with 2."""
+    if os.path.isfile(f'{store}/pair.json'):
+        return True
+    if not quiet:
+        sys.stdout.flush()
+        sys.stderr.write(MISSING_PAIR.format(store=store))
+        sys.stderr.flush()
+    if check:
+        raise Exit(2)
+    return False
+
+
 def git_root(store, quiet=False, check=False):
-    """`.git_root` of pair.json. A store with no pair.json gets pair_file's message and a missing file's, and an empty answer; a damaged one is
-    store.load's message."""
-    if not os.path.isfile(f'{store}/pair.json'):
-        if not quiet:
-            sys.stdout.flush()
-            sys.stderr.write(MISSING_PAIR.format(store=store))
-            sys.stderr.flush()
-        if check:
-            raise Exit(2)
+    """`.git_root` of pair.json; empty for a store with no pair.json, after has_pair's message."""
+    if not has_pair(store, check, quiet):
         return ''
     return jq_raw(get(store, 'git_root'))
+
+
+def recorded_head(store, unit):
+    """A unit's recorded base: heads[unit], empty when there is none."""
+    return as_text(alt(peek(load(store), 'heads').get(unit), ''))
 
 
 def git(root, *args, quiet=False, stdin=None):
@@ -70,7 +87,7 @@ def first_field(diff):
 def dispatch_head(store, brief):
     """The base recorded for the brief's unit; a heads that is not an object is damage."""
     name = os.path.basename(brief)
-    return head_of(store, name[:-3] if name.endswith('.md') else name)
+    return recorded_head(store, name[:-3] if name.endswith('.md') else name)
 
 
 def unit_head(store, brief):
@@ -286,8 +303,8 @@ def landing_base(store, root, head, parent_override='', parent_label='', range_b
     one); range_base is `--base`, which leaves the recorded parent unread."""
     parent, label = parent_override, parent_label
     if not parent and label != 'none':
-        parent = pair_text(store, 'landing.parent', empty=True, quiet=True)
-        label = pair_text(store, 'landing.parent_ref', empty=True, quiet=True)
+        parent = read(store, 'landing.parent', empty=True)
+        label = read(store, 'landing.parent_ref', empty=True)
     if parent and not range_base:
         found = commit_of(root, parent) or ''
         if found and found != head and is_ancestor(root, found, head):

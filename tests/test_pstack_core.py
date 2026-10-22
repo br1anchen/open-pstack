@@ -5247,6 +5247,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'outside herdr': dispatch(path, '--timeout', '0', env={**env, 'HERDR_ENV': '0'}),
         }
 
+    def test_a_kitchen_command_over_a_store_with_no_pair_json_says_so_once(self):
+        got = self.dispatch_cases()['a brief and no pair.json']
+        out = self.kitchen_world('nopair', got)
+        message = 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'
+        self.assertEqual((out['rc'], out['stdout'], out['stderr']), (2, '', message))
+
     def test_dispatch_behaviour(self):
         cases = self.dispatch_cases()
         quiet = (4, 'quiet: Nm with nothing flagged; the sidekick works on')
@@ -5737,7 +5743,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def test_a_child_killed_by_a_signal_has_the_status_a_shell_gives_it(self):
         """A `$( )` whose command is killed by signal N gives 128+N; waitpid and subprocess say -N, which `sys.exit` would turn into 256-N."""
-        verify, jqx = self.kitchen_core_module('verify'), self.kitchen_core_module('jqx')
+        verify, jqx = self.kitchen_core_module('verify'), self.kitchen_core_module('units')
         for name, number, want in (('TERM', signal.SIGTERM, 143), ('KILL', signal.SIGKILL, 137), ('HUP', signal.SIGHUP, 129)):
             bash = subprocess.run(['bash', '-c', f'out="$(sh -c "kill -{name} \\$\\$")"; echo $?'], capture_output=True, text=True, check=True).stdout.strip()
             self.assertEqual(bash, str(want))

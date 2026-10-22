@@ -14,13 +14,11 @@ from pstack_core.checkin import iso_epoch
 from pstack_core.collate import collate_key, glob_sorted
 from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.herdr import herdr
-from pstack_core.wait import as_text
-from pstack_core.store import field
+from pstack_core.wait import as_text, reply_at
 from pstack_core.replies import file_mtime
-from pstack_core.store import alt, damaged, event, header_field, jq_raw, json_type, load, pair_file
+from pstack_core.store import alt, damaged, field, event, header_field, jq_raw, json_type, load, pair_file
 
 from . import kpy
-from .jqx import herdr_raw, herdr_value
 from .ledger import counters, retro_line, slug_of
 
 USAGE_FILE = 'usage: kitchen.sh feedback <store> <file>'
@@ -266,11 +264,11 @@ def maintainer_problem(fb, record=NOT_READ):
     if code != 0:
         return f'agent {name} is gone'
     info = info.rstrip('\n')
-    if herdr_value(info, 'result', 'agent', 'pane_id') != pane:
+    if as_text(alt(reply_at(info, 'result', 'agent', 'pane_id'), '')) != pane:
         return f'agent {name} moved off pane {pane}'
-    if session and herdr_value(info, 'result', 'agent', 'agent_session', 'value') != session:
+    if session and as_text(alt(reply_at(info, 'result', 'agent', 'agent_session', 'value'), '')) != session:
         return f'agent {name} is a different session than the one registered'
-    return f'agent {name} is blocked on a dialog' if herdr_value(info, 'result', 'agent', 'agent_status') == 'blocked' else ''
+    return f'agent {name} is blocked on a dialog' if reply_at(info, 'result', 'agent', 'agent_status') == 'blocked' else ''
 
 
 def gap_found(path):
@@ -385,7 +383,7 @@ def maintainer(ctx, args):
             raise Die(f'herdr has no agent on pane {pane}')
         os.makedirs(fb, exist_ok=True)
         tmp = mktemp(fb, '.maintainer-')
-        agent = herdr_raw(info, 'result', 'agent')
+        agent = reply_at(info, 'result', 'agent')
         agent = agent if isinstance(agent, dict) else {}
         session = agent.get('agent_session')
         record = {'name': agent.get('name'), 'pane': agent.get('pane_id'), 'session': alt(session.get('value') if isinstance(session, dict) else None, None),

@@ -18,9 +18,9 @@ import sys
 
 from pstack_core import wait as core_wait
 from pstack_core.errors import Die, Exit, unbound_arg
-from pstack_core.store import bash_int, event
+from pstack_core.store import bash_int, event, field
 
-from .jqx import exit_status, field
+from .units import exit_status
 from .verify import in_subshell
 from .verify_state import shell_arithmetic
 

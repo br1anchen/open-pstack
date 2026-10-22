@@ -15,6 +15,7 @@ from pstack_core.errors import Die, Exit
 from .classify import classify_brief
 from .discuss import rotate_if_due
 from .landing import is_landing, land_check
+from .units import has_pair
 from .verify import in_subshell
 from .wait import has_checkin, plain_signals, log_checkin_wake, quiet_flagged, quiet_wait
 
@@ -57,8 +58,11 @@ def dispatch(ctx, args):
         if land_check_quietly(ctx, store) != 0:
             raise Die(f'landing refused: kitchen.sh land-check {store} fails', 2)
     else:
+        has_pair(store, check=True)
         classify_brief(store, brief)
-    rotate_if_due(ctx, store, 'brief')
+    # a landing brief that land-check passed on a store with no pair.json goes on to the core dispatch, which refuses it
+    if has_pair(store, quiet=True):
+        rotate_if_due(ctx, store, 'brief')
     wait_args = list(args[2:])
     # --max belongs to the quiet wait, not to the pair's dispatch.
     send_args, i = [], 0

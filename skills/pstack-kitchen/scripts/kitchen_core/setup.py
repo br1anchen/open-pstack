@@ -17,13 +17,12 @@ from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.gates import gnu_dirname
 from pstack_core.herdr import agent_status
-from pstack_core.store import alt, cut_chars, damaged, event, jq_raw, json_type, listing, load, member, now, pair_file, update
+from pstack_core.store import alt, field, cut_chars, damaged, event, jq_raw, json_type, listing, load, member, now, pair_file, update
 from pstack_core.wait import as_text, die_with_the_shell
 
 from . import kpy
 from .classify import parse_json
-from .jqx import no_pair, pair_field
-from .units import git, git_root
+from .units import git, git_root, has_pair
 from .verify import in_subshell
 
 
@@ -46,7 +45,7 @@ def record_skill_build(ctx, store):
     """A run stamped at init lists the skills directories its commands ran from; a command from a different one adds a row. A run from before
     stamps stays unstamped."""
     skills_dir = os.path.dirname(ctx.skill_root)
-    if no_pair(store, quiet=True):
+    if not has_pair(store, quiet=True):
         return
     builds = alt(load(store).get('skill_builds'), None)
     if builds is None:
@@ -251,7 +250,7 @@ def consultant(ctx, args):
         raise Die('no --kind and no [consultant] kind in the host roster')
     # A consultant whose kind has a preflight (Muse, pi, Prime) is checked before its pane starts, as the sidekick is: a logged-out account or a
     # spent plan starts the roster's [consultant.fallback] instead.
-    if agents.has_preflight(kind) and agent_status(pair_field(store, 'consultant', 'name')) == 'absent':
+    if agents.has_preflight(kind) and agent_status(field(store, 'consultant', 'name')) == 'absent':
         code, why = pair_spawn.preflight_reason(kind, native)
         if code != 0:
             if not fallback or fallback == kind:

@@ -23,12 +23,11 @@ from pstack_core.commands import step as core_step
 from pstack_core.errors import Die, Exit
 from pstack_core.replies import file_mtime
 from pstack_core.review import awk_equal, range_floor, steps_file
-from pstack_core.store import bash_int, event, expected_report, header_field, last_line, pair_file, read_text, readlink_f, unit_name
+from pstack_core.store import bash_int, event, expected_report, field, header_field, last_line, pair_file, read, read_text, readlink_f, unit_name
 
 from . import kpy
 from .classify import array_of, brief_kitchen, parse_json
-from .jqx import exit_status, head_of, pair_field, pair_text
-from .units import git
+from .units import exit_status, git, recorded_head
 from .verify_state import shell_arithmetic
 from .wait import plain_signals, poll_sleep
 
@@ -65,7 +64,7 @@ def ignore_interrupts():
 
 def detached(script, argv, log, store):
     """`PSTACK_KITCHEN_RUN="$(field "$store" .slug)" detached bash -c SCRIPT ARGV... >LOG 2>&1 </dev/null &` and `disown`."""
-    env = {**os.environ, 'PSTACK_KITCHEN_RUN': pair_text(store, 'slug')}
+    env = {**os.environ, 'PSTACK_KITCHEN_RUN': read(store, 'slug')}
     sys.stdout.flush()
     sys.stderr.flush()
     with open(log, 'wb') as out:
@@ -124,11 +123,11 @@ def step(ctx, args):
         raise Die('usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha = args[0], args[1]
     pair_file(store)
-    brief = pair_field(store, 'dispatch', 'brief', check=True, empty=True)
+    brief = field(store, 'dispatch', 'brief', empty=True)
     if not brief:
         raise Die('no brief dispatched; a step belongs to a running brief')
     unit = unit_name(brief)
-    root = pair_text(store, 'git_root', check=True)
+    root = read(store, 'git_root')
     status, full = git(root, 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}')
     full = full.rstrip('\n')
     if status != 0:
@@ -147,7 +146,7 @@ def step(ctx, args):
         tail = last_line(file)
         base = tail.split('\t')[1] if '\t' in tail else tail
     else:
-        base = head_of(store, unit)
+        base = recorded_head(store, unit)
     if not base:
         raise Die(f'no base for {unit}; was it dispatched?')
     # A commit made before this brief was dispatched (a resumed unit) is the brief's own base, which leaves an empty range; check its own diff.
@@ -245,7 +244,7 @@ def finish(ctx, args):
     store = args[0]
     report = readlink_f(args[1])
     pair_file(store)
-    brief = pair_field(store, 'dispatch', 'brief', check=True, empty=True)
+    brief = field(store, 'dispatch', 'brief', empty=True)
     # Everything but the dispatched unit's done report, and a report the pair's checks refuse anyway (no head:, open notes), goes straight on.
     if (not os.path.isfile(report) or header_field(report, 'status') != 'done' or not brief or report != expected_report(store, brief)
             or core_report.pair_report_ready(ctx, [store, report]) != 0):
@@ -253,7 +252,7 @@ def finish(ctx, args):
     wanted = header_field(report, 'head')
     if wanted == '' or wanted.startswith('<'):
         return core_report.finish(ctx, args)
-    root = pair_text(store, 'git_root', check=True)
+    root = read(store, 'git_root')
     found = git(root, 'rev-parse', '--verify', '--quiet', f'{header_field(report, "head")}^{{commit}}')
     if found[0] != 0:
         raise Die(f'{os.path.basename(report)}: head: {header_field(report, "head")} is not a commit; name the unit\'s last commit and finish again')
@@ -281,7 +280,7 @@ def finish(ctx, args):
     if not os.path.isdir(job):
         os.makedirs(job, exist_ok=True)
         cfg = brief_kitchen(brief)
-        base = head_of(store, unit)
+        base = recorded_head(store, unit)
         detached(FINISH_SCRIPT, ['kitchen-finish', root, str(kpy.KITCHEN_PY), brief, job, cfg[1] if cfg else '', base], f'{job}/out', store)
     deadline = slice_deadline()
     while not os.path.isfile(f'{job}/rc'):
