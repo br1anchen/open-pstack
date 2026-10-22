@@ -6460,6 +6460,23 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'advice with none on file': (4, 'no advice found'),
         }, 'pstack-trio')
 
+    def test_a_trio_plan_round_a_consult_and_advice_run_with_no_jq(self):
+        """The consultant's commands are Python: with a jq on PATH that fails, pair.sh discuss, consult and advice still end as they do with one."""
+        no_jq = dict(topfiles={'nojq/jq': ('#!/bin/sh\necho "jq was started" >&2\nexit 127\n', 0o755)}, envfill={'PATH': '{T}/nojq:' + self.env['PATH']})
+        consultant = {'consultant': {'name': 'c1', 'kind': 'codex', 'pane_id': 'p2'}}
+        consult = '# C\n\nkind: finding\nsidekick state at send: x\n\n## Question\nq\n'
+        advised = dict(files={'consults/001-x-c1.md': consult, 'advice/001-x-c1.md': '# A\n\nstatus: answered\n'}, pair=consultant,
+                       agents={'s1': 'idle claude', 'c1': 'idle codex'}, env={'PAIR_FILE_POLL_MS': '1'}, **no_jq)
+        cases = {
+            'a plan round': (dict(self.discuss_cases()['an escalated plan both roles answer'], **no_jq), 0, 'consultant_status: agree'),
+            'a consult': (dict(advised, args=['consult', '{st}', '{st}/consults/001-x-c1.md', '--timeout', '3000']), 0, 'advice_status: answered'),
+            'advice': (dict(advised, args=['advice', '{st}']), 0, '<T>/st/advice/001-x-c1.md'),
+        }
+        for label, (spec, rc, line) in cases.items():
+            got = self.script_run(f'nojq-{label.replace(" ", "-")}', root / 'skills', 'pstack-trio', spec)
+            self.assertEqual((got['rc'], got['stderr']), (rc, ''), label)
+            self.assertIn(line, got['stdout'], label)
+
     def test_a_plan_needs_the_approval_and_advice_its_variant_asks_for(self):
         def world(plan, review, **kw):
             brief = '# B\n\nplaybook: feature\nplan: {st}/plans/001-x.md\n'
