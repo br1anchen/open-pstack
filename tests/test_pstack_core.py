@@ -2023,7 +2023,7 @@ class CoreTests(unittest.TestCase):
             'a close whose rm fails keeps the lock': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
             'a second close whose rm fails': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
             'closing a report': (0, 'closed: 20261003-repo-a (commit abc123)'),
-            'closing with no done directory': (1, "/state/pstack/feedback/done/20261003-repo-a.md': No such file or directory"),
+            'closing with no done directory': (1, "/state/pstack/feedback/done/20261003-repo-a.md: No such file or directory"),
             'closing with the .md suffix and none': (0, 'closed: 20261003-repo-a (commit none)'),
             'closing twice': (0, 'note: n'),
             'an unknown id': (1, 'pair.sh: no feedback report 20261003-repo-a in'),
@@ -2055,6 +2055,48 @@ class CoreTests(unittest.TestCase):
                                                                  statelocks={'pstack/feedback/.lock': 1})},
                                  {'a held lock': (1, 'the feedback inbox is locked')})
         self.assertRegex(out['a held lock']['stderr'], r'the feedback inbox is locked \(<T>/state/pstack/feedback/\.lock\)')
+
+    def test_feedback_moves_a_file_into_place_or_names_the_move_it_could_not_make(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import feedback
+        made = feedback.scratch_file(str(self.path), '.filing-')
+        self.assertRegex(os.path.basename(made), r'^\.filing-.{8}$')
+        self.assertEqual((os.path.getsize(made), os.stat(made).st_mode & 0o777), (0, 0o600))
+        target = self.path / 'moved.md'
+        feedback.move_into_place(made, str(target))
+        self.assertEqual((os.path.exists(made), target.exists()), (False, True))
+        with self.assertRaises(Exit) as caught:
+            feedback.move_into_place(made, str(target))
+        self.assertEqual((caught.exception.code, caught.exception.stderr),
+                         (1, f'pair.sh: cannot move {made} to {target}: No such file or directory\n'))
+        self.assertEqual(feedback.aligned([['a', 'bb', 'c'], ['ddd', 'e']]), ['a    bb  c', 'ddd  e'])
+
+    def test_a_verifier_identity_quotes_an_argument_a_shell_would_split(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import verify
+        self.assertEqual(verify.verifier_identity('pi', ['--model', 'devin/swe-2', '--note', 'two words', '']),
+                         "pi --model devin/swe-2 --note 'two words' ''")
+
+    def test_the_kitchen_verify_block_names_a_brief_it_cannot_read_in_its_own_words(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            block = kitchen_variant.verify_block(str(self.path / 'no-brief.md'))
+        self.assertEqual((block, err.getvalue()), ('', f'pair.sh: cannot read {self.path}/no-brief.md: No such file or directory\n'))
 
     def test_the_feedback_lock_is_a_directory_waited_on_taken_over_when_stale_and_given_up_after_a_hundred_tries(self):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
@@ -3258,6 +3300,24 @@ class CoreTests(unittest.TestCase):
         r = self.pair_py('metrics', str(st))
         self.assertEqual((r.returncode, r.stderr), (0, ''))
         return r.stdout
+
+    def test_metrics_names_a_log_that_is_a_directory_and_one_it_cannot_read_in_its_own_words(self):
+        self.env['PAIR_METRICS_NOW'] = '200'
+        as_dir = self.path / 'log-dir'
+        (as_dir / 'events.tsv').mkdir(parents=True)
+        r = self.pair_py('metrics', str(as_dir))
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stderr, f'pair.sh: warning: {as_dir}/events.tsv is a directory: skipped\n')
+        locked = self.path / 'log-locked'
+        locked.mkdir()
+        (locked / 'events.tsv').write_text(self.FIRST_EVENTS)
+        (locked / 'events.tsv').chmod(0)
+        self.addCleanup((locked / 'events.tsv').chmod, 0o600)
+        if os.access(locked / 'events.tsv', os.R_OK):
+            self.skipTest('a reader that ignores file modes (root)')
+        r = self.pair_py('metrics', str(locked))
+        self.assertEqual((r.returncode, r.stdout), (2, ''))
+        self.assertEqual(r.stderr, f'pair.sh: cannot read {locked}/events.tsv: Permission denied\n')
 
     def test_metrics_counts_the_first_event_of_a_headerless_store(self):
         out = self.metrics_of(self.FIRST_EVENTS)

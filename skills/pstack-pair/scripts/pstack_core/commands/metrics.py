@@ -227,15 +227,15 @@ def run(ctx, args):
     if not (os.path.exists(log) and os.stat(log).st_size > 0):
         raise Die(f'no events.tsv in {store}; it is written from the first command on')
     metrics = Metrics(os.environ.get('PAIR_METRICS_NOW') or str(int(time.time())))
-    # awk skips a directory with a warning and reads nothing, and stops with exit 2 on a file it cannot open.
+    # A directory in place of the log is skipped with a warning and counts nothing; a log that cannot be read ends with exit 2.
     if os.path.isdir(log):
-        sys.stderr.write(f"awk: warning: command line argument `{log}' is a directory: skipped\n")
+        sys.stderr.write(f'{prog()}: warning: {log} is a directory: skipped\n')
         records = []
     else:
         try:
             records = read_text(log).split('\n')
         except OSError as e:
-            sys.stderr.write(f"awk: fatal: cannot open file `{log}' for reading: {os.strerror(e.errno)}\n")
+            sys.stderr.write(f'{prog()}: cannot read {log}: {os.strerror(e.errno)}\n')
             return 2
     if records and records[-1] == '':
         records.pop()

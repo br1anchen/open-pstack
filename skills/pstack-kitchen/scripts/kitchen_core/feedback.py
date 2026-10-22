@@ -3,14 +3,13 @@
 import glob
 import json
 import os
-import random
 import re
-import string
+import tempfile
 import sys
 import time
 
 from pstack_core.checkin import iso_epoch
-from pstack_core.store import Die, Exit, read_text, write_text, damaged, field, event, header_field, json_type, listing, load, pair_file, text_at
+from pstack_core.store import Die, Exit, prog, read_text, write_text, damaged, field, event, header_field, json_type, listing, load, pair_file, text_at
 from pstack_core.panes import herdr, reply_at
 from pstack_core.replies import file_mtime
 
@@ -85,24 +84,19 @@ def fb_unlock(fb):
         pass
 
 
-def mktemp(directory, prefix):
-    """mktemp "<directory>/<prefix>XXXXXX": an empty file of mode 0600 with six random characters, returned by path."""
-    alphabet = string.ascii_letters + string.digits
-    while True:
-        path = f'{directory}/{prefix}' + ''.join(random.choice(alphabet) for _ in range(6))
-        try:
-            os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
-            return path
-        except FileExistsError:
-            continue
+def scratch_file(directory, prefix):
+    """An empty file of mode 0600 in directory, named prefix and six random characters, returned by path."""
+    fd, path = tempfile.mkstemp(prefix=prefix, dir=directory)
+    os.close(fd)
+    return path
 
 
-def mv(src, dst):
+def move_into_place(src, dst):
     """Move src to dst: a failure prints its message and ends the command with status 1 (any lock held stays held)."""
     try:
         os.replace(src, dst)
     except OSError as e:
-        raise Exit(1, f"mv: cannot move '{src}' to '{dst}': {os.strerror(e.errno)}\n") from None
+        raise Exit(1, f'{prog()}: cannot move {src} to {dst}: {os.strerror(e.errno)}\n') from None
 
 
 NOT_READ = object()
@@ -160,8 +154,8 @@ def age_text(minutes):
     return f'{minutes}m'
 
 
-def column_t(rows):
-    """column -t -s TAB: every cell but the last of a row padded to its column's widest cell plus two spaces."""
+def aligned(rows):
+    """Each row's cells joined in columns: every cell but the last padded to its column's widest cell plus two spaces."""
     widths = {}
     for row in rows:
         for n, cell in enumerate(row):
@@ -197,7 +191,7 @@ def inbox():
         sys.stdout.write('feedback inbox: empty\n')
         return 0
     rows.sort(key=lambda r: (r[0], f'{r[0]}\t' + '\t'.join(r[1])))
-    for line in column_t([r[1] for r in rows]):
+    for line in aligned([r[1] for r in rows]):
         sys.stdout.write(line + '\n')
     return 0
 
@@ -213,13 +207,13 @@ def close(args):
         raise Die(f'no feedback report {id_} in {fb}')
     fb_lock(fb)
     if os.path.isfile(inbox_file) and not os.path.isfile(done_file):
-        tmp = mktemp(fb, '.closing-')
+        tmp = scratch_file(fb, '.closing-')
         body = read_text(inbox_file)
         body = re.sub(r'(?m)^status: open$', 'status: closed', body)
         stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         body += f'\n## Closed\n\nclosed: {stamp}\ncommit: {commit}\nnote: {note.replace(chr(10), " ")}\n'
         write_text(tmp, body)
-        mv(tmp, done_file)
+        move_into_place(tmp, done_file)
         rm_f(inbox_file)
         fb_unlock(fb)
         sys.stdout.write(f'closed: {id_} (commit {commit})\n')
@@ -291,7 +285,7 @@ def file_report(ctx, args):
         repo = os.path.basename(git_root.rstrip('/')) if git_root.rstrip('/') else '/'
     retro = retro_line(store, counts)
     stem = f'{time.strftime("%Y%m%d", time.gmtime())}-{repo}-{run}'
-    tmp = mktemp(fb, '.filing-')
+    tmp = scratch_file(fb, '.filing-')
     fb_lock(fb)
     k, name = 1, stem
     while os.path.exists(f'{fb}/inbox/{name}.md') or os.path.exists(f'{fb}/done/{name}.md'):
@@ -312,7 +306,7 @@ def file_report(ctx, args):
     put(f'retro: {retro}\nfiled: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\nstatus: open\n\n')
     out.write(read_text(src))
     out.close()
-    mv(tmp, f'{fb}/inbox/{name}.md')
+    move_into_place(tmp, f'{fb}/inbox/{name}.md')
     fb_unlock(fb)
     path = f'{fb}/inbox/{name}.md'
     event(store, 'master', 'feedback', '-', name)
@@ -364,7 +358,7 @@ def maintainer(ctx, args):
         if code != 0:
             raise Die(f'herdr has no agent on pane {pane}')
         os.makedirs(fb, exist_ok=True)
-        tmp = mktemp(fb, '.maintainer-')
+        tmp = scratch_file(fb, '.maintainer-')
         agent = reply_at(info, 'result', 'agent')
         agent = agent if isinstance(agent, dict) else {}
         session = agent.get('agent_session')
@@ -374,7 +368,7 @@ def maintainer(ctx, args):
         if not record['name']:
             rm_f(tmp)
             raise Die(f'herdr reports no name for the agent on pane {pane}; name it first')
-        mv(tmp, file)
+        move_into_place(tmp, file)
         sys.stdout.write(f'maintainer: {record["name"]} on {record["pane"] or ""}\n')
         return 0
     if sub == 'off':

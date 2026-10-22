@@ -5,7 +5,7 @@ import zlib
 from pathlib import Path
 
 from pstack_core import consult
-from pstack_core.store import dispatched_brief, expected_report, header_field, read, read_text, risk_of
+from pstack_core.store import dispatched_brief, expected_report, header_field, prog, read, read_text, risk_of
 from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 
@@ -37,7 +37,7 @@ def verify_block(brief):
     try:
         records = read_text(brief).split('\n')
     except OSError as e:
-        sys.stderr.write(f"awk: fatal: cannot open file `{brief}' for reading: {os.strerror(e.errno)}\n")
+        sys.stderr.write(f'{prog()}: cannot read {brief}: {os.strerror(e.errno)}\n')
         return ''
     if records[-1] == '':
         records.pop()

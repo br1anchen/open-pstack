@@ -114,11 +114,6 @@ def deliver_blocking_note(ctx, store, path):
     return f'; sent to {name}'
 
 
-def count_lines(path):
-    """grep -c . : lines with at least one character."""
-    return sum(1 for line in read_text(path).split('\n') if line)
-
-
 def new_note(ctx, args):
     if len(args) < 2:
         raise Die(f'usage: {prog()} new-note <store> <NNN> [--through K]')
@@ -142,7 +137,7 @@ def new_note(ctx, args):
     if not through:
         shown = count(peek(load(store), 'shown'), unit)
         through = str(shown) if shown > done else ''
-    steps = count_lines(file)
+    steps = sum(1 for line in read_text(file).split('\n') if line)
     k = through or str(steps)
     if not (re.fullmatch(r'[0-9]+', k) and int(k) <= steps):
         raise Die(f'unit {seq} has no step {k}')

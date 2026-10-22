@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -51,19 +52,6 @@ def out(text):
 def warn(text):
     sys.stdout.flush()
     sys.stderr.write(text)
-
-
-def bash_q(word):
-    """A word quoted for a shell: backslashes before the characters it treats as special, $'...' for a word with control characters."""
-    if word == '':
-        return "''"
-    if any(ord(c) < 32 or ord(c) == 127 for c in word):
-        names = {'\n': '\\n', '\t': '\\t', '\r': '\\r', '\x1b': '\\E', '\x07': '\\a', '\x08': '\\b', '\x0c': '\\f', '\x0b': '\\v', "'": "\\'", '\\': '\\\\'}
-        return "$'" + ''.join(names.get(c, f'\\{ord(c):03o}' if ord(c) < 32 or ord(c) == 127 else c) for c in word) + "'"
-    escaped = re.sub(r'([ !"$&\'()*,;<>?\[\\\]^`{|}])', r'\\\1', word)
-    if escaped[0] in '#~':
-        escaped = '\\' + escaped
-    return escaped
 
 
 def next_index(directory, prefix, letter):
@@ -182,7 +170,7 @@ def verifier_identity(kind, args):
                 or a in ('--approve', '--no-approve', '-na', '--strict-mcp-config', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions',
                          '--dangerously-bypass-approvals-and-sandbox')):
             continue
-        shown += ' ' + bash_q(a)
+        shown += ' ' + shlex.quote(a)
     return f'{kind}{shown}' if shown else f'{kind} (model unspecified)'
 
 

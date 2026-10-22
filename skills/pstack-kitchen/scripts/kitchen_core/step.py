@@ -65,10 +65,6 @@ def past(deadline):
     return int(time.time()) >= deadline
 
 
-def cat(path):
-    sys.stdout.write(read_text(path))
-
-
 def queue_line(log):
     """What the step says of a gate still waiting for a machine slot or the heavy slot: the log's last `kitchen: queued|waited` line."""
     try:
@@ -177,7 +173,7 @@ def step(ctx, args):
     with open(f'{store}/gates.tsv', 'a') as f:
         f.write(f'{int(time.time())}\t{unit}\t{full[:9]}\t{state}\t{",".join(profiles)}\n')
     if int_or_none(rc) != 0:
-        cat(f'{job}/out')
+        sys.stdout.write(read_text(f'{job}/out'))
         event(store, 'sidekick', 'gate-fail', brief, f'{full[:9]} {job}/{os.readlink(f"{job}/out")}')
         fails = 0
         for row in read_text(f'{store}/gates.tsv').split('\n'):
@@ -259,7 +255,7 @@ def finish(ctx, args):
         poll_sleep(env_float('KITCHEN_STEP_POLL_S', 2))
     open(f'{job}/consumed', 'w').close()
     rc = read_text(f'{job}/rc').rstrip('\n')
-    cat(f'{job}/out')
+    sys.stdout.write(read_text(f'{job}/out'))
     if int_or_none(rc) != 0:
         event(store, 'sidekick', 'finish-verify-fail', brief, head[:9])
         sys.stdout.write('next: the master did not get this report. Fix what failed in a new commit, record it with kitchen.sh step, name it in head:, and finish again; if the '
