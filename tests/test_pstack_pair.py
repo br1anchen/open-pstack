@@ -13,6 +13,7 @@ import json
 from datetime import datetime, timedelta
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -251,14 +252,12 @@ class RangeFloorTests(unittest.TestCase):
         return self.git('rev-parse', 'HEAD')
 
     def floor(self, base, tip, *flags):
-        # pair-core.sh no longer has these bodies (the Python range_floor replaced them): the oracle is the file as it was at b632713
-        core = subprocess.run(['git', '-C', str(root), 'show', 'b632713:skills/pstack-pair/scripts/pair-core.sh'], capture_output=True, text=True, check=True).stdout
-        fns = '\n'.join(re.search(rf'^{name}\(\) \{{.*?^\}}$', core, re.MULTILINE | re.DOTALL).group(0)
-                        for name in ('trunk_ref', 'range_floor'))
-        script = f'{fns}\nrange_floor "$1" "$2" "$3" "$4"\nprintf "%s|%s\\n" "$range_floor_rev" "$range_floor_note"'
-        out = subprocess.run(['bash', '-c', script, 'x', str(self.repo), base, tip, *flags], capture_output=True, text=True, check=True).stdout.strip()
-        rev, note = out.split('|', 1)
-        return rev, note
+        sys.path.insert(0, str(root / 'skills/pstack-pair/scripts'))
+        try:
+            from pstack_core import review
+        finally:
+            sys.path.pop(0)
+        return review.range_floor(str(self.repo), base, tip, allow_head='--allow-head' in flags)
 
     def test_with_no_trunk_ref_the_base_stays(self):
         c1 = self.commit('b.txt')
