@@ -10143,6 +10143,184 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'outside herdr': verify('001', '--every', '0', env={'HERDR_ENV': '0'}),
         }
 
+    # Behaviour of the pair commands as an agent meets them: the exit code a caller branches on and the line it reads. Each case is a world
+    # the tables above build; the port runs alone, against the fake herdr.
+    port_runs = 0
+
+    def check_port(self, cases, expected, skill='pstack-pair'):
+        for name, (rc, text) in expected.items():
+            with self.subTest(name):
+                spec = cases[name]
+                type(self).port_runs += 1
+                got = self.ab_run(f'port-{type(self).port_runs}', root / 'skills', skill, spec[0] if isinstance(spec, tuple) else spec)
+                self.assertEqual(got['rc'], rc, got['stderr'])
+                self.assertIn(text, got['stdout'] + got['stderr'])
+
+    def test_failover_refuses_and_reports_what_a_caller_reads(self):
+        self.check_port(self.failover_cases(), {
+            'no fallback recorded': (5, 'no fallback recorded; spawn the sidekick with --fallback KIND'),
+            'already on the fallback': (5, 'the sidekick already runs the fallback (devin)'),
+            'a working sidekick without --force': (5, 'sidekick s1 is working; pair.sh stop <T>/st first, or pass --force to interrupt it'),
+            'a prime-agent sidekick whose cleanup fails': (5, 'Prime session cleanup failed; no fallback was started'),
+            'a sidekick that does not exit in time': (5, 'claude sidekick has not exited; close it by hand, then rerun failover'),
+            'a spawn that dies': (2, 'agent start failed in p2; inspect: herdr pane read p2 --source visible'),
+            'a spawn that returns 4': (4, 'sidekick settled but reports/000-ready.md is missing; state=idle'),
+            'a spawn that returns 3': (3, 'sidekick bootstrap did not settle'),
+        })
+
+    def test_rotate_refuses_and_reports_what_a_caller_reads(self):
+        self.check_port(self.rotate_cases(), {
+            'a kind that is not fresh per brief': (5, 'rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not claude'),
+            'no rotation required': (5, 'rotation requires a completed task; partial or blocked work keeps its session'),
+            'no recorded start args': (5, 'no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags'),
+            'a paused run': (5, 'the store is paused (lunch): start nothing new; record where the work stands and end your turn, or run pair.sh resume <T>/st'),
+            'a working devin': (5, 'sidekick s1 is working; wait for its report and turn to end before rotating'),
+            'a prime-agent sidekick whose cleanup fails': (5, 'Prime session cleanup failed; no new session was started'),
+            'an untolerated error and an agent that leaves': (2, 'devin exit failed: {"error":{"code":"boom"}}'),
+            'a sidekick that does not exit in time': (5, 'devin has not exited; inspect s1 before retrying rotate'),
+        })
+
+    def test_steer_refuses_and_reports_what_a_caller_reads(self):
+        cases = self.steer_cases()
+        real = self.env['PATH']
+        cases['a working sidekick whose esc cannot be sent'] = {
+            **cases['a working sidekick with --interrupt that settles'],
+            'topfiles': {'nokeys/herdr': (f'#!/bin/sh\n[ "$1 $2" != "agent send-keys" ] || exit 1\nexec {root / "tests/pstack-pair/bin/herdr"} "$@"\n', 0o755)},
+            'envfill': {'PATH': '{T}/nokeys:' + real}}
+        self.check_port(cases, {
+            'a working sidekick and a prompt that fails': (2, 'herdr prompt failed for s1'),
+            'a working prime sidekick whose daemon fails': (2, 'Prime steer failed for s1'),
+            'a working sidekick whose esc cannot be sent': (2, 'herdr send-keys failed for s1'),
+            'an unknown sidekick': (5, 'sidekick s1 is unknown; read the pane, then pass --force to steer anyway'),
+            'an idle sidekick with no objection': (5, 'sidekick s1 is idle and no objection is open on unit 001; fold the steer into the next brief instead'),
+            'the sidekick is blocked': (3, 'sidekick s1 is blocked; inspect: herdr agent read s1 --source visible --lines 60'),
+        })
+
+    def test_init_names_the_pane_flag_when_herdr_pane_id_is_stale(self):
+        self.check_port(self.init_cases(), {'a stale HERDR_PANE_ID': (2, "pane gone1 is not a live Herdr pane; HERDR_PANE_ID is stale when a harness runs commands through a shared daemon (Codex's app-server). Pass your pane with --pane ID (herdr agent list shows each agent's pane)")})
+
+    def test_stop_of_a_blocked_sidekick_names_what_to_inspect(self):
+        self.check_port(self.stop_cases(), {'the sidekick is blocked': (3, 'sidekick s1 is blocked; inspect it before stopping')})
+
+    def test_queue_and_dispatch_refuse_with_the_exit_code_a_caller_branches_on(self):
+        queue = self.queue_ab_cases()
+        self.check_port(queue, {
+            'the sidekick is blocked': (3, 'sidekick s1 is blocked; resolve that before queueing'),
+            'the sidekick is idle': (5, 'sidekick s1 is idle; dispatch instead: pair.sh dispatch <T>/st <T>/st/briefs/003-z.md'),
+            'a paused store': (5, 'the store is paused (lunch): start nothing new; record where the work stands and end your turn, or run pair.sh resume <T>/st'),
+            'a feature brief with no plan': (6, 'playbook feature needs an agreed plan; brief has plan: <missing>'),
+            'a feature brief whose plan is missing': (6, 'plan not found: <T>/st/plans/009-none.md'),
+            'a feature brief whose plan has no review': (6, 'plan <T>/st/plans/001-x.md has no review; run pair.sh discuss and write reviews/001-<slug>.md with verdict: agreed'),
+            'a feature brief whose review is not agreed': (6, "plan <T>/st/plans/001-x.md review verdict is 'revise', not agreed"),
+        })
+        self.check_port(self.send_ab_cases(), {
+            'the sidekick is working': (5, 'sidekick s1 is working; run: pair.sh wait <T>/st'),
+            'a devin sidekick that needs a rotation': (5, 'the devin sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate <T>/st after a completed task. The queue is preserved.'),
+            'a dispatch while another brief is queued': (5, 'the queue holds <T>/st/briefs/002-y.md; dispatch that first, or: pair.sh queue <T>/st --clear'),
+        })
+
+    def test_report_next_and_finish_say_what_is_missing(self):
+        self.check_port(self.AB_CASES, {
+            'report with none': (4, 'no report found'),
+            'next while paused': (4, 'queue: paused'),
+            'next with nothing queued': (4, 'queue: empty'),
+            'done report with a stale head': (7, "rewrite the report at the unit's last commit (head:), then finish again"),
+            'done report with open notes': (7, 'blocking review notes are still open on 001-x:'),
+        })
+
+    def test_answer_names_the_state_that_blocks_it(self):
+        self.check_port(self.answer_cases(), {
+            'the sidekick is working': (5, 'sidekick s1 is working; run: pair.sh wait <T>/st'),
+            'a devin that needs a rotation': (5, 'the devin sidekick needs a fresh session or a successful bootstrap before another task'),
+            'the sidekick is blocked': (3, 'sidekick s1 is blocked; inspect: herdr agent read s1 --source visible --lines 60'),
+        }, 'pstack-pair-guided')
+
+    def test_spawn_reports_the_failure_a_caller_branches_on(self):
+        hook = self.spawn_command_cases()
+        side = {'sidekick': {'name': 's1', 'kind': 'claude', 'generation': 1, 'pane_id': 'p1', 'bootstrap_pending': True}}
+        hook['a live sidekick whose bootstrap is pending'] = {**hook['a plain spawn'], 'args': ['spawn', '{st}', '--kind', 'claude'], 'pair': side, 'agents': {'s1': 'idle claude'},
+                                                              'hook': None}
+        hook['a folder-trust dialog'] = {**hook['a plain spawn'], 'fake': {'trust-dialog': ''}}
+        hook['a split that returns no pane'] = {**hook['a plain spawn'], 'fake': {'split-null': ''}}
+        hook['a tab that returns no pane'] = {**hook['--tab'], 'fake': {'tab-null': ''}}
+        self.check_port(hook, {
+            'a pi preflight that fails with no fallback': (2, 'no fallback recorded for a failed pi; pass --fallback KIND or fix the agent'),
+            'a bootstrap that returns 4': (4, 'sidekick settled but reports/000-ready.md is missing; state=idle'),
+            'a bootstrap that returns 3': (3, 'sidekick bootstrap did not settle'),
+            'a live sidekick whose bootstrap is pending': (4, 'sidekick bootstrap still pending: reports/000-ready.md is missing'),
+            'a folder-trust dialog': (5, 'asks whether to trust <T>/repo, and that decision is yours: open claude there once and trust the folder (or pick another kind), then rerun the spawn'),
+            'a split that returns no pane': (2, 'pane split returned no pane id'),
+            'a tab that returns no pane': (2, 'tab create returned no pane id'),
+        })
+
+    def test_trio_spawn_and_discuss_report_the_state_they_stop_on(self):
+        trio = self.trio_spawn_cases()
+        self.check_port(trio, {
+            'all three kinds equal': (8, 'pstack-trio needs at least two distinct kinds (master claude, sidekick claude, consultant claude)'),
+            'an unreadable master kind': (2, "cannot read the master's agent kind from herdr; run pair.sh init first"),
+            'a consultant that dies with 5': (5, 'devin task sessions start fresh; recover partial work from the store instead of passing'),
+        }, 'pstack-trio')
+        discuss = self.discuss_cases()
+        self.check_port(discuss, {
+            'an escalated plan with no consultant': (2, 'consultant null is not live; run: pair.sh spawn <T>/st --only consultant --consultant <kind>'),
+            'a consultant that is blocked': (3, 'consultant c1 is blocked; inspect: herdr agent read c1 --source visible --lines 60'),
+            'a consultant that is working': (5, 'consultant c1 is working; wait for it before a plan round'),
+            'a prompt that fails': (2, 'herdr prompt failed for s1'),
+        }, 'pstack-trio')
+
+    def test_consult_and_advice_report_what_the_consultant_is_doing(self):
+        consultant = {'consultant': {'name': 'c1', 'kind': 'codex', 'pane_id': 'p2'}}
+        consult = '# C\n\nkind: finding\nsidekick state at send: x\n\n## Question\nq\n'
+        run = ['consult', '{st}', '{st}/consults/001-x-c1.md', '--timeout', '3000']
+        idle = {'s1': 'idle claude', 'c1': 'idle codex'}
+        base = dict(files={'consults/001-x-c1.md': consult}, pair=consultant, agents=idle, env={'PAIR_FILE_POLL_MS': '1'})
+        blocks = f'#!/bin/sh\nif [ "$1 $2" = "agent prompt" ]; then printf \'{{"result":{{"agent":{{"agent_status":"blocked"}}}}}}\\n\'; exit 0; fi\nexec {root / "tests/pstack-pair/bin/herdr"} "$@"\n'
+        cases = {
+            'no advice': dict(base, args=run),
+            'a blocked consultant that never advises': dict(base, args=run, topfiles={'blocks/herdr': (blocks, 0o755)}, envfill={'PATH': '{T}/blocks:' + self.env['PATH']}),
+            'an absent consultant': dict(base, args=run, agents={'s1': 'idle claude'}),
+            'a consultant that is blocked': dict(base, args=run, agents={**idle, 'c1': 'blocked codex'}),
+            'a consultant that is working': dict(base, args=run, agents={**idle, 'c1': 'working codex'}),
+            'a blocked consultant that advised': dict(base, args=run, topfiles={'blocks/herdr': (blocks, 0o755)}, envfill={'PATH': '{T}/blocks:' + self.env['PATH']},
+                                                      files={'consults/001-x-c1.md': consult, 'advice/001-x-c1.md': '# A\n\nstatus: answered\n'}),
+            'a second glance': dict(base, args=['new-consult', '{st}', '001', '--kind', 'glance'], files={'consults/001-x-c1.md': '# C\n\nkind: glance\n'}),
+            'a fourth consult': dict(base, args=['new-consult', '{st}', '001', '--kind', 'finding'], files={f'consults/001-x-c{k}.md': '# C\n\nkind: finding\n' for k in (1, 2, 3)}),
+            'advice with none on file': dict(base, args=['advice', '{st}']),
+        }
+        self.check_port(cases, {
+            'no advice': (4, 'advice: missing'),
+            'a blocked consultant that never advises': (3, 'advice: missing'),
+            'an absent consultant': (2, 'consultant c1 is not live; run: pair.sh spawn <T>/st --only consultant --consultant <kind>'),
+            'a blocked consultant that advised': (3, 'advice_status: answered'),
+            'a consultant that is blocked': (3, 'consultant c1 is blocked; inspect: herdr agent read c1 --source visible --lines 60'),
+            'a consultant that is working': (5, 'consultant c1 is working; wait for its current advice first'),
+            'a second glance': (7, 'unit 001 already had its glance; send a finding consult, or pass --force'),
+            'a fourth consult': (7, 'unit 001 already has three consults; take the question to a plan round, or pass --force'),
+            'advice with none on file': (4, 'no advice found'),
+        }, 'pstack-trio')
+
+    def test_a_plan_needs_the_approval_and_advice_its_variant_asks_for(self):
+        def world(plan, review, **kw):
+            brief = '# B\n\nplaybook: feature\nplan: {st}/plans/001-x.md\n'
+            return dict(args=['dispatch', '{st}', '{st}/briefs/003-z.md'], agents={'s1': 'idle claude', 'm1': 'idle claude'}, **kw,
+                        files={'plans/001-x.md': plan, 'reviews/001-x.md': review, 'briefs/003-z.md': brief})
+        guided = {
+            'a large plan posted but not approved': world('# Plan 001-x\n\nscale: large\n', '# R\n\nverdict: agreed\napproval: posted\n'),
+            'a medium plan with no approval': world('# Plan 001-x\n\nscale: medium\n', '# R\n\nverdict: agreed\napproval: none\n'),
+            'a plan with an unknown scale': world('# Plan 001-x\n\nscale: bogus\n', '# R\n\nverdict: agreed\n'),
+            'a third ask': dict(args=['new-answer', '{st}', '001'], files={'reports/001-x-q3.md': '# R\n\nstatus: asking\n'}),
+        }
+        self.check_port(guided, {
+            'a large plan posted but not approved': (6, "large plan needs approval: human in <T>/st/reviews/001-x.md (found 'posted'); post the direction summary and wait for the human"),
+            'a medium plan with no approval': (6, "medium plan needs approval: posted or human in <T>/st/reviews/001-x.md (found 'none')"),
+            'a plan with an unknown scale': (6, "plan <T>/st/plans/001-x.md has scale 'bogus'; set small, medium, or large"),
+            'a third ask': (7, 'ask 3 exceeds the two-ask cap for unit 001; re-plan the unit, or pass --force to answer anyway'),
+        }, 'pstack-pair-guided')
+        trio = {'a plan with no consultant advice': world('# Plan 001-x\n', '# R\n\nverdict: agreed\n', pair={'consultant': {'name': 'c1', 'kind': 'codex', 'pane_id': 'p2'}})}
+        self.check_port(trio, {
+            'a plan with no consultant advice': (6, 'plan <T>/st/plans/001-x.md has no consultant advice under advice/001-*; run pair.sh discuss so both agents respond'),
+        }, 'pstack-trio')
+
 
 class BashReachTests(unittest.TestCase):
     """tests/bash_reach.py on small synthetic scripts."""

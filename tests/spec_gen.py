@@ -28,7 +28,7 @@ for path in sorted(glob.glob('tests/test_pstack_*.py')):
                 asserts = []
                 strings = []
                 for n in ast.walk(fn):
-                    if isinstance(n, ast.Assert) or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr.startswith('assert')):
+                    if isinstance(n, ast.Assert) or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr.startswith(('assert', 'check_port'))):
                         asserts.append(ast.unparse(n))
                     if isinstance(n, ast.Constant) and isinstance(n.value, str):
                         strings.append(n.value)
@@ -141,7 +141,7 @@ def frag(msg):
     # the longest static run without a format field
     if msg.startswith('('):
         return ''
-    parts = re.split(r'\{[^}]*\}', msg)
+    parts = re.split(r'\{[^}]*\}|\$\{[^}]*\}|\$\([^)]*\)|\$\w+', msg)
     parts = [p for p in parts if len(p) >= 12] or parts
     return max(parts, key=len).strip() if parts else ''
 
@@ -219,10 +219,30 @@ for path in git_grep(r'.', *PROD, flags='-lE'):
         seen.add(key)
         exit_lines.append((c, path, no, msg, frag(msg)))
 exit_lines.sort(key=lambda x: (x[0], x[1], x[2]))
+# lines whose code carries no message: the text a test must show for them
+HINTS = {('skills/pstack-pair/scripts/pstack_core/commands/report.py', 89): ['queue: empty'],
+         ('skills/pstack-pair/scripts/pstack_core/wait.py', 647): ['superseded: a newer wait owns this store'],
+         ('skills/pstack-trio/scripts/consultant-core.sh', 285): ['advice_status: answered'],
+         ('skills/pstack-trio/scripts/consultant-core.sh', 290): ['advice: missing']}
+# behaviours no caller depends on (standing order 27): path:line -> why
+NOT_CONTRACT = {
+    ('skills/pstack-pair/scripts/pstack_core/commands/metrics.py', 240): 'the events log that init creates is unreadable; no caller sends it',
+    ('skills/pstack-pair/scripts/pstack_core/commands/scratch.py', 98): 'git worktree add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
+    ('skills/pstack-pair/scripts/pstack_core/commands/scratch.py', 101): 'jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
+    ('skills/pstack-pair/scripts/pstack_core/commands/notes.py', 113): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
+    ('skills/pstack-pair/scripts/pstack_core/spawn.py', 194): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
+    ('skills/pstack-pair/scripts/pstack_core/spawn.py', 196): 'the Prime daemon not reporting a session after its preflight passed; exit 5 like every spawn refusal',
+    ('skills/pstack-trio/scripts/consultant-core.sh', 53): 'unreachable: a consultant that is neither answered nor ready ends the plan round at line 48 first',
+}
 exit_out = []
 for c, path, no, msg, f in exit_lines:
     text = f'exit {c} ({codes[c]}): {msg[:90].replace("`", chr(39)) or "returned"}'
-    exit_out.append(line('Exit codes', re.sub(r"\{[^}]*\}", "…", text), f'{path}:{no}', [f]))
+    text = re.sub(r"\{[^}]*\}", "…", text)
+    if (path, no) in NOT_CONTRACT:
+        counts.setdefault('Exit codes', {'tested': 0, 'ab': 0, 'missing': 0})['excluded'] = counts['Exit codes'].get('excluded', 0) + 1
+        exit_out.append(f'- {text} — {path}:{no} — not a caller contract: {NOT_CONTRACT[(path, no)]}')
+        continue
+    exit_out.append(line('Exit codes', text, f'{path}:{no}', HINTS.get((path, no), [f])))
 manual_exit = [
     (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:411', 'wait returns 4 with the report path already shown (review-delta printed)', ['review-delta:']),
     (3, 'skills/pstack-pair/scripts/pstack_core/wait.py:421', 'wait returns 3 when the sidekick is blocked', ['blocked']),
@@ -331,12 +351,12 @@ git grep -noE '\\.(sidekick|master|consultant|verifier|dispatch|sent|verifying)\
 
 Exit codes callers branch on: {'; '.join(f'{k} {v}' for k, v in codes.items())}.
 '''
-summary = ['## Counts', '', '| section | tested | A/B only | missing | decided |', '| --- | --- | --- | --- | --- |']
-tt = [0, 0, 0, 0]
+summary = ['## Counts', '', '| section | tested | A/B only | missing | decided | not a contract |', '| --- | --- | --- | --- | --- | --- |']
+tt = [0, 0, 0, 0, 0]
 for sec, c in counts.items():
-    summary.append(f'| {sec} | {c["tested"]} | {c["ab"]} | {c["missing"]} | {c.get("decided", 0)} |')
-    tt[0] += c['tested']; tt[1] += c['ab']; tt[2] += c['missing']; tt[3] += c.get('decided', 0)
-summary.append(f'| total | {tt[0]} | {tt[1]} | {tt[2]} | {tt[3]} |')
+    summary.append(f'| {sec} | {c["tested"]} | {c["ab"]} | {c["missing"]} | {c.get("decided", 0)} | {c.get("excluded", 0)} |')
+    tt[0] += c['tested']; tt[1] += c['ab']; tt[2] += c['missing']; tt[3] += c.get('decided', 0); tt[4] += c.get('excluded', 0)
+summary.append(f'| total | {tt[0]} | {tt[1]} | {tt[2]} | {tt[3]} | {tt[4]} |')
 body = [hdr, '\n'.join(summary), '', '## Commands', '', *cmd_lines, '', '## Exit codes', '', *exit_out, '', '## Messages agents read', '', *msg_out, '',
         '## Store files and fields', '', *store_out, '', '## Decided in plan 043', '', *dec_out, '']
 open('tests/SPEC.md', 'w').write('\n'.join(body))
