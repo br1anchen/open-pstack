@@ -6,7 +6,7 @@ local multi-agent workflows built on them: `pstack-pair`, `pstack-trio` and
 manager: [Install and update](#install-and-update) links the skills from a
 checkout or from any pinned copy.
 
-This repo owns 60 pstack skills in `skills/`, their reference files, helper
+This repo owns 65 pstack skills in `skills/`, their reference files, helper
 scripts, and MIT license. Start with the
 [scenario tutorial](skills/poteto-help/references/scenarios.md), or ask
 [poteto-help](skills/poteto-help/SKILL.md) which route fits your task.
@@ -36,7 +36,7 @@ Pi and Grok had individual links for other skills, but none for pstack.
 
 [sources.json](sources.json) records each imported skill, upstream revisions,
 and hashes of the previously installed SKILL.md files. The base is Cursor pstack
-0.15.9 at `e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a`. The local `pstack-tdd`,
+0.15.29 at `699e1e7488c53c05ca13409f40da83cd37682091`. The local `pstack-tdd`,
 `pstack-teach`, `pstack-pair`, `pstack-pair-guided`, `pstack-trio`,
 `pstack-kitchen`, and `pstack-kitchen-setup` customizations are retained, including Devin bypass defaults, task-boundary
 session rotation, and durable handoffs. `pstack-pair` runs a master and sidekick agent
@@ -137,11 +137,12 @@ UI/CLI control, transcripts, persistent state, and automation to the active host
 The actual host tool schema is authoritative. Multi-model review and cloud
 execution are not guaranteed merely because skills are discovered.
 
-The 0.15.9 update adds `correct`, `benchmark-checklist`, and
-`principle-explain-the-number`, plus agent-resistant design checks, exact-SHA
-measurement briefs, fresh workers by default, hourly autopilot audits, and
-revised PR writing guidance. Cursor-only docs, artwork, and plugin registration
-are excluded from the portable installation.
+The 0.15.29 update adds `create-formal-verification-skill`,
+`maintain-formal-verification-skill`, `in-your-own-words`, `ketchup`, `sharpen`
+and `poteto-help` (which replaces our `ask-poteto`), and the shipping playbook now
+merges. The formal-verification skills write `formal-<property>` skills, never
+`verify-*`. Cursor-only docs, artwork, and plugin registration are excluded from
+the portable installation.
 
 `setup-pstack` writes per-runtime model and reasoning-budget preferences under
 `~/.config/pstack/models/`. With no preferences, roles inherit the parent model.
