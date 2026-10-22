@@ -37,9 +37,8 @@ from .kpy import Kitchen
 from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
 from .landing import is_landing, latest_landing_verdict, manifest_warning
-from .reviews import warn_unreviewed
+from .verify_wait import warn_unreviewed, Waiter
 from .units import captured, StackIndex, Verdict, brief_or_nothing, git, git_root, heads_in, inclusion, is_ancestor, landing_base, unit_brief, unit_range
-from .verify_wait import Waiter
 
 USAGE = ('usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | '
          'kitchen.sh verify <store> --landing [--base REV] [--parent REF|none] [--head REV] [...] | kitchen.sh verify <store> --wait '

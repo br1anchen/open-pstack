@@ -1,6 +1,8 @@
 """verify --wait: waits for the open verification's verdict and closes it. Ported from kitchen.sh at b632713 (verify_wait, verify_grace, verifier_trail,
 verifier_provider_error, verifier_shown, and the `closing=1` mode the next `verify` uses to close a verdict nobody read).
 
+warn_unreviewed, the accepted units that still lack the review engine's run, is here too.
+
 Every path ends in Exit (or Die). The `closing` mode is the one the next `verify` uses to close a verdict nobody read."""
 
 import json
@@ -18,7 +20,8 @@ from pstack_core.providers import agent_session_error, error_context, muse_sessi
 from pstack_core.send import submit_typed
 
 from . import verify_state as vs
-from .reviews import warn_unreviewed
+from .landing import accepted_units, engine_met, review_engine
+
 
 NOT_GIVEN = object()
 
@@ -364,3 +367,14 @@ class Waiter:
         """The arguments the verifier was started with, one per element of verifying.argv."""
         return names(peek(load(self.store), 'verifying'), 'argv')
 
+
+def warn_unreviewed(store):
+    """A `warning: unreviewed:` line for each accepted unit whose review note lacks the run the kitchen's [review].engine requires; nothing when no
+    engine is set."""
+    engine = review_engine(store)
+    if not engine:
+        return
+    for review, seq, brief in accepted_units(store):
+        met, gap = engine_met(store, brief, review, engine)
+        if not met:
+            sys.stdout.write(f'warning: unreviewed: unit {seq} cites no {engine} run; review its range with {engine} and add "engine: {engine} <run id or artifact path>" to {review}{gap}\n')

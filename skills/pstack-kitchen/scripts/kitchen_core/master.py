@@ -19,7 +19,7 @@ from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
 
-from .reviews import warn_unreviewed
+from .verify_wait import warn_unreviewed
 
 
 def close_role(store, role):
