@@ -11,13 +11,13 @@ import time
 
 from .checkin import checkin
 from .checkin import sidekick_activity as _sidekick_activity
-from .errors import Die, Exit
+from .errors import Die, Exit, core_line, fail
 from .herdr import agent_status, pane_busy
 from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
 from .review import jq_raw, review_base
-from .store import acquire_lock, alt, bash_int, cut_chars, event, header_field, load, paused_reason, unit_name, update
+from .store import acquire_lock, alt, bash_int, cut_chars, event, get, header_field, paused_reason, unit_name, update
 
 
 class WaitResult:
@@ -174,30 +174,6 @@ def tdiv(a, b):
     return q if (a < 0) == (b < 0) else -q
 
 
-def core_line(text, after='cmd_wait() {', path=None):
-    """(path, line number) of the first line holding text in the function of pair-core.sh (or of the script at `path`) that starts with
-    `after`, for the messages bash prefixes to its errors. When the function no longer holds the text (its body moved into Python and it is a
-    shim) the line is the function's own definition; it is never 0 unless the script has no such function."""
-    path = path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pair-core.sh')
-    definition = 0
-    try:
-        with open(path, encoding='utf-8') as f:
-            for number, line in enumerate(f, 1):
-                if not definition and line.startswith(after):
-                    definition = number
-                if definition and text in line:
-                    return path, number
-    except OSError:
-        pass
-    return path, definition
-
-
-def shell_error(text, message, after='cmd_wait() {', path=None):
-    """An error bash prints for the line holding text, in the function starting with `after` (of the script at path), then ends with status 1."""
-    path, number = core_line(text, after, path)
-    raise Exit(1, f'{path}: line {number}: {message}\n')
-
-
 def wait_opts(args, timeout='540000'):
     """wait_opts(): (timeout text, check-in interval in minutes, send_only, leftover args). The timeout is kept as the text
     bash keeps, since bash evaluates it as arithmetic wherever it is used; --every is evaluated where it is read."""
@@ -206,15 +182,15 @@ def wait_opts(args, timeout='540000'):
         arg = args[i]
         if arg == '--timeout':
             if i + 1 >= len(args):
-                shell_error('--timeout) timeout="$2"', '$2: unbound variable')
+                fail('--timeout) timeout="$2"', '$2: unbound variable')
             timeout, i = args[i + 1], i + 2
         elif arg == '--every':
             if i + 1 >= len(args):
-                shell_error('--every) timeout=$(($2 * 60000))', '$2: unbound variable')
+                fail('--every) timeout=$(($2 * 60000))', '$2: unbound variable')
             try:
                 timeout = str(bash_arith(f'{args[i + 1]} * 60000'))
             except ArithError as e:
-                shell_error('--every) timeout=$(($2 * 60000))', e.text)
+                fail('--every) timeout=$(($2 * 60000))', e.text)
             i += 2
         elif arg == '--send-only':
             send_only, i = True, i + 1
@@ -224,7 +200,7 @@ def wait_opts(args, timeout='540000'):
     try:
         interval = tdiv(bash_arith(timeout), 60000)
     except ArithError as e:
-        shell_error('checkin_interval_m=$((timeout / 60000))', e.text)
+        fail('checkin_interval_m=$((timeout / 60000))', e.text)
     return timeout, interval, send_only, rest
 
 
@@ -405,7 +381,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         event(store, 'master', 'wake', sent, 'idle')
         # Since notify marks a report it announced, this is the normal path to a report the master already has by message: show what the
         # report path would add. A plan response or advice carries neither.
-        record = alt(load(store).get('sent'), {})
+        record = alt(get(store, 'sent'), {})
         if isinstance(record, dict) and record.get('kind') == 'BRIEF':
             write(queue_note(store, shown))
             write(review_delta(store, shown))
@@ -433,7 +409,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
 def sidekick_activity(store, now):
     """checkin.sidekick_activity, whose first read, field .sidekick.pane_id, prints jq's error when `.sidekick` cannot be indexed."""
     from .store import field
-    if not isinstance(load(store).get('sidekick'), (dict, type(None))):
+    if not isinstance(get(store, 'sidekick'), (dict, type(None))):
         field(store, 'sidekick', 'pane_id', empty=True)
     return _sidekick_activity(store, now)
 
@@ -442,14 +418,14 @@ def hint_for(store):
     """provider_hint where the bash has errexit on: its first read, field .sidekick.name, ends the command with jq's status when `.sidekick`
     cannot be indexed (a string, an array, a number or a boolean)."""
     from .store import field
-    if not isinstance(load(store).get('sidekick'), (dict, type(None))):
+    if not isinstance(get(store, 'sidekick'), (dict, type(None))):
         field(store, 'sidekick', 'name', check=True)
     return provider_hint(store)
 
 
 def sent_file(store):
     """`.sent.file` as jq's `// default` leaves it: None when missing, null or false; an empty string stays an empty string."""
-    sent = alt(load(store).get('sent'), {})
+    sent = alt(get(store, 'sent'), {})
     value = alt(sent.get('file') if isinstance(sent, dict) else None, None)
     return None if value is None else jq_raw(value)
 

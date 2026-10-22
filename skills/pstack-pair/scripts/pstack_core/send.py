@@ -13,7 +13,7 @@ from .gates import check_scope
 from .herdr import agent_kind, agent_status
 from .replies import first3, pending, queued_brief
 from .review import jq_raw, require_filled
-from .store import alt, event, expected_report, load, update
+from .store import alt, event, expected_report, get, load, update
 from .commands.report import MISSING_PAIR
 from .wait import bash_sleep, jq_member, jq_run, owned_wait, truthy
 
@@ -52,7 +52,7 @@ def record_sent(store, file, kind, now=None):
 
 
 def require_fresh_session(store):
-    if not isinstance(load(store).get('sidekick'), (dict, type(None))):
+    if not isinstance(get(store, 'sidekick'), (dict, type(None))):
         # `kind="$(field "$1" '.sidekick.kind')"` fails in jq with errexit on: jq's message and its status end the command
         from .store import field
         field(store, 'sidekick', 'kind', check=True)

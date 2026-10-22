@@ -8,8 +8,7 @@ from ..collate import glob_sorted
 from ..herdr import agent_status
 from ..prime import prime_steer
 from ..review import awk_equal, jq_raw, noted_through, open_notes, require_filled, review_base, steps_file
-from ..store import (alt, dispatched_brief, event, fill_template, header_field, note_id, pair_file, load, pause_notice,
-                     read_text, steer_notice, suffix_number, unit_name, write_text)
+from ..store import (alt, dispatched_brief, event, fill_template, get, header_field, note_id, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text)
 
 
 def blocking_lines(path):
@@ -142,7 +141,7 @@ def new_note(ctx, args):
         raise Die(f'unit {seq} has no steps recorded')
     done = noted_through(store, unit)
     if not through:
-        shown_map = alt(load(store).get('shown'), {})
+        shown_map = alt(get(store, 'shown'), {})
         shown = alt(shown_map.get(unit) if isinstance(shown_map, dict) else None, '')
         shown = jq_raw(shown) if shown != '' else ''
         through = shown if re.fullmatch(r'-?[0-9]+', shown) and int(shown) > done else ''

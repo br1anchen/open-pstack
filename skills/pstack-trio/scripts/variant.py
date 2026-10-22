@@ -5,12 +5,12 @@ import sys
 from pstack_core.commands.report import in_herdr
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, role_value, stop_role
-from pstack_core.errors import Die, Exit
+from pstack_core.errors import Die, Exit, fail
 from pstack_core.herdr import agent_kind, agent_status
 from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
 from pstack_core.store import field, header_field, pair_file
 from pstack_core.variant import Variant
-from pstack_core.wait import ArithError, agent_state, bash_arith, core_line, die_with_the_shell, shell_error, tdiv
+from pstack_core.wait import ArithError, agent_state, bash_arith, core_line, die_with_the_shell, tdiv
 
 CONSULTANT_CORE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'consultant-core.sh')
 TRIO_PAIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pair.sh')
@@ -31,7 +31,7 @@ def stop(ctx, args):
         if option not in ('--only', '--timeout', '--every'):
             raise Die(f'unknown option {option}')
         if i + 1 >= len(rest):
-            shell_error(f'{option}) ', '$2: unbound variable', 'cmd_stop() {', CONSULTANT_CORE)
+            fail(f'{option}) ', '$2: unbound variable', 'cmd_stop() {', CONSULTANT_CORE)
         value = rest[i + 1]
         if option == '--only':
             only = value
@@ -41,13 +41,13 @@ def stop(ctx, args):
             try:
                 timeout = str(bash_arith(f'{value} * 60000'))
             except ArithError as e:
-                shell_error('--every) timeout=$(($2 * 60000))', e.text, 'cmd_stop() {', CONSULTANT_CORE)
+                fail('--every) timeout=$(($2 * 60000))', e.text, 'cmd_stop() {', CONSULTANT_CORE)
         i += 2
     # checkin_interval_m is read by nothing after this loop; only its arithmetic can still end the command.
     try:
         tdiv(bash_arith(timeout), 60000)
     except ArithError as e:
-        shell_error('checkin_interval_m=$((timeout / 60000))', e.text, 'cmd_stop() {', CONSULTANT_CORE)
+        fail('checkin_interval_m=$((timeout / 60000))', e.text, 'cmd_stop() {', CONSULTANT_CORE)
     clear_queue(store)
     rc = 0
     for role in ctx.roles:

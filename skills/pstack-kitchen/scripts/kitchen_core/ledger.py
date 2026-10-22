@@ -6,7 +6,7 @@ import sys
 
 from pstack_core.collate import collate_key
 from pstack_core.errors import Die, Exit
-from pstack_core.store import event, jq_raw, load, now, pair_file
+from pstack_core.store import event, get, jq_raw, now, pair_file
 
 from . import kpy
 
@@ -31,13 +31,13 @@ def relay(result):
 
 
 def slug_of(store):
-    return jq_raw(load(store).get('slug'))
+    return jq_raw(get(store, 'slug'))
 
 
 def state_ledger(store, abort=False):
     """`$(kpy "$store" statedir)/ledger.tsv`: kitchen.py's answer, its stderr passing through. Inside a command's argument list its status
     is not looked at (catch); as the whole of an assignment it is the assignment's, and set -e ends the command with it (abort, retro)."""
-    root = jq_raw(load(store).get('git_root'))
+    root = jq_raw(get(store, 'git_root'))
     rc, out, err = kpy.run(root, ['statedir'])
     sys.stderr.write(err)
     if abort and rc != 0:
@@ -127,5 +127,5 @@ def retro(ctx, args):
         out.write(row + '\n')
     out.write(HINT)
     out.flush()
-    relay(kpy.run(jq_raw(load(store).get('git_root')), ['lessons']))
+    relay(kpy.run(jq_raw(get(store, 'git_root')), ['lessons']))
     return 0

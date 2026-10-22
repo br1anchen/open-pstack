@@ -5,8 +5,7 @@ from ..dispatch import fresh_per_brief, take_queued
 from ..errors import Die, Exit
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import (alt, event, expected_report, header_field, open_steers, load, paused_reason, readlink_f, steer_number,
-                     unit_name, update)
+from ..store import (alt, event, expected_report, get, header_field, load, open_steers, paused_reason, readlink_f, steer_number, unit_name, update)
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
 
@@ -93,7 +92,7 @@ def next_brief(ctx, args):
 
 def sidekick_kind(store, sidekick):
     """field "$store" .sidekick.kind: where `.sidekick` cannot be indexed jq says so (and the value reads empty)."""
-    if not isinstance(load(store).get('sidekick'), (dict, type(None))):
+    if not isinstance(get(store, 'sidekick'), (dict, type(None))):
         from ..store import field
         return field(store, 'sidekick', 'kind')
     return jq_raw(sidekick.get('kind'))

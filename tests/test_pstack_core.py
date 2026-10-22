@@ -2962,8 +2962,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_update_of_a_pair_json_that_does_not_parse_leaves_it_alone_and_frees_the_lock(self):
         st = self.fixture_store()
         (st / 'pair.json').write_text('{"a": ')
-        with self.assertRaises(json.JSONDecodeError):
+        with self.assertRaises(Die) as caught:
             store.update(str(st), lambda doc: None)
+        self.assertEqual(caught.exception.message[:24], 'pair.json is damaged: Ex')
         self.assertEqual((st / 'pair.json').read_text(), '{"a": ')
         self.assertEqual(sorted(p.name for p in st.iterdir() if 'pair' in p.name), ['pair.json'])
 
@@ -4934,7 +4935,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'no kitchen at all': (0, 'kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching'),
             'a kitchen that does not parse': (0, 'kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching'),
             'a pair.json that already lists builds': (0, 'store: <T>/st (re-registered master demo-master in p0)'),
-            'a pair.json that is an array': (5, 'jq: error (at <T>/st/pair.json:1): Cannot index array with string ("master")'),
+            'a pair.json that is an array': (1, 'pair.json is damaged: expected an object'),
             'a main checkout with a setup': (0, 'store: <T>/st (re-registered master demo-master in p0)'),
             'a linked worktree with no setup': (0, 'store: <T>/new (master demo-master in p0)'),
             'a linked worktree with a setup': (0, 'store: <T>/new (master demo-master in p0)'),

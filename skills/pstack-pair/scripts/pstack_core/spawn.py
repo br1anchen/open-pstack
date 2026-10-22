@@ -17,7 +17,7 @@ from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .review import jq_raw
 from .send import submit_typed, visible_without_blanks
-from .store import alt, event, field, load, update, update_or_jq
+from .store import alt, event, field, get, load, update, update_or_jq
 from .wait import bash_sleep, die_with_the_shell
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
@@ -91,7 +91,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         if not agent_args and not agents.asks_no_approvals(kind, permission):
             stderr_of(f'no permission translation for kind {kind}; pass native flags after -- to match the master ({master_mode})\n')
             permission = 'untranslated'
-    cwd = jq_raw(load(store).get('cwd'))
+    cwd = jq_raw(get(store, 'cwd'))
     if not agents.has_trust_arg(args):
         agent_args += agents.trust_args(kind)
     if not agents.has_mcp_arg(args):
@@ -229,7 +229,7 @@ def entry_spawn_role(ctx, args):
 
 def set_placement(store, want=''):
     """How roles get their panes: --tab or --split from spawn, else what the store has, else PSTACK_PLACEMENT, else split."""
-    if not want and jq_raw(alt(load(store).get('placement'), '')) == '':
+    if not want and jq_raw(alt(get(store, 'placement'), '')) == '':
         want = os.environ.get('PSTACK_PLACEMENT') or 'split'
     if not want:
         return

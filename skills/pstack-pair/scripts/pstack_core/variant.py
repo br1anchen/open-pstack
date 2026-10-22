@@ -4,7 +4,7 @@ import re
 import subprocess
 
 from .review import git, jq_raw, noted_through, open_notes, steps_file
-from .store import alt, bash_int, header_field, last_line, load, unit_name
+from .store import alt, bash_int, get, header_field, last_line, load, unit_name
 
 
 class ReportReadiness:
@@ -89,7 +89,7 @@ def steps_due_in(ctx, store, brief):
     from .replies import unreviewed_steps
     if unreviewed_steps(ctx, store) is None:
         return False
-    shown = alt(alt(load(store).get('shown'), {}).get(unit_name(brief)), 0)
+    shown = alt(alt(get(store, 'shown'), {}).get(unit_name(brief)), 0)
     file = steps_file(store, brief)
     with open(file, 'rb') as f:
         last = sum(1 for line in f.read().split(b'\n') if line)

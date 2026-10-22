@@ -15,7 +15,7 @@ from pstack_core.collate import glob_sorted
 from pstack_core.commands.report import MISSING_PAIR
 from pstack_core.errors import Die, Exit
 from pstack_core.review import range_floor, steps_file, trunk_ref
-from pstack_core.store import expected_report, header_field, jq_raw, last_line, load
+from pstack_core.store import expected_report, get, header_field, jq_raw, last_line
 from pstack_core.variant import commit_of
 
 from .jqx import exit_status, pair_jq
@@ -36,7 +36,7 @@ def git_root(store, quiet=False, check=False):
         if check:
             raise Exit(2)
         return ''
-    return jq_raw(load(store).get('git_root'))
+    return jq_raw(get(store, 'git_root'))
 
 
 def git(root, *args, quiet=False, stdin=None):

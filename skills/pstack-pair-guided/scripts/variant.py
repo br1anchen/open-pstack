@@ -2,12 +2,12 @@ import os
 import re
 
 from pstack_core.commands.report import in_herdr
-from pstack_core.errors import Die
+from pstack_core.errors import Die, fail
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
 from pstack_core.store import header_field, readlink_f
 from pstack_core.variant import Variant
-from pstack_core.wait import ArithError, bash_arith, die_with_the_shell, shell_error, tdiv
+from pstack_core.wait import ArithError, bash_arith, die_with_the_shell, tdiv
 
 GUIDED_PAIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pair.sh')
 
@@ -25,19 +25,19 @@ def answer(ctx, args):
         if option not in ('--timeout', '--every'):
             raise Die(f'unknown option {option}')
         if i + 1 >= len(rest):
-            shell_error(f'{option}) ', '$2: unbound variable', 'cmd_answer() {', GUIDED_PAIR)
+            fail(f'{option}) ', '$2: unbound variable', 'cmd_answer() {', GUIDED_PAIR)
         if option == '--timeout':
             timeout = rest[i + 1]
         else:
             try:
                 timeout = str(bash_arith(f'{rest[i + 1]} * 60000'))
             except ArithError as e:
-                shell_error('--every) timeout=$(($2 * 60000))', e.text, 'cmd_answer() {', GUIDED_PAIR)
+                fail('--every) timeout=$(($2 * 60000))', e.text, 'cmd_answer() {', GUIDED_PAIR)
         i += 2
     try:
         interval = tdiv(bash_arith(timeout), 60000)
     except ArithError as e:
-        shell_error('checkin_interval_m=$((timeout / 60000))', e.text, 'cmd_answer() {', GUIDED_PAIR)
+        fail('checkin_interval_m=$((timeout / 60000))', e.text, 'cmd_answer() {', GUIDED_PAIR)
     if not os.path.isfile(path):
         raise Die(f'answer not found: {path}')
     require_not_paused(store)

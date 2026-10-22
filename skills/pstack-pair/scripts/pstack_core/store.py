@@ -226,7 +226,7 @@ def jq_raw(value):
 
 def dispatched_brief(store):
     """field "$store" '.dispatch.brief // empty'"""
-    dispatch = alt(load(store).get('dispatch'), {})
+    dispatch = alt(get(store, 'dispatch'), {})
     brief = alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, '')
     return brief if isinstance(brief, str) else json.dumps(brief)
 
@@ -296,7 +296,7 @@ def open_steers(store):
     unit = unit_name(brief)
     prog = f'{store}/progress/{unit}.md'
     found = []
-    for f in alt(load(store).get('notice_steers'), []):
+    for f in alt(get(store, 'notice_steers'), []):
         name = os.path.basename(f)
         if not os.path.isfile(f) or not re.fullmatch(re.escape(unit) + r'-s[0-9].*\.md', name, re.S):
             continue
@@ -312,7 +312,7 @@ def open_steers(store):
 def note_notice(store):
     """The blocking notes parked for a Devin sidekick (.notice_notes), once: each is printed and taken off the list."""
     from . import cli
-    parked = [f for f in alt(load(store).get('notice_notes'), []) if os.path.isfile(f)]
+    parked = [f for f in alt(get(store, 'notice_notes'), []) if os.path.isfile(f)]
     if not parked:
         return ''
     update(store, lambda doc: doc.pop('notice_notes', None))
@@ -377,8 +377,7 @@ def update(store, mutate):
     PAIR_LOCK_POLL_S exist so tests can shorten the 10 s wait."""
     lock = acquire_lock(store)
     try:
-        with open(f'{store}/pair.json', encoding='utf-8') as f:
-            doc = json.load(f)
+        doc = load(store)
         mutate(doc)
         text = _dumps(doc)
         with open(f'{store}/pair.json.tmp', 'w', encoding='utf-8') as out:

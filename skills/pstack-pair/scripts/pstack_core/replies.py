@@ -6,7 +6,7 @@ import re
 
 from .collate import collate_key, glob_sorted
 from .review import jq_raw, noted_through, review_base, steps_file
-from .store import alt, bash_int, cut_chars, expected_report, header_field, last_line, load, read_text, suffix_number, unit_name, update
+from .store import alt, bash_int, cut_chars, expected_report, get, header_field, last_line, read_text, suffix_number, unit_name, update
 from .commands.status import latest
 
 
@@ -22,12 +22,12 @@ def latest_report(store, want=''):
 
 def sent_field(store, key):
     """field "$store" '.sent.<key> // empty', as jq -r prints it."""
-    sent = alt(load(store).get('sent'), {})
+    sent = alt(get(store, 'sent'), {})
     return jq_raw(alt(sent.get(key) if isinstance(sent, dict) else None, ''))
 
 
 def dispatched(store):
-    dispatch = alt(load(store).get('dispatch'), {})
+    dispatch = alt(get(store, 'dispatch'), {})
     return jq_raw(alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, ''))
 
 
@@ -60,7 +60,7 @@ def queue_note(store, report):
 def pending(store):
     """jq -r '.pending // [] | .[]', the non-empty lines. The shapes jq rejects or prints differently (a string or an object for .pending,
     nested arrays) are not reproduced: no writer stores them."""
-    items = alt(load(store).get('pending'), [])
+    items = alt(get(store, 'pending'), [])
     if not isinstance(items, list):
         # `.[]` of a string or a number is jq's own error (printed), of an object its values: ask jq
         import subprocess
