@@ -323,6 +323,25 @@ class FreshSessionTests(unittest.TestCase):
                 self.assertNotIn('agent prompt demo-sidekick /exit', (fake / 'calls.log').read_text())
 
 
+    def test_the_trios_plan_round_rotates_a_due_sidekick_before_it_sends(self):
+        run, state, brief, store, fake, first = self.world('pstack-trio', 'trio')
+        report = store / 'reports' / first.name
+        report.write_text('status: done\nhead: abc123\n')
+        (fake / 'agents/demo-sidekick').write_text('idle claude\n')
+        run('finish', str(store), str(report))
+        plan = store / 'plans/002-next.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text('# Plan 002: next\n\nrisk: routine\n')
+        out = run('discuss', str(store), str(plan), '--timeout', '1', code=4)
+        self.assertIn('rotated: the claude sidekick starts this plan in a fresh session', out)
+        self.assertNotIn('needs a fresh session', out)
+        self.assertIn('sent PLAN 002-next.md to sidekick', out)
+        self.assertIn('sent PLAN 002-next.md to consultant', out)
+        self.assertEqual(state()['sidekick']['generation'], 2)
+        calls = (fake / 'calls.log').read_text()
+        self.assertLess(calls.index('take the sidekick role (generation 2'), calls.index(f'PLAN {plan}'))
+
+
 class RangeFloorTests(unittest.TestCase):
     """range_floor and the digest it feeds: a unit is never measured from before its branch leaves trunk."""
 

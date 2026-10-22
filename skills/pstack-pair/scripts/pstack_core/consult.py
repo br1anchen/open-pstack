@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 from .commands.report import in_herdr
+from .commands.rotate import rotate_if_due
 from .commands.status import latest
 from .errors import Die
 from .gates import require_not_paused
@@ -111,6 +112,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     end_with_parent()
     require_not_paused(store)
     require_filled(ctx, plan)
+    rotate_if_due(ctx, store, 'plan')
     base = os.path.basename(plan)
     seq, slug = base[:3], base[:-3][4:] if base.endswith('.md') else base[4:]
     send, wait_on, deferred, answered = [], [], '', []
