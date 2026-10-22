@@ -50,6 +50,39 @@ CUSTOMIZED_AT_PINNED = [
     'skills/why/SKILL.md',
 ]
 
+PINNED_0_15_29 = '699e1e7'
+# The commit whose skills/ tree is 0.15.29 (699e1e7) taken, adapted and hand-edited (unit 039).
+TREE_AT_0_15_29 = '73c3f9bb5594d943af7ddbdfdd6ad723fa90843c'
+CUSTOMIZED_AT_0_15_29 = [
+    'skills/architect/SKILL.md',
+    'skills/arena/SKILL.md',
+    'skills/automate-me/SKILL.md',
+    'skills/benchmark-checklist/SKILL.md',
+    'skills/create-formal-verification-skill/SKILL.md',
+    'skills/create-verification-skill/SKILL.md',
+    'skills/how/SKILL.md',
+    'skills/interrogate/SKILL.md',
+    'skills/ketchup/SKILL.md',
+    'skills/maintain-formal-verification-skill/SKILL.md',
+    'skills/maintain-verification-skill/SKILL.md',
+    'skills/make-bot-ui/SKILL.md',
+    'skills/poteto-help/SKILL.md',
+    'skills/poteto-mode/playbooks/bug-fix.md',
+    'skills/poteto-mode/scripts/worktree-audit.sh',
+    'skills/reflect/SKILL.md',
+    'skills/reflect/references/divergent-reviewer.md',
+    'skills/reflect/references/judgment-reviewer.md',
+    'skills/reflect/references/tooling-reviewer.md',
+    'skills/reproduce-and-fix-issues/SKILL.md',
+    'skills/reproduce-and-fix-issues/references/control-adapter.md',
+    'skills/reproduce-and-fix-issues/references/feature-map.example.md',
+    'skills/setup-benny/SKILL.md',
+    'skills/setup-pstack/SKILL.md',
+    'skills/swarm/SKILL.md',
+    'skills/triage-issue-reports/references/routing.example.md',
+    'skills/why/SKILL.md',
+]
+
 
 def git(cwd, *args):
     return subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', *args],
@@ -515,21 +548,30 @@ class CheckPstackTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('PSTACK_UPSTREAM_CHECKOUT'), 'PSTACK_UPSTREAM_CHECKOUT names a cursor/plugins checkout')
 class RealCheckoutTests(unittest.TestCase):
-    def test_real_checkout_audit_names_every_customization(self):
-        """Audit our skills as they were at TREE_AT against upstream at PINNED, whatever sources.json pins now."""
+    def audit_at(self, tree_at, pinned):
+        """Audit our skills as they were at tree_at against upstream at pinned, whatever sources.json pins now."""
         repo = Path(__file__).resolve().parents[1]
         checkout = os.environ['PSTACK_UPSTREAM_CHECKOUT']
-        for root, rev in ((repo, TREE_AT), (checkout, PINNED)):
+        for root, rev in ((repo, tree_at), (checkout, pinned)):
             if subprocess.run(['git', 'cat-file', '-e', f'{rev}^{{commit}}'], cwd=root, capture_output=True).returncode:
                 self.skipTest(f'{root} has no commit {rev}')
         with tempfile.TemporaryDirectory() as tmp:
-            archive = subprocess.run(['git', 'archive', TREE_AT, 'skills', 'sources.json'], cwd=repo, capture_output=True, check=True)
+            archive = subprocess.run(['git', 'archive', tree_at, 'skills', 'sources.json'], cwd=repo, capture_output=True, check=True)
             subprocess.run(['tar', '-x', '-C', tmp], input=archive.stdout, check=True)
-            report = pu.audit(pu.Tree(tmp), pu.Upstream(checkout), PINNED)
+            return pu.audit(pu.Tree(tmp), pu.Upstream(checkout), pinned)
+
+    def test_real_checkout_audit_names_every_customization(self):
+        report = self.audit_at(TREE_AT, PINNED)
         self.assertEqual(sorted(path for path, _, _ in report['customized']), CUSTOMIZED_AT_PINNED)
         # tdd and teach are unmapped here only because sources.json had no `watch` key at TREE_AT.
         self.assertEqual((report['binary'], report['absent'], report['local_only_files'], report['unmapped']),
                          ([], [], [], ['tdd', 'teach']))
+
+    def test_real_checkout_audit_names_every_customization_at_0_15_29(self):
+        report = self.audit_at(TREE_AT_0_15_29, PINNED_0_15_29)
+        self.assertEqual(sorted(path for path, _, _ in report['customized']), CUSTOMIZED_AT_0_15_29)
+        self.assertEqual((report['binary'], report['absent'], report['local_only_files'], report['unmapped']),
+                         ([], [], ['skills/poteto-help/references/scenarios.md'], []))
 
 
 if __name__ == '__main__':
