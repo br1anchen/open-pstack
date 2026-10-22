@@ -7,7 +7,7 @@ from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
 from pstack_core.store import header_field, readlink_f, whole_number
 from pstack_core.variant import Variant
-from pstack_core.wait import die_with_the_shell, tdiv
+from pstack_core.wait import end_with_parent, tdiv
 
 GUIDED_PAIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pair.sh')
 
@@ -15,7 +15,7 @@ GUIDED_PAIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pair.sh'
 def answer(ctx, args):
     """Deliver the human's or master's answer to a sidekick's ask (a message of kind ANSWER) and wait for its reply."""
     in_herdr()
-    die_with_the_shell()
+    end_with_parent()
     if len(args) < 2:
         raise Die('usage: pair.sh answer <store> <answer-path> [--timeout MS | --every MIN]')
     store, path, rest = args[0], args[1], args[2:]

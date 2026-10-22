@@ -12,25 +12,15 @@ child (verify.in_subshell, stdout only) with the same four variables set in the 
 
 import os
 import re
-import signal
 import sys
 import time
 
 from pstack_core import wait as core_wait
 from pstack_core.errors import Die, Exit
 from pstack_core.store import env_float, env_int, event, field, int_or_none, whole_number
+from pstack_core.wait import default_signals
 
 from .verify import in_subshell
-
-
-def plain_signals():
-    """What a bash script's own signals are: a signal ends it, with no Python traceback and the signal as the status, and one the parent ignored (a
-    background job's SIGINT) stays ignored. Unlike pstack_core's die_with_the_shell it sets no parent-death signal: kitchen.sh's step, finish, dispatch
-    and wait were bash, and a bash script does not end with its parent. The core commands they call (the dispatch, the inner waits) still do, in the
-    children that run them."""
-    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        if signal.getsignal(number) is not signal.SIG_IGN:
-            signal.signal(number, signal.SIG_DFL)
 
 
 def poll_sleep(seconds):
@@ -147,7 +137,7 @@ def quiet_wait(ctx, store, rest):
 
 
 def wait(ctx, args):
-    plain_signals()
+    default_signals()
     if len(args) < 1:
         raise Die('usage: kitchen.sh wait <store> [--timeout MS | --every MIN] [--max MIN]')
     return quiet_wait(ctx, args[0], args[1:])

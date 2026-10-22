@@ -17,7 +17,7 @@ from .providers import provider_hint, record_prime_session
 from .review import jq_raw
 from .send import submit_typed, visible_without_blanks
 from .store import alt, count, env_float, env_int, event, field, get, listing, load, member, update
-from .wait import die_with_the_shell
+from .wait import end_with_parent
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
 
@@ -192,7 +192,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
 def entry_spawn_role(ctx, args):
     """__spawn_role store role kind permission anchor timeout direction pane [native args...]: the positional arguments the bash function took.
     No production caller is left (spawn, rotate and failover call spawn_role directly); it stays as the seam the call-form A/B tests drive."""
-    die_with_the_shell()
+    end_with_parent()
     if len(args) < 8:
         raise Die('usage: __spawn_role <store> <role> <kind> <permission> <anchor> <timeout> <direction> <pane> [args...]')
     return spawn_role(ctx, *args[:8], list(args[8:]))
@@ -282,7 +282,7 @@ def spawn_consultant(ctx, store, kind, permission, timeout, args):
 
 def entry_spawn_consultant(ctx, args):
     """__spawn_consultant store kind permission timeout [args...]: the positional arguments the bash function takes."""
-    die_with_the_shell()
+    end_with_parent()
     if len(args) < 4:
         raise Die('usage: __spawn_consultant <store> <kind> <permission> <timeout> [args...]')
     # its one bash caller is kitchen.sh consultant, a plain command under set -e

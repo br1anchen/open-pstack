@@ -12,7 +12,7 @@ from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
 from ..store import cut_chars, event, header_field, member, names, readlink_f, unit_name, update
-from ..wait import die_with_the_shell, owned_wait, wait_opts
+from ..wait import end_with_parent, owned_wait, wait_opts
 from .report import in_herdr, require_pair
 from .stop import role_value
 
@@ -48,7 +48,7 @@ def open_the_objection_round(store, epoch):
 
 def steer(ctx, args):
     in_herdr()
-    die_with_the_shell()
+    end_with_parent()
     if len(args) < 2:
         raise Die(USAGE)
     store, steer_path = args[0], readlink_f(args[1])

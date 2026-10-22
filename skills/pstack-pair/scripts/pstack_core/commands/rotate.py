@@ -11,7 +11,7 @@ from ..herdr import agent_status
 from ..spawn import mapfile_args, section, spawn_role
 from ..review import jq_raw
 from ..store import alt, event, field, load, pair_file
-from ..wait import die_with_the_shell
+from ..wait import end_with_parent
 from .report import in_herdr
 
 TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
@@ -19,7 +19,7 @@ TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
 
 def rotate(ctx, args):
     """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session."""
-    die_with_the_shell()
+    end_with_parent()
     in_herdr()
     if len(args) != 1:
         raise Die('usage: pair.sh rotate <store>')

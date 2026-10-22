@@ -25,11 +25,12 @@ from pstack_core.errors import Die, Exit
 from pstack_core.replies import file_mtime
 from pstack_core.review import range_floor, steps_file
 from pstack_core.store import env_float, env_int, event, expected_report, field, header_field, int_or_none, last_line, pair_file, read, read_text, readlink_f, unit_name
+from pstack_core.wait import default_signals
 
 from . import kpy
 from .classify import brief_kitchen
 from .units import git, recorded_head
-from .wait import plain_signals, poll_sleep
+from .wait import poll_sleep
 
 STEP_SCRIPT = '''
 \t\t\tcd "$1" || exit 1
@@ -117,7 +118,7 @@ def cat_n(path):
 
 
 def step(ctx, args):
-    plain_signals()
+    default_signals()
     if len(args) < 3:
         raise Die('usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha = args[0], args[1]
@@ -236,7 +237,7 @@ def step(ctx, args):
 
 def finish(ctx, args):
     core_report.in_herdr()
-    plain_signals()
+    default_signals()
     if len(args) != 2:
         return core_report.finish(ctx, args)
     store = args[0]

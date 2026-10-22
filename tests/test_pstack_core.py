@@ -5458,6 +5458,45 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         with contextlib.suppress(ProcessLookupError):
             os.killpg(group, signal.SIGKILL)
 
+    def end_with_parent_process(self, code, **popen):
+        pre = f'import os, signal, sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core.wait import end_with_parent\n'
+        return subprocess.Popen([sys.executable, '-I', '-c', pre + code], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **popen)
+
+    def test_end_with_parent_makes_a_signal_end_the_command_untraced_and_leaves_an_ignored_one_ignored(self):
+        """TERM, INT and HUP end the command with the signal as its status and nothing on stderr; a signal the parent ignored stays ignored."""
+        ready = 'end_with_parent()\nprint("ready", flush=True)\nsignal.pause()\n'
+        for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            proc = self.end_with_parent_process(ready)
+            self.addCleanup(proc.kill)
+            self.assertEqual(proc.stdout.readline(), 'ready\n')
+            proc.send_signal(number)
+            out, err = proc.communicate(timeout=30)
+            self.assertEqual((proc.returncode, err), (-number, ''), number.name)
+        ignored = self.end_with_parent_process('end_with_parent()\nprint(signal.getsignal(signal.SIGINT) is signal.SIG_IGN, signal.getsignal(signal.SIGTERM) is signal.SIG_DFL)\n',
+                                               preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
+        self.assertEqual(ignored.communicate(timeout=30)[0], 'True True\n')
+
+    def test_end_with_parent_ends_a_background_command_when_its_parent_dies(self):
+        """The parent starts the command and is killed; the command, which holds the write end of a pipe, goes with it, so the pipe's reader sees the
+        end of file. A command that did not end would hold the pipe open, and the poll for it gives up after 30 seconds."""
+        read, write = os.pipe()
+        child = f'import signal, sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core.wait import end_with_parent\nend_with_parent()\nprint(1, flush=True)\nsignal.pause()\n'
+        parent = ('import os, signal, subprocess, sys\n'
+                  f'started = subprocess.Popen([sys.executable, "-I", "-c", {child!r}], stdout=subprocess.PIPE, pass_fds=({write},))\n'
+                  'started.stdout.readline()\nprint(started.pid, flush=True)\nos.kill(os.getpid(), signal.SIGKILL)\n')
+        proc = subprocess.Popen([sys.executable, '-I', '-c', parent], pass_fds=(write,), stdout=subprocess.PIPE, text=True)
+        os.close(write)
+        self.addCleanup(os.close, read)
+        pid = int(proc.stdout.readline())
+
+        def kill_command():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        self.addCleanup(kill_command)
+        self.assertTrue(select.select([read], [], [], 30)[0], 'the command outlived its parent')
+        self.assertEqual(os.read(read, 1), b'')
+        proc.wait(timeout=30)
+
     def test_step_and_finish_outlive_the_shell_that_ran_them(self):
         """step and finish set no parent-death signal: `sh -c 'kitchen.sh step ...; :'` with the `sh` killed mid-gate still recorded the step. The gate (or the Verify command) blocks on a fifo the test opens after it killed the
         shell, so nothing here waits on a clock."""

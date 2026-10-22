@@ -19,7 +19,7 @@ from pstack_core.errors import Die, Exit
 from pstack_core.gates import gnu_dirname
 from pstack_core.herdr import agent_status
 from pstack_core.store import alt, field, cut_chars, damaged, event, jq_raw, json_type, listing, load, member, now, pair_file, update
-from pstack_core.wait import as_text, die_with_the_shell
+from pstack_core.wait import as_text, end_with_parent
 
 from . import kpy
 from .units import git, git_root, has_pair
@@ -242,7 +242,7 @@ def consultant(ctx, args):
             kind = fallback
             native = fb_args
     # The escalation is recorded once the consultant is up, so a start that fails (a trust prompt) and is retried counts it once.
-    die_with_the_shell()
+    end_with_parent()
     code = pair_spawn.spawn_consultant(ctx, store, kind, permission, '60000', list(native))
     if code:
         raise Exit(code)

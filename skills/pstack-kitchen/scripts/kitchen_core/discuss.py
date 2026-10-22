@@ -22,7 +22,7 @@ from pstack_core.panes import await_file
 from pstack_core.review import require_filled
 from pstack_core.send import require_fresh_session, submit_typed
 from pstack_core.store import event, field, header_field, readlink_f, whole_number
-from pstack_core.wait import agent_state, die_with_the_shell, error_code
+from pstack_core.wait import agent_state, end_with_parent, error_code
 
 from .classify import classify_brief, risk_of
 from .landing import is_landing
@@ -183,7 +183,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
     plan = readlink_f(plan)
-    die_with_the_shell()
+    end_with_parent()
     require_not_paused(store)
     require_filled(ctx, plan)
     base = os.path.basename(plan)

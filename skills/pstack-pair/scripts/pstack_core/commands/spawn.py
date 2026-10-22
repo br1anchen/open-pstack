@@ -1,7 +1,7 @@
 from ..errors import Die
 from ..spawn import record_fallback, set_placement, spawn_sidekick
 from ..store import field, pair_file, whole_number
-from ..wait import die_with_the_shell
+from ..wait import end_with_parent
 from .report import in_herdr
 
 USAGE = ('usage: pair.sh spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] '
@@ -11,7 +11,7 @@ VALUED = {'--kind': 'kind', '--fallback': 'fallback', '--permission': 'permissio
 
 def spawn(ctx, args):
     """Starts the sidekick (or its recorded fallback) in a pane: 0, 3 (the bootstrap did not settle) or 4 (it settled without the ready file)."""
-    die_with_the_shell()
+    end_with_parent()
     in_herdr()
     if not args:
         raise Die(USAGE)

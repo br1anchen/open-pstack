@@ -10,7 +10,7 @@ from pstack_core.herdr import agent_kind, agent_status
 from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
 from pstack_core.store import field, header_field, pair_file, whole_number
 from pstack_core.variant import Variant
-from pstack_core.wait import agent_state, die_with_the_shell
+from pstack_core.wait import agent_state, end_with_parent
 
 CONSULTANT_CORE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'consultant-core.sh')
 TRIO_PAIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pair.sh')
@@ -21,7 +21,7 @@ def stop(ctx, args):
     ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, a blocked one sets the exit status
     to 3, and the newest report and advice are shown at the end."""
     in_herdr()
-    die_with_the_shell()
+    end_with_parent()
     if not args:
         raise Die('usage: pair.sh stop <store> [--only sidekick|consultant] [--timeout MS]')
     store, rest = args[0], args[1:]
@@ -86,7 +86,7 @@ VALUED = {'--sidekick': 'sidekick', '--consultant': 'consultant', '--fallback': 
 def spawn(ctx, args):
     """Starts the sidekick and the consultant (--only names one) in panes of their own, the sidekick first: the first role that does not come up
     ends the command with its status (3: the bootstrap did not settle; 4: it settled without the ready file)."""
-    die_with_the_shell()
+    end_with_parent()
     in_herdr()
     if not args:
         raise Die(USAGE)

@@ -7,14 +7,14 @@ from ..herdr import agent_status, herdr
 from ..review import jq_raw
 from ..spawn import fallback_args, record_failover, section, spawn_role
 from ..store import alt, env_float, expected_report, field, load, pair_file
-from ..wait import die_with_the_shell
+from ..wait import end_with_parent
 from .report import in_herdr
 
 
 def failover(ctx, args):
     """Replaces a failing sidekick with its recorded fallback in the same pane. The new agent picks up from the store: the step log, progress,
     and the brief it was on; every committed step survives. A run stays on the fallback, since failover never switches back."""
-    die_with_the_shell()
+    end_with_parent()
     in_herdr()
     if not args:
         raise Die('usage: pair.sh failover <store> [--reason TEXT] [--force]')

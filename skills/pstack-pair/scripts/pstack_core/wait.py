@@ -438,14 +438,18 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
     return result
 
 
-def die_with_the_shell():
-    """End the way the bash does. A signal kills the process outright, with no Python traceback and the signal as the exit
-    status; and when the shell that ran it dies first (a SIGTERM to the shell alone), the wait goes too instead of running on
-    as an orphan."""
+def default_signals():
+    """Restore default handling of INT, TERM and HUP, so a command killed by one of them ends without a Python traceback and the signal is its
+    exit status. A signal the parent ignored (a background job's SIGINT) stays ignored."""
     for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        # Python swaps in its own SIGINT handler; a signal the parent ignored (a background job's SIGINT) stays ignored, as in bash.
         if signal.getsignal(number) is not signal.SIG_IGN:
             signal.signal(number, signal.SIG_DFL)
+
+
+def end_with_parent():
+    """Restore default handling of INT, TERM and HUP (an ignored signal stays ignored) so a wait killed by a signal ends without a traceback, and
+    set PR_SET_PDEATHSIG so a background wait ends when its parent does."""
+    default_signals()
     try:
         import ctypes
         ctypes.CDLL(None).prctl(1, int(signal.SIGTERM))
@@ -501,7 +505,7 @@ def wait(ctx, args):
         release_wait(args[0], wait_token())
         return 0
     in_herdr()
-    die_with_the_shell()
+    end_with_parent()
     if len(args) < 1:
         raise Die('usage: pair.sh wait <store> [--timeout MS | --every MIN]')
     store = args[0]
