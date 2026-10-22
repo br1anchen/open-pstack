@@ -86,12 +86,10 @@ def run(ctx, args):
     if jj:
         added = subprocess.run(['jj', '-R', cwd, 'workspace', 'add', '--name', f'scratch-{ident}', *(['-r', at] if at else []), path],
                                stdout=subprocess.DEVNULL, check=False)
-        failure = 'jj workspace add failed'
-    else:
-        added = git.run(cwd, 'worktree', 'add', '--detach', path, at or 'HEAD', stdout=git.DEVNULL)
-        failure = 'git worktree add failed'
-    if added.returncode != 0:
-        raise Die(failure, 2)
+        if added.returncode != 0:
+            raise Die('jj workspace add failed', 2)
+    elif git.run(cwd, 'worktree', 'add', '--detach', path, at or 'HEAD', stdout=git.DEVNULL).returncode != 0:
+        raise Die('git worktree add failed', 2)
     if not at and not jj:
         diff = git.run(cwd, 'diff', 'HEAD', '--binary', binary=True).stdout
         if diff:

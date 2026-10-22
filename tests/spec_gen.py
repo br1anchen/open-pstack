@@ -251,7 +251,6 @@ HINTS = {(WAIT, at(WAIT, "write(f'{SUPERSEDED}\\n')", 'return 4')): ['superseded
 # behaviours no caller depends on (standing order 27): path:line -> why
 NOT_CONTRACT = {
     (f'{PAIR}/commands/metrics.py', at(f'{PAIR}/commands/metrics.py', "cannot read {log}: ", 'return 2')): 'the events log that init creates is unreadable; no caller sends it',
-    (f'{PAIR}/commands/scratch.py', at(f'{PAIR}/commands/scratch.py', "'git worktree add failed'", 'raise Die(failure, 2)')): 'git worktree add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
     (f'{PAIR}/commands/scratch.py', at(f'{PAIR}/commands/scratch.py', "raise Die('jj workspace add failed', 2)", 'raise Die')): 'jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
     (f'{PAIR}/commands/notes.py', at(f'{PAIR}/commands/notes.py', "Prime delivery failed for", 'raise Die')): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
     (SPAWN, at(SPAWN, "Prime start failed in {pane}", 'raise Die')): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
