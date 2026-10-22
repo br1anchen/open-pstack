@@ -438,9 +438,13 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
     return result
 
 
+PR_SET_PDEATHSIG = 1
+
+
 def default_signals():
     """Restore default handling of INT, TERM and HUP, so a command killed by one of them ends without a Python traceback and the signal is its
-    exit status. A signal the parent ignored (a background job's SIGINT) stays ignored."""
+    exit status. A signal the parent ignored (a background job's SIGINT) stays ignored. kitchen step, finish, dispatch and wait call this and not
+    end_with_parent: they start detached work (gates, Verify commands, a delivery) that must outlive the caller, so they must not end with it."""
     for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         if signal.getsignal(number) is not signal.SIG_IGN:
             signal.signal(number, signal.SIG_DFL)
@@ -452,8 +456,9 @@ def end_with_parent():
     default_signals()
     try:
         import ctypes
-        ctypes.CDLL(None).prctl(1, int(signal.SIGTERM))
+        ctypes.CDLL(None).prctl(PR_SET_PDEATHSIG, int(signal.SIGTERM))
     except (OSError, AttributeError):
+        # best effort: a host with no Linux prctl (macOS libc) keeps the wait, which then ends at its own timeout
         pass
 
 

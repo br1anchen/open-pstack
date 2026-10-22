@@ -1164,18 +1164,20 @@ esac
         self.assertIn(f'sent: BRIEF {brief}', out)
         self.assertEqual(self.state()['dispatch']['brief'], str(brief))
 
-    def test_a_timeout_cannot_cut_a_delivery_short(self):
+    def test_a_term_during_delivery_cannot_cut_it_short(self):
         self.spawn_pi()
         brief = self.store / 'briefs/001-first.md'
         brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
-        (self.fake / 'prompt-delay').write_text('3')
-        proc = subprocess.Popen([str(self.script), 'dispatch', str(self.store), str(brief), '--send-only'],
-                                cwd=self.cwd, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        time.sleep(1)
-        proc.terminate()
-        stdout, stderr = proc.communicate()
+        # the fake herdr's `agent prompt` runs this hook first, from inside the delivery; herdr's parent (field 4 of /proc/<pid>/stat) is the dispatch
+        (self.fake / 'once').mkdir()
+        hook = self.fake / 'once/prompt'
+        hook.write_text('#!/bin/sh\nkill -TERM "$(cut -d" " -f4 /proc/$PPID/stat)"\n')
+        hook.chmod(0o755)
+        proc = subprocess.run([str(self.script), 'dispatch', str(self.store), str(brief), '--send-only'], cwd=self.cwd, env=self.env,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False, timeout=60)
+        self.assertTrue((self.fake / 'once/prompt.ran').exists(), 'the TERM was never sent')
         # What matters is that the TERM did not stop the delivery.
-        self.assertIn(f'sent: BRIEF {brief}', stdout, stderr)
+        self.assertIn(f'sent: BRIEF {brief}', proc.stdout, proc.stderr)
         self.assertIn(f'agent prompt demo-sidekick pstack-pair BRIEF {brief}', (self.fake / 'calls.log').read_text())
 
     def test_live_pi_skips_the_preflight(self):
