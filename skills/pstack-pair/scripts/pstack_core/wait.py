@@ -269,6 +269,23 @@ def read_path(value, *keys):
     return value, True
 
 
+def reply_at(reply, *keys, quiet=False):
+    """The value at keys in the first JSON value of a herdr or daemon reply, None when it has none. A reply that is not JSON, or whose path steps
+    over a value that is no object, is one stderr line saying so (quiet leaves it out), and None."""
+    values, ok = json_values(reply)
+    problem = '' if ok and values else 'is not JSON'
+    if not problem:
+        found, readable = read_path(values[0], *keys)
+        if readable:
+            return found
+        problem = f'has no object on the way to {".".join(keys)}'
+    if not quiet:
+        sys.stdout.flush()
+        sys.stderr.write(f'herdr reply {problem}\n')
+        sys.stderr.flush()
+    return None
+
+
 def printed(lines, failed, default):
     """What a command substitution holds after the lines were printed one each; a failure adds the default."""
     text = ''.join(f'{as_text(line)}\n' for line in lines)
@@ -668,20 +685,3 @@ def wait(ctx, args):
     from .store import field
     name = field(store, 'sidekick', 'name')
     return owned_wait(ctx, store, name, timeout, interval)
-
-
-def reply_at(reply, *keys, quiet=False):
-    """The value at keys in the first JSON value of a herdr or daemon reply, None when it has none. A reply that is not JSON, or whose path steps
-    over a value that is no object, is one stderr line saying so (quiet leaves it out), and None."""
-    values, ok = json_values(reply)
-    problem = '' if ok and values else 'is not JSON'
-    if not problem:
-        found, readable = read_path(values[0], *keys)
-        if readable:
-            return found
-        problem = f'has no object on the way to {".".join(keys)}'
-    if not quiet:
-        sys.stdout.flush()
-        sys.stderr.write(f'herdr reply {problem}\n')
-        sys.stderr.flush()
-    return None

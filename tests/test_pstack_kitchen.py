@@ -4294,13 +4294,53 @@ esac
         self.assertNotIn('verify:missing', (self.store / 'events.tsv').read_text())
         self.assertEqual(self.verify_wakes(), ['verify:provider'])
 
-    def test_a_sidekick_fallback_of_the_wrong_type_is_damage_to_verify(self):
+    def open_verification_entry(self):
+        """The `.verifying.entry` block of pair.json as written, after a verify that leaves its verifier working."""
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+        self.run_sh('verify', str(self.store), '001', '--every', '0', '--timeout', '60', code=4)
+        text = (self.store / 'pair.json').read_text()
+        return text[text.index('    "entry": {'):text.index('    "retried"')]
+
+    def test_the_sidekick_source_entry_is_written_byte_for_byte(self):
+        self.assertEqual(self.open_verification_entry(), (
+            '    "entry": {\n      "kind": "pi",\n      "args": [\n        "--approve",\n        "--model",\n        "devin/swe-2"\n      ],\n'
+            '      "source": "sidekick",\n      "fallback": {\n        "kind": "devin",\n        "args": []\n      }\n    },\n'))
+
+    def test_the_master_source_entry_is_written_byte_for_byte(self):
+        self.set_roster('[verifier]\nkind = "master"\n')
+        self.assertEqual(self.open_verification_entry(), (
+            '    "entry": {\n      "kind": "claude",\n      "args": [],\n      "fallback": null,\n      "source": "master"\n    },\n'))
+
+    def assert_fallback_is_damage(self, value, word):
         state = self.state()
-        state['sidekick']['fallback'] = 'devin'
+        state['sidekick']['fallback'] = value
         (self.store / 'pair.json').write_text(json.dumps(state))
         _, out = self.verify_app_unit('clean', 1)
-        self.assertIn('pair.json is damaged: sidekick.fallback is string, not an object', out)
+        self.assertIn(f'pair.json is damaged: sidekick.fallback is {word}, not an object', out)
         self.assertEqual(self.verifier_starts(), [])
+
+    def test_a_sidekick_fallback_that_is_a_string_is_damage_to_verify(self):
+        self.assert_fallback_is_damage('devin', 'string')
+
+    def test_a_sidekick_fallback_that_is_an_array_is_damage_to_verify(self):
+        self.assert_fallback_is_damage([], 'array')
+
+    def test_a_sidekick_fallback_that_is_a_number_is_damage_to_verify(self):
+        self.assert_fallback_is_damage(7, 'number')
+
+    def test_a_sidekick_fallback_that_is_true_is_damage_to_verify(self):
+        self.assert_fallback_is_damage(True, 'boolean')
+
+    def test_a_null_sidekick_fallback_is_no_fallback(self):
+        state = self.state()
+        state['sidekick']['fallback'] = None
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.verify_app_unit('clean', 0)
 
     def test_verify_deadline_scales_with_measured_gate_time(self):
         state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],

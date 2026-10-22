@@ -2086,6 +2086,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'status with a maintainer.json that is a string': dict(args=['maintainer', 'status'], **live, statefiles={'pstack/feedback/maintainer.json': '"x"\n'}),
             'status when herdr answers an agent of null': dict(args=['maintainer', 'status'], statefiles=registered, agent_get='{"result":{"agent":null}}\n'),
             'status when herdr answers text that is not JSON': dict(args=['maintainer', 'status'], statefiles=registered, agent_get='nope\n'),
+            'status when herdr answers a result that is a string': dict(args=['maintainer', 'status'], statefiles=registered, agent_get='{"result":"x"}\n'),
             'on when herdr answers an agent of null': dict(args=['maintainer', 'on', '--pane', 'p7'], agent_get='{"result":{"agent":null}}\n'),
             'no arguments': dict(args=['maintainer']),
             'an unknown subcommand': dict(args=['maintainer', 'stop']),
@@ -2112,6 +2113,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'status with a maintainer.json that is a string': (0, 'maintainer:  on  since : agent  is gone'),
             'status when herdr answers an agent of null': (0, ': agent mt moved off pane p7'),
             'status when herdr answers text that is not JSON': (0, ': agent mt moved off pane p7'),
+            'status when herdr answers a result that is a string': (0, ': agent mt moved off pane p7'),
             'on when herdr answers an agent of null': (1, 'pair.sh: herdr reports no name for the agent on pane p7; name it first'),
             'no arguments': (1, 'pair.sh: usage: kitchen.sh maintainer on [--pane ID] | off | status'),
             'an unknown subcommand': (1, 'pair.sh: usage: kitchen.sh maintainer on [--pane ID] | off | status'),
@@ -2126,6 +2128,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertRegex(out[name]['stderr'], r'maintainer\.json is (not JSON|\w+, not an object)', name)
         self.assertIn('moved off pane p7', out['status when herdr answers an agent of null']['stdout'])
         self.assertIn('herdr reply is not JSON\n', out['status when herdr answers text that is not JSON']['stderr'])
+        self.assertIn('herdr reply has no object on the way to result.agent.pane_id\n', out['status when herdr answers a result that is a string']['stderr'])
         self.assertIn('herdr reports no name for the agent on pane p7', out['on when herdr answers an agent of null']['stderr'])
 
     def test_the_maintainer_record_is_written_byte_for_byte(self):
@@ -2135,29 +2138,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             got = self.kitchen_world(f'maintrecord{n}', spec)['state']['pstack/feedback/maintainer.json']
             got = re.sub(r'"since": "[0-9T:Z-]+"', '"since": "<TS>"', got)
             self.assertEqual(got, '{\n  "name": "mt",\n  "pane": "p7",\n  "session": ' + session + ',\n  "since": "<TS>"\n}\n')
-
-    def test_the_verifier_entry_is_written_byte_for_byte(self):
-        verify = self.kitchen_core_module('verify')
-        store_dir = self.path / 'entry-store'
-        store_dir.mkdir()
-        (store_dir / 'pair.json').write_text(json.dumps({
-            'sidekick': {'kind': 'pi', 'start_args': ['--model', 'm'], 'fallback': {'kind': 'devin', 'args': ['--x']}},
-            'master': {'pane_id': 'p0'}}))
-
-        class Kit:
-            store = str(store_dir)
-
-            def __init__(self, entry):
-                self.entry = entry
-
-            def elsewhere(self, args):
-                return 0, json.dumps({'verifier': {'routine': self.entry}})
-
-        sidekick = verify.verifier_entry(Kit({'kind': 'sidekick', 'args': [], 'fallback': None, 'source': 'sidekick'}), 'routine')
-        self.assertEqual(json.dumps(sidekick), '{"kind": "pi", "args": ["--model", "m"], "source": "sidekick", "fallback": {"kind": "devin", "args": ["--x"]}}')
-        with mock.patch.object(verify, 'agent_kind', return_value='claude'):
-            master = verify.verifier_entry(Kit({'kind': 'master', 'args': ['--ignored'], 'fallback': None, 'source': 'roster'}), 'routine')
-        self.assertEqual(json.dumps(master), '{"kind": "claude", "args": [], "fallback": null, "source": "master"}')
 
     CLOSE_ROLES = {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}, 'consultant': {'name': 'c1', 'pane_id': 'p2', 'kind': 'codex'},
                    'sidekick': {'name': 's1', 'pane_id': 'p1', 'kind': 'claude'}}
@@ -5300,6 +5280,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for n, (name, (args, files, rc)) in enumerate(cases.items()):
             got = self.kitchen_world(f'nopair{n}', self.launch_world(args=args, nopair=True, files=files))
             self.assertEqual(got['rc'], rc, name)
+            if name == 'dispatch':
+                self.assertEqual((got['stdout'], got['stderr']), ('', 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'))
             self.assertEqual(got['stderr'].count('pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\n'), 1, f'{name}: {got["stderr"]}')
 
     def test_dispatch_behaviour(self):

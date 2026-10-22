@@ -205,7 +205,7 @@ def sh_exits(path):
             found.append((int(m.group(1)), i + 1, near.replace('\\n', '').strip() or f'(exits {m.group(1)} in {fn}())'))
     return found
 
-manual_at = [('skills/pstack-pair/scripts/pstack_core/wait.py', 401), ('skills/pstack-pair/scripts/pstack_core/wait.py', 411), ('skills/pstack-pair/scripts/pstack_core/wait.py', 419),
+manual_at = [('skills/pstack-pair/scripts/pstack_core/wait.py', 418), ('skills/pstack-pair/scripts/pstack_core/wait.py', 428), ('skills/pstack-pair/scripts/pstack_core/wait.py', 436),
              ('skills/pstack-pair/scripts/pstack_core/commands/report.py', 84), ('skills/pstack-pair/scripts/pstack_core/spawn.py', 101), ('skills/pstack-pair/scripts/pstack_core/spawn.py', 178),
              ('skills/pstack-pair/scripts/pstack_core/spawn.py', 189)]
 exit_lines, seen = [], set()
@@ -222,7 +222,7 @@ for path in git_grep(r'.', *PROD, flags='-lE'):
 exit_lines.sort(key=lambda x: (x[0], x[1], x[2]))
 # lines whose code carries no message: the text a test must show for them
 HINTS = {('skills/pstack-pair/scripts/pstack_core/commands/report.py', 88): ['queue: empty'],
-         ('skills/pstack-pair/scripts/pstack_core/wait.py', 633): ['superseded: a newer wait owns this store'],
+         ('skills/pstack-pair/scripts/pstack_core/wait.py', 650): ['superseded: a newer wait owns this store'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 285): ['advice_status: answered'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 290): ['advice: missing'],
          ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 551): ['verifier start failed in'],

@@ -39,8 +39,8 @@ def has_pair(store, check=False, quiet=False):
     many reads follow."""
     if os.path.isfile(f'{store}/pair.json'):
         return True
-    if not quiet and store not in TOLD:
-        TOLD.add(store)
+    if not quiet and os.path.realpath(store) not in TOLD:
+        TOLD.add(os.path.realpath(store))
         sys.stdout.flush()
         sys.stderr.write(MISSING_PAIR.format(store=store))
         sys.stderr.flush()
