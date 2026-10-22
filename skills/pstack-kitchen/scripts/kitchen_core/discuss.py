@@ -4,14 +4,12 @@ Ported from kitchen.sh at b632713 (cmd_queue, cmd_discuss, rotate_if_due). The p
 The bash wrappers called the core's queue and discuss in a child process; here they call the core functions directly."""
 
 import os
-import subprocess
 import sys
 
 from pstack_core.commands import queue as core_queue
-from pstack_core.commands import rotate as rotate_command
 from pstack_core.commands import send as core_send
+from pstack_core.commands.rotate import rotate_if_due
 from pstack_core.consult import discuss_with_consultant
-from pstack_core.dispatch import fresh_per_brief
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
 from pstack_core.store import field
@@ -19,7 +17,6 @@ from pstack_core.store import field
 from .classify import classify_brief, risk_of
 from .landing import is_landing
 from .units import has_pair
-from .verify import in_subshell
 
 
 def devnull_stdout(call):
@@ -47,26 +44,6 @@ def queue(ctx, args):
     if len(args) >= 2 and args[1] != '--clear' and os.path.isfile(args[1]) and not is_landing(args[1]):
         devnull_stdout(lambda: classify_brief(args[0], args[1]))
     return core_queue.queue(ctx, args)
-
-
-def rotate_if_due(ctx, store, what):
-    """A sidekick that starts fresh per brief (pi, prime-agent, devin) is rotated before the next brief or plan once its last unit is done, so
-    the rotation costs the master no extra wake. Partial or blocked work never sets rotation_required and keeps its session."""
-    if not (fresh_per_brief(field(store, 'sidekick', 'kind')) and field(store, 'sidekick', 'rotation_required', default='false') == 'true'):
-        return
-    # The report lands a moment before the sidekick's turn ends.
-    subprocess.run(['herdr', 'agent', 'wait', field(store, 'sidekick', 'name'), '--until', 'idle', '--until', 'done', '--timeout', '60000'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-
-    def rotate_in_the_substitution():
-        code = rotate_command.rotate(ctx, [store])
-        if code:
-            raise Exit(code)
-
-    rc, out = in_subshell(rotate_in_the_substitution)
-    if rc != 0:
-        raise Die(f'rotating the sidekick before this {what} failed:\n{out}', rc)
-    sys.stdout.write(f"rotated: the {field(store, 'sidekick', 'kind')} sidekick starts this {what} in a fresh session\n")
 
 
 def discuss(ctx, args):

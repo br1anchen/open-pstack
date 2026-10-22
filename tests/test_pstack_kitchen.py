@@ -4556,6 +4556,53 @@ esac
         self.assertIn('agent prompt demo-sidekick /quit', calls)
         self.assertFalse(self.state()['sidekick'].get('rotation_required'))
 
+    def claude_sidekick(self):
+        state = self.state()
+        state['sidekick']['kind'] = 'claude'
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.fake / 'agents/demo-sidekick').write_text('idle claude\n')
+
+    def queue_behind(self, brief, status):
+        """The sidekick reports `status` on the dispatched brief while the next one waits in the queue."""
+        queued = self.brief('002', 'next', ['src/**', 'tests/**'])
+        (self.fake / 'agents/demo-sidekick').write_text('working claude\n')
+        self.run_sh('queue', str(self.store), str(queued))
+        (self.fake / 'agents/demo-sidekick').write_text('idle claude\n')
+        self.write('src/first.py', 'F = 1\n')
+        head = self.commit('first')
+        (self.store / 'reports' / brief.name).write_text(f'# Report\n\nstatus: {status}\nhead: {head}\n')
+        return queued
+
+    def test_a_claude_sidekick_starts_the_next_brief_in_a_fresh_session(self):
+        self.claude_sidekick()
+        first = self.brief('001', 'first', ['src/**', 'tests/**'])
+        self.verify_block(first, 'true')
+        self.dispatch(first)
+        queued = self.queue_behind(first, 'done')
+        out = self.run_sh('finish', str(self.store), str(self.store / 'reports' / first.name))
+        self.assertIn('rotation: required before the next task', out)
+        self.assertNotIn('Start that brief now', out)
+        self.assertTrue((self.store / 'queue').exists())
+        out = self.dispatch(queued)
+        self.assertIn('rotated: the claude sidekick starts this brief in a fresh session', out)
+        self.assertEqual(self.state()['sidekick']['generation'], 2)
+        calls = (self.fake / 'calls.log').read_text()
+        ready = calls.index('take the sidekick role (generation 2')
+        self.assertLess(calls.index('agent prompt demo-sidekick /exit'), ready)
+        self.assertLess(ready, calls.index(f'BRIEF {queued}'))
+
+    def test_a_partial_report_keeps_a_claude_sidekick_in_its_session(self):
+        self.claude_sidekick()
+        first = self.brief('001', 'first', ['src/**', 'tests/**'])
+        self.dispatch(first)
+        queued = self.queue_behind(first, 'partial')
+        out = self.run_sh('finish', str(self.store), str(self.store / 'reports' / first.name))
+        self.assertNotIn('rotation:', out)
+        out = self.dispatch(queued)
+        self.assertNotIn('rotated:', out)
+        self.assertEqual(self.state()['sidekick']['generation'], 1)
+        self.assertNotIn('agent prompt demo-sidekick /exit', (self.fake / 'calls.log').read_text())
+
     def test_discuss_rotates_a_pi_sidekick_after_a_done_unit(self):
         state = self.state()
         state['sidekick']['rotation_required'] = True

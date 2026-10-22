@@ -2610,7 +2610,7 @@ class CoreTests(unittest.TestCase):
             'no arguments': {**plain, 'args': ['rotate']},
             'too many arguments': run(plain, 'x'),
             'an unknown store': {**plain, 'args': ['rotate', '{T}/nope']},
-            'a kind that is not fresh per brief': run(world('claude')),
+            'a claude sidekick': run(world('claude')),
             'no rotation required': run(world(rotation_required=False)),
             'a rotation flag that is not true': run(world(rotation_required='yes')),
             'a rotation flag that is the string true': run(world(rotation_required='true')),
@@ -2833,9 +2833,9 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(prime.with_timeout('0.2', ['tail', '-f', os.devnull]).returncode, 124)
         self.assertEqual(prime.with_timeout('5', ['no-such-command-here']).returncode, 127)
 
-    def test_fresh_per_brief_is_devin_pi_and_prime_agent_only(self):
+    def test_fresh_kind_is_devin_pi_and_prime_agent_only(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
-            self.assertEqual(dispatch.fresh_per_brief(kind), kind in ('devin', 'pi', 'prime-agent'), kind)
+            self.assertEqual(dispatch.fresh_kind(kind), kind in ('devin', 'pi', 'prime-agent'), kind)
 
     def test_load_variant_picks_the_skills_class_by_path(self):
         names = {}
@@ -6086,7 +6086,6 @@ class CoreTests(unittest.TestCase):
 
     def test_rotate_refuses_and_reports_what_a_caller_reads(self):
         self.check_port(self.rotate_cases(), {
-            'a kind that is not fresh per brief': (5, 'rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not claude'),
             'no rotation required': (5, 'rotation requires a completed task; partial or blocked work keeps its session'),
             'no recorded start args': (5, 'no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags'),
             'a paused run': (5, 'the store is paused (lunch): start nothing new; record where the work stands and end your turn, or run pair.sh resume <T>/st'),
@@ -6095,6 +6094,16 @@ class CoreTests(unittest.TestCase):
             'an untolerated error and an agent that leaves': (2, 'devin exit failed: {"error":{"code":"boom"}}'),
             'a sidekick that does not exit in time': (5, 'devin has not exited; inspect s1 before retrying rotate'),
         })
+
+    def test_rotate_exits_and_respawns_every_kind_a_sidekick_can_be(self):
+        for kind, exit_line in (('claude', '/exit'), ('codex', '/quit'), ('devin', '/exit'), ('pi', '/quit'), ('muse', '/quit'), ('prime-agent', '/quit')):
+            with self.subTest(kind):
+                type(self).port_runs += 1
+                got = self.script_run(f'port-{type(self).port_runs}', root / 'skills', 'pstack-pair', {**self.rotation_world(kind), 'args': ['rotate', '{st}']})
+                self.assertEqual(got['rc'], 0, got['stderr'])
+                self.assertIn(f'sidekick s1 ({kind}) started in p1', got['stdout'])
+                self.assertIn(f'agent start s1 --kind {kind} --pane p1', got['calls'])
+                self.assertIn(f'agent prompt s1 {exit_line}', got['calls'])
 
     def test_steer_refuses_and_reports_what_a_caller_reads(self):
         cases = self.steer_cases()
@@ -6131,15 +6140,15 @@ class CoreTests(unittest.TestCase):
         })
         self.check_port(self.send_cases(), {
             'the sidekick is working': (5, 'sidekick s1 is working; run: pair.sh wait <T>/st'),
-            'a devin sidekick that needs a rotation': (5, 'the devin sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate <T>/st after a completed task. The queue is preserved.'),
+            'a devin sidekick that needs a rotation': (5, 'rotating the sidekick before this brief failed:\npair.sh: no recorded startup arguments'),
             'a dispatch while another brief is queued': (5, 'the queue holds <T>/st/briefs/002-y.md; dispatch that first, or: pair.sh queue <T>/st --clear'),
         })
 
     def test_report_next_and_finish_say_what_is_missing(self):
         self.check_port(self.AB_CASES, {
             'report with none': (4, 'no report found'),
-            'next while paused': (4, 'queue: paused'),
-            'next with nothing queued': (4, 'queue: empty'),
+            'next while paused': (5, 'a claude sidekick leaves the queue for the master to dispatch after a fresh session'),
+            'next with nothing queued': (5, 'a claude sidekick leaves the queue for the master to dispatch after a fresh session'),
             'done report with a stale head': (7, "rewrite the report at the unit's last commit (head:), then finish again"),
             'done report with open notes': (7, 'blocking review notes are still open on 001-x:'),
         })
@@ -6147,7 +6156,7 @@ class CoreTests(unittest.TestCase):
     def test_answer_names_the_state_that_blocks_it(self):
         self.check_port(self.answer_cases(), {
             'the sidekick is working': (5, 'sidekick s1 is working; run: pair.sh wait <T>/st'),
-            'a devin that needs a rotation': (5, 'the devin sidekick needs a fresh session or a successful bootstrap before another task'),
+            'a devin that needs a rotation': (5, 'the devin sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate <T>/st after a completed task. The queue is preserved.'),
             'the sidekick is blocked': (3, 'sidekick s1 is blocked; inspect: herdr agent read s1 --source visible --lines 60'),
         }, 'pstack-pair-guided')
 

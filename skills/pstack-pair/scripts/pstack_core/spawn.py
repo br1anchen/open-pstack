@@ -8,7 +8,7 @@ import sys
 import time
 
 from . import agents
-from .dispatch import fresh_per_brief
+from .dispatch import fresh_kind
 from .errors import Die
 from .herdr import agent_field, agent_status, herdr
 from .panes import await_file, new_pane, refuse_untrusted
@@ -86,7 +86,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
     if not agents.has_mcp_arg(args):
         agent_args += agents.mcp_args(kind, cwd)[0]
     args = [*agent_args, *args]
-    if fresh_per_brief(kind):
+    if fresh_kind(kind):
         for arg in args:
             if arg in FRESH_SESSION_FLAGS or arg.startswith(('--resume=', '--session=')):
                 raise Die(f'{kind} task sessions start fresh; recover partial work from the store instead of passing {arg}', 5)

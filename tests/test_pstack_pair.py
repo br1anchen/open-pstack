@@ -120,22 +120,21 @@ esac
     def test_done_requires_fresh_session_and_preserves_queue(self):
         report, queued = self.complete_task()
         self.run_command('next', str(self.store), code=5)
-        self.run_command('dispatch', str(self.store), str(queued), code=5)
         self.assertEqual((self.store / 'queue').read_text().strip(), str(queued))
         self.assertEqual(self.state()['dispatch']['brief'], str(self.store / 'briefs/001-first.md'))
-        self.run_command('rotate', str(self.store))
+        out = self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=4)
+        self.assertIn('rotated: the devin sidekick starts this brief in a fresh session', out)
         state = self.state()
         self.assertEqual(state['sidekick']['generation'], 2)
         self.assertEqual(state['sidekick']['start_args'],
                          ['--respect-workspace-trust', 'false', '--model', 'swe-2-high', '--permission-mode', 'smart'])
         self.assertFalse(state['sidekick']['rotation_required'])
         self.assertTrue(report.exists())
-        self.assertTrue((self.store / 'queue').exists())
+        self.assertEqual(state['dispatch']['brief'], str(queued))
+        self.assertFalse((self.store / 'queue').exists())
         # A delayed finish from the previous generation cannot invalidate READY.
         self.run_command('finish', str(self.store), str(report))
         self.assertFalse(self.state()['sidekick']['rotation_required'])
-        self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=4)
-        self.assertFalse((self.store / 'queue').exists())
 
     def test_partial_task_keeps_session_and_queue(self):
         _, queued = self.complete_task(status='partial')
@@ -234,6 +233,94 @@ esac
         self.assertEqual(state['sidekick']['start_args'], ['--permission-mode', 'smart', '--respect-workspace-trust', 'false'])
         self.assertEqual(state['consultant']['start_args'],
                          ['-a', 'on-request', '-s', 'read-only', '--disable', 'plugins'])
+
+
+class FreshSessionTests(unittest.TestCase):
+    """Every sidekick kind starts a fresh session for each completed brief, in pair, guided and trio alike."""
+
+    VARIANTS = (('pstack-pair', 'pair'), ('pstack-pair-guided', 'pair-guided'), ('pstack-trio', 'trio'))
+
+    def world(self, skill, state_dir):
+        self.tmp = tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name)
+        fake, repo = path / 'fake', path / 'repo'
+        fake.mkdir()
+        repo.mkdir()
+        env = {**inherited_env(), 'FAKE': str(fake), 'HERDR_SOCKET_PATH': str(fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2',
+               'PAIR_STOP_POLL_S': '0.2', 'PATH': f'{here / "bin"}:{os.environ["PATH"]}', 'HOME': str(path / 'home'), 'XDG_STATE_HOME': str(path / 'state'),
+               'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0'}
+        env.pop('CLAUDE_CODE_SESSION_ID', None)
+        watch_jq(self, env)
+        script = skills / skill / 'scripts/pair.sh'
+        store = path / 'state/pstack' / state_dir / 'demo'
+
+        def run(*args, code=0):
+            r = subprocess.run([script, *args], cwd=repo, env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+            return r.stdout + r.stderr
+
+        run('init', 'demo')
+        hook = fake / 'hook'
+        hook.write_text(f'#!/usr/bin/env bash\ncase "$2" in\nLoad*) case "$1" in *consultant) f=advice ;; *) f=reports ;; esac\n  printf \'status: done\\n\' >\'{store}\'/$f/000-ready.md ;;\nesac\n')
+        hook.chmod(0o755)
+        run('spawn', str(store), *(('--sidekick', 'claude', '--consultant', 'codex') if skill == 'pstack-trio' else ('--kind', 'claude')))
+
+        def brief(name):
+            b = store / 'briefs' / name
+            b.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
+            return b
+
+        def state():
+            return json.loads((store / 'pair.json').read_text())
+
+        first = brief('001-first.md')
+        run('dispatch', str(store), str(first), '--timeout', '1', code=4)
+        return run, state, brief, store, fake, first
+
+    def test_a_claude_sidekick_starts_the_next_brief_in_a_fresh_session(self):
+        for skill, state_dir in self.VARIANTS:
+            with self.subTest(skill):
+                run, state, brief, store, fake, first = self.world(skill, state_dir)
+                report = store / 'reports' / first.name
+                report.write_text('status: done\nhead: abc123\n')
+                queued = brief('002-next.md')
+                (fake / 'agents/demo-sidekick').write_text('working claude\n')
+                run('queue', str(store), str(queued))
+                (fake / 'agents/demo-sidekick').write_text('idle claude\n')
+                out = run('finish', str(store), str(report))
+                self.assertIn('rotation: required before the next task', out)
+                self.assertNotIn('Start that brief now', out)
+                run('next', str(store), code=5)
+                self.assertTrue((store / 'queue').exists())
+                self.assertEqual(state()['sidekick']['generation'], 1)
+                out = run('dispatch', str(store), str(queued), '--timeout', '1', code=4)
+                self.assertIn('rotated: the claude sidekick starts this brief in a fresh session', out)
+                self.assertEqual(state()['sidekick']['generation'], 2)
+                self.assertFalse(state()['sidekick']['rotation_required'])
+                self.assertFalse((store / 'queue').exists())
+                calls = (fake / 'calls.log').read_text()
+                ready = calls.index('take the sidekick role (generation 2')
+                self.assertLess(ready, calls.index(f'BRIEF {queued}'))
+                self.assertLess(calls.index('agent prompt demo-sidekick /exit'), ready)
+
+    def test_a_partial_report_keeps_the_session_for_every_variant(self):
+        for skill, state_dir in self.VARIANTS:
+            with self.subTest(skill):
+                run, state, brief, store, fake, first = self.world(skill, state_dir)
+                report = store / 'reports' / first.name
+                report.write_text('status: partial\nhead: abc123\n')
+                queued = brief('002-next.md')
+                (fake / 'agents/demo-sidekick').write_text('working claude\n')
+                run('queue', str(store), str(queued))
+                (fake / 'agents/demo-sidekick').write_text('idle claude\n')
+                out = run('finish', str(store), str(report))
+                self.assertNotIn('rotation:', out)
+                self.assertTrue((store / 'queue').exists())
+                out = run('dispatch', str(store), str(queued), '--timeout', '1', code=4)
+                self.assertNotIn('rotated:', out)
+                self.assertEqual(state()['sidekick']['generation'], 1)
+                self.assertNotIn('agent prompt demo-sidekick /exit', (fake / 'calls.log').read_text())
 
 
 class RangeFloorTests(unittest.TestCase):
@@ -1102,14 +1189,13 @@ esac
         out = self.run_command('finish', str(self.store), str(report))
         self.assertIn('rotation: required before the next task', out)
         self.run_command('next', str(self.store), code=5)
-        self.run_command('dispatch', str(self.store), str(queued), code=5)
-        self.run_command('rotate', str(self.store))
+        out = self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=4)
+        self.assertIn('rotated: the pi sidekick starts this brief in a fresh session', out)
         self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
         sidekick = self.state()['sidekick']
         self.assertEqual((sidekick['kind'], sidekick['generation'], sidekick['start_args']), ('pi', 2, args))
         self.assertFalse(sidekick['rotation_required'])
-        self.assertTrue((self.store / 'queue').exists())
-        self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=4)
+        self.assertFalse((self.store / 'queue').exists())
 
     def test_pi_refuses_session_resume_args(self):
         out = self.run_command('spawn', str(self.store), '--kind', 'pi', '--', '--continue', code=5)
@@ -1233,7 +1319,7 @@ HELP = {
                                             a pi or Prime sidekick first proves its model answers; on failure the
                                             --fallback kind starts instead; --tab gives the sidekick its own tab
                                             instead of a split (PSTACK_PLACEMENT=tab sets the default)
-  rotate <store>                            exit an idle Devin, pi, or Prime sidekick after a done brief, respawn with recorded
+  rotate <store>                            exit an idle sidekick after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
   failover <store> [--reason TEXT] [--force]
                                             replace a failing sidekick with its recorded fallback in the same pane;
@@ -1250,7 +1336,7 @@ HELP = {
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
+                                            current report is written (after a done report it waits for the master's dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -1258,8 +1344,8 @@ HELP = {
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start for other kinds, or the REPORT line; a done Devin, pi, or Prime brief requires rotation
-  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+                                            the REPORT line; a done brief requires rotation
+  next <store>                              sidekick: refused for every kind (exit 5); the master dispatches the queued brief to a fresh session
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
@@ -1323,7 +1409,7 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
                                             the queued brief to start (after a done report) or the line to end on
-  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+  next <store>                              sidekick: refused for every kind (exit 5); the master dispatches the queued brief to a fresh session
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
@@ -1359,7 +1445,7 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
                                             three kinds are all the same. --only respawns one role. A pi or Prime sidekick first proves
                                             its model answers; on failure the --fallback kind starts instead. --tab gives each role
                                             its own tab instead of a split (PSTACK_PLACEMENT=tab sets the default).
-  rotate <store>                            exit an idle Devin, pi, or Prime sidekick after a done brief, respawn with recorded
+  rotate <store>                            exit an idle sidekick after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
   failover <store> [--reason TEXT] [--force]
                                             replace a failing sidekick with its recorded fallback in the same pane;
@@ -1384,7 +1470,7 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
+                                            current report is written (after a done report it waits for the master's dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -1392,8 +1478,8 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start for other kinds, or the REPORT line; a done Devin, pi, or Prime brief requires rotation
-  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+                                            the REPORT line; a done brief requires rotation
+  next <store>                              sidekick: refused for every kind (exit 5); the master dispatches the queued brief to a fresh session
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers

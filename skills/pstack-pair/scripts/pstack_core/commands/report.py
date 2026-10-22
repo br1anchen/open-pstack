@@ -1,11 +1,10 @@
 import os
 import subprocess
 
-from ..dispatch import fresh_per_brief, take_queued
 from ..errors import Die, Exit
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import (alt, event, expected_report, get, header_field, load, member, open_steers, paused_reason, steer_number, unit_name, update)
+from ..store import (alt, event, expected_report, get, header_field, load, member, open_steers, steer_number, unit_name, update)
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
 
@@ -74,20 +73,9 @@ def notify(ctx, args):
 def next_brief(ctx, args):
     if len(args) != 1:
         raise Die('usage: pair.sh next <store>')
-    store = args[0]
-    pair = load(store)
+    pair = load(args[0])
     kind = jq_raw(section(pair, 'sidekick').get('kind'))
-    if fresh_per_brief(kind):
-        raise Die(f'a {kind} sidekick leaves the queue for the master to dispatch after a fresh session', 5)
-    if paused_reason(store) is not None:
-        print('queue: paused')
-        return 4
-    brief = take_queued(store)
-    if brief is None:
-        print('queue: empty')
-        return 4
-    print(f'{ctx.skill} BRIEF {brief}')
-    return 0
+    raise Die(f'a {kind} sidekick leaves the queue for the master to dispatch after a fresh session', 5)
 
 
 def sidekick_kind(store, sidekick):
@@ -132,7 +120,7 @@ def finish(ctx, args):
     current = jq_raw(alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, ''))
     kind = sidekick_kind(store, sidekick)
     generation = jq_raw(alt(sidekick.get('generation'), 0))
-    if (status == 'done' and fresh_per_brief(kind) and current and report == expected_report(store, current)
+    if (status == 'done' and current and report == expected_report(store, current)
             and jq_raw(alt(dispatch.get('generation') if isinstance(dispatch, dict) else None, 0)) == generation):
         if jq_raw(alt(sidekick.get('rotation_required'), False)) != 'true':
             update(store, lambda doc: member(doc, 'sidekick').__setitem__('rotation_required', True))
@@ -146,17 +134,9 @@ def finish(ctx, args):
                   'and the master folds it into the next brief')
     pair = load(store)
     sidekick = section(pair, 'sidekick')
-    if status == 'done' and fresh_per_brief(sidekick_kind(store, sidekick)):
-        if jq_raw(alt(sidekick.get('rotation_required'), False)) == 'true':
-            print(f'rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate {store}')
-        print(f'next: end the turn with the single line: {ctx.skill} REPORT {report}')
-        return 0
-    brief = take_queued(store) if status == 'done' and paused_reason(store) is None else None
-    if brief is not None:
-        print(f'next: the master queued {ctx.skill} BRIEF {brief}')
-        print('Start that brief now, in this turn, as if the message had just arrived.')
-    else:
-        print(f'next: end the turn with the single line: {ctx.skill} REPORT {report}')
+    if status == 'done' and jq_raw(alt(sidekick.get('rotation_required'), False)) == 'true':
+        print(f'rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate {store}')
+    print(f'next: end the turn with the single line: {ctx.skill} REPORT {report}')
     return 0
 
 

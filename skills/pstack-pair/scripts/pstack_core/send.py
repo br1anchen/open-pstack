@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from .dispatch import fresh_per_brief, record_dispatch
+from .dispatch import record_dispatch
 from .errors import Die, Exit
 from .gates import check_scope
 from .herdr import agent_kind, agent_status
@@ -50,7 +50,7 @@ def require_fresh_session(store):
         field(store, 'sidekick', 'kind')
     sidekick = section(load(store), 'sidekick')
     kind = jq_raw(sidekick.get('kind'))
-    if fresh_per_brief(kind) and (alt(sidekick.get('rotation_required'), False) is not False or alt(sidekick.get('bootstrap_pending'), False) is not False):
+    if (alt(sidekick.get('rotation_required'), False) is not False or alt(sidekick.get('bootstrap_pending'), False) is not False):
         raise Die(f'the {kind} sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate {store} '
                   'after a completed task. The queue is preserved.', 5)
 

@@ -1,10 +1,12 @@
+import contextlib
+import io
+import os
 import re
 import subprocess
 import sys
 import time
 
-from ..dispatch import fresh_per_brief
-from ..errors import Die
+from ..errors import Die, Exit
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..gates import require_not_paused
 from ..herdr import agent_status
@@ -27,8 +29,6 @@ def rotate(ctx, args):
     pair_file(store)
     require_not_paused(store)
     kind = field(store, 'sidekick', 'kind')
-    if not fresh_per_brief(kind):
-        raise Die(f'rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not {kind}', 5)
     sidekick = section(load(store), 'sidekick')
     if jq_raw(alt(sidekick.get('rotation_required'), False)) != 'true':
         raise Die('rotation requires a completed task; partial or blocked work keeps its session', 5)
@@ -58,3 +58,30 @@ def rotate(ctx, args):
     start_args = mapfile_args(section(load(store), 'sidekick').get('start_args'))
     event(store, 'master', 'rotate', '-', f'generation:{field(store, "sidekick", "generation")}')
     return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args)
+
+
+def rotate_if_due(ctx, store, what):
+    """The sidekick is rotated before the next brief or plan once its last unit is done, so the rotation costs the master no extra wake. Partial
+    or blocked work never sets rotation_required and keeps its session. A replacement whose READY is still pending is left to its bootstrap:
+    send refuses until it is ready."""
+    if not os.path.isfile(f'{store}/pair.json') or field(store, 'sidekick', 'rotation_required', default='false') != 'true':
+        return
+    if field(store, 'sidekick', 'bootstrap_pending', default='false') == 'true':
+        return
+    # The report lands a moment before the sidekick's turn ends.
+    subprocess.run(['herdr', 'agent', 'wait', field(store, 'sidekick', 'name'), '--until', 'idle', '--until', 'done', '--timeout', '60000'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    said = io.StringIO()
+    code = 0
+    with contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
+        try:
+            code = rotate(ctx, [store])
+        except Exit as e:
+            said.write(e.stderr)
+            code = e.code
+        except Die as e:
+            said.write(f'pair.sh: {e.message}\n')
+            code = e.code
+    if code:
+        raise Die(f'rotating the sidekick before this {what} failed:\n{said.getvalue().rstrip(chr(10))}', code)
+    sys.stdout.write(f"rotated: the {field(store, 'sidekick', 'kind')} sidekick starts this {what} in a fresh session\n")

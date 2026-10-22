@@ -221,8 +221,7 @@ for path in git_grep(r'.', *PROD, flags='-lE'):
         exit_lines.append((c, path, no, msg, frag(msg)))
 exit_lines.sort(key=lambda x: (x[0], x[1], x[2]))
 # lines whose code carries no message: the text a test must show for them
-HINTS = {('skills/pstack-pair/scripts/pstack_core/commands/report.py', 88): ['queue: empty'],
-         ('skills/pstack-pair/scripts/pstack_core/wait.py', 487): ['superseded: a newer wait owns this store'],
+HINTS = {('skills/pstack-pair/scripts/pstack_core/wait.py', 487): ['superseded: a newer wait owns this store'],
          ('skills/pstack-pair/scripts/pstack_core/consult.py', 309): ['advice_status: answered'],
          ('skills/pstack-pair/scripts/pstack_core/consult.py', 313): ['advice: missing'],
          ('skills/pstack-pair/scripts/pstack_core/consult.py', 315): ['advice: missing'],
@@ -251,7 +250,6 @@ manual_exit = [
     (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:252', 'wait returns 4 with the report path already shown (review-delta printed)', ['review-delta:']),
     (3, 'skills/pstack-pair/scripts/pstack_core/wait.py:262', 'wait returns 3 when the sidekick is blocked', ['blocked']),
     (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:270', 'wait returns 4 for a check-in digest or a missing report', ['report: missing']),
-    (4, 'skills/pstack-pair/scripts/pstack_core/commands/report.py:85', 'next returns 4 with `queue: paused` or `queue: empty`', ['queue: empty', 'queue: paused']),
     (4, 'skills/pstack-pair/scripts/pstack_core/spawn.py:101', 'spawn returns 4 while the bootstrap READY report is missing', ['bootstrap still pending']),
     (3, 'skills/pstack-pair/scripts/pstack_core/spawn.py:178', 'spawn returns 3 when the bootstrap did not settle', ['did not settle']),
     (4, 'skills/pstack-pair/scripts/pstack_core/spawn.py:189', 'spawn returns 4 when the agent settled but READY is missing', ['is missing; state=']),
@@ -265,7 +263,7 @@ for c, src, text, lits in manual_exit:
 # ---- Messages ---------------------------------------------------------------
 prefixes = ['PAUSE:', 'NOTE:', 'STEER:', 'REPORT', 'running:', 'steps:', 'idle:', 'queued:', 'rotated:', 'report_status:', 'review-delta:', 'provider_error:', 'editing:',
             'written but not ready', 'closed:', 'cancelled:', 'audit:', 'covered:', 'warning: unreviewed:', 'redelivered:', 'deadline ', 'advice:', 'advice_status:',
-            'paused:', 'queue: empty', 'queue: paused', 'gates: still running', 'gates: queued', 'unowned:', 'ready:', 'superseded', 'sidekick_response:', 'report: missing', 'next:']
+            'paused:', 'gates: still running', 'gates: queued', 'unowned:', 'ready:', 'superseded', 'sidekick_response:', 'report: missing', 'next:']
 msg_out = []
 for p in prefixes:
     hits = [l for l in git_grep(re.escape(p), *PROD) if not re.match(r'^[^:]+:\d+:\s*(#|""")', l)]

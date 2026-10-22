@@ -10,7 +10,7 @@ usage: pair.sh <command> [args]
                                             three kinds are all the same. --only respawns one role. A pi or Prime sidekick first proves
                                             its model answers; on failure the --fallback kind starts instead. --tab gives each role
                                             its own tab instead of a split (PSTACK_PLACEMENT=tab sets the default).
-  rotate <store>                            exit an idle Devin, pi, or Prime sidekick after a done brief, respawn with recorded
+  rotate <store>                            exit an idle sidekick after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
   failover <store> [--reason TEXT] [--force]
                                             replace a failing sidekick with its recorded fallback in the same pane;
@@ -35,7 +35,7 @@ usage: pair.sh <command> [args]
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
+                                            current report is written (after a done report it waits for the master's dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -43,8 +43,8 @@ usage: pair.sh <command> [args]
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start for other kinds, or the REPORT line; a done Devin, pi, or Prime brief requires rotation
-  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+                                            the REPORT line; a done brief requires rotation
+  next <store>                              sidekick: refused for every kind (exit 5); the master dispatches the queued brief to a fresh session
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
@@ -457,7 +457,7 @@ $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: working
 report: <T>/state/pstack/trio/demo/reports/004-qone.md
 report_status: done
-running: <T>/state/pstack/trio/demo/briefs/005-qtwo.md
+queued: <T>/state/pstack/trio/demo/briefs/005-qtwo.md
 [exit 0]
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-master
@@ -467,29 +467,29 @@ running: <T>/state/pstack/trio/demo/briefs/005-qtwo.md
 
 [during that wait the sidekick ran: pair.sh finish 004-qone.md]
 prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/004-qone.md
-next: the master queued pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/005-qtwo.md
-Start that brief now, in this turn, as if the message had just arrived.
+rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate <T>/state/pstack/trio/demo
+next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/004-qone.md
 
 $ pair.sh next <T>/state/pstack/trio/demo
-queue: empty
-[exit 4]
+pair.sh: a codex sidekick leaves the queue for the master to dispatch after a fresh session
+[exit 5]
 
 $ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/006-qthree.md
-queued <T>/state/pstack/trio/demo/briefs/006-qthree.md; the sidekick takes it when its current report is written
-[exit 0]
-  herdr agent get demo-sidekick
+pair.sh: the queue holds <T>/state/pstack/trio/demo/briefs/005-qtwo.md; pass --replace to swap it
+[exit 5]
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
-report: <T>/state/pstack/trio/demo/reports/005-qtwo.md
-report_status: partial
-queued: <T>/state/pstack/trio/demo/briefs/006-qthree.md (held: report is partial; dispatch it yourself)
-[exit 0]
+idle: the reply to 004-qone.md was already shown (<T>/state/pstack/trio/demo/reports/004-qone.md); send the next message
+queued: <T>/state/pstack/trio/demo/briefs/005-qtwo.md
+[exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-master
   herdr agent read demo-master --source visible --lines 40
   herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/005-qtwo.md
+  herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 40
 
 [during that wait the sidekick ran: pair.sh finish 005-qtwo.md]
 prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/005-qtwo.md
@@ -514,7 +514,7 @@ consultant: demo-consultant (p2) idle
 
 latest report: <T>/state/pstack/trio/demo/reports/005-qtwo.md
 latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
-queued: <T>/state/pstack/trio/demo/briefs/006-qthree.md
+queued: <T>/state/pstack/trio/demo/briefs/005-qtwo.md
 [exit 0]
   herdr agent get demo-master
   herdr agent read demo-master --source visible --lines 40
@@ -524,25 +524,22 @@ queued: <T>/state/pstack/trio/demo/briefs/006-qthree.md
   herdr agent read demo-consultant --source visible --lines 40
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/006-qthree.md --timeout 20000
-state: idle
-report: <T>/state/pstack/trio/demo/reports/006-qthree.md
-report_status: done
-[exit 0]
-  herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/006-qthree.md --wait --until working --timeout 30000
-  herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 12
-  herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent get demo-sidekick
+pair.sh: the queue holds <T>/state/pstack/trio/demo/briefs/005-qtwo.md; dispatch that first, or: pair.sh queue <T>/state/pstack/trio/demo --clear
+[exit 5]
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/007-qfive.md
+rotated: the devin sidekick starts this brief in a fresh session
 state: idle
 report: <T>/state/pstack/trio/demo/reports/007-qfive.md
 report_status: done
 [exit 0]
+  herdr agent wait demo-sidekick --until idle --until done --timeout <MS>
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent prompt demo-sidekick /exit
+  herdr agent get demo-sidekick
+  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
+  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 2, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/007-qfive.md --wait --until working --timeout 30000
@@ -564,7 +561,7 @@ queue cleared
 [exit 0]
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/009-qseven.md --timeout 1000
-state: working
+state: idle
 report: missing
 check-in: 009-qseven.md  elapsed <N>m of ?m
 progress: none yet
@@ -582,6 +579,7 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
@@ -797,25 +795,32 @@ pair.sh: a devin sidekick leaves the queue for the master to dispatch after a fr
 [exit 5]
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/006-qthree.md
-pair.sh: the devin sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate <T>/state/pstack/trio/demo after a completed task. The queue is preserved.
-[exit 5]
-
-$ pair.sh rotate <T>/state/pstack/trio/demo
-pair.sh: sidekick demo-sidekick is working; wait for its report and turn to end before rotating
-[exit 5]
-  herdr agent get demo-sidekick
-
-$ pair.sh rotate <T>/state/pstack/trio/demo
-reused pane p1
-sidekick demo-sidekick (devin) started in p1 with permission native-args (master: auto)
-ready: <T>/state/pstack/trio/demo/reports/000-ready.md
+rotated: the devin sidekick starts this brief in a fresh session
+state: idle
+report: <T>/state/pstack/trio/demo/reports/006-qthree.md
+report_status: done
 [exit 0]
+  herdr agent wait demo-sidekick --until idle --until done --timeout <MS>
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 2, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 3, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/006-qthree.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
+  herdr agent get demo-sidekick
+
+$ pair.sh rotate <T>/state/pstack/trio/demo
+pair.sh: rotation requires a completed task; partial or blocked work keeps its session
+[exit 5]
+
+$ pair.sh rotate <T>/state/pstack/trio/demo
+pair.sh: rotation requires a completed task; partial or blocked work keeps its session
+[exit 5]
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/013-qscope.md --timeout 1000
 state: working
@@ -1144,7 +1149,7 @@ usage: pair.sh <command> [args]
                                             three kinds are all the same. --only respawns one role. A pi or Prime sidekick first proves
                                             its model answers; on failure the --fallback kind starts instead. --tab gives each role
                                             its own tab instead of a split (PSTACK_PLACEMENT=tab sets the default).
-  rotate <store>                            exit an idle Devin, pi, or Prime sidekick after a done brief, respawn with recorded
+  rotate <store>                            exit an idle sidekick after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
   failover <store> [--reason TEXT] [--force]
                                             replace a failing sidekick with its recorded fallback in the same pane;
@@ -1169,7 +1174,7 @@ usage: pair.sh <command> [args]
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
+                                            current report is written (after a done report it waits for the master's dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -1177,8 +1182,8 @@ usage: pair.sh <command> [args]
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start for other kinds, or the REPORT line; a done Devin, pi, or Prime brief requires rotation
-  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+                                            the REPORT line; a done brief requires rotation
+  next <store>                              sidekick: refused for every kind (exit 5); the master dispatches the queued brief to a fresh session
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
@@ -2294,15 +2299,14 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	send-brief	004-qone	
 <TS>	<EPOCH>	master	wake	004-qone	checkin
 <TS>	<EPOCH>	master	queue	005-qtwo	
+<TS>	<EPOCH>	sidekick	rotation-required	004-qone	generation:1
 <TS>	<EPOCH>	sidekick	report	004-qone	done
-<TS>	<EPOCH>	sidekick	send-brief	005-qtwo	queued
 <TS>	<EPOCH>	master	wake	004-qone	report:done
-<TS>	<EPOCH>	master	queue	006-qthree	
 <TS>	<EPOCH>	sidekick	report	005-qtwo	partial
-<TS>	<EPOCH>	master	wake	005-qtwo	report:partial
-<TS>	<EPOCH>	master	send-brief	006-qthree	
-<TS>	<EPOCH>	master	wake	006-qthree	report:done
+<TS>	<EPOCH>	master	wake	004-qone	idle
 <TS>	<EPOCH>	master	queue	-	cleared
+<TS>	<EPOCH>	master	rotate	-	generation:1
+<TS>	<EPOCH>	sidekick	spawn	-	devin:ready
 <TS>	<EPOCH>	master	send-brief	007-qfive	
 <TS>	<EPOCH>	master	wake	007-qfive	report:done
 <TS>	<EPOCH>	master	queue	008-qsix	
@@ -2329,12 +2333,14 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	sidekick	step	012-qsteps	4:<SHA>
 <TS>	<EPOCH>	master	note	012-qsteps	4:clear
 <TS>	<EPOCH>	master	send-steer	012-qsteps-s1	working
-<TS>	<EPOCH>	sidekick	rotation-required	012-qsteps	generation:1
+<TS>	<EPOCH>	sidekick	rotation-required	012-qsteps	generation:2
 <TS>	<EPOCH>	sidekick	report	012-qsteps	done
 <TS>	<EPOCH>	master	wake	012-qsteps	report:done
 <TS>	<EPOCH>	master	wake	012-qsteps	idle
-<TS>	<EPOCH>	master	rotate	-	generation:1
+<TS>	<EPOCH>	master	rotate	-	generation:2
 <TS>	<EPOCH>	sidekick	spawn	-	devin:ready
+<TS>	<EPOCH>	master	send-brief	006-qthree	
+<TS>	<EPOCH>	master	wake	006-qthree	report:done
 <TS>	<EPOCH>	master	send-brief	013-qscope	
 <TS>	<EPOCH>	master	wake	013-qscope	checkin
 <TS>	<EPOCH>	master	send-brief	014-qglob	
@@ -2484,7 +2490,7 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
       "--respect-workspace-trust",
       "false"
     ],
-    "generation": 2,
+    "generation": 3,
     "bootstrap_pending": false,
     "permission_mode": "native-args",
     "rotation_required": false
@@ -2514,7 +2520,7 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "brief": "<T>/state/pstack/trio/demo/briefs/015-qnine.md",
     "at": "<TS>",
     "head": "<SHA>",
-    "generation": 2
+    "generation": 3
   },
   "sent": {
     "file": "<T>/state/pstack/trio/demo/briefs/015-qnine.md",
@@ -2527,13 +2533,12 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "002-early": "<SHA>",
     "003-build": "<SHA>",
     "004-qone": "<SHA>",
-    "005-qtwo": "<SHA>",
-    "006-qthree": "<SHA>",
     "007-qfive": "<SHA>",
     "009-qseven": "<SHA>",
     "010-qeight": "<SHA>",
     "011-qfour": "<SHA>",
     "012-qsteps": "<SHA>",
+    "006-qthree": "<SHA>",
     "013-qscope": "<SHA>",
     "014-qglob": "<SHA>",
     "015-qnine": "<SHA>"
@@ -2644,9 +2649,10 @@ head: abc
 
 status: partial
 --- ./reports/006-qthree.md
-# Report
+# report
 
 status: done
+head: abc
 --- ./reports/007-qfive.md
 # Report
 
@@ -2699,6 +2705,11 @@ approval: not-required
 
 verdict: accept
 --- ./sessions/sidekick-2-previous-ready.md
+# ready
+
+status: done
+head: abc
+--- ./sessions/sidekick-3-previous-ready.md
 # ready
 
 status: done

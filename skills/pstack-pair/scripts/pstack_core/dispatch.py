@@ -1,13 +1,12 @@
 import os
 import subprocess
-import sys
 import time
 
-from .errors import Die, Exit
-from .store import alt, event, expected_report, load, member, names, peek, update
+from .store import alt, expected_report, load, member, names, peek, update
 
-def fresh_per_brief(kind):
-    """Sidekick kinds that start a fresh session for every brief."""
+
+def fresh_kind(kind):
+    """Sidekick kinds whose sessions cannot be resumed, so spawn refuses a resume flag for them."""
     return kind in ('devin', 'pi', 'prime-agent')
 
 
@@ -38,35 +37,3 @@ def record_dispatch(store, brief, now=None):
 
     update(store, mutate)
 
-
-def take_queued(store, now=None):
-    """take_queued(): the queued brief, now dispatched, or None. The bash runs it in a command substitution, so a
-    failure inside it (a brief that is gone, a held lock) prints its message and reads as an empty queue."""
-    taken = f'{store}/queue.taken.{os.getpid()}'
-    try:
-        os.rename(f'{store}/queue', taken)
-    except OSError:
-        return None
-    try:
-        with open(taken, 'rb') as f:
-            brief = f.read().decode('utf-8', 'surrogateescape').rstrip('\n')
-        os.unlink(taken)
-    except OSError:
-        # `brief="$(cat "$taken")"; rm -f "$taken"`: where the queue cannot be read (a directory, say) both commands say so themselves and the
-        # brief reads empty
-        r = subprocess.run(['cat', taken], stdout=subprocess.PIPE, check=False)
-        brief = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
-        subprocess.run(['rm', '-f', taken], check=False)
-    try:
-        if not os.path.isfile(brief):
-            raise Die(f'queued brief is gone: {brief}')
-        try:
-            record_dispatch(store, brief, now)
-        except Exit:
-            # jq refused the write and has said why; the brief is dispatched all the same
-            pass
-    except Die as e:
-        sys.stderr.write(f'pair.sh: {e.message}\n')
-        return None
-    event(store, 'sidekick', 'send-brief', brief, 'queued')
-    return brief

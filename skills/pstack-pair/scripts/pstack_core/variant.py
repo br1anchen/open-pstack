@@ -32,7 +32,7 @@ PAIR_USAGE = """usage: pair.sh <command> [args]
                                             a pi or Prime sidekick first proves its model answers; on failure the
                                             --fallback kind starts instead; --tab gives the sidekick its own tab
                                             instead of a split (PSTACK_PLACEMENT=tab sets the default)
-  rotate <store>                            exit an idle Devin, pi, or Prime sidekick after a done brief, respawn with recorded
+  rotate <store>                            exit an idle sidekick after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
   failover <store> [--reason TEXT] [--force]
                                             replace a failing sidekick with its recorded fallback in the same pane;
@@ -49,7 +49,7 @@ PAIR_USAGE = """usage: pair.sh <command> [args]
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
+                                            current report is written (after a done report it waits for the master's dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -57,8 +57,8 @@ PAIR_USAGE = """usage: pair.sh <command> [args]
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start for other kinds, or the REPORT line; a done Devin, pi, or Prime brief requires rotation
-  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+                                            the REPORT line; a done brief requires rotation
+  next <store>                              sidekick: refused for every kind (exit 5); the master dispatches the queued brief to a fresh session
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers

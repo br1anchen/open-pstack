@@ -6,6 +6,7 @@ from ..replies import queued_brief
 from ..send import send_and_wait
 from ..wait import end_with_parent, wait_opts
 from .report import in_herdr
+from .rotate import rotate_if_due
 
 
 def discuss(ctx, args):
@@ -20,6 +21,7 @@ def discuss(ctx, args):
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
     require_not_paused(store)
+    rotate_if_due(ctx, store, 'plan')
     return send_and_wait(ctx, store, os.path.realpath(plan), 'PLAN', timeout, interval, send_only)
 
 
@@ -45,4 +47,5 @@ def dispatch(ctx, args):
     queued = queued_brief(store)
     if queued and queued != brief:
         raise Die(f'the queue holds {queued}; dispatch that first, or: pair.sh queue {store} --clear', 5)
+    rotate_if_due(ctx, store, 'brief')
     return send_and_wait(ctx, store, brief, 'BRIEF', timeout, interval, send_only)

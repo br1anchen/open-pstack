@@ -129,7 +129,7 @@ USAGE = """usage: pair.sh <command> [args]
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
                                             the queued brief to start (after a done report) or the line to end on
-  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+  next <store>                              sidekick: refused for every kind (exit 5); the master dispatches the queued brief to a fresh session
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
