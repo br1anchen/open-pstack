@@ -11,6 +11,10 @@ own fake agents, state and Herdr socket, so the tests run side by side.
     python3 tests/run.py -k rotate            # tests whose id contains "rotate"
     python3 tests/run.py --timeout 300   # fail a test that runs longer (default 1200 s, or $PSTACK_TEST_TIMEOUT_S)
 
+Every test process starts with a `jq` first on PATH that prints `jq was started`
+to stderr and exits 127: the scripts under test read JSON in Python, so a jq
+call is a failure.
+
 Prints each failure's output, the slowest tests, and a summary; exits 1 when
 any test fails.
 """
@@ -20,6 +24,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,6 +32,22 @@ from pathlib import Path
 
 here = Path(__file__).resolve().parent
 SUITES = ['test_pstack_core', 'test_pstack_kitchen', 'test_pstack_pair', 'test_pstack_sync', 'test_pstack_upstream', 'test_run']
+
+
+# The jq every test process finds first on PATH. TRIPWIRE_LOG, when a test sets it, collects the arguments of each call.
+TRIPWIRE_JQ = '#!/bin/sh\nprintf "jq was started\\n" >&2\n[ -z "${TRIPWIRE_LOG:-}" ] || printf "jq %s\\n" "$*" >>"$TRIPWIRE_LOG"\nexit 127\n'
+
+
+def write_tripwire_jq(directory):
+    path = Path(directory) / 'jq'
+    path.write_text(TRIPWIRE_JQ)
+    path.chmod(0o755)
+
+
+def tripwire_env(directory):
+    """The environment of a test process: os.environ with a directory holding the failing jq first on PATH."""
+    write_tripwire_jq(directory)
+    return {**os.environ, 'PATH': f'{directory}:{os.environ.get("PATH", "")}'}
 
 
 def test_ids(suites):
@@ -51,9 +72,9 @@ def as_text(data):
     return data.decode(errors='replace') if isinstance(data, bytes) else data
 
 
-def run_one(test_id, timeout=0, *, cwd=here):
+def run_one(test_id, timeout=0, *, cwd=here, env=None):
     start = time.monotonic()
-    p = subprocess.Popen([sys.executable, '-m', 'unittest', '-q', test_id], cwd=cwd,
+    p = subprocess.Popen([sys.executable, '-m', 'unittest', '-q', test_id], cwd=cwd, env=env,
                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, start_new_session=True)
     try:
@@ -86,8 +107,9 @@ def main():
     ids = [i for i in test_ids(args.suites) if args.keyword in i]
     start = time.monotonic()
     failed, times = [], []
-    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        for fut in as_completed([pool.submit(run_one, i, args.timeout) for i in ids]):
+    with tempfile.TemporaryDirectory(prefix='pstack-tests-jq-') as jq_dir, ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        env = tripwire_env(jq_dir)
+        for fut in as_completed([pool.submit(run_one, i, args.timeout, env=env) for i in ids]):
             test_id, code, secs, out = fut.result()
             times.append((secs, test_id))
             if code != 0:  # an int, or 'timeout'

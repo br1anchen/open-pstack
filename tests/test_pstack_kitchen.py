@@ -4387,6 +4387,19 @@ esac
         self.run_sh('status', str(self.store))
         self.assertEqual([b['path'] for b in self.state()['skill_builds']], ['/old/skills', here])
 
+    def test_every_command_word_stamps_the_build_on_a_store_named_second_and_a_missing_store_stamps_nothing(self):
+        here = str(skill.parent.resolve())
+        for word, code in (('help', 0), ('frob', 1), ('status', 0)):
+            state = self.state()
+            state['skill_builds'][0]['path'] = '/old/skills'
+            (self.store / 'pair.json').write_text(json.dumps(state))
+            self.run_sh(word, str(self.store), code=code)
+            self.assertEqual([b['path'] for b in self.state()['skill_builds']], ['/old/skills', here], word)
+        before = (self.store / 'pair.json').read_text()
+        self.run_sh('help', str(self.store / 'nowhere'))
+        self.run_sh('help')
+        self.assertEqual((self.store / 'pair.json').read_text(), before)
+
     def test_a_run_without_stamps_stays_unstamped(self):
         state = self.state()
         del state['skill_builds']

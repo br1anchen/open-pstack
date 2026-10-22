@@ -26,6 +26,7 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
+import run as run_module  # noqa: E402
 from pstack_core import cli, dispatch, exits, herdr, permission, providers, review, store, wait  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
@@ -40,37 +41,17 @@ def inherited_env():
     return {k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT' and not k.startswith(LEAKED_PREFIXES)}
 
 
-PASS_THROUGH_JQ = (
-    '#!/bin/bash\n'
-    'pid=$PPID\n'
-    'while :; do\n'
-    '  exe=$(basename "$(readlink /proc/$pid/exe)")\n'
-    '  case $exe in timeout|perl|env) pid=$(sed "s/.*) //" /proc/$pid/stat | cut -d" " -f2) ;; *) break ;; esac\n'
-    'done\n'
-    'case $exe in python*) who=python ;; bash|sh|dash) who=bash ;; *) who="other:$exe" ;; esac\n'
-    'printf "%s\\t%s\\n" "$who" "$*" >>"$TRIPWIRE_LOG"\n'
-    'here=$(dirname "$0")\n'
-    'IFS=:\n'
-    'for dir in $PATH; do [ "$dir" = "$here" ] || [ ! -x "$dir/jq" ] || exec "$dir/jq" "$@"; done\n'
-    'exit 127\n')
-
-
 def watch_jq(test, env):
-    """Puts a jq first on env's PATH that logs which process started it (the first one above it that is neither timeout, perl nor env: python,
-    bash or another) and then runs the real jq, so bash code behaves as before. When the test ends, any call that is not bash's fails it. A PATH
-    with no jq fails the test: the tripwire could not pass calls through."""
-    if not shutil.which('jq', path=env['PATH']):
-        test.fail('jq not on PATH: the tripwire cannot pass calls through')
+    """Puts the failing jq of tests/run.py first on env's PATH, logging each call's arguments; when the test ends, any call fails it."""
     directory = Path(test.tmp.name) / 'jq-tripwire'
     directory.mkdir()
-    (directory / 'jq').write_text(PASS_THROUGH_JQ)
-    (directory / 'jq').chmod(0o755)
+    run_module.write_tripwire_jq(directory)
     log = Path(test.tmp.name) / 'jq-tripwire.log'
     env.update({'PATH': f'{directory}:{env["PATH"]}', 'TRIPWIRE_LOG': str(log)})
 
     def check():
         calls = log.read_text().splitlines() if log.exists() else []
-        test.assertEqual([call for call in calls if not call.startswith('bash\t')], [], f'{test.id()}: jq started by something that is not bash')
+        test.assertEqual(calls, [], f'{test.id()}: jq was started')
 
     test.addCleanup(check)
 
@@ -105,10 +86,18 @@ class CoreTests(unittest.TestCase):
         self.env = {**inherited_env(), 'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}'}
         watch_jq(self, self.env)
 
-    def test_the_jq_tripwire_fails_a_test_whose_path_has_no_jq(self):
-        with self.assertRaises(AssertionError) as caught:
-            watch_jq(self, {'PATH': str(self.path)})
-        self.assertEqual(str(caught.exception), 'jq not on PATH: the tripwire cannot pass calls through')
+    def test_the_jq_tripwire_prints_that_jq_was_started_and_exits_127_and_fails_the_test_that_called_it(self):
+        r = subprocess.run(['jq', '.'], input='{}', env=self.env, capture_output=True, text=True, check=False)
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (127, '', 'jq was started\n'))
+        log = Path(self.env['TRIPWIRE_LOG'])
+        self.assertEqual(log.read_text(), 'jq .\n')
+        log.unlink()
+
+    def test_every_test_process_of_run_py_finds_the_failing_jq_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = run_module.tripwire_env(directory)
+            r = subprocess.run(['jq', '.'], input='{}', env=env, capture_output=True, text=True, check=False)
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (127, '', 'jq was started\n'))
 
     def pair_py(self, *args):
         return subprocess.run([sys.executable, '-I', str(scripts / 'pair.py'), *core_args(), *args],
@@ -2899,55 +2888,25 @@ class CoreTests(unittest.TestCase):
         self.assertEqual((r.returncode, r.stderr), (2, f'pair.sh: no pair.json in {st}; run: pair.sh init <slug>\n'))
         self.assertTrue(r.stdout.startswith('# Pair status\n'))
 
-    TRIPWIRE = (
-        '#!/bin/bash\n'
-        'pid=$PPID\n'
-        'while :; do\n'
-        '  comm=$(cat /proc/$pid/comm)\n'
-        '  case $comm in timeout|perl|env) pid=$(sed "s/.*) //" /proc/$pid/stat | cut -d" " -f2) ;; *) break ;; esac\n'
-        'done\n'
-        'case $comm in python*) who=python ;; bash) who=bash ;; *) who="other:$comm" ;; esac\n'
-        'printf "%s\\t%s\\n" "$who" "$*" >>"$TRIPWIRE_LOG"\n'
-        'exit 127\n')
-
-    def jq_tripwire(self):
-        """A directory for PATH holding a jq that logs the first python or bash process above it (skipping timeout, perl and env) and its
-        arguments, then exits 127."""
-        bin_dir = self.path / 'tripwire'
-        bin_dir.mkdir()
-        jq = bin_dir / "jq"
-        jq.write_text(self.TRIPWIRE)
-        jq.chmod(0o755)
-        return bin_dir, self.path / 'jq-calls.log'
-
-    def test_no_python_ported_pair_command_starts_jq(self):
-        """A jq on PATH logs which process started it and fails. The pair scenario drives every ported command but failover through the real
-        pair.sh against the fake herdr, and failover is driven here: a call attributed to Python is a ported command starting jq. Calls from bash
-        are the shell core's, listed for the shell units. The controls show the walk up from jq sees Python through timeout and env."""
-        bin_dir, log = self.jq_tripwire()
-        env = {**inherited_env(), 'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'TRIPWIRE_LOG': str(log)}
-        controls = {
-            'python': ([sys.executable, '-c', 'import subprocess; subprocess.run(["jq", "."], input=b"{}", check=False)'], 'python'),
-            'python through timeout': ([sys.executable, '-c', 'import subprocess; subprocess.run(["timeout", "5", "jq", "."], input=b"{}", check=False)'], 'python'),
-            'python through env': ([sys.executable, '-c', 'import subprocess; subprocess.run(["env", "FOO=1", "jq", "."], input=b"{}", check=False)'], 'python'),
-            'bash': (['bash', '-c', 'jq . </dev/null'], 'bash'),
-            'bash through timeout': (['bash', '-c', 'timeout 5 jq . </dev/null'], 'bash'),
-        }
-        for name, (argv, who) in controls.items():
-            subprocess.run(argv, env=env, check=False)
-            self.assertEqual(log.read_text().splitlines()[-1].split('\t')[0], who, name)
-        log.unlink()
+    def test_no_pair_command_starts_jq(self):
+        """The failing jq of tests/run.py logs its arguments. The pair scenario drives every ported command but failover through the real
+        pair.sh against the fake herdr, and failover is driven here: no call reaches jq."""
+        directory = self.path / 'tripwire'
+        directory.mkdir()
+        run_module.write_tripwire_jq(directory)
+        log = self.path / 'jq-calls.log'
+        env = {**inherited_env(), 'PATH': f'{directory}:{os.environ["PATH"]}', 'TRIPWIRE_LOG': str(log)}
         out = subprocess.run([root / 'tests/pstack-pair/scenario.sh', root / 'skills', 'pair'], env=env, capture_output=True, text=True, check=False, timeout=600).stdout
         self.assertIn('$ pair.sh status', out)
         self.assertIn('$ pair.sh wait', out)
-        calls = [line.split('\t', 1) for line in (log.read_text().splitlines() if log.exists() else [])]
-        failover = {**self.failover_cases()['an idle sidekick'], 'topfiles': {'trip/jq': (self.TRIPWIRE, 0o755)},
+        calls = log.read_text().splitlines() if log.exists() else []
+        failover = {**self.failover_cases()['an idle sidekick'], 'topfiles': {'trip/jq': (run_module.TRIPWIRE_JQ, 0o755)},
                     'envfill': {'PATH': '{T}/trip:' + self.env['PATH'], 'TRIPWIRE_LOG': '{st}/jq.log'}}
         got = self.script_run('tripwire-failover', root / 'skills', 'pstack-pair', failover)
         self.assertEqual(got['rc'], 0, got['stderr'])
         self.assertIn('failover: claude -> devin', got['stdout'])
-        calls += [line.split('\t', 1) for line in got['files'].get('jq.log', '').splitlines()]
-        self.assertEqual([call for call in calls if call[0] != 'bash'], [])
+        calls += got['files'].get('jq.log', '').splitlines()
+        self.assertEqual(calls, [])
 
     def test_get_reads_a_dotted_path_with_a_default_and_env_int_refuses_a_non_integer(self):
         st = self.path / 'st'
@@ -4265,7 +4224,8 @@ class CoreTests(unittest.TestCase):
 
     def test_verify_wait_behaviour_for_the_wait_itself(self):
         world, V = self.wait_world, self.vverdict
-        flip = 'jq \'.verifying.verdict = "/elsewhere/other-v1.md"\' "$FAKE/../st/pair.json" >"$FAKE/../st/pair.tmp" && mv "$FAKE/../st/pair.tmp" "$FAKE/../st/pair.json"\n'
+        flip = ('python3 -c \'import json, sys; p = sys.argv[1]; d = json.load(open(p)); d["verifying"]["verdict"] = "/elsewhere/other-v1.md"; json.dump(d, open(p, "w"))\' '
+                '"$FAKE/../st/pair.json"\n')
         grace_hook = ('#!/bin/sh\ncase "$2" in Deadline*) printf \'# V\\n\\nstatus: clean\\nunits: 001\\n\\n## Evidence\\n\\n```\\n$ true\\n```\\n\\n```\\nok\\n```\\n\\n\' '
                       '>"$FAKE/../st/verdicts/001-x-v1.md" ;; esac\n')
         past = lambda **kw: dict(verifying={'deadline': int(time.time()) - 10, **kw.pop('verifying', {})}, **kw)
@@ -5882,8 +5842,9 @@ class CoreTests(unittest.TestCase):
         head = root / 'skills/pstack-kitchen/scripts/kitchen.sh'
         hook = ('cd "$FAKE/.." || exit 1\n'
                 f'{head} verify "$FAKE/../st" --cancel >"$FAKE/closer.out" 2>&1\n'
-                'jq \'.verifying = {verdict: "/next/002-y-v1.md", units: "002", idle_since: 77, scratch: "002-y-v1", brief: "002-y", packet: "/next/p.md", unit: "002-y"}\' '
-                '"$FAKE/../st/pair.json" >"$FAKE/../st/pair.tmp" && mv "$FAKE/../st/pair.tmp" "$FAKE/../st/pair.json"\n')
+                'python3 -c \'import json, sys; p = sys.argv[1]; d = json.load(open(p)); '
+                'd["verifying"] = {"verdict": "/next/002-y-v1.md", "units": "002", "idle_since": 77, "scratch": "002-y-v1", "brief": "002-y", "packet": "/next/p.md", "unit": "002-y"}; '
+                'json.dump(d, open(p, "w"))\' "$FAKE/../st/pair.json"\n')
         spec = self.wait_world('5', agents={'v1': 'working claude'}, once={'get': hook})
         spec = {**spec, 'repo_files': {'.agents/kitchen.toml': self.KITCHEN_TOML}}
         top, st, env, fill = self.script_world('interop', spec)

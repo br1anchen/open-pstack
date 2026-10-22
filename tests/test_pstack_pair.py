@@ -12,6 +12,7 @@ import os
 import json
 from datetime import datetime, timedelta
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1219,6 +1220,361 @@ esac
         _, out = self.dispatch()
         self.assertIn('report: missing', out)
         self.assertNotIn('provider_error', out)
+
+
+# The usage text each entry script printed at the commit that ported it (f102e8a), byte for byte.
+HELP = {
+    'pair': """usage: pair.sh <command> [args]
+
+  init <slug> [--store DIR]                 create or re-register the pair store; prints its path
+  spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
+                                            split from the master pane, start and bootstrap the sidekick;
+                                            Devin defaults to bypass, other kinds inherit the master's mode;
+                                            a pi or Prime sidekick first proves its model answers; on failure the
+                                            --fallback kind starts instead; --tab gives the sidekick its own tab
+                                            instead of a split (PSTACK_PLACEMENT=tab sets the default)
+  rotate <store>                            exit an idle Devin, pi, or Prime sidekick after a done brief, respawn with recorded
+                                            arguments, and bootstrap a fresh session; preserve the queue and history
+  failover <store> [--reason TEXT] [--force]
+                                            replace a failing sidekick with its recorded fallback in the same pane;
+                                            the fallback picks up from the store, and the run stays on it
+  permission                                print the master's detected permission mode
+  new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
+  discuss <store> <plan-path> [--timeout MS]
+                                            send PLAN to the sidekick and wait for its agree/object response
+  new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
+                                            send BRIEF to the sidekick and wait for it to settle;
+                                            implementation playbooks require an agreed plan
+  wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
+                                            (and any queued or now-running brief), or a check-in digest when the
+                                            interval passes first
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
+                                            current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
+  step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
+                                            sidekick: record a committed step of the running brief and go on;
+                                            the master's wait picks it up for review
+  notes <store>                             sidekick, at each step boundary: print blocking review notes still open
+  new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
+  note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
+  finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
+                                            the queued brief to start for other kinds, or the REPORT line; a done Devin, pi, or Prime brief requires rotation
+  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+  progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
+  new-steer <store> <NNN> [--supersedes STEER | --force]
+                                            create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
+                                            an objection; two fresh steers per brief
+  steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]
+                                            send STEER: to a working sidekick, return at once (its harness hands it
+                                            over between tool calls; --interrupt cancels the running one first);
+                                            to one paused on an objection, wait for it to settle
+  report <store> [NNN]                      print the latest (or NNN) report path
+  notify <store> <report-path>              sidekick -> master: prompt the master if it is idle
+  stop <store> [--timeout MS]               send STOP; the sidekick pauses safely and reports
+  scratch <store> <id> [--at SHA] [--remove]
+                                            a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
+                                            diff applied, or exactly at SHA to recheck a unit while the sidekick works
+  pause <store> [--reason TEXT]             pause at the next safe point: the sidekick stops at its next step or
+                                            progress boundary; dispatch, queue, discuss, consult, answer refuse
+  resume <store>                            lift the pause; re-dispatch the paused brief to continue it
+  status <store>                            table of briefs, reports, reviews, and live agent states
+  log <store> <phase> <decision> <why> <evidence> <result>
+                                            append a decisions.tsv row (show-me-your-work format)
+  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
+                                            master wakes, review latency, verdicts
+
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
+""",
+    'guided': """usage: pair.sh <command> [args]
+
+  init <slug> [--store DIR]                 create or re-register the pair store; prints its path
+  spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
+                                            split from the master pane, start and bootstrap the sidekick;
+                                            Devin defaults to bypass, other kinds inherit the master's mode;
+                                            a pi or Prime sidekick first proves its model answers; on failure the
+                                            --fallback kind starts instead; --tab gives the sidekick its own tab
+                                            instead of a split (PSTACK_PLACEMENT=tab sets the default)
+  failover <store> [--reason TEXT] [--force]
+                                            replace a failing sidekick with its recorded fallback in the same pane;
+                                            the fallback picks up from the store, and the run stays on it
+  permission                                print the master's detected permission mode
+  new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
+  discuss <store> <plan-path> [--timeout MS]
+                                            send PLAN to the sidekick and wait for its agree/object response
+  new-direction <store> <plan-path>         create plans/NNN-<slug>.direction.md, the human's summary; prints its path
+  new-answer <store> <NNN> [--force]        create answers/NNN-<slug>-a<k>.md for the newest ask on unit NNN
+  answer <store> <answer-path> [--timeout MS | --every MIN]
+                                            send ANSWER to the sidekick and wait for it to settle
+  new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
+                                            send BRIEF to the sidekick and wait for it to settle;
+                                            implementation playbooks require an agreed plan whose
+                                            review approval matches the plan's scale
+  wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
+                                            (and any queued or now-running brief), or a check-in digest when the
+                                            interval passes first
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
+                                            current report is written. One slot. queue <store> --clear empties it
+  step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
+                                            sidekick: record a committed step of the running brief and go on;
+                                            the master's wait picks it up for review
+  notes <store>                             sidekick, at each step boundary: print blocking review notes still open
+  new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
+  note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
+  finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
+                                            the queued brief to start (after a done report) or the line to end on
+  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+  progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
+  new-steer <store> <NNN> [--supersedes STEER | --force]
+                                            create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
+                                            an objection; two fresh steers per brief
+  steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]
+                                            send STEER: to a working sidekick, return at once (its harness hands it
+                                            over between tool calls; --interrupt cancels the running one first);
+                                            to one paused on an objection, wait for it to settle
+  report <store> [NNN]                      print the latest (or NNN) report path
+  notify <store> <report-path>              sidekick -> master: prompt the master if it is idle
+  stop <store> [--timeout MS]               send STOP; the sidekick pauses safely and reports
+  scratch <store> <id> [--at SHA] [--remove]
+                                            a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
+                                            diff applied, or exactly at SHA to recheck a unit while the sidekick works
+  pause <store> [--reason TEXT]             pause at the next safe point: the sidekick stops at its next step or
+                                            progress boundary; dispatch, queue, discuss, consult, answer refuse
+  resume <store>                            lift the pause; re-dispatch the paused brief to continue it
+  status <store>                            table of briefs, reports, reviews, and live agent states
+  log <store> <phase> <decision> <why> <evidence> <result>
+                                            append a decisions.tsv row (show-me-your-work format)
+  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
+                                            master wakes, review latency, verdicts
+
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed or not approved, 7 ask or steer cap reached
+""",
+    'trio': """usage: pair.sh <command> [args]
+
+  init <slug> [--store DIR]                 create or re-register the trio store; prints its path
+  spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
+        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--timeout MS] [-- agent-args...]
+                                            split panes beside the master, start and bootstrap both agents;
+                                            Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
+                                            three kinds are all the same. --only respawns one role. A pi or Prime sidekick first proves
+                                            its model answers; on failure the --fallback kind starts instead. --tab gives each role
+                                            its own tab instead of a split (PSTACK_PLACEMENT=tab sets the default).
+  rotate <store>                            exit an idle Devin, pi, or Prime sidekick after a done brief, respawn with recorded
+                                            arguments, and bootstrap a fresh session; preserve the queue and history
+  failover <store> [--reason TEXT] [--force]
+                                            replace a failing sidekick with its recorded fallback in the same pane;
+                                            the fallback picks up from the store, and the run stays on it
+  permission                                print the master's detected permission mode
+  new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
+  discuss <store> <plan-path> [--timeout MS]
+                                            send PLAN to the sidekick and the consultant at once and wait for
+                                            both responses: the sidekick's report and the consultant's advice
+  new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]
+                                            create consults/NNN-<slug>-c<k>.md for unit NNN; three per unit, plus
+                                            one glance (a five-minute diff read at a check-in)
+  consult <store> <consult-path> [--timeout MS]
+                                            send CONSULT to the consultant and wait for its advice; it may run while
+                                            the sidekick works, reading committed state or a scratch snapshot
+  advice <store> [NNN]                      print the latest (or NNN) advice path
+  new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
+                                            send BRIEF to the sidekick and wait for it to settle;
+                                            implementation playbooks require an agreed plan
+  wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
+                                            (and any queued or now-running brief), or a check-in digest when the
+                                            interval passes first
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
+                                            current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
+  step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
+                                            sidekick: record a committed step of the running brief and go on;
+                                            the master's wait picks it up for review
+  notes <store>                             sidekick, at each step boundary: print blocking review notes still open
+  new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
+  note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
+  finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
+                                            the queued brief to start for other kinds, or the REPORT line; a done Devin, pi, or Prime brief requires rotation
+  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+  progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
+  new-steer <store> <NNN> [--supersedes STEER | --force]
+                                            create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
+                                            an objection; two fresh steers per brief
+  steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]
+                                            send STEER: to a working sidekick, return at once (its harness hands it
+                                            over between tool calls; --interrupt cancels the running one first);
+                                            to one paused on an objection, wait for it to settle
+  report <store> [NNN]                      print the latest (or NNN) report path
+  notify <store> <path>                     sidekick or consultant -> master: prompt the master if it is idle
+                                            (REPORT for a report path, ADVICE for an advice path)
+  stop <store> [--only sidekick|consultant] [--timeout MS]
+                                            send STOP; each agent pauses safely and reports
+  scratch <store> <id> [--at SHA] [--remove]
+                                            a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
+                                            diff applied, or exactly at SHA to recheck a unit while the sidekick works
+  pause <store> [--reason TEXT]             pause at the next safe point: the sidekick stops at its next step or
+                                            progress boundary; dispatch, queue, discuss, consult, answer refuse
+  resume <store>                            lift the pause; re-dispatch the paused brief to continue it
+  status <store>                            table of units, reports, advice, reviews, agent states, open scratch
+  log <store> <phase> <decision> <why> <evidence> <result>
+                                            append a decisions.tsv row (show-me-your-work format)
+  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
+                                            master wakes, review latency, verdicts
+
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no report or advice yet or queue empty,
+            5 agent in the wrong state or queue taken, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,
+            8 agent kinds not diverse
+""",
+    'kitchen': """usage: kitchen.sh <command> [args]
+
+The pair's commands (pstack-pair's pair.sh help) work unchanged: init, rotate, failover, permission,
+new-plan, new-brief, wait, queue, notes, new-note, note, finish, next, progress, new-steer, steer,
+report, notify, stop, scratch, pause, resume, status, log, metrics, and the consultant's new-consult,
+consult, advice. These differ or are new:
+
+  log <store> <phase> <decision> <why> <evidence> <result>
+                                            append one row to decisions.tsv and a log event for the master
+
+  spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--permission MODE|none] [-- args...]
+                                            start the sidekick; kind, args, and fallback default to the
+                                            host roster (~/.config/pstack/kitchen.toml); --tab gives every role
+                                            (sidekick, consultant, verifier) its own tab instead of a split
+  consultant <store> --reason TEXT [--kind KIND] [-- args...]
+                                            start the consultant for an escalated unit (roster kind by default)
+  classify <store> <brief-path>             map the brief's may-write Scope to profiles and a risk class and
+                                            stamp risk:, profiles:, verify: into its header
+  discuss <store> <plan-path>               a routine plan goes to the sidekick; risk: escalated to both
+  dispatch <store> <brief-path> [...] [--max MIN] [--send-only]
+                                            classify, then the pair's dispatch; escalated units need an agreed
+                                            plan with advice, landing units need land-check to pass; waits quietly,
+                                            or returns once the brief is delivered with --send-only
+  wait <store> [...] [--max MIN]            the pair's wait, quiet through check-ins with nothing flagged; returns
+                                            for a report, steps, a block, a flagged check-in, or after --max (60)
+  step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
+                                            sidekick: run the touched profiles' fast gates and policy on the
+                                            step's commits, then record it; exit 2 when they fail. The checks run
+                                            detached: exit 4 "still running" after ~2 minutes, run it again to wait
+  finish <store> <report>                   the pair's finish; a done report first reruns the brief's Verify
+                                            commands as written at its head: (the checkout, clean), and goes to
+                                            the master only when every one exits 0 (exit 2 otherwise, 4 while
+                                            they run: run it again to wait)
+  verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND]
+                                            verify one unit, or several as a batch, or a fix with the unit it
+                                            fixes (--covers): gates only, or a fresh verifier in a scratch
+                                            worktree at the head; returns at the interval with its progress
+                                            (exit 4; --until-verdict never returns at the interval, only on
+                                            the verdict, the deadline, a stall or a provider error), and with
+                                            the verdict and whether to audit when it lands.
+                                            A verifier stopped by its provider is retried on the sidekick's
+                                            fallback; the deadline defaults to 3x the measured gate time
+  verify <store> --landing [--base REV] [--parent REF|none] [--head REV]
+                                            a fresh verifier at the stack tip: every behavioral gate the stack
+                                            touches, from where it leaves trunk, or from the parent --parent
+                                            records for later landings (--parent none clears it; --base wins
+                                            for one call and may be combined with --parent);
+                                            --head REV proves that commit or branch instead of HEAD
+  verify <store> --wait [--every MIN | --until-verdict]
+                                            wait again for the open verification: exit 4 while it runs, 5 when none
+                                            is open
+  verify <store> --cancel                   stop the open verification that has no verdict yet: its verifier, pane
+                                            and scratch go (exit 5 when none is open); a verdict written but
+                                            unread is closed by the next verify (`closed:`)
+  revise <store> <verdict-path>             draft the fix brief for a rejected verdict
+  land-check <store>                        every accepted unit verified
+  catch <store> <layer> <text> [<unit>]     record a miss found later (audit, human review): layer is
+                                            gate, policy, self, verify, review, triage, or escalation;
+                                            the unit (e.g. 003) gives the ledger row its area
+  new-handoff <store>                       write session-handoff.md from the template, with every unit's state
+  rotate-master <store> [--model M]         record the filled handoff and this master's session, and start the
+                                            next generation in a pane beside this one (MCP-free, remote control
+                                            on, same permission mode and model); nudged by verify after
+                                            KITCHEN_MASTER_ROTATE_UNITS (5) verified units
+  take-master <store>                       the new master's first command: close the old master's pane and
+                                            take back the run's master name
+  close <store> [--force]                   end a finished run's sidekick, consultant and verifier and close
+                                            their panes; refuses while a verification is open or the sidekick
+                                            works (--force overrides); the master's own pane stays
+  retro <store>                             where the master was needed, and what repeated, from this run
+                                            and the repo's ledger
+  feedback <store> <file>                   file the master's kitchen gaps (see references/feedback-template.md)
+                                            into the host inbox; tells the registered maintainer, else the human
+  feedback --inbox                          open reports, oldest first
+  feedback --close <id> <commit|none> <note>
+                                            retire a report (closing twice is harmless)
+  maintainer on [--pane ID] | off | status  register this session to receive FEEDBACK pointers
+  fleet [--since YYYY-MM-DD] [--runs DIR] [--json]
+                                            one row per run on the host (verified units, wakes, failovers,
+                                            provider stops, catches, open feedback), then one per skills build;
+                                            read-only, no store needed
+
+exit codes: the pair's, plus 2 for a failed gate, a rejected or invalid verdict, or a failed land-check
+""",
+}
+
+
+ENTRY_SCRIPTS = {'pair': 'pstack-pair/scripts/pair.sh', 'guided': 'pstack-pair-guided/scripts/pair.sh', 'trio': 'pstack-trio/scripts/pair.sh',
+                 'kitchen': 'pstack-kitchen/scripts/kitchen.sh'}
+
+
+class EntryScriptTests(unittest.TestCase):
+    """The four entry scripts are shims; everything they print before a command runs comes from the Python behind them."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = {**inherited_env(), 'PATH': f'{here / "bin"}:{os.environ["PATH"]}', 'HOME': self.tmp.name, 'XDG_STATE_HOME': f'{self.tmp.name}/state'}
+        self.env.pop('CLAUDE_CODE_SESSION_ID', None)
+
+    def run_script(self, key, *args, env=None):
+        return subprocess.run(['bash', str(skills / ENTRY_SCRIPTS[key]), *args], env=env or self.env, capture_output=True, text=True, check=False, timeout=60)
+
+    def prog(self, key):
+        return 'kitchen.sh' if key == 'kitchen' else 'pair.sh'
+
+    def test_each_entry_script_is_a_shebang_at_most_two_comments_and_one_exec_line(self):
+        for key, rel in ENTRY_SCRIPTS.items():
+            path = skills / rel
+            lines = path.read_text().splitlines()
+            self.assertEqual(lines[0], '#!/usr/bin/env bash', key)
+            comments = [line for line in lines[1:] if line.startswith('#')]
+            code = [line for line in lines[1:] if line.strip() and not line.startswith('#')]
+            self.assertLessEqual(len(comments), 2, key)
+            self.assertEqual(len(code), 1, key)
+            core = 'pair.py' if key == 'pair' else '../../pstack-pair/scripts/pair.py'
+            self.assertEqual(code[0], 'exec python3 -I "$(dirname "$(readlink -f "$0")")/' + core + '" --skill-root "$(dirname "$(dirname "$(readlink -f "$0")")")" "$@"', key)
+            self.assertEqual(subprocess.run(['bash', '-n', str(path)], capture_output=True, text=True, check=False).returncode, 0, key)
+            self.assertTrue(os.access(path, os.X_OK), key)
+
+    def test_help_prints_the_usage_text_of_the_dispatch_head_byte_for_byte(self):
+        for key in ENTRY_SCRIPTS:
+            for word in ('help', '-h', '--help'):
+                r = self.run_script(key, word)
+                self.assertEqual((r.returncode, r.stdout, r.stderr), (0, HELP[key], ''), (key, word))
+
+    def test_no_command_prints_the_usage_text_and_exits_1(self):
+        for key in ENTRY_SCRIPTS:
+            r = self.run_script(key)
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (1, HELP[key], ''), key)
+
+    def test_an_unknown_or_malformed_word_prints_the_usage_text_then_the_script_name_and_the_word_and_exits_1(self):
+        for key in ENTRY_SCRIPTS:
+            for word in ('frob', 'Frob', 'init2', '-x', '__permission_args', 'new_plan', 'a b'):
+                r = self.run_script(key, word)
+                self.assertEqual((r.returncode, r.stdout, r.stderr), (1, HELP[key], f'{self.prog(key)}: unknown command: {word}\n'), (key, word))
+
+    def test_a_command_another_variant_has_is_unknown_here(self):
+        for key, word in (('pair', 'answer'), ('pair', 'consult'), ('guided', 'consult'), ('trio', 'answer'), ('trio', 'verify'), ('pair', 'verify')):
+            r = self.run_script(key, word)
+            self.assertEqual((r.returncode, r.stderr), (1, f'{self.prog(key)}: unknown command: {word}\n'), (key, word))
+
+    def test_a_missing_herdr_ends_every_command_including_help_with_one_line(self):
+        bin_dir = Path(self.tmp.name) / 'bin-without-herdr'
+        bin_dir.mkdir()
+        for tool, target in (('bash', shutil.which('bash')), ('python3', sys.executable), ('dirname', shutil.which('dirname')), ('readlink', shutil.which('readlink'))):
+            (bin_dir / tool).symlink_to(target)
+        env = {**self.env, 'PATH': str(bin_dir)}
+        for key in ENTRY_SCRIPTS:
+            for words in (('help',), (), ('frob',), ('status', '/nowhere')):
+                r = self.run_script(key, *words, env=env)
+                self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', f'{self.prog(key)}: herdr is required on PATH\n'), (key, words))
 
 
 if __name__ == '__main__':
