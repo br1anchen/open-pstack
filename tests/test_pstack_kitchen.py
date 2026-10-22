@@ -2731,6 +2731,20 @@ esac
         self.assertEqual(self.run_sh('new-consult', str(self.store), '001', '--kind', 'glance').strip(), str(self.store / 'consults/001-util-c2.md'))
         self.assertIn('unit 001 already had its glance; send a finding consult, or pass --force', self.run_sh('new-consult', str(self.store), '001', '--kind', 'glance', code=7))
 
+    def test_consult_flags_are_checked_before_any_state_changes(self):
+        self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.assertIn('--kind needs a value', self.run_sh('new-consult', str(self.store), '001', '--kind', code=1))
+        self.assertIn('unknown option --bogus', self.run_sh('new-consult', str(self.store), '001', '--bogus', code=1))
+        self.assertFalse((self.store / 'consults').exists() and list((self.store / 'consults').iterdir()))
+        consult = Path(self.run_sh('new-consult', str(self.store), '001', '--kind', 'finding').strip())
+        consult.write_text(re.sub(r'\{\{[^}]*\}\}', 'x', consult.read_text(), flags=re.DOTALL))
+        before = consult.read_text()
+        self.assertIn('--timeout needs a value', self.run_sh('consult', str(self.store), str(consult), '--timeout', code=1))
+        self.assertIn('--every must be a whole number of minutes', self.run_sh('consult', str(self.store), str(consult), '--every', '2x', code=1))
+        self.assertEqual(consult.read_text(), before)
+        self.assertNotIn('consult', self.state())
+        self.assertNotIn('CONSULT', (self.fake / 'calls.log').read_text())
+
     def test_scratch_lives_inside_the_repo_git_dir_and_leaves_no_trace(self):
         path = Path(self.run_sh('scratch', str(self.store), '001-x-review').splitlines()[0])
         git_dir = self.repo / '.git' / 'pstack-scratch'

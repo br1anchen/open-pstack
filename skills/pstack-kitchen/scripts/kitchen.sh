@@ -3,7 +3,7 @@
 # pair's master and sidekick, a consultant started only when a unit
 # escalates, and a short-lived verifier pane per verification. The shared
 # commands live in pstack-pair's pair-core.sh and the consultant's in
-# pstack-trio's consultant-core.sh; the repo's rules are read through
+# pstack_core/consult.py; the repo's rules are read through
 # kitchen.py from .agents/kitchen.toml or the host kitchen.
 set -euo pipefail
 
@@ -20,8 +20,6 @@ store_dirs=(plans briefs reports reviews progress steers consults advice scratch
 slug_max=20
 # shellcheck source-path=SCRIPTDIR source=../../pstack-pair/scripts/pair-core.sh
 . "$skill_root/../pstack-pair/scripts/pair-core.sh"
-# shellcheck source-path=SCRIPTDIR source=../../pstack-trio/scripts/consultant-core.sh
-. "$skill_root/../pstack-trio/scripts/consultant-core.sh"
 
 usage() {
 	cat <<'USAGE'
@@ -128,6 +126,12 @@ cmd_dispatch() { pycore --exec dispatch "$@"; }
 cmd_queue() { pycore queue "$@"; }
 
 cmd_discuss() { pycore discuss "$@"; }
+
+cmd_new_consult() { pycore new-consult "$@"; }
+
+cmd_consult() { pycore --exec consult "$@"; }
+
+cmd_advice() { pycore advice "$@"; }
 
 cmd_step() { pycore --exec step "$@"; }
 

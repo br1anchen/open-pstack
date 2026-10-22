@@ -4,6 +4,7 @@ import sys
 import zlib
 from pathlib import Path
 
+from pstack_core import consult
 from pstack_core.review import jq_raw
 from pstack_core.store import dispatched_brief, expected_report, get, header_field
 from pstack_core.gates import no_gate, require_agreed_plan
@@ -68,7 +69,7 @@ def verify_job(store, brief, head):
 
 
 class KitchenVariant(TrioVariant):
-    # Its own table, as every variant has one: stop is the consultant-core stop, which loops over the kitchen's roles (the verifier too). Spawn
+    # Its own table, as every variant has one: stop is the trio's, which loops over the kitchen's roles (the verifier too). Spawn
     # stays the pair's, under kitchen.sh's wrapper.
     commands = {'stop': TrioVariant.commands['stop']}
     verify_job = staticmethod(verify_job)  # finish (kitchen_core.step) keeps its Verify run where report_ready looks for it
@@ -124,7 +125,8 @@ def _kitchen_command(module, function):
     return run
 
 
-KitchenVariant.commands = {**KitchenVariant.commands, 'catch': _kitchen_command('ledger', 'catch'), 'retro': _kitchen_command('ledger', 'retro'),
+KitchenVariant.commands = {**KitchenVariant.commands, 'new-consult': consult.new_consult, 'consult': consult.consult, 'advice': consult.advice,
+                           'catch': _kitchen_command('ledger', 'catch'), 'retro': _kitchen_command('ledger', 'retro'),
                            'new-handoff': _kitchen_command('handoff', 'new_handoff'), 'feedback': _kitchen_command('feedback', 'feedback'),
                            'maintainer': _kitchen_command('feedback', 'maintainer'), 'close': _kitchen_command('master', 'close'),
                            'rotate-master': _kitchen_command('master', 'rotate_master'),
