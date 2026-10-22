@@ -2848,31 +2848,55 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual((r.returncode, r.stderr), (2, f'pair.sh: no pair.json in {st}; run: pair.sh init <slug>\n'))
         self.assertTrue(r.stdout.startswith('# Pair status\n'))
 
+    TRIPWIRE = (
+        '#!/bin/bash\n'
+        'pid=$PPID\n'
+        'while :; do\n'
+        '  comm=$(cat /proc/$pid/comm)\n'
+        '  case $comm in timeout|perl|env) pid=$(sed "s/.*) //" /proc/$pid/stat | cut -d" " -f2) ;; *) break ;; esac\n'
+        'done\n'
+        'case $comm in python*) who=python ;; bash) who=bash ;; *) who="other:$comm" ;; esac\n'
+        'printf "%s\\t%s\\n" "$who" "$*" >>"$TRIPWIRE_LOG"\n'
+        'exit 127\n')
+
     def jq_tripwire(self):
-        """A directory for PATH holding a jq that logs its parent's command line and its arguments, then exits 127."""
+        """A directory for PATH holding a jq that logs the first python or bash process above it (skipping timeout, perl and env) and its
+        arguments, then exits 127."""
         bin_dir = self.path / 'tripwire'
         bin_dir.mkdir()
-        log = self.path / 'jq-calls.log'
         jq = bin_dir / "jq"
-        jq.write_text('#!/bin/bash\nprintf \'%s\\t%s\\n\' "$(tr \'\\0\' \' \' </proc/$PPID/cmdline)" "$*" >>"$TRIPWIRE_LOG"\nexit 127\n')
+        jq.write_text(self.TRIPWIRE)
         jq.chmod(0o755)
-        return bin_dir, log
+        return bin_dir, self.path / 'jq-calls.log'
 
     def test_no_python_ported_pair_command_starts_jq(self):
-        """The pair scenario drives every ported command through the real pair.sh against the fake herdr with a jq that logs and fails: a jq whose
-        parent is a Python process is a ported command starting jq. Calls from bash are the shell core's, listed for the shell units."""
+        """A jq on PATH logs which process started it and fails. The pair scenario drives every ported command but failover through the real
+        pair.sh against the fake herdr, and failover is driven here: a call attributed to Python is a ported command starting jq. Calls from bash
+        are the shell core's, listed for the shell units. The controls show the walk up from jq sees Python through timeout and env."""
         bin_dir, log = self.jq_tripwire()
         env = {**inherited_env(), 'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'TRIPWIRE_LOG': str(log)}
-        control = subprocess.run([sys.executable, '-c', 'import subprocess; subprocess.run(["jq", "."], input=b"{}", check=False)'], env=env, check=False)
-        self.assertEqual(control.returncode, 0)
-        self.assertRegex(log.read_text(), r'^\S*python\S* -c import subprocess')
+        controls = {
+            'python': ([sys.executable, '-c', 'import subprocess; subprocess.run(["jq", "."], input=b"{}", check=False)'], 'python'),
+            'python through timeout': ([sys.executable, '-c', 'import subprocess; subprocess.run(["timeout", "5", "jq", "."], input=b"{}", check=False)'], 'python'),
+            'python through env': ([sys.executable, '-c', 'import subprocess; subprocess.run(["env", "FOO=1", "jq", "."], input=b"{}", check=False)'], 'python'),
+            'bash': (['bash', '-c', 'jq . </dev/null'], 'bash'),
+            'bash through timeout': (['bash', '-c', 'timeout 5 jq . </dev/null'], 'bash'),
+        }
+        for name, (argv, who) in controls.items():
+            subprocess.run(argv, env=env, check=False)
+            self.assertEqual(log.read_text().splitlines()[-1].split('\t')[0], who, name)
         log.unlink()
         out = subprocess.run([root / 'tests/pstack-pair/scenario.sh', root / 'skills', 'pair'], env=env, capture_output=True, text=True, check=False, timeout=600).stdout
         self.assertIn('$ pair.sh status', out)
         self.assertIn('$ pair.sh wait', out)
         calls = [line.split('\t', 1) for line in (log.read_text().splitlines() if log.exists() else [])]
-        from_python = [call for call in calls if os.path.basename(call[0].split(' ', 1)[0]).startswith('python')]
-        self.assertEqual(from_python, [])
+        failover = {**self.failover_cases()['an idle sidekick'], 'topfiles': {'trip/jq': (self.TRIPWIRE, 0o755)},
+                    'envfill': {'PATH': '{T}/trip:' + self.env['PATH'], 'TRIPWIRE_LOG': '{st}/jq.log'}}
+        got = self.script_run('tripwire-failover', root / 'skills', 'pstack-pair', failover)
+        self.assertEqual(got['rc'], 0, got['stderr'])
+        self.assertIn('failover: claude -> devin', got['stdout'])
+        calls += [line.split('\t', 1) for line in got['files'].get('jq.log', '').splitlines()]
+        self.assertEqual([call for call in calls if call[0] != 'bash'], [])
 
     def test_get_reads_a_dotted_path_with_a_default_and_env_int_refuses_a_non_integer(self):
         st = self.path / 'st'
