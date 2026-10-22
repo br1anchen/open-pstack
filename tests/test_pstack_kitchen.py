@@ -1669,7 +1669,7 @@ esac
         return module
 
     def test_replies_kitchen_steps_due_is_false_unless_the_brief_is_escalated(self):
-        # kitchen.sh cannot be sourced in a harness, so these are the literal results of kitchen.sh risk_of and of its steps_due as it was at e6e83e3 (a body since deleted).
+        # risk_of reads the brief's `risk:` header as written (case-sensitive, cut at no word) and steps_due is true only for `escalated`: these are the expected literals.
         module = self.kitchen_variant()
         from pstack_core.context import Context
         ctx = Context('pstack-kitchen', str(skill), '/s', 'Kitchen', (), (), 20, '')
@@ -1688,27 +1688,22 @@ esac
         self.assertEqual((module.risk_of(str(b)), module.VARIANT().steps_due(ctx, str(self.store), str(b))), ('', False))
         self.assertFalse(module.VARIANT().steps_due(ctx, str(self.store), ''))
 
-    def test_verify_job_matches_cksum(self):
+    def test_verify_job_is_the_brief_name_the_head_prefix_and_the_cksum_of_the_verify_block(self):
         module = self.kitchen_variant()
-        # kitchen.sh no longer has verify_job (kitchen_core.step keeps the path): the oracle is the function as it was at b632713
-        base_text = subprocess.run(['git', '-C', str(root), 'show', 'b632713:skills/pstack-kitchen/scripts/kitchen.sh'], capture_output=True, text=True, check=True).stdout
-        fn = re.search(r'^verify_job\(\) \{.*?^\}$', base_text, re.MULTILINE | re.DOTALL).group(0)
-        blocks = {'empty': b'', 'no trailing newline': b'true', 'plain': b'python3 tests/run.py -k x\ngit diff --exit-code\n',
-                  'non-ascii': 'echo \u00e9 \u2192 \U0001F600\n'.encode(), 'over 4 KiB': b'echo ' + b'x' * 5000 + b'\n' + b'true\n' * 900}
-        for name, block in blocks.items():
+        # the expected numbers are `awk '/^## Verify/{p=1; next} /^## /{p=0} p' <brief> | cksum | cut -d' ' -f1`
+        blocks = {'empty': (b'', 3515105045), 'no trailing newline': (b'true', 2469621148), 'plain': (b'python3 tests/run.py -k x\ngit diff --exit-code\n', 1475834372),
+                  'non-ascii': ('echo \u00e9 \u2192 \U0001F600\n'.encode(), 1800349256), 'over 4 KiB': (b'echo ' + b'x' * 5000 + b'\n' + b'true\n' * 900, 2434960844)}
+        for name, (block, cksum) in blocks.items():
             brief = Path(self.tmp.name) / f'{name.replace(" ", "-")}-001-x.md'
             brief.write_bytes(b'# Brief\n\n## Goal\n\ng\n\n## Verify\n' + block + b'\n## Forbidden\n\nnone\n')
             sha = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
-            bash = subprocess.run(['bash', '-c', f'{fn}\nverify_job "$1" "$2" "$3"', 'x', '/store', str(brief), sha],
-                                  capture_output=True, text=True, check=True).stdout.strip()
-            self.assertEqual(module.verify_job('/store', str(brief), sha), bash, name)
+            self.assertEqual(module.verify_job('/store', str(brief), sha), f'/store/steps/jobs/{brief.stem}-verify-a1b2c3d4e5f6-{cksum}', name)
         bare = Path(self.tmp.name) / '002-y.md'
         bare.write_bytes(b'# Brief\n\n## Verify\n\ntrue')
-        bash = subprocess.run(['bash', '-c', f'{fn}\nverify_job /store {bare} abc', 'x'], capture_output=True, text=True, check=True).stdout.strip()
-        self.assertEqual(module.verify_job('/store', str(bare), 'abc'), bash, 'a Verify block that ends the file')
+        self.assertEqual(module.verify_job('/store', str(bare), 'abc'), '/store/steps/jobs/002-y-verify-abc-1944576129', 'a Verify block that ends the file')
 
     def test_kitchen_report_ready_adds_the_verify_job_to_the_pairs_readiness(self):
-        # kitchen.sh cannot be sourced in a harness, so the why strings below are the literals of kitchen.sh report_ready as it was at e6e83e3 (a body since deleted).
+        # the why strings below are the literals an agent reads when report_ready says a done report is not ready.
         module = self.kitchen_variant()
         ready = lambda path: module.VARIANT().report_ready(None, str(self.store), str(path))
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
@@ -2632,9 +2627,71 @@ esac
         self.set_roster('[verifier]\nkind = "prime-agent"\n')
         (self.fake / 'trust-dialog').touch()
         _, out = self.verify_app_unit('clean', 5)
-        self.assertIn('Prime verifier start failed', out)
+        self.assertRegex(out, r'Prime verifier start failed in p\d+;')
+        self.assertIn('its pane and scratch stay for inspection (verify-wait can resume cleanup once its session is reported)', out)
         self.assertTrue((self.store / 'scratch' / self.state()['verifying']['scratch']).is_dir())
         self.assertTrue((self.fake / 'panes' / self.state()['verifier']['pane_id']).exists())
+
+    def test_a_prime_verifier_that_reports_no_session_keeps_its_pane_scratch_and_the_record_of_how_it_was_launched(self):
+        self.set_roster('[verifier]\nkind = "prime-agent"\n')
+        (self.fake / 'prime-no-session').touch()
+        _, out = self.verify_app_unit('clean', 5)
+        self.assertIn('Prime verifier did not report its session; its pane and scratch stay for inspection', out)
+        state = self.state()
+        scratch = self.store / 'scratch' / state['verifying']['scratch']
+        self.assertTrue(scratch.is_dir())
+        self.assertTrue((self.fake / 'panes' / state['verifier']['pane_id']).exists())
+        # the verifier record says where the daemon was launched and that its session is not stopped; the open verification, how it was asked for
+        self.assertEqual((state['verifier']['launch_cwd'], state['verifier']['session_stopped'], state['verifier']['session']), (str(scratch.resolve()), False, None))
+        verifying = state['verifying']
+        self.assertEqual((verifying['units'], verifying['argv'], verifying['entry']['kind'], verifying['entry']['source']), ('001', ['001'], 'prime-agent', 'roster'))
+
+    def test_a_batch_over_review_max_batch_diff_is_refused_but_a_fix_verified_with_its_unit_is_not(self):
+        text = (self.repo / '.agents/kitchen.toml').read_text()
+        self.write('.agents/kitchen.toml', text.replace('[review]\n', '[review]\nmax_batch_diff = 1\n'))
+        self.commit('cap the batch')
+        self.three_units()
+        out = self.run_sh('verify', str(self.store), '001', '002', code=2)
+        self.assertRegex(out, r'batch of \d+ diff lines is over review.max_batch_diff; verify each unit')
+        self.assertNotIn('verifying', self.state())
+        self.assertNotIn('verifier demo-verifier', out)
+        out = self.run_sh('verify', str(self.store), '003', '--covers', '001,002')
+        self.assertIn('status: clean', out)
+
+    def test_the_pairs_permission_report_and_notify_work_through_kitchen_sh(self):
+        self.assertEqual(self.run_sh('permission').strip(), 'auto')
+        self.assertEqual(self.run_sh('report', str(self.store)).strip(), f'{self.store}/reports/000-ready.md')
+        newest = self.store / 'reports/001-util.md'
+        newest.write_text('# R\n\nstatus: done\nhead: x\n')
+        self.assertEqual(self.run_sh('report', str(self.store)).strip(), str(newest))
+        self.assertEqual(self.run_sh('report', str(self.store), '001').strip(), str(newest))
+        self.assertIn('no report found', self.run_sh('report', str(self.store), '007', code=4))
+        out = self.run_sh('notify', str(self.store), str(newest))
+        self.assertEqual(out.strip(), f'prompted master demo-master (was idle) with REPORT {newest}')
+        self.assertIn(f'agent prompt demo-master pstack-kitchen REPORT {newest}', (self.fake / 'calls.log').read_text())
+        self.assertIn(f'file not found: {self.store}/reports/none.md', self.run_sh('notify', str(self.store), f'{self.store}/reports/none.md', code=1))
+
+    def test_the_consultants_new_consult_consult_and_advice_work_through_kitchen_sh(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        self.run_sh('consultant', str(self.store), '--reason', 'contract', '--kind', 'codex', code=4)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.assertIn('--kind must be design, finding, objection, review, or glance', self.run_sh('new-consult', str(self.store), '001', code=1))
+        consult = Path(self.run_sh('new-consult', str(self.store), '001', '--kind', 'finding').strip())
+        self.assertEqual(consult, self.store / 'consults/001-util-c1.md')
+        self.assertIn('still has unfilled placeholders', self.run_sh('consult', str(self.store), str(consult), code=1))
+        consult.write_text(re.sub(r'\{\{[^}]*\}\}', 'x', consult.read_text(), flags=re.DOTALL))
+        self.assertIn('no advice found', self.run_sh('advice', str(self.store), code=4))
+        out = self.run_sh('consult', str(self.store), str(consult), '--timeout', '1500', code=4)
+        self.assertIn('advice: missing', out)
+        self.assertIn(f'agent prompt demo-consultant pstack-kitchen CONSULT {consult} --wait --timeout 1500', (self.fake / 'calls.log').read_text())
+        advice = self.store / 'advice/001-util-c1.md'
+        advice.parent.mkdir(exist_ok=True)
+        advice.write_text('# A\n\nstatus: answered\n\nadvice here\n')
+        out = self.run_sh('consult', str(self.store), str(consult), '--timeout', '1500')
+        self.assertIn(f'advice: {advice}\nadvice_status: answered', out)
+        self.assertEqual(self.run_sh('advice', str(self.store)).strip(), str(advice))
+        self.assertEqual(self.run_sh('new-consult', str(self.store), '001', '--kind', 'glance').strip(), str(self.store / 'consults/001-util-c2.md'))
+        self.assertIn('unit 001 already had its glance; send a finding consult, or pass --force', self.run_sh('new-consult', str(self.store), '001', '--kind', 'glance', code=7))
 
     def test_scratch_lives_inside_the_repo_git_dir_and_leaves_no_trace(self):
         path = Path(self.run_sh('scratch', str(self.store), '001-x-review').splitlines()[0])
@@ -4709,29 +4766,9 @@ esac
         out = self.run_sh('land-check', str(self.store))
         self.assertRegex(out, r'covered: unit 001 \(rebased as [0-9a-f]{9}\)')
 
-    PHASE4 = 'b632713'
-
-    def base_script(self):
-        """kitchen.sh as it was at b632713, the bash the Python land-check must equal."""
-        tree = Path(self.tmp.name) / 'phase4'
-        if not tree.exists():
-            tree.mkdir()
-            archive = subprocess.run(['git', '-C', str(root), 'archive', self.PHASE4, 'skills'], capture_output=True, check=False, timeout=120)
-            if archive.returncode != 0:
-                self.skipTest(f'{self.PHASE4} is not in this checkout')
-            subprocess.run(['tar', '-x', '-C', str(tree)], input=archive.stdout, check=True, timeout=120)
-        return tree / 'skills/pstack-kitchen/scripts/kitchen.sh'
-
-    def land_check_both(self, code):
-        """land-check through the working tree and through b632713's bash, on this one store: the two outputs must be equal. Returns the output."""
-        port = self.run_sh('land-check', str(self.store), code=code)
-        script, self.script = self.script, self.base_script()
-        try:
-            base = self.run_sh('land-check', str(self.store), code=code)
-        finally:
-            self.script = script
-        self.assertEqual(port, base)
-        return port
+    def land_check(self, code):
+        """land-check on this store, expecting exit status `code`. Returns the output."""
+        return self.run_sh('land-check', str(self.store), code=code)
 
     def revert_scan_world(self, before, unit_text, stack):
         """Unit 001 turns src/f.txt from `before` into `unit_text`; the stack, on a moved trunk, replays it and then applies each step of `stack`
@@ -4756,58 +4793,58 @@ esac
         self.write_landing_verdict(trunk, made[-1])
         return unit, made
 
-    def test_an_unrelated_identical_one_line_deletion_is_called_reverted_by_the_u0_scan_in_b632713_and_here(self):
-        """Known limitation (PARITY.md): the revert scan compares no-context patch-ids, which ignore line numbers. The unit adds a second `dup` line;
-        the stack then deletes the first, unrelated `dup`. That commit's patch equals the inverse of the unit's, so b632713 says the unit is reverted
+    def test_an_unrelated_identical_one_line_deletion_is_called_reverted_by_the_u0_scan(self):
+        """Known limitation (tests/SPEC.md, Decided): the revert scan compares no-context patch-ids, which ignore line numbers. The unit adds a second `dup` line;
+        the stack then deletes the first, unrelated `dup`. That commit's patch equals the inverse of the unit's, so land-check says the unit is reverted
         (the conservative, fail-closed answer), though its line is still there."""
         before = 'alpha\ndup\nbeta\ngamma\n'
         unit, made = self.revert_scan_world(before, before + 'dup\n', [('write', 'alpha\nbeta\ngamma\ndup\n')])
-        out = self.land_check_both(2)
+        out = self.land_check(2)
         self.assertIn(f"land-check: note: unit 001's commits match by patch-id but {made[-1][:9]} reverts them", out)
         self.assertIn('unverified: unit 001', out)
         self.assertNotIn('covered: unit 001', out)
 
-    def test_a_real_git_revert_after_a_nearby_edit_is_called_reverted_in_b632713_and_here(self):
+    def test_a_real_git_revert_after_a_nearby_edit_is_called_reverted(self):
         lines = [f'line {k}\n' for k in range(1, 31)]
         unit_text = ''.join(lines[:10] + ['added\n'] + lines[10:])
         nearby = ''.join(lines[:10] + ['added\n'] + lines[10:12] + ['line 13 edited\n'] + lines[13:])
         unit, made = self.revert_scan_world(''.join(lines), unit_text, [('write', nearby), ('revert', 0)])
-        out = self.land_check_both(2)
+        out = self.land_check(2)
         self.assertIn(f"land-check: note: unit 001's commits match by patch-id but {made[-1][:9]} reverts them", out)
         self.assertNotIn('covered: unit 001', out)
 
-    def test_a_block_moved_later_in_the_stack_leaves_the_unit_covered_in_b632713_and_here(self):
+    def test_a_block_moved_later_in_the_stack_leaves_the_unit_covered(self):
         """The unit adds three lines at the top; a later stack commit moves them to the bottom. That commit's patch is a deletion and an addition,
         which is not the inverse of the unit's patch, so the scan finds no revert and the unit stays covered."""
         before = ''.join(f'line {k}\n' for k in range(1, 11))
         block = 'm1\nm2\nm3\n'
         unit, made = self.revert_scan_world(before, block + before, [('write', before + block)])
-        out = self.land_check_both(0)
+        out = self.land_check(0)
         self.assertRegex(out, r'covered: unit 001 \(rebased as [0-9a-f]{9}\) by the clean landing verdict')
         self.assertNotIn('reverts them', out)
 
-    def test_a_deletion_only_unit_reapplied_after_its_lines_were_restored_is_covered_by_the_newest_replay_in_b632713_and_here(self):
+    def test_a_deletion_only_unit_reapplied_after_its_lines_were_restored_is_covered_by_the_newest_replay(self):
         """The unit deletes `gone`; the stack replays it, restores the line, and deletes it again with a commit of the same patch. The newest stack
         commit carrying the unit's patch-id is the last deletion, and nothing after it undoes the unit."""
         before = 'alpha\ngone\nbeta\n'
         after = 'alpha\nbeta\n'
         unit, made = self.revert_scan_world(before, after, [('write', before), ('write', after)])
-        out = self.land_check_both(0)
+        out = self.land_check(0)
         self.assertRegex(out, rf'covered: unit 001 \(rebased as {made[-1][:9]}\) by the clean landing verdict')
 
-    def test_a_deletion_only_unit_whose_lines_were_restored_is_called_reverted_in_b632713_and_here(self):
+    def test_a_deletion_only_unit_whose_lines_were_restored_is_called_reverted(self):
         before = 'alpha\ngone\nbeta\n'
         unit, made = self.revert_scan_world(before, 'alpha\nbeta\n', [('write', before)])
-        out = self.land_check_both(2)
+        out = self.land_check(2)
         self.assertIn(f"land-check: note: unit 001's commits match by patch-id but {made[-1][:9]} reverts them", out)
 
-    def test_a_unit_reverted_and_then_reapplied_is_covered_by_the_reapplication_in_b632713_and_here(self):
+    def test_a_unit_reverted_and_then_reapplied_is_covered_by_the_reapplication(self):
         """git revert, then the unit's own commit cherry-picked again: the newest stack commit with the unit's patch-id is the reapplication, and
         the revert before it does not count."""
         before = ''.join(f'line {k}\n' for k in range(1, 11))
         unit_text = before + 'added\n'
         unit, made = self.revert_scan_world(before, unit_text, [('revert', 0), ('write', unit_text)])
-        out = self.land_check_both(0)
+        out = self.land_check(0)
         self.assertRegex(out, rf'covered: unit 001 \(rebased as {made[-1][:9]}\) by the clean landing verdict')
 
     def test_verify_covers_a_rebased_unit_by_patch_id_and_says_so(self):

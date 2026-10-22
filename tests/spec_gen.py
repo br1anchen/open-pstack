@@ -12,7 +12,7 @@ PROD = ['skills/pstack-pair/scripts', 'skills/pstack-pair-guided/scripts', 'skil
 DOCS = ['skills/pstack-pair', 'skills/pstack-pair-guided', 'skills/pstack-trio', 'skills/pstack-kitchen']
 
 # ---- test index -------------------------------------------------------------
-AB_MARK = ('phase4_skills', 'self.bash(', 'ab_run', 'wait_signalled', 'base_script', 'DELETED_BASH', 'BashReach', 'skills3', 'bases[')
+AB_MARK = ('self.bash(', 'wait_signalled', 'DELETED_BASH', 'BashReach', 'skills3', 'bases[')
 class T:  # one test
     pass
 tests = []
@@ -28,7 +28,7 @@ for path in sorted(glob.glob('tests/test_pstack_*.py')):
                 asserts = []
                 strings = []
                 for n in ast.walk(fn):
-                    if isinstance(n, ast.Assert) or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr.startswith(('assert', 'check_port'))):
+                    if isinstance(n, ast.Assert) or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr.startswith(('assert', 'check_port', 'kitchen_cases'))):
                         asserts.append(ast.unparse(n))
                     if isinstance(n, ast.Constant) and isinstance(n.value, str):
                         strings.append(n.value)
@@ -119,6 +119,7 @@ for name, args, i in kit_cmds:
     for t in tests:
         if t.has_assert and invokes(t.src, name, True):
             (ab if t.ab else beh).append(t.id)
+    beh.sort(key=lambda tid: name.replace('-', '_') not in tid)  # a test named for the command first
     state = 'tested' if beh else ('ab' if ab else 'missing')
     test = beh[0] if beh else ('A/B only' if ab else 'missing')
     counts.setdefault('Commands', {'tested': 0, 'ab': 0, 'missing': 0})[state] += 1
@@ -127,7 +128,7 @@ for name, args, i in kit_cmds:
 own = {c[0] for c in kit_cmds}
 for name in "init rotate failover permission new-plan new-brief queue notes new-note note next progress new-steer steer report notify stop scratch pause resume status metrics new-consult consult advice".split():
     if name in own: continue
-    beh = [t.id for t in tests if t.has_assert and not t.ab and invokes(t.src, name, True)]
+    beh = sorted((t.id for t in tests if t.has_assert and not t.ab and invokes(t.src, name, True)), key=lambda tid: name.replace('-', '_') not in tid)
     ab = [t.id for t in tests if t.has_assert and t.ab and invokes(t.src, name, True)]
     state = 'tested' if beh else ('ab' if ab else 'missing')
     test = beh[0] if beh else ('A/B only' if ab else 'missing')
@@ -143,7 +144,7 @@ def frag(msg):
         return ''
     parts = re.split(r'\{[^}]*\}|\$\{[^}]*\}|\$\([^)]*\)|\$\w+', msg)
     parts = [p for p in parts if len(p) >= 12] or parts
-    return max(parts, key=len).strip() if parts else ''
+    return max(parts, key=len).strip().lstrip(':;,) ') if parts else ''
 
 def static_text(node):
     """A message expression as text, each formatted field as {}."""
@@ -223,7 +224,8 @@ exit_lines.sort(key=lambda x: (x[0], x[1], x[2]))
 HINTS = {('skills/pstack-pair/scripts/pstack_core/commands/report.py', 89): ['queue: empty'],
          ('skills/pstack-pair/scripts/pstack_core/wait.py', 647): ['superseded: a newer wait owns this store'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 285): ['advice_status: answered'],
-         ('skills/pstack-trio/scripts/consultant-core.sh', 290): ['advice: missing']}
+         ('skills/pstack-trio/scripts/consultant-core.sh', 290): ['advice: missing'],
+         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 550): ['verifier start failed in']}
 # behaviours no caller depends on (standing order 27): path:line -> why
 NOT_CONTRACT = {
     ('skills/pstack-pair/scripts/pstack_core/commands/metrics.py', 240): 'the events log that init creates is unreadable; no caller sends it',
@@ -232,6 +234,7 @@ NOT_CONTRACT = {
     ('skills/pstack-pair/scripts/pstack_core/commands/notes.py', 113): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
     ('skills/pstack-pair/scripts/pstack_core/spawn.py', 194): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
     ('skills/pstack-pair/scripts/pstack_core/spawn.py', 196): 'the Prime daemon not reporting a session after its preflight passed; exit 5 like every spawn refusal',
+    ('skills/pstack-kitchen/scripts/kitchen_core/discuss.py', 215): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
     ('skills/pstack-trio/scripts/consultant-core.sh', 53): 'unreachable: a consultant that is neither answered nor ready ends the plan round at line 48 first',
 }
 exit_out = []
@@ -304,15 +307,23 @@ decided = [
     ('`--timeout` and `--every` take integers (ms or minutes as each help line says); zero is the documented immediate or none, a negative or non-integer value is a usage error exit 1', 'plan 043 (f)', 'decided, U5'),
     ('the verify job key and the audit sample draw use zlib.crc32; an old-format completed job neither counts as done nor collides with the new key', 'plan 043 (g), consultant objection 3', 'decided, U5'),
     ('`finish` refuses a report that is not ready (open blocking note, head not a commit) with exit 7 and names why', 'skills/pstack-pair/scripts/pstack_core/commands/report.py:129', None),
+    ('a known limit of the revert scan: land-check and verify call a unit reverted when a later stack commit has the same no-context patch-id as the inverse of the unit\'s patch, even if no real revert happened (an identical one-line deletion elsewhere in the file); the answer fails closed', 'skills/pstack-kitchen/scripts/kitchen_core/units.py:rebased_in',
+     'test_pstack_kitchen.KitchenScriptTests.test_an_unrelated_identical_one_line_deletion_is_called_reverted_by_the_u0_scan'),
+    ('a close claim held by a live process of another user (kill -0 fails with EPERM) reads as a dead owner\'s and is taken over; a pid reused by another process holds the claim while that process lives', 'skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:alive',
+     'test_pstack_core.CoreTests.test_claim_close_takes_a_claim_only_from_a_holder_that_is_gone'),
+    ('`--every`, `--timeout` and `--max` words are read as shell arithmetic: `010` is octal 8, `0x1F` is 31, `1+1` is 2, a name, `1.5` or `08` ends the command with status 1 and a message naming the word (plan 043 (f) narrows this to integers in U5)', 'skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:Waiter.arithmetic',
+     'test_pstack_core.CoreTests.test_the_interval_of_a_wait_is_read_as_the_shells_arithmetic_reads_it'),
+    ('a landing verdict `landing-vN.md` whose N is not a plain decimal (`1x`, `1_0`, a non-ASCII digit) is taken as the newest', 'skills/pstack-kitchen/scripts/kitchen_core/landing.py:latest_landing_verdict',
+     'test_pstack_core.CoreTests.test_a_landing_verdict_with_a_version_that_is_not_a_number_is_the_newest'),
 ]
 dec_out = []
 for text, src, state in decided:
     if state:
-        counts.setdefault('Decided', {'tested': 0, 'ab': 0, 'missing': 0, 'decided': 0})['decided'] += 1
+        counts.setdefault('Decided', {'tested': 0, 'ab': 0, 'missing': 0, 'decided': 0})['tested' if state.startswith('test_') else 'decided'] += 1
         dec_out.append(f'- {text} — {src} — {state}')
     else:
         explicit = {'globs': 'test_pstack_kitchen.GlobTests.test_globs_cross_directories_only_with_double_star; test_pstack_pair.ReadinessTests.test_a_scope_line_listing_several_paths_is_refused_at_dispatch_and_queue',
-                    'TERM': 'test_pstack_pair.%s.test_a_timeout_cannot_cut_a_delivery_short (delivery); A/B only for the signal exit status' % 'PiSidekickTests',
+                    'TERM': 'test_pstack_pair.%s.test_a_timeout_cannot_cut_a_delivery_short (delivery); test_pstack_core.CoreTests.test_step_and_finish_outlive_the_shell_that_ran_them (detached jobs)' % 'PiSidekickTests',
                     'not ready': None}
         key = 'globs' if 'globs' in text else ('TERM' if 'TERM' in text else 'not ready')
         if explicit[key]:
@@ -327,10 +338,9 @@ hdr = f'''# Behaviour spec
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
 transcripts plus this file; a behaviour no line names may change. Generated at {subprocess.run(["git","rev-parse","--short","HEAD"],capture_output=True,text=True).stdout.strip()} by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
-Line format: `- <behaviour> — <source file:line> — <test id | A/B only | missing | decided, U<n>>`.
+Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
-- `A/B only` means only tests that compare against a bash base (they use phase4_skills, self.bash, ab_run, wait_signalled, base_script, or are named for bash parity) assert it; U1 and U2 replace those with behaviour tests.
-- `missing` means no test asserts the literal. The match is a literal-string heuristic, so U1 and U2 re-check each `missing` line by hand before writing the test.
+- The match is a literal-string heuristic. A line no test matches is counted in the table below and needs a test, a decision, or a `not a caller contract` entry with its reason.
 
 ## How this was built
 
