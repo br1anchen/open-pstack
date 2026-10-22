@@ -164,5 +164,4 @@ cmd_maintainer() { pycore maintainer "$@"; }
 # A run stamped at init lists the skills directories its commands ran from; a command from a different one adds a row (kitchen_core.setup.record_skill_build).
 # A run from before stamps stays unstamped. It runs here, before pair_main, for every word the script is called with (help, an unknown command, any
 # command): no per-command shim reaches them all.
-if [ $# -ge 2 ] && [ -f "$2/pair.json" ]; then pycore __record_skill_build "$2"; fi
 pair_main "$@"

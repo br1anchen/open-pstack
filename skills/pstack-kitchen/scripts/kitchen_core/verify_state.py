@@ -191,9 +191,7 @@ def pycore_argv(ctx, *command):
     """The words of the bash's pycore: the core run as a process, with the context of this command."""
     from pstack_core import cli
     pair_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(cli.__file__))), 'pair.py')
-    return [sys.executable, '-I', pair_py, '--skill', ctx.skill, '--prog', cli.PROG, '--skill-root', ctx.skill_root, '--state-root', ctx.state_root,
-            '--store-label', ctx.store_label, '--roles', ' '.join(ctx.roles), '--store-dirs', ' '.join(ctx.store_dirs), '--slug-max', str(ctx.slug_max),
-            '--unfilled-re', ctx.unfilled_re, '--', *command]
+    return [sys.executable, '-I', pair_py, '--skill-root', ctx.skill_root, *command]
 
 
 def scratch_process(ctx, store, scratch, *options, capture=False):

@@ -30,13 +30,17 @@ def last_line(path):
     return lines[-1] if lines[-1] else (lines[-2] if len(lines) > 1 else '')
 
 
+# Whether a master wake row identical to the last row is written once: the variant's event_dedupe, set by cli.main (the kitchen's).
+dedupe_wakes = False
+
+
 def event(store, actor, name, unit, detail=''):
     """One events.tsv row, as event() in pair-core.sh. Never fails the command it records.
 
     The bash writes no header: its redirect creates the file before the "[ -f ]" test, so
     the header branch never runs. A store's first row is data.
 
-    With PAIR_EVENT_DEDUPE=1 a master wake row identical to the last row in epoch, actor,
+    With dedupe_wakes a master wake row identical to the last row in epoch, actor,
     event, unit and detail is not written twice."""
     log = f'{store}/events.tsv'
     unit = os.path.basename(unit or '-')
@@ -46,7 +50,7 @@ def event(store, actor, name, unit, detail=''):
     epoch = int(now)
     row = f'{epoch}\t{actor}\t{name}\t{unit}\t{detail}'
     try:
-        if os.environ.get('PAIR_EVENT_DEDUPE') == '1' and actor == 'master' and name == 'wake':
+        if dedupe_wakes and actor == 'master' and name == 'wake':
             try:
                 if last_line(log).split('\t', 1)[-1] == row:
                     return

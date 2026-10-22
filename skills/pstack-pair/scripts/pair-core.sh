@@ -46,9 +46,7 @@ pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 pycore() {
 	local run=()
 	[ "${1:-}" != --exec ] || { run=(exec); shift; }
-	PAIR_SHELL_PID=$$ PAIR_SHELL_FLAGS=$- ${run[@]+"${run[@]}"} python3 -I "$pair_core_dir/pair.py" --skill "$PAIR_SKILL" --prog "${PAIR_PROG:-pair.sh}" --skill-root "$skill_root" \
-		--state-root "$state_root" --store-label "$store_label" --roles "${roles[*]}" \
-		--store-dirs "${store_dirs[*]}" --slug-max "$slug_max" --unfilled-re "$unfilled_re" -- "$@"
+	PAIR_SHELL_PID=$$ PAIR_SHELL_FLAGS=$- ${run[@]+"${run[@]}"} python3 -I "$pair_core_dir/pair.py" --skill-root "$skill_root" "$@"
 }
 
 pair_file() {

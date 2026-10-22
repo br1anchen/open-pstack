@@ -55,12 +55,6 @@ def record_skill_build(ctx, store):
     update(store, mutate)
 
 
-def record_skill_build_entry(ctx, args):
-    """__record_skill_build store: kitchen.sh runs it before any command whose second word is a store with a pair.json."""
-    record_skill_build(ctx, args[0])
-    return 0
-
-
 def stamp_skill_builds(ctx, store):
     skills_dir = os.path.dirname(ctx.skill_root)
     stamp = now()

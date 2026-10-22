@@ -1,5 +1,5 @@
 class Context:
-    """What a variant's pair.sh sets before it sources pair-core.sh."""
+    """What a variant's class attributes configure: skill, state root, labels, roles, store directories, slug limit and unfilled pattern."""
 
     __slots__ = ('skill', 'skill_root', 'state_root', 'store_label', 'roles', 'store_dirs', 'slug_max', 'unfilled_re', '_variant')
 

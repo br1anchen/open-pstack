@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry for the commands pair-core.sh runs in Python (see pycore there)."""
+"""Entry for the skills' scripts/pair.sh and kitchen.sh shims: pair.py --skill-root DIR command [args]."""
 import os
 import sys
 

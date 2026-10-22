@@ -13,9 +13,6 @@ from pstack_core.store import field, header_field, pair_file, whole_number
 from pstack_core.variant import Variant
 from pstack_core.wait import agent_state, end_with_parent
 
-TRIO_PAIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pair.sh')
-
-
 def stop(ctx, args):
     """STOP to each of the run's roles in turn (--only names one): the trio's stop, which the kitchen runs too. It loops over
     ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, a blocked one sets the exit status
@@ -150,7 +147,90 @@ def spawn(ctx, args):
     return 0
 
 
+USAGE = """usage: pair.sh <command> [args]
+
+  init <slug> [--store DIR]                 create or re-register the trio store; prints its path
+  spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
+        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--timeout MS] [-- agent-args...]
+                                            split panes beside the master, start and bootstrap both agents;
+                                            Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
+                                            three kinds are all the same. --only respawns one role. A pi or Prime sidekick first proves
+                                            its model answers; on failure the --fallback kind starts instead. --tab gives each role
+                                            its own tab instead of a split (PSTACK_PLACEMENT=tab sets the default).
+  rotate <store>                            exit an idle Devin, pi, or Prime sidekick after a done brief, respawn with recorded
+                                            arguments, and bootstrap a fresh session; preserve the queue and history
+  failover <store> [--reason TEXT] [--force]
+                                            replace a failing sidekick with its recorded fallback in the same pane;
+                                            the fallback picks up from the store, and the run stays on it
+  permission                                print the master's detected permission mode
+  new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
+  discuss <store> <plan-path> [--timeout MS]
+                                            send PLAN to the sidekick and the consultant at once and wait for
+                                            both responses: the sidekick's report and the consultant's advice
+  new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]
+                                            create consults/NNN-<slug>-c<k>.md for unit NNN; three per unit, plus
+                                            one glance (a five-minute diff read at a check-in)
+  consult <store> <consult-path> [--timeout MS]
+                                            send CONSULT to the consultant and wait for its advice; it may run while
+                                            the sidekick works, reading committed state or a scratch snapshot
+  advice <store> [NNN]                      print the latest (or NNN) advice path
+  new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
+                                            send BRIEF to the sidekick and wait for it to settle;
+                                            implementation playbooks require an agreed plan
+  wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
+                                            (and any queued or now-running brief), or a check-in digest when the
+                                            interval passes first
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
+                                            current report is written (Devin, pi, and Prime wait for rotation and dispatch). One slot. queue <store> --clear empties it
+  step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
+                                            sidekick: record a committed step of the running brief and go on;
+                                            the master's wait picks it up for review
+  notes <store>                             sidekick, at each step boundary: print blocking review notes still open
+  new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
+  note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
+  finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
+                                            the queued brief to start for other kinds, or the REPORT line; a done Devin, pi, or Prime brief requires rotation
+  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
+  progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
+  new-steer <store> <NNN> [--supersedes STEER | --force]
+                                            create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
+                                            an objection; two fresh steers per brief
+  steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]
+                                            send STEER: to a working sidekick, return at once (its harness hands it
+                                            over between tool calls; --interrupt cancels the running one first);
+                                            to one paused on an objection, wait for it to settle
+  report <store> [NNN]                      print the latest (or NNN) report path
+  notify <store> <path>                     sidekick or consultant -> master: prompt the master if it is idle
+                                            (REPORT for a report path, ADVICE for an advice path)
+  stop <store> [--only sidekick|consultant] [--timeout MS]
+                                            send STOP; each agent pauses safely and reports
+  scratch <store> <id> [--at SHA] [--remove]
+                                            a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
+                                            diff applied, or exactly at SHA to recheck a unit while the sidekick works
+  pause <store> [--reason TEXT]             pause at the next safe point: the sidekick stops at its next step or
+                                            progress boundary; dispatch, queue, discuss, consult, answer refuse
+  resume <store>                            lift the pause; re-dispatch the paused brief to continue it
+  status <store>                            table of units, reports, advice, reviews, agent states, open scratch
+  log <store> <phase> <decision> <why> <evidence> <result>
+                                            append a decisions.tsv row (show-me-your-work format)
+  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
+                                            master wakes, review latency, verdicts
+
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no report or advice yet or queue empty,
+            5 agent in the wrong state or queue taken, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,
+            8 agent kinds not diverse
+"""
+
+
 class TrioVariant(Variant):
+    PAIR_SKILL = 'pstack-trio'
+    STATE_DIR = 'trio'
+    store_label = 'Trio'
+    roles = ('sidekick', 'consultant')
+    store_dirs = ('plans', 'briefs', 'reports', 'reviews', 'progress', 'steers', 'consults', 'advice', 'scratch')
+    slug_max = 20
+    usage = USAGE
     commands = {'spawn': spawn, 'stop': stop, 'discuss': discuss, 'new-consult': new_consult, 'consult': consult, 'advice': advice}
 
     def plan_gate_extra(self, ctx, store, plan, review, seq):

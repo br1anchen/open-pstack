@@ -76,8 +76,7 @@ def watch_jq(test, env):
 
 
 def core_args(skill_root='/nowhere/pstack-pair'):
-    return ['--skill', 'pstack-pair', '--skill-root', skill_root, '--state-root', '/s', '--store-label', 'Pair',
-            '--roles', 'sidekick', '--store-dirs', 'plans briefs', '--slug-max', '21', '--unfilled-re', '', '--']
+    return ['--skill-root', skill_root]
 
 
 LEGACY_HEADER = 'ts\tepoch\tactor\tevent\tunit\tdetail'
@@ -91,7 +90,7 @@ def mask(text):
 def event_log(*calls, dedupe='1'):
     """The rows (without their stamp) that store.event writes for (epoch, 'actor event unit detail') calls made at those epoch seconds."""
     with tempfile.TemporaryDirectory() as directory:
-        with mock.patch.dict(os.environ, {'PAIR_EVENT_DEDUPE': dedupe}):
+        with mock.patch.object(store, 'dedupe_wakes', dedupe == '1'):
             for epoch, args in calls:
                 with mock.patch('time.time', return_value=float(epoch)):
                     store.event(directory, *args.split(' ', 3))
@@ -166,7 +165,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_event_dedupes_a_repeated_master_wake_in_one_second(self):
         b = self.path / 'b'
         b.mkdir()
-        with mock.patch.dict(os.environ, {'PAIR_EVENT_DEDUPE': '1'}), mock.patch('time.time', return_value=1000.0):
+        with mock.patch.object(store, 'dedupe_wakes', True), mock.patch('time.time', return_value=1000.0):
             for _ in range(2):
                 store.event(str(b), 'master', 'wake', '001', 'r')
             store.event(str(b), 'master', 'log', '-', 'r')
@@ -263,7 +262,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer', 'new-answer', 'new-direction'), 'pstack-trio': ('advice', 'consult', 'discuss', 'new-consult', 'spawn', 'stop'), 'pstack-kitchen': ('__record_skill_build', 'advice', 'catch', 'classify', 'close', 'consult', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-consult', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer', 'new-answer', 'new-direction'), 'pstack-trio': ('advice', 'consult', 'discuss', 'new-consult', 'spawn', 'stop'), 'pstack-kitchen': ('advice', 'catch', 'classify', 'close', 'consult', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-consult', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -331,10 +330,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                  'try:\n    rc = cli.main(json.loads(sys.argv[2]))\nexcept SystemExit as e:\n    rc = e.code\n'
                  'print(json.dumps({"rc": rc, "kitchen_core": "kitchen_core" in sys.modules, "variant": [m for m in sys.modules if m.startswith("pstack_variant_")], '
                  '"opened": opened}))')
-        pair_args = lambda skill, label: ['--skill', skill, '--skill-root', str(root / 'skills' / skill), '--state-root', '/s', '--store-label', label,
-                                          '--roles', 'sidekick', '--store-dirs', 'plans briefs', '--slug-max', '21', '--unfilled-re', '', '--']
-        kitchen_args = ['--skill', 'pstack-kitchen', '--skill-root', str(root / 'skills/pstack-kitchen'), '--state-root', '/s', '--store-label', 'Kitchen',
-                        '--roles', 'sidekick consultant verifier', '--store-dirs', 'plans briefs', '--slug-max', '21', '--unfilled-re', '', '--']
+        pair_args = lambda skill, label: ['--skill-root', str(root / 'skills' / skill)]
+        kitchen_args = ['--skill-root', str(root / 'skills/pstack-kitchen')]
         runs = []
         for command in (['status', str(store)], ['stop', str(store)], ['spawn', str(store), '--kind']):
             runs.append(('pair', command[0], pair_args('pstack-pair', 'Pair') + command))
@@ -357,13 +354,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(seen[key][0]['rc'], rc, (key, seen[key]))
             self.assertIn(line, seen[key][1] if stream == 'stdout' else seen[key][2], (key, seen[key]))
         self.assertEqual(seen['kitchen', 'stop'][0]['rc'], 0, seen['kitchen', 'stop'])
-        self.assertIn('sidekick s1 is not live\nconsultant null is not live\nverifier null is not live\n', seen['kitchen', 'stop'][1])
+        self.assertIn('sidekick s1 is not live\nverifier null is not live\nconsultant null is not live\n', seen['kitchen', 'stop'][1])
         for name in ('status', 'stop'):
             info = seen['kitchen', name][0]
-            self.assertFalse(info['kitchen_core'], (name, seen['kitchen', name]))
+            self.assertTrue(info['kitchen_core'], (name, seen['kitchen', name]))  # the build stamp on a store named as the second word
         loaded = lambda key: any('/pstack-kitchen/scripts/' in o and 'variant' in o for o in seen[key][0]['opened'])
         self.assertTrue(loaded(('kitchen', 'stop')))
-        self.assertFalse(loaded(('kitchen', 'status')), 'status asks nothing of the variant')
+        self.assertTrue(loaded(('kitchen', 'status')), 'the variant gives every command its configuration')
         self.assertTrue(loaded(('kitchen', 'catch')))
         self.assertEqual(seen['kitchen', 'catch'][0]['kitchen_core'], True)
         self.assertIn('usage: kitchen.sh catch <store> <layer> <text> [<unit>]', seen['kitchen', 'catch'][2])
@@ -394,8 +391,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual([kpy.run(repo, ['validate'])[0], kpy.run(bad, ['validate'])[0], kpy.run(repo, ['--no-such-flag'])[0]], [0, 1, 2])
 
     def test_a_kitchen_command_run_from_the_filesystem_root_loads_kitchen_core(self):
-        kitchen_args = ['--skill', 'pstack-kitchen', '--skill-root', str(root / 'skills/pstack-kitchen'), '--state-root', '/s', '--store-label', 'Kitchen',
-                        '--roles', 'sidekick consultant verifier', '--store-dirs', 'plans briefs', '--slug-max', '21', '--unfilled-re', '', '--']
+        kitchen_args = ['--skill-root', str(root / 'skills/pstack-kitchen')]
         probe = ('import sys; sys.path.insert(0, sys.argv[1]); from pstack_core import cli\n'
                  'rc = cli.main(sys.argv[2:])\nprint(rc, "kitchen_core" in sys.modules)')
         r = subprocess.run([sys.executable, '-I', '-c', probe, str(scripts), *kitchen_args, 'catch'], capture_output=True, text=True, check=False, timeout=60, cwd='/')
@@ -412,14 +408,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                            check=False, timeout=60, cwd='/')
         self.assertEqual((r.returncode, r.stdout), (0, 'True kitchen_core True\n'), r.stderr)
 
-    def test_a_command_the_variant_does_not_override_runs_without_loading_the_variant_module(self):
+    def test_a_skill_with_no_variant_file_runs_its_commands_on_the_base_variant(self):
         store = self.path / 'st'
         store.mkdir()
         (store / 'pair.json').write_text('{}')
         r = subprocess.run([sys.executable, '-I', '-c', 'import sys; sys.path.insert(0, sys.argv[1]); from pstack_core import cli, variant; '
-                            'variant.load_variant = lambda ctx: (_ for _ in ()).throw(AssertionError("loaded")); sys.exit(cli.main(sys.argv[2:]))',
+                            'rc = cli.main(sys.argv[2:]); print([m for m in sys.modules if m.startswith("pstack_variant_")]); sys.exit(rc)',
                             str(scripts), *core_args(), 'resume', str(store)], capture_output=True, text=True, check=False, timeout=60)
-        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, f'resumed {store}\n', ''))
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, f'resumed {store}\n[]\n', ''))
 
     STOP_HOOK = ('#!/bin/sh\nst="$FAKE/../st"\ncase "$2" in *" STOP "*) %s ;; esac\nexit 0\n')
 
@@ -2872,11 +2868,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
             self.assertEqual(dispatch.fresh_per_brief(kind), kind in ('devin', 'pi', 'prime-agent'), kind)
 
-    def test_load_variant_is_lazy_and_picks_the_skills_class_by_path(self):
-        code = ('import sys; sys.path.insert(0, sys.argv[1]); import pstack_core.cli; '
-                'assert "pstack_core.variant" not in sys.modules; print("lazy")')
-        r = subprocess.run([sys.executable, '-I', '-c', code, str(scripts)], capture_output=True, text=True, check=False, timeout=120)
-        self.assertEqual((r.stdout, r.returncode), ('lazy\n', 0), r.stderr)
+    def test_load_variant_picks_the_skills_class_by_path(self):
         names = {}
         for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen'):
             ctx = Context(skill, str(root / 'skills' / skill), '/s', 'Pair', (), (), 21, '')
@@ -4165,7 +4157,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         rc, out, err = self.kitchen_py(st, 'try:\n    vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\nexcept Exit as e:\n    print("rc=%d" % e.code)\n',
                                        pid=os.getpid())
         self.assertEqual(out, 'rc=1\n')
-        self.assertEqual(self.mask_token(err).replace(str(st), '<S>'), 'pair.sh: scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review\n')
+        self.assertEqual(self.mask_token(err).replace(str(st), '<S>'), 'kitchen.sh: scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review\n')
         self.assertNotIn('closing', (st / 'pair.json').read_text())
 
     def test_a_claim_taken_by_a_closer_binds_the_next_closer_while_its_process_lives_and_no_longer_after(self):
