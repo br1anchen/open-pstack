@@ -36,7 +36,7 @@ max_diff_lines = 600
 
 [[policy.forbid]]
 id = "test-sleep"
-pattern = '\btime\.sleep\(|\bsleep [0-9]|\bEvent\(\)\.wait\(|\basyncio\.sleep\(|\bselect\.select\(\s*\[\]\s*,\s*\[\]\s*,\s*\[\]'
+pattern = '\btime\.sleep\(|\bsleep [0-9]|\bEvent\(\)\.wait\(|\basyncio\.sleep\(|\bselect\.select\(\s*\[\]\s*,\s*\[\]\s*,\s*\[\]|\.wait\(\s*\d*\.\d+\s*\)|\btime\.(?:monotonic|perf_counter)\(|\bthreading\.Timer\('
 paths = ["tests/test_*.py"]
 message = "trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BUSY_POLL, KITCHEN_QUIET_POLL_S); assert on output, never on elapsed time"
 source = "AGENTS.md#testing-guidelines"
