@@ -2120,6 +2120,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertIn('maintainer: ', out[name]['stdout'], name)
             self.assertRegex(out[name]['stderr'], r'maintainer\.json is (not JSON|\w+, not an object)', name)
         self.assertIn('moved off pane p7', out['status when herdr answers an agent of null']['stdout'])
+        self.assertIn('herdr reply is not JSON\n', out['status when herdr answers text that is not JSON']['stderr'])
         self.assertIn('herdr reports no name for the agent on pane p7', out['on when herdr answers an agent of null']['stderr'])
 
     def test_the_maintainer_record_is_written_byte_for_byte(self):
@@ -5279,10 +5280,22 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         }
 
     def test_a_kitchen_command_over_a_store_with_no_pair_json_says_so_once(self):
-        got = self.dispatch_cases()['a brief and no pair.json']
-        out = self.kitchen_world('nopair', got)
-        message = 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'
-        self.assertEqual((out['rc'], out['stdout'], out['stderr']), (2, '', message))
+        plan = lambda risk: {'plans/001-x.md': f'# Plan 001-x\n\nrisk: {risk}\n'}
+        cases = {
+            'dispatch': (['dispatch', '{st}', '{st}/briefs/002-y.md', '--timeout', '100'], {}, 2),
+            'queue': (['queue', '{st}', '{st}/briefs/002-y.md'], {}, 1),
+            'discuss an escalated plan': (['discuss', '{st}', '{st}/plans/001-x.md'], plan('escalated'), 5),
+            'discuss a routine plan': (['discuss', '{st}', '{st}/plans/001-x.md'], plan('routine'), 2),
+            'verify': (['verify', '{st}', '001'], {}, 1),
+            'step': (['step', '{st}', 'abc', 'summary'], {}, 1),
+            'land-check': (['land-check', '{st}'], {}, 1),
+            'status': (['status', '{st}'], {}, 2),
+            'new-handoff': (['new-handoff', '{st}'], {}, 1),
+        }
+        for n, (name, (args, files, rc)) in enumerate(cases.items()):
+            got = self.kitchen_world(f'nopair{n}', self.launch_world(args=args, nopair=True, files=files))
+            self.assertEqual(got['rc'], rc, name)
+            self.assertEqual(got['stderr'].count('pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\n'), 1, f'{name}: {got["stderr"]}')
 
     def test_dispatch_behaviour(self):
         cases = self.dispatch_cases()

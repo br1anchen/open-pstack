@@ -237,7 +237,7 @@ def record_verifier_session(store, name):
     code, info = herdr('agent', 'get', name)
     if code != 0:
         return
-    agent = reply_at(info, 'result', 'agent')
+    agent = reply_at(info, 'result', 'agent', quiet=True)
     agent = agent if isinstance(agent, dict) else {}
     held = agent.get('agent_session')
     held = held if isinstance(held, dict) else {}

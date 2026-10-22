@@ -118,7 +118,7 @@ def section_has_text(path, heading):
 
 def herdr_session(name):
     """the session value of `herdr agent get NAME`, a reply that cannot be read ignored."""
-    return as_text(alt(reply_at(herdr('agent', 'get', name)[1], 'result', 'agent', 'agent_session', 'value'), ''))
+    return as_text(alt(reply_at(herdr('agent', 'get', name)[1], 'result', 'agent', 'agent_session', 'value', quiet=True), ''))
 
 
 def rotate_master(ctx, args):
@@ -236,7 +236,7 @@ def take_master(ctx, args):
     while agent_status(prev) == 'working' and int(time.time()) < deadline:
         time.sleep(float(os.environ.get('KITCHEN_ROTATE_POLL_S') or 2))
     # Close the pane only while it still holds the old master, or nothing.
-    host = as_text(alt(reply_at(herdr('agent', 'get', prev_pane)[1], 'result', 'agent', 'name'), ''))
+    host = as_text(alt(reply_at(herdr('agent', 'get', prev_pane)[1], 'result', 'agent', 'name', quiet=True), ''))
     closed = 'kept'
     if herdr('pane', 'get', prev_pane)[0] != 0:
         closed = 'gone'

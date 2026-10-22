@@ -30,12 +30,17 @@ def exit_status(returncode):
     return 128 - returncode if returncode < 0 else returncode
 
 
+TOLD = set()
+
+
 def has_pair(store, check=False, quiet=False):
     """Whether the store has a pair.json. A command calls this once, before its first read; a store without one gets the two lines a missing
-    pair.json gets (quiet leaves them out) and, with check, the command ends with 2."""
+    pair.json gets (quiet leaves them out) and, with check, the command ends with 2. The message is told once for a store in one process, however
+    many reads follow."""
     if os.path.isfile(f'{store}/pair.json'):
         return True
-    if not quiet:
+    if not quiet and store not in TOLD:
+        TOLD.add(store)
         sys.stdout.flush()
         sys.stderr.write(MISSING_PAIR.format(store=store))
         sys.stderr.flush()

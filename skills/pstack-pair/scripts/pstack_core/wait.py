@@ -670,7 +670,18 @@ def wait(ctx, args):
     return owned_wait(ctx, store, name, timeout, interval)
 
 
-def reply_at(reply, *keys):
-    """The value at keys in the first JSON value of a herdr or daemon reply; None when the reply is not JSON or a step is no object."""
-    values, _ = json_values(reply)
-    return read_path(values[0], *keys)[0] if values else None
+def reply_at(reply, *keys, quiet=False):
+    """The value at keys in the first JSON value of a herdr or daemon reply, None when it has none. A reply that is not JSON, or whose path steps
+    over a value that is no object, is one stderr line saying so (quiet leaves it out), and None."""
+    values, ok = json_values(reply)
+    problem = '' if ok and values else 'is not JSON'
+    if not problem:
+        found, readable = read_path(values[0], *keys)
+        if readable:
+            return found
+        problem = f'has no object on the way to {".".join(keys)}'
+    if not quiet:
+        sys.stdout.flush()
+        sys.stderr.write(f'herdr reply {problem}\n')
+        sys.stderr.flush()
+    return None

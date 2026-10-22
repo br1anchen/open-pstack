@@ -49,6 +49,8 @@ def devnull_stdout(call):
 def queue(ctx, args):
     args = list(args)
     # A brief path may be given relative to the store (briefs/NNN-x.md), as for dispatch.
+    if len(args) >= 2 and not has_pair(args[0]):
+        raise Exit(1)
     if len(args) >= 2 and args[1] != '--clear' and not os.path.isfile(args[1]) and os.path.isfile(f'{args[0]}/{args[1]}'):
         args[1] = f'{args[0]}/{args[1]}'
     if len(args) >= 2 and args[1] != '--clear' and os.path.isfile(args[1]) and not is_landing(args[1]):
@@ -86,11 +88,10 @@ def discuss(ctx, args):
         raise Die(f'plan not found: {plan}')
     if risk_of(plan) not in ('routine', 'escalated'):
         raise Die(f'{plan}: risk: must start with routine or escalated, as kitchen.sh classify prints it', 2)
-    found = has_pair(store)
     escalated = risk_of(plan) == 'escalated'
-    if escalated and not (found and agent_status(field(store, 'consultant', 'name')) != 'absent'):
+    if escalated and not (has_pair(store) and agent_status(field(store, 'consultant', 'name')) != 'absent'):
         raise Die(f'an escalated plan goes to the consultant too; start it: kitchen.sh consultant {store} --reason TEXT', 5)
-    if not found:
+    if not os.path.isfile(f'{store}/pair.json'):
         return core_send.discuss(ctx, list(args))
     rotate_if_due(ctx, store, 'plan')
     if escalated:
