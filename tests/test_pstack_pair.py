@@ -8,6 +8,7 @@ golden diff. The permission mode comes from the agent above the test process,
 so run this from a plain shell or a default-mode agent session.
 """
 from pathlib import Path
+import ast
 import os
 import json
 from datetime import datetime, timedelta
@@ -1658,6 +1659,20 @@ class EntryScriptTests(unittest.TestCase):
             for word in ('help', '-h', '--help'):
                 r = self.run_script(key, word)
                 self.assertEqual((r.returncode, r.stdout, r.stderr), (0, HELP[key], ''), (key, word))
+
+    def test_a_help_line_the_pair_guided_and_trio_share_is_written_once_in_the_source(self):
+        sources = [skills / 'pstack-pair/scripts/pstack_core/variant.py', skills / 'pstack-pair-guided/scripts/variant.py', skills / 'pstack-trio/scripts/variant.py']
+        literals = []
+        for source in sources:
+            found = set()
+            for node in ast.walk(ast.parse(source.read_text())):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    found.update(node.value.split('\n'))
+            literals.append(found)
+        twice = sorted({line for key in ('pair', 'guided', 'trio') for line in HELP[key].split('\n')
+                        if len(line) >= 30 and sum(line in found for found in literals) > 1})
+        self.assertEqual(twice, [])
+        self.assertTrue(any(len(line) >= 30 and sum(line in HELP[key] for key in ('pair', 'guided', 'trio')) == 3 for line in HELP['pair'].split('\n')))
 
     def test_no_command_prints_the_usage_text_and_exits_1(self):
         for key in ENTRY_SCRIPTS:

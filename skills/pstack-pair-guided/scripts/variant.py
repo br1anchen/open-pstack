@@ -6,7 +6,7 @@ from pstack_core.commands.report import in_herdr
 from pstack_core.store import Die, header_field, newest, pair_file, read_text, whole_number, write_text
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
-from pstack_core.variant import Variant
+from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
 from pstack_core.wait import end_with_parent, tdiv
 
 def answer(ctx, args):
@@ -89,71 +89,19 @@ def new_answer(ctx, args):
     return 0
 
 
-USAGE = """usage: pair.sh <command> [args]
-
-  init <slug> [--store DIR]                 create or re-register the pair store; prints its path
-  spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
-                                            split from the master pane, start and bootstrap the sidekick;
-                                            Devin defaults to bypass, other kinds inherit the master's mode;
-                                            a pi or Prime sidekick first proves its model answers; on failure the
-                                            --fallback kind starts instead; --tab gives the sidekick its own tab
-                                            instead of a split (PSTACK_PLACEMENT=tab sets the default)
-  failover <store> [--reason TEXT] [--force]
-                                            replace a failing sidekick with its recorded fallback in the same pane;
-                                            the fallback picks up from the store, and the run stays on it
-  permission                                print the master's detected permission mode
-  new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
-  discuss <store> <plan-path> [--timeout MS]
-                                            send PLAN to the sidekick and wait for its agree/object response
-  new-direction <store> <plan-path>         create plans/NNN-<slug>.direction.md, the human's summary; prints its path
-  new-answer <store> <NNN> [--force]        create answers/NNN-<slug>-a<k>.md for the newest ask on unit NNN
-  answer <store> <answer-path> [--timeout MS | --every MIN]
-                                            send ANSWER to the sidekick and wait for it to settle
-  new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
-  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
-                                            send BRIEF to the sidekick (a due rotation runs first, up to a minute plus
-                                            the READY wait, even with --send-only) and wait for it to settle;
-                                            implementation playbooks require an agreed plan whose
-                                            review approval matches the plan's scale
-  wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
-                                            (and any queued or now-running brief), or a check-in digest when the
-                                            interval passes first
-  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it waits for the master's
-                                            dispatch, which rotates a due sidekick first. One slot. queue <store> --clear empties it
-  step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
-                                            sidekick: record a committed step of the running brief and go on;
-                                            the master's wait picks it up for review
-  notes <store>                             sidekick, at each step boundary: print blocking review notes still open
-  new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
-  note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
-  finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the REPORT line; a done brief requires rotation
-  next <store>                              sidekick: refused for every kind (exit 5); the master dispatches the queued brief to a fresh session
-  progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
-  new-steer <store> <NNN> [--supersedes STEER | --force]
-                                            create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
-                                            an objection; two fresh steers per brief
-  steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]
-                                            send STEER: to a working sidekick, return at once (its harness hands it
-                                            over between tool calls; --interrupt cancels the running one first);
-                                            to one paused on an objection, wait for it to settle
-  report <store> [NNN]                      print the latest (or NNN) report path
-  notify <store> <report-path>              sidekick -> master: prompt the master if it is idle
-  stop <store> [--timeout MS]               send STOP; the sidekick pauses safely and reports
-  scratch <store> <id> [--at SHA] [--remove]
-                                            a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
-                                            diff applied, or exactly at SHA to recheck a unit while the sidekick works
-  pause <store> [--reason TEXT]             pause at the next safe point: the sidekick stops at its next step or
-                                            progress boundary; dispatch, queue, discuss, consult, answer refuse
-  resume <store>                            lift the pause; re-dispatch the paused brief to continue it
-  status <store>                            table of briefs, reports, reviews, and live agent states
-  log <store> <phase> <decision> <why> <evidence> <result>
-                                            append a decisions.tsv row (show-me-your-work format)
-  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
-                                            master wakes, review latency, verdicts
-
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed or not approved, 7 ask or steer cap reached
-"""
+USAGE = usage_text(
+    command_table(
+        PAIR_COMMANDS, drop=('rotate',),
+        replace={'dispatch': PAIR_COMMANDS['dispatch'][:3] + (
+            '                                            implementation playbooks require an agreed plan whose',
+            "                                            review approval matches the plan's scale")},
+        after={'discuss': {
+            'new-direction': ("  new-direction <store> <plan-path>         create plans/NNN-<slug>.direction.md, the human's summary; prints its path",),
+            'new-answer': ('  new-answer <store> <NNN> [--force]        create answers/NNN-<slug>-a<k>.md for the newest ask on unit NNN',),
+            'answer': ('  answer <store> <answer-path> [--timeout MS | --every MIN]',
+                       '                                            send ANSWER to the sidekick and wait for it to settle')}}),
+    'exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, '
+    '6 plan not agreed or not approved, 7 ask or steer cap reached')
 
 
 class GuidedVariant(Variant):
