@@ -70,7 +70,7 @@ def run(ctx, args):
         os.makedirs(f'{store}/scratch', exist_ok=True)
         os.makedirs(os.path.dirname(path), exist_ok=True)
     except OSError as e:
-        sys.stderr.write(f'mkdir: cannot create directory ‘{e.filename}’: {os.strerror(e.errno)}\n')
+        sys.stderr.write(f'{prog()}: cannot create {e.filename}: {os.strerror(e.errno)}\n')
         return 1
     if os.path.islink(link) or os.path.exists(link):
         os.unlink(link)

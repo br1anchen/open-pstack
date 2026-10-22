@@ -139,7 +139,7 @@ def rm_f(path):
     except FileNotFoundError:
         pass
     except OSError as e:
-        raise Exit(1, f"rm: cannot remove '{path}': {os.strerror(e.errno)}\n") from None
+        raise Exit(1, f'{prog()}: cannot remove {path}: {os.strerror(e.errno)}\n') from None
 
 
 def read_lines(path):

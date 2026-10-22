@@ -1902,6 +1902,12 @@ esac
         self.assertEqual((live / 'src/util.py').read_text(), 'X = 99\n')
         self.run_sh('scratch', str(self.store), '002-x-live', '--remove')
 
+    def test_kitchen_scratch_names_the_directory_it_could_not_create_in_its_own_words(self):
+        shutil.rmtree(self.store / 'scratch', ignore_errors=True)
+        (self.store / 'scratch').write_text('in the way')
+        out = self.run_sh('scratch', str(self.store), '001-x-review', code=1)
+        self.assertEqual(out, f'kitchen.sh: cannot create {self.store}/scratch: File exists\n')
+
     def test_kitchen_metrics_reports_wall_time_and_review_latency_from_events_tsv(self):
         rows = [('1000', 'master', 'send-brief', '001-util', ''),
                 ('1600', 'sidekick', 'report', '001-util', ''),

@@ -104,10 +104,13 @@ def stop_role(ctx, store, role, timeout):
 
 
 def clear_queue(store):
-    """rm -f "$store/queue" and json_update "$store" '.pending = []'."""
-    code = subprocess.run(['rm', '-f', f'{store}/queue'], check=False).returncode
-    if code:
-        raise Exit(code)
+    """Remove the store's queue file and empty pair.json's pending list."""
+    try:
+        os.remove(f'{store}/queue')
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        raise Exit(1, f'{prog()}: cannot remove {store}/queue: {os.strerror(e.errno)}\n') from None
     if not os.path.isfile(f'{store}/pair.json'):
         raise Exit(2, f'{prog()}: pair.json is missing from {store}\n')
     update(store, lambda doc: doc.__setitem__('pending', []))

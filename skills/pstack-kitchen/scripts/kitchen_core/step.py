@@ -14,6 +14,7 @@ worker.py runs)."""
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -63,6 +64,28 @@ def slice_deadline():
 
 def past(deadline):
     return int(time.time()) >= deadline
+
+
+def remove_path(path):
+    """Remove a file, link or directory tree, and nothing when it is not there."""
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def point_at(link, target):
+    """Make link a symbolic link to target, replacing what was there."""
+    fresh = f'{link}.new'
+    try:
+        remove_path(fresh)
+        os.symlink(target, fresh)
+        os.replace(fresh, link)
+    except OSError:
+        pass
 
 
 def queue_line(log):
@@ -130,10 +153,10 @@ def step(ctx, args):
     if not os.path.isdir(job) or os.path.isfile(f'{job}/consumed'):
         # every run of the gates has its own log (out.1, out.2, ...), and `out` points at the latest: a path an event named keeps its run's text
         for leftover in ('rc', 'consumed', 'classify.json', 'profiles', 'base'):
-            subprocess.run(['rm', '-rf', f'{job}/{leftover}'], check=False)
+            remove_path(f'{job}/{leftover}')
         os.makedirs(job, exist_ok=True)
         run = len([n for n in os.listdir(job) if re.match(r'out\.[0-9]', n)]) + 1
-        subprocess.run(['ln', '-sfn', f'out.{run}', f'{job}/out'], check=False)
+        point_at(f'{job}/out', f'out.{run}')
         code, found, err = kpy.run(root, [*cfg, '--json', 'classify', '--base', base, '--head', full])
         if err:
             sys.stdout.flush()
@@ -239,7 +262,7 @@ def finish(ctx, args):
     unit = unit_name(brief)
     job = verify_job(ctx, store, brief, head)
     if os.path.isfile(f'{job}/rc') and read_text(f'{job}/rc').rstrip('\n') != '0' and os.path.isfile(f'{job}/consumed'):
-        subprocess.run(['rm', '-rf', job], check=False)
+        remove_path(job)
     if not os.path.isdir(job):
         os.makedirs(job, exist_ok=True)
         cfg = brief_kitchen(brief)

@@ -2020,8 +2020,8 @@ class CoreTests(unittest.TestCase):
             'an inbox file with no gap heading ends --inbox with status 1': (1, ''),
             'a dangling link in the inbox is skipped': (0, '20261003-repo-a  runa  repoa  abc123  2  19d'),
             'a dangling link in done does not hide a report': (0, '20261003-repo-a  runa  repoa  abc123  2  19d'),
-            'a close whose rm fails keeps the lock': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
-            'a second close whose rm fails': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md': Permission denied"),
+            'a close whose rm fails keeps the lock': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md: Permission denied"),
+            'a second close whose rm fails': (1, "/state/pstack/feedback/inbox/20261003-repo-a.md: Permission denied"),
             'closing a report': (0, 'closed: 20261003-repo-a (commit abc123)'),
             'closing with no done directory': (1, "/state/pstack/feedback/done/20261003-repo-a.md: No such file or directory"),
             'closing with the .md suffix and none': (0, 'closed: 20261003-repo-a (commit none)'),
@@ -2042,7 +2042,7 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('20261009-repo-z', out['a dangling link in the inbox is skipped']['stdout'])
         self.assertIn('20261003-repo-a', out['a dangling link in done does not hide a report']['stdout'])
         self.assertEqual(out['a close whose rm fails keeps the lock']['rc'], 1)
-        self.assertIn("rm: cannot remove", out['a close whose rm fails keeps the lock']['stderr'])
+        self.assertRegex(out['a close whose rm fails keeps the lock']['stderr'], r'pair\.sh: cannot remove \S+/inbox/20261003-repo-a\.md: Permission denied\n')
         self.assertIn('pstack/feedback/.lock/', out['a close whose rm fails keeps the lock']['state'])
         self.assertNotIn('pstack/feedback/.lock/', out['closing a report']['state'])
         self.assertIn('pstack/feedback/.lock/', out['closing with no done directory']['state'])
@@ -2075,6 +2075,44 @@ class CoreTests(unittest.TestCase):
         self.assertEqual((caught.exception.code, caught.exception.stderr),
                          (1, f'pair.sh: cannot move {made} to {target}: No such file or directory\n'))
         self.assertEqual(feedback.aligned([['a', 'bb', 'c'], ['ddd', 'e']]), ['a    bb  c', 'ddd  e'])
+
+    def test_init_stop_and_scratch_name_the_path_they_could_not_create_or_remove_in_their_own_words(self):
+        from pstack_core.commands import init as init_command, scratch as scratch_command, stop as stop_command
+        plain = self.path / 'a-file'
+        plain.write_text('x')
+        with self.assertRaises(Exit) as made:
+            init_command.make_dir(str(plain / 'sub'))
+        self.assertEqual((made.exception.code, made.exception.stderr), (1, f'pair.sh: cannot create {plain}/sub: Not a directory\n'))
+        store = self.path / 'stop-store'
+        (store / 'queue').mkdir(parents=True)
+        with self.assertRaises(Exit) as stuck:
+            stop_command.clear_queue(str(store))
+        self.assertEqual((stuck.exception.code, stuck.exception.stderr), (1, f'pair.sh: cannot remove {store}/queue: Is a directory\n'))
+        (store / 'queue').rmdir()
+        (store / 'queue').write_text('x')
+        with self.assertRaises(Exit):
+            stop_command.clear_queue(str(store))
+        self.assertFalse((store / 'queue').exists())
+
+    def test_the_kitchen_step_removes_what_a_rerun_leaves_and_repoints_its_log_link(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import step
+        job = self.path / 'job'
+        (job / 'tree' / 'deep').mkdir(parents=True)
+        (job / 'tree' / 'deep' / 'f').write_text('x')
+        (job / 'rc').write_text('0\n')
+        step.remove_path(str(job / 'tree'))
+        step.remove_path(str(job / 'rc'))
+        step.remove_path(str(job / 'absent'))
+        self.assertEqual(sorted(os.listdir(job)), [])
+        step.point_at(str(job / 'out'), 'out.1')
+        step.point_at(str(job / 'out'), 'out.2')
+        self.assertEqual((os.readlink(job / 'out'), sorted(os.listdir(job))), ('out.2', ['out']))
 
     def test_the_kitchen_verify_block_names_a_brief_it_cannot_read_in_its_own_words(self):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
@@ -2160,7 +2198,7 @@ class CoreTests(unittest.TestCase):
             'on for a pane with no agent': (1, 'pair.sh: herdr has no agent on pane p9'),
             'off': (0, 'maintainer: none'),
             'off with none': (0, 'maintainer: none'),
-            'off whose rm fails': (1, "/state/pstack/feedback/maintainer.json': Is a directory"),
+            'off whose rm fails': (1, "/state/pstack/feedback/maintainer.json: Is a directory"),
             'status with none': (0, 'maintainer: none'),
             'status live': (0, 'maintainer: mt on p7 since'),
             'status gone': (0, 'maintainer: mt on p7 since'),

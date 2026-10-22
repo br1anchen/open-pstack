@@ -1,5 +1,7 @@
 import os
 import re
+import shutil
+import stat
 import subprocess
 import time
 
@@ -13,13 +15,11 @@ DECISIONS = 'ts\tphase\tdecision\twhy\tevidence\tresult\n'
 
 
 def make_dir(path):
-    """mkdir -p, where a failure ends the command with mkdir's own message and status."""
+    """Create path and any parents it lacks; a failure ends the command with status 1 and says which directory and why."""
     try:
         os.makedirs(path, exist_ok=True)
-    except OSError:
-        code = subprocess.run(['mkdir', '-p', path], check=False).returncode
-        if code:
-            raise Exit(code)
+    except OSError as e:
+        raise Exit(1, f'{prog()}: cannot create {e.filename or path}: {os.strerror(e.errno)}\n') from None
 
 
 def git_root():
@@ -100,8 +100,11 @@ def run(ctx, args):
     # The template comes from a read-only install, so give the copy its own mode.
     orders = f'{store}/standing-orders.md'
     if not os.path.isfile(orders):
-        if subprocess.run(['cp', f'{ctx.skill_root}/references/{STANDING_ORDERS_TEMPLATE}', orders], check=False).returncode == 0:
-            subprocess.run(['chmod', 'u+w', orders], check=False)
+        try:
+            shutil.copyfile(f'{ctx.skill_root}/references/{STANDING_ORDERS_TEMPLATE}', orders)
+            os.chmod(orders, os.stat(orders).st_mode | stat.S_IWUSR)
+        except OSError:
+            pass
     if not os.path.isfile(f'{store}/gates.md'):
         write_new(f'{store}/gates.md', GATES)
     if not os.path.isfile(f'{store}/decisions.tsv'):
