@@ -225,8 +225,8 @@ HINTS = {('skills/pstack-pair/scripts/pstack_core/commands/report.py', 88): ['qu
          ('skills/pstack-pair/scripts/pstack_core/wait.py', 633): ['superseded: a newer wait owns this store'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 285): ['advice_status: answered'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 290): ['advice: missing'],
-         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 547): ['verifier start failed in'],
-         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 195): ['verifier entry is not JSON']}
+         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 551): ['verifier start failed in'],
+         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 199): ['verifier entry is not JSON']}
 # behaviours no caller depends on (standing order 27): path:line -> why
 NOT_CONTRACT = {
     ('skills/pstack-pair/scripts/pstack_core/commands/metrics.py', 240): 'the events log that init creates is unreadable; no caller sends it',

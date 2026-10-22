@@ -4299,7 +4299,7 @@ esac
         state['sidekick']['fallback'] = 'devin'
         (self.store / 'pair.json').write_text(json.dumps(state))
         _, out = self.verify_app_unit('clean', 1)
-        self.assertIn('pair.json is damaged: fallback is string, not an object', out)
+        self.assertIn('pair.json is damaged: sidekick.fallback is string, not an object', out)
         self.assertEqual(self.verifier_starts(), [])
 
     def test_verify_deadline_scales_with_measured_gate_time(self):
