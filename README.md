@@ -50,11 +50,11 @@ gate commands that prove each part of it and what makes a change risky, every
 step passes those gates, a fresh verifier pane proves each unit, Judge of Owls
 reviews it, and a consultant joins only escalated units. Its
 `scripts/kitchen.py` reads the kitchen as data (`tests/test_pstack_kitchen.py`).
-See their SKILL.md files. The four share one script core,
-`pstack-pair/scripts/pair-core.sh`; each skill's `scripts/pair.sh` sets its
-variant, adds its own commands, and sources it (the kitchen's is `scripts/kitchen.sh`). The consultant's commands
+See their SKILL.md files. The four share one Python core,
+`pstack-pair/scripts/pair.py`; each skill's `scripts/pair.sh` (the kitchen's is `scripts/kitchen.sh`) is a one-line exec shim into it, and the skill's `scripts/variant.py` sets its
+configuration and adds its own commands. The consultant's commands
 (plan rounds, consults, advice) live in Python, in
-`pstack-pair/scripts/pstack_core/consult.py`; the trio's `variant.py` registers them with its spawn and multi-role stop, and the kitchen's registers them too. `pstack-pair/scripts/pair.py` and `pstack_core/` are a stdlib-only Python core (each variant's hooks are Python in its skill's `scripts/variant.py`): the ported commands run in it through `pair-core.sh`, and `tests/test_pstack_core.py` checks them against the bash at three commits: d06a932 for phase 1, e6e83e3 for phase 2, whose `base_skills()` extracts the bash those commands ran in, and 04d2c13 for phase 3 (`phase3_skills()`), the oracle for init, permission, stop, steer, answer, spawn, rotate and failover. `tests/test_pstack_pair.py`
+`pstack-pair/scripts/pstack_core/consult.py`; the trio's `variant.py` registers them with its spawn and multi-role stop, and the kitchen's registers them too. `pstack-pair/scripts/pair.py` and `pstack_core/` are a stdlib-only Python core (each variant's hooks are Python in its skill's `scripts/variant.py`); `tests/SPEC.md` and the golden transcripts in `tests/pstack-pair/golden` are the contract the tests hold it to. `tests/test_pstack_pair.py`
 drives all three against a fake `herdr` and compares golden transcripts. Other workflows use the current
 upstream revision plus the runtime adaptation. The old installation is backed
 up on sync, including any local edits outside SKILL.md.
@@ -162,7 +162,7 @@ never treats absent transcript evidence as permission to delete work.
 
 ## Validation
 
-Needs Python 3.11 or later, `jq` and Bash; the tests drive the scripts against a
+Needs Python 3.11 or later and Bash; the tests drive the scripts against a
 fake `herdr` and need no agent.
 
 ```bash

@@ -24,7 +24,7 @@ never messages the sidekick and never writes the shared tree.
 2. Load the Herdr skill for pane and agent control:
    `~/.agents/skills/herdr/SKILL.md`, or `herdr --skill` when that file is
    absent. Its safety rules apply throughout.
-3. `jq`, `herdr`, and Python 3.11 or later (`python3`) on PATH. `scripts/pair.sh help` lists every store and
+3. `herdr` and Python 3.11 or later (`python3`) on PATH. `scripts/pair.sh help` lists every store and
    channel operation; use it instead of hand-built `herdr` calls for the trio.
 4. At least two distinct agent kinds among master, sidekick, and consultant.
    `pair.sh spawn` reads the master's kind from Herdr and exits 8 when all

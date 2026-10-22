@@ -18,7 +18,7 @@ never the record, because agents on the alternate screen leave no scrollback.
 2. Load the Herdr skill for pane and agent control:
    `~/.agents/skills/herdr/SKILL.md`, or `herdr --skill` when that file is
    absent. Its safety rules apply throughout.
-3. `jq`, `herdr`, and Python 3.11 or later (`python3`) on PATH. `scripts/pair.sh help` lists every store and
+3. `herdr` and Python 3.11 or later (`python3`) on PATH. `scripts/pair.sh help` lists every store and
    channel operation; use it instead of hand-built `herdr` calls for the pair.
 4. Start the master in auto mode. Devin defaults to bypass permissions with
    `--permission-mode dangerous`. Other kinds inherit the master's mode.
