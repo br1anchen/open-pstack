@@ -180,7 +180,7 @@ fi
 # brief lands, and the queued one is taken, before the master's wait, which
 # must still surface that report.
 # Non-Devin kinds retain immediate queue pickup.
-jq '.sidekick.kind = "codex"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["sidekick"]["kind"]="codex"; json.dump(d,open(sys.argv[2],"w"),indent=2)' "$store/pair.json" "$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 q1="$("$P" new-brief "$store" qone)"; fill "$q1"; set_hdr "$q1" playbook investigation; set_hdr "$q1" plan none
 q2="$("$P" new-brief "$store" qtwo)"; fill "$q2"; set_hdr "$q2" playbook investigation; set_hdr "$q2" plan none
 status "demo-sidekick" idle devin
@@ -200,7 +200,7 @@ run queue "$store" "$q3"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 wait_while_finishing '# Report\n\nstatus: partial\n' "$store/reports/$(basename "$q2")" --timeout 1500
 run status "$store"
-jq '.sidekick.kind = "devin"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["sidekick"]["kind"]="devin"; json.dump(d,open(sys.argv[2],"w"),indent=2)' "$store/pair.json" "$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 # herdr reports a settle while the sidekick still works (a Devin sidekick
 # flips done to idle as a prompt lands): dispatch keeps looking, and the
 # report that lands on a later poll is what it returns.
@@ -374,10 +374,10 @@ status "demo-sidekick" working devin
 run stop "$store" --timeout 3000
 mv "$FAKE/hook.orig" "$FAKE/hook"
 # a working Claude Code or Codex sidekick takes STOP between tool calls: no Enter
-jq '.sidekick.kind = "claude"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["sidekick"]["kind"]="claude"; json.dump(d,open(sys.argv[2],"w"),indent=2)' "$store/pair.json" "$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 status "demo-sidekick" working claude
 run stop "$store"
-jq '.sidekick.kind = "devin"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["sidekick"]["kind"]="devin"; json.dump(d,open(sys.argv[2],"w"),indent=2)' "$store/pair.json" "$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 # herdr says done, and an 11-row pane shows only a queued-message block
 status "demo-sidekick" done devin
 mkdir -p "$FAKE/busy-queue"; : >"$FAKE/busy-queue/demo-sidekick"

@@ -1080,7 +1080,8 @@ esac
         (self.fake / 'prompt-drop').write_text('')
         self.env = {**self.env, 'PAIR_BOOTSTRAP_WAIT_MS': '1000'}
         # Another spawn takes the role after the stall, before the recheck.
-        self.once('read', f"jq '.sidekick.generation += 1' {self.store}/pair.json >{self.store}/pair.json.new"
+        self.once('read', f"python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d[\"sidekick\"][\"generation\"]+=1; json.dump(d,open(sys.argv[2],\"w\"),indent=2)'"
+                          f" {self.store}/pair.json {self.store}/pair.json.new"
                           f" && mv {self.store}/pair.json.new {self.store}/pair.json")
         self.spawn_pi(code=3)
         self.assertEqual(len(self.bootstrap_prompts()), 1)
