@@ -12,7 +12,7 @@ from .store import (
     Die, Exit, now_s, prog, TEXT, exit_code, missing_pair as store_missing, read_text, acquire_lock, env_float, env_int, event, field, header_field,
     member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number,
 )
-from .panes import agent_state, agent_status, herdr, error_code, error_state, pane_busy
+from .panes import agent_state, agent_status, error_code, error_state, herdr_get, pane_busy, require_herdr
 from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
@@ -179,11 +179,6 @@ def set_sent_seen(doc, seen):
 
 def set_shown(doc, unit, k):
     member(doc, 'shown')[unit] = k
-
-
-def herdr_get(name):
-    """herdr agent get NAME 2>/dev/null || true: its stdout."""
-    return herdr('agent', 'get', name)[1].rstrip('\n')
 
 
 SUPERSEDED = 'superseded: a newer wait owns this store; this one ends'
@@ -362,14 +357,13 @@ def no_pair(store):
 
 
 def wait(ctx, args):
-    from .commands.report import in_herdr
     if len(args) == 2 and args[1] == '--release':
         # kitchen.sh's quiet wait gives its claim back when it exits (internal; it runs from an exiting shell, so no herdr checks)
         if not os.path.isfile(f'{args[0]}/pair.json'):
             no_pair(args[0])
         release_wait(args[0], wait_token())
         return 0
-    in_herdr()
+    require_herdr()
     end_with_parent()
     if len(args) < 1:
         raise Die(f'usage: {prog()} wait <store> [--timeout MS | --every MIN]')

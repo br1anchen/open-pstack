@@ -1,15 +1,14 @@
 import glob
 import os
 import re
-import subprocess
 import sys
 import time
 
-from ..store import Die, Exit, prog, TEXT, read_text, env_float, env_int, event, field, header_field, tdiv, update, who
-from ..panes import agent_status, herdr, pane_text
+from ..store import Die, Exit, prog, read_text, env_float, env_int, event, field, header_field, tdiv, update, who
+from ..panes import DEVNULL, agent_prompt, agent_status, herdr, pane_text, require_herdr
 from ..replies import file_mtime
 from ..wait import WaitResult, end_with_parent, finish_wait, wait_opts
-from .report import in_herdr, require_pair
+from .report import require_pair
 
 DEFAULT_TIMEOUT = 300000
 
@@ -86,7 +85,7 @@ def stop_role(ctx, store, role, timeout):
     if agent_status(name) == 'working':
         epoch = int(time.time())
         before = stop_candidates(store, role)
-        r = subprocess.run(['herdr', 'agent', 'prompt', name, text], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False, **TEXT)
+        r = agent_prompt(name, text, stdout=DEVNULL)
         if r.returncode != 0:
             return 2, '', r.stderr.rstrip('\n')
         deadline = epoch + env_int('PAIR_STOP_DEADLINE_S', tdiv(timeout, 1000))
@@ -99,7 +98,7 @@ def stop_role(ctx, store, role, timeout):
                 break
             time.sleep(env_float('PAIR_STOP_POLL_S', 5))
         return code, herdr('agent', 'get', name)[1].rstrip('\n'), err
-    r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, **TEXT)
+    r = agent_prompt(name, text, wait=True, timeout_ms=timeout)
     return r.returncode, r.stdout.rstrip('\n'), r.stderr.rstrip('\n')
 
 
@@ -117,7 +116,7 @@ def clear_queue(store):
 
 
 def stop(ctx, args):
-    in_herdr()
+    require_herdr()
     end_with_parent()
     if not args:
         raise Die(f'usage: {prog()} stop <store> [--timeout MS]')

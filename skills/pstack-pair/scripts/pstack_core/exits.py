@@ -4,7 +4,7 @@ import sys
 import time
 
 from .store import Exit, env_float, env_int, member, update
-from .panes import agent_status, dig, herdr, parse
+from .panes import agent_prompt, agent_status, dig, herdr, parse
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
 
@@ -52,7 +52,7 @@ def stop_prime_role(store, role):
     # Detach while the client is still an active Herdr target. A blocked client cannot take /quit through agent.prompt; Ctrl+D exits its
     # empty editor. Stopping the worker alone leaves the TUI displaying a session-closed error.
     if status in ('idle', 'done'):
-        herdr('agent', 'prompt', name, '/quit')
+        agent_prompt(name, '/quit')
     elif status == 'blocked':
         herdr('agent', 'send-keys', name, 'ctrl+d')
     if active:

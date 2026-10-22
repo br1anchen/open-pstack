@@ -3,18 +3,16 @@
 import os
 import re
 import shutil
-import subprocess
 import sys
 import time
 
 from pstack_core.agents import mcp_args, permission_args
-from pstack_core.commands.report import in_herdr
 from pstack_core.store import (
     Die, Exit, read_text, damaged, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at,
     update, who,
 )
 from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
-from pstack_core.panes import agent_kind, agent_status, herdr, pane_text, reply_at, new_pane, refuse_untrusted
+from pstack_core.panes import DEVNULL, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, pane_text, refuse_untrusted, reply_at, require_herdr
 from pstack_core import procinfo
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
@@ -38,7 +36,7 @@ def close_role(store, role):
         if not stop_prime_role(store, role):
             return False
     if agent_status(name) != 'absent':
-        herdr('agent', 'prompt', name, exit_command(kind))
+        agent_prompt(name, exit_command(kind))
         deadline = exit_deadline()
         while agent_status(name) != 'absent' and int(time.time()) < deadline:
             if 'move to background and exit' in pane_text(name).lower():
@@ -57,7 +55,7 @@ def close_role(store, role):
 
 
 def close(ctx, args):
-    in_herdr()
+    require_herdr()
     if not args:
         raise Die('usage: kitchen.sh close <store> [--force]')
     store = args[0]
@@ -118,7 +116,7 @@ def herdr_session(name):
 
 
 def rotate_master(ctx, args):
-    in_herdr()
+    require_herdr()
     if not args:
         raise Die('usage: kitchen.sh rotate-master <store> [--model MODEL]')
     store, rest, model = args[0], args[1:], ''
@@ -170,8 +168,7 @@ def rotate_master(ctx, args):
     cwd = read(store, 'cwd')
     new_pane_id = new_pane(store, 'master', pane, '', cwd)
     sys.stdout.flush()
-    started = subprocess.run(['herdr', 'agent', 'start', temp, '--kind', 'claude', '--pane', new_pane_id, '--timeout', '60000', '--', *argv],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode == 0
+    started = agent_start(temp, 'claude', new_pane_id, argv, stderr=DEVNULL).returncode == 0
     if not started:
         refuse_untrusted(new_pane_id, 'claude', cwd, True)
         herdr('pane', 'close', new_pane_id)
@@ -200,9 +197,9 @@ def rotate_master(ctx, args):
     event(store, 'master', 'handoff', '-', f'generation:{gen}')
     event(store, 'master', 'spawn', '-', f'claude:generation:{next_gen}')
     skill = ctx.skill
-    herdr('agent', 'prompt', temp, f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {next_gen}). '
-          f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read {store}/session-handoff.md.', '--wait', '--until', 'working',
-          '--timeout', '30000')
+    agent_prompt(temp, f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {next_gen}). '
+             f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read {store}/session-handoff.md.', wait=True, until='working',
+             timeout_ms=30000)
     submit_typed(temp, 'take-master')
     out = sys.stdout
     out.write(f'handoff recorded: {copy} (generation {gen}, session {session or "unknown"})\n')
@@ -213,7 +210,7 @@ def rotate_master(ctx, args):
 
 
 def take_master(ctx, args):
-    in_herdr()
+    require_herdr()
     if len(args) != 1:
         raise Die('usage: kitchen.sh take-master <store>')
     store = args[0]

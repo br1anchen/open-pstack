@@ -1,11 +1,10 @@
 import os
-import subprocess
 
 from ..store import (
     Die, Exit, prog, event, missing_pair, expected_report, field, header_field, load, member, open_steers, peek, steer_number, text_at,
     unit_name, update,
 )
-from ..panes import agent_status
+from ..panes import agent_prompt, agent_status, DEVNULL, require_herdr
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
 
@@ -13,11 +12,6 @@ from .status import latest
 # (object: steer-response-template, plan-response-template), a plan agreement (agree: plan-response-template), a guided ask (asking:
 # ask-template). Advice (answered) goes through notify, not finish.
 FINISH_STATUSES = ('done', 'partial', 'blocked', 'failed', 'object', 'agree', 'asking')
-
-def in_herdr():
-    if os.environ.get('HERDR_ENV') != '1':
-        raise Die('not running inside Herdr (HERDR_ENV != 1)')
-
 
 def require_pair(store, times=1):
     """field() on a store without pair.json: pair_file's message, then jq's, and exit 2 from jq."""
@@ -36,7 +30,7 @@ def report(ctx, args):
 
 
 def notify(ctx, args):
-    in_herdr()
+    require_herdr()
     if len(args) != 2:
         raise Die(f'usage: {prog()} notify <store> <report-or-advice-path>')
     store = os.path.realpath(args[0])
@@ -49,7 +43,7 @@ def notify(ctx, args):
     master = field(store, 'master', 'name')
     status = agent_status(master)
     if status in ('idle', 'done'):
-        code = subprocess.run(['herdr', 'agent', 'prompt', master, f'{ctx.skill} {word} {file}'], stdout=subprocess.DEVNULL, check=False).returncode
+        code = agent_prompt(master, f'{ctx.skill} {word} {file}', stdout=DEVNULL, stderr=None).returncode
         if code:
             return code
         print(f'prompted master {master} (was {status}) with {word} {file}')
@@ -71,7 +65,7 @@ def next_brief(ctx, args):
 
 
 def finish(ctx, args):
-    in_herdr()
+    require_herdr()
     if len(args) != 2:
         raise Die(f'usage: {prog()} finish <store> <report-path>')
     store = os.path.realpath(args[0])

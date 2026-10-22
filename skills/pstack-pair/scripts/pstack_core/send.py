@@ -11,11 +11,10 @@ import time
 
 from .store import Die, Exit, TEXT, missing_pair, env_float, event, expected_report, load, peek, text_at, update, count, member, names, prog, who
 from .gates import check_scope, require_not_paused
-from .panes import agent_kind, agent_status, error_code
+from .panes import DEVNULL, agent_kind, agent_prompt, agent_status, error_code, require_herdr
 from .replies import first3, pending, queued_brief
 from .review import require_filled
 from .wait import owned_wait, end_with_parent, wait_opts
-from .commands.report import in_herdr
 
 
 def prune_pending(store):
@@ -74,8 +73,7 @@ def submit_typed(name, marker):
 def prompt_sidekick(name, text):
     """Sends one message and confirms the sidekick took it. A narrow pane can hide the working state, so a timeout or stall here is not an
     error; the wait that follows looks for the reply file either way."""
-    r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--until', 'working', '--timeout', '30000'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False, **TEXT)
+    r = agent_prompt(name, text, wait=True, until='working', timeout_ms=30000, stdout=DEVNULL)
     if r.returncode != 0:
         err = r.stderr
         code = error_code(err)
@@ -170,7 +168,7 @@ def record_dispatch(store, brief, now=None):
 
 
 def discuss(ctx, args):
-    in_herdr()
+    require_herdr()
     if len(args) < 2:
         raise Die(f'usage: {prog()} discuss <store> <plan-path> [--timeout MS]')
     store, plan = args[0], args[1]
@@ -192,7 +190,7 @@ def store_relative(store, path):
 
 
 def dispatch(ctx, args):
-    in_herdr()
+    require_herdr()
     if len(args) < 2:
         raise Die(f'usage: {prog()} dispatch <store> <brief-path> [--timeout MS | --every MIN]')
     store, brief = args[0], store_relative(args[0], args[1])

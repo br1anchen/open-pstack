@@ -2,7 +2,7 @@ import glob
 import os
 import re
 
-from pstack_core.commands.report import in_herdr
+from pstack_core.panes import require_herdr
 from pstack_core.store import Die, header_field, newest, pair_file, read_text, whole_number, write_text
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
@@ -11,7 +11,7 @@ from pstack_core.wait import end_with_parent, tdiv
 
 def answer(ctx, args):
     """Deliver the human's or master's answer to a sidekick's ask (a message of kind ANSWER) and wait for its reply."""
-    in_herdr()
+    require_herdr()
     end_with_parent()
     if len(args) < 2:
         raise Die('usage: pair.sh answer <store> <answer-path> [--timeout MS | --every MIN]')

@@ -3,7 +3,6 @@ Returns 0, 3 (the bootstrap did not settle) or 4 (it settled without the ready f
 
 import io
 import os
-import subprocess
 import sys
 import time
 
@@ -13,11 +12,10 @@ from .store import (
     Die, TEXT, exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, prog, pair_file,
     whole_number, who,
 )
-from .panes import agent_field, agent_status, herdr, await_file, new_pane, refuse_untrusted
+from .panes import DEVNULL, MERGED, PIPE, agent_field, agent_prompt, agent_start, agent_status, await_file, herdr, new_pane, refuse_untrusted, require_herdr
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .wait import end_with_parent
-from .commands.report import in_herdr
 
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
@@ -58,7 +56,7 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
         if os.path.basename(ready) in visible_without_blanks(name):
             herdr('agent', 'send-keys', name, 'enter')
         else:
-            subprocess.run(['herdr', 'agent', 'prompt', name, bootstrap, '--wait', '--timeout', '240000'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            agent_prompt(name, bootstrap, wait=True, timeout_ms=240000, stdout=DEVNULL, stderr=DEVNULL)
     elif state == 'blocked':
         stderr_of(f'{name} is blocked on a dialog that needs the human; no keys were sent. Read it with: herdr agent read {name} --source visible --lines 60\n')
         return False
@@ -107,8 +105,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         if previous and herdr('pane', 'get', previous)[0] == 0:
             pane = previous
     if pane:
-        r = subprocess.run(['herdr', 'agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', timeout, '--', *args],
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, **TEXT)
+        r = agent_start(name, kind, pane, args, timeout, stdout=PIPE, stderr=MERGED)
         if r.returncode == 0:
             print(f'reused pane {pane}')
         else:
@@ -120,7 +117,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
                 pane = ''
     if not pane:
         pane = new_pane(store, role, anchor, direction, cwd)
-        r = subprocess.run(['herdr', 'agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', timeout, '--', *args], stdout=subprocess.DEVNULL, check=False)
+        r = agent_start(name, kind, pane, args, timeout, stderr=None)
         if r.returncode != 0:
             if kind == 'prime-agent':
                 prime_start_failed = True
@@ -151,7 +148,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         os.replace(f'{store}/{ready}', f'{store}/sessions/{role}-{field(store, role, "generation")}-previous-ready.md')
     bootstrap = (f'Load the {ctx.skill} skill from ~/.agents/skills/{ctx.skill}/SKILL.md and take the {role} role (generation '
                  f'{field(store, role, "generation")}, pane {pane}). {ctx.store_label} store: {store}. Follow its bootstrap steps, write {ready}, and reply READY.')
-    r = subprocess.run(['herdr', 'agent', 'prompt', name, bootstrap, '--wait', '--timeout', '240000'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, **TEXT)
+    r = agent_prompt(name, bootstrap, wait=True, timeout_ms=240000)
     code, err = exit_code(r.returncode), r.stderr.rstrip('\n')
     if not os.path.isfile(f'{store}/{ready}'):
         submitted = submit_typed(name, os.path.basename(ready))
@@ -267,7 +264,7 @@ VALUED = {'--kind': 'kind', '--fallback': 'fallback', '--permission': 'permissio
 def spawn(ctx, args):
     """Starts the sidekick (or its recorded fallback) in a pane: 0, 3 (the bootstrap did not settle) or 4 (it settled without the ready file)."""
     end_with_parent()
-    in_herdr()
+    require_herdr()
     if not args:
         raise Die(usage())
     store, rest = args[0], list(args[1:])

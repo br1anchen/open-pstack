@@ -13,13 +13,54 @@ from .store import Die, TEXT, env_int, load, peek, text_at
 TRUST_RE = re.compile('trust this folder|project you created or one you trust|do you trust the (files|contents)', re.IGNORECASE)
 
 
+DEVNULL, PIPE, MERGED = subprocess.DEVNULL, subprocess.PIPE, subprocess.STDOUT
+
+
+def run_herdr(args, stdout=PIPE, stderr=PIPE):
+    """The one place herdr is run: its CompletedProcess, with each stream captured (PIPE), dropped (DEVNULL), merged into stdout (MERGED) or
+    left on the terminal (None)."""
+    return subprocess.run(['herdr', *args], stdout=stdout, stderr=stderr, check=False, **TEXT)
+
+
+def require_herdr(what=None):
+    """Ends with the caller's message (the default says the command must run inside Herdr) when HERDR_ENV is not 1."""
+    if os.environ.get('HERDR_ENV') != '1':
+        raise Die(what or 'not running inside Herdr (HERDR_ENV != 1)')
+
+
 def herdr_json(*args):
     """herdr with its stderr left on the terminal: the parsed JSON of its stdout, or None when it is not JSON."""
-    r = subprocess.run(['herdr', *args], stdout=subprocess.PIPE, check=False, **TEXT)
     try:
-        return json.loads(r.stdout)
+        return json.loads(run_herdr(args, stderr=None).stdout)
     except ValueError:
         return None
+
+
+def herdr_ok(*args):
+    """herdr with stdout dropped and stderr left on the terminal: whether it succeeded."""
+    return run_herdr(args, stdout=DEVNULL, stderr=None).returncode == 0
+
+
+def agent_start(name, kind, pane, args, timeout_ms=60000, stdout=DEVNULL, stderr=PIPE):
+    """herdr agent start NAME in the pane, running `args` as the agent's command line: the CompletedProcess."""
+    return run_herdr(['agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', str(timeout_ms), '--', *args], stdout, stderr)
+
+
+def agent_prompt(name, text, wait=False, until=None, timeout_ms=None, stdout=PIPE, stderr=PIPE):
+    """herdr agent prompt NAME TEXT, optionally waiting (until a state) up to timeout_ms: the CompletedProcess."""
+    argv = ['agent', 'prompt', name, text]
+    if wait:
+        argv.append('--wait')
+    if until:
+        argv += ['--until', until]
+    if timeout_ms is not None:
+        argv += ['--timeout', str(timeout_ms)]
+    return run_herdr(argv, stdout, stderr)
+
+
+def herdr_get(name):
+    """The stdout of herdr agent get NAME, whatever its status."""
+    return herdr('agent', 'get', name)[1].rstrip('\n')
 
 
 def pick_direction(pane):
@@ -91,7 +132,7 @@ BUSY = re.compile(r'esc (twice )?to interrupt|guide devin while it works|send qu
 
 def herdr(*args):
     """herdr with stderr dropped: (exit code, stdout text)."""
-    r = subprocess.run(['herdr', *args], capture_output=True, check=False, text=True, encoding='utf-8', errors='replace')
+    r = run_herdr(args)
     return r.returncode, r.stdout
 
 

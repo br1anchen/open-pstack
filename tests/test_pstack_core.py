@@ -6876,5 +6876,56 @@ class ShellCallSiteTests(unittest.TestCase):
         self.assertEqual({(rel, function) for rel, function, _, _ in self.sites()}, set(self.ALLOWED), 'an allow-list entry names no shell start')
 
 
+class HerdrCallTests(unittest.TestCase):
+    """herdr is run from panes.py only; the argv it sends is fixed here."""
+
+    def sent(self, call, **kwargs):
+        with mock.patch.object(panes.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'out', 'err')) as run:
+            call()
+        argv, streams = run.call_args.args[0], run.call_args.kwargs
+        return argv, {k: streams[k] for k in ('stdout', 'stderr')}
+
+    def test_agent_prompt_sends_the_flags_it_was_given_in_the_order_herdr_was_always_called_with(self):
+        self.assertEqual(self.sent(lambda: panes.agent_prompt('a', 'hi'))[0], ['herdr', 'agent', 'prompt', 'a', 'hi'])
+        self.assertEqual(self.sent(lambda: panes.agent_prompt('a', 'hi', wait=True, timeout_ms=240000))[0],
+                         ['herdr', 'agent', 'prompt', 'a', 'hi', '--wait', '--timeout', '240000'])
+        self.assertEqual(self.sent(lambda: panes.agent_prompt('a', 'hi', wait=True, until='working', timeout_ms=30000))[0],
+                         ['herdr', 'agent', 'prompt', 'a', 'hi', '--wait', '--until', 'working', '--timeout', '30000'])
+
+    def test_agent_start_sends_the_kind_pane_timeout_and_the_agents_own_arguments_after_a_double_dash(self):
+        argv, streams = self.sent(lambda: panes.agent_start('a', 'pi', 'w1:p2', ['--model', 'm'], '5000'))
+        self.assertEqual(argv, ['herdr', 'agent', 'start', 'a', '--kind', 'pi', '--pane', 'w1:p2', '--timeout', '5000', '--', '--model', 'm'])
+        self.assertEqual(streams, {'stdout': subprocess.DEVNULL, 'stderr': subprocess.PIPE})
+        self.assertEqual(self.sent(lambda: panes.agent_start('a', 'pi', 'p', []))[0][8:], ['--timeout', '60000', '--'])
+
+    def test_the_streams_are_captured_dropped_merged_or_left_on_the_terminal_as_the_caller_says(self):
+        self.assertEqual(self.sent(lambda: panes.herdr('x'))[1], {'stdout': subprocess.PIPE, 'stderr': subprocess.PIPE})
+        self.assertEqual(self.sent(lambda: panes.herdr_ok('x'))[1], {'stdout': subprocess.DEVNULL, 'stderr': None})
+        self.assertEqual(self.sent(lambda: panes.herdr_json('x'))[1], {'stdout': subprocess.PIPE, 'stderr': None})
+        self.assertEqual(self.sent(lambda: panes.agent_prompt('a', 't', stderr=panes.MERGED))[1], {'stdout': subprocess.PIPE, 'stderr': subprocess.STDOUT})
+
+    def test_require_herdr_says_the_default_or_the_callers_message_outside_herdr(self):
+        with mock.patch.dict(os.environ, {'HERDR_ENV': '0'}):
+            with self.assertRaises(Die) as caught:
+                panes.require_herdr()
+            self.assertEqual(str(caught.exception), 'not running inside Herdr (HERDR_ENV != 1)')
+            with self.assertRaises(Die) as caught:
+                panes.require_herdr('maintainer on needs Herdr (HERDR_ENV=1)')
+            self.assertEqual(str(caught.exception), 'maintainer on needs Herdr (HERDR_ENV=1)')
+        with mock.patch.dict(os.environ, {'HERDR_ENV': '1'}):
+            panes.require_herdr()
+
+    def test_no_module_but_panes_builds_an_agent_start_or_prompt_argv(self):
+        stray = []
+        for skill in ('pstack-pair/scripts/pstack_core', 'pstack-kitchen/scripts/kitchen_core', 'pstack-pair-guided/scripts', 'pstack-trio/scripts', 'pstack-kitchen/scripts'):
+            for path in sorted((root / 'skills' / skill).glob('*.py' if skill.endswith('/scripts') else '**/*.py')):
+                if path.name in ('panes.py', 'kitchen.py'):
+                    continue
+                for node in ast.walk(ast.parse(path.read_text(), str(path))):
+                    if isinstance(node, ast.List) and [e.value for e in node.elts[:3] if isinstance(e, ast.Constant)] in (['herdr', 'agent', 'prompt'], ['herdr', 'agent', 'start']):
+                        stray.append(f'{path.relative_to(root)}:{node.lineno}')
+        self.assertEqual(stray, [])
+
+
 if __name__ == '__main__':
     unittest.main()

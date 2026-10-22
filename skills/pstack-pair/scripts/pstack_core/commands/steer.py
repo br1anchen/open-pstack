@@ -1,26 +1,20 @@
 import glob
 import os
 import re
-import subprocess
 import sys
 import time
 
 from ..store import Die, prog, event, field, read_text, header_field, member, names, newest, unit_name, update, who
-from ..panes import agent_status
+from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
 from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
 from ..wait import end_with_parent, owned_wait, wait_opts
-from .report import in_herdr, require_pair
+from .report import require_pair
 
 
 def usage():
     return f'usage: {prog()} steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]'
-
-
-def herdr_ok(*args):
-    """herdr with stdout dropped and stderr left on the terminal, as `herdr ... >/dev/null` runs: whether it succeeded."""
-    return subprocess.run(['herdr', *args], stdout=subprocess.DEVNULL, check=False).returncode == 0
 
 
 def park_for_devin(store, path, key='notice_steers'):
@@ -46,7 +40,7 @@ def open_the_objection_round(store, epoch):
 
 
 def steer(ctx, args):
-    in_herdr()
+    require_herdr()
     end_with_parent()
     if len(args) < 2:
         raise Die(usage())
@@ -99,7 +93,7 @@ def steer(ctx, args):
                 raise Die(f'Prime steer failed for {name}', 2)
             print(f'steered {name} with {steer_path}; Prime queues it between tool calls without cancelling the running command')
         else:
-            if not herdr_ok('agent', 'prompt', name, message):
+            if agent_prompt(name, message, stdout=DEVNULL, stderr=None).returncode != 0:
                 raise Die(f'herdr prompt failed for {name}', 2)
             print(f'steered {name} with {steer_path}; its harness hands it over between tool calls and the ack lands in the progress log')
     elif status in ('idle', 'done'):
@@ -127,7 +121,7 @@ def steer(ctx, args):
     elif status == 'unknown':
         if not force:
             raise Die(f'{who("sidekick", name)} is unknown; read the pane, then pass --force to steer anyway', 5)
-        if not herdr_ok('agent', 'prompt', name, message):
+        if agent_prompt(name, message, stdout=DEVNULL, stderr=None).returncode != 0:
             raise Die(f'herdr prompt failed for {name}', 2)
         print(f'steered {name} with {steer_path}')
     elif status == 'absent':

@@ -6,13 +6,12 @@ import subprocess
 import sys
 import time
 
-from ..store import Die, Exit, prog, TEXT, event, field, load, names, pair_file, peek, read_flag, text_at, env_float, expected_report, who
+from ..store import Die, Exit, prog, event, field, load, names, pair_file, peek, read_flag, text_at, env_float, expected_report, who
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..gates import require_not_paused, check_scope
-from ..panes import agent_status, herdr
+from ..panes import MERGED, agent_prompt, agent_status, herdr, require_herdr
 from ..spawn import spawn_role, record_failover
 from ..wait import end_with_parent
-from .report import in_herdr
 from ..replies import queued_brief
 from ..review import require_filled
 from ..send import store_relative
@@ -24,7 +23,7 @@ TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
 def rotate(ctx, args):
     """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session."""
     end_with_parent()
-    in_herdr()
+    require_herdr()
     if len(args) != 1:
         raise Die(f'usage: {prog()} rotate <store>')
     store = args[0]
@@ -43,7 +42,7 @@ def rotate(ctx, args):
             if not stopped(store, 'sidekick'):
                 raise Die('Prime session cleanup failed; no new session was started', 5)
         else:
-            r = subprocess.run(['herdr', 'agent', 'prompt', name, exit_command(kind)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, **TEXT)
+            r = agent_prompt(name, exit_command(kind), stderr=MERGED)
             err = r.stdout.rstrip('\n')
             if r.returncode != 0 and not TOLERATED.search(err):
                 raise Die(f'{kind} exit failed: {err}', 2)
@@ -140,7 +139,7 @@ def failover(ctx, args):
     """Replaces a failing sidekick with its recorded fallback in the same pane. The new agent picks up from the store: the step log, progress,
     and the brief it was on; every committed step survives. A run stays on the fallback, since failover never switches back."""
     end_with_parent()
-    in_herdr()
+    require_herdr()
     if not args:
         raise Die(f'usage: {prog()} failover <store> [--reason TEXT] [--force]')
     store, rest = args[0], list(args[1:])
@@ -173,7 +172,7 @@ def failover(ctx, args):
         if not stopped(store, 'sidekick'):
             raise Die('Prime session cleanup failed; no fallback was started', 5)
     elif status != 'absent':
-        herdr('agent', 'prompt', name, exit_command(kind))
+        agent_prompt(name, exit_command(kind))
         deadline = exit_deadline()
         while agent_status(name) != 'absent':
             if int(time.time()) >= deadline:

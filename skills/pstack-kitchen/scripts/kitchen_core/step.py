@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 
+from pstack_core.panes import require_herdr
 from pstack_core.commands import report as core_report, step as core_step
 from pstack_core.store import (
     Die, Exit, env_float, env_int, event, expected_report, field, header_field, int_or_none, last_line, pair_file, prog, read, read_text, unit_name,
@@ -224,7 +225,7 @@ def step(ctx, args):
 
 
 def finish(ctx, args):
-    core_report.in_herdr()
+    require_herdr()
     default_signals()
     if len(args) != 2:
         return core_report.finish(ctx, args)

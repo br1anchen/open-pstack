@@ -15,7 +15,7 @@ from pstack_core.store import (
     Die, Exit, now_s, read_text, damaged, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv,
     text_at,
 )
-from pstack_core.panes import agent_status, herdr, pane_text
+from pstack_core.panes import agent_prompt, agent_status, pane_text
 from pstack_core.providers import agent_session_error, error_context, muse_session_error, prime_role_error
 from pstack_core.send import submit_typed
 
@@ -164,7 +164,7 @@ class Waiter:
                 text = (f'Deadline reached: write {verdict} now with status inconclusive, listing what you proved (with its evidence) and what you never '
                         'reached, then end your turn. Stop any process you started first, and write the file complete in one write: create it under a '
                         'temporary name in the same directory, then rename it into place.')
-                if herdr('agent', 'prompt', name, text)[0] == 0:
+                if agent_prompt(name, text).returncode == 0:
                     submit_typed(name, os.path.basename(verdict))
                 else:
                     delivery = 'skipped:prompt-failed'

@@ -21,7 +21,7 @@ from pstack_core.store import (
     read, read_int, update,
 )
 from pstack_core.exits import exit_command, stop_prime_role
-from pstack_core.panes import agent_status, herdr
+from pstack_core.panes import agent_prompt, agent_status, herdr
 from pstack_core.send import submit_typed
 
 
@@ -150,7 +150,7 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
         if not stop_prime_role(store, 'verifier'):
             raise Die('Prime verifier cleanup failed; its pane and scratch stay for inspection', 5)
     else:
-        herdr('agent', 'prompt', name, exit_command(kind))
+        agent_prompt(name, exit_command(kind))
         gone = int(time.time()) + env_int('KITCHEN_VERIFIER_EXIT_S', 15)
         while agent_status(name) != 'absent' and int(time.time()) < gone:
             time.sleep(1)
@@ -226,7 +226,7 @@ def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind=''):
     event(store, 'master', 'verify-redeliver', brief, kind)
     sys.stdout.write(f'redelivered: {why}; sent it again\n')
     sys.stdout.flush()
-    herdr('agent', 'prompt', name, verify_prompt(ctx, packet), '--wait', '--until', 'working', '--timeout', '30000')
+    agent_prompt(name, verify_prompt(ctx, packet), wait=True, until='working', timeout_ms=30000)
     submit_typed(name, os.path.basename(packet))
 
 

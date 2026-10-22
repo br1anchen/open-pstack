@@ -2,12 +2,11 @@ import glob
 import os
 import sys
 
-from pstack_core.commands.report import in_herdr
 from pstack_core.consult import advice, advice_is_stop, consult, discuss_with_consultant, new_consult
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, stop_role
 from pstack_core.store import Die, field, header_field, pair_file, whole_number, who
-from pstack_core.panes import agent_kind, agent_status
+from pstack_core.panes import agent_kind, agent_status, require_herdr
 from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
 from pstack_core.wait import agent_state, end_with_parent
@@ -16,7 +15,7 @@ def stop(ctx, args):
     """STOP to each of the run's roles in turn (--only names one): the trio's stop, which the kitchen runs too. It loops over
     ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, a blocked one sets the exit status
     to 3, and the newest report and advice are shown at the end."""
-    in_herdr()
+    require_herdr()
     end_with_parent()
     if not args:
         raise Die('usage: pair.sh stop <store> [--only sidekick|consultant] [--timeout MS]')
@@ -86,7 +85,7 @@ def spawn(ctx, args):
     """Starts the sidekick and the consultant (--only names one) in panes of their own, the sidekick first: the first role that does not come up
     ends the command with its status (3: the bootstrap did not settle; 4: it settled without the ready file)."""
     end_with_parent()
-    in_herdr()
+    require_herdr()
     if not args:
         raise Die(USAGE)
     store, rest = args[0], list(args[1:])

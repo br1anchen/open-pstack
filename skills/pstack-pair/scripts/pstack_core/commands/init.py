@@ -7,7 +7,7 @@ import sys
 import time
 
 from ..store import Die, Exit, prog, TEXT, _dumps, event, member, update
-from ..panes import herdr
+from ..panes import herdr, require_herdr
 from ..permission import logical_cwd
 
 STANDING_ORDERS_TEMPLATE = 'standing-orders-template.md'
@@ -64,8 +64,7 @@ def re_register(store, pane, workspace, tab, now):
 def run(ctx, args):
     if os.environ.get('PSTACK_KITCHEN_ROLE') == 'verifier':
         raise Exit(2, f'{prog()}: init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier\n')
-    if os.environ.get('HERDR_ENV') != '1':
-        raise Die('not running inside Herdr (HERDR_ENV != 1)')
+    require_herdr()
     if not args:
         raise Die(f'usage: {prog()} init <slug> [--store DIR] [--pane ID]')
     slug, rest = args[0], args[1:]

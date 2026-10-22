@@ -7,7 +7,7 @@ from ..store import (
     Die, prog, count, dispatched_brief, event, field, fill_template, header_field, load, peek, int_or_none, note_id, pair_file, pause_notice,
     read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest,
 )
-from ..panes import agent_status
+from ..panes import agent_prompt, agent_status, DEVNULL
 from ..prime import prime_steer
 from ..review import noted_through, open_notes, require_filled, review_base, steps_file
 
@@ -97,7 +97,7 @@ def deliver_blocking_note(ctx, store, path):
     """A blocking note reaches a working sidekick at once, the way a steer does: a Devin keeps a message sent mid-turn parked as queued, so
     its next `pair.sh notes` (every step boundary) lists the note; Prime takes it through its daemon; every other kind through a prompt.
     The text to append to the published line, empty when the sidekick is not working."""
-    from .steer import herdr_ok, park_for_devin
+    from .steer import park_for_devin
     name = field(store, 'sidekick', 'name')
     if agent_status(name) != 'working':
         return ''
@@ -109,7 +109,7 @@ def deliver_blocking_note(ctx, store, path):
     if kind == 'prime-agent':
         if not prime_steer(store, message):
             raise Die(f'Prime delivery failed for {name}', 2)
-    elif not herdr_ok('agent', 'prompt', name, message):
+    elif agent_prompt(name, message, stdout=DEVNULL, stderr=None).returncode != 0:
         raise Die(f'herdr prompt failed for {name}', 2)
     return f'; sent to {name}'
 

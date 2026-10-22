@@ -10,7 +10,7 @@ import time
 
 from pstack_core.checkin import iso_epoch
 from pstack_core.store import Die, Exit, prog, read_text, write_text, damaged, field, event, header_field, json_type, listing, load, pair_file, text_at
-from pstack_core.panes import herdr, reply_at
+from pstack_core.panes import agent_prompt, herdr, reply_at, require_herdr
 from pstack_core.replies import file_mtime
 
 from .ledger import counters, retro_line
@@ -315,7 +315,7 @@ def file_report(ctx, args):
     record = maintainer_record(f'{fb}/maintainer.json') if os.path.isfile(f'{fb}/maintainer.json') else None
     problem = maintainer_problem(fb, record)
     if not problem:
-        if herdr('agent', 'prompt', registered(record, 'name'), f'pstack-kitchen FEEDBACK {path}')[0] == 0:
+        if agent_prompt(registered(record, 'name'), f'pstack-kitchen FEEDBACK {path}').returncode == 0:
             sys.stdout.write(f'delivered: to maintainer {registered(record, "name")}\n')
             return 0
     problem = problem or 'the prompt to the maintainer failed'
@@ -349,8 +349,7 @@ def maintainer(ctx, args):
                 pane, rest = rest[1], rest[2:]
             else:
                 raise Die(f'unknown option {rest[0]}')
-        if os.environ.get('HERDR_ENV') != '1':
-            raise Die('maintainer on needs Herdr (HERDR_ENV=1)')
+        require_herdr('maintainer on needs Herdr (HERDR_ENV=1)')
         pane = pane or os.environ.get('HERDR_PANE_ID', '')
         if not pane:
             raise Die('no pane: pass --pane ID')

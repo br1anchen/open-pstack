@@ -21,12 +21,11 @@ from types import SimpleNamespace
 
 from pstack_core.agents import has_mcp_arg, has_permission_arg, has_trust_arg, mcp_args, permission_args, trust_args
 from pstack_core.commands import scratch as scratch_command
-from pstack_core.commands.report import in_herdr
 from pstack_core.store import (
     Die, Exit, prog, damaged, env_float, env_int, event, expected_report, field, header_field, json_type, load, names, pair_file, peek, read,
     text_at, TEXT, read_text, write_text, update, whole_number,
 )
-from pstack_core.panes import agent_kind, agent_status, herdr, parse, reply_at, TRUST_RE, new_pane
+from pstack_core.panes import TRUST_RE, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, parse, reply_at, require_herdr
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
@@ -414,8 +413,7 @@ def launch_verifier(v):
     with contextlib.redirect_stdout(io.StringIO()):
         pane = new_pane(store, 'verifier', anchor, '', v.scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={read(store, "slug")}'))
     sys.stdout.flush()
-    started = subprocess.run(['herdr', 'agent', 'start', v.name, '--kind', v.kind, '--pane', pane, '--timeout', '60000', '--', *v.args],
-                             stdout=subprocess.DEVNULL, check=False).returncode == 0
+    started = agent_start(v.name, v.kind, pane, v.args, stderr=None).returncode == 0
     if not started and v.kind != 'prime-agent':
         why = f'verifier start failed in {pane}'
         screen = re.sub(r'[\n\t ]+', ' ', herdr('pane', 'read', pane, '--source', 'visible', '--lines', '40')[1])
@@ -469,7 +467,7 @@ def deliver_packet(v):
     agent gets one more Enter, which submits the typed text. A startup screen can also swallow the prompt whole: an agent never seen working, with
     nothing typed and no verdict, still idle, gets the packet once more."""
     sys.stdout.flush()
-    took = herdr('agent', 'prompt', v.name, vs.verify_prompt(v.ctx, v.packet), '--wait', '--until', 'working', '--timeout', '30000')[0] == 0
+    took = agent_prompt(v.name, vs.verify_prompt(v.ctx, v.packet), wait=True, until='working', timeout_ms=30000).returncode == 0
     submitted = submit_typed(v.name, os.path.basename(v.packet))
     if not took and submitted == 0 and not os.path.isfile(v.verdict):
         if agent_status(v.name) in ('idle', 'done'):
@@ -480,7 +478,7 @@ def deliver_packet(v):
 
 def verify(ctx, args):
     """Start a verification of the named units or the landing and wait for its verdict; every end is an Exit or a Die."""
-    in_herdr()
+    require_herdr()
     if len(args) < 2:
         raise Die(USAGE)
     store, argv = args[0], list(args[1:])
