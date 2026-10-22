@@ -1,49 +1,23 @@
 """What a sidekick that stopped without a report may have hit: its model provider's errors, read from the pane,
-the agent's own session log, or herdr. Text is handled in characters under a UTF-8 locale and in bytes otherwise,
-as grep, cut and awk do."""
+the agent's own session log, or herdr."""
 import glob
 import json
 import os
 import re
 
-from .collate import collate_key
 from .herdr import agent_status, herdr, pane_text
 from .review import jq_raw
-from .store import alt, cut_chars, load, member, update, utf8_locale
+from .store import alt, load, member, newest, newest_first, update
 
 PROVIDER_ERROR_RE = ('capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|'
                      'econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|'
                      'billing verification failed|billing_error')
-ALTERNATIVES = [re.compile(alt_, re.IGNORECASE) for alt_ in PROVIDER_ERROR_RE.split('|')]
 
 
-def grep_o_context(text, before, after):
-    """grep -oiE ".{0,before}(provider_error_re).{0,after}": every match, line by line, each the longest match from
-    the leftmost start, the next search starting where the last match ended."""
-    if not utf8_locale():
-        text = text.encode('utf-8', 'surrogateescape').decode('latin-1')
-    found = []
-    # in a UTF-8 locale grep's . does not match a byte that is not UTF-8, so no match spans one: each stretch between them is a line
-    lines = [part for line in text.split('\n') for part in (re.split('[\udc80-\udcff]+', line) if utf8_locale() else [line])]
-    for line in lines:
-        n = len(line)
-        longest = {}
-        for a in ALTERNATIVES:
-            for m in re.finditer(f'(?=({a.pattern}))', line, re.IGNORECASE):
-                longest[m.start()] = max(longest.get(m.start(), 0), len(m.group(1)))
-        positions = sorted(longest)
-        pos = 0
-        while True:
-            q0 = next((q for q in positions if q >= pos), None)
-            if q0 is None:
-                break
-            start = max(pos, q0 - before)
-            end = max(min(q + longest[q] + after, n) for q in positions if start <= q <= start + before)
-            found.append(line[start:end])
-            pos = end
-    if not utf8_locale():
-        found = [f.encode('latin-1').decode('utf-8', 'surrogateescape') for f in found]
-    return found
+def error_context(text, before, after):
+    """Every provider error in text with up to `before` characters ahead of it and `after` behind it on its line, matches that overlap taken as one."""
+    pattern = re.compile(f'.{{0,{before}}}(?:{PROVIDER_ERROR_RE}).{{0,{after}}}', re.IGNORECASE)
+    return [found.group(0) for found in pattern.finditer(text)]
 
 
 def tsv_cell(value):
@@ -80,11 +54,6 @@ def tail_lines(text, count):
     return '\n'.join(lines[-count:]) + ('\n' if lines else '')
 
 
-def newest(paths):
-    key = collate_key()
-    return min(paths, key=lambda p: (-os.lstat(p).st_mtime_ns, key(os.path.basename(p))), default=None)
-
-
 def read_log(path):
     with open(path, 'rb') as f:
         return f.read().decode('utf-8', 'surrogateescape')
@@ -111,7 +80,7 @@ def agent_session_error(session, cwd=''):
             continue
         last = cells
     if last and last[0] == 'error' and last[1] != '':
-        return cut_chars(last[1], 240)
+        return last[1][:240]
     return ''
 
 
@@ -124,8 +93,7 @@ def muse_session_error(cwd):
         return ''
     base = os.environ.get('XDG_DATA_HOME') or f'{os.environ.get("HOME", "")}/.local/share'
     logs = glob.glob(os.path.join(glob.escape(base), 'muse/sessions/*/*/*/*/session.jsonl'))
-    key = collate_key()
-    logs = sorted(logs, key=lambda p: (-os.lstat(p).st_mtime_ns, key(os.path.basename(p))))[:20]
+    logs = newest_first(logs)[:20]
     chosen = ''
     for log in logs:
         try:
@@ -136,8 +104,8 @@ def muse_session_error(cwd):
             continue
     if not chosen:
         return ''
-    matches = grep_o_context(tail_lines(read_log(chosen), 400), 60, 100)
-    return cut_chars(matches[-1], 240) if matches else ''
+    matches = error_context(tail_lines(read_log(chosen), 400), 60, 100)
+    return matches[-1][:240] if matches else ''
 
 
 def record_prime_session(store, role):
@@ -203,7 +171,7 @@ def provider_hint(store, phase=''):
         return out
     line = ''
     if kind != 'prime-agent':
-        matches = grep_o_context(pane_text(name).rstrip('\n'), 60, 60)
+        matches = error_context(pane_text(name).rstrip('\n'), 60, 60)
         line = matches[-1] if matches else ''
     line = line or logged
     if not line:

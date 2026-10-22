@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 
-from pstack_core.collate import collate_key
 from pstack_core.commands import queue as core_queue
 from pstack_core.commands import rotate as rotate_command
 from pstack_core.commands import send as core_send
@@ -21,7 +20,7 @@ from pstack_core.herdr import agent_status
 from pstack_core.panes import await_file
 from pstack_core.review import require_filled
 from pstack_core.send import require_fresh_session, submit_typed
-from pstack_core.store import event, field, header_field, readlink_f, whole_number
+from pstack_core.store import event, field, header_field, newest_first, whole_number
 from pstack_core.wait import agent_state, end_with_parent, error_code
 
 from .classify import classify_brief, risk_of
@@ -99,7 +98,7 @@ def discuss(ctx, args):
 def plan_answer(store, role, seq, plan):
     """The role's answer to this plan round: its latest report or advice for the plan's number, when it was written after the plan file; else ''."""
     if role == 'sidekick':
-        reports = newest_first(store, 'reports', seq)
+        reports = seq_files_newest_first(store, 'reports', seq)
         found = reports[0] if reports else None
     else:
         found = latest_plan_advice(store, seq)
@@ -116,19 +115,17 @@ def advice_is_stop(path):
 
 def latest_plan_advice(store, seq):
     """The newest advice for NNN that is not a stop (ls -t order), or None."""
-    key = collate_key()
-    for path in newest_first(store, 'advice', seq):
+    for path in seq_files_newest_first(store, 'advice', seq):
         if not advice_is_stop(path):
             return path
     return None
 
 
-def newest_first(store, directory, seq):
+def seq_files_newest_first(store, directory, seq):
     """`ls -t "$store"/DIRECTORY/SEQ-*.md`: the paths spelled as the bash spells them (a store given with a trailing slash keeps its double slash),
-    newest first, ties by collated name."""
-    key = collate_key()
+    newest first."""
     paths = glob.glob(f'{glob.escape(store)}/{directory}/{glob.escape(seq)}-*.md')
-    return sorted(paths, key=lambda p: (-os.lstat(p).st_mtime_ns, key(os.path.basename(p))))
+    return newest_first(paths)
 
 
 def deliver_plan(ctx, store, role, name, seq, plan):
@@ -182,7 +179,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
         rest = rest[2:]
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
-    plan = readlink_f(plan)
+    plan = os.path.realpath(plan)
     end_with_parent()
     require_not_paused(store)
     require_filled(ctx, plan)

@@ -23,14 +23,6 @@ def section(pair, name):
     return value if isinstance(value, dict) else {}
 
 
-def gnu_basename(path):
-    """basename: trailing slashes go, and a path of slashes alone is '/'."""
-    stripped = path.rstrip('/')
-    if not stripped:
-        return '/' if path else ''
-    return stripped.rsplit('/', 1)[-1]
-
-
 def prune_pending(store):
     """Before the master dispatches, the sidekick is idle and every earlier brief has ended: drop those whose report or review exists,
     since the master read them by some path, and only a brief still owed a report stays pending."""
@@ -99,7 +91,7 @@ def prompt_sidekick(name, text):
         if code not in ('timeout', 'agent_prompt_stalled'):
             sys.stderr.write(err)
             raise Die(f'herdr prompt failed for {name}', 2)
-    return submit_typed(name, gnu_basename(text.rsplit(' ', 1)[-1]))
+    return submit_typed(name, os.path.basename(text.rsplit(' ', 1)[-1].rstrip('/') or text.rsplit(' ', 1)[-1]))
 
 
 def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None):

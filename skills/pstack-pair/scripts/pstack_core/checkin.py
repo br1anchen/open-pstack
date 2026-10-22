@@ -6,10 +6,9 @@ import re
 import subprocess
 import time
 
-from .collate import collate_key, glob_sorted
 from .replies import dispatched, file_mtime
 from .review import jq_raw, noted_through, open_notes, range_floor, steps_file
-from .store import alt, cut_chars, int_or_none, header_field, load, progress_path, read_text
+from .store import alt, int_or_none, header_field, load, progress_path, read_text
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 CLASSES = {'alpha': 'A-Za-z', 'digit': '0-9', 'alnum': '0-9A-Za-z', 'upper': 'A-Z', 'lower': 'a-z', 'space': ' \t\n\r\f\v',
@@ -168,7 +167,7 @@ def steer_scope_entries(store, seq):
     """The paths a unit's live steers allow beyond its brief: the `scope effect: may write ...` line of each steer
     that is not a withdraw and that no later steer withdraws by `supersedes:`. A line with a quote and no quoted
     string adds nothing."""
-    files = glob_sorted(glob.glob(os.path.join(glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md')))
+    files = sorted(glob.glob(os.path.join(glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md')))
     withdrawn = ' '
     for f in files:
         if os.path.isfile(f) and header_field(f, 'kind') == 'withdraw':
@@ -266,14 +265,8 @@ def case_match(pattern, text):
 
 
 def sort_u(lines):
-    """sort -u: collation order, lines that compare equal count once."""
-    key = collate_key()
-    out, last = [], None
-    for line in sorted(lines, key=key):
-        if last is None or key(line) != last:
-            out.append(line)
-        last = key(line)
-    return out
+    """sort -u: the distinct lines in code-point order."""
+    return sorted(set(lines))
 
 
 def checkin(ctx, store, interval=9, now=None):
@@ -293,7 +286,7 @@ def checkin(ctx, store, interval=9, now=None):
     if head and tip:
         head, floor_note = range_floor(cwd, head, tip, allow_head=True)
     base = os.path.basename(brief.rstrip('/') or brief)
-    seq = cut_chars(base, 3)
+    seq = base[:3]
     m = re.match(r'[0-9]+', header_field(brief, 'timebox'))
     timebox = m.group(0) if m else ''
     since = iso_epoch(at)

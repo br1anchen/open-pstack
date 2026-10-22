@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 
-from pstack_core.collate import glob_sorted
 from pstack_core.errors import Die
 from pstack_core.review import trunk_ref
 from pstack_core.store import field
@@ -181,7 +180,7 @@ def landing_unmatched_note(store, seq, brief, uhead, landing_verdict, base, head
 def latest_landing_verdict(store):
     """The newest landing verdict file in the store (its number as `[ -le ]` compares it), or ''."""
     best, found = 0, ''
-    for f in glob_sorted(glob.glob(f'{glob.escape(store)}/verdicts/landing-v[0-9]*.md')):
+    for f in sorted(glob.glob(f'{glob.escape(store)}/verdicts/landing-v[0-9]*.md')):
         if not os.path.exists(f) or f.endswith('-packet.md'):
             continue
         number = f.rpartition('-v')[2]
@@ -194,11 +193,11 @@ def latest_landing_verdict(store):
 
 def accepted_units(store):
     """(review, seq, brief) for each accepted review of a unit that commits and is not a landing brief, in glob order."""
-    for review in glob_sorted(glob.glob(f'{glob.escape(store)}/reviews/[0-9][0-9][0-9]-*.md')):
+    for review in sorted(glob.glob(f'{glob.escape(store)}/reviews/[0-9][0-9][0-9]-*.md')):
         if not os.path.exists(review) or header_field(review, 'verdict') != 'accept':
             continue
         seq = os.path.basename(review)[:3]
-        briefs = glob_sorted(glob.glob(f'{glob.escape(store)}/briefs/{seq}-*.md'))
+        briefs = sorted(glob.glob(f'{glob.escape(store)}/briefs/{seq}-*.md'))
         brief = briefs[0] if briefs else ''
         if not brief or header_field(brief, 'commit')[:3] != 'yes' or is_landing(brief):
             continue
@@ -209,7 +208,7 @@ def clean_verdict_for(store, seq):
     """The last clean, non-packet verdict whose units: line names the unit."""
     found = ''
     pattern = re.compile(rf'^units:(.* )?{seq}( |$)')
-    for f in glob_sorted(glob.glob(f'{glob.escape(store)}/verdicts/*-v[0-9]*.md')):
+    for f in sorted(glob.glob(f'{glob.escape(store)}/verdicts/*-v[0-9]*.md')):
         if not os.path.exists(f) or f.endswith('-packet.md'):
             continue
         try:
@@ -352,7 +351,7 @@ def revise(ctx, args):
     if landing:
         briefs = [unit_brief(store, u) for u in re.findall(r'[0-9]{3}', units)]
         if not briefs:
-            briefs = [b for b in glob_sorted(glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')) if os.path.isfile(b) and not is_landing(b)]
+            briefs = [b for b in sorted(glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')) if os.path.isfile(b) and not is_landing(b)]
         if not briefs:
             raise Die(f'no unit briefs to fix in {store}/briefs')
         slug = 'landing-fix'

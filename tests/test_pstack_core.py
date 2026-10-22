@@ -2759,58 +2759,47 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
 
 
-    def test_readlink_f_matches_readlink(self):
-        top = self.path / 'rl'
-        (top / 'd').mkdir(parents=True)
-        (top / 'f').write_text('')
-        (top / 'd/g').write_text('')
-        for name, target in (('lf', 'f'), ('dang', 'nowhere'), ('loop1', 'loop2'), ('loop2', 'loop1'), ('ld', 'd'), ('dd', 'dang/x'), ('abs', str(top / 'f')),
-                             ('up', 'd/../d')):
-            (top / name).symlink_to(target)
-        paths = ['f', 'd', 'lf', 'dang', 'loop1', 'ld', 'missing', 'd/missing', 'missing/x', 'f/', 'd/', 'lf/', 'ld/', 'dang/', 'missing/', 'missing/..',
-                 'f/x', './f', 'd/../f', 'loop1/x', 'd/.', 'd/..', '.', '..', '/', '//', 'f//', 'd//', 'ld/g', 'dd', 'f/..', 'missing/../f',
-                 'd/missing/..', 'abs', 'up', 'up/g', 'd/./g', 'd//g', 'missing/.', str(top / 'f'), str(top / 'nope/f'), str(top) + '/d/../lf', '']
-        cwd = os.getcwd()
-        os.chdir(top)
-        self.addCleanup(os.chdir, cwd)
-        for path in paths:
-            r = subprocess.run(['readlink', '-f', '--', path], capture_output=True, text=True, check=False, timeout=120)
-            try:
-                got = (0, store.readlink_f(path))
-            except Exit as e:
-                got = (e.code, '')
-            self.assertEqual(got, (r.returncode, r.stdout.rstrip('\n')), repr(path))
+    def test_listings_go_in_code_point_order_and_ties_in_time_go_by_name_without_the_extension(self):
+        """sort -u of the touched paths puts upper case before lower case and a non-ASCII letter after both; two files modified at the same time are
+        newest-first by name without .md, so a unit's report comes before its steer response and before a later unit's."""
+        from pstack_core import checkin
+        self.assertEqual(checkin.sort_u(['b', 'a', 'B', 'a', '\u00e9', 'A', 'a-b', 'a.b', 'a_b']), ['A', 'B', 'a', 'a-b', 'a.b', 'a_b', 'b', '\u00e9'])
+        top = self.path / 'ties'
+        top.mkdir()
+        for name in ('010-stop.md', '010-qseven.md', '003-build-s1.md', '003-build.md'):
+            (top / name).write_text('x\n')
+            os.utime(top / name, ns=(10**18, 10**18))
+        got = [os.path.basename(p) for p in store.newest_first([str(p) for p in sorted(top.iterdir(), reverse=True)])]
+        self.assertEqual(got, ['003-build.md', '003-build-s1.md', '010-qseven.md', '010-stop.md'])
+        os.utime(top / '010-stop.md', ns=(10**18 + 1, 10**18 + 1))
+        self.assertEqual(os.path.basename(store.newest([str(p) for p in top.iterdir()])), '010-stop.md')
+        self.assertIsNone(store.newest([]))
 
+    def test_an_error_message_is_cut_at_240_characters_not_bytes(self):
+        """The pi session error, which the master reads as the provider's reason, keeps 240 characters of a message in any script."""
+        session = self.path / 'pi.jsonl'
+        message = '\u00e9' * 300
+        session.write_text(json.dumps({'message': {'role': 'assistant', 'stopReason': 'error', 'errorMessage': message}}) + '\n', encoding='utf-8')
+        self.assertEqual(providers.agent_session_error(str(session)), '\u00e9' * 240)
 
+    def test_a_path_with_trailing_slashes_takes_its_unit_number_from_the_name_before_them(self):
+        """A plan or brief path given with trailing slashes is read as the name before them: its unit number is the first three characters of that name."""
+        from pstack_core import replies
+        self.assertEqual(replies.first3('/s/plans/012-x.md'), '012')
+        self.assertEqual(replies.first3('/s/plans/012-x.md/'), '012')
+        self.assertEqual(replies.first3('/s/plans/012-x.md//'), '012')
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def test_provider_error_context_and_cuts_match_bash(self):
+    def test_provider_error_context_matches_grep(self):
         texts = ['Error: Reached free model rate limit. Your limit will reset in 50 minutes.', 'nothing to see', 'x' * 100 + ' Rate-Limit ' + 'y' * 300,
                  'a rate limit then another RATE LIMIT and overloaded close by', 'Usage limit reached. wait for usage to reset at 5pm; billing_error',
                  '\u00e9' * 70 + ' capacity issues ' + '\u00e9' * 120, 'caf\u00e9 \u2192 unauthorized \u2192 forbidden \u2192 Too Many Requests',
                  'first line rate limit\nsecond line fetch failed\nthird', 'ECONNRESET', 'x rate_limit x', 'ratelimit', 'rate\tlimit rate  limit', '']
-        for locale_name in ('en_US.UTF-8', 'C'):
-            with mock.patch.dict(os.environ, {'LC_ALL': locale_name}):
-                for text in texts:
-                    for before, after in ((60, 100), (60, 60)):
-                        ours = providers.grep_o_context(text, before, after)
-                        r = subprocess.run(['bash', '-c', f'{self.provider_re_line()}\nprintf "%s\\n" "$1" | grep -oiE ".{{0,{before}}}($provider_error_re).{{0,{after}}}" || true', 'x', text],
-                                           env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True, timeout=120)
-                        self.assertEqual('\n'.join(ours).encode('utf-8', 'surrogateescape') + (b'\n' if ours else b''), r.stdout, (locale_name, text, before, after))
-                    cut = subprocess.run(['bash', '-c', 'printf "%s\\n" "$1" | cut -c1-240', 'x', text], env={**self.env, 'LC_ALL': locale_name}, capture_output=True, check=True, timeout=120).stdout
-                    self.assertEqual(providers.cut_chars(text, 240).encode('utf-8', 'surrogateescape') + b'\n', cut, (locale_name, 'cut', text[:20]))
+        for text in texts:
+            for before, after in ((60, 100), (60, 60)):
+                ours = providers.error_context(text, before, after)
+                r = subprocess.run(['bash', '-c', f'{self.provider_re_line()}\nprintf "%s\\n" "$1" | grep -oiE ".{{0,{before}}}($provider_error_re).{{0,{after}}}" || true', 'x', text],
+                                   env={**self.env, 'LC_ALL': 'en_US.UTF-8'}, capture_output=True, check=True, timeout=120)
+                self.assertEqual('\n'.join(ours).encode('utf-8', 'surrogateescape') + (b'\n' if ours else b''), r.stdout, (text, before, after))
         self.assertEqual(providers.PROVIDER_ERROR_RE, re.search(r"^provider_error_re='(.*)'$", (scripts / 'pair-core.sh').read_text(), re.M).group(1))
 
     def provider_re_line(self):
@@ -3021,10 +3010,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn(f'supersedes: {first}', Path(answer).read_text())
         self.assertEqual(out(self.run_pair('new-steer', str(st), '002', '--supersedes', str(st / 'nope.md'))),
                          (1, '', f'pair.sh: superseded steer not found: {st}/nope.md\n'))
-        # a path that cannot be resolved (an empty word, a directory that is not there) ends the command with status 1 and no message, and writes no steer
+        # a path that names no steer (an empty word, a directory that is not there) ends the command with status 1, and writes no steer
         steers = sorted(p.name for p in (st / 'steers').iterdir())
         for unresolvable in ('', str(st / 'nodir/s1.md'), str(st / 'steers/002-one-s1.md/under-a-file')):
-            self.assertEqual(out(self.run_pair('new-steer', str(st), '002', '--supersedes', unresolvable)), (1, '', ''), unresolvable)
+            got = out(self.run_pair('new-steer', str(st), '002', '--supersedes', unresolvable))
+            self.assertEqual(got[:2], (1, ''), unresolvable)
+            self.assertTrue(got[2].startswith('pair.sh: superseded steer not found: '), (unresolvable, got))
         self.assertEqual(sorted(p.name for p in (st / 'steers').iterdir()), steers)
 
 
@@ -3909,7 +3900,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         st, repo, shas, stacks, recorded = self.units_world('ulatest')
         names = ['landing-v1.md', 'landing-v2.md', 'landing-v10.md', 'landing-v3-packet.md', 'landing-v1_0.md', 'landing-v09.md']
         sets = [[], names[:1], names[:3], names[:4], names[:3] + names[4:5], names[:3] + names[5:], names[5:] + names[:1]]
-        latest = ['', 'landing-v1.md', 'landing-v10.md', 'landing-v10.md', 'landing-v10.md', 'landing-v10.md', 'landing-v09.md']
+        # the files go in code-point order, and a name that is no number is the newest until a later file in that order replaces it:
+        # v1, v10, v1_0, v2 ends at v2
+        latest = ['', 'landing-v1.md', 'landing-v10.md', 'landing-v10.md', 'landing-v2.md', 'landing-v10.md', 'landing-v09.md']
         briefs = {'a': 'playbook: opening-a-pr\n', 'b': 'playbook: shipping\n', 'c': 'landing: yes\n', 'd': 'landing: no\nplaybook: feature\n', 'e': '', 'f': 'landing: yes \n'}
         for key, text in briefs.items():
             (st / f'briefs/9{key}.md').write_text('# B\n\n' + text)

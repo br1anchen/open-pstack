@@ -4,9 +4,8 @@ import glob
 import os
 import re
 
-from .collate import glob_sorted
 from .review import jq_raw, noted_through, review_base, steps_file
-from .store import alt, cut_chars, int_or_none, damaged, expected_report, get, header_field, json_type, last_line, read_text, suffix_number, unit_name, update
+from .store import alt, int_or_none, damaged, expected_report, get, header_field, json_type, last_line, read_text, suffix_number, unit_name, update
 from .commands.status import latest
 
 
@@ -42,7 +41,7 @@ def dispatched(store):
 
 def first3(path):
     """basename | cut -c1-3."""
-    return cut_chars(os.path.basename(path.rstrip('/') or path), 3)
+    return os.path.basename(path.rstrip('/') or path)[:3]
 
 
 def queued_brief(store):
@@ -93,7 +92,7 @@ def fresh_reply(ctx, store):
     unit = re.sub(r'-a[0-9]+$', '', unit_name(sent))
     floor = sent_epoch(store)
     reports = os.path.join(glob.escape(store), 'reports')
-    candidates = [f'{store}/reports/{unit}.md', *glob_sorted(glob.glob(os.path.join(reports, glob.escape(unit) + '-[sq][0-9]*.md')))]
+    candidates = [f'{store}/reports/{unit}.md', *sorted(glob.glob(os.path.join(reports, glob.escape(unit) + '-[sq][0-9]*.md')))]
     best, reply = -1, ''
     for f in candidates:
         if not os.path.isfile(f):
@@ -185,4 +184,4 @@ def review_delta(store, report):
         cols = last_line(file).split('\t')
         head = cols[1] if len(cols) > 1 else cols[0]
     base = review_base(store, unit)
-    return f'review-delta: {cut_chars(base, 9)}..{cut_chars(head, 9)} (steps reviewed through {noted_through(store, unit)})\n'
+    return f'review-delta: {base[:9]}..{head[:9]} (steps reviewed through {noted_through(store, unit)})\n'

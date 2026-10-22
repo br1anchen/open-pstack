@@ -5,11 +5,10 @@ import re
 import sys
 import time
 
-from ..collate import collate_key, glob_sorted, newest
 from ..errors import Die
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import alt, header_field, load, paused_reason, peek, read_text, suffix_number, unit_name
+from ..store import alt, header_field, load, newest, paused_reason, peek, read_text, suffix_number, unit_name
 
 
 class NoPairJson(Exception):
@@ -74,8 +73,7 @@ def lines(ctx, store, out):
         for f in glob.glob(os.path.join(glob.escape(store), d, '[0-9][0-9][0-9]-*.md')):
             if os.path.exists(f) and not f.endswith('.direction.md'):
                 units.append(f'{os.path.basename(f)}\t{f}')
-    key = collate_key()
-    for entry in sorted(units, key=key):
+    for entry in sorted(units):
         f = entry.split('\t', 1)[1]
         base = os.path.basename(f)
         seq, slug = base[:3], base.removesuffix('.md')[4:]
@@ -85,7 +83,7 @@ def lines(ctx, store, out):
         if report:
             rstatus = header_field(report, 'status') or 'unlabelled'
         verdict = 'none'
-        reviews = glob_sorted(glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')))
+        reviews = sorted(glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')))
         if reviews:
             verdict = header_field(reviews[0], 'verdict') or 'unlabelled'
         if consultant:

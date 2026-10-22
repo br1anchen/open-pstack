@@ -2,71 +2,19 @@ import glob
 import json
 import os
 import re
-import stat
 import time
 
-from .errors import Die, Exit
+from .errors import Die
 
 
-def utf8_locale():
-    """Whether the locale (LC_ALL, then LC_CTYPE, then LANG) is UTF-8, so grep, cut and awk count characters."""
-    for name in ('LC_ALL', 'LC_CTYPE', 'LANG'):
-        value = os.environ.get(name)
-        if value:
-            return bool(re.search(r'utf-?8', value, re.IGNORECASE))
-    return False
+def newest_first(paths):
+    """The paths by modification time, newest first; two that share a time go by name without its extension (003-x.md before 003-x-s1.md)."""
+    return sorted(paths, key=lambda p: (-os.lstat(p).st_mtime_ns, os.path.splitext(os.path.basename(p))[0]))
 
 
-def cut_chars(text, last):
-    """cut -c1-N: characters under a UTF-8 locale, bytes otherwise."""
-    if utf8_locale():
-        return text[:last]
-    return text.encode('utf-8', 'surrogateescape')[:last].decode('utf-8', 'surrogateescape')
-
-
-def readlink_f(path):
-    """readlink -f, where a failure ends the command with 1 and no message (set -e on an assignment). Every
-    component but the last must exist and be a directory; a trailing slash needs a directory, except after a
-    missing last component; more than 40 symlinks, or a loop, fail."""
-    if path == '':
-        raise Exit(1)
-    rest, links = path, 0
-    parts = [] if path.startswith('/') else [p for p in os.getcwd().split('/') if p]
-    while True:
-        rest = rest.lstrip('/')
-        if rest == '':
-            break
-        name, sep, tail = rest.partition('/')
-        rest = sep + tail
-        if name in ('', '.'):
-            continue
-        if name == '..':
-            if parts:
-                parts.pop()
-            continue
-        here = '/' + '/'.join([*parts, name])
-        try:
-            mode = os.lstat(here).st_mode
-        except FileNotFoundError:
-            if rest.strip('/') == '':
-                parts.append(name)
-                break
-            raise Exit(1)
-        except OSError:
-            raise Exit(1)
-        if stat.S_ISLNK(mode):
-            links += 1
-            if links > 40:
-                raise Exit(1)
-            target = os.readlink(here)
-            if target.startswith('/'):
-                parts = []
-            rest = target + rest
-            continue
-        if rest.startswith('/') and not stat.S_ISDIR(mode):
-            raise Exit(1)
-        parts.append(name)
-    return '/' + '/'.join(parts)
+def newest(paths):
+    """The most recently modified path, or None when there are none."""
+    return next(iter(newest_first(paths)), None)
 
 
 def last_line(path):

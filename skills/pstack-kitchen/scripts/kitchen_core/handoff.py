@@ -6,9 +6,8 @@ import re
 import sys
 import time
 
-from pstack_core.collate import glob_sorted, newest
 from pstack_core.errors import Die
-from pstack_core.store import field
+from pstack_core.store import field, newest
 from pstack_core.store import alt, header_field, jq_raw, pair_file, load
 
 
@@ -17,7 +16,7 @@ def basename(path):
 
 
 def newest_matching(pattern, skip_packets=False):
-    """`ls -t <pattern> | [grep -v packet] | head -1`: the newest match by mtime, ties by collated name; '' when none."""
+    """`ls -t <pattern> | [grep -v packet] | head -1`: the newest match by mtime, ties by name; '' when none."""
     paths = [p for p in glob.glob(pattern) if os.path.lexists(p)]
     if skip_packets:
         paths = [p for p in paths if 'packet' not in p]
@@ -36,7 +35,7 @@ def handoff_units(store):
     """The table of units and what is known of each, then what is dispatched, being verified and queued."""
     out = ['| unit | report | verdict | review |', '|---|---|---|---|']
     esc = glob.escape(store)
-    for brief in glob_sorted(glob.glob(f'{esc}/briefs/[0-9][0-9][0-9]-*.md')):
+    for brief in sorted(glob.glob(f'{esc}/briefs/[0-9][0-9][0-9]-*.md')):
         if not os.path.exists(brief):
             continue
         name = os.path.basename(brief)

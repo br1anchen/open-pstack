@@ -4,7 +4,6 @@ from ..errors import Die
 from ..gates import require_not_paused
 from ..replies import queued_brief
 from ..send import send_and_wait
-from ..store import readlink_f
 from ..wait import end_with_parent, wait_opts
 from .report import in_herdr
 
@@ -21,7 +20,7 @@ def discuss(ctx, args):
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
     require_not_paused(store)
-    return send_and_wait(ctx, store, readlink_f(plan), 'PLAN', timeout, interval, send_only)
+    return send_and_wait(ctx, store, os.path.realpath(plan), 'PLAN', timeout, interval, send_only)
 
 
 def store_relative(store, path):
@@ -40,7 +39,7 @@ def dispatch(ctx, args):
         raise Die(f'unknown option {rest[0]}')
     if not os.path.isfile(brief):
         raise Die(f'brief not found: {brief}')
-    brief = readlink_f(brief)
+    brief = os.path.realpath(brief)
     require_not_paused(store)
     ctx.variant.require_agreed_plan(ctx, store, brief)
     queued = queued_brief(store)

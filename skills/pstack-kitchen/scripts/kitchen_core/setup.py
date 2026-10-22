@@ -16,9 +16,8 @@ from pstack_core.commands import init as core_init
 from pstack_core.commands import spawn as core_spawn
 from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die, Exit
-from pstack_core.gates import gnu_dirname
 from pstack_core.herdr import agent_status
-from pstack_core.store import alt, field, cut_chars, damaged, event, jq_raw, json_type, listing, load, member, now, pair_file, update
+from pstack_core.store import alt, field, damaged, event, jq_raw, json_type, listing, load, member, now, pair_file, update
 from pstack_core.wait import as_text, end_with_parent
 
 from . import kpy
@@ -88,7 +87,7 @@ def init(ctx, args):
         raise Exit(code)
     sys.stdout.write(out + '\n')
     orders = '\n'.join(line[len('standing orders: '):] for line in out.split('\n') if line.startswith('standing orders: '))
-    store = gnu_dirname(orders)
+    store = os.path.dirname(orders)
     stamp_skill_builds(ctx, store)
     status, found = quiet_kitchen(store, ['--json', 'validate'])
     if status != 0:
@@ -235,7 +234,7 @@ def consultant(ctx, args):
         if code != 0:
             if not fallback or fallback == kind:
                 raise Die(f'consultant {kind} failed its preflight and the roster names no other fallback: {why or "no answer"}', 2)
-            shown = cut_chars((why or 'no answer').replace('\n', ' ') + ' ', 200)
+            shown = ((why or 'no answer').replace('\n', ' ') + ' ')[:200]
             sys.stdout.write(f'failover: consultant {kind} -> {fallback} (preflight: {shown})\n')
             record_consultant_failover(store, kind, fallback, f'preflight: {why or "no answer"}')
             event(store, 'master', 'failover', '-', f'consultant:{kind}:{fallback}')

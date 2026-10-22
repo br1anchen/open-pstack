@@ -24,7 +24,7 @@ from pstack_core.commands import step as core_step
 from pstack_core.errors import Die, Exit
 from pstack_core.replies import file_mtime
 from pstack_core.review import range_floor, steps_file
-from pstack_core.store import env_float, env_int, event, expected_report, field, header_field, int_or_none, last_line, pair_file, read, read_text, readlink_f, unit_name
+from pstack_core.store import env_float, env_int, event, expected_report, field, header_field, int_or_none, last_line, pair_file, read, read_text, unit_name
 from pstack_core.wait import default_signals
 
 from . import kpy
@@ -241,7 +241,7 @@ def finish(ctx, args):
     if len(args) != 2:
         return core_report.finish(ctx, args)
     store = args[0]
-    report = readlink_f(args[1])
+    report = os.path.realpath(args[1])
     pair_file(store)
     brief = field(store, 'dispatch', 'brief', empty=True)
     # Everything but the dispatched unit's done report, and a report the pair's checks refuse anyway (no head:, open notes), goes straight on.

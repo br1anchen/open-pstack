@@ -16,7 +16,7 @@ from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
 from .review import jq_raw, review_base
-from .store import acquire_lock, alt, cut_chars, env_float, env_int, event, get, header_field, member, paused_reason, unit_name, update, whole_number
+from .store import acquire_lock, alt, env_float, env_int, event, get, header_field, member, paused_reason, unit_name, update, whole_number
 
 
 class WaitResult:
@@ -197,7 +197,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         if sent is None:
             # basename '---' reads the word as an option, prints its error and gives nothing to compare.
             sys.stderr.write("basename: unrecognized option '---'\nTry 'basename --help' for more information.\n")
-        if sent is not None and cut_chars(os.path.basename(report), 3) == cut_chars(os.path.basename(sent.rstrip('/') or sent), 3):
+        if sent is not None and os.path.basename(report)[:3] == os.path.basename(sent.rstrip('/') or sent)[:3]:
             try:
                 stamp = str(file_mtime(report))
             except OSError:
@@ -221,10 +221,10 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         write(f'steps: {len(rows)} to review on {unit_name(running)}\n')
         for row in rows:
             cols = row.split('\t')
-            write(f'  {cols[0]} {cut_chars(cols[1] if len(cols) > 1 else "", 9)} {cols[2] if len(cols) > 2 else ""}\n')
+            write(f'  {cols[0]} {(cols[1] if len(cols) > 1 else "")[:9]} {cols[2] if len(cols) > 2 else ""}\n')
         last = rows[-1].split('\t')
-        write(f'range: {cut_chars(review_base(store, running), 9)}..{cut_chars(last[1] if len(last) > 1 else "", 9)}\n')
-        write(f'next: review the range, then pair.sh new-note {store} {cut_chars(os.path.basename(running.rstrip("/") or running), 3)}\n')
+        write(f'range: {review_base(store, running)[:9]}..{(last[1] if len(last) > 1 else "")[:9]}\n')
+        write(f'next: review the range, then pair.sh new-note {store} {os.path.basename(running.rstrip("/") or running)[:3]}\n')
         try:
             k = json.loads(last[0])
         except ValueError:
@@ -305,7 +305,7 @@ def mark_report_seen(store, report):
     """mark_seen plus the sent entry's seen mark, as finish_wait leaves a report it returned: no later wait returns it again."""
     mark_seen(store, report)
     sent = sent_file(store)
-    if sent and cut_chars(os.path.basename(report), 3) == cut_chars(os.path.basename(sent.rstrip('/') or sent), 3) and os.path.isfile(report):
+    if sent and os.path.basename(report)[:3] == os.path.basename(sent.rstrip('/') or sent)[:3] and os.path.isfile(report):
         seen = f'{report}:{file_mtime(report)}'
         update(store, lambda doc: set_sent_seen(doc, seen))
 

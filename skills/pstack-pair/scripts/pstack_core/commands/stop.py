@@ -5,7 +5,6 @@ import subprocess
 import sys
 import time
 
-from ..collate import glob_sorted
 from ..errors import Die, Exit
 from ..herdr import agent_status, herdr, pane_text
 from ..replies import file_mtime
@@ -28,7 +27,7 @@ def stop_candidates(store, role):
     """The stop-like reports (or advice) of the role on disk, as "path:mtime" rows."""
     directory = 'advice' if role == 'consultant' else 'reports'
     rows = []
-    for f in glob_sorted(glob.glob(os.path.join(glob.escape(store), directory, '[0-9][0-9][0-9]-*.md'))):
+    for f in sorted(glob.glob(os.path.join(glob.escape(store), directory, '[0-9][0-9][0-9]-*.md'))):
         if not os.path.isfile(f):
             continue
         if not re.fullmatch(r'[0-9]{3}-stop\.md', os.path.basename(f)):

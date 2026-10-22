@@ -11,7 +11,6 @@ import sys
 import time
 
 from pstack_core.checkin import iso_epoch
-from pstack_core.collate import collate_key, glob_sorted
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import herdr
 from pstack_core.wait import as_text, reply_at
@@ -190,7 +189,7 @@ def inbox():
     fb = fb_root()
     now = int(time.time())
     rows = []
-    for f in glob_sorted(glob.glob(f'{glob.escape(fb)}/inbox/*.md')):
+    for f in sorted(glob.glob(f'{glob.escape(fb)}/inbox/*.md')):
         if not os.path.exists(f) or os.path.exists(f'{fb}/done/{os.path.basename(f)}'):
             continue
         filed = header_field(f, 'filed')
@@ -210,8 +209,7 @@ def inbox():
     if not rows:
         sys.stdout.write('feedback inbox: empty\n')
         return 0
-    collate = collate_key()
-    rows.sort(key=lambda r: (r[0], collate(f'{r[0]}\t' + '\t'.join(r[1]))))
+    rows.sort(key=lambda r: (r[0], f'{r[0]}\t' + '\t'.join(r[1])))
     for line in column_t([r[1] for r in rows]):
         sys.stdout.write(line + '\n')
     return 0

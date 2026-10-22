@@ -4,7 +4,6 @@ import re
 import subprocess
 
 from .errors import Die
-from .collate import glob_sorted
 from .store import alt, header_field, int_or_none, jq_raw, last_line, note_id, load, read_text, suffix_number, unit_name
 
 
@@ -14,7 +13,7 @@ def steps_file(store, unit):
 
 def note_files(store, unit):
     """notes/<unit>-n<k>.md in glob order; a .md.draft is not published."""
-    return glob_sorted(f for f in glob.glob(os.path.join(glob.escape(store), 'notes', glob.escape(unit_name(unit)) + '-n[0-9]*.md'))
+    return sorted(f for f in glob.glob(os.path.join(glob.escape(store), 'notes', glob.escape(unit_name(unit)) + '-n[0-9]*.md'))
                        if os.path.exists(f))
 
 

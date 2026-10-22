@@ -5,13 +5,12 @@ import subprocess
 import sys
 import time
 
-from ..collate import newest
 from ..errors import Die
 from ..herdr import agent_status
 from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
-from ..store import cut_chars, event, header_field, member, names, readlink_f, unit_name, update
+from ..store import event, header_field, member, names, newest, unit_name, update
 from ..wait import end_with_parent, owned_wait, wait_opts
 from .report import in_herdr, require_pair
 from .stop import role_value
@@ -51,7 +50,7 @@ def steer(ctx, args):
     end_with_parent()
     if len(args) < 2:
         raise Die(USAGE)
-    store, steer_path = args[0], readlink_f(args[1])
+    store, steer_path = args[0], os.path.realpath(args[1])
     timeout, interval, _, rest = wait_opts(args[2:])
     force = interrupt = False
     for opt in rest:
@@ -106,7 +105,7 @@ def steer(ctx, args):
                 raise Die(f'herdr prompt failed for {name}', 2)
             print(f'steered {name} with {steer_path}; its harness hands it over between tool calls and the ack lands in the progress log')
     elif status in ('idle', 'done'):
-        seq = cut_chars(os.path.basename(steer_path), 3)
+        seq = os.path.basename(steer_path)[:3]
         slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
         objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
         if not objection or header_field(objection, 'status') != 'object':

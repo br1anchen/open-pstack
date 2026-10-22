@@ -4,7 +4,6 @@ import re
 import sys
 
 from ..errors import Die
-from ..collate import glob_sorted
 from ..herdr import agent_status
 from ..prime import prime_steer
 from ..review import jq_raw, noted_through, open_notes, require_filled, review_base, steps_file
@@ -132,7 +131,7 @@ def new_note(ctx, args):
     elif rest and rest[0] != '':
         raise Die(f'unknown option {rest[0]}')
     pair_file(store)
-    briefs = glob_sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
+    briefs = sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
     if not briefs:
         raise Die(f'no brief for unit {seq}')
     unit = unit_name(briefs[0])

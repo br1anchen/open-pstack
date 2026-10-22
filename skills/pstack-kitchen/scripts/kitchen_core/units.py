@@ -11,7 +11,6 @@ import re
 import subprocess
 import sys
 
-from pstack_core.collate import glob_sorted
 from pstack_core.commands.report import MISSING_PAIR
 from pstack_core.errors import Die, Exit
 from pstack_core.review import range_floor, steps_file, trunk_ref
@@ -113,7 +112,7 @@ def unit_head(store, brief):
 
 def unit_brief(store, nnn):
     """The unit's brief path (the first by `ls`), or the command's death."""
-    found = glob_sorted(glob.glob(f'{glob.escape(store)}/briefs/{glob.escape(nnn)}-*.md'))
+    found = sorted(glob.glob(f'{glob.escape(store)}/briefs/{glob.escape(nnn)}-*.md'))
     if not found:
         raise Die(f'no brief for unit {nnn}')
     return found[0]

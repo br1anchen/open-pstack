@@ -5,7 +5,7 @@ from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
-from pstack_core.store import header_field, readlink_f, whole_number
+from pstack_core.store import header_field, whole_number
 from pstack_core.variant import Variant
 from pstack_core.wait import end_with_parent, tdiv
 
@@ -38,7 +38,7 @@ def answer(ctx, args):
     with open(path, 'rb') as f:
         if not re.search(r'(?m)^## Answer', f.read().decode('utf-8', 'surrogateescape')):
             raise Die(f'not an answer file: {path}')
-    return send_and_wait(ctx, store, readlink_f(path), 'ANSWER', timeout, interval, False)
+    return send_and_wait(ctx, store, os.path.realpath(path), 'ANSWER', timeout, interval, False)
 
 
 class GuidedVariant(Variant):

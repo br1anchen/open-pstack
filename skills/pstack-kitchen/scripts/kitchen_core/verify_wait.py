@@ -13,10 +13,10 @@ import time
 from pstack_core.checkin import busy_command
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status, herdr, pane_text
-from pstack_core.providers import agent_session_error, grep_o_context, muse_session_error, prime_role_error
+from pstack_core.providers import agent_session_error, error_context, muse_session_error, prime_role_error
 from pstack_core.review import jq_raw
 from pstack_core.send import submit_typed
-from pstack_core.store import alt, damaged, env_float, env_int, event, header_field, json_type, listing, load, peek, read, read_int, readlink_f
+from pstack_core.store import alt, damaged, env_float, env_int, event, header_field, json_type, listing, load, peek, read, read_int
 from pstack_core.wait import as_text
 
 from . import verify_state as vs
@@ -47,7 +47,7 @@ def verifier_provider_error(store, name, session=NOT_GIVEN):
         return prime_role_error(store, 'verifier')
     line = ''
     if agent_status(name) != 'absent':
-        matches = grep_o_context(pane_text(name).rstrip('\n'), 60, 100)
+        matches = error_context(pane_text(name).rstrip('\n'), 60, 100)
         line = matches[-1] if matches else ''
     if session is NOT_GIVEN:
         session = read(store, 'verifying.session', empty=True)
@@ -55,7 +55,7 @@ def verifier_provider_error(store, name, session=NOT_GIVEN):
         cwd = ''
         if read(store, 'verifier.kind') in ('pi', 'muse'):
             try:
-                cwd = readlink_f(f'{store}/scratch/{read(store, "verifying.scratch")}')
+                cwd = os.path.realpath(f'{store}/scratch/{read(store, "verifying.scratch")}')
             except Exit:  # `readlink -f ... 2>/dev/null || true`
                 cwd = ''
         if read(store, 'verifier.kind') == 'muse':
@@ -115,9 +115,8 @@ def findings(verdict):
 def rejected_count(store, unit):
     """`grep -l '^status: reject' "$store/verdicts/$unit"-v[0-9]*.md | grep -vc packet`."""
     import glob
-    from pstack_core.collate import glob_sorted
     n = 0
-    for path in glob_sorted(glob.glob(f'{glob.escape(store)}/verdicts/{glob.escape(unit)}-v[0-9]*.md')):
+    for path in sorted(glob.glob(f'{glob.escape(store)}/verdicts/{glob.escape(unit)}-v[0-9]*.md')):
         try:
             with open(path, 'rb') as f:
                 hit = any(line.startswith('status: reject') for line in f.read().decode('utf-8', 'surrogateescape').split('\n'))

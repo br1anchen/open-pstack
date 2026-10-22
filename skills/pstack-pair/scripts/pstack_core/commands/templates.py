@@ -2,8 +2,7 @@ import glob
 import os
 
 from ..errors import Die
-from ..collate import glob_sorted, newest
-from ..store import fill_template, header_field, new_from_template, pair_file, readlink_f, unit_name, write_text
+from ..store import fill_template, header_field, new_from_template, newest, pair_file, unit_name, write_text
 
 
 def new_plan(ctx, args):
@@ -32,11 +31,11 @@ def new_steer(ctx, args):
         elif rest[0] == '--supersedes':
             if len(rest) < 2:
                 raise Die('--supersedes needs a value')
-            supersedes, rest = readlink_f(rest[1]), rest[2:]
+            supersedes, rest = os.path.realpath(rest[1]), rest[2:]
         else:
             raise Die(f'unknown option {rest[0]}')
     pair_file(store)
-    briefs = glob_sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
+    briefs = sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
     if not briefs:
         raise Die(f'no brief for unit {seq}')
     slug = unit_name(briefs[0])[4:]

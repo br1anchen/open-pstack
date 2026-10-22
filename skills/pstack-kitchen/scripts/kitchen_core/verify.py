@@ -21,7 +21,6 @@ import time
 import contextlib
 
 from pstack_core.agents import has_mcp_arg, has_permission_arg, has_trust_arg, mcp_args, permission_args, trust_args
-from pstack_core.collate import glob_sorted
 from pstack_core.commands import scratch as scratch_command
 from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die, Exit
@@ -30,7 +29,7 @@ from pstack_core.panes import TRUST_RE, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
-from pstack_core.store import alt, damaged, env_float, env_int, event, expected_report, field, header_field, json_type, load, pair_file, peek, read, readlink_f, text_of, update, whole_number
+from pstack_core.store import alt, damaged, env_float, env_int, event, expected_report, field, header_field, json_type, load, pair_file, peek, read, text_of, update, whole_number
 from pstack_core.wait import as_text, json_values, reply_at, truthy
 from pstack_core.variant import commit_of
 
@@ -62,14 +61,6 @@ def data_of(text):
     return text.encode('utf-8', 'surrogateescape')
 
 
-def run(argv, stdin=None, stderr=None):
-    """A command with its stdout captured: (status, text)."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    r = subprocess.run(argv, input=None if stdin is None else data_of(stdin), stdout=subprocess.PIPE, stderr=stderr, check=False)
-    return exit_status(r.returncode), text_of(r.stdout)
-
-
 def mapfile(text):
     """`mapfile -t`: the lines of the text, none for no text."""
     if text == '':
@@ -94,7 +85,7 @@ def bash_q(word):
 def next_index(directory, prefix, letter):
     """The next k for files <prefix>-<letter><k>.* in directory."""
     k = 0
-    for path in glob_sorted(glob.glob(f'{glob.escape(directory)}/{glob.escape(prefix)}-{letter}[0-9]*')):
+    for path in sorted(glob.glob(f'{glob.escape(directory)}/{glob.escape(prefix)}-{letter}[0-9]*')):
         if not os.path.exists(path):
             continue
         m = re.match(rf'.*-{letter}([0-9]+)', os.path.basename(path))
@@ -111,16 +102,10 @@ def fence_for(text):
 
 def names_path(text, path):
     """Whether command text names path as a whole path: after a leading ~/, $HOME/ or ${HOME}/ is spelled out, path appears not inside a longer path and
-    is followed by /, space, a quote, ), ;, &, | or the end. The bash's sed and grep, run as they were run."""
+    is followed by /, space, a quote, ), ;, &, | or the end."""
     home = os.environ.get('HOME', '')
-    expand = 's#(^|[[:space:]=:"\'(])(~|\\$HOME|\\$\\{HOME\\}|"\\$HOME"|"\\$\\{HOME\\}")/#\\1' + home + '/#g'
-    _, text = run(['sed', '-E', expand], stdin=text)
-    text = text.rstrip('\n')
-    _, quoted = run(['sed', 's/[][\\.*^$+?(){}|]/\\\\&/g'], stdin=path)
-    quoted = quoted.rstrip('\n')
-    pattern = '(^|[^A-Za-z0-9_./-])' + quoted + '(/|[[:space:]"\'`);&|]|$)'
-    status, _ = run(['grep', '-qE', pattern], stdin=text + '\n', stderr=subprocess.DEVNULL)
-    return status == 0
+    text = re.sub(r"""(^|[\s=:"'(])(~|\$HOME|\$\{HOME\}|"\$HOME"|"\$\{HOME\}")/""", lambda m: m.group(1) + home + '/', text, flags=re.M)
+    return re.search(r"""(^|[^A-Za-z0-9_./-])""" + re.escape(path) + r"""(/|[\s"'`);&|]|$)""", text, flags=re.M) is not None
 
 
 def brief_commands(kit, brief, unit):
@@ -159,7 +144,7 @@ def brief_commands(kit, brief, unit):
 def landing_covered_briefs(store, root, base, head):
     """The done unit briefs a landing range holds: those whose head is in base..head, or whose commits were rebased into it."""
     covered, index = [], StackIndex.build(root, base, head)
-    for brief in glob_sorted(glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')):
+    for brief in sorted(glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')):
         if not os.path.exists(brief) or header_field(expected_report(store, brief), 'status') != 'done' or is_landing(brief):
             continue
         from .units import RecordedUnit
@@ -250,7 +235,7 @@ def record_verifier_session(store, name):
         cwd = as_text(alt(agent.get('cwd'), ''))
         if not cwd:
             try:
-                cwd = readlink_f(f'{store}/scratch/{read(store, "verifying.scratch", empty=True)}')
+                cwd = os.path.realpath(f'{store}/scratch/{read(store, "verifying.scratch", empty=True)}')
             except Exit:
                 cwd = ''
         if ident and cwd:
@@ -487,7 +472,7 @@ def verify(ctx, args):
                 out(f'deadline +{added}m for the landing gates of {" ".join(profiles)}: 3 x {seconds / 60:.0f}m measured'
                     f'{"" if unmeasured == 0 else f", {unmeasured} unmeasured at 10m each"}; now {timeout_m}m\n')
     else:
-        out('deadline ' + f'{timeout_m}m (--timeout)\n')
+        out(f'deadline {timeout_m}m (--timeout)\n')
     entry = verifier_entry(kit, cls)
     if retry_entry:
         retried = parse_entry(retry_entry)
@@ -743,7 +728,7 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
                 parts.append(brief_commands(kit, b, u))
             ubriefs = []
             for u in allunits:
-                found = glob_sorted(glob.glob(f'{glob.escape(store)}/briefs/{glob.escape(u)}-*.md'))
+                found = sorted(glob.glob(f'{glob.escape(store)}/briefs/{glob.escape(u)}-*.md'))
                 ubriefs += found if found else [f'{store}/briefs/{u}-*.md']
             status, lessons = kit.elsewhere(['lesson-packet', *ubriefs])
             if status != 0:
@@ -776,7 +761,7 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
                 parts.append(f'python3 {tool} --repo {scratch} gate {as_text(profile)} landing --role verifier --base {merge_base}\n')
         features = data.get('features') or []
         parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(as_text(f) for f in features)) + '\n')
-        skills = glob_sorted([p + '/' for p in glob.glob(f'{glob.escape(root)}/.agents/skills/verify-*') if os.path.isdir(p)])
+        skills = sorted([p + '/' for p in glob.glob(f'{glob.escape(root)}/.agents/skills/verify-*') if os.path.isdir(p)])
         parts.append('verification skill: ' + ''.join(s + ' ' for s in skills) + '\n')
     finally:
         with open(packet, 'wb') as f:

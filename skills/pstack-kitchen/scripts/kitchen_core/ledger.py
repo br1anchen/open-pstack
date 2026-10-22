@@ -4,7 +4,6 @@ import json
 import re
 import sys
 
-from pstack_core.collate import collate_key
 from pstack_core.errors import Die, Exit
 from pstack_core.store import event, get, jq_raw, now, pair_file
 
@@ -102,8 +101,7 @@ def repeated_rows(ledger):
             seen.add((key, field(2)))
             runs[key] = runs.get(key, 0) + 1
     rows = [(n, f'  {n:3d} {k[0]:<10s} {k[1]:<24s} in {runs[k]} runs') for k, n in count.items() if n >= 2]
-    collate = collate_key()
-    rows.sort(key=lambda r: (r[0], collate(r[1])), reverse=True)
+    rows.sort(key=lambda r: (r[0], r[1]), reverse=True)
     return [r[1] for r in rows]
 
 

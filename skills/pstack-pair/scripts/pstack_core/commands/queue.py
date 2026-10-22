@@ -5,7 +5,7 @@ from ..gates import check_scope, require_not_paused
 from ..herdr import agent_status
 from ..replies import queued_brief
 from ..review import jq_raw, require_filled
-from ..store import alt, event, pair_file, load, readlink_f
+from ..store import alt, event, pair_file, load
 from .report import section
 from .send import store_relative
 
@@ -34,7 +34,7 @@ def queue(ctx, args):
         raise Die(f'unknown option {option}')
     if not os.path.isfile(brief):
         raise Die(f'brief not found: {brief}')
-    brief = readlink_f(brief)
+    brief = os.path.realpath(brief)
     require_not_paused(store)
     require_filled(ctx, brief)
     pair = load(store)

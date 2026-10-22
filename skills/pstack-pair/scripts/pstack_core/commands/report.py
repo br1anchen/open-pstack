@@ -5,7 +5,7 @@ from ..dispatch import fresh_per_brief, take_queued
 from ..errors import Die, Exit
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import (alt, event, expected_report, get, header_field, load, member, open_steers, paused_reason, readlink_f, steer_number, unit_name, update)
+from ..store import (alt, event, expected_report, get, header_field, load, member, open_steers, paused_reason, steer_number, unit_name, update)
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
 
@@ -48,8 +48,8 @@ def notify(ctx, args):
     in_herdr()
     if len(args) != 2:
         raise Die('usage: pair.sh notify <store> <report-or-advice-path>')
-    store = readlink_f(args[0])
-    file = readlink_f(args[1])
+    store = os.path.realpath(args[0])
+    file = os.path.realpath(args[1])
     if not os.path.isfile(file):
         raise Die(f'file not found: {file}')
     word = 'ADVICE' if file.startswith(f'{store}/advice/') else 'REPORT'
@@ -102,8 +102,8 @@ def finish(ctx, args):
     in_herdr()
     if len(args) != 2:
         raise Die('usage: pair.sh finish <store> <report-path>')
-    store = readlink_f(args[0])
-    report = readlink_f(args[1])
+    store = os.path.realpath(args[0])
+    report = os.path.realpath(args[1])
     if not os.path.isfile(report):
         raise Die(f'report not found: {report}; write it first')
     status = header_field(report, 'status')

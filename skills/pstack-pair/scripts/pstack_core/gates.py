@@ -6,9 +6,8 @@ import subprocess
 import sys
 
 from .checkin import case_pattern, scope_entries
-from .collate import glob_sorted
 from .errors import Die
-from .store import cut_chars, header_field, paused_reason, read_text
+from .store import header_field, paused_reason, read_text
 
 PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd')
 
@@ -31,8 +30,8 @@ def require_agreed_plan(ctx, store, brief, extra):
         raise Die(f'playbook {playbook} needs an agreed plan; brief has plan: {plan or "<missing>"}', 6)
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}', 6)
-    seq = cut_chars(os.path.basename(plan.rstrip('/') or plan), 3)
-    reviews = glob_sorted(glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')))
+    seq = os.path.basename(plan.rstrip('/') or plan)[:3]
+    reviews = sorted(glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')))
     if not reviews:
         raise Die(f'plan {plan} has no review; run pair.sh discuss and write reviews/{seq}-<slug>.md with verdict: agreed', 6)
     review = reviews[0]
@@ -44,16 +43,6 @@ def require_agreed_plan(ctx, store, brief, extra):
 
 def no_gate(ctx, store, plan, review, seq):
     """plan_gate_extra() of the base pair: nothing more is required."""
-
-
-def gnu_dirname(path):
-    stripped = path.rstrip('/')
-    if not stripped:
-        return '/' if path else '.'
-    head = stripped.rpartition('/')[0]
-    if '/' not in stripped:
-        return '.'
-    return head.rstrip('/') or '/'
 
 
 def scope_entry_exists(root, entry, tracked):
@@ -74,8 +63,8 @@ def scope_entry_exists(root, entry, tracked):
                 return True
         return bool(directory)
     if entry.endswith('/'):
-        return os.path.isdir(at(entry)) or os.path.isdir(at(gnu_dirname(entry[:-1])))
-    return os.path.exists(at(entry)) or os.path.isdir(at(gnu_dirname(entry)))
+        return os.path.isdir(at(entry)) or os.path.isdir(at(os.path.dirname(entry[:-1])))
+    return os.path.exists(at(entry)) or os.path.isdir(at(os.path.dirname(entry)))
 
 
 def scope_lists_several(brief):
