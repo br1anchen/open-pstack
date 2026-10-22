@@ -2034,7 +2034,7 @@ esac
         return found
 
     def scrub(self, text):
-        return re.sub(r'log: \S+/(\S+\.log)', r'log: <logs>/\1', text)
+        return re.sub(r' [0-9.]+s ', ' <S>s ', re.sub(r'log: \S+/(\S+\.log)', r'log: <logs>/\1', text))
 
     def test_a_step_and_a_finish_write_the_out_log_and_rc_the_bash_workers_wrote(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
@@ -2046,12 +2046,12 @@ esac
         self.run_sh('step', str(self.store), sha, 'one')
         step_job = self.job()
         self.assertEqual((self.scrub((step_job / 'out.1').read_text()), (step_job / 'rc').read_text()),
-                         ('app fast: pass\n  exit 0 0.0s test ! -e FAIL  log: <logs>/app-fast-0.log\npolicy: clean\n', '0\n'))
+                         ('app fast: pass\n  exit 0 <S>s test ! -e FAIL  log: <logs>/app-fast-0.log\npolicy: clean\n', '0\n'))
         self.done(b, sha)
         self.run_sh('finish', str(self.store), str(self.store / 'reports' / b.name))
         (finish_job,) = (self.store / 'steps/jobs').glob('001-util-verify-*')
-        self.assertEqual(((finish_job / 'out').read_text().replace(str(finish_job), '<job>'), (finish_job / 'rc').read_text()),
-                         ("verify: pass (1 commands from the brief)\n  exit 0 0.0s grep -q 'X = 2' src/util.py  log: <job>/logs/verify-0.log\n", '0\n'))
+        self.assertEqual((self.scrub((finish_job / 'out').read_text()), (finish_job / 'rc').read_text()),
+                         ("verify: pass (1 commands from the brief)\n  exit 0 <S>s grep -q 'X = 2' src/util.py  log: <logs>/verify-0.log\n", '0\n'))
 
     def test_a_failing_gate_a_policy_failure_and_a_failing_verify_command_leave_rc_2(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
@@ -2078,6 +2078,34 @@ esac
         # brief-verify's own exit code, 2, as at the dispatch head; the command's 3 is in the verify log
         self.assertEqual((finish_job / 'rc').read_text(), '2\n')
         self.assertIn('exit 3', (finish_job / 'out').read_text())
+
+    def run_worker(self, command, stub_body, profiles='app\n'):
+        """worker.py with a stub in place of kitchen.py: the stub's exit status for each subcommand it is called with comes from stub_body (a function of argv)."""
+        job = self.store / 'job'
+        shutil.rmtree(job, ignore_errors=True)
+        (job / 'logs').mkdir(parents=True)
+        (job / 'profiles').write_text(profiles)
+        stub = self.store / 'stub.py'
+        stub.write_text('import os, signal, sys\nargv = sys.argv[1:]\n' + stub_body)
+        worker = root / 'skills/pstack-kitchen/scripts/kitchen_core/worker.py'
+        argv = (['step', str(self.repo), str(stub), str(job), 'base', 'head'] if command == 'step'
+                else ['finish', str(self.repo), str(stub), 'brief.md', str(job)])
+        r = subprocess.run([sys.executable, '-I', str(worker), *argv], capture_output=True, text=True, check=False)
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        return (job / 'rc').read_text()
+
+    def test_the_worker_writes_the_exit_status_of_its_child_as_a_shell_would(self):
+        self.assertEqual(self.run_worker('finish', 'sys.exit(3)\n'), '3\n')
+        self.assertEqual(self.run_worker('finish', 'os.kill(os.getpid(), signal.SIGTERM)\n'), '143\n')
+        self.assertEqual(self.run_worker('finish', 'sys.exit(0)\n'), '0\n')
+
+    def test_a_step_is_rc_2_for_a_failing_gate_or_a_failing_policy_check_and_0_otherwise(self):
+        failing_gate = "sys.exit(7 if 'gate' in argv else 0)\n"
+        failing_policy = "sys.exit(7 if 'policy' in argv else 0)\n"
+        self.assertEqual(self.run_worker('step', failing_gate), '2\n')
+        self.assertEqual(self.run_worker('step', failing_policy), '2\n')
+        self.assertEqual(self.run_worker('step', 'sys.exit(0)\n'), '0\n')
+        self.assertEqual(self.run_worker('step', failing_gate, profiles='\n'), '0\n')
 
     def test_the_worker_exits_1_and_writes_nothing_when_the_repo_is_gone(self):
         job = self.store / 'job'

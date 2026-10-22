@@ -13,7 +13,8 @@ sys.dont_write_bytecode = True
 
 
 def kitchen(py, repo, config, *args):
-    return subprocess.run([sys.executable, py, '--repo', repo, *(['--config', config] if config else []), *args], stdin=subprocess.DEVNULL).returncode
+    rc = subprocess.run([sys.executable, py, '--repo', repo, *(['--config', config] if config else []), *args], stdin=subprocess.DEVNULL).returncode
+    return 128 - rc if rc < 0 else rc
 
 
 def write_rc(job, rc):

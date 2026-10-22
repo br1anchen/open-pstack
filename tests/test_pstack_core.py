@@ -6572,6 +6572,14 @@ class GuidedCommandTests(unittest.TestCase):
         again = self.run_guided('new-answer', str(self.store), '001')
         self.assertEqual((again.returncode, again.stdout, path.read_text()), (0, f'{path}\n', 'edited\n'))
 
+    def test_new_answer_answers_the_newest_of_several_asks(self):
+        old, new = self.store / 'reports/001-x-q1.md', self.store / 'reports/001-x-q2.md'
+        for f in (old, new):
+            f.write_text('# R\n\nstatus: asking\n')
+        os.utime(old, (2000, 2000))
+        os.utime(new, (1000, 1000))
+        self.assertEqual(self.run_guided('new-answer', str(self.store), '001').stdout, f'{self.store}/answers/001-x-a1.md\n')
+
     def test_new_answer_refuses_an_ask_that_is_not_asking_and_a_third_ask_unless_forced(self):
         (self.store / 'reports/001-x-q1.md').write_text('# R\n\nstatus: done\n')
         got = self.run_guided('new-answer', str(self.store), '001')
