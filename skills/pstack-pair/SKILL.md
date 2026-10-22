@@ -68,7 +68,7 @@ Sidekick: [references/sidekick.md](references/sidekick.md).
 | `gates.md` | master | open questions for the human |
 | `decisions.tsv` | master via `pair.sh log` | the show-me-your-work trail |
 | `status.md` | `pair.sh status` | derived table; never hand-edited |
-| `queue` | master via `pair.sh queue` and `dispatch`; other sidekicks via `pair.sh next` | the next brief's path, one slot |
+| `queue` | master via `pair.sh queue` and `dispatch` | the next brief's path, one slot |
 | `steps/NNN-<slug>.tsv` | sidekick via `pair.sh step` | one row per committed step: number, commit, time, notes it resolves, summary |
 | `notes/NNN-<slug>-n<k>.md` | master via `pair.sh new-note` and `note` | review of the unit's steps through step k, from [the note template](references/note-template.md): blocking items and follow-ups |
 | `followups.md` | master via `pair.sh note` | follow-ups from every note, for a later brief or an issue |
@@ -85,8 +85,8 @@ the files for one unit sort together.
 | --- | --- | --- | --- |
 | bootstrap (names the skill and the store) | master to sidekick | `pair.sh spawn` | bootstrap steps, `reports/000-ready.md`, reply `READY` |
 | `pstack-pair PLAN <plan-path>` | master to sidekick | `pair.sh discuss` | ground the plan in the code, write an agree or object response, end the turn |
-| `pstack-pair BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, run `pair.sh finish`, then start the queued brief it names or end the turn |
-| `pstack-pair BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | Devin, pi, and Prime: master dispatches after rotation; other kinds: same-turn pickup with `pair.sh next` |
+| `pstack-pair BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, run `pair.sh finish`, then end the turn with the REPORT line |
+| `pstack-pair BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | the master dispatches it after a fresh session; `pair.sh next` refuses |
 | `pstack-pair STEER <steer-path>` | master to a working sidekick, or to one paused on an objection | `pair.sh steer` | read it on arrival, between tool calls; agree and continue, or object with evidence and end the turn |
 | `pstack-pair REPORT <report-path>` | sidekick to master | `pair.sh finish` (or `notify`) | read the report, review |
 | `pstack-pair STOP <store>` | master to sidekick | `pair.sh stop` | pause safely, write a stop report |
@@ -156,14 +156,16 @@ not continuously, and corrects direction, not keystrokes.
 - Two fresh steers per brief. A third means the brief was wrong: stop the
   unit and re-brief.
 
-## Devin, pi, and Prime task sessions
+## Task sessions of every kind
 
-A Devin, pi, or Prime sidekick uses a fresh conversation for each completed brief. Before
+A sidekick of any kind (Claude, Codex, Devin, pi, Prime, Muse) uses a fresh conversation for each completed brief. Before
 spawning, queueing, rotating, or cleaning its storage, read
 [the Devin session lifecycle](references/devin-sessions.md) for Devin or Pi,
 or [the Prime adapter](references/prime-sidekick.md) for Prime. Partial and blocked work stays in
-its session; a completed brief leaves the queue for the master to dispatch
-after `pair.sh rotate`. The pstack store persists across sessions.
+its session; a completed brief leaves the queue for the master to dispatch.
+`dispatch` and `discuss` rotate the sidekick themselves first (`rotated:` in
+their output); `pair.sh rotate` stays for the master to run by hand. The
+pstack store persists across sessions.
 
 ## Muse Code
 
@@ -193,9 +195,8 @@ minutes, while a unit takes tens of minutes to hours. Three habits keep the
 sidekick from waiting on the master.
 
 - **Queue the next brief.** While a unit runs, the master drafts the next one
-  and holds it with `pair.sh queue`. After a Devin, pi, or Prime `done` report, rotate and
-  bootstrap the sidekick, then dispatch that brief. Other kinds take it with
-  `pair.sh next` in the same turn. The queue has one slot and
+  and holds it with `pair.sh queue`. After a `done` report the sidekick starts a fresh
+  session and the master dispatches that brief; `pair.sh next` refuses. The queue has one slot and
   holds only a unit that does not hinge on the running unit's review, so a
   `revise` becomes a follow-up brief, not a rework of the queued one.
 - **Review at the commit.** A brief that writes says `commit: yes`, and the

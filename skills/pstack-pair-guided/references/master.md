@@ -202,8 +202,8 @@ disagreement to a plan round. Log a row per round.
 
 The queue is how the sidekick never waits for you. At a check-in, draft the
 next unit's brief and `pair.sh queue <store> <brief>`: dispatch's checks
-apply, and the sidekick takes it with `pair.sh next` right after a `done`
-report, in the same turn. Queue a unit only when it does not hinge on the
+apply. A `done` report leaves it queued until you dispatch it:
+`dispatch` rotates the sidekick first (`rotated:`), and `pair.sh next` refuses. Queue a unit only when it does not hinge on the
 running unit's review; when it does, wait for the report. One slot:
 `--replace` swaps it, `pair.sh queue <store> --clear` empties it, and `stop`
 clears it. `wait` returns each dispatched brief's report once, oldest first,

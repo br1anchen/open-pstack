@@ -182,20 +182,21 @@ paused sidekick and waits for it to settle. Two rounds per steer; when the
 second still draws an objection, withdraw it or `pair.sh stop` and take the
 disagreement to a plan round. Log a row per round.
 
-## Devin, pi, and Prime session lifecycle
+## Session lifecycle of every kind
 
-For Devin or Pi, follow [the session lifecycle](../references/devin-sessions.md).
+Every kind starts a fresh session per completed brief. For Devin or Pi, follow [the session lifecycle](../references/devin-sessions.md).
 For Prime, follow [the Prime adapter](prime-sidekick.md).
-After its `done` report and settled turn, write the handoff, run `pair.sh rotate`,
-verify the new READY report, and dispatch the next task. Keep partial work in
+After its `done` report and settled turn, write the handoff and dispatch the next task:
+`dispatch` and `discuss` run the rotation and print `rotated:` first, so check the new READY
+report in the store. `pair.sh rotate` stays as a command to run by hand. Keep partial work in
 its session. Storage cleanup requires a coordinated pause and recovery handoff.
 
 ## Queueing
 
 The queue is how the sidekick never waits for you. At a check-in, draft the
 next unit's brief and `pair.sh queue <store> <brief>`: dispatch's checks
-apply. A Devin, pi, or Prime `done` report leaves it queued until you rotate the sidekick
-and dispatch it. Other kinds take it with `pair.sh next` in the same turn. Queue a unit only when it does not hinge on the
+apply. A `done` report leaves it queued, for every sidekick kind, until you dispatch it:
+`dispatch` rotates the sidekick first (`rotated:`), and `pair.sh next` refuses. Queue a unit only when it does not hinge on the
 running unit's review; when it does, wait for the report. One slot:
 `--replace` swaps it, `pair.sh queue <store> --clear` empties it, and `stop`
 clears it. `wait` returns each dispatched brief's report once, oldest first,

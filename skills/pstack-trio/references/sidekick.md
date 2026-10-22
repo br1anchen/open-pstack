@@ -94,11 +94,10 @@ default, and the decision stays with the master.
    fast checks (format, lint, typecheck) passing on the commit. Those are what
    reviews and landings most often send back. Anything less is `partial`,
    `blocked`, or `failed`, with the reason.
-5. Run `pair.sh finish <store> <report>` and follow its output. A Devin, Pi, or Prime
-   `done` report requires a fresh session for the next task: end the turn with
-   the REPORT line and leave the queue for the master. Other agent kinds may
-   start the queued brief it names in the same turn. Partial, blocked, or failed
-   reports leave the queue for the master. Resolve open blocking notes before
+5. Run `pair.sh finish <store> <report>` and follow its output. A `done`
+   report requires a fresh session for the next task, whatever your kind: end
+   the turn with the REPORT line and leave the queue for the master. Partial,
+   blocked, or failed reports leave the queue for the master. Resolve open blocking notes before
    reporting `done`. Every brief ends through `finish`.
 6. When any `pair.sh` command prints `PAUSE:`, you are at a safe point: commit
    what is verified, write the report as `partial` with where you stopped and

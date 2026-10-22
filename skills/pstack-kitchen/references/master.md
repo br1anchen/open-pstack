@@ -61,7 +61,7 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `dispatch` in a short `timeout`: when you need the call back at once, pass
    `--send-only`, which returns as soon as the brief is delivered, then wait.
    Delivery itself ignores TERM, so a killed dispatch never leaves a brief
-   recorded but unsent. A Pi, Prime, or Devin sidekick whose last unit is done is
+   recorded but unsent. A sidekick of any kind whose last unit is done is
    rotated by `dispatch` or `discuss` itself (`rotated:` in its output), so
    there is no separate `rotate` call; after partial or blocked work it keeps its
    session. A log that has gone quiet is not flagged stale while a command

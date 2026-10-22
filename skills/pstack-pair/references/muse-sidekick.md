@@ -34,5 +34,4 @@ What pstack adds when the native arguments do not set it:
   (`Billing verification failed`, HTTP 402) count as provider errors on screen, and in the newest Muse session log that names
   the role's working directory (Herdr reports no Muse session id).
 
-Muse keeps one conversation per pane like Claude and Codex, so it is not
-rotated per brief.
+Like every kind, Muse starts a fresh session per completed brief: rotation exits it with `/quit` and respawns it with its recorded arguments.
