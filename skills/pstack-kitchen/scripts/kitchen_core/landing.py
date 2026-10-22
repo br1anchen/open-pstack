@@ -5,7 +5,6 @@ land-check ran as `land_check "$1" || exit 2` (and from dispatch as `land_check 
 read there is an empty answer and the check goes on."""
 
 import glob
-import json
 import os
 import re
 import subprocess
@@ -127,10 +126,9 @@ def manifest_warning(store, verified_base, current_base, head=''):
     listed = subprocess.run(['git', '-C', root, 'diff', '--name-only', '-z', '--no-renames', verified_base, current_base], stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, check=False, **TEXT).stdout
     rc, text, _ = kpy.run(root, ['--json', 'manifests', '-z'], stdin=listed)
-    try:
-        files = ', '.join(json.loads(text)['manifests'])
-    except (ValueError, KeyError, TypeError):
-        files = ''
+    found = parse(text)
+    manifests = found.get('manifests') if isinstance(found, dict) else None
+    files = ', '.join(m for m in manifests if isinstance(m, str)) if isinstance(manifests, list) else ''
     if files:
         out(f'warning: dependency manifests changed since the verified base: {files}\n')
 

@@ -1,11 +1,10 @@
 """Ending an agent: the command that makes each kind exit, and the cleanup of a Prime role's daemon session and pane (stop_prime_role).
 The deadlines are the bash's 15 s and 1 s; PAIR_EXIT_DEADLINE_S and PAIR_EXIT_POLL_S let a test shorten them."""
-import json
 import sys
 import time
 
 from .errors import Exit
-from .herdr import agent_status, herdr
+from .herdr import agent_status, dig, herdr, parse
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
 from .store import env_float, env_int, member, update
@@ -32,12 +31,9 @@ def shell_owns_foreground(pane):
         return None
     if agent_status(pane) != 'absent':
         return False
-    try:
-        process = json.loads(info)['result']['process_info']
-        shell = process['shell_pid']
-        return isinstance(shell, (int, float)) and not isinstance(shell, bool) and process.get('foreground_process_group_id') == shell
-    except (ValueError, KeyError, TypeError, AttributeError):
-        return False
+    process = dig(parse(info), 'result', 'process_info')
+    shell = process.get('shell_pid') if isinstance(process, dict) else None
+    return isinstance(shell, (int, float)) and not isinstance(shell, bool) and process.get('foreground_process_group_id') == shell
 
 
 def stop_prime_role(store, role):
