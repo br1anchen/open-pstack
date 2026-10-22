@@ -318,6 +318,8 @@ decided = [
      'test_pstack_core.CoreTests.test_pair_sh_refuses_a_timeout_that_is_no_whole_number_and_takes_a_fraction_for_a_poll'),
     ('a TERM, INT or HUP ends a command with the signal as its status and nothing on stderr (a signal the parent ignored stays ignored), and a background wait ends when its parent does', 'skills/pstack-pair/scripts/pstack_core/wait.py:end_with_parent',
      'test_pstack_core.CoreTests.test_end_with_parent_ends_a_background_command_when_its_parent_dies; test_pstack_core.CoreTests.test_end_with_parent_makes_a_signal_end_the_command_untraced_and_leaves_an_ignored_one_ignored'),
+    ('`pair.sh permission` prints the last permissionMode of the session transcript, else the settings defaultMode, else `auto`, and exits 0; a transcript that names no mode no longer ends it with 1', 'skills/pstack-pair/scripts/pstack_core/permission.py:detect',
+     'test_pstack_core.CoreTests.test_permission_reads_the_session_transcript_and_falls_back_to_auto_when_it_names_no_mode'),
     ('a landing verdict `landing-vN.md` whose N is not a plain decimal (`1x`, `1_0`, a non-ASCII digit) is taken as the newest', 'skills/pstack-kitchen/scripts/kitchen_core/landing.py:latest_landing_verdict',
      'test_pstack_core.CoreTests.test_a_landing_verdict_with_a_version_that_is_not_a_number_is_the_newest'),
 ]

@@ -333,7 +333,7 @@ def verify(ctx, args):
             del rest[:1]
         elif flag == '--covers':
             if len(rest) < 2:
-                raise Die('--covers takes a unit NNN or a comma list')
+                raise Die('--covers needs a value')
             fields = rest[1].split(',')
             if fields and fields[-1] == '':
                 fields.pop()

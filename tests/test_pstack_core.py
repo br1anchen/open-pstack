@@ -1614,12 +1614,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         + [['init', 'demo', f] for f in ('--store', '--pane')]
         + [['step', '{st}', '{c2}', 'x', '--resolves'], ['new-note', '{st}', '001', '--through'], ['pause', '{st}', '--reason'],
            ['scratch', '{st}', '001-x', '--at'], ['failover', '{st}', '--reason'], ['new-steer', '{st}', '001', '--supersedes']]
-        + [['wait', '{st}', f] for f in ('--timeout', '--every')],
+        + [[command, '{st}', *target, f] for command, target in (('wait', []), ('stop', []), ('discuss', ['{st}/plans/001-x.md']), ('dispatch', ['{st}/briefs/001-x.md']),
+                                                               ('steer', ['{st}/steers/001-x-s1.md'])) for f in ('--timeout', '--every')],
         'pstack-pair-guided': [['answer', '{st}', 'x', f] for f in ('--timeout', '--every')],
-        'pstack-trio': [['stop', '{st}', f] for f in ('--only', '--timeout', '--every')] + [['spawn', '{st}', f] for f in ('--kind', '--fallback-arg', '--permission')],
+        'pstack-trio': [['stop', '{st}', f] for f in ('--only', '--timeout', '--every')] + [['spawn', '{st}', f] for f in ('--kind', '--sidekick', '--consultant', '--fallback', '--fallback-arg', '--only', '--permission', '--consultant-permission', '--timeout')],
         'pstack-kitchen': [['rotate-master', '{st}', '--model'], ['maintainer', 'on', '--pane']] + [['spawn', '{st}', f] for f in ('--kind', '--fallback')]
         + [['consultant', '{st}', f] for f in ('--reason', '--kind', '--permission')] + [['discuss', '{st}', '{st}/plans/001-x.md', f] for f in ('--timeout', '--every')]
-        + [['wait', '{st}', '--max']] + [['verify', '{st}', '001', f] for f in ('--timeout', '--kind', '--retry-entry', '--every', '--base', '--parent', '--head')],
+        + [['wait', '{st}', f] for f in ('--max', '--timeout', '--every')]
+        + [['verify', '{st}', '001', f] for f in ('--timeout', '--kind', '--retry-entry', '--every', '--base', '--parent', '--head', '--covers')],
     }
 
     def test_every_flag_that_takes_a_value_dies_naming_it_when_none_is_given(self):
@@ -2758,6 +2760,23 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
 
 
+
+    def test_permission_reads_the_session_transcript_and_falls_back_to_auto_when_it_names_no_mode(self):
+        """Through the real pair.sh, with a ps that finds no agent above the shell: the last permissionMode of the session's transcript, else the
+        settings files, else auto. A transcript with no permissionMode used to end the command with status 1; it now falls through."""
+        home, cwd, bin_dir = self.path / 'permhome', self.path / 'permcwd', self.path / 'permbin'
+        for d in (home, cwd, bin_dir):
+            d.mkdir()
+        (bin_dir / 'ps').write_text('#!/bin/sh\nexit 1\n')
+        (bin_dir / 'ps').chmod(0o755)
+        transcript = home / '.claude/projects' / re.sub(r'[/.]', '-', str(cwd)) / 's1.jsonl'
+        transcript.parent.mkdir(parents=True)
+        env = {**self.env, 'HOME': str(home), 'PWD': str(cwd), 'CLAUDE_CODE_SESSION_ID': 's1', 'PATH': f'{bin_dir}:{os.environ["PATH"]}'}
+        run = lambda: subprocess.run([str(scripts / 'pair.sh'), 'permission'], cwd=cwd, env=env, capture_output=True, text=True, check=False, timeout=120)
+        for text, want in (('{"type":"user"}\n', 'auto'), ('{"permissionMode":"plan"}\n{"permissionMode":"acceptEdits"}\n', 'acceptEdits')):
+            transcript.write_text(text)
+            got = run()
+            self.assertEqual((got.returncode, got.stdout, got.stderr), (0, want + '\n', ''), text)
 
     def test_listings_go_in_code_point_order_and_ties_in_time_go_by_name_without_the_extension(self):
         """sort -u of the touched paths puts upper case before lower case and a non-ASCII letter after both; two files modified at the same time are
@@ -5951,7 +5970,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a unit with no brief': (1, 'no brief for unit 009'),
             'no unit and no landing': (1, 'name at least one unit NNN, or --landing'),
             'an unknown option': (1, 'unknown option --bogus'),
-            '--covers with no value': (1, '--covers takes a unit NNN or a comma list'),
+            '--covers with no value': (1, '--covers needs a value'),
             '--covers that is no unit': (1, "--covers takes unit numbers (NNN), one per flag or a comma list, not 'abc'"),
             '--every and --until-verdict together': (1, '--every and --until-verdict are alternatives'),
             '--landing with a unit': (1, '--landing verifies the whole stack; name no units'),
