@@ -145,7 +145,7 @@ def rotate_master(ctx, args):
     if read(store, 'master.previous.name'):
         raise Die(f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first', 5)
     if agent_status(name) == 'absent':
-        raise Die(f"{who('master', name)} is not live in {pane}; run this from the master's own session", 5)
+        raise Die(f"{who('master', name)} is not live" + (f' in {pane}' if pane else '') + "; run this from the master's own session", 5)
     kind = agent_kind(name)
     if kind != 'claude':
         raise Die(f'rotate-master restarts a Claude master; {name} is {kind}', 5)

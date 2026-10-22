@@ -105,7 +105,7 @@ def findings(verdict):
 
 
 def rejected_count(store, unit):
-    """`grep -l '^status: reject' "$store/verdicts/$unit"-v[0-9]*.md | grep -vc packet`."""
+    """How many of the unit's verdicts (not their packets) say `status: reject`."""
     import glob
     n = 0
     for path in sorted(glob.glob(f'{glob.escape(store)}/verdicts/{glob.escape(unit)}-v[0-9]*.md')):
@@ -116,12 +116,6 @@ def rejected_count(store, unit):
         if hit and 'packet' not in path:
             n += 1
     return n
-
-
-def delivery_note(store):
-    """` (<how the grace prompt went>)`, or nothing when no delivery is recorded."""
-    delivery = read(store, 'verifying.grace_delivery')
-    return f' ({delivery})' if delivery else ''
 
 
 def delivery_note(store):

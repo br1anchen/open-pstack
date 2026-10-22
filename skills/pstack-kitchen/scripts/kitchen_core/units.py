@@ -215,7 +215,7 @@ class Inclusion:
 
 
 def rebased_in(unit, index):
-    """unit_rebased_in: whether the unit's commits were rebased into the stack. Every commit of the unit's range (its dispatch head to its head)
+    """Whether the unit's commits were rebased into the stack. Every commit of the unit's range (its dispatch head to its head)
     has a patch-id among the stack's, and no stack commit after the one matching the unit's head reverts the unit: has, with no context lines, the
     patch-id of the inverse of the unit's net change or of one of its commits. A range that holds a merge is not matched; a unit with commits but
     no net change is covered by its patch-ids alone."""
@@ -252,7 +252,7 @@ def rebased_in(unit, index):
 
 
 def inclusion(unit, index):
-    """unit_in_landing_range: whether a unit is covered by a landing range: its head is in base..head, or its commits were rebased into it."""
+    """Whether a unit is covered by a landing range: its head is in base..head, or its commits were rebased into it."""
     if not unit.head:
         return Inclusion('missing')
     if is_ancestor(unit.root, unit.head, index.head):

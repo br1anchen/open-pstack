@@ -146,12 +146,18 @@ def frag(msg):
     parts = [p for p in parts if len(p) >= 12] or parts
     return max(parts, key=len).strip().lstrip(':;,) ') if parts else ''
 
+def field_text(field):
+    """A formatted field as {}, and `who(role, name)` as its role word, or {} {} when the role is a variable."""
+    if isinstance(field, ast.Call) and getattr(field.func, 'id', '') == 'who':
+        return f'{field.args[0].value} {{}}' if isinstance(field.args[0], ast.Constant) else '{} {}'
+    return '{}'
+
 def static_text(node):
     """A message expression as text, each formatted field as {}."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.JoinedStr):
-        return ''.join(v.value if isinstance(v, ast.Constant) else '{}' for v in node.values)
+        return ''.join(v.value if isinstance(v, ast.Constant) else field_text(v.value) for v in node.values)
     if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
         return static_text(node.left) + static_text(node.right)
     return ''
