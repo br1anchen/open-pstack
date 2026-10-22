@@ -137,34 +137,91 @@ for name in "init rotate failover permission new-plan new-brief queue notes new-
 # ---- Exit codes ------------------------------------------------------------
 codes = {0: 'ok', 1: 'usage or precondition', 2: 'herdr or gate failure', 3: 'agent blocked', 4: 'no report, queue empty, check-in or still running', 5: 'wrong state', 6: 'plan not agreed', 7: 'steer, consult or ask cap', 8: 'kinds not diverse'}
 exit_lines = []
-die_re = re.compile(r"""Die\((f?)(["'])(.*?)\2(?:\s*%\s*[^,]*)?,\s*([2-8])\)""")
 def frag(msg):
     # the longest static run without a format field
+    if msg.startswith('('):
+        return ''
     parts = re.split(r'\{[^}]*\}', msg)
     parts = [p for p in parts if len(p) >= 12] or parts
     return max(parts, key=len).strip() if parts else ''
-seen = set()
-for l in git_grep(r'Die\(|die ".*" [2-8]$|die ".*" [2-8] ', *PROD):
-    m = re.match(r'^([^:]+):(\d+):(.*)$', l)
-    if not m: continue
-    path, no, code = m.groups()
-    if re.match(r'^\s*#', code) or '"""' in code: continue
-    mm = die_re.search(code)
-    if mm:
-        msg, c = mm.group(3), int(mm.group(4))
-    else:
-        mm = re.search(r'die "(.*)" ([2-8])\b', code)
-        if not mm: continue
-        msg, c = mm.group(1), int(mm.group(2))
-    f = frag(msg)
-    key = (c, f)
-    if key in seen or len(f) < 8: continue
-    seen.add(key)
-    exit_lines.append((c, path, int(no), msg, f))
+
+def static_text(node):
+    """A message expression as text, each formatted field as {}."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return ''.join(v.value if isinstance(v, ast.Constant) else '{}' for v in node.values)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
+        return static_text(node.left) + static_text(node.right)
+    return ''
+
+def strings_in(node):
+    return [static_text(n) for n in ast.walk(node) if isinstance(n, (ast.Constant, ast.JoinedStr)) and static_text(n)]
+
+def py_exits(path):
+    """Die(msg, N) and `return N` (N in 2..8) of a Python file, found by parsing the calls whole, so a code on a continuation line counts."""
+    tree = ast.parse(open(path).read())
+    func_of = {}
+    for f in ast.walk(tree):
+        if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for n in ast.walk(f):
+                func_of[n] = f.name
+    found = []
+    def visit(body):
+        prev = None
+        for st in body:
+            for n in ast.walk(st):
+                if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == 'Die' and len(n.args) == 2 and isinstance(n.args[1], ast.Constant) and n.args[1].value in range(2, 9):
+                    found.append((n.args[1].value, n.lineno, static_text(n.args[0]) or '(message built at runtime)'))
+                elif isinstance(n, ast.Return) and isinstance(n.value, ast.Constant) and type(n.value.value) is int and n.value.value in range(2, 9):
+                    ctx = [t for t in strings_in(prev) if len(t) >= 12] if isinstance(prev, ast.Expr) and isinstance(prev.value, ast.Call) else []
+                    found.append((n.value.value, n.lineno, ctx[-1].strip() if ctx else f'(returns {n.value.value} in {func_of.get(n, "module")}())'))
+            prev = st
+            for field in ('body', 'orelse', 'finalbody', 'handlers'):
+                sub = getattr(st, field, None)
+                if isinstance(sub, list) and sub and isinstance(sub[0], ast.stmt):
+                    visit(sub)
+                elif isinstance(sub, list):
+                    for h in sub:
+                        if isinstance(h, ast.ExceptHandler):
+                            visit(h.body)
+    visit(tree.body)
+    return found
+
+def sh_exits(path):
+    """`die "msg" N` (the call may span lines) and `exit N` / `return N` of a bash file."""
+    text = open(path).read()
+    lines = text.splitlines()
+    found = []
+    for m in re.finditer(r'\bdie\s+"((?:[^"\\]|\\.)*)"\s+([2-8])\b', text, re.S):
+        found.append((int(m.group(2)), text.count('\n', 0, m.start()) + 1, ' '.join(m.group(1).split())))
+    for i, l in enumerate(lines):
+        if re.match(r'^\s*#', l): continue
+        m = re.search(r'(?:^|&&|\|\||;|\{)\s*(?:exit|return)\s+([2-8])\s*(?:;|\}|$)', l)
+        if m:
+            near = ''.join(re.findall(r"printf '([^']*)'|echo \"([^\"]*)\"", lines[i - 1])[0]) if i and re.search(r"printf '|echo \"", lines[i - 1]) else ''
+            fn = next((re.match(r'^([A-Za-z_][\w-]*)\(\)', lines[j]).group(1) for j in range(i, -1, -1) if re.match(r'^[A-Za-z_][\w-]*\(\)', lines[j])), 'script')
+            found.append((int(m.group(1)), i + 1, near.replace('\\n', '').strip() or f'(exits {m.group(1)} in {fn}())'))
+    return found
+
+manual_at = [('skills/pstack-pair/scripts/pstack_core/wait.py', 411), ('skills/pstack-pair/scripts/pstack_core/wait.py', 421), ('skills/pstack-pair/scripts/pstack_core/wait.py', 429),
+             ('skills/pstack-pair/scripts/pstack_core/commands/report.py', 85), ('skills/pstack-pair/scripts/pstack_core/spawn.py', 128), ('skills/pstack-pair/scripts/pstack_core/spawn.py', 224),
+             ('skills/pstack-pair/scripts/pstack_core/spawn.py', 235)]
+exit_lines, seen = [], set()
+for path in git_grep(r'.', *PROD, flags='-lE'):
+    if '/tests/' in path or not path.endswith(('.py', '.sh')):
+        continue
+    for c, no, msg in (py_exits(path) if path.endswith('.py') else sh_exits(path)):
+        if any(path == mp and abs(no - ml) <= 1 for mp, ml in manual_at):
+            continue
+        key = (path, no)
+        if key in seen: continue
+        seen.add(key)
+        exit_lines.append((c, path, no, msg, frag(msg)))
 exit_lines.sort(key=lambda x: (x[0], x[1], x[2]))
 exit_out = []
 for c, path, no, msg, f in exit_lines:
-    text = f'exit {c} ({codes[c]}): {msg[:90].replace("`", chr(39))}'
+    text = f'exit {c} ({codes[c]}): {msg[:90].replace("`", chr(39)) or "returned"}'
     exit_out.append(line('Exit codes', re.sub(r"\{[^}]*\}", "…", text), f'{path}:{no}', [f]))
 manual_exit = [
     (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:411', 'wait returns 4 with the report path already shown (review-delta printed)', ['review-delta:']),
@@ -231,7 +288,7 @@ decided = [
 dec_out = []
 for text, src, state in decided:
     if state:
-        counts.setdefault('Decided', {'tested': 0, 'ab': 0, 'missing': 0})['missing'] += 1
+        counts.setdefault('Decided', {'tested': 0, 'ab': 0, 'missing': 0, 'decided': 0})['decided'] += 1
         dec_out.append(f'- {text} — {src} — {state}')
     else:
         explicit = {'globs': 'test_pstack_kitchen.GlobTests.test_globs_cross_directories_only_with_double_star; test_pstack_pair.ReadinessTests.test_a_scope_line_listing_several_paths_is_refused_at_dispatch_and_queue',
@@ -274,12 +331,12 @@ git grep -noE '\\.(sidekick|master|consultant|verifier|dispatch|sent|verifying)\
 
 Exit codes callers branch on: {'; '.join(f'{k} {v}' for k, v in codes.items())}.
 '''
-summary = ['## Counts', '', '| section | tested | A/B only | missing |', '| --- | --- | --- | --- |']
-tt = [0, 0, 0]
+summary = ['## Counts', '', '| section | tested | A/B only | missing | decided |', '| --- | --- | --- | --- | --- |']
+tt = [0, 0, 0, 0]
 for sec, c in counts.items():
-    summary.append(f'| {sec} | {c["tested"]} | {c["ab"]} | {c["missing"]} |')
-    tt[0] += c['tested']; tt[1] += c['ab']; tt[2] += c['missing']
-summary.append(f'| total | {tt[0]} | {tt[1]} | {tt[2]} |')
+    summary.append(f'| {sec} | {c["tested"]} | {c["ab"]} | {c["missing"]} | {c.get("decided", 0)} |')
+    tt[0] += c['tested']; tt[1] += c['ab']; tt[2] += c['missing']; tt[3] += c.get('decided', 0)
+summary.append(f'| total | {tt[0]} | {tt[1]} | {tt[2]} | {tt[3]} |')
 body = [hdr, '\n'.join(summary), '', '## Commands', '', *cmd_lines, '', '## Exit codes', '', *exit_out, '', '## Messages agents read', '', *msg_out, '',
         '## Store files and fields', '', *store_out, '', '## Decided in plan 043', '', *dec_out, '']
 open('tests/SPEC.md', 'w').write('\n'.join(body))
