@@ -9,7 +9,7 @@ import time
 from . import agents
 from .send import fresh_kind, submit_typed, visible_without_blanks
 from .store import (
-    Die, TEXT, exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, prog, pair_file,
+    Die, exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, prog, pair_file,
     whole_number, who,
 )
 from .panes import DEVNULL, MERGED, PIPE, agent_field, agent_prompt, agent_start, agent_status, await_file, herdr, new_pane, refuse_untrusted, require_herdr

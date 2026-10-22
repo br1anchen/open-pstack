@@ -48,6 +48,8 @@ def agent_start(name, kind, pane, args, timeout_ms=60000, stdout=DEVNULL, stderr
 
 def agent_prompt(name, text, wait=False, until=None, timeout_ms=None, stdout=PIPE, stderr=PIPE):
     """herdr agent prompt NAME TEXT, optionally waiting (until a state) up to timeout_ms: the CompletedProcess."""
+    if until and not wait:
+        raise ValueError('agent_prompt: until needs wait')
     argv = ['agent', 'prompt', name, text]
     if wait:
         argv.append('--wait')

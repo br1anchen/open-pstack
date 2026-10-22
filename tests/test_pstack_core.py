@@ -6915,16 +6915,57 @@ class HerdrCallTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {'HERDR_ENV': '1'}):
             panes.require_herdr()
 
+    def test_until_without_wait_is_refused_rather_than_sent(self):
+        with mock.patch.object(panes.subprocess, 'run') as run, self.assertRaises(ValueError):
+            panes.agent_prompt('a', 'hi', until='working')
+        run.assert_not_called()
+
+    @staticmethod
+    def spells_agent_start_or_prompt(node):
+        """A call herdr('agent', 'prompt'|'start', ...) or a list ['agent', 'prompt'|'start', ...] (with or without a leading 'herdr')."""
+        if isinstance(node, ast.Call):
+            parts = node.args
+        elif isinstance(node, ast.List):
+            parts = node.elts
+        else:
+            return False
+        words = [p.value for p in parts[:3] if isinstance(p, ast.Constant)]
+        return words[:2] in (['agent', 'prompt'], ['agent', 'start']) or words[:3] in (['herdr', 'agent', 'prompt'], ['herdr', 'agent', 'start'])
+
+    def test_the_guard_sees_every_form_the_old_sites_used(self):
+        for source in ("herdr('agent', 'prompt', n, t)", "run_herdr(['agent', 'start', n])", "['herdr', 'agent', 'prompt', n]", "subprocess.run(['herdr', 'agent', 'start'])"):
+            self.assertTrue(any(self.spells_agent_start_or_prompt(n) for n in ast.walk(ast.parse(source))), source)
+        for source in ("herdr('agent', 'get', n)", "['agent', 'wait', n]", "agent_prompt(n, t)"):
+            self.assertFalse(any(self.spells_agent_start_or_prompt(n) for n in ast.walk(ast.parse(source))), source)
+
     def test_no_module_but_panes_builds_an_agent_start_or_prompt_argv(self):
         stray = []
         for skill in ('pstack-pair/scripts/pstack_core', 'pstack-kitchen/scripts/kitchen_core', 'pstack-pair-guided/scripts', 'pstack-trio/scripts', 'pstack-kitchen/scripts'):
             for path in sorted((root / 'skills' / skill).glob('*.py' if skill.endswith('/scripts') else '**/*.py')):
                 if path.name in ('panes.py', 'kitchen.py'):
                     continue
-                for node in ast.walk(ast.parse(path.read_text(), str(path))):
-                    if isinstance(node, ast.List) and [e.value for e in node.elts[:3] if isinstance(e, ast.Constant)] in (['herdr', 'agent', 'prompt'], ['herdr', 'agent', 'start']):
-                        stray.append(f'{path.relative_to(root)}:{node.lineno}')
+                stray += [f'{path.relative_to(root)}:{node.lineno}' for node in ast.walk(ast.parse(path.read_text(), str(path))) if self.spells_agent_start_or_prompt(node)]
         self.assertEqual(stray, [])
+
+
+class ReportReadyTests(unittest.TestCase):
+    def test_a_done_report_is_withheld_when_the_steps_cannot_be_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(f'{tmp}/reports')
+            os.makedirs(f'{tmp}/steps/001-x.tsv')
+            report = f'{tmp}/reports/001-x.md'
+            Path(report).write_text('# Report 001: x\n\nstatus: done\nhead: abcdef0\n')
+            ready = Variant().report_ready(None, tmp, report)
+        self.assertFalse(ready.ready)
+        self.assertIn('the steps or notes cannot be read', ready.why)
+        self.assertIn('steps/001-x.tsv', ready.why)
+
+    def test_a_unit_with_no_steps_file_is_judged_on_notes_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(f'{tmp}/reports')
+            report = f'{tmp}/reports/001-x.md'
+            Path(report).write_text('# Report 001: x\n\nstatus: done\nhead: abcdef0\n')
+            self.assertTrue(Variant().report_ready(None, tmp, report).ready)
 
 
 class GitCallTests(unittest.TestCase):

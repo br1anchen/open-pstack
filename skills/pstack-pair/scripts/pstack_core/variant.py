@@ -139,20 +139,21 @@ class Variant:
         """The pair's report readiness. Only a done report is judged, and only the unit's own report:
         the -sN and -qN reports answer a steer or a consult. Open blocking notes withhold it, and so does
         a head that predates the unit's last recorded step. A unit with no steps, or a head that does not
-        resolve (older stores, fixtures), is judged on notes alone."""
+        resolve (older stores, fixtures), is judged on notes alone.
+        Steps or notes that cannot be read withhold it."""
         if header_field(report, 'status') != 'done':
             return ReportReadiness(True)
         base = unit_name(report)
         if re.search(r'-[sq][0-9]', base):
             return ReportReadiness(True)
-        opened = open_notes(store, report)
+        try:
+            opened = open_notes(store, report)
+            tail = StepLog(store, base).last()
+        except OSError as e:
+            return ReportReadiness(False, '', f'the steps or notes cannot be read: {e.filename}: {os.strerror(e.errno)}')
         if opened:
             names = ','.join(re.sub(r'.*-(n[0-9]+)\.md$', r'\1', p) for p in opened)
             return ReportReadiness(False, '\n'.join(opened), f'open blocking notes {names}')
-        try:
-            tail = StepLog(store, base).last()
-        except OSError:
-            return ReportReadiness(True)
         if tail is None:
             return ReportReadiness(True)
         m = re.match(r'[0-9a-f]{7,40}', header_field(report, 'head'))
