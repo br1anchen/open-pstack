@@ -70,7 +70,7 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
 
 
 def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, pane, args):
-    master_mode = mode_of_this_shell(False)
+    master_mode = mode_of_this_shell()
     if not permission:
         permission = 'bypassPermissions' if kind == 'devin' else master_mode
     agent_args = []

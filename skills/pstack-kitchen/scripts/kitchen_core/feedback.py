@@ -12,7 +12,7 @@ import time
 
 from pstack_core.checkin import iso_epoch
 from pstack_core.collate import collate_key, glob_sorted
-from pstack_core.errors import Die, Exit, unbound_arg
+from pstack_core.errors import Die, Exit
 from pstack_core.herdr import herdr
 from pstack_core.wait import as_text, reply_at
 from pstack_core.replies import file_mtime
@@ -369,7 +369,7 @@ def maintainer(ctx, args):
         while rest:
             if rest[0] == '--pane':
                 if len(rest) < 2:
-                    raise unbound_arg()
+                    raise Die('--pane needs a value')
                 pane, rest = rest[1], rest[2:]
             else:
                 raise Die(f'unknown option {rest[0]}')

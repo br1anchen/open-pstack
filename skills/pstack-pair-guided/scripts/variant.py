@@ -2,7 +2,7 @@ import os
 import re
 
 from pstack_core.commands.report import in_herdr
-from pstack_core.errors import Die, fail
+from pstack_core.errors import Die
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
 from pstack_core.store import header_field, readlink_f, whole_number
@@ -25,7 +25,7 @@ def answer(ctx, args):
         if option not in ('--timeout', '--every'):
             raise Die(f'unknown option {option}')
         if i + 1 >= len(rest):
-            fail(f'{option}) ', '$2: unbound variable', 'cmd_answer() {', GUIDED_PAIR)
+            raise Die(f'{option} needs a value')
         if option == '--timeout':
             timeout = whole_number(rest[i + 1], '--timeout', 'milliseconds')
         else:

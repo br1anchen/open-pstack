@@ -352,7 +352,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual((info['kitchen_core'], info['opened']), (False, []), (key, seen[key]))
         # each command ran: status prints its page, stop and spawn end in their own diagnostics
         expected = {('pair', 'status'): (0, '# Pair status', 'stdout'), ('pair', 'stop'): (2, 'pair.sh: sidekick s1 is not live', 'stderr'),
-                    ('pair', 'spawn'): (1, '$2: unbound variable', 'stderr'), ('kitchen', 'status'): (0, '# Kitchen status', 'stdout'),
+                    ('pair', 'spawn'): (1, '--kind needs a value', 'stderr'), ('kitchen', 'status'): (0, '# Kitchen status', 'stdout'),
                     ('kitchen', 'catch'): (1, 'usage: kitchen.sh catch <store> <layer> <text> [<unit>]', 'stderr')}
         for key, (rc, line, stream) in expected.items():
             self.assertEqual(seen[key][0]['rc'], rc, (key, seen[key]))
@@ -627,7 +627,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
 
 
-    def detect_in(self, procs, strict=False, files=None, session=''):
+    def detect_in(self, procs, files=None, session=''):
         """permission.detect over a table {pid: (ppid, comm, args)} in place of ps, with HOME and cwd under the test's directory."""
         home, cwd = self.path / 'home', self.path / 'cwd'
         for rel, text in (files or {}).items():
@@ -639,7 +639,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if row is None:
                 return 1, ''
             return 0, {'ppid=': f'  {row[0]}', 'comm=': row[1], 'args=': row[2]}[args[1]]
-        return permission.detect(100, str(cwd), str(home), session, strict, ps)
+        return permission.detect(100, str(cwd), str(home), session, ps)
 
     def test_detect_reads_the_agent_above_the_shell_and_stops_after_twelve_hops(self):
         shell = (101, 'bash', 'bash')
@@ -676,12 +676,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         later = {'home/.claude/settings.json': '{"permissions": {"defaultMode": "plan"}}'}
         for name, first in (('a file that does not parse', '{not json'), ('a file with no permissions', '{}'), ('a file with no defaultMode', '{"permissions": {}}'),
                             ('a permissions that is a string', '{"permissions": "x"}'), ('a defaultMode that is a number', '{"permissions": {"defaultMode": 3}}')):
-            for strict in (False, True):
-                self.assertEqual(self.detect_in(alone, strict=strict, files={'cwd/.claude/settings.local.json': first, **later}), 'plan', (name, strict))
+            self.assertEqual(self.detect_in(alone, files={'cwd/.claude/settings.local.json': first, **later}), 'plan', name)
         (self.path / 'home/.claude/settings.json').unlink()
-        self.assertEqual(self.detect_in(alone, strict=True, files={'cwd/.claude/settings.local.json': '{not json'}), 'auto')
+        self.assertEqual(self.detect_in(alone, files={'cwd/.claude/settings.local.json': '{not json'}), 'auto')
         (self.path / 'cwd/.claude/settings.local.json').unlink()
-        self.assertEqual(self.detect_in(alone, strict=True), 'auto')
+        self.assertEqual(self.detect_in(alone), 'auto')
 
 
 
@@ -1610,11 +1609,32 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
 
 
-    def test_step_ab_a_missing_resolves_value_names_the_shim_line_through_pair_sh(self):
-        core = scripts / 'pair-core.sh'
-        shim = next(n for n, line in enumerate(core.read_text().splitlines(), 1) if line.startswith('cmd_step() {'))
-        got = self.script_run('shim-line', root / 'skills', 'pstack-pair', dict(args=['step', '{st}', '{c2}', 'x', '--resolves'], agents={'s1': 'working claude'}))
-        self.assertEqual((got['rc'], got['stdout'], got['stderr']), (1, '', f'{core}: line {shim}: $2: unbound variable\n'))
+    VALUE_FLAGS = {
+        'pstack-pair': [['spawn', '{st}', f] for f in ('--kind', '--fallback', '--permission', '--direction', '--pane', '--timeout', '--fallback-arg')]
+        + [['init', 'demo', f] for f in ('--store', '--pane')]
+        + [['step', '{st}', '{c2}', 'x', '--resolves'], ['new-note', '{st}', '001', '--through'], ['pause', '{st}', '--reason'],
+           ['scratch', '{st}', '001-x', '--at'], ['failover', '{st}', '--reason'], ['new-steer', '{st}', '001', '--supersedes']]
+        + [['wait', '{st}', f] for f in ('--timeout', '--every')],
+        'pstack-pair-guided': [['answer', '{st}', 'x', f] for f in ('--timeout', '--every')],
+        'pstack-trio': [['stop', '{st}', f] for f in ('--only', '--timeout', '--every')] + [['spawn', '{st}', f] for f in ('--kind', '--fallback-arg', '--permission')],
+        'pstack-kitchen': [['rotate-master', '{st}', '--model'], ['maintainer', 'on', '--pane']] + [['spawn', '{st}', f] for f in ('--kind', '--fallback')]
+        + [['consultant', '{st}', f] for f in ('--reason', '--kind', '--permission')] + [['discuss', '{st}', '{st}/plans/001-x.md', f] for f in ('--timeout', '--every')]
+        + [['wait', '{st}', '--max']] + [['verify', '{st}', '001', f] for f in ('--timeout', '--kind', '--retry-entry', '--every', '--base', '--parent', '--head')],
+    }
+
+    def test_every_flag_that_takes_a_value_dies_naming_it_when_none_is_given(self):
+        """Through the real pair.sh of each variant and kitchen.sh: the flag as the last argument ends the command with `<flag> needs a value` and
+        status 1."""
+        for skill, commands in self.VALUE_FLAGS.items():
+            for n, args in enumerate(commands):
+                label = f'value-{skill}-{n}'
+                spec = dict(args=args, pair={'slug': 'demo', 'master': {'name': 'm1', 'pane_id': 'p0'}}, panes={'p0': 'm1'}, agents={'s1': 'working claude'}, files={'plans/001-x.md': '# Plan\n\nrisk: routine\n'})
+                got = self.script_run(label, root / 'skills', skill, spec) if skill != 'pstack-kitchen' else self.kitchen_world(label, spec)
+                self.assertEqual((got['rc'], got['stderr'].rstrip('\n').split('\n')[-1]), (1, f'pair.sh: {args[-1]} needs a value'), (skill, args))
+
+    def test_step_a_missing_resolves_value_names_the_flag_through_pair_sh(self):
+        got = self.script_run('resolves-value', root / 'skills', 'pstack-pair', dict(args=['step', '{st}', '{c2}', 'x', '--resolves'], agents={'s1': 'working claude'}))
+        self.assertEqual((got['rc'], got['stdout'], got['stderr']), (1, '', 'pair.sh: --resolves needs a value\n'))
 
 
 
@@ -2211,13 +2231,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     HANDOFF_FILLED = '# Handoff\n\n## Goal\n\nfinish the port\n\n## Next\n\nunit 025\n'
 
-    def test_a_flag_with_no_value_dies_with_the_unbound_variable_message_without_a_line_number(self):
-        """`maintainer on --pane` and `rotate-master --model` with no value print `kitchen.sh: $2: unbound variable` and exit 1."""
+    def test_a_flag_with_no_value_dies_naming_the_flag(self):
+        """`maintainer on --pane` and `rotate-master --model` with no value print `<flag> needs a value` and exit 1."""
         for args in (['rotate-master', '{st}', '--model'], ['maintainer', 'on', '--pane']):
             got = self.kitchen_world('unbound' + args[0], dict(args=args, pair={'slug': 'demo', 'master': {'name': 'm1', 'pane_id': 'p0'}},
                                                                files={'session-handoff.md': self.HANDOFF_FILLED}, panes={'p0': 'm1'}))
             self.assertEqual(got['rc'], 1, args)
-            self.assertEqual(got['stderr'], 'pair.sh: $2: unbound variable\n')
+            self.assertEqual(got['stderr'], f'pair.sh: {args[-1]} needs a value\n')
 
     def test_rotate_master_behaviour(self):
         master = {'name': 'm1', 'pane_id': 'p0', 'generation': 1, 'permission_mode': 'auto'}
@@ -4022,13 +4042,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('true 1', landing)
         self.assertIn('true 2', landing)
 
-    def kitchen_py(self, store, code, env=None, cwd=None):
-        """Python run in a fresh interpreter with kitchen_core.verify_state loaded as `vs` and a context `ctx`: (status, stdout, stderr)."""
+    def kitchen_py(self, store, code, env=None, cwd=None, pid=None):
+        """Python run in a fresh interpreter with kitchen_core.verify_state loaded as `vs` and a context `ctx`: (status, stdout, stderr). pid, when
+        given, is the process id verify_state takes for the running command."""
         pre = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nsys.path.insert(0, {str(root / "skills/pstack-kitchen/scripts")!r})\n'
                'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import units, verify, verify_state as vs\nfrom pstack_core.context import Context\n'
                'from pstack_core.errors import Die, Exit\n'
                f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "")\n'
-               f'store = {str(store)!r}\n')
+               f'store = {str(store)!r}\n' + (f'vs.PID = {pid}\n' if pid else ''))
         r = subprocess.run([sys.executable, '-I', '-c', pre + code], env={**self.env, **self.GIT, 'HOSTNAME': 'testhost', **(env or {})}, capture_output=True,
                            text=True, check=False, timeout=120, cwd=cwd)
         return r.returncode, r.stdout, r.stderr
@@ -4079,7 +4100,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for n, (name, (verifying, status)) in enumerate(cases.items()):
             st = self.claim_store(f'claim{n}', verifying, {} if verifying is not None else {'verifying': None})
             before = (st / 'pair.json').read_text()
-            rc, out, err = self.kitchen_py(st, 'print("rc=%d" % (0 if vs.claim_close(store, "/v/001-x-v1.md") else 1))', env={'PAIR_SHELL_PID': str(os.getpid())})
+            rc, out, err = self.kitchen_py(st, 'print("rc=%d" % (0 if vs.claim_close(store, "/v/001-x-v1.md") else 1))', pid=os.getpid())
             if isinstance(status, str):
                 self.assertEqual((rc, out), (1, ''), (name, err))
                 self.assertIn(f'pair.json is damaged: {status}', err, name)
@@ -4130,7 +4151,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             st = self.claim_store(f'my{n}', {'verdict': 'v', **({'closing': {'token': token}} if token else {})})
             code = ('print("mine" if vs.my_claim(store) else "notmine")\ntry:\n    vs.still_my_claim(store)\n    print("rc=0")\n'
                     'except Exit as e:\n    print("rc=%d" % e.code)')
-            prc, got, perr = self.kitchen_py(st, code, env={'PAIR_SHELL_PID': str(pid)})
+            prc, got, perr = self.kitchen_py(st, code, pid=pid)
             self.assertEqual(got.splitlines(), want, (name, perr))
 
     def test_audit_due_follows_the_crc32_of_the_unit_and_the_sample_rate(self):
@@ -4149,7 +4170,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         extra = {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}, 'git_root': str(self.path)}
         st = self.claim_store('rcpy', verifying, extra)
         rc, out, err = self.kitchen_py(st, 'try:\n    vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\nexcept Exit as e:\n    print("rc=%d" % e.code)\n',
-                                       env={'PAIR_SHELL_PID': str(os.getpid())})
+                                       pid=os.getpid())
         self.assertEqual(out, 'rc=1\n')
         self.assertEqual(self.mask_token(err).replace(str(st), '<S>'), 'pair.sh: scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review\n')
         self.assertNotIn('closing', (st / 'pair.json').read_text())
@@ -4161,7 +4182,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         verdict = '/v/001-x-v1.md'
         st = self.claim_store('compat', {'verdict': verdict, 'units': '001'})
         closing = lambda: json.loads((st / 'pair.json').read_text())['verifying'].get('closing')
-        claim = lambda pid: self.kitchen_py(st, f'print(vs.claim_close(store, {verdict!r}))', env={'PAIR_SHELL_PID': str(pid)})[1]
+        claim = lambda pid: self.kitchen_py(st, f'print(vs.claim_close(store, {verdict!r}))', pid=pid)[1]
         self.assertEqual(claim(live), 'True\n')
         token = closing()['token']
         self.assertRegex(token, rf'^testhost:{live}:[0-9]+$')
@@ -4635,7 +4656,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         }
         for kind, rows in expected.items():
             code = ''.join(f'print(" ".join(verify.verifier_args({kind!r}, {json.loads(e) if e else None!r}, "/tmp")))\n' for e in entries)
-            got = self.kitchen_py(st, code, env={'PAIR_SHELL_PID': str(os.getpid())}, cwd='/tmp')[1].splitlines()
+            got = self.kitchen_py(st, code, pid=os.getpid(), cwd='/tmp')[1].splitlines()
             self.assertEqual(got, rows, kind)
 
     def test_verify_kpy_calls_leave_the_environment_alone(self):
@@ -4893,8 +4914,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a prompt whose error is no json': (2, 'broken\n'),
             '--every': (0, 'consultant_status: agree\n'),
             '--every with an expression': (1, '--every must be a whole number of minutes'),
-            '--timeout with no value': (1, '$2: unbound variable'),
-            '--every with no value': (1, '$2: unbound variable'),
+            '--timeout with no value': (1, '--timeout needs a value'),
+            '--every with no value': (1, '--every needs a value'),
             '--every with a name': (1, '--every must be a whole number of minutes'),
             '--timeout that is no number': (1, '--timeout must be a whole number of milliseconds'),
             '--timeout that is no number with nobody answering': (1, '--timeout must be a whole number of milliseconds'),
@@ -4988,7 +5009,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotIn('profiles:', out['a landing brief']['files']['briefs/002-y.md'])
 
     SETUP_HOOK = {'hook': READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}}
-    SETUP_MASK = [(r'<SK>[^\s"\\]*(kitchen|pair-core|consultant-core)\.sh: line [0-9]+: (\$2|abc): unbound variable', r'pair.sh: \2: unbound variable'), (r'<SK>[^\s"\\]*(consultant-core|pair-core|kitchen)\.sh: line [0-9]+: \[: ', 'pair.sh: [: '), (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'), (r'repo-[0-9a-f]{8}', 'repo-H')]
+    SETUP_MASK = [(r'<SK>[^\s"\\]*(consultant-core|pair-core|kitchen)\.sh: line [0-9]+: \[: ', 'pair.sh: [: '), (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'), (r'repo-[0-9a-f]{8}', 'repo-H')]
 
     def init_command_cases(self):
         full = self.KITCHEN_TOML + '\n[review]\nself = ["pstack-review", "ce-review"]\n\n[landing]\nmode = "pr"\n'
@@ -5132,8 +5153,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'no slug': (1, 'pair.sh: usage: kitchen.sh init <slug> [--store DIR] [--pane ID]'),
             'outside herdr': (1, 'pair.sh: not running inside Herdr (HERDR_ENV != 1)'),
             'an unknown option': (1, 'pair.sh: unknown option --force'),
-            '--pane with no value': (1, 'pair.sh: $2: unbound variable'),
-            '--store with no value': (1, 'pair.sh: $2: unbound variable'),
+            '--pane with no value': (1, 'pair.sh: --pane needs a value'),
+            '--store with no value': (1, 'pair.sh: --store needs a value'),
             'a stale --pane': (2, 'pair.sh: pane gone2 is not a live Herdr pane; HERDR_PANE_ID is stale when a harness runs commands through a sh'),
             'a slug that is not one': (1, "pair.sh: slug must match [a-z][a-z0-9_-]{0,20} (so <slug>-consultant fits Herdr's 32-char name limit)"),
         }
@@ -5164,8 +5185,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a roster with no fallback': (0, 'started in'),
             '--tab': (0, 'started in'),
             'an option for the core': (1, 'pair.sh: unknown option --bogus'),
-            '--kind with no value': (1, 'pair.sh: $2: unbound variable'),
-            '--fallback with no value': (1, 'pair.sh: $2: unbound variable'),
+            '--kind with no value': (1, 'pair.sh: --kind needs a value'),
+            '--fallback with no value': (1, 'pair.sh: --fallback needs a value'),
             'an empty roster and no --kind': (1, 'pair.sh: no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)'),
             'an empty roster and a --kind': (0, 'started in'),
             'a roster that does not parse': (1, 'Traceback (most recent call last):'),
@@ -5209,8 +5230,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an empty roster and no --kind': (1, 'pair.sh: no --kind and no [consultant] kind in the host roster'),
             'a roster that does not parse': (1, 'Traceback (most recent call last):'),
             'no reason': (1, 'pair.sh: --reason is required: the escalation that warrants the consultant'),
-            '--reason with no value': (1, 'pair.sh: $2: unbound variable'),
-            '--kind with no value': (1, 'pair.sh: $2: unbound variable'),
+            '--reason with no value': (1, 'pair.sh: --reason needs a value'),
+            '--kind with no value': (1, 'pair.sh: --kind needs a value'),
             'an unknown option': (1, 'pair.sh: unknown option --bogus'),
             'no store argument': (1, 'pair.sh: usage: kitchen.sh consultant <store> --reason TEXT [--kind KIND] [--permission MODE|none] [-- agent-a'),
             'a store with no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>'),
@@ -5313,7 +5334,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a brief and no pair.json': (2, 'no pair.json in'),
             'a quiet check-in, then the quiet wait': quiet,
             'a quiet check-in, then --max ends it': quiet,
-            'a quiet check-in and --max with no value': (1, '$2: unbound variable'),
+            'a quiet check-in and --max with no value': (1, '--max needs a value'),
             'a stale log is not swallowed': (4, 'STALE'),
             'a brief given relative to the store': quiet,
             'send only': (0, 'sent: BRIEF'),
@@ -5619,7 +5640,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a wait a newer wait supersedes': (4, 'superseded: a newer wait owns this store'),
             'an inner wait that refuses': (1, 'unknown option --bogus'),
             '--max with an expression': (1, '--max must be a whole number of minutes'),
-            '--max with no value': (1, '$2: unbound variable'),
+            '--max with no value': (1, '--max needs a value'),
             '--max that is a name': (1, '--max must be a whole number of minutes'),
             '--max given twice': quiet,
             'a max that is no number': (1, 'KITCHEN_QUIET_MAX_S must be a whole number'),
@@ -5940,13 +5961,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('0m of 10m', out['--timeout with a leading zero']['stdout'])
 
     def test_a_timeout_that_is_no_whole_number_and_a_flag_with_no_value_end_verify_naming_the_flag(self):
-        """`--timeout -5`, `--timeout abc` and `--timeout 1.5` are usage errors naming the flag, and `--timeout` with no value is `$2: unbound variable`;
+        """`--timeout -5`, `--timeout abc` and `--timeout 1.5` are usage errors naming the flag, and `--timeout` with no value is `--timeout needs a value`;
         all end with status 1 and open no verification."""
         cases = ((['001', '--timeout', 'abc', '--every', '0'], '--timeout must be a whole number of minutes'),
                  (['001', '--timeout', '-5', '--every', '0'], '--timeout must be a whole number of minutes'),
                  (['001', '--timeout', '1.5', '--every', '0'], '--timeout must be a whole number of minutes'),
                  (['001', '--every', 'x'], '--every must be a whole number of minutes'),
-                 (['001', '--timeout'], '$2: unbound variable'))
+                 (['001', '--timeout'], '--timeout needs a value'))
         for n, (args, ours) in enumerate(cases):
             got = self.kitchen_world(f'vtimeout{n}', self.launch_world(args=['verify', '{st}', *args]))
             self.assertEqual(got['rc'], 1)
@@ -6024,7 +6045,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for names, covered, range_base, want in calls:
             py = ('try:\n    base, head = units.unit_range(store, %r, %r, %r)\n    print(base, head)\n    code = 0\nexcept Die as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
                   '    code = e.code\nprint("rc=%%d" %% code)' % (names, covered, range_base))
-            prc, got, perr = self.kitchen_py(st, py, env={'PAIR_SHELL_PID': str(os.getpid())}, cwd=repo)
+            prc, got, perr = self.kitchen_py(st, py, pid=os.getpid(), cwd=repo)
             self.assertEqual(prc, 0, perr)
             perr = perr.replace(str(st), '<S>')
             if isinstance(want, tuple):

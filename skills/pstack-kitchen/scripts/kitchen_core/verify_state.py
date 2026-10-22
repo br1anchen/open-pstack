@@ -5,8 +5,8 @@ verdict_problem and handoff_due).
 
 This module alone writes `.verifying` and `.verifying.closing`. A parsed snapshot of `.verifying` is never authority: each write goes through
 `update_verifying`, which re-reads pair.json under the lock and acts only while `.verifying.verdict` is still the verdict the caller holds (the
-compare-and-set), and the claim of a close is the token `<host>:<pid>:<n>` (host from `$HOSTNAME`, as the bash reads it; pid the shell's, which
-pycore passes as PAIR_SHELL_PID; n a random number below 32768) written by the first closer only.
+compare-and-set), and the claim of a close is the token `<host>:<pid>:<n>` (host from `$HOSTNAME`, as the bash reads it; pid that of the running
+command's process, forked children included; n a random number below 32768) written by the first closer only.
 
 The pair.json fields the kitchen reads by name (path strings given to the store readers):
 .consultant.args .consultant.fallback .consultant.kind .master.permission_mode .sidekick.args .sidekick.start_args .verifier.name
@@ -36,8 +36,12 @@ def hostname():
     return os.environ.get('HOSTNAME') or 'localhost'
 
 
+# the pid of the process that runs the command; a forked child keeps its parent's value
+PID = os.getpid()
+
+
 def shell_pid():
-    return int(os.environ.get('PAIR_SHELL_PID') or os.getpid())
+    return PID
 
 
 @contextlib.contextmanager
@@ -197,8 +201,7 @@ def scratch_process(ctx, store, scratch, *options, capture=False):
     included, are its own stderr."""
     sys.stdout.flush()
     sys.stderr.flush()
-    env = {**os.environ, 'PAIR_SHELL_PID': str(shell_pid())}
-    r = subprocess.run(pycore_argv(ctx, 'scratch', store, scratch, *options), env=env, stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False)
+    r = subprocess.run(pycore_argv(ctx, 'scratch', store, scratch, *options), stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False)
     return exit_status(r.returncode), r.stdout.decode('utf-8', 'surrogateescape') if capture else ''
 
 

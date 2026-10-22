@@ -15,7 +15,7 @@ from pstack_core import spawn as pair_spawn
 from pstack_core.commands import init as core_init
 from pstack_core.commands import spawn as core_spawn
 from pstack_core.commands.report import in_herdr
-from pstack_core.errors import Die, Exit, unbound_arg
+from pstack_core.errors import Die, Exit
 from pstack_core.gates import gnu_dirname
 from pstack_core.herdr import agent_status
 from pstack_core.store import alt, field, cut_chars, damaged, event, jq_raw, json_type, listing, load, member, now, pair_file, update
@@ -162,7 +162,7 @@ def spawn(ctx, args):
         flag = rest_in[0]
         if flag in ('--kind', '--fallback'):
             if len(rest_in) < 2:
-                raise unbound_arg()
+                raise Die(f'{flag} needs a value')
             if flag == '--kind':
                 kind = rest_in[1]
             else:
@@ -202,7 +202,7 @@ def consultant(ctx, args):
         flag = rest[0]
         if flag in ('--reason', '--kind', '--permission'):
             if len(rest) < 2:
-                raise unbound_arg()
+                raise Die(f'{flag} needs a value')
             if flag == '--reason':
                 reason = rest[1]
             elif flag == '--kind':

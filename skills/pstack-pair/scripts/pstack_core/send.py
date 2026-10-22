@@ -53,7 +53,7 @@ def record_sent(store, file, kind, now=None):
 
 def require_fresh_session(store):
     if not isinstance(get(store, 'sidekick'), (dict, type(None))):
-        # `kind="$(field "$1" '.sidekick.kind')"` fails in jq with errexit on: jq's message and its status end the command
+        # jq's message and its status end the command
         from .store import field
         field(store, 'sidekick', 'kind')
     sidekick = section(load(store), 'sidekick')

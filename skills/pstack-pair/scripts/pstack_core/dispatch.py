@@ -63,7 +63,7 @@ def take_queued(store, now=None):
         try:
             record_dispatch(store, brief, now)
         except Exit:
-            # jq refused the write and has said why; the substitution this runs in has errexit off, so the brief is dispatched all the same
+            # jq refused the write and has said why; the brief is dispatched all the same
             pass
     except Die as e:
         sys.stderr.write(f'pair.sh: {e.message}\n')

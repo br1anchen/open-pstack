@@ -1,7 +1,7 @@
 import glob
 import os
 
-from ..errors import Die, unbound_arg
+from ..errors import Die
 from ..collate import glob_sorted, newest
 from ..store import fill_template, header_field, new_from_template, pair_file, readlink_f, unit_name, write_text
 
@@ -31,7 +31,7 @@ def new_steer(ctx, args):
             force, rest = True, rest[1:]
         elif rest[0] == '--supersedes':
             if len(rest) < 2:
-                raise unbound_arg()
+                raise Die('--supersedes needs a value')
             supersedes, rest = readlink_f(rest[1]), rest[2:]
         else:
             raise Die(f'unknown option {rest[0]}')

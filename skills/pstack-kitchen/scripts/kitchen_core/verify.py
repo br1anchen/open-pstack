@@ -3,8 +3,7 @@
 next_index, kitchen_snapshot and brief_kitchen).
 
 It is built on units.py (ranges, inclusion, verdicts), verify_state.py (the claim, the compare-and-set, the close, the cancel) and verify_wait.py (the
-wait); nothing calls back into it. The bash ran in the main shell with errexit on: a plain command or assignment that fails ends the command with its
-status, which is what an Exit or a Die does here, and what ran under `||` or in an `if` keeps going.
+wait); nothing calls back into it. A command that fails ends it with an Exit or a Die.
 
 kitchen.py is reached through kpy.run, in process. The commands verify makes (roster, snapshot, classify, timing, brief-verify --list and
 lesson-packet) read the repo's kitchen and git and print; none of them writes os.environ or reads INVOCATION: those belong to `gate` and to
@@ -25,7 +24,7 @@ from pstack_core.agents import has_mcp_arg, has_permission_arg, has_trust_arg, m
 from pstack_core.collate import glob_sorted
 from pstack_core.commands import scratch as scratch_command
 from pstack_core.commands.report import in_herdr
-from pstack_core.errors import Die, Exit, unbound_arg
+from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_kind, agent_status, herdr
 from pstack_core.panes import TRUST_RE, new_pane
 from pstack_core.permission import mode_of_this_shell
@@ -225,7 +224,7 @@ def verifier_args(kind, entry, directory):
     args = [as_text(a) for a in entry.get('args') or []] if isinstance(entry, dict) and isinstance(entry.get('args'), list) else []
     lines = []
     if not has_permission_arg(args):
-        permission = 'bypassPermissions' if kind == 'devin' else mode_of_this_shell(False)
+        permission = 'bypassPermissions' if kind == 'devin' else mode_of_this_shell()
         lines += permission_args(kind, permission)
     if not has_trust_arg(args):
         lines += trust_args(kind)
@@ -327,7 +326,7 @@ def verify(ctx, args):
         takes = ('--timeout', '--kind', '--retry-entry', '--every', '--base', '--parent', '--head')
         if flag in takes:
             if len(rest) < 2:
-                raise unbound_arg()
+                raise Die(f'{flag} needs a value')
             value = rest[1]
             del rest[:2]
             if flag == '--timeout':
@@ -488,7 +487,7 @@ def verify(ctx, args):
                 out(f'deadline +{added}m for the landing gates of {" ".join(profiles)}: 3 x {seconds / 60:.0f}m measured'
                     f'{"" if unmeasured == 0 else f", {unmeasured} unmeasured at 10m each"}; now {timeout_m}m\n')
     else:
-        out(f'deadline {timeout_m}m (--timeout)\n')
+        out('deadline ' + f'{timeout_m}m (--timeout)\n')
     entry = verifier_entry(kit, cls)
     if retry_entry:
         retried = parse_entry(retry_entry)

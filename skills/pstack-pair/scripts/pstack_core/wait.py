@@ -10,7 +10,7 @@ import time
 
 from .checkin import checkin
 from .checkin import sidekick_activity as _sidekick_activity
-from .errors import Die, Exit, core_line, fail
+from .errors import Die, Exit
 from .herdr import agent_status, pane_busy
 from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
@@ -44,11 +44,11 @@ def wait_opts(args, timeout=540000):
         arg = args[i]
         if arg == '--timeout':
             if i + 1 >= len(args):
-                fail('--timeout) timeout="$2"', '$2: unbound variable')
+                raise Die('--timeout needs a value')
             timeout, i = whole_number(args[i + 1], '--timeout', 'milliseconds'), i + 2
         elif arg == '--every':
             if i + 1 >= len(args):
-                fail('--every) timeout=$(($2 * 60000))', '$2: unbound variable')
+                raise Die('--every needs a value')
             timeout, i = whole_number(args[i + 1], '--every', 'minutes') * 60000, i + 2
         elif arg == '--send-only':
             send_only, i = True, i + 1
@@ -279,7 +279,7 @@ def sidekick_activity(store, now):
 
 
 def hint_for(store):
-    """provider_hint where the bash has errexit on: its first read, field .sidekick.name, ends the command with jq's status when `.sidekick`
+    """provider_hint, whose first read, field .sidekick.name, ends the command with jq's status when `.sidekick`
     cannot be indexed (a string, an array, a number or a boolean)."""
     from .store import field
     if not isinstance(get(store, 'sidekick'), (dict, type(None))):

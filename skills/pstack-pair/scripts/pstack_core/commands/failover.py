@@ -1,13 +1,13 @@
 import os
 import time
 
-from ..errors import Die, Exit
+from ..errors import Die
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..herdr import agent_status, herdr
 from ..review import jq_raw
 from ..spawn import fallback_args, record_failover, section, spawn_role
 from ..store import alt, env_float, expected_report, field, load, pair_file
-from ..wait import core_line, die_with_the_shell
+from ..wait import die_with_the_shell
 from .report import in_herdr
 
 
@@ -23,8 +23,7 @@ def failover(ctx, args):
     while rest:
         if rest[0] == '--reason':
             if len(rest) < 2:
-                path, number = core_line('--reason) ', 'cmd_failover() {')
-                raise Exit(1, f'{path}: line {number}: $2: unbound variable\n')
+                raise Die('--reason needs a value')
             reason, rest = rest[1], rest[2:]
         elif rest[0] == '--force':
             force, rest = True, rest[1:]

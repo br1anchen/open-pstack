@@ -164,10 +164,10 @@ def scope_entries(brief, want):
     return found
 
 
-def steer_scope_entries(store, seq, errexit=True):
+def steer_scope_entries(store, seq):
     """The paths a unit's live steers allow beyond its brief: the `scope effect: may write ...` line of each steer
     that is not a withdraw and that no later steer withdraws by `supersedes:`. A line with a quote and no quoted
-    string fails the bash grep pipeline, which ends the function there when set -e is on (as in the digest)."""
+    string adds nothing."""
     files = glob_sorted(glob.glob(os.path.join(glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md')))
     withdrawn = ' '
     for f in files:
@@ -188,8 +188,6 @@ def steer_scope_entries(store, seq, errexit=True):
         line = line.split(' \u2014 ')[0]
         if '"' in line:
             quoted = re.findall(r'"[^"]*"', line)
-            if not quoted and errexit:
-                break
             found.extend(q.replace('"', '').replace('`', '') for q in quoted)
         else:
             rest = line[len('may write'):]

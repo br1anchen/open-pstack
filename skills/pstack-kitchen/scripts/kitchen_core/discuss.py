@@ -15,7 +15,7 @@ from pstack_core.commands import rotate as rotate_command
 from pstack_core.commands import send as core_send
 from pstack_core.commands.report import in_herdr
 from pstack_core.dispatch import fresh_per_brief
-from pstack_core.errors import Die, Exit, unbound_arg
+from pstack_core.errors import Die, Exit
 from pstack_core.gates import require_not_paused
 from pstack_core.herdr import agent_status
 from pstack_core.panes import await_file
@@ -67,8 +67,6 @@ def rotate_if_due(ctx, store, what):
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
     def rotate_in_the_substitution():
-        # `$(cmd_rotate "$1" 2>&1)`: a substitution clears errexit, which rotate reads from the flags of the shell it runs in
-        os.environ['PAIR_SHELL_FLAGS'] = os.environ.get('PAIR_SHELL_FLAGS', '').replace('e', '')
         code = rotate_command.rotate(ctx, [store])
         if code:
             raise Exit(code)
@@ -173,11 +171,11 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     while rest:
         if rest[0] == '--timeout':
             if len(rest) < 2:
-                raise unbound_arg()
+                raise Die('--timeout needs a value')
             timeout = whole_number(rest[1], '--timeout', 'milliseconds')
         elif rest[0] == '--every':
             if len(rest) < 2:
-                raise unbound_arg()
+                raise Die('--every needs a value')
             timeout = whole_number(rest[1], '--every', 'minutes') * 60000
         else:
             raise Die(f'unknown option {rest[0]}')

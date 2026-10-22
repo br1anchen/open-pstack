@@ -1,8 +1,7 @@
 """verify --wait: waits for the open verification's verdict and closes it. Ported from kitchen.sh at b632713 (verify_wait, verify_grace, verifier_trail,
 verifier_provider_error, verifier_shown, and the `closing=1` mode the next `verify` uses to close a verdict nobody read).
 
-Every path of the bash ended in `exit`, in the shell that ran cmd_verify; here each ends in Exit (or Die). In the `closing` mode the bash ran inside
-a command substitution, where errexit is off, so a plain command that fails there does not end the command; `Waiter.errexit` says which."""
+Every path ends in Exit (or Die). The `closing` mode is the one the next `verify` uses to close a verdict nobody read."""
 
 import json
 import os
@@ -132,14 +131,9 @@ def rejected_count(store, unit):
 class Waiter:
     def __init__(self, ctx, store, every_m, closing=False, retry=None):
         self.ctx, self.store, self.closing, self.retry = ctx, store, closing, retry
-        self.errexit = not closing
         self.every_m = every_m
         self.state = ''
         self.stalled = False
-
-    def rd(self, path, **how):
-        """A plain `x="$(field ...)"`: under errexit a store with no pair.json ends the command with 2."""
-        return read(self.store, path, **how)
 
     def sleep(self, seconds):
         time.sleep(seconds)
@@ -208,20 +202,20 @@ class Waiter:
     def run(self):
         ctx, store = self.ctx, self.store
         # The verification this wait took, read once: after another call closes it and starts the next, these still describe the one this wait owns.
-        verdict = self.rd('verifying.verdict')
-        name = self.rd('verifier.name')
-        kind = self.rd('verifier.kind')
-        packet = self.rd('verifying.packet')
-        session = self.rd('verifying.session', empty=True)
-        brief = self.rd('verifying.brief')
-        risk = self.rd('verifying.risk')
+        verdict = read(self.store, 'verifying.verdict')
+        name = read(self.store, 'verifier.name')
+        kind = read(self.store, 'verifier.kind')
+        packet = read(self.store, 'verifying.packet')
+        session = read(self.store, 'verifying.session', empty=True)
+        brief = read(self.store, 'verifying.brief')
+        risk = read(self.store, 'verifying.risk')
         sample = alt(peek(load(store), 'verifying').get('sample'), 0)
         if isinstance(sample, bool) or not isinstance(sample, (int, float)):
             raise damaged(f'verifying.sample is {json_type(sample)}, not a number')
-        unit = self.rd('verifying.unit')
-        pane = self.rd('verifier.pane_id')
+        unit = read(self.store, 'verifying.unit')
+        pane = read(self.store, 'verifier.pane_id')
         fallback = self.fallback()
-        retried = self.rd('verifying.retried', default=False)
+        retried = read(self.store, 'verifying.retried', default=False)
         argv = self.argv()
         until = now_s() + self.every_m * 60
         # A verify stopped between the verifier's start and its packet leaves the verifier idle with nothing to do, until the stall check closes it.

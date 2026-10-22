@@ -5,12 +5,12 @@ import sys
 from pstack_core.commands.report import in_herdr
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, role_value, stop_role
-from pstack_core.errors import Die, Exit, fail
+from pstack_core.errors import Die
 from pstack_core.herdr import agent_kind, agent_status
 from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
 from pstack_core.store import field, header_field, pair_file, whole_number
 from pstack_core.variant import Variant
-from pstack_core.wait import agent_state, core_line, die_with_the_shell
+from pstack_core.wait import agent_state, die_with_the_shell
 
 CONSULTANT_CORE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'consultant-core.sh')
 TRIO_PAIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pair.sh')
@@ -31,7 +31,7 @@ def stop(ctx, args):
         if option not in ('--only', '--timeout', '--every'):
             raise Die(f'unknown option {option}')
         if i + 1 >= len(rest):
-            fail(f'{option}) ', '$2: unbound variable', 'cmd_stop() {', CONSULTANT_CORE)
+            raise Die(f'{option} needs a value')
         value = rest[i + 1]
         if option == '--only':
             only = value
@@ -97,8 +97,7 @@ def spawn(ctx, args):
         flag = rest[0]
         if flag in VALUED or flag in ('--kind', '--fallback-arg'):
             if len(rest) < 2:
-                path, number = core_line(f'{flag}) ', 'cmd_spawn() {', TRIO_PAIR)
-                raise Exit(1, f'{path}: line {number}: $2: unbound variable\n')
+                raise Die(f'{flag} needs a value')
             if flag == '--kind':
                 opts['sidekick'], opts['consultant'] = rest[1], opts['consultant'] or rest[1]
             elif flag == '--fallback-arg':

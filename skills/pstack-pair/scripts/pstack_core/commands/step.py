@@ -9,7 +9,6 @@ from ..errors import Die, Exit
 from ..replies import dispatched
 from ..review import jq_raw, steps_file
 from ..store import event, get, pair_file, pause_notice, paused_reason, progress_path, steer_notice, unit_name
-from ..wait import core_line
 
 
 def record_again(file, full, resolves):
@@ -46,8 +45,7 @@ def step(ctx, args, now=None):
     option = rest[0] if rest else ''
     if option == '--resolves':
         if len(rest) < 2:
-            path, number = core_line('--resolves) resolves="$2"', 'cmd_step() {')
-            raise Exit(1, f'{path}: line {number}: $2: unbound variable\n')
+            raise Die('--resolves needs a value')
         resolves = rest[1]
     elif option != '':
         raise Die(f'unknown option {option}')

@@ -3,7 +3,7 @@ import re
 import subprocess
 import time
 
-from ..errors import Die, Exit, fail
+from ..errors import Die, Exit
 from ..herdr import herdr
 from ..permission import logical_cwd
 from ..store import _dumps, event, member, update
@@ -31,13 +31,13 @@ def git_root():
     return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n') if r.returncode == 0 else ''
 
 
-def write_new(path, text, line_text):
-    """printf text >path, where a redirect that fails ends the command as bash does."""
+def write_new(path, text):
+    """Writes text to path; a failure ends the command with the system's reason."""
     try:
         with open(path, 'wb') as f:
             f.write(text.encode('utf-8', 'surrogateescape'))
     except OSError as e:
-        fail(line_text, f'{path}: {e.strerror}', 'cmd_init() {')
+        raise Die(f'{path}: {e.strerror}')
 
 
 def re_register(store, pane, workspace, tab, now):
@@ -61,7 +61,7 @@ def run(ctx, args):
         option = rest[i]
         if option in ('--store', '--pane'):
             if i + 1 >= len(rest):
-                fail(f'{option}) ', '$2: unbound variable', 'cmd_init() {')
+                raise Die(f'{option} needs a value')
             if option == '--store':
                 store = rest[i + 1]
             else:
@@ -95,7 +95,7 @@ def run(ctx, args):
             doc[role] = {'name': f'{slug}-{role}', 'pane_id': None, 'kind': None, 'started_at': None}
         if 'consultant' in doc:
             doc['scratch'] = []
-        write_new(f'{store}/pair.json', _dumps(doc), '>"$store/pair.json"')
+        write_new(f'{store}/pair.json', _dumps(doc))
         print(f'store: {store} (master {master} in {pane})')
     event(store, 'master', 'init', '-', ctx.skill)
     # The template comes from a read-only install, so give the copy its own mode.
@@ -104,8 +104,8 @@ def run(ctx, args):
         if subprocess.run(['cp', f'{ctx.skill_root}/references/{STANDING_ORDERS_TEMPLATE}', orders], check=False).returncode == 0:
             subprocess.run(['chmod', 'u+w', orders], check=False)
     if not os.path.isfile(f'{store}/gates.md'):
-        write_new(f'{store}/gates.md', GATES, '>"$store/gates.md"')
+        write_new(f'{store}/gates.md', GATES)
     if not os.path.isfile(f'{store}/decisions.tsv'):
-        write_new(f'{store}/decisions.tsv', DECISIONS, '>"$store/decisions.tsv"')
+        write_new(f'{store}/decisions.tsv', DECISIONS)
     print(f'standing orders: {orders}')
     return 0

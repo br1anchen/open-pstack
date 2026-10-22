@@ -3,7 +3,7 @@ import os
 import re
 import sys
 
-from ..errors import Die, unbound_arg
+from ..errors import Die
 from ..collate import glob_sorted
 from ..herdr import agent_status
 from ..prime import prime_steer
@@ -127,7 +127,7 @@ def new_note(ctx, args):
     through = ''
     if rest and rest[0] == '--through':
         if len(rest) < 2:
-            raise unbound_arg()
+            raise Die('--through needs a value')
         through = rest[1]
     elif rest and rest[0] != '':
         raise Die(f'unknown option {rest[0]}')

@@ -9,7 +9,7 @@ import time
 
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.commands.report import in_herdr
-from pstack_core.errors import Die, Exit, unbound_arg
+from pstack_core.errors import Die, Exit
 from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
 from pstack_core.herdr import agent_kind, agent_status, herdr, pane_text
 from pstack_core.panes import new_pane, refuse_untrusted
@@ -129,7 +129,7 @@ def rotate_master(ctx, args):
     while rest:
         if rest[0] == '--model':
             if len(rest) < 2:
-                raise unbound_arg()
+                raise Die('--model needs a value')
             model, rest = rest[1], rest[2:]
         else:
             raise Die(f'unknown option {rest[0]}')
@@ -163,7 +163,7 @@ def rotate_master(ctx, args):
     next_gen = gen_n + 1
     # Herdr names are unique, so the new master holds a generation name until take-master frees the run's own.
     temp = f"{read(store, 'slug')}-master-g{next_gen}"
-    permission = read(store, 'master.permission_mode', empty=True) or mode_of_this_shell(False)
+    permission = read(store, 'master.permission_mode', empty=True) or mode_of_this_shell()
     argv = list(permission_args('claude', permission))
     if model:
         argv += ['--model', model]

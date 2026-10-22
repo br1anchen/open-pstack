@@ -17,7 +17,7 @@ import sys
 import time
 
 from pstack_core import wait as core_wait
-from pstack_core.errors import Die, Exit, unbound_arg
+from pstack_core.errors import Die, Exit
 from pstack_core.store import env_float, env_int, event, field, int_or_none, whole_number
 
 from .verify import in_subshell
@@ -115,7 +115,7 @@ def quiet_wait(ctx, store, rest):
     while rest:
         if rest[0] == '--max':
             if len(rest) < 2:
-                raise unbound_arg()
+                raise Die('--max needs a value')
             limit = whole_number(rest[1], '--max', 'minutes') * 60
             rest = rest[2:]
         else:
