@@ -2822,6 +2822,39 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 self.assertEqual(r.returncode, 1, (text, args))
                 self.assertIn(f'pair.json is damaged: {reason}', r.stderr, (text, args))
 
+    def test_status_without_a_pair_json_says_so_and_exits_2(self):
+        st = self.path / 'state/pstack/pair/nope'
+        st.mkdir(parents=True)
+        r = self.run_pair('status', str(st))
+        self.assertEqual((r.returncode, r.stderr), (2, f'pair.sh: no pair.json in {st}; run: pair.sh init <slug>\n'))
+        self.assertTrue(r.stdout.startswith('# Pair status\n'))
+
+    def jq_tripwire(self):
+        """A directory for PATH holding a jq that logs its parent's command line and its arguments, then exits 127."""
+        bin_dir = self.path / 'tripwire'
+        bin_dir.mkdir()
+        log = self.path / 'jq-calls.log'
+        jq = bin_dir / "jq"
+        jq.write_text('#!/bin/bash\nprintf \'%s\\t%s\\n\' "$(tr \'\\0\' \' \' </proc/$PPID/cmdline)" "$*" >>"$TRIPWIRE_LOG"\nexit 127\n')
+        jq.chmod(0o755)
+        return bin_dir, log
+
+    def test_no_python_ported_pair_command_starts_jq(self):
+        """The pair scenario drives every ported command through the real pair.sh against the fake herdr with a jq that logs and fails: a jq whose
+        parent is a Python process is a ported command starting jq. Calls from bash are the shell core's, listed for the shell units."""
+        bin_dir, log = self.jq_tripwire()
+        env = {**inherited_env(), 'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'TRIPWIRE_LOG': str(log)}
+        control = subprocess.run([sys.executable, '-c', 'import subprocess; subprocess.run(["jq", "."], input=b"{}", check=False)'], env=env, check=False)
+        self.assertEqual(control.returncode, 0)
+        self.assertRegex(log.read_text(), r'^\S*python\S* -c import subprocess')
+        log.unlink()
+        out = subprocess.run([root / 'tests/pstack-pair/scenario.sh', root / 'skills', 'pair'], env=env, capture_output=True, text=True, check=False, timeout=600).stdout
+        self.assertIn('$ pair.sh status', out)
+        self.assertIn('$ pair.sh wait', out)
+        calls = [line.split('\t', 1) for line in (log.read_text().splitlines() if log.exists() else [])]
+        from_python = [call for call in calls if os.path.basename(call[0].split(' ', 1)[0]).startswith('python')]
+        self.assertEqual(from_python, [])
+
     def test_get_reads_a_dotted_path_with_a_default_and_env_int_refuses_a_non_integer(self):
         st = self.path / 'st'
         st.mkdir()
@@ -3029,57 +3062,46 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'floats': '{"a":0.1,"b":3.14159,"c":100.0}',
     }
 
-    def jq_bytes(self, text):
-        return subprocess.run(['jq', '.'], input=text, capture_output=True, text=True, check=True, timeout=120).stdout
+    @staticmethod
+    def pretty(doc):
+        """The bytes pair.json holds for doc: two-space indent, characters as they are, a closing newline."""
+        return json.dumps(doc, indent=2, ensure_ascii=False) + '\n'
 
-    def test_update_writes_the_bytes_jq_writes(self):
+    def test_update_writes_pair_json_with_a_two_space_indent_and_a_closing_newline(self):
         for name, text in self.JQ_FIXTURES.items():
             st = self.fixture_store(name.replace(' ', '-'))
             (st / 'pair.json').write_text(text)
             store.update(str(st), lambda doc: None)
-            self.assertEqual((st / 'pair.json').read_text(), self.jq_bytes(text), name)
+            want = '{\n  "b": "x\\u007fy"\n}\n' if name == 'del' else self.pretty(json.loads(text))
+            self.assertEqual((st / 'pair.json').read_text(), want, name)
 
     def test_update_documents_where_its_number_spelling_differs_from_jq(self):
-        # jq 1.8 keeps the spelling of a number it does not compute on, in the canonical form 1E+3; Python parses
-        # it as a float and prints its own. No writer puts these in pair.json (counts and epochs are integers, and
-        # sample comes from toml as 0.0, 0.25 or 1), and no reader treats the text as anything but JSON.
-        for text, jq, py in (('1e3', '1E+3', '1000.0'), ('-0', '-0', '0'), ('1.5e-7', '1.5E-7', '1.5e-07'),
-                             ('1.10', '1.10', '1.1'), ('1E2', '1E+2', '100.0'), ('0.000001', '0.000001', '1e-06')):
-            doc = f'{{"n":{text}}}'
+        # jq 1.8 keeps the spelling of a number it does not compute on, in the canonical form 1E+3 (1e3 -> 1E+3, 1.5e-7 -> 1.5E-7,
+        # 1.10 stays 1.10, 1E2 -> 1E+2); Python parses it as a float and prints its own. No writer puts these in pair.json (counts and
+        # epochs are integers, and sample comes from toml as 0.0, 0.25 or 1), and no reader treats the text as anything but JSON.
+        for text, py in (('1e3', '1000.0'), ('-0', '0'), ('1.5e-7', '1.5e-07'), ('1.10', '1.1'), ('1E2', '100.0'), ('0.000001', '1e-06')):
             st = self.fixture_store('num-' + text)
-            (st / 'pair.json').write_text(doc)
+            (st / 'pair.json').write_text(f'{{"n":{text}}}')
             store.update(str(st), lambda d: None)
-            self.assertEqual(
-                (self.jq_bytes(doc), (st / 'pair.json').read_text()),
-                (f'{{\n  "n": {jq}\n}}\n', f'{{\n  "n": {py}\n}}\n'), text)
+            self.assertEqual((st / 'pair.json').read_text(), f'{{\n  "n": {py}\n}}\n', text)
 
-    def test_scratch_mutations_match_their_jq_programs(self):
-        docs = ['{"a":1}', '{"a":1,"scratch":null}', '{"a":1,"scratch":false}', '{"a":1,"scratch":[]}',
-                '{"scratch":["x","001-a","x"],"a":1}', '{"scratch":["z","b","001-a","a"]}']
-        programs = {
-            'remove': ('.scratch = ((.scratch // []) - [$id])', lambda doc: doc.update(scratch=[x for x in doc.get('scratch') or [] if x != 'x'])),
-            'add': ('.scratch = ((.scratch // []) + [$id] | unique)', lambda doc: doc.update(scratch=sorted({*(doc.get('scratch') or []), 'x'}))),
+    def test_scratch_mutations_remove_and_add_one_id(self):
+        docs = [('{"a":1}', {'a': 1, 'scratch': []}, {'a': 1, 'scratch': ['x']}),
+                ('{"a":1,"scratch":null}', {'a': 1, 'scratch': []}, {'a': 1, 'scratch': ['x']}),
+                ('{"a":1,"scratch":false}', {'a': 1, 'scratch': []}, {'a': 1, 'scratch': ['x']}),
+                ('{"a":1,"scratch":[]}', {'a': 1, 'scratch': []}, {'a': 1, 'scratch': ['x']}),
+                ('{"scratch":["x","001-a","x"],"a":1}', {'scratch': ['001-a'], 'a': 1}, {'scratch': ['001-a', 'x'], 'a': 1}),
+                ('{"scratch":["z","b","001-a","a"]}', {'scratch': ['z', 'b', '001-a', 'a']}, {'scratch': ['001-a', 'a', 'b', 'x', 'z']})]
+        mutations = {
+            'remove': (lambda doc: doc.update(scratch=[x for x in store.listing(doc, 'scratch') if x != 'x']), 1),
+            'add': (lambda doc: doc.update(scratch=sorted({*store.listing(doc, 'scratch'), 'x'})), 2),
         }
-        for name, (program, mutate) in programs.items():
-            for n, text in enumerate(docs):
+        for name, (mutate, column) in mutations.items():
+            for n, row in enumerate(docs):
                 st = self.fixture_store(f'{name}-{n}')
-                (st / 'pair.json').write_text(text)
+                (st / 'pair.json').write_text(row[0])
                 store.update(str(st), mutate)
-                want = subprocess.run(['jq', '--arg', 'id', 'x', program], input=text, capture_output=True, text=True, check=True, timeout=120).stdout
-                self.assertEqual((st / 'pair.json').read_text(), want, (name, text))
-
-
-
-
-
-
-
-
-
-
-
-
-
+                self.assertEqual((st / 'pair.json').read_text(), self.pretty(row[column]), (name, row[0]))
 
     def covered(self, outputs):
         seen = set()
