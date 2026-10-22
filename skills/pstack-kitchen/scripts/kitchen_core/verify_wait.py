@@ -54,10 +54,8 @@ def verifier_provider_error(store, name, session=NOT_GIVEN):
     if not line:
         cwd = ''
         if read(store, 'verifier.kind') in ('pi', 'muse'):
-            try:
-                cwd = os.path.realpath(f'{store}/scratch/{read(store, "verifying.scratch")}')
-            except Exit:  # `readlink -f ... 2>/dev/null || true`
-                cwd = ''
+            scratch = f'{store}/scratch/{read(store, "verifying.scratch")}'
+            cwd = os.path.realpath(scratch) if os.path.isdir(scratch) else ''
         if read(store, 'verifier.kind') == 'muse':
             line = muse_session_error(cwd)
         else:

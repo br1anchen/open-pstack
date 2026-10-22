@@ -234,10 +234,8 @@ def record_verifier_session(store, name):
         ident = as_text(alt(held.get('value'), '')) if agent.get('agent') == 'claude' and held.get('kind') == 'id' else ''
         cwd = as_text(alt(agent.get('cwd'), ''))
         if not cwd:
-            try:
-                cwd = os.path.realpath(f'{store}/scratch/{read(store, "verifying.scratch", empty=True)}')
-            except Exit:
-                cwd = ''
+            scratch = f'{store}/scratch/{read(store, "verifying.scratch", empty=True)}'
+            cwd = os.path.realpath(scratch) if os.path.isdir(scratch) else ''
         if ident and cwd:
             session = f'{os.environ.get("HOME", "")}/.claude/projects/{re.sub(r"[^A-Za-z0-9-]", "-", cwd)}/{ident}.jsonl'
     if session:

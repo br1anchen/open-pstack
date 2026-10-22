@@ -2801,12 +2801,18 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         session.write_text(json.dumps({'message': {'role': 'assistant', 'stopReason': 'error', 'errorMessage': message}}) + '\n', encoding='utf-8')
         self.assertEqual(providers.agent_session_error(str(session)), '\u00e9' * 240)
 
-    def test_a_path_with_trailing_slashes_takes_its_unit_number_from_the_name_before_them(self):
-        """A plan or brief path given with trailing slashes is read as the name before them: its unit number is the first three characters of that name."""
-        from pstack_core import replies
-        self.assertEqual(replies.first3('/s/plans/012-x.md'), '012')
-        self.assertEqual(replies.first3('/s/plans/012-x.md/'), '012')
-        self.assertEqual(replies.first3('/s/plans/012-x.md//'), '012')
+    def test_a_path_with_trailing_slashes_takes_its_name_from_before_them(self):
+        """A plan or brief path given with trailing slashes is read as the name before them: its unit number is the first three characters of that
+        name, and the marker the prompt waits to see leave the sidekick's input is that name. (pair.sh resolves a path before it gets there, so the
+        slashes reach these two functions only when called as here.)"""
+        from pstack_core import replies, send as send_module
+        for path in ('/s/plans/012-x.md', '/s/plans/012-x.md/', '/s/plans/012-x.md//'):
+            self.assertEqual(replies.first3(path), '012', path)
+            markers = []
+            with mock.patch.object(send_module.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')), \
+                    mock.patch.object(send_module, 'submit_typed', side_effect=lambda name, marker: markers.append(marker) or 0):
+                send_module.prompt_sidekick('demo-sidekick', f'pstack-pair BRIEF {path}')
+            self.assertEqual(markers, ['012-x.md'], path)
 
     def test_provider_error_context_matches_grep(self):
         texts = ['Error: Reached free model rate limit. Your limit will reset in 50 minutes.', 'nothing to see', 'x' * 100 + ' Rate-Limit ' + 'y' * 300,
