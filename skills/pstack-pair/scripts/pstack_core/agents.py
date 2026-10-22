@@ -10,9 +10,7 @@ import tempfile
 import time
 
 from .prime import with_timeout
-from .review import jq_raw
 from .store import env_float, text_of
-from .wait import as_text
 
 PAIR_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
@@ -56,43 +54,26 @@ def trust_args(kind):
 
 
 def codex_mcp_names(cwd):
-    """(name lines, jq's status): the MCP servers codex lists where it runs that are not disabled, as the bash's jq prints them. jq stops at
-    an element it cannot index (status 5) and fails on text it cannot read (also status 5; jq 1.7 and 1.8 both use 5 for runtime and parse
-    errors, and the callers only test for non-zero); under pipefail that status is the pipeline's."""
+    """The names of the MCP servers codex lists where it runs that are not disabled; none when codex is absent or its list is no JSON."""
     try:
         r = with_timeout('20', ['codex', 'mcp', 'list', '--json'], cwd=cwd or '.', stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
-        return [], 0
-    text = r.stdout.decode('utf-8', 'surrogateescape')
+        return []
     try:
-        listed = json.loads(text) if text.strip() else None
+        listed = json.loads(r.stdout.decode('utf-8', 'replace'))
     except ValueError:
-        return [], 5
-    items = listed if isinstance(listed, list) else list(listed.values()) if isinstance(listed, dict) else []
-    names, status = [], 0
-    for item in items:
-        # jq -r '.[]? | select(.enabled != false) | .name': an element it cannot index ends the stream
-        if item is not None and not isinstance(item, dict):
-            status = 5
-            break
-        if item is not None and item.get('enabled') is False:
-            continue
-        names.extend(as_text(None if item is None else item.get('name')).split('\n'))
-    return names, status
+        return []
+    items = listed.values() if isinstance(listed, dict) else listed if isinstance(listed, list) else []
+    return [item['name'] for item in items if isinstance(item, dict) and item.get('enabled') is not False and isinstance(item.get('name'), str)]
 
 
 def mcp_args(kind, cwd=None):
-    """(arguments, the bash's status): the loop that filters the names returns the status of its last name, and a jq failure upstream of it
-    is the pipeline's status when the loop's is 0."""
+    """The arguments that keep an agent's MCP servers off."""
     if kind == 'claude':
-        return ['--strict-mcp-config', '--mcp-config', f'{PAIR_DIR}/../references/no-mcp.json'], 0
+        return ['--strict-mcp-config', '--mcp-config', f'{PAIR_DIR}/../references/no-mcp.json']
     if kind == 'codex':
-        names, jq_status = codex_mcp_names(cwd)
-        accepted = [re.fullmatch(r'[A-Za-z0-9_-]+', n) is not None for n in names]
-        loop_status = 0 if not names or accepted[-1] else 1
-        args = ['--disable', 'plugins', *[arg for n, ok in zip(names, accepted) if ok for arg in ('-c', f'mcp_servers.{n}.enabled=false')]]
-        return args, loop_status or jq_status
-    return [], 0
+        return ['--disable', 'plugins', *[arg for n in codex_mcp_names(cwd) if re.fullmatch(r'[A-Za-z0-9_-]+', n) for arg in ('-c', f'mcp_servers.{n}.enabled=false')]]
+    return []
 
 
 def has_mcp_arg(args):

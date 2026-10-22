@@ -4,8 +4,8 @@ import glob
 import os
 import re
 
-from .review import jq_raw, noted_through, review_base, steps_file
-from .store import alt, int_or_none, damaged, expected_report, get, header_field, json_type, last_line, read_text, suffix_number, unit_name, update
+from .review import noted_through, review_base, steps_file
+from .store import count, expected_report, field, header_field, int_or_none, last_line, listing, load, names, peek, read_text, suffix_number, text_at, unit_name, update
 from .commands.status import latest
 
 
@@ -20,23 +20,17 @@ def latest_report(store, want=''):
 
 
 def sent_field(store, key):
-    """field "$store" '.sent.<key> // empty', as jq -r prints it."""
-    sent = alt(get(store, 'sent'), {})
-    return jq_raw(alt(sent.get(key) if isinstance(sent, dict) else None, ''))
+    """The text of the last send's key, or ''."""
+    return field(store, 'sent', key)
 
 
 def sent_epoch(store):
     """sent.epoch as an integer; absent is 0, any other type is damage."""
-    sent = alt(get(store, 'sent'), {})
-    epoch = alt(sent.get('epoch') if isinstance(sent, dict) else None, 0)
-    if isinstance(epoch, bool) or not isinstance(epoch, int):
-        raise damaged(f'sent.epoch is {json_type(epoch)}, not a whole number')
-    return epoch
+    return count(peek(load(store), 'sent'), 'epoch')
 
 
 def dispatched(store):
-    dispatch = alt(get(store, 'dispatch'), {})
-    return jq_raw(alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, ''))
+    return field(store, 'dispatch', 'brief')
 
 
 def first3(path):
@@ -67,10 +61,7 @@ def queue_note(store, report):
 
 def pending(store):
     """The non-empty lines of the pending briefs; a pending that is not an array is damage."""
-    items = alt(get(store, 'pending'), [])
-    if not isinstance(items, list):
-        raise damaged(f'pending is {json_type(items)}, not an array')
-    return [line for item in items for line in jq_raw(item).split('\n') if line]
+    return [line for item in names(load(store), 'pending') for line in item.split('\n') if line]
 
 
 def pending_report(ctx, store):
@@ -126,9 +117,9 @@ def mark_seen(store, report):
     update(store, lambda doc: doc.__setitem__('pending', keep))
 
 
-def step_number(text):
+def step_number(column):
     """The number in a steps-file column, or -1 for a row that has none."""
-    value = int_or_none(text)
+    value = int_or_none(column)
     return -1 if value is None else value
 
 

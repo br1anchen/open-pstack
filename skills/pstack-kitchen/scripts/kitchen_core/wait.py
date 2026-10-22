@@ -68,7 +68,7 @@ def has_checkin(text):
 
 def log_checkin_wake(store, out):
     """The one wake row for a wait or dispatch that returns on a check-in: the pair core logs none of its own under PAIR_QUIET_WAIT."""
-    event(store, 'master', 'wake', field(store, 'dispatch', 'brief', empty=True), 'report:unready' if 'written but not ready' in out else 'checkin')
+    event(store, 'master', 'wake', field(store, 'dispatch', 'brief'), 'report:unready' if 'written but not ready' in out else 'checkin')
 
 
 def inner_wait(ctx, store, args, claim, unowned):

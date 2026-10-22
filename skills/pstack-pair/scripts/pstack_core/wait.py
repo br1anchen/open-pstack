@@ -9,14 +9,14 @@ import sys
 import time
 
 from .checkin import checkin
-from .checkin import sidekick_activity as _sidekick_activity
+from .checkin import sidekick_activity
 from .errors import Die, Exit
-from .herdr import agent_status, pane_busy
+from .herdr import agent_state, agent_status, error_code, error_state, pane_busy, reply_at
 from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
-from .review import jq_raw, review_base
-from .store import acquire_lock, alt, env_float, env_int, event, get, header_field, member, paused_reason, unit_name, update, whole_number
+from .review import review_base
+from .store import acquire_lock, env_float, env_int, event, field, header_field, member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number
 
 
 class WaitResult:
@@ -29,11 +29,6 @@ class WaitResult:
         self.err = err
         self.ready = ready
         self.steps_due = steps_due
-
-
-def tdiv(a, b):
-    q = abs(a) // abs(b)
-    return q if (a < 0) == (b < 0) else -q
 
 
 def wait_opts(args, timeout=540000):
@@ -66,115 +61,10 @@ def now_s():
     return int(time.time())
 
 
-def json_values(text):
-    """(values, ok): the JSON values jq reads from text, and whether it reached the end without a parse error."""
-    decoder, pos, n, values = json.JSONDecoder(), 0, len(text), []
-    while True:
-        while pos < n and text[pos] in ' \t\n\r':
-            pos += 1
-        if pos >= n:
-            return values, True
-        try:
-            value, pos = decoder.raw_decode(text, pos)
-        except ValueError:
-            return values, False
-        values.append(value)
-
-
-def as_text(value):
-    """A value as a command substitution of `jq -r` gives it: a string raw, null, true and false as words, an object or array as indented JSON."""
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, indent=2, ensure_ascii=False).replace('\x7f', '\\u007f')
-    return jq_raw(value)
-
-
-def truthy(value):
-    return value is not None and value is not False
-
-
-def read_path(value, *keys):
-    """The value at keys in parsed herdr JSON: (found, readable). A null on the way gives null; a step over anything but an object or null is unreadable."""
-    for key in keys:
-        if value is None:
-            return None, True
-        if not isinstance(value, dict):
-            return None, False
-        value = value.get(key)
-    return value, True
-
-
-def reply_at(reply, *keys, quiet=False):
-    """The value at keys in the first JSON value of a herdr or daemon reply, None when it has none. A reply that is not JSON, or whose path steps
-    over a value that is no object, is one stderr line saying so (quiet leaves it out), and None."""
-    values, ok = json_values(reply)
-    problem = '' if ok and values else 'is not JSON'
-    if not problem:
-        found, readable = read_path(values[0], *keys)
-        if readable:
-            return found
-        problem = f'has no object on the way to {".".join(keys)}'
-    if not quiet:
-        sys.stdout.flush()
-        sys.stderr.write(f'herdr reply {problem}\n')
-        sys.stderr.flush()
-    return None
-
-
-def printed(lines, failed, default):
-    """What a command substitution holds after the lines were printed one each; a failure adds the default."""
-    text = ''.join(f'{as_text(line)}\n' for line in lines)
-    if failed and default is not None:
-        text += default
-    return text.rstrip('\n')
-
-
-def error_code(err):
-    """The `.error.code` of each reply herdr printed that holds one (null, false and absent give nothing), one per line."""
-    values, _ = json_values(err)
-    codes = []
-    for value in values:
-        code, readable = read_path(value, 'error', 'code')
-        if readable and truthy(code):
-            codes.append(code)
-    return printed(codes, False, None)
-
-
-def error_state(err):
-    """.error.code // .error // "herdr_error" """
-    values, ok = json_values(err)
-    states = []
-    for value in values:
-        error, readable = read_path(value, 'error')
-        code, code_readable = read_path(value, 'error', 'code')
-        if not (readable and code_readable):
-            ok = False
-        elif truthy(code):
-            states.append(code)
-        else:
-            states.append(error if truthy(error) else 'herdr_error')
-    return printed(states, not ok, 'herdr_error')
-
-
-def agent_state(out, default):
-    """.result.agent.agent_status // DEFAULT (empty: no output)"""
-    values, ok = json_values(out)
-    states = []
-    for value in values:
-        status, readable = read_path(value, 'result', 'agent', 'agent_status')
-        if not readable:
-            ok = False
-        elif truthy(status):
-            states.append(status)
-        elif default is not None:
-            states.append(default)
-    return printed(states, not ok, 'settled' if default == 'settled' else None)
-
-
 def finish_wait(ctx, store, interval, result, mode, report='', now=None):
     """finish_wait(): print the outcome of a wait and return the exit code the bash exits with."""
     write = sys.stdout.write
     clock = now_s if now is None else (lambda: now)
-    from .store import field
     name = lambda: field(store, 'sidekick', 'name')
     if result.code != 0:
         state = error_state(result.err)
@@ -245,8 +135,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         event(store, 'master', 'wake', sent, 'idle')
         # Since notify marks a report it announced, this is the normal path to a report the master already has by message: show what the
         # report path would add. A plan response or advice carries neither.
-        record = alt(get(store, 'sent'), {})
-        if isinstance(record, dict) and record.get('kind') == 'BRIEF':
+        if peek(load(store), 'sent').get('kind') == 'BRIEF':
             write(queue_note(store, shown))
             write(review_delta(store, shown))
         return 4
@@ -258,7 +147,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         write('report: missing\n')
     if state == 'blocked':
         event(store, 'master', 'wake', running, why or 'blocked')
-        write(hint_for(store))
+        write(provider_hint(store))
         return 3
     if agent_status(name()) == 'working' or activity:
         if os.environ.get('PAIR_QUIET_WAIT') != '1':
@@ -266,32 +155,13 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         write(checkin(ctx, store, interval, clock()))
     else:
         event(store, 'master', 'wake', running, why or 'missing')
-        write(hint_for(store))
+        write(provider_hint(store))
     return 4
 
 
-def sidekick_activity(store, now):
-    """checkin.sidekick_activity, whose first read, field .sidekick.pane_id, prints jq's error when `.sidekick` cannot be indexed."""
-    from .store import field
-    if not isinstance(get(store, 'sidekick'), (dict, type(None))):
-        field(store, 'sidekick', 'pane_id', empty=True)
-    return _sidekick_activity(store, now)
-
-
-def hint_for(store):
-    """provider_hint, whose first read, field .sidekick.name, ends the command with jq's status when `.sidekick`
-    cannot be indexed (a string, an array, a number or a boolean)."""
-    from .store import field
-    if not isinstance(get(store, 'sidekick'), (dict, type(None))):
-        field(store, 'sidekick', 'name')
-    return provider_hint(store)
-
-
 def sent_file(store):
-    """`.sent.file` as jq's `// default` leaves it: None when missing, null or false; an empty string stays an empty string."""
-    sent = alt(get(store, 'sent'), {})
-    value = alt(sent.get('file') if isinstance(sent, dict) else None, None)
-    return None if value is None else jq_raw(value)
+    """The file the last send named, None when it recorded none; an empty string stays an empty string."""
+    return text_at(peek(load(store), 'sent'), 'file', None)
 
 
 def status_of(report):
@@ -519,6 +389,5 @@ def wait(ctx, args):
         raise Die(f'unknown option {rest[0]}')
     if not os.path.isfile(f'{store}/pair.json'):
         missing_pair(store)
-    from .store import field
     name = field(store, 'sidekick', 'name')
     return owned_wait(ctx, store, name, timeout, interval)

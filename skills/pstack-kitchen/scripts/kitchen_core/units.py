@@ -14,9 +14,8 @@ import sys
 from pstack_core.commands.report import MISSING_PAIR
 from pstack_core.errors import Die, Exit
 from pstack_core.review import range_floor, steps_file, trunk_ref
-from pstack_core.store import alt, expected_report, get, header_field, jq_raw, last_line, load, peek, read
+from pstack_core.store import expected_report, header_field, last_line, load, peek, read, text_at
 from pstack_core.variant import commit_of
-from pstack_core.wait import as_text
 
 
 
@@ -52,12 +51,12 @@ def git_root(store, quiet=False, check=False):
     """`.git_root` of pair.json; empty for a store with no pair.json, after has_pair's message."""
     if not has_pair(store, check, quiet):
         return ''
-    return jq_raw(get(store, 'git_root'))
+    return read(store, 'git_root')
 
 
 def recorded_head(store, unit):
     """A unit's recorded base: heads[unit], empty when there is none."""
-    return as_text(alt(peek(load(store), 'heads').get(unit), ''))
+    return text_at(peek(load(store), 'heads'), unit)
 
 
 def git(root, *args, quiet=False, stdin=None):
@@ -307,8 +306,8 @@ def landing_base(store, root, head, parent_override='', parent_label='', range_b
     one); range_base is `--base`, which leaves the recorded parent unread."""
     parent, label = parent_override, parent_label
     if not parent and label != 'none':
-        parent = read(store, 'landing.parent', empty=True)
-        label = read(store, 'landing.parent_ref', empty=True)
+        parent = read(store, 'landing.parent')
+        label = read(store, 'landing.parent_ref')
     if parent and not range_base:
         found = commit_of(root, parent) or ''
         if found and found != head and is_ancestor(root, found, head):

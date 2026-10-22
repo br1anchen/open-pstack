@@ -29,8 +29,8 @@ from pstack_core.panes import TRUST_RE, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
-from pstack_core.store import alt, damaged, env_float, env_int, event, expected_report, field, header_field, json_type, load, pair_file, peek, read, text_of, update, whole_number
-from pstack_core.wait import as_text, json_values, reply_at, truthy
+from pstack_core.store import damaged, env_float, env_int, event, expected_report, field, header_field, json_type, listing, load, pair_file, peek, read, text_at, text_of, update, whole_number
+from pstack_core.herdr import parse, reply_at
 from pstack_core.variant import commit_of
 
 from . import kpy
@@ -59,14 +59,6 @@ def warn(text):
 
 def data_of(text):
     return text.encode('utf-8', 'surrogateescape')
-
-
-def mapfile(text):
-    """`mapfile -t`: the lines of the text, none for no text."""
-    if text == '':
-        return []
-    lines = text.split('\n')
-    return lines[:-1] if lines[-1] == '' else lines
 
 
 def bash_q(word):
@@ -119,9 +111,9 @@ def brief_commands(kit, brief, unit):
         warn(f'warning: unit {unit or "?"}: brief-verify: {first}\n')
         return f'Brief commands: none (brief-verify: {first})\n\n'
     text, n, apart = '', 0, ''
-    values, _ = json_values(listed)
-    commands = values[0].get('commands') if values and isinstance(values[0], dict) else None
-    for command in map(as_text, commands if isinstance(commands, list) else []):
+    reply = parse(listed)
+    commands = reply.get('commands') if isinstance(reply, dict) else None
+    for command in commands if isinstance(commands, list) else []:
         parts = command.split('\n')
         first, last = parts[0], parts[-1]
         fence = fence_for(command)
@@ -160,7 +152,7 @@ def verifier_entry(kit, cls):
     roster = parse_entry(kit.elsewhere(['--json', 'roster'])[1])
     verifiers = roster.get('verifier') if isinstance(roster, dict) else None
     entry = verifiers.get(cls) if isinstance(verifiers, dict) else None
-    kind = as_text(entry.get('kind')) if isinstance(entry, dict) else 'null'
+    kind = entry.get('kind') if isinstance(entry, dict) else ''
     if kind == 'sidekick':
         sidekick = peek(load(store), 'sidekick')
         fallback = sidekick.get('fallback')
@@ -168,8 +160,8 @@ def verifier_entry(kit, cls):
             fallback = {}
         elif not isinstance(fallback, dict):
             raise damaged(f'sidekick.fallback is {json_type(fallback)}, not an object')
-        return {'kind': sidekick.get('kind'), 'args': alt(sidekick.get('start_args'), []), 'source': 'sidekick',
-                'fallback': {'kind': fallback['kind'], 'args': alt(fallback.get('args'), [])} if truthy(fallback.get('kind')) else None}
+        return {'kind': sidekick.get('kind'), 'args': listing(sidekick, 'start_args'), 'source': 'sidekick',
+                'fallback': {'kind': fallback['kind'], 'args': listing(fallback, 'args')} if fallback.get('kind') else None}
     if kind == 'master':
         return {**entry, 'kind': agent_kind(field(store, 'master', 'pane_id')), 'args': [], 'source': 'master'}
     return entry
@@ -206,7 +198,7 @@ def verifier_args(kind, entry, directory):
     """A verifier starts with its entry's arguments, then its kind's permission default, trust flag and MCP opt-out when they are missing; entry is the
     entry as an object (or None for a kind the class does not name), directory the repo the scratch is checked out from, whose MCP servers the
     opt-out names. The arguments as the bash's mapfile read them from the lines it printed."""
-    args = [as_text(a) for a in entry.get('args') or []] if isinstance(entry, dict) and isinstance(entry.get('args'), list) else []
+    args = list(entry['args']) if isinstance(entry, dict) and isinstance(entry.get('args'), list) else []
     lines = []
     if not has_permission_arg(args):
         permission = 'bypassPermissions' if kind == 'devin' else mode_of_this_shell()
@@ -214,9 +206,8 @@ def verifier_args(kind, entry, directory):
     if not has_trust_arg(args):
         lines += trust_args(kind)
     if not has_mcp_arg(args):
-        lines += mcp_args(kind, directory)[0]
-    printed = [*lines, *args]
-    return mapfile('\n'.join(printed) + '\n') if printed else []
+        lines += mcp_args(kind, directory)
+    return [*lines, *args]
 
 
 def record_verifier_session(store, name):
@@ -229,12 +220,12 @@ def record_verifier_session(store, name):
     agent = agent if isinstance(agent, dict) else {}
     held = agent.get('agent_session')
     held = held if isinstance(held, dict) else {}
-    session = as_text(alt(held.get('value'), '')) if held.get('kind') == 'path' else ''
+    session = text_at(held, 'value') if held.get('kind') == 'path' else ''
     if not session:
-        ident = as_text(alt(held.get('value'), '')) if agent.get('agent') == 'claude' and held.get('kind') == 'id' else ''
-        cwd = as_text(alt(agent.get('cwd'), ''))
+        ident = text_at(held, 'value') if agent.get('agent') == 'claude' and held.get('kind') == 'id' else ''
+        cwd = text_at(agent, 'cwd')
         if not cwd:
-            scratch = f'{store}/scratch/{read(store, "verifying.scratch", empty=True)}'
+            scratch = f'{store}/scratch/{read(store, "verifying.scratch")}'
             cwd = os.path.realpath(scratch) if os.path.isdir(scratch) else ''
         if ident and cwd:
             session = f'{os.environ.get("HOME", "")}/.claude/projects/{re.sub(r"[^A-Za-z0-9-]", "-", cwd)}/{ident}.jsonl'
@@ -363,7 +354,7 @@ def verify(ctx, args):
         vs.verify_cancel(ctx, store)
         raise Exit(0)
     if wait:
-        if not read(store, 'verifying.verdict', empty=True):
+        if not read(store, 'verifying.verdict'):
             raise Die(f'no verification is open; start one with kitchen.sh verify {store} <NNN>', 5)
         Waiter(ctx, store, every_m, retry=lambda again: verify(ctx, again)).run()
     if not landing and not units:
@@ -371,7 +362,7 @@ def verify(ctx, args):
     if landing and units:
         raise Die('--landing verifies the whole stack; name no units')
     close_unread(ctx, store)
-    if read(store, 'verifying.verdict', empty=True):
+    if read(store, 'verifying.verdict'):
         raise Die(f'a verification is open ({read(store, "verifying.units")}); kitchen.sh verify {store} --wait', 5)
     allunits = [*covered, *units]
     root = git_root(store, check=True)
@@ -425,7 +416,7 @@ def verify(ctx, args):
         classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head, *esc])
         data = json.loads(classified)
         verify_class = data.get('verify') or {}
-        risk, mode, cls = as_text(data.get('risk')), as_text(verify_class.get('mode')), as_text(verify_class.get('kind'))
+        risk, mode, cls = data.get('risk') or '', verify_class.get('mode') or '', verify_class.get('kind') or ''
     # A batch of independent units has a size cap; a fix verified with the unit it fixes does not, since splitting it would re-reject the first.
     if not covered and len(units) > 1 and is_number(data.get('diff_lines')) and is_number(data.get('max_batch_diff')) and data['diff_lines'] > data['max_batch_diff']:
         raise Die(f'batch of {json.dumps(data["diff_lines"])} diff lines is over review.max_batch_diff; verify each unit', 2)
@@ -459,7 +450,7 @@ def verify(ctx, args):
         # A landing verification also runs the touched profiles' landing commands: 3 x their measured time, and a fixed ten minutes for each that has
         # no measured run.
         if landing:
-            profiles = [as_text(p) for p in data.get('landing') or []]
+            profiles = data.get('landing') or []
             if profiles:
                 timing = kit.call(['--json', 'timing', '--stage', 'landing', *profiles])
                 timed = json.loads(timing)
@@ -474,7 +465,7 @@ def verify(ctx, args):
     entry = verifier_entry(kit, cls)
     if retry_entry:
         retried = parse_entry(retry_entry)
-        kind = as_text(retried.get('kind') if isinstance(retried, dict) else None)
+        kind = retried.get('kind') if isinstance(retried, dict) else ''
         picked = {'kind': retried.get('kind'), 'args': retried.get('args')} if isinstance(retried, dict) else None
         args_list = verifier_args(kind, picked, root)
     elif kind_override:
@@ -482,9 +473,9 @@ def verify(ctx, args):
         picked = pick_entry(entry, kind)
         args_list = verifier_args(kind, picked, root)
     else:
-        kind = as_text(entry.get('kind') if isinstance(entry, dict) else None)
+        kind = entry.get('kind') if isinstance(entry, dict) else ''
         args_list = verifier_args(kind, entry, root)
-    if not kind or kind == 'null':
+    if not kind or not isinstance(kind, str):
         raise Die(f'cannot tell which agent kind verifies ({cls})')
     identity = verifier_identity(kind, args_list)
     vclass = 'landing' if landing else cls
@@ -508,10 +499,10 @@ def verify(ctx, args):
     write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, identity, vclass, timeout_m, risk, allunits, units, covered, landing, last, slug,
                  cls, classified, cfg)
     name = field(store, 'verifier', 'name')
-    anchor = field(store, 'sidekick', 'pane_id', empty=True)
+    anchor = field(store, 'sidekick', 'pane_id')
     if not (anchor and herdr('pane', 'get', anchor)[0] == 0):
         anchor = field(store, 'master', 'pane_id')
-    if read(store, 'placement', empty=True) == 'tab':
+    if read(store, 'placement') == 'tab':
         field(store, 'master', 'pane_id')  # new_pane's `master="$(field ...)"`: a master that is no object ends verify before any herdr call
     with contextlib.redirect_stdout(io.StringIO()):
         pane = new_pane(store, 'verifier', anchor, '', scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={read(store, "slug")}'))
@@ -625,13 +616,13 @@ def gates_verdict(store, verdict, last, slug, allunits, base, head):
 
 def close_unread(ctx, store):
     """A verdict written but never read closes the verification it belonged to; the new one starts after it."""
-    open_verdict = read(store, 'verifying.verdict', empty=True)
+    open_verdict = read(store, 'verifying.verdict')
     if not (open_verdict and os.path.isfile(open_verdict) and header_field(open_verdict, 'status')):
         return
     closed_brief = read(store, 'verifying.brief')
     waiting_since, by_another, closed, closed_rc, closed_status = None, False, '', 0, ''
     while True:
-        if read(store, 'verifying.verdict', empty=True) != open_verdict:
+        if read(store, 'verifying.verdict') != open_verdict:
             by_another = True
             break
         closed_rc, closed = in_subshell(lambda: Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again)).run())
@@ -752,13 +743,13 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
         merge_base = git(root, 'merge-base', base, head, quiet=True)
         merge_base = merge_base[1].rstrip('\n') if merge_base[0] == 0 else base
         for profile in data.get('behavioral') or []:
-            parts.append(f'python3 {tool} --repo {scratch} gate {as_text(profile)} behavioral --role verifier --base {merge_base}\n')
+            parts.append(f'python3 {tool} --repo {scratch} gate {profile} behavioral --role verifier --base {merge_base}\n')
         # A landing verification also runs the touched profiles' landing commands.
         if risk == 'landing':
             for profile in data.get('landing') or []:
-                parts.append(f'python3 {tool} --repo {scratch} gate {as_text(profile)} landing --role verifier --base {merge_base}\n')
+                parts.append(f'python3 {tool} --repo {scratch} gate {profile} landing --role verifier --base {merge_base}\n')
         features = data.get('features') or []
-        parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(as_text(f) for f in features)) + '\n')
+        parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(features)) + '\n')
         skills = sorted([p + '/' for p in glob.glob(f'{glob.escape(root)}/.agents/skills/verify-*') if os.path.isdir(p)])
         parts.append('verification skill: ' + ''.join(s + ' ' for s in skills) + '\n')
     finally:

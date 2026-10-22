@@ -7,18 +7,12 @@ import subprocess
 import time
 
 from .replies import dispatched, file_mtime
-from .review import jq_raw, noted_through, open_notes, range_floor, steps_file
-from .store import alt, int_or_none, header_field, load, progress_path, read_text
+from .review import noted_through, open_notes, range_floor, steps_file
+from .store import int_or_none, header_field, load, peek, progress_path, read_text, tdiv, text_at
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 CLASSES = {'alpha': 'A-Za-z', 'digit': '0-9', 'alnum': '0-9A-Za-z', 'upper': 'A-Z', 'lower': 'a-z', 'space': ' \t\n\r\f\v',
            'blank': ' \t', 'punct': '!-/:-@\\[-`{-~', 'print': ' -~', 'graph': '!-~', 'cntrl': '\x00-\x1f\x7f', 'xdigit': '0-9A-Fa-f'}
-
-
-def tdiv(a, b):
-    """Shell arithmetic division: truncates toward zero."""
-    q = abs(a) // abs(b)
-    return q if (a < 0) == (b < 0) else -q
 
 
 def git_out(root, *args):
@@ -122,9 +116,7 @@ def busy_command(pane, since, now, env=None):
 def sidekick_activity(store, now):
     """The longest-running process in the sidekick's pane started since the current dispatch, or ''."""
     pair = load(store)
-    sidekick, dispatch = alt(pair.get('sidekick'), {}), alt(pair.get('dispatch'), {})
-    pane = jq_raw(alt(sidekick.get('pane_id') if isinstance(sidekick, dict) else None, ''))
-    at = jq_raw(alt(dispatch.get('at') if isinstance(dispatch, dict) else None, ''))
+    pane, at = text_at(peek(pair, 'sidekick'), 'pane_id'), text_at(peek(pair, 'dispatch'), 'at')
     if not pane or not at:
         return ''
     since = iso_epoch(at)
@@ -277,10 +269,8 @@ def checkin(ctx, store, interval=9, now=None):
     brief = dispatched(store)
     if not brief or not os.path.isfile(brief):
         return ''
-    dispatch = alt(pair.get('dispatch'), {})
-    at = jq_raw(alt(dispatch.get('at'), ''))
-    head = jq_raw(alt(dispatch.get('head'), ''))
-    cwd = jq_raw(pair.get('cwd'))
+    dispatch = peek(pair, 'dispatch')
+    at, head, cwd = text_at(dispatch, 'at'), text_at(dispatch, 'head'), text_at(pair, 'cwd')
     floor_note = ''
     tip = git_out(cwd, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
     if head and tip:

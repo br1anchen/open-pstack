@@ -5,7 +5,7 @@ import sys
 from pstack_core.commands.report import in_herdr
 from pstack_core.consult import advice, advice_is_stop, consult, discuss_with_consultant, new_consult
 from pstack_core.commands.status import latest
-from pstack_core.commands.stop import clear_queue, role_value, stop_role
+from pstack_core.commands.stop import clear_queue, stop_role
 from pstack_core.errors import Die
 from pstack_core.herdr import agent_kind, agent_status
 from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
@@ -42,7 +42,7 @@ def stop(ctx, args):
     for role in ctx.roles:
         if only and only != role:
             continue
-        name = role_value(store, role, 'name')
+        name = field(store, role, 'name')
         status = agent_status(name)
         if status == 'absent':
             print(f'{role} {name} is not live')
@@ -121,8 +121,8 @@ def spawn(ctx, args):
     if only not in ('', 'sidekick', 'consultant'):
         raise Die('--only takes sidekick or consultant')
     # A role not being spawned keeps the kind recorded for it.
-    sidekick_kind = opts['sidekick'] or field(store, 'sidekick', 'kind', empty=True)
-    consultant_kind = opts['consultant'] or field(store, 'consultant', 'kind', empty=True)
+    sidekick_kind = opts['sidekick'] or field(store, 'sidekick', 'kind')
+    consultant_kind = opts['consultant'] or field(store, 'consultant', 'kind')
     if only != 'consultant' and not sidekick_kind:
         raise Die('--sidekick KIND is required (run: herdr agent, for the kind list)')
     if only != 'sidekick' and not consultant_kind:

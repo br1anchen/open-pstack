@@ -4,9 +4,8 @@ import time
 from ..errors import Die
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..herdr import agent_status, herdr
-from ..review import jq_raw
-from ..spawn import fallback_args, record_failover, section, spawn_role
-from ..store import alt, env_float, expected_report, field, load, pair_file
+from ..spawn import record_failover, spawn_role
+from ..store import env_float, expected_report, field, load, names, pair_file, peek, text_at
 from ..wait import end_with_parent
 from .report import in_herdr
 
@@ -31,8 +30,8 @@ def failover(ctx, args):
             raise Die(f'unknown option {rest[0]}')
     pair_file(store)
     kind = field(store, 'sidekick', 'kind')
-    recorded = section(load(store), 'sidekick').get('fallback')
-    fallback = jq_raw(alt(recorded.get('kind'), '')) if isinstance(recorded, dict) else ''
+    recorded = peek(peek(load(store), 'sidekick'), 'fallback')
+    fallback = text_at(recorded, 'kind')
     if not fallback:
         raise Die('no fallback recorded; spawn the sidekick with --fallback KIND', 5)
     if kind == fallback:
@@ -56,8 +55,8 @@ def failover(ctx, args):
             exit_poll()
     record_failover(store, kind, fallback, reason)
     rc = spawn_role(ctx, store, 'sidekick', fallback, '', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'),
-                    fallback_args(section(load(store), 'sidekick').get('fallback')))
-    running = field(store, 'dispatch', 'brief', empty=True)
+                    names(recorded, 'args'))
+    running = field(store, 'dispatch', 'brief')
     if rc == 0 and running and not os.path.isfile(expected_report(store, running)):
         print(f'next: re-dispatch {running} with "resumed after failover from {kind}" in its Context')
     return rc

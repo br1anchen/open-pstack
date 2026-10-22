@@ -5,8 +5,7 @@ import subprocess
 import sys
 
 from ..errors import Die
-from ..review import jq_raw
-from ..store import get, names, pair_file, update
+from ..store import load, names, pair_file, text_at, update
 
 
 def basename(path):
@@ -47,8 +46,8 @@ def run(ctx, args):
     pair_file(store)
     if not re.fullmatch(r'[0-9]{3}-[a-z0-9_-]+', ident):
         raise Die('scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review')
-    cwd = jq_raw(get(store, 'git_root'))
-    if not cwd or cwd == 'null':
+    cwd = text_at(load(store), 'git_root')
+    if not cwd:
         raise Die("the store's cwd is not inside a git repository")
     link = f'{store}/scratch/{ident}'
     common = subprocess.run(['git', '-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'],

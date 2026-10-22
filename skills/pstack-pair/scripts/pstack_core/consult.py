@@ -19,7 +19,8 @@ from .review import git, require_filled
 from .send import require_fresh_session, submit_typed
 from .store import (event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, whole_number, now,
                     write_text)
-from .wait import agent_state, end_with_parent, error_code, error_state
+from .herdr import agent_state, error_code, error_state
+from .wait import end_with_parent
 
 CONSULT_KINDS = ('design', 'finding', 'objection', 'review', 'glance')
 

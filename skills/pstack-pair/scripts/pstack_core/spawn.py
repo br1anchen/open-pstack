@@ -14,16 +14,10 @@ from .herdr import agent_field, agent_status, herdr
 from .panes import await_file, new_pane, refuse_untrusted
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
-from .review import jq_raw
 from .send import submit_typed, visible_without_blanks
-from .store import alt, count, env_float, env_int, event, field, get, listing, load, member, update
+from .store import count, env_float, env_int, event, field, get, listing, load, member, names, peek, read_flag, text_at, update
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
-
-
-def section(pair, role):
-    value = pair.get(role)
-    return value if isinstance(value, dict) else {}
 
 
 def update_role(store, role, changes):
@@ -80,11 +74,11 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         if not agent_args and not agents.asks_no_approvals(kind, permission):
             stderr_of(f'no permission translation for kind {kind}; pass native flags after -- to match the master ({master_mode})\n')
             permission = 'untranslated'
-    cwd = jq_raw(get(store, 'cwd'))
+    cwd = text_at(load(store), 'cwd')
     if not agents.has_trust_arg(args):
         agent_args += agents.trust_args(kind)
     if not agents.has_mcp_arg(args):
-        agent_args += agents.mcp_args(kind, cwd)[0]
+        agent_args += agents.mcp_args(kind, cwd)
     args = [*agent_args, *args]
     if fresh_kind(kind):
         for arg in args:
@@ -94,7 +88,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
     name = field(store, role, 'name')
     status = agent_status(name)
     if status != 'absent':
-        if jq_raw(alt(section(load(store), role).get('bootstrap_pending'), False)) == 'true':
+        if peek(load(store), role).get('bootstrap_pending') is True:
             if not os.path.isfile(f'{store}/{ready}'):
                 stderr_of(f'{role} bootstrap still pending: {ready} is missing\n')
                 return 4
@@ -106,7 +100,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
     prime_start_failed = False
     if not pane:
         # field ".$role.pane_id // empty": jq's error where the role cannot be indexed
-        previous = field(store, role, 'pane_id', empty=True)
+        previous = field(store, role, 'pane_id')
         if previous and herdr('pane', 'get', previous)[0] == 0:
             pane = previous
     if pane:
@@ -190,7 +184,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
 
 def set_placement(store, want=''):
     """How roles get their panes: --tab or --split from spawn, else what the store has, else PSTACK_PLACEMENT, else split."""
-    if not want and jq_raw(alt(get(store, 'placement'), '')) == '':
+    if not want and not text_at(load(store), 'placement'):
         want = os.environ.get('PSTACK_PLACEMENT') or 'split'
     if not want:
         return
@@ -224,17 +218,6 @@ def record_fallback(store, kind, args):
     update(store, mutate)
 
 
-def mapfile_args(values):
-    """mapfile -t of jq -r '.[]?': one argument per output line."""
-    values = values if isinstance(values, list) else list(values.values()) if isinstance(values, dict) else []
-    return ''.join(f'{jq_raw(v)}\n' for v in values).split('\n')[:-1]
-
-
-def fallback_args(fallback):
-    """mapfile -t of jq -r '.sidekick.fallback.args[]?'."""
-    return mapfile_args(fallback.get('args') if isinstance(fallback, dict) else None)
-
-
 def preflight_reason(kind, args):
     """(status, text): preflight_kind with its stderr captured, as `$(preflight_kind ... 2>&1)` leaves it."""
     seen, sys.stderr = sys.stderr, io.StringIO()
@@ -253,18 +236,18 @@ def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pan
         if code != 0:
             reason = f'preflight: {reason or "no answer"}'
             sys.stderr.write(f'{kind} failed {reason}\n')
-            fallback = section(load(store), 'sidekick').get('fallback')
-            name = jq_raw(alt(fallback.get('kind'), '')) if isinstance(fallback, dict) else ''
+            fallback = peek(peek(load(store), 'sidekick'), 'fallback')
+            name = text_at(fallback, 'kind')
             if not name or name == kind:
                 raise Die(f'no fallback recorded for a failed {kind}; pass --fallback KIND or fix the agent', 2)
             record_failover(store, kind, name, reason)
-            return spawn_role(ctx, store, 'sidekick', name, '', anchor, timeout, direction, pane, fallback_args(fallback))
+            return spawn_role(ctx, store, 'sidekick', name, '', anchor, timeout, direction, pane, names(fallback, 'args'))
     return spawn_role(ctx, store, 'sidekick', kind, permission, anchor, timeout, direction, pane, args)
 
 
 def spawn_consultant(ctx, store, kind, permission, timeout, args):
     """The consultant splits from the sidekick's pane, so the master keeps its height; the master's pane when the sidekick's is gone."""
-    anchor = field(store, 'sidekick', 'pane_id', empty=True)
+    anchor = field(store, 'sidekick', 'pane_id')
     if not anchor or herdr('pane', 'get', anchor)[0] != 0:
         anchor = field(store, 'master', 'pane_id')
     return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args)

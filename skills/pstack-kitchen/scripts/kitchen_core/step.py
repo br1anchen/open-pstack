@@ -107,7 +107,7 @@ def step(ctx, args):
         raise Die('usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha = args[0], args[1]
     pair_file(store)
-    brief = field(store, 'dispatch', 'brief', empty=True)
+    brief = field(store, 'dispatch', 'brief')
     if not brief:
         raise Die('no brief dispatched; a step belongs to a running brief')
     unit = unit_name(brief)
@@ -227,7 +227,7 @@ def finish(ctx, args):
     store = args[0]
     report = os.path.realpath(args[1])
     pair_file(store)
-    brief = field(store, 'dispatch', 'brief', empty=True)
+    brief = field(store, 'dispatch', 'brief')
     # Everything but the dispatched unit's done report, and a report the pair's checks refuse anyway (no head:, open notes), goes straight on.
     if (not os.path.isfile(report) or header_field(report, 'status') != 'done' or not brief or report != expected_report(store, brief)
             or core_report.pair_report_ready(ctx, [store, report]) != 0):

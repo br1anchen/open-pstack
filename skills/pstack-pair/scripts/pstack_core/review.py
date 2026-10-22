@@ -4,7 +4,7 @@ import re
 import subprocess
 
 from .errors import Die
-from .store import alt, header_field, int_or_none, jq_raw, last_line, note_id, load, read_text, suffix_number, unit_name
+from .store import header_field, int_or_none, last_line, note_id, load, peek, read_text, suffix_number, text_at, unit_name
 
 
 def steps_file(store, unit):
@@ -90,12 +90,10 @@ def review_base(store, unit):
         rows = (r.split('\t') for r in read_text(file).split('\n') if r)
         return '\n'.join(c[1] if len(c) > 1 else '' for c in rows if int_or_none(c[0]) == through)
     pair = load(store)
-    heads = alt(pair.get('heads'), {})
-    dispatch = alt(pair.get('dispatch'), {})
-    base = alt(heads.get(unit) if isinstance(heads, dict) else None,
-               alt(dispatch.get('head') if isinstance(dispatch, dict) else None, ''))
-    base = jq_raw(base)
-    root = jq_raw(alt(pair.get('git_root'), pair.get('cwd')))
+    base = text_at(peek(pair, 'heads'), unit, None)
+    if base is None:
+        base = text_at(peek(pair, 'dispatch'), 'head')
+    root = text_at(pair, 'git_root') or text_at(pair, 'cwd')
     if os.path.isfile(file) and os.path.getsize(file) > 0:
         tail = last_line(file)
         tip = tail.split('\t')[1] if '\t' in tail else tail

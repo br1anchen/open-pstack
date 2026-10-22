@@ -330,7 +330,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(seen[key][0]['rc'], rc, (key, seen[key]))
             self.assertIn(line, seen[key][1] if stream == 'stdout' else seen[key][2], (key, seen[key]))
         self.assertEqual(seen['kitchen', 'stop'][0]['rc'], 0, seen['kitchen', 'stop'])
-        self.assertIn('sidekick s1 is not live\nverifier null is not live\nconsultant null is not live\n', seen['kitchen', 'stop'][1])
+        self.assertIn('sidekick s1 is not live\nverifier  is not live\nconsultant  is not live\n', seen['kitchen', 'stop'][1])
         for name in ('status', 'stop'):
             info = seen['kitchen', name][0]
             self.assertTrue(info['kitchen_core'], (name, seen['kitchen', name]))  # the build stamp on a store named as the second word
@@ -1774,9 +1774,9 @@ class CoreTests(unittest.TestCase):
             'no arguments': dict(args=['retro']),
         }
         out = self.kitchen_cases('retro', cases, {
-            'a store with briefs only': (0, 'run null: 0 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
+            'a store with briefs only': (0, 'run : 0 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
             'units, verdicts, steers and events': (0, 'run demo: 1 unit reports, 2 verified units (1 clean verdicts on the first try), 0 master w'),
-            'no verified unit': (0, 'run null: 1 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
+            'no verified unit': (0, 'run : 1 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
             'a git_root that is not a repository': (1, 'kitchen: not a git repository: /nonexistent/repo'),
             'no pair.json': (1, 'pair.sh: no pair.json in'),
             'too many arguments': (1, 'pair.sh: usage: kitchen.sh retro'),
@@ -4740,7 +4740,7 @@ class CoreTests(unittest.TestCase):
             'no pair.json': (5, 'no pair.json in <T>/st; run: pair.sh init <slug>'),
             'a sidekick that is a string': (1, 'pair.json is damaged: sidekick is string, not an object'),
             'a rotation that succeeds before a routine plan': (0, 'rotated: the pi sidekick starts this plan in a fresh session\nstate: idle\nreport: <T>/st/reports/001-x.md\n'),
-            'a rotation flag that is the string true': (4, 'rotated: the pi sidekick starts this plan in a fresh session\n'),
+            'a rotation flag that is the string true': (4, 'report: missing'),
             'a rotation that is not due': (4, 'state: idle\nreport: missing\n'),
             'a rotation whose exit prompt fails': (2, 'rotating the sidekick before this plan failed:\npair.sh: pi exit failed'),
             'a rotation that does not exit in time': (5, 'rotating the sidekick before this plan failed:\npair.sh: pi has not exited; inspect s1 before retrying rotate'),
@@ -4814,7 +4814,7 @@ class CoreTests(unittest.TestCase):
             'a brief with a placeholder': (1, 'still has unfilled placeholders'),
             'too few arguments': (1, 'usage: kitchen.sh queue <store> <brief-path> [--replace] | pair.sh queue <store> --clear'),
             'no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'),
-            'a sidekick that is a string': (3, 'sidekick null is absent; resolve that before queueing'),
+            'a sidekick that is a string': (1, 'pair.json is damaged: sidekick is string, not an object'),
             'an escalated brief and no pair.json': (1, 'no pair.json in <T>/st; run: pair.sh init <slug>'),
         }
         out = self.kitchen_cases('que', cases, expect)
@@ -5037,7 +5037,7 @@ class CoreTests(unittest.TestCase):
             'a failing preflight that says nothing': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
             'a failing preflight with a long message': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
             'a roster kind that returns 4 after its preflight': (4, 'consultant settled but advice/000-ready.md is missing; state=idle. Read the pane before prompting again.'),
-            'a live consultant skips the preflight': (0, 'consultant c1 already live (idle) in null'),
+            'a live consultant skips the preflight': (0, 'consultant c1 already live (idle) in '),
             'a consultant that is a string': (1, 'pair.json is damaged: consultant is string, not an object'),
             'escalations already recorded': (0, 'started in'),
             'escalations that are no array': (1, 'pair.json is damaged: escalations is string, not an array'),
@@ -6181,18 +6181,16 @@ class CoreTests(unittest.TestCase):
     def test_herdr_replies_are_read_as_plain_json_where_wait_decides_on_an_error_code_or_an_agent_status(self):
         cases = {
             'an error with a code': ('{"error":{"code":"timeout"}}', 'timeout', 'timeout'),
-            'an error with no code': ('{"error":{"message":"x"}}', '{\n  "message": "x"\n}', ''),
+            'an error with no code': ('{"error":{"message":"x"}}', 'herdr_error', ''),
             'an error that is a string': ('{"error":"boom"}', 'herdr_error', ''),
             'a reply that is a string': ('"x"', 'herdr_error', ''),
             'a reply that is null': ('null', 'herdr_error', ''),
             'a reply with no error': ('{"result":{}}', 'herdr_error', ''),
             'text that is no JSON': ('not json', 'herdr_error', ''),
-            'two replies': ('{"error":{"code":"a"}}\n{"error":{"code":"b"}}', 'a\nb', 'a\nb'),
-            'a good reply and a bad one': ('{"error":{"code":"a"}}\n[1]', 'a\nherdr_error', 'a'),
-            'a false code': ('{"error":{"code":false}}', '{\n  "code": false\n}', ''),
+            'a false code': ('{"error":{"code":false}}', 'herdr_error', ''),
         }
         for name, (text, state, code) in cases.items():
-            self.assertEqual((wait.error_state(text), wait.error_code(text)), (state, code), name)
+            self.assertEqual((herdr.error_state(text), herdr.error_code(text)), (state, code), name)
         statuses = {
             'a status': ('{"result":{"agent":{"agent_status":"idle"}}}', 'idle', 'idle'),
             'no status': ('{"result":{"agent":{}}}', 'settled', ''),
@@ -6201,9 +6199,9 @@ class CoreTests(unittest.TestCase):
             'text that is no JSON': ('oops', 'settled', ''),
         }
         for name, (text, with_default, without) in statuses.items():
-            self.assertEqual((wait.agent_state(text, 'settled'), wait.agent_state(text, None)), (with_default, without), name)
+            self.assertEqual((herdr.agent_state(text, 'settled'), herdr.agent_state(text, None)), (with_default, without), name)
 
-    def test_a_prime_steer_receipt_confirms_the_steer_lane_by_its_last_value_and_says_why_it_cannot_be_judged(self):
+    def test_a_prime_steer_receipt_confirms_the_steer_lane_and_says_why_it_cannot_be_judged(self):
         from pstack_core import prime
         good = {'deliveryMode': 'steer', 'target': {'activeSessionId': 'live-1'}, 'deliveryStatus': 'queued'}
         cases = {
@@ -6217,8 +6215,6 @@ class CoreTests(unittest.TestCase):
             'a receipt that is empty': ('', False, 'Prime steer receipt is empty\n'),
             'a receipt that is an array': ('[1]', False, 'Prime steer receipt is not an object\n'),
             'a target that is a string': (json.dumps({**good, 'target': 'live-1'}), False, 'Prime steer receipt has a target that is not an object\n'),
-            'a last value that confirms': (json.dumps({'progress': 1}) + '\n' + json.dumps(good), True, ''),
-            'a last value that does not': (json.dumps(good) + '\n' + json.dumps({'progress': 1}), False, ''),
             'a good value then text that is no JSON': (json.dumps(good) + '\nqueued', False, 'Prime steer receipt is not JSON\n'),
         }
         for name, (receipt, want, said) in cases.items():
@@ -6262,7 +6258,7 @@ class CoreTests(unittest.TestCase):
         }, 'pstack-trio')
         discuss = self.discuss_cases()
         self.check_port(discuss, {
-            'an escalated plan with no consultant': (2, 'consultant null is not live; run: pair.sh spawn <T>/st --only consultant --consultant <kind>'),
+            'an escalated plan with no consultant': (2, 'consultant  is not live; run: pair.sh spawn <T>/st --only consultant --consultant <kind>'),
             'a consultant that is blocked': (3, 'consultant c1 is blocked; inspect: herdr agent read c1 --source visible --lines 60'),
             'a consultant that is working': (5, 'consultant c1 is working; wait for it before a plan round'),
             'a prompt that fails': (2, 'herdr prompt failed for s1'),

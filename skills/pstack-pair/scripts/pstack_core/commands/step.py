@@ -7,8 +7,8 @@ import time
 
 from ..errors import Die, Exit
 from ..replies import dispatched
-from ..review import jq_raw, steps_file
-from ..store import event, get, pair_file, pause_notice, paused_reason, progress_path, steer_notice, unit_name
+from ..review import steps_file
+from ..store import event, load, pair_file, text_at, pause_notice, paused_reason, progress_path, steer_notice, unit_name
 
 
 def record_again(file, full, resolves):
@@ -55,7 +55,7 @@ def step(ctx, args, now=None):
     brief = dispatched(store)
     if not brief:
         raise Die('no brief dispatched; a step belongs to a running brief')
-    r = subprocess.run(['git', '-C', jq_raw(get(store, 'cwd')), 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}'], capture_output=True, check=False)
+    r = subprocess.run(['git', '-C', text_at(load(store), 'cwd'), 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}'], capture_output=True, check=False)
     sys.stderr.write(r.stderr.decode('utf-8', 'surrogateescape'))
     if r.returncode != 0:
         raise Die(f'not a commit: {sha}; commit the step first')

@@ -10,9 +10,8 @@ from ..errors import Die, Exit
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..gates import require_not_paused
 from ..herdr import agent_status
-from ..spawn import mapfile_args, section, spawn_role
-from ..review import jq_raw
-from ..store import alt, event, field, load, pair_file
+from ..spawn import spawn_role
+from ..store import event, field, load, names, pair_file, peek, read_flag
 from ..wait import end_with_parent
 from .report import in_herdr
 
@@ -29,8 +28,8 @@ def rotate(ctx, args):
     pair_file(store)
     require_not_paused(store)
     kind = field(store, 'sidekick', 'kind')
-    sidekick = section(load(store), 'sidekick')
-    if jq_raw(alt(sidekick.get('rotation_required'), False)) != 'true':
+    sidekick = peek(load(store), 'sidekick')
+    if sidekick.get('rotation_required') is not True:
         raise Die('rotation requires a completed task; partial or blocked work keeps its session', 5)
     if not isinstance(sidekick.get('start_args'), list):
         raise Die('no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags', 5)
@@ -55,7 +54,7 @@ def rotate(ctx, args):
             raise Die('Prime session cleanup failed; no new session was started', 5)
     else:
         raise Die(f'sidekick {name} is {status}; wait for its report and turn to end before rotating', 5)
-    start_args = mapfile_args(section(load(store), 'sidekick').get('start_args'))
+    start_args = names(sidekick, 'start_args')
     event(store, 'master', 'rotate', '-', f'generation:{field(store, "sidekick", "generation")}')
     return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args)
 
@@ -64,9 +63,9 @@ def rotate_if_due(ctx, store, what):
     """The sidekick is rotated before the next brief or plan once its last unit is done, so the rotation costs the master no extra wake. Partial
     or blocked work never sets rotation_required and keeps its session. A replacement whose READY is still pending is left to its bootstrap:
     send refuses until it is ready."""
-    if not os.path.isfile(f'{store}/pair.json') or field(store, 'sidekick', 'rotation_required', default='false') != 'true':
+    if not os.path.isfile(f'{store}/pair.json') or read_flag(store, 'sidekick.rotation_required') is not True:
         return
-    if field(store, 'sidekick', 'bootstrap_pending', default='false') == 'true':
+    if read_flag(store, 'sidekick.bootstrap_pending') is True:
         return
     # The report lands a moment before the sidekick's turn ends.
     subprocess.run(['herdr', 'agent', 'wait', field(store, 'sidekick', 'name'), '--until', 'idle', '--until', 'done', '--timeout', '60000'],

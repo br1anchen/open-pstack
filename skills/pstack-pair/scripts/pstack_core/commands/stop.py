@@ -8,9 +8,8 @@ import time
 from ..errors import Die, Exit
 from ..herdr import agent_status, herdr, pane_text
 from ..replies import file_mtime
-from ..review import jq_raw
-from ..store import env_float, env_int, event, header_field, load, update
-from ..wait import WaitResult, end_with_parent, finish_wait, tdiv, wait_opts
+from ..store import env_float, env_int, event, field, header_field, load, tdiv, update
+from ..wait import WaitResult, end_with_parent, finish_wait, wait_opts
 from .report import in_herdr, require_pair
 from .status import latest
 
@@ -80,17 +79,11 @@ def devin_send_now(store, role, name, text, before, deadline):
     return True
 
 
-def role_value(store, role, key):
-    """field "$store" ".<role>.<key>", as jq -r prints it."""
-    section = load(store).get(role)
-    return jq_raw(section.get(key) if isinstance(section, dict) else None)
-
-
 def stop_role(ctx, store, role, timeout):
     """STOP for one role: (code, out, err). An idle agent gets it with a wait. A working one may settle its current turn before it reads STOP,
     so the wait ends on its stop report or advice written after the send, not on a settle. A working Devin parks a mid-turn message as queued
     until Enter is pressed, so Enter follows."""
-    name = role_value(store, role, 'name')
+    name = field(store, role, 'name')
     event(store, 'master', 'send-stop', '-', role)
     text = f'{ctx.skill} STOP {store}'
     if agent_status(name) == 'working':
@@ -101,7 +94,7 @@ def stop_role(ctx, store, role, timeout):
             return 2, '', r.stderr.decode('utf-8', 'surrogateescape').rstrip('\n')
         deadline = epoch + env_int('PAIR_STOP_DEADLINE_S', tdiv(timeout, 1000))
         code, err = 0, ''
-        if role_value(store, role, 'kind') == 'devin':
+        if field(store, role, 'kind') == 'devin':
             devin_send_now(store, role, name, f'{ctx.skill} STOP', before, deadline)
         while not stop_written(store, role, before):
             if int(time.time()) >= deadline:
@@ -135,7 +128,7 @@ def stop(ctx, args):
     if rest:
         raise Die(f'unknown option {rest[0]}')
     require_pair(store)
-    name = role_value(store, 'sidekick', 'name')
+    name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     if status == 'absent':
         raise Die(f'sidekick {name} is not live', 2)

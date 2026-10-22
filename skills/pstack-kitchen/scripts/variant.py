@@ -5,8 +5,7 @@ import zlib
 from pathlib import Path
 
 from pstack_core import consult
-from pstack_core.review import jq_raw
-from pstack_core.store import dispatched_brief, expected_report, get, header_field
+from pstack_core.store import dispatched_brief, expected_report, header_field, read
 from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 
@@ -204,7 +203,7 @@ class KitchenVariant(TrioVariant):
         brief = dispatched_brief(store)
         if not brief or os.path.realpath(report) != expected_report(store, brief):
             return base
-        head = commit_of(jq_raw(get(store, 'git_root')), header_field(report, 'head'))
+        head = commit_of(read(store, 'git_root'), header_field(report, 'head'))
         if head is None:
             return ReportReadiness(False, '', 'its head: is not a commit')
         try:

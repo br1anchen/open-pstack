@@ -15,7 +15,8 @@ import tempfile
 from pstack_core.errors import Die
 from pstack_core.review import trunk_ref
 from pstack_core.store import field
-from pstack_core.store import header_field, int_or_none, jq_raw, new_from_template, pair_file
+from pstack_core.herdr import parse
+from pstack_core.store import header_field, int_or_none, new_from_template, pair_file
 from pstack_core.variant import commit_of
 
 from . import kpy
@@ -46,11 +47,8 @@ def validated_engine(store):
     rc, text, _ = kpy.run(git_root(store, quiet=True), ['--json', 'validate'])
     if rc != 0:
         return False, ''
-    try:
-        value = json.loads(text).get('review_engine')
-    except (ValueError, AttributeError):
-        return False, ''
-    return True, '' if value is None or value is False else jq_raw(value)
+    value = (parse(text) or {}).get('review_engine')
+    return True, value if isinstance(value, str) else ''
 
 
 def cites_engine(review, engine):
@@ -136,7 +134,7 @@ def manifest_warning(store, verified_base, current_base, head=''):
 
 def landing_field(store, key):
     """`field "$store" '.landing.<key> // empty'`."""
-    return field(store, 'landing', key, empty=True)
+    return field(store, 'landing', key)
 
 
 def current_landing_base(store):

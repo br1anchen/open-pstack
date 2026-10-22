@@ -146,7 +146,9 @@ def names(doc, key):
 
 def count(doc, key):
     """The integer at doc[key], 0 when it is null, absent or false; any other type is damage."""
-    value = alt(doc.get(key), 0)
+    value = doc.get(key)
+    if value is None or value is False:
+        return 0
     if isinstance(value, bool) or not isinstance(value, int):
         raise damaged(f'{key} is {json_type(value)}, not an integer')
     return value
@@ -164,10 +166,24 @@ def member(doc, key):
 
 def listing(doc, key):
     """The array at doc[key], [] when it is null, absent or false; any other type is damage."""
-    value = alt(doc.get(key), [])
+    value = doc.get(key)
+    if value is None or value is False:
+        return []
     if not isinstance(value, list):
         raise damaged(f'{key} is {json_type(value)}, not an array')
     return value
+
+
+def text_at(doc, key, default=''):
+    """The string at doc[key], default when it is null, absent or false; a number is its digits; any other type is damage."""
+    value = doc.get(key)
+    if value is None or value is False:
+        return default
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise damaged(f'{key} is {json_type(value)}, not a string')
+    return str(value)
 
 
 def get(store, path, default=None):
@@ -180,48 +196,48 @@ def get(store, path, default=None):
     return value
 
 
-def read(store, path, empty=False, default=None):
-    """jq -r '.a.b' on pair.json, as a command substitution gives it: a scalar raw, an object or array as indented JSON. A step over a null gives
-    null; a step over any other value that is no object is damage. With empty the filter is '.a.b // empty'; with default, '.a.b // default'."""
-    from .wait import as_text
+def walk(store, path):
+    """(the object holding the last key of a dotted path in pair.json, that key): the holder is {} when a step is null or absent, and a step
+    over any other value that is no object is damage."""
+    *steps, last = path.split('.')
     value, held = load(store), None
-    for key in path.split('.'):
+    for key in steps:
         if value is None:
-            break
+            return {}, last
         if not isinstance(value, dict):
             raise damaged(f'{held} is {json_type(value)}, not an object')
         value, held = value.get(key), key
-    if default is not None:
-        value = alt(value, default)
-    elif empty:
-        value = alt(value, '')
-    return as_text(value)
+    if value is None:
+        return {}, last
+    if not isinstance(value, dict):
+        raise damaged(f'{held} is {json_type(value)}, not an object')
+    return value, last
+
+
+def read(store, path, default=''):
+    """The text at a dotted path in pair.json, default when it is null or absent (see text)."""
+    holder, key = walk(store, path)
+    return text_at(holder, key, default)
 
 
 def read_int(store, path):
     """The whole number at a dotted path in pair.json: None when absent or null, damage when it is any other type."""
-    value, held = load(store), None
-    for key in path.split('.'):
-        if value is None:
-            return None
-        if not isinstance(value, dict):
-            raise damaged(f'{held} is {json_type(value)}, not an object')
-        value, held = value.get(key), key
+    holder, key = walk(store, path)
+    value = holder.get(key)
     if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
         raise damaged(f'{path} is {json_type(value)}, not a whole number')
     return value
 
 
-def field(store, role, key, empty=False, default=None):
-    """jq -r '.role.key': a role that is not an object is damage. With empty, the filter is '.role.key // empty'; with default,
-    '.role.key // "<default>"'."""
-    value = load(store).get(role)
-    if value is not None and not isinstance(value, dict):
-        raise damaged(f'{role} is {json_type(value)}, not an object')
-    found = (value or {}).get(key)
-    if default is not None:
-        return jq_raw(alt(found, default))
-    return jq_raw(alt(found, '')) if empty else jq_raw(found)
+def read_flag(store, path):
+    """The value at a dotted path in pair.json for an `is True` or `is False` test: None when it is absent or null."""
+    holder, key = walk(store, path)
+    return holder.get(key)
+
+
+def field(store, role, key, default=''):
+    """The text of a role's key (see text); a role that is no object is damage."""
+    return text_at(peek(load(store), role), key, default)
 
 
 def text_of(raw, strip=False):
@@ -232,6 +248,12 @@ def text_of(raw, strip=False):
 
 def now():
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+
+
+def tdiv(a, b):
+    """Integer division that truncates toward zero, so a clock that ran backwards gives a small negative figure, not one rounded away."""
+    q = abs(a) // abs(b)
+    return q if (a < 0) == (b < 0) else -q
 
 
 def whole_number(text, flag, unit):
@@ -263,25 +285,9 @@ def env_float(name, default):
     return float(text)
 
 
-def alt(value, default=''):
-    """jq's "value // default": null and false both count as missing."""
-    return default if value is None or value is False else value
-
-
-def jq_raw(value):
-    """jq -r of a value: null, true and false print as words."""
-    if value is None:
-        return 'null'
-    if isinstance(value, bool):
-        return 'true' if value else 'false'
-    return value if isinstance(value, str) else str(value)
-
-
 def dispatched_brief(store):
-    """field "$store" '.dispatch.brief // empty'"""
-    dispatch = alt(get(store, 'dispatch'), {})
-    brief = alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, '')
-    return brief if isinstance(brief, str) else json.dumps(brief)
+    """The brief path recorded at dispatch, or ''."""
+    return field(store, 'dispatch', 'brief')
 
 
 def next_seq(store):
@@ -349,7 +355,7 @@ def open_steers(store):
     unit = unit_name(brief)
     prog = f'{store}/progress/{unit}.md'
     found = []
-    for f in alt(get(store, 'notice_steers'), []):
+    for f in names(load(store), 'notice_steers'):
         name = os.path.basename(f)
         if not os.path.isfile(f) or not re.fullmatch(re.escape(unit) + r'-s[0-9].*\.md', name, re.S):
             continue
@@ -365,7 +371,7 @@ def open_steers(store):
 def note_notice(store):
     """The blocking notes parked for a Devin sidekick (.notice_notes), once: each is printed and taken off the list."""
     from . import cli
-    parked = [f for f in alt(get(store, 'notice_notes'), []) if os.path.isfile(f)]
+    parked = [f for f in names(load(store), 'notice_notes') if os.path.isfile(f)]
     if not parked:
         return ''
     update(store, lambda doc: doc.pop('notice_notes', None))

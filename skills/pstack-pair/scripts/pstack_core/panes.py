@@ -6,9 +6,8 @@ import re
 import subprocess
 
 from .errors import Die
-from .herdr import herdr
-from .review import jq_raw
-from .store import env_int, load
+from .herdr import dig, herdr
+from .store import env_int, load, peek, text_at
 
 TRUST_RE = re.compile('trust this folder|project you created or one you trust|do you trust the (files|contents)', re.IGNORECASE)
 
@@ -22,12 +21,6 @@ def herdr_json(*args):
         return None
 
 
-def dig(value, *keys):
-    for key in keys:
-        value = value.get(key) if isinstance(value, dict) else None
-    return value
-
-
 def pick_direction(pane):
     """Cells are about twice as tall as wide: a pane is visually wider than tall when width >= 2 * height. Split wide panes right and tall
     panes down."""
@@ -36,10 +29,10 @@ def pick_direction(pane):
     for each in panes if isinstance(panes, list) else []:
         if isinstance(each, dict) and each.get('pane_id') == pane:
             rect = each.get('rect') if isinstance(each.get('rect'), dict) else {}
-            width, height = jq_raw(rect.get('width')), jq_raw(rect.get('height'))
-            if not re.fullmatch(r'-?[0-9]+', height) or not re.fullmatch(r'-?[0-9]+', width):
+            width, height = rect.get('width'), rect.get('height')
+            if not all(isinstance(n, int) and not isinstance(n, bool) for n in (width, height)):
                 raise Die(f'pane {pane} has a size that is not a number: {width} x {height}')
-            return 'right' if int(width) >= 2 * int(height) else 'down'
+            return 'right' if width >= 2 * height else 'down'
     return 'right'
 
 
@@ -47,20 +40,20 @@ def new_pane(store, role, anchor, direction, cwd, env=()):
     """A new pane for a role: a split beside the anchor, or, with placement tab (spawn --tab, or PSTACK_PLACEMENT=tab), a tab of its own in the
     master's workspace, labelled with the role; each KEY=VALUE of env is an --env for the launched process. Prints where it went and returns its id."""
     pair = load(store)
-    slug = jq_raw(pair.get('slug'))
+    slug = text_at(pair, 'slug')
     env_args = [part for kv in env for part in ('--env', kv)]
     if pair.get('placement') == 'tab':
-        master = jq_raw((pair.get('master') or {}).get('pane_id') if isinstance(pair.get('master'), dict) else None)
+        master = text_at(peek(pair, 'master'), 'pane_id')
         made = herdr_json('tab', 'create', '--workspace', master.split(':', 1)[0], '--cwd', cwd, '--label', f'{slug}-{role}', '--no-focus', *env_args)
-        pane = jq_raw(dig(made, 'result', 'root_pane', 'pane_id'))
-        if not pane or pane == 'null':
+        pane = dig(made, 'result', 'root_pane', 'pane_id')
+        if not pane or not isinstance(pane, str):
             raise Die('tab create returned no pane id', 2)
         print(f'tab {slug}-{role} -> {pane}')
         return pane
     direction = direction or pick_direction(anchor)
     made = herdr_json('pane', 'split', '--pane', anchor, '--direction', direction, '--cwd', cwd, '--no-focus', *env_args)
-    pane = jq_raw(dig(made, 'result', 'pane', 'pane_id'))
-    if not pane or pane == 'null':
+    pane = dig(made, 'result', 'pane', 'pane_id')
+    if not pane or not isinstance(pane, str):
         raise Die('pane split returned no pane id', 2)
     print(f'split {anchor} {direction} -> {pane}')
     return pane

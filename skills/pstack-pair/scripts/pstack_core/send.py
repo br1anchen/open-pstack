@@ -12,15 +12,11 @@ from .errors import Die, Exit
 from .gates import check_scope
 from .herdr import agent_kind, agent_status
 from .replies import first3, pending, queued_brief
-from .review import jq_raw, require_filled
-from .store import alt, env_float, event, expected_report, get, load, update
+from .review import require_filled
+from .store import env_float, event, expected_report, load, peek, text_at, update
 from .commands.report import MISSING_PAIR
-from .wait import error_code, owned_wait
-
-
-def section(pair, name):
-    value = pair.get(name)
-    return value if isinstance(value, dict) else {}
+from .herdr import error_code
+from .wait import owned_wait
 
 
 def prune_pending(store):
@@ -44,13 +40,9 @@ def record_sent(store, file, kind, now=None):
 
 
 def require_fresh_session(store):
-    if not isinstance(get(store, 'sidekick'), (dict, type(None))):
-        # jq's message and its status end the command
-        from .store import field
-        field(store, 'sidekick', 'kind')
-    sidekick = section(load(store), 'sidekick')
-    kind = jq_raw(sidekick.get('kind'))
-    if (alt(sidekick.get('rotation_required'), False) is not False or alt(sidekick.get('bootstrap_pending'), False) is not False):
+    sidekick = peek(load(store), 'sidekick')
+    kind = text_at(sidekick, 'kind')
+    if sidekick.get('rotation_required') is True or sidekick.get('bootstrap_pending') is True:
         raise Die(f'the {kind} sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate {store} '
                   'after a completed task. The queue is preserved.', 5)
 
@@ -101,16 +93,16 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
         # field() runs pair_file in a substitution, so its die only ends that subshell and jq then fails on an empty file name: a pair of
         # error lines each time. A brief reads the repo root first (check_scope then warns about every entry against an empty root), and the
         # fresh-session check reads the kind: the second pair, with status 2. A plan gets only the second.
-        text = MISSING_PAIR.format(store=store)
+        missing = MISSING_PAIR.format(store=store)
         if kind == 'BRIEF':
-            sys.stderr.write(text)
+            sys.stderr.write(missing)
             check_scope(file, '')
-        raise Exit(2, text)
+        raise Exit(2, missing)
     pair = load(store)
     if kind == 'BRIEF':
-        check_scope(file, jq_raw(alt(pair.get('git_root'), pair.get('cwd'))))
+        check_scope(file, text_at(pair, 'git_root') or text_at(pair, 'cwd'))
     require_fresh_session(store)
-    name = jq_raw(section(load(store), 'sidekick').get('name'))
+    name = text_at(peek(pair, 'sidekick'), 'name')
     status = agent_status(name)
     if status not in ('idle', 'done'):
         if status == 'absent':

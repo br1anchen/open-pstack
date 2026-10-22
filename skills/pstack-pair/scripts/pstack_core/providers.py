@@ -5,9 +5,8 @@ import json
 import os
 import re
 
-from .herdr import agent_status, herdr, pane_text
-from .review import jq_raw
-from .store import alt, load, member, newest, newest_first, update
+from .herdr import agent_status, dig, herdr, pane_text, parse
+from .store import load, member, newest, newest_first, peek, text_at, update
 
 PROVIDER_ERROR_RE = ('capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|'
                      'econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|'
@@ -20,31 +19,9 @@ def error_context(text, before, after):
     return [found.group(0) for found in pattern.finditer(text)]
 
 
-def tsv_cell(value):
-    """One cell of jq's @tsv; None when jq cannot format the value (it stops the stream there)."""
-    if value is None or value is False:
-        return ''
-    if isinstance(value, (dict, list)):
-        return None
-    if isinstance(value, bool):
-        return 'true'
-    text = value if isinstance(value, str) else jq_raw(value)
-    return text.replace('\\', '\\\\').replace('\t', '\\t').replace('\n', '\\n').replace('\r', '\\r')
-
-
-def json_stream(text):
-    """The JSON values jq reads from text, up to the first one it cannot parse."""
-    decoder, pos, n = json.JSONDecoder(), 0, len(text)
-    while True:
-        while pos < n and text[pos] in ' \t\n\r':
-            pos += 1
-        if pos >= n:
-            return
-        try:
-            value, pos = decoder.raw_decode(text, pos)
-        except ValueError:
-            return
-        yield value
+def peek_message(value):
+    message = value.get('message') if isinstance(value, dict) else None
+    return message if isinstance(message, dict) else {}
 
 
 def tail_lines(text, count):
@@ -71,16 +48,13 @@ def agent_session_error(session, cwd=''):
     if not path or not os.path.isfile(path):
         return ''
     last = None
-    for value in json_stream(tail_lines(read_log(path), 200)):
-        message = value.get('message') if isinstance(value, dict) else None
-        if not (isinstance(message, dict) and message.get('role') == 'assistant'):
-            continue
-        cells = [tsv_cell(message.get('stopReason')), tsv_cell(message.get('errorMessage'))]
-        if None in cells:
-            continue
-        last = cells
-    if last and last[0] == 'error' and last[1] != '':
-        return last[1][:240]
+    for line in tail_lines(read_log(path), 200).split('\n'):
+        message = peek_message(parse(line))
+        if message.get('role') == 'assistant':
+            last = message
+    error = last.get('errorMessage') if last else None
+    if last and last.get('stopReason') == 'error' and isinstance(error, str) and error:
+        return ' '.join(error.split())[:240]
     return ''
 
 
@@ -110,21 +84,15 @@ def muse_session_error(cwd):
 
 def record_prime_session(store, role):
     """Record the daemon session herdr reports for the role's prime-agent pane. False when herdr reports none."""
-    from .store import field
-    pair = load(store)
-    section = alt(pair.get(role), {})
-    name = field(store, role, 'name')
-    code, out = herdr('agent', 'get', name)
+    section = peek(load(store), role)
+    code, out = herdr('agent', 'get', text_at(section, 'name'))
     if code != 0:
         return False
-    try:
-        agent = json.loads(out)['result']['agent']
-        session = agent['agent_session']
-        ok = (agent.get('agent') == 'prime-agent' and agent.get('pane_id') == jq_raw(section.get('pane_id'))
-              and session.get('kind') in ('path', 'id') and isinstance(session.get('value'), str) and len(session['value']) > 0)
-    except (ValueError, KeyError, TypeError, AttributeError):
-        return False
-    if not ok:
+    agent = dig(parse(out), 'result', 'agent')
+    session = dig(agent, 'agent_session')
+    if not (isinstance(agent, dict) and isinstance(session, dict) and agent.get('agent') == 'prime-agent'
+            and agent.get('pane_id') == text_at(section, 'pane_id') and session.get('kind') in ('path', 'id')
+            and isinstance(session.get('value'), str) and session['value']):
         return False
     chosen = {'kind': session['kind'], 'value': session['value']}
 
@@ -137,32 +105,28 @@ def record_prime_session(store, role):
 
 def prime_role_error(store, role):
     record_prime_session(store, role)
-    section = alt(load(store).get(role), {})
-    session = alt(section.get('session') if isinstance(section, dict) else None, {})
-    if isinstance(session, dict) and session.get('kind') == 'path':
-        value = jq_raw(alt(session.get('value'), ''))
-        if value:
-            return agent_session_error(value)
+    session = peek(load(store), role).get('session')
+    if isinstance(session, dict) and session.get('kind') == 'path' and isinstance(session.get('value'), str) and session['value']:
+        return agent_session_error(session['value'])
     return ''
 
 
 def provider_hint(store, phase=''):
     """provider_hint(): the evidence that a sidekick settled on its provider and the way out, or ''."""
     pair = load(store)
-    sidekick = alt(pair.get('sidekick'), {})
-    sidekick = sidekick if isinstance(sidekick, dict) else {}
-    name, kind = jq_raw(sidekick.get('name')), jq_raw(sidekick.get('kind'))
-    fallback_section = alt(sidekick.get('fallback'), {})
-    fallback = jq_raw(alt(fallback_section.get('kind') if isinstance(fallback_section, dict) else None, ''))
+    sidekick = peek(pair, 'sidekick')
+    name, kind = text_at(sidekick, 'name'), text_at(sidekick, 'kind')
+    fallback = sidekick.get('fallback')
+    fallback = text_at(fallback, 'kind') if isinstance(fallback, dict) else ''
     if not fallback or fallback == kind:
         fallback = ''
     logged = ''
     if kind == 'pi':
-        logged = agent_session_error('', jq_raw(pair.get('cwd')))
+        logged = agent_session_error('', text_at(pair, 'cwd'))
     elif kind == 'prime-agent':
         logged = prime_role_error(store, 'sidekick')
     elif kind == 'muse':
-        logged = muse_session_error(jq_raw(pair.get('cwd')))
+        logged = muse_session_error(text_at(pair, 'cwd'))
     out = ''
     if agent_status(name) == 'absent':
         out += f'provider_error: the {kind} sidekick exited on: {logged}\n' if logged else f'provider_error: the {kind} sidekick exited\n'

@@ -14,10 +14,8 @@ from pstack_core.checkin import busy_command
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status, herdr, pane_text
 from pstack_core.providers import agent_session_error, error_context, muse_session_error, prime_role_error
-from pstack_core.review import jq_raw
 from pstack_core.send import submit_typed
-from pstack_core.store import alt, damaged, env_float, env_int, event, header_field, json_type, listing, load, peek, read, read_int
-from pstack_core.wait import as_text
+from pstack_core.store import damaged, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv, text_at
 
 from . import verify_state as vs
 from .reviews import warn_unreviewed
@@ -27,11 +25,6 @@ NOT_GIVEN = object()
 
 def now_s():
     return int(time.time())
-
-
-def tdiv(a, b):
-    """Bash's integer division, which truncates toward zero."""
-    return int(a / b) if abs(a) < 2 ** 52 else (abs(a) // b) * (1 if a >= 0 else -1)
 
 
 def stall_limit(idle):
@@ -50,7 +43,7 @@ def verifier_provider_error(store, name, session=NOT_GIVEN):
         matches = error_context(pane_text(name).rstrip('\n'), 60, 100)
         line = matches[-1] if matches else ''
     if session is NOT_GIVEN:
-        session = read(store, 'verifying.session', empty=True)
+        session = read(store, 'verifying.session')
     if not line:
         cwd = ''
         if read(store, 'verifier.kind') in ('pi', 'muse'):
@@ -203,20 +196,21 @@ class Waiter:
         name = read(self.store, 'verifier.name')
         kind = read(self.store, 'verifier.kind')
         packet = read(self.store, 'verifying.packet')
-        session = read(self.store, 'verifying.session', empty=True)
+        session = read(self.store, 'verifying.session')
         brief = read(self.store, 'verifying.brief')
         risk = read(self.store, 'verifying.risk')
-        sample = alt(peek(load(store), 'verifying').get('sample'), 0)
+        sample = peek(load(store), 'verifying').get('sample')
+        sample = 0 if sample is None else sample
         if isinstance(sample, bool) or not isinstance(sample, (int, float)):
             raise damaged(f'verifying.sample is {json_type(sample)}, not a number')
         unit = read(self.store, 'verifying.unit')
         pane = read(self.store, 'verifier.pane_id')
         fallback = self.fallback()
-        retried = read(self.store, 'verifying.retried', default=False)
+        retried = read_flag(self.store, 'verifying.retried') is True
         argv = self.argv()
         until = now_s() + self.every_m * 60
         # A verify stopped between the verifier's start and its packet leaves the verifier idle with nothing to do, until the stall check closes it.
-        if read(store, 'verifying.delivered') == 'false' and not os.path.isfile(verdict):
+        if read_flag(store, 'verifying.delivered') is False and not os.path.isfile(verdict):
             vs.verification_still_open(store, verdict)
             if agent_status(name) in ('idle', 'done'):
                 vs.redeliver_packet(ctx, store, 'the verify that started this verifier stopped before sending its packet', name, packet, brief, kind)
@@ -304,11 +298,11 @@ class Waiter:
         present = os.path.isfile(verdict)
         if not present and provider:
             sys.stdout.write(f'verdict: none\nstatus: inconclusive (the verifier hit its provider, not the work)\nprovider_error: {provider}\n')
-            fallback_kind = self.fallback_kind(fallback)
-            if retried == 'false' and fallback and fallback_kind != kind and argv:
+            fallback_kind = text_at(fallback, 'kind')
+            if not retried and fallback and fallback_kind != kind and argv:
                 sys.stdout.write(f'retry: verifying again on the fallback, {fallback_kind}\n')
                 sys.stdout.flush()
-                again = [store, *argv, '--retry-entry', fallback]
+                again = [store, *argv, '--retry-entry', json.dumps(fallback, ensure_ascii=False, separators=(',', ':'))]
                 self.retry(again)  # verifying again on the fallback, as the exec of kitchen.sh verify did; it never returns
             event(store, 'master', 'wake', brief, 'verify:provider')
             # A retried call carries its entry; the advice is for the master's own call.
@@ -360,25 +354,16 @@ class Waiter:
             i += 1
         return out
 
-    @staticmethod
-    def fallback_kind(fallback):
-        try:
-            value = json.loads(fallback)
-        except ValueError:
-            return ''
-        return jq_raw(value.get('kind')) if isinstance(value, dict) else ''
-
     def fallback(self):
-        """The compact JSON of verifying.entry.fallback, empty when there is none."""
-        fallback = peek(peek(load(self.store), 'verifying'), 'entry')
-        fallback = alt(fallback.get('fallback'), None)
+        """verifying.entry.fallback as an object, {} when there is none."""
+        fallback = peek(peek(load(self.store), 'verifying'), 'entry').get('fallback')
         if fallback is None:
-            return ''
+            return {}
         if not isinstance(fallback, dict):
             raise damaged(f'verifying.entry.fallback is {json_type(fallback)}, not an object')
-        return json.dumps(fallback, ensure_ascii=False, separators=(',', ':'))
+        return fallback
 
     def argv(self):
         """The arguments the verifier was started with, one per element of verifying.argv."""
-        return [as_text(arg) for arg in listing(peek(load(self.store), 'verifying'), 'argv')]
+        return names(peek(load(self.store), 'verifying'), 'argv')
 

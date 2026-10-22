@@ -16,8 +16,8 @@ from pstack_core.panes import new_pane, refuse_untrusted
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
-from pstack_core.store import alt, damaged, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, update
-from pstack_core.wait import as_text, reply_at
+from pstack_core.herdr import reply_at
+from pstack_core.store import damaged, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at, update
 
 from .reviews import warn_unreviewed
 
@@ -26,13 +26,13 @@ def close_role(store, role):
     """Ends a role's agent and closes its pane, for a run that is over: the exit command, then up to fifteen seconds for the agent to go (a
     Claude asking what to do with its background tasks is told to stop them and exit). The pane closes only once the agent is gone; an agent
     that stays keeps its pane and the function returns False. A role never spawned, or already closed, is skipped (True)."""
-    name = field(store, role, 'name', empty=True)
-    pane = field(store, role, 'pane_id', empty=True)
+    name = field(store, role, 'name')
+    pane = field(store, role, 'pane_id')
     if not name or not pane:
         return True
-    if field(store, role, 'closed', default='false') == 'true':
+    if read_flag(store, f'{role}.closed') is True:
         return True
-    kind = field(store, role, 'kind', empty=True)
+    kind = field(store, role, 'kind')
     if kind == 'prime-agent':
         if not stop_prime_role(store, role):
             return False
@@ -63,7 +63,7 @@ def close(ctx, args):
     force = len(args) > 1 and args[1] == '--force'
     pair_file(store)
     if not force:
-        if field(store, 'verifying', 'verdict', empty=True):
+        if field(store, 'verifying', 'verdict'):
             raise Die(f"a verification is open ({field(store, 'verifying', 'units')}); finish it (kitchen.sh verify {store} --wait) or pass --force", 5)
         if agent_status(field(store, 'sidekick', 'name')) == 'working':
             raise Die(f'the sidekick is working; kitchen.sh stop {store} first, or pass --force', 5)
@@ -118,7 +118,7 @@ def section_has_text(path, heading):
 
 def herdr_session(name):
     """the session value of `herdr agent get NAME`, a reply that cannot be read ignored."""
-    return as_text(alt(reply_at(herdr('agent', 'get', name)[1], 'result', 'agent', 'agent_session', 'value', quiet=True), ''))
+    return reply_at(herdr('agent', 'get', name)[1], 'result', 'agent', 'agent_session', 'value', quiet=True) or ''
 
 
 def rotate_master(ctx, args):
@@ -143,7 +143,7 @@ def rotate_master(ctx, args):
             raise Die(f'{handoff}: the {heading} section is empty', 5)
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')
-    if read(store, 'master.previous.name', empty=True):
+    if read(store, 'master.previous.name'):
         raise Die(f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first', 5)
     if agent_status(name) == 'absent':
         raise Die(f"master {name} is not live in {pane}; run this from the master's own session", 5)
@@ -152,22 +152,22 @@ def rotate_master(ctx, args):
         raise Die(f'rotate-master restarts a Claude master; {name} is {kind}', 5)
     model = model or detect_model_arg()
     session = herdr_session(name)
-    gen = read(store, 'master.generation', default=1)
+    gen = read(store, 'master.generation', '1')
     # A rotation that never finished already recorded this session; it keeps that generation instead of skipping one.
     sessions = listing(peek(load(store), 'master'), 'sessions')
     if sessions and not isinstance(sessions[-1], dict):
         raise damaged(f'master.sessions holds {json_type(sessions[-1])}, not an object')
-    if session and sessions and session == as_text(alt(sessions[-1].get('session'), '')):
-        gen = as_text(sessions[-1].get('generation'))
+    if session and sessions and session == text_at(sessions[-1], 'session'):
+        gen = text_at(sessions[-1], 'generation')
     gen_n = int(gen)
     next_gen = gen_n + 1
     # Herdr names are unique, so the new master holds a generation name until take-master frees the run's own.
     temp = f"{read(store, 'slug')}-master-g{next_gen}"
-    permission = read(store, 'master.permission_mode', empty=True) or mode_of_this_shell()
+    permission = read(store, 'master.permission_mode') or mode_of_this_shell()
     argv = list(permission_args('claude', permission))
     if model:
         argv += ['--model', model]
-    argv += mcp_args('claude')[0]
+    argv += mcp_args('claude')
     remote = os.environ.get('KITCHEN_MASTER_REMOTE_CONTROL', '1') != '0'
     if remote:
         argv += ['--remote-control', temp]
@@ -224,7 +224,7 @@ def take_master(ctx, args):
     pair_file(store)
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')
-    prev = read(store, 'master.previous.name', empty=True)
+    prev = read(store, 'master.previous.name')
     if not prev:
         sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
         return 0
@@ -236,7 +236,7 @@ def take_master(ctx, args):
     while agent_status(prev) == 'working' and int(time.time()) < deadline:
         time.sleep(env_float('KITCHEN_ROTATE_POLL_S', 2))
     # Close the pane only while it still holds the old master, or nothing.
-    host = as_text(alt(reply_at(herdr('agent', 'get', prev_pane)[1], 'result', 'agent', 'name', quiet=True), ''))
+    host = reply_at(herdr('agent', 'get', prev_pane)[1], 'result', 'agent', 'name', quiet=True) or ''
     closed = 'kept'
     if herdr('pane', 'get', prev_pane)[0] != 0:
         closed = 'gone'

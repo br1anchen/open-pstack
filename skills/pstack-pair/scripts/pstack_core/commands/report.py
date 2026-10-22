@@ -3,8 +3,7 @@ import subprocess
 
 from ..errors import Die, Exit
 from ..herdr import agent_status
-from ..review import jq_raw
-from ..store import (alt, event, expected_report, get, header_field, load, member, open_steers, steer_number, unit_name, update)
+from ..store import event, expected_report, field, header_field, load, member, open_steers, peek, steer_number, text_at, unit_name, update
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
 
@@ -25,12 +24,6 @@ def require_pair(store, times=1):
     """field() on a store without pair.json: pair_file's message, then jq's, and exit 2 from jq."""
     if not os.path.isfile(f'{store}/pair.json'):
         raise Exit(2, MISSING_PAIR.format(store=store) * times)
-
-
-def section(pair, name):
-    """pair.<name> as a dict, an empty one when it is null or not an object."""
-    value = pair.get(name)
-    return value if isinstance(value, dict) else {}
 
 
 def report(ctx, args):
@@ -54,7 +47,7 @@ def notify(ctx, args):
     word = 'ADVICE' if file.startswith(f'{store}/advice/') else 'REPORT'
     event(store, 'consultant' if word == 'ADVICE' else 'sidekick', word.lower(), file, header_field(file, 'status'))
     require_pair(store)
-    master = jq_raw(section(load(store), 'master').get('name'))
+    master = field(store, 'master', 'name')
     status = agent_status(master)
     if status in ('idle', 'done'):
         code = subprocess.run(['herdr', 'agent', 'prompt', master, f'{ctx.skill} {word} {file}'], stdout=subprocess.DEVNULL, check=False).returncode
@@ -74,16 +67,8 @@ def next_brief(ctx, args):
     if len(args) != 1:
         raise Die('usage: pair.sh next <store>')
     pair = load(args[0])
-    kind = jq_raw(section(pair, 'sidekick').get('kind'))
+    kind = text_at(peek(pair, 'sidekick'), 'kind')
     raise Die(f'a {kind} sidekick leaves the queue for the master to dispatch after a fresh session', 5)
-
-
-def sidekick_kind(store, sidekick):
-    """field "$store" .sidekick.kind: where `.sidekick` cannot be indexed jq says so (and the value reads empty)."""
-    if not isinstance(get(store, 'sidekick'), (dict, type(None))):
-        from ..store import field
-        return field(store, 'sidekick', 'kind')
-    return jq_raw(sidekick.get('kind'))
 
 
 def finish(ctx, args):
@@ -100,9 +85,8 @@ def finish(ctx, args):
     if not os.path.isfile(f'{store}/pair.json'):
         raise Exit(2, MISSING_PAIR.format(store=store) * (2 if status == 'done' else 1))
     pair = load(store)
-    dispatch = alt(pair.get('dispatch'), {})
-    dispatched = alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, '-')
-    if status == 'done' and report == expected_report(store, jq_raw(dispatched)):
+    dispatched = text_at(peek(pair, 'dispatch'), 'brief', '-')
+    if status == 'done' and report == expected_report(store, dispatched):
         head = header_field(report, 'head')
         if head == '' or head.startswith('<'):
             raise Die(f'{os.path.basename(report)}: a done report needs the report template\'s header, with head: <the unit\'s commit> '
@@ -115,14 +99,11 @@ def finish(ctx, args):
                           f'Resolve each as a fixup commit, record it with pair.sh step {store} <sha> <summary> --resolves <n-ids>, then finish again', 7)
             raise Die(f'{unit_name(report)}: {ready.why}; rewrite the report at the unit\'s last commit (head:), then finish again', 7)
     pair = load(store)
-    sidekick = section(pair, 'sidekick')
-    dispatch = alt(pair.get('dispatch'), {})
-    current = jq_raw(alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, ''))
-    kind = sidekick_kind(store, sidekick)
-    generation = jq_raw(alt(sidekick.get('generation'), 0))
-    if (status == 'done' and current and report == expected_report(store, current)
-            and jq_raw(alt(dispatch.get('generation') if isinstance(dispatch, dict) else None, 0)) == generation):
-        if jq_raw(alt(sidekick.get('rotation_required'), False)) != 'true':
+    sidekick, dispatch = peek(pair, 'sidekick'), peek(pair, 'dispatch')
+    current = text_at(dispatch, 'brief')
+    generation = text_at(sidekick, 'generation', '0')
+    if status == 'done' and current and report == expected_report(store, current) and text_at(dispatch, 'generation', '0') == generation:
+        if sidekick.get('rotation_required') is not True:
             update(store, lambda doc: member(doc, 'sidekick').__setitem__('rotation_required', True))
             event(store, 'sidekick', 'rotation-required', report, f'generation:{generation}')
     code = notify(ctx, [store, report])
@@ -133,8 +114,7 @@ def finish(ctx, args):
             print(f'late steer: {late} arrived after this report; record pair.sh progress {store} "steer s{steer_number(late)} late: reported" '
                   'and the master folds it into the next brief')
     pair = load(store)
-    sidekick = section(pair, 'sidekick')
-    if status == 'done' and jq_raw(alt(sidekick.get('rotation_required'), False)) == 'true':
+    if status == 'done' and peek(pair, 'sidekick').get('rotation_required') is True:
         print(f'rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate {store}')
     print(f'next: end the turn with the single line: {ctx.skill} REPORT {report}')
     return 0

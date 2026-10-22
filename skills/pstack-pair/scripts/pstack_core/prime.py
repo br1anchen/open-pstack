@@ -6,9 +6,8 @@ import subprocess
 import sys
 
 from .providers import record_prime_session
-from .review import jq_raw
-from .store import alt, load
-from .wait import as_text, json_values
+from .store import load, names, peek, text_at
+from .herdr import parse
 
 def with_timeout(seconds, argv, **kwargs):
     """The command with a time limit: exit 124 when it runs out (after a TERM), 127 when it is not there, as timeout(1) gives. Keyword
@@ -28,29 +27,20 @@ def with_timeout(seconds, argv, **kwargs):
     return subprocess.CompletedProcess(argv, child.returncode, out, err)
 
 
-def section(pair, role):
-    value = pair.get(role)
-    return value if isinstance(value, dict) else {}
-
-
 def daemon_socket(store, role):
     """The --daemon-socket the client was launched with, made absolute against its launch directory; '' when it had none."""
     pair = load(store)
-    start_args = section(pair, role).get('start_args')
-    if isinstance(start_args, dict):
-        start_args = list(start_args.values())
+    section = peek(pair, role)
     socket, take = '', False
-    for element in start_args if isinstance(start_args, list) else []:
-        for arg in as_text(element).split('\n'):
-            if take:
-                socket, take = arg, False
-            elif arg == '--daemon-socket':
-                take = True
-            elif arg.startswith('--daemon-socket='):
-                socket = arg.split('=', 1)[1]
+    for arg in names(section, 'start_args'):
+        if take:
+            socket, take = arg, False
+        elif arg == '--daemon-socket':
+            take = True
+        elif arg.startswith('--daemon-socket='):
+            socket = arg.split('=', 1)[1]
     if socket and not socket.startswith('/'):
-        base = section(pair, role).get('launch_cwd')
-        socket = f'{jq_raw(base if base not in (None, False) else pair.get("cwd"))}/{socket}'
+        socket = f'{text_at(section, "launch_cwd") or text_at(pair, "cwd")}/{socket}'
     return socket
 
 
@@ -78,8 +68,8 @@ def prime_sessions(store, role):
 def prime_active_session(store, role):
     """The live daemon id of the role's recorded session, by exact path or id (no prefix or name matching: another kitchen or the human may
     have a similar session name): '' when none is live, None, with the reason on stderr, when the answer is unknown or ambiguous."""
-    session = section(load(store), role).get('session')
-    if session is None or session is False or (isinstance(session, str) and session == ''):
+    session = peek(load(store), role).get('session')
+    if session is None or session is False or session == '':
         sys.stderr.write(f'no recorded Prime session for {role}; inspect its pane before cleanup\n')
         return None
     if not isinstance(session, dict):
@@ -100,22 +90,20 @@ def prime_active_session(store, role):
         if hit:
             matches.add(live)
     if len(matches) > 1:
-        sys.stderr.write(f'multiple live Prime sessions match {as_text(session)}; none was stopped\n')
+        sys.stderr.write(f'multiple live Prime sessions match {json.dumps(session, indent=2, ensure_ascii=False)}; none was stopped\n')
         return None
     return matches.pop() if matches else ''
 
 
 def steer_confirmed(receipt, active):
-    """Whether a `prime-agent send --json` receipt confirms the steer lane for the session `active`. A reply of several JSON values is judged
-    by its last one. A receipt that cannot be judged says why on stderr."""
-    values, ok = json_values(receipt)
-    if not ok:
-        sys.stderr.write('Prime steer receipt is not JSON\n')
-        return False
-    if not values:
+    """Whether a `prime-agent send --json` receipt confirms the steer lane for the session `active`. A receipt that cannot be judged says why on stderr."""
+    if not receipt.strip():
         sys.stderr.write('Prime steer receipt is empty\n')
         return False
-    last = values[-1]
+    last = parse(receipt)
+    if last is None and receipt.strip() != 'null':
+        sys.stderr.write('Prime steer receipt is not JSON\n')
+        return False
     if not isinstance(last, dict):
         sys.stderr.write('Prime steer receipt is not an object\n')
         return False

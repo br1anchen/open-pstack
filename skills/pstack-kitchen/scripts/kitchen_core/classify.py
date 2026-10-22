@@ -12,7 +12,7 @@ import sys
 from pstack_core.checkin import scope_entries
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
-from pstack_core.store import field, header_field, jq_raw, pair_file
+from pstack_core.store import field, header_field, pair_file
 
 from .kpy import Kitchen
 
@@ -89,9 +89,9 @@ def classify_brief(store, brief):
     if status != 0:
         raise Die(CLASSIFY_FAILED)
     data = json.loads(classified)
-    risk, verify = jq_raw(data.get('risk')), data['verify']
+    risk, verify = data.get('risk') or '', data['verify']
     profiles, escalate = data['profiles'], data['escalate']
-    verify_line = f'{jq_raw(verify.get("mode"))} by {jq_raw(verify.get("kind"))} verifier'
+    verify_line = f'{verify["mode"]} by {verify["kind"]} verifier'
     # The master may have written a reason after the class (`escalated (contract change)`): rewrite the line only when the class changes.
     if risk_of(brief) != risk:
         set_header(brief, 'risk', risk)
@@ -102,11 +102,11 @@ def classify_brief(store, brief):
     if status != 0:
         raise Die('kitchen.py lessons stamp failed; run kitchen.py lessons in the repo')
     lines = [f'profiles: {", ".join(profiles)}', f'verify: {verify_line}', *(f'escalate: {reason}' for reason in escalate)]
-    lines += [f'warn: {jq_raw(warning)}' for warning in data.get('warnings') or []]
+    lines += [f'warn: {warning}' for warning in data.get('warnings') or []]
     if data.get('bookkeeping'):
         lines.append('bookkeeping: the Scope is outside the repo; gates only, nothing to escalate')
     sys.stdout.write(''.join(f'{line}\n' for line in lines))
-    first_reason = escalate[0] if escalate else 'null'
+    first_reason = escalate[0] if escalate else ''
     if risk == 'escalated' and agent_status(field(store, 'consultant', 'name')) == 'absent':
         sys.stdout.write(f'next: kitchen.sh consultant {store} --reason "{first_reason}", then a plan round with it\n')
 

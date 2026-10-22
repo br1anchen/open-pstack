@@ -102,7 +102,7 @@ def claim_close(store, verdict):
     respected. False when the verification is gone or another call holds the claim."""
     here = hostname()
     token = f'{here}:{shell_pid()}:{random.randrange(32768)}'
-    current = read(store, 'verifying.closing.token', empty=True)
+    current = read(store, 'verifying.closing.token')
     if current:
         host = current.partition(':')[0]
         rest = current.partition(':')[2] if ':' in current else current
@@ -115,7 +115,7 @@ def claim_close(store, verdict):
             verifying['closing'] = {'token': token}
 
     update_verifying(store, verdict, apply)
-    return read(store, 'verifying.closing.token', empty=True) == token
+    return read(store, 'verifying.closing.token') == token
 
 
 def alt_token(closing):
@@ -144,7 +144,7 @@ def release_close(store, verdict, token):
 
 def my_claim(store):
     """Whether the claim in the store is this process's (the token names this host and pid)."""
-    return read(store, 'verifying.closing.token', empty=True).startswith(f'{hostname()}:{shell_pid()}:')
+    return read(store, 'verifying.closing.token').startswith(f'{hostname()}:{shell_pid()}:')
 
 
 def still_my_claim(store):
@@ -157,7 +157,7 @@ def still_my_claim(store):
 
 def verification_still_open(store, verdict):
     """A wait ends, touching nothing, when another call closed the verification it started on."""
-    if read(store, 'verifying.verdict', empty=True) == verdict:
+    if read(store, 'verifying.verdict') == verdict:
         return
     sys.stdout.write('verification closed elsewhere\n')
     raise Exit(5)
@@ -227,7 +227,7 @@ def run_close(ctx, store, name, kind, pane, verdict):
     if rc == 70:
         return False
     if my_claim(store):
-        release_close(store, verdict, read(store, 'verifying.closing.token', empty=True))
+        release_close(store, verdict, read(store, 'verifying.closing.token'))
     raise Exit(rc)
 
 
@@ -293,7 +293,7 @@ def handoff_due(store, unit):
 
 def verify_cancel(ctx, store):
     """Cancels the open verification that has no verdict yet: its verifier and pane stop, its scratch goes, and `.verifying` is cleared."""
-    verdict = read(store, 'verifying.verdict', empty=True)
+    verdict = read(store, 'verifying.verdict')
     if not verdict:
         raise Die('no verification open', 5)
     if os.path.isfile(verdict) and header_field(verdict, 'status'):

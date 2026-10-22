@@ -17,8 +17,8 @@ from pstack_core.commands import spawn as core_spawn
 from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
-from pstack_core.store import alt, field, damaged, event, jq_raw, json_type, listing, load, member, now, pair_file, update
-from pstack_core.wait import as_text, end_with_parent
+from pstack_core.store import field, damaged, event, json_type, listing, load, member, now, pair_file, text_at, update
+from pstack_core.wait import end_with_parent
 
 from . import kpy
 from .units import git, git_root, has_pair
@@ -29,7 +29,7 @@ def last_build_path(builds):
     last = builds[-1]
     if not isinstance(last, dict):
         raise damaged(f'skill_builds holds {json_type(last)}, not an object')
-    return jq_raw(last.get('path'))
+    return text_at(last, 'path')
 
 
 def record_skill_build(ctx, store):
@@ -38,11 +38,10 @@ def record_skill_build(ctx, store):
     skills_dir = os.path.dirname(ctx.skill_root)
     if not has_pair(store, quiet=True):
         return
-    builds = alt(load(store).get('skill_builds'), None)
-    if builds is None:
+    raw = load(store).get('skill_builds')
+    if raw is None or raw is False:
         return
-    if not isinstance(builds, list):
-        raise damaged(f'skill_builds is {json_type(builds)}, not an array')
+    builds = listing(load(store), 'skill_builds')
     if builds and last_build_path(builds) == skills_dir:
         return
 
@@ -93,10 +92,10 @@ def init(ctx, args):
     data = json.loads(found)
     if b'kitchen.toml review.self' not in text and (data.get('self') or []):
         with open(orders, 'a') as f:
-            f.write(f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {", ".join(jq_raw(s) for s in data["self"])} (kitchen.toml review.self).\n')
+            f.write(f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {", ".join(data["self"])} (kitchen.toml review.self).\n')
     if b'kitchen.toml landing.mode' not in text:
         with open(orders, 'a') as f:
-            f.write(f'17. Landing goes as far as `{jq_raw(data.get("landing"))}` (kitchen.toml landing.mode) and never merges.\n')
+            f.write(f'17. Landing goes as far as `{data.get("landing") or ""}` (kitchen.toml landing.mode) and never merges.\n')
     worktree_setup(store, found)
     return 0
 
@@ -129,20 +128,20 @@ def roster_json():
     return out.rstrip('\n')
 
 
-def roster_text(roster, *keys, empty=False):
-    """`jq -r '.a.b'`, or `.a.b // empty`, on kitchen.py's roster, which prints each role as an object and every args as a list of strings."""
+def roster_text(roster, *keys):
+    """The string at keys in kitchen.py's roster, which prints each role as an object and every args as a list of strings; '' when it is null."""
     value = roster
     for key in keys:
         value = value[key]
-    return as_text(alt(value, '') if empty else value)
+    return value or ''
 
 
 def roster_lines(roster, *keys):
-    """`mapfile -t array < <(jq -r '.a.b[]?')`: the elements of an array, each as its printed text."""
+    """The list at keys in kitchen.py's roster."""
     value = roster
     for key in keys:
         value = value[key]
-    return [as_text(item) for item in value]
+    return list(value)
 
 
 def spawn(ctx, args):
@@ -217,7 +216,7 @@ def consultant(ctx, args):
         kind = roster_text(roster, 'consultant', 'kind')
         if not native:
             native = roster_lines(roster, 'consultant', 'args')
-        fallback = roster_text(roster, 'consultant', 'fallback', 'kind', empty=True)
+        fallback = roster_text(roster, 'consultant', 'fallback', 'kind')
         fb_args = roster_lines(roster, 'consultant', 'fallback', 'args')
     if not kind:
         raise Die('no --kind and no [consultant] kind in the host roster')

@@ -7,8 +7,7 @@ import time
 
 from ..errors import Die
 from ..herdr import agent_status
-from ..review import jq_raw
-from ..store import alt, header_field, load, newest, paused_reason, peek, read_text, suffix_number, unit_name
+from ..store import header_field, load, names, newest, paused_reason, peek, read_text, suffix_number, text_at, unit_name
 
 
 class NoPairJson(Exception):
@@ -46,10 +45,6 @@ def latest(store, directory, seq=None):
     return newest(glob.glob(os.path.join(glob.escape(store), directory, pattern)))
 
 
-def role_field(pair, role, key):
-    return peek(pair, role).get(key)
-
-
 def lines(ctx, store, out):
     consultant = 'consultant' in ctx.roles
     out.write(f'# {ctx.store_label} status\n\n')
@@ -57,11 +52,12 @@ def lines(ctx, store, out):
     if not os.path.isfile(f'{store}/pair.json'):
         raise NoPairJson(store)
     pair = load(store)
-    name = jq_raw(role_field(pair, 'master', 'name'))
-    out.write(f'master: {name} ({jq_raw(role_field(pair, "master", "pane_id"))}) {agent_status(name)}\n')
+    master = peek(pair, 'master')
+    name = text_at(master, 'name')
+    out.write(f'master: {name} ({text_at(master, "pane_id")}) {agent_status(name)}\n')
     for role in ctx.roles:
-        name = jq_raw(role_field(pair, role, 'name'))
-        pane = jq_raw(alt(role_field(pair, role, 'pane_id'), 'unassigned'))
+        name = text_at(peek(pair, role), 'name')
+        pane = text_at(peek(pair, role), 'pane_id', 'unassigned')
         out.write(f'{role}: {name} ({pane}) {agent_status(name)}\n')
     out.write('\n')
     if consultant:
@@ -108,14 +104,11 @@ def lines(ctx, store, out):
         out.write(f'queued: {read_text(f"{store}/queue").rstrip(chr(10))}\n')
     if os.path.isfile(f'{store}/paused'):
         out.write(f'paused: {paused_reason(store)}\n')
-    scratch = alt(pair.get('scratch'), [])
-    if isinstance(scratch, list):
-        text = '\n'.join(jq_raw(v) if not isinstance(v, (dict, list)) else json.dumps(v, separators=(',', ':')) for v in scratch).rstrip('\n')
-        if text:
-            words = [w for w in re.split(r'[ \t\n]+', text) if w]
-            out.write('\nopen scratch worktrees (remove with pair.sh scratch <store> <id> --remove):\n')
-            for w in words or ['']:
-                out.write(f'  {w}\n')
+    scratch = [w for line in names(pair, 'scratch') for w in line.split()]
+    if scratch:
+        out.write('\nopen scratch worktrees (remove with pair.sh scratch <store> <id> --remove):\n')
+        for w in scratch:
+            out.write(f'  {w}\n')
     if os.path.isdir(f'{store}/answers'):
         asks = 0
         for f in glob.glob(os.path.join(glob.escape(store), 'reports', '[0-9][0-9][0-9]-*-q[0-9]*.md')):

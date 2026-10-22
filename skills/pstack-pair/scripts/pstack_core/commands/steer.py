@@ -10,10 +10,9 @@ from ..herdr import agent_status
 from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
-from ..store import event, header_field, member, names, newest, unit_name, update
+from ..store import event, field, header_field, member, names, newest, unit_name, update
 from ..wait import end_with_parent, owned_wait, wait_opts
 from .report import in_herdr, require_pair
-from .stop import role_value
 
 USAGE = 'usage: pair.sh steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]'
 
@@ -78,7 +77,7 @@ def steer(ctx, args):
     if not re.fullmatch(r'none|may write: \S.*|may write "[^"]+"(?: and "[^"]+")*|must not write: \S.*', effect):
         raise Die(f'{steer_path}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"')
     require_pair(store)
-    name = role_value(store, 'sidekick', 'name')
+    name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     message = f'{ctx.skill} STEER {steer_path}'
     if status == 'working':
@@ -89,7 +88,7 @@ def steer(ctx, args):
             if not herdr_ok('agent', 'wait', name, '--until', 'idle', '--until', 'done', '--until', 'blocked', '--timeout', '15000'):
                 raise Die(f'sidekick {name} did not settle after esc; inspect: herdr agent read {name} --source visible --lines 60', 3)
         event(store, 'master', 'send-steer', steer_path, 'working')
-        kind = role_value(store, 'sidekick', 'kind')
+        kind = field(store, 'sidekick', 'kind')
         if kind == 'devin' and not interrupt:
             # Devin parks a mid-turn message as queued, and the Enter that would deliver it cancels the running command. The steer stays in
             # the store; the sidekick's next step, notes, or progress prints it.

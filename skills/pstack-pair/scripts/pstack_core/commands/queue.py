@@ -4,9 +4,8 @@ from ..errors import Die
 from ..gates import check_scope, require_not_paused
 from ..herdr import agent_status
 from ..replies import queued_brief
-from ..review import jq_raw, require_filled
-from ..store import alt, event, pair_file, load
-from .report import section
+from ..review import require_filled
+from ..store import event, pair_file, load, peek, text_at
 from .send import store_relative
 
 
@@ -38,12 +37,12 @@ def queue(ctx, args):
     require_not_paused(store)
     require_filled(ctx, brief)
     pair = load(store)
-    check_scope(brief, jq_raw(alt(pair.get('git_root'), pair.get('cwd'))))
+    check_scope(brief, text_at(pair, 'git_root') or text_at(pair, 'cwd'))
     ctx.variant.require_agreed_plan(ctx, store, brief)
     queued = queued_brief(store)
     if queued and queued != brief and not replace:
         raise Die(f'the queue holds {queued}; pass --replace to swap it', 5)
-    name = jq_raw(section(pair, 'sidekick').get('name'))
+    name = text_at(peek(pair, 'sidekick'), 'name')
     status = agent_status(name)
     if status in ('idle', 'done'):
         raise Die(f'sidekick {name} is {status}; dispatch instead: pair.sh dispatch {store} {brief}', 5)

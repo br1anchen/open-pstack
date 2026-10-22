@@ -6,8 +6,8 @@ import sys
 from ..errors import Die
 from ..herdr import agent_status
 from ..prime import prime_steer
-from ..review import jq_raw, noted_through, open_notes, require_filled, review_base, steps_file
-from ..store import (alt, dispatched_brief, event, fill_template, get, header_field, int_or_none, note_id, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text)
+from ..review import noted_through, open_notes, require_filled, review_base, steps_file
+from ..store import (count, dispatched_brief, event, field, fill_template, header_field, load, peek, int_or_none, note_id, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text)
 
 
 def blocking_lines(path):
@@ -97,12 +97,11 @@ def deliver_blocking_note(ctx, store, path):
     The text to append to the published line, empty when the sidekick is not working."""
     from .. import cli
     from .steer import herdr_ok, park_for_devin
-    from .stop import role_value
-    name = role_value(store, 'sidekick', 'name')
+    name = field(store, 'sidekick', 'name')
     if agent_status(name) != 'working':
         return ''
     message = f'{ctx.skill} NOTE {path}'
-    kind = role_value(store, 'sidekick', 'kind')
+    kind = field(store, 'sidekick', 'kind')
     if kind == 'devin':
         park_for_devin(store, path, 'notice_notes')
         return f"; left for {name}: it lands at the sidekick's next {cli.PROG} step, notes, or progress, between tool calls"
@@ -140,10 +139,8 @@ def new_note(ctx, args):
         raise Die(f'unit {seq} has no steps recorded')
     done = noted_through(store, unit)
     if not through:
-        shown_map = alt(get(store, 'shown'), {})
-        shown = alt(shown_map.get(unit) if isinstance(shown_map, dict) else None, '')
-        shown = jq_raw(shown) if shown != '' else ''
-        through = shown if re.fullmatch(r'-?[0-9]+', shown) and int(shown) > done else ''
+        shown = count(peek(load(store), 'shown'), unit)
+        through = str(shown) if shown > done else ''
     steps = count_lines(file)
     k = through or str(steps)
     if not (re.fullmatch(r'[0-9]+', k) and int(k) <= steps):

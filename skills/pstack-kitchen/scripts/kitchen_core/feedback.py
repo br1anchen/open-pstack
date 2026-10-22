@@ -13,9 +13,9 @@ import time
 from pstack_core.checkin import iso_epoch
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import herdr
-from pstack_core.wait import as_text, reply_at
+from pstack_core.herdr import reply_at
 from pstack_core.replies import file_mtime
-from pstack_core.store import alt, damaged, field, event, header_field, jq_raw, json_type, load, pair_file
+from pstack_core.store import damaged, field, event, header_field, json_type, listing, load, pair_file, text_at
 
 from . import kpy
 from .ledger import counters, retro_line, slug_of
@@ -129,25 +129,19 @@ def maintainer_record(path):
     return doc
 
 
-def registered(record, key, empty=False):
-    """The text of a maintainer.json field; empty for a file that could not be read."""
-    if record is None:
-        return ''
-    value = record.get(key)
-    return as_text(alt(value, '') if empty else value)
+def registered(record, key):
+    """The text of a maintainer.json field; empty for a file that could not be read or a field that is no string."""
+    value = (record or {}).get(key)
+    return value if isinstance(value, str) else ''
 
 
 def first_build(store):
     """The path of the first skills build pair.json lists, empty for a run from before the stamps."""
-    builds = alt(load(store).get('skill_builds'), None)
-    if builds is None:
-        return ''
-    if not isinstance(builds, list):
-        raise damaged(f'skill_builds is {json_type(builds)}, not an array')
+    builds = listing(load(store), 'skill_builds')
     first = builds[0] if builds else None
     if first is not None and not isinstance(first, dict):
         raise damaged(f'skill_builds holds {json_type(first)}, not an object')
-    return as_text(alt((first or {}).get('path'), ''))
+    return text_at(first or {}, 'path')
 
 
 def rm_f(path):
@@ -257,14 +251,14 @@ def maintainer_problem(fb, record=NOT_READ):
     if not os.path.isfile(file):
         return 'no maintainer is registered'
     record = maintainer_record(file) if record is NOT_READ else record
-    name, pane, session = registered(record, 'name'), registered(record, 'pane'), registered(record, 'session', empty=True)
+    name, pane, session = registered(record, 'name'), registered(record, 'pane'), registered(record, 'session')
     code, info = herdr('agent', 'get', name)
     if code != 0:
         return f'agent {name} is gone'
     info = info.rstrip('\n')
-    if as_text(alt(reply_at(info, 'result', 'agent', 'pane_id'), '')) != pane:
+    if (reply_at(info, 'result', 'agent', 'pane_id') or '') != pane:
         return f'agent {name} moved off pane {pane}'
-    if session and as_text(alt(reply_at(info, 'result', 'agent', 'agent_session', 'value'), '')) != session:
+    if session and (reply_at(info, 'result', 'agent', 'agent_session', 'value') or '') != session:
         return f'agent {name} is a different session than the one registered'
     return f'agent {name} is blocked on a dialog' if reply_at(info, 'result', 'agent', 'agent_status') == 'blocked' else ''
 
@@ -298,10 +292,10 @@ def file_report(ctx, args):
     os.makedirs(f'{fb}/done', exist_ok=True)
     pair = load(store)
     first = first_build(store)
-    run = jq_raw(pair.get('slug'))
+    run = text_at(pair, 'slug')
     counts = counters(store)
-    repo = jq_raw(counts.get('repo'))
-    git_root = jq_raw(pair.get('git_root'))
+    repo = text_at(counts, 'repo')
+    git_root = text_at(pair, 'git_root')
     if not repo:
         repo = os.path.basename(git_root.rstrip('/')) if git_root.rstrip('/') else '/'
     retro = retro_line(store, counts)
@@ -384,15 +378,15 @@ def maintainer(ctx, args):
         agent = reply_at(info, 'result', 'agent')
         agent = agent if isinstance(agent, dict) else {}
         session = agent.get('agent_session')
-        record = {'name': agent.get('name'), 'pane': agent.get('pane_id'), 'session': alt(session.get('value') if isinstance(session, dict) else None, None),
+        record = {'name': agent.get('name'), 'pane': agent.get('pane_id'), 'session': session.get('value') if isinstance(session, dict) else None,
                   'since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
         with open(tmp, 'wb') as out:
-            out.write((as_text(record) + '\n').encode('utf-8', 'surrogateescape'))
-        if as_text(alt(record['name'], '')) == '':
+            out.write((json.dumps(record, indent=2, ensure_ascii=False) + '\n').encode('utf-8', 'surrogateescape'))
+        if not record['name']:
             rm_f(tmp)
             raise Die(f'herdr reports no name for the agent on pane {pane}; name it first')
         mv(tmp, file)
-        sys.stdout.write(f'maintainer: {as_text(record["name"])} on {as_text(record["pane"])}\n')
+        sys.stdout.write(f'maintainer: {record["name"]} on {record["pane"] or ""}\n')
         return 0
     if sub == 'off':
         rm_f(file)

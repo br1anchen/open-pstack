@@ -8,7 +8,7 @@ import time
 
 from pstack_core.errors import Die
 from pstack_core.store import field, newest
-from pstack_core.store import alt, header_field, jq_raw, pair_file, load
+from pstack_core.store import header_field, pair_file, load, read
 
 
 def basename(path):
@@ -49,10 +49,10 @@ def handoff_units(store):
         out.append(f'| {seq} {slug} | {rstatus or "-"} | {vstatus or "-"} | {rv or "-"} |')
     text = '\n'.join(out) + '\n'
     # a .dispatch or .verifying that is not an object is damage, found where it is read
-    brief = field(store, 'dispatch', 'brief', empty=True)
+    brief = field(store, 'dispatch', 'brief')
     if brief:
         text += f'\ndispatched: {basename(brief)}\n'
-    unit = field(store, 'verifying', 'unit', empty=True)
+    unit = field(store, 'verifying', 'unit')
     if unit:
         text += f'verifying: {unit}\n'
     queued = queued_brief(store)
@@ -73,7 +73,7 @@ def new_handoff(ctx, args):
     units = handoff_units(store).rstrip('\n')
     with open(f'{ctx.skill_root}/references/handoff-template.md', encoding='utf-8', errors='surrogateescape') as f:
         text = f.read()
-    for key, value in {'SLUG': jq_raw(pair.get('slug')), 'STORE': store, 'GENERATION': generation,
+    for key, value in {'SLUG': read(store, 'slug'), 'STORE': store, 'GENERATION': generation,
                        'WRITTEN': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'UNITS': units}.items():
         text = text.replace('{{' + key + '}}', value)
     with open(path, 'w', encoding='utf-8', errors='surrogateescape') as f:
