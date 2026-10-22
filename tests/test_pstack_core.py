@@ -262,7 +262,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('advice', 'consult', 'discuss', 'new-consult', 'spawn', 'stop'), 'pstack-kitchen': ('__record_skill_build', 'advice', 'catch', 'classify', 'close', 'consult', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-consult', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer', 'new-answer', 'new-direction'), 'pstack-trio': ('advice', 'consult', 'discuss', 'new-consult', 'spawn', 'stop'), 'pstack-kitchen': ('__record_skill_build', 'advice', 'catch', 'classify', 'close', 'consult', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-consult', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -3281,7 +3281,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
     # The bash bodies no entry script reaches. Phase 3 ended with none: a body that loses its last caller is deleted in the commit that orphans it,
     # and the guard has no baseline to add it to.
-    KNOWN_DEAD = ()
+    # U7b ported the last two callers (guided new-direction and new-answer); pair-core.sh is off limits to that unit and U7c deletes it whole.
+    KNOWN_DEAD = ('pstack-pair/scripts/pair-core.sh:header_field', 'pstack-pair/scripts/pair-core.sh:pair_file')
 
     def reach(self):
         cls = type(self)
@@ -3291,7 +3292,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         return cls._reach
 
     def test_every_bash_function_runs_from_an_entry_script_or_is_known_dead(self):
-        self.assertEqual(self.KNOWN_DEAD, ())
         reach = self.reach()
         dead, known = reach.dead(), set(self.KNOWN_DEAD)
         problems = [f'{k} has no caller from any entry script: delete its bash body' for k in sorted(dead - known)]
