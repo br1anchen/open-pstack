@@ -1066,6 +1066,39 @@ class CoreTests(unittest.TestCase):
                                            capture_output=True, text=True, check=False, timeout=120)
         return top, st, run
 
+    # Each template that declares a status: line, and the command its writer runs on the file. A new template must be added here.
+    STATUS_READERS = {
+        'report-template.md': 'finish', 'plan-response-template.md': 'finish', 'steer-response-template.md': 'finish', 'ask-template.md': 'finish',
+        'advice-template.md': 'notify', 'plan-advice-template.md': 'notify',
+        'note-template.md': None,  # pair.sh note reads it (blocking, clear)
+        'verdict-template.md': None,  # kitchen.sh verify reads it (clean, reject, inconclusive)
+    }
+
+    def test_finish_and_notify_take_every_status_a_template_tells_a_role_to_write(self):
+        sent = {}
+        for template in sorted(root.glob('skills/*/references/*template*.md')):
+            line = re.search(r'^status: *(.+)$', template.read_text(), re.M)
+            if not line:
+                continue
+            self.assertIn(template.name, self.STATUS_READERS, f'{template.relative_to(root)} declares a status; name the command that reads it')
+            command = self.STATUS_READERS[template.name]
+            for value in re.split(r'\s*\|\s*', line.group(1).strip('{} ')):
+                if command:
+                    sent.setdefault((command, value), template.relative_to(root))
+        self.assertIn(('finish', 'done'), sent, 'no report template found under skills/*/references')
+        top, st, run = self.own_world('status-contract', files={})
+        (st / 'contract').mkdir()
+        refused = []
+        for (command, value), template in sorted(sent.items()):
+            path = st / 'contract' / f'{command}-{value}.md'
+            path.write_text(f'# C\n\nstatus: {value}\n')
+            r = run(command, '{st}', str(path))
+            if r.returncode:
+                refused.append(f'{command} refuses status: {value}, which {template} tells a role to write (exit {r.returncode}): {r.stderr.strip()}')
+        if refused:
+            self.fail('\n'.join(refused))
+
+
     def test_a_newer_wait_supersedes_the_older_and_the_wait_that_returns_releases_the_store(self):
         # A2. The fake herdr's once hook plays the newer wait at a fixed poll: it writes its own owner into wait.pid while this wait sits in
         # `agent wait`; this wait sees another owner at its next poll, says so, ends with 4 and marks nothing seen.

@@ -22,10 +22,10 @@ require_tests = true
 verify = "batch"
 sample = 0.2
 
-# The skill text and references: links and inventory, no tests needed.
+# The skill text and references: links and inventory, plus the template-status contract test; no other tests needed.
 [profile.pstack-docs]
 paths = ["skills/**", "README.md", "AGENTS.md", "LICENSE", ".agents/LESSONS.md"]
-fast = ["python3 scripts/check-pstack.py"]
+fast = ["python3 scripts/check-pstack.py", "python3 tests/run.py -k template_tells_a_role"]
 verify = "gates"
 sample = 0.0
 
