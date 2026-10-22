@@ -22,7 +22,7 @@ import time
 
 from pstack_core.commands import report as core_report, step as core_step
 from pstack_core.store import (
-    Die, Exit, env_float, env_int, event, expected_report, field, header_field, int_or_none, last_line, pair_file, read, read_text, unit_name,
+    Die, Exit, env_float, env_int, event, expected_report, field, header_field, int_or_none, last_line, pair_file, prog, read, read_text, unit_name,
 )
 from pstack_core.replies import file_mtime
 from pstack_core.review import range_floor, steps_file
@@ -79,13 +79,14 @@ def remove_path(path):
 
 def point_at(link, target):
     """Make link a symbolic link to target, replacing what was there."""
-    fresh = f'{link}.new'
+    fresh = f'{link}.{os.getpid()}'
     try:
         remove_path(fresh)
         os.symlink(target, fresh)
         os.replace(fresh, link)
-    except OSError:
-        pass
+    except OSError as e:
+        remove_path(fresh)
+        sys.stderr.write(f'{prog()}: cannot point {link} at {target}: {os.strerror(e.errno)}\n')
 
 
 def queue_line(log):

@@ -680,6 +680,14 @@ class CoreTests(unittest.TestCase):
                          101: dict(ppid=1, comm='codex', argv=['/opt/some-long-directory/codex', '--ask-for-approval', 'never'])})
         self.assertEqual(permission.detect(100, str(self.path / 'cwd'), str(self.path / 'home'), ''), 'dontAsk')
         self.assertEqual(permission.detect(5, str(self.path / 'cwd'), str(self.path / 'home'), ''), 'auto')
+        self.tree({100: dict(ppid=101, comm='bash', argv=['bash']),
+                   101: dict(ppid=1, comm='node', argv=['/usr/local/lib/node_modules/@openai/codex-linux-x64-with-a-long-name/bin/codex-agent',
+                                                         '--ask-for-approval=never'])})
+        self.assertEqual(procinfo.read(101).comm, 'node')
+        self.assertEqual(permission.detect(100, str(self.path / 'cwd'), str(self.path / 'home'), ''), 'dontAsk')
+        self.tree({100: dict(ppid=1, comm='a-very-long-executable-name', argv=['/x/a-very-long-executable-name', '--ask-for-approval=never'])})
+        self.assertEqual(procinfo.read(100).comm, 'a-very-long-exe')
+        self.assertEqual(procinfo.read(100).argv[0], '/x/a-very-long-executable-name')
 
     def test_detect_reads_the_agent_above_the_shell_and_stops_after_twelve_hops(self):
         shell = (101, 'bash', 'bash')
@@ -2113,7 +2121,7 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('20261009-repo-z', out['a dangling link in the inbox is skipped']['stdout'])
         self.assertIn('20261003-repo-a', out['a dangling link in done does not hide a report']['stdout'])
         self.assertEqual(out['a close whose rm fails keeps the lock']['rc'], 1)
-        self.assertRegex(out['a close whose rm fails keeps the lock']['stderr'], r'\A(?:.*\n)?pair\.sh: cannot remove <T>/state/pstack/feedback/inbox/20261003-repo-a\.md: Permission denied\n\Z')
+        self.assertEqual(out['a close whose rm fails keeps the lock']['stderr'], 'pair.sh: cannot remove <T>/state/pstack/feedback/inbox/20261003-repo-a.md: Permission denied\n')
         self.assertIn('pstack/feedback/.lock/', out['a close whose rm fails keeps the lock']['state'])
         self.assertNotIn('pstack/feedback/.lock/', out['closing a report']['state'])
         self.assertIn('pstack/feedback/.lock/', out['closing with no done directory']['state'])
@@ -2147,8 +2155,8 @@ class CoreTests(unittest.TestCase):
                          (1, f'pair.sh: cannot move {made} to {target}: No such file or directory\n'))
         self.assertEqual(feedback.aligned([['a', 'bb', 'c'], ['ddd', 'e']]), ['a    bb  c', 'ddd  e'])
 
-    def test_init_stop_and_scratch_name_the_path_they_could_not_create_or_remove_in_their_own_words(self):
-        from pstack_core.commands import init as init_command, scratch as scratch_command, stop as stop_command
+    def test_init_and_stop_name_the_path_they_could_not_create_or_remove_in_their_own_words(self):
+        from pstack_core.commands import init as init_command, stop as stop_command
         plain = self.path / 'a-file'
         plain.write_text('x')
         with self.assertRaises(Exit) as made:
@@ -2160,6 +2168,23 @@ class CoreTests(unittest.TestCase):
             stop_command.clear_queue(str(store))
         self.assertEqual((stuck.exception.code, stuck.exception.stderr), (1, f'pair.sh: cannot remove {store}/queue: Is a directory\n'))
         (store / 'queue').rmdir()
+        skills = self.path / 'skill-root'
+        (skills / 'references').mkdir(parents=True)
+        orders = self.path / 'standing-orders.md'
+        orders.mkdir()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            init_command.install_standing_orders(str(skills), str(orders))
+        source = f'{skills}/references/standing-orders-template.md'
+        self.assertEqual(err.getvalue(), f'pair.sh: cannot copy {source} to {orders}: No such file or directory\n')
+        (skills / 'references/standing-orders-template.md').write_text('t\n')
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            init_command.install_standing_orders(str(skills), str(orders))
+        self.assertEqual(err.getvalue(), f'pair.sh: cannot copy {source} to {orders}: Is a directory\n')
+        orders.rmdir()
+        init_command.install_standing_orders(str(skills), str(orders))
+        self.assertEqual((orders.read_text(), os.stat(orders).st_mode & 0o200), ('t\n', 0o200))
         (store / 'queue').write_text('x')
         with self.assertRaises(Exit):
             stop_command.clear_queue(str(store))
@@ -2184,6 +2209,11 @@ class CoreTests(unittest.TestCase):
         step.point_at(str(job / 'out'), 'out.1')
         step.point_at(str(job / 'out'), 'out.2')
         self.assertEqual((os.readlink(job / 'out'), sorted(os.listdir(job))), ('out.2', ['out']))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            step.point_at(str(job / 'missing' / 'out'), 'out.3')
+        self.assertEqual(err.getvalue(), f'pair.sh: cannot point {job}/missing/out at out.3: No such file or directory\n')
+        self.assertEqual(sorted(os.listdir(job)), ['out'])
 
     def test_the_kitchen_verify_block_names_a_brief_it_cannot_read_in_its_own_words(self):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
@@ -2294,6 +2324,8 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(out[name]['rc'], 0, name)
             self.assertIn('maintainer: ', out[name]['stdout'], name)
             self.assertRegex(out[name]['stderr'], r'maintainer\.json is (not JSON|\w+, not an object)', name)
+        self.assertEqual((out['off whose rm fails']['rc'], out['off whose rm fails']['stderr']),
+                         (1, 'pair.sh: cannot remove <T>/state/pstack/feedback/maintainer.json: Is a directory\n'))
         self.assertIn('moved off pane p7', out['status when herdr answers an agent of null']['stdout'])
         self.assertIn('herdr reply is not JSON\n', out['status when herdr answers text that is not JSON']['stderr'])
         self.assertIn('herdr reply has no object on the way to result.agent.pane_id\n', out['status when herdr answers a result that is a string']['stderr'])

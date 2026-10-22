@@ -3,6 +3,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import time
 
 from ..store import Die, Exit, prog, TEXT, _dumps, event, member, update
@@ -20,6 +21,20 @@ def make_dir(path):
         os.makedirs(path, exist_ok=True)
     except OSError as e:
         raise Exit(1, f'{prog()}: cannot create {e.filename or path}: {os.strerror(e.errno)}\n') from None
+
+
+def install_standing_orders(skill_root, orders):
+    """Copy the template to orders and make the copy writable; a failure is said on stderr and init goes on."""
+    source = f'{skill_root}/references/{STANDING_ORDERS_TEMPLATE}'
+    try:
+        shutil.copyfile(source, orders)
+    except OSError as e:
+        sys.stderr.write(f'{prog()}: cannot copy {source} to {orders}: {os.strerror(e.errno)}\n')
+        return
+    try:
+        os.chmod(orders, os.stat(orders).st_mode | stat.S_IWUSR)
+    except OSError as e:
+        sys.stderr.write(f'{prog()}: cannot make {orders} writable: {os.strerror(e.errno)}\n')
 
 
 def git_root():
@@ -100,11 +115,7 @@ def run(ctx, args):
     # The template comes from a read-only install, so give the copy its own mode.
     orders = f'{store}/standing-orders.md'
     if not os.path.isfile(orders):
-        try:
-            shutil.copyfile(f'{ctx.skill_root}/references/{STANDING_ORDERS_TEMPLATE}', orders)
-            os.chmod(orders, os.stat(orders).st_mode | stat.S_IWUSR)
-        except OSError:
-            pass
+        install_standing_orders(ctx.skill_root, orders)
     if not os.path.isfile(f'{store}/gates.md'):
         write_new(f'{store}/gates.md', GATES)
     if not os.path.isfile(f'{store}/decisions.tsv'):
