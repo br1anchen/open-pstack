@@ -305,9 +305,14 @@ def consult(ctx, args):
         print(f'advice: {advice}')
         print(f"advice_status: {header_field(advice, 'status')}")
         event(store, 'master', 'wake', advice, f"advice:{header_field(advice, 'status')}")
-        return 3 if status == 'blocked' else 0
+        if status == 'blocked':
+            return 3
+        return 0
+    if status == 'blocked':
+        print('advice: missing')
+        return 3
     print('advice: missing')
-    return 3 if status == 'blocked' else 4
+    return 4
 
 
 def advice(ctx, args):

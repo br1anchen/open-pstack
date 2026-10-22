@@ -87,6 +87,16 @@ def mask(text):
     return [row.split('\t', 2)[2] for row in text.splitlines()]
 
 
+def event_log(*calls, dedupe='1'):
+    """The rows (without their stamp) that store.event writes for (epoch, 'actor event unit detail') calls made at those epoch seconds."""
+    with tempfile.TemporaryDirectory() as directory:
+        with mock.patch.dict(os.environ, {'PAIR_EVENT_DEDUPE': dedupe}):
+            for epoch, args in calls:
+                with mock.patch('time.time', return_value=float(epoch)):
+                    store.event(directory, *args.split(' ', 3))
+        return [row.split('\t', 1)[1] for row in (Path(directory) / 'events.tsv').read_text().splitlines()]
+
+
 class CoreTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -136,42 +146,30 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         r = self.pair_py('nope')
         self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: unknown command: nope\n'))
 
-    def test_event_matches_bash(self):
-        a, b = self.path / 'a', self.path / 'b'
+    def test_event_writes_one_row_per_call_with_the_unit_as_a_name(self):
+        a = self.path / 'a'
         a.mkdir()
-        b.mkdir()
         for unit in ('-', 'reports/003-x.md', ''):
-            self.bash(f'event {a} master log {unit!r} "p: d"')
-            store.event(str(b), 'master', 'log', unit, 'p: d')
-        self.bash(f'event {a} sidekick step - ""')
-        store.event(str(b), 'sidekick', 'step', '-', '')
-        text = (b / 'events.tsv').read_text()
-        self.assertEqual(mask(text), mask((a / 'events.tsv').read_text()))
-        self.assertEqual(len(text.splitlines()), 4)
+            store.event(str(a), 'master', 'log', unit, 'p: d')
+        store.event(str(a), 'sidekick', 'step', '-', '')
+        text = (a / 'events.tsv').read_text()
+        self.assertEqual(mask(text), ['master\tlog\t-\tp: d', 'master\tlog\t003-x\tp: d', 'master\tlog\t-\tp: d', 'sidekick\tstep\t-\t'])
 
     def test_the_first_event_in_a_new_store_is_the_first_line_of_events_tsv(self):
-        a, b = self.path / 'a', self.path / 'b'
+        a = self.path / 'a'
         a.mkdir()
-        b.mkdir()
-        self.bash(f'event {a} master init - pstack-pair')
-        store.event(str(b), 'master', 'init', '-', 'pstack-pair')
-        for d in (a, b):
-            rows = (d / 'events.tsv').read_text().splitlines()
-            self.assertEqual([r.split('\t', 2)[2] for r in rows], ['master\tinit\t-\tpstack-pair'])
+        store.event(str(a), 'master', 'init', '-', 'pstack-pair')
+        rows = (a / 'events.tsv').read_text().splitlines()
+        self.assertEqual([r.split('\t', 2)[2] for r in rows], ['master\tinit\t-\tpstack-pair'])
 
     def test_event_dedupes_a_repeated_master_wake_in_one_second(self):
-        a, b = self.path / 'a', self.path / 'b'
-        a.mkdir()
+        b = self.path / 'b'
         b.mkdir()
-        env = {'PAIR_EVENT_DEDUPE': '1'}
-        self.bash(f'date() {{ if [ "$1" = +%s ]; then echo 1000; else command date "$@"; fi; }}\n'
-                  f'for i in 1 2; do event {a} master wake 001 "r"; done; event {a} master log - "r"', env)
-        with mock.patch.dict(os.environ, env), mock.patch('time.time', return_value=1000.0):
+        with mock.patch.dict(os.environ, {'PAIR_EVENT_DEDUPE': '1'}), mock.patch('time.time', return_value=1000.0):
             for _ in range(2):
                 store.event(str(b), 'master', 'wake', '001', 'r')
             store.event(str(b), 'master', 'log', '-', 'r')
-        self.assertEqual(mask((b / 'events.tsv').read_text()), mask((a / 'events.tsv').read_text()))
-        self.assertEqual(len((b / 'events.tsv').read_text().splitlines()), 2)
+        self.assertEqual(mask((b / 'events.tsv').read_text()), ['master\twake\t001\tr', 'master\tlog\t-\tr'])
 
     def test_header_field_matches_bash(self):
         f = self.path / 'h.md'
@@ -264,7 +262,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     SKILLS_WITH_A_VARIANT = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
     # The whole commands each skill's variant runs in place of the core's, by name. Each table is the variant's own: a skill that extends another
     # lists what it chooses to keep.
-    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('spawn', 'stop'), 'pstack-kitchen': ('__record_skill_build', 'advice', 'catch', 'classify', 'close', 'consult', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-consult', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
+    EFFECTIVE_COMMANDS = {'pstack-pair': (), 'pstack-pair-guided': ('answer',), 'pstack-trio': ('advice', 'consult', 'discuss', 'new-consult', 'spawn', 'stop'), 'pstack-kitchen': ('__record_skill_build', 'advice', 'catch', 'classify', 'close', 'consult', 'consultant', 'discuss', 'dispatch', 'feedback', 'finish', 'fleet', 'init', 'land-check', 'maintainer', 'new-consult', 'new-handoff', 'queue', 'retro', 'revise', 'rotate-master', 'spawn', 'step', 'stop', 'take-master', 'verify', 'wait')}
 
     def test_each_skills_effective_command_table_is_pinned(self):
         tables = {skill: tuple(sorted(load_skill_variant(root / 'skills', skill).commands)) for skill in self.SKILLS_WITH_A_VARIANT}
@@ -2862,12 +2860,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 store.env_float('N', 1.5)
             self.assertEqual(caught.exception.message, 'N must be a number', text)
 
-    def test_fresh_per_brief_matches_bash(self):
+    def test_fresh_per_brief_is_devin_pi_and_prime_agent_only(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
-            code = self.bash(f'if fresh_per_brief {shlex.quote(kind)}; then echo 0; else echo 1; fi').strip()
-            self.assertEqual(int(not dispatch.fresh_per_brief(kind)), int(code), kind)
-
-
+            self.assertEqual(dispatch.fresh_per_brief(kind), kind in ('devin', 'pi', 'prime-agent'), kind)
 
     def test_load_variant_is_lazy_and_picks_the_skills_class_by_path(self):
         code = ('import sys; sys.path.insert(0, sys.argv[1]); import pstack_core.cli; '
@@ -2884,25 +2879,21 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                                  'pstack-trio': ['TrioVariant', 'Variant'], 'pstack-kitchen': ['KitchenVariant', 'TrioVariant', 'Variant']})
 
 
-    def test_require_filled_matches_bash(self):
+    def test_require_filled_refuses_template_text_and_a_guided_alternative(self):
         f = self.path / 'f.md'
         guided = '^(decided by|status): .*\\|'
-        quoted = shlex.quote(guided)
         ctxs = {'plain': Context('x', '', '', '', (), (), 1, ''), 'guided': Context('x', '', '', '', (), (), 1, guided)}
+        refused = {('status: done | partial\n', 'guided'), ('a {{b}} c\n', 'plain'), ('a {{b}} c\n', 'guided')}
         for text in ('status: done\n', 'status: done | partial\n', 'decided by: human\n', 'a {{b}} c\n', 'x\n'):
             f.write_text(text)
             for name, ctx in ctxs.items():
-                r = self.bash(f"unfilled_re={quoted}; [ {name} = plain ] && unfilled_re=; require_filled {f}", check=False)
-                try:
-                    review.require_filled(ctx, str(f))
-                    ours = (0, '')
-                except Die as e:
-                    ours = (1, f'pair.sh: {e.message}\n')
-                self.assertEqual(ours, (r.returncode, r.stderr), (text, name))
+                if (text, name) in refused:
+                    with self.assertRaises(Die) as caught:
+                        review.require_filled(ctx, str(f))
+                    self.assertEqual((caught.exception.message, caught.exception.code), (f'{f} still has unfilled placeholders', 1), (text, name))
+                else:
+                    self.assertIsNone(review.require_filled(ctx, str(f)), (text, name))
         self.assertIsNone(review.require_filled(ctxs['guided'], str(self.path / 'missing.md')))
-
-
-
 
     def run_pair(self, *args, script=None, extra_env=None):
         env = {**self.env, 'FAKE': str(self.path), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
@@ -3081,28 +3072,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             (fake / 'busy/w').write_text('')
         return fake
 
-    def test_agent_status_matches_bash_in_every_state_and_calls_the_same_herdr(self):
+    def test_agent_status_reads_every_state_and_a_busy_pane_makes_a_settled_agent_working(self):
         for i, (state, busy) in enumerate((('idle', False), ('working', False), ('done', True), ('done', False), ('idle', True),
                                            ('blocked', False), ('absent', False))):
-            theirs_dir, ours_dir = self.fake_herdr_dir(f'bash{i}', state, busy), self.fake_herdr_dir(f'py{i}', state, busy)
-            theirs = self.bash('agent_status w; agent_kind w', {'FAKE': str(theirs_dir)})
-            with mock.patch.dict(os.environ, {**self.env, 'FAKE': str(ours_dir)}):
-                status = herdr.agent_status('w')
-                kind = herdr.agent_kind('w')
-                ours = f'{status}\n' + (f'{kind}\n' if kind else '')
-            self.assertEqual(ours, theirs, (state, busy))
-            self.assertEqual((ours_dir / 'calls.log').read_text(), (theirs_dir / 'calls.log').read_text(), (state, busy))
-            self.assertEqual(ours.splitlines()[0], 'working' if busy and state in ('idle', 'done') else state, (state, busy))
-
-
-
-
-
-
-
-
-
-
+            fake = self.fake_herdr_dir(f'py{i}', state, busy)
+            with mock.patch.dict(os.environ, {**self.env, 'FAKE': str(fake)}):
+                status, kind = herdr.agent_status('w'), herdr.agent_kind('w')
+            self.assertEqual(status, 'working' if busy and state in ('idle', 'done') else state, (state, busy))
+            self.assertEqual(kind, '' if state == 'absent' else 'devin', (state, busy))
 
     def test_update_waits_on_a_held_lock_and_applies_its_mutation_to_the_file_as_it_is_after_acquiring_it(self):
         st = self.fixture_store()
@@ -3120,13 +3097,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             waits.append(pair.read_text())
             pair.write_text(json.dumps({**json.loads(pair.read_text()), 'holder': 1}))
             (st / '.pair.lock').rmdir()
-            self.bash(f"json_update {st} '.bash = true'")
+            pair.write_text(json.dumps({**json.loads(pair.read_text()), 'second': True}))
 
         with mock.patch.object(store.time, 'sleep', holder_finishes):
             store.update(str(st), lambda doc: doc.update(py='1'))
         self.assertEqual(waits, [original])
         final = json.loads(pair.read_text())
-        self.assertEqual((final['holder'], final['bash'], final['py']), (1, True, '1'))
+        self.assertEqual((final['holder'], final['second'], final['py']), (1, True, '1'))
         self.assertEqual(sorted(p.name for p in st.iterdir() if p.name.startswith('pair.json') or p.name == '.pair.lock'), ['pair.json'])
 
     def test_update_whose_mutation_raises_leaves_pair_json_alone_and_frees_the_lock(self):
@@ -3286,21 +3263,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     ENTRIES = ('pstack-pair/scripts/pair.sh', 'pstack-pair-guided/scripts/pair.sh', 'pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
     CORE = 'pstack-pair/scripts/pair-core.sh'
-    CONSULTANT_CORE = 'pstack-trio/scripts/consultant-core.sh'
-    CONSULTANT_ENTRIES = ('pstack-trio/scripts/pair.sh',)
     HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
     PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'steer', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
               'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss', 'spawn')
     # bash helpers that have a Python twin (pstack_core), under the twin's name
-    TWINS = ('event', 'header_field', 'paused_reason',
-             'require_filled',
-             'agent_status', 'pane_busy', 'pane_text', 'agent_kind', 'latest_report', 'json_update', 'pair_file',
-             'fresh_per_brief',
-             'require_not_paused',
-             'require_fresh_session', 'submit_typed',
-             'in_herdr', 'latest_advice', 
-             'await_file')
-    TWIN_NAMES = {'json_update': 'update', 'latest_advice': 'latest'}
+    TWINS = ('header_field', 'pair_file')
     # a variant's bash override of a hook, against the Python hook in that skill's variant.py
     # The bash bodies no entry script reaches. Phase 3 ended with none: a body that loses its last caller is deleted in the commit that orphans it,
     # and the guard has no baseline to add it to.
@@ -3350,16 +3317,16 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         'awk', 'basename', 'cat', 'cksum', 'cp', 'cut', 'date', 'dirname', 'find', 'git', 'grep', 'head', 'herdr', 'id', 'jq', 'ln', 'ls', 'mkdir',
         'mktemp', 'mv', 'paste', 'ps', 'python3', 'readlink', 'rm', 'rmdir', 'sed', 'sleep', 'sort', 'stat', 'tail', 'tr', 'wc'))
     # commands the scripts call that a host may lack: column (kitchen.sh :1867, retro's table), setsid (pair-core.sh :212, the detach, which falls
-    # back to perl) and perl (kitchen.sh :131 and :133, the brief header edits, and :1068, a verifier-outcome edit; consultant-core.sh :199 and :230;
+    # back to perl) and perl (kitchen.sh :131 and :133, the brief header edits, and :1068, a verifier-outcome edit;
     # the setsid fallback in pair-core.sh :215; and prime.py's timeout where coreutils has no timeout(1), which is Python, not bash, so not scanned)
-    OPTIONAL_HOST_COMMANDS = frozenset(('perl',))
+    OPTIONAL_HOST_COMMANDS = frozenset()
 
     def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
         reach = self.reach()
         python = '\n'.join(p.read_text() for p in (scripts / 'pstack_core').rglob('*.py'))
         for helper in self.TWINS:
             self.assertTrue(any(f'{f}:{helper}' in reach.nodes for f in self.HELPER_FILES), f'{helper} has no bash definition: remove it from TWINS')
-            self.assertRegex(python, rf'(?m)^\s*def {self.TWIN_NAMES.get(helper, helper)}\(', f'{helper} has no Python twin')
+            self.assertRegex(python, rf'(?m)^\s*def {helper}\(', f'{helper} has no Python twin')
 
     def test_ported_commands_are_pycore_shims_in_the_script_that_defines_their_final_body(self):
         reach = self.reach()
@@ -3368,17 +3335,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             for name in self.PORTED:
                 final = reach.final(root / 'skills' / entry, f'cmd_{name}')
                 self.assertIsNotNone(final, f'{entry}: cmd_{name} is not defined')
-                if (entry, name) == ('pstack-trio/scripts/pair.sh', 'discuss'):
-                    self.assertEqual(final.body.strip(), 'discuss_with_consultant "$@";')
-                else:
-                    self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
-                    # the trio's and the kitchen's stop is consultant-core's; every other ported command's final body is pair-core's
-                    home = self.CONSULTANT_CORE if name == 'stop' and entry in self.CONSULTANT_ENTRIES else self.CORE
-                    if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'dispatch', 'finish', 'init', 'spawn', 'step', 'wait'):
-                        home = entry  # the kitchen's own command, run from its variant
-                    if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
-                        home = entry  # the trio's own command, run from its variant
-                    self.assertEqual(final.key, f'{home}:cmd_{name}', f'{entry}: the final cmd_{name} is not {home}')
+                self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
+                home = self.CORE
+                if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'dispatch', 'finish', 'init', 'spawn', 'step', 'wait'):
+                    home = entry  # the kitchen's own command, run from its variant
+                if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
+                    home = entry  # the trio's own command, run from its variant
+                self.assertEqual(final.key, f'{home}:cmd_{name}', f'{entry}: the final cmd_{name} is not {home}')
 
     def test_answer_is_guided_only_and_a_pycore_shim_there(self):
         reach = self.reach()
@@ -5027,7 +4990,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotIn('profiles:', out['a landing brief']['files']['briefs/002-y.md'])
 
     SETUP_HOOK = {'hook': READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}}
-    SETUP_MASK = [(r'<SK>[^\s"\\]*(consultant-core|pair-core|kitchen)\.sh: line [0-9]+: \[: ', 'pair.sh: [: '), (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'), (r'repo-[0-9a-f]{8}', 'repo-H')]
+    SETUP_MASK = [(r'<SK>[^\s"\\]*(pair-core|kitchen)\.sh: line [0-9]+: \[: ', 'pair.sh: [: '), (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'), (r'repo-[0-9a-f]{8}', 'repo-H')]
 
     def init_command_cases(self):
         full = self.KITCHEN_TOML + '\n[review]\nself = ["pstack-review", "ce-review"]\n\n[landing]\nmode = "pr"\n'

@@ -2,7 +2,7 @@
 # Trio store and Herdr channel helper for the pstack-trio skill: a master, a
 # sidekick that owns the working tree, and a consultant that advises. The
 # shared commands live in pstack-pair's pair-core.sh and the consultant's in
-# consultant-core.sh; this file adds the trio's spawn and kind rule.
+# pstack_core/consult.py; this file adds the trio's spawn and kind rule.
 set -euo pipefail
 
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -16,8 +16,6 @@ store_dirs=(plans briefs reports reviews progress steers consults advice scratch
 slug_max=20
 # shellcheck source-path=SCRIPTDIR source=../../pstack-pair/scripts/pair-core.sh
 . "$skill_root/../pstack-pair/scripts/pair-core.sh"
-# shellcheck source-path=SCRIPTDIR source=consultant-core.sh
-. "$here/consultant-core.sh"
 
 usage() {
 	cat <<'USAGE'
@@ -103,7 +101,11 @@ USAGE
 # trio's own command.
 cmd_spawn() { pycore --exec spawn "$@"; }
 
-# A trio plan round goes to the sidekick and the consultant at once.
-cmd_discuss() { discuss_with_consultant "$@"; }
+cmd_new_consult() { pycore new-consult "$@"; }
+
+# A consult waits on the consultant, so a signal reaches the Python code.
+cmd_consult() { pycore --exec consult "$@"; }
+
+cmd_advice() { pycore advice "$@"; }
 
 pair_main "$@"

@@ -3,6 +3,7 @@ import os
 import sys
 
 from pstack_core.commands.report import in_herdr
+from pstack_core.consult import advice, advice_is_stop, consult, discuss_with_consultant, new_consult
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, role_value, stop_role
 from pstack_core.errors import Die
@@ -12,12 +13,11 @@ from pstack_core.store import field, header_field, pair_file, whole_number
 from pstack_core.variant import Variant
 from pstack_core.wait import agent_state, end_with_parent
 
-CONSULTANT_CORE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'consultant-core.sh')
 TRIO_PAIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pair.sh')
 
 
 def stop(ctx, args):
-    """STOP to each of the run's roles in turn (--only names one): the consultant-core stop, which the trio and the kitchen run. It loops over
+    """STOP to each of the run's roles in turn (--only names one): the trio's stop, which the kitchen runs too. It loops over
     ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, a blocked one sets the exit status
     to 3, and the newest report and advice are shown at the end."""
     in_herdr()
@@ -66,6 +66,11 @@ def stop(ctx, args):
     if advice:
         print(f'advice: {advice} ({header_field(advice, "status")})')
     return rc
+
+
+def discuss(ctx, args):
+    """A trio plan round goes to the sidekick and the consultant at once."""
+    return discuss_with_consultant(ctx, args)
 
 
 def require_diverse_kinds(master, sidekick, consultant):
@@ -145,14 +150,8 @@ def spawn(ctx, args):
     return 0
 
 
-def advice_is_stop(path):
-    """The consultant leaving, not an answer: kind: stop, or, with no kind: line, a file named *-stop.md."""
-    kind = header_field(path, 'kind')
-    return kind == 'stop' if kind else path.endswith('-stop.md')
-
-
 class TrioVariant(Variant):
-    commands = {'spawn': spawn, 'stop': stop}
+    commands = {'spawn': spawn, 'stop': stop, 'discuss': discuss, 'new-consult': new_consult, 'consult': consult, 'advice': advice}
 
     def plan_gate_extra(self, ctx, store, plan, review, seq):
         """A plan the consultant took part in also needs its advice on file."""

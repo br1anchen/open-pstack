@@ -6,7 +6,6 @@
 # A ported command is a pycore shim into pair.py (the stdlib-only Python core in
 # pstack_core/); a variant overrides it by redefining cmd_<name> after sourcing
 # this file, as it does any other command.
-# JSON from herdr is parsed with jq; identifiers are never guessed.
 #
 # Set by the caller before sourcing:
 #   skill_root    the calling skill's directory (templates live under it)
@@ -30,7 +29,6 @@ need() {
 }
 
 need herdr
-need jq
 need python3
 
 pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -53,155 +51,15 @@ pycore() {
 		--store-dirs "${store_dirs[*]}" --slug-max "$slug_max" --unfilled-re "$unfilled_re" -- "$@"
 }
 
-in_herdr() {
-	[ "${HERDR_ENV:-}" = 1 ] || die "not running inside Herdr (HERDR_ENV != 1)"
-}
-
 pair_file() {
 	local store="$1"
 	[ -f "$store/pair.json" ] || die "no pair.json in $store; run: pair.sh init <slug>"
 	printf '%s\n' "$store/pair.json"
 }
 
-field() {
-	jq -r "$2" "$(pair_file "$1")"
-}
-
-# pair.json has two writers once a brief is queued (the master, and the
-# sidekick through next), so every write takes a short mkdir lock and replaces
-# the file atomically. $1 store, rest: jq arguments ending in the filter.
-json_update() {
-	local store="$1" i=0 rc=0
-	shift
-	until mkdir "$store/.pair.lock" 2>/dev/null; do
-		i=$((i + 1))
-		[ "$i" -lt 100 ] || die "pair.json lock held for 10s; remove $store/.pair.lock if no pair.sh is running"
-		sleep 0.1
-	done
-	jq "$@" "$store/pair.json" >"$store/pair.json.tmp" && mv "$store/pair.json.tmp" "$store/pair.json" || rc=$?
-	rmdir "$store/.pair.lock"
-	return "$rc"
-}
-
-# herdr's state detection can miss a Devin agent in a narrow pane for a whole
-# run, reporting done while it works. Every agent kind shows "esc to
-# interrupt" (Devin: "esc twice to interrupt") in its status line while it
-# works, so a settled state is checked against the pane's visible screen,
-# never scrollback, where an old frame could linger. Devin shows two more
-# signs of a running turn: its input placeholder "Guide Devin while it works",
-# and, while a message is queued, "send queued messages now" or "↵ send now".
-# In an 11-row pane the queued block pushes the interrupt hint off screen, so
-# each sign counts on its own. A narrow pane wraps them, so lines are joined.
-pane_busy() {
-	grep -qiE 'esc (twice )?to interrupt|guide devin while it works|send queued messages now|↵ send now|ctrl\+enter to send now' <<<"$(pane_text "$1")"
-}
-
-# The pane's visible screen as one line. Callers match it with a here-string:
-# under pipefail, `cmd | grep -q` fails when grep exits early and cmd takes
-# SIGPIPE, which turned matches into misses at random.
-pane_text() {
-	herdr agent read "$1" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ' || true
-}
-
-agent_status() {
-	# Prints idle|working|blocked|done|unknown, or "absent" when herdr has no such agent.
-	local out state
-	if out="$(herdr agent get "$1" 2>/dev/null)"; then
-		state="$(printf '%s\n' "$out" | jq -r '.result.agent.agent_status // "unknown"')"
-		case "$state" in
-		idle | done) pane_busy "$1" && state=working ;;
-		esac
-		printf '%s\n' "$state"
-	else
-		printf 'absent\n'
-	fi
-}
-
-agent_kind() {
-	# Prints the Herdr agent kind hosting $1 (a name or pane id), or empty.
-	herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent // empty' || true
-}
-
-latest_report() {
-	local store="$1" want="${2:-}" f
-	if [ -n "$want" ]; then
-		f="$(ls -t "$store"/reports/"$want"-*.md 2>/dev/null | head -1 || true)"
-	else
-		f="$(ls -t "$store"/reports/[0-9][0-9][0-9]-*.md 2>/dev/null | head -1 || true)"
-	fi
-	[ -n "$f" ] && printf '%s\n' "$f"
-}
-
-latest_advice() {
-	# $1 store, $2 optional NNN: the newest advice file, by mtime.
-	local store="$1" want="${2:-}" f
-	if [ -n "$want" ]; then
-		f="$(ls -t "$store"/advice/"$want"-*.md 2>/dev/null | head -1 || true)"
-	else
-		f="$(ls -t "$store"/advice/[0-9][0-9][0-9]-*.md 2>/dev/null | head -1 || true)"
-	fi
-	[ -n "$f" ] && printf '%s\n' "$f"
-}
-
-# Herdr's state detection can lag or miss a turn on a narrow pane, so a
-# settled agent with no file yet is polled for the file, not trusted. $1
-# path, $2 timeout in ms. Returns 0 when the file appears. Polls every
-# PAIR_FILE_POLL_MS (default 5000); tests set it short.
-await_file() {
-	local path="$1" timeout_ms="$2" waited=0 poll_ms="${PAIR_FILE_POLL_MS:-5000}"
-	while [ ! -f "$path" ] && [ "$waited" -lt "$timeout_ms" ]; do
-		sleep "$((poll_ms / 1000)).$(printf '%03d' $((poll_ms % 1000)))"
-		waited=$((waited + poll_ms))
-	done
-	[ -f "$path" ]
-}
-
-# One row per channel event, so a run's timing is measured rather than guessed
-# from file times. $1 store, $2 actor, $3 event, $4 unit (a file's basename
-# without .md, or -), $5 detail. Never fails the command it records. With
-# PAIR_EVENT_DEDUPE=1 (the kitchen sets it), a master wake row identical to the log's last
-# one in epoch, actor, event, unit and detail is not written twice.
-event() {
-	local log="$1/events.tsv" unit="${4:-}" epoch last
-	unit="$(basename "${unit:--}" .md)"
-	epoch="$(date +%s)"
-	if [ "${PAIR_EVENT_DEDUPE:-}" = 1 ] && [ "$2" = master ] && [ "$3" = wake ]; then
-		last="$(tail -n 1 "$log" 2>/dev/null | cut -f2- || true)"
-		[ "$last" != "$(printf '%s\t%s\t%s\t%s\t%s' "$epoch" "$2" "$3" "$unit" "${5:-}")" ] || return 0
-	fi
-	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$epoch" "$2" "$3" "$unit" "${5:-}" >>"$log" 2>/dev/null || true
-}
-
 header_field() {
 	# $1 file, $2 key: the value of a "key: value" header line, or empty.
 	grep -m1 -E "^$2:" "$1" | sed -E "s/^$2:[[:space:]]*//" || true
-}
-
-# Refuse a message file that still holds template text.
-require_filled() {
-	if grep -q '{{' "$1" || { [ -n "$unfilled_re" ] && grep -qE "$unfilled_re" "$1"; }; then
-		die "$1 still has unfilled placeholders"
-	fi
-}
-
-# Minutes a dispatch or wait blocks before printing a check-in. Set from
-# --every or --timeout by the command; nine minutes stays under the shell cap.
-checkin_interval_m=9
-
-# Epoch seconds of a UTC stamp as the store writes them
-# (date -u +%Y-%m-%dT%H:%M:%SZ). jq parses it, since BSD date has no -d.
-
-# A pause asked for at the next safe point: the sidekick stops at its next
-# step or progress boundary with its work committed, and the master starts
-# nothing new. $store/paused holds the reason; pair.sh resume removes it.
-paused_reason() {
-	[ -f "$1/paused" ] && head -1 "$1/paused"
-}
-
-require_not_paused() {
-	local reason
-	reason="$(paused_reason "$1")" || return 0
-	die "the store is paused ($reason): start nothing new; record where the work stands and end your turn, or run pair.sh resume $1" 5
 }
 
 cmd_pause() { pycore pause "$@"; }
@@ -215,33 +73,12 @@ cmd_resume() { pycore resume "$@"; }
 # follow-ups that go to followups.md instead of widening the unit. The final
 # review then reads only the diff since the last note.
 
+# The oracle for pstack_core.providers.PROVIDER_ERROR_RE (tests/test_pstack_core.py compares the two); no script reads it.
 provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|billing verification failed|billing_error'
 
 cmd_init() { pycore init "$@"; }
 
 cmd_permission() { pycore permission "$@"; }
-
-# A dialog asking to trust the working folder (Claude, Codex) blocks an
-# agent at startup. Trusting a repo is the human's decision, never the
-# script's: decline it, which returns the pane to its shell, and stop with
-# what to do. Claude's dialog defaults to "No, exit", so an Enter would quit.
-trust_re='trust this folder|project you created or one you trust|do you trust the (files|contents)'
-
-# Kinds whose sidekick starts a fresh conversation for each completed brief:
-# Devin, Pi, and Prime, whose compacted conversation would otherwise carry every
-# earlier brief into the next. The master rotates them; the queue waits.
-fresh_per_brief() {
-	case "$1" in devin | pi | prime-agent) return 0 ;; esac
-	return 1
-}
-
-require_fresh_session() {
-	local kind
-	kind="$(field "$1" '.sidekick.kind')"
-	if fresh_per_brief "$kind" && [ "$(field "$1" '(.sidekick.rotation_required // false) or (.sidekick.bootstrap_pending // false)')" = true ]; then
-		die "the $kind sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate $1 after a completed task. The queue is preserved." 5
-	fi
-}
 
 cmd_failover() { pycore --exec failover "$@"; }
 
@@ -256,25 +93,6 @@ cmd_new_brief() { pycore new-brief "$@"; }
 cmd_discuss() { pycore --exec discuss "$@"; }
 
 cmd_dispatch() { pycore --exec dispatch "$@"; }
-
-# Seconds a settle must hold, with no reply, before a wait believes it, and
-# between checks while herdr says settled but the pane shows the agent busy.
-settle_hold_s="${PAIR_SETTLE_HOLD:-60}"
-busy_poll_s="${PAIR_BUSY_POLL:-10}"
-
-submit_typed() {
-	local name="$1" marker="$2" kind tries=0
-	submitted=0
-	kind="$(agent_kind "$name")"
-	while [ "$tries" -lt 3 ]; do
-		sleep "${PAIR_SUBMIT_CHECK_S:-5}"
-		grep -qF "$marker" <<<"$(herdr agent read "$name" --source visible --lines 12 2>/dev/null | tr -d '\n │')" || return 0
-		[ "$kind" != devin ] || [ "$(agent_status "$name")" != working ] || return 0
-		herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
-		tries=$((tries + 1))
-		submitted="$tries"
-	done
-}
 
 cmd_wait() { pycore --exec wait "$@"; }
 

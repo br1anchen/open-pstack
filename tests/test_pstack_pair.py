@@ -24,7 +24,7 @@ tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / 'tests'))
-from test_pstack_core import watch_jq  # noqa: E402
+from test_pstack_core import event_log, watch_jq  # noqa: E402
 here = root / 'tests/pstack-pair'
 skills = root / 'skills'
 
@@ -300,18 +300,11 @@ class RangeFloorTests(unittest.TestCase):
 
 class EventLogTests(unittest.TestCase):
     def log(self, *calls, dedupe='1'):
-        core = (skills / 'pstack-pair/scripts/pair-core.sh').read_text()
-        fn = re.search(r'^event\(\) \{.*?^\}$', core, re.MULTILINE | re.DOTALL).group(0)
-        clock = 'date() { case "$1" in +%s) echo "$EPOCH" ;; *) echo T ;; esac; }'
-        with tempfile.TemporaryDirectory() as store:
-            (Path(store) / 'events.tsv').write_text('ts\tepoch\tactor\tevent\tunit\tdetail\n')
-            script = f'{clock}\n{fn}\n' + '\n'.join(f'EPOCH={epoch}; event "$1" {args}' for epoch, args in calls)
-            subprocess.run(['bash', '-c', script, 'x', store], env={**inherited_env(), 'PAIR_EVENT_DEDUPE': dedupe}, check=True)
-            return (Path(store) / 'events.tsv').read_text().splitlines()[1:]
+        return event_log(*calls, dedupe=dedupe)
 
     def test_two_identical_events_in_one_second_leave_one_row(self):
         wake = 'master wake 001-a.md checkin'
-        self.assertEqual(self.log((100, wake), (100, wake)), ['T\t100\tmaster\twake\t001-a\tcheckin'])
+        self.assertEqual(self.log((100, wake), (100, wake)), ['100\tmaster\twake\t001-a\tcheckin'])
 
     def test_without_the_kitchen_flag_every_event_is_written(self):
         wake = 'master wake 001-a.md checkin'
@@ -320,7 +313,7 @@ class EventLogTests(unittest.TestCase):
     def test_events_that_differ_in_any_field_or_second_all_stay(self):
         rows = self.log((100, 'master wake 001-a checkin'), (100, 'master wake 001-a missing'), (101, 'master wake 001-a missing'),
                         (101, 'master wake 001-a missing'), (101, 'master wake 002-b missing'), (101, 'master wake 002-b missing'))
-        self.assertEqual([r.split('\t')[1:] for r in rows],
+        self.assertEqual([r.split('\t') for r in rows],
                          [['100', 'master', 'wake', '001-a', 'checkin'], ['100', 'master', 'wake', '001-a', 'missing'],
                           ['101', 'master', 'wake', '001-a', 'missing'], ['101', 'master', 'wake', '002-b', 'missing']])
 
