@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 from .providers import record_prime_session
-from .store import TEXT, load, names, peek, text_at
+from .store import TEXT, exit_code, load, names, peek, text_at
 from .herdr import parse
 
 def with_timeout(seconds, argv, **kwargs):
@@ -24,8 +24,7 @@ def with_timeout(seconds, argv, **kwargs):
             child.terminate()
             out, err = child.communicate()
             return subprocess.CompletedProcess(argv, 124, out, err)
-    code = child.returncode
-    return subprocess.CompletedProcess(argv, 128 - code if code < 0 else code, out, err)
+    return subprocess.CompletedProcess(argv, exit_code(child.returncode), out, err)
 
 
 def daemon_socket(store, role):

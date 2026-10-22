@@ -5708,6 +5708,17 @@ class CoreTests(unittest.TestCase):
             with mock.patch.object(landing, 'git_root', return_value='/repo'), mock.patch.object(landing.kpy, 'run', return_value=answer):
                 self.assertEqual(landing.validated_engine('/st'), want, name)
 
+    def test_a_child_killed_by_a_signal_ends_the_command_with_128_plus_the_signal(self):
+        self.assertEqual([store.exit_code(n) for n in (0, 1, 4, 255, -15, -9, -1)], [0, 1, 4, 255, 143, 137, 129])
+        for name, number, want in (('TERM', signal.SIGTERM, 143), ('KILL', signal.SIGKILL, 137), ('HUP', signal.SIGHUP, 129)):
+            bash = subprocess.run(['bash', '-c', f'out="$(sh -c "kill -{name} \\$\\$")"; echo $?'], capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(bash, str(want))
+            st = self.claim_store(f'sig{name}', {'verdict': 'v'})
+            code = (f'from unittest import mock\nwith mock.patch.object(vs, "core_argv", return_value=["sh", "-c", "kill -{name} $$"]):\n'
+                    '    print(vs.scratch_process(ctx, store, "x", "--remove"))')
+            rc, out, err = self.kitchen_py(st, code)
+            self.assertEqual((rc, out), (0, f"({want}, '')\n"), (name, err))
+
     def test_captured_gives_the_status_and_stdout_of_a_call_and_leaves_the_environment_as_it_found_it(self):
         units = self.kitchen_core_module('units')
         out = io.StringIO()

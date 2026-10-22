@@ -27,7 +27,7 @@ import sys
 from pstack_core.errors import Die, Exit, prog
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.herdr import agent_status, herdr
-from pstack_core.store import TEXT, read_text, write_text, count, damaged, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update
+from pstack_core.store import TEXT, exit_code, read_text, write_text, count, damaged, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update
 from pstack_core.send import submit_typed
 
 
@@ -179,7 +179,7 @@ def scratch_process(ctx, store, scratch, *options, capture=False):
     sys.stdout.flush()
     sys.stderr.flush()
     r = subprocess.run(core_argv(ctx, 'scratch', store, scratch, *options), stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False, **TEXT)
-    return r.returncode, r.stdout if capture else ''
+    return exit_code(r.returncode), r.stdout if capture else ''
 
 
 def remove_scratch(ctx, store, scratch):

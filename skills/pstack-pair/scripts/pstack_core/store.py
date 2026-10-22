@@ -250,6 +250,12 @@ def tdiv(a, b):
     return q if (a < 0) == (b < 0) else -q
 
 
+def exit_code(returncode):
+    """A child's status as a shell reports it: 128 plus the signal number for a child a signal killed (subprocess says -N, which `sys.exit` would
+    turn into 256-N)."""
+    return 128 - returncode if returncode < 0 else returncode
+
+
 def whole_number(text, flag, unit):
     """A CLI number: ASCII digits only, so a sign, a fraction or an expression is a usage error."""
     if not (text.isascii() and text.isdigit()):

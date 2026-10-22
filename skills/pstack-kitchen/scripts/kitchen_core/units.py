@@ -15,7 +15,7 @@ import sys
 
 from pstack_core.errors import Die, Exit, prog
 from pstack_core.review import range_floor, steps_file, trunk_ref
-from pstack_core.store import TEXT, expected_report, read_text, missing_pair, header_field, last_line, load, peek, read, text_at
+from pstack_core.store import TEXT, exit_code, expected_report, read_text, missing_pair, header_field, last_line, load, peek, read, text_at
 from pstack_core.variant import commit_of
 
 
@@ -82,7 +82,7 @@ def git(root, *args, quiet=False, stdin=None):
     sys.stdout.flush()
     sys.stderr.flush()
     r = subprocess.run(['git', '-C', root, *args], input=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL if quiet else None, check=False, **TEXT)
-    return r.returncode, r.stdout
+    return exit_code(r.returncode), r.stdout
 
 
 def is_ancestor(root, older, newer):

@@ -7,7 +7,7 @@ import time
 
 from pstack_core.errors import Die
 from pstack_core.store import field, newest
-from pstack_core.store import header_field, pair_file, load, read, read_text, write_text
+from pstack_core.store import header_field, pair_file, read, read_text, write_text
 
 
 def basename(path):
@@ -64,7 +64,6 @@ def new_handoff(ctx, args):
         raise Die('usage: kitchen.sh new-handoff <store>')
     store = args[0]
     pair_file(store)
-    pair = load(store)
     path = f'{store}/session-handoff.md'
     # a .master that is not an object ends the command before any file is written
     generation = field(store, 'master', 'generation', default='1')

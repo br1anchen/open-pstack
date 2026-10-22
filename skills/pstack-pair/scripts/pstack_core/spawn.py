@@ -14,7 +14,7 @@ from .panes import await_file, new_pane, refuse_untrusted
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .send import submit_typed, visible_without_blanks
-from .store import TEXT, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update
+from .store import TEXT, exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
 
@@ -148,7 +148,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
     bootstrap = (f'Load the {ctx.skill} skill from ~/.agents/skills/{ctx.skill}/SKILL.md and take the {role} role (generation '
                  f'{field(store, role, "generation")}, pane {pane}). {ctx.store_label} store: {store}. Follow its bootstrap steps, write {ready}, and reply READY.')
     r = subprocess.run(['herdr', 'agent', 'prompt', name, bootstrap, '--wait', '--timeout', '240000'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, **TEXT)
-    code, err = r.returncode, r.stderr.rstrip('\n')
+    code, err = exit_code(r.returncode), r.stderr.rstrip('\n')
     if not os.path.isfile(f'{store}/{ready}'):
         submitted = submit_typed(name, os.path.basename(ready))
         if submitted != 0 and code == 0:

@@ -6,8 +6,8 @@ after --max minutes (KITCHEN_QUIET_MAX_S; default an hour) with the latest diges
 clock for that --max check; tests move it at a fixed point instead of waiting.
 
 The bash ran the pair's wait as `core_wait` inside `$( )`: a child process with its stdout on a pipe and its stderr left alone, under the environment
-PAIR_WAIT_OWNER (the shell's pid), PAIR_WAIT_CLAIM, PAIR_WAIT_UNOWNED and PAIR_QUIET_WAIT=1. Here the core's wait is called as a function in a forked
-child (verify.in_subshell, stdout only) with the same four variables set in the child; PAIR_WAIT_OWNER is this process's pid, the token the old shell's
+PAIR_WAIT_OWNER (the shell's pid), PAIR_WAIT_CLAIM, PAIR_WAIT_UNOWNED and PAIR_QUIET_WAIT=1. Here the core's wait is called as a function with its
+stdout captured (units.captured) and the same four variables set for the call; PAIR_WAIT_OWNER is this process's pid, the token the old shell's
 `$$` was, so a bash waiter and this one read each other's wait.pid."""
 
 import os

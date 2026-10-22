@@ -16,7 +16,7 @@ from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
 from .review import review_base
-from .store import TEXT, missing_pair as store_missing, read_text, acquire_lock, env_float, env_int, event, field, header_field, member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number
+from .store import TEXT, exit_code, missing_pair as store_missing, read_text, acquire_lock, env_float, env_int, event, field, header_field, member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number
 
 
 class WaitResult:
@@ -270,7 +270,7 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
         slice_ms = min(slice_ms, 30000)
         slice_ms = max(slice_ms, 1000)
         r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(slice_ms)], capture_output=True, check=False, **TEXT)
-        result.code = r.returncode
+        result.code = exit_code(r.returncode)
         result.out = r.stdout.rstrip('\n')
         result.err = r.stderr.rstrip('\n')
         if result.code == 0:
