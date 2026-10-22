@@ -68,7 +68,8 @@ is yours alone.
    line above); dispatch and queue refuse `a, b` on one line, and warn on an
    entry that matches nothing. Put a path that contains a comma in backquotes.
 6. **Dispatch and check in.** `pair.sh dispatch <store> <brief> [--every MIN]` (a brief path may be relative to the store: `briefs/NNN-x.md`; `queue` takes the same)
-   (`--send-only` returns once the brief is delivered; never wrap dispatch in
+   (`--send-only` returns once the brief is delivered, after a due rotation,
+   which takes up to a minute plus the READY wait; never wrap dispatch in
    a short `timeout`).
    Exit 0 prints the report path. Exit 3 means blocked: read the pane with
    `herdr agent read <name> --source visible --lines 60`, then follow the

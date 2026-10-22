@@ -90,7 +90,8 @@ consult, advice. These differ or are new:
   dispatch <store> <brief-path> [...] [--max MIN] [--send-only]
                                             classify, then the pair's dispatch; escalated units need an agreed
                                             plan with advice, landing units need land-check to pass; waits quietly,
-                                            or returns once the brief is delivered with --send-only
+                                            or returns once the brief is delivered with --send-only; a due
+                                            rotation runs first, up to a minute plus the READY wait
   wait <store> [...] [--max MIN]            the pair's wait, quiet through check-ins with nothing flagged; returns
                                             for a report, steps, a block, a flagged check-in, or after --max (60)
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]

@@ -11,7 +11,7 @@ from .send import store_relative
 
 
 def queue(ctx, args):
-    """The master's next brief, held for the sidekick to take the moment its current report is written. One slot: more than one
+    """The master's next brief, held until the master dispatches it, which rotates a due sidekick first. One slot: more than one
     queued brief is a plan."""
     if len(args) < 2:
         raise Die('usage: pair.sh queue <store> <brief-path> [--replace] | pair.sh queue <store> --clear')
@@ -53,5 +53,5 @@ def queue(ctx, args):
         f.write(f'{brief}\n')
     os.replace(f'{store}/queue.tmp', f'{store}/queue')
     event(store, 'master', 'queue', brief)
-    print(f'queued {brief}; the sidekick takes it when its current report is written')
+    print(f"queued {brief}; it waits for the master's dispatch, which rotates a due sidekick first")
     return 0

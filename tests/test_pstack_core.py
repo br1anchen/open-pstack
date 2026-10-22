@@ -4788,7 +4788,7 @@ class CoreTests(unittest.TestCase):
 
     def test_queue_behaviour(self):
         cases = self.queue_cases()
-        queued = 'queued <T>/st/briefs/002-y.md; the sidekick takes it when its current report is written\n'
+        queued = "queued <T>/st/briefs/002-y.md; it waits for the master's dispatch, which rotates a due sidekick first\n"
         expect = {
             'a brief queued behind a working sidekick': (0, queued),
             'a brief given relative to the store': (0, queued),

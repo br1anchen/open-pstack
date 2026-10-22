@@ -176,13 +176,14 @@ USAGE = """usage: pair.sh <command> [args]
   advice <store> [NNN]                      print the latest (or NNN) advice path
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
   dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
-                                            send BRIEF to the sidekick and wait for it to settle;
+                                            send BRIEF to the sidekick (a due rotation runs first, up to a minute plus
+                                            the READY wait, even with --send-only) and wait for it to settle;
                                             implementation playbooks require an agreed plan
   wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
-  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written (after a done report it waits for the master's dispatch). One slot. queue <store> --clear empties it
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it waits for the master's
+                                            dispatch, which rotates a due sidekick first. One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review

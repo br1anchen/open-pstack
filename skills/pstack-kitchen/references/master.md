@@ -60,6 +60,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    steer only when your review would otherwise say revise. When you work outside the kitchen in your own session (another branch, a prototype, a question for the human), leave a `kitchen.sh wait <store>` running in the background so a report or a step is not left waiting for you; in lichess-token-1083, steps sat 13 min unread while the master did unrelated work. Run one wait at a time: a second wait on the same store (`wait` or `dispatch`) ends the first with `superseded: a newer wait owns this store; this one ends` (exit 4) and takes over, so two overlapping waits no longer steal each other's events; a report announced while no wait owns the store is not returned again. The escalated `discuss` (it waits on the sidekick and the consultant with a bare `herdr agent wait`) and `stop` do not claim the store, so a report announced during them is marked seen and your next wait shows it on the idle path (`idle:`, then the queue note and review delta). Never wrap
    `dispatch` in a short `timeout`: when you need the call back at once, pass
    `--send-only`, which returns as soon as the brief is delivered, then wait.
+   A due rotation runs before the send, so `--send-only` can take up to a
+   minute plus the READY wait.
    Delivery itself ignores TERM, so a killed dispatch never leaves a brief
    recorded but unsent. A sidekick of any kind whose last unit is done is
    rotated by `dispatch` or `discuss` itself (`rotated:` in its output), so

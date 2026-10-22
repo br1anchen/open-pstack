@@ -1349,13 +1349,14 @@ HELP = {
                                             send PLAN to the sidekick and wait for its agree/object response
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
   dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
-                                            send BRIEF to the sidekick and wait for it to settle;
+                                            send BRIEF to the sidekick (a due rotation runs first, up to a minute plus
+                                            the READY wait, even with --send-only) and wait for it to settle;
                                             implementation playbooks require an agreed plan
   wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
-  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written (after a done report it waits for the master's dispatch). One slot. queue <store> --clear empties it
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it waits for the master's
+                                            dispatch, which rotates a due sidekick first. One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -1412,14 +1413,15 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
                                             send ANSWER to the sidekick and wait for it to settle
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
   dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
-                                            send BRIEF to the sidekick and wait for it to settle;
+                                            send BRIEF to the sidekick (a due rotation runs first, up to a minute plus
+                                            the READY wait, even with --send-only) and wait for it to settle;
                                             implementation playbooks require an agreed plan whose
                                             review approval matches the plan's scale
   wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
-  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written. One slot. queue <store> --clear empties it
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it waits for the master's
+                                            dispatch, which rotates a due sidekick first. One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -1427,7 +1429,7 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start (after a done report) or the line to end on
+                                            the REPORT line; a done brief requires rotation
   next <store>                              sidekick: refused for every kind (exit 5); the master dispatches the queued brief to a fresh session
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
@@ -1483,13 +1485,14 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
   advice <store> [NNN]                      print the latest (or NNN) advice path
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
   dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
-                                            send BRIEF to the sidekick and wait for it to settle;
+                                            send BRIEF to the sidekick (a due rotation runs first, up to a minute plus
+                                            the READY wait, even with --send-only) and wait for it to settle;
                                             implementation playbooks require an agreed plan
   wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
-  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written (after a done report it waits for the master's dispatch). One slot. queue <store> --clear empties it
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it waits for the master's
+                                            dispatch, which rotates a due sidekick first. One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -1550,7 +1553,8 @@ consult, advice. These differ or are new:
   dispatch <store> <brief-path> [...] [--max MIN] [--send-only]
                                             classify, then the pair's dispatch; escalated units need an agreed
                                             plan with advice, landing units need land-check to pass; waits quietly,
-                                            or returns once the brief is delivered with --send-only
+                                            or returns once the brief is delivered with --send-only; a due
+                                            rotation runs first, up to a minute plus the READY wait
   wait <store> [...] [--max MIN]            the pair's wait, quiet through check-ins with nothing flagged; returns
                                             for a report, steps, a block, a flagged check-in, or after --max (60)
   step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]
