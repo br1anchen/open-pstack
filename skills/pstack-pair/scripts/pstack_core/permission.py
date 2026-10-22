@@ -9,7 +9,7 @@ DEPTH_LIMIT = 12
 
 
 def ps(*args):
-    """ps with stderr dropped: (exit code, stdout as the bash reads it, trailing newlines gone)."""
+    """ps with stderr dropped: (exit code, stdout without its trailing newlines)."""
     r = subprocess.run(['ps', *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
     return r.returncode, r.stdout.rstrip('\n')
 
@@ -94,7 +94,7 @@ def caller_pid():
 
 
 def logical_cwd():
-    """The bash's $PWD: the inherited PWD while it names the current directory, else the physical one."""
+    """The shell's $PWD: the inherited PWD while it names the current directory, else the physical one."""
     pwd = os.environ.get('PWD', '')
     try:
         if pwd.startswith('/') and os.path.samefile(pwd, '.'):

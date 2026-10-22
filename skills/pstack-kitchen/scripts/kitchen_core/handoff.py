@@ -1,4 +1,4 @@
-"""new-handoff: session-handoff.md from the template, with every unit's state. Ported from kitchen.sh at b632713."""
+"""new-handoff: session-handoff.md from the template, with every unit's state.."""
 
 import glob
 import os

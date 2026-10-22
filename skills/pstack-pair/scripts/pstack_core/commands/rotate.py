@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-from ..store import Die, Exit, prog, TEXT, event, field, load, names, pair_file, peek, read_flag, text_at, env_float, expected_report
+from ..store import Die, Exit, prog, TEXT, event, field, load, names, pair_file, peek, read_flag, text_at, env_float, expected_report, who
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..gates import require_not_paused, check_scope
 from ..panes import agent_status, herdr
@@ -56,7 +56,7 @@ def rotate(ctx, args):
         if kind == 'prime-agent' and not stopped(store, 'sidekick'):
             raise Die('Prime session cleanup failed; no new session was started', 5)
     else:
-        raise Die(f'sidekick {name} is {status}; wait for its report and turn to end before rotating', 5)
+        raise Die(f'{who("sidekick", name)} is {status}; wait for its report and turn to end before rotating', 5)
     start_args = names(sidekick, 'start_args')
     event(store, 'master', 'rotate', '-', f'generation:{field(store, "sidekick", "generation")}')
     return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args)
@@ -125,9 +125,9 @@ def queue(ctx, args):
     name = text_at(peek(pair, 'sidekick'), 'name')
     status = agent_status(name)
     if status in ('idle', 'done'):
-        raise Die(f'sidekick {name} is {status}; dispatch instead: pair.sh dispatch {store} {brief}', 5)
+        raise Die(f'{who("sidekick", name)} is {status}; dispatch instead: pair.sh dispatch {store} {brief}', 5)
     if status != 'working':
-        raise Die(f'sidekick {name} is {status}; resolve that before queueing', 3)
+        raise Die(f'{who("sidekick", name)} is {status}; resolve that before queueing', 3)
     with open(f'{store}/queue.tmp', 'w', encoding='utf-8') as f:
         f.write(f'{brief}\n')
     os.replace(f'{store}/queue.tmp', f'{store}/queue')
@@ -166,7 +166,7 @@ def failover(ctx, args):
     status = agent_status(name)
     if status == 'working':
         if not force:
-            raise Die(f'sidekick {name} is working; pair.sh stop {store} first, or pass --force to interrupt it', 5)
+            raise Die(f'{who("sidekick", name)} is working; pair.sh stop {store} first, or pass --force to interrupt it', 5)
         herdr('agent', 'send-keys', name, 'esc')
         time.sleep(env_float('PAIR_ESC_WAIT_S', 2))
     if kind == 'prime-agent':

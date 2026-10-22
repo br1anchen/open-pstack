@@ -1,8 +1,6 @@
-"""land-check and revise: whether the stack may land, and the brief that fixes a rejected verdict. Ported from kitchen.sh at b632713 (land_check,
-landing_unmatched_note, manifest_warning, current_landing_base, engine_met, cites_engine, unit_adds_no_lines, cmd_land_check and cmd_revise).
+"""land-check and revise: whether the stack may land, and the brief that fixes a rejected verdict.
 
-land-check ran as `land_check "$1" || exit 2` (and from dispatch as `land_check "$1" >/dev/null || die`), so `set -e` was off inside it: a failing
-read there is an empty answer and the check goes on."""
+A failing read inside land-check is an empty answer and the check goes on."""
 
 import glob
 import os
@@ -34,13 +32,12 @@ def is_landing(brief):
 
 
 def review_engine(store):
-    """`kpy validate | jq -r '.review_engine // empty'`, stderr dropped and any failure read as no engine (warn_unreviewed's `|| true`)."""
+    """The kitchen's [review].engine, stderr dropped and any failure read as no engine."""
     return validated_engine(store)[1]
 
 
 def validated_engine(store):
-    """(ok, engine): the kitchen's [review].engine as `kpy --json validate | jq -r '.review_engine // empty'` reads it. Under pipefail the pipeline fails
-    when kitchen.py does; land-check says so."""
+    """(ok, engine): the kitchen's [review].engine from `validate`; not ok when kitchen.py fails, which land-check says."""
     rc, text, _ = kpy.run(git_root(store, quiet=True), ['--json', 'validate'])
     if rc != 0:
         return False, ''
@@ -233,7 +230,6 @@ def land_check(store):
     if landing_verdict:
         verdict = Verdict.parse(landing_verdict)
         base_ref, head_ref = verdict.refs()
-        # the bash reads .git_root where it uses it: once for each of these two lookups, and nowhere when no verdict exists
         verdict_base_rev = commit_of(git_root(store), base_ref) or ''
         root = git_root(store)
         verdict_head_rev = commit_of(root, head_ref) or ''

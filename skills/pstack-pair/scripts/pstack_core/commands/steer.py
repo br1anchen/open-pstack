@@ -5,7 +5,7 @@ import subprocess
 import sys
 import time
 
-from ..store import Die, prog, event, field, read_text, header_field, member, names, newest, unit_name, update
+from ..store import Die, prog, event, field, read_text, header_field, member, names, newest, unit_name, update, who
 from ..panes import agent_status
 from ..prime import prime_steer
 from ..review import has_placeholder
@@ -86,7 +86,7 @@ def steer(ctx, args):
             if not herdr_ok('agent', 'send-keys', name, 'esc'):
                 raise Die(f'herdr send-keys failed for {name}', 2)
             if not herdr_ok('agent', 'wait', name, '--until', 'idle', '--until', 'done', '--until', 'blocked', '--timeout', '15000'):
-                raise Die(f'sidekick {name} did not settle after esc; inspect: herdr agent read {name} --source visible --lines 60', 3)
+                raise Die(f'{who("sidekick", name)} did not settle after esc; inspect: herdr agent read {name} --source visible --lines 60', 3)
         event(store, 'master', 'send-steer', steer_path, 'working')
         kind = field(store, 'sidekick', 'kind')
         if kind == 'devin' and not interrupt:
@@ -117,7 +117,7 @@ def steer(ctx, args):
                 advice = f'write a fix brief and verify it with --covers {seq}' if ctx.skill == 'pstack-kitchen' else 'write a fix brief'
             else:
                 advice = 'fold the steer into the next brief instead'
-            raise Die(f'sidekick {name} is {status} and no objection is open on unit {seq}; {advice}', 5)
+            raise Die(f'{who("sidekick", name)} is {status} and no objection is open on unit {seq}; {advice}', 5)
         if header_field(steer_path, 'supersedes') == 'none':
             raise Die(f'{steer_path} answers {objection} but its supersedes: line says none')
         event(store, 'master', 'send-steer', steer_path, 'objection')
@@ -127,12 +127,12 @@ def steer(ctx, args):
         return owned_wait(ctx, store, name, timeout, interval)
     elif status == 'unknown':
         if not force:
-            raise Die(f'sidekick {name} is unknown; read the pane, then pass --force to steer anyway', 5)
+            raise Die(f'{who("sidekick", name)} is unknown; read the pane, then pass --force to steer anyway', 5)
         if not herdr_ok('agent', 'prompt', name, message):
             raise Die(f'herdr prompt failed for {name}', 2)
         print(f'steered {name} with {steer_path}')
     elif status == 'absent':
-        raise Die(f'sidekick {name} is not live', 2)
+        raise Die(f'{who("sidekick", name)} is not live', 2)
     elif status == 'blocked':
-        raise Die(f'sidekick {name} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
+        raise Die(f'{who("sidekick", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
     return 0

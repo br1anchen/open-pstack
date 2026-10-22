@@ -330,7 +330,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(seen[key][0]['rc'], rc, (key, seen[key]))
             self.assertIn(line, seen[key][1] if stream == 'stdout' else seen[key][2], (key, seen[key]))
         self.assertEqual(seen['kitchen', 'stop'][0]['rc'], 0, seen['kitchen', 'stop'])
-        self.assertIn('sidekick s1 is not live\nverifier  is not live\nconsultant  is not live\n', seen['kitchen', 'stop'][1])
+        self.assertIn('sidekick s1 is not live\nverifier is not live\nconsultant is not live\n', seen['kitchen', 'stop'][1])
         for name in ('status', 'stop'):
             info = seen['kitchen', name][0]
             self.assertTrue(info['kitchen_core'], (name, seen['kitchen', name]))  # the build stamp on a store named as the second word
@@ -1774,9 +1774,9 @@ class CoreTests(unittest.TestCase):
             'no arguments': dict(args=['retro']),
         }
         out = self.kitchen_cases('retro', cases, {
-            'a store with briefs only': (0, 'run : 0 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
+            'a store with briefs only': (0, 'run: 0 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
             'units, verdicts, steers and events': (0, 'run demo: 1 unit reports, 2 verified units (1 clean verdicts on the first try), 0 master w'),
-            'no verified unit': (0, 'run : 1 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
+            'no verified unit': (0, 'run: 1 unit reports, 0 verified units (0 clean verdicts on the first try), 0 master w'),
             'a git_root that is not a repository': (1, 'kitchen: not a git repository: /nonexistent/repo'),
             'no pair.json': (1, 'pair.sh: no pair.json in'),
             'too many arguments': (1, 'pair.sh: usage: kitchen.sh retro'),
@@ -5040,7 +5040,7 @@ class CoreTests(unittest.TestCase):
             'a failing preflight that says nothing': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
             'a failing preflight with a long message': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
             'a roster kind that returns 4 after its preflight': (4, 'consultant settled but advice/000-ready.md is missing; state=idle. Read the pane before prompting again.'),
-            'a live consultant skips the preflight': (0, 'consultant c1 already live (idle) in '),
+            'a live consultant skips the preflight': (0, 'consultant c1 already live (idle)'),
             'a consultant that is a string': (1, 'pair.json is damaged: consultant is string, not an object'),
             'escalations already recorded': (0, 'started in'),
             'escalations that are no array': (1, 'pair.json is damaged: escalations is string, not an array'),
@@ -5758,6 +5758,41 @@ class CoreTests(unittest.TestCase):
             rc, out, err = self.kitchen_py(st, code)
             self.assertEqual((rc, out), (0, f"({want}, '')\n"), (name, err))
 
+    def test_a_message_names_the_role_alone_where_the_store_records_no_agent_name_and_a_grace_line_leaves_out_a_delivery_that_is_not_recorded(self):
+        verify_wait = self.kitchen_core_module('verify_wait')
+        self.assertEqual([store.who('verifier', ''), store.who('consultant', 'c1'), store.who('sidekick', None)], ['verifier', 'consultant c1', 'sidekick'])
+        st = self.path / 'st'
+        st.mkdir()
+        (st / 'pair.json').write_text(json.dumps({'verifying': {'grace_delivery': 'prompted'}}))
+        self.assertEqual(verify_wait.delivery_note(str(st)), ' (prompted)')
+        (st / 'pair.json').write_text(json.dumps({'verifying': {}}))
+        self.assertEqual(verify_wait.delivery_note(str(st)), '')
+
+    def test_a_merged_capture_holds_the_stderr_of_a_child_process_in_the_order_it_was_written_and_a_plain_one_does_not(self):
+        units = self.kitchen_core_module('units')
+
+        def writes_around_a_child():
+            sys.stderr.write('before\n')
+            sys.stderr.flush()
+            subprocess.run([sys.executable, '-c', 'import sys; sys.stderr.write("child says\\n")'], check=False)
+            sys.stderr.write('after\n')
+
+        self.assertEqual(units.captured(writes_around_a_child, merge_stderr=True), (0, 'before\nchild says\nafter'))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(units.captured(writes_around_a_child), (0, ''))
+        self.assertEqual(err.getvalue(), 'before\nafter\n')
+
+    def test_closing_a_verification_folds_the_stderr_of_the_scratch_removal_into_the_closed_text(self):
+        units = self.kitchen_core_module('units')
+        verify_state = self.kitchen_core_module('verify_state')
+        world = self.path / 'world'
+        world.mkdir()
+        ctx = Context('pstack-kitchen', str(root / 'skills/pstack-kitchen'), str(self.path / 'state'), 'Kitchen', ('sidekick',), (), 21, '')
+        status, text = units.captured(lambda: verify_state.remove_scratch(ctx, str(world), '001-x-verify'), merge_stderr=True)
+        self.assertEqual(status, 0)
+        self.assertIn('no pair.json in', text)
+
     def test_captured_gives_the_status_and_stdout_of_a_call_and_leaves_the_environment_as_it_found_it(self):
         units = self.kitchen_core_module('units')
         out = io.StringIO()
@@ -6356,7 +6391,7 @@ class CoreTests(unittest.TestCase):
         }, 'pstack-trio')
         discuss = self.discuss_cases()
         self.check_port(discuss, {
-            'an escalated plan with no consultant': (2, 'consultant  is not live; run: pair.sh spawn <T>/st --only consultant --consultant <kind>'),
+            'an escalated plan with no consultant': (2, 'consultant is not live; run: pair.sh spawn <T>/st --only consultant --consultant <kind>'),
             'a consultant that is blocked': (3, 'consultant c1 is blocked; inspect: herdr agent read c1 --source visible --lines 60'),
             'a consultant that is working': (5, 'consultant c1 is working; wait for it before a plan round'),
             'a prompt that fails': (2, 'herdr prompt failed for s1'),

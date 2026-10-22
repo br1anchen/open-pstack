@@ -240,7 +240,7 @@ HINTS = {(WAIT, at(WAIT, "write(f'{SUPERSEDED}\\n')", 'return 4')): ['superseded
          (CONSULT, at(CONSULT, "print(f\"advice_status: {header_field(advice, 'status')}\")", 'return 3')): ['advice_status: answered'],
          (CONSULT, at(CONSULT, "if status == 'blocked':\n        print('advice: missing')", 'return 3')): ['advice: missing'],
          (CONSULT, at(CONSULT, "    print('advice: missing')\n    return 4", 'return 4')): ['advice: missing'],
-         (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "vs.set_outcome(packet, 'start-failed')\n        raise Die(why, 5)", 'raise Die(why, 5)')): ['verifier start failed in'],
+         (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "vs.set_outcome(v.packet, 'start-failed')\n        raise Die(why, 5)", 'raise Die(why, 5)')): ['verifier start failed in'],
          (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "raise Die(f'verifier entry is not JSON", 'raise Die(f')): ['verifier entry is not JSON']}
 # behaviours no caller depends on (standing order 27): path:line -> why
 NOT_CONTRACT = {
@@ -307,9 +307,14 @@ for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitche
         lit = [f.split('/')[0] if '/' in f else f]
         store_out.append(line('Store files', f'`{f}` written by {m.group(2).strip()}: {m.group(3).strip()[:110]}', f'skills/{skill}/SKILL.md:{i}', lit, in_golden=True))
 fields = {}
-for l in git_grep(r"\.(sidekick|master|consultant|verifier|dispatch|sent|verifying|escalations|scratch|pending|heads|skill_builds)(\.[a-z_]+)?\b", 'skills/pstack-pair/scripts/pstack_core', 'skills/pstack-kitchen/scripts/kitchen_core'):
-    for m in re.finditer(r'\.(sidekick|master|consultant|verifier|dispatch|sent|verifying)\.([a-z_]+)', l):
+for l in git_grep(r"[.'\"](sidekick|master|consultant|verifier|dispatch|sent|verifying|escalations|scratch|pending|heads|skill_builds)(\.[a-z_]+)?\b", 'skills/pstack-pair/scripts/pstack_core', 'skills/pstack-kitchen/scripts/kitchen_core'):
+    for m in re.finditer(r'(?:\.|[\'"])(sidekick|master|consultant|verifier|dispatch|sent|verifying)\.([a-z_]+)', l):
         fields.setdefault(f'{m.group(1)}.{m.group(2)}', l.split(':')[0] + ':' + l.split(':')[1])
+# fields the code reads or writes through an accessor that takes the key apart from its section, so no dotted path names them
+for k, (path, anchor) in {'sidekick.start_args': (f'{PAIR}/commands/rotate.py', "names(sidekick, 'start_args')"),
+                          'consultant.kind': (f'{PAIR}/spawn.py', "entry['pane_id'], entry['kind']"),
+                          'verifying.argv': (f'{KITCHEN}/verify_wait.py', "names(peek(load(self.store), 'verifying'), 'argv')")}.items():
+    fields.setdefault(k, f'{path}:{at(path, anchor, anchor)}')
 for k, src in sorted(fields.items()):
     store_out.append(line('pair.json fields', f'`pair.json` `.{k}`', src, [k.split('.')[1] if False else f"'{k.split('.')[1]}'", f'"{k.split(".")[1]}"']))
 
@@ -376,7 +381,7 @@ git grep -noE '`[A-Za-z_-]+( [a-z]+)?:`' -- 'skills/*.md'
 git grep -nF '<prefix>' -- skills/pstack-pair/scripts skills/pstack-pair-guided/scripts skills/pstack-trio/scripts skills/pstack-kitchen/scripts
 # store files: the `| \\`path\\` |` tables in each SKILL.md; pair.json fields
 git grep -nE '^\\| `' -- skills/pstack-pair/SKILL.md skills/pstack-pair-guided/SKILL.md skills/pstack-trio/SKILL.md skills/pstack-kitchen/SKILL.md
-git grep -noE '\\.(sidekick|master|consultant|verifier|dispatch|sent|verifying)\\.[a-z_]+' -- skills/pstack-pair/scripts/pstack_core skills/pstack-kitchen/scripts/kitchen_core
+git grep -noE '[.\\'"](sidekick|master|consultant|verifier|dispatch|sent|verifying)\\.[a-z_]+' -- skills/pstack-pair/scripts/pstack_core skills/pstack-kitchen/scripts/kitchen_core
 ```
 
 Exit codes callers branch on: {'; '.join(f'{k} {v}' for k, v in codes.items())}.

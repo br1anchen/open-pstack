@@ -1,17 +1,9 @@
 """The open verification's state and its close: who may write `.verifying`, who owns the close, and what closing does (verifier, pane, scratch).
-Ported from kitchen.sh at b632713 (drop_verifying, update_verifying, claim_close, release_close, my_claim, still_my_claim, run_close, close_verifier,
-verification_still_open, verify_cancel and the helpers they share with the wait: set_outcome, verify_prompt, redeliver_packet, audit_due,
-verdict_problem and handoff_due).
 
 This module alone writes `.verifying` and `.verifying.closing`. A parsed snapshot of `.verifying` is never authority: each write goes through
 `update_verifying`, which re-reads pair.json under the lock and acts only while `.verifying.verdict` is still the verdict the caller holds (the
-compare-and-set), and the claim of a close is the token `<host>:<pid>:<n>` (host from `$HOSTNAME`, as the bash reads it; pid that of the running
-command's process, forked children included; n a random number below 32768) written by the first closer only.
-
-The pair.json fields the kitchen reads by name (path strings given to the store readers):
-.consultant.args .consultant.fallback .consultant.kind .master.permission_mode .sidekick.args .sidekick.start_args .verifier.name
-.verifying.argv .verifying.brief .verifying.deadline .verifying.delivered .verifying.entry .verifying.idle_since .verifying.packet
-.verifying.retried .verifying.risk .verifying.sample .verifying.scratch .verifying.session .verifying.started .verifying.unit .verifying.units"""
+compare-and-set), and the claim of a close is the token `<host>:<pid>:<n>` (host from `$HOSTNAME`; pid that of the running
+command's process, forked children included; n a random number below 32768) written by the first closer only."""
 
 import contextlib
 import time
@@ -150,7 +142,7 @@ def set_member(doc, role, key, value):
 
 def close_verifier(ctx, store, name, kind, pane, verdict):
     """Stops the open verification's verifier, closes its pane and removes its scratch, unless `.verifying` no longer names the verification with
-    verdict or another call claimed it. Returns 70 then, else the status of the scratch removal (the last command, as in the bash)."""
+    verdict or another call claimed it. Returns 70 then, else the status of the scratch removal."""
     if not claim_close(store, verdict):
         return 70
     scratch = read(store, 'verifying.scratch')
@@ -176,8 +168,7 @@ def core_argv(ctx, *command):
 
 
 def scratch_process(ctx, store, scratch, *options, capture=False):
-    """`cmd_scratch "$store" "$scratch" OPTIONS` as the bash ran it, a process of the core: (status, stdout when captured). Its errors, a traceback
-    included, are its own stderr."""
+    """The core's scratch command as a process of its own: (status, stdout when captured). Its errors, a traceback included, are its own stderr."""
     sys.stdout.flush()
     sys.stderr.flush()
     r = subprocess.run(core_argv(ctx, 'scratch', store, scratch, *options), stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False, **TEXT)
@@ -185,7 +176,7 @@ def scratch_process(ctx, store, scratch, *options, capture=False):
 
 
 def remove_scratch(ctx, store, scratch):
-    """`cmd_scratch "$store" "$scratch" --remove >/dev/null`: its status."""
+    """The status of removing the scratch."""
     return scratch_process(ctx, store, scratch, '--remove')[0]
 
 
@@ -199,7 +190,7 @@ def run_close(ctx, store, name, kind, pane, verdict):
         rc = e.code
     except Exit as e:
         rc = e.code
-    except Exception as e:  # any failure of the close is a nonzero status of its subshell
+    except Exception as e:  # any failure of the close is a nonzero status
         sys.stderr.write(f'{prog()}: {e}\n')
         rc = 1
     if rc == 0:

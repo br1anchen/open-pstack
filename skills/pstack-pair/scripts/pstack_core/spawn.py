@@ -11,7 +11,7 @@ from . import agents
 from .send import fresh_kind, submit_typed, visible_without_blanks
 from .store import (
     Die, TEXT, exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, prog, pair_file,
-    whole_number,
+    whole_number, who,
 )
 from .panes import agent_field, agent_status, herdr, await_file, new_pane, refuse_untrusted
 from .permission import mode_of_this_shell
@@ -98,11 +98,11 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
             mark_ready(store, role)
             print(f'ready: {store}/{ready}')
             event(store, role, 'spawn', '-', f'{field(store, role, "kind")}:ready')
-        print(f'{role} {name} already live ({status}) in {field(store, role, "pane_id")}')
+        pane = field(store, role, 'pane_id')
+        print(f'{who(role, name)} already live ({status})' + (f' in {pane}' if pane else ''))
         return 0
     prime_start_failed = False
     if not pane:
-        # field ".$role.pane_id // empty": jq's error where the role cannot be indexed
         previous = field(store, role, 'pane_id')
         if previous and herdr('pane', 'get', previous)[0] == 0:
             pane = previous
@@ -222,7 +222,7 @@ def record_fallback(store, kind, args):
 
 
 def preflight_reason(kind, args):
-    """(status, text): preflight_kind with its stderr captured, as `$(preflight_kind ... 2>&1)` leaves it."""
+    """(status, text): preflight_kind with its stderr captured."""
     seen, sys.stderr = sys.stderr, io.StringIO()
     try:
         code = agents.preflight_kind(kind, args)

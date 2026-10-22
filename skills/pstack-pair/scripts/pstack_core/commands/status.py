@@ -5,10 +5,7 @@ import subprocess
 import sys
 import time
 
-from ..store import (
-    Die, prog, header_field, load, names, newest, paused_reason, peek, read_text, suffix_number, text_at, unit_name, event, pair_file,
-    pause_notice, progress_path, steer_notice,
-)
+from ..store import Die, prog, header_field, load, names, newest, paused_reason, peek, read_text, suffix_number, text_at, unit_name, event, pair_file, pause_notice, progress_path, steer_notice
 from ..panes import agent_status
 
 
@@ -60,7 +57,7 @@ def lines(ctx, store, out):
     for role in ctx.roles:
         name = text_at(peek(pair, role), 'name')
         pane = text_at(peek(pair, role), 'pane_id', 'unassigned')
-        out.write(f'{role}: {name} ({pane}) {agent_status(name)}\n')
+        out.write(f'{role}: ' + ' '.join(filter(None, [name, f'({pane})', agent_status(name)])) + '\n')
     out.write('\n')
     if consultant:
         out.write('| seq | kind | unit | report | advice | review |\n|---|---|---|---|---|---|\n')

@@ -1,10 +1,10 @@
-"""catch and retro: the run's ledger rows, and the counts a retro prints. Ported from kitchen.sh at b632713."""
+"""catch and retro: the run's ledger rows, and the counts a retro prints.."""
 
 import json
 import re
 import sys
 
-from pstack_core.store import Die, Exit, event, read_text, now, pair_file, read
+from pstack_core.store import Die, Exit, event, read_text, now, pair_file, read, who
 
 from . import kpy
 
@@ -33,8 +33,8 @@ def slug_of(store):
 
 
 def state_ledger(store, abort=False):
-    """`$(kpy "$store" statedir)/ledger.tsv`: kitchen.py's answer, its stderr passing through. Inside a command's argument list its status
-    is not looked at (catch); as the whole of an assignment it is the assignment's, and set -e ends the command with it (abort, retro)."""
+    """The ledger path kitchen.py's `statedir` names, its stderr passing through. A failing `statedir` is not looked at by catch and ends the
+    command with its status for abort (retro)."""
     root = read(store, 'git_root')
     rc, out, err = kpy.run(root, ['statedir'])
     sys.stderr.write(err)
@@ -72,13 +72,13 @@ def counters(store):
 
 def retro_line(store, c):
     """The one-line count of a run: units reported and verified, first-try verdicts, wakes, escalations, failovers."""
-    return (f'run {slug_of(store)}: {json.dumps(c["done_units"])} unit reports, {json.dumps(c["verified_units"])} verified units '
+    return (f'{who("run", slug_of(store))}: {json.dumps(c["done_units"])} unit reports, {json.dumps(c["verified_units"])} verified units '
             f'({json.dumps(c["clean_first_try"])} clean verdicts on the first try), {json.dumps(c["wakes"])} master wakes, '
             f'{json.dumps(c["escalations"])} escalations, {json.dumps(c["failovers"])} failovers')
 
 
 def repeated_rows(ledger):
-    """The awk over the ledger: classes seen twice or more, "count layer-ish area in N runs", sorted as `sort -rn` does."""
+    """The classes the ledger holds twice or more, as "count layer-ish area in N runs" rows, most frequent first."""
     count, seen, runs = {}, set(), {}
     try:
         lines = read_text(ledger).split('\n')

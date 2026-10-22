@@ -1,5 +1,5 @@
 """Ending an agent: the command that makes each kind exit, and the cleanup of a Prime role's daemon session and pane (stop_prime_role).
-The deadlines are the bash's 15 s and 1 s; PAIR_EXIT_DEADLINE_S and PAIR_EXIT_POLL_S let a test shorten them."""
+The deadlines are 15 s and 1 s; PAIR_EXIT_DEADLINE_S and PAIR_EXIT_POLL_S let a test shorten them."""
 import sys
 import time
 
@@ -86,7 +86,7 @@ def stop_prime_role(store, role):
 
 
 def stopped(store, role):
-    """stop_prime_role as a caller tests it with `||`: a failed jq write is the answer "no", its message printed; a die ends the command."""
+    """stop_prime_role as a caller tests it: a failed pair.json write is the answer "no", its message printed; a die ends the command."""
     try:
         return stop_prime_role(store, role)
     except Exit as e:

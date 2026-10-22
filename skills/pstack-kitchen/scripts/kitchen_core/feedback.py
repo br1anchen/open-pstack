@@ -1,5 +1,4 @@
-"""feedback and maintainer: the host feedback inbox every kitchen on this host files into, and the maintainer who is told. Ported from
-kitchen.sh at 9f0f6e5. The inbox is shared with kitchens that still run the bash, so the lock, the file names and the formats are the bash's."""
+"""feedback and maintainer: the host feedback inbox every kitchen on this host files into, and the maintainer who is told. The inbox is shared with every kitchen on this host, so the lock, the file names and the formats are fixed."""
 
 import glob
 import json
@@ -57,7 +56,7 @@ def stale(lock, now=None):
 
 
 def fb_lock(fb, tries=LOCK_TRIES, delay=LOCK_DELAY, sleep=time.sleep):
-    """mkdir <fb>/.lock, as the bash does: a lock left by a killed command (over a minute old) is removed and the mkdir retried at once;
+    """Take the lock directory <fb>/.lock: a lock left by a killed command (over a minute old) is removed and the mkdir retried at once;
     otherwise wait `delay` and try again, and give up on the `tries`-th failure."""
     lock = f'{fb}/.lock'
     attempts = 0
@@ -99,7 +98,7 @@ def mktemp(directory, prefix):
 
 
 def mv(src, dst):
-    """mv src dst: a failure is mv's message and, under set -e, the end of the command with status 1 (any lock held stays held)."""
+    """Move src to dst: a failure prints its message and ends the command with status 1 (any lock held stays held)."""
     try:
         os.replace(src, dst)
     except OSError as e:
@@ -140,7 +139,7 @@ def first_build(store):
 
 
 def rm_f(path):
-    """rm -f: a missing file is fine; any other failure is rm's message and, under set -e, the end of the command with status 1."""
+    """Remove path: a missing file is fine; any other failure prints its message and ends the command with status 1."""
     try:
         os.unlink(path)
     except FileNotFoundError:
@@ -191,7 +190,7 @@ def inbox():
         build = header_field(f, 'build').split(' ')[0]
         gaps = sum(1 for line in lines if line.startswith('### '))
         if gaps == 0:
-            # rows+="...$(grep -c '^### ' "$f")...": the assignment takes the status of its last substitution, grep's 1, and set -e ends the command
+            # a report with no gap ends the listing with status 1
             raise Exit(1)
         rows.append((secs, [header_field(f, 'id'), run, repo, build, str(gaps), age_text((now - secs) // 60)]))
     if not rows:
@@ -256,7 +255,7 @@ def maintainer_problem(fb, record=NOT_READ):
 
 
 def gap_found(path):
-    """awk '/^## Gaps/ {g = 1; next} /^## / {g = 0} g && /^### / {found = 1} END {exit !found}'."""
+    """Whether a `### ` entry sits under the `## Gaps` heading."""
     g = found = False
     for line in read_lines(path):
         if line.startswith('## Gaps'):

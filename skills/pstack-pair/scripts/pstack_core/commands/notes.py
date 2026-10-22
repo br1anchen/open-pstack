@@ -13,7 +13,7 @@ from ..review import noted_through, open_notes, require_filled, review_base, ste
 
 
 def blocking_lines(path):
-    """awk '/^## Blocking/{p=1;next} /^## /{p=0} p'"""
+    """The lines under the note's `## Blocking` heading."""
     show, lines = False, []
     text = read_text(path)
     for line in text.removesuffix('\n').split('\n'):
@@ -50,7 +50,7 @@ def notes(ctx, args):
 
 
 def followups(path, tag):
-    """awk: the "- " bullets under "## Follow-ups" except "- none", tagged."""
+    """The "- " bullets under "## Follow-ups" except "- none", tagged."""
     on, out = False, []
     for line in read_text(path).split('\n'):
         if line.startswith('## Follow-ups'):
@@ -193,7 +193,7 @@ def new_steer(ctx, args):
     if not briefs:
         raise Die(f'no brief for unit {seq}')
     slug = unit_name(briefs[0])[4:]
-    # bash counts a steer with [ -e ], which is false for a dangling symlink; the glob alone lists one
+    # a dangling symlink is no steer: the glob alone lists one
     existing = [f for f in glob.glob(os.path.join(glob.escape(store), 'steers', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')) if os.path.exists(f)]
     k = len(existing) + 1
     fresh = sum(1 for f in existing if header_field(f, 'supersedes') == 'none')

@@ -101,12 +101,12 @@ def timeout_s():
 
 
 def last_lines(out, n):
-    """printf '%s\\n' "$out" | grep -v '^[[:space:]]*$' | tail -N, as separate lines."""
+    """The last n non-blank lines of out."""
     return [line for line in out.split('\n') if line.strip(' \t\n\r\f\v')][-n:]
 
 
 def tool_line(tool):
-    """(version, path) as the failure summary shows them: `$(tool --version 2>/dev/null || printf '?')` and `$(command -v tool)`."""
+    """(version, path) as the failure summary shows them: the tool's `--version` line, or ? when it has none, and where it is on PATH."""
     try:
         version = subprocess.run([tool, '--version'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
         shown = version.stdout.rstrip('\n') if version.returncode == 0 else '?'

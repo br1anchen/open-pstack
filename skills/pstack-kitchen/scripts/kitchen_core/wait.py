@@ -1,14 +1,12 @@
-"""wait: the quiet wait. Ported from kitchen.sh at b632713 (quiet_now, quiet_flagged, log_checkin_wake, quiet_wait and cmd_wait).
+"""wait: the quiet wait.
 
 A routine check-in is a wake with nothing to act on, so a kitchen wait stays quiet through it: it returns for a report, a steps wake, a blocked
 sidekick, or a check-in that carries a flag (a stale log, a write outside Scope, an objection, an open blocking note, a timebox overrun, a pause), or
 after --max minutes (KITCHEN_QUIET_MAX_S; default an hour) with the latest digest. KITCHEN_QUIET_CLOCK, a file holding epoch seconds, replaces the wall
 clock for that --max check; tests move it at a fixed point instead of waiting.
 
-The bash ran the pair's wait as `core_wait` inside `$( )`: a child process with its stdout on a pipe and its stderr left alone, under the environment
-PAIR_WAIT_OWNER (the shell's pid), PAIR_WAIT_CLAIM, PAIR_WAIT_UNOWNED and PAIR_QUIET_WAIT=1. Here the core's wait is called as a function with its
-stdout captured (units.captured) and the same four variables set for the call; PAIR_WAIT_OWNER is this process's pid, the token the old shell's
-`$$` was, so a bash waiter and this one read each other's wait.pid."""
+The core's wait is called as a function with its stdout captured (units.captured) and PAIR_WAIT_OWNER (this process's pid), PAIR_WAIT_CLAIM,
+PAIR_WAIT_UNOWNED and PAIR_QUIET_WAIT=1 set for the call."""
 
 import os
 import re
@@ -70,7 +68,7 @@ def log_checkin_wake(store, out):
 
 
 def inner_wait(ctx, store, args, claim, unowned):
-    """`$(PAIR_WAIT_OWNER=$$ PAIR_WAIT_CLAIM=.. PAIR_WAIT_UNOWNED=.. PAIR_QUIET_WAIT=1 core_wait store args)`: (status, stdout)."""
+    """The core's wait for args, owned by this process and quiet: (status, stdout)."""
     owner = str(os.getpid())
 
     def run():
@@ -82,7 +80,7 @@ def inner_wait(ctx, store, args, claim, unowned):
 
 
 def release(ctx, store):
-    """`: "$(PAIR_WAIT_OWNER=$$ core_wait "$store" --release 2>&1)" || true`: the claim given back; whatever it prints or fails with is dropped."""
+    """The wait claim given back; whatever the release prints or fails with is dropped."""
     owner = str(os.getpid())
 
     def run():

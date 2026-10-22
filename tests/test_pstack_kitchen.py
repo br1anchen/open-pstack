@@ -1866,6 +1866,14 @@ esac
         row = [l for l in self.run_sh('status', str(self.store)).splitlines() if l.startswith('| 001 ')]
         self.assertEqual(row, ['| 001 | brief | util | none | none | none |'])
 
+    def test_kitchen_status_names_a_role_that_has_no_recorded_name_by_its_pane_alone(self):
+        pair = json.loads((self.store / 'pair.json').read_text())
+        for role in ('verifier', 'consultant'):
+            pair[role].pop('name')
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        roles = [l for l in self.run_sh('status', str(self.store)).splitlines() if re.match(r'(verifier|consultant): ', l)]
+        self.assertEqual(roles, ['verifier: (unassigned) absent', 'consultant: (unassigned) absent'])
+
     def scratch_stdout(self, *args):
         """stdout alone, as kitchen.sh reads it with | tail -1."""
         r = subprocess.run([str(self.script), 'scratch', str(self.store), *args], cwd=self.repo, env=self.env, capture_output=True, text=True, check=False)

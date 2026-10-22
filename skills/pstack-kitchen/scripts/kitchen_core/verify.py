@@ -1,6 +1,4 @@
-"""verify: starts a verification (a fresh verifier on a scratch worktree, or the gates alone) and waits for it. Ported from kitchen.sh at b632713
-(cmd_verify, verifier_entry, verifier_identity, verifier_args, record_verifier_session, brief_commands, fence_for, names_path, landing_covered_briefs,
-next_index, kitchen_snapshot and brief_kitchen).
+"""verify: starts a verification (a fresh verifier on a scratch worktree, or the gates alone) and waits for it.
 
 It is built on units.py (ranges, inclusion, verdicts), verify_state.py (the claim, the compare-and-set, the close, the cancel) and verify_wait.py (the
 wait); nothing calls back into it. A command that fails ends it with an Exit or a Die.
@@ -19,6 +17,7 @@ import subprocess
 import sys
 import time
 import contextlib
+from types import SimpleNamespace
 
 from pstack_core.agents import has_mcp_arg, has_permission_arg, has_trust_arg, mcp_args, permission_args, trust_args
 from pstack_core.commands import scratch as scratch_command
@@ -55,7 +54,7 @@ def warn(text):
 
 
 def bash_q(word):
-    """printf %q: backslashes before the characters the shell treats as special, $'...' for a word with control characters."""
+    """A word quoted for a shell: backslashes before the characters it treats as special, $'...' for a word with control characters."""
     if word == '':
         return "''"
     if any(ord(c) < 32 or ord(c) == 127 for c in word):
@@ -190,7 +189,7 @@ def verifier_identity(kind, args):
 def verifier_args(kind, entry, directory):
     """A verifier starts with its entry's arguments, then its kind's permission default, trust flag and MCP opt-out when they are missing; entry is the
     entry as an object (or None for a kind the class does not name), directory the repo the scratch is checked out from, whose MCP servers the
-    opt-out names. The arguments as the bash's mapfile read them from the lines it printed."""
+    opt-out names."""
     args = list(entry['args']) if isinstance(entry, dict) and isinstance(entry.get('args'), list) else []
     lines = []
     if not has_permission_arg(args):
@@ -233,287 +232,316 @@ def tail_lines(text, count):
     return '\n'.join(lines[-count:])
 
 
+def parse_options(argv):
+    """verify's flags and unit numbers as one namespace; a flag with no value, a malformed number and an unknown flag end the command."""
+    o = SimpleNamespace(every_m=9, every_set=False, until_set=False, timeout_m=None, kind_override='', retry_entry='', range_base='', parent_ref='',
+                        land_head='', wait=False, cancel=False, landing=False, units=[], covered=[])
+    rest = list(argv)
+    while rest:
+        flag = rest.pop(0)
+        if flag in ('--timeout', '--kind', '--retry-entry', '--every', '--base', '--parent', '--head', '--covers'):
+            if not rest:
+                raise Die(f'{flag} needs a value')
+            value = rest.pop(0)
+            if flag == '--timeout':
+                o.timeout_m = whole_number(value, '--timeout', 'minutes')
+            elif flag == '--kind':
+                o.kind_override = value
+            elif flag == '--retry-entry':
+                o.retry_entry = value
+            elif flag == '--every':
+                o.every_m, o.every_set = whole_number(value, '--every', 'minutes'), True
+            elif flag == '--base':
+                o.range_base = value
+            elif flag == '--parent':
+                o.parent_ref = value
+            elif flag == '--head':
+                o.land_head = value
+            else:
+                fields = value.split(',')
+                if fields and fields[-1] == '':
+                    fields.pop()
+                for u in fields:
+                    if not re.fullmatch(r'[0-9]{3}', u):
+                        raise Die(f"--covers takes unit numbers (NNN), one per flag or a comma list, not '{u}'")
+                    o.covered.append(u)
+        elif flag == '--until-verdict':
+            o.every_m, o.until_set = 525600, True
+        elif flag in ('--landing', '--wait', '--cancel'):
+            setattr(o, flag[2:], True)
+        elif re.fullmatch(r'[0-9][0-9][0-9]', flag):
+            o.units.append(flag)
+        else:
+            raise Die(f'unknown option {flag}')
+    if o.every_set and o.until_set:
+        raise Die('--every and --until-verdict are alternatives')
+    return o
+
+
+def classify_landing(store, root, kit, o):
+    """The landing's range and class: the head, the parent the stack starts from (--parent, or the last landing's), the kitchen as it is now, and
+    the diff's classification."""
+    head = commit_of(root, o.land_head or 'HEAD')
+    if head is None:
+        raise Die(f'--head {o.land_head} is not a commit')
+    override = label = ''
+    if o.parent_ref == 'none':
+        label = 'none'
+    if o.parent_ref and o.parent_ref != 'none':
+        override = commit_of(root, o.parent_ref)
+        if override is None:
+            raise Die(f'--parent {o.parent_ref} is not a commit')
+        label = o.parent_ref
+        if not (override != head and is_ancestor(root, override, head)):
+            raise Die(f'--parent {o.parent_ref} ({override[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts')
+    if o.range_base:
+        base = commit_of(root, o.range_base)
+        if base is None:
+            raise Die(f'--base {o.range_base} is not a commit')
+    else:
+        base = landing_base(store, root, head, override, label, o.range_base)
+    # A rebase since the last landing verdict may have moved a dependency manifest.
+    prior = latest_landing_verdict(store)
+    if prior:
+        manifest_warning(store, commit_of(root, Verdict.parse(prior).refs()[0]) or '', base, head)
+    # The stack lands under the kitchen as it is now.
+    snap = kitchen_snapshot(store, root)
+    cfg = ['--config', snap] if snap else []
+    classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head])
+    return SimpleNamespace(base=base, head=head, override=override, label=label, cfg=cfg, classified=classified, data=json.loads(classified),
+                           risk='landing', mode='unit', cls='escalated')
+
+
+def classify_units(store, kit, o, allunits):
+    """The named units' range and class. A unit dispatched as escalated is verified as escalated, whatever its diff touches."""
+    base, head = unit_range(store, allunits, o.covered, o.range_base)
+    heads_in(store, head, allunits)
+    esc = []
+    for u in allunits:
+        if header_field(brief_or_nothing(store, u), 'risk') == 'escalated':
+            esc += ['--escalate', f'unit {u} was dispatched as escalated']
+    cfg = brief_kitchen(brief_or_nothing(store, allunits[-1]))
+    classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head, *esc])
+    data = json.loads(classified)
+    verify_class = data.get('verify') or {}
+    return SimpleNamespace(base=base, head=head, override='', label='', cfg=cfg, classified=classified, data=data, risk=data.get('risk') or '',
+                           mode=verify_class.get('mode') or '', cls=verify_class.get('kind') or '')
+
+
+def verdict_paths(store, landing, allunits):
+    """(last unit, its brief, its slug, verdict path, packet path) for the verification this call starts."""
+    if landing:
+        k = next_index(f'{store}/verdicts', 'landing', 'v')
+        return 'landing', '-', '', f'{store}/verdicts/landing-v{k}.md', f'{store}/verdicts/landing-v{k}-packet.md'
+    last = allunits[-1]
+    brief = unit_brief(store, last)
+    slug = os.path.basename(brief)[:-3][4:] if brief.endswith('.md') else os.path.basename(brief)[4:]
+    k = next_index(f'{store}/verdicts', f'{last}-{slug}', 'v')
+    return last, brief, slug, f'{store}/verdicts/{last}-{slug}-v{k}.md', f'{store}/verdicts/{last}-{slug}-v{k}-packet.md'
+
+
+def deadline_minutes(kit, data, o):
+    """The deadline in minutes: --timeout, else 3 x the slowest recent passing behavioral gates, plus the last recorded setup run when the repo
+    declares one, scaled by the machine's load at the start (capped at 3x), and never under 45 minutes. The parts are printed. A landing also gets
+    3 x the touched profiles' measured landing commands, and a fixed ten minutes for each that has no measured run."""
+    if o.timeout_m is not None:
+        out(f'deadline {o.timeout_m}m (--timeout)\n')
+        return o.timeout_m
+    dlargs = ['timing', '--deadline', '--stage', 'behavioral']
+    if data['scratch_setup']:
+        dlargs.append('--with-setup')
+    dlargs += data['behavioral']
+    minutes = int(json.loads(kit.call(['--json', *dlargs])).get('minutes'))
+    kit.call(dlargs, show=True)
+    profiles = data.get('landing') or [] if o.landing else []
+    if profiles:
+        timed = json.loads(kit.call(['--json', 'timing', '--stage', 'landing', *profiles]))
+        seconds = timed.get('seconds') or 0
+        unmeasured = len(timed['unmeasured'])
+        added = int((3 * seconds + 59) / 60) + 10 * unmeasured
+        minutes += added
+        out(f'deadline +{added}m for the landing gates of {" ".join(profiles)}: 3 x {seconds / 60:.0f}m measured'
+            f'{"" if unmeasured == 0 else f", {unmeasured} unmeasured at 10m each"}; now {minutes}m\n')
+    return minutes
+
+
+def choose_verifier(kit, root, cls, o):
+    """(entry, kind, arguments) of the verifier: the retried entry, else --kind's pick from the class's entry and its fallback, else the entry."""
+    entry = verifier_entry(kit, cls)
+    if o.retry_entry:
+        retried = parse_entry(o.retry_entry)
+        kind = retried.get('kind') if isinstance(retried, dict) else ''
+        picked = {'kind': retried.get('kind'), 'args': retried.get('args')} if isinstance(retried, dict) else None
+    elif o.kind_override:
+        kind = o.kind_override
+        picked = pick_entry(entry, kind)
+    else:
+        kind = entry.get('kind') if isinstance(entry, dict) else ''
+        picked = entry
+    args_list = verifier_args(kind, picked, root)
+    if not kind or not isinstance(kind, str):
+        raise Die(f'cannot tell which agent kind verifies ({cls})')
+    return entry, kind, args_list
+
+
+def record_landing_parent(store, o, c):
+    """The last point verify can die before it starts the verifier: only now is the stack's parent recorded or cleared."""
+    if o.parent_ref == 'none':
+        def clear(doc):
+            section = peek(doc, 'landing')
+            section.pop('parent', None)
+            section.pop('parent_ref', None)
+
+        update(store, clear)
+    elif c.override:
+        def record(doc):
+            vs.set_member(doc, 'landing', 'parent', c.override)
+            vs.set_member(doc, 'landing', 'parent_ref', c.label)
+
+        update(store, record)
+
+
+def launch_verifier(v):
+    """The verifier's pane beside the sidekick (the master when it is gone) and its agent, started on the scratch. A start that fails closes the pane
+    and the scratch and ends the command; a Prime verifier keeps both. (pane, whether the agent started)."""
+    store = v.store
+    v.name = field(store, 'verifier', 'name')
+    anchor = field(store, 'sidekick', 'pane_id')
+    if not (anchor and herdr('pane', 'get', anchor)[0] == 0):
+        anchor = field(store, 'master', 'pane_id')
+    if read(store, 'placement') == 'tab':
+        field(store, 'master', 'pane_id')  # a master that is no object ends verify before any herdr call
+    with contextlib.redirect_stdout(io.StringIO()):
+        pane = new_pane(store, 'verifier', anchor, '', v.scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={read(store, "slug")}'))
+    sys.stdout.flush()
+    started = subprocess.run(['herdr', 'agent', 'start', v.name, '--kind', v.kind, '--pane', pane, '--timeout', '60000', '--', *v.args],
+                             stdout=subprocess.DEVNULL, check=False).returncode == 0
+    if not started and v.kind != 'prime-agent':
+        why = f'verifier start failed in {pane}'
+        screen = re.sub(r'[\n\t ]+', ' ', herdr('pane', 'read', pane, '--source', 'visible', '--lines', '40')[1])
+        if TRUST_RE.search(screen):
+            why = f'{v.kind} asks whether to trust {v.scratch}, and that decision is yours: open {v.kind} in the repo once and trust it, or verify with another kind'
+            herdr('pane', 'send-keys', pane, 'esc')
+        herdr('pane', 'close', pane)
+        removed = vs.remove_scratch(v.ctx, store, v.scratch_id)
+        if removed:
+            raise Exit(removed)
+        vs.set_outcome(v.packet, 'start-failed')
+        raise Die(why, 5)
+    return pane, started
+
+
+def record_start(v, pane, started):
+    """The verifier and the open verification, in pair.json, once the agent has started; a Prime verifier must also have reported its session."""
+    store = v.store
+    started_at = int(time.time())
+    sample = 0 if v.landing else v.data.get('sample')
+    unit_label = 'landing' if v.landing else f'{v.last}-{v.slug}'
+    v.units_label = ' '.join(v.units) if v.units else 'landing'
+
+    def mutate(doc):
+        # .verifier.pane_id and .verifier.kind; for a prime-agent also .verifier.start_args, .verifier.session, .verifier.session_stopped, .verifier.closed and .verifier.launch_cwd
+        vs.set_member(doc, 'verifier', 'pane_id', pane)
+        vs.set_member(doc, 'verifier', 'kind', v.kind)
+        if v.kind == 'prime-agent':
+            verifier = doc['verifier']
+            verifier['start_args'], verifier['session'], verifier['session_stopped'], verifier['closed'], verifier['launch_cwd'] = list(v.args), None, False, False, v.scratch
+        doc['verifying'] = {'verdict': v.verdict, 'packet': v.packet, 'brief': v.brief, 'scratch': v.scratch_id, 'units': v.units_label, 'risk': v.risk,
+                            'sample': sample, 'unit': unit_label, 'started': started_at, 'deadline': started_at + v.timeout_m * 60, 'class': v.cls,
+                            'entry': v.entry, 'retried': v.retried, 'argv': v.argv, 'delivered': False}
+
+    update(store, mutate)
+    vs.set_outcome(v.packet, 'running')
+    if v.kind == 'prime-agent':
+        if not started:
+            vs.set_outcome(v.packet, 'start-failed')
+            record_prime_session(store, 'verifier')
+            raise Die(f'Prime verifier start failed in {pane}; its pane and scratch stay for inspection (verify-wait can resume cleanup once its session is reported)', 5)
+        if not record_prime_session(store, 'verifier'):
+            raise Die('Prime verifier did not report its session; its pane and scratch stay for inspection', 5)
+    event(store, 'master', 'send-verify', v.brief, f'{v.kind}:{v.units_label}')
+    record_verifier_session(store, v.name)
+    out(f'verifier {v.name} ({v.identity}) in {pane} on {v.base[:9]}..{v.head[:9]}\n')
+
+
+def deliver_packet(v):
+    """A just-started agent can take the text before it takes the Enter (pi drawing its startup screen), so the prompt must be seen working; an idle
+    agent gets one more Enter, which submits the typed text. A startup screen can also swallow the prompt whole: an agent never seen working, with
+    nothing typed and no verdict, still idle, gets the packet once more."""
+    sys.stdout.flush()
+    took = herdr('agent', 'prompt', v.name, vs.verify_prompt(v.ctx, v.packet), '--wait', '--until', 'working', '--timeout', '30000')[0] == 0
+    submitted = submit_typed(v.name, os.path.basename(v.packet))
+    if not took and submitted == 0 and not os.path.isfile(v.verdict):
+        if agent_status(v.name) in ('idle', 'done'):
+            vs.redeliver_packet(v.ctx, v.store, 'the verifier sat idle without the packet')
+    update(v.store, lambda doc: vs.set_member(doc, 'verifying', 'delivered', True))
+    record_verifier_session(v.store, v.name)
+
+
 def verify(ctx, args):
-    """The bash's cmd_verify. It always ended in an exit, so this raises Exit for each end, and returns nothing."""
+    """Start a verification of the named units or the landing and wait for its verdict; every end is an Exit or a Die."""
     in_herdr()
     if len(args) < 2:
         raise Die(USAGE)
     store, argv = args[0], list(args[1:])
-    every_set = until_set = False
-    parent_ref = land_head = kind_override = retry_entry = range_base = ''
-    timeout_m = None
-    every_m = 9
-    wait = cancel = landing = False
-    units, covered = [], []
-    rest = list(argv)
-    while rest:
-        flag = rest[0]
-        takes = ('--timeout', '--kind', '--retry-entry', '--every', '--base', '--parent', '--head')
-        if flag in takes:
-            if len(rest) < 2:
-                raise Die(f'{flag} needs a value')
-            value = rest[1]
-            del rest[:2]
-            if flag == '--timeout':
-                timeout_m = whole_number(value, '--timeout', 'minutes')
-            elif flag == '--kind':
-                kind_override = value
-            elif flag == '--retry-entry':
-                retry_entry = value
-            elif flag == '--every':
-                every_m, every_set = whole_number(value, '--every', 'minutes'), True
-            elif flag == '--base':
-                range_base = value
-            elif flag == '--parent':
-                parent_ref = value
-            else:
-                land_head = value
-        elif flag == '--until-verdict':
-            every_m, until_set = 525600, True
-            del rest[:1]
-        elif flag == '--covers':
-            if len(rest) < 2:
-                raise Die('--covers needs a value')
-            fields = rest[1].split(',')
-            if fields and fields[-1] == '':
-                fields.pop()
-            for u in fields:
-                if not re.fullmatch(r'[0-9]{3}', u):
-                    raise Die(f"--covers takes unit numbers (NNN), one per flag or a comma list, not '{u}'")
-                covered.append(u)
-            del rest[:2]
-        elif flag == '--landing':
-            landing = True
-            del rest[:1]
-        elif flag == '--wait':
-            wait = True
-            del rest[:1]
-        elif flag == '--cancel':
-            cancel = True
-            del rest[:1]
-        elif re.fullmatch(r'[0-9][0-9][0-9]', flag):
-            units.append(flag)
-            del rest[:1]
-        else:
-            raise Die(f'unknown option {flag}')
-    if every_set and until_set:
-        raise Die('--every and --until-verdict are alternatives')
+    o = parse_options(argv)
+
+    def retry(again):
+        return verify(ctx, again)
+
     pair_file(store)
-    if cancel:
-        if wait or units or landing:
+    if o.cancel:
+        if o.wait or o.units or o.landing:
             raise Die('--cancel takes no units, --landing or --wait')
         vs.verify_cancel(ctx, store)
         raise Exit(0)
-    if wait:
+    if o.wait:
         if not read(store, 'verifying.verdict'):
             raise Die(f'no verification is open; start one with kitchen.sh verify {store} <NNN>', 5)
-        Waiter(ctx, store, every_m, retry=lambda again: verify(ctx, again)).run()
-    if not landing and not units:
+        Waiter(ctx, store, o.every_m, retry=retry).run()
+    if not o.landing and not o.units:
         raise Die('name at least one unit NNN, or --landing')
-    if landing and units:
+    if o.landing and o.units:
         raise Die('--landing verifies the whole stack; name no units')
     close_unread(ctx, store)
     if read(store, 'verifying.verdict'):
         raise Die(f'a verification is open ({read(store, "verifying.units")}); kitchen.sh verify {store} --wait', 5)
-    allunits = [*covered, *units]
+    allunits = [*o.covered, *o.units]
     root = git_root(store, check=True)
-    if land_head and not landing:
+    if o.land_head and not o.landing:
         raise Die('--head goes with --landing')
-    if parent_ref and not landing:
+    if o.parent_ref and not o.landing:
         raise Die('--parent goes with --landing')
     kit = Kitchen(store, root)
-    here = f'{ctx.skill_root}/scripts'
-    override = label = ''
-    cfg = []
-    if landing:
-        head = commit_of(root, land_head or 'HEAD')
-        if head is None:
-            raise Die(f'--head {land_head} is not a commit')
-        if parent_ref == 'none':
-            label = 'none'
-        if parent_ref and parent_ref != 'none':
-            override = commit_of(root, parent_ref)
-            if override is None:
-                raise Die(f'--parent {parent_ref} is not a commit')
-            label = parent_ref
-            if not (override != head and is_ancestor(root, override, head)):
-                raise Die(f'--parent {parent_ref} ({override[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts')
-        if range_base:
-            base = commit_of(root, range_base)
-            if base is None:
-                raise Die(f'--base {range_base} is not a commit')
-        else:
-            base = landing_base(store, root, head, override, label, range_base)
-        # A rebase since the last landing verdict may have moved a dependency manifest.
-        prior = latest_landing_verdict(store)
-        if prior:
-            prior_ref = Verdict.parse(prior).refs()[0]
-            manifest_warning(store, commit_of(root, prior_ref) or '', base, head)
-        # The stack lands under the kitchen as it is now.
-        snap = kitchen_snapshot(store, root)
-        cfg = ['--config', snap] if snap else []
-        classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head])
-        data = json.loads(classified)
-        risk, mode, cls = 'landing', 'unit', 'escalated'
-    else:
-        base, head = unit_range(store, allunits, covered, range_base)
-        heads_in(store, head, allunits)
-        # A unit dispatched as escalated is verified as escalated, whatever its diff touches.
-        esc = []
-        for u in allunits:
-            if header_field(brief_or_nothing(store, u), 'risk') == 'escalated':
-                esc += ['--escalate', f'unit {u} was dispatched as escalated']
-        cfg = brief_kitchen(brief_or_nothing(store, allunits[-1]))
-        classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head, *esc])
-        data = json.loads(classified)
-        verify_class = data.get('verify') or {}
-        risk, mode, cls = data.get('risk') or '', verify_class.get('mode') or '', verify_class.get('kind') or ''
+    c = classify_landing(store, root, kit, o) if o.landing else classify_units(store, kit, o, allunits)
+    data = c.data
     # A batch of independent units has a size cap; a fix verified with the unit it fixes does not, since splitting it would re-reject the first.
-    if not covered and len(units) > 1 and is_number(data.get('diff_lines')) and is_number(data.get('max_batch_diff')) and data['diff_lines'] > data['max_batch_diff']:
+    if not o.covered and len(o.units) > 1 and is_number(data.get('diff_lines')) and is_number(data.get('max_batch_diff')) and data['diff_lines'] > data['max_batch_diff']:
         raise Die(f'batch of {json.dumps(data["diff_lines"])} diff lines is over review.max_batch_diff; verify each unit', 2)
-    if landing:
-        last, brief, slug = 'landing', '-', ''
-        k = next_index(f'{store}/verdicts', 'landing', 'v')
-        verdict, packet = f'{store}/verdicts/landing-v{k}.md', f'{store}/verdicts/landing-v{k}-packet.md'
-    else:
-        last = allunits[-1]
-        brief = unit_brief(store, last)
-        slug = os.path.basename(brief)[:-3][4:] if brief.endswith('.md') else os.path.basename(brief)[4:]
-        k = next_index(f'{store}/verdicts', f'{last}-{slug}', 'v')
-        verdict, packet = f'{store}/verdicts/{last}-{slug}-v{k}.md', f'{store}/verdicts/{last}-{slug}-v{k}-packet.md'
-    if mode == 'gates':
-        gates_verdict(store, verdict, last, slug, allunits, base, head)
+    last, brief, slug, verdict, packet = verdict_paths(store, o.landing, allunits)
+    if c.mode == 'gates':
+        gates_verdict(store, verdict, last, slug, allunits, c.base, c.head)
         event(store, 'master', 'verify', brief, 'gates:clean')
         event(store, 'master', 'wake', brief, 'verify:clean')
         out(f'verdict: {verdict}\nstatus: clean (gates only; mode gates)\n')
         warn_unreviewed(store)
         vs.handoff_due(store, last)
         raise Exit(0)
-    # The default deadline: 3 x the slowest recent passing behavioral gates, plus the last recorded setup run when the repo declares one, scaled by the
-    # machine's load at the start (capped at 3x), and never under 45 minutes. The parts are printed; --timeout wins.
-    if timeout_m is None:
-        dlargs = ['timing', '--deadline', '--stage', 'behavioral']
-        if data['scratch_setup']:
-            dlargs.append('--with-setup')
-        dlargs += data['behavioral']
-        timeout_m = int(json.loads(kit.call(['--json', *dlargs])).get('minutes'))
-        kit.call(dlargs, show=True)
-        # A landing verification also runs the touched profiles' landing commands: 3 x their measured time, and a fixed ten minutes for each that has
-        # no measured run.
-        if landing:
-            profiles = data.get('landing') or []
-            if profiles:
-                timing = kit.call(['--json', 'timing', '--stage', 'landing', *profiles])
-                timed = json.loads(timing)
-                seconds = timed.get('seconds') or 0
-                unmeasured = len(timed['unmeasured'])
-                added = int((3 * seconds + 59) / 60) + 10 * unmeasured
-                timeout_m += added
-                out(f'deadline +{added}m for the landing gates of {" ".join(profiles)}: 3 x {seconds / 60:.0f}m measured'
-                    f'{"" if unmeasured == 0 else f", {unmeasured} unmeasured at 10m each"}; now {timeout_m}m\n')
-    else:
-        out(f'deadline {timeout_m}m (--timeout)\n')
-    entry = verifier_entry(kit, cls)
-    if retry_entry:
-        retried = parse_entry(retry_entry)
-        kind = retried.get('kind') if isinstance(retried, dict) else ''
-        picked = {'kind': retried.get('kind'), 'args': retried.get('args')} if isinstance(retried, dict) else None
-        args_list = verifier_args(kind, picked, root)
-    elif kind_override:
-        kind = kind_override
-        picked = pick_entry(entry, kind)
-        args_list = verifier_args(kind, picked, root)
-    else:
-        kind = entry.get('kind') if isinstance(entry, dict) else ''
-        args_list = verifier_args(kind, entry, root)
-    if not kind or not isinstance(kind, str):
-        raise Die(f'cannot tell which agent kind verifies ({cls})')
-    identity = verifier_identity(kind, args_list)
-    vclass = 'landing' if landing else cls
-    scratch_id = '000-landing-verify' if landing else f'{last}-{slug}-verify'
-    scratch = scratch_path(ctx, store, scratch_id, head)
-    # The last point verify can die before it starts the verifier: only now is the stack's parent recorded or cleared.
-    if landing:
-        if parent_ref == 'none':
-            def clear(doc):
-                section = peek(doc, 'landing')
-                section.pop('parent', None)
-                section.pop('parent_ref', None)
-
-            update(store, clear)
-        elif override:
-            def record(doc):
-                vs.set_member(doc, 'landing', 'parent', override)
-                vs.set_member(doc, 'landing', 'parent_ref', label)
-
-            update(store, record)
-    write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, identity, vclass, timeout_m, risk, allunits, units, covered, landing, last, slug,
-                 cls, classified, cfg)
-    name = field(store, 'verifier', 'name')
-    anchor = field(store, 'sidekick', 'pane_id')
-    if not (anchor and herdr('pane', 'get', anchor)[0] == 0):
-        anchor = field(store, 'master', 'pane_id')
-    if read(store, 'placement') == 'tab':
-        field(store, 'master', 'pane_id')  # new_pane's `master="$(field ...)"`: a master that is no object ends verify before any herdr call
-    with contextlib.redirect_stdout(io.StringIO()):
-        pane = new_pane(store, 'verifier', anchor, '', scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={read(store, "slug")}'))
-    sys.stdout.flush()
-    started = subprocess.run(['herdr', 'agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', '60000', '--', *args_list],
-                             stdout=subprocess.DEVNULL, check=False).returncode == 0
-    if not started and kind != 'prime-agent':
-        why = f'verifier start failed in {pane}'
-        screen = re.sub(r'[\n\t ]+', ' ', herdr('pane', 'read', pane, '--source', 'visible', '--lines', '40')[1])
-        if TRUST_RE.search(screen):
-            why = f'{kind} asks whether to trust {scratch}, and that decision is yours: open {kind} in the repo once and trust it, or verify with another kind'
-            herdr('pane', 'send-keys', pane, 'esc')
-        herdr('pane', 'close', pane)
-        removed = vs.remove_scratch(ctx, store, scratch_id)
-        if removed:
-            raise Exit(removed)
-        vs.set_outcome(packet, 'start-failed')
-        raise Die(why, 5)
-    started_at = int(time.time())
-    sample = 0 if landing else data.get('sample')
-    unit_label = 'landing' if landing else f'{last}-{slug}'
-    units_label = ' '.join(allunits) if allunits else 'landing'
-    deadline = started_at + timeout_m * 60
-    native = list(args_list)
-
-    def record_start(doc):
-        # .verifier.pane_id and .verifier.kind; for a prime-agent also .verifier.start_args, .verifier.session, .verifier.session_stopped, .verifier.closed and .verifier.launch_cwd
-        vs.set_member(doc, 'verifier', 'pane_id', pane)
-        vs.set_member(doc, 'verifier', 'kind', kind)
-        if kind == 'prime-agent':
-            verifier = doc['verifier']
-            verifier['start_args'], verifier['session'], verifier['session_stopped'], verifier['closed'], verifier['launch_cwd'] = native, None, False, False, scratch
-        doc['verifying'] = {'verdict': verdict, 'packet': packet, 'brief': brief, 'scratch': scratch_id, 'units': units_label, 'risk': risk, 'sample': sample,
-                            'unit': unit_label, 'started': started_at, 'deadline': deadline, 'class': cls, 'entry': entry, 'retried': bool(retry_entry),
-                            'argv': argv, 'delivered': False}
-
-    update(store, record_start)
-    vs.set_outcome(packet, 'running')
-    if kind == 'prime-agent':
-        if not started:
-            vs.set_outcome(packet, 'start-failed')
-            record_prime_session(store, 'verifier')
-            raise Die(f'Prime verifier start failed in {pane}; its pane and scratch stay for inspection (verify-wait can resume cleanup once its session is reported)', 5)
-        if not record_prime_session(store, 'verifier'):
-            raise Die('Prime verifier did not report its session; its pane and scratch stay for inspection', 5)
-    event(store, 'master', 'send-verify', brief, f'{kind}:{units_label}')
-    record_verifier_session(store, name)
-    out(f'verifier {name} ({identity}) in {pane} on {base[:9]}..{head[:9]}\n')
-    # A just-started agent can take the text before it takes the Enter (pi drawing its startup screen), so the prompt must be seen working; an idle agent
-    # gets one more Enter, which submits the typed text. A startup screen can also swallow the prompt whole: an agent never seen working, with nothing
-    # typed and no verdict, still idle, gets the packet once more.
-    sys.stdout.flush()
-    took = herdr('agent', 'prompt', name, vs.verify_prompt(ctx, packet), '--wait', '--until', 'working', '--timeout', '30000')[0] == 0
-    submitted = submit_typed(name, os.path.basename(packet))
-    if not took and submitted == 0 and not os.path.isfile(verdict):
-        if agent_status(name) in ('idle', 'done'):
-            vs.redeliver_packet(ctx, store, 'the verifier sat idle without the packet')
-    update(store, lambda doc: vs.set_member(doc, 'verifying', 'delivered', True))
-    record_verifier_session(store, name)
-    Waiter(ctx, store, every_m, retry=lambda again: verify(ctx, again)).run()
+    timeout_m = deadline_minutes(kit, data, o)
+    entry, kind, args_list = choose_verifier(kit, root, c.cls, o)
+    scratch_id = '000-landing-verify' if o.landing else f'{last}-{slug}-verify'
+    v = SimpleNamespace(ctx=ctx, store=store, argv=argv, landing=o.landing, units=allunits, last=last, slug=slug, brief=brief, base=c.base, head=c.head,
+                        cls=c.cls, risk=c.risk, data=data, verdict=verdict, packet=packet, timeout_m=timeout_m, entry=entry, kind=kind, args=args_list,
+                        identity=verifier_identity(kind, args_list), scratch_id=scratch_id, retried=bool(o.retry_entry),
+                        scratch=scratch_path(ctx, store, scratch_id, c.head))
+    if o.landing:
+        record_landing_parent(store, o, c)
+    write_packet(ctx, kit, f'{ctx.skill_root}/scripts', store, packet, verdict, v.scratch, c.base, c.head, v.identity, 'landing' if o.landing else c.cls, timeout_m,
+                 c.risk, allunits, o.units, o.covered, o.landing, last, slug, c.cls, c.classified, c.cfg)
+    pane, started = launch_verifier(v)
+    record_start(v, pane, started)
+    deliver_packet(v)
+    Waiter(ctx, store, o.every_m, retry=retry).run()
 
 
 def pick_entry(entry, kind):
@@ -529,7 +557,7 @@ def is_number(value):
 
 
 def scratch_path(ctx, store, scratch_id, head):
-    """`$(cmd_scratch "$store" "$scratch_id" --at "$head" | tail -1)`: the scratch's path; the command's refusal ends verify with its status."""
+    """The scratch worktree's path at head; the scratch command's refusal ends verify with its status."""
     sink = io.StringIO()
     try:
         with contextlib.redirect_stdout(sink):
@@ -603,7 +631,7 @@ def close_unread(ctx, store):
 
 
 def section_lines(path, pattern, keep_heading):
-    """`awk '/^## (Goal|Acceptance)/{p=1; print; next} /^## /{p=0} p' file` (keep_heading) or the Goal variant that skips the heading line."""
+    """The lines under the brief's `## Goal` and `## Acceptance` headings, headings included with keep_heading, else the Goal section without its heading."""
     found, show = [], False
     try:
         lines = read_text(path).split('\n')
@@ -626,7 +654,7 @@ def section_lines(path, pattern, keep_heading):
 
 def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, identity, vclass, timeout_m, risk, allunits, units, covered, landing, last,
                  slug, cls, classified, cfg):
-    """The verifier's packet, written as the bash's brace group wrote it: opened first, so a command that fails midway leaves what was printed."""
+    """The verifier's packet, written even when a step fails midway, so what was gathered stays."""
     root = kit.root
     parts = []
     rule = 'Write rule: you write only your verdict file and the scratch worktree you were given; work only in that worktree and write nothing else but the verdict.'
@@ -646,7 +674,7 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
                 name = os.path.basename(b)[:-3]
                 parts.append(f'### Unit {name[:3]} {name[4:]}\n\n')
                 goal = section_lines(b, r'^## Goal', False)
-                while goal and goal[0] == '':  # sed '/./,$!d'
+                while goal and goal[0] == '':
                     goal.pop(0)
                 parts.append('\n'.join(goal).rstrip('\n') + '\n\n')
         else:
@@ -704,6 +732,6 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
 
 
 def verify_command(ctx, args):
-    """kitchen.sh verify <store> ...: the bash's cmd_verify, which ended in an exit on every path."""
+    """kitchen.sh verify <store> ...: every path of `verify` ends in an Exit or a Die."""
     verify(ctx, args)
     return 0

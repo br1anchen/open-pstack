@@ -39,10 +39,9 @@ dedupe_wakes = False
 
 
 def event(store, actor, name, unit, detail=''):
-    """One events.tsv row, as the bash event() did. Never fails the command it records.
+    """One events.tsv row. Never fails the command it records.
 
-    The bash writes no header: its redirect creates the file before the "[ -f ]" test, so
-    the header branch never runs. A store's first row is data.
+    The file has no header: a store's first row is data.
 
     With dedupe_wakes a master wake row identical to the last row in epoch, actor,
     event, unit and detail is not written twice."""
@@ -69,7 +68,7 @@ def event(store, actor, name, unit, detail=''):
 
 
 def header_field(path, key):
-    """The value of the first "key: value" line, or empty, as the bash header_field() did."""
+    """The value of the first "key: value" line, or empty."""
     prefix = f'{key}:'
     try:
         for line in read_text(path).split('\n'):
@@ -103,7 +102,7 @@ def pair_file(store):
 
 
 def load(store):
-    """pair.json, the read side of every field. Writes go through update() in this module, under the same .pair.lock as bash json_update.
+    """pair.json, the read side of every field. Writes go through update() in this module, under the .pair.lock.
     A file that does not parse, or is not an object, is one message: pair.json is damaged (plan 043 decision b)."""
     try:
         doc = json.loads(read_text(pair_file(store)))
@@ -125,6 +124,11 @@ def json_type(value):
     if isinstance(value, str):
         return 'string'
     return 'array' if isinstance(value, list) else 'object'
+
+
+def who(role, name):
+    """The role and its agent's name for a message, the role alone when the store records no name."""
+    return f'{role} {name}' if name else role
 
 
 def damaged(what):
@@ -340,7 +344,7 @@ def expected_report(store, brief):
 
 
 def suffix_number(name, letters):
-    """The digits of a trailing -<letter><digits> in name, the letter one of letters (bash ${name##*-n}), or None."""
+    """The digits of a trailing -<letter><digits> in name, the letter one of letters, or None."""
     m = re.fullmatch(rf'.*-[{letters}]([0-9]+)', name, re.S)
     return m.group(1) if m else None
 
@@ -394,7 +398,7 @@ def steer_notice(store):
 
 
 def fill_template(path, values):
-    """Literal token replacement in the order given, where the bash used sed -e "s|{{X}}|$x|g"."""
+    """Literal token replacement in the order given."""
     text = read_text(path)
     for token, value in values.items():
         text = text.replace('{{' + token + '}}', value)
@@ -465,7 +469,7 @@ def prog():
 
 
 class Die(Exception):
-    """the bash die(): the first part is the message and the second the exit code (1 when absent)."""
+    """End the command with a message: the first part is the message and the second the exit code (1 when absent)."""
 
     def __init__(self, *parts):
         self.message = str(parts[0])
@@ -474,8 +478,7 @@ class Die(Exception):
 
 
 class Exit(Exception):
-    """End the command with a code after the given text on stderr, which the bash printed itself (a failing
-    command substitution under set -e, for one) and without pair.sh's prefix."""
+    """End the command with a code after the given text on stderr, printed as it is and without pair.sh's prefix."""
 
     def __init__(self, code, stderr=''):
         self.code = code

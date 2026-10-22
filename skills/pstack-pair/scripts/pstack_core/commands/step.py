@@ -79,8 +79,7 @@ def step(ctx, args, now=None):
         return 0
     k = 1
     if os.path.isfile(file):
-        # `[ -f file ] && k=$(( $(grep -c . file) + 1 ))`: the assignment takes grep's status, and as the last command of an AND list a
-        # failure ends the command under set -e: 1 when the file has no non-empty line, 2 when it cannot be read.
+        # the next step number is one more than the file's non-empty lines; a file with none ends the command 1, an unreadable one 2.
         try:
             count = sum(1 for line in read_text(file).split('\n') if line)
         except OSError as e:

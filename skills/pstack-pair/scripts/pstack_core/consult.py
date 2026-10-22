@@ -12,7 +12,7 @@ from .commands.report import in_herdr
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
 from .store import (
-    Die, prog, TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, whole_number, now, write_text,
+    Die, prog, TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, whole_number, now, write_text, who,
 )
 from .gates import require_not_paused
 from .panes import agent_status, agent_state, error_code, error_state, await_file
@@ -50,8 +50,7 @@ def latest_plan_advice(store, seq):
 
 
 def seq_files_newest_first(store, directory, seq):
-    """`ls -t "$store"/DIRECTORY/SEQ-*.md`: the paths spelled as the bash spells them (a store given with a trailing slash keeps its double slash),
-    newest first."""
+    """The store's DIRECTORY/SEQ-*.md paths, newest first, spelled from the store as given (a trailing slash keeps its double slash)."""
     paths = glob.glob(f'{glob.escape(store)}/{directory}/{glob.escape(seq)}-*.md')
     return newest_first(paths)
 
@@ -125,12 +124,12 @@ def discuss_with_consultant(ctx, args, one_wake=False):
         if status in ('idle', 'done'):
             send.append(role)
         elif status == 'absent':
-            raise Die(f'{role} {name} is not live; run: pair.sh spawn {store} --only {role} --{role} <kind>', 2)
+            raise Die(f'{who(role, name)} is not live; run: pair.sh spawn {store} --only {role} --{role} <kind>', 2)
         elif status == 'blocked':
-            raise Die(f'{role} {name} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
+            raise Die(f'{who(role, name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
         else:
             if role != 'sidekick':
-                raise Die(f'{role} {name} is {status}; wait for it before a plan round', 5)
+                raise Die(f'{who(role, name)} is {status}; wait for it before a plan round', 5)
             deferred = 'sidekick'
     if deferred and 'consultant' not in send and 'consultant' not in answered:
         raise Die(f"sidekick {field(store, 'sidekick', 'name')} is working and the consultant has nothing to answer; wait for the sidekick before a plan round", 5)
@@ -280,11 +279,11 @@ def consult(ctx, args):
     name = field(store, 'consultant', 'name')
     status = agent_status(name)
     if status == 'absent':
-        raise Die(f'consultant {name} is not live; run: pair.sh spawn {store} --only consultant --consultant <kind>', 2)
+        raise Die(f'{who("consultant", name)} is not live; run: pair.sh spawn {store} --only consultant --consultant <kind>', 2)
     if status == 'blocked':
-        raise Die(f'consultant {name} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
+        raise Die(f'{who("consultant", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
     if status not in ('idle', 'done'):
-        raise Die(f'consultant {name} is {status}; wait for its current advice first', 5)
+        raise Die(f'{who("consultant", name)} is {status}; wait for its current advice first', 5)
     head = git(cwd, 'rev-parse', 'HEAD') or ''
     update(store, lambda doc: doc.update(consult={'file': path, 'at': now(), 'head': head, 'sidekick_state': sidekick_state}))
     event(store, 'master', 'send-consult', path, kind)

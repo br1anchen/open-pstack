@@ -5,7 +5,7 @@ import subprocess
 import sys
 import time
 
-from ..store import Die, Exit, prog, TEXT, read_text, env_float, env_int, event, field, header_field, tdiv, update
+from ..store import Die, Exit, prog, TEXT, read_text, env_float, env_int, event, field, header_field, tdiv, update, who
 from ..panes import agent_status, herdr, pane_text
 from ..replies import file_mtime
 from ..wait import WaitResult, end_with_parent, finish_wait, wait_opts
@@ -128,9 +128,9 @@ def stop(ctx, args):
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     if status == 'absent':
-        raise Die(f'sidekick {name} is not live', 2)
+        raise Die(f'{who("sidekick", name)} is not live', 2)
     if status == 'blocked':
-        raise Die(f'sidekick {name} is blocked; inspect it before stopping', 3)
+        raise Die(f'{who("sidekick", name)} is blocked; inspect it before stopping', 3)
     clear_queue(store)
     code, out, err = stop_role(ctx, store, 'sidekick', timeout)
     return finish_wait(ctx, store, interval, WaitResult(code, out, err), 'any')

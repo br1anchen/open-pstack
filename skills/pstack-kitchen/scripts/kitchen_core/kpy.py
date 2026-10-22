@@ -1,5 +1,5 @@
 """The one way kitchen_core reaches kitchen.py: its `main(argv)` called in this process, with the output and status it would have had as
-`python3 kitchen.py --repo <repo> <args>`. The bash `kpy` (kitchen.sh) is the model for what is passed."""
+`python3 kitchen.py --repo <repo> <args>`."""
 
 import contextlib
 import importlib.util
@@ -69,7 +69,7 @@ def uncaught(error):
 
 
 class Kitchen:
-    """The bash's kpy for one store: kitchen.py against the store's repo, in process. The repo is read from pair.json at each call, as `kpy` read it."""
+    """kitchen.py against the store's repo, in process. The repo is read from pair.json at each call."""
 
     def __init__(self, store, root=None):
         self.store, self.fixed = store, root

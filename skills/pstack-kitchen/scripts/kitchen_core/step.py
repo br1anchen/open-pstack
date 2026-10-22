@@ -1,4 +1,4 @@
-"""step and finish: the two kitchen commands that run the repo's checks. Ported from kitchen.sh at b632713 (cmd_step, verify_job and cmd_finish).
+"""step and finish: the two kitchen commands that run the repo's checks.
 
 A step is recorded only once the touched profiles' fast gates and the policy check pass on it; finish lets a done report through only once the brief's
 Verify commands, rerun by the kitchen, exit 0. Both start their checks detached and return within KITCHEN_STEP_SLICE_S seconds (default 100); running the
@@ -48,7 +48,7 @@ def ignore_interrupts():
 
 
 def detached(command, argv, log, store):
-    """`PSTACK_KITCHEN_RUN="$(field "$store" .slug)" worker.py COMMAND ARGV... >LOG 2>&1 </dev/null`, in a session of its own, never waited for."""
+    """worker.py COMMAND ARGV... with its output in log and PSTACK_KITCHEN_RUN set to the run's slug, in a session of its own, never waited for."""
     env = {**os.environ, 'PSTACK_KITCHEN_RUN': read(store, 'slug')}
     sys.stdout.flush()
     sys.stderr.flush()
@@ -70,7 +70,7 @@ def cat(path):
 
 
 def queue_line(log):
-    """What the step says of a gate still waiting for a machine slot or the heavy slot: the log's last `kitchen: queued|waited` line, as sed prints it."""
+    """What the step says of a gate still waiting for a machine slot or the heavy slot: the log's last `kitchen: queued|waited` line."""
     try:
         lines = [l for l in read_text(log).split('\n') if re.match(r'kitchen: (queued|waited) ', l)]
     except OSError:

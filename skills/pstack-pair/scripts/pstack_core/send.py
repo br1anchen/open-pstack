@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from .store import Die, Exit, TEXT, missing_pair, env_float, event, expected_report, load, peek, text_at, update, count, member, names, prog
+from .store import Die, Exit, TEXT, missing_pair, env_float, event, expected_report, load, peek, text_at, update, count, member, names, prog, who
 from .gates import check_scope, require_not_paused
 from .panes import agent_kind, agent_status, error_code
 from .replies import first3, pending, queued_brief
@@ -105,10 +105,10 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
     status = agent_status(name)
     if status not in ('idle', 'done'):
         if status == 'absent':
-            raise Die(f'sidekick {name} is not live; run: pair.sh spawn {store} --kind <kind>', 2)
+            raise Die(f'{who("sidekick", name)} is not live; run: pair.sh spawn {store} --kind <kind>', 2)
         if status == 'blocked':
-            raise Die(f'sidekick {name} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
-        raise Die(f'sidekick {name} is {status}; run: pair.sh wait {store}', 5)
+            raise Die(f'{who("sidekick", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
+        raise Die(f'{who("sidekick", name)} is {status}; run: pair.sh wait {store}', 5)
     # Delivery is not interruptible: a dispatch wrapped in a short timeout was killed after recording a brief and before sending it, and
     # the store waited on a sidekick that never got it. TERM, INT and HUP wait until the message is in; the wait that follows may be cut
     # short safely.
@@ -127,8 +127,8 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
         event(store, 'master', f'send-{kind.lower()}', file)
         prompt_sidekick(name, f'{ctx.skill} {kind} {file}')
     finally:
-        # `trap - TERM INT HUP`, as decided by running the bash: TERM and HUP go back to what the shell inherited (an ignored one stays
-        # ignored), but INT goes to its default even if it was inherited as ignored.
+        # TERM and HUP go back to what the process inherited (an ignored one stays ignored), but INT goes to its default even if it was inherited
+        # as ignored.
         for number, previous in held.items():
             signal.signal(number, signal.SIG_DFL if number == signal.SIGINT else previous)
     if send_only:

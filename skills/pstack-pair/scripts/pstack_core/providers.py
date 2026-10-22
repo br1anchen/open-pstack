@@ -55,9 +55,7 @@ def agent_session_error(session, cwd=''):
 
 def muse_session_error(cwd):
     """The provider error a Muse Code session stopped on, from the newest of its 20 newest logs that names cwd.
-    '' when none does. Called directly, the bash function ends the shell when no log is found (its search assignment
-    fails under set -e, with status 2 when there is no log at all and 1 when none names cwd); provider_hint calls it in
-    a command substitution, which does not inherit set -e, so there it returns nothing."""
+    '' when none does."""
     if not cwd:
         return ''
     base = os.environ.get('XDG_DATA_HOME') or f'{os.environ.get("HOME", "")}/.local/share'

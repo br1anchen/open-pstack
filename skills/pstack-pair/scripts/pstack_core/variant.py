@@ -9,7 +9,7 @@ from .store import count, read_text, header_field, last_line, load, peek, text_a
 
 class ReportReadiness:
     """Whether a report may be shown to the master as a reply. open is the newline-joined open note paths
-    (bash report_open), why the reason it is withheld (bash report_why)."""
+    why the reason it is withheld."""
 
     __slots__ = ('ready', 'open', 'why')
 
@@ -135,7 +135,7 @@ class Variant:
     commands = {}
 
     def report_ready(self, ctx, store, report):
-        """The pair's report readiness (report_ready in the bash before phase 3). Only a done report is judged, and only the unit's own report:
+        """The pair's report readiness. Only a done report is judged, and only the unit's own report:
         the -sN and -qN reports answer a steer or a consult. Open blocking notes withhold it, and so does
         a head that predates the unit's last recorded step. A unit with no steps, or a head that does not
         resolve (older stores, fixtures), is judged on notes alone."""
@@ -188,7 +188,7 @@ class Variant:
 
 
 def steps_due_in(ctx, store, brief):
-    """Whether a step landed (steps_due in the bash before phase 3): a step landed that neither a note nor an earlier steps wake has covered."""
+    """Whether a step landed: a step landed that neither a note nor an earlier steps wake has covered."""
     from .replies import unreviewed_steps
     if unreviewed_steps(ctx, store) is None:
         return False

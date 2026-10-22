@@ -1,11 +1,8 @@
-"""dispatch, queue and discuss: send a brief and wait quietly, hold the next brief, and run a plan round. Ported from kitchen.sh at b632713
-(cmd_dispatch, cmd_queue, cmd_discuss, rotate_if_due). The plan round with the consultant is pstack_core.consult's.
+"""dispatch, queue and discuss: send a brief and wait quietly, hold the next brief, and run a plan round. The plan round with the consultant is pstack_core.consult's.
 
-The bash ran the pair's dispatch (`core_dispatch`, a snapshot of the pair's command) inside `$( )` with PAIR_QUIET_WAIT=1: a child process with its stdout on
-a pipe and its stderr left alone. Here the core's dispatch is called as a function with its stdout captured (units.captured) and
-the same variable set for the call. A nonzero return of the core's dispatch is the child's exit
-status, taken as `|| rc=$?` took it. When the digest is a check-in with nothing flagged, the bash's `quiet_wait` ran in the dispatch shell and ended it with
-`exit`, so the dispatch's own wake row and its digest were never reached; here the quiet wait's status is the command's status the same way."""
+The core's dispatch is called as a function with its stdout captured (units.captured) and PAIR_QUIET_WAIT=1 set for the call; its nonzero return
+is its exit status. When the digest is a check-in with nothing flagged, the quiet wait's status is the command's status, and the dispatch's own wake
+row and its digest are not reached."""
 
 import contextlib
 import io
@@ -31,7 +28,7 @@ SWALLOWED = ('check-in:', 'progress:', 'touched:', '  ', 'steers:', 'steps:', 'r
 
 
 def land_check_quietly(ctx, store):
-    """`land_check "$1" >/dev/null`: the function, not cmd_land_check, so the command's usage and pair.json checks do not run; its stdout is dropped."""
+    """land-check's verdict without the command's usage and pair.json checks; its stdout is dropped."""
     def run():
         code = land_check(store)
         if code:
@@ -40,7 +37,7 @@ def land_check_quietly(ctx, store):
 
 
 def core_dispatch(ctx, args):
-    """`$(PAIR_QUIET_WAIT=1 core_dispatch ARGS)`: (status, stdout without its trailing newlines)."""
+    """The core's dispatch with PAIR_QUIET_WAIT=1: (status, stdout)."""
     def run():
         code = send.dispatch(ctx, list(args))
         if code:

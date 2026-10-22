@@ -6,7 +6,7 @@ from pstack_core.commands.report import in_herdr
 from pstack_core.consult import advice, advice_is_stop, consult, discuss_with_consultant, new_consult
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, stop_role
-from pstack_core.store import Die, field, header_field, pair_file, whole_number
+from pstack_core.store import Die, field, header_field, pair_file, whole_number, who
 from pstack_core.panes import agent_kind, agent_status
 from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
@@ -44,10 +44,10 @@ def stop(ctx, args):
         name = field(store, role, 'name')
         status = agent_status(name)
         if status == 'absent':
-            print(f'{role} {name} is not live')
+            print(f'{who(role, name)} is not live')
             continue
         if status == 'blocked':
-            sys.stderr.write(f'{role} {name} is blocked; inspect it before stopping\n')
+            sys.stderr.write(f'{who(role, name)} is blocked; inspect it before stopping\n')
             rc = 3
             continue
         code, out, _ = stop_role(ctx, store, role, timeout)
@@ -137,7 +137,6 @@ def spawn(ctx, args):
         rc = spawn_consultant(ctx, store, consultant_kind, cpermission, opts['timeout'], rest)
         if rc != 0:
             return rc
-    # field "$store" '.sidekick.kind // "absent"': over a role jq cannot index, jq's error is printed and the entry reads empty
     sidekick_entry = field(store, 'sidekick', 'kind', default='absent')
     consultant_entry = field(store, 'consultant', 'kind', default='absent')
     print(f'kinds: master {master_kind}, sidekick {sidekick_entry}, consultant {consultant_entry}')

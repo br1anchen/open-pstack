@@ -1,17 +1,18 @@
 """A unit's git position, as three things (plan 021, A1): the facts the store records (`RecordedUnit`), the target stack's commits and patch-ids
-(`StackIndex`), and the answer for one against the other (`Inclusion`). `Verdict` reads a verdict file. Ported from kitchen.sh at b632713: unit_head,
-unit_brief, commit_patch_id, stack_patch_ids, unit_rebased_in, unit_heads_in, unit_in_landing_range, verdict_range and verdict_problem.
+(`StackIndex`), and the answer for one against the other (`Inclusion`). `Verdict` reads a verdict file.
 
-The bash ran these where `set -e` is off (inside `if` and `||`), so a failing git command is an empty answer and the function goes on; here a
-git result is read for what it prints. A git stderr the bash did not redirect stays on stderr."""
+A failing git command is an empty answer and the function goes on; a git result is read for what it prints. A git stderr that is not dropped
+(quiet) stays on stderr."""
 
 import contextlib
+import fcntl
 import glob
 import io
 import os
 import re
 import subprocess
 import sys
+import tempfile
 
 from pstack_core.store import (
     Die, Exit, prog, TEXT, exit_code, expected_report, read_text, missing_pair, header_field, last_line, load, peek, read, text_at,
@@ -22,29 +23,43 @@ from pstack_core.variant import commit_of
 
 
 def captured(call, merge_stderr=False, env=None):
-    """(status, text) of call run with its stdout captured, and its stderr too when merge_stderr: a return ends it with 0, an Exit or a Die with
-    its code after what it prints, an OSError or ValueError with 1. env is set for the call and restored after it."""
-    out, status = io.StringIO(), 0
+    """(status, text) of call run with its stdout captured, and its stderr too when merge_stderr, that of a child process included, in the order
+    it was written: a return ends it with 0, an Exit or a Die with its code after what it prints, an OSError or ValueError with 1. env is set for
+    the call and restored after it."""
+    status = 0
     saved = dict(os.environ)
     os.environ.update(env or {})
     sys.stdout.flush()
-    try:
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out) if merge_stderr else contextlib.nullcontext():
-            try:
-                call()
-            except Exit as e:
-                sys.stderr.write(e.stderr)
-                status = e.code
-            except Die as e:
-                sys.stderr.write(f'{prog()}: {e.message}\n')
-                status = e.code
-            except (OSError, ValueError) as e:
-                sys.stderr.write(f'{prog()}: {e}\n')
-                status = 1
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
-    return status, out.getvalue().rstrip('\n')
+    sys.stderr.flush()
+    with tempfile.TemporaryFile() as raw:
+        fcntl.fcntl(raw.fileno(), fcntl.F_SETFL, fcntl.fcntl(raw.fileno(), fcntl.F_GETFL) | os.O_APPEND)
+        out = io.TextIOWrapper(os.fdopen(os.dup(raw.fileno()), 'wb', buffering=0), encoding='utf-8', errors='replace', write_through=True)
+        fd2 = os.dup(2) if merge_stderr else None
+        if merge_stderr:
+            os.dup2(raw.fileno(), 2)
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out) if merge_stderr else contextlib.nullcontext():
+                try:
+                    call()
+                except Exit as e:
+                    sys.stderr.write(e.stderr)
+                    status = e.code
+                except Die as e:
+                    sys.stderr.write(f'{prog()}: {e.message}\n')
+                    status = e.code
+                except (OSError, ValueError) as e:
+                    sys.stderr.write(f'{prog()}: {e}\n')
+                    status = 1
+        finally:
+            out.close()
+            if fd2 is not None:
+                os.dup2(fd2, 2)
+                os.close(fd2)
+            os.environ.clear()
+            os.environ.update(saved)
+        raw.seek(0)
+        text = raw.read().decode('utf-8', errors='replace')
+    return status, text.rstrip('\n')
 
 
 TOLD = set()
@@ -79,7 +94,7 @@ def recorded_head(store, unit):
 
 
 def git(root, *args, quiet=False, stdin=None):
-    """(status, stdout) of `git -C root ...`; stderr is dropped when quiet (the bash's 2>/dev/null) and left on stderr otherwise."""
+    """(status, stdout) of `git -C root ...`; stderr is dropped when quiet and left on stderr otherwise."""
     sys.stdout.flush()
     sys.stderr.flush()
     r = subprocess.run(['git', '-C', root, *args], input=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL if quiet else None, check=False, **TEXT)
@@ -99,7 +114,7 @@ def patch_id(root, commit, inverse=False, u0=False):
 
 
 def first_field(diff):
-    """`git patch-id --stable | cut -d' ' -f1` over a diff, with the trailing newlines `$(...)` drops."""
+    """The patch-id (`git patch-id --stable`) of a diff, without trailing newlines."""
     sys.stdout.flush()
     sys.stderr.flush()
     out = subprocess.run(['git', 'patch-id', '--stable'], input=diff, stdout=subprocess.PIPE, check=False, **TEXT).stdout
@@ -188,8 +203,8 @@ class StackIndex:
 class Inclusion:
     """Where one unit stands against one stack. kind: 'direct' (its head is in the stack head and not in the base), 'ancestor' (its head is in the
     base: landed before it), 'rebased' (every commit matches by patch-id; sha is the stack commit carrying its tip), 'reverted' (they match, and by,
-    a later stack commit, undoes them), 'merge' (its range holds a merge, which patch-ids do not cover) or 'missing'. reason is the bash's
-    rebased_why: '', 'merge' or 'reverted'."""
+    a later stack commit, undoes them), 'merge' (its range holds a merge, which patch-ids do not cover) or 'missing'. reason is
+    '', 'merge' or 'reverted'."""
 
     def __init__(self, kind, sha='', by='', reason=''):
         self.kind, self.sha, self.by, self.reason = kind, sha, by, reason
@@ -320,7 +335,7 @@ class Verdict:
 def landing_base(store, root, head, parent_override='', parent_label='', range_base=''):
     """Where a stack at head leaves trunk, or at the parent recorded in the store (the one `verify --landing --parent` recorded earlier, else the
     override of this call), while that parent is an ancestor of head. Prints the `landing base:` line and returns the revision; its refusals end
-    the command. parent_override and parent_label are the bash's `landing_parent_override` and `landing_parent_label` ('none' clears the recorded
+    the command. parent_override and parent_label are this call's `--parent` ('none' clears the recorded
     one); range_base is `--base`, which leaves the recorded parent unread."""
     parent, label = parent_override, parent_label
     if not parent and label != 'none':
@@ -349,8 +364,7 @@ def landing_base(store, root, head, parent_override='', parent_label='', range_b
 
 
 def brief_or_nothing(store, nnn):
-    """`$(unit_brief "$store" NNN)` inside another command's arguments: a missing brief says so on stderr and gives an empty path, and the command
-    around it goes on."""
+    """The unit's brief: a missing brief says so on stderr and gives an empty path, and the command around it goes on."""
     try:
         return unit_brief(store, nnn)
     except Die as e:
@@ -385,7 +399,7 @@ def unit_range(store, units, covered=(), range_base=''):
         else:
             raise Die(f"unit {unit}'s report is {status}, not done, partial, blocked, or failed")
     report = expected_report(store, brief_or_nothing(store, last))
-    if not os.path.exists(report):  # the bash reads the head with grep, which says so
+    if not os.path.exists(report):
         sys.stdout.flush()
         sys.stderr.write(f'grep: {report}: No such file or directory\n')
     head = header_field(report, 'head')

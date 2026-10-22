@@ -11,7 +11,7 @@ from pstack_core.agents import mcp_args, permission_args
 from pstack_core.commands.report import in_herdr
 from pstack_core.store import (
     Die, Exit, read_text, damaged, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at,
-    update,
+    update, who,
 )
 from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
 from pstack_core.panes import agent_kind, agent_status, herdr, pane_text, reply_at, new_pane, refuse_untrusted
@@ -99,7 +99,7 @@ def detect_model_arg():
 
 
 def section_has_text(path, heading):
-    """awk -v h="## <heading>" '$0 == h {p=1; next} /^## /{p=0} p && NF': whether the section holds a line with a field."""
+    """Whether the section under the `## <heading>` line holds a line with any text."""
     inside = found = False
     lines = read_text(path).split('\n')
     if lines and lines[-1] == '':
@@ -145,7 +145,7 @@ def rotate_master(ctx, args):
     if read(store, 'master.previous.name'):
         raise Die(f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first', 5)
     if agent_status(name) == 'absent':
-        raise Die(f"master {name} is not live in {pane}; run this from the master's own session", 5)
+        raise Die(f"{who('master', name)} is not live in {pane}; run this from the master's own session", 5)
     kind = agent_kind(name)
     if kind != 'claude':
         raise Die(f'rotate-master restarts a Claude master; {name} is {kind}', 5)
