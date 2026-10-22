@@ -5,7 +5,7 @@ import subprocess
 
 from .errors import Die
 from .collate import glob_sorted
-from .store import alt, header_field, jq_raw, last_line, note_id, load, read_text, suffix_number, unit_name
+from .store import alt, header_field, int_or_none, jq_raw, last_line, note_id, load, read_text, suffix_number, unit_name
 
 
 def steps_file(store, unit):
@@ -83,21 +83,13 @@ def range_floor(root, base, tip, allow_head=False):
     return tmb, f'recorded base {base[:9]} is behind where its branch leaves {trunk_name}; measuring from {tmb[:9]}'
 
 
-def awk_equal(field, k):
-    """awk's $1 == k with both sides numeric strings: numeric when both look numeric, else text."""
-    try:
-        return float(field) == float(k)
-    except ValueError:
-        return field == str(k)
-
-
 def review_base(store, unit):
     unit = unit_name(unit)
     through = noted_through(store, unit)
     file = steps_file(store, unit)
     if through > 0 and os.path.isfile(file):
         rows = (r.split('\t') for r in read_text(file).split('\n') if r)
-        return '\n'.join(c[1] if len(c) > 1 else '' for c in rows if awk_equal(c[0], through))
+        return '\n'.join(c[1] if len(c) > 1 else '' for c in rows if int_or_none(c[0]) == through)
     pair = load(store)
     heads = alt(pair.get('heads'), {})
     dispatch = alt(pair.get('dispatch'), {})

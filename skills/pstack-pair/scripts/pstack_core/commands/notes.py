@@ -7,8 +7,8 @@ from ..errors import Die, unbound_arg
 from ..collate import glob_sorted
 from ..herdr import agent_status
 from ..prime import prime_steer
-from ..review import awk_equal, jq_raw, noted_through, open_notes, require_filled, review_base, steps_file
-from ..store import (alt, dispatched_brief, event, fill_template, get, header_field, note_id, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text)
+from ..review import jq_raw, noted_through, open_notes, require_filled, review_base, steps_file
+from ..store import (alt, dispatched_brief, event, fill_template, get, header_field, int_or_none, note_id, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text)
 
 
 def blocking_lines(path):
@@ -153,7 +153,7 @@ def new_note(ctx, args):
         raise Die(f'unit {seq} is reviewed through step {k} already; wait for the next steps')
     base = review_base(store, unit)
     rows = (r.split('\t') for r in read_text(file).split('\n') if r)
-    to = '\n'.join(c[1] if len(c) > 1 else '' for c in rows if awk_equal(c[0], k))
+    to = '\n'.join(c[1] if len(c) > 1 else '' for c in rows if int_or_none(c[0]) == int(k))
     os.makedirs(f'{store}/notes', exist_ok=True)
     path = f'{store}/notes/{unit}-n{k}.md.draft'
     write_text(path, fill_template(f'{ctx.skill_root}/references/note-template.md',

@@ -3,7 +3,6 @@ and finish_wait, which prints the outcome. WaitResult carries what the bash pass
 ready and steps_due. send_and_wait, stop and steer are ported (pstack_core/send.py, commands/stop.py, commands/steer.py)."""
 import json
 import os
-import re
 import signal
 import subprocess
 import sys
@@ -17,7 +16,7 @@ from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
 from .review import jq_raw, review_base
-from .store import acquire_lock, alt, bash_int, cut_chars, event, get, header_field, member, paused_reason, unit_name, update
+from .store import acquire_lock, alt, cut_chars, env_float, env_int, event, get, header_field, member, paused_reason, unit_name, update, whole_number
 
 
 class WaitResult:
@@ -32,180 +31,31 @@ class WaitResult:
         self.steps_due = steps_due
 
 
-class ArithError(Exception):
-    def __init__(self, text):
-        super().__init__(text)
-        self.text = text
-
-
-def bash_arith(expr):
-    """$(( expr )) for the forms a --timeout or --every value takes: integers (decimal, 0octal, 0xhex, base#n), blanks, unary
-    + - ! ~, ** * / % + - and parentheses. Anything else ends in the error bash prints, as far as that is reproduced."""
-    expr = expr.lstrip(' \t\n')
-    pos, n = 0, len(expr)
-
-    def error(msg, token_from, prefix_to=None):
-        shown = expr if prefix_to is None else expr[:prefix_to]
-        raise ArithError(f'{shown}: {msg} (error token is "{expr[token_from:]}")')
-
-    def skip():
-        nonlocal pos
-        while pos < n and expr[pos] in ' \t\n':
-            pos += 1
-
-    last_number = 0
-
-    def number():
-        nonlocal pos, last_number
-        start = last_number = pos
-        while pos < n and (expr[pos].isalnum() or expr[pos] in '_#@'):
-            pos += 1
-        word = expr[start:pos]
-        try:
-            if re.fullmatch(r'0[xX][0-9a-fA-F]+', word):
-                return int(word, 16)
-            if re.fullmatch(r'0[0-7]*', word):
-                return int(word, 8) if len(word) > 1 else 0
-            if re.fullmatch(r'[1-9][0-9]*', word):
-                return int(word)
-            m = re.fullmatch(r'([0-9]+)#([0-9a-zA-Z@_]+)', word)
-            if m and 2 <= int(m.group(1)) <= 64:
-                digits = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@_'
-                base = int(m.group(1))
-                value = 0
-                for ch in m.group(2):
-                    d = digits.index(ch)
-                    if (d >= 36 and base <= 36) and ch.isupper():
-                        d -= 26 if base <= 36 else 0
-                    if d >= base:
-                        raise ValueError
-                    value = value * base + d
-                return value
-        except ValueError:
-            pass
-        raise ArithError(f'{expr[:pos]}: value too great for base (error token is "{word}")')
-
-    def primary():
-        nonlocal pos
-        skip()
-        if pos >= n:
-            error('arithmetic syntax error: operand expected', pos)
-        c = expr[pos]
-        if c == '(':
-            pos += 1
-            value = additive()
-            skip()
-            if pos >= n or expr[pos] != ')':
-                raise ArithError(f"{expr}: missing `)' (error token is \"{expr[last_number:]}\")")
-            pos += 1
-            return value
-        if c in '+-!~':
-            pos += 1
-            value = primary()
-            return {'+': value, '-': -value, '!': int(not value), '~': ~value}[c]
-        if c.isdigit():
-            return number()
-        if c.isalpha() or c == '_':
-            end = pos
-            while end < n and (expr[end].isalnum() or expr[end] == '_'):
-                end += 1
-            raise ArithError(f'{expr[pos:end]}: unbound variable')
-        if c in '*/%':
-            error('arithmetic syntax error: operand expected', pos)
-        error('arithmetic syntax error: invalid arithmetic operator', pos)
-
-    def power():
-        nonlocal pos
-        base = primary()
-        skip()
-        if expr[pos:pos + 2] == '**':
-            pos += 2
-            exponent = power()
-            if exponent < 0:
-                raise ArithError(f'{expr}: exponent less than 0 (error token is "{expr[pos:]}")')
-            return base ** exponent
-        return base
-
-    def multiplicative():
-        nonlocal pos
-        value = power()
-        while True:
-            skip()
-            if pos < n and expr[pos] in '*/%' and expr[pos:pos + 2] != '**':
-                op = expr[pos]
-                pos += 1
-                skip()
-                rhs_at = pos
-                rhs = power()
-                if op != '*' and rhs == 0:
-                    raise ArithError(f'{expr}: division by 0 (error token is "{expr[rhs_at:]}")')
-                if op == '*':
-                    value *= rhs
-                else:
-                    q = abs(value) // abs(rhs)
-                    value = q if (value < 0) == (rhs < 0) else -q if op == '/' else value - (q if (value < 0) == (rhs < 0) else -q) * rhs
-            else:
-                return value
-
-    def additive():
-        nonlocal pos
-        value = multiplicative()
-        while True:
-            skip()
-            if pos < n and expr[pos] in '+-':
-                op = expr[pos]
-                pos += 1
-                rhs = multiplicative()
-                value = value + rhs if op == '+' else value - rhs
-            else:
-                return value
-
-    if expr.strip(' \t\n') == '':
-        return 0
-    value = additive()
-    skip()
-    if pos < n:
-        error('arithmetic syntax error in expression' if expr[pos] == ')' or expr[pos].isalnum() else 'arithmetic syntax error: invalid arithmetic operator', pos)
-    return value
-
-
 def tdiv(a, b):
     q = abs(a) // abs(b)
     return q if (a < 0) == (b < 0) else -q
 
 
-def wait_opts(args, timeout='540000'):
-    """wait_opts(): (timeout text, check-in interval in minutes, send_only, leftover args). The timeout is kept as the text
-    bash keeps, since bash evaluates it as arithmetic wherever it is used; --every is evaluated where it is read."""
+def wait_opts(args, timeout=540000):
+    """wait_opts(): (timeout in milliseconds, check-in interval in minutes, send_only, leftover args). --timeout takes
+    milliseconds and --every minutes, both whole numbers."""
     rest, send_only, i = [], False, 0
     while i < len(args):
         arg = args[i]
         if arg == '--timeout':
             if i + 1 >= len(args):
                 fail('--timeout) timeout="$2"', '$2: unbound variable')
-            timeout, i = args[i + 1], i + 2
+            timeout, i = whole_number(args[i + 1], '--timeout', 'milliseconds'), i + 2
         elif arg == '--every':
             if i + 1 >= len(args):
                 fail('--every) timeout=$(($2 * 60000))', '$2: unbound variable')
-            try:
-                timeout = str(bash_arith(f'{args[i + 1]} * 60000'))
-            except ArithError as e:
-                fail('--every) timeout=$(($2 * 60000))', e.text)
-            i += 2
+            timeout, i = whole_number(args[i + 1], '--every', 'minutes') * 60000, i + 2
         elif arg == '--send-only':
             send_only, i = True, i + 1
         else:
             rest.append(arg)
             i += 1
-    try:
-        interval = tdiv(bash_arith(timeout), 60000)
-    except ArithError as e:
-        fail('checkin_interval_m=$((timeout / 60000))', e.text)
-    return timeout, interval, send_only, rest
-
-
-def timeout_ms(timeout):
-    return bash_arith(timeout)
+    return timeout, tdiv(timeout, 60000), send_only, rest
 
 
 def reply_mode(result):
@@ -214,22 +64,6 @@ def reply_mode(result):
 
 def now_s():
     return int(time.time())
-
-
-def bash_sleep(text, capture=False):
-    """sleep with the text the bash gives it: seconds, fractions and s/m/h/d suffixes; anything else is sleep's own error. With capture, that
-    error goes through sys.stderr (where a caller that collects stderr sees it) instead of straight to the process's."""
-    m = re.fullmatch(r'(?:[0-9]+\.?[0-9]*|\.[0-9]+)[smhd]?', text)
-    if not m:
-        # GNU sleep takes more than this (0x1, 0e0, inf, a leading blank); run it, and end the command as set -e does if it refuses.
-        r = subprocess.run(['sleep', text], stderr=subprocess.PIPE if capture else None, check=False)
-        if capture and r.stderr:
-            sys.stderr.write(r.stderr.decode('utf-8', 'surrogateescape'))
-        if r.returncode:
-            raise Exit(r.returncode)
-        return
-    unit = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(text[-1], 1)
-    time.sleep(float(text.rstrip('smhd')) * unit)
 
 
 def json_values(text):
@@ -429,7 +263,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
     if agent_status(name()) == 'working' or activity:
         if os.environ.get('PAIR_QUIET_WAIT') != '1':
             event(store, 'master', 'wake', running, why or 'checkin')
-        write(checkin(ctx, store, str(interval), clock()))
+        write(checkin(ctx, store, interval, clock()))
     else:
         event(store, 'master', 'wake', running, why or 'missing')
         write(hint_for(store))
@@ -542,11 +376,11 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
     """wait_for_reply(): block until the sidekick's reply lands or the interval ends, in slices so a report is seen the moment
     it is written. A settle from herdr is a hint, not proof: only one that holds for PAIR_SETTLE_HOLD seconds ends the wait."""
     result = WaitResult()
-    settle_hold = os.environ.get('PAIR_SETTLE_HOLD') or '60'
-    busy_poll = os.environ.get('PAIR_BUSY_POLL') or '10'
-    settle_poll = os.environ.get('PAIR_SETTLE_POLL_S') or '5'
+    settle_hold = env_int('PAIR_SETTLE_HOLD', 60)
+    busy_poll = env_float('PAIR_BUSY_POLL', 10)
+    settle_poll = env_float('PAIR_SETTLE_POLL_S', 5)
     clock = now_s if now is None else (lambda: now)
-    deadline = clock() + tdiv(timeout_ms(timeout), 1000)
+    deadline = clock() + tdiv(timeout, 1000)
     settled_at = None
     # what the top of the loop looks for: a report written in the last slice must not read as missing because the deadline ended the wait
     arrived = lambda: bool(pending_report(ctx, store) or fresh_reply(ctx, store) or ctx.variant.steps_due(ctx, store, dispatched(store)))
@@ -581,23 +415,17 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
                 break
             if pane_busy(name) or sidekick_activity(store, clock()):
                 settled_at = None
-                bash_sleep(busy_poll)
+                time.sleep(busy_poll)
                 if not clock() < deadline:
                     break
                 continue
             if settled_at is None:
                 settled_at = clock()
-            hold = bash_int(settle_hold)
-            if hold is None:
-                # bash 5.3's words; bash 5.2 and earlier say "integer expression expected". Only stderr differs, on an odd PAIR_SETTLE_HOLD.
-                path, number = core_line('-lt "$settle_hold_s"', 'cmd_wait() {')
-                sys.stderr.write(f'{path}: line {number}: [: {settle_hold}: integer expected\n')
-                break
-            if not clock() - settled_at < hold:
+            if not clock() - settled_at < settle_hold:
                 break
             if not clock() < deadline:
                 break
-            bash_sleep(settle_poll)
+            time.sleep(settle_poll)
             continue
         settled_at = None
         code = error_code(result.err)

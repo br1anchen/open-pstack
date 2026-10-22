@@ -1,7 +1,6 @@
 """Ending an agent: the command that makes each kind exit, and the cleanup of a Prime role's daemon session and pane (stop_prime_role).
 The deadlines are the bash's 15 s and 1 s; PAIR_EXIT_DEADLINE_S and PAIR_EXIT_POLL_S let a test shorten them."""
 import json
-import os
 import sys
 import time
 
@@ -10,8 +9,7 @@ from .herdr import agent_status, herdr
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
 from .review import jq_raw
-from .store import member, update
-from .wait import bash_sleep
+from .store import env_float, env_int, member, update
 
 
 def exit_command(kind):
@@ -20,12 +18,12 @@ def exit_command(kind):
 
 def exit_deadline():
     """The epoch second an exit may last until: now plus 15 s (PAIR_EXIT_DEADLINE_S)."""
-    return int(time.time()) + int(os.environ.get('PAIR_EXIT_DEADLINE_S') or 15)
+    return int(time.time()) + env_int('PAIR_EXIT_DEADLINE_S', 15)
 
 
 def exit_poll():
     """The pause between checks that an agent has gone: 1 s (PAIR_EXIT_POLL_S)."""
-    bash_sleep(os.environ.get('PAIR_EXIT_POLL_S') or '1')
+    time.sleep(env_float('PAIR_EXIT_POLL_S', 1))
 
 
 def shell_owns_foreground(pane):

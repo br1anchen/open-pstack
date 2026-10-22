@@ -8,16 +8,6 @@ import time
 from .errors import Die, Exit
 
 
-def bash_int(text):
-    """What [ "$x" -gt 0 ] accepts as an integer, or None: optional blanks, one sign, ASCII decimal digits (010 is ten),
-    and a value that fits a signed 64-bit integer."""
-    m = re.fullmatch(r'[ \t\n\v\f\r]*([+-]?[0-9]+)[ \t\n\v\f\r]*', text)
-    if not m:
-        return None
-    value = int(m.group(1))
-    return value if -(1 << 63) <= value < (1 << 63) else None
-
-
 def utf8_locale():
     """Whether the locale (LC_ALL, then LC_CTYPE, then LANG) is UTF-8, so grep, cut and awk count characters."""
     for name in ('LC_ALL', 'LC_CTYPE', 'LANG'):
@@ -256,6 +246,20 @@ def read(store, path, empty=False, default=None):
     return as_text(value)
 
 
+def read_int(store, path):
+    """The whole number at a dotted path in pair.json: None when absent or null, damage when it is any other type."""
+    value, held = load(store), None
+    for key in path.split('.'):
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise damaged(f'{held} is {json_type(value)}, not an object')
+        value, held = value.get(key), key
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+        raise damaged(f'{path} is {json_type(value)}, not a whole number')
+    return value
+
+
 def field(store, role, key, empty=False, default=None):
     """jq -r '.role.key': a role that is not an object is damage. With empty, the filter is '.role.key // empty'; with default,
     '.role.key // "<default>"'."""
@@ -278,12 +282,33 @@ def now():
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
 
+def whole_number(text, flag, unit):
+    """A CLI number: ASCII digits only, so a sign, a fraction or an expression is a usage error."""
+    if not (text.isascii() and text.isdigit()):
+        raise Die(f'{flag} must be a whole number of {unit}', 1)
+    return int(text)
+
+
+def int_or_none(text):
+    """The integer a line of text holds (ASCII digits), or None."""
+    text = text.strip()
+    return int(text) if text.isascii() and text.isdigit() else None
+
+
 def env_int(name, default):
     """${NAME:-default} as a whole number; anything else is a usage error."""
-    value = bash_int(os.environ.get(name) or str(default))
-    if value is None:
+    text = os.environ.get(name) or str(default)
+    if not (text.isascii() and text.isdigit()):
         raise Die(f'{name} must be a whole number', 1)
-    return value
+    return int(text)
+
+
+def env_float(name, default):
+    """${NAME:-default} as a number of seconds, fractions allowed; anything else is a usage error."""
+    text = os.environ.get(name) or str(default)
+    if not re.fullmatch(r'[0-9]+(\.[0-9]*)?|\.[0-9]+', text):
+        raise Die(f'{name} must be a number', 1)
+    return float(text)
 
 
 def alt(value, default=''):
@@ -431,8 +456,8 @@ def _dumps(doc):
 def acquire_lock(store):
     """The mkdir lock on pair.json, waited for up to 10 s (PAIR_LOCK_TRIES polls of PAIR_LOCK_POLL_S): its path. The caller removes it."""
     lock = f'{store}/.pair.lock'
-    tries = int(os.environ.get('PAIR_LOCK_TRIES', '100'))
-    poll = float(os.environ.get('PAIR_LOCK_POLL_S', '0.1'))
+    tries = env_int('PAIR_LOCK_TRIES', 100)
+    poll = env_float('PAIR_LOCK_POLL_S', 0.1)
     i = 0
     while True:
         try:

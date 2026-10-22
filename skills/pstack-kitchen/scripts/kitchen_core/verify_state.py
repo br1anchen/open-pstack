@@ -14,6 +14,8 @@ The pair.json fields the kitchen reads by name (path strings given to the store 
 .verifying.retried .verifying.risk .verifying.sample .verifying.scratch .verifying.session .verifying.started .verifying.unit .verifying.units"""
 
 import contextlib
+import time
+import zlib
 import io
 import os
 import subprocess
@@ -24,9 +26,8 @@ import sys
 from pstack_core.errors import Die, Exit
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.herdr import agent_status, herdr
-from pstack_core.store import bash_int, count, damaged, event, header_field, json_type, member, peek, read, update
+from pstack_core.store import count, damaged, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update
 from pstack_core.send import submit_typed
-from pstack_core.wait import bash_sleep
 
 from .units import exit_status
 
@@ -80,7 +81,7 @@ def drop_verifying(store, verdict):
 
 def alive(pid):
     """`kill -0 $pid 2>/dev/null`: a process this user may signal. A process of another user (EPERM) and a pid that is no number read as gone."""
-    number = bash_int(pid)
+    number = int_or_none(pid)
     if number is None:
         return False
     try:
@@ -173,10 +174,9 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
             raise Die('Prime verifier cleanup failed; its pane and scratch stay for inspection', 5)
     else:
         herdr('agent', 'prompt', name, exit_command(kind))
-        import time
-        gone = int(time.time()) + shell_arithmetic(os.environ.get('KITCHEN_VERIFIER_EXIT_S') or '15')
+        gone = int(time.time()) + env_int('KITCHEN_VERIFIER_EXIT_S', 15)
         while agent_status(name) != 'absent' and int(time.time()) < gone:
-            bash_sleep('1')
+            time.sleep(1)
     herdr('pane', 'close', pane)
     if kind == 'prime-agent':
         update(store, lambda doc: set_member(doc, 'verifier', 'closed', True))
@@ -259,187 +259,15 @@ def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind=''):
     submit_typed(name, os.path.basename(packet))
 
 
-def crc_table():
-    table = []
-    for i in range(256):
-        c = i << 24
-        for _ in range(8):
-            c = ((c << 1) ^ 0x04C11DB7) & 0xFFFFFFFF if c & 0x80000000 else (c << 1) & 0xFFFFFFFF
-        table.append(c)
-    return table
-
-
-CRC = crc_table()
-
-
-def cksum(data):
-    """POSIX cksum of the bytes: the CRC-32 (polynomial 0x04C11DB7, most significant bit first) over the data and then its length, complemented."""
-    crc = 0
-    for byte in data:
-        crc = ((crc << 8) & 0xFFFFFFFF) ^ CRC[((crc >> 24) ^ byte) & 0xFF]
-    n = len(data)
-    while n:
-        crc = ((crc << 8) & 0xFFFFFFFF) ^ CRC[((crc >> 24) ^ (n & 0xFF)) & 0xFF]
-        n >>= 8
-    return ~crc & 0xFFFFFFFF
-
-
-def awk_number(text):
-    """awk's number for a string: its longest numeric prefix, else 0."""
-    m = re.match(r'[ \t\n]*([-+]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?)', text)
-    return float(m.group(1)) if m else 0.0
-
-
 def audit_due(unit, sample):
-    """A stable draw per unit: the cksum of the unit id, modulo 1000, below sample * 1000 (awk's arithmetic)."""
-    return (cksum(unit.encode('utf-8', 'surrogateescape')) % 1000) < awk_number(sample) * 1000
+    """A stable draw per unit: the crc32 of the unit id, modulo 1000, below sample * 1000. The draw changed once from POSIX cksum to crc32 (plan 043 g)."""
+    return (zlib.crc32(unit.encode('utf-8', 'surrogateescape')) % 1000) < sample * 1000
 
 
 def verdict_problem(verdict):
     """Empty when a verdict is well formed, else what is wrong."""
     from .units import Verdict
     return Verdict.parse(verdict).problem
-
-
-def shell_arithmetic(text):
-    """`$(( ... ))` over a word the user or the store gave, which the shell reads as an expression: integers (decimal, octal with a leading 0,
-    hexadecimal), parentheses, the unary + - ! ~, the binary ** * / % + - << >> < <= > >= == != & ^ | && ||, ?: and the comma. An empty word is 0.
-    Anything else ends the shell with status 1 and its complaint, which names its file and line in the bash and here only the word: a name is an unset
-    variable under `set -u`, a digit string that is not octal is a value too great for its base, the rest a syntax error."""
-    tokens = []
-    pos = 0
-    word = text
-    while pos < len(word):
-        c = word[pos]
-        if c in ' \t\n':
-            pos += 1
-            continue
-        m = re.compile(r'0[xX][0-9a-fA-F]+|[0-9][0-9]*|[A-Za-z_][A-Za-z0-9_]*|\*\*|<<|>>|<=|>=|==|!=|&&|\|\||[-+*/%()!~<>&^|?:,]').match(word, pos)
-        if not m:
-            raise Die(f'{text}: arithmetic syntax error: invalid arithmetic operator (error token is "{word[pos:]}")', 1)
-        tokens.append(m.group(0))
-        pos = m.end()
-    if not tokens:
-        return 0
-    state = {'i': 0}
-
-    def peek():
-        return tokens[state['i']] if state['i'] < len(tokens) else None
-
-    def take():
-        state['i'] += 1
-        return tokens[state['i'] - 1]
-
-    def fail(why='syntax error: operand expected'):
-        raise Die(f'{text}: arithmetic {why}', 1)
-
-    def number(tok):
-        if tok[:2] in ('0x', '0X'):
-            return int(tok, 16)
-        if tok.startswith('0') and len(tok) > 1:
-            if re.search('[89]', tok):
-                raise Die(f'{tok}: value too great for base (error token is "{tok}")', 1)
-            return int(tok, 8)
-        return int(tok)
-
-    def primary():
-        tok = peek()
-        if tok is None:
-            fail()
-        if tok == '(':
-            take()
-            value = comma()
-            if peek() != ')':
-                fail("syntax error: missing ')'")
-            take()
-            return value
-        if tok in ('+', '-', '!', '~'):
-            take()
-            value = primary()
-            return {'+': value, '-': -value, '!': int(not value), '~': ~value}[tok]
-        take()
-        if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', tok):
-            raise Die(f'{tok}: unbound variable', 1)
-        if re.fullmatch(r'[0-9].*', tok):
-            return number(tok)
-        fail()
-
-    def power():
-        base = primary()
-        if peek() == '**':
-            take()
-            exponent = power()
-            if exponent < 0:
-                raise Die(f'{text}: arithmetic exponent less than 0', 1)
-            return base ** exponent
-        return base
-
-    def tdiv(a, b, mod):
-        if b == 0:
-            raise Die(f'{text}: division by 0', 1)
-        q = abs(a) // abs(b) * (1 if (a >= 0) == (b >= 0) else -1)
-        return a - q * b if mod else q
-
-    levels = [('*', '/', '%'), ('+', '-'), ('<<', '>>'), ('<', '<=', '>', '>='), ('==', '!='), ('&',), ('^',), ('|',), ('&&',), ('||',)]
-
-    def binary(level):
-        if level < 0:
-            return power()
-        left = binary(level - 1)
-        while peek() in levels[level] if level < len(levels) else False:
-            op = take()
-            right = binary(level - 1)
-            if op == '*':
-                left = left * right
-            elif op == '/':
-                left = tdiv(left, right, False)
-            elif op == '%':
-                left = tdiv(left, right, True)
-            elif op == '+':
-                left = left + right
-            elif op == '-':
-                left = left - right
-            elif op == '<<':
-                left = left << right if 0 <= right < 64 else 0
-            elif op == '>>':
-                left = left >> right if 0 <= right < 64 else 0
-            elif op in ('<', '<=', '>', '>=', '==', '!='):
-                left = int({'<': left < right, '<=': left <= right, '>': left > right, '>=': left >= right, '==': left == right, '!=': left != right}[op])
-            elif op == '&':
-                left = left & right
-            elif op == '^':
-                left = left ^ right
-            elif op == '|':
-                left = left | right
-            elif op == '&&':
-                left = int(bool(left) and bool(right))
-            else:
-                left = int(bool(left) or bool(right))
-        return left
-
-    def ternary():
-        cond = binary(len(levels) - 1)
-        if peek() == '?':
-            take()
-            yes = comma()
-            if peek() != ':':
-                fail("syntax error: expected ':'")
-            take()
-            no = ternary()
-            return yes if cond else no
-        return cond
-
-    def comma():
-        value = ternary()
-        while peek() == ',':
-            take()
-            value = ternary()
-        return value
-
-    value = comma()
-    if peek() is not None:
-        fail(f'syntax error in expression (error token is "{peek()}")')
-    return (value + 2 ** 63) % 2 ** 64 - 2 ** 63
 
 
 def handoff_due(store, unit):
@@ -452,10 +280,8 @@ def handoff_due(store, unit):
         master['units_since_handoff'] = count(master, 'units_since_handoff') + 1
 
     update(store, bump)
-    n = read(store, 'master.units_since_handoff')
-    thr = bash_int(os.environ.get('KITCHEN_MASTER_ROTATE_UNITS') or '5')
-    thr = 1 if thr is None or thr < 1 else thr
-    if shell_arithmetic(n) % thr != 0:
+    n = read_int(store, 'master.units_since_handoff')
+    if n % max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 5), 1) != 0:
         return
     sys.stdout.write(f'master: {n} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, '
                      f'kitchen.sh rotate-master {store}\n')

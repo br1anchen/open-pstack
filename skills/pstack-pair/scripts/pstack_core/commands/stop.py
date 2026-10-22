@@ -10,12 +10,12 @@ from ..errors import Die, Exit
 from ..herdr import agent_status, herdr, pane_text
 from ..replies import file_mtime
 from ..review import jq_raw
-from ..store import alt, event, header_field, load, update
-from ..wait import WaitResult, bash_sleep, die_with_the_shell, finish_wait, tdiv, timeout_ms, wait_opts
+from ..store import env_float, env_int, event, header_field, load, update
+from ..wait import WaitResult, die_with_the_shell, finish_wait, tdiv, wait_opts
 from .report import in_herdr, require_pair
 from .status import latest
 
-DEFAULT_TIMEOUT = '300000'
+DEFAULT_TIMEOUT = 300000
 
 
 def first_line(path):
@@ -56,7 +56,7 @@ def devin_send_now(store, role, name, text, before, deadline):
     then Enter once it shows in the queue with the "send now" hint, which an older queued message alone does not satisfy. The watch ends early
     once the stop report exists, and after 20 seconds or the caller's deadline, whichever comes first. When the pane never showed the text, one
     Enter goes as a fallback. Returns False with a reason on stderr when delivery could not be confirmed."""
-    end = min(int(time.time()) + int(os.environ.get('PAIR_DEVIN_WATCH_S') or 20), deadline)
+    end = min(int(time.time()) + env_int('PAIR_DEVIN_WATCH_S', 20), deadline)
     seen = False
     while int(time.time()) < end:
         if stop_written(store, role, before):
@@ -100,7 +100,7 @@ def stop_role(ctx, store, role, timeout):
         r = subprocess.run(['herdr', 'agent', 'prompt', name, text], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)
         if r.returncode != 0:
             return 2, '', r.stderr.decode('utf-8', 'surrogateescape').rstrip('\n')
-        deadline = epoch + int(os.environ.get('PAIR_STOP_DEADLINE_S') or tdiv(timeout_ms(timeout), 1000))
+        deadline = epoch + env_int('PAIR_STOP_DEADLINE_S', tdiv(timeout, 1000))
         code, err = 0, ''
         if role_value(store, role, 'kind') == 'devin':
             devin_send_now(store, role, name, f'{ctx.skill} STOP', before, deadline)
@@ -108,9 +108,9 @@ def stop_role(ctx, store, role, timeout):
             if int(time.time()) >= deadline:
                 code, err = 1, '{"error":{"code":"timeout"}}'
                 break
-            bash_sleep(os.environ.get('PAIR_STOP_POLL_S') or '5')
+            time.sleep(env_float('PAIR_STOP_POLL_S', 5))
         return code, herdr('agent', 'get', name)[1].rstrip('\n'), err
-    r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--timeout', timeout], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     return (r.returncode, r.stdout.decode('utf-8', 'replace').rstrip('\n'), r.stderr.decode('utf-8', 'surrogateescape').rstrip('\n'))
 
 

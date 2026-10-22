@@ -7,12 +7,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
-from .errors import Exit
 from .prime import with_timeout
 from .review import jq_raw
-from .store import text_of
-from .wait import as_text, bash_sleep
+from .store import env_float, text_of
+from .wait import as_text
 
 PAIR_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
@@ -152,12 +152,8 @@ def preflight_muse(args):
 
 
 def retry_wait():
-    """The pause before a preflight's second try. The bash ran it with errexit off, so a wait that sleep refuses (PAIR_PREFLIGHT_RETRY_S=x)
-    prints sleep's error with the rest of the preflight's output and the retry goes ahead at once."""
-    try:
-        bash_sleep(os.environ.get('PAIR_PREFLIGHT_RETRY_S') or '3', capture=True)
-    except Exit:
-        pass
+    """The pause before a preflight's second try."""
+    time.sleep(env_float('PAIR_PREFLIGHT_RETRY_S', 3))
 
 
 def preflight_pi(args):

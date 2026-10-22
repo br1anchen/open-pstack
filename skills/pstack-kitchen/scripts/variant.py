@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import sys
+import zlib
 from pathlib import Path
 
 from pstack_core.review import jq_raw
@@ -29,34 +30,6 @@ def load_kitchen_core():
         raise
     return module
 
-
-def _crc_table():
-    table = []
-    for n in range(256):
-        crc = n << 24
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x04C11DB7 if crc & 0x80000000 else crc << 1) & 0xFFFFFFFF
-        table.append(crc)
-    return table
-
-
-CRC_TABLE = _crc_table()
-
-
-def cksum(data):
-    """POSIX cksum: the CRC-32 with polynomial 0x04C11DB7, fed the bytes and then the length."""
-    crc = 0
-    for byte in [*data, *length_bytes(len(data))]:
-        crc = ((crc << 8) & 0xFFFFFFFF) ^ CRC_TABLE[(crc >> 24) ^ byte]
-    return ~crc & 0xFFFFFFFF
-
-
-def length_bytes(n):
-    out = []
-    while n:
-        out.append(n & 0xFF)
-        n >>= 8
-    return out
 
 
 def risk_of(brief):
@@ -87,10 +60,11 @@ def verify_block(brief):
 
 
 def verify_job(store, brief, head):
-    """Where finish keeps the run of the brief's Verify block at commit head: one per head and block, so an amended block runs again."""
+    """Where finish keeps the run of the brief's Verify block at commit head: one per head and block, so an amended block runs again. The block's
+    key is its crc32; a job directory under the old POSIX cksum key is never read, so the first finish after the switch runs a fresh Verify."""
     unit = os.path.basename(brief)
     unit = unit[:-3] if unit.endswith('.md') and unit != '.md' else unit
-    return f'{store}/steps/jobs/{unit}-verify-{head[:12]}-{cksum(verify_block(brief))}'
+    return f'{store}/steps/jobs/{unit}-verify-{head[:12]}-{zlib.crc32(verify_block(brief))}'
 
 
 class KitchenVariant(TrioVariant):

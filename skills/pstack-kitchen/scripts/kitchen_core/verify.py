@@ -31,7 +31,7 @@ from pstack_core.panes import TRUST_RE, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
-from pstack_core.store import alt, bash_int, damaged, event, expected_report, field, header_field, json_type, load, pair_file, peek, read, readlink_f, text_of, update
+from pstack_core.store import alt, damaged, env_float, env_int, event, expected_report, field, header_field, json_type, load, pair_file, peek, read, readlink_f, text_of, update, whole_number
 from pstack_core.wait import as_text, json_values, reply_at, truthy
 from pstack_core.variant import commit_of
 
@@ -98,9 +98,9 @@ def next_index(directory, prefix, letter):
     for path in glob_sorted(glob.glob(f'{glob.escape(directory)}/{glob.escape(prefix)}-{letter}[0-9]*')):
         if not os.path.exists(path):
             continue
-        n = bash_int(re.sub(rf'^.*-{letter}([0-9]+).*$', r'\1', os.path.basename(path)))
-        if n is not None and n > k:
-            k = n
+        m = re.match(rf'.*-{letter}([0-9]+)', os.path.basename(path))
+        if m and int(m.group(1)) > k:
+            k = int(m.group(1))
     return k + 1
 
 
@@ -316,8 +316,9 @@ def verify(ctx, args):
         raise Die(USAGE)
     store, argv = args[0], list(args[1:])
     every_set = until_set = False
-    parent_ref = land_head = timeout_m = kind_override = retry_entry = range_base = ''
-    every_m = '9'
+    parent_ref = land_head = kind_override = retry_entry = range_base = ''
+    timeout_m = None
+    every_m = 9
     wait = cancel = landing = False
     units, covered = [], []
     rest = list(argv)
@@ -330,13 +331,13 @@ def verify(ctx, args):
             value = rest[1]
             del rest[:2]
             if flag == '--timeout':
-                timeout_m = value
+                timeout_m = whole_number(value, '--timeout', 'minutes')
             elif flag == '--kind':
                 kind_override = value
             elif flag == '--retry-entry':
                 retry_entry = value
             elif flag == '--every':
-                every_m, every_set = value, True
+                every_m, every_set = whole_number(value, '--every', 'minutes'), True
             elif flag == '--base':
                 range_base = value
             elif flag == '--parent':
@@ -344,7 +345,7 @@ def verify(ctx, args):
             else:
                 land_head = value
         elif flag == '--until-verdict':
-            every_m, until_set = '525600', True
+            every_m, until_set = 525600, True
             del rest[:1]
         elif flag == '--covers':
             if len(rest) < 2:
@@ -466,13 +467,12 @@ def verify(ctx, args):
         raise Exit(0)
     # The default deadline: 3 x the slowest recent passing behavioral gates, plus the last recorded setup run when the repo declares one, scaled by the
     # machine's load at the start (capped at 3x), and never under 45 minutes. The parts are printed; --timeout wins.
-    if not timeout_m:
+    if timeout_m is None:
         dlargs = ['timing', '--deadline', '--stage', 'behavioral']
         if data['scratch_setup']:
             dlargs.append('--with-setup')
         dlargs += data['behavioral']
-        minutes = as_text(json.loads(kit.call(['--json', *dlargs])).get('minutes'))
-        timeout_m = minutes
+        timeout_m = int(json.loads(kit.call(['--json', *dlargs])).get('minutes'))
         kit.call(dlargs, show=True)
         # A landing verification also runs the touched profiles' landing commands: 3 x their measured time, and a fixed ten minutes for each that has
         # no measured run.
@@ -481,13 +481,12 @@ def verify(ctx, args):
             if profiles:
                 timing = kit.call(['--json', 'timing', '--stage', 'landing', *profiles])
                 timed = json.loads(timing)
-                seconds = as_text(timed.get('seconds'))
-                unmeasured = str(len(timed['unmeasured']))
-                added = awk_landing_minutes(seconds, unmeasured)
-                timeout_m = str(vs.shell_arithmetic(timeout_m) + added)
-                measured = awk_round_minutes(seconds)
-                out(f'deadline +{added}m for the landing gates of {" ".join(profiles)}: 3 x {measured}m measured'
-                    f'{"" if bash_int(unmeasured) == 0 else f", {unmeasured} unmeasured at 10m each"}; now {timeout_m}m\n')
+                seconds = timed.get('seconds') or 0
+                unmeasured = len(timed['unmeasured'])
+                added = int((3 * seconds + 59) / 60) + 10 * unmeasured
+                timeout_m += added
+                out(f'deadline +{added}m for the landing gates of {" ".join(profiles)}: 3 x {seconds / 60:.0f}m measured'
+                    f'{"" if unmeasured == 0 else f", {unmeasured} unmeasured at 10m each"}; now {timeout_m}m\n')
     else:
         out(f'deadline {timeout_m}m (--timeout)\n')
     entry = verifier_entry(kit, cls)
@@ -553,7 +552,7 @@ def verify(ctx, args):
     sample = 0 if landing else data.get('sample')
     unit_label = 'landing' if landing else f'{last}-{slug}'
     units_label = ' '.join(allunits) if allunits else 'landing'
-    deadline = started_at + vs.shell_arithmetic(timeout_m) * 60
+    deadline = started_at + timeout_m * 60
     native = list(args_list)
 
     def record_start(doc):
@@ -605,22 +604,6 @@ def is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def awk_round_minutes(seconds):
-    """awk's `printf "%.0f", s / 60`."""
-    value = float(re.match(r'[-+]?[0-9.]+(?:[eE][-+]?[0-9]+)?', seconds).group(0)) if re.match(r'[-+]?[0-9.]', seconds) else 0.0
-    return '%.0f' % (value / 60)
-
-
-def awk_landing_minutes(seconds, unmeasured):
-    """awk's `m = int((3 * s + 59) / 60); print m + 10 * u`."""
-    def number(text):
-        m = re.match(r'[ \t]*([-+]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?)', text)
-        return float(m.group(1)) if m else 0.0
-
-    m = int((3 * number(seconds) + 59) / 60)
-    return int(m + 10 * number(unmeasured))
-
-
 def scratch_path(ctx, store, scratch_id, head):
     """`$(cmd_scratch "$store" "$scratch_id" --at "$head" | tail -1)`: the scratch's path; the command's refusal ends verify with its status."""
     sink = io.StringIO()
@@ -669,7 +652,7 @@ def close_unread(ctx, store):
         if read(store, 'verifying.verdict', empty=True) != open_verdict:
             by_another = True
             break
-        closed_rc, closed = in_subshell(lambda: Waiter(ctx, store, '0', closing=True, retry=lambda again: verify(ctx, again)).run())
+        closed_rc, closed = in_subshell(lambda: Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again)).run())
         closed_status = next((line[len('status: '):] for line in closed.split('\n') if line.startswith('status: ')), '')
         if closed_status:
             break
@@ -679,12 +662,10 @@ def close_unread(ctx, store):
         if waiting_since is None:
             waiting_since = int(time.time())
             out(f'closing {open_verdict}: another call is closing it; waiting for it\n')
-        limit = bash_int(os.environ.get('KITCHEN_VERIFY_CLOSE_WAIT_S') or '120')
-        if limit is None or not int(time.time()) - waiting_since < limit:
-            raise Die(f'another call has held the close of {open_verdict} for {os.environ.get("KITCHEN_VERIFY_CLOSE_WAIT_S") or "120"}s; '
-                      f'kitchen.sh verify {store} --wait', 5)
-        from pstack_core.wait import bash_sleep
-        bash_sleep(os.environ.get('KITCHEN_VERIFY_POLL_S') or '10')
+        limit = env_int('KITCHEN_VERIFY_CLOSE_WAIT_S', 120)
+        if not int(time.time()) - waiting_since < limit:
+            raise Die(f'another call has held the close of {open_verdict} for {limit}s; kitchen.sh verify {store} --wait', 5)
+        time.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
     if by_another:
         closed_status = 'closed by another call'
         closed = ''

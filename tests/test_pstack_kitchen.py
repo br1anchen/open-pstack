@@ -11,6 +11,7 @@ import sys
 import tempfile
 import textwrap
 import time
+import zlib
 import unittest
 from pathlib import Path
 
@@ -1691,11 +1692,11 @@ esac
         self.assertEqual((module.risk_of(str(b)), module.VARIANT().steps_due(ctx, str(self.store), str(b))), ('', False))
         self.assertFalse(module.VARIANT().steps_due(ctx, str(self.store), ''))
 
-    def test_verify_job_is_the_brief_name_the_head_prefix_and_the_cksum_of_the_verify_block(self):
+    def test_verify_job_is_the_brief_name_the_head_prefix_and_the_crc32_of_the_verify_block(self):
         module = self.kitchen_variant()
-        # the expected numbers are `awk '/^## Verify/{p=1; next} /^## /{p=0} p' <brief> | cksum | cut -d' ' -f1`
-        blocks = {'empty': (b'', 3515105045), 'no trailing newline': (b'true', 2469621148), 'plain': (b'python3 tests/run.py -k x\ngit diff --exit-code\n', 1475834372),
-                  'non-ascii': ('echo \u00e9 \u2192 \U0001F600\n'.encode(), 1800349256), 'over 4 KiB': (b'echo ' + b'x' * 5000 + b'\n' + b'true\n' * 900, 2434960844)}
+        # the expected numbers are python3 zlib.crc32 of the Verify block's bytes, each line ended by a newline, with the blank line before the next heading
+        blocks = {'empty': (b'', 852952723), 'no trailing newline': (b'true', 2703426882), 'plain': (b'python3 tests/run.py -k x\ngit diff --exit-code\n', 2501220589),
+                  'non-ascii': ('echo \u00e9 \u2192 \U0001F600\n'.encode(), 1464077100), 'over 4 KiB': (b'echo ' + b'x' * 5000 + b'\n' + b'true\n' * 900, 1036027346)}
         for name, (block, cksum) in blocks.items():
             brief = Path(self.tmp.name) / f'{name.replace(" ", "-")}-001-x.md'
             brief.write_bytes(b'# Brief\n\n## Goal\n\ng\n\n## Verify\n' + block + b'\n## Forbidden\n\nnone\n')
@@ -1703,7 +1704,7 @@ esac
             self.assertEqual(module.verify_job('/store', str(brief), sha), f'/store/steps/jobs/{brief.stem}-verify-a1b2c3d4e5f6-{cksum}', name)
         bare = Path(self.tmp.name) / '002-y.md'
         bare.write_bytes(b'# Brief\n\n## Verify\n\ntrue')
-        self.assertEqual(module.verify_job('/store', str(bare), 'abc'), '/store/steps/jobs/002-y-verify-abc-1944576129', 'a Verify block that ends the file')
+        self.assertEqual(module.verify_job('/store', str(bare), 'abc'), '/store/steps/jobs/002-y-verify-abc-2002284698', 'a Verify block that ends the file')
 
     def test_kitchen_report_ready_adds_the_verify_job_to_the_pairs_readiness(self):
         # the why strings below are the literals an agent reads when report_ready says a done report is not ready.
@@ -1737,6 +1738,30 @@ esac
         (self.store / 'notes/001-util-n1.md').write_text('# N\n\nstatus: blocking\n')
         got = ready(report)
         self.assertEqual((got.ready, got.open, got.why), (False, str(self.store / 'notes/001-util-n1.md'), 'open blocking notes n1'), 'the pair says no first')
+
+    def test_a_verify_job_under_the_old_cksum_key_is_ignored_and_never_collides_with_the_crc32_key(self):
+        """Plan 043 U5 switched the Verify job key from POSIX cksum to crc32. A completed job directory under the old key (rc 0) does not make a
+        done report ready and is not the directory finish uses now, so the first finish after the switch runs the Verify block again."""
+        module = self.kitchen_variant()
+        ready = lambda path: module.VARIANT().report_ready(None, str(self.store), str(path))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, 'true')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        head = self.commit('work')
+        self.done(b, head)
+        block = module.verify_block(str(b))
+        old_key = subprocess.run(['cksum'], input=block, capture_output=True, check=True).stdout.split()[0].decode()
+        old_job = self.store / 'steps/jobs' / f'{b.stem}-verify-{head[:12]}-{old_key}'
+        new_job = Path(module.verify_job(str(self.store), str(b), head))
+        self.assertNotEqual(old_key, str(zlib.crc32(block)))
+        self.assertNotEqual(old_job, new_job)
+        old_job.mkdir(parents=True)
+        (old_job / 'rc').write_text('0\n')
+        got = ready(self.store / 'reports' / b.name)
+        self.assertEqual((got.ready, got.why), (False, f"the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them)"))
+        self.assertFalse(new_job.exists())
+        self.assertEqual((old_job / 'rc').read_text(), '0\n')
 
     def test_kitchen_log_records_the_decision_and_a_master_log_event(self):
         self.run_sh('log', str(self.store), 'review', 'accept 001', 'diff clean', 'reviews/001', 'next')
@@ -2225,16 +2250,13 @@ esac
         hook.chmod(0o755)
 
     def test_a_quiet_wait_claims_the_store_once_and_its_later_polls_only_check_it(self):
-        # (c) A fake `sleep` plays the newer wait between two inner polls: it writes a foreign token. The quiet wait's second poll must find it
+        # (c) The second inner poll's `agent wait` plays the newer wait: it writes a foreign token. The quiet wait's later polls must find it
         # and end with `superseded:`; a quiet wait that claimed on every poll would overwrite it and go on.
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
-        shim = Path(self.tmp.name) / 'shim'
-        shim.mkdir()
-        (shim / 'sleep').write_text(f'#!/bin/sh\n[ "$1" = 0.37 ] && printf "other\\n" >"{self.store}/wait.pid"\nexit 0\n')
-        (shim / 'sleep').chmod(0o755)
-        self.env['PATH'] = f'{shim}:{self.env["PATH"]}'
-        self.env['KITCHEN_QUIET_POLL_S'] = '0.37'
+        other = f'#!/bin/sh\nprintf "other\\n" >"{self.store}/wait.pid"\n'
+        self.once_hook('wait', f'printf %s {shlex.quote(other)} >"{self.fake}/once/wait"\nchmod +x "{self.fake}/once/wait"\n')
+        self.env['KITCHEN_QUIET_POLL_S'] = '0'
         out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
         self.assertEqual(out.strip().splitlines()[-1], 'superseded: a newer wait owns this store; this one ends')
         self.assertNotIn('quiet:', out)
@@ -3319,7 +3341,7 @@ esac
         self.assertEqual((self.fake / 'calls.log').read_text().count('agent start demo-verifier'), starts)
 
     def test_an_unread_sampled_clean_closed_by_the_next_verify_prints_the_audit_line(self):
-        open_ = self.open_slow_verification(slug='c')
+        open_ = self.open_slow_verification(slug='b')
         self.written_verdict(open_, 'clean')
         out = self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
         self.assertIn(f"closed: {open_['verdict']} (clean)", out)

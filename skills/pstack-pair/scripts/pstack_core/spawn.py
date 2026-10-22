@@ -16,8 +16,8 @@ from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .review import jq_raw
 from .send import submit_typed, visible_without_blanks
-from .store import alt, count, event, field, get, listing, load, member, update
-from .wait import bash_sleep, die_with_the_shell
+from .store import alt, count, env_float, env_int, event, field, get, listing, load, member, update
+from .wait import die_with_the_shell
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
 
@@ -46,7 +46,7 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
     """After a bootstrap prompt stalled and no ready file exists: an idle or done agent in this pane gets the Enter its input still waits for, or
     the bootstrap sent once more when nothing was typed (a blocked agent needs the human); otherwise state detection lagged on a narrow pane while
     the agent works. False only for a blocked agent."""
-    bash_sleep(os.environ.get('PAIR_SUBMIT_CHECK_S') or '5')
+    time.sleep(env_float('PAIR_SUBMIT_CHECK_S', 5))
     if os.path.isfile(f'{store}/{ready}'):
         return True
     code, info = herdr('agent', 'get', name)
@@ -167,7 +167,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         # pane while the agent works. Either way the ready file is the signal.
         if bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation):
             print(f'{role} prompt looked stalled; waiting for {ready} instead')
-            if await_file(f'{store}/{ready}', int(os.environ.get('PAIR_BOOTSTRAP_WAIT_MS') or 240000)):
+            if await_file(f'{store}/{ready}', env_int('PAIR_BOOTSTRAP_WAIT_MS', 240000)):
                 code = 0
     if code != 0:
         stderr_of(f'{role} bootstrap did not settle: {err}\n')

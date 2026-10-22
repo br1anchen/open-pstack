@@ -16,7 +16,7 @@ from pstack_core.panes import new_pane, refuse_untrusted
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
-from pstack_core.store import alt, damaged, event, field, json_type, listing, load, member, pair_file, peek, read, update
+from pstack_core.store import alt, damaged, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, update
 from pstack_core.wait import as_text, reply_at
 
 from .reviews import warn_unreviewed
@@ -232,9 +232,9 @@ def take_master(ctx, args):
     if here != pane:
         raise Die(f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}", 5)
     prev_pane = read(store, 'master.previous.pane_id')
-    deadline = int(time.time()) + int(os.environ.get('KITCHEN_TAKEOVER_WAIT_S') or 30)
+    deadline = int(time.time()) + env_int('KITCHEN_TAKEOVER_WAIT_S', 30)
     while agent_status(prev) == 'working' and int(time.time()) < deadline:
-        time.sleep(float(os.environ.get('KITCHEN_ROTATE_POLL_S') or 2))
+        time.sleep(env_float('KITCHEN_ROTATE_POLL_S', 2))
     # Close the pane only while it still holds the old master, or nothing.
     host = as_text(alt(reply_at(herdr('agent', 'get', prev_pane)[1], 'result', 'agent', 'name', quiet=True), ''))
     closed = 'kept'

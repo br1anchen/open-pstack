@@ -23,13 +23,12 @@ from pstack_core.commands import report as core_report
 from pstack_core.commands import step as core_step
 from pstack_core.errors import Die, Exit
 from pstack_core.replies import file_mtime
-from pstack_core.review import awk_equal, range_floor, steps_file
-from pstack_core.store import bash_int, event, expected_report, field, header_field, last_line, pair_file, read, read_text, readlink_f, unit_name
+from pstack_core.review import range_floor, steps_file
+from pstack_core.store import env_float, env_int, event, expected_report, field, header_field, int_or_none, last_line, pair_file, read, read_text, readlink_f, unit_name
 
 from . import kpy
 from .classify import brief_kitchen
-from .units import exit_status, git, recorded_head
-from .verify_state import shell_arithmetic
+from .units import git, recorded_head
 from .wait import plain_signals, poll_sleep
 
 STEP_SCRIPT = '''
@@ -75,7 +74,7 @@ def detached(script, argv, log, store):
 
 def slice_deadline():
     # `$(( $(date +%s) + slice ))`: slice is a variable, whose value is itself evaluated as an expression (`5 == 5` adds 1, `2*3` adds 6)
-    return shell_arithmetic(f"{int(time.time())} + ({os.environ.get('KITCHEN_STEP_SLICE_S') or '100'})")
+    return int(time.time()) + env_int('KITCHEN_STEP_SLICE_S', 100)
 
 
 def past(deadline):
@@ -84,7 +83,7 @@ def past(deadline):
 
 def not_zero(text):
     """`[ "$rc" -ne 0 ]`: a word that is no integer is an error, which reads as false."""
-    n = bash_int(text)
+    n = int_or_none(text)
     if n is None:
         sys.stdout.flush()
         sys.stderr.write(f'pair.sh: [: {text}: integer expected\n')
@@ -194,7 +193,7 @@ def step(ctx, args):
             sys.stdout.write(f'next: this step is not recorded yet; do not end your turn. Run the same command again now, in the foreground, until it records: '
                              f'kitchen.sh step {store} {sha} "{args[2]}"\n')
             raise Exit(4)
-        poll_sleep(os.environ.get('KITCHEN_STEP_POLL_S') or '2')
+        poll_sleep(env_float('KITCHEN_STEP_POLL_S', 2))
     open(f'{job}/consumed', 'w').close()
     rc = cat_n(f'{job}/rc')
     classified = cat_n(f'{job}/classify.json')
@@ -215,7 +214,7 @@ def step(ctx, args):
         fails = 0
         for row in read_text(f'{store}/gates.tsv').split('\n'):
             cols = row.split('\t')
-            if len(cols) > 1 and awk_equal(cols[1], unit):
+            if len(cols) > 1 and cols[1] == unit:
                 fails = fails + 1 if len(cols) > 3 and cols[3] == 'fail' else 0
         if fails >= 2:
             sys.stdout.write(f'next: {fails} failed checks in a row; write the report as blocked with the logs under Questions, then kitchen.sh finish\n')
@@ -229,8 +228,7 @@ def step(ctx, args):
         sys.stdout.write(f'gates: pass ({",".join(profiles)})\n')
         # A pass that needed a rerun under load is recorded, so retro shows which suites flake on a loaded machine.
         names = '\n'.join(m.group(1) for m in (re.match(r'flaky under load: ([^ ]*) ', l) for l in read_text(f'{job}/out').split('\n')) if m)
-        flaky = subprocess.run(['sort', '-u'], input=(names + '\n').encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE, check=False).stdout.decode('utf-8', 'surrogateescape') if names else ''
-        flaky = ','.join(l for l in flaky.split('\n') if l)
+        flaky = ','.join(sorted(set(n for n in names.split('\n') if n)))
         if flaky:
             sys.stdout.write(f'flaky under load: {flaky} failed, then passed on a rerun (see {job}/out)\n')
             event(store, 'sidekick', 'gate-flaky', brief, flaky)
@@ -290,7 +288,7 @@ def finish(ctx, args):
             sys.stdout.write('next: the report is not sent yet; do not end your turn. Run the same command again now, in the foreground, until it sends: '
                              f'kitchen.sh finish {store} {args[1]}\n')
             raise Exit(4)
-        poll_sleep(os.environ.get('KITCHEN_STEP_POLL_S') or '2')
+        poll_sleep(env_float('KITCHEN_STEP_POLL_S', 2))
     open(f'{job}/consumed', 'w').close()
     rc = cat_n(f'{job}/rc')
     cat(f'{job}/out')

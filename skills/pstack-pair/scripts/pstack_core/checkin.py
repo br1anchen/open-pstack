@@ -9,7 +9,7 @@ import time
 from .collate import collate_key, glob_sorted
 from .replies import dispatched, file_mtime
 from .review import jq_raw, noted_through, open_notes, range_floor, steps_file
-from .store import alt, bash_int, cut_chars, header_field, load, progress_path, read_text
+from .store import alt, cut_chars, int_or_none, header_field, load, progress_path, read_text
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 CLASSES = {'alpha': 'A-Za-z', 'digit': '0-9', 'alnum': '0-9A-Za-z', 'upper': 'A-Z', 'lower': 'a-z', 'space': ' \t\n\r\f\v',
@@ -278,7 +278,7 @@ def sort_u(lines):
     return out
 
 
-def checkin(ctx, store, interval='9', now=None):
+def checkin(ctx, store, interval=9, now=None):
     """The check-in digest for a sidekick still working at the interval, bounded so the master can poll it cheaply."""
     now = int(time.time()) if now is None else now
     out = []
@@ -309,14 +309,13 @@ def checkin(ctx, store, interval='9', now=None):
         total = text.count('\n')
         seen = 0
         if os.path.isfile(f'{prog}.seen'):
-            seen = bash_int(read_text(f'{prog}.seen').rstrip('\n'))
-            seen = 0 if seen is None else seen
+            seen = int_or_none(read_text(f'{prog}.seen')) or 0
         if seen > total:
             seen = 0
         new = total - seen
         age_m = tdiv(now - file_mtime(prog), 60)
-        limit = bash_int(str(interval))
-        if limit is not None and age_m >= limit:
+        limit = interval
+        if age_m >= limit:
             if run:
                 stale = f'  running: {run}'
             else:

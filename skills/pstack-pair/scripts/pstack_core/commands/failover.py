@@ -6,8 +6,8 @@ from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..herdr import agent_status, herdr
 from ..review import jq_raw
 from ..spawn import fallback_args, record_failover, section, spawn_role
-from ..store import alt, expected_report, field, load, pair_file
-from ..wait import bash_sleep, core_line, die_with_the_shell
+from ..store import alt, env_float, expected_report, field, load, pair_file
+from ..wait import core_line, die_with_the_shell
 from .report import in_herdr
 
 
@@ -44,7 +44,7 @@ def failover(ctx, args):
         if not force:
             raise Die(f'sidekick {name} is working; pair.sh stop {store} first, or pass --force to interrupt it', 5)
         herdr('agent', 'send-keys', name, 'esc')
-        bash_sleep(os.environ.get('PAIR_ESC_WAIT_S') or '2')
+        time.sleep(env_float('PAIR_ESC_WAIT_S', 2))
     if kind == 'prime-agent':
         if not stopped(store, 'sidekick'):
             raise Die('Prime session cleanup failed; no fallback was started', 5)

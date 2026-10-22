@@ -17,8 +17,8 @@ from pstack_core.herdr import agent_status, herdr, pane_text
 from pstack_core.providers import agent_session_error, grep_o_context, muse_session_error, prime_role_error
 from pstack_core.review import jq_raw
 from pstack_core.send import submit_typed
-from pstack_core.store import alt, bash_int, damaged, env_int, event, header_field, json_type, listing, load, peek, read, readlink_f
-from pstack_core.wait import as_text, bash_sleep
+from pstack_core.store import alt, damaged, env_float, env_int, event, header_field, json_type, listing, load, peek, read, read_int, readlink_f
+from pstack_core.wait import as_text
 
 from . import verify_state as vs
 from .reviews import warn_unreviewed
@@ -36,9 +36,8 @@ def tdiv(a, b):
 
 
 def stall_limit(idle):
-    """`[ idle -ge "${KITCHEN_VERIFY_IDLE_S:-600}" ]`: a limit that is no integer is a test error, which is false."""
-    limit = bash_int(os.environ.get('KITCHEN_VERIFY_IDLE_S') or '600')
-    return limit is not None and idle >= limit
+    """Whether the verifier has sat idle for KITCHEN_VERIFY_IDLE_S seconds (600 by default)."""
+    return idle >= env_int('KITCHEN_VERIFY_IDLE_S', 600)
 
 
 def verifier_provider_error(store, name, session=NOT_GIVEN):
@@ -89,7 +88,7 @@ def verifier_trail(session, packet):
 def verifier_shown(store, state):
     """The verifier's state for a progress line: working when its pane runs a command of its own."""
     if state in ('idle', 'done'):
-        since = bash_int(read(store, 'verifying.started'))
+        since = read_int(store, 'verifying.started')
         command = busy_command(read(store, 'verifier.pane_id'), since, now_s()) if since is not None else ''
         if command:
             return f'working ({command})'
@@ -142,12 +141,8 @@ class Waiter:
         """A plain `x="$(field ...)"`: under errexit a store with no pair.json ends the command with 2."""
         return read(self.store, path, **how)
 
-    def sleep(self, text):
-        try:
-            bash_sleep(text)
-        except Exit:
-            if self.errexit:
-                raise
+    def sleep(self, seconds):
+        time.sleep(seconds)
 
     def update(self, verdict, apply):
         vs.update_verifying(self.store, verdict, apply)
@@ -163,20 +158,20 @@ class Waiter:
         working Devin does not (Enter would cancel its command), so it is only waited on; a blocked or unknown agent gets no prompt and no grace."""
         store = self.store
         vs.verification_still_open(store, verdict)
-        grace_until = read(store, 'verifying.grace_until', empty=True)
-        if not grace_until:
+        grace_until = read_int(store, 'verifying.grace_until')
+        if grace_until is None:
             state = agent_status(name)
             if state in ('blocked', 'unknown', 'absent'):
                 return
             now = now_s()
-            grace_until = str(now + env_int('KITCHEN_VERIFY_GRACE_S', 600))
+            grace_until = now + env_int('KITCHEN_VERIFY_GRACE_S', 600)
             delivery = 'prompted'
             if kind == 'devin' and state == 'working':
                 delivery = 'skipped:devin-working'
 
             def stamp(verifying):
                 # .verifying.grace_at, .verifying.grace_until and .verifying.grace_delivery
-                verifying['grace_at'], verifying['grace_until'], verifying['grace_delivery'] = now, int(grace_until), delivery
+                verifying['grace_at'], verifying['grace_until'], verifying['grace_delivery'] = now, grace_until, delivery
 
             self.update(verdict, stamp)
             if delivery == 'prompted':
@@ -197,8 +192,8 @@ class Waiter:
             if state == 'absent':
                 return
             now = now_s()
-            limit = bash_int(grace_until)
-            if limit is None or not now < limit:
+            limit = grace_until
+            if not now < limit:
                 return
             if state in ('idle', 'done', 'blocked') and verifier_provider_error(store, name, session):
                 return
@@ -208,7 +203,7 @@ class Waiter:
                 sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
                 event(store, 'master', 'wake', brief, 'verify:grace')
                 raise Exit(4)
-            self.sleep(os.environ.get('KITCHEN_VERIFY_GRACE_POLL_S') or '5')
+            self.sleep(env_float('KITCHEN_VERIFY_GRACE_POLL_S', 5))
 
     def run(self):
         ctx, store = self.ctx, self.store
@@ -220,14 +215,15 @@ class Waiter:
         session = self.rd('verifying.session', empty=True)
         brief = self.rd('verifying.brief')
         risk = self.rd('verifying.risk')
-        sample = self.rd('verifying.sample')
+        sample = alt(peek(load(store), 'verifying').get('sample'), 0)
+        if isinstance(sample, bool) or not isinstance(sample, (int, float)):
+            raise damaged(f'verifying.sample is {json_type(sample)}, not a number')
         unit = self.rd('verifying.unit')
         pane = self.rd('verifier.pane_id')
         fallback = self.fallback()
         retried = self.rd('verifying.retried', default=False)
         argv = self.argv()
-        every = self.arithmetic(self.every_m)
-        until = now_s() + every * 60
+        until = now_s() + self.every_m * 60
         # A verify stopped between the verifier's start and its packet leaves the verifier idle with nothing to do, until the stall check closes it.
         if read(store, 'verifying.delivered') == 'false' and not os.path.isfile(verdict):
             vs.verification_still_open(store, verdict)
@@ -241,11 +237,11 @@ class Waiter:
             state = agent_status(name)
             vs.verification_still_open(store, verdict)
             now = now_s()
-            deadline = bash_int(read(store, 'verifying.deadline'))
+            deadline = read_int(store, 'verifying.deadline')
             if not (state != 'absent' and deadline is not None and now < deadline):
                 break
             if now >= until:
-                started = vs.shell_arithmetic(read(store, 'verifying.started'))
+                started = read_int(store, 'verifying.started')
                 span = tdiv(deadline - started, 60)
                 done = tdiv(now - started, 60)
                 sys.stdout.write(f'verifying: units {read(store, "verifying.units")} by {kind}, {done}m of {span}m, verifier '
@@ -254,40 +250,40 @@ class Waiter:
                 event(store, 'master', 'wake', read(store, 'verifying.brief'), 'verify:progress')
                 raise Exit(4)
             # A verifier that ended its turn on a provider error will not write.
-            idle_since = read(store, 'verifying.idle_since', empty=True)
+            idle_since = read_int(store, 'verifying.idle_since')
             if state == 'blocked':
                 if read(store, 'verifier.kind') == 'prime-agent' and verifier_provider_error(store, name, session):
                     break
-                if idle_since:
+                if idle_since is not None:
                     self.drop_idle(verdict)
             elif state in ('idle', 'done'):
                 if verifier_provider_error(store, name, session):
                     break
-                started = bash_int(read(store, 'verifying.started'))
+                started = read_int(store, 'verifying.started')
                 busy = busy_command(read(store, 'verifier.pane_id'), started, now_s()) if started is not None else ''
                 if busy:
-                    if idle_since:
+                    if idle_since is not None:
                         self.drop_idle(verdict)
-                elif not idle_since:
+                elif idle_since is None:
                     self.update(verdict, lambda v, at=now: v.__setitem__('idle_since', at))
-                elif stall_limit(now - vs.shell_arithmetic(idle_since)):
+                elif stall_limit(now - idle_since):
                     self.stalled = True
                     break
-            elif idle_since:
+            elif idle_since is not None:
                 self.drop_idle(verdict)
-            self.sleep(os.environ.get('KITCHEN_VERIFY_POLL_S') or '10')
+            self.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
         self.state = state
         vs.verification_still_open(store, verdict)
         # A verifier still alive at the deadline is asked once for what it proved.
         written = os.path.isfile(verdict) and header_field(verdict, 'status')
-        deadline = bash_int(read(store, 'verifying.deadline'))
+        deadline = read_int(store, 'verifying.deadline')
         if (not written and state != 'absent' and deadline is not None and now_s() >= deadline
                 and not verifier_provider_error(store, name, session)):
             self.grace(name, kind, verdict, until, brief, session)
             vs.verification_still_open(store, verdict)
         # A verdict just written may still be closing; give the writer a moment.
         if os.path.isfile(verdict):
-            self.sleep(os.environ.get('KITCHEN_VERDICT_SETTLE_S') or '3')
+            self.sleep(env_float('KITCHEN_VERDICT_SETTLE_S', 3))
         vs.verification_still_open(store, verdict)
         provider = ''
         if not os.path.isfile(verdict):
@@ -329,7 +325,7 @@ class Waiter:
             raise Exit(2)
         if not present and self.stalled:
             event(store, 'master', 'wake', brief, 'verify:stalled')
-            raise Die(f'no verdict at {verdict}: the verifier sat idle {tdiv(vs.shell_arithmetic(os.environ.get("KITCHEN_VERIFY_IDLE_S") or "600"), 60)}m with nothing running; rerun: '
+            raise Die(f'no verdict at {verdict}: the verifier sat idle {env_int('KITCHEN_VERIFY_IDLE_S', 600) // 60}m with nothing running; rerun: '
                       f'kitchen.sh verify {store} {" ".join(self.shown(argv))}', 4)
         if not present:
             event(store, 'master', 'wake', brief, 'verify:missing')
@@ -394,4 +390,3 @@ class Waiter:
         """The arguments the verifier was started with, one per element of verifying.argv."""
         return [as_text(arg) for arg in listing(peek(load(self.store), 'verifying'), 'argv')]
 
-    arithmetic = staticmethod(vs.shell_arithmetic)

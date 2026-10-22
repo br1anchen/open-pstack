@@ -111,13 +111,8 @@ def agent_session_error(session, cwd=''):
             continue
         last = cells
     if last and last[0] == 'error' and last[1] != '':
-        return awk_substr(last[1], 240)
+        return cut_chars(last[1], 240)
     return ''
-
-
-def awk_substr(text, count):
-    """substr($2, 1, N) in gawk: characters under a UTF-8 locale, bytes otherwise."""
-    return cut_chars(text, count)
 
 
 def muse_session_error(cwd):

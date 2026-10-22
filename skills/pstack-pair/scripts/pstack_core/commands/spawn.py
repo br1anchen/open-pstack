@@ -1,6 +1,6 @@
 from ..errors import Die, Exit
 from ..spawn import record_fallback, set_placement, spawn_sidekick
-from ..store import field, pair_file
+from ..store import field, pair_file, whole_number
 from ..wait import core_line, die_with_the_shell
 from .report import in_herdr
 
@@ -36,6 +36,7 @@ def spawn(ctx, args):
             break
         else:
             raise Die(f'unknown option {flag}')
+    whole_number(opts['timeout'], '--timeout', 'milliseconds')
     if not opts['kind']:
         raise Die('--kind is required (run: herdr agent, for the kind list)')
     pair_file(store)

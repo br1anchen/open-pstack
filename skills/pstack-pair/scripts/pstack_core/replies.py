@@ -4,9 +4,9 @@ import glob
 import os
 import re
 
-from .collate import collate_key, glob_sorted
+from .collate import glob_sorted
 from .review import jq_raw, noted_through, review_base, steps_file
-from .store import alt, bash_int, cut_chars, damaged, expected_report, get, header_field, json_type, last_line, read_text, suffix_number, unit_name, update
+from .store import alt, cut_chars, int_or_none, damaged, expected_report, get, header_field, json_type, last_line, read_text, suffix_number, unit_name, update
 from .commands.status import latest
 
 
@@ -24,6 +24,15 @@ def sent_field(store, key):
     """field "$store" '.sent.<key> // empty', as jq -r prints it."""
     sent = alt(get(store, 'sent'), {})
     return jq_raw(alt(sent.get(key) if isinstance(sent, dict) else None, ''))
+
+
+def sent_epoch(store):
+    """sent.epoch as an integer; absent is 0, any other type is damage."""
+    sent = alt(get(store, 'sent'), {})
+    epoch = alt(sent.get('epoch') if isinstance(sent, dict) else None, 0)
+    if isinstance(epoch, bool) or not isinstance(epoch, int):
+        raise damaged(f'sent.epoch is {json_type(epoch)}, not a whole number')
+    return epoch
 
 
 def dispatched(store):
@@ -82,7 +91,7 @@ def fresh_reply(ctx, store):
     if not sent:
         return None
     unit = re.sub(r'-a[0-9]+$', '', unit_name(sent))
-    epoch = sent_field(store, 'epoch') if sent_field(store, 'epoch') != '' else '0'
+    floor = sent_epoch(store)
     reports = os.path.join(glob.escape(store), 'reports')
     candidates = [f'{store}/reports/{unit}.md', *glob_sorted(glob.glob(os.path.join(reports, glob.escape(unit) + '-[sq][0-9]*.md')))]
     best, reply = -1, ''
@@ -90,10 +99,6 @@ def fresh_reply(ctx, store):
         if not os.path.isfile(f):
             continue
         t = file_mtime(f)
-        floor = bash_int(epoch)
-        if floor is None:
-            integer_expected(epoch)
-            continue
         if t < floor:
             continue
         if not ctx.variant.report_ready(ctx, store, f).ready:
@@ -122,13 +127,10 @@ def mark_seen(store, report):
     update(store, lambda doc: doc.__setitem__('pending', keep))
 
 
-def awk_greater(field, k):
-    """awk's $1 > k with a numeric string on the right: numeric when both look numeric, else text."""
-    try:
-        return float(field) > float(k)
-    except ValueError:
-        key = collate_key()
-        return key(field) > key(str(k))
+def step_number(text):
+    """The number in a steps-file column, or -1 for a row that has none."""
+    value = int_or_none(text)
+    return -1 if value is None else value
 
 
 def unreviewed_steps(ctx, store):
@@ -142,7 +144,7 @@ def unreviewed_steps(ctx, store):
     report = expected_report(store, brief)
     if os.path.isfile(report):
         cols = last_line(file).split('\t')
-        stamp = bash_int(cols[2] if len(cols) > 2 else '')
+        stamp = int_or_none(cols[2] if len(cols) > 2 else '')
         written_after = stamp is not None and file_mtime(report) >= stamp
         if written_after and ctx.variant.report_ready(ctx, store, report).ready:
             return None
@@ -150,20 +152,11 @@ def unreviewed_steps(ctx, store):
     rows = []
     for row in read_text(file).removesuffix('\n').split('\n'):
         cols = row.split('\t')
-        if awk_greater(cols[0], through):
+        if step_number(cols[0]) > through:
             line = '\t'.join([cols[0], cols[1] if len(cols) > 1 else '', cols[4] if len(cols) > 4 else ''])
             if line:
                 rows.append(line)
     return rows or None
-
-
-def integer_expected(value):
-    """The message bash prints on stderr when `[ x -ge "$value" ]` meets a value that is not an integer (the test is then false). It names
-    pair-core.sh and a line of it, as bash does; the line is the one of the wait command's shim."""
-    import sys
-    from .wait import core_line
-    path, number = core_line('wait', 'cmd_wait() {')
-    sys.stderr.write(f'{path}: line {number}: [: {value}: integer expected\n')
 
 
 def withheld_report(ctx, store):
@@ -172,11 +165,8 @@ def withheld_report(ctx, store):
     if not sent:
         return None
     report = f'{store}/reports/{re.sub(r"-a[0-9]+$", "", unit_name(sent))}.md'
-    epoch = sent_field(store, 'epoch') if sent_field(store, 'epoch') != '' else '0'
-    floor = bash_int(epoch)
-    if floor is None and os.path.isfile(report):
-        integer_expected(epoch)
-    if floor is None or not (os.path.isfile(report) and file_mtime(report) >= floor):
+    floor = sent_epoch(store)
+    if not (os.path.isfile(report) and file_mtime(report) >= floor):
         return None
     ready = ctx.variant.report_ready(ctx, store, report)
     return None if ready.ready else (report, ready.why)

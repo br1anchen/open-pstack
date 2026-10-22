@@ -21,14 +21,13 @@ from pstack_core.herdr import agent_status
 from pstack_core.panes import await_file
 from pstack_core.review import require_filled
 from pstack_core.send import require_fresh_session, submit_typed
-from pstack_core.store import bash_int, event, field, header_field, readlink_f
+from pstack_core.store import event, field, header_field, readlink_f, whole_number
 from pstack_core.wait import agent_state, die_with_the_shell, error_code
 
 from .classify import classify_brief, risk_of
 from .landing import is_landing
 from .units import has_pair
 from .verify import in_subshell
-from .verify_state import shell_arithmetic
 
 
 def devnull_stdout(call):
@@ -169,17 +168,17 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     in_herdr()
     if len(args) < 2:
         raise Die('usage: pair.sh discuss <store> <plan-path> [--timeout MS]')
-    store, plan, timeout = args[0], args[1], '540000'
+    store, plan, timeout = args[0], args[1], 540000
     rest = list(args[2:])
     while rest:
         if rest[0] == '--timeout':
             if len(rest) < 2:
                 raise unbound_arg()
-            timeout = rest[1]
+            timeout = whole_number(rest[1], '--timeout', 'milliseconds')
         elif rest[0] == '--every':
             if len(rest) < 2:
                 raise unbound_arg()
-            timeout = str(shell_arithmetic(f'{rest[1]} * 60000'))
+            timeout = whole_number(rest[1], '--every', 'minutes') * 60000
         else:
             raise Die(f'unknown option {rest[0]}')
         rest = rest[2:]
@@ -235,7 +234,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
             found = plan_answer(store, role, seq, plan)
         else:
             sys.stdout.flush()
-            r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', timeout], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+            r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
             status = agent_state(r.stdout.decode('utf-8', 'replace'), 'settled')
             if r.returncode != 0:
                 status = agent_status(name)
@@ -244,14 +243,8 @@ def discuss_with_consultant(ctx, args, one_wake=False):
                 write(f'{role} settled without a response; polling for the file\n')
                 sys.stdout.flush()
                 reply = f'{store}/reports/{seq}-{slug}.md' if role == 'sidekick' else f'{store}/advice/{seq}-{slug}.md'
-                limit = bash_int(timeout)
-                if os.path.isfile(reply):
-                    pass
-                elif limit is None:
-                    sys.stdout.flush()
-                    sys.stderr.write(f'pair.sh: [: {timeout}: integer expected\n')
-                else:
-                    await_file(reply, limit)
+                if not os.path.isfile(reply):
+                    await_file(reply, timeout)
                 found = plan_answer(store, role, seq, plan)
         write(f'{role}_state: {status}\n')
         if found:

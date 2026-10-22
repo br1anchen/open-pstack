@@ -13,9 +13,9 @@ from .gates import check_scope
 from .herdr import agent_kind, agent_status
 from .replies import first3, pending, queued_brief
 from .review import jq_raw, require_filled
-from .store import alt, event, expected_report, get, load, update
+from .store import alt, env_float, event, expected_report, get, load, update
 from .commands.report import MISSING_PAIR
-from .wait import bash_sleep, error_code, owned_wait
+from .wait import error_code, owned_wait
 
 
 def section(pair, name):
@@ -77,7 +77,7 @@ def submit_typed(name, marker):
     kind = agent_kind(name)
     tries = 0
     while tries < 3:
-        bash_sleep(os.environ.get('PAIR_SUBMIT_CHECK_S') or '5')
+        time.sleep(env_float('PAIR_SUBMIT_CHECK_S', 5))
         if marker.encode('utf-8', 'surrogateescape') not in visible_without_blanks(name):
             return submitted
         if kind == 'devin' and agent_status(name) == 'working':

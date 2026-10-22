@@ -1,6 +1,7 @@
 """Panes for the roles: where a new one goes, the folder-trust dialog that stops an agent at startup, and the wait for a file an agent writes."""
 import json
 import os
+import time
 import re
 import subprocess
 import sys
@@ -8,8 +9,8 @@ import sys
 from .errors import Die, Exit
 from .herdr import herdr
 from .review import jq_raw
-from .store import load
-from .wait import bash_sleep, core_line
+from .store import env_int, load
+from .wait import core_line
 
 TRUST_RE = re.compile('trust this folder|project you created or one you trust|do you trust the (files|contents)', re.IGNORECASE)
 
@@ -90,10 +91,10 @@ def refuse_untrusted(pane, kind, directory, close=False):
 
 def await_file(path, timeout_ms):
     """Poll for a file every PAIR_FILE_POLL_MS (5000 by default) until it exists or timeout_ms of polling has passed."""
-    poll = int(os.environ.get('PAIR_FILE_POLL_MS') or 5000)
+    poll = env_int('PAIR_FILE_POLL_MS', 5000)
     waited = 0
     while not os.path.isfile(path) and waited < timeout_ms:
-        bash_sleep(f'{poll // 1000}.{poll % 1000:03d}')
+        time.sleep(poll / 1000)
         waited += poll
     return os.path.isfile(path)
 

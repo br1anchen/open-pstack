@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -786,11 +787,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             stamp = time.time() - age
             os.utime(top / 'state' / rel, (stamp, stamp))
         if spec.get('tick'):
-            # a `sleep` that, given KITCHEN_QUIET_POLL_S (any other sleep is the real one), moves the KITCHEN_QUIET_CLOCK file on by this many seconds (when it holds a number), so a quiet wait's polls end at a fixed count
+            # a `herdr` that moves the KITCHEN_QUIET_CLOCK file on by this many seconds (when it holds a number) at each `agent wait`, then runs the real one, so a quiet wait's rounds end at a fixed count
             ticks = top / 'ticks'
             ticks.mkdir()
-            (ticks / 'sleep').write_text(f'#!/bin/sh\n[ "$1" = "$KITCHEN_QUIET_POLL_S" ] || exec {shutil.which("sleep")} "$@"\nn=$(cat "$KITCHEN_QUIET_CLOCK" 2>/dev/null)\ncase "$n" in\n  ""|*[!0-9]*) ;;\n  *) echo $((n + {int(spec["tick"])})) >"$KITCHEN_QUIET_CLOCK" ;;\nesac\n')
-            (ticks / 'sleep').chmod(0o755)
+            real = shutil.which('herdr', path=env['PATH'])
+            (ticks / 'herdr').write_text(f'#!/bin/sh\nif [ "$1" = agent ] && [ "$2" = wait ]; then\n  n=$(cat "$KITCHEN_QUIET_CLOCK" 2>/dev/null)\n  case "$n" in\n    ""|*[!0-9]*) ;;\n    *) echo $((n + {int(spec["tick"])})) >"$KITCHEN_QUIET_CLOCK" ;;\n  esac\nfi\nexec {real} "$@"\n')
+            (ticks / 'herdr').chmod(0o755)
             env['PATH'] = f'{ticks}:{env["PATH"]}'
         for subcommand, script in spec.get('once', {}).items():
             (fake / 'once').mkdir(exist_ok=True)
@@ -2804,36 +2806,27 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
 
 
-    def test_bash_int_matches_the_bash_integer_test(self):
-        inputs = [' 5', '5 ', ' 5 ', '+5', '-0', '-5', '5_0', '\u0665', '', '0x10', '010', '1e3', '1.0', '+', '-', '5 5', '5\n', '\t5', '99999999999999999999',
-                  '9223372036854775807', '9223372036854775808', '-9223372036854775808', '--5', '+-5', '00', '0 ', '1 \n', '\n1', '5\x0b', '\u0663', ' ', '8', '08', '٨']
-        for text in inputs:
-            rc = {}
-            for want in (0, 8):
-                r = subprocess.run(['bash', '-c', '[ "$1" -eq ' + str(want) + ' ]', '_', text], capture_output=True, check=False, timeout=120)
-                rc[want] = r.returncode
-            ours = store.bash_int(text)
-            self.assertEqual(ours is None, rc[0] == 2, repr(text))
-            if ours is not None:
-                self.assertEqual((ours == 0, ours == 8), (rc[0] == 0, rc[8] == 0), repr(text))
-        self.assertEqual((store.bash_int('010'), store.bash_int(' -7 '), store.bash_int('+5')), (10, -7, 5))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    def test_whole_numbers_and_seconds_are_read_as_digits_and_nothing_else(self):
+        for text, want in (('5', 5), ('0', 0), ('010', 10), ('007', 7), ('99999999999999999999', 99999999999999999999)):
+            self.assertEqual(store.whole_number(text, '--timeout', 'milliseconds'), want, text)
+        for text in ('', '-1', '+1', ' 5', '5 ', '1.5', '1+1', '0x10', '1e3', '\u0665', 'abc', '5_0'):
+            with self.assertRaises(Die) as caught:
+                store.whole_number(text, '--timeout', 'milliseconds')
+            self.assertEqual((caught.exception.code, caught.exception.message), (1, '--timeout must be a whole number of milliseconds'), repr(text))
+        for name, text, want in (('N', '3', 3), ('N', '0', 0), ('N', '', 7)):
+            with mock.patch.dict(os.environ, {name: text}):
+                self.assertEqual(store.env_int(name, 7), want, text)
+        for text in ('abc', '1.5', '-1', ' 5'):
+            with mock.patch.dict(os.environ, {'N': text}), self.assertRaises(Die) as caught:
+                store.env_int('N', 7)
+            self.assertEqual(caught.exception.message, 'N must be a whole number', text)
+        for text, want in (('0.25', 0.25), ('2', 2.0), ('.5', 0.5), ('3.', 3.0), ('', 1.5)):
+            with mock.patch.dict(os.environ, {'N': text}):
+                self.assertEqual(store.env_float('N', 1.5), want, text)
+        for text in ('abc', '-1', '1e3', 'nan', 'inf', '0x1', ' 1'):
+            with mock.patch.dict(os.environ, {'N': text}), self.assertRaises(Die) as caught:
+                store.env_float('N', 1.5)
+            self.assertEqual(caught.exception.message, 'N must be a number', text)
 
     def test_fresh_per_brief_matches_bash(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
@@ -4140,16 +4133,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             prc, got, perr = self.kitchen_py(st, code, env={'PAIR_SHELL_PID': str(pid)})
             self.assertEqual(got.splitlines(), want, (name, perr))
 
-    def test_cksum_and_audit_due_follow_the_posix_cksum_and_the_sample_rate(self):
+    def test_audit_due_follows_the_crc32_of_the_unit_and_the_sample_rate(self):
         vs = self.kitchen_core_module('verify_state')
-        for text in ('001-x', '', 'landing', '002-y-fix', '\u00e9', 'a' * 5000):
-            want = subprocess.run(['cksum'], input=text.encode(), capture_output=True, check=True).stdout.split()[0].decode()
-            self.assertEqual(str(vs.cksum(text.encode())), want, text[:20])
-        # a unit is audited when its stable draw (cksum mod 1000) is under the sample rate times 1000; a rate that is no number is 0
-        samples = ('0', '0.1', '0.5', '1', '', 'abc', '2')
-        drawn = {'001-x': 'nnnYnnY', '002-y': 'nnYYnnY', '003-z': 'nYYYnnY', 'landing': 'nnYYnnY', '010-fix': 'nnYYnnY'}
+        # a unit is audited when its stable draw (crc32 mod 1000) is under the sample rate times 1000
+        samples = (0, 0.1, 0.5, 1, 2)
+        drawn = {'001-x': 'nnnYY', '002-y': 'nnYYY', '003-z': 'nnnYY', 'landing': 'nnYYY', '010-fix': 'nYYYY'}
         for unit, row in drawn.items():
             self.assertEqual(''.join('Y' if vs.audit_due(unit, sample) else 'n' for sample in samples), row, unit)
+            self.assertEqual(zlib.crc32(unit.encode()) % 1000 < 500, row[2] == 'Y', unit)
 
     def test_a_failed_cleanup_releases_the_claim_and_run_close_ends_with_the_status_of_the_scratch_removal(self):
         """close_verifier's last command is the scratch removal: an id the scratch command refuses ends the close with its status, and the claim,
@@ -4370,23 +4361,34 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('"verifying"', out['a verdict while another live call holds the claim']['files']['pair.json'])
         self.assertNotIn('"closing"', out['a verdict whose scratch the scratch command refuses']['files']['pair.json'])
 
-    def test_the_interval_of_a_wait_is_read_as_the_shells_arithmetic_reads_it(self):
-        """`--every WORD` is read as shell arithmetic. A whole number (decimal, octal with a leading 0, hexadecimal, a sign, blanks), an empty word and
-        an expression give minutes; a name, a decimal point, a digit string that is no octal number and a malformed expression end the command with
-        status 1 and a message naming the word."""
-        wait = self.kitchen_core_module('verify_wait')
-        minutes = {'5': 5, '0': 0, '010': 8, '0x1F': 31, '-1': -1, '+3': 3, '': 0, '  7 ': 7, '007': 7, '1+1': 2, '2*15': 30, '(2+3)*4': 20, '7/2': 3, '-7%3': -1,
-                   '2**3': 8, '1<<2': 4, '3>2': 1, '1?2:3': 2, '1,2': 2, '!0': 1, '~0': -1, '- -1': 1}
-        for word, want in minutes.items():
-            self.assertEqual(wait.Waiter.arithmetic(word), want, word)
-        refused = {'abc': 'abc: unbound variable', '1.5': '1.5: arithmetic syntax error: invalid arithmetic operator (error token is ".5")',
-                   '08': '08: value too great for base (error token is "08")', 'a b': 'a: unbound variable', '1+': '1+: arithmetic syntax error: operand expected',
-                   '(1': "(1: arithmetic syntax error: missing ')'", '5%0': '5%0: division by 0', '2**-1': '2**-1: arithmetic exponent less than 0',
-                   '1 2': '1 2: arithmetic syntax error in expression (error token is "2")'}
-        for word, message in refused.items():
-            with self.assertRaises(Die) as caught:
-                wait.Waiter.arithmetic(word)
-            self.assertEqual((caught.exception.code, caught.exception.message), (1, message), word)
+    def test_pair_sh_refuses_a_timeout_that_is_no_whole_number_and_takes_a_fraction_for_a_poll(self):
+        """Through the real command: `wait --timeout -5`, `--timeout 1.5`, `--timeout x` and `--every 1+1` end with status 1 naming the flag, before
+        anything is claimed; PAIR_BUSY_POLL=0.2 is accepted and PAIR_BUSY_POLL=abc is a usage error."""
+        hook = '#!/bin/sh\nprintf "# R\\n\\nstatus: partial\\n" >"$FAKE/../st/reports/001-x.md"\n'
+        top, st, run = self.own_world('wnum', files={}, once={'wait': hook})
+        for flag, word, unit in (('--timeout', '-5', 'milliseconds'), ('--timeout', '1.5', 'milliseconds'), ('--timeout', 'x', 'milliseconds'), ('--every', '1+1', 'minutes')):
+            r = run('wait', '{st}', flag, word)
+            self.assertEqual(r.returncode, 1, (flag, word, r.stderr))
+            self.assertIn(f'{flag} must be a whole number of {unit}', r.stderr)
+            self.assertFalse((st / 'wait.pid').exists(), (flag, word))
+        r = run('wait', '{st}', '--timeout', '1000', extra_env={'PAIR_BUSY_POLL': 'abc'})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn('PAIR_BUSY_POLL must be a number', r.stderr)
+        r = run('wait', '{st}', '--timeout', '5000', extra_env={'PAIR_BUSY_POLL': '0.2'})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f'report: {st}/reports/001-x.md', r.stdout)
+
+    def test_the_timeout_and_interval_of_a_wait_are_whole_numbers_and_a_float_knob_takes_a_fraction(self):
+        """--timeout (milliseconds) and --every (minutes) take digits only: a sign, a fraction or an expression is a usage error with status 1 naming
+        the flag. PAIR_BUSY_POLL takes a fraction, and a word there is a usage error too."""
+        self.assertEqual(wait.wait_opts(['--timeout', '90000', '--send-only', 'x']), (90000, 1, True, ['x']))
+        self.assertEqual(wait.wait_opts(['--every', '2']), (120000, 2, False, []))
+        self.assertEqual(wait.wait_opts(['--timeout', '0']), (0, 0, False, []))
+        for flag, unit in (('--timeout', 'milliseconds'), ('--every', 'minutes')):
+            for word in ('-5', 'x', '1.5', '1+1', '', '0x10'):
+                with self.assertRaises(Die) as caught:
+                    wait.wait_opts([flag, word])
+                self.assertEqual((caught.exception.code, caught.exception.message), (1, f'{flag} must be a whole number of {unit}'), (flag, word))
 
     def test_verify_wait_behaviour_for_the_wait_itself(self):
         world, V = self.wait_world, self.vverdict
@@ -4427,7 +4429,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a verifier that is a string': world(pair={'verifier': 'v1'}),
             'a verifying argv that is a string': world(verifying={'argv': 'x'}),
             'a verifying entry whose fallback is a string': world(verifying={'entry': {'fallback': 'x'}}),
-            'an interval that is empty': world('', agents={'v1': 'working claude'}),
+            'an interval that is no whole number': world('x', agents={'v1': 'working claude'}),
             'outside herdr': world(env={'HERDR_ENV': '0'}),
         }
         expect = {
@@ -4460,7 +4462,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a verifier that is a string': (1, 'pair.json is damaged: verifier is string, not an object'),
             'a verifying argv that is a string': (1, 'pair.json is damaged: argv is string, not an array'),
             'a verifying entry whose fallback is a string': (1, 'pair.json is damaged: verifying.entry.fallback is string, not an object'),
-            'an interval that is empty': (4, 'verifying: units 001 by claude'),
+            'an interval that is no whole number': (1, '--every must be a whole number of minutes'),
             'outside herdr': (1, 'not running inside Herdr'),
         }
         host = self.live_and_dead_token_hosts()[0]
@@ -4494,12 +4496,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         got = self.kitchen_py(st, 'print(vs.verify_prompt(ctx, "/s/verdicts/001-x-v1-packet.md"), end="")')[1]
         self.assertIn('take the verifier role. pstack-kitchen VERIFY /s/verdicts/001-x-v1-packet.md', got)
         # a verified unit counts toward the master's handoff, a landing verification does not; the master hears of it every ROTATE_UNITS units (5 unless
-        # the variable is a positive number), every unit when it is 0 or a word, and a count that is not a whole number ends the command
+        # the variable is a positive number), every unit when it is 0, and a count that is not a whole number ends the command
         note = lambda count, store: f'master: {count} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, kitchen.sh rotate-master {store}\n'
         counts = {'no master': (None, 1), 'zero': ({'units_since_handoff': 0}, 1), 'four': ({'units_since_handoff': 4}, 5), 'nine': ({'units_since_handoff': 9}, 10),
                   'ten': ({'units_since_handoff': 10}, 11), 'null': ({'units_since_handoff': None}, 1), 'false': ({'units_since_handoff': False}, 1),
                   'an empty master': ({}, 1)}
-        every = {'': 5, '2': 2, '0': 1, 'x': 1}
+        every = {'': 5, '2': 2, '0': 1}
         n = 0
         for name, (master, count) in counts.items():
             for setting, step in (*every.items(), (None, 5)):
@@ -4525,22 +4527,22 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def test_a_close_or_a_wait_that_fails_inside_releases_its_claim_and_leaves_the_verification_open(self):
         """A damaged `KITCHEN_VERIFIER_EXIT_S`, a top-level `.scratch` that is a number (a traceback from the scratch command), a `.verifying.idle_since`
-        or `.verifying.started` that shell arithmetic refuses: the command ends with status 1 naming the word, the claim of the close is released,
+        or `.verifying.started` that is no whole number: the command ends with status 1 naming the word, the claim of the close is released,
         and the verification stays open."""
         world, V = self.wait_world, self.vverdict
         cases = {
-            'a verifier exit wait of abc': (world(files={'verdicts/001-x-v1.md': V()}, env={'KITCHEN_VERIFIER_EXIT_S': 'abc'}), 'abc'),
-            'a verifier exit wait of 1.5': (world(files={'verdicts/001-x-v1.md': V()}, env={'KITCHEN_VERIFIER_EXIT_S': '1.5'}), '1.5'),
+            'a verifier exit wait of abc': (world(files={'verdicts/001-x-v1.md': V()}, env={'KITCHEN_VERIFIER_EXIT_S': 'abc'}), 'KITCHEN_VERIFIER_EXIT_S must be a whole number'),
+            'a verifier exit wait of 1.5': (world(files={'verdicts/001-x-v1.md': V()}, env={'KITCHEN_VERIFIER_EXIT_S': '1.5'}), 'KITCHEN_VERIFIER_EXIT_S must be a whole number'),
             'a top-level scratch that is a number, at a close': (world(files={'verdicts/001-x-v1.md': V()}, pair={'scratch': 5}), 'pair.json is damaged: scratch is number, not an array'),
-            'an idle_since of abc': (world(verifying={'idle_since': 'abc'}), 'abc'),
-            'an idle_since of 1.5': (world(verifying={'idle_since': 1.5}), '1.5'),
-            'an idle_since of true': (world(verifying={'idle_since': True}), 'true'),
-            'a started of abc': (world('0', agents={'v1': 'working claude'}, verifying={'started': 'abc'}), 'abc'),
-            'a started of 1.5': (world('0', agents={'v1': 'working claude'}, verifying={'started': 1.5}), '1.5'),
-            'a started of true': (world('0', agents={'v1': 'working claude'}, verifying={'started': True}), 'true'),
+            'an idle_since of abc': (world(verifying={'idle_since': 'abc'}), 'verifying.idle_since is string, not a whole number'),
+            'an idle_since of 1.5': (world(verifying={'idle_since': 1.5}), 'verifying.idle_since is number, not a whole number'),
+            'an idle_since of true': (world(verifying={'idle_since': True}), 'verifying.idle_since is boolean, not a whole number'),
+            'a started of abc': (world('0', agents={'v1': 'working claude'}, verifying={'started': 'abc'}), 'verifying.started is string, not a whole number'),
+            'a started of 1.5': (world('0', agents={'v1': 'working claude'}, verifying={'started': 1.5}), 'verifying.started is number, not a whole number'),
+            'a started of true': (world('0', agents={'v1': 'working claude'}, verifying={'started': True}), 'verifying.started is boolean, not a whole number'),
         }
         cancel = {
-            'a cancel with a verifier exit wait of abc': (self.verify_world(env={'KITCHEN_VERIFIER_EXIT_S': 'abc'}), 'abc'),
+            'a cancel with a verifier exit wait of abc': (self.verify_world(env={'KITCHEN_VERIFIER_EXIT_S': 'abc'}), 'KITCHEN_VERIFIER_EXIT_S must be a whole number'),
             'a cancel with a top-level scratch that is a number': (self.verify_world(pair={'scratch': 5}), 'pair.json is damaged: scratch is number, not an array'),
         }
         for n, (name, (spec, word)) in enumerate({**cases, **cancel}.items()):
@@ -4797,7 +4799,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a prompt that times out': dict(base, prompt_error='{"error":{"code":"timeout"}}\n'),
             'a prompt whose error is no json': dict(base, prompt_error='broken\n'),
             '--every': with_args(base, '--every', '1'),
-            '--every with an expression': with_args(base, '--every', '1+1'),
+            '--every with an expression': dict(with_args(base, '--every', '1+1'), mask=self.SETUP_MASK),
             '--timeout with no value': dict(with_args(base, '--timeout'), mask=self.SETUP_MASK),
             '--every with no value': dict(with_args(base, '--every'), mask=self.SETUP_MASK),
             '--every with a name': dict(with_args(base, '--every', 'abc'), mask=self.SETUP_MASK),
@@ -4870,12 +4872,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a prompt that times out': (4, 'sidekick settled without a response; polling for the file'),
             'a prompt whose error is no json': (2, 'broken\n'),
             '--every': (0, 'consultant_status: agree\n'),
-            '--every with an expression': (0, 'consultant_status: agree\n'),
+            '--every with an expression': (1, '--every must be a whole number of minutes'),
             '--timeout with no value': (1, '$2: unbound variable'),
             '--every with no value': (1, '$2: unbound variable'),
-            '--every with a name': (1, 'abc: unbound variable'),
-            '--timeout that is no number': (0, 'consultant_status: agree\n'),
-            '--timeout that is no number with nobody answering': (4, 'settled without a response; polling for the file'),
+            '--every with a name': (1, '--every must be a whole number of minutes'),
+            '--timeout that is no number': (1, '--timeout must be a whole number of milliseconds'),
+            '--timeout that is no number with nobody answering': (1, '--timeout must be a whole number of milliseconds'),
             '--timeout with an unknown option after': (1, 'unknown option --bogus'),
             'an unknown option': (1, 'unknown option --bogus'),
             'outside herdr': (1, 'not running inside Herdr (HERDR_ENV != 1)'),
@@ -5340,7 +5342,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a step whose gate fails twice in a row': step('{k1}', 'did a thing', toml=failing, twice=True),
             'a step no profile covers': step('{n1}', 'notes', gitops=extra_commit, pair={'heads': {'002-y': '{k1}'}}),
             'a gate that passed after a rerun under load': step('{k1}', 'did a thing', toml=flaky, env={'PSTACK_KITCHEN_RETRY_LOAD': '0'}, mask=self.SETUP_MASK + [(r'logs/[0-9]{8}T[0-9]{6}', 'logs/<STAMP>'), (r'at load [0-9.]+', 'at load N')]),
-            'a slice that is an expression': step('{k1}', 'did a thing', env={'KITCHEN_STEP_SLICE_S': '1 ? 50 : 1'}),
+            'a slice that is no whole number': step('{k1}', 'did a thing', env={'KITCHEN_STEP_SLICE_S': '1 ? 50 : 1'}),
             'a step already recorded': step('{k1}', 'again', files={'steps/002-y.tsv': '1\t{k1}\t5\t\tone\n'}),
             'a step whose gates are still running': step('{k1}', 'did a thing', env={'KITCHEN_STEP_SLICE_S': '0'}, skip=['steps/jobs/']),
             'a sha that is not HEAD': step('{u2}', 'x'),
@@ -5368,7 +5370,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a step whose gate fails twice in a row': (2, 'next: fix it in a new commit'),
             'a step no profile covers': (0, 'gates: none ran; no profile covers notes.txt'),
             'a gate that passed after a rerun under load': (0, 'flaky under load: app failed, then passed on a rerun'),
-            'a slice that is an expression': (0, 'gates: pass (app,contracts,docs)'),
+            'a slice that is no whole number': (1, 'KITCHEN_STEP_SLICE_S must be a whole number'),
             'a step already recorded': (0, 'already recorded'),
             'a step whose gates are still running': (4, 'gates: still running for'),
             'a sha that is not HEAD': (1, 'HEAD is'),
@@ -5459,7 +5461,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a done report whose Verify commands fail': finish(files={**done(), **failing()}),
             'a failing run reruns on the next finish': finish(files={**done(), **failing()}, twice=True),
             'Verify commands still running': finish(env={'KITCHEN_STEP_POLL_S': '0.05', 'KITCHEN_STEP_SLICE_S': '0'}, skip=['steps/jobs/']),
-            'a slice that is an expression': finish(env={'KITCHEN_STEP_POLL_S': '0.05', 'KITCHEN_STEP_SLICE_S': '1 ? 50 : 1'}),
+            'a slice that is no whole number': finish(env={'KITCHEN_STEP_POLL_S': '0.05', 'KITCHEN_STEP_SLICE_S': '1 ? 50 : 1'}),
             'a partial report goes straight on': finish(files={'reports/002-y.md': '# R\n\nstatus: partial\nhead: {k1}\n'}),
             'a done report for another unit': finish('{st}/reports/001-x.md', files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {u1}\n'}),
             'a done report with a head that is a placeholder': finish(files=done('<sha>')),
@@ -5489,7 +5491,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a done report whose Verify commands fail': (2, 'verify: FAIL (2 commands from the brief)'),
             'a failing run reruns on the next finish': (2, 'next: the master did not get this report'),
             'Verify commands still running': (4, "verify: the brief's Verify commands are still running at"),
-            'a slice that is an expression': (0, 'verify: pass (1 commands from the brief)'),
+            'a slice that is no whole number': (1, 'KITCHEN_STEP_SLICE_S must be a whole number'),
             'a partial report goes straight on': sent,
             'a done report for another unit': sent,
             'a done report with a head that is a placeholder': (1, "a done report needs the report template's header"),
@@ -5596,13 +5598,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an unowned first claim': (0, 'could not claim wait.pid'),
             'a wait a newer wait supersedes': (4, 'superseded: a newer wait owns this store'),
             'an inner wait that refuses': (1, 'unknown option --bogus'),
-            '--max with an expression': quiet,
+            '--max with an expression': (1, '--max must be a whole number of minutes'),
             '--max with no value': (1, '$2: unbound variable'),
-            '--max that is a name': (1, 'abc: unbound variable'),
+            '--max that is a name': (1, '--max must be a whole number of minutes'),
             '--max given twice': quiet,
-            'a max that is no number': (4, '[: abc: integer expected'),
-            'a clock file that is not a number': (1, 'arithmetic syntax error'),
-            'a timebox past 64 bits': (4, '[: 99999999999999999999: integer expected'),
+            'a max that is no number': (1, 'KITCHEN_QUIET_MAX_S must be a whole number'),
+            'a clock file that is not a number': (1, 'must hold a whole number of seconds'),
+            'a timebox past 64 bits': (4, 'elapsed Nm of 99999999999999999999m'),
             'a clock that is a directory': (1, 'Is a directory'),
             'no store argument': (1, 'usage: kitchen.sh wait <store>'),
             'a store with no pair.json': (2, 'no pair.json in'),
@@ -5847,9 +5849,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             '--timeout': (4, 'deadline 20m (--timeout)'),
             'a tab launch, whose env words reach tab create': (4, started),
             'a tab launch whose master is a string, with a live sidekick pane': (1, 'pair.json is damaged: master is string, not an object'),
-            '--timeout as the sum 1+1': (4, 'deadline 1+1m (--timeout)'),
-            '--timeout as the product 2*15': (4, 'deadline 2*15m (--timeout)'),
-            '--timeout in octal': (4, 'deadline 010m (--timeout)'),
+            '--timeout as the sum 1+1': (1, '--timeout must be a whole number of minutes'),
+            '--timeout as the product 2*15': (1, '--timeout must be a whole number of minutes'),
+            '--timeout with a leading zero': (4, 'deadline 10m (--timeout)'),
             'a roster that does not parse, with --kind': (2, 'verifier entry is not JSON'),
             '--base': (4, started),
             '--base that is no commit': (1, '--base nothere is not a commit'),
@@ -5915,16 +5917,15 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertRegex(tab['calls'], r'tab create --workspace w1 --cwd \S+ --label demo-verifier --no-focus --env PSTACK_KITCHEN_ROLE=verifier --env PSTACK_KITCHEN_RUN=demo')
         self.assertNotIn('tab create', out['a tab launch whose master is a string, with a live sidekick pane']['calls'])
         self.assertNotIn('"verifying"', out['a roster that does not parse, with --kind']['files']['pair.json'])
-        self.assertIn('deadline', out['--timeout as the sum 1+1']['stdout'])
-        self.assertIn('0m of 2m', out['--timeout as the sum 1+1']['stdout'])
-        self.assertIn('0m of 30m', out['--timeout as the product 2*15']['stdout'])
-        self.assertIn('0m of 8m', out['--timeout in octal']['stdout'])
+        self.assertIn('0m of 10m', out['--timeout with a leading zero']['stdout'])
 
-    def test_a_timeout_the_shell_cannot_read_and_a_flag_with_no_value_end_verify_naming_the_word(self):
-        """`--timeout abc` is an unbound variable and `--timeout 1+` a syntax error to the shell arithmetic that reads it, which runs after the scratch is
-        made, and `--timeout` with no value is `$2: unbound variable`; all end with status 1 naming the word, and open no verification."""
-        cases = ((['001', '--timeout', 'abc', '--every', '0'], 'abc: unbound variable'),
-                 (['001', '--timeout', '1+', '--every', '0'], '1+: arithmetic syntax error: operand expected'),
+    def test_a_timeout_that_is_no_whole_number_and_a_flag_with_no_value_end_verify_naming_the_flag(self):
+        """`--timeout -5`, `--timeout abc` and `--timeout 1.5` are usage errors naming the flag, and `--timeout` with no value is `$2: unbound variable`;
+        all end with status 1 and open no verification."""
+        cases = ((['001', '--timeout', 'abc', '--every', '0'], '--timeout must be a whole number of minutes'),
+                 (['001', '--timeout', '-5', '--every', '0'], '--timeout must be a whole number of minutes'),
+                 (['001', '--timeout', '1.5', '--every', '0'], '--timeout must be a whole number of minutes'),
+                 (['001', '--every', 'x'], '--every must be a whole number of minutes'),
                  (['001', '--timeout'], '$2: unbound variable'))
         for n, (args, ours) in enumerate(cases):
             got = self.kitchen_world(f'vtimeout{n}', self.launch_world(args=['verify', '{st}', *args]))
@@ -6135,7 +6136,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a roster that does not parse, with --kind': verify('001', '--kind', 'claude', '--every', '0', topfiles={'home/.config/pstack/kitchen.toml': ('x = [\n', 0o644)}),
             '--timeout as the sum 1+1': verify('001', '--timeout', '1+1', '--every', '0'),
             '--timeout as the product 2*15': verify('001', '--timeout', '2*15', '--every', '0'),
-            '--timeout in octal': verify('001', '--timeout', '010', '--every', '0'),
+            '--timeout with a leading zero': verify('001', '--timeout', '010', '--every', '0'),
             'a verifier that cannot start': verify('001', '--every', '0', fakefiles={'start-fail': ''}),
             'a verifier that asks whether to trust the folder': verify('001', '--every', '0', fakefiles={'start-fail': '', 'trust-dialog': ''}),
             'a prompt the verifier does not take': verify('001', '--every', '0', promptfail=True),

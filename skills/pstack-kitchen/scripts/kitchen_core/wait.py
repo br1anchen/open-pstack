@@ -13,16 +13,14 @@ child (verify.in_subshell, stdout only) with the same four variables set in the 
 import os
 import re
 import signal
-import subprocess
 import sys
+import time
 
 from pstack_core import wait as core_wait
 from pstack_core.errors import Die, Exit, unbound_arg
-from pstack_core.store import bash_int, event, field
+from pstack_core.store import env_float, env_int, event, field, int_or_none, whole_number
 
-from .units import exit_status
 from .verify import in_subshell
-from .verify_state import shell_arithmetic
 
 
 def plain_signals():
@@ -35,40 +33,32 @@ def plain_signals():
             signal.signal(number, signal.SIG_DFL)
 
 
-def poll_sleep(text):
-    """`sleep "$KITCHEN_QUIET_POLL_S"`: the sleep command itself, as the bash ran it (a PATH that puts another sleep first, as a test's, is honoured), and
-    a refusal ends the wait as set -e does."""
+def poll_sleep(seconds):
     sys.stdout.flush()
-    code = exit_status(subprocess.run(['sleep', text], check=False).returncode)
-    if code:
-        raise Exit(code)
+    time.sleep(seconds)
 
 
-def quiet_now(strict=False):
-    """The epoch seconds, as `$(quiet_now)` gives them: `cat "$KITCHEN_QUIET_CLOCK"` when that is readable, else the clock. A clock `cat` cannot read
-    (a directory) prints cat's message and the function fails: as the whole of an assignment (`start="$(quiet_now)"`, strict) that ends the command with
-    status 1; inside an arithmetic expansion it only leaves the text empty."""
+def quiet_now():
+    """The epoch seconds: KITCHEN_QUIET_CLOCK, a file holding a whole number, when it is set and readable, else the clock."""
     clock = os.environ.get('KITCHEN_QUIET_CLOCK')
     if clock and os.access(clock, os.R_OK):
         try:
             with open(clock, 'rb') as f:
-                return f.read().decode('utf-8', 'surrogateescape').rstrip('\n')
+                text = f.read().decode('utf-8', 'surrogateescape')
         except OSError as e:
-            sys.stdout.flush()
-            sys.stderr.write(f'cat: {clock}: {os.strerror(e.errno)}\n')
-            if strict:
-                raise Exit(1)
-            return ''
-    import time
-    return str(int(time.time()))
+            raise Die(f'{clock}: {os.strerror(e.errno)}', 1)
+        now = int_or_none(text)
+        if now is None:
+            raise Die(f'{clock} must hold a whole number of seconds', 1)
+        return now
+    return int(time.time())
 
 
 FLAGGED = re.compile(r'STALE|^outside scope: [1-9]|[1-9][0-9]* objected|[1-9][0-9]* blocking notes open|^paused:', re.M)
 
 
 def quiet_flagged(text):
-    """Whether a check-in carries something the master must see: a flag, or a timebox overrun. `[ "$spent" -gt "$box" ]` with a number it cannot
-    read (one past 64 bits) prints its complaint and is false."""
+    """Whether a check-in carries something the master must see: a flag, or a timebox overrun."""
     if FLAGGED.search(text):
         return True
     spent = box = None
@@ -79,15 +69,7 @@ def quiet_flagged(text):
             break
     if spent is None or box is None:
         return False
-    numbers = []
-    for operand in (spent, box):
-        n = bash_int(operand)
-        if n is None:
-            sys.stdout.flush()
-            sys.stderr.write(f'pair.sh: [: {operand}: integer expected\n')
-            return False
-        numbers.append(n)
-    return numbers[0] > numbers[1]
+    return int(spent) > int(box)
 
 
 def has_checkin(text):
@@ -128,34 +110,23 @@ def release(ctx, store):
 def quiet_wait(ctx, store, rest):
     """Returns the exit status the wait ends with."""
     write = sys.stdout.write
-    max_s = os.environ.get('KITCHEN_QUIET_MAX_S') or '3600'
     limit = None
     args, rest = [], list(rest)
     while rest:
         if rest[0] == '--max':
             if len(rest) < 2:
                 raise unbound_arg()
-            limit = shell_arithmetic(f'{rest[1]} * 60')
+            limit = whole_number(rest[1], '--max', 'minutes') * 60
             rest = rest[2:]
         else:
             args.append(rest.pop(0))
-    start_text = quiet_now(strict=True)
+    start = quiet_now()
     # One wait owns the store under this process's pid: the first inner wait claims it, the later ones only check it. A claim that could not be
     # made (the inner wait says `unowned:`) leaves the rest of this run unowned: its later waits must not read the missing claim as a newer owner.
     claim, unowned = 1, 0
 
-    def elapsed():
-        return shell_arithmetic(f'{quiet_now()} - {shell_arithmetic(start_text)}')
-
     def under_max():
-        """`[ $(( now - start )) -lt "$max" ]`: the arithmetic runs first, then the test."""
-        used = elapsed()
-        bound = limit if limit is not None else bash_int(max_s)
-        if bound is None:
-            sys.stdout.flush()
-            sys.stderr.write(f'pair.sh: [: {max_s}: integer expected\n')
-            return False
-        return used < bound
+        return quiet_now() - start < (limit if limit is not None else env_int('KITCHEN_QUIET_MAX_S', 3600))
 
     while True:
         rc, out = inner_wait(ctx, store, args, claim, unowned)
@@ -164,10 +135,10 @@ def quiet_wait(ctx, store, rest):
             unowned = 1
             out = '\n'.join(line for line in out.split('\n') if not line.startswith('unowned:')).rstrip('\n')
         if rc == 4 and has_checkin(out) and not quiet_flagged(out) and under_max():
-            poll_sleep(os.environ.get('KITCHEN_QUIET_POLL_S') or '1')
+            poll_sleep(env_float('KITCHEN_QUIET_POLL_S', 1))
             continue
         if rc == 4 and has_checkin(out) and not quiet_flagged(out):
-            write(f"quiet: {shell_arithmetic(f'({quiet_now()} - {shell_arithmetic(start_text)}) / 60')}m with nothing flagged; the sidekick works on\n")
+            write(f"quiet: {(quiet_now() - start) // 60}m with nothing flagged; the sidekick works on\n")
         if rc == 4 and has_checkin(out):
             log_checkin_wake(store, out)
         write(out + '\n')

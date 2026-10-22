@@ -16,7 +16,7 @@ from pstack_core.collate import glob_sorted
 from pstack_core.errors import Die
 from pstack_core.review import trunk_ref
 from pstack_core.store import field
-from pstack_core.store import bash_int, header_field, jq_raw, new_from_template, pair_file
+from pstack_core.store import header_field, int_or_none, jq_raw, new_from_template, pair_file
 from pstack_core.variant import commit_of
 
 from . import kpy
@@ -186,10 +186,9 @@ def latest_landing_verdict(store):
             continue
         number = f.rpartition('-v')[2]
         number = number[:-3] if number.endswith('.md') else number
-        n, b = bash_int(number), bash_int(str(best))
-        newer = True if n is None or b is None else n > b  # `[ 1_0 -le 0 ]` is an error, not a yes: the file counts as newer, and so does every later one
-        if newer:
-            best, found = number, f
+        n = int_or_none(number)
+        if n is None or best is None or n > best:
+            best, found = n, f
     return found
 
 
