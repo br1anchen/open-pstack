@@ -1,3 +1,4 @@
+import glob
 import os
 import re
 
@@ -5,7 +6,7 @@ from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
-from pstack_core.store import header_field, whole_number
+from pstack_core.store import header_field, newest, pair_file, read_text, whole_number, write_text
 from pstack_core.variant import Variant
 from pstack_core.wait import end_with_parent, tdiv
 
@@ -41,8 +42,60 @@ def answer(ctx, args):
     return send_and_wait(ctx, store, os.path.realpath(path), 'ANSWER', timeout, interval, False)
 
 
+def new_direction(ctx, args):
+    """plans/NNN-<slug>.direction.md, the human's summary of a plan, from the direction template; prints its path."""
+    if len(args) != 2:
+        raise Die('usage: pair.sh new-direction <store> <plan-path>')
+    store = args[0]
+    pair_file(store)
+    plan = os.path.realpath(args[1])
+    if not os.path.isfile(plan):
+        raise Die(f'plan not found: {plan}')
+    name = os.path.basename(plan)
+    seq, slug = name[:3], name.removesuffix('.md')[4:]
+    path = f'{store}/plans/{seq}-{slug}.direction.md'
+    if os.path.isfile(path):
+        print(path)
+        return 0
+    scale = header_field(plan, 'scale') or '{{small | medium | large}}'
+    text = read_text(f'{ctx.skill_root}/references/direction-template.md')
+    for token, value in (('{{SLUG}}', slug), ('{{PLAN}}', plan), ('{{STORE}}', store)):
+        text = text.replace(token, value)
+    write_text(path, re.sub(r'(?m)^scale: .*', lambda _: f'scale: {scale}', text))
+    print(path)
+    return 0
+
+
+def new_answer(ctx, args):
+    """answers/NNN-<slug>-a<k>.md, the answer to the newest ask on unit NNN, from the answer template; prints its path."""
+    if len(args) < 2:
+        raise Die('usage: pair.sh new-answer <store> <NNN> [--force]')
+    store, seq, force = args[0], args[1], args[2:3] == ['--force']
+    pair_file(store)
+    asks = [p for p in glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-*-q[0-9]*.md'))
+            if re.fullmatch(r'\d{3}-.+-q\d+\.md', os.path.basename(p))]
+    ask = newest(asks)
+    if ask is None:
+        raise Die(f'no ask report for unit {seq} (expected reports/{seq}-<slug>-q<k>.md)')
+    if header_field(ask, 'status') != 'asking':
+        raise Die(f'{ask} is not status: asking')
+    _, slug, k = re.fullmatch(r'(\d{3})-(.+)-q(\d+)\.md', os.path.basename(ask)).groups()
+    path = f'{store}/answers/{seq}-{slug}-a{k}.md'
+    if os.path.isfile(path):
+        print(path)
+        return 0
+    if int(k) > 2 and not force:
+        raise Die(f'ask {k} exceeds the two-ask cap for unit {seq}; re-plan the unit, or pass --force to answer anyway', 7)
+    text = read_text(f'{ctx.skill_root}/references/answer-template.md')
+    for token, value in (('NNN-<k>', f'{seq}-{k}'), ('NNN', seq), ('<slug>', slug), ('<k>', k), ('<store>', store)):
+        text = text.replace(token, value)
+    write_text(path, text)
+    print(path)
+    return 0
+
+
 class GuidedVariant(Variant):
-    commands = {'answer': answer}
+    commands = {'answer': answer, 'new-direction': new_direction, 'new-answer': new_answer}
 
     def plan_gate_extra(self, ctx, store, plan, review, seq):
         """An agreed plan also needs the human approval its scale calls for."""

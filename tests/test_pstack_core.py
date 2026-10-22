@@ -6518,6 +6518,73 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         }, 'pstack-trio')
 
 
+class GuidedCommandTests(unittest.TestCase):
+    """new-direction and new-answer through the real guided pair.sh."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name).resolve()
+        self.store = self.dir / 'st'
+        for d in ('plans', 'reports', 'answers'):
+            (self.store / d).mkdir(parents=True)
+        (self.store / 'pair.json').write_text('{}')
+        self.refs = root / 'skills/pstack-pair-guided/references'
+
+    def run_guided(self, *args):
+        env = dict(inherited_env(), XDG_STATE_HOME=str(self.dir / 'state'))
+        return subprocess.run([str(root / 'skills/pstack-pair-guided/scripts/pair.sh'), *args], capture_output=True, text=True, env=env)
+
+    def test_new_direction_fills_the_template_and_a_second_call_prints_the_same_path(self):
+        plan = self.store / 'plans/001-x.md'
+        plan.write_text('# Plan 001-x\n\nscale: medium\n')
+        got = self.run_guided('new-direction', str(self.store), str(plan))
+        path = self.store / 'plans/001-x.direction.md'
+        self.assertEqual((got.returncode, got.stdout, got.stderr), (0, f'{path}\n', ''))
+        want = (self.refs / 'direction-template.md').read_text()
+        for token, value in (('{{SLUG}}', 'x'), ('{{PLAN}}', str(plan)), ('{{STORE}}', str(self.store))):
+            want = want.replace(token, value)
+        want = re.sub(r'(?m)^scale: .*', 'scale: medium', want)
+        self.assertEqual(path.read_text(), want)
+        path.write_text('edited\n')
+        again = self.run_guided('new-direction', str(self.store), str(plan))
+        self.assertEqual((again.returncode, again.stdout, path.read_text()), (0, f'{path}\n', 'edited\n'))
+
+    def test_new_direction_without_a_scale_keeps_the_placeholder_and_a_missing_plan_dies(self):
+        plan = self.store / 'plans/002-y.md'
+        plan.write_text('# Plan 002-y\n')
+        self.assertEqual(self.run_guided('new-direction', str(self.store), str(plan)).returncode, 0)
+        self.assertIn('scale: {{small | medium | large}}\n', (self.store / 'plans/002-y.direction.md').read_text())
+        got = self.run_guided('new-direction', str(self.store), str(self.store / 'plans/009-z.md'))
+        self.assertEqual((got.returncode, got.stderr), (1, f'pair.sh: plan not found: {self.store}/plans/009-z.md\n'))
+
+    def test_new_answer_fills_the_template_for_the_newest_ask_and_is_idempotent(self):
+        (self.store / 'reports/001-x-q1.md').write_text('# R\n\nstatus: asking\n')
+        got = self.run_guided('new-answer', str(self.store), '001')
+        path = self.store / 'answers/001-x-a1.md'
+        self.assertEqual((got.returncode, got.stdout, got.stderr), (0, f'{path}\n', ''))
+        want = (self.refs / 'answer-template.md').read_text()
+        for token, value in (('NNN-<k>', '001-1'), ('NNN', '001'), ('<slug>', 'x'), ('<k>', '1'), ('<store>', str(self.store))):
+            want = want.replace(token, value)
+        self.assertEqual(path.read_text(), want)
+        path.write_text('edited\n')
+        again = self.run_guided('new-answer', str(self.store), '001')
+        self.assertEqual((again.returncode, again.stdout, path.read_text()), (0, f'{path}\n', 'edited\n'))
+
+    def test_new_answer_refuses_an_ask_that_is_not_asking_and_a_third_ask_unless_forced(self):
+        (self.store / 'reports/001-x-q1.md').write_text('# R\n\nstatus: done\n')
+        got = self.run_guided('new-answer', str(self.store), '001')
+        self.assertEqual((got.returncode, got.stderr), (1, f'pair.sh: {self.store}/reports/001-x-q1.md is not status: asking\n'))
+        none = self.run_guided('new-answer', str(self.store), '007')
+        self.assertEqual((none.returncode, none.stderr), (1, 'pair.sh: no ask report for unit 007 (expected reports/007-<slug>-q<k>.md)\n'))
+        (self.store / 'reports/002-w-q3.md').write_text('# R\n\nstatus: asking\n')
+        capped = self.run_guided('new-answer', str(self.store), '002')
+        self.assertEqual((capped.returncode, capped.stderr),
+                         (7, 'pair.sh: ask 3 exceeds the two-ask cap for unit 002; re-plan the unit, or pass --force to answer anyway\n'))
+        forced = self.run_guided('new-answer', str(self.store), '002', '--force')
+        self.assertEqual((forced.returncode, forced.stdout), (0, f'{self.store}/answers/002-w-a3.md\n'))
+
+
 class BashReachTests(unittest.TestCase):
     """tests/bash_reach.py on small synthetic scripts."""
 

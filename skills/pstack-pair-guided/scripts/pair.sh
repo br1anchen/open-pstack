@@ -85,45 +85,9 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
 USAGE
 }
 
-cmd_new_direction() {
-	[ $# -eq 2 ] || die "usage: pair.sh new-direction <store> <plan-path>"
-	local store="$1" plan seq slug path
-	pair_file "$store" >/dev/null
-	plan="$(readlink -f "$2")"
-	[ -f "$plan" ] || die "plan not found: $plan"
-	seq="$(basename "$plan" | cut -c1-3)"
-	slug="$(basename "$plan" .md | cut -c5-)"
-	path="$store/plans/$seq-$slug.direction.md"
-	[ -f "$path" ] && { printf '%s\n' "$path"; return 0; }
-	local scale
-	scale="$(header_field "$plan" scale)"
-	[ -n "$scale" ] || scale='{{small | medium | large}}'
-	sed -e "s|{{SLUG}}|$slug|g" -e "s|{{PLAN}}|$plan|g" -e "s|{{STORE}}|$store|g" \
-		-e "s#^scale: .*#scale: $scale#" \
-		"$skill_root/references/direction-template.md" >"$path"
-	printf '%s\n' "$path"
-}
+cmd_new_direction() { pycore new-direction "$@"; }
 
-cmd_new_answer() {
-	[ $# -ge 2 ] || die "usage: pair.sh new-answer <store> <NNN> [--force]"
-	local store="$1" seq="$2" force=0 ask slug k path
-	shift 2
-	[ "${1:-}" = --force ] && force=1
-	pair_file "$store" >/dev/null
-	ask="$(ls -t "$store"/reports/"$seq"-*-q[0-9]*.md 2>/dev/null | head -1 || true)"
-	[ -n "$ask" ] || die "no ask report for unit $seq (expected reports/$seq-<slug>-q<k>.md)"
-	[ "$(header_field "$ask" status)" = asking ] || die "$ask is not status: asking"
-	slug="$(basename "$ask" .md | sed -E 's/^[0-9]{3}-//; s/-q[0-9]+$//')"
-	k="$(basename "$ask" .md | sed -E 's/.*-q([0-9]+)$/\1/')"
-	path="$store/answers/$seq-$slug-a$k.md"
-	[ -f "$path" ] && { printf '%s\n' "$path"; return 0; }
-	if [ "$k" -gt 2 ] && [ "$force" -eq 0 ]; then
-		die "ask $k exceeds the two-ask cap for unit $seq; re-plan the unit, or pass --force to answer anyway" 7
-	fi
-	sed -e "s|NNN-<k>|$seq-$k|g" -e "s|NNN|$seq|g" -e "s|<slug>|$slug|g" -e "s|<k>|$k|g" -e "s|<store>|$store|g" \
-		"$skill_root/references/answer-template.md" >"$path"
-	printf '%s\n' "$path"
-}
+cmd_new_answer() { pycore new-answer "$@"; }
 
 cmd_answer() { pycore --exec answer "$@"; }
 
