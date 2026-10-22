@@ -7,16 +7,16 @@ import subprocess
 
 from .errors import Die
 from .herdr import dig, herdr
-from .store import env_int, load, peek, text_at
+from .store import TEXT, env_int, load, peek, text_at
 
 TRUST_RE = re.compile('trust this folder|project you created or one you trust|do you trust the (files|contents)', re.IGNORECASE)
 
 
 def herdr_json(*args):
     """herdr with its stderr left on the terminal: the parsed JSON of its stdout, or None when it is not JSON."""
-    r = subprocess.run(['herdr', *args], stdout=subprocess.PIPE, check=False)
+    r = subprocess.run(['herdr', *args], stdout=subprocess.PIPE, check=False, **TEXT)
     try:
-        return json.loads(r.stdout.decode('utf-8', 'replace'))
+        return json.loads(r.stdout)
     except ValueError:
         return None
 

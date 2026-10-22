@@ -24,40 +24,18 @@ import re
 import socket
 import sys
 
-from pstack_core.errors import Die, Exit
+from pstack_core.errors import Die, Exit, prog
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.herdr import agent_status, herdr
-from pstack_core.store import count, damaged, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update
+from pstack_core.store import TEXT, read_text, write_text, count, damaged, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update
 from pstack_core.send import submit_typed
 
-from .units import exit_status
 
 
 def hostname():
     return os.environ.get('HOSTNAME') or socket.gethostname() or 'localhost'
 
 
-# the pid of the process that runs the command; a forked child keeps its parent's value
-PID = os.getpid()
-
-
-def shell_pid():
-    return PID
-
-
-@contextlib.contextmanager
-def quiet_stderr():
-    """File descriptor 2 pointed at /dev/null, for what the bash ran under `2>/dev/null` (a tool's own error included)."""
-    sys.stderr.flush()
-    saved = os.dup(2)
-    null = os.open(os.devnull, os.O_WRONLY)
-    try:
-        os.dup2(null, 2)
-        yield
-    finally:
-        os.dup2(saved, 2)
-        os.close(saved)
-        os.close(null)
 
 
 def names_verdict(doc, verdict):
@@ -101,7 +79,7 @@ def claim_close(store, verdict):
     this host and process; a claim whose process is gone on this host is taken over, one from another host is never touched, a live one is
     respected. False when the verification is gone or another call holds the claim."""
     here = hostname()
-    token = f'{here}:{shell_pid()}:{random.randrange(32768)}'
+    token = f'{here}:{os.getpid()}:{random.randrange(32768)}'
     current = read(store, 'verifying.closing.token')
     if current:
         host = current.partition(':')[0]
@@ -138,13 +116,13 @@ def release_close(store, verdict, token):
         elif closing is not None:
             raise damaged(f'closing is {json_type(closing)}, not an object')
 
-    with quiet_stderr():
+    with contextlib.redirect_stderr(io.StringIO()):
         update_verifying(store, verdict, apply)
 
 
 def my_claim(store):
     """Whether the claim in the store is this process's (the token names this host and pid)."""
-    return read(store, 'verifying.closing.token').startswith(f'{hostname()}:{shell_pid()}:')
+    return read(store, 'verifying.closing.token').startswith(f'{hostname()}:{os.getpid()}:')
 
 
 def still_my_claim(store):
@@ -200,8 +178,8 @@ def scratch_process(ctx, store, scratch, *options, capture=False):
     included, are its own stderr."""
     sys.stdout.flush()
     sys.stderr.flush()
-    r = subprocess.run(core_argv(ctx, 'scratch', store, scratch, *options), stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False)
-    return exit_status(r.returncode), r.stdout.decode('utf-8', 'surrogateescape') if capture else ''
+    r = subprocess.run(core_argv(ctx, 'scratch', store, scratch, *options), stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False, **TEXT)
+    return r.returncode, r.stdout if capture else ''
 
 
 def remove_scratch(ctx, store, scratch):
@@ -215,12 +193,12 @@ def run_close(ctx, store, name, kind, pane, verdict):
     try:
         rc = close_verifier(ctx, store, name, kind, pane, verdict)
     except Die as e:
-        sys.stderr.write(f'pair.sh: {e.message}\n')
+        sys.stderr.write(f'{prog()}: {e.message}\n')
         rc = e.code
     except Exit as e:
         rc = e.code
     except Exception as e:  # any failure of the close is a nonzero status of its subshell
-        sys.stderr.write(f'pair.sh: {e}\n')
+        sys.stderr.write(f'{prog()}: {e}\n')
         rc = 1
     if rc == 0:
         return True
@@ -236,11 +214,9 @@ def set_outcome(packet, value):
     stalled, cancelled, start-failed. `perl -i -pe 's/^verifier-outcome:.*/verifier-outcome: VALUE/'`, every such line."""
     if not os.path.isfile(packet):
         return
-    with open(packet, 'rb') as f:
-        text = f.read().decode('utf-8', 'surrogateescape')
+    text = read_text(packet)
     text = re.sub(r'(?m)^verifier-outcome:.*', lambda m: f'verifier-outcome: {value}', text)
-    with open(packet, 'wb') as f:
-        f.write(text.encode('utf-8', 'surrogateescape'))
+    write_text(packet, text)
 
 
 def verify_prompt(ctx, packet):
@@ -263,7 +239,7 @@ def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind=''):
 
 def audit_due(unit, sample):
     """A stable draw per unit: the crc32 of the unit id, modulo 1000, below sample * 1000. The draw changed once from POSIX cksum to crc32 (plan 043 g)."""
-    return (zlib.crc32(unit.encode('utf-8', 'surrogateescape')) % 1000) < sample * 1000
+    return (zlib.crc32(unit.encode('utf-8')) % 1000) < sample * 1000
 
 
 def verdict_problem(verdict):

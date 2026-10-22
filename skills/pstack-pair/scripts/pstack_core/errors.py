@@ -1,3 +1,11 @@
+PROG = 'pair.sh'
+
+
+def prog():
+    """The name of the script that runs: pair.sh, or the variant's own (kitchen.sh); cli.main sets it."""
+    return PROG
+
+
 class Die(Exception):
     """the bash die(): the first part is the message and the second the exit code (1 when absent)."""
 

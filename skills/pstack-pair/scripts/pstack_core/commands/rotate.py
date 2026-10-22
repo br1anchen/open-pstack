@@ -6,12 +6,12 @@ import subprocess
 import sys
 import time
 
-from ..errors import Die, Exit
+from ..errors import Die, Exit, prog
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..gates import require_not_paused
 from ..herdr import agent_status
 from ..spawn import spawn_role
-from ..store import event, field, load, names, pair_file, peek, read_flag
+from ..store import TEXT, event, field, load, names, pair_file, peek, read_flag
 from ..wait import end_with_parent
 from .report import in_herdr
 
@@ -23,7 +23,7 @@ def rotate(ctx, args):
     end_with_parent()
     in_herdr()
     if len(args) != 1:
-        raise Die('usage: pair.sh rotate <store>')
+        raise Die(f'usage: {prog()} rotate <store>')
     store = args[0]
     pair_file(store)
     require_not_paused(store)
@@ -40,8 +40,8 @@ def rotate(ctx, args):
             if not stopped(store, 'sidekick'):
                 raise Die('Prime session cleanup failed; no new session was started', 5)
         else:
-            r = subprocess.run(['herdr', 'agent', 'prompt', name, exit_command(kind)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
-            err = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+            r = subprocess.run(['herdr', 'agent', 'prompt', name, exit_command(kind)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, **TEXT)
+            err = r.stdout.rstrip('\n')
             if r.returncode != 0 and not TOLERATED.search(err):
                 raise Die(f'{kind} exit failed: {err}', 2)
             deadline = exit_deadline()
@@ -79,7 +79,7 @@ def rotate_if_due(ctx, store, what):
             said.write(e.stderr)
             code = e.code
         except Die as e:
-            said.write(f'pair.sh: {e.message}\n')
+            said.write(f'{prog()}: {e.message}\n')
             code = e.code
     if code:
         raise Die(f'rotating the sidekick before this {what} failed:\n{said.getvalue().rstrip(chr(10))}', code)

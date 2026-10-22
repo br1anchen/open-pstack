@@ -1,5 +1,6 @@
 """The check-in digest and what it reads: the sidekick's tree, its processes, and the brief's Scope."""
 import calendar
+import fnmatch
 import glob
 import os
 import re
@@ -8,23 +9,21 @@ import time
 
 from .replies import dispatched, file_mtime
 from .review import noted_through, open_notes, range_floor, steps_file
-from .store import int_or_none, header_field, load, peek, progress_path, read_text, tdiv, text_at
+from .store import TEXT, int_or_none, header_field, load, peek, progress_path, read_text, tdiv, text_at
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
-CLASSES = {'alpha': 'A-Za-z', 'digit': '0-9', 'alnum': '0-9A-Za-z', 'upper': 'A-Z', 'lower': 'a-z', 'space': ' \t\n\r\f\v',
-           'blank': ' \t', 'punct': '!-/:-@\\[-`{-~', 'print': ' -~', 'graph': '!-~', 'cntrl': '\x00-\x1f\x7f', 'xdigit': '0-9A-Fa-f'}
 
 
 def git_out(root, *args):
     """stdout of git -C root, rstripped of newlines as a command substitution does, or None when git fails."""
-    r = subprocess.run(['git', '-C', root, *args], capture_output=True, check=False)
-    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n') if r.returncode == 0 else None
+    r = subprocess.run(['git', '-C', root, *args], capture_output=True, check=False, **TEXT)
+    return r.stdout.rstrip('\n') if r.returncode == 0 else None
 
 
 def status_entries(root):
     """(status, path) of each entry git status lists, NUL-delimited; a rename or copy counts at its new path."""
-    r = subprocess.run(['git', '-C', root, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], capture_output=True, check=False)
-    raw = r.stdout.decode('utf-8', 'surrogateescape').split('\0')
+    r = subprocess.run(['git', '-C', root, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], capture_output=True, check=False, **TEXT)
+    raw = r.stdout.split('\0')
     if raw and raw[-1] == '':
         raw.pop()
     entries, skip = [], False
@@ -85,9 +84,9 @@ def busy_command(pane, since, now, env=None):
     if not pane or not os.path.isdir('/proc'):
         return ''
     sock = env.get('HERDR_SOCKET_PATH', '')
-    r = subprocess.run(['ps', '-u', str(os.getuid()), '-o', 'pid=,etimes=,comm='], capture_output=True, check=False)
+    r = subprocess.run(['ps', '-u', str(os.getuid()), '-o', 'pid=,etimes=,comm='], capture_output=True, check=False, **TEXT)
     best, best_et, shell, shell_et = '', -1, '', -1
-    for line in r.stdout.decode('utf-8', 'surrogateescape').split('\n'):
+    for line in r.stdout.split('\n'):
         parts = line.split(None, 2)
         if len(parts) < 3:
             continue
@@ -95,8 +94,8 @@ def busy_command(pane, since, now, env=None):
         if not now - et > since:
             continue
         try:
-            with open(f'/proc/{pid}/environ', 'rb') as f:
-                lines = f.read().decode('utf-8', 'surrogateescape').replace('\0', '\n').split('\n')
+            with open(f'/proc/{pid}/environ', encoding='utf-8', errors='replace', newline='') as f:
+                lines = f.read().replace('\0', '\n').split('\n')
         except OSError:
             continue
         if f'HERDR_PANE_ID={pane}' not in lines:
@@ -190,70 +189,13 @@ def steer_scope_entries(store, seq):
     return found
 
 
-def case_pattern(pattern):
-    """A compiled regex for the shell's case pattern: * and ? match any character including /, [..] sets with
-    ! or ^ negation, ranges and [:class:], and backslash quoting."""
-    out, i, n = [], 0, len(pattern)
-    while i < n:
-        c = pattern[i]
-        if c == '\\':
-            out.append(re.escape(pattern[i + 1]) if i + 1 < n else re.escape('\\'))
-            i += 2
-        elif c == '*':
-            out.append('.*')
-            i += 1
-        elif c == '?':
-            out.append('.')
-            i += 1
-        elif c == '[':
-            j, parts, negate = i + 1, [], False
-            if j < n and pattern[j] in '!^':
-                negate, j = True, j + 1
-            first = True
-            closed = False
-            while j < n:
-                d = pattern[j]
-                if d == ']' and not first:
-                    closed = True
-                    break
-                first = False
-                if d == '[' and pattern[j + 1:j + 2] == ':' and ':]' in pattern[j + 2:]:
-                    name = pattern[j + 2:pattern.index(':]', j + 2)]
-                    parts.append(CLASSES.get(name, ''))
-                    j = pattern.index(':]', j + 2) + 2
-                    continue
-                if d == '\\' and j + 1 < n:
-                    d, j = pattern[j + 1], j + 1
-                if pattern[j + 1:j + 2] == '-' and j + 2 < n and pattern[j + 2] != ']':
-                    hi = pattern[j + 2]
-                    if hi == '\\' and j + 3 < n:
-                        hi, j = pattern[j + 3], j + 1
-                    parts.append(f'{re.escape(d)}-{re.escape(hi)}')
-                    j += 3
-                    continue
-                parts.append(re.escape(d))
-                j += 1
-            if closed:
-                body = ''.join(parts)
-                out.append(('[^' if negate else '[') + body + ']' if body else ('(?s:.)' if negate else '(?!)'))
-                i = j + 1
-            else:
-                out.append(re.escape('['))
-                i += 1
-        else:
-            out.append(re.escape(c))
-            i += 1
-    return re.compile(''.join(out), re.DOTALL)
-
-
-def scope_pattern(pattern):
-    """case_pattern for a Scope entry: `**/` stands for zero or more directories, so `d/**/x` matches `d/x` as well as `d/a/x`. Everything
-    else is the shell's case pattern."""
-    return re.compile('(?:.*/)?'.join(case_pattern(piece).pattern for piece in pattern.split('**/')), re.DOTALL)
-
-
-def case_match(pattern, text):
-    return case_pattern(pattern).fullmatch(text) is not None
+def scope_match(pattern, path):
+    """Whether path matches a Scope entry: a glob whose * and ? take any character, / included. `**/` stands for zero or more directories, so
+    `d/**/x` matches `d/x` as well as `d/a/x`."""
+    head, found, rest = pattern.partition('**/')
+    if not found:
+        return fnmatch.fnmatchcase(path, pattern)
+    return scope_match(f'{head}*/{rest}', path) or scope_match(f'{head}{rest}', path)
 
 
 def sort_u(lines):
@@ -330,9 +272,8 @@ def checkin(ctx, store, interval=9, now=None):
     out.append(f'touched: {len(touched)} files, {commits} commits since dispatch\n')
     out.extend(f'  {f}\n' for f in touched[:30])
     may = [re.sub(r'/$', '/*', p) for p in [*scope_entries(brief, 'may'), *steer_scope_entries(store, seq)]]
-    patterns = [scope_pattern(p) for p in may]
     # The master commits the lessons file in the shared tree (kitchen.py lessons add), whatever the brief's Scope says.
-    outside = [f for f in touched if f != '.agents/LESSONS.md' and not any(p.fullmatch(f) for p in patterns)]
+    outside = [f for f in touched if f != '.agents/LESSONS.md' and not any(scope_match(p, f) for p in may)]
     if outside:
         out.append(f'outside scope: {len(outside)}\n')
         out.extend(f'  {f}\n' for f in outside[:30])

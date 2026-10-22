@@ -10,7 +10,7 @@ import tempfile
 import time
 
 from .prime import with_timeout
-from .store import env_float, text_of
+from .store import TEXT, env_float
 
 PAIR_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
@@ -60,7 +60,7 @@ def codex_mcp_names(cwd):
     except OSError:
         return []
     try:
-        listed = json.loads(r.stdout.decode('utf-8', 'replace'))
+        listed = json.loads(r.stdout)
     except ValueError:
         return []
     items = listed.values() if isinstance(listed, dict) else listed if isinstance(listed, list) else []
@@ -108,8 +108,8 @@ def last_lines(out, n):
 def tool_line(tool):
     """(version, path) as the failure summary shows them: `$(tool --version 2>/dev/null || printf '?')` and `$(command -v tool)`."""
     try:
-        version = subprocess.run([tool, '--version'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
-        shown = text_of(version.stdout, True) if version.returncode == 0 else '?'
+        version = subprocess.run([tool, '--version'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
+        shown = version.stdout.rstrip('\n') if version.returncode == 0 else '?'
     except OSError:
         shown = '?'
     return shown, shutil.which(tool) or ''
@@ -125,7 +125,7 @@ def preflight_muse(args):
         else:
             i += 1
     r = with_timeout(timeout_s(), ['muse', 'exec', *kept, 'Reply with exactly: OK'], cwd='/tmp', stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-    out = text_of(r.stdout, True)
+    out = r.stdout.rstrip('\n')
     if r.returncode == 0 and 'OK' in out:
         return 0
     sys.stderr.write('\n'.join(out.split('\n')[-5:]) + '\n')
@@ -143,7 +143,7 @@ def preflight_pi(args):
     for attempt in (1, 2):
         r = with_timeout(timeout_s(), ['pi', '--no-session', '--no-approve', '--no-context-files', '--no-skills', '-p', *kept, 'Reply with exactly: OK'],
                          stderr=subprocess.STDOUT)
-        out, code = text_of(r.stdout, True), r.returncode
+        out, code = r.stdout.rstrip('\n'), r.returncode
         if code == 0 and 'OK' in out:
             return 0
         # A provider can fail one request and answer the next, so a failure is retried once before it counts.
@@ -168,7 +168,7 @@ def preflight_prime(args):
                              ['prime-agent', *args, '--cwd', scratch, '--no-session', '--no-context-files', '--no-skills', '--no-prompt-templates',
                               '--print', '--mode', 'text', 'Reply with exactly: OK. Do not use tools.'],
                              stderr=subprocess.STDOUT, env={**os.environ, 'HERDR_ENV': '0'})
-            out, code = text_of(r.stdout, True), r.returncode
+            out, code = r.stdout.rstrip('\n'), r.returncode
             if code == 0 and any(re.fullmatch(r'[ \t\n\r\f\v]*OK[ \t\n\r\f\v]*', line) for line in out.split('\n')):
                 return 0
             if attempt == 1:

@@ -5,7 +5,7 @@ import re
 import sys
 import time
 
-from ..errors import Die
+from ..errors import Die, prog
 from ..herdr import agent_status
 from ..store import header_field, load, names, newest, paused_reason, peek, read_text, suffix_number, text_at, unit_name
 
@@ -21,7 +21,7 @@ class Tee:
     def __init__(self, path):
         self.failed = False
         try:
-            self.file = open(path, 'wb')
+            self.file = open(path, 'w', encoding='utf-8')
         except OSError as e:
             sys.stderr.write(f'tee: {path}: {os.strerror(e.errno)}\n')
             sys.stderr.flush()
@@ -31,7 +31,7 @@ class Tee:
         sys.stdout.write(text)
         sys.stdout.flush()
         if self.file:
-            self.file.write(text.encode('utf-8', 'surrogateescape'))
+            self.file.write(text)
             self.file.flush()
 
     def close(self):
@@ -129,14 +129,14 @@ def lines(ctx, store, out):
 
 def run(ctx, args):
     if len(args) != 1:
-        raise Die('usage: pair.sh status <store>')
+        raise Die(f'usage: {prog()} status <store>')
     store = args[0]
     out = Tee(f'{store}/status.md')
     code = 0
     try:
         lines(ctx, store, out)
     except NoPairJson:
-        sys.stderr.write(f'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\n')
+        sys.stderr.write(f'{prog()}: no pair.json in {store}; run: pair.sh init <slug>\n')
         sys.stderr.flush()
         code = 2
     finally:

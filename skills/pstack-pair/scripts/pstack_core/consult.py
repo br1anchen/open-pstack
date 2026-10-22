@@ -11,13 +11,13 @@ import sys
 from .commands.report import in_herdr
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
-from .errors import Die
+from .errors import Die, prog
 from .gates import require_not_paused
 from .herdr import agent_status
 from .panes import await_file
 from .review import git, require_filled
 from .send import require_fresh_session, submit_typed
-from .store import (event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, whole_number, now,
+from .store import (TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, whole_number, now,
                     write_text)
 from .herdr import agent_state, error_code, error_state
 from .wait import end_with_parent
@@ -64,10 +64,10 @@ def deliver_plan(ctx, store, role, name, seq, plan):
     text = f'{ctx.skill} PLAN {plan}'
     sys.stdout.flush()
     r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--until', 'working', '--timeout', '30000'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False, **TEXT)
     took = 1 if r.returncode == 0 else 0
     if not took:
-        err = r.stderr.decode('utf-8', 'surrogateescape')
+        err = r.stderr
         code = error_code(err)
         if code not in ('timeout', 'agent_prompt_stalled'):
             sys.stderr.write(err)
@@ -92,7 +92,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     write = sys.stdout.write
     in_herdr()
     if len(args) < 2:
-        raise Die('usage: pair.sh discuss <store> <plan-path> [--timeout MS]')
+        raise Die(f'usage: {prog()} discuss <store> <plan-path> [--timeout MS]')
     store, plan, timeout = args[0], args[1], 540000
     rest = list(args[2:])
     while rest:
@@ -160,8 +160,8 @@ def discuss_with_consultant(ctx, args, one_wake=False):
             found = plan_answer(store, role, seq, plan)
         else:
             sys.stdout.flush()
-            r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
-            status = agent_state(r.stdout.decode('utf-8', 'replace'), 'settled')
+            r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
+            status = agent_state(r.stdout, 'settled')
             if r.returncode != 0:
                 status = agent_status(name)
             found = plan_answer(store, role, seq, plan)
@@ -207,7 +207,7 @@ def new_consult(ctx, args):
     """Consults on a unit are capped at three; a fourth means the design is wrong and belongs in a plan round. A glance, the short diff read at a
     check-in, sits outside that cap, one per unit."""
     if len(args) < 2:
-        raise Die('usage: pair.sh new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]')
+        raise Die(f'usage: {prog()} new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]')
     store, seq, rest = args[0], args[1], list(args[2:])
     kind, force = '', False
     while rest:
@@ -257,7 +257,7 @@ def consult(ctx, args):
     consultant reads committed work at that head, or a scratch snapshot, never a tree that moves under it."""
     in_herdr()
     if len(args) < 2:
-        raise Die('usage: pair.sh consult <store> <consult-path> [--timeout MS]')
+        raise Die(f'usage: {prog()} consult <store> <consult-path> [--timeout MS]')
     store, path = args[0], os.path.realpath(args[1])
     timeout = timeout_options(list(args[2:]), 900000)
     end_with_parent()
@@ -291,8 +291,8 @@ def consult(ctx, args):
     update(store, lambda doc: doc.update(consult={'file': path, 'at': now(), 'head': head, 'sidekick_state': sidekick_state}))
     event(store, 'master', 'send-consult', path, kind)
     sys.stdout.flush()
-    r = subprocess.run(['herdr', 'agent', 'prompt', name, f'{ctx.skill} CONSULT {path}', '--wait', '--timeout', str(timeout)], capture_output=True, check=False)
-    out, err = r.stdout.decode('utf-8', 'replace'), r.stderr.decode('utf-8', 'surrogateescape')
+    r = subprocess.run(['herdr', 'agent', 'prompt', name, f'{ctx.skill} CONSULT {path}', '--wait', '--timeout', str(timeout)], capture_output=True, check=False, **TEXT)
+    out, err = r.stdout, r.stderr
     if r.returncode != 0:
         status = error_state(err)
         sys.stderr.write(err.rstrip('\n') + '\n')
@@ -320,7 +320,7 @@ def consult(ctx, args):
 
 def advice(ctx, args):
     if not args:
-        raise Die('usage: pair.sh advice <store> [NNN]')
+        raise Die(f'usage: {prog()} advice <store> [NNN]')
     found = latest(args[0], 'advice', args[1] if len(args) > 1 else None)
     if not found:
         raise Die('no advice found', 4)

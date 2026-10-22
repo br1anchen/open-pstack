@@ -1,20 +1,20 @@
 import glob
 import os
 
-from ..errors import Die
+from ..errors import Die, prog
 from ..store import fill_template, header_field, new_from_template, newest, pair_file, unit_name, write_text
 
 
 def new_plan(ctx, args):
     if len(args) != 2:
-        raise Die('usage: pair.sh new-plan <store> <slug>')
+        raise Die(f'usage: {prog()} new-plan <store> <slug>')
     print(new_from_template(ctx, args[0], args[1], 'plans', 'plan-template.md'))
     return 0
 
 
 def new_brief(ctx, args):
     if len(args) != 2:
-        raise Die('usage: pair.sh new-brief <store> <slug>')
+        raise Die(f'usage: {prog()} new-brief <store> <slug>')
     print(new_from_template(ctx, args[0], args[1], 'briefs', 'brief-template.md'))
     return 0
 
@@ -22,7 +22,7 @@ def new_brief(ctx, args):
 def new_steer(ctx, args):
     """Fresh steers on a unit are capped at two; one that supersedes an objected steer is a discussion round."""
     if len(args) < 2:
-        raise Die('usage: pair.sh new-steer <store> <NNN> [--supersedes STEER | --force]')
+        raise Die(f'usage: {prog()} new-steer <store> <NNN> [--supersedes STEER | --force]')
     store, seq, rest = args[0], args[1], args[2:]
     force, supersedes = False, 'none'
     while rest:

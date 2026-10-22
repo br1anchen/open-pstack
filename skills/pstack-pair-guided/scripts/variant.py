@@ -33,9 +33,8 @@ def answer(ctx, args):
     if not os.path.isfile(path):
         raise Die(f'answer not found: {path}')
     require_not_paused(store)
-    with open(path, 'rb') as f:
-        if not re.search(r'(?m)^## Answer', f.read().decode('utf-8', 'surrogateescape')):
-            raise Die(f'not an answer file: {path}')
+    if not re.search(r'(?m)^## Answer', read_text(path)):
+        raise Die(f'not an answer file: {path}')
     return send_and_wait(ctx, store, os.path.realpath(path), 'ANSWER', timeout, interval, False)
 
 

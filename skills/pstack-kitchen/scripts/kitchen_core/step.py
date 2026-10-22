@@ -52,7 +52,7 @@ def detached(command, argv, log, store):
     env = {**os.environ, 'PSTACK_KITCHEN_RUN': read(store, 'slug')}
     sys.stdout.flush()
     sys.stderr.flush()
-    with open(log, 'wb') as out:
+    with open(log, 'w', encoding='utf-8') as out:
         subprocess.Popen([sys.executable, '-I', WORKER, command, *argv], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
                          start_new_session=True, preexec_fn=ignore_interrupts)
 
@@ -65,19 +65,8 @@ def past(deadline):
     return int(time.time()) >= deadline
 
 
-def not_zero(text):
-    """`[ "$rc" -ne 0 ]`: a word that is no integer is an error, which reads as false."""
-    n = int_or_none(text)
-    if n is None:
-        sys.stdout.flush()
-        sys.stderr.write(f'pair.sh: [: {text}: integer expected\n')
-        return False
-    return n != 0
-
-
 def cat(path):
-    with open(path, 'rb') as f:
-        sys.stdout.write(f.read().decode('utf-8', 'surrogateescape'))
+    sys.stdout.write(read_text(path))
 
 
 def queue_line(log):
@@ -94,11 +83,6 @@ def queue_line(log):
     if last.startswith('kitchen: queued '):
         return f'gates: {last[len("kitchen: "):]}, behind gates from other kitchens\n'
     return ''
-
-
-def cat_n(path):
-    with open(path, 'rb') as f:
-        return f.read().decode('utf-8', 'surrogateescape').rstrip('\n')
 
 
 def step(ctx, args):
@@ -179,11 +163,11 @@ def step(ctx, args):
             raise Exit(4)
         poll_sleep(env_float('KITCHEN_STEP_POLL_S', 2))
     open(f'{job}/consumed', 'w').close()
-    rc = cat_n(f'{job}/rc')
-    classified = cat_n(f'{job}/classify.json')
+    rc = read_text(f'{job}/rc').rstrip('\n')
+    classified = read_text(f'{job}/classify.json').rstrip('\n')
     profiles = [l for l in read_text(f'{job}/profiles').split('\n')][:-1] if read_text(f'{job}/profiles') else []
     # A step with no profile ran no gate: it is recorded as none, never pass.
-    if not_zero(rc):
+    if int_or_none(rc) != 0:
         state = 'fail'
     elif not profiles:
         state = 'none'
@@ -192,7 +176,7 @@ def step(ctx, args):
     os.makedirs(f'{store}/steps', exist_ok=True)
     with open(f'{store}/gates.tsv', 'a') as f:
         f.write(f'{int(time.time())}\t{unit}\t{full[:9]}\t{state}\t{",".join(profiles)}\n')
-    if not_zero(rc):
+    if int_or_none(rc) != 0:
         cat(f'{job}/out')
         event(store, 'sidekick', 'gate-fail', brief, f'{full[:9]} {job}/{os.readlink(f"{job}/out")}')
         fails = 0
@@ -258,7 +242,7 @@ def finish(ctx, args):
                       'step (kitchen.sh step) and name it in head:, or remove it, then finish again')
     unit = unit_name(brief)
     job = verify_job(ctx, store, brief, head)
-    if os.path.isfile(f'{job}/rc') and cat_n(f'{job}/rc') != '0' and os.path.isfile(f'{job}/consumed'):
+    if os.path.isfile(f'{job}/rc') and read_text(f'{job}/rc').rstrip('\n') != '0' and os.path.isfile(f'{job}/consumed'):
         subprocess.run(['rm', '-rf', job], check=False)
     if not os.path.isdir(job):
         os.makedirs(job, exist_ok=True)
@@ -274,9 +258,9 @@ def finish(ctx, args):
             raise Exit(4)
         poll_sleep(env_float('KITCHEN_STEP_POLL_S', 2))
     open(f'{job}/consumed', 'w').close()
-    rc = cat_n(f'{job}/rc')
+    rc = read_text(f'{job}/rc').rstrip('\n')
     cat(f'{job}/out')
-    if not_zero(rc):
+    if int_or_none(rc) != 0:
         event(store, 'sidekick', 'finish-verify-fail', brief, head[:9])
         sys.stdout.write('next: the master did not get this report. Fix what failed in a new commit, record it with kitchen.sh step, name it in head:, and finish again; if the '
                          'commands cannot pass, write the report as blocked with this output under Questions, then kitchen.sh finish\n')

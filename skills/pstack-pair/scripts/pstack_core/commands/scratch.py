@@ -4,8 +4,8 @@ import shutil
 import subprocess
 import sys
 
-from ..errors import Die
-from ..store import load, names, pair_file, text_at, update
+from ..errors import Die, prog
+from ..store import TEXT, load, names, pair_file, text_at, update
 
 
 def basename(path):
@@ -31,7 +31,7 @@ def remove_tree(path):
 
 def run(ctx, args):
     if len(args) < 2:
-        raise Die('usage: pair.sh scratch <store> <id> [--at SHA] [--remove]')
+        raise Die(f'usage: {prog()} scratch <store> <id> [--at SHA] [--remove]')
     store, ident, rest = args[0], args[1], args[2:]
     remove, at = False, ''
     while rest:
@@ -51,7 +51,7 @@ def run(ctx, args):
         raise Die("the store's cwd is not inside a git repository")
     link = f'{store}/scratch/{ident}'
     common = subprocess.run(['git', '-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-                            stdout=subprocess.PIPE, check=False).stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+                            stdout=subprocess.PIPE, check=False, **TEXT).stdout.rstrip('\n')
     path = f'{common}/pstack-scratch/{basename(dirname(store))}-{basename(store)}/{ident}'
     if not os.path.islink(link) and os.path.isdir(link):
         path = link
@@ -110,7 +110,7 @@ def run(ctx, args):
         untracked = subprocess.run(['git', '-C', cwd, 'ls-files', '--others', '--exclude-standard', '-z'], stdout=subprocess.PIPE, check=False).stdout
         for raw in untracked.split(b'\0'):
             if raw:
-                f = raw.decode('utf-8', 'surrogateescape')
+                f = os.fsdecode(raw)
                 os.makedirs(f'{path}/{dirname(f)}', exist_ok=True)
                 shutil.copy2(f'{cwd}/{f}', f'{path}/{f}')
     update(store, lambda doc: doc.update(scratch=sorted({*names(doc, 'scratch'), ident})))

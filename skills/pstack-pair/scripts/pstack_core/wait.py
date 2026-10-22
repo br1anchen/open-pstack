@@ -10,13 +10,13 @@ import time
 
 from .checkin import checkin
 from .checkin import sidekick_activity
-from .errors import Die, Exit
-from .herdr import agent_state, agent_status, error_code, error_state, pane_busy, reply_at
+from .errors import Die, Exit, prog
+from .herdr import agent_state, agent_status, herdr, error_code, error_state, pane_busy, reply_at
 from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
 from .review import review_base
-from .store import acquire_lock, env_float, env_int, event, field, header_field, member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number
+from .store import TEXT, missing_pair as store_missing, read_text, acquire_lock, env_float, env_int, event, field, header_field, member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number
 
 
 class WaitResult:
@@ -190,8 +190,7 @@ def set_shown(doc, unit, k):
 
 def herdr_get(name):
     """herdr agent get NAME 2>/dev/null || true: its stdout."""
-    r = subprocess.run(['herdr', 'agent', 'get', name], capture_output=True, check=False)
-    return r.stdout.decode('utf-8', 'replace').rstrip('\n')
+    return herdr('agent', 'get', name)[1].rstrip('\n')
 
 
 SUPERSEDED = 'superseded: a newer wait owns this store; this one ends'
@@ -209,8 +208,7 @@ def wait_token():
 def read_wait_owner(store):
     """The token in <store>/wait.pid, or None when the file is absent."""
     try:
-        with open(wait_owner_path(store), 'rb') as f:
-            return f.read().decode('utf-8', 'surrogateescape').strip()
+        return read_text(wait_owner_path(store)).strip()
     except OSError:
         return None
 
@@ -271,10 +269,10 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
         slice_ms = (deadline - clock()) * 1000
         slice_ms = min(slice_ms, 30000)
         slice_ms = max(slice_ms, 1000)
-        r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(slice_ms)], capture_output=True, check=False)
+        r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(slice_ms)], capture_output=True, check=False, **TEXT)
         result.code = r.returncode
-        result.out = r.stdout.decode('utf-8', 'replace').rstrip('\n')
-        result.err = r.stderr.decode('utf-8', 'replace').rstrip('\n')
+        result.out = r.stdout.rstrip('\n')
+        result.err = r.stderr.rstrip('\n')
         if result.code == 0:
             state = agent_state(result.out, None)
             if state == 'blocked':
@@ -335,7 +333,6 @@ def end_with_parent():
 def owned_wait(ctx, store, name, timeout, interval, now=None):
     """A wait that owns the store: it claims wait.pid (unless a caller that runs several waits as one claims only on its first), ends with
     SUPERSEDED and 4 when a newer wait took the store, and releases the claim when it returns (unless that caller keeps it)."""
-    from . import cli
     held = os.environ.get('PAIR_WAIT_OWNER')
     token = wait_token()
     if held and os.environ.get('PAIR_WAIT_UNOWNED') == '1':
@@ -346,7 +343,7 @@ def owned_wait(ctx, store, name, timeout, interval, now=None):
             claim_wait(store, token)
         except Die as e:
             # A lock that stays held must not fail a wait whose work is done (a dispatch has delivered its brief): wait without ownership.
-            sys.stderr.write(f'{cli.PROG}: wait: could not claim wait.pid ({e.message}); waiting without ownership\n')
+            sys.stderr.write(f'{prog()}: wait: could not claim wait.pid ({e.message}); waiting without ownership\n')
             token = None
             if held:
                 sys.stdout.write('unowned: wait.pid could not be claimed\n')
@@ -361,14 +358,14 @@ def owned_wait(ctx, store, name, timeout, interval, now=None):
             try:
                 release_wait(store, token)
             except Die as e:
-                sys.stderr.write(f'{cli.PROG}: wait: could not release wait.pid ({e.message})\n')
+                sys.stderr.write(f'{prog()}: wait: could not release wait.pid ({e.message})\n')
 
 
-def missing_pair(store):
+def no_pair(store):
     # The bash goes on with an empty agent name and prints a pair of error lines for every field() it then reads; the
     # first pair and the status are kept.
     sys.stdout.write('state: \n')
-    raise Exit(2, f'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n')
+    raise Exit(2, store_missing(store))
 
 
 def wait(ctx, args):
@@ -376,18 +373,18 @@ def wait(ctx, args):
     if len(args) == 2 and args[1] == '--release':
         # kitchen.sh's quiet wait gives its claim back when it exits (internal; it runs from an exiting shell, so no herdr checks)
         if not os.path.isfile(f'{args[0]}/pair.json'):
-            missing_pair(args[0])
+            no_pair(args[0])
         release_wait(args[0], wait_token())
         return 0
     in_herdr()
     end_with_parent()
     if len(args) < 1:
-        raise Die('usage: pair.sh wait <store> [--timeout MS | --every MIN]')
+        raise Die(f'usage: {prog()} wait <store> [--timeout MS | --every MIN]')
     store = args[0]
     timeout, interval, _, rest = wait_opts(args[1:])
     if rest:
         raise Die(f'unknown option {rest[0]}')
     if not os.path.isfile(f'{store}/pair.json'):
-        missing_pair(store)
+        no_pair(store)
     name = field(store, 'sidekick', 'name')
     return owned_wait(ctx, store, name, timeout, interval)

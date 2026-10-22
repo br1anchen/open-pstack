@@ -1,11 +1,15 @@
-from ..errors import Die
+from ..errors import Die, prog
 from ..spawn import record_fallback, set_placement, spawn_sidekick
 from ..store import field, pair_file, whole_number
 from ..wait import end_with_parent
 from .report import in_herdr
 
-USAGE = ('usage: pair.sh spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] '
-         '[-- agent-args...]')
+
+def usage():
+    return (f'usage: {prog()} spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] '
+            '[-- agent-args...]')
+
+
 VALUED = {'--kind': 'kind', '--fallback': 'fallback', '--permission': 'permission', '--direction': 'direction', '--pane': 'pane', '--timeout': 'timeout'}
 
 
@@ -14,7 +18,7 @@ def spawn(ctx, args):
     end_with_parent()
     in_herdr()
     if not args:
-        raise Die(USAGE)
+        raise Die(usage())
     store, rest = args[0], list(args[1:])
     opts = {'kind': '', 'direction': '', 'pane': '', 'timeout': '60000', 'permission': '', 'fallback': '', 'placement': ''}
     fallback_args = []

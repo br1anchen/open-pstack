@@ -17,10 +17,10 @@ import time
 
 from pstack_core import wait as core_wait
 from pstack_core.errors import Die, Exit
-from pstack_core.store import env_float, env_int, event, field, int_or_none, whole_number
+from pstack_core.store import env_float, env_int, event, field, int_or_none, read_text, whole_number
 from pstack_core.wait import default_signals
 
-from .verify import in_subshell
+from .units import captured
 
 
 def poll_sleep(seconds):
@@ -33,8 +33,7 @@ def quiet_now():
     clock = os.environ.get('KITCHEN_QUIET_CLOCK')
     if clock and os.access(clock, os.R_OK):
         try:
-            with open(clock, 'rb') as f:
-                text = f.read().decode('utf-8', 'surrogateescape')
+            text = read_text(clock)
         except OSError as e:
             raise Die(f'{clock}: {os.strerror(e.errno)}', 1)
         now = int_or_none(text)
@@ -76,12 +75,11 @@ def inner_wait(ctx, store, args, claim, unowned):
     owner = str(os.getpid())
 
     def run():
-        os.environ.update({'PAIR_WAIT_OWNER': owner, 'PAIR_WAIT_CLAIM': str(claim), 'PAIR_WAIT_UNOWNED': str(unowned), 'PAIR_QUIET_WAIT': '1'})
         code = core_wait.wait(ctx, [store, *args])
         if code:
             raise Exit(code)
 
-    return in_subshell(run, merge=False)
+    return captured(run, env={'PAIR_WAIT_OWNER': owner, 'PAIR_WAIT_CLAIM': str(claim), 'PAIR_WAIT_UNOWNED': str(unowned), 'PAIR_QUIET_WAIT': '1'})
 
 
 def release(ctx, store):
@@ -89,12 +87,11 @@ def release(ctx, store):
     owner = str(os.getpid())
 
     def run():
-        os.environ['PAIR_WAIT_OWNER'] = owner
         code = core_wait.wait(ctx, [store, '--release'])
         if code:
             raise Exit(code)
 
-    in_subshell(run)
+    captured(run, merge_stderr=True, env={'PAIR_WAIT_OWNER': owner})
 
 
 def quiet_wait(ctx, store, rest):

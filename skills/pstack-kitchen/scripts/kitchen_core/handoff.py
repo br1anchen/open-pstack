@@ -8,7 +8,7 @@ import time
 
 from pstack_core.errors import Die
 from pstack_core.store import field, newest
-from pstack_core.store import header_field, pair_file, load, read
+from pstack_core.store import header_field, pair_file, load, read, read_text, write_text
 
 
 def basename(path):
@@ -25,8 +25,7 @@ def newest_matching(pattern, skip_packets=False):
 
 def queued_brief(store):
     try:
-        with open(f'{store}/queue', 'rb') as f:
-            return f.read().decode('utf-8', 'surrogateescape').rstrip('\n')
+        return read_text(f'{store}/queue').rstrip('\n')
     except OSError:
         return ''
 
@@ -71,13 +70,11 @@ def new_handoff(ctx, args):
     # a .master that is not an object ends the command before any file is written
     generation = field(store, 'master', 'generation', default='1')
     units = handoff_units(store).rstrip('\n')
-    with open(f'{ctx.skill_root}/references/handoff-template.md', encoding='utf-8', errors='surrogateescape') as f:
-        text = f.read()
+    text = read_text(f'{ctx.skill_root}/references/handoff-template.md')
     for key, value in {'SLUG': read(store, 'slug'), 'STORE': store, 'GENERATION': generation,
                        'WRITTEN': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'UNITS': units}.items():
         text = text.replace('{{' + key + '}}', value)
-    with open(path, 'w', encoding='utf-8', errors='surrogateescape') as f:
-        f.write(text)
+    write_text(path, text)
     sys.stdout.write(path + '\n')
     sys.stdout.write(f'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master {store}\n')
     return 0

@@ -15,7 +15,7 @@ from pstack_core.errors import Die, Exit
 from pstack_core.herdr import herdr
 from pstack_core.herdr import reply_at
 from pstack_core.replies import file_mtime
-from pstack_core.store import damaged, field, event, header_field, json_type, listing, load, pair_file, text_at
+from pstack_core.store import read_text, write_text, damaged, field, event, header_field, json_type, listing, load, pair_file, text_at
 
 from . import kpy
 from .ledger import counters, retro_line, slug_of
@@ -41,11 +41,10 @@ def build_rev(path):
     """The build revision recorded for a skills directory in builds.tsv (the last row naming it), or unknown."""
     rev = ''
     try:
-        with open(f'{state_home()}/pstack/builds.tsv', 'rb') as f:
-            for line in f.read().decode('utf-8', 'surrogateescape').split('\n'):
-                fields = line.split('\t')
-                if len(fields) >= 3 and fields[2] == path:
-                    rev = fields[1]
+        for line in read_text(f'{state_home()}/pstack/builds.tsv').split('\n'):
+            fields = line.split('\t')
+            if len(fields) >= 3 and fields[2] == path:
+                rev = fields[1]
     except OSError:
         pass
     return rev or 'unknown'
@@ -116,8 +115,7 @@ NOT_READ = object()
 def maintainer_record(path):
     """maintainer.json, the object `maintainer on` wrote; None, after one stderr line, for a file that is not one."""
     try:
-        with open(path, 'rb') as f:
-            doc = json.load(f)
+        doc = json.loads(read_text(path))
         problem = '' if isinstance(doc, dict) else f'is {json_type(doc)}, not an object'
     except ValueError as e:
         problem = f'is not JSON: {e}'
@@ -155,8 +153,7 @@ def rm_f(path):
 
 
 def read_lines(path):
-    with open(path, 'rb') as f:
-        return f.read().decode('utf-8', 'surrogateescape').split('\n')
+    return read_text(path).split('\n')
 
 
 def age_text(minutes):
@@ -221,13 +218,11 @@ def close(args):
     fb_lock(fb)
     if os.path.isfile(inbox_file) and not os.path.isfile(done_file):
         tmp = mktemp(fb, '.closing-')
-        with open(inbox_file, 'rb') as f:
-            body = f.read().decode('utf-8', 'surrogateescape')
+        body = read_text(inbox_file)
         body = re.sub(r'(?m)^status: open$', 'status: closed', body)
         stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         body += f'\n## Closed\n\nclosed: {stamp}\ncommit: {commit}\nnote: {note.replace(chr(10), " ")}\n'
-        with open(tmp, 'wb') as f:
-            f.write(body.encode('utf-8', 'surrogateescape'))
+        write_text(tmp, body)
         mv(tmp, done_file)
         rm_f(inbox_file)
         fb_unlock(fb)
@@ -306,10 +301,10 @@ def file_report(ctx, args):
     while os.path.exists(f'{fb}/inbox/{name}.md') or os.path.exists(f'{fb}/done/{name}.md'):
         k += 1
         name = f'{stem}-{k}'
-    out = open(tmp, 'wb')
+    out = open(tmp, 'w', encoding='utf-8', newline='')
 
     def put(text):
-        out.write(text.encode('utf-8', 'surrogateescape'))
+        out.write(text)
         out.flush()
 
     master_name, master_pane = field(store, 'master', 'name', default='unknown'), field(store, 'master', 'pane_id', default='unknown')
@@ -319,8 +314,7 @@ def file_report(ctx, args):
     if first and first != skills_dir:
         put(f'filed with: {build_rev(skills_dir)} ({skills_dir})\n')
     put(f'retro: {retro}\nfiled: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\nstatus: open\n\n')
-    with open(src, 'rb') as f:
-        out.write(f.read())
+    out.write(read_text(src))
     out.close()
     mv(tmp, f'{fb}/inbox/{name}.md')
     fb_unlock(fb)
@@ -380,8 +374,7 @@ def maintainer(ctx, args):
         session = agent.get('agent_session')
         record = {'name': agent.get('name'), 'pane': agent.get('pane_id'), 'session': session.get('value') if isinstance(session, dict) else None,
                   'since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
-        with open(tmp, 'wb') as out:
-            out.write((json.dumps(record, indent=2, ensure_ascii=False) + '\n').encode('utf-8', 'surrogateescape'))
+        write_text(tmp, json.dumps(record, indent=2, ensure_ascii=False) + '\n')
         if not record['name']:
             rm_f(tmp)
             raise Die(f'herdr reports no name for the agent on pane {pane}; name it first')

@@ -1,13 +1,13 @@
 import os
 import subprocess
 
-from ..errors import Die
+from ..errors import Die, prog
 from ..store import event
 
 
 def run(ctx, args):
     if len(args) != 6:
-        raise Die('usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>')
+        raise Die(f'usage: {prog()} log <store> <phase> <decision> <why> <evidence> <result>')
     store, phase, decision, *rest = args
     helper = f'{ctx.skill_root}/../show-me-your-work/scripts/log.sh'
     if not (os.path.isfile(helper) and os.access(helper, os.X_OK)):

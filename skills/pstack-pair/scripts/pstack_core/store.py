@@ -4,7 +4,11 @@ import os
 import re
 import time
 
-from .errors import Die
+from .errors import Die, prog
+
+
+# What subprocess.run takes to give str output: UTF-8, a byte that is not UTF-8 shown as U+FFFD.
+TEXT = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'}
 
 
 def newest_first(paths):
@@ -19,14 +23,7 @@ def newest(paths):
 
 def last_line(path):
     """The last line of a file as tail -n 1 prints it, read from the end."""
-    with open(path, 'rb') as f:
-        size = f.seek(0, os.SEEK_END)
-        data, pos = b'', size
-        while pos > 0 and data.count(b'\n') < 2:
-            pos = max(0, pos - 4096)
-            f.seek(pos)
-            data = f.read(size - pos)
-    lines = data.decode('utf-8', 'surrogateescape').split('\n')
+    lines = read_text(path).split('\n')
     return lines[-1] if lines[-1] else (lines[-2] if len(lines) > 1 else '')
 
 
@@ -58,8 +55,8 @@ def event(store, actor, name, unit, detail=''):
                 pass
         stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now))
         text = f'{stamp}\t{row}\n'
-        with open(log, 'ab') as f:
-            f.write(text.encode('utf-8', 'surrogateescape'))
+        with open(log, 'a', encoding='utf-8') as f:
+            f.write(text)
     except OSError:
         pass
 
@@ -68,23 +65,27 @@ def header_field(path, key):
     """The value of the first "key: value" line, or empty, as the bash header_field() did."""
     prefix = f'{key}:'
     try:
-        with open(path, 'rb') as f:
-            for line in f.read().decode('utf-8', 'surrogateescape').split('\n'):
-                if line.startswith(prefix):
-                    return line[len(prefix):].lstrip(' \t\n\r\f\v')
+        for line in read_text(path).split('\n'):
+            if line.startswith(prefix):
+                return line[len(prefix):].lstrip(' \t\n\r\f\v')
     except OSError:
         pass
     return ''
 
 
 def read_text(path):
-    with open(path, 'rb') as f:
-        return f.read().decode('utf-8', 'surrogateescape')
+    with open(path, encoding='utf-8', errors='replace', newline='') as f:
+        return f.read()
 
 
 def write_text(path, text):
-    with open(path, 'wb') as f:
-        f.write(text.encode('utf-8', 'surrogateescape'))
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        f.write(text)
+
+
+def missing_pair(store):
+    """The two lines a command prints for a store with no pair.json: the script's message, then the one a jq that read the missing file used to add."""
+    return f'{prog()}: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'
 
 
 def pair_file(store):
@@ -97,11 +98,10 @@ def pair_file(store):
 def load(store):
     """pair.json, the read side of every field. Writes go through update() in this module, under the same .pair.lock as bash json_update.
     A file that does not parse, or is not an object, is one message: pair.json is damaged (plan 043 decision b)."""
-    with open(pair_file(store), 'rb') as f:
-        try:
-            doc = json.load(f)
-        except ValueError as e:
-            raise Die(f'pair.json is damaged: {e}', 1)
+    try:
+        doc = json.loads(read_text(pair_file(store)))
+    except ValueError as e:
+        raise Die(f'pair.json is damaged: {e}', 1)
     if not isinstance(doc, dict):
         raise damaged(f'expected an object, found {json_type(doc)}')
     return doc
@@ -240,12 +240,6 @@ def field(store, role, key, default=''):
     return text_at(peek(load(store), role), key, default)
 
 
-def text_of(raw, strip=False):
-    """Bytes as the str a command substitution gives; strip drops the trailing newlines."""
-    text = raw.decode('utf-8', 'surrogateescape')
-    return text.rstrip('\n') if strip else text
-
-
 def now():
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
@@ -370,14 +364,13 @@ def open_steers(store):
 
 def note_notice(store):
     """The blocking notes parked for a Devin sidekick (.notice_notes), once: each is printed and taken off the list."""
-    from . import cli
     parked = [f for f in names(load(store), 'notice_notes') if os.path.isfile(f)]
     if not parked:
         return ''
     update(store, lambda doc: doc.pop('notice_notes', None))
     return ''.join(
         f'NOTE: read {f} now, before your next tool call. Fix each blocking item first, as a fixup commit recorded with '
-        f'{cli.PROG} step {store} <sha> <summary> --resolves <n-ids>.\n' for f in parked)
+        f'{prog()} step {store} <sha> <summary> --resolves <n-ids>.\n' for f in parked)
 
 
 def steer_notice(store):

@@ -6,7 +6,7 @@ import os
 import re
 
 from .herdr import agent_status, dig, herdr, pane_text, parse
-from .store import load, member, newest, newest_first, peek, text_at, update
+from .store import load, read_text, member, newest, newest_first, peek, text_at, update
 
 PROVIDER_ERROR_RE = ('capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|'
                      'econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|'
@@ -31,11 +31,6 @@ def tail_lines(text, count):
     return '\n'.join(lines[-count:]) + ('\n' if lines else '')
 
 
-def read_log(path):
-    with open(path, 'rb') as f:
-        return f.read().decode('utf-8', 'surrogateescape')
-
-
 def agent_session_error(session, cwd=''):
     """The error a pi agent stopped on, from its session log: session is the log herdr reported, else the newest log
     in pi's session directory for cwd. Only when the session's last assistant turn ended in an error."""
@@ -48,7 +43,7 @@ def agent_session_error(session, cwd=''):
     if not path or not os.path.isfile(path):
         return ''
     last = None
-    for line in tail_lines(read_log(path), 200).split('\n'):
+    for line in tail_lines(read_text(path), 200).split('\n'):
         message = peek_message(parse(line))
         if message.get('role') == 'assistant':
             last = message
@@ -71,14 +66,14 @@ def muse_session_error(cwd):
     chosen = ''
     for log in logs:
         try:
-            if cwd in read_log(log):
+            if cwd in read_text(log):
                 chosen = log
                 break
         except OSError:
             continue
     if not chosen:
         return ''
-    matches = error_context(tail_lines(read_log(chosen), 400), 60, 100)
+    matches = error_context(tail_lines(read_text(chosen), 400), 60, 100)
     return matches[-1][:240] if matches else ''
 
 

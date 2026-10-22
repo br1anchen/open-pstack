@@ -2,6 +2,7 @@
 send_and_wait itself. The commands built on them are in commands/."""
 import glob
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -13,8 +14,7 @@ from .gates import check_scope
 from .herdr import agent_kind, agent_status
 from .replies import first3, pending, queued_brief
 from .review import require_filled
-from .store import env_float, event, expected_report, load, peek, text_at, update
-from .commands.report import MISSING_PAIR
+from .store import TEXT, missing_pair, env_float, event, expected_report, load, peek, text_at, update
 from .herdr import error_code
 from .wait import owned_wait
 
@@ -48,9 +48,9 @@ def require_fresh_session(store):
 
 
 def visible_without_blanks(name):
-    """herdr agent read ... | tr -d '\\n │': tr works on bytes, so the three bytes of the bar are deleted one by one."""
-    r = subprocess.run(['herdr', 'agent', 'read', name, '--source', 'visible', '--lines', '12'], capture_output=True, check=False)
-    return r.stdout.translate(None, delete=b'\n \xe2\x94\x82')
+    """The last 12 visible lines of the pane with its newlines, spaces and box bars removed."""
+    r = subprocess.run(['herdr', 'agent', 'read', name, '--source', 'visible', '--lines', '12'], capture_output=True, check=False, **TEXT)
+    return re.sub('[\n │]', '', r.stdout)
 
 
 def submit_typed(name, marker):
@@ -62,7 +62,7 @@ def submit_typed(name, marker):
     tries = 0
     while tries < 3:
         time.sleep(env_float('PAIR_SUBMIT_CHECK_S', 5))
-        if marker.encode('utf-8', 'surrogateescape') not in visible_without_blanks(name):
+        if marker not in visible_without_blanks(name):
             return submitted
         if kind == 'devin' and agent_status(name) == 'working':
             return submitted
@@ -76,9 +76,9 @@ def prompt_sidekick(name, text):
     """Sends one message and confirms the sidekick took it. A narrow pane can hide the working state, so a timeout or stall here is not an
     error; the wait that follows looks for the reply file either way."""
     r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--until', 'working', '--timeout', '30000'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False, **TEXT)
     if r.returncode != 0:
-        err = r.stderr.decode('utf-8', 'surrogateescape')
+        err = r.stderr
         code = error_code(err)
         if code not in ('timeout', 'agent_prompt_stalled'):
             sys.stderr.write(err)
@@ -93,7 +93,7 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
         # field() runs pair_file in a substitution, so its die only ends that subshell and jq then fails on an empty file name: a pair of
         # error lines each time. A brief reads the repo root first (check_scope then warns about every entry against an empty root), and the
         # fresh-session check reads the kind: the second pair, with status 2. A plan gets only the second.
-        missing = MISSING_PAIR.format(store=store)
+        missing = missing_pair(store)
         if kind == 'BRIEF':
             sys.stderr.write(missing)
             check_scope(file, '')

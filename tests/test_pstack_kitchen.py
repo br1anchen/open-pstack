@@ -1764,10 +1764,10 @@ esac
         head = self.commit('work')
         self.done(b, head)
         block = module.verify_block(str(b))
-        old_key = subprocess.run(['cksum'], input=block, capture_output=True, check=True).stdout.split()[0].decode()
+        old_key = subprocess.run(['cksum'], input=block.encode(), capture_output=True, check=True).stdout.split()[0].decode()
         old_job = self.store / 'steps/jobs' / f'{b.stem}-verify-{head[:12]}-{old_key}'
         new_job = Path(module.verify_job(str(self.store), str(b), head))
-        self.assertNotEqual(old_key, str(zlib.crc32(block)))
+        self.assertNotEqual(old_key, str(zlib.crc32(block.encode())))
         self.assertNotEqual(old_job, new_job)
         old_job.mkdir(parents=True)
         (old_job / 'rc').write_text('0\n')

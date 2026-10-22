@@ -1,6 +1,6 @@
 import os
 
-from ..errors import Die
+from ..errors import Die, prog
 from ..gates import require_not_paused
 from ..replies import queued_brief
 from ..send import send_and_wait
@@ -12,7 +12,7 @@ from .rotate import rotate_if_due
 def discuss(ctx, args):
     in_herdr()
     if len(args) < 2:
-        raise Die('usage: pair.sh discuss <store> <plan-path> [--timeout MS]')
+        raise Die(f'usage: {prog()} discuss <store> <plan-path> [--timeout MS]')
     store, plan = args[0], args[1]
     end_with_parent()
     timeout, interval, send_only, rest = wait_opts(args[2:])
@@ -33,7 +33,7 @@ def store_relative(store, path):
 def dispatch(ctx, args):
     in_herdr()
     if len(args) < 2:
-        raise Die('usage: pair.sh dispatch <store> <brief-path> [--timeout MS | --every MIN]')
+        raise Die(f'usage: {prog()} dispatch <store> <brief-path> [--timeout MS | --every MIN]')
     store, brief = args[0], store_relative(args[0], args[1])
     end_with_parent()
     timeout, interval, send_only, rest = wait_opts(args[2:])

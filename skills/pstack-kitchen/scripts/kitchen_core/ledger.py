@@ -5,7 +5,7 @@ import re
 import sys
 
 from pstack_core.errors import Die, Exit
-from pstack_core.store import event, now, pair_file, read
+from pstack_core.store import event, read_text, now, pair_file, read
 
 from . import kpy
 
@@ -82,8 +82,7 @@ def repeated_rows(ledger):
     """The awk over the ledger: classes seen twice or more, "count layer-ish area in N runs", sorted as `sort -rn` does."""
     count, seen, runs = {}, set(), {}
     try:
-        with open(ledger, 'rb') as f:
-            lines = f.read().decode('utf-8', 'surrogateescape').split('\n')
+        lines = read_text(ledger).split('\n')
     except OSError:
         return []
     if lines and lines[-1] == '':

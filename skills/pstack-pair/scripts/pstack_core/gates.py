@@ -5,9 +5,9 @@ import re
 import subprocess
 import sys
 
-from .checkin import case_pattern, scope_entries
+from .checkin import scope_entries, scope_match
 from .errors import Die
-from .store import header_field, paused_reason, read_text
+from .store import TEXT, header_field, paused_reason, read_text
 
 PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd')
 
@@ -57,9 +57,8 @@ def scope_entry_exists(root, entry, tracked):
             directory = '/'
         if directory and not os.path.isdir(at(directory)):
             return False
-        patterns = [case_pattern(entry), case_pattern(entry.removeprefix('**/'))]
         for line in (tracked.split('\n') if tracked else ['']):
-            if any(p.fullmatch(line) for p in patterns):
+            if scope_match(entry, line):
                 return True
         return bool(directory)
     if entry.endswith('/'):
@@ -97,8 +96,8 @@ def check_scope(brief, root):
     bad = scope_lists_several(brief)
     if bad:
         raise Die(f'{os.path.basename(brief)}: Scope takes one path or glob per line; split these (a path with a comma goes in backquotes):\n' + '\n'.join(bad))
-    r = subprocess.run(['git', '-C', root, 'ls-files', '-co', '--exclude-standard'], capture_output=True, check=False)
-    tracked = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n') if r.returncode == 0 else ''
+    r = subprocess.run(['git', '-C', root, 'ls-files', '-co', '--exclude-standard'], capture_output=True, check=False, **TEXT)
+    tracked = r.stdout.rstrip('\n') if r.returncode == 0 else ''
     for entry in scope_entries(brief, 'may'):
         if entry and not scope_entry_exists(root, entry, tracked):
             sys.stderr.write(f'warning: Scope entry "{entry}" matches no file or directory in {root}; is it relative to a neighbouring entry?\n')

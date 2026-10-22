@@ -5,10 +5,10 @@ import subprocess
 import sys
 import time
 
-from ..errors import Die, Exit
+from ..errors import Die, Exit, prog
 from ..herdr import agent_status, herdr, pane_text
 from ..replies import file_mtime
-from ..store import env_float, env_int, event, field, header_field, load, tdiv, update
+from ..store import TEXT, read_text, env_float, env_int, event, field, header_field, load, tdiv, update
 from ..wait import WaitResult, end_with_parent, finish_wait, wait_opts
 from .report import in_herdr, require_pair
 from .status import latest
@@ -18,8 +18,7 @@ DEFAULT_TIMEOUT = 300000
 
 def first_line(path):
     """head -1 of a file, as a command substitution leaves it."""
-    with open(path, 'rb') as f:
-        return f.readline().decode('utf-8', 'surrogateescape').rstrip('\n')
+    return read_text(path).split('\n', 1)[0]
 
 
 def stop_candidates(store, role):
@@ -89,9 +88,9 @@ def stop_role(ctx, store, role, timeout):
     if agent_status(name) == 'working':
         epoch = int(time.time())
         before = stop_candidates(store, role)
-        r = subprocess.run(['herdr', 'agent', 'prompt', name, text], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)
+        r = subprocess.run(['herdr', 'agent', 'prompt', name, text], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False, **TEXT)
         if r.returncode != 0:
-            return 2, '', r.stderr.decode('utf-8', 'surrogateescape').rstrip('\n')
+            return 2, '', r.stderr.rstrip('\n')
         deadline = epoch + env_int('PAIR_STOP_DEADLINE_S', tdiv(timeout, 1000))
         code, err = 0, ''
         if field(store, role, 'kind') == 'devin':
@@ -102,8 +101,8 @@ def stop_role(ctx, store, role, timeout):
                 break
             time.sleep(env_float('PAIR_STOP_POLL_S', 5))
         return code, herdr('agent', 'get', name)[1].rstrip('\n'), err
-    r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-    return (r.returncode, r.stdout.decode('utf-8', 'replace').rstrip('\n'), r.stderr.decode('utf-8', 'surrogateescape').rstrip('\n'))
+    r = subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, **TEXT)
+    return r.returncode, r.stdout.rstrip('\n'), r.stderr.rstrip('\n')
 
 
 def clear_queue(store):
@@ -122,7 +121,7 @@ def stop(ctx, args):
     in_herdr()
     end_with_parent()
     if not args:
-        raise Die('usage: pair.sh stop <store> [--timeout MS]')
+        raise Die(f'usage: {prog()} stop <store> [--timeout MS]')
     store = args[0]
     timeout, interval, _, rest = wait_opts(args[1:], DEFAULT_TIMEOUT)
     if rest:

@@ -5,27 +5,45 @@ unit_brief, commit_patch_id, stack_patch_ids, unit_rebased_in, unit_heads_in, un
 The bash ran these where `set -e` is off (inside `if` and `||`), so a failing git command is an empty answer and the function goes on; here a
 git result is read for what it prints. A git stderr the bash did not redirect stays on stderr."""
 
+import contextlib
 import glob
+import io
 import os
 import re
 import subprocess
 import sys
 
-from pstack_core.commands.report import MISSING_PAIR
-from pstack_core.errors import Die, Exit
+from pstack_core.errors import Die, Exit, prog
 from pstack_core.review import range_floor, steps_file, trunk_ref
-from pstack_core.store import expected_report, header_field, last_line, load, peek, read, text_at
+from pstack_core.store import TEXT, expected_report, read_text, missing_pair, header_field, last_line, load, peek, read, text_at
 from pstack_core.variant import commit_of
 
 
 
-def _text(data):
-    return data.decode('utf-8', 'surrogateescape')
-
-
-def exit_status(returncode):
-    """The status a shell reports for a child: 128 plus the signal number when a signal killed it (subprocess and waitpid give -N)."""
-    return 128 - returncode if returncode < 0 else returncode
+def captured(call, merge_stderr=False, env=None):
+    """(status, text) of call run with its stdout captured, and its stderr too when merge_stderr: a return ends it with 0, an Exit or a Die with
+    its code after what it prints, an OSError or ValueError with 1. env is set for the call and restored after it."""
+    out, status = io.StringIO(), 0
+    saved = dict(os.environ)
+    os.environ.update(env or {})
+    sys.stdout.flush()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out) if merge_stderr else contextlib.nullcontext():
+            try:
+                call()
+            except Exit as e:
+                sys.stderr.write(e.stderr)
+                status = e.code
+            except Die as e:
+                sys.stderr.write(f'{prog()}: {e.message}\n')
+                status = e.code
+            except (OSError, ValueError) as e:
+                sys.stderr.write(f'{prog()}: {e}\n')
+                status = 1
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+    return status, out.getvalue().rstrip('\n')
 
 
 TOLD = set()
@@ -40,7 +58,7 @@ def has_pair(store, check=False, quiet=False):
     if not quiet and os.path.realpath(store) not in TOLD:
         TOLD.add(os.path.realpath(store))
         sys.stdout.flush()
-        sys.stderr.write(MISSING_PAIR.format(store=store))
+        sys.stderr.write(missing_pair(store))
         sys.stderr.flush()
     if check:
         raise Exit(2)
@@ -63,8 +81,8 @@ def git(root, *args, quiet=False, stdin=None):
     """(status, stdout) of `git -C root ...`; stderr is dropped when quiet (the bash's 2>/dev/null) and left on stderr otherwise."""
     sys.stdout.flush()
     sys.stderr.flush()
-    r = subprocess.run(['git', '-C', root, *args], input=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL if quiet else None, check=False)
-    return exit_status(r.returncode), _text(r.stdout)
+    r = subprocess.run(['git', '-C', root, *args], input=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL if quiet else None, check=False, **TEXT)
+    return r.returncode, r.stdout
 
 
 def is_ancestor(root, older, newer):
@@ -83,8 +101,8 @@ def first_field(diff):
     """`git patch-id --stable | cut -d' ' -f1` over a diff, with the trailing newlines `$(...)` drops."""
     sys.stdout.flush()
     sys.stderr.flush()
-    out = subprocess.run(['git', 'patch-id', '--stable'], input=diff.encode('utf-8', 'surrogateescape'), stdout=subprocess.PIPE, check=False).stdout
-    return '\n'.join(line.split(' ')[0] for line in _text(out).split('\n')).rstrip('\n')
+    out = subprocess.run(['git', 'patch-id', '--stable'], input=diff, stdout=subprocess.PIPE, check=False, **TEXT).stdout
+    return '\n'.join(line.split(' ')[0] for line in out.split('\n')).rstrip('\n')
 
 
 def dispatch_head(store, brief):
@@ -284,8 +302,7 @@ class Verdict:
             return 'status is not clean, reject, or inconclusive'
         fences, evidence = 0, False
         try:
-            with open(self.path, 'rb') as f:
-                lines = _text(f.read()).split('\n')
+            lines = read_text(self.path).split('\n')
         except OSError:
             return 'no command output under Evidence'
         for line in lines:
@@ -337,7 +354,7 @@ def brief_or_nothing(store, nnn):
         return unit_brief(store, nnn)
     except Die as e:
         sys.stdout.flush()
-        sys.stderr.write(f'pair.sh: {e.message}\n')
+        sys.stderr.write(f'{prog()}: {e.message}\n')
         return ''
 
 

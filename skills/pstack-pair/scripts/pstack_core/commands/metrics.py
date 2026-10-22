@@ -3,7 +3,8 @@ import re
 import sys
 import time
 
-from ..errors import Die
+from ..errors import Die, prog
+from ..store import read_text
 
 NUMBER = re.compile(r'[ \t\n]*[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?')
 
@@ -221,7 +222,7 @@ class Metrics:
 
 def run(ctx, args):
     if len(args) != 1:
-        raise Die('usage: pair.sh metrics <store>')
+        raise Die(f'usage: {prog()} metrics <store>')
     store = args[0]
     log = f'{store}/events.tsv'
     if not (os.path.exists(log) and os.stat(log).st_size > 0):
@@ -233,8 +234,7 @@ def run(ctx, args):
         records = []
     else:
         try:
-            with open(log, 'rb') as f:
-                records = f.read().decode('utf-8', 'surrogateescape').split('\n')
+            records = read_text(log).split('\n')
         except OSError as e:
             sys.stderr.write(f"awk: fatal: cannot open file `{log}' for reading: {os.strerror(e.errno)}\n")
             return 2

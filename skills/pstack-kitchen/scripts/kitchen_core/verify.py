@@ -23,13 +23,13 @@ import contextlib
 from pstack_core.agents import has_mcp_arg, has_permission_arg, has_trust_arg, mcp_args, permission_args, trust_args
 from pstack_core.commands import scratch as scratch_command
 from pstack_core.commands.report import in_herdr
-from pstack_core.errors import Die, Exit
+from pstack_core.errors import Die, Exit, prog
 from pstack_core.herdr import agent_kind, agent_status, herdr
 from pstack_core.panes import TRUST_RE, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
-from pstack_core.store import damaged, env_float, env_int, event, expected_report, field, header_field, json_type, listing, load, pair_file, peek, read, text_at, text_of, update, whole_number
+from pstack_core.store import damaged, env_float, env_int, event, expected_report, field, header_field, json_type, listing, load, pair_file, peek, read, text_at, TEXT, read_text, write_text, update, whole_number
 from pstack_core.herdr import parse, reply_at
 from pstack_core.variant import commit_of
 
@@ -37,10 +37,9 @@ from . import kpy
 from .kpy import Kitchen
 from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
-from .units import exit_status
 from .landing import is_landing, latest_landing_verdict, manifest_warning
 from .reviews import warn_unreviewed
-from .units import StackIndex, Verdict, brief_or_nothing, git, git_root, heads_in, inclusion, is_ancestor, landing_base, unit_brief, unit_head, unit_range
+from .units import captured, StackIndex, Verdict, brief_or_nothing, git, git_root, heads_in, inclusion, is_ancestor, landing_base, unit_brief, unit_head, unit_range
 from .verify_wait import Waiter
 
 USAGE = ('usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | '
@@ -55,10 +54,6 @@ def out(text):
 def warn(text):
     sys.stdout.flush()
     sys.stderr.write(text)
-
-
-def data_of(text):
-    return text.encode('utf-8', 'surrogateescape')
 
 
 def bash_q(word):
@@ -231,48 +226,6 @@ def record_verifier_session(store, name):
             session = f'{os.environ.get("HOME", "")}/.claude/projects/{re.sub(r"[^A-Za-z0-9-]", "-", cwd)}/{ident}.jsonl'
     if session:
         update(store, lambda doc: vs.set_member(doc, 'verifying', 'session', session))
-
-
-def in_subshell(call, merge=True):
-    """`$(call 2>&1)`, or with merge off `$(call)`: call runs in a child process, its stdout (and stderr, merged) on one pipe: (status, text without its
-    trailing newlines). A process that execs away inside it (the retry) takes the child's place, as it takes a subshell's."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    reader, writer = os.pipe()
-    pid = os.fork()
-    if pid == 0:
-        code = 1
-        try:
-            os.close(reader)
-            os.dup2(writer, 1)
-            if merge:
-                os.dup2(writer, 2)
-            try:
-                call()
-                code = 0
-            except Exit as e:
-                sys.stderr.write(e.stderr)
-                code = e.code
-            except Die as e:
-                sys.stderr.write(f'pair.sh: {e.message}\n')
-                code = e.code
-            except (OSError, ValueError) as e:
-                sys.stderr.write(f'pair.sh: {e}\n')
-                code = 1
-            sys.stdout.flush()
-            sys.stderr.flush()
-        finally:
-            os._exit(code)
-    os.close(writer)
-    chunks = []
-    while True:
-        chunk = os.read(reader, 65536)
-        if not chunk:
-            break
-        chunks.append(chunk)
-    os.close(reader)
-    _, status = os.waitpid(pid, 0)
-    return exit_status(os.waitstatus_to_exitcode(status)), text_of(b''.join(chunks)).rstrip('\n')
 
 
 def tail_lines(text, count):
@@ -584,7 +537,7 @@ def scratch_path(ctx, store, scratch_id, head):
         with contextlib.redirect_stdout(sink):
             rc = scratch_command.run(ctx, [store, scratch_id, '--at', head])
     except Die as e:
-        warn(f'pair.sh: {e.message}\n')
+        warn(f'{prog()}: {e.message}\n')
         raise Exit(e.code)
     if rc:
         raise Exit(rc)
@@ -602,16 +555,14 @@ def gates_verdict(store, verdict, last, slug, allunits, base, head):
         wanted = os.path.basename(brief_or_nothing(store, u))
         wanted = wanted[:-3] if wanted.endswith('.md') else wanted
         try:
-            with open(f'{store}/gates.tsv', 'rb') as f:
-                for line in text_of(f.read()).split('\n'):
-                    fields = line.split('\t')
-                    if len(fields) >= 2 and fields[1] == wanted:
-                        text += line + '\n'
+            for line in read_text(f'{store}/gates.tsv').split('\n'):
+                fields = line.split('\t')
+                if len(fields) >= 2 and fields[1] == wanted:
+                    text += line + '\n'
         except OSError:
             pass
     text += '```\n'
-    with open(verdict, 'wb') as f:
-        f.write(data_of(text))
+    write_text(verdict, text)
 
 
 def close_unread(ctx, store):
@@ -625,7 +576,7 @@ def close_unread(ctx, store):
         if read(store, 'verifying.verdict') != open_verdict:
             by_another = True
             break
-        closed_rc, closed = in_subshell(lambda: Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again)).run())
+        closed_rc, closed = captured(lambda: Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again)).run(), merge_stderr=True)
         closed_status = next((line[len('status: '):] for line in closed.split('\n') if line.startswith('status: ')), '')
         if closed_status:
             break
@@ -657,8 +608,7 @@ def section_lines(path, pattern, keep_heading):
     """`awk '/^## (Goal|Acceptance)/{p=1; print; next} /^## /{p=0} p' file` (keep_heading) or the Goal variant that skips the heading line."""
     found, show = [], False
     try:
-        with open(path, 'rb') as f:
-            lines = text_of(f.read()).split('\n')
+        lines = read_text(path).split('\n')
     except OSError:
         return found
     if lines and lines[-1] == '':
@@ -726,10 +676,9 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
             if lessons:
                 parts.append(f'{lessons}\n\n')
         if os.path.isfile(f'{store}/standing-orders.md'):
-            with open(f'{store}/standing-orders.md', 'rb') as f:
-                orders = text_of(f.read()).rstrip('\n')
+            orders = read_text(f'{store}/standing-orders.md').rstrip('\n')
             parts.append(f'## Standing orders\n\nThey bind you as they bind the sidekick ({store}/standing-orders.md):\n\n{orders}\n\n')
-        diff = text_of(subprocess.run(['git', '-C', root, 'diff', '--stat', f'{base}...{head}'], stdout=subprocess.PIPE, check=False).stdout)
+        diff = subprocess.run(['git', '-C', root, 'diff', '--stat', f'{base}...{head}'], stdout=subprocess.PIPE, check=False, **TEXT).stdout
         parts.append(f'## Changed\n\n```\n{tail_lines(diff, 40)}\n```\n\n')
         parts.append('## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo\'s scripts give you\n'
                      'your own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n'
@@ -753,8 +702,7 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
         skills = sorted([p + '/' for p in glob.glob(f'{glob.escape(root)}/.agents/skills/verify-*') if os.path.isdir(p)])
         parts.append('verification skill: ' + ''.join(s + ' ' for s in skills) + '\n')
     finally:
-        with open(packet, 'wb') as f:
-            f.write(data_of(''.join(parts)))
+        write_text(packet, ''.join(parts))
 
 
 def verify_command(ctx, args):

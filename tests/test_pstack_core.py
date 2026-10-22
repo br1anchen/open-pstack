@@ -2829,9 +2829,12 @@ class CoreTests(unittest.TestCase):
     def test_with_timeout_gives_the_commands_exit_124_when_it_runs_out_and_127_when_it_is_missing(self):
         from pstack_core import prime
         done = prime.with_timeout('5', ['sh', '-c', 'echo out; exit 3'])
-        self.assertEqual((done.returncode, done.stdout), (3, b'out\n'))
+        self.assertEqual((done.returncode, done.stdout), (3, 'out\n'))
         self.assertEqual(prime.with_timeout('0.2', ['tail', '-f', os.devnull]).returncode, 124)
-        self.assertEqual(prime.with_timeout('5', ['no-such-command-here']).returncode, 127)
+        missing = prime.with_timeout('5', ['no-such-command-here'])
+        self.assertEqual((missing.returncode, missing.stdout), (127, ''))
+        self.assertEqual(prime.with_timeout('5', ['sh', '-c', 'kill -TERM $$']).returncode, 143)
+        self.assertEqual(prime.with_timeout('5', ['sh', '-c', 'kill -HUP $$']).returncode, 129)
 
     def test_fresh_kind_is_devin_pi_and_prime_agent_only(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
@@ -3854,7 +3857,7 @@ class CoreTests(unittest.TestCase):
                'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import units, verify, verify_state as vs\nfrom pstack_core.context import Context\n'
                'from pstack_core.errors import Die, Exit\n'
                f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "")\n'
-               f'store = {str(store)!r}\n' + (f'vs.PID = {pid}\n' if pid else ''))
+               f'store = {str(store)!r}\n' + (f'import os\nos.getpid = lambda: {pid}\n' if pid else ''))
         r = subprocess.run([sys.executable, '-I', '-c', pre + code], env={k: v for k, v in {**self.env, **self.GIT, 'HOSTNAME': 'testhost', **(env or {})}.items() if v is not None}, capture_output=True,
                            text=True, check=False, timeout=120, cwd=cwd)
         return r.returncode, r.stdout, r.stderr
@@ -4812,7 +4815,7 @@ class CoreTests(unittest.TestCase):
             'an unknown option': (1, 'unknown option --bogus'),
             'a paused store': (5, 'the store is paused (lunch)'),
             'a brief with a placeholder': (1, 'still has unfilled placeholders'),
-            'too few arguments': (1, 'usage: kitchen.sh queue <store> <brief-path> [--replace] | pair.sh queue <store> --clear'),
+            'too few arguments': (1, 'usage: kitchen.sh queue <store> <brief-path> [--replace] | kitchen.sh queue <store> --clear'),
             'no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'),
             'a sidekick that is a string': (1, 'pair.json is damaged: sidekick is string, not an object'),
             'an escalated brief and no pair.json': (1, 'no pair.json in <T>/st; run: pair.sh init <slug>'),
@@ -5669,17 +5672,26 @@ class CoreTests(unittest.TestCase):
                 self.assertEqual(dict(os.environ), snapshot, args)
         self.assertEqual(dict(os.environ), before)
 
-    def test_a_child_killed_by_a_signal_has_the_status_a_shell_gives_it(self):
-        """A `$( )` whose command is killed by signal N gives 128+N; waitpid and subprocess say -N, which `sys.exit` would turn into 256-N."""
-        verify, jqx = self.kitchen_core_module('verify'), self.kitchen_core_module('units')
-        for name, number, want in (('TERM', signal.SIGTERM, 143), ('KILL', signal.SIGKILL, 137), ('HUP', signal.SIGHUP, 129)):
-            bash = subprocess.run(['bash', '-c', f'out="$(sh -c "kill -{name} \\$\\$")"; echo $?'], capture_output=True, text=True, check=True).stdout.strip()
-            self.assertEqual(bash, str(want))
-            code, out = verify.in_subshell(lambda: os.kill(os.getpid(), number))
-            self.assertEqual((code, out), (want, ''), name)
-            sub = subprocess.run(['sh', '-c', f'kill -{name} $$'], check=False)
-            self.assertEqual(jqx.exit_status(sub.returncode), want, name)
-        self.assertEqual([jqx.exit_status(n) for n in (0, 1, 4, 255)], [0, 1, 4, 255])
+    def test_captured_gives_the_status_and_stdout_of_a_call_and_leaves_the_environment_as_it_found_it(self):
+        units = self.kitchen_core_module('units')
+        out = io.StringIO()
+
+        def ends_in_die():
+            print('before')
+            raise Die('refused', 5)
+
+        def sets_env():
+            print(os.environ['KITCHEN_CAPTURED_PROBE'])
+
+        def exits_quietly():
+            raise Exit(4, 'said\n')
+
+        with contextlib.redirect_stderr(out):
+            results = [units.captured(lambda: print('hello\n')), units.captured(ends_in_die), units.captured(exits_quietly),
+                       units.captured(sets_env, env={'KITCHEN_CAPTURED_PROBE': 'on'}), units.captured(lambda: print('o') or sys.stderr.write('e\n'), merge_stderr=True)]
+        self.assertEqual(results, [(0, 'hello'), (5, 'before'), (4, ''), (0, 'on'), (0, 'o\ne')])
+        self.assertEqual(out.getvalue(), 'pair.sh: refused\nsaid\n')
+        self.assertNotIn('KITCHEN_CAPTURED_PROBE', os.environ)
 
     def test_step_kpy_call_leaves_the_environment_alone(self):
         """step reaches kitchen.py's `--json classify --base --head` in process (the gates, the policy check and brief-verify run in the detached scripts, as

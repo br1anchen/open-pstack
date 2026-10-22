@@ -3,7 +3,7 @@ import os
 import re
 import sys
 
-from ..errors import Die
+from ..errors import Die, prog
 from ..herdr import agent_status
 from ..prime import prime_steer
 from ..review import noted_through, open_notes, require_filled, review_base, steps_file
@@ -26,7 +26,7 @@ def blocking_lines(path):
 
 def notes(ctx, args):
     if len(args) != 1:
-        raise Die('usage: pair.sh notes <store>')
+        raise Die(f'usage: {prog()} notes <store>')
     store = args[0]
     pair_file(store)
     brief = dispatched_brief(store)
@@ -62,7 +62,7 @@ def followups(path, tag):
 
 def note(ctx, args):
     if len(args) != 2:
-        raise Die('usage: pair.sh note <store> <note-draft-path>')
+        raise Die(f'usage: {prog()} note <store> <note-draft-path>')
     store, draft = args
     if not os.path.isfile(draft):
         raise Die(f'note not found: {draft}')
@@ -78,8 +78,8 @@ def note(ctx, args):
     unit = re.sub(r'-n[0-9]+$', '', name)
     k = suffix_number(name, 'n') or name
     lines = followups(path, f'{unit} n{k}')
-    with open(f'{store}/followups.md', 'ab') as f:
-        f.write(''.join(lines).encode('utf-8', 'surrogateescape'))
+    with open(f'{store}/followups.md', 'a', encoding='utf-8') as f:
+        f.write(''.join(lines))
     event(store, 'master', 'note', unit, f'{k}:{status}')
     try:
         delivery = deliver_blocking_note(ctx, store, path) if status == 'blocking' and os.path.isfile(f'{store}/pair.json') else ''
@@ -95,7 +95,6 @@ def deliver_blocking_note(ctx, store, path):
     """A blocking note reaches a working sidekick at once, the way a steer does: a Devin keeps a message sent mid-turn parked as queued, so
     its next `pair.sh notes` (every step boundary) lists the note; Prime takes it through its daemon; every other kind through a prompt.
     The text to append to the published line, empty when the sidekick is not working."""
-    from .. import cli
     from .steer import herdr_ok, park_for_devin
     name = field(store, 'sidekick', 'name')
     if agent_status(name) != 'working':
@@ -104,7 +103,7 @@ def deliver_blocking_note(ctx, store, path):
     kind = field(store, 'sidekick', 'kind')
     if kind == 'devin':
         park_for_devin(store, path, 'notice_notes')
-        return f"; left for {name}: it lands at the sidekick's next {cli.PROG} step, notes, or progress, between tool calls"
+        return f"; left for {name}: it lands at the sidekick's next {prog()} step, notes, or progress, between tool calls"
     if kind == 'prime-agent':
         if not prime_steer(store, message):
             raise Die(f'Prime delivery failed for {name}', 2)
@@ -120,7 +119,7 @@ def count_lines(path):
 
 def new_note(ctx, args):
     if len(args) < 2:
-        raise Die('usage: pair.sh new-note <store> <NNN> [--through K]')
+        raise Die(f'usage: {prog()} new-note <store> <NNN> [--through K]')
     store, seq, rest = args[0], args[1], args[2:]
     through = ''
     if rest and rest[0] == '--through':

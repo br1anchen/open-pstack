@@ -1,12 +1,12 @@
 import os
 
-from ..errors import Die
-from ..store import event, pair_file
+from ..errors import Die, prog
+from ..store import event, pair_file, write_text
 
 
 def pause(ctx, args):
     if not args:
-        raise Die('usage: pair.sh pause <store> [--reason TEXT]')
+        raise Die(f'usage: {prog()} pause <store> [--reason TEXT]')
     store, rest = args[0], args[1:]
     reason = 'paused by the human'
     if rest and rest[0] == '--reason':
@@ -16,8 +16,7 @@ def pause(ctx, args):
     elif rest and rest[0] != '':
         raise Die(f'unknown option {rest[0]}')
     pair_file(store)
-    with open(f'{store}/paused', 'wb') as f:
-        f.write(f'{reason}\n'.encode('utf-8', 'surrogateescape'))
+    write_text(f'{store}/paused', f'{reason}\n')
     event(store, 'master', 'pause', '-', reason)
     print(f'paused {store}: the sidekick stops at its next step or progress boundary, and dispatch, queue, discuss, '
           'consult, and answer refuse until pair.sh resume')
@@ -26,7 +25,7 @@ def pause(ctx, args):
 
 def resume(ctx, args):
     if len(args) != 1:
-        raise Die('usage: pair.sh resume <store>')
+        raise Die(f'usage: {prog()} resume <store>')
     store = args[0]
     pair_file(store)
     try:

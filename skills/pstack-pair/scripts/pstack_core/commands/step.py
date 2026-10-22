@@ -5,17 +5,16 @@ import subprocess
 import sys
 import time
 
-from ..errors import Die, Exit
+from ..errors import Die, Exit, prog
 from ..replies import dispatched
 from ..review import steps_file
-from ..store import event, load, pair_file, text_at, pause_notice, paused_reason, progress_path, steer_notice, unit_name
+from ..store import TEXT, event, load, pair_file, read_text, text_at, write_text, pause_notice, paused_reason, progress_path, steer_notice, unit_name
 
 
 def record_again(file, full, resolves):
     """True when the steps file has a row for this commit; its resolves column then gains the given note ids (sorted by number, once each)."""
     try:
-        with open(file, 'rb') as f:
-            rows = f.read().decode('utf-8', 'surrogateescape').split('\n')
+        rows = read_text(file).split('\n')
     except OSError:
         return False  # the count below says why it cannot be read, as it always did
     found = False
@@ -28,8 +27,7 @@ def record_again(file, full, resolves):
             rows[n] = '\t'.join(cols)
             break
     if found and resolves:
-        with open(f'{file}.tmp', 'wb') as f:
-            f.write('\n'.join(rows).encode('utf-8', 'surrogateescape'))
+        write_text(f'{file}.tmp', '\n'.join(rows))
         os.replace(f'{file}.tmp', file)
     return found
 
@@ -38,7 +36,7 @@ def step(ctx, args, now=None):
     """The sidekick records a committed step and goes straight on; the master's wait picks it up for review. --resolves names the
     notes the step fixes."""
     if len(args) < 3:
-        raise Die('usage: pair.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
+        raise Die(f'usage: {prog()} step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha, summary = args[:3]
     rest = args[3:]
     resolves = ''
@@ -55,11 +53,11 @@ def step(ctx, args, now=None):
     brief = dispatched(store)
     if not brief:
         raise Die('no brief dispatched; a step belongs to a running brief')
-    r = subprocess.run(['git', '-C', text_at(load(store), 'cwd'), 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}'], capture_output=True, check=False)
-    sys.stderr.write(r.stderr.decode('utf-8', 'surrogateescape'))
+    r = subprocess.run(['git', '-C', text_at(load(store), 'cwd'), 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}'], capture_output=True, check=False, **TEXT)
+    sys.stderr.write(r.stderr)
     if r.returncode != 0:
         raise Die(f'not a commit: {sha}; commit the step first')
-    full = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    full = r.stdout.rstrip('\n')
     unit = unit_name(brief)
     for note in resolves.replace(',', ' ').split():
         if re.match(r'[0-9]{3}-', note):
@@ -82,8 +80,7 @@ def step(ctx, args, now=None):
         # `[ -f file ] && k=$(( $(grep -c . file) + 1 ))`: the assignment takes grep's status, and as the last command of an AND list a
         # failure ends the command under set -e: 1 when the file has no non-empty line, 2 when it cannot be read.
         try:
-            with open(file, 'rb') as f:
-                count = sum(1 for line in f.read().split(b'\n') if line)
+            count = sum(1 for line in read_text(file).split('\n') if line)
         except OSError as e:
             sys.stderr.write(f'grep: {file}: {os.strerror(e.errno)}\n')
             raise Exit(2)
@@ -92,10 +89,10 @@ def step(ctx, args, now=None):
         k = count + 1
     stamp = time.time() if now is None else now
     summary_cell = summary.replace('\t', ' ').replace('\n', ' ')
-    with open(file, 'ab') as f:
-        f.write(f'{k}\t{full}\t{int(stamp)}\t{resolves}\t{summary_cell}\n'.encode('utf-8', 'surrogateescape'))
-    with open(progress_path(store), 'ab') as f:
-        f.write(f'{time.strftime("%H:%M", time.localtime(stamp))} step {k} {full[:9]}: {summary}\n'.encode('utf-8', 'surrogateescape'))
+    with open(file, 'a', encoding='utf-8') as f:
+        f.write(f'{k}\t{full}\t{int(stamp)}\t{resolves}\t{summary_cell}\n')
+    with open(progress_path(store), 'a', encoding='utf-8') as f:
+        f.write(f'{time.strftime("%H:%M", time.localtime(stamp))} step {k} {full[:9]}: {summary}\n')
     event(store, 'sidekick', 'step', brief, f'{k}:{full[:9]}')
     if paused_reason(store) is not None:
         sys.stdout.write(f'step {k} recorded at {full[:9]}.\n')

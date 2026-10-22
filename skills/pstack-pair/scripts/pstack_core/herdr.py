@@ -7,16 +7,15 @@ BUSY = re.compile(r'esc (twice )?to interrupt|guide devin while it works|send qu
                   re.IGNORECASE)
 
 
-def herdr(*args, errors='replace'):
-    """herdr with stderr dropped: (exit code, stdout text). Text that jq reads decodes with 'replace', as jq does for bad
-    bytes; text that is shown again, like a screen, passes errors='surrogateescape' to keep its bytes."""
-    r = subprocess.run(['herdr', *args], capture_output=True, check=False)
-    return r.returncode, r.stdout.decode('utf-8', errors)
+def herdr(*args):
+    """herdr with stderr dropped: (exit code, stdout text)."""
+    r = subprocess.run(['herdr', *args], capture_output=True, check=False, text=True, encoding='utf-8', errors='replace')
+    return r.returncode, r.stdout
 
 
 def pane_text(name):
     """The pane's visible screen as one line."""
-    return re.sub(r'[\n\t ]+', ' ', herdr('agent', 'read', name, '--source', 'visible', '--lines', '40', errors='surrogateescape')[1])
+    return re.sub(r'[\n\t ]+', ' ', herdr('agent', 'read', name, '--source', 'visible', '--lines', '40')[1])
 
 
 def pane_busy(name):

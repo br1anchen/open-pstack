@@ -17,12 +17,11 @@ from pstack_core.commands import spawn as core_spawn
 from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
-from pstack_core.store import field, damaged, event, json_type, listing, load, member, now, pair_file, text_at, update
+from pstack_core.store import field, read_text, damaged, event, json_type, listing, load, member, now, pair_file, text_at, update
 from pstack_core.wait import end_with_parent
 
 from . import kpy
-from .units import git, git_root, has_pair
-from .verify import in_subshell
+from .units import captured, git, git_root, has_pair
 
 
 def last_build_path(builds):
@@ -75,7 +74,7 @@ def init(ctx, args):
         if code:
             raise Exit(code)
 
-    code, out = in_subshell(run_core_init, merge=False)
+    code, out = captured(run_core_init)
     if code:
         raise Exit(code)
     sys.stdout.write(out + '\n')
@@ -87,13 +86,12 @@ def init(ctx, args):
         sys.stdout.flush()
         sys.stderr.write('kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching\n')
         return 0
-    with open(orders, 'rb') as f:
-        text = f.read()
+    text = read_text(orders)
     data = json.loads(found)
-    if b'kitchen.toml review.self' not in text and (data.get('self') or []):
+    if 'kitchen.toml review.self' not in text and (data.get('self') or []):
         with open(orders, 'a') as f:
             f.write(f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {", ".join(data["self"])} (kitchen.toml review.self).\n')
-    if b'kitchen.toml landing.mode' not in text:
+    if 'kitchen.toml landing.mode' not in text:
         with open(orders, 'a') as f:
             f.write(f'17. Landing goes as far as `{data.get("landing") or ""}` (kitchen.toml landing.mode) and never merges.\n')
     worktree_setup(store, found)

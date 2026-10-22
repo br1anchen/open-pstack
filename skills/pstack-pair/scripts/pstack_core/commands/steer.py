@@ -5,16 +5,18 @@ import subprocess
 import sys
 import time
 
-from ..errors import Die
+from ..errors import Die, prog
 from ..herdr import agent_status
 from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
-from ..store import event, field, header_field, member, names, newest, unit_name, update
+from ..store import event, field, read_text, header_field, member, names, newest, unit_name, update
 from ..wait import end_with_parent, owned_wait, wait_opts
 from .report import in_herdr, require_pair
 
-USAGE = 'usage: pair.sh steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]'
+
+def usage():
+    return f'usage: {prog()} steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]'
 
 
 def herdr_ok(*args):
@@ -48,7 +50,7 @@ def steer(ctx, args):
     in_herdr()
     end_with_parent()
     if len(args) < 2:
-        raise Die(USAGE)
+        raise Die(usage())
     store, steer_path = args[0], os.path.realpath(args[1])
     timeout, interval, _, rest = wait_opts(args[2:])
     force = interrupt = False
@@ -62,8 +64,7 @@ def steer(ctx, args):
     if not os.path.isfile(steer_path):
         raise Die(f'steer not found: {steer_path}')
     try:
-        with open(steer_path, 'rb') as f:
-            text = f.read().decode('utf-8', 'surrogateescape')
+        text = read_text(steer_path)
     except OSError as e:
         # grep says why it could not read the file, then the check fails
         sys.stderr.write(f'grep: {steer_path}: {e.strerror}\n')

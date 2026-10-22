@@ -1,7 +1,7 @@
 import os
 import time
 
-from ..errors import Die
+from ..errors import Die, prog
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..herdr import agent_status, herdr
 from ..spawn import record_failover, spawn_role
@@ -16,7 +16,7 @@ def failover(ctx, args):
     end_with_parent()
     in_herdr()
     if not args:
-        raise Die('usage: pair.sh failover <store> [--reason TEXT] [--force]')
+        raise Die(f'usage: {prog()} failover <store> [--reason TEXT] [--force]')
     store, rest = args[0], list(args[1:])
     reason, force = 'requested', False
     while rest:

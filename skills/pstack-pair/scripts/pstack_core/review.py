@@ -4,7 +4,7 @@ import re
 import subprocess
 
 from .errors import Die
-from .store import header_field, int_or_none, last_line, note_id, load, peek, read_text, suffix_number, text_at, unit_name
+from .store import TEXT, header_field, int_or_none, last_line, note_id, load, peek, read_text, suffix_number, text_at, unit_name
 
 
 def steps_file(store, unit):
@@ -52,8 +52,8 @@ def open_notes(store, brief):
 
 def git(root, *args):
     """stdout of git -C root, or None when it fails; stderr is dropped."""
-    r = subprocess.run(['git', '-C', root, *args], capture_output=True, check=False)
-    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n') if r.returncode == 0 else None
+    r = subprocess.run(['git', '-C', root, *args], capture_output=True, check=False, **TEXT)
+    return r.stdout.rstrip('\n') if r.returncode == 0 else None
 
 
 def trunk_ref(root):

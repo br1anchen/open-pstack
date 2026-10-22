@@ -16,7 +16,7 @@ from pstack_core.errors import Die
 from pstack_core.review import trunk_ref
 from pstack_core.store import field
 from pstack_core.herdr import parse
-from pstack_core.store import header_field, int_or_none, new_from_template, pair_file
+from pstack_core.store import TEXT, header_field, read_text, int_or_none, new_from_template, pair_file
 from pstack_core.variant import commit_of
 
 from . import kpy
@@ -73,7 +73,7 @@ def unit_adds_no_lines(store, brief):
             return False
         names.seek(0)
         nums.seek(0)
-        raw, numstat = names.read().decode('utf-8', 'surrogateescape'), nums.read().decode('utf-8', 'surrogateescape')
+        raw, numstat = names.read().decode('utf-8', 'replace'), nums.read().decode('utf-8', 'replace')
     ok, modified, counted = True, set(), set()
     parts = raw.split('\0')
     for i in range(0, len(parts) - 1, 2):
@@ -122,7 +122,7 @@ def manifest_warning(store, verified_base, current_base, head=''):
     if is_ancestor(root, current_base, verified_base) and is_ancestor(root, verified_base, head or 'HEAD'):
         return
     listed = subprocess.run(['git', '-C', root, 'diff', '--name-only', '-z', '--no-renames', verified_base, current_base], stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, check=False).stdout
+                            stderr=subprocess.DEVNULL, check=False, **TEXT).stdout
     rc, text, _ = kpy.run(root, ['--json', 'manifests', '-z'], stdin=listed)
     try:
         files = ', '.join(json.loads(text)['manifests'])
@@ -210,8 +210,7 @@ def clean_verdict_for(store, seq):
         if not os.path.exists(f) or f.endswith('-packet.md'):
             continue
         try:
-            with open(f, 'rb') as handle:
-                named = any(pattern.search(line) for line in handle.read().decode('utf-8', 'surrogateescape').split('\n'))
+            named = any(pattern.search(line) for line in read_text(f).split('\n'))
         except OSError:
             named = False
         if named and header_field(f, 'status') == 'clean':

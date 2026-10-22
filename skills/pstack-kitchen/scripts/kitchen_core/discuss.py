@@ -3,6 +3,8 @@ Ported from kitchen.sh at b632713 (cmd_queue, cmd_discuss, rotate_if_due). The p
 
 The bash wrappers called the core's queue and discuss in a child process; here they call the core functions directly."""
 
+import contextlib
+import io
 import os
 import sys
 
@@ -19,21 +21,6 @@ from .landing import is_landing
 from .units import has_pair
 
 
-def devnull_stdout(call):
-    """`call >/dev/null`: stdout of this process and of what it starts goes nowhere for the call; stderr stays."""
-    sys.stdout.flush()
-    saved = os.dup(1)
-    null = os.open(os.devnull, os.O_WRONLY)
-    try:
-        os.dup2(null, 1)
-        return call()
-    finally:
-        sys.stdout.flush()
-        os.dup2(saved, 1)
-        os.close(saved)
-        os.close(null)
-
-
 def queue(ctx, args):
     args = list(args)
     # A brief path may be given relative to the store (briefs/NNN-x.md), as for dispatch.
@@ -42,7 +29,8 @@ def queue(ctx, args):
     if len(args) >= 2 and args[1] != '--clear' and not os.path.isfile(args[1]) and os.path.isfile(f'{args[0]}/{args[1]}'):
         args[1] = f'{args[0]}/{args[1]}'
     if len(args) >= 2 and args[1] != '--clear' and os.path.isfile(args[1]) and not is_landing(args[1]):
-        devnull_stdout(lambda: classify_brief(args[0], args[1]))
+        with contextlib.redirect_stdout(io.StringIO()):
+            classify_brief(args[0], args[1])
     return core_queue.queue(ctx, args)
 
 

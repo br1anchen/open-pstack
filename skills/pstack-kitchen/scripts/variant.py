@@ -5,7 +5,7 @@ import zlib
 from pathlib import Path
 
 from pstack_core import consult
-from pstack_core.store import dispatched_brief, expected_report, header_field, read
+from pstack_core.store import dispatched_brief, expected_report, header_field, read, read_text
 from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 
@@ -39,24 +39,23 @@ def risk_of(brief):
 
 
 def verify_block(brief):
-    """awk '/^## Verify/{p=1; next} /^## /{p=0} p' on the brief, as bytes (awk ends every record with a newline)."""
+    """The lines of the brief's Verify section, each ending in a newline."""
     try:
-        with open(brief, 'rb') as f:
-            records = f.read().split(b'\n')
+        records = read_text(brief).split('\n')
     except OSError as e:
         sys.stderr.write(f"awk: fatal: cannot open file `{brief}' for reading: {os.strerror(e.errno)}\n")
-        return b''
-    if records[-1] == b'':
+        return ''
+    if records[-1] == '':
         records.pop()
     out, show = [], False
     for line in records:
-        if line.startswith(b'## Verify'):
+        if line.startswith('## Verify'):
             show = True
-        elif line.startswith(b'## '):
+        elif line.startswith('## '):
             show = False
         elif show:
-            out.append(line + b'\n')
-    return b''.join(out)
+            out.append(line + '\n')
+    return ''.join(out)
 
 
 def verify_job(store, brief, head):
@@ -64,7 +63,8 @@ def verify_job(store, brief, head):
     key is its crc32; a job directory under the old POSIX cksum key is never read, so the first finish after the switch runs a fresh Verify."""
     unit = os.path.basename(brief)
     unit = unit[:-3] if unit.endswith('.md') and unit != '.md' else unit
-    return f'{store}/steps/jobs/{unit}-verify-{head[:12]}-{zlib.crc32(verify_block(brief))}'
+    key = zlib.crc32(verify_block(brief).encode('utf-8'))
+    return f'{store}/steps/jobs/{unit}-verify-{head[:12]}-{key}'
 
 
 USAGE = """usage: kitchen.sh <command> [args]
@@ -207,8 +207,7 @@ class KitchenVariant(TrioVariant):
         if head is None:
             return ReportReadiness(False, '', 'its head: is not a commit')
         try:
-            with open(f'{verify_job(store, brief, head)}/rc', 'rb') as f:
-                rc = f.read().decode('utf-8', 'surrogateescape').rstrip('\n')
+            rc = read_text(f'{verify_job(store, brief, head)}/rc').rstrip('\n')
         except OSError:
             rc = ''
         if rc == '0':

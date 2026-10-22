@@ -15,7 +15,7 @@ from .panes import await_file, new_pane, refuse_untrusted
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .send import submit_typed, visible_without_blanks
-from .store import count, env_float, env_int, event, field, get, listing, load, member, names, peek, read_flag, text_at, update
+from .store import TEXT, count, env_float, env_int, event, field, get, listing, load, member, names, peek, read_flag, text_at, update
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
 
@@ -52,7 +52,7 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
         return True
     state = agent_status(name)
     if state in ('idle', 'done'):
-        if os.path.basename(ready).encode() in visible_without_blanks(name):
+        if os.path.basename(ready) in visible_without_blanks(name):
             herdr('agent', 'send-keys', name, 'enter')
         else:
             subprocess.run(['herdr', 'agent', 'prompt', name, bootstrap, '--wait', '--timeout', '240000'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
@@ -105,12 +105,12 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
             pane = previous
     if pane:
         r = subprocess.run(['herdr', 'agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', timeout, '--', *args],
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, **TEXT)
         if r.returncode == 0:
             print(f'reused pane {pane}')
         else:
             refuse_untrusted(pane, kind, cwd)
-            stderr_of(f'pane {pane} unavailable for agent start: {r.stdout.decode("utf-8", "surrogateescape").rstrip(chr(10))}\n')
+            stderr_of(f'pane {pane} unavailable for agent start: {r.stdout.rstrip(chr(10))}\n')
             if kind == 'prime-agent':
                 prime_start_failed = True
             else:
@@ -148,8 +148,8 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         os.replace(f'{store}/{ready}', f'{store}/sessions/{role}-{field(store, role, "generation")}-previous-ready.md')
     bootstrap = (f'Load the {ctx.skill} skill from ~/.agents/skills/{ctx.skill}/SKILL.md and take the {role} role (generation '
                  f'{field(store, role, "generation")}, pane {pane}). {ctx.store_label} store: {store}. Follow its bootstrap steps, write {ready}, and reply READY.')
-    r = subprocess.run(['herdr', 'agent', 'prompt', name, bootstrap, '--wait', '--timeout', '240000'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-    code, err = r.returncode, r.stderr.decode('utf-8', 'surrogateescape').rstrip('\n')
+    r = subprocess.run(['herdr', 'agent', 'prompt', name, bootstrap, '--wait', '--timeout', '240000'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, **TEXT)
+    code, err = r.returncode, r.stderr.rstrip('\n')
     if not os.path.isfile(f'{store}/{ready}'):
         submitted = submit_typed(name, os.path.basename(ready))
         if submitted != 0 and code == 0:

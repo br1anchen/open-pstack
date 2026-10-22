@@ -2,7 +2,7 @@ import os
 import subprocess
 import time
 
-from .store import count, expected_report, load, member, names, peek, update
+from .store import TEXT, count, text_at, expected_report, load, member, names, peek, update
 
 
 def fresh_kind(kind):
@@ -15,9 +15,8 @@ def record_dispatch(store, brief, now=None):
     old = expected_report(store, brief)
     seen = f'{old}:{int(os.stat(old).st_mtime)}' if os.path.isfile(old) else ''
     pair = load(store)
-    cwd = pair.get('cwd')
-    r = subprocess.run(['git', '-C', 'null' if cwd is None else str(cwd), 'rev-parse', 'HEAD'], capture_output=True, check=False)
-    head = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    cwd = text_at(pair, 'cwd')
+    head = subprocess.run(['git', '-C', cwd, 'rev-parse', 'HEAD'], capture_output=True, check=False, **TEXT).stdout.rstrip('\n') if cwd else ''
     stamp = time.time() if now is None else now
     at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))
     epoch = int(stamp)

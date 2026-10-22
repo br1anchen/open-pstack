@@ -1,6 +1,6 @@
 import os
 
-from ..errors import Die
+from ..errors import Die, prog
 from ..gates import check_scope, require_not_paused
 from ..herdr import agent_status
 from ..replies import queued_brief
@@ -13,7 +13,7 @@ def queue(ctx, args):
     """The master's next brief, held until the master dispatches it, which rotates a due sidekick first. One slot: more than one
     queued brief is a plan."""
     if len(args) < 2:
-        raise Die('usage: pair.sh queue <store> <brief-path> [--replace] | pair.sh queue <store> --clear')
+        raise Die(f'usage: {prog()} queue <store> <brief-path> [--replace] | {prog()} queue <store> --clear')
     store, brief = args[0], args[1]
     pair_file(store)
     brief = store_relative(store, brief)
@@ -48,7 +48,7 @@ def queue(ctx, args):
         raise Die(f'sidekick {name} is {status}; dispatch instead: pair.sh dispatch {store} {brief}', 5)
     if status != 'working':
         raise Die(f'sidekick {name} is {status}; resolve that before queueing', 3)
-    with open(f'{store}/queue.tmp', 'w', encoding='utf-8', errors='surrogateescape') as f:
+    with open(f'{store}/queue.tmp', 'w', encoding='utf-8') as f:
         f.write(f'{brief}\n')
     os.replace(f'{store}/queue.tmp', f'{store}/queue')
     event(store, 'master', 'queue', brief)

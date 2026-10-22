@@ -8,6 +8,7 @@ from .commands.failover import failover
 from .commands.rotate import rotate
 from .commands.spawn import spawn as spawn_command
 from .context import Context
+from . import errors
 from .errors import Die, Exit
 from .variant import load_variant_class
 
@@ -44,21 +45,6 @@ def parse(argv):
 PROG = 'pair.sh'
 
 
-class ProgStderr:
-    """stderr for a command that runs under another script than pair.sh (kitchen.sh): a line that begins `pair.sh: ` begins with the script's
-    own name, and so does the `usage: pair.sh ...` inside it."""
-
-    def __init__(self, stream, prog):
-        self.stream, self.prog = stream, prog
-
-    def write(self, text):
-        text = re.sub(r'(?m)^pair\.sh: usage: pair\.sh ', f'{self.prog}: usage: {self.prog} ', text)
-        return self.stream.write(re.sub(r'(?m)^pair\.sh: ', f'{self.prog}: ', text))
-
-    def __getattr__(self, name):
-        return getattr(self.stream, name)
-
-
 COMMAND_WORD = re.compile(r'[a-z][a-z-]*')
 
 
@@ -74,16 +60,12 @@ def build(skill_root):
 
 def main(argv):
     global PROG
-    sys.stdout.reconfigure(errors='surrogateescape', line_buffering=True)
-    sys.stderr.reconfigure(errors='surrogateescape')
-    plain = sys.stderr
+    sys.stdout.reconfigure(line_buffering=True)
     try:
         skill_root, words = parse(argv)
         variant, ctx = build(skill_root)
-        PROG = variant.PAIR_PROG
+        PROG = errors.PROG = variant.PAIR_PROG
         store.dedupe_wakes = variant.event_dedupe
-        if PROG != 'pair.sh':
-            sys.stderr = ProgStderr(plain, PROG)
         if shutil.which('herdr') is None:
             raise Die('herdr is required on PATH')
         variant.startup(ctx, words)
@@ -103,10 +85,8 @@ def main(argv):
         sys.stderr.write(e.stderr)
         return e.code
     except Die as e:
-        sys.stderr.write(f'pair.sh: {e.message}\n')
+        sys.stderr.write(f'{PROG}: {e.message}\n')
         return e.code
     except (OSError, ValueError) as e:
-        sys.stderr.write(f'pair.sh: {e}\n')
+        sys.stderr.write(f'{PROG}: {e}\n')
         return 1
-    finally:
-        sys.stderr = plain

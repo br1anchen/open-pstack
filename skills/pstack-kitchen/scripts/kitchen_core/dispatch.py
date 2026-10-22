@@ -17,8 +17,7 @@ from pstack_core.wait import default_signals
 
 from .classify import classify_brief
 from .landing import is_landing, land_check
-from .units import has_pair
-from .verify import in_subshell
+from .units import captured, has_pair
 from .wait import has_checkin, log_checkin_wake, quiet_flagged, quiet_wait
 
 # grep -v -e '^check-in:' -e '^progress:' -e '^touched:' -e '^  ' -e '^steers:' -e '^steps:' -e '^report: missing': what a quiet dispatch prints of the
@@ -32,17 +31,16 @@ def land_check_quietly(ctx, store):
         code = land_check(store)
         if code:
             raise Exit(code)
-    return in_subshell(run, merge=False)[0]
+    return captured(run)[0]
 
 
 def core_dispatch(ctx, args):
     """`$(PAIR_QUIET_WAIT=1 core_dispatch ARGS)`: (status, stdout without its trailing newlines)."""
     def run():
-        os.environ['PAIR_QUIET_WAIT'] = '1'
         code = send.dispatch(ctx, list(args))
         if code:
             raise Exit(code)
-    return in_subshell(run, merge=False)
+    return captured(run, env={'PAIR_QUIET_WAIT': '1'})
 
 
 NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}

@@ -17,7 +17,7 @@ from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
 from pstack_core.herdr import reply_at
-from pstack_core.store import damaged, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at, update
+from pstack_core.store import read_text, damaged, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at, update
 
 from .reviews import warn_unreviewed
 
@@ -101,8 +101,7 @@ def detect_model_arg():
 def section_has_text(path, heading):
     """awk -v h="## <heading>" '$0 == h {p=1; next} /^## /{p=0} p && NF': whether the section holds a line with a field."""
     inside = found = False
-    with open(path, 'rb') as f:
-        lines = f.read().decode('utf-8', 'surrogateescape').split('\n')
+    lines = read_text(path).split('\n')
     if lines and lines[-1] == '':
         lines.pop()
     for line in lines:

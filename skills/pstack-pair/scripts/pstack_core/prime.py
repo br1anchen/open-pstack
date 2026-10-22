@@ -6,17 +6,17 @@ import subprocess
 import sys
 
 from .providers import record_prime_session
-from .store import load, names, peek, text_at
+from .store import TEXT, load, names, peek, text_at
 from .herdr import parse
 
 def with_timeout(seconds, argv, **kwargs):
-    """The command with a time limit: exit 124 when it runs out (after a TERM), 127 when it is not there, as timeout(1) gives. Keyword
+    """The command with a time limit: exit 124 when it runs out (after a TERM), 127 when it is not there, 128+N for a child killed by signal N, as timeout(1) gives. Keyword
     arguments go to subprocess.run; stdout is a pipe unless given."""
     kwargs.setdefault('stdout', subprocess.PIPE)
     try:
-        child = subprocess.Popen(argv, **kwargs)
+        child = subprocess.Popen(argv, **TEXT, **kwargs)
     except FileNotFoundError:
-        return subprocess.CompletedProcess(argv, 127, b'' if kwargs['stdout'] == subprocess.PIPE else None, None)
+        return subprocess.CompletedProcess(argv, 127, '' if kwargs['stdout'] == subprocess.PIPE else None, None)
     with child:
         try:
             out, err = child.communicate(timeout=float(seconds))
@@ -24,7 +24,8 @@ def with_timeout(seconds, argv, **kwargs):
             child.terminate()
             out, err = child.communicate()
             return subprocess.CompletedProcess(argv, 124, out, err)
-    return subprocess.CompletedProcess(argv, child.returncode, out, err)
+    code = child.returncode
+    return subprocess.CompletedProcess(argv, 128 - code if code < 0 else code, out, err)
 
 
 def daemon_socket(store, role):
@@ -48,7 +49,7 @@ def prime_command(store, role, *args):
     """prime-agent ARGS with the role's socket, under PAIR_PRIME_COMMAND_TIMEOUT seconds: (exit code, stdout as a substitution leaves it)."""
     socket = daemon_socket(store, role)
     r = with_timeout(os.environ.get('PAIR_PRIME_COMMAND_TIMEOUT') or '30', ['prime-agent', *args, *(['--socket', socket] if socket else [])])
-    return r.returncode, r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    return r.returncode, r.stdout.rstrip('\n')
 
 
 def prime_sessions(store, role):

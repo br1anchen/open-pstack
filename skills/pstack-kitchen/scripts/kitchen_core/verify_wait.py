@@ -15,7 +15,7 @@ from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status, herdr, pane_text
 from pstack_core.providers import agent_session_error, error_context, muse_session_error, prime_role_error
 from pstack_core.send import submit_typed
-from pstack_core.store import damaged, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv, text_at
+from pstack_core.store import read_text, damaged, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv, text_at
 
 from . import verify_state as vs
 from .reviews import warn_unreviewed
@@ -65,8 +65,7 @@ def verifier_trail(session, packet):
     if not os.path.isfile(session):
         return
     try:
-        with open(session, 'rb') as f:
-            seen = f'VERIFY {packet}'.encode('utf-8', 'surrogateescape') in f.read()
+        seen = f'VERIFY {packet}' in read_text(session)
     except OSError:
         seen = False
     if seen:
@@ -88,8 +87,7 @@ def verifier_shown(store, state):
 def findings(verdict):
     """`awk '/^## Findings/{p=1; next} /^## /{p=0} p' | sed '/^$/d' | head -20`."""
     out, show = [], False
-    with open(verdict, 'rb') as f:
-        lines = f.read().decode('utf-8', 'surrogateescape').split('\n')
+    lines = read_text(verdict).split('\n')
     if lines and lines[-1] == '':
         lines.pop()
     for line in lines:
@@ -109,8 +107,7 @@ def rejected_count(store, unit):
     n = 0
     for path in sorted(glob.glob(f'{glob.escape(store)}/verdicts/{glob.escape(unit)}-v[0-9]*.md')):
         try:
-            with open(path, 'rb') as f:
-                hit = any(line.startswith('status: reject') for line in f.read().decode('utf-8', 'surrogateescape').split('\n'))
+            hit = any(line.startswith('status: reject') for line in read_text(path).split('\n'))
         except OSError:
             continue
         if hit and 'packet' not in path:

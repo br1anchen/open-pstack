@@ -3,13 +3,15 @@ import os
 import re
 import subprocess
 
+from .store import TEXT, read_text
+
 DEPTH_LIMIT = 12
 
 
 def ps(*args):
     """ps with stderr dropped: (exit code, stdout as the bash reads it, trailing newlines gone)."""
-    r = subprocess.run(['ps', *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
-    return r.returncode, r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    r = subprocess.run(['ps', *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
+    return r.returncode, r.stdout.rstrip('\n')
 
 
 def agent_mode(comm, args):
@@ -32,16 +34,14 @@ def agent_mode(comm, args):
 
 def transcript_mode(path):
     """The last "permissionMode" the transcript names, or ''."""
-    with open(path, 'rb') as f:
-        found = re.findall(rb'"permissionMode":"([A-Za-z]*)"', f.read())
-    return found[-1].decode('utf-8', 'surrogateescape') if found else ''
+    found = re.findall(r'"permissionMode":"([A-Za-z]*)"', read_text(path))
+    return found[-1] if found else ''
 
 
 def settings_mode(path):
     """The settings file's permissions.defaultMode; a missing file, a file that does not parse and a missing key all give ''."""
     try:
-        with open(path, 'rb') as f:
-            mode = json.load(f)['permissions']['defaultMode']
+        mode = json.loads(read_text(path))['permissions']['defaultMode']
     except (OSError, ValueError, KeyError, TypeError):
         return ''
     return mode if isinstance(mode, str) else ''

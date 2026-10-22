@@ -32,13 +32,13 @@ def load():
 def run(repo, args, stdin=None):
     """`kitchen.py --repo <repo> <args>` in process: (rc, stdout, stderr). main sets the INVOCATION its child commands use itself; a
     SystemExit (argparse's usage errors, --help) becomes the rc it carries. Only what main writes through sys.stdout and sys.stderr is
-    captured: a command that runs a child process (a gate) lets the child write to the real descriptors, as it does for the subprocess. stdin, bytes,
+    captured: a command that runs a child process (a gate) lets the child write to the real descriptors, as it does for the subprocess. stdin, text,
     is what the command reads from standard input (`manifests` reads its paths there)."""
     module = load()
     out, err = io.StringIO(), io.StringIO()
     held = sys.stdin
     if stdin is not None:
-        sys.stdin = io.TextIOWrapper(io.BytesIO(stdin), encoding='utf-8', errors='surrogateescape')
+        sys.stdin = io.TextIOWrapper(io.BytesIO(stdin.encode('utf-8')), encoding='utf-8')
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         try:
             rc = module.main([*(['--repo', str(repo)] if repo is not None else []), *args])

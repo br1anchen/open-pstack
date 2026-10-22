@@ -12,7 +12,7 @@ import sys
 from pstack_core.checkin import scope_entries
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
-from pstack_core.store import field, header_field, pair_file
+from pstack_core.store import field, header_field, pair_file, read_text, write_text
 
 from .kpy import Kitchen
 
@@ -26,21 +26,17 @@ def risk_of(brief):
 
 
 def set_header(path, key, value):
-    """Replaces the key's header line (the first one), or adds it after the plan: line (the first one): the bash's perl -i -pe. Bytes, as perl read
-    them; a file with neither line is left as it was."""
-    with open(path, 'rb') as f:
-        lines = re.findall(rb'[^\n]*\n|[^\n]+', f.read())
-    k, v = key.encode('utf-8', 'surrogateescape'), value.encode('utf-8', 'surrogateescape')
-    exists = any(line.startswith(k + b':') for line in lines)
+    """Replaces the key's header line (the first one), or adds it after the plan: line (the first one); a file with neither line is left as it was."""
+    lines = re.findall(r'[^\n]*\n|[^\n]+', read_text(path))
+    exists = any(line.startswith(f'{key}:') for line in lines)
     done, out = False, []
     for line in lines:
-        if not done and exists and line.startswith(k + b':'):
-            line, done = k + b': ' + v + (b'\n' if line.endswith(b'\n') else b''), True
-        elif not done and not exists and line.startswith(b'plan:'):
-            line, done = line + k + b': ' + v + b'\n', True
+        if not done and exists and line.startswith(f'{key}:'):
+            line, done = f'{key}: {value}' + ('\n' if line.endswith('\n') else ''), True
+        elif not done and not exists and line.startswith('plan:'):
+            line, done = f'{line}{key}: {value}\n', True
         out.append(line)
-    with open(path, 'wb') as f:
-        f.write(b''.join(out))
+    write_text(path, ''.join(out))
 
 
 def brief_escalations(brief):

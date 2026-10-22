@@ -3,10 +3,10 @@ import re
 import subprocess
 import time
 
-from ..errors import Die, Exit
+from ..errors import Die, Exit, prog
 from ..herdr import herdr
 from ..permission import logical_cwd
-from ..store import _dumps, event, member, update
+from ..store import TEXT, _dumps, event, member, update
 
 STANDING_ORDERS_TEMPLATE = 'standing-orders-template.md'
 GATES = '# Gates\n\nOne entry per open question for the human: question, options, default on no answer.\n'
@@ -25,17 +25,17 @@ def make_dir(path):
 
 def git_root():
     try:
-        r = subprocess.run(['git', 'rev-parse', '--show-toplevel'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+        r = subprocess.run(['git', 'rev-parse', '--show-toplevel'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
     except OSError:
         return ''
-    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n') if r.returncode == 0 else ''
+    return r.stdout.rstrip('\n') if r.returncode == 0 else ''
 
 
 def write_new(path, text):
     """Writes text to path; a failure ends the command with the system's reason."""
     try:
-        with open(path, 'wb') as f:
-            f.write(text.encode('utf-8', 'surrogateescape'))
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(text)
     except OSError as e:
         raise Die(f'{path}: {e.strerror}')
 
@@ -49,11 +49,11 @@ def re_register(store, pane, workspace, tab, now):
 
 def run(ctx, args):
     if os.environ.get('PSTACK_KITCHEN_ROLE') == 'verifier':
-        raise Exit(2, 'pair.sh: init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier\n')
+        raise Exit(2, f'{prog()}: init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier\n')
     if os.environ.get('HERDR_ENV') != '1':
         raise Die('not running inside Herdr (HERDR_ENV != 1)')
     if not args:
-        raise Die('usage: pair.sh init <slug> [--store DIR] [--pane ID]')
+        raise Die(f'usage: {prog()} init <slug> [--store DIR] [--pane ID]')
     slug, rest = args[0], args[1:]
     store, longest, pane = '', ctx.roles[-1], os.environ.get('HERDR_PANE_ID', '')
     i = 0

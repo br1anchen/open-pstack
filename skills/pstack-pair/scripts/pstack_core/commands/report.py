@@ -1,9 +1,9 @@
 import os
 import subprocess
 
-from ..errors import Die, Exit
+from ..errors import Die, Exit, prog
 from ..herdr import agent_status
-from ..store import event, expected_report, field, header_field, load, member, open_steers, peek, steer_number, text_at, unit_name, update
+from ..store import event, missing_pair, expected_report, field, header_field, load, member, open_steers, peek, steer_number, text_at, unit_name, update
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
 
@@ -11,9 +11,6 @@ from .status import latest
 # (object: steer-response-template, plan-response-template), a plan agreement (agree: plan-response-template), a guided ask (asking:
 # ask-template). Advice (answered) goes through notify, not finish.
 FINISH_STATUSES = ('done', 'partial', 'blocked', 'failed', 'object', 'agree', 'asking')
-
-MISSING_PAIR = 'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'
-
 
 def in_herdr():
     if os.environ.get('HERDR_ENV') != '1':
@@ -23,12 +20,12 @@ def in_herdr():
 def require_pair(store, times=1):
     """field() on a store without pair.json: pair_file's message, then jq's, and exit 2 from jq."""
     if not os.path.isfile(f'{store}/pair.json'):
-        raise Exit(2, MISSING_PAIR.format(store=store) * times)
+        raise Exit(2, missing_pair(store) * times)
 
 
 def report(ctx, args):
     if len(args) < 1:
-        raise Die('usage: pair.sh report <store> [NNN]')
+        raise Die(f'usage: {prog()} report <store> [NNN]')
     path = latest(args[0], 'reports', args[1] if len(args) > 1 and args[1] else None)
     if path is None:
         raise Die('no report found', 4)
@@ -39,7 +36,7 @@ def report(ctx, args):
 def notify(ctx, args):
     in_herdr()
     if len(args) != 2:
-        raise Die('usage: pair.sh notify <store> <report-or-advice-path>')
+        raise Die(f'usage: {prog()} notify <store> <report-or-advice-path>')
     store = os.path.realpath(args[0])
     file = os.path.realpath(args[1])
     if not os.path.isfile(file):
@@ -65,7 +62,7 @@ def notify(ctx, args):
 
 def next_brief(ctx, args):
     if len(args) != 1:
-        raise Die('usage: pair.sh next <store>')
+        raise Die(f'usage: {prog()} next <store>')
     pair = load(args[0])
     kind = text_at(peek(pair, 'sidekick'), 'kind')
     raise Die(f'a {kind} sidekick leaves the queue for the master to dispatch after a fresh session', 5)
@@ -74,7 +71,7 @@ def next_brief(ctx, args):
 def finish(ctx, args):
     in_herdr()
     if len(args) != 2:
-        raise Die('usage: pair.sh finish <store> <report-path>')
+        raise Die(f'usage: {prog()} finish <store> <report-path>')
     store = os.path.realpath(args[0])
     report = os.path.realpath(args[1])
     if not os.path.isfile(report):
@@ -83,7 +80,7 @@ def finish(ctx, args):
     if status not in FINISH_STATUSES:
         raise Die(f'{report} has no valid status: line (one of {", ".join(FINISH_STATUSES)})', 2)
     if not os.path.isfile(f'{store}/pair.json'):
-        raise Exit(2, MISSING_PAIR.format(store=store) * (2 if status == 'done' else 1))
+        raise Exit(2, missing_pair(store) * (2 if status == 'done' else 1))
     pair = load(store)
     dispatched = text_at(peek(pair, 'dispatch'), 'brief', '-')
     if status == 'done' and report == expected_report(store, dispatched):
