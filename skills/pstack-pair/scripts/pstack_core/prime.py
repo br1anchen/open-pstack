@@ -8,7 +8,7 @@ import sys
 
 from .providers import record_prime_session
 from .review import jq_raw
-from .store import alt, pair_json
+from .store import alt, load
 from .wait import jq_text
 
 PERL_TIMEOUT = ('my $s = shift; my $p = fork // die "fork: $!\n";\n'
@@ -33,7 +33,7 @@ def section(pair, role):
 
 def daemon_socket(store, role):
     """The --daemon-socket the client was launched with, made absolute against its launch directory; '' when it had none."""
-    pair = pair_json(store)
+    pair = load(store)
     start_args = section(pair, role).get('start_args')
     if isinstance(start_args, dict):
         start_args = list(start_args.values())
@@ -101,7 +101,7 @@ def match_by_jq(session, sessions):
 def prime_active_session(store, role):
     """The live daemon id of the role's recorded session, by exact path or id (no prefix or name matching: another kitchen or the human may
     have a similar session name): '' when none is live, None, with the reason on stderr, when the answer is unknown or ambiguous."""
-    session = section(pair_json(store), role).get('session')
+    session = section(load(store), role).get('session')
     if session is None or session is False or (isinstance(session, str) and session == ''):
         sys.stderr.write(f'no recorded Prime session for {role}; inspect its pane before cleanup\n')
         return None

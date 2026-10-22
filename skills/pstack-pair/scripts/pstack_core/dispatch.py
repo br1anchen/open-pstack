@@ -4,7 +4,7 @@ import sys
 import time
 
 from .errors import Die, Exit
-from .store import alt, event, expected_report, pair_json, update_or_jq
+from .store import alt, event, expected_report, load, update_or_jq
 
 # record_dispatch's jq program at the base: where the native update cannot take a document's shapes, jq decides.
 RECORD_DISPATCH = (
@@ -23,7 +23,7 @@ def record_dispatch(store, brief, now=None):
     """The dispatch record (record_dispatch in the bash before phase 3): the dispatch, the sent message, the unit's base head, and the pending list."""
     old = expected_report(store, brief)
     seen = f'{old}:{int(os.stat(old).st_mtime)}' if os.path.isfile(old) else ''
-    pair = pair_json(store)
+    pair = load(store)
     cwd = pair.get('cwd')
     r = subprocess.run(['git', '-C', 'null' if cwd is None else str(cwd), 'rev-parse', 'HEAD'], capture_output=True, check=False)
     head = r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')

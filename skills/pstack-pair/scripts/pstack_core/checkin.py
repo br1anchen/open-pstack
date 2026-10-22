@@ -9,7 +9,7 @@ import time
 from .collate import collate_key, glob_sorted
 from .replies import dispatched, file_mtime
 from .review import jq_raw, noted_through, open_notes, range_floor, steps_file
-from .store import alt, bash_int, cut_chars, header_field, pair_json, progress_path, read_text
+from .store import alt, bash_int, cut_chars, header_field, load, progress_path, read_text
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 CLASSES = {'alpha': 'A-Za-z', 'digit': '0-9', 'alnum': '0-9A-Za-z', 'upper': 'A-Z', 'lower': 'a-z', 'space': ' \t\n\r\f\v',
@@ -122,7 +122,7 @@ def busy_command(pane, since, now, env=None):
 
 def sidekick_activity(store, now):
     """The longest-running process in the sidekick's pane started since the current dispatch, or ''."""
-    pair = pair_json(store)
+    pair = load(store)
     sidekick, dispatch = alt(pair.get('sidekick'), {}), alt(pair.get('dispatch'), {})
     pane = jq_raw(alt(sidekick.get('pane_id') if isinstance(sidekick, dict) else None, ''))
     at = jq_raw(alt(dispatch.get('at') if isinstance(dispatch, dict) else None, ''))
@@ -282,7 +282,7 @@ def checkin(ctx, store, interval='9', now=None):
     """The check-in digest for a sidekick still working at the interval, bounded so the master can poll it cheaply."""
     now = int(time.time()) if now is None else now
     out = []
-    pair = pair_json(store)
+    pair = load(store)
     brief = dispatched(store)
     if not brief or not os.path.isfile(brief):
         return ''

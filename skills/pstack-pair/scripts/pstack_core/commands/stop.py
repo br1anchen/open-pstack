@@ -10,7 +10,7 @@ from ..errors import Die, Exit
 from ..herdr import agent_status, herdr, pane_text
 from ..replies import file_mtime
 from ..review import jq_raw
-from ..store import alt, event, header_field, pair_json, update
+from ..store import alt, event, header_field, load, update
 from ..wait import WaitResult, bash_sleep, die_with_the_shell, finish_wait, tdiv, timeout_ms, wait_opts
 from .report import in_herdr, require_pair
 from .status import latest
@@ -83,7 +83,7 @@ def devin_send_now(store, role, name, text, before, deadline):
 
 def role_value(store, role, key):
     """field "$store" ".<role>.<key>", as jq -r prints it."""
-    section = pair_json(store).get(role)
+    section = load(store).get(role)
     return jq_raw(section.get(key) if isinstance(section, dict) else None)
 
 

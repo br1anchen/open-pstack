@@ -15,9 +15,9 @@ from pstack_core.checkin import iso_epoch
 from pstack_core.collate import collate_key, glob_sorted
 from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.herdr import herdr
-from pstack_core.spawn import field
+from pstack_core.store import field
 from pstack_core.replies import file_mtime
-from pstack_core.store import alt, event, header_field, jq_raw, pair_file, pair_json
+from pstack_core.store import alt, event, header_field, jq_raw, pair_file, load
 
 from . import kpy
 from .jqx import exit_status
@@ -269,7 +269,7 @@ def file_report(ctx, args):
     fb = fb_root()
     os.makedirs(f'{fb}/inbox', exist_ok=True)
     os.makedirs(f'{fb}/done', exist_ok=True)
-    pair = pair_json(store)
+    pair = load(store)
     run = jq_raw(pair.get('slug'))
     counts = counters(store)
     repo = jq_raw(counts.get('repo'))

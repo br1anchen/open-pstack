@@ -5,7 +5,7 @@ import subprocess
 
 from .errors import Die
 from .collate import glob_sorted
-from .store import alt, header_field, jq_raw, last_line, note_id, pair_json, read_text, suffix_number, unit_name
+from .store import alt, header_field, jq_raw, last_line, note_id, load, read_text, suffix_number, unit_name
 
 
 def steps_file(store, unit):
@@ -98,7 +98,7 @@ def review_base(store, unit):
     if through > 0 and os.path.isfile(file):
         rows = (r.split('\t') for r in read_text(file).split('\n') if r)
         return '\n'.join(c[1] if len(c) > 1 else '' for c in rows if awk_equal(c[0], through))
-    pair = pair_json(store)
+    pair = load(store)
     heads = alt(pair.get('heads'), {})
     dispatch = alt(pair.get('dispatch'), {})
     base = alt(heads.get(unit) if isinstance(heads, dict) else None,

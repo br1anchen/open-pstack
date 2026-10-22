@@ -1755,7 +1755,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         for args in (['catch', '{st}', 'gate', 'x'], ['retro', '{st}'], ['new-handoff', '{st}']):
             got = self.kitchen_world('unp' + args[0], dict(args=args, nopair=True, files={'pair.json': 'not json\n'}))
             self.assertEqual(got['rc'], 1, args[0])
-            self.assertTrue(got['stderr'].endswith('pair.sh: Expecting value: line 1 column 1 (char 0)\n'), got['stderr'])
+            self.assertIn('pair.sh: pair.json is damaged: Expecting value: line 1 column 1 (char 0)\n', got['stderr'])
             files = lambda tree: {k: v for k, v in tree.items() if not k.endswith('/')}
             self.assertEqual(files(got['state']), {}, args[0])
 
@@ -1763,7 +1763,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         """feedback reads pair.json once: `kitchen.sh: Expecting value...`, rc 1, after creating the inbox and done directories."""
         got = self.kitchen_world('fbunp', dict(args=['feedback', '{st}', '{st}/report.md'], nopair=True, files={'pair.json': 'not json\n', 'report.md': self.FEEDBACK_REPORT}))
         self.assertEqual(got['rc'], 1)
-        self.assertTrue(got['stderr'].endswith('pair.sh: Expecting value: line 1 column 1 (char 0)\n'), got['stderr'])
+        self.assertIn('pair.sh: pair.json is damaged: Expecting value: line 1 column 1 (char 0)\n', got['stderr'])
         self.assertIn('pstack/feedback/inbox/', got['state'])
         self.assertIn('pstack/feedback/done/', got['state'])
 
@@ -2779,6 +2779,37 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path), **(extra_env or {})}
         return subprocess.run([str(script or scripts / 'pair.sh'), *args], env=env, capture_output=True, text=True, check=False, timeout=120)
 
+    def test_a_damaged_pair_json_is_one_message_and_exit_1_from_pair_sh_and_kitchen_sh(self):
+        """Decision b: a pair.json that does not parse, or is not an object, is `pair.json is damaged: ...`, rc 1, whichever script reads it."""
+        self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
+        st = self.path / 'state/pstack/pair/demo'
+        kitchen = root / 'skills/pstack-kitchen/scripts/kitchen.sh'
+        for text, reason in (('not json\n', 'Expecting value: line 1 column 1'), ('[1]\n', 'expected an object, found list')):
+            (st / 'pair.json').write_text(text)
+            for script, args in ((None, ('status', str(st))), (kitchen, ('new-handoff', str(st)))):
+                r = self.run_pair(*args, script=script)
+                self.assertEqual(r.returncode, 1, (text, args))
+                self.assertIn(f'pair.json is damaged: {reason}', r.stderr, (text, args))
+
+    def test_get_reads_a_dotted_path_with_a_default_and_env_int_refuses_a_non_integer(self):
+        st = self.path / 'st'
+        st.mkdir()
+        (st / 'pair.json').write_text('{"sidekick": {"kind": "pi", "generation": 3}, "consultant": "gone"}')
+        self.assertEqual(store.get(str(st), 'sidekick.kind'), 'pi')
+        self.assertEqual(store.get(str(st), 'sidekick.generation'), 3)
+        self.assertIsNone(store.get(str(st), 'sidekick.model'))
+        self.assertEqual(store.get(str(st), 'sidekick.model', 'none'), 'none')
+        self.assertEqual(store.get(str(st), 'consultant.name', 'x'), 'x')
+        self.assertEqual(store.get(str(st), 'verifier.kind', 'x'), 'x')
+        with mock.patch.dict(os.environ, {'X_KNOB': '12'}):
+            self.assertEqual(store.env_int('X_KNOB', 5), 12)
+        with mock.patch.dict(os.environ, {'X_KNOB': ''}):
+            self.assertEqual(store.env_int('X_KNOB', 5), 5)
+        with mock.patch.dict(os.environ, {'X_KNOB': '1.5'}):
+            with self.assertRaises(Die) as caught:
+                store.env_int('X_KNOB', 5)
+        self.assertEqual((caught.exception.message, caught.exception.code), ('X_KNOB must be a whole number', 1))
+
     def test_init_refuses_under_the_verifier_role_before_any_herdr_call_or_store_write(self):
         refusal = 'init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier'
         r = self.run_pair('init', 'demo', extra_env={'PSTACK_KITCHEN_ROLE': 'verifier'})
@@ -3701,15 +3732,14 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertIn('landing verification: reject (<T>/st/verdicts/landing-v5.md)', got['stdout'])
             self.assertEqual(got['stderr'], '')
 
-    def test_land_check_over_a_pair_json_that_is_not_an_object_reads_the_repo_from_nowhere_and_says_jqs_error(self):
-        """`.git_root` of a pair.json that is an array, or that does not parse, is an empty answer plus jq's error at each read."""
+    def test_land_check_over_a_damaged_pair_json_says_so_and_exits_1(self):
+        """A pair.json that is an array, or that does not parse, is the one damaged-store message and exit 1."""
         for n, (label, text) in enumerate((('an array', '[]\n'), ('not JSON', 'not json\n'))):
             for kind, extra in (('no verdict', {}), ('a landing verdict', {'verdicts/landing-v1.md': self.lc_verdict('{c1}..{c3}')})):
                 spec = self.land_world(nopair=True, files={'pair.json': text, **extra})
                 got = self.kitchen_world(f'landnp{n}{len(extra)}', spec)
-                self.assertEqual(got['rc'], 2 if not extra else 0, (label, kind))
-                self.assertIn('unverified: unit 001' if not extra else 'covered: unit 001', got['stdout'])
-                self.assertIn('jq: ', got['stderr'])
+                self.assertEqual(got['rc'], 1, (label, kind))
+                self.assertIn('pair.json is damaged: ', got['stderr'])
 
     def test_latest_landing_verdict_is_the_highest_version_and_is_landing_reads_the_playbook_or_the_header(self):
         landing = self.kitchen_core_module('landing')
@@ -5497,8 +5527,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an escalated brief with a live consultant': (0, 'escalate: the brief says risk: escalated'),
             'an escalated brief with a consultant that is gone': (0, 'next: kitchen.sh consultant <T>/st --reason "the brief says risk: escalated", then a plan round with it'),
             'an escalated brief with a consultant that is a string': (0, 'Cannot index string with string ("name")'),
-            'a pair.json that is an array and an escalated brief': (0, 'next: kitchen.sh consultant <T>/st --reason "the brief says risk: escalated", then a plan round with it'),
-            'a pair.json that does not parse and an escalated brief': (0, 'next: kitchen.sh consultant <T>/st --reason "the brief says risk: escalated", then a plan round with it'),
+            'a pair.json that is an array and an escalated brief': (1, 'pair.json is damaged: expected an object'),
+            'a pair.json that does not parse and an escalated brief': (1, 'pair.json is damaged: '),
             'a risk word with a no-break space after it': (0, 'risk: routine\n'),
             'a brief whose Scope lists several paths': (0, 'profiles: app, docs'),
             'a brief whose Scope is outside the repo': (0, 'bookkeeping: the Scope is outside the repo; gates only, nothing to escalate'),
@@ -5515,7 +5545,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'too few arguments': (1, 'usage: kitchen.sh classify <store> <brief-path>'),
             'too many arguments': (1, 'usage: kitchen.sh classify <store> <brief-path>'),
             'no pair.json': (1, 'no pair.json in'),
-            'a pair.json that is an array': (0, 'Cannot index array with string ("git_root")'),
+            'a pair.json that is an array': (1, 'pair.json is damaged: expected an object'),
             'a git_root that is not a repository': (1, 'kitchen: not a git repository: /nonexistent/repo'),
         }
         out = self.kitchen_cases('classify', cases, expect)

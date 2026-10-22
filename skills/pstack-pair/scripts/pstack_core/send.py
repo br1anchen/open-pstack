@@ -13,7 +13,7 @@ from .gates import check_scope
 from .herdr import agent_kind, agent_status
 from .replies import first3, pending, queued_brief
 from .review import jq_raw, require_filled
-from .store import alt, event, expected_report, pair_json, update
+from .store import alt, event, expected_report, load, update
 from .commands.report import MISSING_PAIR
 from .wait import bash_sleep, jq_member, jq_run, owned_wait, truthy
 
@@ -52,11 +52,11 @@ def record_sent(store, file, kind, now=None):
 
 
 def require_fresh_session(store):
-    if not isinstance(pair_json(store).get('sidekick'), (dict, type(None))):
+    if not isinstance(load(store).get('sidekick'), (dict, type(None))):
         # `kind="$(field "$1" '.sidekick.kind')"` fails in jq with errexit on: jq's message and its status end the command
-        from .spawn import field
+        from .store import field
         field(store, 'sidekick', 'kind', check=True)
-    sidekick = section(pair_json(store), 'sidekick')
+    sidekick = section(load(store), 'sidekick')
     kind = jq_raw(sidekick.get('kind'))
     if fresh_per_brief(kind) and (alt(sidekick.get('rotation_required'), False) is not False or alt(sidekick.get('bootstrap_pending'), False) is not False):
         raise Die(f'the {kind} sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate {store} '
@@ -114,11 +114,11 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
             sys.stderr.write(text)
             check_scope(file, '')
         raise Exit(2, text)
-    pair = pair_json(store)
+    pair = load(store)
     if kind == 'BRIEF':
         check_scope(file, jq_raw(alt(pair.get('git_root'), pair.get('cwd'))))
     require_fresh_session(store)
-    name = jq_raw(section(pair_json(store), 'sidekick').get('name'))
+    name = jq_raw(section(load(store), 'sidekick').get('name'))
     status = agent_status(name)
     if status not in ('idle', 'done'):
         if status == 'absent':

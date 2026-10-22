@@ -6,7 +6,7 @@ import sys
 
 from ..errors import Die, unbound_arg
 from ..review import jq_raw
-from ..store import pair_file, pair_json, update
+from ..store import pair_file, load, update
 
 
 def basename(path):
@@ -47,7 +47,7 @@ def run(ctx, args):
     pair_file(store)
     if not re.fullmatch(r'[0-9]{3}-[a-z0-9_-]+', ident):
         raise Die('scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review')
-    cwd = jq_raw(pair_json(store).get('git_root'))
+    cwd = jq_raw(load(store).get('git_root'))
     if not cwd or cwd == 'null':
         raise Die("the store's cwd is not inside a git repository")
     link = f'{store}/scratch/{ident}'

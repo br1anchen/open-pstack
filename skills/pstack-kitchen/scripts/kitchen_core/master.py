@@ -16,7 +16,7 @@ from pstack_core.panes import new_pane, refuse_untrusted
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
-from pstack_core.spawn import field
+from pstack_core.store import field
 from pstack_core.store import event, pair_file, update, update_or_jq
 
 from .jqx import pair_jq

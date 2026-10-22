@@ -9,7 +9,7 @@ import re
 from .collate import collate_key
 from .herdr import agent_status, herdr, pane_text
 from .review import jq_raw
-from .store import alt, cut_chars, pair_json, update, utf8_locale
+from .store import alt, cut_chars, load, update, utf8_locale
 
 PROVIDER_ERROR_RE = ('capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|'
                      'econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|'
@@ -147,8 +147,8 @@ def muse_session_error(cwd):
 
 def record_prime_session(store, role):
     """Record the daemon session herdr reports for the role's prime-agent pane. False when herdr reports none."""
-    from .spawn import field  # spawn imports this module
-    pair = pair_json(store)
+    from .store import field
+    pair = load(store)
     section = alt(pair.get(role), {})
     name = field(store, role, 'name')
     code, out = herdr('agent', 'get', name)
@@ -176,7 +176,7 @@ def record_prime_session(store, role):
 
 def prime_role_error(store, role):
     record_prime_session(store, role)
-    section = alt(pair_json(store).get(role), {})
+    section = alt(load(store).get(role), {})
     session = alt(section.get('session') if isinstance(section, dict) else None, {})
     if isinstance(session, dict) and session.get('kind') == 'path':
         value = jq_raw(alt(session.get('value'), ''))
@@ -187,7 +187,7 @@ def prime_role_error(store, role):
 
 def provider_hint(store, phase=''):
     """provider_hint(): the evidence that a sidekick settled on its provider and the way out, or ''."""
-    pair = pair_json(store)
+    pair = load(store)
     sidekick = alt(pair.get('sidekick'), {})
     sidekick = sidekick if isinstance(sidekick, dict) else {}
     name, kind = jq_raw(sidekick.get('name')), jq_raw(sidekick.get('kind'))

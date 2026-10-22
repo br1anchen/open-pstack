@@ -9,9 +9,9 @@ from ..errors import Die
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..gates import require_not_paused
 from ..herdr import agent_status
-from ..spawn import field, mapfile_args, section, spawn_role
+from ..spawn import mapfile_args, section, spawn_role
 from ..review import jq_raw
-from ..store import alt, event, pair_file, pair_json
+from ..store import alt, event, field, load, pair_file
 from ..wait import die_with_the_shell
 from .report import in_herdr
 
@@ -43,7 +43,7 @@ def rotate(ctx, args):
     kind = field(store, 'sidekick', 'kind', check=not off)
     if not fresh_per_brief(kind):
         raise Die(f'rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not {kind}', 5)
-    sidekick = section(pair_json(store), 'sidekick')
+    sidekick = section(load(store), 'sidekick')
     if jq_raw(alt(sidekick.get('rotation_required'), False)) != 'true':
         raise Die('rotation requires a completed task; partial or blocked work keeps its session', 5)
     if not isinstance(sidekick.get('start_args'), list):
@@ -69,7 +69,7 @@ def rotate(ctx, args):
             raise Die('Prime session cleanup failed; no new session was started', 5)
     else:
         raise Die(f'sidekick {name} is {status}; wait for its report and turn to end before rotating', 5)
-    start_args = mapfile_args(section(pair_json(store), 'sidekick').get('start_args'))
+    start_args = mapfile_args(section(load(store), 'sidekick').get('start_args'))
     event(store, 'master', 'rotate', '-', f'generation:{field(store, "sidekick", "generation")}')
     return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args,
                       errexit_off=off)

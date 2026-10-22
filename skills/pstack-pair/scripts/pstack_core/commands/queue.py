@@ -5,7 +5,7 @@ from ..gates import check_scope, require_not_paused
 from ..herdr import agent_status
 from ..replies import queued_brief
 from ..review import jq_raw, require_filled
-from ..store import alt, event, pair_file, pair_json, readlink_f
+from ..store import alt, event, pair_file, load, readlink_f
 from .report import section
 from .send import store_relative
 
@@ -37,7 +37,7 @@ def queue(ctx, args):
     brief = readlink_f(brief)
     require_not_paused(store)
     require_filled(ctx, brief)
-    pair = pair_json(store)
+    pair = load(store)
     check_scope(brief, jq_raw(alt(pair.get('git_root'), pair.get('cwd'))))
     ctx.variant.require_agreed_plan(ctx, store, brief)
     queued = queued_brief(store)

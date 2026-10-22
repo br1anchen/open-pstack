@@ -7,17 +7,11 @@ from ..errors import Die, Exit
 from ..herdr import herdr
 from ..permission import logical_cwd
 from ..store import _dumps, event, update_or_jq
-from ..wait import core_line
+from ..wait import shell_error
 
 STANDING_ORDERS_TEMPLATE = 'standing-orders-template.md'
 GATES = '# Gates\n\nOne entry per open question for the human: question, options, default on no answer.\n'
 DECISIONS = 'ts\tphase\tdecision\twhy\tevidence\tresult\n'
-
-
-def shell_error(text, message):
-    """An error bash prints for a line of cmd_init as pair-core.sh's own, then ends with status 1."""
-    path, number = core_line(text, 'cmd_init() {')
-    raise Exit(1, f'{path}: line {number}: {message}\n')
 
 
 def make_dir(path):
@@ -44,7 +38,7 @@ def write_new(path, text, line_text):
         with open(path, 'wb') as f:
             f.write(text.encode('utf-8', 'surrogateescape'))
     except OSError as e:
-        shell_error(line_text, f'{path}: {e.strerror}')
+        shell_error(line_text, f'{path}: {e.strerror}', 'cmd_init() {')
 
 
 def re_register(store, pane, workspace, tab, now):
@@ -76,7 +70,7 @@ def run(ctx, args):
         option = rest[i]
         if option in ('--store', '--pane'):
             if i + 1 >= len(rest):
-                shell_error(f'{option}) ', '$2: unbound variable')
+                shell_error(f'{option}) ', '$2: unbound variable', 'cmd_init() {')
             if option == '--store':
                 store = rest[i + 1]
             else:

@@ -10,7 +10,7 @@ from ..collate import collate_key, glob_sorted, newest
 from ..errors import Die
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import alt, header_field, pair_json, paused_reason, read_text, suffix_number, unit_name
+from ..store import alt, header_field, load, paused_reason, read_text, suffix_number, unit_name
 
 
 class NoPairJson(Exception):
@@ -59,7 +59,7 @@ def lines(ctx, store, out):
     out.write(f'generated: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\n')
     if not os.path.isfile(f'{store}/pair.json'):
         raise NoPairJson(store)
-    pair = pair_json(store)
+    pair = load(store)
     name = jq_raw(role_field(pair, 'master', 'name'))
     out.write(f'master: {name} ({jq_raw(role_field(pair, "master", "pane_id"))}) {agent_status(name)}\n')
     for role in ctx.roles:

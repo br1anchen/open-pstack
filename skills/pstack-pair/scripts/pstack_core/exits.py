@@ -10,7 +10,7 @@ from .herdr import agent_status, herdr
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
 from .review import jq_raw
-from .store import pair_json, update_or_jq
+from .store import load, update_or_jq
 from .wait import bash_sleep
 
 
@@ -46,12 +46,12 @@ def shell_owns_foreground(pane):
 def stop_prime_role(store, role):
     """End a Prime role's daemon session and wait for its client to leave the pane: True when the session is stopped and recorded, False (the
     reason on stderr) when the role cannot be cleaned up and its pane must stay for inspection."""
-    from .spawn import field
+    from .store import field
     name = field(store, role, 'name')
     status = agent_status(name)
     if status != 'absent' and not record_prime_session(store, role):
         return False
-    if not isinstance(pair_json(store).get(role), (dict, type(None))):
+    if not isinstance(load(store).get(role), (dict, type(None))):
         # prime_active_session's `field ".$role.session // empty"` asks jq about a role that is not an object: its error is printed and, inside the
         # caller's `||`, the session reads as none
         field(store, role, 'session', empty=True)

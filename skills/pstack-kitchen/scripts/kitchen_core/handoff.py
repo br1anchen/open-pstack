@@ -8,8 +8,8 @@ import time
 
 from pstack_core.collate import glob_sorted, newest
 from pstack_core.errors import Die
-from pstack_core.spawn import field
-from pstack_core.store import alt, header_field, jq_raw, pair_file, pair_json
+from pstack_core.store import field
+from pstack_core.store import alt, header_field, jq_raw, pair_file, load
 
 
 def basename(path):
@@ -67,7 +67,7 @@ def new_handoff(ctx, args):
         raise Die('usage: kitchen.sh new-handoff <store>')
     store = args[0]
     pair_file(store)
-    pair = pair_json(store)
+    pair = load(store)
     path = f'{store}/session-handoff.md'
     # a plain assignment: a .master that is not an object ends the command with jq's status and error, before any file is written
     generation = field(store, 'master', 'generation', check=True, default='1')

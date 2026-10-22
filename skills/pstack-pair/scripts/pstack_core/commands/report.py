@@ -5,7 +5,7 @@ from ..dispatch import fresh_per_brief, take_queued
 from ..errors import Die, Exit
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import (alt, event, expected_report, header_field, open_steers, pair_json, paused_reason, readlink_f, steer_number,
+from ..store import (alt, event, expected_report, header_field, open_steers, load, paused_reason, readlink_f, steer_number,
                      unit_name, update)
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
@@ -56,7 +56,7 @@ def notify(ctx, args):
     word = 'ADVICE' if file.startswith(f'{store}/advice/') else 'REPORT'
     event(store, 'consultant' if word == 'ADVICE' else 'sidekick', word.lower(), file, header_field(file, 'status'))
     require_pair(store)
-    master = jq_raw(section(pair_json(store), 'master').get('name'))
+    master = jq_raw(section(load(store), 'master').get('name'))
     status = agent_status(master)
     if status in ('idle', 'done'):
         code = subprocess.run(['herdr', 'agent', 'prompt', master, f'{ctx.skill} {word} {file}'], stdout=subprocess.DEVNULL, check=False).returncode
@@ -76,7 +76,7 @@ def next_brief(ctx, args):
     if len(args) != 1:
         raise Die('usage: pair.sh next <store>')
     store = args[0]
-    pair = pair_json(store)
+    pair = load(store)
     kind = jq_raw(section(pair, 'sidekick').get('kind'))
     if fresh_per_brief(kind):
         raise Die(f'a {kind} sidekick leaves the queue for the master to dispatch after a fresh session', 5)
@@ -93,8 +93,8 @@ def next_brief(ctx, args):
 
 def sidekick_kind(store, sidekick):
     """field "$store" .sidekick.kind: where `.sidekick` cannot be indexed jq says so (and the value reads empty)."""
-    if not isinstance(pair_json(store).get('sidekick'), (dict, type(None))):
-        from ..spawn import field
+    if not isinstance(load(store).get('sidekick'), (dict, type(None))):
+        from ..store import field
         return field(store, 'sidekick', 'kind')
     return jq_raw(sidekick.get('kind'))
 
@@ -112,7 +112,7 @@ def finish(ctx, args):
         raise Die(f'{report} has no valid status: line (one of {", ".join(FINISH_STATUSES)})', 2)
     if not os.path.isfile(f'{store}/pair.json'):
         raise Exit(2, MISSING_PAIR.format(store=store) * (2 if status == 'done' else 1))
-    pair = pair_json(store)
+    pair = load(store)
     dispatch = alt(pair.get('dispatch'), {})
     dispatched = alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, '-')
     if status == 'done' and report == expected_report(store, jq_raw(dispatched)):
@@ -127,7 +127,7 @@ def finish(ctx, args):
                 raise Die(f'blocking review notes are still open on {unit_name(report)}:\n{ready.open}\n'
                           f'Resolve each as a fixup commit, record it with pair.sh step {store} <sha> <summary> --resolves <n-ids>, then finish again', 7)
             raise Die(f'{unit_name(report)}: {ready.why}; rewrite the report at the unit\'s last commit (head:), then finish again', 7)
-    pair = pair_json(store)
+    pair = load(store)
     sidekick = section(pair, 'sidekick')
     dispatch = alt(pair.get('dispatch'), {})
     current = jq_raw(alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, ''))
@@ -145,7 +145,7 @@ def finish(ctx, args):
         if late:
             print(f'late steer: {late} arrived after this report; record pair.sh progress {store} "steer s{steer_number(late)} late: reported" '
                   'and the master folds it into the next brief')
-    pair = pair_json(store)
+    pair = load(store)
     sidekick = section(pair, 'sidekick')
     if status == 'done' and fresh_per_brief(sidekick_kind(store, sidekick)):
         if jq_raw(alt(sidekick.get('rotation_required'), False)) == 'true':

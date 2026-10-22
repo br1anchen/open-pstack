@@ -3,6 +3,7 @@ import json
 import os
 import re
 import stat
+import subprocess
 import time
 
 from .errors import Die, Exit
@@ -152,10 +153,61 @@ def pair_file(store):
     return path
 
 
-def pair_json(store):
-    """pair.json, the read side of field(). Writes go through update() in this module, under the same .pair.lock as bash json_update."""
+def load(store):
+    """pair.json, the read side of every field. Writes go through update() in this module, under the same .pair.lock as bash json_update.
+    A file that does not parse, or is not an object, is one message: pair.json is damaged (plan 043 decision b)."""
     with open(pair_file(store), 'rb') as f:
-        return json.load(f)
+        try:
+            doc = json.load(f)
+        except ValueError as e:
+            raise Die(f'pair.json is damaged: {e}', 1)
+    if not isinstance(doc, dict):
+        raise Die(f'pair.json is damaged: expected an object, found {type(doc).__name__}', 1)
+    return doc
+
+
+def get(store, path, default=None):
+    """The value at a dotted path ('sidekick.kind') in pair.json; default when a step is absent or not an object."""
+    value = load(store)
+    for key in path.split('.'):
+        if not isinstance(value, dict) or key not in value:
+            return default
+        value = value[key]
+    return value
+
+
+def field(store, role, key, check=False, empty=False, default=None):
+    """jq -r '.role.key': a role that is not an object makes jq itself answer (its error on stderr, an empty value). With check, that failure
+    ends the command with jq's status. With empty, the filter is '.role.key // empty'; with default, '.role.key // "<default>"'."""
+    value = load(store).get(role)
+    if value is None or isinstance(value, dict):
+        found = (value or {}).get(key)
+        if default is not None:
+            return jq_raw(alt(found, default))
+        return jq_raw(alt(found, '')) if empty else jq_raw(found)
+    suffix = f' // "{default}"' if default is not None else (' // empty' if empty else '')
+    r = subprocess.run(['jq', '-r', f'.{role}.{key}' + suffix, f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
+    if check and r.returncode:
+        raise Exit(r.returncode)
+    return text_of(r.stdout, True)
+
+
+def text_of(raw, strip=False):
+    """Bytes as the str a command substitution gives; strip drops the trailing newlines."""
+    text = raw.decode('utf-8', 'surrogateescape')
+    return text.rstrip('\n') if strip else text
+
+
+def now():
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+
+
+def env_int(name, default):
+    """${NAME:-default} as a whole number; anything else is a usage error."""
+    value = bash_int(os.environ.get(name) or str(default))
+    if value is None:
+        raise Die(f'{name} must be a whole number', 1)
+    return value
 
 
 def alt(value, default=''):
@@ -174,7 +226,7 @@ def jq_raw(value):
 
 def dispatched_brief(store):
     """field "$store" '.dispatch.brief // empty'"""
-    dispatch = alt(pair_json(store).get('dispatch'), {})
+    dispatch = alt(load(store).get('dispatch'), {})
     brief = alt(dispatch.get('brief') if isinstance(dispatch, dict) else None, '')
     return brief if isinstance(brief, str) else json.dumps(brief)
 
@@ -244,7 +296,7 @@ def open_steers(store):
     unit = unit_name(brief)
     prog = f'{store}/progress/{unit}.md'
     found = []
-    for f in alt(pair_json(store).get('notice_steers'), []):
+    for f in alt(load(store).get('notice_steers'), []):
         name = os.path.basename(f)
         if not os.path.isfile(f) or not re.fullmatch(re.escape(unit) + r'-s[0-9].*\.md', name, re.S):
             continue
@@ -260,7 +312,7 @@ def open_steers(store):
 def note_notice(store):
     """The blocking notes parked for a Devin sidekick (.notice_notes), once: each is printed and taken off the list."""
     from . import cli
-    parked = [f for f in alt(pair_json(store).get('notice_notes'), []) if os.path.isfile(f)]
+    parked = [f for f in alt(load(store).get('notice_notes'), []) if os.path.isfile(f)]
     if not parked:
         return ''
     update(store, lambda doc: doc.pop('notice_notes', None))

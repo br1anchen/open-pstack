@@ -31,7 +31,7 @@ from pstack_core.panes import TRUST_RE, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
-from pstack_core.spawn import field
+from pstack_core.store import field
 from pstack_core.store import bash_int, event, expected_report, header_field, pair_file, readlink_f, update_or_jq
 from pstack_core.variant import commit_of
 

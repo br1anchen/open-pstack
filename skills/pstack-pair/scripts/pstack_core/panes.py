@@ -8,7 +8,7 @@ import sys
 from .errors import Die, Exit
 from .herdr import herdr
 from .review import jq_raw
-from .store import pair_json
+from .store import load
 from .wait import bash_sleep, core_line
 
 TRUST_RE = re.compile('trust this folder|project you created or one you trust|do you trust the (files|contents)', re.IGNORECASE)
@@ -53,7 +53,7 @@ def pick_direction(pane):
 def new_pane(store, role, anchor, direction, cwd, env=()):
     """A new pane for a role: a split beside the anchor, or, with placement tab (spawn --tab, or PSTACK_PLACEMENT=tab), a tab of its own in the
     master's workspace, labelled with the role; each KEY=VALUE of env is an --env for the launched process. Prints where it went and returns its id."""
-    pair = pair_json(store)
+    pair = load(store)
     slug = jq_raw(pair.get('slug'))
     env_args = [part for kv in env for part in ('--env', kv)]
     if pair.get('placement') == 'tab':

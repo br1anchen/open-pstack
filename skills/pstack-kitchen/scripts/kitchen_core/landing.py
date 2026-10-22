@@ -15,8 +15,8 @@ import tempfile
 from pstack_core.collate import glob_sorted
 from pstack_core.errors import Die
 from pstack_core.review import trunk_ref
-from pstack_core.spawn import field
-from pstack_core.store import bash_int, header_field, jq_raw, new_from_template, pair_file, pair_json
+from pstack_core.store import field
+from pstack_core.store import bash_int, header_field, jq_raw, new_from_template, pair_file, load
 from pstack_core.variant import commit_of
 
 from . import kpy
@@ -139,7 +139,7 @@ def manifest_warning(store, verified_base, current_base, head=''):
 def landing_field(store, key):
     """`field "$store" '.landing.<key> // empty'`: spawn.field for an object pair.json, jq itself for a document that is not one."""
     try:
-        if isinstance(pair_json(store), dict):
+        if isinstance(load(store), dict):
             return field(store, 'landing', key, empty=True)
     except (ValueError, OSError):
         pass

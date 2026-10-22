@@ -1,6 +1,6 @@
 from ..errors import Die, Exit
-from ..spawn import field, record_fallback, set_placement, spawn_sidekick
-from ..store import pair_file
+from ..spawn import record_fallback, set_placement, spawn_sidekick
+from ..store import field, pair_file
 from ..wait import core_line, die_with_the_shell
 from .report import in_herdr
 

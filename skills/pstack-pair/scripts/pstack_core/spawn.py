@@ -17,7 +17,7 @@ from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .review import jq_raw
 from .send import submit_typed, visible_without_blanks
-from .store import alt, event, pair_json, update, update_or_jq
+from .store import alt, event, field, load, update, update_or_jq
 from .wait import bash_sleep, die_with_the_shell
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
@@ -26,23 +26,6 @@ FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--ses
 def section(pair, role):
     value = pair.get(role)
     return value if isinstance(value, dict) else {}
-
-
-def field(store, role, key, check=False, empty=False, default=None):
-    """jq -r '.role.key': a role that is not an object makes jq itself answer (its error on stderr, an empty value), as the bash did. With check,
-    that failure ends the command with jq's status, as a failing assignment does where the caller has errexit on. With empty, the filter is
-    '.role.key // empty'; with default, '.role.key // "<default>"'."""
-    value = pair_json(store).get(role)
-    if value is None or isinstance(value, dict):
-        found = (value or {}).get(key)
-        if default is not None:
-            return jq_raw(alt(found, default))
-        return jq_raw(alt(found, '')) if empty else jq_raw(found)
-    suffix = f' // "{default}"' if default is not None else (' // empty' if empty else '')
-    r = subprocess.run(['jq', '-r', f'.{role}.{key}' + suffix, f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
-    if check and r.returncode:
-        raise Exit(r.returncode)
-    return r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
 
 
 def update_role(store, role, changes, program, *jq_args, errexit_off=True):
@@ -108,7 +91,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         if not agent_args and not agents.asks_no_approvals(kind, permission):
             stderr_of(f'no permission translation for kind {kind}; pass native flags after -- to match the master ({master_mode})\n')
             permission = 'untranslated'
-    cwd = jq_raw(pair_json(store).get('cwd'))
+    cwd = jq_raw(load(store).get('cwd'))
     if not agents.has_trust_arg(args):
         agent_args += agents.trust_args(kind)
     if not agents.has_mcp_arg(args):
@@ -122,7 +105,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
     name = field(store, role, 'name')
     status = agent_status(name)
     if status != 'absent':
-        if jq_raw(alt(section(pair_json(store), role).get('bootstrap_pending'), False)) == 'true':
+        if jq_raw(alt(section(load(store), role).get('bootstrap_pending'), False)) == 'true':
             if not os.path.isfile(f'{store}/{ready}'):
                 stderr_of(f'{role} bootstrap still pending: {ready} is missing\n')
                 return 4
@@ -246,7 +229,7 @@ def entry_spawn_role(ctx, args):
 
 def set_placement(store, want=''):
     """How roles get their panes: --tab or --split from spawn, else what the store has, else PSTACK_PLACEMENT, else split."""
-    if not want and jq_raw(alt(pair_json(store).get('placement'), '')) == '':
+    if not want and jq_raw(alt(load(store).get('placement'), '')) == '':
         want = os.environ.get('PSTACK_PLACEMENT') or 'split'
     if not want:
         return
@@ -325,7 +308,7 @@ def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pan
         if code != 0:
             reason = f'preflight: {reason or "no answer"}'
             sys.stderr.write(f'{kind} failed {reason}\n')
-            fallback = section(pair_json(store), 'sidekick').get('fallback')
+            fallback = section(load(store), 'sidekick').get('fallback')
             name = jq_raw(alt(fallback.get('kind'), '')) if isinstance(fallback, dict) else ''
             if not name or name == kind:
                 raise Die(f'no fallback recorded for a failed {kind}; pass --fallback KIND or fix the agent', 2)

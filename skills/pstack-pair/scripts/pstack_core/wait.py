@@ -17,7 +17,7 @@ from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
 from .review import jq_raw, review_base
-from .store import acquire_lock, alt, bash_int, cut_chars, event, header_field, pair_json, paused_reason, unit_name, update
+from .store import acquire_lock, alt, bash_int, cut_chars, event, header_field, load, paused_reason, unit_name, update
 
 
 class WaitResult:
@@ -192,8 +192,9 @@ def core_line(text, after='cmd_wait() {', path=None):
     return path, definition
 
 
-def shell_error(line_text, message):
-    path, number = core_line(line_text)
+def shell_error(text, message, after='cmd_wait() {', path=None):
+    """An error bash prints for the line holding text, in the function starting with `after` (of the script at path), then ends with status 1."""
+    path, number = core_line(text, after, path)
     raise Exit(1, f'{path}: line {number}: {message}\n')
 
 
@@ -333,7 +334,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
     """finish_wait(): print the outcome of a wait and return the exit code the bash exits with."""
     write = sys.stdout.write
     clock = now_s if now is None else (lambda: now)
-    from .spawn import field
+    from .store import field
     name = lambda: field(store, 'sidekick', 'name')
     if result.code != 0:
         state = error_state(result.err)
@@ -404,7 +405,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         event(store, 'master', 'wake', sent, 'idle')
         # Since notify marks a report it announced, this is the normal path to a report the master already has by message: show what the
         # report path would add. A plan response or advice carries neither.
-        record = alt(pair_json(store).get('sent'), {})
+        record = alt(load(store).get('sent'), {})
         if isinstance(record, dict) and record.get('kind') == 'BRIEF':
             write(queue_note(store, shown))
             write(review_delta(store, shown))
@@ -431,8 +432,8 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
 
 def sidekick_activity(store, now):
     """checkin.sidekick_activity, whose first read, field .sidekick.pane_id, prints jq's error when `.sidekick` cannot be indexed."""
-    from .spawn import field
-    if not isinstance(pair_json(store).get('sidekick'), (dict, type(None))):
+    from .store import field
+    if not isinstance(load(store).get('sidekick'), (dict, type(None))):
         field(store, 'sidekick', 'pane_id', empty=True)
     return _sidekick_activity(store, now)
 
@@ -440,15 +441,15 @@ def sidekick_activity(store, now):
 def hint_for(store):
     """provider_hint where the bash has errexit on: its first read, field .sidekick.name, ends the command with jq's status when `.sidekick`
     cannot be indexed (a string, an array, a number or a boolean)."""
-    from .spawn import field
-    if not isinstance(pair_json(store).get('sidekick'), (dict, type(None))):
+    from .store import field
+    if not isinstance(load(store).get('sidekick'), (dict, type(None))):
         field(store, 'sidekick', 'name', check=True)
     return provider_hint(store)
 
 
 def sent_file(store):
     """`.sent.file` as jq's `// default` leaves it: None when missing, null or false; an empty string stays an empty string."""
-    sent = alt(pair_json(store).get('sent'), {})
+    sent = alt(load(store).get('sent'), {})
     value = alt(sent.get('file') if isinstance(sent, dict) else None, None)
     return None if value is None else jq_raw(value)
 
@@ -679,6 +680,6 @@ def wait(ctx, args):
         raise Die(f'unknown option {rest[0]}')
     if not os.path.isfile(f'{store}/pair.json'):
         missing_pair(store)
-    from .spawn import field
+    from .store import field
     name = field(store, 'sidekick', 'name')
     return owned_wait(ctx, store, name, timeout, interval)
