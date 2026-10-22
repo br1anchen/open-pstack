@@ -154,7 +154,7 @@ Principles are one-rule skills that `/poteto-mode` reads and cites in its replie
 
 | Symptom | Fix |
 |---|---|
-| The mode stopped applying after a few turns | It was started with Enter. Start it as a Custom Mode, or start each task with `/poteto-mode`. |
+| The mode stopped applying after a few turns | It was started once and lost from context. Start each task with `/poteto-mode`, in your runtime's skill syntax. |
 | A question got treated as the next step of the last task | Say "new task", or say the turn doesn't need the mode. |
 | A new model choice had no effect | The rule from `/setup-pstack` applies to new chats. Start one. |
 | Runs cost more than expected | See the cost paragraph under Get set up. |
