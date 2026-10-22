@@ -8,10 +8,9 @@ import time
 from ..errors import Die, Exit, prog
 from ..herdr import agent_status, herdr, pane_text
 from ..replies import file_mtime
-from ..store import TEXT, read_text, env_float, env_int, event, field, header_field, load, tdiv, update
+from ..store import TEXT, read_text, env_float, env_int, event, field, header_field, tdiv, update
 from ..wait import WaitResult, end_with_parent, finish_wait, wait_opts
 from .report import in_herdr, require_pair
-from .status import latest
 
 DEFAULT_TIMEOUT = 300000
 

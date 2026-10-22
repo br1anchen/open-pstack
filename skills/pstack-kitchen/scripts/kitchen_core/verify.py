@@ -33,13 +33,12 @@ from pstack_core.store import damaged, env_float, env_int, event, expected_repor
 from pstack_core.herdr import parse, reply_at
 from pstack_core.variant import commit_of
 
-from . import kpy
 from .kpy import Kitchen
 from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
 from .landing import is_landing, latest_landing_verdict, manifest_warning
 from .reviews import warn_unreviewed
-from .units import captured, StackIndex, Verdict, brief_or_nothing, git, git_root, heads_in, inclusion, is_ancestor, landing_base, unit_brief, unit_head, unit_range
+from .units import captured, StackIndex, Verdict, brief_or_nothing, git, git_root, heads_in, inclusion, is_ancestor, landing_base, unit_brief, unit_range
 from .verify_wait import Waiter
 
 USAGE = ('usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | '

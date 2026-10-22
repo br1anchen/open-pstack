@@ -2,7 +2,6 @@
 Returns 0, 3 (the bootstrap did not settle) or 4 (it settled without the ready file); a die is a Die."""
 import io
 import os
-import re
 import subprocess
 import sys
 import time
@@ -15,7 +14,7 @@ from .panes import await_file, new_pane, refuse_untrusted
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .send import submit_typed, visible_without_blanks
-from .store import TEXT, count, env_float, env_int, event, field, get, listing, load, member, names, peek, read_flag, text_at, update
+from .store import TEXT, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
 

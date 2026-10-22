@@ -1,7 +1,6 @@
 """What a sidekick that stopped without a report may have hit: its model provider's errors, read from the pane,
 the agent's own session log, or herdr."""
 import glob
-import json
 import os
 import re
 
@@ -13,6 +12,7 @@ PROVIDER_ERROR_RE = ('capacity issues|no api providers|no api key found|unauthor
                      'billing verification failed|billing_error')
 
 
+# The window is greedy, so where several matches overlap the one taken is the last, where grep -o took the longest.
 def error_context(text, before, after):
     """Every provider error in text with up to `before` characters ahead of it and `after` behind it on its line, matches that overlap taken as one."""
     pattern = re.compile(f'.{{0,{before}}}(?:{PROVIDER_ERROR_RE}).{{0,{after}}}', re.IGNORECASE)

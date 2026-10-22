@@ -5,7 +5,7 @@ import os
 import re
 
 from .review import noted_through, review_base, steps_file
-from .store import count, expected_report, field, header_field, int_or_none, last_line, listing, load, names, peek, read_text, suffix_number, text_at, unit_name, update
+from .store import count, expected_report, field, header_field, int_or_none, last_line, load, names, peek, read_text, suffix_number, unit_name, update
 from .commands.status import latest
 
 

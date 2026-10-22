@@ -5,8 +5,6 @@ Every path ends in Exit (or Die). The `closing` mode is the one the next `verify
 
 import json
 import os
-import re
-import subprocess
 import sys
 import time
 

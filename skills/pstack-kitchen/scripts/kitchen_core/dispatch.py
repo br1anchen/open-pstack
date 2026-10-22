@@ -52,9 +52,11 @@ def dispatch(ctx, args):
         raise Die('usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]')
     store, brief = args[0], args[1]
     # every number flag is read before the command changes anything
-    for flag, value in zip(args[2:], args[3:]):
+    for i, flag in enumerate(args[2:], 2):
         if flag in NUMBER_FLAGS:
-            whole_number(value, flag, NUMBER_FLAGS[flag])
+            if i + 1 >= len(args):
+                raise Die(f'{flag} needs a value')
+            whole_number(args[i + 1], flag, NUMBER_FLAGS[flag])
     # A brief path may be given relative to the store (briefs/NNN-x.md).
     if not os.path.isfile(brief) and os.path.isfile(f'{store}/{brief}'):
         brief = f'{store}/{brief}'

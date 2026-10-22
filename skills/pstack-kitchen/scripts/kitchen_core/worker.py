@@ -23,8 +23,13 @@ def write_rc(job, rc):
 
 
 def step(repo, py, job, base, head, config=''):
+    path = f'{job}/profiles'
+    if not os.path.isfile(path):
+        print(f'no profiles file: {path}')
+        write_rc(job, 2)
+        return
     rc = 0
-    with open(f'{job}/profiles') as f:
+    with open(path) as f:
         profiles = [line for line in f.read().split('\n') if line]
     for profile in profiles:
         if kitchen(py, repo, config, 'gate', profile, 'fast', '--role', 'sidekick', '--base', base):

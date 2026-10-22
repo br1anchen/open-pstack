@@ -5284,7 +5284,7 @@ class CoreTests(unittest.TestCase):
         ready = 'end_with_parent()\nprint("ready", flush=True)\nsignal.pause()\n'
         for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             # a gate that runs as a background job hands its children SIGINT ignored; the signal under test must be deliverable
-            proc = self.end_with_parent_process(ready, preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+            proc = self.end_with_parent_process(ready, preexec_fn=lambda: [signal.signal(each, signal.SIG_DFL) for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)])
             self.addCleanup(proc.kill)
             self.assertEqual(proc.stdout.readline(), 'ready\n')
             proc.send_signal(number)
@@ -5671,6 +5671,25 @@ class CoreTests(unittest.TestCase):
                 self.assertEqual(kpy.run(str(repo), args)[0], 0, args)
                 self.assertEqual(dict(os.environ), snapshot, args)
         self.assertEqual(dict(os.environ), before)
+
+    def test_a_steer_scope_line_with_a_quote_and_no_quoted_string_adds_nothing_and_the_scan_goes_on(self):
+        from pstack_core import checkin
+        st = self.path / 'steerscope'
+        (st / 'steers').mkdir(parents=True)
+        (st / 'steers/001-x-s1.md').write_text('# S\n\nkind: scope\nscope effect: may write "\n')
+        (st / 'steers/001-x-s2.md').write_text('# S\n\nkind: scope\nscope effect: may write `src/a.py`\n')
+        (st / 'steers/001-x-s3.md').write_text('# S\n\nkind: scope\nscope effect: may write "docs/b.md" "docs/c.md" \u2014 a "note"\n')
+        self.assertEqual(checkin.steer_scope_entries(str(st), '001'), ['src/a.py', 'docs/b.md', 'docs/c.md'])
+
+    def test_notify_with_no_store_writes_nothing_to_the_working_directory(self):
+        here = self.path / 'cwd-for-notify'
+        here.mkdir()
+        report = self.path / 'a-report.md'
+        report.write_text('# R\n\nstatus: done\n')
+        env = {**self.env, 'FAKE': str(self.path), 'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'XDG_STATE_HOME': str(self.path / 'state'), 'HOME': str(self.path)}
+        r = subprocess.run([str(scripts / 'pair.sh'), 'notify', '', str(report)], env=env, cwd=here, capture_output=True, text=True, check=False, timeout=120)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertEqual(sorted(p.name for p in here.iterdir()), [])
 
     def test_a_dispatch_to_a_store_with_no_cwd_records_an_empty_head_and_runs_no_git(self):
         st = self.claim_store('nocwd', None)

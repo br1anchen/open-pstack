@@ -42,8 +42,8 @@ def notify(ctx, args):
     if not os.path.isfile(file):
         raise Die(f'file not found: {file}')
     word = 'ADVICE' if file.startswith(f'{store}/advice/') else 'REPORT'
-    event(store, 'consultant' if word == 'ADVICE' else 'sidekick', word.lower(), file, header_field(file, 'status'))
     require_pair(store)
+    event(store, 'consultant' if word == 'ADVICE' else 'sidekick', word.lower(), file, header_field(file, 'status'))
     master = field(store, 'master', 'name')
     status = agent_status(master)
     if status in ('idle', 'done'):

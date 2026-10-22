@@ -6,7 +6,6 @@ The bash wrappers called the core's queue and discuss in a child process; here t
 import contextlib
 import io
 import os
-import sys
 
 from pstack_core.commands import queue as core_queue
 from pstack_core.commands import send as core_send

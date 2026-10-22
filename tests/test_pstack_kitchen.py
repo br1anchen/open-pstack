@@ -1751,6 +1751,10 @@ esac
             self.assertEqual(self.state(), before, (flag, word))
             after = (self.fake / 'calls.log').read_text() if (self.fake / 'calls.log').exists() else ''
             self.assertNotIn('agent prompt', after[len(calls):], (flag, word))
+        for flag in ('--max', '--timeout', '--every'):
+            out = self.run_sh('dispatch', str(self.store), str(b), flag, code=1)
+            self.assertIn(f'{flag} needs a value', out)
+            self.assertEqual(self.state(), before, flag)
 
     def test_a_verify_job_under_the_old_cksum_key_is_ignored_and_never_collides_with_the_crc32_key(self):
         """Plan 043 U5 switched the Verify job key from POSIX cksum to crc32. A completed job directory under the old key (rc 0) does not make a
@@ -2106,6 +2110,18 @@ esac
         self.assertEqual(self.run_worker('step', failing_policy), '2\n')
         self.assertEqual(self.run_worker('step', 'sys.exit(0)\n'), '0\n')
         self.assertEqual(self.run_worker('step', failing_gate, profiles='\n'), '0\n')
+
+    def test_a_step_with_no_profiles_file_runs_no_gate_and_is_rc_2_with_the_reason_in_the_out_log(self):
+        job = self.store / 'job'
+        shutil.rmtree(job, ignore_errors=True)
+        (job / 'logs').mkdir(parents=True)
+        stub = self.store / 'stub.py'
+        stub.write_text('import sys\nopen(sys.argv[0] + ".ran", "w").close()\n')
+        worker = root / 'skills/pstack-kitchen/scripts/kitchen_core/worker.py'
+        r = subprocess.run([sys.executable, '-I', str(worker), 'step', str(self.repo), str(stub), str(job), 'base', 'head'], capture_output=True, text=True, check=False)
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, f'no profiles file: {job}/profiles\n', ''))
+        self.assertEqual((job / 'rc').read_text(), '2\n')
+        self.assertFalse((self.store / 'stub.py.ran').exists())
 
     def test_the_worker_exits_1_and_writes_nothing_when_the_repo_is_gone(self):
         job = self.store / 'job'

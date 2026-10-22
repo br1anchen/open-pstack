@@ -10,7 +10,7 @@ import re
 import sys
 
 from pstack_core.checkin import scope_entries
-from pstack_core.errors import Die, Exit
+from pstack_core.errors import Die
 from pstack_core.herdr import agent_status
 from pstack_core.store import field, header_field, pair_file, read_text, write_text
 

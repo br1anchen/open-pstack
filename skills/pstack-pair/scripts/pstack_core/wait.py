@@ -11,7 +11,7 @@ import time
 from .checkin import checkin
 from .checkin import sidekick_activity
 from .errors import Die, Exit, prog
-from .herdr import agent_state, agent_status, herdr, error_code, error_state, pane_busy, reply_at
+from .herdr import agent_state, agent_status, herdr, error_code, error_state, pane_busy
 from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)

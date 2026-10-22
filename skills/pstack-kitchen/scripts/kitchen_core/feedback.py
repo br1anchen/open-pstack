@@ -17,8 +17,7 @@ from pstack_core.herdr import reply_at
 from pstack_core.replies import file_mtime
 from pstack_core.store import read_text, write_text, damaged, field, event, header_field, json_type, listing, load, pair_file, text_at
 
-from . import kpy
-from .ledger import counters, retro_line, slug_of
+from .ledger import counters, retro_line
 
 USAGE_FILE = 'usage: kitchen.sh feedback <store> <file>'
 USAGE_FEEDBACK = 'usage: kitchen.sh feedback <store> <file> | --inbox | --close <id> <commit|none> <note>'
