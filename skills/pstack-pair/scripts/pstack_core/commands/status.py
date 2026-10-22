@@ -22,7 +22,7 @@ class Tee:
         try:
             self.file = open(path, 'w', encoding='utf-8')
         except OSError as e:
-            sys.stderr.write(f'tee: {path}: {os.strerror(e.errno)}\n')
+            sys.stderr.write(f'{prog()}: cannot write {path}: {os.strerror(e.errno)}\n')
             sys.stderr.flush()
             self.file, self.failed = None, True
 

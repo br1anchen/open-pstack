@@ -401,7 +401,7 @@ def unit_range(store, units, covered=(), range_base=''):
     report = expected_report(store, brief_or_nothing(store, last))
     if not os.path.exists(report):
         sys.stdout.flush()
-        sys.stderr.write(f'grep: {report}: No such file or directory\n')
+        sys.stderr.write(f'{prog()}: cannot read {report}: No such file or directory\n')
     head = header_field(report, 'head')
     if not head:
         raise Die(f"unit {last}'s report has no head:")

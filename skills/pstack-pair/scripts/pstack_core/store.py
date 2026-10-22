@@ -90,8 +90,8 @@ def write_text(path, text):
 
 
 def missing_pair(store):
-    """The two lines a command prints for a store with no pair.json: the script's message, then the one a jq that read the missing file used to add."""
-    return f'{prog()}: no pair.json in {store}; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'
+    """The line a command prints for a store with no pair.json."""
+    return f'{prog()}: no pair.json in {store}; run: pair.sh init <slug>\n'
 
 
 def pair_file(store):

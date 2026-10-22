@@ -118,10 +118,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         try:
             k = json.loads(last[0])
         except ValueError:
-            # json_update redirects jq's output to pair.json.tmp before jq refuses the argument, and leaves the empty file.
-            open(f'{store}/pair.json.tmp', 'w').close()
-            raise Exit(2, 'jq: invalid JSON text passed to --argjson\nUse jq --help for help with command-line options,\n'
-                          'or see the jq manpage, or online docs at https://jqlang.org\n')
+            raise Exit(2, f'{prog()}: the last step row does not start with a JSON step number: {last[0]!r}\n')
         update(store, lambda doc: set_shown(doc, unit_name(running), k))
         event(store, 'master', 'wake', running, f'steps:{first}')
         return 0
@@ -167,7 +164,7 @@ def sent_file(store):
 def status_of(report):
     """header_field "$report" status, whose grep complains on stderr when the file is gone."""
     if not os.path.isfile(report):
-        sys.stderr.write(f'grep: {report}: No such file or directory\n')
+        sys.stderr.write(f'{prog()}: cannot read {report}: No such file or directory\n')
     return header_field(report, 'status')
 
 

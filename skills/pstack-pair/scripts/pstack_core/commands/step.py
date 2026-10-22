@@ -83,7 +83,7 @@ def step(ctx, args, now=None):
         try:
             count = sum(1 for line in read_text(file).split('\n') if line)
         except OSError as e:
-            sys.stderr.write(f'grep: {file}: {os.strerror(e.errno)}\n')
+            sys.stderr.write(f'{prog()}: cannot read {file}: {os.strerror(e.errno)}\n')
             raise Exit(2)
         if count == 0:
             raise Exit(1)

@@ -4820,7 +4820,7 @@ class CoreTests(unittest.TestCase):
             'a paused store': (5, 'the store is paused (lunch)'),
             'a brief with a placeholder': (1, 'still has unfilled placeholders'),
             'too few arguments': (1, 'usage: kitchen.sh queue <store> <brief-path> [--replace] | kitchen.sh queue <store> --clear'),
-            'no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'),
+            'no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\n'),
             'a sidekick that is a string': (1, 'pair.json is damaged: sidekick is string, not an object'),
             'an escalated brief and no pair.json': (1, 'no pair.json in <T>/st; run: pair.sh init <slug>'),
         }
@@ -5145,7 +5145,7 @@ class CoreTests(unittest.TestCase):
             got = self.kitchen_world(f'nopair{n}', self.launch_world(args=args, nopair=True, files=files))
             self.assertEqual(got['rc'], rc, name)
             if name == 'dispatch':
-                self.assertEqual((got['stdout'], got['stderr']), ('', 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\njq: error: Could not open file : No such file or directory\n'))
+                self.assertEqual((got['stdout'], got['stderr']), ('', 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\n'))
             self.assertEqual(got['stderr'].count('pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>\n'), 1, f'{name}: {got["stderr"]}')
 
     def test_dispatch_behaviour(self):

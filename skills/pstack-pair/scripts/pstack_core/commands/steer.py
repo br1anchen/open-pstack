@@ -65,8 +65,7 @@ def steer(ctx, args):
     try:
         text = read_text(steer_path)
     except OSError as e:
-        # grep says why it could not read the file, then the check fails
-        sys.stderr.write(f'grep: {steer_path}: {e.strerror}\n')
+        sys.stderr.write(f'{prog()}: cannot read {steer_path}: {e.strerror}\n')
         raise Die(f'not a steer file: {steer_path}')
     if not re.search(r'(?m)^## Direction', text):
         raise Die(f'not a steer file: {steer_path}')
