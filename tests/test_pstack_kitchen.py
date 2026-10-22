@@ -2028,6 +2028,67 @@ esac
         self.assertIn('2 failed checks in a row; write the report as blocked', out)
         self.assertEqual(len((self.store / 'steps/001-util.tsv').read_text().splitlines()), 2)
 
+    def job(self):
+        """The one job directory of a step on unit 001-util."""
+        (found,) = (self.store / 'steps/jobs').glob('001-util-[0-9a-f]*')
+        return found
+
+    def scrub(self, text):
+        return re.sub(r'log: \S+/(\S+\.log)', r'log: <logs>/\1', text)
+
+    def test_a_step_and_a_finish_write_the_out_log_and_rc_the_bash_workers_wrote(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, "grep -q 'X = 2' src/util.py")
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        sha = self.commit('one')
+        self.run_sh('step', str(self.store), sha, 'one')
+        step_job = self.job()
+        self.assertEqual((self.scrub((step_job / 'out.1').read_text()), (step_job / 'rc').read_text()),
+                         ('app fast: pass\n  exit 0 0.0s test ! -e FAIL  log: <logs>/app-fast-0.log\npolicy: clean\n', '0\n'))
+        self.done(b, sha)
+        self.run_sh('finish', str(self.store), str(self.store / 'reports' / b.name))
+        (finish_job,) = (self.store / 'steps/jobs').glob('001-util-verify-*')
+        self.assertEqual(((finish_job / 'out').read_text().replace(str(finish_job), '<job>'), (finish_job / 'rc').read_text()),
+                         ("verify: pass (1 commands from the brief)\n  exit 0 0.0s grep -q 'X = 2' src/util.py  log: <job>/logs/verify-0.log\n", '0\n'))
+
+    def test_a_failing_gate_a_policy_failure_and_a_failing_verify_command_leave_rc_2(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, 'exit 3')
+        self.dispatch(b)
+        self.write('FAIL', 'x\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        sha = self.commit('gate fails')
+        self.run_sh('step', str(self.store), sha, 'gate', code=2)
+        self.assertEqual((self.job() / 'rc').read_text(), '2\n')
+        self.assertIn('app fast: FAIL', (self.job() / 'out.1').read_text())
+        (self.repo / 'FAIL').unlink()
+        self.write('src/util.py', 'print(3)\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        sha = self.commit('policy fails')
+        self.run_sh('step', str(self.store), sha, 'policy', code=2)
+        policy_job = max((self.store / 'steps/jobs').glob('001-util-*'), key=lambda d: (d / 'rc').stat().st_mtime_ns)
+        self.assertEqual((policy_job / 'rc').read_text(), '2\n')
+        self.assertIn('app fast: pass', (policy_job / 'out.1').read_text())
+        self.assertIn('[no-print]', (policy_job / 'out.1').read_text())
+        self.done(b, sha)
+        self.run_sh('finish', str(self.store), str(self.store / 'reports' / b.name), code=2)
+        (finish_job,) = (self.store / 'steps/jobs').glob('001-util-verify-*')
+        # brief-verify's own exit code, 2, as at the dispatch head; the command's 3 is in the verify log
+        self.assertEqual((finish_job / 'rc').read_text(), '2\n')
+        self.assertIn('exit 3', (finish_job / 'out').read_text())
+
+    def test_the_worker_exits_1_and_writes_nothing_when_the_repo_is_gone(self):
+        job = self.store / 'job'
+        job.mkdir()
+        (job / 'profiles').write_text('app\n')
+        worker = root / 'skills/pstack-kitchen/scripts/kitchen_core/worker.py'
+        gone = str(self.store / 'no-such-repo')
+        for argv in (['step', gone, 'kitchen.py', str(job), 'b', 'h'], ['finish', gone, 'kitchen.py', 'brief.md', str(job)]):
+            r = subprocess.run([sys.executable, '-I', str(worker), *argv], capture_output=True, text=True, check=False)
+            self.assertEqual((r.returncode, r.stdout, r.stderr, sorted(p.name for p in job.iterdir())), (1, '', '', ['profiles']), argv[0])
+
     def test_step_refuses_a_sha_that_is_not_head_and_a_dirty_tracked_tree_before_any_gate(self):
         # B3: the gates run on the checkout, so a step must name HEAD and the tracked tree must be clean.
         b = self.brief('001', 'util', ['src/**', 'tests/**'])

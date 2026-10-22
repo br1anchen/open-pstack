@@ -2,14 +2,14 @@
 
 A step is recorded only once the touched profiles' fast gates and the policy check pass on it; finish lets a done report through only once the brief's
 Verify commands, rerun by the kitchen, exit 0. Both start their checks detached and return within KITCHEN_STEP_SLICE_S seconds (default 100); running the
-same command again waits on the same job. A detached run is a `bash -c` script started in a session of its own (the bash used setsid) with the script's argv,
+same command again waits on the same job. A detached run is worker.py started in a session of its own with its argv,
 PSTACK_KITCHEN_RUN, its working directory, standard input from /dev/null and its output in the job's log file; the Python parent never waits for it, and it
 writes the job's `rc` file when done. A step's job directory holds out.N (one log per run) and `out` (a link to the latest), rc, consumed, classify.json,
 profiles and base; finish's holds out, rc, consumed and logs/.
 
-kitchen.py is reached through kpy (in process) for `--json classify`; the detached scripts run it as `python3 kitchen.py` exactly as the bash did, since they
-outlive this process. None of the in-process calls writes os.environ (kitchen.py :745, :771, :1023, :1038 belong to `gate` and `brief-verify`, which only the
-detached scripts run)."""
+kitchen.py is reached through kpy (in process) for `--json classify`; worker.py runs it as a child process, since it
+outlives this process. None of the in-process calls writes os.environ (kitchen.py :745, :771, :1023, :1038 belong to `gate` and `brief-verify`, which only
+worker.py runs)."""
 
 import json
 import os
@@ -32,23 +32,7 @@ from .classify import brief_kitchen
 from .units import git, recorded_head
 from .wait import poll_sleep
 
-STEP_SCRIPT = '''
-\t\t\tcd "$1" || exit 1
-\t\t\trc=0
-\t\t\twhile IFS= read -r p; do
-\t\t\t\t[ -n "$p" ] || continue
-\t\t\t\tpython3 "$2" --repo "$1" ${6:+--config "$6"} gate "$p" fast --role sidekick --base "$4" || rc=2
-\t\t\tdone <"$3/profiles"
-\t\t\tpython3 "$2" --repo "$1" ${6:+--config "$6"} policy --base "$4" --head "$5" || rc=2
-\t\t\tprintf "%s\\n" "$rc" >"$3/rc"
-\t\t'''
-
-FINISH_SCRIPT = '''
-\t\t\tcd "$1" || exit 1
-\t\t\trc=0
-\t\t\tpython3 "$2" --repo "$1" ${5:+--config "$5"} brief-verify "$3" --role sidekick --log-dir "$4/logs" ${6:+--base "$6"} || rc=$?
-\t\t\tprintf "%s\\n" "$rc" >"$4/rc"
-\t\t'''
+WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'worker.py')
 
 
 def verify_job(ctx, store, brief, head):
@@ -63,14 +47,14 @@ def ignore_interrupts():
     signal.signal(signal.SIGQUIT, signal.SIG_IGN)
 
 
-def detached(script, argv, log, store):
-    """`PSTACK_KITCHEN_RUN="$(field "$store" .slug)" detached bash -c SCRIPT ARGV... >LOG 2>&1 </dev/null &` and `disown`."""
+def detached(command, argv, log, store):
+    """`PSTACK_KITCHEN_RUN="$(field "$store" .slug)" worker.py COMMAND ARGV... >LOG 2>&1 </dev/null`, in a session of its own, never waited for."""
     env = {**os.environ, 'PSTACK_KITCHEN_RUN': read(store, 'slug')}
     sys.stdout.flush()
     sys.stderr.flush()
     with open(log, 'wb') as out:
-        subprocess.Popen(['bash', '-c', script, *argv], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env, start_new_session=True,
-                         preexec_fn=ignore_interrupts)
+        subprocess.Popen([sys.executable, '-I', WORKER, command, *argv], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
+                         start_new_session=True, preexec_fn=ignore_interrupts)
 
 
 def slice_deadline():
@@ -184,7 +168,7 @@ def step(ctx, args):
             f.write(''.join(f'{name}\n' for name in profiles))
         with open(f'{job}/base', 'w') as f:
             f.write(base + '\n')
-        detached(STEP_SCRIPT, ['kitchen-step', root, str(kpy.KITCHEN_PY), job, base, full, cfg[1] if cfg else ''], f'{job}/out.{run}', store)
+        detached('step', [root, str(kpy.KITCHEN_PY), job, base, full, cfg[1] if cfg else ''], f'{job}/out.{run}', store)
     deadline = slice_deadline()
     while not os.path.isfile(f'{job}/rc'):
         if past(deadline):
@@ -280,7 +264,7 @@ def finish(ctx, args):
         os.makedirs(job, exist_ok=True)
         cfg = brief_kitchen(brief)
         base = recorded_head(store, unit)
-        detached(FINISH_SCRIPT, ['kitchen-finish', root, str(kpy.KITCHEN_PY), brief, job, cfg[1] if cfg else '', base], f'{job}/out', store)
+        detached('finish', [root, str(kpy.KITCHEN_PY), brief, job, cfg[1] if cfg else '', base], f'{job}/out', store)
     deadline = slice_deadline()
     while not os.path.isfile(f'{job}/rc'):
         if past(deadline):
