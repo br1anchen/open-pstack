@@ -233,7 +233,6 @@ NOT_CONTRACT = {
     ('skills/pstack-pair/scripts/pstack_core/commands/scratch.py', 101): 'jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
     ('skills/pstack-pair/scripts/pstack_core/commands/notes.py', 113): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
     ('skills/pstack-pair/scripts/pstack_core/spawn.py', 194): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
-    ('skills/pstack-pair/scripts/pstack_core/spawn.py', 196): 'the Prime daemon not reporting a session after its preflight passed; exit 5 like every spawn refusal',
     ('skills/pstack-kitchen/scripts/kitchen_core/discuss.py', 215): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
     ('skills/pstack-trio/scripts/consultant-core.sh', 53): 'unreachable: a consultant that is neither answered nor ready ends the plan round at line 48 first',
 }

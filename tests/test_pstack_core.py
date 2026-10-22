@@ -6053,6 +6053,16 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a tab that returns no pane': (2, 'tab create returned no pane id'),
         })
 
+    def test_a_prime_sidekick_that_reports_no_session_ends_spawn_with_5_and_keeps_its_pane_and_launch_record(self):
+        spec = {**self.spawn_command_cases()['a plain spawn'], 'args': ['spawn', '{st}', '--kind', 'prime-agent'], 'fake': {'prime-no-session': ''}}
+        got = self.script_run('primenosession', root / 'skills', 'pstack-pair', spec)
+        self.assertEqual(got['rc'], 5, got['stderr'])
+        self.assertIn('Prime did not report its session; inspect s1 before prompting', got['stderr'])
+        sidekick = json.loads(got['files']['pair.json'])['sidekick']
+        self.assertEqual((sidekick['kind'], sidekick['session'], sidekick['session_stopped'], sidekick['closed']), ('prime-agent', None, False, False))
+        self.assertTrue(sidekick['launch_cwd'])
+        self.assertNotIn('pane close', got['calls'])
+
     def test_trio_spawn_and_discuss_report_the_state_they_stop_on(self):
         trio = self.trio_spawn_cases()
         self.check_port(trio, {
