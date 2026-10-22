@@ -156,4 +156,4 @@ when recurrence or independent execution is part of your intended task.
 For ordinary work, provide the outcome, constraints, and how to recognize
 success. Let `poteto-mode` select its playbook. Name leaf skills when you want a
 particular result, such as an explanation or a comparison, rather than the full
-implementation workflow. Use `ask-poteto` when you want help choosing.
+implementation workflow. Use `poteto-help` when you want help choosing.

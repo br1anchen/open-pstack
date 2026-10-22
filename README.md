@@ -8,20 +8,21 @@ checkout or from any pinned copy.
 
 This repo owns 60 pstack skills in `skills/`, their reference files, helper
 scripts, and MIT license. Start with the
-[scenario tutorial](skills/ask-poteto/references/scenarios.md), or ask
-[ask-poteto](skills/ask-poteto/SKILL.md) which route fits your task.
+[scenario tutorial](skills/poteto-help/references/scenarios.md), or ask
+[poteto-help](skills/poteto-help/SKILL.md) which route fits your task.
 
 | Agent | Ask for guidance | Execute a task |
 | --- | --- | --- |
-| Claude Code | `/ask-poteto ...` | `/pstack ...` or `/poteto-mode ...` |
-| Codex | `$ask-poteto ...` | `$pstack ...` or `$poteto-mode ...` |
-| Pi | `/skill:ask-poteto ...` | `/skill:pstack ...` |
-| Grok Build | `/ask-poteto ...` | `/pstack ...` |
-| Other agent | Read `ask-poteto/SKILL.md` | Read `pstack/SKILL.md` |
+| Claude Code | `/poteto-help ...` | `/pstack ...` or `/poteto-mode ...` |
+| Codex | `$poteto-help ...` | `$pstack ...` or `$poteto-mode ...` |
+| Pi | `/skill:poteto-help ...` | `/skill:pstack ...` |
+| Grok Build | `/poteto-help ...` | `/pstack ...` |
+| Other agent | Read `poteto-help/SKILL.md` | Read `pstack/SKILL.md` |
 
-`poteto-mode` is upstream's execution router. `ask-poteto` is our advice-only
-addition, modeled on the role of the installed `ask-matt` skill. It chooses a
-route, explains expected evidence, and supplies a prompt without launching work.
+`poteto-mode` is upstream's execution router. `poteto-help` is upstream's
+advisor, extended here with routes to our multi-agent workflows, the per-agent
+syntax table above and the scenario tutorial. It chooses a route, explains the
+expected evidence and supplies a prompt without launching work.
 
 ## What was installed before
 

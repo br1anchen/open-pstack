@@ -65,7 +65,6 @@
     "setup-benny": "pstack/automations/benny/skills/setup-benny",
     "triage-issue-reports": "pstack/automations/benny/skills/triage-issue-reports",
     "pstack": "local portable entry point",
-    "ask-poteto": "local scenario advisor",
     "benchmark-checklist": "pstack/skills/benchmark-checklist",
     "correct": "pstack/skills/correct",
     "principle-explain-the-number": "pstack/skills/principle-explain-the-number",
