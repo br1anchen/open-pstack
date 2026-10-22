@@ -4083,9 +4083,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a master with sessions that is false': dict(with_master(sessions=False), fakefiles={'session-ids/m1': 'sess-1 /x'}),
             'a master with sessions that is null': dict(with_master(sessions=None), fakefiles={'session-ids/m1': 'sess-1 /x'}),
             'no pair.json': dict(world(), nopair=True),
-            'outside herdr': dict(world(), noenv=True),
+            'outside herdr': dict(world(), noenv=True, env={'HERDR_ENV': ''}),
         }
-        out = self.phase4_cases('rotm', cases, {
+        # every case walks a fixed process chain: the real one changes under a detached gate, between the base's run and the port's
+        out = self.phase4_cases('rotm', {name: {'pstable': ps_none, **spec} for name, spec in cases.items()}, {
             'a filled handoff': (0, '/st/sessions/master-1-handoff.md (generation 1, session unknown)'),
             'a handoff with a placeholder': (1, '/st/session-handoff.md still has unfilled placeholders'),
             'an empty Goal section': (5, '/st/session-handoff.md: the Goal section is empty'),
@@ -4112,12 +4113,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a master with sessions that is false': (0, '/st/sessions/master-1-handoff.md (generation 1, session sess-1)'),
             'a master with sessions that is null': (0, '/st/sessions/master-1-handoff.md (generation 1, session sess-1)'),
             'no pair.json': (1, 'pair.sh: no pair.json in'),
-            'outside herdr': (0, '/st/sessions/master-1-handoff.md (generation 1, session unknown)'),
+            'outside herdr': (1, 'pair.sh: not running inside Herdr (HERDR_ENV != 1)'),
         })
         ok = out['a filled handoff']
         self.assertEqual(ok['rc'], 0, ok['stderr'])
         self.assertIn('next master: demo-master-g2 (generation 2) in ', ok['stdout'])
         self.assertIn('--permission-mode auto', ok['calls'])
+        self.assertNotIn('--model', ok['calls'])
         self.assertIn('--remote-control demo-master-g2', ok['calls'])
         self.assertIn('--model opus-x', out['the model found in the process tree']['calls'])
         self.assertIn('--model sonnet-y', out['the model found behind node']['calls'])
