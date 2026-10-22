@@ -1520,7 +1520,8 @@ class EntryScriptTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.env = {**inherited_env(), 'PATH': f'{here / "bin"}:{os.environ["PATH"]}', 'HOME': self.tmp.name, 'XDG_STATE_HOME': f'{self.tmp.name}/state'}
+        self.env = {**inherited_env(), 'PATH': f'{here / "bin"}:{os.environ["PATH"]}', 'HOME': self.tmp.name, 'XDG_STATE_HOME': f'{self.tmp.name}/state',
+                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
 
     def run_script(self, key, *args, env=None):
@@ -1561,9 +1562,14 @@ class EntryScriptTests(unittest.TestCase):
                 self.assertEqual((r.returncode, r.stdout, r.stderr), (1, HELP[key], f'{self.prog(key)}: unknown command: {word}\n'), (key, word))
 
     def test_a_command_another_variant_has_is_unknown_here(self):
-        for key, word in (('pair', 'answer'), ('pair', 'consult'), ('guided', 'consult'), ('trio', 'answer'), ('trio', 'verify'), ('pair', 'verify')):
+        for key, word in (('pair', 'answer'), ('pair', 'consult'), ('guided', 'consult'), ('trio', 'answer'), ('kitchen', 'answer'), ('trio', 'verify'),
+                          ('pair', 'verify'), ('guided', 'new-consult'), ('pair', 'new-direction'), ('trio', 'new-answer')):
             r = self.run_script(key, word)
-            self.assertEqual((r.returncode, r.stderr), (1, f'{self.prog(key)}: unknown command: {word}\n'), (key, word))
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (1, HELP[key], f'{self.prog(key)}: unknown command: {word}\n'), (key, word))
+
+    def test_answer_reaches_its_command_through_the_guided_script_only(self):
+        r = self.run_script('guided', 'answer')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', 'pair.sh: usage: pair.sh answer <store> <answer-path> [--timeout MS | --every MIN]\n'))
 
     def test_a_missing_herdr_ends_every_command_including_help_with_one_line(self):
         bin_dir = Path(self.tmp.name) / 'bin-without-herdr'

@@ -4564,6 +4564,8 @@ class CoreTests(unittest.TestCase):
         out = self.kitchen_cases('rsb', cases, expect)
         self.assertRegex(out['a stamped run from another build']['files']['pair.json'], r'"path": "<SK>"')
         self.assertNotIn('<SK>', out['a run that was never stamped']['files']['pair.json'])
+        for case in ('a stamped run, the command being help', 'a stamped run, the command being unknown'):
+            self.assertRegex(out[case]['files']['pair.json'], r'"path": "<SK>"', case)
 
     def test_brief_kitchen_reads_the_kitchen_a_brief_names(self):
         st = self.claim_store('bk', {'verdict': 'v'})
