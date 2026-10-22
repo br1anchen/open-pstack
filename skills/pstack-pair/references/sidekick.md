@@ -22,6 +22,14 @@ in a report file; the terminal is not the record.
 3. Open poteto-mode (`../poteto-mode/SKILL.md`) once here. The playbooks point
    back into its Non-negotiables, Comments, Subagents, and Writing the reply
    sections, so it must be in context before the first brief.
+   Its Subagents section ("Match the model to the job") sends code to
+   `poteto-agent` subagents on other models, may raise effort to max, and runs
+   verification on the swarm-workers model. Here the roster decides: your
+   subagents run on your own roster model at its configured effort, and the
+   unit's proof is the kitchen or pair verifier, not a swarm verdict. The
+   roster's model and effort override upstream role defaults and runtime.md's
+   per-runtime preferences for a pair, trio or kitchen role, as far as the
+   host supports them.
 4. Write `reports/000-ready.md` with status `done`, your runtime and model if
    you know them, the permission mode from `pair.json`
    `.sidekick.permission_mode`, cwd, branch, head, and tree state, following

@@ -24,6 +24,8 @@ say that matters goes in a report file; the terminal is not the record.
 3. Open poteto-mode (`../poteto-mode/SKILL.md`) once here. The playbooks point
    back into its Non-negotiables, Comments, Subagents, and Writing the reply
    sections, so it must be in context before the first brief.
+   Its Subagents section ("Match the model to the job") yields to the roster
+   as [the pair sidekick](../../pstack-pair/references/sidekick.md) says.
 4. Write `reports/000-ready.md` with status `done`, your runtime and model if
    you know them, the permission mode from `pair.json`
    `.sidekick.permission_mode`, cwd, branch, head, and tree state, following

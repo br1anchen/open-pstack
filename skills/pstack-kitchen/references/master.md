@@ -228,7 +228,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    (read, with its head, from its packet's `range:`, the same range coverage
    uses) and the current base, whichever side changed them; a verdict verified
    on a base inside the stack does not warn of the stack's own lower commits; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
-   `shipping`) goes as far as `[landing].mode` allows. The human reviews and
+   `shipping`) goes as far as `[landing].mode` allows. It stops before
+   shipping's merge step (merging bottom-up, then freezing writes while the
+   stack lands) whatever the playbook says, because `[landing].mode` caps it
+   and the kitchen never merges. The human reviews and
    lands.
 9. **Retro and close.** `kitchen.sh retro <store>`. It ends with the repo's
    lessons and the strongest candidates the ledger holds: the same trouble

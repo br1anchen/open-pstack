@@ -34,6 +34,7 @@ did not make.}}
 ## Context
 
 - {{pointers to files, commits, prior reviews or verdicts under {{STORE}}/, upstream reports pasted in full when this unit depends on them}}
+- {{landing brief only: it stops before shipping's merge step (merge bottom-up, then freeze writes) whatever the `shipping` playbook says; `[landing].mode` caps it and the kitchen never merges}}
 
 ## Acceptance
 
