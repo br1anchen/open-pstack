@@ -1,10 +1,11 @@
 import importlib.util
 import os
 import re
-import subprocess
 
-from .review import git, noted_through, open_notes, steps_file
-from .store import count, read_text, header_field, last_line, load, peek, text_at, unit_name
+from . import git
+from .review import noted_through, open_notes
+from .steplog import StepLog
+from .store import count, header_field, load, peek, text_at, unit_name
 
 
 class ReportReadiness:
@@ -20,7 +21,7 @@ class ReportReadiness:
 
 
 def commit_of(root, rev):
-    return git(root, 'rev-parse', '--verify', '--quiet', f'{rev}^{{commit}}')
+    return git.out(root, 'rev-parse', '--verify', '--quiet', f'{rev}^{{commit}}')
 
 
 def _entry(text):
@@ -148,11 +149,11 @@ class Variant:
         if opened:
             names = ','.join(re.sub(r'.*-(n[0-9]+)\.md$', r'\1', p) for p in opened)
             return ReportReadiness(False, '\n'.join(opened), f'open blocking notes {names}')
-        file = steps_file(store, base)
         try:
-            if os.path.getsize(file) == 0:
-                return ReportReadiness(True)
+            tail = StepLog(store, base).last()
         except OSError:
+            return ReportReadiness(True)
+        if tail is None:
             return ReportReadiness(True)
         m = re.match(r'[0-9a-f]{7,40}', header_field(report, 'head'))
         if not m:
@@ -162,15 +163,11 @@ class Variant:
         root = text_at(pair, 'git_root') or text_at(pair, 'cwd')
         if commit_of(root, head) is None:
             return ReportReadiness(True)
-        row = last_line(file)
-        cols = row.split('\t')
-        k, last = cols[0], cols[1] if len(cols) > 1 else row
-        if commit_of(root, last) is None:
+        if commit_of(root, tail.sha) is None:
             return ReportReadiness(True)
-        if subprocess.run(['git', '-C', root, 'merge-base', '--is-ancestor', last, head],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode == 0:
+        if git.ok(root, 'merge-base', '--is-ancestor', tail.sha, head):
             return ReportReadiness(True)
-        return ReportReadiness(False, '', f"the report's head {head[:9]} predates step {k} {last[:9]}")
+        return ReportReadiness(False, '', f"the report's head {head[:9]} predates step {tail.number} {tail.sha[:9]}")
 
 
     def steps_due(self, ctx, store, brief):
@@ -193,8 +190,7 @@ def steps_due_in(ctx, store, brief):
     if unreviewed_steps(ctx, store) is None:
         return False
     shown = count(peek(load(store), 'shown'), unit_name(brief))
-    file = steps_file(store, brief)
-    last = sum(1 for line in read_text(file).split('\n') if line)
+    last = len(StepLog(store, brief).rows())
     return last > shown and last > noted_through(store, brief)
 
 

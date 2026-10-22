@@ -4,7 +4,8 @@ import shutil
 import subprocess
 import sys
 
-from ..store import Die, basename, prog, TEXT, load, names, pair_file, text_at, update
+from .. import git
+from ..store import Die, basename, prog, load, names, pair_file, text_at, update
 
 
 def parent_dir(path):
@@ -46,8 +47,7 @@ def run(ctx, args):
     if not cwd:
         raise Die("the store's cwd is not inside a git repository")
     link = f'{store}/scratch/{ident}'
-    common = subprocess.run(['git', '-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-                            stdout=subprocess.PIPE, check=False, **TEXT).stdout.rstrip('\n')
+    common = git.run(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.rstrip('\n')
     path = f'{common}/pstack-scratch/{basename(parent_dir(store))}-{basename(store)}/{ident}'
     if not os.path.islink(link) and os.path.isdir(link):
         path = link
@@ -57,9 +57,9 @@ def run(ctx, args):
             run_quiet('jj', '-R', cwd, 'workspace', 'forget', f'scratch-{ident}')
             remove_tree(path)
         else:
-            if run_quiet('git', '-C', cwd, 'worktree', 'remove', '--force', path) != 0:
+            if not git.ok(cwd, 'worktree', 'remove', '--force', path):
                 remove_tree(path)
-            run_quiet('git', '-C', cwd, 'worktree', 'prune')
+            git.ok(cwd, 'worktree', 'prune')
         if os.path.islink(link):
             os.unlink(link)
         try:
@@ -81,29 +81,24 @@ def run(ctx, args):
     if os.path.islink(link) or os.path.exists(link):
         os.unlink(link)
     os.symlink(path, link)
-    devnull = subprocess.DEVNULL
-    if at:
-        if subprocess.run(['git', '-C', cwd, 'rev-parse', '--verify', '--quiet', f'{at}^{{commit}}'], stdout=devnull, check=False).returncode != 0:
-            raise Die(f'not a commit: {at}')
-        if jj:
-            argv, failure = ['jj', '-R', cwd, 'workspace', 'add', '--name', f'scratch-{ident}', '-r', at, path], 'jj workspace add failed'
-        else:
-            argv, failure = ['git', '-C', cwd, 'worktree', 'add', '--detach', path, at], 'git worktree add failed'
-        if subprocess.run(argv, stdout=devnull, check=False).returncode != 0:
-            raise Die(failure, 2)
-    elif jj:
-        if subprocess.run(['jj', '-R', cwd, 'workspace', 'add', '--name', f'scratch-{ident}', path], stdout=devnull, check=False).returncode != 0:
-            raise Die('jj workspace add failed', 2)
+    if at and git.run(cwd, 'rev-parse', '--verify', '--quiet', f'{at}^{{commit}}', stdout=git.DEVNULL).returncode != 0:
+        raise Die(f'not a commit: {at}')
+    if jj:
+        added = subprocess.run(['jj', '-R', cwd, 'workspace', 'add', '--name', f'scratch-{ident}', *(['-r', at] if at else []), path],
+                               stdout=subprocess.DEVNULL, check=False)
+        failure = 'jj workspace add failed'
     else:
-        if subprocess.run(['git', '-C', cwd, 'worktree', 'add', '--detach', path, 'HEAD'], stdout=devnull, check=False).returncode != 0:
-            raise Die('git worktree add failed', 2)
-        diff = subprocess.run(['git', '-C', cwd, 'diff', 'HEAD', '--binary'], stdout=subprocess.PIPE, check=False).stdout
+        added = git.run(cwd, 'worktree', 'add', '--detach', path, at or 'HEAD', stdout=git.DEVNULL)
+        failure = 'git worktree add failed'
+    if added.returncode != 0:
+        raise Die(failure, 2)
+    if not at and not jj:
+        diff = git.run(cwd, 'diff', 'HEAD', '--binary', binary=True).stdout
         if diff:
-            applied = subprocess.run(['git', '-C', path, 'apply', '--index', '-'], input=diff, stderr=devnull, check=False)
-            if applied.returncode != 0:
+            if git.run(path, 'apply', '--index', '-', stdin=diff, stdout=None, quiet=True, binary=True).returncode != 0:
                 sys.stderr.write('live diff did not apply cleanly; scratch is at HEAD only\n')
-                run_quiet('git', '-C', path, 'checkout', '--', '.')
-        untracked = subprocess.run(['git', '-C', cwd, 'ls-files', '--others', '--exclude-standard', '-z'], stdout=subprocess.PIPE, check=False).stdout
+                git.ok(path, 'checkout', '--', '.')
+        untracked = git.run(cwd, 'ls-files', '--others', '--exclude-standard', '-z', binary=True).stdout
         for raw in untracked.split(b'\0'):
             if raw:
                 f = os.fsdecode(raw)

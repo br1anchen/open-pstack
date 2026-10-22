@@ -4,8 +4,9 @@ import glob
 import os
 import re
 
-from .review import noted_through, review_base, steps_file
-from .store import count, expected_report, field, header_field, int_or_none, last_line, load, names, peek, read_text, suffix_number, unit_name, update
+from .review import noted_through, review_base
+from .steplog import StepLog
+from .store import count, expected_report, field, header_field, load, names, peek, read_text, suffix_number, unit_name, update
 from .commands.status import latest
 
 
@@ -117,35 +118,23 @@ def mark_seen(store, report):
     update(store, lambda doc: doc.__setitem__('pending', keep))
 
 
-def step_number(column):
-    """The number in a steps-file column, or -1 for a row that has none."""
-    value = int_or_none(column)
-    return -1 if value is None else value
-
-
 def unreviewed_steps(ctx, store):
     """Steps of the running brief past the last note, as "k<TAB>sha<TAB>summary" lines, or None."""
     brief = dispatched(store)
     if not brief:
         return None
-    file = steps_file(store, brief)
-    if not (os.path.isfile(file) and os.path.getsize(file) > 0):
+    log = StepLog(store, brief)
+    steps = log.rows()
+    if not steps:
         return None
     report = expected_report(store, brief)
     if os.path.isfile(report):
-        cols = last_line(file).split('\t')
-        stamp = int_or_none(cols[2] if len(cols) > 2 else '')
+        stamp = log.last().epoch
         written_after = stamp is not None and file_mtime(report) >= stamp
         if written_after and ctx.variant.report_ready(ctx, store, report).ready:
             return None
     through = noted_through(store, brief)
-    rows = []
-    for row in read_text(file).removesuffix('\n').split('\n'):
-        cols = row.split('\t')
-        if step_number(cols[0]) > through:
-            line = '\t'.join([cols[0], cols[1] if len(cols) > 1 else '', cols[4] if len(cols) > 4 else ''])
-            if line:
-                rows.append(line)
+    rows = [f'{s.number}\t{s.sha}\t{s.summary}' for s in steps if s.index is not None and s.index > through]
     return rows or None
 
 
@@ -165,14 +154,13 @@ def withheld_report(ctx, store):
 def review_delta(store, report):
     """The one diff the final review reads, as the line review_delta prints, or ''."""
     unit = unit_name(report)
-    file = steps_file(store, unit)
-    if not (os.path.isfile(file) and os.path.getsize(file) > 0):
+    last = StepLog(store, unit).last()
+    if not last:
         return ''
     m = re.match(r'[0-9a-f]{7,40}', header_field(report, 'head'))
     if m:
         head = m.group(0)
     else:
-        cols = last_line(file).split('\t')
-        head = cols[1] if len(cols) > 1 else cols[0]
+        head = last.sha
     base = review_base(store, unit)
     return f'review-delta: {base[:9]}..{head[:9]} (steps reviewed through {noted_through(store, unit)})\n'

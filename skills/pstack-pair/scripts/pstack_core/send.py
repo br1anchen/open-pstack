@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 
+from . import git
 from .store import Die, Exit, TEXT, missing_pair, env_float, event, expected_report, load, peek, text_at, update, count, member, names, prog, who
 from .gates import check_scope, require_not_paused
 from .panes import DEVNULL, agent_kind, agent_prompt, agent_status, error_code, require_herdr
@@ -146,7 +147,7 @@ def record_dispatch(store, brief, now=None):
     seen = f'{old}:{int(os.stat(old).st_mtime)}' if os.path.isfile(old) else ''
     pair = load(store)
     cwd = text_at(pair, 'cwd')
-    head = subprocess.run(['git', '-C', cwd, 'rev-parse', 'HEAD'], capture_output=True, check=False, **TEXT).stdout.rstrip('\n') if cwd else ''
+    head = git.run(cwd, 'rev-parse', 'HEAD', quiet=True).stdout.rstrip('\n') if cwd else ''
     stamp = time.time() if now is None else now
     at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))
     epoch = int(stamp)

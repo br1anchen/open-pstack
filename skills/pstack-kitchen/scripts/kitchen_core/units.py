@@ -10,14 +10,15 @@ import glob
 import io
 import os
 import re
-import subprocess
 import sys
 import tempfile
 
 from pstack_core.store import (
-    Die, Exit, prog, TEXT, exit_code, expected_report, read_text, missing_pair, header_field, last_line, load, peek, read, text_at,
+    Die, Exit, prog, expected_report, read_text, missing_pair, header_field, load, peek, read, text_at,
 )
-from pstack_core.review import range_floor, steps_file, trunk_ref
+from pstack_core import git
+from pstack_core.review import range_floor, trunk_ref
+from pstack_core.steplog import StepLog
 from pstack_core.variant import commit_of
 
 
@@ -81,7 +82,7 @@ def has_pair(store, check=False, quiet=False):
     return False
 
 
-def git_root(store, quiet=False, check=False):
+def repo_root(store, quiet=False, check=False):
     """`.git_root` of pair.json; empty for a store with no pair.json, after has_pair's message."""
     if not has_pair(store, check, quiet):
         return ''
@@ -93,31 +94,21 @@ def recorded_head(store, unit):
     return text_at(peek(load(store), 'heads'), unit)
 
 
-def git(root, *args, quiet=False, stdin=None):
-    """(status, stdout) of `git -C root ...`; stderr is dropped when quiet and left on stderr otherwise."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    r = subprocess.run(['git', '-C', root, *args], input=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL if quiet else None, check=False, **TEXT)
-    return exit_code(r.returncode), r.stdout
-
-
 def is_ancestor(root, older, newer):
     """`git merge-base --is-ancestor older newer 2>/dev/null`: an empty or unknown name is not an ancestor."""
-    return git(root, 'merge-base', '--is-ancestor', older, newer, quiet=True)[0] == 0
+    return git.ok(root, 'merge-base', '--is-ancestor', older, newer)
 
 
 def patch_id(root, commit, inverse=False, u0=False):
     """The patch-id of a commit's own change (or, inverse, of the diff from the commit to its parent: not `diff-tree -R`, which swaps the a/ and b/
     prefixes patch-id hashes). u0 is the same patch with no context lines, which a later edit near the change cannot alter."""
     args = ['diff-tree', '-p', '--binary', '--full-index', *(['-U0'] if u0 else []), commit, *([f'{commit}^'] if inverse else [])]
-    return first_field(git(root, *args)[1])
+    return first_field(git.run(root, *args).stdout)
 
 
 def first_field(diff):
     """The patch-id (`git patch-id --stable`) of a diff, without trailing newlines."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    out = subprocess.run(['git', 'patch-id', '--stable'], input=diff, stdout=subprocess.PIPE, check=False, **TEXT).stdout
+    out = git.run(None, 'patch-id', '--stable', stdin=diff).stdout
     return '\n'.join(line.split(' ')[0] for line in out.split('\n')).rstrip('\n')
 
 
@@ -129,17 +120,15 @@ def dispatch_head(store, brief):
 
 def unit_head(store, brief):
     """A unit's head: its report's head:, else its last recorded step; '' when neither names a commit."""
-    root = git_root(store)
+    root = repo_root(store)
     report = expected_report(store, brief)
     head = ''
     if os.path.isfile(report):
         head = commit_of(root, header_field(report, 'head')) or ''
     if not head:
-        steps = steps_file(store, brief)
-        if os.path.isfile(steps) and os.path.getsize(steps) > 0:
-            row = last_line(steps)
-            cols = row.split('\t')
-            head = commit_of(root, cols[1] if len(cols) > 1 else row) or ''
+        last = StepLog(store, brief).last()
+        if last:
+            head = commit_of(root, last.sha) or ''
     return head
 
 
@@ -159,7 +148,7 @@ class RecordedUnit:
         self.store = store
         self.brief = brief
         self.id = os.path.basename(brief)[:-3] if brief.endswith('.md') else os.path.basename(brief)
-        self.root = git_root(store)
+        self.root = repo_root(store)
         self.head = unit_head(store, brief)
 
     def base(self):
@@ -188,7 +177,7 @@ class StackIndex:
         if self._loaded:
             return self
         self._loaded = True
-        listed = git(self.root, 'rev-list', '--reverse', '--no-merges', f'{self.base}..{self.head}')[1]
+        listed = git.run(self.root, 'rev-list', '--reverse', '--no-merges', f'{self.base}..{self.head}').stdout
         for n, commit in enumerate(c for c in listed.split('\n') if c):
             ident = patch_id(self.root, commit)
             self.commits.append(commit)
@@ -222,13 +211,13 @@ def rebased_in(unit, index):
     root, base, head = unit.root, unit.base(), unit.head
     if not base or not index.base:
         return Inclusion('missing')
-    if git(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}', quiet=True)[0] != 0:
+    if not git.ok(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}'):
         return Inclusion('missing')
-    if any(git(root, 'rev-list', '--merges', f'{base}..{head}')[1].split('\n')[:1]):
+    if any(git.run(root, 'rev-list', '--merges', f'{base}..{head}').stdout.split('\n')[:1]):
         return Inclusion('merge', reason='merge')
     index.load()
     undo, tip_id, ids = set(), '', 0
-    for commit in (c for c in git(root, 'rev-list', '--no-merges', f'{base}..{head}')[1].split('\n') if c):
+    for commit in (c for c in git.run(root, 'rev-list', '--no-merges', f'{base}..{head}').stdout.split('\n') if c):
         ident = patch_id(root, commit)
         if not ident:
             continue
@@ -241,7 +230,7 @@ def rebased_in(unit, index):
             undo.add(inverted)
     if ids == 0:
         return Inclusion('missing')
-    net = first_field(git(root, 'diff-tree', '-p', '--binary', '--full-index', '-U0', head, base)[1])
+    net = first_field(git.run(root, 'diff-tree', '-p', '--binary', '--full-index', '-U0', head, base).stdout)
     if net:
         undo.add(net)
     sha = index.by_id[tip_id]
@@ -265,7 +254,7 @@ def heads_in(store, head, units):
     a covered unit with none, at its last recorded step; one with no usable head passes with a note. Notes go to stderr; a unit that is not in
     the head ends the command with exit 2."""
     last = units[-1]
-    root = git_root(store)
+    root = repo_root(store)
     for unit in units:
         if unit == last:
             continue
@@ -277,7 +266,7 @@ def heads_in(store, head, units):
         if is_ancestor(root, uhead, head):
             continue
         trunk = trunk_ref(root) or ''
-        found = rebased_in(RecordedUnit(store, brief), StackIndex.build(root, git(root, 'merge-base', trunk, head, quiet=True)[1].rstrip('\n'), head))
+        found = rebased_in(RecordedUnit(store, brief), StackIndex.build(root, git.run(root, 'merge-base', trunk, head, quiet=True).stdout.rstrip('\n'), head))
         if found.kind == 'rebased':
             sys.stderr.write(f"note: unit {unit}'s head is not in {head[:9]}; its commits match by patch-id (rebased as {found.sha[:9]})\n")
         elif found.reason == 'reverted':
@@ -352,9 +341,9 @@ def landing_base(store, root, head, parent_override='', parent_label='', range_b
     trunk = trunk_ref(root) or ''
     if not trunk:
         raise Die("cannot tell this repo's trunk; pass --base <trunk ref or commit>")
-    status, out = git(root, 'merge-base', trunk, head)
-    base = out.rstrip('\n')
-    if status != 0:
+    merged = git.run(root, 'merge-base', trunk, head)
+    base = merged.stdout.rstrip('\n')
+    if merged.returncode != 0:
         raise Die(f'no merge-base between {trunk} and HEAD; pass --base')
     name = trunk.removeprefix('refs/')
     if base == head:
@@ -405,7 +394,7 @@ def unit_range(store, units, covered=(), range_base=''):
     head = header_field(report, 'head')
     if not head:
         raise Die(f"unit {last}'s report has no head:")
-    root = git_root(store)
+    root = repo_root(store)
     resolved = commit_of(root, head)
     if resolved is None:
         raise Die(f"unit {last}'s head is not a commit")

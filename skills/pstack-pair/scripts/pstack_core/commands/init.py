@@ -2,11 +2,11 @@ import os
 import re
 import shutil
 import stat
-import subprocess
 import sys
 import time
 
-from ..store import Die, Exit, prog, TEXT, _dumps, event, member, update
+from .. import git
+from ..store import Die, Exit, prog, _dumps, event, member, update
 from ..panes import herdr, require_herdr
 from ..permission import logical_cwd
 
@@ -35,14 +35,6 @@ def install_standing_orders(skill_root, orders):
         os.chmod(orders, os.stat(orders).st_mode | stat.S_IWUSR)
     except OSError as e:
         sys.stderr.write(f'{prog()}: cannot make {orders} writable: {os.strerror(e.errno)}\n')
-
-
-def git_root():
-    try:
-        r = subprocess.run(['git', 'rev-parse', '--show-toplevel'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
-    except OSError:
-        return ''
-    return r.stdout.rstrip('\n') if r.returncode == 0 else ''
 
 
 def write_new(path, text):
@@ -91,7 +83,7 @@ def run(ctx, args):
         make_dir(f'{store}/{d}')
     master = f'{slug}-master'
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-    cwd, root = logical_cwd(), git_root()
+    cwd, root = logical_cwd(), git.toplevel()
     workspace, tab = os.environ.get('HERDR_WORKSPACE_ID', ''), os.environ.get('HERDR_TAB_ID', '')
     # HERDR_PANE_ID can be stale: Codex runs every session's commands through one shared app-server daemon, which keeps the pane it was
     # started in.

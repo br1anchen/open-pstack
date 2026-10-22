@@ -5,26 +5,21 @@ A failing read inside land-check is an empty answer and the check goes on."""
 import glob
 import os
 import re
-import subprocess
 import sys
 import tempfile
 
-from pstack_core.store import Die, field, TEXT, header_field, read_text, int_or_none, new_from_template, pair_file
+from pstack_core.store import Die, field, header_field, read_text, int_or_none, new_from_template, pair_file
+from pstack_core import git
 from pstack_core.review import trunk_ref
 from pstack_core.panes import parse
 from pstack_core.variant import commit_of
 
 from . import kpy
-from .units import RecordedUnit, StackIndex, Verdict, dispatch_head, git, git_root, inclusion, is_ancestor, unit_brief, unit_head
+from .units import RecordedUnit, StackIndex, Verdict, dispatch_head, inclusion, is_ancestor, repo_root, unit_brief, unit_head
 
 
 def out(text):
     sys.stdout.write(text)
-
-
-def git_ok(root, *args, output=None):
-    return subprocess.run(['git', '-C', root, *args], stdout=output if output is not None else subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                          check=False).returncode == 0
 
 
 def is_landing(brief):
@@ -38,7 +33,7 @@ def review_engine(store):
 
 def validated_engine(store):
     """(ok, engine): the kitchen's [review].engine from `validate`; not ok when kitchen.py fails, which land-check says."""
-    rc, text, _ = kpy.run(git_root(store, quiet=True), ['--json', 'validate'])
+    rc, text, _ = kpy.run(repo_root(store, quiet=True), ['--json', 'validate'])
     if rc != 0:
         return False, ''
     found = parse(text)
@@ -58,15 +53,15 @@ def unit_adds_no_lines(store, brief):
     """Whether the unit's range only deletes: every changed path is deleted, or modified by removing lines only, with its mode unchanged. It reads
     `git diff --raw -z --no-renames` and `--numstat -z` from the merge-base of the dispatch head and the unit head, NUL-separated so a path is never
     quoted; a rename is a delete plus an add; a modified binary is a change; any failing git command refuses."""
-    root = git_root(store)
+    root = repo_root(store)
     base, head = dispatch_head(store, brief), unit_head(store, brief)
     if not base or not head:
         return False
-    if not git_ok(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}'):
+    if not git.ok(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}'):
         return False
     with tempfile.TemporaryFile() as names, tempfile.TemporaryFile() as nums:
-        if not (git_ok(root, 'diff', '--raw', '-z', '--no-renames', f'{base}...{head}', output=names)
-                and git_ok(root, 'diff', '--numstat', '-z', '--no-renames', f'{base}...{head}', output=nums)):
+        if not (git.ok(root, 'diff', '--raw', '-z', '--no-renames', f'{base}...{head}', stdout=names)
+                and git.ok(root, 'diff', '--numstat', '-z', '--no-renames', f'{base}...{head}', stdout=nums)):
             return False
         names.seek(0)
         nums.seek(0)
@@ -115,11 +110,10 @@ def manifest_warning(store, verified_base, current_base, head=''):
     the stack) is the stack's own lower commits, not a moved trunk: no warning."""
     if not verified_base or not current_base or verified_base == current_base:
         return
-    root = git_root(store)
+    root = repo_root(store)
     if is_ancestor(root, current_base, verified_base) and is_ancestor(root, verified_base, head or 'HEAD'):
         return
-    listed = subprocess.run(['git', '-C', root, 'diff', '--name-only', '-z', '--no-renames', verified_base, current_base], stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, check=False, **TEXT).stdout
+    listed = git.run(root, 'diff', '--name-only', '-z', '--no-renames', verified_base, current_base, quiet=True).stdout
     rc, text, _ = kpy.run(root, ['--json', 'manifests', '-z'], stdin=listed)
     found = parse(text)
     manifests = found.get('manifests') if isinstance(found, dict) else None
@@ -135,8 +129,8 @@ def landing_field(store, key):
 
 def current_landing_base(store):
     """Where the stack at HEAD leaves trunk now (the recorded landing parent, else the merge-base with trunk), or nothing."""
-    root = git_root(store)
-    head = git(root, 'rev-parse', 'HEAD', quiet=True)[1].rstrip('\n')
+    root = repo_root(store)
+    head = git.run(root, 'rev-parse', 'HEAD', quiet=True).stdout.rstrip('\n')
     parent = landing_field(store, 'parent')
     if parent:
         pc = commit_of(root, parent) or ''
@@ -148,13 +142,13 @@ def current_landing_base(store):
     trunk = trunk_ref(root)
     if not trunk:
         return ''
-    found = git(root, 'merge-base', trunk, 'HEAD', quiet=True)
-    return found[1].rstrip('\n') if found[0] == 0 else ''
+    found = git.run(root, 'merge-base', trunk, 'HEAD', quiet=True)
+    return found.stdout.rstrip('\n') if found.returncode == 0 else ''
 
 
 def landing_unmatched_note(store, seq, brief, uhead, landing_verdict, base, head, found):
     """Why a unit outside a clean landing verdict's range could not be matched by patch-id, as one land-check note."""
-    root = git_root(store)
+    root = repo_root(store)
     ubase = dispatch_head(store, brief)
     if base and is_ancestor(root, uhead, base):
         out(f'land-check: note: unit {seq} landed before the base of landing verdict {landing_verdict}; verify it on its own\n')
@@ -230,8 +224,8 @@ def land_check(store):
     if landing_verdict:
         verdict = Verdict.parse(landing_verdict)
         base_ref, head_ref = verdict.refs()
-        verdict_base_rev = commit_of(git_root(store), base_ref) or ''
-        root = git_root(store)
+        verdict_base_rev = commit_of(repo_root(store), base_ref) or ''
+        root = repo_root(store)
         verdict_head_rev = commit_of(root, head_ref) or ''
     if landing_verdict and verdict.status == 'clean':
         landing_head, landing_base = verdict_head_rev, verdict_base_rev
@@ -269,7 +263,7 @@ def land_check(store):
         out(f'landing verification: {verdict.status} ({landing_verdict})\n')
         if verdict_head_rev:
             if is_ancestor(root, verdict_head_rev, 'HEAD'):
-                counted = git(root, 'rev-list', '--count', f'{verdict_head_rev}..HEAD', quiet=True)[1].rstrip('\n')
+                counted = git.run(root, 'rev-list', '--count', f'{verdict_head_rev}..HEAD', quiet=True).stdout.rstrip('\n')
                 behind = counted or '0'
                 try:
                     behind_n = int(behind)

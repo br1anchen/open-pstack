@@ -12,11 +12,12 @@ import sys
 from pstack_core import agents, spawn as pair_spawn
 from pstack_core.commands import init as core_init
 from pstack_core.store import Die, Exit, field, read_text, damaged, event, json_type, listing, load, member, now, pair_file, text_at, update
+from pstack_core import git
 from pstack_core.panes import agent_status, require_herdr
 from pstack_core.wait import end_with_parent
 
 from . import kpy
-from .units import captured, git, git_root, has_pair
+from .units import captured, has_pair, repo_root
 
 
 def last_build_path(builds):
@@ -59,7 +60,7 @@ def stamp_skill_builds(ctx, store):
 
 def quiet_kitchen(store, args):
     """`kpy "$store" ARGS 2>/dev/null`: (status, stdout without its trailing newlines)."""
-    status, out, _ = kpy.run(git_root(store), args)
+    status, out, _ = kpy.run(repo_root(store), args)
     return status, out.rstrip('\n')
 
 
@@ -97,10 +98,10 @@ def worktree_setup(store, found):
     """A run in a linked worktree (git worktree add, a jj workspace) starts without the main checkout's untracked dependencies, so its gates would run
     whatever tool the PATH has instead of the repo's pinned one. init prepares it once the way verifier scratches are prepared: the repo's
     [scratch].setup, as the sidekick. A failed setup stops init with its log. found is validate's JSON."""
-    root = git_root(store, check=True)
+    root = repo_root(store, check=True)
     if not (json.loads(found).get('setup') or []):
         return
-    if git(root, 'rev-parse', '--path-format=absolute', '--git-dir')[1].rstrip('\n') == git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir')[1].rstrip('\n'):
+    if git.run(root, 'rev-parse', '--path-format=absolute', '--git-dir').stdout.rstrip('\n') == git.run(root, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.rstrip('\n'):
         return
     status, out, err = kpy.run(root, ['setup', '--role', 'sidekick'])
     out = (out + err).rstrip('\n')

@@ -1,37 +1,13 @@
 import glob
 import os
 import re
-import subprocess
 import sys
 import time
 
-from ..store import (
-    Die, Exit, prog, TEXT, event, load, pair_file, read_text, text_at, write_text, pause_notice, paused_reason, progress_path, steer_notice,
-    unit_name,
-)
+from .. import git
+from ..store import Die, prog, event, load, pair_file, text_at, pause_notice, paused_reason, progress_path, steer_notice, unit_name
 from ..replies import dispatched
-from ..review import steps_file
-
-
-def record_again(file, full, resolves):
-    """True when the steps file has a row for this commit; its resolves column then gains the given note ids (sorted by number, once each)."""
-    try:
-        rows = read_text(file).split('\n')
-    except OSError:
-        return False  # the count below says why it cannot be read, as it always did
-    found = False
-    for n, row in enumerate(rows):
-        cols = row.split('\t')
-        if len(cols) > 3 and cols[1] == full:
-            found = True
-            ids = {i for i in cols[3].split(',') if i} | {i for i in resolves.split(',') if i}
-            cols[3] = ','.join(sorted(ids, key=lambda i: (i.rpartition('-')[0], int(i.rpartition('n')[2]))))
-            rows[n] = '\t'.join(cols)
-            break
-    if found and resolves:
-        write_text(f'{file}.tmp', '\n'.join(rows))
-        os.replace(f'{file}.tmp', file)
-    return found
+from ..steplog import StepLog
 
 
 def step(ctx, args, now=None):
@@ -55,7 +31,7 @@ def step(ctx, args, now=None):
     brief = dispatched(store)
     if not brief:
         raise Die('no brief dispatched; a step belongs to a running brief')
-    r = subprocess.run(['git', '-C', text_at(load(store), 'cwd'), 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}'], capture_output=True, check=False, **TEXT)
+    r = git.run(text_at(load(store), 'cwd'), 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}', stderr=git.PIPE)
     sys.stderr.write(r.stderr)
     if r.returncode != 0:
         raise Die(f'not a commit: {sha}; commit the step first')
@@ -71,27 +47,15 @@ def step(ctx, args, now=None):
             raise Die(f'--resolves {note}: no published note {note} on {unit}; resolve only notes pair.sh notes printed')
     os.makedirs(f'{store}/steps', exist_ok=True)
     os.makedirs(f'{store}/progress', exist_ok=True)
-    file = steps_file(store, brief)
-    if os.path.isfile(file) and record_again(file, full, resolves):
+    log = StepLog(store, brief)
+    if log.add_resolves(full, resolves):
         # this unit already recorded this commit: it only gains the notes it now resolves, and nothing else is written
         sys.stdout.write(f'step {full[:9]}: already recorded\n')
         sys.stdout.write(steer_notice(store))
         return 0
-    k = 1
-    if os.path.isfile(file):
-        # the next step number is one more than the file's non-empty lines; a file with none ends the command 1, an unreadable one 2.
-        try:
-            count = sum(1 for line in read_text(file).split('\n') if line)
-        except OSError as e:
-            sys.stderr.write(f'{prog()}: cannot read {file}: {os.strerror(e.errno)}\n')
-            raise Exit(2)
-        if count == 0:
-            raise Exit(1)
-        k = count + 1
+    k = log.next_number()
     stamp = time.time() if now is None else now
-    summary_cell = summary.replace('\t', ' ').replace('\n', ' ')
-    with open(file, 'a', encoding='utf-8') as f:
-        f.write(f'{k}\t{full}\t{int(stamp)}\t{resolves}\t{summary_cell}\n')
+    log.append(k, full, int(stamp), resolves, summary)
     with open(progress_path(store), 'a', encoding='utf-8') as f:
         f.write(f'{time.strftime("%H:%M", time.localtime(stamp))} step {k} {full[:9]}: {summary}\n')
     event(store, 'sidekick', 'step', brief, f'{k}:{full[:9]}')

@@ -1,13 +1,10 @@
 import glob
 import os
 import re
-import subprocess
 
-from .store import Die, TEXT, header_field, int_or_none, last_line, note_id, load, peek, read_text, suffix_number, text_at, unit_name
-
-
-def steps_file(store, unit):
-    return f'{store}/steps/{unit_name(unit)}.tsv'
+from . import git
+from .steplog import StepLog
+from .store import Die, header_field, note_id, load, peek, read_text, suffix_number, text_at, unit_name
 
 
 def note_files(store, unit):
@@ -27,18 +24,15 @@ def noted_through(store, unit):
 
 def open_notes(store, brief):
     unit = unit_name(brief)
-    file = steps_file(store, unit)
     resolved, qualified = set(), set()
     # a bare id (n2) resolves this unit's note; a qualified one (001-n2), written by a step on any unit, resolves unit 001's
-    for steps in glob.glob(os.path.join(glob.escape(store), 'steps', '*.tsv')):
-        for row in read_text(steps).split('\n'):
-            cols = row.split('\t')
-            if len(cols) > 3:
-                for note in cols[3].split(','):
-                    if re.match(r'[0-9]{3}-', note):
-                        qualified.add(note)
-                    elif os.path.normpath(steps) == os.path.normpath(file):
-                        resolved.add(note)
+    for log in StepLog.all(store):
+        for step in log.rows():
+            for note in step.resolves:
+                if re.match(r'[0-9]{3}-', note):
+                    qualified.add(note)
+                elif log.unit == unit:
+                    resolved.add(note)
     seq = unit[:3]
     found = []
     for f in note_files(store, unit):
@@ -49,17 +43,11 @@ def open_notes(store, brief):
     return found
 
 
-def git(root, *args):
-    """stdout of git -C root, or None when it fails; stderr is dropped."""
-    r = subprocess.run(['git', '-C', root, *args], capture_output=True, check=False, **TEXT)
-    return r.stdout.rstrip('\n') if r.returncode == 0 else None
-
-
 def trunk_ref(root):
-    current = git(root, 'symbolic-ref', '--quiet', 'HEAD') or ''
-    origin = git(root, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') or ''
+    current = git.out(root, 'symbolic-ref', '--quiet', 'HEAD') or ''
+    origin = git.out(root, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') or ''
     for ref in [*origin.split(), 'refs/remotes/origin/main', 'refs/remotes/origin/master', 'refs/heads/main', 'refs/heads/master']:
-        if ref != current and git(root, 'rev-parse', '--verify', '--quiet', ref) is not None:
+        if ref != current and git.out(root, 'rev-parse', '--verify', '--quiet', ref) is not None:
             return ref
     return None
 
@@ -69,13 +57,13 @@ def range_floor(root, base, tip, allow_head=False):
     trunk = trunk_ref(root)
     if not trunk:
         return base, ''
-    mb = git(root, 'merge-base', base, tip)
+    mb = git.out(root, 'merge-base', base, tip)
     if mb is None:
         mb = base
-    tmb = git(root, 'merge-base', trunk, tip)
+    tmb = git.out(root, 'merge-base', trunk, tip)
     if tmb is None or tmb == mb or (tmb == tip and not allow_head):
         return base, ''
-    if subprocess.run(['git', '-C', root, 'merge-base', '--is-ancestor', mb, tmb], capture_output=True, check=False).returncode != 0:
+    if not git.ok(root, 'merge-base', '--is-ancestor', mb, tmb):
         return base, ''
     trunk_name = trunk.removeprefix('refs/')
     return tmb, f'recorded base {base[:9]} is behind where its branch leaves {trunk_name}; measuring from {tmb[:9]}'
@@ -84,20 +72,17 @@ def range_floor(root, base, tip, allow_head=False):
 def review_base(store, unit):
     unit = unit_name(unit)
     through = noted_through(store, unit)
-    file = steps_file(store, unit)
-    if through > 0 and os.path.isfile(file):
-        rows = (r.split('\t') for r in read_text(file).split('\n') if r)
-        return '\n'.join(c[1] if len(c) > 1 else '' for c in rows if int_or_none(c[0]) == through)
+    log = StepLog(store, unit)
+    if through > 0 and os.path.isfile(log.path):
+        step = log.at(through)
+        return step.sha if step else ''
     pair = load(store)
     base = text_at(peek(pair, 'heads'), unit, None)
     if base is None:
         base = text_at(peek(pair, 'dispatch'), 'head')
     root = text_at(pair, 'git_root') or text_at(pair, 'cwd')
-    if os.path.isfile(file) and os.path.getsize(file) > 0:
-        tail = last_line(file)
-        tip = tail.split('\t')[1] if '\t' in tail else tail
-    else:
-        tip = git(root, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
+    last = log.last()
+    tip = last.sha if last else git.out(root, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
     if base and tip:
         base = range_floor(root, base, tip)[0]
     return base

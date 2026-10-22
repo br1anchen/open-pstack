@@ -4,12 +4,13 @@ import re
 import sys
 
 from ..store import (
-    Die, prog, count, dispatched_brief, event, field, fill_template, header_field, load, peek, int_or_none, note_id, pair_file, pause_notice,
+    Die, prog, count, dispatched_brief, event, field, fill_template, header_field, load, peek, note_id, pair_file, pause_notice,
     read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest,
 )
 from ..panes import agent_prompt, agent_status, DEVNULL
 from ..prime import prime_steer
-from ..review import noted_through, open_notes, require_filled, review_base, steps_file
+from ..review import noted_through, open_notes, require_filled, review_base
+from ..steplog import StepLog
 
 
 def blocking_lines(path):
@@ -130,22 +131,22 @@ def new_note(ctx, args):
     if not briefs:
         raise Die(f'no brief for unit {seq}')
     unit = unit_name(briefs[0])
-    file = steps_file(store, unit)
-    if not (os.path.isfile(file) and os.path.getsize(file) > 0):
+    log = StepLog(store, unit)
+    recorded = len(log.rows())
+    if not recorded:
         raise Die(f'unit {seq} has no steps recorded')
     done = noted_through(store, unit)
     if not through:
         shown = count(peek(load(store), 'shown'), unit)
         through = str(shown) if shown > done else ''
-    steps = sum(1 for line in read_text(file).split('\n') if line)
-    k = through or str(steps)
-    if not (re.fullmatch(r'[0-9]+', k) and int(k) <= steps):
+    k = through or str(recorded)
+    if not (re.fullmatch(r'[0-9]+', k) and int(k) <= recorded):
         raise Die(f'unit {seq} has no step {k}')
     if int(k) <= done:
         raise Die(f'unit {seq} is reviewed through step {k} already; wait for the next steps')
     base = review_base(store, unit)
-    rows = (r.split('\t') for r in read_text(file).split('\n') if r)
-    to = '\n'.join(c[1] if len(c) > 1 else '' for c in rows if int_or_none(c[0]) == int(k))
+    step = log.at(int(k))
+    to = step.sha if step else ''
     os.makedirs(f'{store}/notes', exist_ok=True)
     path = f'{store}/notes/{unit}-n{k}.md.draft'
     write_text(path, fill_template(f'{ctx.skill_root}/references/note-template.md',

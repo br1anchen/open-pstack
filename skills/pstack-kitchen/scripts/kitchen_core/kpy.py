@@ -76,8 +76,8 @@ class Kitchen:
 
     @property
     def root(self):
-        from .units import git_root
-        return self.fixed if self.fixed is not None else git_root(self.store)
+        from .units import repo_root
+        return self.fixed if self.fixed is not None else repo_root(self.store)
 
     @staticmethod
     def show(stderr):

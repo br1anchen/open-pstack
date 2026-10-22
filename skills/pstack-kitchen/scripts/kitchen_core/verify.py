@@ -13,7 +13,6 @@ import io
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 import contextlib
@@ -23,8 +22,9 @@ from pstack_core.agents import has_mcp_arg, has_permission_arg, has_trust_arg, m
 from pstack_core.commands import scratch as scratch_command
 from pstack_core.store import (
     Die, Exit, prog, damaged, env_float, env_int, event, expected_report, field, header_field, json_type, load, names, pair_file, peek, read,
-    text_at, TEXT, read_text, write_text, update, whole_number,
+    text_at, read_text, write_text, update, whole_number,
 )
+from pstack_core import git
 from pstack_core.panes import TRUST_RE, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, parse, reply_at, require_herdr
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
@@ -36,7 +36,7 @@ from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
 from .landing import is_landing, latest_landing_verdict, manifest_warning
 from .verify_wait import warn_unreviewed, Waiter
-from .units import captured, StackIndex, Verdict, brief_or_nothing, git, git_root, heads_in, inclusion, is_ancestor, landing_base, unit_brief, unit_range
+from .units import captured, StackIndex, Verdict, brief_or_nothing, heads_in, inclusion, is_ancestor, landing_base, repo_root, unit_brief, unit_range
 
 USAGE = ('usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | '
          'kitchen.sh verify <store> --landing [--base REV] [--parent REF|none] [--head REV] [...] | kitchen.sh verify <store> --wait '
@@ -505,7 +505,7 @@ def verify(ctx, args):
     if read(store, 'verifying.verdict'):
         raise Die(f'a verification is open ({read(store, "verifying.units")}); kitchen.sh verify {store} --wait', 5)
     allunits = [*o.covered, *o.units]
-    root = git_root(store, check=True)
+    root = repo_root(store, check=True)
     if o.land_head and not o.landing:
         raise Die('--head goes with --landing')
     if o.parent_ref and not o.landing:
@@ -702,7 +702,7 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
         if os.path.isfile(f'{store}/standing-orders.md'):
             orders = read_text(f'{store}/standing-orders.md').rstrip('\n')
             parts.append(f'## Standing orders\n\nThey bind you as they bind the sidekick ({store}/standing-orders.md):\n\n{orders}\n\n')
-        diff = subprocess.run(['git', '-C', root, 'diff', '--stat', f'{base}...{head}'], stdout=subprocess.PIPE, check=False, **TEXT).stdout
+        diff = git.run(root, 'diff', '--stat', f'{base}...{head}').stdout
         parts.append(f'## Changed\n\n```\n{tail_lines(diff, 40)}\n```\n\n')
         parts.append('## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo\'s scripts give you\n'
                      'your own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n'
@@ -713,8 +713,8 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
         data = json.loads(classified)
         if (data.get('scratch_setup') or []):
             parts.append(f'python3 {tool} --repo {scratch} setup\n')
-        merge_base = git(root, 'merge-base', base, head, quiet=True)
-        merge_base = merge_base[1].rstrip('\n') if merge_base[0] == 0 else base
+        forked = git.run(root, 'merge-base', base, head, quiet=True)
+        merge_base = forked.stdout.rstrip('\n') if forked.returncode == 0 else base
         for profile in data.get('behavioral') or []:
             parts.append(f'python3 {tool} --repo {scratch} gate {profile} behavioral --role verifier --base {merge_base}\n')
         # A landing verification also runs the touched profiles' landing commands.

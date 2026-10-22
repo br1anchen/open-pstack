@@ -27,7 +27,7 @@ scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
 import run as run_module  # noqa: E402
-from pstack_core import cli, exits, panes, permission, procinfo, providers, review, send, store, wait  # noqa: E402
+from pstack_core import cli, exits, git, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.store import Die, Exit  # noqa: E402
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
@@ -5999,7 +5999,7 @@ class CoreTests(unittest.TestCase):
                  'output that is an array': ((0, '[1]', ''), (False, '')), 'output that is null': ((0, 'null', ''), (False, '')),
                  'a failing validate': ((1, '{"review_engine": "codex"}', ''), (False, ''))}
         for name, (answer, want) in cases.items():
-            with mock.patch.object(landing, 'git_root', return_value='/repo'), mock.patch.object(landing.kpy, 'run', return_value=answer):
+            with mock.patch.object(landing, 'repo_root', return_value='/repo'), mock.patch.object(landing.kpy, 'run', return_value=answer):
                 self.assertEqual(landing.validated_engine('/st'), want, name)
 
     def test_the_modules_merged_into_their_callers_homes_are_gone_and_their_commands_still_resolve(self):
@@ -6923,6 +6923,116 @@ class HerdrCallTests(unittest.TestCase):
                     continue
                 for node in ast.walk(ast.parse(path.read_text(), str(path))):
                     if isinstance(node, ast.List) and [e.value for e in node.elts[:3] if isinstance(e, ast.Constant)] in (['herdr', 'agent', 'prompt'], ['herdr', 'agent', 'start']):
+                        stray.append(f'{path.relative_to(root)}:{node.lineno}')
+        self.assertEqual(stray, [])
+
+
+class GitCallTests(unittest.TestCase):
+    """git is run from git.py only; the argv and the streams each caller asked for are fixed here."""
+
+    def sent(self, call):
+        with mock.patch.object(git.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'out\n', '')) as run:
+            result = call()
+        return run.call_args.args[0], run.call_args.kwargs, result
+
+    def test_a_root_becomes_dash_c_and_none_runs_git_where_it_stands(self):
+        self.assertEqual(self.sent(lambda: git.run('/r', 'status'))[0], ['git', '-C', '/r', 'status'])
+        self.assertEqual(self.sent(lambda: git.run(None, 'patch-id', '--stable', stdin='d'))[0], ['git', 'patch-id', '--stable'])
+
+    def test_stderr_stays_on_the_terminal_unless_quiet_or_redirected(self):
+        self.assertIsNone(self.sent(lambda: git.run('/r', 'x'))[1]['stderr'])
+        self.assertEqual(self.sent(lambda: git.run('/r', 'x', quiet=True))[1]['stderr'], subprocess.DEVNULL)
+        self.assertEqual(self.sent(lambda: git.run('/r', 'x', stderr=git.PIPE))[1]['stderr'], subprocess.PIPE)
+        self.assertEqual(self.sent(lambda: git.ok('/r', 'x'))[1]['stderr'], subprocess.DEVNULL)
+
+    def test_out_is_the_stdout_without_its_newline_and_none_when_git_fails(self):
+        self.assertEqual(self.sent(lambda: git.out('/r', 'rev-parse', 'HEAD'))[2], 'out')
+        with mock.patch.object(git.subprocess, 'run', return_value=subprocess.CompletedProcess([], 128, 'junk', '')):
+            self.assertIsNone(git.out('/r', 'rev-parse', 'HEAD'))
+            self.assertFalse(git.ok('/r', 'rev-parse', 'HEAD'))
+            self.assertEqual(git.toplevel('/r'), '')
+
+    def test_binary_leaves_the_input_and_the_output_as_bytes(self):
+        argv, kwargs, _ = self.sent(lambda: git.run('/r', 'apply', stdin=b'd', binary=True))
+        self.assertEqual(kwargs['input'], b'd')
+        self.assertNotIn('text', kwargs)
+        self.assertTrue(self.sent(lambda: git.run('/r', 'x'))[1]['text'])
+
+    def test_toplevel_is_empty_when_git_is_missing(self):
+        with mock.patch.object(git.subprocess, 'run', side_effect=FileNotFoundError):
+            self.assertEqual(git.toplevel(), '')
+
+    def test_no_module_but_git_py_builds_a_git_c_argv(self):
+        stray = []
+        for skill in ('pstack-pair/scripts/pstack_core', 'pstack-kitchen/scripts/kitchen_core', 'pstack-pair-guided/scripts', 'pstack-trio/scripts'):
+            for path in sorted((root / 'skills' / skill).glob('*.py' if skill.endswith('/scripts') else '**/*.py')):
+                if path.name == 'git.py':
+                    continue
+                for node in ast.walk(ast.parse(path.read_text(), str(path))):
+                    if isinstance(node, ast.List) and node.elts and isinstance(node.elts[0], ast.Constant) and node.elts[0].value == 'git':
+                        stray.append(f'{path.relative_to(root)}:{node.lineno}')
+        self.assertEqual(stray, [])
+
+
+class StepLogTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        os.makedirs(f'{self.tmp.name}/steps')
+        self.log = steplog.StepLog(self.tmp.name, '/x/briefs/001-a.md')
+
+    def test_a_missing_or_empty_file_has_no_steps(self):
+        self.assertEqual((self.log.rows(), self.log.last(), self.log.at(1), self.log.has('abc')), ([], None, None, False))
+        Path(self.log.path).write_text('\n')
+        self.assertEqual(self.log.rows(), [])
+
+    def test_a_step_is_one_tab_separated_row_with_its_summary_on_one_line(self):
+        self.assertEqual(self.log.next_number(), 1)
+        step = self.log.append(1, 'abc', 1700000000, 'n1,n2', 'did\tit\nnow')
+        self.assertEqual(Path(self.log.path).read_text(), '1\tabc\t1700000000\tn1,n2\tdid it now\n')
+        self.assertEqual(step, steplog.Step('1', 'abc', 1700000000, ('n1', 'n2'), 'did it now'))
+        self.assertEqual(self.log.next_number(), 2)
+        self.log.append(2, 'def', 1700000001, '', 'two')
+        self.assertEqual((self.log.last().sha, self.log.at(1).sha, self.log.has('def'), self.log.at(3)), ('def', 'abc', True, None))
+
+    def test_a_row_that_is_a_bare_sha_names_that_sha_and_no_number(self):
+        Path(self.log.path).write_text('abc123\n')
+        self.assertEqual(self.log.last(), steplog.Step('abc123', 'abc123', None, (), ''))
+
+    def test_a_file_with_only_blank_lines_ends_the_next_number_with_1_and_an_unreadable_one_with_2(self):
+        Path(self.log.path).write_text('\n\n')
+        with self.assertRaises(Exit) as caught:
+            self.log.next_number()
+        self.assertEqual(caught.exception.code, 1)
+        err = io.StringIO()
+        with mock.patch.object(steplog, 'read_text', side_effect=PermissionError(13, 'Permission denied')), mock.patch.object(sys, 'stderr', err), \
+                self.assertRaises(Exit) as caught:
+            self.log.next_number()
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn('cannot read', err.getvalue())
+
+    def test_resolves_join_the_row_of_a_recorded_commit_in_note_order_once(self):
+        self.log.append(1, 'abc', 5, 'n10', 'one')
+        self.log.append(2, 'def', 6, '', 'two')
+        self.assertTrue(self.log.add_resolves('abc', 'n2,n10,001-n3'))
+        self.assertEqual(Path(self.log.path).read_text().split('\n')[0], '1\tabc\t5\tn2,n10,001-n3\tone')
+        self.assertTrue(self.log.add_resolves('def', ''))
+        self.assertFalse(self.log.add_resolves('zzz', 'n1'))
+        self.assertEqual(Path(self.log.path).read_text().count('\n'), 2)
+
+    def test_all_lists_each_units_log_by_name(self):
+        steplog.StepLog(self.tmp.name, '002-b').append(1, 'x', 1, 'n1', 's')
+        self.log.append(1, 'y', 1, '', 's')
+        self.assertEqual([(l.unit, [s.sha for s in l.rows()]) for l in steplog.StepLog.all(self.tmp.name)], [('001-a', ['y']), ('002-b', ['x'])])
+
+    def test_no_module_but_steplog_names_a_steps_tsv(self):
+        stray = []
+        for skill in ('pstack-pair/scripts/pstack_core', 'pstack-kitchen/scripts/kitchen_core', 'pstack-pair-guided/scripts', 'pstack-trio/scripts', 'pstack-kitchen/scripts'):
+            for path in sorted((root / 'skills' / skill).glob('*.py' if skill.endswith('/scripts') else '**/*.py')):
+                if path.name == 'steplog.py':
+                    continue
+                for node in ast.walk(ast.parse(path.read_text(), str(path))):
+                    if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.search(r'steps.*\.tsv', node.value):
                         stray.append(f'{path.relative_to(root)}:{node.lineno}')
         self.assertEqual(stray, [])
 

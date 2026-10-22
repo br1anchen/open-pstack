@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 
+from . import git
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
 from .store import (
@@ -15,7 +16,7 @@ from .store import (
 )
 from .gates import require_not_paused
 from .panes import DEVNULL, agent_prompt, agent_state, agent_status, await_file, error_code, error_state, require_herdr
-from .review import git, require_filled
+from .review import require_filled
 from .send import require_fresh_session, submit_typed
 from .wait import end_with_parent
 
@@ -268,7 +269,7 @@ def consult(ctx, args):
     sidekick_state = agent_status(field(store, 'sidekick', 'name'))
     cwd = read(store, 'cwd')
     # The one header line the script owns: the sidekick's state and the head at send time, so the consultant knows how live the tree it reads is.
-    state_line = f"sidekick state at send: {sidekick_state} at {git(cwd, 'rev-parse', '--short', 'HEAD') or '?'}"
+    state_line = f"sidekick state at send: {sidekick_state} at {git.out(cwd, 'rev-parse', '--short', 'HEAD') or '?'}"
     text = re.sub(r'^sidekick state at send:.*', lambda _: state_line, read_text(path), flags=re.M)
     write_text(path, text)
     if '{{' in text or re.search(r'^kind: .*\|', text, re.M):
@@ -281,7 +282,7 @@ def consult(ctx, args):
         raise Die(f'{who("consultant", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
     if status not in ('idle', 'done'):
         raise Die(f'{who("consultant", name)} is {status}; wait for its current advice first', 5)
-    head = git(cwd, 'rev-parse', 'HEAD') or ''
+    head = git.out(cwd, 'rev-parse', 'HEAD') or ''
     update(store, lambda doc: doc.update(consult={'file': path, 'at': now(), 'head': head, 'sidekick_state': sidekick_state}))
     event(store, 'master', 'send-consult', path, kind)
     sys.stdout.flush()

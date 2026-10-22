@@ -4,21 +4,20 @@ import fnmatch
 import glob
 import os
 import re
-import subprocess
 import time
 
-from . import procinfo
+from . import git, procinfo
 from .replies import dispatched, file_mtime
-from .review import git, noted_through, open_notes, range_floor, steps_file
-from .store import TEXT, int_or_none, header_field, load, peek, progress_path, read_text, tdiv, text_at
+from .review import noted_through, open_notes, range_floor
+from .steplog import StepLog
+from .store import int_or_none, header_field, load, peek, progress_path, read_text, tdiv, text_at
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 
 
 def status_entries(root):
     """(status, path) of each entry git status lists, NUL-delimited; a rename or copy counts at its new path."""
-    r = subprocess.run(['git', '-C', root, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], capture_output=True, check=False, **TEXT)
-    raw = r.stdout.split('\0')
+    raw = git.run(root, 'status', '--porcelain=v1', '-z', '--untracked-files=all', quiet=True).stdout.split('\0')
     if raw and raw[-1] == '':
         raw.pop()
     entries, skip = [], False
@@ -50,10 +49,10 @@ def tree_activity(cwd, head, now):
         newest = max(newest, t)
     commits = 0
     if head:
-        counted = git(cwd, 'rev-list', '--count', f'{head}..HEAD')
+        counted = git.out(cwd, 'rev-list', '--count', f'{head}..HEAD')
         commits = int(counted) if counted is not None and counted.isdigit() else 0
     if commits > 0:
-        stamp = git(cwd, 'log', '-1', '--format=%ct')
+        stamp = git.out(cwd, 'log', '-1', '--format=%ct')
         t = int(stamp) if stamp is not None and stamp.isdigit() else 0
         newest = max(newest, min(t, now))
     return newest or None
@@ -203,7 +202,7 @@ def checkin(ctx, store, interval=9, now=None):
     dispatch = peek(pair, 'dispatch')
     at, head, cwd = text_at(dispatch, 'at'), text_at(dispatch, 'head'), text_at(pair, 'cwd')
     floor_note = ''
-    tip = git(cwd, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
+    tip = git.out(cwd, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
     if head and tip:
         head, floor_note = range_floor(cwd, head, tip, allow_head=True)
     base = os.path.basename(brief.rstrip('/') or brief)
@@ -249,12 +248,12 @@ def checkin(ctx, store, interval=9, now=None):
         out.append(f'running: {run}\n')
     touched = status_paths(cwd)
     if head:
-        diff = git(cwd, 'diff', '--name-only', f'{head}..HEAD')
+        diff = git.out(cwd, 'diff', '--name-only', f'{head}..HEAD')
         touched += diff.split('\n') if diff else []
     touched = sort_u(touched)
     commits = 0
     if head:
-        counted = git(cwd, 'rev-list', '--count', f'{head}..HEAD')
+        counted = git.out(cwd, 'rev-list', '--count', f'{head}..HEAD')
         commits = int(counted) if counted is not None and counted.isdigit() else 0
     if floor_note:
         out.append(f'note: {floor_note}\n')
@@ -272,8 +271,7 @@ def checkin(ctx, store, interval=9, now=None):
     if os.path.isfile(prog):
         applied = sum(1 for line in read_text(prog).split('\n') if re.search(r' steer s[0-9]+ applied', line))
     out.append(f'steers: {sent} sent, {applied} applied, {objected} objected\n')
-    sfile = steps_file(store, brief)
-    if os.path.isfile(sfile) and os.path.getsize(sfile) > 0:
-        committed = sum(1 for line in read_text(sfile).split('\n') if line)
+    committed = len(StepLog(store, brief).rows())
+    if committed:
         out.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {len(open_notes(store, brief))} blocking notes open\n')
     return ''.join(out)

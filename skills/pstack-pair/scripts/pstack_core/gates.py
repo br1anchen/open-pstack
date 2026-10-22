@@ -3,11 +3,11 @@
 import glob
 import os
 import re
-import subprocess
 import sys
 
+from . import git
 from .checkin import scope_entries, scope_match
-from .store import Die, TEXT, header_field, paused_reason, read_text, prog, event, pair_file, write_text
+from .store import Die, header_field, paused_reason, read_text, prog, event, pair_file, write_text
 
 
 PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd')
@@ -97,7 +97,7 @@ def check_scope(brief, root):
     bad = scope_lists_several(brief)
     if bad:
         raise Die(f'{os.path.basename(brief)}: Scope takes one path or glob per line; split these (a path with a comma goes in backquotes):\n' + '\n'.join(bad))
-    r = subprocess.run(['git', '-C', root, 'ls-files', '-co', '--exclude-standard'], capture_output=True, check=False, **TEXT)
+    r = git.run(root, 'ls-files', '-co', '--exclude-standard', quiet=True)
     tracked = r.stdout.rstrip('\n') if r.returncode == 0 else ''
     for entry in scope_entries(brief, 'may'):
         if entry and not scope_entry_exists(root, entry, tracked):
