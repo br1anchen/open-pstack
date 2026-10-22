@@ -7037,5 +7037,20 @@ class StepLogTests(unittest.TestCase):
         self.assertEqual(stray, [])
 
 
+class FillTemplateTests(unittest.TestCase):
+    def test_a_braced_token_is_replaced_everywhere_in_the_order_given_and_a_bare_one_as_it_stands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = f'{tmp}/t.md'
+            Path(path).write_text('{{A}} {{B}} {{A}} NNN-<k> NNN <k>\n')
+            self.assertEqual(store.fill_template(path, {'A': '{{B}}', 'B': 'x'}), 'x x x NNN-<k> NNN <k>\n')
+            self.assertEqual(store.fill_template(path, {'NNN-<k>': '001-2', 'NNN': '001', '<k>': '2'}, braced=False), '{{A}} {{B}} {{A}} 001-2 001 2\n')
+
+    def test_the_handoff_and_the_guided_direction_and_answer_fill_through_it(self):
+        for rel in ('pstack-kitchen/scripts/kitchen_core/handoff.py', 'pstack-pair-guided/scripts/variant.py'):
+            source = (root / 'skills' / rel).read_text()
+            self.assertIn('fill_template(', source)
+            self.assertNotIn("text.replace(", source)
+
+
 if __name__ == '__main__':
     unittest.main()

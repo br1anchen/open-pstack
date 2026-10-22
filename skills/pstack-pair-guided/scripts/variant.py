@@ -3,7 +3,7 @@ import os
 import re
 
 from pstack_core.panes import require_herdr
-from pstack_core.store import Die, header_field, newest, pair_file, read_text, whole_number, write_text
+from pstack_core.store import Die, fill_template, header_field, newest, pair_file, read_text, whole_number, write_text
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
@@ -53,9 +53,7 @@ def new_direction(ctx, args):
         print(path)
         return 0
     scale = header_field(plan, 'scale') or '{{small | medium | large}}'
-    text = read_text(f'{ctx.skill_root}/references/direction-template.md')
-    for token, value in (('{{SLUG}}', slug), ('{{PLAN}}', plan), ('{{STORE}}', store)):
-        text = text.replace(token, value)
+    text = fill_template(f'{ctx.skill_root}/references/direction-template.md', {'SLUG': slug, 'PLAN': plan, 'STORE': store})
     write_text(path, re.sub(r'(?m)^scale: .*', lambda _: f'scale: {scale}', text))
     print(path)
     return 0
@@ -81,10 +79,8 @@ def new_answer(ctx, args):
         return 0
     if int(k) > 2 and not force:
         raise Die(f'ask {k} exceeds the two-ask cap for unit {seq}; re-plan the unit, or pass --force to answer anyway', 7)
-    text = read_text(f'{ctx.skill_root}/references/answer-template.md')
-    for token, value in (('NNN-<k>', f'{seq}-{k}'), ('NNN', seq), ('<slug>', slug), ('<k>', k), ('<store>', store)):
-        text = text.replace(token, value)
-    write_text(path, text)
+    write_text(path, fill_template(f'{ctx.skill_root}/references/answer-template.md',
+                                   {'NNN-<k>': f'{seq}-{k}', 'NNN': seq, '<slug>': slug, '<k>': k, '<store>': store}, braced=False))
     print(path)
     return 0
 

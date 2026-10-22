@@ -411,11 +411,12 @@ def steer_notice(store):
         for f in open_steers(store))
 
 
-def fill_template(path, values):
-    """Literal token replacement in the order given."""
+def fill_template(path, values, braced=True):
+    """The template's text with each token replaced by its value, literally and in the order given. A token is {{NAME}}; with braced False the
+    key is the text to replace as it stands."""
     text = read_text(path)
     for token, value in values.items():
-        text = text.replace('{{' + token + '}}', value)
+        text = text.replace('{{' + token + '}}' if braced else token, value)
     return text
 
 

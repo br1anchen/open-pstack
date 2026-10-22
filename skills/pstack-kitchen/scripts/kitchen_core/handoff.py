@@ -6,7 +6,7 @@ import sys
 import time
 
 from pstack_core.replies import queued_brief
-from pstack_core.store import Die, basename, field, newest, header_field, pair_file, read, read_text, write_text
+from pstack_core.store import Die, basename, field, fill_template, newest, header_field, pair_file, read, write_text
 
 
 def newest_matching(pattern, skip_packets=False):
@@ -56,11 +56,9 @@ def new_handoff(ctx, args):
     # a .master that is not an object ends the command before any file is written
     generation = field(store, 'master', 'generation', default='1')
     units = handoff_units(store).rstrip('\n')
-    text = read_text(f'{ctx.skill_root}/references/handoff-template.md')
-    for key, value in {'SLUG': read(store, 'slug'), 'STORE': store, 'GENERATION': generation,
-                       'WRITTEN': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'UNITS': units}.items():
-        text = text.replace('{{' + key + '}}', value)
-    write_text(path, text)
+    write_text(path, fill_template(f'{ctx.skill_root}/references/handoff-template.md',
+                                   {'SLUG': read(store, 'slug'), 'STORE': store, 'GENERATION': generation,
+                                    'WRITTEN': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'UNITS': units}))
     sys.stdout.write(path + '\n')
     sys.stdout.write(f'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master {store}\n')
     return 0
