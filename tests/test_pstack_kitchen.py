@@ -1684,13 +1684,16 @@ esac
         steps.write_text('1\tabc\t1\t\tone\n2\tdef\t2\t\ttwo\n')
         text = b.read_text()
         for header, risk, due in (('risk: routine', 'routine', False), ('risk: escalated', 'escalated', True), ('risk: escalated (contract X changes)', 'escalated', True),
-                                  ('risk:', '', False), ('risk: Escalated', 'Escalated', False)):
+                                  ('risk:', '', False), ('risk: Escalated', 'Escalated', False), ('risk:\tescalated\tfor a contract', 'escalated', True)):
             b.write_text(re.sub(r'^risk:.*$', header, text, flags=re.M))
             self.assertEqual(module.risk_of(str(b)), risk, header)
             self.assertEqual(module.VARIANT().steps_due(ctx, str(self.store), str(b)), due, header)
         b.write_text(re.sub(r'^risk:.*\n', '', text, flags=re.M))
         self.assertEqual((module.risk_of(str(b)), module.VARIANT().steps_due(ctx, str(self.store), str(b))), ('', False))
         self.assertFalse(module.VARIANT().steps_due(ctx, str(self.store), ''))
+        # classify (kitchen_core) and steps_due read the header through the one function
+        module.load_kitchen_core()
+        self.assertIs(importlib.import_module('kitchen_core.classify').risk_of, module.risk_of)
 
     def test_verify_job_is_the_brief_name_the_head_prefix_and_the_crc32_of_the_verify_block(self):
         module = self.kitchen_variant()

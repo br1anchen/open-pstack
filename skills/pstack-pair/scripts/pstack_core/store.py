@@ -89,6 +89,20 @@ def write_text(path, text):
         f.write(text)
 
 
+def now_s():
+    return int(time.time())
+
+
+def basename(path):
+    return os.path.basename(path.rstrip('/')) or '/'
+
+
+def risk_of(brief):
+    """A brief's or plan's risk class: the first word of its risk: header, which a master may follow with the reason."""
+    words = [w for w in re.split(r'[ \t\n]+', header_field(brief, 'risk')) if w]
+    return words[0] if words else ''
+
+
 def missing_pair(store):
     """The line a command prints for a store with no pair.json."""
     return f'{prog()}: no pair.json in {store}; run: pair.sh init <slug>\n'

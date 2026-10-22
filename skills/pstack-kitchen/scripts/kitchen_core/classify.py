@@ -9,18 +9,12 @@ import re
 import sys
 
 from pstack_core.checkin import scope_entries
-from pstack_core.store import Die, field, header_field, pair_file, read_text, write_text
+from pstack_core.store import Die, field, header_field, pair_file, read_text, risk_of, write_text
 from pstack_core.panes import agent_status
 
 from .kpy import Kitchen
 
 CLASSIFY_FAILED = 'kitchen.py classify failed; run kitchen.py validate in the repo'
-
-
-def risk_of(brief):
-    """A brief's or plan's risk class: the first word of its risk: header, which a master may follow with the reason."""
-    words = [w for w in re.split(r'[ \t\n]+', header_field(brief, 'risk')) if w]
-    return words[0] if words else ''
 
 
 def set_header(path, key, value):

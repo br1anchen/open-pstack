@@ -9,7 +9,7 @@ import time
 
 from .checkin import checkin, sidekick_activity
 from .store import (
-    Die, Exit, prog, TEXT, exit_code, missing_pair as store_missing, read_text, acquire_lock, env_float, env_int, event, field, header_field,
+    Die, Exit, now_s, prog, TEXT, exit_code, missing_pair as store_missing, read_text, acquire_lock, env_float, env_int, event, field, header_field,
     member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number,
 )
 from .panes import agent_state, agent_status, herdr, error_code, error_state, pane_busy
@@ -55,10 +55,6 @@ def wait_opts(args, timeout=540000):
 
 def reply_mode(result):
     return 'steps' if not result.ready and result.steps_due else 'reply'
-
-
-def now_s():
-    return int(time.time())
 
 
 def finish_wait(ctx, store, interval, result, mode, report='', now=None):

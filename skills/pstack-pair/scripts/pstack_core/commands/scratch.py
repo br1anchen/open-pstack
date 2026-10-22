@@ -4,11 +4,7 @@ import shutil
 import subprocess
 import sys
 
-from ..store import Die, prog, TEXT, load, names, pair_file, text_at, update
-
-
-def basename(path):
-    return os.path.basename(path.rstrip('/')) or '/'
+from ..store import Die, basename, prog, TEXT, load, names, pair_file, text_at, update
 
 
 def dirname(path):

@@ -24,7 +24,7 @@ def peek_message(value):
     return message if isinstance(message, dict) else {}
 
 
-def tail_lines(text, count):
+def tail_lines_with_newline(text, count):
     lines = text.split('\n')
     if lines and lines[-1] == '':
         lines.pop()
@@ -43,7 +43,7 @@ def agent_session_error(session, cwd=''):
     if not path or not os.path.isfile(path):
         return ''
     last = None
-    for line in tail_lines(read_text(path), 200).split('\n'):
+    for line in tail_lines_with_newline(read_text(path), 200).split('\n'):
         message = peek_message(parse(line))
         if message.get('role') == 'assistant':
             last = message
@@ -71,7 +71,7 @@ def muse_session_error(cwd):
             continue
     if not chosen:
         return ''
-    matches = error_context(tail_lines(read_text(chosen), 400), 60, 100)
+    matches = error_context(tail_lines_with_newline(read_text(chosen), 400), 60, 100)
     return matches[-1][:240] if matches else ''
 
 

@@ -13,10 +13,10 @@ from pstack_core import send
 from pstack_core.commands.rotate import queue as core_queue, rotate_if_due
 from pstack_core.consult import discuss_with_consultant
 from pstack_core.panes import agent_status
-from pstack_core.store import Die, Exit, field, whole_number
+from pstack_core.store import Die, Exit, field, risk_of, whole_number
 from pstack_core.wait import default_signals
 
-from .classify import classify_brief, risk_of
+from .classify import classify_brief
 from .landing import is_landing, land_check
 from .units import captured, has_pair
 from .wait import has_checkin, log_checkin_wake, quiet_flagged, quiet_wait

@@ -8,16 +8,10 @@ import subprocess
 import time
 
 from .replies import dispatched, file_mtime
-from .review import noted_through, open_notes, range_floor, steps_file
+from .review import git, noted_through, open_notes, range_floor, steps_file
 from .store import TEXT, int_or_none, header_field, load, peek, progress_path, read_text, tdiv, text_at
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
-
-
-def git_out(root, *args):
-    """stdout of git -C root, rstripped of newlines as a command substitution does, or None when git fails."""
-    r = subprocess.run(['git', '-C', root, *args], capture_output=True, check=False, **TEXT)
-    return r.stdout.rstrip('\n') if r.returncode == 0 else None
 
 
 def status_entries(root):
@@ -55,10 +49,10 @@ def tree_activity(cwd, head, now):
         newest = max(newest, t)
     commits = 0
     if head:
-        counted = git_out(cwd, 'rev-list', '--count', f'{head}..HEAD')
+        counted = git(cwd, 'rev-list', '--count', f'{head}..HEAD')
         commits = int(counted) if counted is not None and counted.isdigit() else 0
     if commits > 0:
-        stamp = git_out(cwd, 'log', '-1', '--format=%ct')
+        stamp = git(cwd, 'log', '-1', '--format=%ct')
         t = int(stamp) if stamp is not None and stamp.isdigit() else 0
         newest = max(newest, min(t, now))
     return newest or None
@@ -214,7 +208,7 @@ def checkin(ctx, store, interval=9, now=None):
     dispatch = peek(pair, 'dispatch')
     at, head, cwd = text_at(dispatch, 'at'), text_at(dispatch, 'head'), text_at(pair, 'cwd')
     floor_note = ''
-    tip = git_out(cwd, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
+    tip = git(cwd, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
     if head and tip:
         head, floor_note = range_floor(cwd, head, tip, allow_head=True)
     base = os.path.basename(brief.rstrip('/') or brief)
@@ -260,12 +254,12 @@ def checkin(ctx, store, interval=9, now=None):
         out.append(f'running: {run}\n')
     touched = status_paths(cwd)
     if head:
-        diff = git_out(cwd, 'diff', '--name-only', f'{head}..HEAD')
+        diff = git(cwd, 'diff', '--name-only', f'{head}..HEAD')
         touched += diff.split('\n') if diff else []
     touched = sort_u(touched)
     commits = 0
     if head:
-        counted = git_out(cwd, 'rev-list', '--count', f'{head}..HEAD')
+        counted = git(cwd, 'rev-list', '--count', f'{head}..HEAD')
         commits = int(counted) if counted is not None and counted.isdigit() else 0
     if floor_note:
         out.append(f'note: {floor_note}\n')

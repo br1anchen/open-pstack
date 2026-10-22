@@ -5,11 +5,8 @@ import os
 import sys
 import time
 
-from pstack_core.store import Die, field, newest, header_field, pair_file, read, read_text, write_text
-
-
-def basename(path):
-    return os.path.basename(path.rstrip('/')) if path.rstrip('/') else '/'
+from pstack_core.replies import queued_brief
+from pstack_core.store import Die, basename, field, newest, header_field, pair_file, read, read_text, write_text
 
 
 def newest_matching(pattern, skip_packets=False):
@@ -18,13 +15,6 @@ def newest_matching(pattern, skip_packets=False):
     if skip_packets:
         paths = [p for p in paths if 'packet' not in p]
     return newest(paths) or ''
-
-
-def queued_brief(store):
-    try:
-        return read_text(f'{store}/queue').rstrip('\n')
-    except OSError:
-        return ''
 
 
 def handoff_units(store):

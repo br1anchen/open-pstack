@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 from pstack_core.checkin import busy_command
 from pstack_core.store import (
-    Die, Exit, read_text, damaged, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv,
+    Die, Exit, now_s, read_text, damaged, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv,
     text_at,
 )
 from pstack_core.panes import agent_status, herdr, pane_text
@@ -24,10 +24,6 @@ from .landing import accepted_units, engine_met, review_engine
 
 
 NOT_GIVEN = object()
-
-
-def now_s():
-    return int(time.time())
 
 
 def stall_limit(idle):

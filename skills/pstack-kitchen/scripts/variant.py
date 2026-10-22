@@ -5,7 +5,7 @@ import zlib
 from pathlib import Path
 
 from pstack_core import consult
-from pstack_core.store import dispatched_brief, expected_report, header_field, read, read_text
+from pstack_core.store import dispatched_brief, expected_report, header_field, read, read_text, risk_of
 from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 
@@ -30,12 +30,6 @@ def load_kitchen_core():
         raise
     return module
 
-
-
-def risk_of(brief):
-    """The first word of a brief's risk: header, which the master may follow with the reason."""
-    words = header_field(brief, 'risk').split()
-    return words[0] if words else ''
 
 
 def verify_block(brief):

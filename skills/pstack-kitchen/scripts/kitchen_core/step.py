@@ -214,7 +214,7 @@ def finish(ctx, args):
     brief = field(store, 'dispatch', 'brief')
     # Everything but the dispatched unit's done report, and a report the pair's checks refuse anyway (no head:, open notes), goes straight on.
     if (not os.path.isfile(report) or header_field(report, 'status') != 'done' or not brief or report != expected_report(store, brief)
-            or core_report.pair_report_ready(ctx, [store, report]) != 0):
+            or not core_report.pair_report_ready(ctx, store, report)):
         return core_report.finish(ctx, args)
     wanted = header_field(report, 'head')
     if wanted == '' or wanted.startswith('<'):
