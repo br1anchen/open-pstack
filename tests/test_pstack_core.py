@@ -1,4 +1,5 @@
 """The Python core behind pair-core.sh: die parity and the store helpers it duplicates from bash."""
+import ast
 import calendar
 import functools
 import contextlib
@@ -6583,6 +6584,51 @@ class GuidedCommandTests(unittest.TestCase):
                          (7, 'pair.sh: ask 3 exceeds the two-ask cap for unit 002; re-plan the unit, or pass --force to answer anyway\n'))
         forced = self.run_guided('new-answer', str(self.store), '002', '--force')
         self.assertEqual((forced.returncode, forced.stdout), (0, f'{self.store}/answers/002-w-a3.md\n'))
+
+
+class ShellCallSiteTests(unittest.TestCase):
+    """Where the four pair skills' Python starts a shell."""
+
+    SKILLS = ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitchen')
+    SHELLS = ('bash', 'sh')
+    # kitchen.py runs the repo's own commands, which are shell text by contract; no module under pstack_core, kitchen_core or a variant.py is here.
+    ALLOWED = {
+        ('pstack-kitchen/scripts/kitchen.py', 'run_wrapped'): "a profile's gate command line, run by the repo's shell",
+        ('pstack-kitchen/scripts/kitchen.py', 'run_setup'): "a profile's setup command, shell text from the repo's kitchen.toml",
+        ('pstack-kitchen/scripts/kitchen.py', 'run_command'): "a brief's Verify command, shell text the brief wrote",
+        ('pstack-kitchen/scripts/kitchen.py', '_complete'): 'bash -n, the syntax check that splits a Verify block into whole commands',
+        ('pstack-kitchen/scripts/kitchen.py', 'run_brief_verify'): "the brief's Verify commands under the profile's wrapper",
+        ('pstack-kitchen/scripts/kitchen.py', 'shell_builtins'): 'compgen, the list of shell builtins and keywords',
+        ('pstack-kitchen/scripts/kitchen.py', 'doctor'): "doctor's probe of the repo's wrapper command",
+    }
+
+    def sites(self):
+        """(path relative to skills/, function, line, call) for each shell start in the four skills' scripts."""
+        found = []
+        for skill in self.SKILLS:
+            for path in sorted((root / 'skills' / skill / 'scripts').rglob('*.py')):
+                tree = ast.parse(path.read_text(), str(path))
+                rel = str(path.relative_to(root / 'skills'))
+
+                def visit(node, function):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        function = node.name
+                    if isinstance(node, ast.Call):
+                        shell = any(k.arg == 'shell' and isinstance(k.value, ast.Constant) and k.value.value is True for k in node.keywords)
+                        first = node.args[0] if node.args else None
+                        argv_shell = (isinstance(first, (ast.List, ast.Tuple)) and first.elts and isinstance(first.elts[0], ast.Constant)
+                                      and os.path.basename(str(first.elts[0].value)) in self.SHELLS)
+                        if shell or argv_shell or ast.unparse(node.func) in ('os.system', 'os.popen'):
+                            found.append((rel, function, node.lineno, ast.unparse(node)[:100]))
+                    for child in ast.iter_child_nodes(node):
+                        visit(child, function)
+                visit(tree, '<module>')
+        return found
+
+    def test_only_the_kitchen_py_sites_that_run_the_repos_own_commands_start_a_shell(self):
+        stray = [f'{rel}:{line} in {function}: {call}' for rel, function, line, call in self.sites() if (rel, function) not in self.ALLOWED]
+        self.assertEqual(stray, [])
+        self.assertEqual({(rel, function) for rel, function, _, _ in self.sites()}, set(self.ALLOWED), 'an allow-list entry names no shell start')
 
 
 class BashReachTests(unittest.TestCase):
