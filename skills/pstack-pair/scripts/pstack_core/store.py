@@ -35,7 +35,7 @@ dedupe_wakes = False
 
 
 def event(store, actor, name, unit, detail=''):
-    """One events.tsv row, as event() in pair-core.sh. Never fails the command it records.
+    """One events.tsv row, as the bash event() did. Never fails the command it records.
 
     The bash writes no header: its redirect creates the file before the "[ -f ]" test, so
     the header branch never runs. A store's first row is data.
@@ -65,7 +65,7 @@ def event(store, actor, name, unit, detail=''):
 
 
 def header_field(path, key):
-    """The value of the first "key: value" line, or empty, as header_field() in pair-core.sh."""
+    """The value of the first "key: value" line, or empty, as the bash header_field() did."""
     prefix = f'{key}:'
     try:
         with open(path, 'rb') as f:

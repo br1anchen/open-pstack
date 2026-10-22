@@ -161,9 +161,9 @@ def finish(ctx, args):
 
 
 def pair_report_ready(ctx, args):
-    """__pair_report_ready store report: 0 when the pair's own checks let the report through, 1 when they withhold it. The base hook, not the
+    """pair_report_ready store report: 0 when the pair's own checks let the report through, 1 when they withhold it. The base hook, not the
     variant's: kitchen.sh finish asks it before running its own Verify rerun."""
     from ..variant import Variant
     if len(args) != 2:
-        raise Die('usage: __pair_report_ready <store> <report>')
+        raise Die('usage: pair_report_ready <store> <report>')
     return 0 if Variant().report_ready(ctx, args[0], args[1]).ready else 1

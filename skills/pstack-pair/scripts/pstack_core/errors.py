@@ -1,5 +1,5 @@
 class Die(Exception):
-    """pair-core.sh's die(): the first part is the message and the second the exit code (1 when absent)."""
+    """the bash die(): the first part is the message and the second the exit code (1 when absent)."""
 
     def __init__(self, *parts):
         self.message = str(parts[0])

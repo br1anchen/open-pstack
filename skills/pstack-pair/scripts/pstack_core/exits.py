@@ -4,7 +4,7 @@ import json
 import sys
 import time
 
-from .errors import Die, Exit
+from .errors import Exit
 from .herdr import agent_status, herdr
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
@@ -98,21 +98,3 @@ def stopped(store, role):
     except Exit as e:
         sys.stderr.write(e.stderr)
         return False
-
-
-def entry_stop_prime_role(ctx, args):
-    """__stop_prime_role store role: 0 stopped, 1 the answer "no". The status a failed jq write returns comes back as it is; a die comes back as
-    100 plus its code, which the bash shim turns into the exit the bash die made."""
-    if len(args) < 2:
-        raise Die('usage: __stop_prime_role <store> <role>')
-    try:
-        return 0 if stop_prime_role(args[0], args[1]) else 1
-    except Exit as e:
-        sys.stderr.write(e.stderr)
-        return e.code
-    except Die as e:
-        sys.stderr.write(f'pair.sh: {e.message}\n')
-        return 100 + e.code
-
-
-COMMANDS = {'__stop_prime_role': entry_stop_prime_role}

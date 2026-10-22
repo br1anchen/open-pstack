@@ -89,8 +89,3 @@ def await_file(path, timeout_ms):
         time.sleep(poll / 1000)
         waited += poll
     return os.path.isfile(path)
-
-
-def entry_refuse_untrusted(ctx, args):
-    refuse_untrusted(args[0], args[1], args[2], len(args) > 3 and args[3] != '')
-    return 0

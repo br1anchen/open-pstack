@@ -1,4 +1,4 @@
-"""The readers of a store's replies, as the wait loop uses them (it was pair-core.sh's before phase 3). Each twin takes the pieces of
+"""The readers of a store's replies, as the wait loop uses them (they were bash before phase 3). Each twin takes the pieces of
 state it reads from the store and returns what the bash function printed."""
 import glob
 import os

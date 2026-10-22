@@ -111,8 +111,3 @@ def mode_of_this_shell():
 def permission(ctx, args):
     print(mode_of_this_shell())
     return 0
-
-
-def helper(ctx, args):
-    print(mode_of_this_shell())
-    return 0

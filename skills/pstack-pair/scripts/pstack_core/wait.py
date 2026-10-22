@@ -1,4 +1,4 @@
-"""wait, as the wait closure in pair-core.sh ran it before phase 3: the option parser, the loop that waits for the sidekick's reply,
+"""wait, as the bash wait closure ran it before phase 3: the option parser, the loop that waits for the sidekick's reply,
 and finish_wait, which prints the outcome. WaitResult carries what the bash passed in the globals code, out, err,
 ready and steps_due. send_and_wait, stop and steer are ported (pstack_core/send.py, commands/stop.py, commands/steer.py)."""
 import json

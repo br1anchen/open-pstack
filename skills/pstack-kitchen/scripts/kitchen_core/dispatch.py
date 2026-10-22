@@ -1,6 +1,6 @@
 """dispatch: send a brief and wait quietly. Ported from kitchen.sh at b632713 (cmd_dispatch).
 
-The bash ran the pair's dispatch (`core_dispatch`, a snapshot of pair-core's command) inside `$( )` with PAIR_QUIET_WAIT=1: a child process with its stdout on
+The bash ran the pair's dispatch (`core_dispatch`, a snapshot of the pair's command) inside `$( )` with PAIR_QUIET_WAIT=1: a child process with its stdout on
 a pipe and its stderr left alone. Here the core's dispatch is called as a function in a forked child (verify.in_subshell, stdout only) with
 the same variable set in the child. A nonzero return of the core's dispatch is the child's exit
 status, taken as `|| rc=$?` took it. When the digest is a check-in with nothing flagged, the bash's `quiet_wait` ran in the dispatch shell and ended it with

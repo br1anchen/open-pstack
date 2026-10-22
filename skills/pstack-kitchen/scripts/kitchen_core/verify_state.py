@@ -187,19 +187,19 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     return remove_scratch(ctx, store, scratch)
 
 
-def pycore_argv(ctx, *command):
-    """The words of the bash's pycore: the core run as a process, with the context of this command."""
+def core_argv(ctx, *command):
+    """The words that run the core as a process of its own, with this command's skill root."""
     from pstack_core import cli
     pair_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(cli.__file__))), 'pair.py')
     return [sys.executable, '-I', pair_py, '--skill-root', ctx.skill_root, *command]
 
 
 def scratch_process(ctx, store, scratch, *options, capture=False):
-    """`cmd_scratch "$store" "$scratch" OPTIONS` as the bash ran it, a pycore process: (status, stdout when captured). Its errors, a traceback
+    """`cmd_scratch "$store" "$scratch" OPTIONS` as the bash ran it, a process of the core: (status, stdout when captured). Its errors, a traceback
     included, are its own stderr."""
     sys.stdout.flush()
     sys.stderr.flush()
-    r = subprocess.run(pycore_argv(ctx, 'scratch', store, scratch, *options), stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False)
+    r = subprocess.run(core_argv(ctx, 'scratch', store, scratch, *options), stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False)
     return exit_status(r.returncode), r.stdout.decode('utf-8', 'surrogateescape') if capture else ''
 
 

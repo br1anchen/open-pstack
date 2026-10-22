@@ -27,7 +27,7 @@ print(f"evidence: {base}", flush=True)
 herdr = str(Path(args.herdr).resolve())
 prime = str(Path(args.prime_agent).resolve())
 repository = Path(__file__).resolve().parents[1]
-adapter = repository / "skills/pstack-pair/scripts/pair-core.sh"  # sources prime-agent.sh; stop_prime_role runs in the Python core through pycore __stop_prime_role
+scripts = repository / "skills/pstack-pair/scripts"  # pstack_core/prime.py is the adapter; exits.stop_prime_role stops the role's session
 name = "prime-smoke-" + str(os.getpid())
 mode = "ok"
 
@@ -213,7 +213,7 @@ try:
             "-I",
             "-c",
             "import sys; sys.path.insert(0, sys.argv[1]); from pstack_core import agents; sys.exit(agents.preflight_kind('prime-agent', sys.argv[2:]))",
-            str(repository / "skills/pstack-pair/scripts"),
+            str(scripts),
             "--offline",
             "--model",
             "mock/smoke",
@@ -328,6 +328,19 @@ try:
     # Exercise the deployed adapter against real daemon and pane information.
     store = base / "store"
     store.mkdir()
+
+    def stop_role():
+        call(
+            sys.executable,
+            [
+                "-I",
+                "-c",
+                "import sys; sys.path.insert(0, sys.argv[1]); from pstack_core import exits; sys.exit(0 if exits.stop_prime_role(sys.argv[2], 'sidekick') else 1)",
+                str(scripts),
+                str(store),
+            ],
+        )
+
     (store / "pair.json").write_text(
         json.dumps(
             {
@@ -341,23 +354,7 @@ try:
             }
         )
     )
-    script = """set -euo pipefail
-skill_root="$(dirname "$(dirname "$(dirname "$2")")")/pstack-pair"; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair
-roles=(sidekick); store_dirs=(plans); slug_max=21
-source "$2"
-type -t pycore >/dev/null
-pycore __stop_prime_role "$1" sidekick
-"""
-    call(
-        "/bin/bash",
-        [
-            "-c",
-            script,
-            "smoke",
-            str(store),
-            str(adapter),
-        ],
-    )
+    stop_role()
     assert not any(
         s["activeSessionId"] == active_id
         for s in json.loads(
@@ -373,16 +370,7 @@ pycore __stop_prime_role "$1" sidekick
     h(*start_args)
     fresh = agent()["agent_session"]
     assert fresh["kind"] == "path" and fresh != session, fresh
-    call(
-        "/bin/bash",
-        [
-            "-c",
-            script,
-            "smoke",
-            str(store),
-            str(adapter),
-        ],
-    )
+    stop_role()
     assert Path(fresh["value"]).is_file()
     assert not json.loads(
         p("list", "--json", "--socket", str(base / "prime.sock")).stdout

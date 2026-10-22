@@ -1,4 +1,4 @@
-"""The Python core behind pair-core.sh: die parity and the store helpers it duplicates from bash."""
+"""The Python core behind the pair scripts: die parity and the store helpers it duplicates from bash."""
 import ast
 import calendar
 import functools
@@ -25,13 +25,12 @@ root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
-from pstack_core import cli, dispatch, herdr, permission, providers, review, store, wait  # noqa: E402
+from pstack_core import cli, dispatch, exits, herdr, permission, providers, review, store, wait  # noqa: E402
 from pstack_core.context import Context  # noqa: E402
 from pstack_core.errors import Die, Exit  # noqa: E402
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
 
 sys.path.insert(0, str(root / 'tests'))
-import bash_reach  # noqa: E402
 
 LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
 
@@ -114,17 +113,6 @@ class CoreTests(unittest.TestCase):
         return subprocess.run([sys.executable, '-I', str(scripts / 'pair.py'), *core_args(), *args],
                               env=self.env, capture_output=True, text=True, check=False, timeout=120)
 
-    def bash(self, snippet, env=None, check=True):
-        """snippet run with the working tree's pair-core.sh sourced."""
-        skills = root / 'skills'
-        harness = f'''set -euo pipefail
-skill_root={skills / "pstack-pair"}; PAIR_SKILL=pstack-pair; state_root=/s; store_label=Pair
-roles=(sidekick); store_dirs=(plans); slug_max=21
-. {skills / "pstack-pair/scripts/pair-core.sh"}
-{snippet}'''
-        r = subprocess.run(['bash', '-c', harness], env={**self.env, **(env or {})}, capture_output=True, text=True, check=check, timeout=120)
-        return r.stdout if check else r
-
     def test_die_without_a_code_exits_1(self):
         r = self.pair_py('log', 'only-one-arg')
         self.assertEqual((r.returncode, r.stdout), (1, ''))
@@ -171,12 +159,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             store.event(str(b), 'master', 'log', '-', 'r')
         self.assertEqual(mask((b / 'events.tsv').read_text()), ['master\twake\t001\tr', 'master\tlog\t-\tr'])
 
-    def test_header_field_matches_bash(self):
+    def test_header_field_is_the_first_matching_lines_value_without_its_leading_blanks(self):
         f = self.path / 'h.md'
         f.write_text('# T\n\nstatus:\t done | partial\nstatus: later\nempty:\nkind:   a  b \n')
-        for key in ('status', 'empty', 'kind', 'missing'):
-            self.assertEqual(store.header_field(str(f), key), self.bash(f'header_field {f} {key}').removesuffix('\n'), key)
-
+        expected = {'status': 'done | partial', 'empty': '', 'kind': 'a  b ', 'missing': ''}
+        self.assertEqual({key: store.header_field(str(f), key) for key in expected}, expected)
 
     def fixture_store(self, name='s', brief='001-one.md'):
         st = self.path / name
@@ -298,20 +285,19 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             if name not in cli.OVERRIDABLE:
                 self.assertIs(cli.resolve(ctx, name), cli.COMMANDS[name], name)
         with self.assertRaises(AssertionError):
-            cli.resolve(ctx, '__nothing')  # an internal entry the core lacks is the variant's to supply, so the variant is asked
-        ctx._variant = type('V', (), {'commands': {'answer': 'mine', 'status': 'not asked', '__detect_permission_mode': 'not asked'}})()
-        self.assertEqual((cli.resolve(ctx, 'answer'), cli.resolve(ctx, 'status'), cli.resolve(ctx, '__detect_permission_mode')),
-                         ('mine', cli.COMMANDS['status'], cli.COMMANDS['__detect_permission_mode']))
+            cli.resolve(ctx, 'nothing-like-it')  # a name the core lacks is the variant's to supply, so the variant is asked
+        ctx._variant = type('V', (), {'commands': {'answer': 'mine', 'status': 'not asked', 'permission': 'not asked'}})()
+        self.assertEqual((cli.resolve(ctx, 'answer'), cli.resolve(ctx, 'status'), cli.resolve(ctx, 'permission')),
+                         ('mine', cli.COMMANDS['status'], cli.COMMANDS['permission']))
 
-    def test_a_name_the_core_lacks_asks_the_variant_internal_entries_included(self):
+    def test_a_name_the_core_lacks_asks_the_variant(self):
         class Mine:
-            commands = {'catch': 'kitchen catch', '__bridge': 'kitchen bridge'}
+            commands = {'catch': 'kitchen catch', 'bridge': 'kitchen bridge'}
 
         ctx = Context('pstack-pair', '/nowhere/pstack-pair', '/s', 'Pair', ('sidekick',), ('plans',), 21, '')
         ctx._variant = Mine()
         self.assertEqual(cli.resolve(ctx, 'catch'), 'kitchen catch')
-        self.assertEqual(cli.resolve(ctx, '__bridge'), 'kitchen bridge')
-        self.assertIsNone(cli.resolve(ctx, '__nothing'))
+        self.assertEqual(cli.resolve(ctx, 'bridge'), 'kitchen bridge')
         self.assertIsNone(cli.resolve(ctx, 'nothing-like-it'))
         self.assertIs(cli.resolve(ctx, 'status'), cli.COMMANDS['status'])
 
@@ -2529,18 +2515,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
 
 
-    def test_the_prime_smoke_script_sources_pair_core_and_its_names_resolve(self):
-        """tests/prime_herdr_smoke.py needs a real Prime, so only what can be proved here is: it sources pair-core.sh (which sources prime-agent.sh)
-        with no stubs of the helpers that file defines, and in that shell `pycore` is a function and the core has the `__stop_prime_role` entry the script calls."""
+    def test_the_prime_smoke_script_drives_the_python_adapter_and_its_names_resolve(self):
+        """tests/prime_herdr_smoke.py needs a real Prime, so only what can be proved here is: the Python function it calls to stop the role exists
+        in the core."""
         text = (root / 'tests/prime_herdr_smoke.py').read_text()
-        self.assertIn('skills/pstack-pair/scripts/pair-core.sh', text)
-        self.assertNotRegex(text, r'(?m)^(field|json_update|agent_status)\(\) \{')
-        script = re.search(r'script = """(.*?)"""', text, re.S).group(1)
-        core = root / 'skills/pstack-pair/scripts/pair-core.sh'
-        r = subprocess.run(['bash', '-c', script.split('pycore __stop_prime_role "$1"')[0] + 'type -t pycore', 'smoke', 'unused', str(core)],
-                           capture_output=True, text=True, check=False, timeout=60)
-        self.assertEqual((r.returncode, r.stdout), (0, 'function\n'), r.stderr)
-        self.assertIn('pycore __stop_prime_role "$1" sidekick', text)
+        self.assertIn('exits.stop_prime_role', text)
+        self.assertTrue(callable(exits.stop_prime_role))
 
     def test_update_waits_out_a_held_lock_and_dies_when_it_is_never_released(self):
         """The held lock is retried as the bash did: the lock is held when the call starts and released at the first poll. No real wait: the poll is the test's own function."""
@@ -2820,10 +2800,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 r = subprocess.run(['bash', '-c', f'{self.provider_re_line()}\nprintf "%s\\n" "$1" | grep -oiE ".{{0,{before}}}($provider_error_re).{{0,{after}}}" || true', 'x', text],
                                    env={**self.env, 'LC_ALL': 'en_US.UTF-8'}, capture_output=True, check=True, timeout=120)
                 self.assertEqual('\n'.join(ours).encode('utf-8', 'surrogateescape') + (b'\n' if ours else b''), r.stdout, (text, before, after))
-        self.assertEqual(providers.PROVIDER_ERROR_RE, re.search(r"^provider_error_re='(.*)'$", (scripts / 'pair-core.sh').read_text(), re.M).group(1))
 
     def provider_re_line(self):
-        return re.search(r"^provider_error_re='.*'$", (scripts / 'pair-core.sh').read_text(), re.M).group(0)
+        return f"provider_error_re='{providers.PROVIDER_ERROR_RE}'"
 
 
 
@@ -3260,125 +3239,6 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     def test_metrics_gives_a_legacy_header_store_the_same_output_as_the_headerless_one(self):
         self.assertEqual(self.metrics_of(LEGACY_HEADER + '\n' + self.FIRST_EVENTS), self.metrics_of(self.FIRST_EVENTS))
-
-    ENTRIES = ('pstack-pair/scripts/pair.sh', 'pstack-pair-guided/scripts/pair.sh', 'pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
-    CORE = 'pstack-pair/scripts/pair-core.sh'
-    HELPER_FILES = (CORE, 'pstack-pair/scripts/prime-agent.sh')
-    PORTED = ('status', 'metrics', 'permission', 'init', 'stop', 'steer', 'log', 'notes', 'note', 'new_note', 'progress', 'new_plan', 'new_brief', 'new_steer', 'pause', 'resume', 'scratch',
-              'finish', 'notify', 'report', 'next', 'wait', 'queue', 'step', 'dispatch', 'discuss', 'spawn')
-    # the consultant's commands, which only the trio and the kitchen have, each a shim in the entry script itself
-    CONSULTANT_PORTED = ('new_consult', 'consult', 'advice')
-    CONSULTANT_ENTRIES = ('pstack-trio/scripts/pair.sh', 'pstack-kitchen/scripts/kitchen.sh')
-    # bash helpers that have a Python twin (pstack_core), under the twin's name
-    TWINS = ('header_field', 'pair_file')
-    # a variant's bash override of a hook, against the Python hook in that skill's variant.py
-    # The bash bodies no entry script reaches. Phase 3 ended with none: a body that loses its last caller is deleted in the commit that orphans it,
-    # and the guard has no baseline to add it to.
-    # U7b ported the last two callers (guided new-direction and new-answer); pair-core.sh is off limits to that unit and U7c deletes it whole.
-    KNOWN_DEAD = ('pstack-pair/scripts/pair-core.sh:header_field', 'pstack-pair/scripts/pair-core.sh:pair_file')
-
-    def reach(self):
-        cls = type(self)
-        if cls.__dict__.get('_reach') is None:
-            skills = root / 'skills'
-            cls._reach = bash_reach.Reach([skills / e for e in self.ENTRIES], skills)
-        return cls._reach
-
-    def test_every_bash_function_runs_from_an_entry_script_or_is_known_dead(self):
-        reach = self.reach()
-        dead, known = reach.dead(), set(self.KNOWN_DEAD)
-        problems = [f'{k} has no caller from any entry script: delete its bash body' for k in sorted(dead - known)]
-        problems += [f'{k} no longer exists: remove it from KNOWN_DEAD' if k not in reach.nodes else f'{k} is reachable again: remove it from KNOWN_DEAD'
-                     for k in sorted(known - dead)]
-        self.assertEqual(problems, [])
-
-    def test_every_name_the_bash_calls_resolves_to_a_definition_or_a_command(self):
-        """The reachability guard follows only calls to names it knows; a call to a deleted function would be dropped. Every command-position name in
-        every definition and top-level line of each entry script is a definition of that entry, a shell builtin, or an external command."""
-        reach = self.reach()
-        missing = set()
-        for entry in self.ENTRIES:
-            path = (root / 'skills' / entry).resolve()
-            table = reach.tables[path]
-            for definition in table.values():
-                missing |= {(entry, name, definition.key) for name in definition.calls if name not in table}
-            missing |= {(entry, name, '<top>') for name, _ in reach.roots[path] if name not in table}
-        names = sorted({name for _, name, _ in missing})
-        self.assertEqual(sorted(self.OPTIONAL_HOST_COMMANDS - set(names)), [], 'OPTIONAL_HOST_COMMANDS names that no script calls any more: remove them')
-        # The fakes (herdr, ps, pi) come first on PATH, as in the other tests; a name that resolves to a file must be one of the external commands the
-        # scripts are known to call, so a typo that happens to match a binary on this host fails by name.
-        env = {**os.environ, 'PATH': f"{root / 'tests/pstack-pair/bin'}:{os.environ['PATH']}"}
-        kind = {n: subprocess.run(['bash', '-c', 'type -t -- "$1"', 'x', n], capture_output=True, text=True, check=False, env=env).stdout.strip() for n in names}
-        unknown = sorted(n for n in names if kind[n] == 'file' and n not in self.EXTERNAL_COMMANDS | self.OPTIONAL_HOST_COMMANDS)
-        self.assertEqual(unknown, [], 'external commands not listed in EXTERNAL_COMMANDS (add a command the scripts really call, fix a typo otherwise)')
-        self.assertEqual(sorted(m for m in missing if not kind[m[1]] and m[1] not in self.OPTIONAL_HOST_COMMANDS), [], 'calls to a name no definition, builtin or command provides')
-        absent = sorted(n for n in self.EXTERNAL_COMMANDS if not shutil.which(n, path=env['PATH']))
-        self.assertEqual(absent, [], 'EXTERNAL_COMMANDS names that do not resolve')
-
-    # the external commands the entry scripts call, written out; the fakes under tests/pstack-pair/bin stand in for herdr and ps
-    EXTERNAL_COMMANDS = frozenset((
-        'awk', 'basename', 'cat', 'cksum', 'cp', 'cut', 'date', 'dirname', 'find', 'git', 'grep', 'head', 'herdr', 'id', 'jq', 'ln', 'ls', 'mkdir',
-        'mktemp', 'mv', 'paste', 'ps', 'python3', 'readlink', 'rm', 'rmdir', 'sed', 'sleep', 'sort', 'stat', 'tail', 'tr', 'wc'))
-    # commands the scripts call that a host may lack: none now (the kitchen's retro table and the setsid detach are Python); a name added here
-    # must be one a script calls, which test_every_name_the_bash_calls_resolves_to_a_definition_or_a_command checks
-    OPTIONAL_HOST_COMMANDS = frozenset()
-
-    def test_each_bash_twin_has_its_bash_definition_and_its_python_def(self):
-        reach = self.reach()
-        python = '\n'.join(p.read_text() for p in (scripts / 'pstack_core').rglob('*.py'))
-        for helper in self.TWINS:
-            self.assertTrue(any(f'{f}:{helper}' in reach.nodes for f in self.HELPER_FILES), f'{helper} has no bash definition: remove it from TWINS')
-            self.assertRegex(python, rf'(?m)^\s*def {helper}\(', f'{helper} has no Python twin')
-
-    def test_ported_commands_are_pycore_shims_in_the_script_that_defines_their_final_body(self):
-        reach = self.reach()
-        shim = re.compile(r'\s*pycore (--exec )?\S+ "\$@";?\s*\Z')
-        for entry in self.ENTRIES:
-            for name in self.PORTED + (self.CONSULTANT_PORTED if entry in self.CONSULTANT_ENTRIES else ()):
-                final = reach.final(root / 'skills' / entry, f'cmd_{name}')
-                self.assertIsNotNone(final, f'{entry}: cmd_{name} is not defined')
-                self.assertRegex(final.body, shim, f'{final.key} is not a pycore shim')
-                home = self.CORE
-                if entry == 'pstack-kitchen/scripts/kitchen.sh' and name in ('queue', 'discuss', 'dispatch', 'finish', 'init', 'spawn', 'step', 'wait'):
-                    home = entry  # the kitchen's own command, run from its variant
-                if (entry, name) == ('pstack-trio/scripts/pair.sh', 'spawn'):
-                    home = entry  # the trio's own command, run from its variant
-                if name in self.CONSULTANT_PORTED:
-                    home = entry  # the consultant's commands run from pstack_core.consult, through a shim in the entry script
-                self.assertEqual(final.key, f'{home}:cmd_{name}', f'{entry}: the final cmd_{name} is not {home}')
-
-    def test_answer_is_guided_only_and_a_pycore_shim_there(self):
-        reach = self.reach()
-        final = reach.final(root / 'skills/pstack-pair-guided/scripts/pair.sh', 'cmd_answer')
-        self.assertRegex(final.body, r'\s*pycore (--exec )?answer "\$@";?\s*\Z')
-        self.assertEqual(final.key, 'pstack-pair-guided/scripts/pair.sh:cmd_answer')
-        for entry in self.ENTRIES:
-            if entry != 'pstack-pair-guided/scripts/pair.sh':
-                self.assertIsNone(reach.final(root / 'skills' / entry, 'cmd_answer'), entry)
-
-    def test_kitchen_sh_keeps_no_copy_fn_snapshot_of_a_pair_core_body(self):
-        """Unit 029 ended the last snapshots: every command kitchen.sh has is a pycore shim, and none of the pair's commands lives on under a core_* name."""
-        text = (root / 'skills/pstack-kitchen/scripts/kitchen.sh').read_text()
-        self.assertNotIn('copy_fn', text)
-        table = self.reach().tables[(root / 'skills/pstack-kitchen/scripts/kitchen.sh').resolve()]
-        for name in ('init', 'spawn', 'queue', 'discuss', 'consultant', 'fleet', 'wait', 'dispatch', 'step', 'finish'):
-            self.assertEqual(table[f'cmd_{name}'].key, f'pstack-kitchen/scripts/kitchen.sh:cmd_{name}')
-            self.assertNotIn(f'core_{name}', table)
-
-    def test_pair_sh_stops_with_a_message_when_python3_is_not_on_path(self):
-        bin_dir = self.path / 'bin-without-python3'
-        bin_dir.mkdir()
-        for tool in ('bash', 'jq', 'env', 'dirname', 'basename', 'readlink', 'cat', 'mkdir', 'date', 'rm', 'ls', 'head', 'tail', 'cut', 'sed', 'grep', 'awk', 'tr', 'sort', 'mv', 'cp', 'stat'):
-            found = shutil.which(tool)
-            if found:
-                (bin_dir / tool).symlink_to(found)
-        (bin_dir / 'herdr').symlink_to(root / 'tests/pstack-pair/bin/herdr')
-        env = {**inherited_env(), 'PATH': str(bin_dir), 'HOME': str(self.path), 'HERDR_ENV': '1', 'FAKE': str(self.path / 'fake'),
-               'XDG_STATE_HOME': str(self.path / 'state')}
-        self.assertIsNone(shutil.which('python3', path=str(bin_dir)))
-        r = subprocess.run([str(bin_dir / 'bash'), str(scripts / 'pair.sh'), 'help'], env=env, capture_output=True, text=True, check=False, timeout=120)
-        self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', 'pair.sh: python3 is required on PATH\n'))
-
 
     def test_pause_resume_and_progress_through_pair_sh(self):
         self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
@@ -3946,7 +3806,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             self.assertEqual(buf.getvalue(), want, (verified[:9], current[:9], head))
 
     def test_dispatch_of_a_landing_brief_goes_through_the_python_land_check(self):
-        """cmd_dispatch's bash called land_check; it calls `pycore land-check` now. A landing brief with a unit that has no clean verdict is refused
+        """cmd_dispatch's bash called land_check; it calls the Python land-check now. A landing brief with a unit that has no clean verdict is refused
         with the same message by both trees."""
         landing_brief = '# Brief 003-ship\n\nplaybook: shipping\ntimebox: 30\ncommit: no\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- lib/**\n'
         spec = self.land_world(args=['dispatch', '{st}', '{st}/briefs/003-ship.md', '--timeout', '1000'], files={'briefs/003-ship.md': landing_brief},
@@ -4203,8 +4063,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
 
     @staticmethod
     def live_and_dead_token_hosts():
-        """The host the shell reads from $HOSTNAME, a pid that is alive for the whole test and one that is gone."""
-        host = subprocess.run(['bash', '-c', 'echo "$HOSTNAME"'], capture_output=True, text=True, check=True).stdout.strip()
+        """The host a claim token names (HOSTNAME from the environment, else localhost), a pid that is alive for the whole test and one that is gone."""
+        host = os.environ.get('HOSTNAME') or 'localhost'
         dead = subprocess.Popen(['true'])
         dead.wait()
         return host, os.getpid(), dead.pid
@@ -4994,7 +4854,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotIn('profiles:', out['a landing brief']['files']['briefs/002-y.md'])
 
     SETUP_HOOK = {'hook': READY_HOOK, 'env': {'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_FILE_POLL_MS': '100', 'PAIR_BOOTSTRAP_WAIT_MS': '300', 'PAIR_PREFLIGHT_RETRY_S': '0'}}
-    SETUP_MASK = [(r'<SK>[^\s"\\]*(pair-core|kitchen)\.sh: line [0-9]+: \[: ', 'pair.sh: [: '), (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'), (r'repo-[0-9a-f]{8}', 'repo-H')]
+    SETUP_MASK = [(r'<SK>[^\s"\\]*(pair|kitchen)\.sh: line [0-9]+: \[: ', 'pair.sh: [: '), (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'), (r'repo-[0-9a-f]{8}', 'repo-H')]
 
     def init_command_cases(self):
         full = self.KITCHEN_TOML + '\n[review]\nself = ["pstack-review", "ce-review"]\n\n[landing]\nmode = "pr"\n'
@@ -6629,101 +6489,6 @@ class ShellCallSiteTests(unittest.TestCase):
         stray = [f'{rel}:{line} in {function}: {call}' for rel, function, line, call in self.sites() if (rel, function) not in self.ALLOWED]
         self.assertEqual(stray, [])
         self.assertEqual({(rel, function) for rel, function, _, _ in self.sites()}, set(self.ALLOWED), 'an allow-list entry names no shell start')
-
-
-class BashReachTests(unittest.TestCase):
-    """tests/bash_reach.py on small synthetic scripts."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.dir = Path(self.tmp.name).resolve()
-
-    def reach(self, **files):
-        for name, text in files.items():
-            (self.dir / f'{name}.sh').write_text(text)
-        return bash_reach.Reach([self.dir / 'entry.sh'], self.dir)
-
-    SOURCE_LIB = '. "$here/lib.sh"\n'
-
-    def test_a_cycle_with_no_root_is_dead_and_what_a_cmd_function_calls_is_live(self):
-        reach = self.reach(lib='a() { b; }\nb() { a; }\nlive() { :; }\ncmd_x() { live; }\n', entry=self.SOURCE_LIB)
-        self.assertEqual(reach.dead(), {'lib.sh:a', 'lib.sh:b'})
-        self.assertEqual(reach.reachable(self.dir / 'entry.sh'), {'lib.sh:cmd_x', 'lib.sh:live'})
-
-    def test_the_last_definition_in_an_entry_wins_and_the_overridden_body_takes_its_callees_with_it(self):
-        reach = self.reach(lib='helper() { leaf; }\nleaf() { :; }\ncmd_x() { helper; }\n', entry=self.SOURCE_LIB + 'helper() { :; }\n')
-        self.assertEqual(reach.dead(), {'lib.sh:helper', 'lib.sh:leaf'})
-        self.assertIn('entry.sh:helper', reach.reachable(self.dir / 'entry.sh'))
-
-    def test_the_override_is_per_entry_so_the_other_entry_keeps_the_first_body_live(self):
-        (self.dir / 'lib.sh').write_text('helper() { leaf; }\nleaf() { :; }\ncmd_x() { helper; }\n')
-        (self.dir / 'entry.sh').write_text(self.SOURCE_LIB + 'helper() { :; }\n')
-        (self.dir / 'other.sh').write_text(self.SOURCE_LIB)
-        reach = bash_reach.Reach([self.dir / 'entry.sh', self.dir / 'other.sh'], self.dir)
-        self.assertEqual(reach.dead(), set())
-        self.assertEqual(reach.reachable(self.dir / 'other.sh'), {'lib.sh:cmd_x', 'lib.sh:helper', 'lib.sh:leaf'})
-
-    def test_a_name_in_echo_quotes_a_comment_or_heredoc_data_is_not_a_call(self):
-        script = ('helper() { :; }\nlive() { :; }\nhidden() { :; }\ncmd_x() {\n\techo helper\n\tprintf "%s\\n" "helper"  # helper\n'
-                  '\tcat <<EOF\nhelper\n$(live)\nEOF\n\tcat <<\'EOF\'\n$(hidden)\nEOF\n}\n')
-        self.assertEqual(self.reach(lib=script, entry=self.SOURCE_LIB).dead(), {'lib.sh:helper', 'lib.sh:hidden'})
-
-    def test_a_name_in_command_position_inside_a_substitution_or_a_construct_is_a_call(self):
-        script = ('one() { :; }\ntwo() { :; }\nthree() { :; }\nfour() { :; }\nfive() { :; }\nnever() { :; }\n'
-                  'cmd_x() {\n\tv="$(one)"\n\tmapfile -t a < <(two)\n\techo "${v:-$(three)}"\n'
-                  '\tcase "$1" in\n\tnever) four ;;\n\t*) : ;;\n\tesac\n\tif ! [ -n x ] && five; then :; fi\n}\n')
-        self.assertEqual(self.reach(lib=script, entry=self.SOURCE_LIB).dead(), {'lib.sh:never'})
-
-    def test_what_the_model_does_not_cover_raises(self):
-        cases = {'a dynamic command word': ('lib', 'cmd_x() { "$fn" arg; }\n'),
-                 'an eval': ('lib', 'cmd_x() { eval "$x"; }\n'),
-                 'declare -F outside pair_main': ('lib', 'cmd_x() { declare -F cmd_y; }\n'),
-                 'a trap handler': ('lib', 'cmd_x() { trap cleanup EXIT; }\n'),
-                 'a backtick substitution': ('lib', 'cmd_x() { v=`one`; }\n'),
-                 'a source path it cannot resolve': ('entry', '. "$elsewhere/lib.sh"\n')}
-        for label, (where, text) in cases.items():
-            with self.subTest(label):
-                files = {'lib': 'cmd_y() { :; }\n', 'entry': self.SOURCE_LIB}
-                files[where] = text
-                with self.assertRaises(bash_reach.ReachError):
-                    self.reach(**files)
-
-
-    def test_a_command_substitution_inside_arithmetic_is_a_call(self):
-        script = 'helper() { :; }\nloop() { :; }\ncmd_x() {\n\tif (( $(helper) > 0 )); then :; fi\n\tfor ((i = 0; i < $(loop); i++)); do :; done\n}\n'
-        self.assertEqual(self.reach(lib=script, entry=self.SOURCE_LIB).dead(), set())
-
-    def test_a_heredoc_body_is_read_like_a_double_quoted_string(self):
-        reach = self.reach(lib='x() { :; }\ncmd_x() {\n\tcat <<EOF\n$((x + 1))\nEOF\n}\n', entry=self.SOURCE_LIB)
-        self.assertEqual(reach.dead(), {'lib.sh:x'})
-        with self.assertRaises(bash_reach.ReachError):
-            self.reach(lib='helper() { :; }\ncmd_x() {\n\tcat <<EOF\n`helper`\nEOF\n}\n', entry=self.SOURCE_LIB)
-
-    def test_a_nested_definition_or_a_brace_with_nothing_to_close_raises(self):
-        for label, script in {'a nested definition': 'cmd_x() {\n\tinner() { :; }\n\tinner\n}\n', 'an extra }': 'cmd_x() { :; }\n}\n'}.items():
-            with self.subTest(label), self.assertRaises(bash_reach.ReachError):
-                self.reach(lib=script, entry=self.SOURCE_LIB)
-
-    def test_a_prefix_does_not_hide_a_form_the_model_rejects_and_time_does_not_hide_a_call(self):
-        for label, body in {'builtin eval': 'builtin eval "$x"', 'command eval': 'command eval "$x"', 'builtin source of a missing file': 'builtin source "$here/none.sh"',
-                            'compgen -A function': 'compgen -A function', 'export -f': 'export -f cmd_y', 'coproc': 'coproc cmd_y'}.items():
-            with self.subTest(label), self.assertRaises(bash_reach.ReachError):
-                self.reach(lib=f'cmd_y() {{ :; }}\ncmd_x() {{ {body}; }}\n', entry=self.SOURCE_LIB)
-        script = 'f() { :; }\ng() { :; }\ncmd_x() {\n\ttime -p f\n\ttime g\n\tcommand -v eval\n}\n'
-        self.assertEqual(self.reach(lib=script, entry=self.SOURCE_LIB).dead(), set())
-
-    def test_each_dynamic_form_is_pinned_to_the_command_it_models(self):
-        ok = {'pycore': 'pycore() {\n\tlocal run=()\n\t${run[@]+"${run[@]}"} python3 -I x -- "$@"\n}\n',
-              'pair_main': 'pair_main() {\n\tlocal fn=cmd_y\n\tif declare -F "$fn" >/dev/null; then\n\t\t"$fn" "$@"\n\tfi\n}\n'}
-        for name, text in ok.items():
-            with self.subTest(name):
-                self.reach(lib='cmd_y() { :; }\n', entry=self.SOURCE_LIB + text)
-        changed = {'pycore': ok['pycore'].replace('python3 -I x', 'helper'),
-                   'pair_main': ok['pair_main'].replace('"$fn" "$@"', '"$fn" extra')}
-        for name, text in changed.items():
-            with self.subTest(f'changed {name}'), self.assertRaises(bash_reach.ReachError):
-                self.reach(lib='cmd_y() { :; }\nhelper() { :; }\n', entry=self.SOURCE_LIB + text)
 
 
 if __name__ == '__main__':

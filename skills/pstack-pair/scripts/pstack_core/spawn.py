@@ -17,7 +17,6 @@ from .providers import provider_hint, record_prime_session
 from .review import jq_raw
 from .send import submit_typed, visible_without_blanks
 from .store import alt, count, env_float, env_int, event, field, get, listing, load, member, update
-from .wait import end_with_parent
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
 
@@ -189,15 +188,6 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
     return 4
 
 
-def entry_spawn_role(ctx, args):
-    """__spawn_role store role kind permission anchor timeout direction pane [native args...]: the positional arguments the bash function took.
-    No production caller is left (spawn, rotate and failover call spawn_role directly); it stays as the seam the call-form A/B tests drive."""
-    end_with_parent()
-    if len(args) < 8:
-        raise Die('usage: __spawn_role <store> <role> <kind> <permission> <anchor> <timeout> <direction> <pane> [args...]')
-    return spawn_role(ctx, *args[:8], list(args[8:]))
-
-
 def set_placement(store, want=''):
     """How roles get their panes: --tab or --split from spawn, else what the store has, else PSTACK_PLACEMENT, else split."""
     if not want and jq_raw(alt(get(store, 'placement'), '')) == '':
@@ -278,12 +268,3 @@ def spawn_consultant(ctx, store, kind, permission, timeout, args):
     if not anchor or herdr('pane', 'get', anchor)[0] != 0:
         anchor = field(store, 'master', 'pane_id')
     return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args)
-
-
-def entry_spawn_consultant(ctx, args):
-    """__spawn_consultant store kind permission timeout [args...]: the positional arguments the bash function takes."""
-    end_with_parent()
-    if len(args) < 4:
-        raise Die('usage: __spawn_consultant <store> <kind> <permission> <timeout> [args...]')
-    # its one bash caller is kitchen.sh consultant, a plain command under set -e
-    return spawn_consultant(ctx, *args[:4], list(args[4:]))

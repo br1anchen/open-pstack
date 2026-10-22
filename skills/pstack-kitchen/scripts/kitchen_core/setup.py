@@ -1,7 +1,7 @@
 """init, spawn, consultant and fleet: the commands that set a kitchen run up. Ported from kitchen.sh at b632713 (cmd_init, worktree_setup, cmd_spawn,
 cmd_consultant, cmd_fleet and record_skill_build).
 
-The bash wrapped the pair's init and spawn (core_init, core_spawn, snapshots of pair-core's commands); here they call the core's functions directly.
+The bash wrapped the pair's init and spawn (core_init, core_spawn, snapshots of the pair's commands); here they call the core's functions directly.
 kitchen.py is reached through kpy.run, in process: `roster`, `validate`, `setup` and `fleet` read the repo's kitchen and print, or (setup) run the
 repo's commands as a child process with a copy of the environment. None writes os.environ or reads INVOCATION (kitchen.py :745, :771, :1023, :1038 belong
 to `gate` and to `brief-verify` without --list). test_setup_kpy_calls_leave_the_environment_alone pins that."""

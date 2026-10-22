@@ -2,7 +2,7 @@ import re
 import shutil
 import sys
 
-from . import agents, exits, panes, permission, spawn, store, wait
+from . import permission, store, wait
 from .commands import init, log, metrics, notes, pause, progress, queue, report, scratch, send, status, step, steer, stop, templates
 from .commands.failover import failover
 from .commands.rotate import rotate
@@ -15,18 +15,15 @@ COMMANDS = {'init': init.run, 'log': log.run, 'new-plan': templates.new_plan, 'n
             'pause': pause.pause, 'resume': pause.resume, 'progress': progress.run,
             'notes': notes.notes, 'note': notes.note, 'new-note': notes.new_note, 'status': status.run, 'scratch': scratch.run, 'metrics': metrics.run,
             'dispatch': send.dispatch, 'discuss': send.discuss, 'queue': queue.queue, 'step': step.step, 'wait': wait.wait, 'finish': report.finish, 'notify': report.notify, 'report': report.report, 'next': report.next_brief,
-            'permission': permission.permission, 'steer': steer.steer, 'spawn': spawn_command, 'rotate': rotate, 'failover': failover, 'stop': stop.stop, '__detect_permission_mode': permission.helper,
-            '__refuse_untrusted': panes.entry_refuse_untrusted, '__pair_report_ready': report.pair_report_ready, '__spawn_role': spawn.entry_spawn_role, '__spawn_consultant': spawn.entry_spawn_consultant,
-            **agents.COMMANDS, **exits.COMMANDS}
+            'permission': permission.permission, 'steer': steer.steer, 'spawn': spawn_command, 'rotate': rotate, 'failover': failover, 'stop': stop.stop}
 
-# The commands a variant may replace whole. Only these names, and a name the core lacks, ask the variant (loading it), so every other
-# command runs without it: an internal entry (a name starting with __) the core defines never goes through it, and one it lacks is the variant's.
+# The commands a variant may replace whole. Only these names, and a name the core lacks, ask the variant, so every other command is the core's.
 OVERRIDABLE = ('answer', 'discuss', 'dispatch', 'finish', 'init', 'queue', 'spawn', 'step', 'stop', 'wait')
 
 
 def resolve(ctx, cmd):
     """The function that runs cmd: the variant's own for an overridable name it defines, else the core's; for a name the core does not
-    define at all, the variant's, so a variant can add commands (the kitchen's own) and internal entries (its bridges from bash)."""
+    define at all, the variant's, so a variant can add commands (the kitchen's own)."""
     if cmd in OVERRIDABLE:
         command = ctx.variant.commands.get(cmd)
         if command is not None:
@@ -49,7 +46,7 @@ PROG = 'pair.sh'
 
 class ProgStderr:
     """stderr for a command that runs under another script than pair.sh (kitchen.sh): a line that begins `pair.sh: ` begins with the script's
-    own name, and so does the `usage: pair.sh ...` inside it. The shell's own errors (`pair-core.sh: line N: ...`) are not touched."""
+    own name, and so does the `usage: pair.sh ...` inside it."""
 
     def __init__(self, stream, prog):
         self.stream, self.prog = stream, prog

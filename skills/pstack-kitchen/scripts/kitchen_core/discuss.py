@@ -1,7 +1,7 @@
 """queue and discuss: the master's next brief held for the sidekick, and a plan round with it (and with the consultant for an escalated plan).
 Ported from kitchen.sh at b632713 (cmd_queue, cmd_discuss, rotate_if_due). The plan round with the consultant is pstack_core.consult's.
 
-The bash wrappers called the core's queue and discuss through pycore; here they call the core functions directly."""
+The bash wrappers called the core's queue and discuss in a child process; here they call the core functions directly."""
 
 import os
 import subprocess

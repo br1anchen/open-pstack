@@ -210,30 +210,3 @@ def preflight_kind(kind, args):
     if kind == 'muse':
         return preflight_muse(args)
     return preflight_pi(args)
-
-
-def lines(values):
-    """The lines a bash helper prints for a list of arguments."""
-    return ''.join(f'{v}\n' for v in values)
-
-
-def status(answer):
-    return 0 if answer else 1
-
-
-def emit(values, code=0):
-    sys.stdout.write(lines(values))
-    return code
-
-
-COMMANDS = {
-    '__permission_args': lambda ctx, a: emit(permission_args(a[0], a[1])),
-    '__asks_no_approvals': lambda ctx, a: status(asks_no_approvals(a[0], a[1])),
-    '__trust_args': lambda ctx, a: emit(trust_args(a[0])),
-    '__mcp_args': lambda ctx, a: emit(*mcp_args(a[0], a[1] if len(a) > 1 else None)),
-    '__has_mcp_arg': lambda ctx, a: status(has_mcp_arg(a)),
-    '__has_trust_arg': lambda ctx, a: status(has_trust_arg(a)),
-    '__has_permission_arg': lambda ctx, a: status(has_permission_arg(a)),
-    '__has_preflight': lambda ctx, a: status(has_preflight(a[0])),
-    '__preflight_kind': lambda ctx, a: preflight_kind(a[0], a[1:]),
-}

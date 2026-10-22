@@ -767,6 +767,6 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
 
 
 def verify_command(ctx, args):
-    """pycore verify <store> ...: the bash's cmd_verify, which ended in an exit on every path."""
+    """kitchen.sh verify <store> ...: the bash's cmd_verify, which ended in an exit on every path."""
     verify(ctx, args)
     return 0
