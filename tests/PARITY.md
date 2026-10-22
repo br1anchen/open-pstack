@@ -4,17 +4,17 @@ The Python core (`skills/pstack-pair/scripts/pstack_core/`, `P` below) replaced 
 (`tests/test_pstack_core.py`) runs the bash at a base commit against the Python on shared fixtures and fake agents. This file says which base is the
 oracle for what, and lists every difference from the bash that was accepted, with the test that pins it.
 
+Unit 045 (U1 of plan 043) retired the A/B tests against the phase 1 to 3 bases: the pair commands are held to the golden transcripts and to the
+behaviour tests that `tests/SPEC.md` names. The accepted differences below stay as the record of what those A/Bs found; a row that names a retired
+base is history, and its behaviour is pinned by the behaviour test where one exists.
+
 ## The parity bases
 
 | Base | Oracle for | In the tests |
 | --- | --- | --- |
-| d06a932 | phase 1: the helpers and the first ported commands | the original `bash()` harness against the tree it was cut from |
-| e6e83e3 | phase 2: wait, finish, notify, report, next, queue, step, dispatch, discuss, the plan gates, `report_ready`, `steps_due`, `open_notes` | `base_skills()` extracts `skills/` at that commit; `DELETED_BASH` names the helpers whose bash is gone from HEAD, and `bash()` runs any snippet that names one against this tree, asserting the tree defines it |
-| 04d2c13 | phase 3: init, permission, stop, steer, answer, spawn, rotate, failover, the pane helpers, `spawn_role`, the preflights, `stop_prime_role` | `phase3_skills()`; `phase3_ab()` and `leaf_both()` run a world through 04d2c13's script and the working tree's and compare stdout, stderr, status, the store, events.tsv rows and calls.log |
 | b632713 | phase 4: kitchen.sh's own commands (every kitchen.sh command, ported unit by unit from 022 to 029; the shell keeps `help`, one `pycore` shim per command and the skills-build stamp line) | `phase4_skills()` extracts `skills/` at that commit (no `die` patch: the commit is after unit 006); `phase4_ab()` runs a world through b632713's `kitchen.sh` and the working tree's and compares stdout, stderr, status, the store, events.tsv rows and calls.log |
 
-A test that drives deleted bash always reads it from one of these trees, never from HEAD, and a comparison is never replaced by a literal where a
-base can still run.
+A test that drives deleted bash reads it from this tree, never from HEAD.
 
 ## Accepted differences
 

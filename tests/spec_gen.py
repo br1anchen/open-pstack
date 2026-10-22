@@ -12,7 +12,7 @@ PROD = ['skills/pstack-pair/scripts', 'skills/pstack-pair-guided/scripts', 'skil
 DOCS = ['skills/pstack-pair', 'skills/pstack-pair-guided', 'skills/pstack-trio', 'skills/pstack-kitchen']
 
 # ---- test index -------------------------------------------------------------
-AB_MARK = ('base_skills', 'phase3_skills', 'phase4_skills', 'self.bash(', 'ab_run', 'wait_signalled', 'base_script', 'DELETED_BASH', 'BashReach', 'skills3', 'bases[')
+AB_MARK = ('phase4_skills', 'self.bash(', 'ab_run', 'wait_signalled', 'base_script', 'DELETED_BASH', 'BashReach', 'skills3', 'bases[')
 class T:  # one test
     pass
 tests = []
@@ -329,7 +329,7 @@ transcripts plus this file; a behaviour no line names may change. Generated at {
 
 Line format: `- <behaviour> — <source file:line> — <test id | A/B only | missing | decided, U<n>>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
-- `A/B only` means only tests that compare against a bash base (they use base_skills, phase3_skills, phase4_skills, self.bash, ab_run, wait_signalled, base_script, or are named for bash parity) assert it; U1 and U2 replace those with behaviour tests.
+- `A/B only` means only tests that compare against a bash base (they use phase4_skills, self.bash, ab_run, wait_signalled, base_script, or are named for bash parity) assert it; U1 and U2 replace those with behaviour tests.
 - `missing` means no test asserts the literal. The match is a literal-string heuristic, so U1 and U2 re-check each `missing` line by hand before writing the test.
 
 ## How this was built
