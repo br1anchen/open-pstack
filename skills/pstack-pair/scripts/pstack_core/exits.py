@@ -10,7 +10,7 @@ from .herdr import agent_status, herdr
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
 from .review import jq_raw
-from .store import load, member, update
+from .store import member, update
 from .wait import bash_sleep
 
 
@@ -51,10 +51,6 @@ def stop_prime_role(store, role):
     status = agent_status(name)
     if status != 'absent' and not record_prime_session(store, role):
         return False
-    if not isinstance(load(store).get(role), (dict, type(None))):
-        # prime_active_session's `field ".$role.session // empty"` asks jq about a role that is not an object: its error is printed and, inside the
-        # caller's `||`, the session reads as none
-        field(store, role, 'session', empty=True)
     active = prime_active_session(store, role)
     if active is None:
         return False

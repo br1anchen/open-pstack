@@ -6116,6 +6116,37 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a tab that returns no pane': (2, 'tab create returned no pane id'),
         })
 
+    def test_herdr_replies_are_read_as_plain_json_where_wait_decides_on_an_error_code_or_an_agent_status(self):
+        cases = {
+            'an error with a code': ('{"error":{"code":"timeout"}}', 'timeout', 'timeout'),
+            'an error with no code': ('{"error":{"message":"x"}}', '{\n  "message": "x"\n}', ''),
+            'an error that is a string': ('{"error":"boom"}', 'herdr_error', ''),
+            'a reply that is a string': ('"x"', 'herdr_error', ''),
+            'a reply that is null': ('null', 'herdr_error', ''),
+            'a reply with no error': ('{"result":{}}', 'herdr_error', ''),
+            'text that is no JSON': ('not json', 'herdr_error', ''),
+            'two replies': ('{"error":{"code":"a"}}\n{"error":{"code":"b"}}', 'a\nb', 'a\nb'),
+            'a good reply and a bad one': ('{"error":{"code":"a"}}\n[1]', 'a\nherdr_error', 'a'),
+            'a false code': ('{"error":{"code":false}}', '{\n  "code": false\n}', ''),
+        }
+        for name, (text, state, code) in cases.items():
+            self.assertEqual((wait.error_state(text), wait.error_code(text)), (state, code), name)
+        statuses = {
+            'a status': ('{"result":{"agent":{"agent_status":"idle"}}}', 'idle', 'idle'),
+            'no status': ('{"result":{"agent":{}}}', 'settled', ''),
+            'a null agent': ('{"result":{"agent":null}}', 'settled', ''),
+            'an agent that is a string': ('{"result":{"agent":"x"}}', 'settled', ''),
+            'text that is no JSON': ('oops', 'settled', ''),
+        }
+        for name, (text, with_default, without) in statuses.items():
+            self.assertEqual((wait.agent_state(text, 'settled'), wait.agent_state(text, None)), (with_default, without), name)
+
+    def test_a_recorded_prime_session_that_is_not_an_object_is_unknown_and_says_so(self):
+        for n, session in enumerate(('sess-1', ['sess-1'], 3, True)):
+            st = self.claim_store(f'primesession{n}', {'verdict': 'v'}, {'verifier': {'name': 'v1', 'kind': 'prime-agent', 'session': session}})
+            rc, out, err = self.kitchen_py(st, 'from pstack_core import prime\nprint(repr(prime.prime_active_session(store, "verifier")))')
+            self.assertEqual((rc, out, err), (0, 'None\n', 'recorded Prime session for verifier is not an object; inspect its pane before cleanup\n'), session)
+
     def test_a_prime_sidekick_that_reports_no_session_ends_spawn_with_5_and_keeps_its_pane_and_launch_record(self):
         spec = {**self.spawn_command_cases()['a plain spawn'], 'args': ['spawn', '{st}', '--kind', 'prime-agent'], 'fake': {'prime-no-session': ''}}
         got = self.script_run('primenosession', root / 'skills', 'pstack-pair', spec)

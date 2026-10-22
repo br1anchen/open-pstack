@@ -205,7 +205,7 @@ def sh_exits(path):
             found.append((int(m.group(1)), i + 1, near.replace('\\n', '').strip() or f'(exits {m.group(1)} in {fn}())'))
     return found
 
-manual_at = [('skills/pstack-pair/scripts/pstack_core/wait.py', 388), ('skills/pstack-pair/scripts/pstack_core/wait.py', 398), ('skills/pstack-pair/scripts/pstack_core/wait.py', 406),
+manual_at = [('skills/pstack-pair/scripts/pstack_core/wait.py', 401), ('skills/pstack-pair/scripts/pstack_core/wait.py', 411), ('skills/pstack-pair/scripts/pstack_core/wait.py', 419),
              ('skills/pstack-pair/scripts/pstack_core/commands/report.py', 84), ('skills/pstack-pair/scripts/pstack_core/spawn.py', 101), ('skills/pstack-pair/scripts/pstack_core/spawn.py', 178),
              ('skills/pstack-pair/scripts/pstack_core/spawn.py', 189)]
 exit_lines, seen = [], set()
@@ -222,7 +222,7 @@ for path in git_grep(r'.', *PROD, flags='-lE'):
 exit_lines.sort(key=lambda x: (x[0], x[1], x[2]))
 # lines whose code carries no message: the text a test must show for them
 HINTS = {('skills/pstack-pair/scripts/pstack_core/commands/report.py', 88): ['queue: empty'],
-         ('skills/pstack-pair/scripts/pstack_core/wait.py', 624): ['superseded: a newer wait owns this store'],
+         ('skills/pstack-pair/scripts/pstack_core/wait.py', 637): ['superseded: a newer wait owns this store'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 285): ['advice_status: answered'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 290): ['advice: missing'],
          ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 543): ['verifier start failed in'],
@@ -234,7 +234,7 @@ NOT_CONTRACT = {
     ('skills/pstack-pair/scripts/pstack_core/commands/scratch.py', 101): 'jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
     ('skills/pstack-pair/scripts/pstack_core/commands/notes.py', 112): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
     ('skills/pstack-pair/scripts/pstack_core/spawn.py', 148): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
-    ('skills/pstack-kitchen/scripts/kitchen_core/discuss.py', 215): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
+    ('skills/pstack-kitchen/scripts/kitchen_core/discuss.py', 209): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
     ('skills/pstack-trio/scripts/consultant-core.sh', 53): 'unreachable: a consultant that is neither answered nor ready ends the plan round at line 48 first',
 }
 exit_out = []
@@ -247,9 +247,9 @@ for c, path, no, msg, f in exit_lines:
         continue
     exit_out.append(line('Exit codes', text, f'{path}:{no}', HINTS.get((path, no), [f])))
 manual_exit = [
-    (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:388', 'wait returns 4 with the report path already shown (review-delta printed)', ['review-delta:']),
-    (3, 'skills/pstack-pair/scripts/pstack_core/wait.py:398', 'wait returns 3 when the sidekick is blocked', ['blocked']),
-    (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:406', 'wait returns 4 for a check-in digest or a missing report', ['report: missing']),
+    (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:401', 'wait returns 4 with the report path already shown (review-delta printed)', ['review-delta:']),
+    (3, 'skills/pstack-pair/scripts/pstack_core/wait.py:411', 'wait returns 3 when the sidekick is blocked', ['blocked']),
+    (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:419', 'wait returns 4 for a check-in digest or a missing report', ['report: missing']),
     (4, 'skills/pstack-pair/scripts/pstack_core/commands/report.py:85', 'next returns 4 with `queue: paused` or `queue: empty`', ['queue: empty', 'queue: paused']),
     (4, 'skills/pstack-pair/scripts/pstack_core/spawn.py:101', 'spawn returns 4 while the bootstrap READY report is missing', ['bootstrap still pending']),
     (3, 'skills/pstack-pair/scripts/pstack_core/spawn.py:178', 'spawn returns 3 when the bootstrap did not settle', ['did not settle']),

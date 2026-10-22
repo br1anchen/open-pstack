@@ -15,7 +15,7 @@ from .replies import first3, pending, queued_brief
 from .review import jq_raw, require_filled
 from .store import alt, event, expected_report, get, load, update
 from .commands.report import MISSING_PAIR
-from .wait import bash_sleep, jq_member, jq_run, owned_wait, truthy
+from .wait import bash_sleep, error_code, owned_wait
 
 
 def section(pair, name):
@@ -95,7 +95,7 @@ def prompt_sidekick(name, text):
                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)
     if r.returncode != 0:
         err = r.stderr.decode('utf-8', 'surrogateescape')
-        code = jq_run(err, lambda v: (lambda c: c if truthy(c) else None)(jq_member(jq_member(v, 'error'), 'code')), None)
+        code = error_code(err)
         if code not in ('timeout', 'agent_prompt_stalled'):
             sys.stderr.write(err)
             raise Die(f'herdr prompt failed for {name}', 2)

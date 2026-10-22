@@ -9,7 +9,7 @@ import sys
 from .providers import record_prime_session
 from .review import jq_raw
 from .store import alt, load
-from .wait import jq_text
+from .wait import as_text
 
 PERL_TIMEOUT = ('my $s = shift; my $p = fork // die "fork: $!\n";\n'
                 'unless ($p) { exec { $ARGV[0] } @ARGV or exit 127 }\n'
@@ -39,7 +39,7 @@ def daemon_socket(store, role):
         start_args = list(start_args.values())
     socket, take = '', False
     for element in start_args if isinstance(start_args, list) else []:
-        for arg in jq_text(element).split('\n'):
+        for arg in as_text(element).split('\n'):
             if take:
                 socket, take = arg, False
             elif arg == '--daemon-socket':
@@ -59,43 +59,17 @@ def prime_command(store, role, *args):
     return r.returncode, r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
 
 
-def jq(program, text, *options):
-    """jq PROGRAM over text as a here-string feeds it (a newline is added), stdout dropped and stderr left: the exit status."""
-    return subprocess.run(['jq', *options, program], input=f'{text}\n'.encode('utf-8', 'surrogateescape'), stdout=subprocess.DEVNULL, check=False).returncode
-
-
 def prime_sessions(store, role):
-    """(failed, sessions): the daemon's session list. `jq -e` fails for a reply that holds no `sessions` array, as it does for one it cannot
-    read, whose diagnostic it prints."""
+    """(failed, sessions): the daemon's session list. A reply that holds no `sessions` array, or cannot be read, fails."""
     code, out = prime_command(store, role, 'list', '--json')
     if code != 0:
         return True, None
     try:
         reply = json.loads(out)
     except ValueError:
-        jq('.sessions | select(type == "array")', out, '-ce')
         return True, None
     sessions = reply.get('sessions') if isinstance(reply, dict) else None
     return (False, sessions) if isinstance(sessions, list) else (True, None)
-
-
-MATCH_PROGRAM = ('[.[]\n\t\t| select(.activeSessionId? | type == "string" and length > 0)\n\t\t| select(if $session.kind == "path" then .sessionFile == $session.value\n\t\t         else .sessionId == $session.value or .activeSessionId == $session.value end)\n\t\t| .activeSessionId] | unique')
-
-
-def match_by_jq(session, sessions):
-    """A recorded session that is not an object (a string, an array, a number, true) is handed to jq as the bash hands it, `--argjson session`
-    with the text `jq -r` prints for it, over the daemon's session list: what jq says of it (an invalid argument, an index it cannot take) is
-    printed, a failure ends the lookup, and a list it accepts is read as for an object."""
-    text = jq_text(session)
-    given = (json.dumps(sessions, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8', 'surrogateescape')
-    r = subprocess.run(['jq', '-c', '--argjson', 'session', text, MATCH_PROGRAM], input=given, stdout=subprocess.PIPE, check=False)
-    if r.returncode != 0:
-        return None
-    ids = json.loads(r.stdout.decode('utf-8', 'surrogateescape'))
-    if len(ids) > 1:
-        sys.stderr.write(f'multiple live Prime sessions match {text}; none was stopped\n')
-        return None
-    return ids[0] if ids else ''
 
 
 def prime_active_session(store, role):
@@ -106,13 +80,8 @@ def prime_active_session(store, role):
         sys.stderr.write(f'no recorded Prime session for {role}; inspect its pane before cleanup\n')
         return None
     if not isinstance(session, dict):
-        # the bash pipes the daemon's list into jq, which rejects an invalid `--argjson` as it starts, while the list is still being asked for
-        # and whether or not it comes: the rejection is said first, then the daemon's own diagnostics
-        usable = subprocess.run(['jq', '-n', '--argjson', 'session', jq_text(session), '.'], stdout=subprocess.DEVNULL, check=False).returncode == 0
-        failed, sessions = prime_sessions(store, role)
-        if not usable or failed:
-            return None
-        return match_by_jq(session, sessions)
+        sys.stderr.write(f'recorded Prime session for {role} is not an object; inspect its pane before cleanup\n')
+        return None
     failed, sessions = prime_sessions(store, role)
     if failed:
         return None
@@ -128,7 +97,7 @@ def prime_active_session(store, role):
         if hit:
             matches.add(live)
     if len(matches) > 1:
-        sys.stderr.write(f'multiple live Prime sessions match {jq_text(session)}; none was stopped\n')
+        sys.stderr.write(f'multiple live Prime sessions match {as_text(session)}; none was stopped\n')
         return None
     return matches.pop() if matches else ''
 
@@ -144,5 +113,12 @@ def prime_steer(store, text):
     code, out = prime_command(store, 'sidekick', 'send', '--json', active, text)
     if code != 0:
         return False
-    return jq('.deliveryMode == "steer" and .target.activeSessionId == $id and (.deliveryStatus == "queued" or .deliveryStatus == "delivered")',
-              out, '-e', '--arg', 'id', active) == 0
+    try:
+        receipt = json.loads(out)
+    except ValueError:
+        return False
+    if not isinstance(receipt, dict):
+        return False
+    target = receipt.get('target')
+    return (receipt.get('deliveryMode') == 'steer' and isinstance(target, dict) and target.get('activeSessionId') == active
+            and receipt.get('deliveryStatus') in ('queued', 'delivered'))

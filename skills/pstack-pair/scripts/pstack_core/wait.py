@@ -247,63 +247,76 @@ def json_values(text):
         values.append(value)
 
 
-class JqError(Exception):
-    pass
-
-
-def jq_text(value):
-    """jq -r of one output."""
+def as_text(value):
+    """A value as a command substitution of `jq -r` gives it: a string raw, null, true and false as words, an object or array as indented JSON."""
     if isinstance(value, (dict, list)):
         return json.dumps(value, indent=2, ensure_ascii=False).replace('\x7f', '\\u007f')
     return jq_raw(value)
-
-
-def jq_member(value, key):
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value.get(key)
-    raise JqError
 
 
 def truthy(value):
     return value is not None and value is not False
 
 
-def jq_run(text, program, default=None):
-    """What `jq -r PROGRAM` prints for text, with `|| printf DEFAULT` after it, as the command substitution gives it."""
-    values, ok = json_values(text)
-    out, failed = [], not ok
-    for value in values:
-        try:
-            result = program(value)
-        except JqError:
-            failed = True
-            continue
-        out.append(result)
-    printed = ''.join(f'{jq_text(o)}\n' for o in out if o is not None)
+def read_path(value, *keys):
+    """The value at keys in parsed herdr JSON: (found, readable). A null on the way gives null; a step over anything but an object or null is unreadable."""
+    for key in keys:
+        if value is None:
+            return None, True
+        if not isinstance(value, dict):
+            return None, False
+        value = value.get(key)
+    return value, True
+
+
+def printed(lines, failed, default):
+    """What a command substitution holds after the lines were printed one each; a failure adds the default."""
+    text = ''.join(f'{as_text(line)}\n' for line in lines)
     if failed and default is not None:
-        printed += default
-    return printed.rstrip('\n')
+        text += default
+    return text.rstrip('\n')
+
+
+def error_code(err):
+    """The `.error.code` of each reply herdr printed that holds one (null, false and absent give nothing), one per line."""
+    values, _ = json_values(err)
+    codes = []
+    for value in values:
+        code, readable = read_path(value, 'error', 'code')
+        if readable and truthy(code):
+            codes.append(code)
+    return printed(codes, False, None)
 
 
 def error_state(err):
     """.error.code // .error // "herdr_error" """
-    def program(value):
-        error = jq_member(value, 'error')
-        code = jq_member(error, 'code')
-        if truthy(code):
-            return code
-        return error if truthy(error) else 'herdr_error'
-    return jq_run(err, program, 'herdr_error')
+    values, ok = json_values(err)
+    states = []
+    for value in values:
+        error, readable = read_path(value, 'error')
+        code, code_readable = read_path(value, 'error', 'code')
+        if not (readable and code_readable):
+            ok = False
+        elif truthy(code):
+            states.append(code)
+        else:
+            states.append(error if truthy(error) else 'herdr_error')
+    return printed(states, not ok, 'herdr_error')
 
 
 def agent_state(out, default):
     """.result.agent.agent_status // DEFAULT (empty: no output)"""
-    def program(value):
-        status = jq_member(jq_member(jq_member(value, 'result'), 'agent'), 'agent_status')
-        return status if truthy(status) else default
-    return jq_run(out, program, 'settled' if default == 'settled' else None)
+    values, ok = json_values(out)
+    states = []
+    for value in values:
+        status, readable = read_path(value, 'result', 'agent', 'agent_status')
+        if not readable:
+            ok = False
+        elif truthy(status):
+            states.append(status)
+        elif default is not None:
+            states.append(default)
+    return printed(states, not ok, 'settled' if default == 'settled' else None)
 
 
 def finish_wait(ctx, store, interval, result, mode, report='', now=None):
@@ -574,7 +587,7 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
             bash_sleep(settle_poll)
             continue
         settled_at = None
-        code = jq_run(result.err, lambda v: (lambda c: c if truthy(c) else None)(jq_member(jq_member(v, 'error'), 'code')), None)
+        code = error_code(result.err)
         if code != 'timeout':
             break
         if not clock() < deadline:

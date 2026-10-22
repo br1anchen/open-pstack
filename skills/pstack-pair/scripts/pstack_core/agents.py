@@ -12,7 +12,7 @@ from .errors import Exit
 from .prime import with_timeout
 from .review import jq_raw
 from .store import text_of
-from .wait import bash_sleep, jq_text
+from .wait import as_text, bash_sleep
 
 PAIR_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
@@ -77,7 +77,7 @@ def codex_mcp_names(cwd):
             break
         if item is not None and item.get('enabled') is False:
             continue
-        names.extend(jq_text(None if item is None else item.get('name')).split('\n'))
+        names.extend(as_text(None if item is None else item.get('name')).split('\n'))
     return names, status
 
 

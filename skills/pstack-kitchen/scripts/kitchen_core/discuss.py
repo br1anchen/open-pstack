@@ -22,7 +22,7 @@ from pstack_core.panes import await_file
 from pstack_core.review import require_filled
 from pstack_core.send import require_fresh_session, submit_typed
 from pstack_core.store import bash_int, event, header_field, readlink_f
-from pstack_core.wait import agent_state, die_with_the_shell, jq_run
+from pstack_core.wait import agent_state, die_with_the_shell, error_code
 
 from .classify import classify_brief, risk_of
 from .jqx import tolerant_field
@@ -140,7 +140,7 @@ def deliver_plan(ctx, store, role, name, seq, plan):
     took = 1 if r.returncode == 0 else 0
     if not took:
         err = r.stderr.decode('utf-8', 'surrogateescape')
-        code = jq_run(err, lambda v: error_code(v), None)
+        code = error_code(err)
         if code not in ('timeout', 'agent_prompt_stalled'):
             sys.stderr.write(err)
             raise Die(f'herdr prompt failed for {name}', 2)
@@ -154,12 +154,6 @@ def deliver_plan(ctx, store, role, name, seq, plan):
         subprocess.run(['herdr', 'agent', 'prompt', name, text, '--wait', '--until', 'working', '--timeout', '30000'],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         submit_typed(name, os.path.basename(plan))
-
-
-def error_code(value):
-    from pstack_core.wait import jq_member, truthy
-    code = jq_member(jq_member(value, 'error'), 'code')
-    return code if truthy(code) else None
 
 
 def discuss_with_consultant(ctx, args, one_wake=False):
