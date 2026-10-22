@@ -1675,7 +1675,7 @@ esac
     def test_replies_kitchen_steps_due_is_false_unless_the_brief_is_escalated(self):
         # risk_of reads the brief's `risk:` header as written (case-sensitive, cut at no word) and steps_due is true only for `escalated`: these are the expected literals.
         module = self.kitchen_variant()
-        from pstack_core.context import Context
+        from pstack_core.store import Context
         ctx = Context('pstack-kitchen', str(skill), '/s', 'Kitchen', (), (), 20, '')
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

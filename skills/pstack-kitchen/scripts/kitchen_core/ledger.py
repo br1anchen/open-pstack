@@ -4,8 +4,7 @@ import json
 import re
 import sys
 
-from pstack_core.errors import Die, Exit
-from pstack_core.store import event, read_text, now, pair_file, read
+from pstack_core.store import Die, Exit, event, read_text, now, pair_file, read
 
 from . import kpy
 

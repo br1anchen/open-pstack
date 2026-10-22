@@ -8,7 +8,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from pstack_core.errors import Exit
+from pstack_core.store import Exit
 
 KITCHEN_PY = Path(__file__).resolve().parents[1] / 'kitchen.py'
 MODULE = 'kitchen_py'

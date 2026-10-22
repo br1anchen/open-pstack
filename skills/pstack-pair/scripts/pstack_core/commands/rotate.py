@@ -6,14 +6,17 @@ import subprocess
 import sys
 import time
 
-from ..errors import Die, Exit, prog
+from ..store import Die, Exit, prog, TEXT, event, field, load, names, pair_file, peek, read_flag, text_at, env_float, expected_report
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
-from ..gates import require_not_paused
-from ..herdr import agent_status
-from ..spawn import spawn_role
-from ..store import TEXT, event, field, load, names, pair_file, peek, read_flag
+from ..gates import require_not_paused, check_scope
+from ..panes import agent_status, herdr
+from ..spawn import spawn_role, record_failover
 from ..wait import end_with_parent
 from .report import in_herdr
+from ..replies import queued_brief
+from ..review import require_filled
+from ..send import store_relative
+
 
 TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
 
@@ -84,3 +87,102 @@ def rotate_if_due(ctx, store, what):
     if code:
         raise Die(f'rotating the sidekick before this {what} failed:\n{said.getvalue().rstrip(chr(10))}', code)
     sys.stdout.write(f"rotated: the {field(store, 'sidekick', 'kind')} sidekick starts this {what} in a fresh session\n")
+
+
+def queue(ctx, args):
+    """The master's next brief, held until the master dispatches it, which rotates a due sidekick first. One slot: more than one
+    queued brief is a plan."""
+    if len(args) < 2:
+        raise Die(f'usage: {prog()} queue <store> <brief-path> [--replace] | {prog()} queue <store> --clear')
+    store, brief = args[0], args[1]
+    pair_file(store)
+    brief = store_relative(store, brief)
+    if brief == '--clear':
+        try:
+            os.unlink(f'{store}/queue')
+        except OSError:
+            pass
+        event(store, 'master', 'queue', '-', 'cleared')
+        print('queue cleared')
+        return 0
+    replace = False
+    option = args[2] if len(args) > 2 else ''
+    if option == '--replace':
+        replace = True
+    elif option != '':
+        raise Die(f'unknown option {option}')
+    if not os.path.isfile(brief):
+        raise Die(f'brief not found: {brief}')
+    brief = os.path.realpath(brief)
+    require_not_paused(store)
+    require_filled(ctx, brief)
+    pair = load(store)
+    check_scope(brief, text_at(pair, 'git_root') or text_at(pair, 'cwd'))
+    ctx.variant.require_agreed_plan(ctx, store, brief)
+    queued = queued_brief(store)
+    if queued and queued != brief and not replace:
+        raise Die(f'the queue holds {queued}; pass --replace to swap it', 5)
+    name = text_at(peek(pair, 'sidekick'), 'name')
+    status = agent_status(name)
+    if status in ('idle', 'done'):
+        raise Die(f'sidekick {name} is {status}; dispatch instead: pair.sh dispatch {store} {brief}', 5)
+    if status != 'working':
+        raise Die(f'sidekick {name} is {status}; resolve that before queueing', 3)
+    with open(f'{store}/queue.tmp', 'w', encoding='utf-8') as f:
+        f.write(f'{brief}\n')
+    os.replace(f'{store}/queue.tmp', f'{store}/queue')
+    event(store, 'master', 'queue', brief)
+    print(f"queued {brief}; it waits for the master's dispatch, which rotates a due sidekick first")
+    return 0
+
+
+def failover(ctx, args):
+    """Replaces a failing sidekick with its recorded fallback in the same pane. The new agent picks up from the store: the step log, progress,
+    and the brief it was on; every committed step survives. A run stays on the fallback, since failover never switches back."""
+    end_with_parent()
+    in_herdr()
+    if not args:
+        raise Die(f'usage: {prog()} failover <store> [--reason TEXT] [--force]')
+    store, rest = args[0], list(args[1:])
+    reason, force = 'requested', False
+    while rest:
+        if rest[0] == '--reason':
+            if len(rest) < 2:
+                raise Die('--reason needs a value')
+            reason, rest = rest[1], rest[2:]
+        elif rest[0] == '--force':
+            force, rest = True, rest[1:]
+        else:
+            raise Die(f'unknown option {rest[0]}')
+    pair_file(store)
+    kind = field(store, 'sidekick', 'kind')
+    recorded = peek(peek(load(store), 'sidekick'), 'fallback')
+    fallback = text_at(recorded, 'kind')
+    if not fallback:
+        raise Die('no fallback recorded; spawn the sidekick with --fallback KIND', 5)
+    if kind == fallback:
+        raise Die(f'the sidekick already runs the fallback ({fallback})', 5)
+    name = field(store, 'sidekick', 'name')
+    status = agent_status(name)
+    if status == 'working':
+        if not force:
+            raise Die(f'sidekick {name} is working; pair.sh stop {store} first, or pass --force to interrupt it', 5)
+        herdr('agent', 'send-keys', name, 'esc')
+        time.sleep(env_float('PAIR_ESC_WAIT_S', 2))
+    if kind == 'prime-agent':
+        if not stopped(store, 'sidekick'):
+            raise Die('Prime session cleanup failed; no fallback was started', 5)
+    elif status != 'absent':
+        herdr('agent', 'prompt', name, exit_command(kind))
+        deadline = exit_deadline()
+        while agent_status(name) != 'absent':
+            if int(time.time()) >= deadline:
+                raise Die(f'{kind} sidekick has not exited; close it by hand, then rerun failover', 5)
+            exit_poll()
+    record_failover(store, kind, fallback, reason)
+    rc = spawn_role(ctx, store, 'sidekick', fallback, '', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'),
+                    names(recorded, 'args'))
+    running = field(store, 'dispatch', 'brief')
+    if rc == 0 and running and not os.path.isfile(expected_report(store, running)):
+        print(f'next: re-dispatch {running} with "resumed after failover from {kind}" in its Context')
+    return rc

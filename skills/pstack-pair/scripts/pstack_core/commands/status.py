@@ -1,12 +1,15 @@
 import glob
 import os
 import re
+import subprocess
 import sys
 import time
 
-from ..errors import Die, prog
-from ..herdr import agent_status
-from ..store import header_field, load, names, newest, paused_reason, peek, read_text, suffix_number, text_at, unit_name
+from ..store import (
+    Die, prog, header_field, load, names, newest, paused_reason, peek, read_text, suffix_number, text_at, unit_name, event, pair_file,
+    pause_notice, progress_path, steer_notice,
+)
+from ..panes import agent_status
 
 
 class NoPairJson(Exception):
@@ -141,3 +144,33 @@ def run(ctx, args):
     finally:
         out.close()
     return 1 if out.failed else code
+
+
+def log(ctx, args):
+    if len(args) != 6:
+        raise Die(f'usage: {prog()} log <store> <phase> <decision> <why> <evidence> <result>')
+    store, phase, decision, *rest = args
+    helper = f'{ctx.skill_root}/../show-me-your-work/scripts/log.sh'
+    if not (os.path.isfile(helper) and os.access(helper, os.X_OK)):
+        raise Die(f'show-me-your-work log helper not found at {helper}')
+    code = subprocess.run([helper, f'{store}/decisions.tsv', phase, decision, *rest], check=False).returncode
+    if code:
+        raise SystemExit(code)
+    event(store, 'master', 'log', '-', f'{phase}: {decision}')
+    return 0
+
+
+def progress(ctx, args):
+    if len(args) != 2:
+        raise Die(f'usage: {prog()} progress <store> <text>')
+    store, text = args
+    pair_file(store)
+    path = progress_path(store)
+    if path is None:
+        raise Die('no brief dispatched yet; progress belongs to a running brief')
+    os.makedirs(f'{store}/progress', exist_ok=True)
+    with open(path, 'a', encoding='utf-8') as f:
+        f.write(f'{time.strftime("%H:%M")} {text}\n')
+    event(store, 'sidekick', 'progress', path)
+    sys.stdout.write(f'{path}\n{pause_notice(store)}{steer_notice(store)}')
+    return 0

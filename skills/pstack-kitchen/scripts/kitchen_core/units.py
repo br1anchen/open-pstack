@@ -13,9 +13,10 @@ import re
 import subprocess
 import sys
 
-from pstack_core.errors import Die, Exit, prog
+from pstack_core.store import (
+    Die, Exit, prog, TEXT, exit_code, expected_report, read_text, missing_pair, header_field, last_line, load, peek, read, text_at,
+)
 from pstack_core.review import range_floor, steps_file, trunk_ref
-from pstack_core.store import TEXT, exit_code, expected_report, read_text, missing_pair, header_field, last_line, load, peek, read, text_at
 from pstack_core.variant import commit_of
 
 

@@ -1,9 +1,11 @@
 import os
 import subprocess
 
-from ..errors import Die, Exit, prog
-from ..herdr import agent_status
-from ..store import event, missing_pair, expected_report, field, header_field, load, member, open_steers, peek, steer_number, text_at, unit_name, update
+from ..store import (
+    Die, Exit, prog, event, missing_pair, expected_report, field, header_field, load, member, open_steers, peek, steer_number, text_at,
+    unit_name, update,
+)
+from ..panes import agent_status
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
 

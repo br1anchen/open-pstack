@@ -11,15 +11,13 @@ import sys
 from .commands.report import in_herdr
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
-from .errors import Die, prog
+from .store import (
+    Die, prog, TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, whole_number, now, write_text,
+)
 from .gates import require_not_paused
-from .herdr import agent_status
-from .panes import await_file
+from .panes import agent_status, agent_state, error_code, error_state, await_file
 from .review import git, require_filled
 from .send import require_fresh_session, submit_typed
-from .store import (TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, whole_number, now,
-                    write_text)
-from .herdr import agent_state, error_code, error_state
 from .wait import end_with_parent
 
 CONSULT_KINDS = ('design', 'finding', 'objection', 'review', 'glance')

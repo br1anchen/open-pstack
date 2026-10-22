@@ -4,8 +4,6 @@ import os
 import re
 import time
 
-from .errors import Die, prog
-
 
 # What subprocess.run takes to give str output: UTF-8, a byte that is not UTF-8 shown as U+FFFD.
 TEXT = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'}
@@ -21,9 +19,18 @@ def newest(paths):
     return next(iter(newest_first(paths)), None)
 
 
-def last_line(path):
-    """The last line of a file as tail -n 1 prints it, read from the end."""
-    lines = read_text(path).split('\n')
+def last_line(path, block=4096):
+    """The last line of a file as tail -n 1 prints it: the text after the last newline, or the line before it when that is empty.
+    Read back from the end a block at a time, so a long events.tsv costs one block."""
+    with open(path, 'rb') as f:
+        size = f.seek(0, os.SEEK_END)
+        pos, data = size, b''
+        while pos > 0 and data.count(b'\n') < 2:
+            step = min(block, pos)
+            pos -= step
+            f.seek(pos)
+            data = f.read(step) + data
+    lines = data.decode('utf-8', errors='replace').split('\n')
     return lines[-1] if lines[-1] else (lines[-2] if len(lines) > 1 else '')
 
 
@@ -447,3 +454,55 @@ def update(store, mutate):
             os.rmdir(lock)
         except OSError:
             pass
+
+
+PROG = 'pair.sh'
+
+
+def prog():
+    """The name of the script that runs: pair.sh, or the variant's own (kitchen.sh); cli.main sets it."""
+    return PROG
+
+
+class Die(Exception):
+    """the bash die(): the first part is the message and the second the exit code (1 when absent)."""
+
+    def __init__(self, *parts):
+        self.message = str(parts[0])
+        self.code = int(parts[1]) if len(parts) >= 2 else 1
+        super().__init__(self.message)
+
+
+class Exit(Exception):
+    """End the command with a code after the given text on stderr, which the bash printed itself (a failing
+    command substitution under set -e, for one) and without pair.sh's prefix."""
+
+    def __init__(self, code, stderr=''):
+        self.code = code
+        self.stderr = stderr
+        super().__init__(stderr)
+
+
+class Context:
+    """What a variant's class attributes configure: skill, state root, labels, roles, store directories, slug limit and unfilled pattern."""
+
+    __slots__ = ('skill', 'skill_root', 'state_root', 'store_label', 'roles', 'store_dirs', 'slug_max', 'unfilled_re', '_variant')
+
+    def __init__(self, skill, skill_root, state_root, store_label, roles, store_dirs, slug_max, unfilled_re):
+        self.skill = skill
+        self.skill_root = skill_root
+        self.state_root = state_root
+        self.store_label = store_label
+        self.roles = roles
+        self.store_dirs = store_dirs
+        self.slug_max = slug_max
+        self.unfilled_re = unfilled_re
+        self._variant = None
+
+    @property
+    def variant(self):
+        """The skill's Variant, loaded on first use so a command that needs no hook pays for none."""
+        if self._variant is None:
+            from .variant import load_variant
+            self._variant = load_variant(self)
+        return self._variant

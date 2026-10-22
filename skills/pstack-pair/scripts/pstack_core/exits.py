@@ -3,11 +3,10 @@ The deadlines are the bash's 15 s and 1 s; PAIR_EXIT_DEADLINE_S and PAIR_EXIT_PO
 import sys
 import time
 
-from .errors import Exit
-from .herdr import agent_status, dig, herdr, parse
+from .store import Exit, env_float, env_int, member, update
+from .panes import agent_status, dig, herdr, parse
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
-from .store import env_float, env_int, member, update
 
 
 def exit_command(kind):

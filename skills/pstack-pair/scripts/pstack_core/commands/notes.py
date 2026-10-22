@@ -3,11 +3,13 @@ import os
 import re
 import sys
 
-from ..errors import Die, prog
-from ..herdr import agent_status
+from ..store import (
+    Die, prog, count, dispatched_brief, event, field, fill_template, header_field, load, peek, int_or_none, note_id, pair_file, pause_notice,
+    read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest,
+)
+from ..panes import agent_status
 from ..prime import prime_steer
 from ..review import noted_through, open_notes, require_filled, review_base, steps_file
-from ..store import (count, dispatched_brief, event, field, fill_template, header_field, load, peek, int_or_none, note_id, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text)
 
 
 def blocking_lines(path):
@@ -153,5 +155,59 @@ def new_note(ctx, args):
     path = f'{store}/notes/{unit}-n{k}.md.draft'
     write_text(path, fill_template(f'{ctx.skill_root}/references/note-template.md',
                                    {'UNIT': unit, 'K': k, 'RANGE': f'{base[:9]}..{to[:9]}'}))
+    print(path)
+    return 0
+
+
+def new_plan(ctx, args):
+    if len(args) != 2:
+        raise Die(f'usage: {prog()} new-plan <store> <slug>')
+    print(new_from_template(ctx, args[0], args[1], 'plans', 'plan-template.md'))
+    return 0
+
+
+def new_brief(ctx, args):
+    if len(args) != 2:
+        raise Die(f'usage: {prog()} new-brief <store> <slug>')
+    print(new_from_template(ctx, args[0], args[1], 'briefs', 'brief-template.md'))
+    return 0
+
+
+def new_steer(ctx, args):
+    """Fresh steers on a unit are capped at two; one that supersedes an objected steer is a discussion round."""
+    if len(args) < 2:
+        raise Die(f'usage: {prog()} new-steer <store> <NNN> [--supersedes STEER | --force]')
+    store, seq, rest = args[0], args[1], args[2:]
+    force, supersedes = False, 'none'
+    while rest:
+        if rest[0] == '--force':
+            force, rest = True, rest[1:]
+        elif rest[0] == '--supersedes':
+            if len(rest) < 2:
+                raise Die('--supersedes needs a value')
+            supersedes, rest = os.path.realpath(rest[1]), rest[2:]
+        else:
+            raise Die(f'unknown option {rest[0]}')
+    pair_file(store)
+    briefs = sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
+    if not briefs:
+        raise Die(f'no brief for unit {seq}')
+    slug = unit_name(briefs[0])[4:]
+    # bash counts a steer with [ -e ], which is false for a dangling symlink; the glob alone lists one
+    existing = [f for f in glob.glob(os.path.join(glob.escape(store), 'steers', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')) if os.path.exists(f)]
+    k = len(existing) + 1
+    fresh = sum(1 for f in existing if header_field(f, 'supersedes') == 'none')
+    if supersedes != 'none':
+        if not os.path.isfile(supersedes):
+            raise Die(f'superseded steer not found: {supersedes}')
+        reports = glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md'))
+        if header_field(newest(reports) or '', 'status') != 'object':
+            raise Die(f'no open objection on unit {seq} to answer; send a fresh steer instead')
+    elif fresh >= 2 and not force:
+        raise Die(f'unit {seq} already has two fresh steers; stop the unit and re-brief, or pass --force', 7)
+    os.makedirs(f'{store}/steers', exist_ok=True)
+    path = f'{store}/steers/{seq}-{slug}-s{k}.md'
+    write_text(path, fill_template(f'{ctx.skill_root}/references/steer-template.md',
+                                   {'SEQ': seq, 'SLUG': slug, 'K': str(k), 'STORE': store, 'SUPERSEDES': supersedes}))
     print(path)
     return 0

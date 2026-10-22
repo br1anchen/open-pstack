@@ -9,10 +9,9 @@ status, taken as `|| rc=$?` took it. When the digest is a check-in with nothing 
 import os
 import sys
 
-from pstack_core.commands import send
+from pstack_core import send
 from pstack_core.commands.rotate import rotate_if_due
-from pstack_core.errors import Die, Exit
-from pstack_core.store import whole_number
+from pstack_core.store import Die, Exit, whole_number
 from pstack_core.wait import default_signals
 
 from .classify import classify_brief

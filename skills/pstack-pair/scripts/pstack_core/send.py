@@ -1,5 +1,6 @@
 """Sending a message to the sidekick and, for a brief or a plan, waiting for the reply: the helpers behind dispatch and discuss, and
 send_and_wait itself. The commands built on them are in commands/."""
+
 import glob
 import os
 import re
@@ -8,15 +9,13 @@ import subprocess
 import sys
 import time
 
-from .dispatch import record_dispatch
-from .errors import Die, Exit
-from .gates import check_scope
-from .herdr import agent_kind, agent_status
+from .store import Die, Exit, TEXT, missing_pair, env_float, event, expected_report, load, peek, text_at, update, count, member, names, prog
+from .gates import check_scope, require_not_paused
+from .panes import agent_kind, agent_status, error_code
 from .replies import first3, pending, queued_brief
 from .review import require_filled
-from .store import TEXT, missing_pair, env_float, event, expected_report, load, peek, text_at, update
-from .herdr import error_code
-from .wait import owned_wait
+from .wait import owned_wait, end_with_parent, wait_opts
+from .commands.report import in_herdr
 
 
 def prune_pending(store):
@@ -136,3 +135,79 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
         print(f'sent: {kind} {file}; follow it with the wait command')
         return 0
     return owned_wait(ctx, store, name, timeout, interval, now)
+
+
+def fresh_kind(kind):
+    """Sidekick kinds whose sessions cannot be resumed, so spawn refuses a resume flag for them."""
+    return kind in ('devin', 'pi', 'prime-agent')
+
+
+def record_dispatch(store, brief, now=None):
+    """The dispatch record: .dispatch (with .sidekick.generation), .sent (with .sent.seen when a report already exists), the unit's base head, and the pending list."""
+    old = expected_report(store, brief)
+    seen = f'{old}:{int(os.stat(old).st_mtime)}' if os.path.isfile(old) else ''
+    pair = load(store)
+    cwd = text_at(pair, 'cwd')
+    head = subprocess.run(['git', '-C', cwd, 'rev-parse', 'HEAD'], capture_output=True, check=False, **TEXT).stdout.rstrip('\n') if cwd else ''
+    stamp = time.time() if now is None else now
+    at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))
+    epoch = int(stamp)
+
+    def mutate(doc):
+        generation = count(peek(doc, 'sidekick'), 'generation')
+        doc['dispatch'] = {'brief': brief, 'at': at, 'head': head, 'generation': generation}
+        doc['sent'] = {'file': brief, 'kind': 'BRIEF', 'at': at, 'epoch': epoch}
+        if seen:
+            doc['sent']['seen'] = seen
+        heads = member(doc, 'heads')
+        key = brief.split('/')[-1]
+        key = key[:-3] if key.endswith('.md') else key
+        if heads.get(key) is None:
+            heads[key] = head
+        doc['pending'] = sorted({*names(doc, 'pending'), *([] if seen else [brief])})
+
+    update(store, mutate)
+
+
+def discuss(ctx, args):
+    in_herdr()
+    if len(args) < 2:
+        raise Die(f'usage: {prog()} discuss <store> <plan-path> [--timeout MS]')
+    store, plan = args[0], args[1]
+    end_with_parent()
+    timeout, interval, send_only, rest = wait_opts(args[2:])
+    if rest:
+        raise Die(f'unknown option {rest[0]}')
+    if not os.path.isfile(plan):
+        raise Die(f'plan not found: {plan}')
+    require_not_paused(store)
+    from .commands.rotate import rotate_if_due
+    rotate_if_due(ctx, store, 'plan')
+    return send_and_wait(ctx, store, os.path.realpath(plan), 'PLAN', timeout, interval, send_only)
+
+
+def store_relative(store, path):
+    """A brief path as given when it exists, else the same path under the store (briefs/NNN-x.md), else as given."""
+    return f'{store}/{path}' if not os.path.isfile(path) and os.path.isfile(f'{store}/{path}') else path
+
+
+def dispatch(ctx, args):
+    in_herdr()
+    if len(args) < 2:
+        raise Die(f'usage: {prog()} dispatch <store> <brief-path> [--timeout MS | --every MIN]')
+    store, brief = args[0], store_relative(args[0], args[1])
+    end_with_parent()
+    timeout, interval, send_only, rest = wait_opts(args[2:])
+    if rest:
+        raise Die(f'unknown option {rest[0]}')
+    if not os.path.isfile(brief):
+        raise Die(f'brief not found: {brief}')
+    brief = os.path.realpath(brief)
+    require_not_paused(store)
+    ctx.variant.require_agreed_plan(ctx, store, brief)
+    queued = queued_brief(store)
+    if queued and queued != brief:
+        raise Die(f'the queue holds {queued}; dispatch that first, or: pair.sh queue {store} --clear', 5)
+    from .commands.rotate import rotate_if_due
+    rotate_if_due(ctx, store, 'brief')
+    return send_and_wait(ctx, store, brief, 'BRIEF', timeout, interval, send_only)

@@ -3,8 +3,7 @@ import re
 import sys
 import time
 
-from ..errors import Die, prog
-from ..store import read_text
+from ..store import Die, prog, read_text
 
 NUMBER = re.compile(r'[ \t\n]*[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?')
 

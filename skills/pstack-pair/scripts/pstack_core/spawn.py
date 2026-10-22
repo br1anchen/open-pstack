@@ -1,5 +1,6 @@
 """Starting a role's agent in a pane and bootstrapping it: spawn_role and the recovery of a bootstrap prompt that a first-run screen swallowed.
 Returns 0, 3 (the bootstrap did not settle) or 4 (it settled without the ready file); a die is a Die."""
+
 import io
 import os
 import subprocess
@@ -7,14 +8,17 @@ import sys
 import time
 
 from . import agents
-from .dispatch import fresh_kind
-from .errors import Die
-from .herdr import agent_field, agent_status, herdr
-from .panes import await_file, new_pane, refuse_untrusted
+from .send import fresh_kind, submit_typed, visible_without_blanks
+from .store import (
+    Die, TEXT, exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, prog, pair_file,
+    whole_number,
+)
+from .panes import agent_field, agent_status, herdr, await_file, new_pane, refuse_untrusted
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
-from .send import submit_typed, visible_without_blanks
-from .store import TEXT, exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update
+from .wait import end_with_parent
+from .commands.report import in_herdr
+
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
 
@@ -250,3 +254,46 @@ def spawn_consultant(ctx, store, kind, permission, timeout, args):
     if not anchor or herdr('pane', 'get', anchor)[0] != 0:
         anchor = field(store, 'master', 'pane_id')
     return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args)
+
+
+def usage():
+    return (f'usage: {prog()} spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] '
+            '[-- agent-args...]')
+
+
+VALUED = {'--kind': 'kind', '--fallback': 'fallback', '--permission': 'permission', '--direction': 'direction', '--pane': 'pane', '--timeout': 'timeout'}
+
+
+def spawn(ctx, args):
+    """Starts the sidekick (or its recorded fallback) in a pane: 0, 3 (the bootstrap did not settle) or 4 (it settled without the ready file)."""
+    end_with_parent()
+    in_herdr()
+    if not args:
+        raise Die(usage())
+    store, rest = args[0], list(args[1:])
+    opts = {'kind': '', 'direction': '', 'pane': '', 'timeout': '60000', 'permission': '', 'fallback': '', 'placement': ''}
+    fallback_args = []
+    while rest:
+        flag = rest[0]
+        if flag in VALUED or flag == '--fallback-arg':
+            if len(rest) < 2:
+                raise Die(f'{flag} needs a value')
+            if flag == '--fallback-arg':
+                fallback_args.append(rest[1])
+            else:
+                opts[VALUED[flag]] = rest[1]
+            rest = rest[2:]
+        elif flag in ('--tab', '--split'):
+            opts['placement'], rest = flag[2:], rest[1:]
+        elif flag == '--':
+            rest = rest[1:]
+            break
+        else:
+            raise Die(f'unknown option {flag}')
+    whole_number(opts['timeout'], '--timeout', 'milliseconds')
+    if not opts['kind']:
+        raise Die('--kind is required (run: herdr agent, for the kind list)')
+    pair_file(store)
+    set_placement(store, opts['placement'])
+    record_fallback(store, opts['fallback'], fallback_args)
+    return spawn_sidekick(ctx, store, opts['kind'], opts['permission'], field(store, 'master', 'pane_id'), opts['timeout'], opts['direction'], opts['pane'], rest)

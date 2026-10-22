@@ -3,10 +3,9 @@ import os
 import re
 
 from pstack_core.commands.report import in_herdr
-from pstack_core.errors import Die
+from pstack_core.store import Die, header_field, newest, pair_file, read_text, whole_number, write_text
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
-from pstack_core.store import header_field, newest, pair_file, read_text, whole_number, write_text
 from pstack_core.variant import Variant
 from pstack_core.wait import end_with_parent, tdiv
 

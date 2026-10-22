@@ -7,7 +7,7 @@ import sys
 
 from .providers import record_prime_session
 from .store import TEXT, exit_code, load, names, peek, text_at
-from .herdr import parse
+from .panes import parse
 
 def with_timeout(seconds, argv, **kwargs):
     """The command with a time limit: exit 124 when it runs out (after a TERM), 127 when it is not there, 128+N for a child killed by signal N, as timeout(1) gives. Keyword

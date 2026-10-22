@@ -4,8 +4,7 @@ import shutil
 import subprocess
 import sys
 
-from ..errors import Die, prog
-from ..store import TEXT, load, names, pair_file, text_at, update
+from ..store import Die, prog, TEXT, load, names, pair_file, text_at, update
 
 
 def basename(path):

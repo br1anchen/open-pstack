@@ -3,8 +3,7 @@ import os
 import re
 import subprocess
 
-from .errors import Die
-from .store import TEXT, header_field, int_or_none, last_line, note_id, load, peek, read_text, suffix_number, text_at, unit_name
+from .store import Die, TEXT, header_field, int_or_none, last_line, note_id, load, peek, read_text, suffix_number, text_at, unit_name
 
 
 def steps_file(store, unit):

@@ -6,10 +6,9 @@ from pstack_core.commands.report import in_herdr
 from pstack_core.consult import advice, advice_is_stop, consult, discuss_with_consultant, new_consult
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, stop_role
-from pstack_core.errors import Die
-from pstack_core.herdr import agent_kind, agent_status
+from pstack_core.store import Die, field, header_field, pair_file, whole_number
+from pstack_core.panes import agent_kind, agent_status
 from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
-from pstack_core.store import field, header_field, pair_file, whole_number
 from pstack_core.variant import Variant
 from pstack_core.wait import agent_state, end_with_parent
 

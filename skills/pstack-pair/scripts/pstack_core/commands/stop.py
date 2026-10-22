@@ -5,10 +5,9 @@ import subprocess
 import sys
 import time
 
-from ..errors import Die, Exit, prog
-from ..herdr import agent_status, herdr, pane_text
+from ..store import Die, Exit, prog, TEXT, read_text, env_float, env_int, event, field, header_field, tdiv, update
+from ..panes import agent_status, herdr, pane_text
 from ..replies import file_mtime
-from ..store import TEXT, read_text, env_float, env_int, event, field, header_field, tdiv, update
 from ..wait import WaitResult, end_with_parent, finish_wait, wait_opts
 from .report import in_herdr, require_pair
 

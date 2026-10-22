@@ -27,9 +27,9 @@ scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
 import run as run_module  # noqa: E402
-from pstack_core import cli, dispatch, exits, herdr, permission, providers, review, store, wait  # noqa: E402
-from pstack_core.context import Context  # noqa: E402
-from pstack_core.errors import Die, Exit  # noqa: E402
+from pstack_core import cli, exits, panes, permission, providers, review, send, store, wait  # noqa: E402
+from pstack_core.store import Context  # noqa: E402
+from pstack_core.store import Die, Exit  # noqa: E402
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
 
 sys.path.insert(0, str(root / 'tests'))
@@ -2838,7 +2838,7 @@ class CoreTests(unittest.TestCase):
 
     def test_fresh_kind_is_devin_pi_and_prime_agent_only(self):
         for kind in ('devin', 'pi', 'prime-agent', 'claude', 'codex', 'null', '', 'Devin', 'pi '):
-            self.assertEqual(dispatch.fresh_kind(kind), kind in ('devin', 'pi', 'prime-agent'), kind)
+            self.assertEqual(send.fresh_kind(kind), kind in ('devin', 'pi', 'prime-agent'), kind)
 
     def test_load_variant_picks_the_skills_class_by_path(self):
         names = {}
@@ -3019,7 +3019,7 @@ class CoreTests(unittest.TestCase):
                                            ('blocked', False), ('absent', False))):
             fake = self.fake_herdr_dir(f'py{i}', state, busy)
             with mock.patch.dict(os.environ, {**self.env, 'FAKE': str(fake)}):
-                status, kind = herdr.agent_status('w'), herdr.agent_kind('w')
+                status, kind = panes.agent_status('w'), panes.agent_kind('w')
             self.assertEqual(status, 'working' if busy and state in ('idle', 'done') else state, (state, busy))
             self.assertEqual(kind, '' if state == 'absent' else 'devin', (state, busy))
 
@@ -3854,8 +3854,8 @@ class CoreTests(unittest.TestCase):
         """Python run in a fresh interpreter with kitchen_core.verify_state loaded as `vs` and a context `ctx`: (status, stdout, stderr). pid, when
         given, is the process id verify_state takes for the running command."""
         pre = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nsys.path.insert(0, {str(root / "skills/pstack-kitchen/scripts")!r})\n'
-               'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import units, verify, verify_state as vs\nfrom pstack_core.context import Context\n'
-               'from pstack_core.errors import Die, Exit\n'
+               'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import units, verify, verify_state as vs\nfrom pstack_core.store import Context\n'
+               'from pstack_core.store import Die, Exit\n'
                f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "")\n'
                f'store = {str(store)!r}\n' + (f'import os\nos.getpid = lambda: {pid}\n' if pid else ''))
         r = subprocess.run([sys.executable, '-I', '-c', pre + code], env={k: v for k, v in {**self.env, **self.GIT, 'HOSTNAME': 'testhost', **(env or {})}.items() if v is not None}, capture_output=True,
@@ -4532,7 +4532,7 @@ class CoreTests(unittest.TestCase):
             st = self.path / f'rsb{n}'
             st.mkdir()
             (st / 'pair.json').write_text(json.dumps(doc, indent=2) + '\n')
-            code = ('import sys\nfrom kitchen_core import setup\nfrom pstack_core.errors import Die\ntry:\n    setup.record_skill_build(Ctx, store)\n    code = 0\n'
+            code = ('import sys\nfrom kitchen_core import setup\nfrom pstack_core.store import Die\ntry:\n    setup.record_skill_build(Ctx, store)\n    code = 0\n'
                     'except Die as e:\n    sys.stderr.write(e.message)\n    code = e.code\nprint("rc=%d" % code)')
             rc, out, err = self.kitchen_py(st, 'class Ctx:\n    skill_root = "/skills/pstack-kitchen"\n' + code)
             self.assertEqual((rc, out), (0, f'rc={status}\n'), name)
@@ -4585,7 +4585,7 @@ class CoreTests(unittest.TestCase):
         (repo / '.agents').mkdir(parents=True)
         subprocess.run(['git', '-C', str(repo), 'init', '-q'], check=True, capture_output=True, env={**self.env, **self.GIT})
         (st / 'pair.json').write_text(json.dumps({'git_root': str(repo)}) + '\n')
-        code = ('import sys\nfrom pstack_core.errors import Die\nfrom kitchen_core import classify\ntry:\n    print("[%s]" % classify.kitchen_snapshot(store))\n    code = 0\n'
+        code = ('import sys\nfrom pstack_core.store import Die\nfrom kitchen_core import classify\ntry:\n    print("[%s]" % classify.kitchen_snapshot(store))\n    code = 0\n'
                 'except Die as e:\n    sys.stderr.write("pair.sh: %s\\n" % e.message)\n    code = e.code\nprint("rc=%d" % code)')
         (repo / '.agents/kitchen.toml').write_text(self.LAUNCH_TOML)
         prc, got, perr = self.kitchen_py(st, code, cwd=repo)
@@ -5695,8 +5695,8 @@ class CoreTests(unittest.TestCase):
         from pstack_core import variant as pair_variant
         st = self.claim_store('gen', None, {'sidekick': {'generation': 'x'}})
         before = (st / 'pair.json').read_text()
-        with mock.patch.object(dispatch.subprocess, 'run'), self.assertRaises(Die) as caught:
-            dispatch.record_dispatch(str(st), str(st / 'briefs/001-x.md'), now=0)
+        with mock.patch.object(send.subprocess, 'run'), self.assertRaises(Die) as caught:
+            send.record_dispatch(str(st), str(st / 'briefs/001-x.md'), now=0)
         self.assertEqual((caught.exception.code, caught.exception.message), (1, 'pair.json is damaged: generation is string, not an integer'))
         self.assertEqual((st / 'pair.json').read_text(), before)
         shown = self.claim_store('shown', None, {'shown': {'001-x': 'a'}})
@@ -5710,8 +5710,8 @@ class CoreTests(unittest.TestCase):
 
     def test_a_dispatch_to_a_store_with_no_cwd_records_an_empty_head_and_runs_no_git(self):
         st = self.claim_store('nocwd', None)
-        with mock.patch.object(dispatch.subprocess, 'run') as run:
-            dispatch.record_dispatch(str(st), str(st / 'briefs/001-x.md'), now=0)
+        with mock.patch.object(send.subprocess, 'run') as run:
+            send.record_dispatch(str(st), str(st / 'briefs/001-x.md'), now=0)
         run.assert_not_called()
         self.assertEqual(json.loads((st / 'pair.json').read_text())['dispatch']['head'], '')
 
@@ -5724,6 +5724,17 @@ class CoreTests(unittest.TestCase):
         for name, (answer, want) in cases.items():
             with mock.patch.object(landing, 'git_root', return_value='/repo'), mock.patch.object(landing.kpy, 'run', return_value=answer):
                 self.assertEqual(landing.validated_engine('/st'), want, name)
+
+    def test_last_line_reads_a_block_from_the_end_of_a_file_longer_than_a_block(self):
+        f = self.path / 'events.tsv'
+        for name, body, want in (('no newline at the end', 'a\n' * 9000 + 'last', 'last'), ('a newline at the end', 'a\n' * 9000 + 'last\n', 'last'),
+                                 ('a blank line at the end', 'a\n' * 9000 + 'last\n\n', ''), ('a multibyte character across the block start', 'é' * 5000 + '\nx\tlast\n', 'x\tlast'),
+                                 ('one line longer than a block', 'z' * 9000, 'z' * 9000), ('an empty file', '', ''), ('a lone newline', '\n', '')):
+            f.write_bytes(body.encode())
+            with mock.patch.object(store, 'read_text', side_effect=AssertionError('read the whole file')):
+                self.assertEqual(store.last_line(str(f)), want, name)
+        with self.assertRaises(FileNotFoundError):
+            store.last_line(str(self.path / 'absent'))
 
     def test_a_child_killed_by_a_signal_ends_the_command_with_128_plus_the_signal(self):
         self.assertEqual([store.exit_code(n) for n in (0, 1, 4, 255, -15, -9, -1)], [0, 1, 4, 255, 143, 137, 129])
@@ -6266,7 +6277,7 @@ class CoreTests(unittest.TestCase):
             'a false code': ('{"error":{"code":false}}', 'herdr_error', ''),
         }
         for name, (text, state, code) in cases.items():
-            self.assertEqual((herdr.error_state(text), herdr.error_code(text)), (state, code), name)
+            self.assertEqual((panes.error_state(text), panes.error_code(text)), (state, code), name)
         statuses = {
             'a status': ('{"result":{"agent":{"agent_status":"idle"}}}', 'idle', 'idle'),
             'no status': ('{"result":{"agent":{}}}', 'settled', ''),
@@ -6275,7 +6286,7 @@ class CoreTests(unittest.TestCase):
             'text that is no JSON': ('oops', 'settled', ''),
         }
         for name, (text, with_default, without) in statuses.items():
-            self.assertEqual((herdr.agent_state(text, 'settled'), herdr.agent_state(text, None)), (with_default, without), name)
+            self.assertEqual((panes.agent_state(text, 'settled'), panes.agent_state(text, None)), (with_default, without), name)
 
     def test_a_prime_steer_receipt_confirms_the_steer_lane_and_says_why_it_cannot_be_judged(self):
         from pstack_core import prime

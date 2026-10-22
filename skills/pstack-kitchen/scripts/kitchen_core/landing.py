@@ -11,11 +11,9 @@ import subprocess
 import sys
 import tempfile
 
-from pstack_core.errors import Die
+from pstack_core.store import Die, field, TEXT, header_field, read_text, int_or_none, new_from_template, pair_file
 from pstack_core.review import trunk_ref
-from pstack_core.store import field
-from pstack_core.herdr import parse
-from pstack_core.store import TEXT, header_field, read_text, int_or_none, new_from_template, pair_file
+from pstack_core.panes import parse
 from pstack_core.variant import commit_of
 
 from . import kpy

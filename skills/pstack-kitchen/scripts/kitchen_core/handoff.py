@@ -5,9 +5,7 @@ import os
 import sys
 import time
 
-from pstack_core.errors import Die
-from pstack_core.store import field, newest
-from pstack_core.store import header_field, pair_file, read, read_text, write_text
+from pstack_core.store import Die, field, newest, header_field, pair_file, read, read_text, write_text
 
 
 def basename(path):

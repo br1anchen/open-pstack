@@ -3,10 +3,9 @@ import re
 import subprocess
 import time
 
-from ..errors import Die, Exit, prog
-from ..herdr import herdr
+from ..store import Die, Exit, prog, TEXT, _dumps, event, member, update
+from ..panes import herdr
 from ..permission import logical_cwd
-from ..store import TEXT, _dumps, event, member, update
 
 STANDING_ORDERS_TEMPLATE = 'standing-orders-template.md'
 GATES = '# Gates\n\nOne entry per open question for the human: question, options, default on no answer.\n'

@@ -16,8 +16,7 @@ import sys
 import time
 
 from pstack_core import wait as core_wait
-from pstack_core.errors import Die, Exit
-from pstack_core.store import env_float, env_int, event, field, int_or_none, read_text, whole_number
+from pstack_core.store import Die, Exit, env_float, env_int, event, field, int_or_none, read_text, whole_number
 from pstack_core.wait import default_signals
 
 from .units import captured

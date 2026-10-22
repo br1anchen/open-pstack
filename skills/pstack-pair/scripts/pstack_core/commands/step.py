@@ -5,10 +5,12 @@ import subprocess
 import sys
 import time
 
-from ..errors import Die, Exit, prog
+from ..store import (
+    Die, Exit, prog, TEXT, event, load, pair_file, read_text, text_at, write_text, pause_notice, paused_reason, progress_path, steer_notice,
+    unit_name,
+)
 from ..replies import dispatched
 from ..review import steps_file
-from ..store import TEXT, event, load, pair_file, read_text, text_at, write_text, pause_notice, paused_reason, progress_path, steer_notice, unit_name
 
 
 def record_again(file, full, resolves):

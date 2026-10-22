@@ -5,12 +5,11 @@ import subprocess
 import sys
 import time
 
-from ..errors import Die, prog
-from ..herdr import agent_status
+from ..store import Die, prog, event, field, read_text, header_field, member, names, newest, unit_name, update
+from ..panes import agent_status
 from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
-from ..store import event, field, read_text, header_field, member, names, newest, unit_name, update
 from ..wait import end_with_parent, owned_wait, wait_opts
 from .report import in_herdr, require_pair
 

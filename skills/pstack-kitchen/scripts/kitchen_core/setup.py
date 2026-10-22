@@ -10,14 +10,11 @@ import json
 import os
 import sys
 
-from pstack_core import agents
-from pstack_core import spawn as pair_spawn
+from pstack_core import agents, spawn as pair_spawn
 from pstack_core.commands import init as core_init
-from pstack_core.commands import spawn as core_spawn
 from pstack_core.commands.report import in_herdr
-from pstack_core.errors import Die, Exit
-from pstack_core.herdr import agent_status
-from pstack_core.store import field, read_text, damaged, event, json_type, listing, load, member, now, pair_file, text_at, update
+from pstack_core.store import Die, Exit, field, read_text, damaged, event, json_type, listing, load, member, now, pair_file, text_at, update
+from pstack_core.panes import agent_status
 from pstack_core.wait import end_with_parent
 
 from . import kpy
@@ -178,7 +175,7 @@ def spawn(ctx, args):
         rest += ['--fallback', fallback]
     for a in fb_args:
         rest += ['--fallback-arg', a]
-    return core_spawn.spawn(ctx, [store, '--kind', kind, *rest, '--', *native])
+    return pair_spawn.spawn(ctx, [store, '--kind', kind, *rest, '--', *native])
 
 
 def consultant(ctx, args):

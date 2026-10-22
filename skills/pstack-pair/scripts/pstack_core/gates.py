@@ -1,4 +1,5 @@
 """The gates in front of a brief: the pause, the Scope, and the agreed plan (whose variant part is the plan_gate_extra hook)."""
+
 import glob
 import os
 import re
@@ -6,8 +7,8 @@ import subprocess
 import sys
 
 from .checkin import scope_entries, scope_match
-from .errors import Die
-from .store import TEXT, header_field, paused_reason, read_text
+from .store import Die, TEXT, header_field, paused_reason, read_text, prog, event, pair_file, write_text
+
 
 PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd')
 
@@ -101,3 +102,36 @@ def check_scope(brief, root):
     for entry in scope_entries(brief, 'may'):
         if entry and not scope_entry_exists(root, entry, tracked):
             sys.stderr.write(f'warning: Scope entry "{entry}" matches no file or directory in {root}; is it relative to a neighbouring entry?\n')
+
+
+def pause(ctx, args):
+    if not args:
+        raise Die(f'usage: {prog()} pause <store> [--reason TEXT]')
+    store, rest = args[0], args[1:]
+    reason = 'paused by the human'
+    if rest and rest[0] == '--reason':
+        if len(rest) < 2:
+            raise Die('--reason needs a value')
+        reason = rest[1]
+    elif rest and rest[0] != '':
+        raise Die(f'unknown option {rest[0]}')
+    pair_file(store)
+    write_text(f'{store}/paused', f'{reason}\n')
+    event(store, 'master', 'pause', '-', reason)
+    print(f'paused {store}: the sidekick stops at its next step or progress boundary, and dispatch, queue, discuss, '
+          'consult, and answer refuse until pair.sh resume')
+    return 0
+
+
+def resume(ctx, args):
+    if len(args) != 1:
+        raise Die(f'usage: {prog()} resume <store>')
+    store = args[0]
+    pair_file(store)
+    try:
+        os.remove(f'{store}/paused')
+    except FileNotFoundError:
+        pass
+    event(store, 'master', 'resume', '-')
+    print(f'resumed {store}')
+    return 0

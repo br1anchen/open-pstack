@@ -4,7 +4,7 @@ import glob
 import os
 import re
 
-from .herdr import agent_status, dig, herdr, pane_text, parse
+from .panes import agent_status, dig, herdr, pane_text, parse
 from .store import load, read_text, member, newest, newest_first, peek, text_at, update
 
 PROVIDER_ERROR_RE = ('capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|'

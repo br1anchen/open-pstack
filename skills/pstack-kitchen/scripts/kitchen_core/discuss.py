@@ -7,13 +7,12 @@ import contextlib
 import io
 import os
 
-from pstack_core.commands import queue as core_queue
-from pstack_core.commands import send as core_send
+from pstack_core import send as core_send
+from pstack_core.commands import rotate as core_queue
 from pstack_core.commands.rotate import rotate_if_due
 from pstack_core.consult import discuss_with_consultant
-from pstack_core.errors import Die, Exit
-from pstack_core.herdr import agent_status
-from pstack_core.store import field
+from pstack_core.store import Die, Exit, field
+from pstack_core.panes import agent_status
 
 from .classify import classify_brief, risk_of
 from .landing import is_landing
