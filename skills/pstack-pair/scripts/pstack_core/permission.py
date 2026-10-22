@@ -1,17 +1,11 @@
 import json
 import os
 import re
-import subprocess
 
-from .store import TEXT, read_text
+from . import procinfo
+from .store import read_text
 
 DEPTH_LIMIT = 12
-
-
-def ps(*args):
-    """ps with stderr dropped: (exit code, stdout without its trailing newlines)."""
-    r = subprocess.run(['ps', *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
-    return r.returncode, r.stdout.rstrip('\n')
 
 
 def agent_mode(comm, args):
@@ -47,7 +41,7 @@ def settings_mode(path):
     return mode if isinstance(mode, str) else ''
 
 
-def detect(pid, cwd, home, session, ps_run=ps):
+def detect(pid, cwd, home, session, read_proc=procinfo.read):
     """The master's permission mode, in Claude Code vocabulary: auto | acceptEdits | bypassPermissions | manual | dontAsk | plan.
     Sources in order: the launching command line of the agent process above the shell with pid `pid`, the current Claude session
     transcript, settings defaultMode, then auto.
@@ -55,12 +49,10 @@ def detect(pid, cwd, home, session, ps_run=ps):
     mode, depth = '', 0
 
     while pid > 1 and depth < DEPTH_LIMIT:
-        code, out = ps_run('-o', 'ppid=', '-p', str(pid))
-        ppid = out.replace(' ', '')
-        if code != 0 or ppid == '':
+        proc = read_proc(pid)
+        if proc is None:
             break
-        comm = os.path.basename(ps_run('-o', 'comm=', '-p', str(pid))[1])
-        args = ps_run('-o', 'args=', '-p', str(pid))[1]
+        comm, args = os.path.basename(proc.comm), proc.args
         if comm in ('node', 'bun'):
             if 'claude' in args:
                 comm = 'claude'
@@ -69,10 +61,7 @@ def detect(pid, cwd, home, session, ps_run=ps):
         if comm in ('claude', 'codex'):
             mode = agent_mode(comm, args)
             break
-        try:
-            pid = int(ppid)
-        except ValueError:
-            break
+        pid = proc.ppid
         depth += 1
     if mode == '' and session:
         transcript = f'{home}/.claude/projects/{re.sub(r"[/.]", "-", cwd)}/{session}.jsonl'

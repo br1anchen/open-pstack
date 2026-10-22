@@ -7,6 +7,7 @@ import re
 import subprocess
 import time
 
+from . import procinfo
 from .replies import dispatched, file_mtime
 from .review import git, noted_through, open_notes, range_floor, steps_file
 from .store import TEXT, int_or_none, header_field, load, peek, progress_path, read_text, tdiv, text_at
@@ -75,22 +76,16 @@ def busy_command(pane, since, now, env=None):
     """The longest-running process carrying the pane's HERDR_PANE_ID that started since the dispatch, preferring a
     command over the shell that runs it, as "<command> for Nm"; or ''. Linux only."""
     env = os.environ if env is None else env
-    if not pane or not os.path.isdir('/proc'):
+    if not pane or not os.path.isdir(procinfo.proc_root()):
         return ''
     sock = env.get('HERDR_SOCKET_PATH', '')
-    r = subprocess.run(['ps', '-u', str(os.getuid()), '-o', 'pid=,etimes=,comm='], capture_output=True, check=False, **TEXT)
     best, best_et, shell, shell_et = '', -1, '', -1
-    for line in r.stdout.split('\n'):
-        parts = line.split(None, 2)
-        if len(parts) < 3:
-            continue
-        pid, et, comm = parts[0], int(parts[1]), parts[2]
+    for proc in procinfo.of_user(os.getuid()):
+        et, comm = proc.elapsed, proc.comm
         if not now - et > since:
             continue
-        try:
-            with open(f'/proc/{pid}/environ', encoding='utf-8', errors='replace', newline='') as f:
-                lines = f.read().replace('\0', '\n').split('\n')
-        except OSError:
+        lines = procinfo.environ(proc.pid)
+        if lines is None:
             continue
         if f'HERDR_PANE_ID={pane}' not in lines:
             continue

@@ -15,6 +15,7 @@ from pstack_core.store import (
 )
 from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
 from pstack_core.panes import agent_kind, agent_status, herdr, pane_text, reply_at, new_pane, refuse_untrusted
+from pstack_core import procinfo
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
@@ -77,24 +78,20 @@ def close(ctx, args):
 
 
 def detect_model_arg():
-    """The --model of the Claude session this shell runs under, found by walking up the process tree (at most twelve parents): ps's parent,
+    """The --model of the Claude session this shell runs under, found by walking up the process tree (at most twelve parents): the parent,
     name and arguments for each pid; node or bun running a claude script count as claude. '' when none."""
-    def ps(name, pid):
-        return subprocess.run(['ps', '-o', f'{name}=', '-p', str(pid)], capture_output=True, text=True, check=False).stdout
-
     pid, depth = caller_pid(), 0
     while pid > 1 and depth < 12:
-        ppid = ps('ppid', pid).replace(' ', '').replace('\n', '')
-        if not ppid:
+        proc = procinfo.read(pid)
+        if proc is None:
             break
-        comm = os.path.basename(ps('comm', pid).rstrip('\n'))
-        args = ps('args', pid).rstrip('\n')
+        comm, args = os.path.basename(proc.comm), proc.args
         if comm in ('node', 'bun') and 'claude' in args:
             comm = 'claude'
         if comm == 'claude':
             m = re.match(r'.*--model[= ]([^ ]+).*', args)
             return m.group(1) if m else ''
-        pid, depth = int(ppid), depth + 1
+        pid, depth = proc.ppid, depth + 1
     return ''
 
 

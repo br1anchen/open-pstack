@@ -27,7 +27,7 @@ scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
 import run as run_module  # noqa: E402
-from pstack_core import cli, exits, panes, permission, providers, review, send, store, wait  # noqa: E402
+from pstack_core import cli, exits, panes, permission, procinfo, providers, review, send, store, wait  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.store import Die, Exit  # noqa: E402
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
@@ -76,6 +76,23 @@ def event_log(*calls, dedupe='1'):
                 with mock.patch('time.time', return_value=float(epoch)):
                     store.event(directory, *args.split(' ', 3))
         return [row.split('\t', 1)[1] for row in (Path(directory) / 'events.tsv').read_text().splitlines()]
+
+
+def write_proc_tree(top, procs, uptime=100000):
+    """A /proc of these processes {pid: dict(ppid, comm, argv, uid, elapsed, environ)}: what procinfo reads, for a root it is given."""
+    top.mkdir(parents=True, exist_ok=True)
+    (top / 'uptime').write_text(f'{uptime}.00 0.00\n')
+    for pid, p in procs.items():
+        d = top / str(pid)
+        d.mkdir()
+        started = (uptime - p.get('elapsed', 0)) * os.sysconf('SC_CLK_TCK')
+        fields = ['S', str(p['ppid'])] + ['0'] * 17 + [str(started)]
+        (d / 'stat').write_text(f"{pid} ({p['comm']}) {' '.join(fields)} 0 0\n")
+        (d / 'comm').write_text(p['comm'][:15] + '\n')
+        (d / 'cmdline').write_bytes(b''.join(a.encode() + b'\0' for a in p['argv']))
+        uid = p.get('uid', os.getuid())
+        (d / 'status').write_text(f'Name:\t{p["comm"]}\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n')
+        (d / 'environ').write_bytes(b''.join(e.encode() + b'\0' for e in p.get('environ', [])))
 
 
 class CoreTests(unittest.TestCase):
@@ -605,12 +622,64 @@ class CoreTests(unittest.TestCase):
             (self.path / rel).parent.mkdir(parents=True, exist_ok=True)
             (self.path / rel).write_text(text)
 
-        def ps(*args):
-            row = procs.get(int(args[3]))
-            if row is None:
-                return 1, ''
-            return 0, {'ppid=': f'  {row[0]}', 'comm=': row[1], 'args=': row[2]}[args[1]]
-        return permission.detect(100, str(cwd), str(home), session, ps)
+        def read_proc(pid):
+            row = procs.get(pid)
+            return None if row is None else procinfo.Proc(pid, row[0], 0, row[1], tuple(row[2].split(' ')), 0)
+        return permission.detect(100, str(cwd), str(home), session, read_proc)
+
+    def tree(self, procs, **partial):
+        """A synthetic /proc under the test's directory, with PAIR_PROC_ROOT pointing at it for the test; partial names pids written with only some files."""
+        top = self.path / f'proc{len(list(self.path.glob("proc*")))}'
+        write_proc_tree(top, procs)
+        for pid, keep in partial.items():
+            (top / pid).mkdir()
+            for name in keep:
+                (top / pid / name).write_text('')
+        patcher = mock.patch.dict(os.environ, {'PAIR_PROC_ROOT': str(top)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return top
+
+    def test_procinfo_reads_the_full_command_line_the_parent_the_user_and_the_seconds_running(self):
+        long_args = ['/opt/a-long-agent-name/bin/agent', '--ask-for-approval', 'never', '--note', 'two words']
+        top = self.tree({7: dict(ppid=3, comm='agent (x) y', argv=long_args, uid=1234, elapsed=321)})
+        proc = procinfo.read(7)
+        self.assertEqual(proc, procinfo.Proc(7, 3, 1234, 'agent (x) y', tuple(long_args), 321))
+        self.assertEqual(proc.args, '/opt/a-long-agent-name/bin/agent --ask-for-approval never --note two words')
+        self.assertEqual(procinfo.read(8), None)
+        self.assertEqual(procinfo.read(7, str(top)), proc)
+
+    def test_procinfo_leaves_out_a_process_that_vanishes_while_it_is_read(self):
+        self.tree({1: dict(ppid=0, comm='init', argv=['init'], uid=0), 2: dict(ppid=1, comm='mine', argv=['mine'])}, **{'3': ['stat', 'comm']})
+        self.assertEqual(procinfo.read(3), None)
+        self.assertEqual([p.pid for p in procinfo.of_user(os.getuid())], [2])
+        self.assertEqual(procinfo.environ(3), None)
+        self.assertEqual(procinfo.environ(2), [''])
+
+    def test_a_check_in_names_the_longest_running_command_in_the_pane_of_this_user_started_since_the_dispatch(self):
+        from pstack_core import checkin
+        here = ['HERDR_PANE_ID=p1', 'HERDR_SOCKET_PATH=/s']
+        base = dict(ppid=1, argv=['x'])
+        self.tree({10: dict(base, comm='bash', elapsed=500, environ=here),
+                   11: dict(base, comm='sleep', elapsed=300, environ=here),
+                   12: dict(base, comm='make', elapsed=200, environ=here),
+                   13: dict(base, comm='sleep', elapsed=900, environ=here, uid=os.getuid() + 1),
+                   14: dict(base, comm='vim', elapsed=800, environ=['HERDR_PANE_ID=p2', 'HERDR_SOCKET_PATH=/s']),
+                   15: dict(base, comm='cargo', elapsed=700, environ=['HERDR_PANE_ID=p1', 'HERDR_SOCKET_PATH=/other']),
+                   16: dict(base, comm='old', elapsed=2000, environ=here)}, **{'17': ['stat']})
+        env = {'HERDR_SOCKET_PATH': '/s'}
+        self.assertEqual(checkin.busy_command('p1', 1000, 2200, env), 'sleep for 5m')
+        self.assertEqual(checkin.busy_command('p1', 250, 2200, env), 'sleep for 5m')
+        self.assertEqual(checkin.busy_command('p1', 100, 2200, env), 'old for 33m')
+        self.tree({10: dict(base, comm='bash', elapsed=500, environ=here), 11: dict(base, comm='zsh', elapsed=300, environ=here)})
+        self.assertEqual(checkin.busy_command('p1', 0, 700, env), 'bash for 8m')
+        self.assertEqual(checkin.busy_command('p3', 0, 2200, env), '')
+
+    def test_the_approval_mode_comes_from_the_whole_command_line_not_the_name_ps_would_cut(self):
+        top = self.tree({100: dict(ppid=101, comm='bash', argv=['bash']),
+                         101: dict(ppid=1, comm='codex', argv=['/opt/some-long-directory/codex', '--ask-for-approval', 'never'])})
+        self.assertEqual(permission.detect(100, str(self.path / 'cwd'), str(self.path / 'home'), ''), 'dontAsk')
+        self.assertEqual(permission.detect(5, str(self.path / 'cwd'), str(self.path / 'home'), ''), 'auto')
 
     def test_detect_reads_the_agent_above_the_shell_and_stops_after_twelve_hops(self):
         shell = (101, 'bash', 'bash')
@@ -745,8 +814,10 @@ class CoreTests(unittest.TestCase):
             (fake / rel).parent.mkdir(parents=True, exist_ok=True)
             (fake / rel).write_text(text)
         if spec.get('pstable'):
-            (top / 'ps.tsv').write_text(spec['pstable'])
-            env['FAKE_PS_TABLE'] = str(top / 'ps.tsv')
+            rows = [line.split('\t', 3) for line in spec['pstable'].splitlines()]
+            write_proc_tree(top / 'proc', {int(pid.replace('SELF', str(os.getpid()))): dict(ppid=int(ppid), comm=comm, argv=args.split(' '))
+                                           for pid, ppid, comm, args in rows})
+            env['PAIR_PROC_ROOT'] = str(top / 'proc')
         for rel, target in spec.get('statelinks', {}).items():
             (top / 'state' / rel).parent.mkdir(parents=True, exist_ok=True)
             (top / 'state' / rel).symlink_to(target)
@@ -2838,11 +2909,10 @@ class CoreTests(unittest.TestCase):
         home, cwd, bin_dir = self.path / 'permhome', self.path / 'permcwd', self.path / 'permbin'
         for d in (home, cwd, bin_dir):
             d.mkdir()
-        (bin_dir / 'ps').write_text('#!/bin/sh\nexit 1\n')
-        (bin_dir / 'ps').chmod(0o755)
+        (self.path / 'noproc').mkdir()
         transcript = home / '.claude/projects' / re.sub(r'[/.]', '-', str(cwd)) / 's1.jsonl'
         transcript.parent.mkdir(parents=True)
-        env = {**self.env, 'HOME': str(home), 'PWD': str(cwd), 'CLAUDE_CODE_SESSION_ID': 's1', 'PATH': f'{bin_dir}:{os.environ["PATH"]}'}
+        env = {**self.env, 'HOME': str(home), 'PWD': str(cwd), 'CLAUDE_CODE_SESSION_ID': 's1', 'PAIR_PROC_ROOT': str(self.path / 'noproc')}
         run = lambda: subprocess.run([str(scripts / 'pair.sh'), 'permission'], cwd=cwd, env=env, capture_output=True, text=True, check=False, timeout=120)
         for text, want in (('{"type":"user"}\n', 'auto'), ('{"permissionMode":"plan"}\n{"permissionMode":"acceptEdits"}\n', 'acceptEdits')):
             transcript.write_text(text)
