@@ -2108,6 +2108,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a verifying that is a string': dict(with_roles(verifying='x'), args=run),
             'a Prime role with a session': dict(with_roles(verifier={**self.CLOSE_ROLES['verifier'], 'kind': 'prime-agent', 'session': {'kind': 'path', 'value': '/t/v.jsonl'}}),
                                                   args=run + ['--force']),
+            'a Prime role whose session is not an object keeps its pane': dict(
+                with_roles(verifier={**self.CLOSE_ROLES['verifier'], 'kind': 'prime-agent', 'session': 'sess-1'}), agents={'c1': 'idle codex', 's1': 'idle claude'}, args=run),
             'a role that does not exit keeps its pane': dict(live, args=run, noexit=True, clock=True),
             '--force is only read as the second argument': dict(live, args=['close', '--force', '{st}']),
             'a third argument is ignored': dict(live, args=run + ['--force', 'x']),
@@ -2129,6 +2131,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a sidekick that is false': (1, 'pair.json is damaged: sidekick is boolean, not an object'),
             'a verifying that is a string': (1, 'pair.json is damaged: verifying is string, not an object'),
             'a Prime role with a session': (5, 'closed consultant c1 (p2)'),
+            'a Prime role whose session is not an object keeps its pane': (5, 'recorded Prime session for verifier is not an object; inspect its pane before cleanup'),
             'a role that does not exit keeps its pane': (5, 'verifier v1 did not exit; its pane p3 stays open'),
             '--force is only read as the second argument': (1, 'pair.sh: no pair.json in --force; run: pair.sh init'),
             'a third argument is ignored': (0, 'closed verifier v1 (p3)'),
@@ -2144,6 +2147,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('verifier v1 did not exit; its pane p3 stays open', out['a role that does not exit keeps its pane']['stderr'])
         self.assertIn('a verification is open (001)', out['an open verification refuses']['stderr'])
         self.assertEqual(out['a working sidekick refuses']['rc'], 5)
+        kept = out['a Prime role whose session is not an object keeps its pane']
+        self.assertNotIn('pane close p3', kept['calls'])
+        self.assertEqual(json.loads(kept['files']['pair.json'])['verifier'], {**self.CLOSE_ROLES['verifier'], 'kind': 'prime-agent', 'session': 'sess-1'})
         self.assertEqual(out['an open verification and --force']['rc'], 0)
         self.assertIn('pair.json is damaged: consultant is string, not an object', out['a consultant that is a string']['stderr'])
         self.assertNotIn('closed consultant', out['a consultant that is a string']['stdout'])
@@ -2488,21 +2494,28 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
                 store.update(str(st), lambda doc: doc.update(c=3))
         self.assertIn('pair.json lock held for 10s', caught.exception.message)
 
-    def test_a_mutate_that_meets_a_wrong_typed_value_is_damage_and_writes_nothing(self):
+    def test_the_helpers_a_mutate_reads_through_say_what_is_damaged_and_a_bug_in_a_mutate_propagates_and_writes_nothing(self):
         st = self.path / 'damage'
         st.mkdir()
-        text = '{"a": "x", "b": {"c": 1}}\n'
+        text = '{"a": "x", "b": {"c": 1}, "n": "7", "l": ["u", 3], "ok": {"k": [1]}, "z": 5}\n'
         (st / 'pair.json').write_text(text)
-        for name, mutate, message in (('a TypeError', lambda doc: doc['a'] + 1, 'can only concatenate str'),
-                                      ('an AttributeError', lambda doc: doc['a'].get('k'), "'str' object has no attribute 'get'"),
-                                      ('a KeyError', lambda doc: doc['b']['d'], "'d'"),
-                                      ('member of a string', lambda doc: store.member(doc, 'a'), 'a is string, not an object'),
-                                      ('listing of an object', lambda doc: store.listing(doc, 'b'), 'b is object, not an array')):
+        for name, mutate, message in (('member of a string', lambda doc: store.member(doc, 'a'), 'a is string, not an object'),
+                                      ('peek of a number', lambda doc: store.peek(doc, 'z'), 'z is number, not an object'),
+                                      ('listing of an object', lambda doc: store.listing(doc, 'b'), 'b is object, not an array'),
+                                      ('names holding a number', lambda doc: store.names(doc, 'l'), 'l holds number, not a string'),
+                                      ('count of a string', lambda doc: store.count(doc, 'n'), 'n is string, not an integer'),
+                                      ('count of a boolean', lambda doc: store.count({'n': True}, 'n'), 'n is boolean, not an integer')):
             with self.assertRaises(Die) as caught:
                 store.update(str(st), mutate)
-            self.assertEqual(caught.exception.code, 1, name)
-            self.assertTrue(caught.exception.message.startswith('pair.json is damaged: '), name)
-            self.assertIn(message, caught.exception.message, name)
+            self.assertEqual((caught.exception.code, caught.exception.message), (1, f'pair.json is damaged: {message}'), name)
+            self.assertEqual((st / 'pair.json').read_text(), text, name)
+            self.assertFalse((st / 'pair.json.tmp').exists(), name)
+            self.assertFalse((st / '.pair.lock').exists(), name)
+        self.assertEqual((store.peek({}, 'r'), store.peek({'r': None}, 'r'), store.listing({'x': False}, 'x'), store.count({}, 'n'), store.count({'n': False}, 'n')), ({}, {}, [], 0, 0))
+        for name, mutate, error in (('a TypeError', lambda doc: doc['a'] + 1, TypeError), ('an AttributeError', lambda doc: doc['a'].get('k'), AttributeError),
+                                    ('a KeyError', lambda doc: doc['b']['d'], KeyError)):
+            with self.assertRaises(error):
+                store.update(str(st), mutate)
             self.assertEqual((st / 'pair.json').read_text(), text, name)
             self.assertFalse((st / 'pair.json.tmp').exists(), name)
             self.assertFalse((st / '.pair.lock').exists(), name)
@@ -2518,6 +2531,12 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         (st / 'pair.json').write_text(json.dumps(doc))
         r = self.run_pair('failover', str(st))
         self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: pair.json is damaged: sidekick is string, not an object\n'))
+        for role in ('master', 'sidekick'):
+            doc['master'], doc['sidekick'] = {'name': 'm'}, {'name': 's'}
+            doc[role] = [1]
+            (st / 'pair.json').write_text(json.dumps(doc))
+            r = self.run_pair('status', str(st))
+            self.assertEqual((r.returncode, r.stderr), (1, f'pair.sh: pair.json is damaged: {role} is array, not an object\n'), role)
         doc['sidekick'], doc['master'] = {}, 'y'
         (st / 'pair.json').write_text(json.dumps(doc))
         before = (st / 'pair.json').read_bytes()
@@ -3980,27 +3999,29 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an empty token': ({**base, 'closing': {'token': ''}}, 0),
             'a token that is a number': ({**base, 'closing': {'token': 5}}, 1),
             'a token that is false': ({**base, 'closing': {'token': False}}, 0),
-            'closing that is a string': ({**base, 'closing': 'x'}, 1),
-            'closing that is an array': ({**base, 'closing': [1]}, 1),
+            'closing that is a string': ({**base, 'closing': 'x'}, 'closing is string, not an object'),
+            'closing that is an array': ({**base, 'closing': [1]}, 'closing is array, not an object'),
             'a verification that is another attempt': ({'verdict': '/v/001-x-v2.md', 'units': '001'}, 1),
-            'a verification that is a string': ('x', 1),
-            'a verification that is an array': ([1], 1),
+            'a verification that is a string': ('x', 'verifying is string, not an object'),
+            'a verification that is an array': ([1], 'verifying is array, not an object'),
             'no verification': (None, 1),
         }
         for n, (name, (verifying, status)) in enumerate(cases.items()):
             st = self.claim_store(f'claim{n}', verifying, {} if verifying is not None else {'verifying': None})
             before = (st / 'pair.json').read_text()
             rc, out, err = self.kitchen_py(st, 'print("rc=%d" % (0 if vs.claim_close(store, "/v/001-x-v1.md") else 1))', env={'PAIR_SHELL_PID': str(os.getpid())})
+            if isinstance(status, str):
+                self.assertEqual((rc, out), (1, ''), (name, err))
+                self.assertIn(f'pair.json is damaged: {status}', err, name)
+                self.assertEqual((st / 'pair.json').read_text(), before, name)
+                continue
             self.assertEqual((rc, out), (0, f'rc={status}\n'), (name, err))
             after = json.loads((st / 'pair.json').read_text())
             if status == 0:
                 self.assertRegex(after['verifying']['closing']['token'], rf'^testhost:{os.getpid()}:[0-9]+$', name)
             else:
                 self.assertEqual((st / 'pair.json').read_text(), before, name)
-            if name in ('closing that is a string', 'closing that is an array', 'a verification that is a string', 'a verification that is an array'):
-                self.assertIn('Cannot index', err, name)
-            else:
-                self.assertEqual(err, '', name)
+            self.assertEqual(err, '', name)
 
     def test_update_verifying_drop_verifying_and_release_close_touch_only_the_verification_they_name(self):
         other_attempt = {'verdict': '/v/001-x-v2.md', 'units': '001', 'idle_since': 5}
@@ -4015,13 +4036,18 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a release with its own token': (mine, 'vs.release_close(store, "/v/001-x-v1.md", "testhost:4242:9")', {k: v for k, v in mine.items() if k != 'closing'}),
             'a release with another token': (mine, 'vs.release_close(store, "/v/001-x-v1.md", "testhost:1:1")', mine),
             'a release on a stale verification': (other_attempt, 'vs.release_close(store, "/v/001-x-v1.md", "testhost:4242:9")', other_attempt),
-            'a release over closing that is a string': ({**mine, 'closing': 'x'}, 'vs.release_close(store, "/v/001-x-v1.md", "testhost:4242:9")', {**mine, 'closing': 'x'}),
         }
         for n, (name, (document, call, after)) in enumerate(cases.items()):
             st = self.claim_store(f'upd{n}', document)
             rc, out, err = self.kitchen_py(st, call + '\nprint("rc=0")')
             self.assertEqual((rc, out), (0, 'rc=0\n'), (name, err))
             self.assertEqual(json.loads((st / 'pair.json').read_text()).get('verifying'), after, name)
+        st = self.claim_store('updclosing', {**mine, 'closing': 'x'})
+        before = (st / 'pair.json').read_text()
+        rc, out, err = self.kitchen_py(st, 'vs.release_close(store, "/v/001-x-v1.md", "testhost:4242:9")\nprint("rc=0")')
+        self.assertEqual((rc, out), (1, ''))
+        self.assertIn('pair.json is damaged: closing is string, not an object', err)
+        self.assertEqual((st / 'pair.json').read_text(), before)
 
     def test_my_claim_and_still_my_claim_say_whether_this_shell_holds_the_close(self):
         """A claim is this shell's when its token names this host and this shell's pid; still_my_claim ends the command with exit 5 otherwise."""
@@ -6162,6 +6188,40 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         }
         for name, (text, with_default, without) in statuses.items():
             self.assertEqual((wait.agent_state(text, 'settled'), wait.agent_state(text, None)), (with_default, without), name)
+
+    def test_a_prime_steer_receipt_confirms_the_steer_lane_by_its_last_value_and_says_why_it_cannot_be_judged(self):
+        from pstack_core import prime
+        good = {'deliveryMode': 'steer', 'target': {'activeSessionId': 'live-1'}, 'deliveryStatus': 'queued'}
+        cases = {
+            'a queued steer to the session': (json.dumps(good), True, ''),
+            'a delivered steer to the session': (json.dumps({**good, 'deliveryStatus': 'delivered'}), True, ''),
+            'a steer to another session': (json.dumps({**good, 'target': {'activeSessionId': 'live-2'}}), False, ''),
+            'a send that is not a steer': (json.dumps({**good, 'deliveryMode': 'send'}), False, ''),
+            'a steer that failed': (json.dumps({**good, 'deliveryStatus': 'failed'}), False, ''),
+            'a receipt with no target': (json.dumps({'deliveryMode': 'steer', 'deliveryStatus': 'queued'}), False, ''),
+            'a receipt that is not JSON': ('queued', False, 'Prime steer receipt is not JSON\n'),
+            'a receipt that is empty': ('', False, 'Prime steer receipt is empty\n'),
+            'a receipt that is an array': ('[1]', False, 'Prime steer receipt is not an object\n'),
+            'a target that is a string': (json.dumps({**good, 'target': 'live-1'}), False, 'Prime steer receipt has a target that is not an object\n'),
+            'a last value that confirms': (json.dumps({'progress': 1}) + '\n' + json.dumps(good), True, ''),
+            'a last value that does not': (json.dumps(good) + '\n' + json.dumps({'progress': 1}), False, ''),
+            'a good value then text that is no JSON': (json.dumps(good) + '\nqueued', False, 'Prime steer receipt is not JSON\n'),
+        }
+        for name, (receipt, want, said) in cases.items():
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                got = prime.steer_confirmed(receipt, 'live-1')
+            self.assertEqual((got, err.getvalue()), (want, said), name)
+
+    def test_a_prime_session_list_that_is_not_JSON_says_so(self):
+        from pstack_core import prime
+        st = self.claim_store('primelist', {'verdict': 'v'}, {'sidekick': {'name': 's1'}})
+        for out, want, said in (('not json', (True, None), 'Prime session list for sidekick is not JSON\n'), ('{"sessions": []}', (False, []), ''),
+                                ('{"sessions": 3}', (True, None), ''), ('[]', (True, None), '')):
+            err = io.StringIO()
+            with mock.patch.object(prime, 'prime_command', return_value=(0, out)), contextlib.redirect_stderr(err):
+                got = prime.prime_sessions(str(st), 'sidekick')
+            self.assertEqual((got, err.getvalue()), (want, said), out)
 
     def test_a_recorded_prime_session_that_is_not_an_object_is_unknown_and_says_so(self):
         for n, session in enumerate(('sess-1', ['sess-1'], 3, True)):

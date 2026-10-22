@@ -9,7 +9,7 @@ import sys
 from .providers import record_prime_session
 from .review import jq_raw
 from .store import alt, load
-from .wait import as_text
+from .wait import as_text, json_values
 
 PERL_TIMEOUT = ('my $s = shift; my $p = fork // die "fork: $!\n";\n'
                 'unless ($p) { exec { $ARGV[0] } @ARGV or exit 127 }\n'
@@ -67,6 +67,7 @@ def prime_sessions(store, role):
     try:
         reply = json.loads(out)
     except ValueError:
+        sys.stderr.write(f'Prime session list for {role} is not JSON\n')
         return True, None
     sessions = reply.get('sessions') if isinstance(reply, dict) else None
     return (False, sessions) if isinstance(sessions, list) else (True, None)
@@ -102,6 +103,28 @@ def prime_active_session(store, role):
     return matches.pop() if matches else ''
 
 
+def steer_confirmed(receipt, active):
+    """Whether a `prime-agent send --json` receipt confirms the steer lane for the session `active`. A reply of several JSON values is judged
+    by its last one. A receipt that cannot be judged says why on stderr."""
+    values, ok = json_values(receipt)
+    if not ok:
+        sys.stderr.write('Prime steer receipt is not JSON\n')
+        return False
+    if not values:
+        sys.stderr.write('Prime steer receipt is empty\n')
+        return False
+    last = values[-1]
+    if not isinstance(last, dict):
+        sys.stderr.write('Prime steer receipt is not an object\n')
+        return False
+    target = last.get('target')
+    if target is not None and not isinstance(target, dict):
+        sys.stderr.write('Prime steer receipt has a target that is not an object\n')
+        return False
+    return (last.get('deliveryMode') == 'steer' and (target or {}).get('activeSessionId') == active
+            and last.get('deliveryStatus') in ('queued', 'delivered'))
+
+
 def prime_steer(store, text):
     """Steer the sidekick's Prime session. Prime 0.10.0 advertises --steer but its Rust CLI rejects that flag; plain send defaults to
     steering, so a receipt that confirms that lane is required."""
@@ -113,12 +136,4 @@ def prime_steer(store, text):
     code, out = prime_command(store, 'sidekick', 'send', '--json', active, text)
     if code != 0:
         return False
-    try:
-        receipt = json.loads(out)
-    except ValueError:
-        return False
-    if not isinstance(receipt, dict):
-        return False
-    target = receipt.get('target')
-    return (receipt.get('deliveryMode') == 'steer' and isinstance(target, dict) and target.get('activeSessionId') == active
-            and receipt.get('deliveryStatus') in ('queued', 'delivered'))
+    return steer_confirmed(out, active)

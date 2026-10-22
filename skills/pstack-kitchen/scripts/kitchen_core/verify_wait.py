@@ -151,7 +151,7 @@ class Waiter:
                 raise
 
     def update(self, verdict, apply):
-        vs.update_verifying(self.store, verdict, apply, errexit=self.errexit)
+        vs.update_verifying(self.store, verdict, apply)
 
     def drop_idle(self, verdict):
         self.update(verdict, lambda v: v.pop('idle_since', None))
@@ -312,7 +312,7 @@ class Waiter:
             vs.set_outcome(packet, 'stalled')
         else:
             vs.set_outcome(packet, 'missing')
-        vs.drop_verifying(store, verdict, errexit=self.errexit)
+        vs.drop_verifying(store, verdict)
         if status not in ('clean', 'reject'):
             verifier_trail(session, packet)
         present = os.path.isfile(verdict)
@@ -345,7 +345,7 @@ class Waiter:
             else:
                 sys.stdout.write('audit: no\n')
             warn_unreviewed(store)
-            vs.handoff_due(store, unit, errexit=self.errexit)
+            vs.handoff_due(store, unit)
             raise Exit(0)
         if status == 'reject':
             for line in findings(verdict):

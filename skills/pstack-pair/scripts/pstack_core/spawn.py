@@ -16,7 +16,7 @@ from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .review import jq_raw
 from .send import submit_typed, visible_without_blanks
-from .store import alt, event, field, get, listing, load, member, update
+from .store import alt, count, event, field, get, listing, load, member, update
 from .wait import bash_sleep, die_with_the_shell
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
@@ -136,7 +136,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
     def started(doc):
         entry = member(doc, role)
         entry['pane_id'], entry['kind'], entry['started_at'], entry['start_args'] = pane, kind, now, list(args)
-        entry['generation'] = alt(entry.get('generation'), 0) + 1
+        entry['generation'] = count(entry, 'generation') + 1
         entry['bootstrap_pending'] = True
         entry['permission_mode'] = permission
         member(doc, 'master')['permission_mode'] = master_mode

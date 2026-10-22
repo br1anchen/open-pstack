@@ -11,7 +11,7 @@ from ..herdr import agent_status
 from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
-from ..store import cut_chars, event, header_field, listing, member, readlink_f, unit_name, update
+from ..store import cut_chars, event, header_field, member, names, readlink_f, unit_name, update
 from ..wait import die_with_the_shell, owned_wait, wait_opts
 from .report import in_herdr, require_pair
 from .stop import role_value
@@ -28,7 +28,7 @@ def park_for_devin(store, path, key='notice_steers'):
     """The list `key` gains the path once, sorted: Devin's next pair.sh step, notes or progress prints it (a message sent mid-turn is parked as
     queued, and the Enter that would deliver it cancels the running command)."""
     def mutate(doc):
-        doc[key] = sorted(set(listing(doc, key) + [path]))
+        doc[key] = sorted(set(names(doc, key) + [path]))
     update(store, mutate)
 
 

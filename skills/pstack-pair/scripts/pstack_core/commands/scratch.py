@@ -6,7 +6,7 @@ import sys
 
 from ..errors import Die, unbound_arg
 from ..review import jq_raw
-from ..store import get, listing, pair_file, update
+from ..store import get, names, pair_file, update
 
 
 def basename(path):
@@ -71,7 +71,7 @@ def run(ctx, args):
             os.rmdir(dirname(path))
         except OSError:
             pass
-        update(store, lambda doc: doc.update(scratch=[x for x in listing(doc, 'scratch') if x != ident]))
+        update(store, lambda doc: doc.update(scratch=[x for x in names(doc, 'scratch') if x != ident]))
         print(f'removed {path}')
         return 0
     if os.path.isdir(path):
@@ -114,6 +114,6 @@ def run(ctx, args):
                 f = raw.decode('utf-8', 'surrogateescape')
                 os.makedirs(f'{path}/{dirname(f)}', exist_ok=True)
                 shutil.copy2(f'{cwd}/{f}', f'{path}/{f}')
-    update(store, lambda doc: doc.update(scratch=sorted({*listing(doc, 'scratch'), ident})))
+    update(store, lambda doc: doc.update(scratch=sorted({*names(doc, 'scratch'), ident})))
     print(path)
     return 0

@@ -222,7 +222,7 @@ for path in git_grep(r'.', *PROD, flags='-lE'):
 exit_lines.sort(key=lambda x: (x[0], x[1], x[2]))
 # lines whose code carries no message: the text a test must show for them
 HINTS = {('skills/pstack-pair/scripts/pstack_core/commands/report.py', 88): ['queue: empty'],
-         ('skills/pstack-pair/scripts/pstack_core/wait.py', 637): ['superseded: a newer wait owns this store'],
+         ('skills/pstack-pair/scripts/pstack_core/wait.py', 633): ['superseded: a newer wait owns this store'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 285): ['advice_status: answered'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 290): ['advice: missing'],
          ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 543): ['verifier start failed in'],

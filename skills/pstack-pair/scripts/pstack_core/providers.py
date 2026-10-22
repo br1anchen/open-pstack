@@ -9,7 +9,7 @@ import re
 from .collate import collate_key
 from .herdr import agent_status, herdr, pane_text
 from .review import jq_raw
-from .store import alt, cut_chars, load, update, utf8_locale
+from .store import alt, cut_chars, load, member, update, utf8_locale
 
 PROVIDER_ERROR_RE = ('capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|'
                      'econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|'
@@ -166,9 +166,7 @@ def record_prime_session(store, role):
     chosen = {'kind': session['kind'], 'value': session['value']}
 
     def mutate(doc):
-        if not isinstance(doc.get(role), dict):
-            doc[role] = {}
-        doc[role]['session'] = chosen
+        member(doc, role)['session'] = chosen
 
     update(store, mutate)
     return True

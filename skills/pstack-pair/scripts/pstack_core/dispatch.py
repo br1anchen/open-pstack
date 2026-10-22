@@ -4,7 +4,7 @@ import sys
 import time
 
 from .errors import Die, Exit
-from .store import alt, event, expected_report, listing, load, member, peek, update
+from .store import alt, event, expected_report, load, member, names, peek, update
 
 def fresh_per_brief(kind):
     """Sidekick kinds that start a fresh session for every brief."""
@@ -34,8 +34,7 @@ def record_dispatch(store, brief, now=None):
         key = key[:-3] if key.endswith('.md') else key
         if alt(heads.get(key), None) is None:
             heads[key] = head
-        pending = listing(doc, 'pending')
-        doc['pending'] = sorted({*pending, *([] if seen else [brief])})
+        doc['pending'] = sorted({*names(doc, 'pending'), *([] if seen else [brief])})
 
     update(store, mutate)
 

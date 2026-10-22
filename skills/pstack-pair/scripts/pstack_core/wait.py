@@ -17,7 +17,7 @@ from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
                       unreviewed_steps, withheld_report, file_mtime)
 from .review import jq_raw, review_base
-from .store import acquire_lock, alt, bash_int, cut_chars, event, get, header_field, paused_reason, unit_name, update
+from .store import acquire_lock, alt, bash_int, cut_chars, event, get, header_field, member, paused_reason, unit_name, update
 
 
 class WaitResult:
@@ -460,15 +460,11 @@ def mark_report_seen(store, report):
 
 
 def set_sent_seen(doc, seen):
-    if not isinstance(doc.get('sent'), dict):
-        doc['sent'] = {}
-    doc['sent']['seen'] = seen
+    member(doc, 'sent')['seen'] = seen
 
 
 def set_shown(doc, unit, k):
-    if not isinstance(doc.get('shown'), dict):
-        doc['shown'] = {}
-    doc['shown'][unit] = k
+    member(doc, 'shown')[unit] = k
 
 
 def herdr_get(name):

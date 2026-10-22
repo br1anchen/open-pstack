@@ -5,7 +5,7 @@ from ..dispatch import fresh_per_brief, take_queued
 from ..errors import Die, Exit
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import (alt, event, expected_report, get, header_field, load, open_steers, paused_reason, readlink_f, steer_number, unit_name, update)
+from ..store import (alt, event, expected_report, get, header_field, load, member, open_steers, paused_reason, readlink_f, steer_number, unit_name, update)
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
 
@@ -135,7 +135,7 @@ def finish(ctx, args):
     if (status == 'done' and fresh_per_brief(kind) and current and report == expected_report(store, current)
             and jq_raw(alt(dispatch.get('generation') if isinstance(dispatch, dict) else None, 0)) == generation):
         if jq_raw(alt(sidekick.get('rotation_required'), False)) != 'true':
-            update(store, lambda doc: doc['sidekick'].__setitem__('rotation_required', True))
+            update(store, lambda doc: member(doc, 'sidekick').__setitem__('rotation_required', True))
             event(store, 'sidekick', 'rotation-required', report, f'generation:{generation}')
     code = notify(ctx, [store, report])
     if code:

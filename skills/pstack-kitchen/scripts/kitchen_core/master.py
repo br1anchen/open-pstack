@@ -17,7 +17,7 @@ from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
 from pstack_core.store import field
-from pstack_core.store import event, listing, member, pair_file, update
+from pstack_core.store import damaged, event, json_type, listing, member, pair_file, update
 
 from .jqx import pair_jq
 from .reviews import warn_unreviewed
@@ -49,7 +49,7 @@ def close_role(store, role):
         sys.stderr.write(f'{role} {name} did not exit; its pane {pane} stays open\n')
         return False
     herdr('pane', 'close', pane)
-    update(store, lambda doc: doc[role].__setitem__('closed', True))
+    update(store, lambda doc: member(doc, role).__setitem__('closed', True))
     event(store, 'master', 'close', '-', f'{role}:{kind}')
     sys.stdout.write(f'closed {role} {name} ({pane})\n')
     sys.stdout.flush()
@@ -191,7 +191,10 @@ def rotate_master(ctx, args):
         # the hand-over: .master.previous, .master.name, .master.pane_id, .master.registered_at, .master.generation, .master.units_since_handoff, .master.sessions
         master = member(doc, 'master')
         listed = listing(master, 'sessions')
-        kept = [e for e in listed if session == '' or e['session'] != session]
+        for each in listed:
+            if not isinstance(each, dict):
+                raise damaged(f'sessions holds {json_type(each)}, not an object')
+        kept = [e for e in listed if session == '' or e.get('session') != session]
         master['previous'] = {'name': name, 'pane_id': pane, 'session': session}
         master['name'], master['pane_id'], master['registered_at'] = temp, new_pane_id, now
         master['generation'] = gen_n + 1

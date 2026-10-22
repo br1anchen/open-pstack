@@ -193,6 +193,23 @@ def peek(doc, key):
     return value
 
 
+def names(doc, key):
+    """The array of strings at doc[key], [] when it is null, absent or false; any other type, or an item that is no string, is damage."""
+    items = listing(doc, key)
+    for item in items:
+        if not isinstance(item, str):
+            raise damaged(f'{key} holds {json_type(item)}, not a string')
+    return items
+
+
+def count(doc, key):
+    """The integer at doc[key], 0 when it is null, absent or false; any other type is damage."""
+    value = alt(doc.get(key), 0)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise damaged(f'{key} is {json_type(value)}, not an integer')
+    return value
+
+
 def member(doc, key):
     """The object at doc[key], created when it is null or absent; any other type is damage."""
     value = doc.get(key)
@@ -413,16 +430,14 @@ def acquire_lock(store):
 def update(store, mutate):
     """json_update: pair.json has two writers, so each write holds the mkdir lock, parses the file as it
     is once the lock is held, lets mutate(doc) change that document in place, and replaces the file
-    atomically with the bytes jq would write. A mutate that raises (a value of the wrong type is damage), or a pair.json that does not parse,
+    atomically with the bytes jq would write. A mutate reads values through member, peek, listing, names and count, which raise the damage
+    for a value of the wrong type; any other exception is the mutate's own bug and propagates. A mutate that raises, or a pair.json that does not parse,
     leaves pair.json and pair.json.tmp as they were and frees the lock. PAIR_LOCK_TRIES and
     PAIR_LOCK_POLL_S exist so tests can shorten the 10 s wait."""
     lock = acquire_lock(store)
     try:
         doc = load(store)
-        try:
-            mutate(doc)
-        except (TypeError, AttributeError, KeyError) as e:
-            raise damaged(str(e))
+        mutate(doc)
         text = _dumps(doc)
         with open(f'{store}/pair.json.tmp', 'w', encoding='utf-8') as out:
             out.write(text)

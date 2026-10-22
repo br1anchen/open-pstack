@@ -19,7 +19,7 @@ import sys
 from pstack_core.errors import Die, Exit
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.herdr import agent_status, herdr
-from pstack_core.store import alt, bash_int, damaged, event, header_field, json_type, member, peek, update
+from pstack_core.store import bash_int, count, damaged, event, header_field, json_type, member, peek, update
 from pstack_core.send import submit_typed
 from pstack_core.wait import bash_sleep
 
@@ -54,31 +54,23 @@ def names_verdict(doc, verdict):
     return peek(doc, 'verifying').get('verdict') == verdict
 
 
-def update_verifying(store, verdict, apply, errexit=True):
+def update_verifying(store, verdict, apply):
     """json_update that applies `apply(verifying)` only while the store still names the verification with verdict. A write that lands after
-    another call closed it changes nothing. errexit False is a caller where the bash ran with errexit off: a damaged pair.json does not end the command."""
+    another call closed it changes nothing."""
     def mutate(doc):
         if names_verdict(doc, verdict):
             apply(doc['verifying'])
 
-    try:
-        update(store, mutate)
-    except (Exit, Die):
-        if errexit:
-            raise
+    update(store, mutate)
 
 
-def drop_verifying(store, verdict, errexit=True):
+def drop_verifying(store, verdict):
     """Clears `.verifying` only while it still names the verification with verdict: another call may have closed it and started the next."""
     def mutate(doc):
         if names_verdict(doc, verdict):
             del doc['verifying']
 
-    try:
-        update(store, mutate)
-    except (Exit, Die):
-        if errexit:
-            raise
+    update(store, mutate)
 
 
 def alive(pid):
@@ -111,7 +103,7 @@ def claim_close(store, verdict):
         if (alt_token(verifying.get('closing')) or '') == current:
             verifying['closing'] = {'token': token}
 
-    update_verifying(store, verdict, apply, errexit=False)
+    update_verifying(store, verdict, apply)
     return pair_jq(store, '.verifying.closing.token // empty') == token
 
 
@@ -136,7 +128,7 @@ def release_close(store, verdict, token):
             raise damaged(f'closing is {json_type(closing)}, not an object')
 
     with quiet_stderr():
-        update_verifying(store, verdict, apply, errexit=False)
+        update_verifying(store, verdict, apply)
 
 
 def my_claim(store):
@@ -445,23 +437,16 @@ def shell_arithmetic(text):
     return (value + 2 ** 63) % 2 ** 64 - 2 ** 63
 
 
-def handoff_due(store, unit, errexit=True):
+def handoff_due(store, unit):
     """Every clean unit verdict counts toward the master's next handoff; after KITCHEN_MASTER_ROTATE_UNITS (default 5) the verdict says to rotate, at
     the threshold and at each multiple of it."""
     if unit == 'landing':
         return
-    def count(doc):
+    def bump(doc):
         master = member(doc, 'master')
-        seen = alt(master.get('units_since_handoff'), 0)
-        if isinstance(seen, bool) or not isinstance(seen, int):
-            raise damaged(f'units_since_handoff is {json_type(seen)}, not an integer')
-        master['units_since_handoff'] = seen + 1
+        master['units_since_handoff'] = count(master, 'units_since_handoff') + 1
 
-    try:
-        update(store, count)
-    except (Exit, Die):
-        if errexit:
-            raise
+    update(store, bump)
     n = pair_jq(store, '.master.units_since_handoff')
     thr = bash_int(os.environ.get('KITCHEN_MASTER_ROTATE_UNITS') or '5')
     thr = 1 if thr is None or thr < 1 else thr

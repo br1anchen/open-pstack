@@ -9,7 +9,7 @@ from ..collate import collate_key, glob_sorted, newest
 from ..errors import Die
 from ..herdr import agent_status
 from ..review import jq_raw
-from ..store import alt, header_field, load, paused_reason, read_text, suffix_number, unit_name
+from ..store import alt, header_field, load, paused_reason, peek, read_text, suffix_number, unit_name
 
 
 class NoPairJson(Exception):
@@ -48,8 +48,7 @@ def latest(store, directory, seq=None):
 
 
 def role_field(pair, role, key):
-    section = pair.get(role)
-    return section.get(key) if isinstance(section, dict) else None
+    return peek(pair, role).get(key)
 
 
 def lines(ctx, store, out):
