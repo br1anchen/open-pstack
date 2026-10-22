@@ -91,20 +91,20 @@ evidence:
 
 ## L007: When a change narrows the values a command accepts (a status allow-list, a choice set), grep every caller that sends it a value and add a test per value they send before the step.
 
-status: active
+status: promoted
 kind: catch
 class: gate
 layer: gate
 area: skills/pstack-pair
 since: 2026-10-20
 active: 2026-10-20T18:16:33Z
-note: owner 2026-10-20
+note: 957d9b0 test_finish_and_notify_take_every_status_a_template_tells_a_role_to_write, run by pstack-docs fast
 evidence:
 - 2026-10-18 python-port-4 006: finish's new status allow-list broke plan responses (agree) and guided asks (asking); no test runs finish on either
 
 ## L008: A test that waits for a state change triggers it at a fixed point (fake herdr $FAKE/once hooks or a fifo), never waits on time; the test-sleep policy refuses it.
 
-status: active
+status: promoted
 kind: gate-fail
 class: policy
 match: test-sleep
@@ -112,7 +112,7 @@ layer: policy
 area: skills/pstack-pair
 since: 2026-10-20
 active: 2026-10-20T18:16:33Z
-note: owner 2026-10-20
+note: be6050f test-sleep pattern: float .wait(), time.monotonic/perf_counter, threading.Timer
 evidence:
 - 2026-10-16 python-port-2 006: tests/test_pstack_core.py:850: [test-sleep] trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BUS…
 - 2026-10-17 python-port-3 009: tests/test_pstack_core.py:703: [test-sleep] trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BUS…
