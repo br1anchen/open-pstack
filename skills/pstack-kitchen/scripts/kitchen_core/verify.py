@@ -29,7 +29,7 @@ from pstack_core.panes import TRUST_RE, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
-from pstack_core.store import damaged, env_float, env_int, event, expected_report, field, header_field, json_type, listing, load, pair_file, peek, read, text_at, TEXT, read_text, write_text, update, whole_number
+from pstack_core.store import damaged, env_float, env_int, event, expected_report, field, header_field, json_type, load, names, pair_file, peek, read, text_at, TEXT, read_text, write_text, update, whole_number
 from pstack_core.herdr import parse, reply_at
 from pstack_core.variant import commit_of
 
@@ -155,8 +155,8 @@ def verifier_entry(kit, cls):
             fallback = {}
         elif not isinstance(fallback, dict):
             raise damaged(f'sidekick.fallback is {json_type(fallback)}, not an object')
-        return {'kind': sidekick.get('kind'), 'args': listing(sidekick, 'start_args'), 'source': 'sidekick',
-                'fallback': {'kind': fallback['kind'], 'args': listing(fallback, 'args')} if fallback.get('kind') else None}
+        return {'kind': sidekick.get('kind'), 'args': names(sidekick, 'start_args'), 'source': 'sidekick',
+                'fallback': {'kind': fallback['kind'], 'args': names(fallback, 'args')} if fallback.get('kind') else None}
     if kind == 'master':
         return {**entry, 'kind': agent_kind(field(store, 'master', 'pane_id')), 'args': [], 'source': 'master'}
     return entry

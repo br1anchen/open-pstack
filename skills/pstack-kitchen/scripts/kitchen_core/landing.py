@@ -47,7 +47,10 @@ def validated_engine(store):
     rc, text, _ = kpy.run(git_root(store, quiet=True), ['--json', 'validate'])
     if rc != 0:
         return False, ''
-    value = (parse(text) or {}).get('review_engine')
+    found = parse(text)
+    if not isinstance(found, dict):
+        return False, ''
+    value = found.get('review_engine')
     return True, value if isinstance(value, str) else ''
 
 

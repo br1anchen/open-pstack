@@ -4462,6 +4462,20 @@ esac
         self.assertIn(f'pair.json is damaged: sidekick.fallback is {word}, not an object', out)
         self.assertEqual(self.verifier_starts(), [])
 
+    def assert_argument_is_damage(self, change, word):
+        state = self.state()
+        change(state['sidekick'])
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        _, out = self.verify_app_unit('clean', 1)
+        self.assertIn(f'pair.json is damaged: {word}', out)
+        self.assertEqual(self.verifier_starts(), [])
+
+    def test_a_sidekick_start_argument_that_is_a_number_is_damage_to_verify(self):
+        self.assert_argument_is_damage(lambda sidekick: sidekick.__setitem__('start_args', [1]), 'start_args holds number, not a string')
+
+    def test_a_sidekick_fallback_argument_that_is_a_number_is_damage_to_verify(self):
+        self.assert_argument_is_damage(lambda sidekick: sidekick.__setitem__('fallback', {'kind': 'devin', 'args': [1]}), 'args holds number, not a string')
+
     def test_a_sidekick_fallback_that_is_a_string_is_damage_to_verify(self):
         self.assert_fallback_is_damage('devin', 'string')
 

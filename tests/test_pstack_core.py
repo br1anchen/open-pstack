@@ -5672,6 +5672,23 @@ class CoreTests(unittest.TestCase):
                 self.assertEqual(dict(os.environ), snapshot, args)
         self.assertEqual(dict(os.environ), before)
 
+    def test_a_dispatch_to_a_store_with_no_cwd_records_an_empty_head_and_runs_no_git(self):
+        st = self.claim_store('nocwd', None)
+        with mock.patch.object(dispatch.subprocess, 'run') as run:
+            dispatch.record_dispatch(str(st), str(st / 'briefs/001-x.md'), now=0)
+        run.assert_not_called()
+        self.assertEqual(json.loads((st / 'pair.json').read_text())['dispatch']['head'], '')
+
+    def test_the_review_engine_read_fails_closed_unless_validate_prints_a_json_object(self):
+        landing = self.kitchen_core_module('landing')
+        cases = {'an engine': ((0, '{"review_engine": "codex"}', ''), (True, 'codex')), 'no engine': ((0, '{}', ''), (True, '')),
+                 'a null engine': ((0, '{"review_engine": null}', ''), (True, '')), 'output that is not JSON': ((0, 'not json', ''), (False, '')),
+                 'output that is an array': ((0, '[1]', ''), (False, '')), 'output that is null': ((0, 'null', ''), (False, '')),
+                 'a failing validate': ((1, '{"review_engine": "codex"}', ''), (False, ''))}
+        for name, (answer, want) in cases.items():
+            with mock.patch.object(landing, 'git_root', return_value='/repo'), mock.patch.object(landing.kpy, 'run', return_value=answer):
+                self.assertEqual(landing.validated_engine('/st'), want, name)
+
     def test_captured_gives_the_status_and_stdout_of_a_call_and_leaves_the_environment_as_it_found_it(self):
         units = self.kitchen_core_module('units')
         out = io.StringIO()
