@@ -5466,7 +5466,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         """TERM, INT and HUP end the command with the signal as its status and nothing on stderr; a signal the parent ignored stays ignored."""
         ready = 'end_with_parent()\nprint("ready", flush=True)\nsignal.pause()\n'
         for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-            proc = self.end_with_parent_process(ready)
+            # a gate that runs as a background job hands its children SIGINT ignored; the signal under test must be deliverable
+            proc = self.end_with_parent_process(ready, preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
             self.addCleanup(proc.kill)
             self.assertEqual(proc.stdout.readline(), 'ready\n')
             proc.send_signal(number)
