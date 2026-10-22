@@ -2076,17 +2076,6 @@ class CoreTests(unittest.TestCase):
                          (1, f'pair.sh: cannot move {made} to {target}: No such file or directory\n'))
         self.assertEqual(feedback.aligned([['a', 'bb', 'c'], ['ddd', 'e']]), ['a    bb  c', 'ddd  e'])
 
-    def test_a_verifier_identity_quotes_an_argument_a_shell_would_split(self):
-        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
-        try:
-            import variant as kitchen_variant
-        finally:
-            sys.path.pop(0)
-        kitchen_variant.load_kitchen_core()
-        from kitchen_core import verify
-        self.assertEqual(verify.verifier_identity('pi', ['--model', 'devin/swe-2', '--note', 'two words', '']),
-                         "pi --model devin/swe-2 --note 'two words' ''")
-
     def test_the_kitchen_verify_block_names_a_brief_it_cannot_read_in_its_own_words(self):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
         try:
@@ -4573,7 +4562,7 @@ class CoreTests(unittest.TestCase):
         self.assertIn('"verifying"', got['files']['pair.json'])
 
     def test_the_verify_helpers_name_the_verifier_fence_the_evidence_find_the_paths_a_command_names_and_build_the_verifier_command(self):
-        """verifier_identity (quoted as `printf %q` quotes), fence_for, names_path, next_index and verifier_args."""
+        """verifier_identity (each argument quoted so a shell would read it back), fence_for, names_path, next_index and verifier_args."""
         st = self.claim_store('vhelp', {'verdict': 'v'})
         words = ['--model', 'opus', 'a b', 'it\'s', '', 'tab\there', 'new\nline', '\u00e9', '~x', '#x', 'x#', 'a=b', 'a,b', '{x}', '*', '!x', '--mcp-config', 'f.json',
                  '--permission-mode', 'auto', '-a', 'never', '--approve', '--sandbox=read-only', '$HOME', '"q"', '\\', 'a;b', 'a&b', '<x>', '%s', '\x7f', '\x1b[0m']
