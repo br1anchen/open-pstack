@@ -205,7 +205,7 @@ def sh_exits(path):
             found.append((int(m.group(1)), i + 1, near.replace('\\n', '').strip() or f'(exits {m.group(1)} in {fn}())'))
     return found
 
-manual_at = [('skills/pstack-pair/scripts/pstack_core/wait.py', 418), ('skills/pstack-pair/scripts/pstack_core/wait.py', 428), ('skills/pstack-pair/scripts/pstack_core/wait.py', 436),
+manual_at = [('skills/pstack-pair/scripts/pstack_core/wait.py', 252), ('skills/pstack-pair/scripts/pstack_core/wait.py', 262), ('skills/pstack-pair/scripts/pstack_core/wait.py', 270),
              ('skills/pstack-pair/scripts/pstack_core/commands/report.py', 84), ('skills/pstack-pair/scripts/pstack_core/spawn.py', 101), ('skills/pstack-pair/scripts/pstack_core/spawn.py', 178),
              ('skills/pstack-pair/scripts/pstack_core/spawn.py', 189)]
 exit_lines, seen = [], set()
@@ -222,10 +222,10 @@ for path in git_grep(r'.', *PROD, flags='-lE'):
 exit_lines.sort(key=lambda x: (x[0], x[1], x[2]))
 # lines whose code carries no message: the text a test must show for them
 HINTS = {('skills/pstack-pair/scripts/pstack_core/commands/report.py', 88): ['queue: empty'],
-         ('skills/pstack-pair/scripts/pstack_core/wait.py', 650): ['superseded: a newer wait owns this store'],
+         ('skills/pstack-pair/scripts/pstack_core/wait.py', 478): ['superseded: a newer wait owns this store'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 285): ['advice_status: answered'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 290): ['advice: missing'],
-         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 551): ['verifier start failed in'],
+         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 550): ['verifier start failed in'],
          ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 199): ['verifier entry is not JSON']}
 # behaviours no caller depends on (standing order 27): path:line -> why
 NOT_CONTRACT = {
@@ -234,7 +234,7 @@ NOT_CONTRACT = {
     ('skills/pstack-pair/scripts/pstack_core/commands/scratch.py', 101): 'jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
     ('skills/pstack-pair/scripts/pstack_core/commands/notes.py', 112): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
     ('skills/pstack-pair/scripts/pstack_core/spawn.py', 148): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
-    ('skills/pstack-kitchen/scripts/kitchen_core/discuss.py', 213): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
+    ('skills/pstack-kitchen/scripts/kitchen_core/discuss.py', 212): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
     ('skills/pstack-trio/scripts/consultant-core.sh', 53): 'unreachable: a consultant that is neither answered nor ready ends the plan round at line 48 first',
 }
 exit_out = []
@@ -248,9 +248,9 @@ for c, path, no, msg, f in exit_lines:
         continue
     exit_out.append(line('Exit codes', text, f'{path}:{no}', HINTS.get((path, no), [f])))
 manual_exit = [
-    (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:401', 'wait returns 4 with the report path already shown (review-delta printed)', ['review-delta:']),
-    (3, 'skills/pstack-pair/scripts/pstack_core/wait.py:411', 'wait returns 3 when the sidekick is blocked', ['blocked']),
-    (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:419', 'wait returns 4 for a check-in digest or a missing report', ['report: missing']),
+    (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:252', 'wait returns 4 with the report path already shown (review-delta printed)', ['review-delta:']),
+    (3, 'skills/pstack-pair/scripts/pstack_core/wait.py:262', 'wait returns 3 when the sidekick is blocked', ['blocked']),
+    (4, 'skills/pstack-pair/scripts/pstack_core/wait.py:270', 'wait returns 4 for a check-in digest or a missing report', ['report: missing']),
     (4, 'skills/pstack-pair/scripts/pstack_core/commands/report.py:85', 'next returns 4 with `queue: paused` or `queue: empty`', ['queue: empty', 'queue: paused']),
     (4, 'skills/pstack-pair/scripts/pstack_core/spawn.py:101', 'spawn returns 4 while the bootstrap READY report is missing', ['bootstrap still pending']),
     (3, 'skills/pstack-pair/scripts/pstack_core/spawn.py:178', 'spawn returns 3 when the bootstrap did not settle', ['did not settle']),
@@ -312,8 +312,10 @@ decided = [
      'test_pstack_kitchen.KitchenScriptTests.test_an_unrelated_identical_one_line_deletion_is_called_reverted_by_the_u0_scan'),
     ('a close claim held by a live process of another user (kill -0 fails with EPERM) reads as a dead owner\'s and is taken over; a pid reused by another process holds the claim while that process lives', 'skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:alive',
      'test_pstack_core.CoreTests.test_claim_close_takes_a_claim_only_from_a_holder_that_is_gone'),
-    ('`--every`, `--timeout` and `--max` words are read as shell arithmetic: `010` is octal 8, `0x1F` is 31, `1+1` is 2, a name, `1.5` or `08` ends the command with status 1 and a message naming the word (plan 043 (f) narrows this to integers in U5)', 'skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:Waiter.arithmetic',
-     'test_pstack_core.CoreTests.test_the_interval_of_a_wait_is_read_as_the_shells_arithmetic_reads_it'),
+    ('`--every`, `--timeout` and `--max` words are whole numbers (digits only, in the unit each help line gives); a sign, a fraction, a name or an expression ends the command with status 1 and `<flag> must be a whole number of <unit>`', 'skills/pstack-pair/scripts/pstack_core/store.py:whole_number',
+     'test_pstack_core.CoreTests.test_whole_numbers_and_seconds_are_read_as_digits_and_nothing_else'),
+    ('a polling knob in seconds (`PAIR_BUSY_POLL`, `PAIR_SETTLE_POLL_S`, `KITCHEN_VERIFY_POLL_S` and the like) takes a fraction; every other `KITCHEN_*_S` and `PAIR_*_S` knob is a whole number; a word is a usage error naming the variable', 'skills/pstack-pair/scripts/pstack_core/store.py:env_float',
+     'test_pstack_core.CoreTests.test_pair_sh_refuses_a_timeout_that_is_no_whole_number_and_takes_a_fraction_for_a_poll'),
     ('a landing verdict `landing-vN.md` whose N is not a plain decimal (`1x`, `1_0`, a non-ASCII digit) is taken as the newest', 'skills/pstack-kitchen/scripts/kitchen_core/landing.py:latest_landing_verdict',
      'test_pstack_core.CoreTests.test_a_landing_verdict_with_a_version_that_is_not_a_number_is_the_newest'),
 ]
