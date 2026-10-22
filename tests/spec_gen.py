@@ -225,8 +225,8 @@ HINTS = {('skills/pstack-pair/scripts/pstack_core/commands/report.py', 88): ['qu
          ('skills/pstack-pair/scripts/pstack_core/wait.py', 633): ['superseded: a newer wait owns this store'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 285): ['advice_status: answered'],
          ('skills/pstack-trio/scripts/consultant-core.sh', 290): ['advice: missing'],
-         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 549): ['verifier start failed in'],
-         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 197): ['verifier entry is not JSON']}
+         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 547): ['verifier start failed in'],
+         ('skills/pstack-kitchen/scripts/kitchen_core/verify.py', 195): ['verifier entry is not JSON']}
 # behaviours no caller depends on (standing order 27): path:line -> why
 NOT_CONTRACT = {
     ('skills/pstack-pair/scripts/pstack_core/commands/metrics.py', 240): 'the events log that init creates is unreadable; no caller sends it',
@@ -234,12 +234,7 @@ NOT_CONTRACT = {
     ('skills/pstack-pair/scripts/pstack_core/commands/scratch.py', 101): 'jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
     ('skills/pstack-pair/scripts/pstack_core/commands/notes.py', 112): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
     ('skills/pstack-pair/scripts/pstack_core/spawn.py', 148): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
-    ('skills/pstack-kitchen/scripts/kitchen_core/discuss.py', 209): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
-    ('skills/pstack-kitchen/scripts/kitchen_core/classify.py', 35): 'kitchen.py prints JSON for --json; a caller cannot send it text that is not',
-    ('skills/pstack-kitchen/scripts/kitchen_core/classify.py', 115): 'kitchen.py classify always prints verify as an object; a caller cannot send another shape',
-    ('skills/pstack-kitchen/scripts/kitchen_core/setup.py', 34): 'kitchen.py validate always prints its lists as arrays; a caller cannot send another shape',
-    ('skills/pstack-kitchen/scripts/kitchen_core/setup.py', 155): 'kitchen.py roster always prints its roles as objects; a caller cannot send another shape',
-    ('skills/pstack-kitchen/scripts/kitchen_core/setup.py', 172): 'kitchen.py roster always prints its args as arrays; a caller cannot send another shape',
+    ('skills/pstack-kitchen/scripts/kitchen_core/discuss.py', 212): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
     ('skills/pstack-trio/scripts/consultant-core.sh', 53): 'unreachable: a consultant that is neither answered nor ready ends the plan round at line 48 first',
 }
 exit_out = []

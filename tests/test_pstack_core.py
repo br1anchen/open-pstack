@@ -2122,6 +2122,37 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('moved off pane p7', out['status when herdr answers an agent of null']['stdout'])
         self.assertIn('herdr reports no name for the agent on pane p7', out['on when herdr answers an agent of null']['stderr'])
 
+    def test_the_maintainer_record_is_written_byte_for_byte(self):
+        live = dict(args=['maintainer', 'on', '--pane', 'p7'], agents={'mt': 'idle claude'}, panes={'p7': 'mt'})
+        held = dict(live, agent_get='{"result":{"agent":{"name":"mt","pane_id":"p7","agent_session":{"kind":"id","value":"s-1"}}}}\n')
+        for n, (spec, session) in enumerate(((live, 'null'), (held, '"s-1"'))):
+            got = self.kitchen_world(f'maintrecord{n}', spec)['state']['pstack/feedback/maintainer.json']
+            got = re.sub(r'"since": "[0-9T:Z-]+"', '"since": "<TS>"', got)
+            self.assertEqual(got, '{\n  "name": "mt",\n  "pane": "p7",\n  "session": ' + session + ',\n  "since": "<TS>"\n}\n')
+
+    def test_the_verifier_entry_is_written_byte_for_byte(self):
+        verify = self.kitchen_core_module('verify')
+        store_dir = self.path / 'entry-store'
+        store_dir.mkdir()
+        (store_dir / 'pair.json').write_text(json.dumps({
+            'sidekick': {'kind': 'pi', 'start_args': ['--model', 'm'], 'fallback': {'kind': 'devin', 'args': ['--x']}},
+            'master': {'pane_id': 'p0'}}))
+
+        class Kit:
+            store = str(store_dir)
+
+            def __init__(self, entry):
+                self.entry = entry
+
+            def elsewhere(self, args):
+                return 0, json.dumps({'verifier': {'routine': self.entry}})
+
+        sidekick = verify.verifier_entry(Kit({'kind': 'sidekick', 'args': [], 'fallback': None, 'source': 'sidekick'}), 'routine')
+        self.assertEqual(json.dumps(sidekick), '{"kind": "pi", "args": ["--model", "m"], "source": "sidekick", "fallback": {"kind": "devin", "args": ["--x"]}}')
+        with mock.patch.object(verify, 'agent_kind', return_value='claude'):
+            master = verify.verifier_entry(Kit({'kind': 'master', 'args': ['--ignored'], 'fallback': None, 'source': 'roster'}), 'routine')
+        self.assertEqual(json.dumps(master), '{"kind": "claude", "args": [], "fallback": null, "source": "master"}')
+
     CLOSE_ROLES = {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}, 'consultant': {'name': 'c1', 'pane_id': 'p2', 'kind': 'codex'},
                    'sidekick': {'name': 's1', 'pane_id': 'p1', 'kind': 'claude'}}
 

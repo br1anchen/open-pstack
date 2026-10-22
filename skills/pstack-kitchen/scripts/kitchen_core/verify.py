@@ -38,7 +38,7 @@ from pstack_core.variant import commit_of
 from . import kpy
 from .kpy import Kitchen
 from . import verify_state as vs
-from .classify import array_of, brief_kitchen, kitchen_snapshot, parse_json
+from .classify import brief_kitchen, kitchen_snapshot
 from .units import exit_status
 from .landing import is_landing, latest_landing_verdict, manifest_warning
 from .reviews import warn_unreviewed
@@ -179,8 +179,7 @@ def verifier_entry(kit, cls):
     kind = as_text(entry.get('kind')) if isinstance(entry, dict) else 'null'
     if kind == 'sidekick':
         sidekick = peek(load(store), 'sidekick')
-        fallback = sidekick.get('fallback')
-        fallback = fallback if isinstance(fallback, dict) else {}
+        fallback = peek(sidekick, 'fallback')
         return {'kind': sidekick.get('kind'), 'args': alt(sidekick.get('start_args'), []), 'source': 'sidekick',
                 'fallback': {'kind': fallback['kind'], 'args': alt(fallback.get('args'), [])} if truthy(fallback.get('kind')) else None}
     if kind == 'master':
@@ -425,7 +424,7 @@ def verify(ctx, args):
         snap = kitchen_snapshot(store, root)
         cfg = ['--config', snap] if snap else []
         classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head])
-        data = parse_json(classified, 'kitchen.py classify output')
+        data = json.loads(classified)
         risk, mode, cls = 'landing', 'unit', 'escalated'
     else:
         base, head = unit_range(store, allunits, covered, range_base)
@@ -437,7 +436,7 @@ def verify(ctx, args):
                 esc += ['--escalate', f'unit {u} was dispatched as escalated']
         cfg = brief_kitchen(brief_or_nothing(store, allunits[-1]))
         classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head, *esc])
-        data = parse_json(classified, 'kitchen.py classify output')
+        data = json.loads(classified)
         verify_class = data.get('verify') or {}
         risk, mode, cls = as_text(data.get('risk')), as_text(verify_class.get('mode')), as_text(verify_class.get('kind'))
     # A batch of independent units has a size cap; a fix verified with the unit it fixes does not, since splitting it would re-reject the first.
@@ -465,10 +464,10 @@ def verify(ctx, args):
     # machine's load at the start (capped at 3x), and never under 45 minutes. The parts are printed; --timeout wins.
     if not timeout_m:
         dlargs = ['timing', '--deadline', '--stage', 'behavioral']
-        if array_of(data, 'scratch_setup', 'kitchen.py classify output', strings=False):
+        if data['scratch_setup']:
             dlargs.append('--with-setup')
-        dlargs += array_of(data, 'behavioral', 'kitchen.py classify output', strings=False)
-        minutes = as_text(parse_json(kit.call(['--json', *dlargs]), 'kitchen.py timing output').get('minutes'))
+        dlargs += data['behavioral']
+        minutes = as_text(json.loads(kit.call(['--json', *dlargs])).get('minutes'))
         timeout_m = minutes
         kit.call(dlargs, show=True)
         # A landing verification also runs the touched profiles' landing commands: 3 x their measured time, and a fixed ten minutes for each that has
@@ -477,9 +476,9 @@ def verify(ctx, args):
             profiles = [as_text(p) for p in data.get('landing') or []]
             if profiles:
                 timing = kit.call(['--json', 'timing', '--stage', 'landing', *profiles])
-                timed = parse_json(timing, 'kitchen.py timing output')
+                timed = json.loads(timing)
                 seconds = as_text(timed.get('seconds'))
-                unmeasured = str(len(array_of(timed, 'unmeasured', 'kitchen.py timing output', strings=False)))
+                unmeasured = str(len(timed['unmeasured']))
                 added = awk_landing_minutes(seconds, unmeasured)
                 timeout_m = str(vs.shell_arithmetic(timeout_m) + added)
                 measured = awk_round_minutes(seconds)
@@ -780,7 +779,7 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
         parts.append(f' PSTACK_KITCHEN_RUN={read(store, "slug")}\n')
         config = cfg[1] if len(cfg) > 1 else ''
         tool = f'{here}/kitchen.py' + (f' --config {config}' if config else '')
-        data = parse_json(classified, 'kitchen.py classify output')
+        data = json.loads(classified)
         if (data.get('scratch_setup') or []):
             parts.append(f'python3 {tool} --repo {scratch} setup\n')
         merge_base = git(root, 'merge-base', base, head, quiet=True)

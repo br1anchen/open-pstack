@@ -11,6 +11,7 @@ kitchen.py is reached through kpy (in process) for `--json classify`; the detach
 outlive this process. None of the in-process calls writes os.environ (kitchen.py :745, :771, :1023, :1038 belong to `gate` and `brief-verify`, which only the
 detached scripts run)."""
 
+import json
 import os
 import re
 import signal
@@ -26,7 +27,7 @@ from pstack_core.review import awk_equal, range_floor, steps_file
 from pstack_core.store import bash_int, event, expected_report, field, header_field, last_line, pair_file, read, read_text, readlink_f, unit_name
 
 from . import kpy
-from .classify import array_of, brief_kitchen, parse_json
+from .classify import brief_kitchen
 from .units import exit_status, git, recorded_head
 from .verify_state import shell_arithmetic
 from .wait import plain_signals, poll_sleep
@@ -179,7 +180,7 @@ def step(ctx, args):
         text = found.rstrip('\n')
         with open(f'{job}/classify.json', 'w') as f:
             f.write(text + '\n')
-        profiles = array_of(parse_json(text, 'kitchen.py classify output'), 'profiles', 'kitchen.py classify output')
+        profiles = json.loads(text)['profiles']
         with open(f'{job}/profiles', 'w') as f:
             f.write(''.join(f'{name}\n' for name in profiles))
         with open(f'{job}/base', 'w') as f:
@@ -222,7 +223,7 @@ def step(ctx, args):
             sys.stdout.write(f'next: fix it in a new commit and run kitchen.sh step {store} <new-sha> "{args[2]}" again\n')
         raise Exit(2)
     if state == 'none':
-        unmapped = ', '.join(array_of(parse_json(classified, 'kitchen.py classify output'), 'unmapped', 'kitchen.py classify output')) or 'these changes'
+        unmapped = ', '.join(json.loads(classified)['unmapped']) or 'these changes'
         sys.stdout.write(f'gates: none ran; no profile covers {unmapped}\n')
     else:
         sys.stdout.write(f'gates: pass ({",".join(profiles)})\n')

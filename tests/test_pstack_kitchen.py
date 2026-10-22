@@ -4294,6 +4294,14 @@ esac
         self.assertNotIn('verify:missing', (self.store / 'events.tsv').read_text())
         self.assertEqual(self.verify_wakes(), ['verify:provider'])
 
+    def test_a_sidekick_fallback_of_the_wrong_type_is_damage_to_verify(self):
+        state = self.state()
+        state['sidekick']['fallback'] = 'devin'
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        _, out = self.verify_app_unit('clean', 1)
+        self.assertIn('pair.json is damaged: fallback is string, not an object', out)
+        self.assertEqual(self.verifier_starts(), [])
+
     def test_verify_deadline_scales_with_measured_gate_time(self):
         state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
                                         env=self.env, capture_output=True, text=True, check=True).stdout.strip())

@@ -269,12 +269,6 @@ def read_path(value, *keys):
     return value, True
 
 
-def reply_at(reply, *keys):
-    """The value at keys in the first JSON value of a herdr or daemon reply; None when the reply is not JSON or a step is no object."""
-    values, _ = json_values(reply)
-    return read_path(values[0], *keys)[0] if values else None
-
-
 def printed(lines, failed, default):
     """What a command substitution holds after the lines were printed one each; a failure adds the default."""
     text = ''.join(f'{as_text(line)}\n' for line in lines)
@@ -674,3 +668,9 @@ def wait(ctx, args):
     from .store import field
     name = field(store, 'sidekick', 'name')
     return owned_wait(ctx, store, name, timeout, interval)
+
+
+def reply_at(reply, *keys):
+    """The value at keys in the first JSON value of a herdr or daemon reply; None when the reply is not JSON or a step is no object."""
+    values, _ = json_values(reply)
+    return read_path(values[0], *keys)[0] if values else None

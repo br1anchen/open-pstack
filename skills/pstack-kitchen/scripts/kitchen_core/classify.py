@@ -12,7 +12,7 @@ import sys
 from pstack_core.checkin import scope_entries
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
-from pstack_core.store import field, header_field, jq_raw, json_type, pair_file
+from pstack_core.store import field, header_field, jq_raw, pair_file
 
 from .kpy import Kitchen
 
@@ -23,26 +23,6 @@ def risk_of(brief):
     """A brief's or plan's risk class: the first word of its risk: header, which a master may follow with the reason."""
     words = [w for w in re.split(r'[ \t\n]+', header_field(brief, 'risk')) if w]
     return words[0] if words else ''
-
-
-def parse_json(text, what):
-    """The object kitchen.py printed. A caller gets one stderr line naming what was wrong, and jq's exit 2 for text that does not parse or 5 for
-    a value of another shape."""
-    try:
-        doc = json.loads(text)
-    except ValueError as e:
-        raise Die(f'{what} is not JSON: {e}', 2)
-    if not isinstance(doc, dict):
-        raise Die(f'{what} is {json_type(doc)}, not an object', 5)
-    return doc
-
-
-def array_of(doc, key, what, strings=True):
-    """The array at doc[key], which a missing key or any other type makes an error; with strings, its items are strings."""
-    value = doc.get(key)
-    if not isinstance(value, list) or (strings and not all(isinstance(item, str) for item in value)):
-        raise Die(f'{what} {key} is {json_type(value)}, not {"an array of strings" if strings else "an array"}', 5)
-    return value
 
 
 def set_header(path, key, value):
@@ -108,11 +88,9 @@ def classify_brief(store, brief):
     status, classified = kit.soft([*cfg, '--json', 'classify', '--paths', *globs, *esc])
     if status != 0:
         raise Die(CLASSIFY_FAILED)
-    data = parse_json(classified, 'kitchen.py classify output')
-    risk, verify = jq_raw(data.get('risk')), data.get('verify')
-    if not isinstance(verify, dict):
-        raise Die(f'kitchen.py classify output verify is {json_type(verify)}, not an object', 5)
-    profiles, escalate = array_of(data, 'profiles', 'kitchen.py classify output'), array_of(data, 'escalate', 'kitchen.py classify output')
+    data = json.loads(classified)
+    risk, verify = jq_raw(data.get('risk')), data['verify']
+    profiles, escalate = data['profiles'], data['escalate']
     verify_line = f'{jq_raw(verify.get("mode"))} by {jq_raw(verify.get("kind"))} verifier'
     # The master may have written a reason after the class (`escalated (contract change)`): rewrite the line only when the class changes.
     if risk_of(brief) != risk:

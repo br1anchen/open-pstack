@@ -6,6 +6,7 @@ kitchen.py is reached through kpy.run, in process: `roster`, `validate`, `setup`
 repo's commands as a child process with a copy of the environment. None writes os.environ or reads INVOCATION (kitchen.py :745, :771, :1023, :1038 belong
 to `gate` and to `brief-verify` without --list). test_setup_kpy_calls_leave_the_environment_alone pins that."""
 
+import json
 import os
 import sys
 
@@ -21,17 +22,8 @@ from pstack_core.store import alt, field, cut_chars, damaged, event, jq_raw, jso
 from pstack_core.wait import as_text, die_with_the_shell
 
 from . import kpy
-from .classify import parse_json
 from .units import git, git_root, has_pair
 from .verify import in_subshell
-
-
-def array_len(data, key):
-    """`.key | length` for the array validate prints there, 0 for null."""
-    value = data.get(key)
-    if value is not None and not isinstance(value, list):
-        raise Die(f'kitchen.py validate output {key} is {json_type(value)}, not an array', 5)
-    return len(value or [])
 
 
 def last_build_path(builds):
@@ -105,8 +97,8 @@ def init(ctx, args):
         return 0
     with open(orders, 'rb') as f:
         text = f.read()
-    data = parse_json(found, 'kitchen.py validate output')
-    if b'kitchen.toml review.self' not in text and array_len(data, 'self') != 0:
+    data = json.loads(found)
+    if b'kitchen.toml review.self' not in text and (data.get('self') or []):
         with open(orders, 'a') as f:
             f.write(f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {", ".join(jq_raw(s) for s in data["self"])} (kitchen.toml review.self).\n')
     if b'kitchen.toml landing.mode' not in text:
@@ -121,7 +113,7 @@ def worktree_setup(store, found):
     whatever tool the PATH has instead of the repo's pinned one. init prepares it once the way verifier scratches are prepared: the repo's
     [scratch].setup, as the sidekick. A failed setup stops init with its log. found is validate's JSON."""
     root = git_root(store, check=True)
-    if array_len(parse_json(found, 'kitchen.py validate output'), 'setup') <= 0:
+    if not (json.loads(found).get('setup') or []):
         return
     if git(root, 'rev-parse', '--path-format=absolute', '--git-dir')[1].rstrip('\n') == git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir')[1].rstrip('\n'):
         return
@@ -144,31 +136,19 @@ def roster_json():
     return out.rstrip('\n')
 
 
-def roster_value(roster, *keys):
-    """The value at keys in kitchen.py's roster JSON; a step over null gives null, and a step over any other value that is no object is an error."""
+def roster_text(roster, *keys, empty=False):
+    """`jq -r '.a.b'`, or `.a.b // empty`, on kitchen.py's roster, which prints each role as an object and every args as a list of strings."""
     value = roster
     for key in keys:
-        if value is None:
-            return None
-        if not isinstance(value, dict):
-            raise Die(f'kitchen.py roster output {key} is read from {json_type(value)}, not an object', 5)
-        value = value.get(key)
-    return value
-
-
-def roster_text(roster, *keys, empty=False):
-    """`jq -r '.a.b'`, or `.a.b // empty`, on the roster."""
-    value = roster_value(roster, *keys)
+        value = value[key]
     return as_text(alt(value, '') if empty else value)
 
 
 def roster_lines(roster, *keys):
     """`mapfile -t array < <(jq -r '.a.b[]?')`: the elements of an array, each as its printed text."""
-    value = roster_value(roster, *keys)
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise Die(f'kitchen.py roster output {keys[-1]} is {json_type(value)}, not an array', 5)
+    value = roster
+    for key in keys:
+        value = value[key]
     return [as_text(item) for item in value]
 
 
@@ -194,7 +174,7 @@ def spawn(ctx, args):
         else:
             rest.append(flag)
             rest_in = rest_in[1:]
-    roster = parse_json(roster_json(), 'kitchen.py roster output')
+    roster = json.loads(roster_json())
     if not kind:
         kind = roster_text(roster, 'sidekick', 'kind')
         if not kind:
@@ -240,7 +220,7 @@ def consultant(ctx, args):
         raise Die('--reason is required: the escalation that warrants the consultant')
     fallback, fb_args = '', []
     if not kind:
-        roster = parse_json(roster_json(), 'kitchen.py roster output')
+        roster = json.loads(roster_json())
         kind = roster_text(roster, 'consultant', 'kind')
         if not native:
             native = roster_lines(roster, 'consultant', 'args')
