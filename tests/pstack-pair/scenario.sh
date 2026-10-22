@@ -175,12 +175,12 @@ if [ $variant = guided ]; then
 	b3="$("$P" new-brief "$store" gated)"; fill "$b3"; set_hdr "$b3" playbook feature; set_hdr "$b3" plan "$plan"
 	run dispatch "$store" "$b3"
 fi
-# queue and next: the master holds the next brief for a working sidekick,
-# which takes it the moment its report is written. The report of the first
-# brief lands, and the queued one is taken, before the master's wait, which
-# must still surface that report.
-# Non-Devin kinds retain immediate queue pickup.
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["sidekick"]["kind"]="codex"; json.dump(d,open(sys.argv[2],"w"),indent=2)' "$store/pair.json" "$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
+# queue and next: the master holds the next brief for a working sidekick. A
+# done report sets rotation and leaves the queue to the master, whose dispatch
+# of the queued brief rotates first and sends to the fresh session; a partial
+# report leaves it queued too, and the dispatch sends with no rotation. The
+# report of the first brief lands before the master's wait, which must still
+# surface that report.
 q1="$("$P" new-brief "$store" qone)"; fill "$q1"; set_hdr "$q1" playbook investigation; set_hdr "$q1" plan none
 q2="$("$P" new-brief "$store" qtwo)"; fill "$q2"; set_hdr "$q2" playbook investigation; set_hdr "$q2" plan none
 status "demo-sidekick" idle devin
@@ -191,16 +191,19 @@ run queue "$store" "$q2"
 run queue "$store" "$q1"
 run dispatch "$store" "$q1"
 run status "$store"
-# finish: the sidekick's one command after a report takes the queued brief; the master's wait is running and returns the report
+# finish: a done report sets rotation and leaves the queued brief for the master, whose wait returns the report
 wait_while_finishing '# Report\n\nstatus: done\nhead: abc\n' "$store/reports/$(basename "$q1")" --timeout 1500
 run next "$store"
+# the master's dispatch of the queued brief rotates the sidekick, then reaches the fresh session after its READY
+status "demo-sidekick" idle devin
+: >"$FAKE/brief-working"
+run dispatch "$store" "$q2" --timeout 1000
 q3="$("$P" new-brief "$store" qthree)"; fill "$q3"; set_hdr "$q3" playbook investigation; set_hdr "$q3" plan none
 run queue "$store" "$q3"
-# a partial report ends the turn and leaves the queued brief for the master
+# a partial report ends the turn and leaves the queued brief for the master, with no rotation
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 wait_while_finishing '# Report\n\nstatus: partial\n' "$store/reports/$(basename "$q2")" --timeout 1500
 run status "$store"
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["sidekick"]["kind"]="devin"; json.dump(d,open(sys.argv[2],"w"),indent=2)' "$store/pair.json" "$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 # herdr reports a settle while the sidekick still works (a Devin sidekick
 # flips done to idle as a prompt lands): dispatch keeps looking, and the
 # report that lands on a later poll is what it returns.
@@ -302,9 +305,8 @@ rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 wait_while_finishing '# Report\n\nstatus: done\nhead: abc\n' "$store/reports/$(basename "$qs")" --timeout 1500
 # a finished unit never holds a later wait on its steps
 run wait "$store" --timeout 1500
-# Devin cannot consume or dispatch another task in the completed conversation.
+# next is refused after a done report; rotate is refused while the sidekick works and succeeds once it is idle
 run next "$store"
-run dispatch "$store" "$q3"
 status "demo-sidekick" working devin
 run rotate "$store"
 status "demo-sidekick" idle devin
