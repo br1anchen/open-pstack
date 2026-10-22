@@ -8,6 +8,7 @@ import sys
 
 from pstack_core.commands import queue as core_queue
 from pstack_core.commands import send as core_send
+from pstack_core.commands.rotate import rotate_if_due
 from pstack_core.consult import discuss_with_consultant
 from pstack_core.errors import Die, Exit
 from pstack_core.herdr import agent_status
@@ -58,6 +59,7 @@ def discuss(ctx, args):
         raise Die(f'an escalated plan goes to the consultant too; start it: kitchen.sh consultant {store} --reason TEXT', 5)
     if not os.path.isfile(f'{store}/pair.json'):
         return core_send.discuss(ctx, list(args))
+    rotate_if_due(ctx, store, 'plan')
     if escalated:
         return discuss_with_consultant(ctx, args, one_wake=True)
     return core_send.discuss(ctx, list(args))
