@@ -7,13 +7,12 @@ The Python core replaced the bash of `pair-core.sh` and `kitchen.sh` command by 
 
 ## Differences a caller can still meet
 
-Four behaviours differ from what an agent might expect. Each is a line in SPEC.md, section "Decided in plan 043", and a test pins it.
+Three behaviours differ from what an agent might expect. Each is a line in SPEC.md, section "Decided in plan 043", and a test pins it.
 
 | Behaviour | SPEC.md line (bullet starts with) | Pinned by |
 | --- | --- | --- |
 | land-check and verify can call a live unit reverted: the revert scan compares no-context patch-ids, so an unrelated identical one-line deletion later in the stack counts. The answer fails closed. | "a known limit of the revert scan" | `test_an_unrelated_identical_one_line_deletion_is_called_reverted_by_the_u0_scan` |
 | A close claim held by a process the closer may not signal reads as a dead owner's and is taken over; a pid reused by another process holds the claim while it lives. | "a close claim held by a live process of another user" | `test_claim_close_takes_a_claim_only_from_a_holder_that_is_gone` |
-| `--every`, `--timeout` and `--max` words are read as shell arithmetic (`010` is 8, `1+1` is 2; a name or `1.5` ends the command with status 1). Plan 043 U5 narrows this to integers. | "`--every`, `--timeout` and `--max` words are read as shell arithmetic" | `test_the_interval_of_a_wait_is_read_as_the_shells_arithmetic_reads_it` |
 | A landing verdict whose version is not a plain decimal (`landing-v1x.md`) is taken as the newest. | "a landing verdict `landing-vN.md`" | `test_a_landing_verdict_with_a_version_that_is_not_a_number_is_the_newest` |
 
 ## History
