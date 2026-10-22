@@ -13,7 +13,8 @@ trio store is yours alone.
    before any code write. Investigation, `how`, and `architect` are yours.
    State the done predicate as something checkable and split the work into
    units that each end in a verifiable state (the sequence-verifiable-units
-   principle). One unit is one brief.
+   principle). One unit is one brief. When the human's goal is
+   vague, `in-your-own-words` is an optional first step to restate it.
 2. **Open the store.** `pair.sh init <slug>` with a slug that names the task.
    Edit `standing-orders.md` so it holds every constraint the human gave you,
    including approval policy and landing policy (commit only, or push and PR).
@@ -292,6 +293,10 @@ Poteto-mode's reply rules apply. Include the predicate and the count against
 it from `status.md`, the verdict per unit, which advice was followed and
 which overruled, what was abandoned and why, open gates, the store path, the `pair.sh metrics` summary, and the show-me-your-work
 Attention section.
+
+Shape the reply as `ketchup` does: what changed since the human's last
+message in plain words, then every call waiting on them with what they need to
+decide it.
 
 For `kind = "prime-agent"`, read [the Prime adapter](../../pstack-pair/references/prime-sidekick.md).
 The master rotates completed briefs; partial or blocked work keeps its session.

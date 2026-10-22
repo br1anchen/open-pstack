@@ -14,7 +14,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
 
 1. **Frame.** As in the pair: route through poteto-mode, stop before any
    code write, state the done predicate, split the work into units that each
-   end in a verifiable state.
+   end in a verifiable state. `in-your-own-words` is an optional first step
+   when the human's goal is vague.
 2. **Open the store.** `kitchen.sh init <slug>` from a fresh, MCP-free
    session (see Rotate yourself). Put the human's constraints
    and the landing policy in `standing-orders.md`. Check the kitchen:
@@ -262,7 +263,7 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    For a class already
    repeated and plain enough to enforce now, propose the encoding it names
    to the human, or run the `correct` skill on it; a kitchen change is a
-   brief like any other, through pstack-kitchen-setup's maintain path. Reply as the pair master does, with
+   brief like any other, through pstack-kitchen-setup's maintain path. Reply as the pair master does (the shape of `ketchup`), with
    the retro's summary line and the land-check result, and ask the human once
    whether to close the run's panes, in the turn land-check passes, with the retro and the feedback: a finished run's sidekick, consultant
    and verifier hold about a gigabyte of memory for as long as they stay

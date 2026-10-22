@@ -38,7 +38,9 @@ the repo's.
   Fix only what drifted, then prove it as in step 6. A promoted lesson
   (pstack-kitchen's `kitchen.py lessons promote`) arrives here as a brief
   with its proposal: add the check it names, and prove it fails on the
-  lesson's evidence commit before it passes on HEAD.
+  lesson's evidence commit before it passes on HEAD. A repo with a
+  `formal-<property>` skill also runs `maintain-formal-verification-skill`
+  here, so the model still describes the code the profiles gate.
 
 ## 1. Read the repo, not the human
 
@@ -58,7 +60,10 @@ authority:
 4. **Shape.** Top-level areas (apps, packages, services, crates) and where
    their tests live.
 5. **Verification.** An existing `.agents/skills/verify-*` and its feature
-   map, e2e suites, journey or smoke scripts.
+   map, e2e suites, journey or smoke scripts. Only a `verify-*` skill that
+   drives the running app counts: the kitchen finds app drivers by that
+   prefix, and a formal-model skill (`formal-<property>`, from
+   `create-formal-verification-skill`) never satisfies the search.
 6. **Review.** The skills the sidekick should run on its own diff, and the
    style sections a review holds the diff to.
 
@@ -149,7 +154,15 @@ When a profile has a user-facing surface (UI, CLI, service) and the repo has
 no `.agents/skills/verify-*`, run `create-verification-skill` now; it
 generates and proves the skill. Then point each surface profile's `features`
 at its feature-map files and its `behavioral` commands at what that skill
-drives. A library with no surface needs none.
+drives. A library with no surface needs none. The skill stays under
+`.agents/skills/verify-*`, and its Launch reaches a usable state from an empty
+data dir, which the kitchen verifier's launch inherits.
+
+When the repo's riskiest promise (a race, an invariant, a state machine) is one
+tests rarely reach, run `create-formal-verification-skill` as an optional step
+here. It writes a `formal-<property>` skill that is never a `verify-*` driver;
+`maintain-formal-verification-skill` keeps it in line with the code and sits
+next to the maintain path in section 0.
 
 ## 5. Validate, format, commit
 
