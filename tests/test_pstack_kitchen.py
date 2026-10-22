@@ -1902,6 +1902,22 @@ esac
         self.assertEqual((live / 'src/util.py').read_text(), 'X = 99\n')
         self.run_sh('scratch', str(self.store), '002-x-live', '--remove')
 
+    def test_kitchen_scratch_made_for_a_store_with_a_trailing_slash_or_a_relative_name_is_the_one_removed(self):
+        self.write('src/util.py', 'X = 2\n')
+        sha = self.commit('scratch head')
+        for spelling, cwd in ((str(self.store), self.repo), (f'{self.store}/', self.repo), (self.store.name, self.store.parent)):
+            made = subprocess.run([str(self.script), 'scratch', spelling, '001-x-review', '--at', sha], cwd=cwd, env=self.env,
+                                  capture_output=True, text=True, check=False)
+            self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+            path = made.stdout.splitlines()[-1]
+            self.assertTrue(os.path.isdir(path), spelling)
+            expect_dir = '.' if spelling == self.store.name else self.store.parent.name
+            self.assertTrue(path.endswith(f'pstack-scratch/{expect_dir}-{self.store.name}/001-x-review'), f'{spelling}: {path}')
+            gone = subprocess.run([str(self.script), 'scratch', spelling, '001-x-review', '--remove'], cwd=cwd, env=self.env,
+                                  capture_output=True, text=True, check=False)
+            self.assertEqual((gone.returncode, gone.stdout), (0, f'removed {path}\n'), spelling)
+            self.assertFalse(os.path.exists(path), spelling)
+
     def test_kitchen_scratch_names_the_directory_it_could_not_create_in_its_own_words(self):
         shutil.rmtree(self.store / 'scratch', ignore_errors=True)
         (self.store / 'scratch').write_text('in the way')

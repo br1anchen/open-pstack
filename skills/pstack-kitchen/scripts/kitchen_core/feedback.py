@@ -85,7 +85,7 @@ def fb_unlock(fb):
 
 
 def scratch_file(directory, prefix):
-    """An empty file of mode 0600 in directory, named prefix and six random characters, returned by path."""
+    """An empty file of mode 0600 in directory, named prefix and random characters, returned by path."""
     fd, path = tempfile.mkstemp(prefix=prefix, dir=directory)
     os.close(fd)
     return path

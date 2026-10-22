@@ -7,6 +7,12 @@ import sys
 from ..store import Die, basename, prog, TEXT, load, names, pair_file, text_at, update
 
 
+def parent_dir(path):
+    """The directory holding path, ignoring a trailing slash: '.' for a bare name, '/' for a top-level one."""
+    stripped = path.rstrip('/')
+    return os.path.dirname(stripped) or ('/' if path.startswith('/') else '.')
+
+
 def run_quiet(*argv):
     """A command with stdout and stderr dropped: its exit code."""
     return subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode
@@ -42,7 +48,7 @@ def run(ctx, args):
     link = f'{store}/scratch/{ident}'
     common = subprocess.run(['git', '-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
                             stdout=subprocess.PIPE, check=False, **TEXT).stdout.rstrip('\n')
-    path = f'{common}/pstack-scratch/{basename(os.path.dirname(store))}-{basename(store)}/{ident}'
+    path = f'{common}/pstack-scratch/{basename(parent_dir(store))}-{basename(store)}/{ident}'
     if not os.path.islink(link) and os.path.isdir(link):
         path = link
     jj = os.path.isdir(f'{cwd}/.jj')
@@ -57,7 +63,7 @@ def run(ctx, args):
         if os.path.islink(link):
             os.unlink(link)
         try:
-            os.rmdir(os.path.dirname(path))
+            os.rmdir(parent_dir(path))
         except OSError:
             pass
         update(store, lambda doc: doc.update(scratch=[x for x in names(doc, 'scratch') if x != ident]))
@@ -68,7 +74,7 @@ def run(ctx, args):
         return 0
     try:
         os.makedirs(f'{store}/scratch', exist_ok=True)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(parent_dir(path), exist_ok=True)
     except OSError as e:
         sys.stderr.write(f'{prog()}: cannot create {e.filename}: {os.strerror(e.errno)}\n')
         return 1
@@ -101,7 +107,7 @@ def run(ctx, args):
         for raw in untracked.split(b'\0'):
             if raw:
                 f = os.fsdecode(raw)
-                os.makedirs(f'{path}/{os.path.dirname(f)}', exist_ok=True)
+                os.makedirs(f'{path}/{parent_dir(f)}', exist_ok=True)
                 shutil.copy2(f'{cwd}/{f}', f'{path}/{f}')
     update(store, lambda doc: doc.update(scratch=sorted({*names(doc, 'scratch'), ident})))
     print(path)

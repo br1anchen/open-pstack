@@ -2113,7 +2113,7 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('20261009-repo-z', out['a dangling link in the inbox is skipped']['stdout'])
         self.assertIn('20261003-repo-a', out['a dangling link in done does not hide a report']['stdout'])
         self.assertEqual(out['a close whose rm fails keeps the lock']['rc'], 1)
-        self.assertRegex(out['a close whose rm fails keeps the lock']['stderr'], r'pair\.sh: cannot remove \S+/inbox/20261003-repo-a\.md: Permission denied\n')
+        self.assertRegex(out['a close whose rm fails keeps the lock']['stderr'], r'\A(?:.*\n)?pair\.sh: cannot remove <T>/state/pstack/feedback/inbox/20261003-repo-a\.md: Permission denied\n\Z')
         self.assertIn('pstack/feedback/.lock/', out['a close whose rm fails keeps the lock']['state'])
         self.assertNotIn('pstack/feedback/.lock/', out['closing a report']['state'])
         self.assertIn('pstack/feedback/.lock/', out['closing with no done directory']['state'])
