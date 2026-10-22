@@ -55,7 +55,7 @@ def require_fresh_session(store):
     if not isinstance(get(store, 'sidekick'), (dict, type(None))):
         # `kind="$(field "$1" '.sidekick.kind')"` fails in jq with errexit on: jq's message and its status end the command
         from .store import field
-        field(store, 'sidekick', 'kind', check=True)
+        field(store, 'sidekick', 'kind')
     sidekick = section(load(store), 'sidekick')
     kind = jq_raw(sidekick.get('kind'))
     if fresh_per_brief(kind) and (alt(sidekick.get('rotation_required'), False) is not False or alt(sidekick.get('bootstrap_pending'), False) is not False):

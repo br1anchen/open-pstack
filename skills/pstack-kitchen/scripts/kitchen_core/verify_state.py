@@ -19,7 +19,7 @@ import sys
 from pstack_core.errors import Die, Exit
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.herdr import agent_status, herdr
-from pstack_core.store import bash_int, event, header_field, update, update_or_jq
+from pstack_core.store import alt, bash_int, damaged, event, header_field, json_type, member, peek, update
 from pstack_core.send import submit_typed
 from pstack_core.wait import bash_sleep
 
@@ -50,26 +50,20 @@ def quiet_stderr():
 
 
 def names_verdict(doc, verdict):
-    """jq's `.verifying.verdict == $v`: false for no verification, an error (TypeError, so jq decides) for a `.verifying` that is not an object."""
-    verifying = doc.get('verifying')
-    if verifying is None:
-        return False
-    if isinstance(verifying, dict):
-        return verifying.get('verdict') == verdict
-    raise TypeError('.verifying is not an object')
+    """Whether `.verifying` names the verification with verdict: false for no verification, damage for a `.verifying` that is not an object."""
+    return peek(doc, 'verifying').get('verdict') == verdict
 
 
-def update_verifying(store, verdict, body, apply, *jq_args, errexit=True):
-    """json_update with `if .verifying.verdict == $v then (BODY) else . end`: BODY is applied (by `apply(verifying)` natively, by jq where the
-    document is one jq reads differently) only while the store still names the verification with verdict. A write that lands after another call
-    closed it changes nothing. errexit False is a caller where the bash ran with errexit off: a refused write does not end the command."""
+def update_verifying(store, verdict, apply, errexit=True):
+    """json_update that applies `apply(verifying)` only while the store still names the verification with verdict. A write that lands after
+    another call closed it changes nothing. errexit False is a caller where the bash ran with errexit off: a damaged pair.json does not end the command."""
     def mutate(doc):
         if names_verdict(doc, verdict):
             apply(doc['verifying'])
 
     try:
-        update_or_jq(store, mutate, f'if .verifying.verdict == $v then ({body}) else . end', '--arg', 'v', verdict, *jq_args)
-    except Exit:
+        update(store, mutate)
+    except (Exit, Die):
         if errexit:
             raise
 
@@ -81,8 +75,8 @@ def drop_verifying(store, verdict, errexit=True):
             del doc['verifying']
 
     try:
-        update_or_jq(store, mutate, 'if .verifying.verdict == $v then del(.verifying) else . end', '--arg', 'v', verdict)
-    except Exit:
+        update(store, mutate)
+    except (Exit, Die):
         if errexit:
             raise
 
@@ -117,8 +111,7 @@ def claim_close(store, verdict):
         if (alt_token(verifying.get('closing')) or '') == current:
             verifying['closing'] = {'token': token}
 
-    update_verifying(store, verdict, 'if (.verifying.closing.token // "") == $old then .verifying.closing = {token: $t} else . end', apply,
-                     '--arg', 't', token, '--arg', 'old', current, errexit=False)
+    update_verifying(store, verdict, apply, errexit=False)
     return pair_jq(store, '.verifying.closing.token // empty') == token
 
 
@@ -129,7 +122,7 @@ def alt_token(closing):
         return token if token not in (None, False) else None
     if closing is None:
         return None
-    raise TypeError('.verifying.closing is not an object')
+    raise damaged(f'closing is {json_type(closing)}, not an object')
 
 
 def release_close(store, verdict, token):
@@ -140,11 +133,10 @@ def release_close(store, verdict, token):
             if closing.get('token') == token:
                 del verifying['closing']
         elif closing is not None:
-            raise TypeError('.verifying.closing is not an object')
+            raise damaged(f'closing is {json_type(closing)}, not an object')
 
     with quiet_stderr():
-        update_verifying(store, verdict, 'if .verifying.closing.token == $t then del(.verifying.closing) else . end', apply, '--arg', 't', token,
-                         errexit=False)
+        update_verifying(store, verdict, apply, errexit=False)
 
 
 def my_claim(store):
@@ -169,14 +161,8 @@ def verification_still_open(store, verdict):
 
 
 def set_member(doc, role, key, value):
-    """jq's `.role.key = value` over a document: the role created when it is null, an error (TypeError, so jq decides) when it is not an object."""
-    section = doc.get(role)
-    if section is None:
-        doc[role] = {key: value}
-    elif isinstance(section, dict):
-        section[key] = value
-    else:
-        raise TypeError(f'.{role} is not an object')
+    """`.role.key = value` over a document: the role created when it is null, damage when it is not an object."""
+    member(doc, role)[key] = value
 
 
 def close_verifier(ctx, store, name, kind, pane, verdict):
@@ -196,7 +182,7 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
             bash_sleep('1')
     herdr('pane', 'close', pane)
     if kind == 'prime-agent':
-        update_or_jq(store, lambda doc: set_member(doc, 'verifier', 'closed', True), '.verifier.closed = true')
+        update(store, lambda doc: set_member(doc, 'verifier', 'closed', True))
     return remove_scratch(ctx, store, scratch)
 
 
@@ -465,16 +451,15 @@ def handoff_due(store, unit, errexit=True):
     if unit == 'landing':
         return
     def count(doc):
-        master = doc.get('master')
-        seen = 0 if master is None else master.get('units_since_handoff')
-        seen = 0 if seen in (None, False) else seen
+        master = member(doc, 'master')
+        seen = alt(master.get('units_since_handoff'), 0)
         if isinstance(seen, bool) or not isinstance(seen, int):
-            raise TypeError('units_since_handoff is not an integer')
-        set_member(doc, 'master', 'units_since_handoff', seen + 1)
+            raise damaged(f'units_since_handoff is {json_type(seen)}, not an integer')
+        master['units_since_handoff'] = seen + 1
 
     try:
-        update_or_jq(store, count, '.master.units_since_handoff = ((.master.units_since_handoff // 0) + 1)')
-    except Exit:
+        update(store, count)
+    except (Exit, Die):
         if errexit:
             raise
     n = pair_jq(store, '.master.units_since_handoff')

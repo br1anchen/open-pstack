@@ -32,7 +32,7 @@ from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
 from pstack_core.store import field
-from pstack_core.store import bash_int, event, expected_report, header_field, pair_file, readlink_f, text_of, update_or_jq
+from pstack_core.store import bash_int, event, expected_report, header_field, pair_file, peek, readlink_f, text_of, update
 from pstack_core.variant import commit_of
 
 from . import kpy
@@ -251,7 +251,7 @@ def record_verifier_session(store, name):
         if ident and cwd:
             session = f'{os.environ.get("HOME", "")}/.claude/projects/{re.sub(r"[^A-Za-z0-9-]", "-", cwd)}/{ident}.jsonl'
     if session:
-        update_or_jq(store, lambda doc: vs.set_member(doc, 'verifying', 'session', session), '.verifying.session = $s', '--arg', 's', session)
+        update(store, lambda doc: vs.set_member(doc, 'verifying', 'session', session))
 
 
 def in_subshell(call, merge=True):
@@ -505,28 +505,25 @@ def verify(ctx, args):
     if landing:
         if parent_ref == 'none':
             def clear(doc):
-                section = doc.get('landing')
-                if isinstance(section, dict):
-                    section.pop('parent', None)
-                    section.pop('parent_ref', None)
-                elif section is not None:
-                    raise TypeError('.landing is not an object')
+                section = peek(doc, 'landing')
+                section.pop('parent', None)
+                section.pop('parent_ref', None)
 
-            update_or_jq(store, clear, 'del(.landing.parent, .landing.parent_ref)')
+            update(store, clear)
         elif override:
             def record(doc):
                 vs.set_member(doc, 'landing', 'parent', override)
                 vs.set_member(doc, 'landing', 'parent_ref', label)
 
-            update_or_jq(store, record, '.landing.parent = $p | .landing.parent_ref = $r', '--arg', 'p', override, '--arg', 'r', label)
+            update(store, record)
     write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, identity, vclass, timeout_m, risk, allunits, units, covered, landing, last, slug,
                  cls, classified, cfg)
-    name = field(store, 'verifier', 'name', check=True)
-    anchor = field(store, 'sidekick', 'pane_id', empty=True, check=True)
+    name = field(store, 'verifier', 'name')
+    anchor = field(store, 'sidekick', 'pane_id', empty=True)
     if not (anchor and herdr('pane', 'get', anchor)[0] == 0):
-        anchor = field(store, 'master', 'pane_id', check=True)
+        anchor = field(store, 'master', 'pane_id')
     if pair_jq(store, '.placement // empty') == 'tab':
-        field(store, 'master', 'pane_id', check=True)  # new_pane's `master="$(field ...)"`: a master that is no object ends verify before any herdr call
+        field(store, 'master', 'pane_id')  # new_pane's `master="$(field ...)"`: a master that is no object ends verify before any herdr call
     with contextlib.redirect_stdout(io.StringIO()):
         pane = new_pane(store, 'verifier', anchor, '', scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={pair_jq(store, ".slug")}'))
     sys.stdout.flush()
@@ -550,28 +547,23 @@ def verify(ctx, args):
     units_label = ' '.join(allunits) if allunits else 'landing'
     deadline = started_at + vs.shell_arithmetic(timeout_m) * 60
     native = list(args_list)
+    try:
+        entry_value = json.loads(entry)
+    except ValueError as e:
+        raise Die(f'verifier entry is not JSON: {e}', 2)
 
     def record_start(doc):
+        # .verifier.pane_id and .verifier.kind; for a prime-agent also .verifier.start_args, .verifier.session, .verifier.session_stopped, .verifier.closed and .verifier.launch_cwd
         vs.set_member(doc, 'verifier', 'pane_id', pane)
         vs.set_member(doc, 'verifier', 'kind', kind)
         if kind == 'prime-agent':
             verifier = doc['verifier']
             verifier['start_args'], verifier['session'], verifier['session_stopped'], verifier['closed'], verifier['launch_cwd'] = native, None, False, False, scratch
         doc['verifying'] = {'verdict': verdict, 'packet': packet, 'brief': brief, 'scratch': scratch_id, 'units': units_label, 'risk': risk, 'sample': sample,
-                            'unit': unit_label, 'started': started_at, 'deadline': deadline, 'class': cls, 'entry': json.loads(entry), 'retried': bool(retry_entry),
+                            'unit': unit_label, 'started': started_at, 'deadline': deadline, 'class': cls, 'entry': entry_value, 'retried': bool(retry_entry),
                             'argv': argv, 'delivered': False}
 
-    program = ('.verifier.pane_id = $pane | .verifier.kind = $kind\n'
-               ' | if $kind == "prime-agent" then .verifier.start_args = $native | .verifier.session = null | .verifier.session_stopped = false | .verifier.closed = false | .verifier.launch_cwd = $launch_cwd else . end\n'
-               ' | .verifying = {verdict: $verdict, packet: $packet, brief: $brief, scratch: $scratch, units: $units,\n'
-               '                 risk: $risk, sample: $sample, unit: $unit, started: $started, deadline: $deadline,\n'
-               '                 class: $class, entry: $entry, retried: $retried, argv: $argv, delivered: false}')
-    update_or_jq(store, record_start, program, '--arg', 'pane', pane, '--arg', 'kind', kind, '--arg', 'verdict', verdict, '--arg', 'packet', packet,
-                 '--arg', 'brief', brief, '--arg', 'scratch', scratch_id, '--arg', 'units', units_label, '--arg', 'risk', risk,
-                 '--argjson', 'sample', json.dumps(sample), '--arg', 'unit', unit_label, '--argjson', 'started', str(started_at),
-                 '--argjson', 'deadline', str(deadline), '--arg', 'class', cls, '--argjson', 'entry', entry,
-                 '--argjson', 'retried', 'true' if retry_entry else 'false', '--argjson', 'argv', json.dumps(argv), '--argjson', 'native', json.dumps(native),
-                 '--arg', 'launch_cwd', scratch)
+    update(store, record_start)
     vs.set_outcome(packet, 'running')
     if kind == 'prime-agent':
         if not started:
@@ -592,7 +584,7 @@ def verify(ctx, args):
     if not took and submitted == 0 and not os.path.isfile(verdict):
         if agent_status(name) in ('idle', 'done'):
             vs.redeliver_packet(ctx, store, 'the verifier sat idle without the packet')
-    update_or_jq(store, lambda doc: vs.set_member(doc, 'verifying', 'delivered', True), '.verifying.delivered = true')
+    update(store, lambda doc: vs.set_member(doc, 'verifying', 'delivered', True))
     record_verifier_session(store, name)
     Waiter(ctx, store, every_m, retry=lambda again: verify(ctx, again)).run()
 

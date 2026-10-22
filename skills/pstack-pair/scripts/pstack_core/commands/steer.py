@@ -11,7 +11,7 @@ from ..herdr import agent_status
 from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
-from ..store import cut_chars, event, header_field, readlink_f, unit_name, update_or_jq
+from ..store import cut_chars, event, header_field, listing, member, readlink_f, unit_name, update
 from ..wait import die_with_the_shell, owned_wait, wait_opts
 from .report import in_herdr, require_pair
 from .stop import role_value
@@ -28,13 +28,8 @@ def park_for_devin(store, path, key='notice_steers'):
     """The list `key` gains the path once, sorted: Devin's next pair.sh step, notes or progress prints it (a message sent mid-turn is parked as
     queued, and the Enter that would deliver it cancels the running command)."""
     def mutate(doc):
-        current = doc.get(key)
-        if current in (None, False):
-            current = []
-        if not isinstance(current, list):
-            raise ValueError(f'{key} is not an array')
-        doc[key] = sorted(set(current + [path]))
-    update_or_jq(store, mutate, f'.{key} = ((.{key} // []) + [$s] | unique)', '--arg', 's', path)
+        doc[key] = sorted(set(listing(doc, key) + [path]))
+    update(store, mutate)
 
 
 def leave_for_devin(store, steer):
@@ -45,14 +40,10 @@ def leave_for_devin(store, steer):
 def open_the_objection_round(store, epoch):
     """The reply to this steer is any report on the unit written from now: .sent.epoch = now and the seen mark gone."""
     def mutate(doc):
-        sent = doc.get('sent')
-        if sent is None:
-            sent = doc['sent'] = {}
-        if not isinstance(sent, dict):
-            raise ValueError('sent is not an object')
+        sent = member(doc, 'sent')
         sent['epoch'] = epoch
         sent.pop('seen', None)
-    update_or_jq(store, mutate, '.sent.epoch = $epoch | del(.sent.seen)', '--argjson', 'epoch', str(epoch))
+    update(store, mutate)
 
 
 def steer(ctx, args):

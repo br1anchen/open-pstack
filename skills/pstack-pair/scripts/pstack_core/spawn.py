@@ -1,7 +1,6 @@
 """Starting a role's agent in a pane and bootstrapping it: spawn_role and the recovery of a bootstrap prompt that a first-run screen swallowed.
 Returns 0, 3 (the bootstrap did not settle) or 4 (it settled without the ready file); a die is a Die."""
 import io
-import json
 import os
 import re
 import subprocess
@@ -10,14 +9,14 @@ import time
 
 from . import agents
 from .dispatch import fresh_per_brief
-from .errors import Die, Exit
+from .errors import Die
 from .herdr import agent_field, agent_status, herdr
 from .panes import await_file, new_pane, refuse_untrusted
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .review import jq_raw
 from .send import submit_typed, visible_without_blanks
-from .store import alt, event, field, get, load, update, update_or_jq
+from .store import alt, event, field, get, listing, load, member, update
 from .wait import bash_sleep, die_with_the_shell
 
 FRESH_SESSION_FLAGS = ('-c', '--continue', '-r', '--resume', '--session', '--session-id', '--fork')
@@ -28,24 +27,15 @@ def section(pair, role):
     return value if isinstance(value, dict) else {}
 
 
-def update_role(store, role, changes, program, *jq_args, errexit_off=True):
-    """json_update of .[role] keys, in order, creating the role's entry when it is null. A role that is not an object is jq's to refuse, as in
-    the bash: its error is printed and, where the caller had errexit off, the command goes on."""
+def update_role(store, role, changes):
+    """json_update of .[role] keys, in order, creating the role's entry when it is null."""
     def mutate(doc):
-        entry = doc.get(role)
-        if entry is None:
-            entry = doc[role] = {}
-        entry.update(changes)
-    try:
-        update_or_jq(store, mutate, program, '--arg', 'role', role, *jq_args)
-    except Exit:
-        if not errexit_off:
-            raise
+        member(doc, role).update(changes)
+    update(store, mutate)
 
 
-def mark_ready(store, role, errexit_off=True):
-    update_role(store, role, {'rotation_required': False, 'bootstrap_pending': False},
-                '.[$role].rotation_required = false | .[$role].bootstrap_pending = false', errexit_off=errexit_off)
+def mark_ready(store, role):
+    update_role(store, role, {'rotation_required': False, 'bootstrap_pending': False})
 
 
 def stderr_of(text):
@@ -79,7 +69,7 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
     return True
 
 
-def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, pane, args, errexit_off=True):
+def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, pane, args):
     master_mode = mode_of_this_shell(False)
     if not permission:
         permission = 'bypassPermissions' if kind == 'devin' else master_mode
@@ -109,7 +99,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
             if not os.path.isfile(f'{store}/{ready}'):
                 stderr_of(f'{role} bootstrap still pending: {ready} is missing\n')
                 return 4
-            mark_ready(store, role, errexit_off)
+            mark_ready(store, role)
             print(f'ready: {store}/{ready}')
             event(store, role, 'spawn', '-', f'{field(store, role, "kind")}:ready')
         print(f'{role} {name} already live ({status}) in {field(store, role, "pane_id")}')
@@ -144,34 +134,15 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
     def started(doc):
-        entry = doc.get(role)
-        if entry is None:
-            entry = doc[role] = {}
+        entry = member(doc, role)
         entry['pane_id'], entry['kind'], entry['started_at'], entry['start_args'] = pane, kind, now, list(args)
         entry['generation'] = alt(entry.get('generation'), 0) + 1
         entry['bootstrap_pending'] = True
         entry['permission_mode'] = permission
-        master = doc.get('master')
-        if master is None:
-            master = doc['master'] = {}
-        master['permission_mode'] = master_mode
-    try:
-        update_or_jq(store, started,
-                     '.[$role].pane_id = $pane | .[$role].kind = $kind | .[$role].started_at = $now | .[$role].start_args = $args'
-                     ' | .[$role].generation = ((.[$role].generation // 0) + 1) | .[$role].bootstrap_pending = true'
-                     ' | .[$role].permission_mode = $perm | .master.permission_mode = $mperm',
-                     '--arg', 'role', role, '--arg', 'pane', pane, '--arg', 'kind', kind, '--arg', 'now', now, '--arg', 'perm', permission,
-                     '--arg', 'mperm', master_mode, '--argjson', 'args', json.dumps(list(args), separators=(',', ':')))
-    except Exit as e:
-        if not errexit_off:
-            raise
-        # a jq that refuses the write (a master that is not an object): where the caller had errexit off (spawn, trio spawn, failover, a rotate inside
-        # $( )) the bash printed its error and the start went on; where it was on (a direct rotate, kitchen.sh consultant) the shell ended
-        sys.stderr.write(e.stderr)
+        member(doc, 'master')['permission_mode'] = master_mode
+    update(store, started)
     if kind == 'prime-agent':
-        update_role(store, role, {'session': None, 'session_stopped': False, 'closed': False, 'launch_cwd': cwd},
-                    '.[$role].session = null | .[$role].session_stopped = false | .[$role].closed = false | .[$role].launch_cwd = $cwd', '--arg', 'cwd', cwd,
-                    errexit_off=errexit_off)
+        update_role(store, role, {'session': None, 'session_stopped': False, 'closed': False, 'launch_cwd': cwd})
         if prime_start_failed:
             record_prime_session(store, role)
             raise Die(f'Prime start failed in {pane}; its pane and recorded launch stay for inspection', 5)
@@ -206,7 +177,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
             stderr_of(provider_hint(store, 'bootstrap'))
         return 3
     if os.path.isfile(f'{store}/{ready}'):
-        mark_ready(store, role, errexit_off)
+        mark_ready(store, role)
         print(f'ready: {store}/{ready}')
         event(store, role, 'spawn', '-', f'{kind}:ready')
         return 0
@@ -238,30 +209,17 @@ def set_placement(store, want=''):
 
     def mutate(doc):
         doc['placement'] = want
-    update_or_jq(store, mutate, '.placement = $p', '--arg', 'p', want)
+    update(store, mutate)
 
 
-def record_failover(store, source, target, reason, errexit_off=True):
-    """The sidekick's failover from one kind to another: .sidekick.failovers, the master's failover event, and the line it prints. A jq that
-    refuses the write ends the command, unless the caller runs with errexit off (spawn_sidekick, under its caller's `|| rc=$?`)."""
+def record_failover(store, source, target, reason):
+    """The sidekick's failover from one kind to another: .sidekick.failovers, the master's failover event, and the line it prints."""
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
     def mutate(doc):
-        entry = doc.get('sidekick')
-        if entry is None:
-            entry = doc['sidekick'] = {}
-        current = alt(entry.get('failovers'), [])
-        if not isinstance(current, list):
-            raise TypeError('failovers is not an array')
-        entry['failovers'] = current + [{'from': source, 'to': target, 'reason': reason, 'at': now}]
-    try:
-        update_or_jq(store, mutate, '.sidekick.failovers = ((.sidekick.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])',
-                     '--arg', 'from', source, '--arg', 'to', target, '--arg', 'why', reason, '--arg', 'now', now)
-    except Exit as e:
-        if not errexit_off:
-            raise
-        # spawn_sidekick runs under its caller's `|| rc=$?`, where errexit is off: a jq that fails prints its error and the failover goes on
-        sys.stderr.write(e.stderr)
+        entry = member(doc, 'sidekick')
+        entry['failovers'] = listing(entry, 'failovers') + [{'from': source, 'to': target, 'reason': reason, 'at': now}]
+    update(store, mutate)
     event(store, 'master', 'failover', '-', f'{source}:{target}')
     print(f'failover: {source} -> {target} ({reason})')
 
@@ -272,11 +230,8 @@ def record_fallback(store, kind, args):
         return
 
     def mutate(doc):
-        entry = doc.get('sidekick')
-        if entry is None:
-            entry = doc['sidekick'] = {}
-        entry['fallback'] = {'kind': kind, 'args': list(args)}
-    update_or_jq(store, mutate, '.sidekick.fallback = {kind: $kind, args: $args}', '--arg', 'kind', kind, '--argjson', 'args', json.dumps(list(args), separators=(',', ':')))
+        member(doc, 'sidekick')['fallback'] = {'kind': kind, 'args': list(args)}
+    update(store, mutate)
 
 
 def mapfile_args(values):
@@ -317,12 +272,12 @@ def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pan
     return spawn_role(ctx, store, 'sidekick', kind, permission, anchor, timeout, direction, pane, args)
 
 
-def spawn_consultant(ctx, store, kind, permission, timeout, args, errexit_off=True):
+def spawn_consultant(ctx, store, kind, permission, timeout, args):
     """The consultant splits from the sidekick's pane, so the master keeps its height; the master's pane when the sidekick's is gone."""
     anchor = field(store, 'sidekick', 'pane_id', empty=True)
     if not anchor or herdr('pane', 'get', anchor)[0] != 0:
-        anchor = field(store, 'master', 'pane_id', check=not errexit_off)
-    return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args, errexit_off)
+        anchor = field(store, 'master', 'pane_id')
+    return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args)
 
 
 def entry_spawn_consultant(ctx, args):
@@ -331,4 +286,4 @@ def entry_spawn_consultant(ctx, args):
     if len(args) < 4:
         raise Die('usage: __spawn_consultant <store> <kind> <permission> <timeout> [args...]')
     # its one bash caller is kitchen.sh consultant, a plain command under set -e
-    return spawn_consultant(ctx, *args[:4], list(args[4:]), errexit_off=False)
+    return spawn_consultant(ctx, *args[:4], list(args[4:]))

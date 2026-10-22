@@ -6,7 +6,7 @@ import sys
 
 from ..errors import Die, unbound_arg
 from ..review import jq_raw
-from ..store import get, pair_file, update
+from ..store import get, listing, pair_file, update
 
 
 def basename(path):
@@ -71,7 +71,7 @@ def run(ctx, args):
             os.rmdir(dirname(path))
         except OSError:
             pass
-        update(store, lambda doc: doc.update(scratch=[x for x in doc.get('scratch') or [] if x != ident]))
+        update(store, lambda doc: doc.update(scratch=[x for x in listing(doc, 'scratch') if x != ident]))
         print(f'removed {path}')
         return 0
     if os.path.isdir(path):
@@ -108,12 +108,12 @@ def run(ctx, args):
             if applied.returncode != 0:
                 sys.stderr.write('live diff did not apply cleanly; scratch is at HEAD only\n')
                 run_quiet('git', '-C', path, 'checkout', '--', '.')
-        listing = subprocess.run(['git', '-C', cwd, 'ls-files', '--others', '--exclude-standard', '-z'], stdout=subprocess.PIPE, check=False).stdout
-        for raw in listing.split(b'\0'):
+        untracked = subprocess.run(['git', '-C', cwd, 'ls-files', '--others', '--exclude-standard', '-z'], stdout=subprocess.PIPE, check=False).stdout
+        for raw in untracked.split(b'\0'):
             if raw:
                 f = raw.decode('utf-8', 'surrogateescape')
                 os.makedirs(f'{path}/{dirname(f)}', exist_ok=True)
                 shutil.copy2(f'{cwd}/{f}', f'{path}/{f}')
-    update(store, lambda doc: doc.update(scratch=sorted({*(doc.get('scratch') or []), ident})))
+    update(store, lambda doc: doc.update(scratch=sorted({*listing(doc, 'scratch'), ident})))
     print(path)
     return 0

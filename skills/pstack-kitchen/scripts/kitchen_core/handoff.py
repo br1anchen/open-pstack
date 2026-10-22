@@ -70,7 +70,7 @@ def new_handoff(ctx, args):
     pair = load(store)
     path = f'{store}/session-handoff.md'
     # a plain assignment: a .master that is not an object ends the command with jq's status and error, before any file is written
-    generation = field(store, 'master', 'generation', check=True, default='1')
+    generation = field(store, 'master', 'generation', default='1')
     units = handoff_units(store).rstrip('\n')
     with open(f'{ctx.skill_root}/references/handoff-template.md', encoding='utf-8', errors='surrogateescape') as f:
         text = f.read()

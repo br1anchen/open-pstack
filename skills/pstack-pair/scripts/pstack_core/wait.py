@@ -419,7 +419,7 @@ def hint_for(store):
     cannot be indexed (a string, an array, a number or a boolean)."""
     from .store import field
     if not isinstance(get(store, 'sidekick'), (dict, type(None))):
-        field(store, 'sidekick', 'name', check=True)
+        field(store, 'sidekick', 'name')
     return provider_hint(store)
 
 

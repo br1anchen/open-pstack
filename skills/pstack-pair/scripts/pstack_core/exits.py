@@ -10,7 +10,7 @@ from .herdr import agent_status, herdr
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
 from .review import jq_raw
-from .store import load, update_or_jq
+from .store import load, member, update
 from .wait import bash_sleep
 
 
@@ -92,10 +92,8 @@ def stop_prime_role(store, role):
         exit_poll()
 
     def mutate(doc):
-        if not isinstance(doc.get(role), dict):
-            doc[role] = {}
-        doc[role]['session_stopped'] = True
-    update_or_jq(store, mutate, '.[$role].session_stopped = true', '--arg', 'role', role)
+        member(doc, role)['session_stopped'] = True
+    update(store, mutate)
     return True
 
 

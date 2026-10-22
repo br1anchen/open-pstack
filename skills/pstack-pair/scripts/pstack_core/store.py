@@ -3,7 +3,6 @@ import json
 import os
 import re
 import stat
-import subprocess
 import time
 
 from .errors import Die, Exit
@@ -162,8 +161,54 @@ def load(store):
         except ValueError as e:
             raise Die(f'pair.json is damaged: {e}', 1)
     if not isinstance(doc, dict):
-        raise Die(f'pair.json is damaged: expected an object, found {type(doc).__name__}', 1)
+        raise damaged(f'expected an object, found {json_type(doc)}')
     return doc
+
+
+def json_type(value):
+    """The JSON name of a value's type: null, boolean, number, string, array or object."""
+    if value is None:
+        return 'null'
+    if isinstance(value, bool):
+        return 'boolean'
+    if isinstance(value, (int, float)):
+        return 'number'
+    if isinstance(value, str):
+        return 'string'
+    return 'array' if isinstance(value, list) else 'object'
+
+
+def damaged(what):
+    """The one error for a pair.json value of a type the code cannot read (plan 043 decision b)."""
+    return Die(f'pair.json is damaged: {what}', 1)
+
+
+def peek(doc, key):
+    """The object at doc[key], {} when it is null or absent and left out of doc; any other type is damage."""
+    value = doc.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise damaged(f'{key} is {json_type(value)}, not an object')
+    return value
+
+
+def member(doc, key):
+    """The object at doc[key], created when it is null or absent; any other type is damage."""
+    value = doc.get(key)
+    if value is None:
+        value = doc[key] = {}
+    if not isinstance(value, dict):
+        raise damaged(f'{key} is {json_type(value)}, not an object')
+    return value
+
+
+def listing(doc, key):
+    """The array at doc[key], [] when it is null, absent or false; any other type is damage."""
+    value = alt(doc.get(key), [])
+    if not isinstance(value, list):
+        raise damaged(f'{key} is {json_type(value)}, not an array')
+    return value
 
 
 def get(store, path, default=None):
@@ -176,20 +221,16 @@ def get(store, path, default=None):
     return value
 
 
-def field(store, role, key, check=False, empty=False, default=None):
-    """jq -r '.role.key': a role that is not an object makes jq itself answer (its error on stderr, an empty value). With check, that failure
-    ends the command with jq's status. With empty, the filter is '.role.key // empty'; with default, '.role.key // "<default>"'."""
+def field(store, role, key, empty=False, default=None):
+    """jq -r '.role.key': a role that is not an object is damage. With empty, the filter is '.role.key // empty'; with default,
+    '.role.key // "<default>"'."""
     value = load(store).get(role)
-    if value is None or isinstance(value, dict):
-        found = (value or {}).get(key)
-        if default is not None:
-            return jq_raw(alt(found, default))
-        return jq_raw(alt(found, '')) if empty else jq_raw(found)
-    suffix = f' // "{default}"' if default is not None else (' // empty' if empty else '')
-    r = subprocess.run(['jq', '-r', f'.{role}.{key}' + suffix, f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
-    if check and r.returncode:
-        raise Exit(r.returncode)
-    return text_of(r.stdout, True)
+    if value is not None and not isinstance(value, dict):
+        raise damaged(f'{role} is {json_type(value)}, not an object')
+    found = (value or {}).get(key)
+    if default is not None:
+        return jq_raw(alt(found, default))
+    return jq_raw(alt(found, '')) if empty else jq_raw(found)
 
 
 def text_of(raw, strip=False):
@@ -372,42 +413,19 @@ def acquire_lock(store):
 def update(store, mutate):
     """json_update: pair.json has two writers, so each write holds the mkdir lock, parses the file as it
     is once the lock is held, lets mutate(doc) change that document in place, and replaces the file
-    atomically with the bytes jq would write. A mutate that raises, or a pair.json that does not parse,
+    atomically with the bytes jq would write. A mutate that raises (a value of the wrong type is damage), or a pair.json that does not parse,
     leaves pair.json and pair.json.tmp as they were and frees the lock. PAIR_LOCK_TRIES and
     PAIR_LOCK_POLL_S exist so tests can shorten the 10 s wait."""
     lock = acquire_lock(store)
     try:
         doc = load(store)
-        mutate(doc)
+        try:
+            mutate(doc)
+        except (TypeError, AttributeError, KeyError) as e:
+            raise damaged(str(e))
         text = _dumps(doc)
         with open(f'{store}/pair.json.tmp', 'w', encoding='utf-8') as out:
             out.write(text)
-        os.replace(f'{store}/pair.json.tmp', f'{store}/pair.json')
-    finally:
-        try:
-            os.rmdir(lock)
-        except OSError:
-            pass
-
-
-def update_or_jq(store, mutate, program, *jq_args):
-    """json_update with a jq program: update() applies mutate natively; where it cannot (a document or value jq reads differently), jq itself
-    decides, as in the bash. jq succeeding writes its output under the same lock; jq failing ends the command with its message and status,
-    leaving the empty pair.json.tmp the bash's redirect makes."""
-    try:
-        update(store, mutate)
-        return
-    except (ValueError, TypeError, AttributeError, KeyError):
-        pass
-    import subprocess
-    lock = acquire_lock(store)
-    try:
-        r = subprocess.run(['jq', *jq_args, program, f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
-        with open(f'{store}/pair.json.tmp', 'wb') as tmp:
-            if r.returncode == 0:
-                tmp.write(r.stdout)
-        if r.returncode != 0:
-            raise Exit(r.returncode)
         os.replace(f'{store}/pair.json.tmp', f'{store}/pair.json')
     finally:
         try:

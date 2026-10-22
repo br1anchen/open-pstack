@@ -17,7 +17,7 @@ from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
 from pstack_core.store import field
-from pstack_core.store import event, pair_file, update, update_or_jq
+from pstack_core.store import event, listing, member, pair_file, update
 
 from .jqx import pair_jq
 from .reviews import warn_unreviewed
@@ -99,13 +99,6 @@ def detect_model_arg():
     return ''
 
 
-SESSIONS_PROGRAM = """.master.previous = {name: $old, pane_id: $oldpane, session: $s}
-		 | .master.name = $new | .master.pane_id = $newpane | .master.registered_at = $now
-		 | .master.generation = ($g + 1) | .master.units_since_handoff = 0
-		 | .master.sessions = ([(.master.sessions // [])[] | select($s == "" or .session != $s)]
-		     + [{generation: $g, session: $s, handoff: $h, at: $now}])"""
-
-
 def section_has_text(path, heading):
     """awk -v h="## <heading>" '$0 == h {p=1; next} /^## /{p=0} p && NF': whether the section holds a line with a field."""
     inside = found = False
@@ -152,8 +145,8 @@ def rotate_master(ctx, args):
     for heading in ('Goal', 'Next'):
         if not section_has_text(handoff, f'## {heading}'):
             raise Die(f'{handoff}: the {heading} section is empty', 5)
-    name = field(store, 'master', 'name', check=True)
-    pane = field(store, 'master', 'pane_id', check=True)
+    name = field(store, 'master', 'name')
+    pane = field(store, 'master', 'pane_id')
     if pair_jq(store, '.master.previous.name // empty'):
         raise Die(f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first', 5)
     if agent_status(name) == 'absent':
@@ -195,12 +188,9 @@ def rotate_master(ctx, args):
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
     def mutate(doc):
-        master = doc['master']
-        listed = master.get('sessions')
-        if listed is None or listed is False:  # jq's `// []`: only null and false count as missing, so 0 and "" go on to `[]` and fail in jq
-            listed = []
-        elif not isinstance(listed, list):
-            raise TypeError('sessions is not an array')
+        # the hand-over: .master.previous, .master.name, .master.pane_id, .master.registered_at, .master.generation, .master.units_since_handoff, .master.sessions
+        master = member(doc, 'master')
+        listed = listing(master, 'sessions')
         kept = [e for e in listed if session == '' or e['session'] != session]
         master['previous'] = {'name': name, 'pane_id': pane, 'session': session}
         master['name'], master['pane_id'], master['registered_at'] = temp, new_pane_id, now
@@ -208,8 +198,7 @@ def rotate_master(ctx, args):
         master['units_since_handoff'] = 0
         master['sessions'] = kept + [{'generation': gen_n, 'session': session, 'handoff': copy, 'at': now}]
 
-    update_or_jq(store, mutate, SESSIONS_PROGRAM, '--arg', 's', session, '--arg', 'h', copy, '--arg', 'now', now, '--argjson', 'g', str(gen_n),
-                 '--arg', 'old', name, '--arg', 'oldpane', pane, '--arg', 'new', temp, '--arg', 'newpane', new_pane_id)
+    update(store, mutate)
     event(store, 'master', 'handoff', '-', f'generation:{gen}')
     event(store, 'master', 'spawn', '-', f'claude:generation:{next_gen}')
     skill = ctx.skill
@@ -231,8 +220,8 @@ def take_master(ctx, args):
         raise Die('usage: kitchen.sh take-master <store>')
     store = args[0]
     pair_file(store)
-    name = field(store, 'master', 'name', check=True)
-    pane = field(store, 'master', 'pane_id', check=True)
+    name = field(store, 'master', 'name')
+    pane = field(store, 'master', 'pane_id')
     prev = pair_jq(store, '.master.previous.name // empty', check=True)
     if not prev:
         sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
@@ -258,10 +247,11 @@ def take_master(ctx, args):
         name = base
 
     def mutate(doc):
-        doc['master']['name'] = name
-        doc['master'].pop('previous', None)
+        master = member(doc, 'master')
+        master['name'] = name
+        master.pop('previous', None)
 
-    update_or_jq(store, mutate, '.master.name = $n | del(.master.previous)', '--arg', 'n', name)
+    update(store, mutate)
     event(store, 'master', 'takeover', '-', f"generation:{field(store, 'master', 'generation')}")
     out = sys.stdout
     if closed == 'closed':

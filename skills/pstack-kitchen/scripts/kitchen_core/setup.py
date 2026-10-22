@@ -17,7 +17,7 @@ from pstack_core.commands.report import in_herdr
 from pstack_core.errors import Die, Exit, unbound_arg
 from pstack_core.gates import gnu_dirname
 from pstack_core.herdr import agent_status
-from pstack_core.store import alt, cut_chars, event, now, pair_file, update_or_jq
+from pstack_core.store import alt, cut_chars, damaged, event, json_type, listing, member, now, pair_file, update
 from pstack_core.wait import die_with_the_shell
 
 from . import kpy
@@ -39,10 +39,10 @@ def record_skill_build(ctx, store):
     def mutate(doc):
         current = doc.get('skill_builds')
         if not isinstance(current, list):
-            raise TypeError('skill_builds is not an array')
+            raise damaged(f'skill_builds is {json_type(current)}, not an array')
         doc['skill_builds'] = current + [{'path': skills_dir, 'at': stamp}]
     stamp = now()
-    update_or_jq(store, mutate, '.skill_builds += [{path: $p, at: $a}]', '--arg', 'p', skills_dir, '--arg', 'a', stamp)
+    update(store, mutate)
 
 
 def record_skill_build_entry(ctx, args):
@@ -57,7 +57,7 @@ def stamp_skill_builds(ctx, store):
 
     def mutate(doc):
         doc['skill_builds'] = [{'path': skills_dir, 'at': stamp}]
-    update_or_jq(store, mutate, '.skill_builds = [{path: $p, at: $a}]', '--arg', 'p', skills_dir, '--arg', 'a', stamp)
+    update(store, mutate)
 
 
 def quiet_kitchen(store, args):
@@ -223,34 +223,26 @@ def consultant(ctx, args):
             native = fb_args
     # The escalation is recorded once the consultant is up, so a start that fails (a trust prompt) and is retried counts it once.
     die_with_the_shell()
-    code = pair_spawn.spawn_consultant(ctx, store, kind, permission, '60000', list(native), errexit_off=False)
+    code = pair_spawn.spawn_consultant(ctx, store, kind, permission, '60000', list(native))
     if code:
         raise Exit(code)
     stamp = now()
 
     def mutate(doc):
-        current = alt(doc.get('escalations'), [])
-        if not isinstance(current, list):
-            raise TypeError('escalations is not an array')
-        doc['escalations'] = current + [{'reason': reason, 'at': stamp}]
-    update_or_jq(store, mutate, '.escalations = ((.escalations // []) + [{reason: $why, at: $now}])', '--arg', 'why', reason, '--arg', 'now', stamp)
+        doc['escalations'] = listing(doc, 'escalations') + [{'reason': reason, 'at': stamp}]
+    update(store, mutate)
     event(store, 'master', 'escalate', '-', reason)
     return 0
 
 
 def record_consultant_failover(store, source, target, reason):
+    """Appends {from, to, reason, at} to .consultant.failovers."""
     stamp = now()
 
     def mutate(doc):
-        entry = doc.get('consultant')
-        if entry is None:
-            entry = doc['consultant'] = {}
-        current = alt(entry.get('failovers'), [])
-        if not isinstance(current, list):
-            raise TypeError('failovers is not an array')
-        entry['failovers'] = current + [{'from': source, 'to': target, 'reason': reason, 'at': stamp}]
-    update_or_jq(store, mutate, '.consultant.failovers = ((.consultant.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])',
-                 '--arg', 'from', source, '--arg', 'to', target, '--arg', 'why', reason, '--arg', 'now', stamp)
+        entry = member(doc, 'consultant')
+        entry['failovers'] = listing(entry, 'failovers') + [{'from': source, 'to': target, 'reason': reason, 'at': stamp}]
+    update(store, mutate)
 
 
 def fleet(ctx, args):

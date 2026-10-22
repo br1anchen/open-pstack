@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import subprocess
@@ -57,9 +58,13 @@ def transcript_mode(path):
 
 
 def settings_mode(path):
-    """jq -r '.permissions.defaultMode // empty' of a settings file, stderr dropped: (exit code, text)."""
-    r = subprocess.run(['jq', '-r', '.permissions.defaultMode // empty', path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
-    return r.returncode, r.stdout.decode('utf-8', 'surrogateescape').rstrip('\n')
+    """The settings file's permissions.defaultMode; a missing file, a file that does not parse and a missing key all give ''."""
+    try:
+        with open(path, 'rb') as f:
+            mode = json.load(f)['permissions']['defaultMode']
+    except (OSError, ValueError, KeyError, TypeError):
+        return ''
+    return mode if isinstance(mode, str) else ''
 
 
 def detect(pid, cwd, home, session, strict, ps_run=ps):
@@ -108,8 +113,7 @@ def detect(pid, cwd, home, session, strict, ps_run=ps):
         for f in (f'{cwd}/.claude/settings.local.json', f'{cwd}/.claude/settings.json', f'{home}/.claude/settings.local.json', f'{home}/.claude/settings.json'):
             if not os.path.isfile(f):
                 continue
-            code, mode = settings_mode(f)
-            mode = value(code, mode)
+            mode = settings_mode(f)
             if mode != '':
                 break
     return mode or 'auto'

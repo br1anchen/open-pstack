@@ -6,7 +6,7 @@ import re
 
 from .collate import collate_key, glob_sorted
 from .review import jq_raw, noted_through, review_base, steps_file
-from .store import alt, bash_int, cut_chars, expected_report, get, header_field, last_line, read_text, suffix_number, unit_name, update
+from .store import alt, bash_int, cut_chars, damaged, expected_report, get, header_field, json_type, last_line, read_text, suffix_number, unit_name, update
 from .commands.status import latest
 
 
@@ -58,14 +58,10 @@ def queue_note(store, report):
 
 
 def pending(store):
-    """jq -r '.pending // [] | .[]', the non-empty lines. The shapes jq rejects or prints differently (a string or an object for .pending,
-    nested arrays) are not reproduced: no writer stores them."""
+    """The non-empty lines of the pending briefs; a pending that is not an array is damage."""
     items = alt(get(store, 'pending'), [])
     if not isinstance(items, list):
-        # `.[]` of a string or a number is jq's own error (printed), of an object its values: ask jq
-        import subprocess
-        r = subprocess.run(['jq', '-r', '.pending // [] | .[]', f'{store}/pair.json'], stdout=subprocess.PIPE, check=False)
-        return [line for line in r.stdout.decode('utf-8', 'surrogateescape').split('\n') if line]
+        raise damaged(f'pending is {json_type(items)}, not an array')
     return [line for item in items for line in jq_raw(item).split('\n') if line]
 
 

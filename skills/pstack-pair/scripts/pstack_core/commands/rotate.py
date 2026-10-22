@@ -1,4 +1,3 @@
-import os
 import re
 import subprocess
 import sys
@@ -15,18 +14,6 @@ from ..store import alt, event, field, load, pair_file
 from ..wait import die_with_the_shell
 from .report import in_herdr
 
-def errexit_off():
-    """True where the shell that ran pycore had errexit off. pycore passes that shell's `$-` as PAIR_SHELL_FLAGS: `e` is there in a direct
-    `pair.sh rotate` and in `( cmd_rotate ... ) &`, and gone inside `$(cmd_rotate ...)` (kitchen.sh rotate_if_due), where bash clears errexit.
-    `e` also stays in `$-` where errexit is only suspended (`cmd_rotate ... || x`, `if cmd_rotate`), so such a caller reads as errexit on; today's
-    callers, a direct `pair.sh rotate` and kitchen.sh's `$(cmd_rotate ...) || rc=$?`, are not suspended contexts.
-    Without the variable the process is told from the shell's by pid: `pycore --exec` replaces that shell, so a $( ) subshell has another pid."""
-    flags = os.environ.get('PAIR_SHELL_FLAGS')
-    if flags is not None:
-        return 'e' not in flags
-    return os.getpid() != int(os.environ.get('PAIR_SHELL_PID') or os.getpid())
-
-
 TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
 
 
@@ -39,8 +26,7 @@ def rotate(ctx, args):
     store = args[0]
     pair_file(store)
     require_not_paused(store)
-    off = errexit_off()
-    kind = field(store, 'sidekick', 'kind', check=not off)
+    kind = field(store, 'sidekick', 'kind')
     if not fresh_per_brief(kind):
         raise Die(f'rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not {kind}', 5)
     sidekick = section(load(store), 'sidekick')
@@ -71,5 +57,4 @@ def rotate(ctx, args):
         raise Die(f'sidekick {name} is {status}; wait for its report and turn to end before rotating', 5)
     start_args = mapfile_args(section(load(store), 'sidekick').get('start_args'))
     event(store, 'master', 'rotate', '-', f'generation:{field(store, "sidekick", "generation")}')
-    return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args,
-                      errexit_off=off)
+    return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args)

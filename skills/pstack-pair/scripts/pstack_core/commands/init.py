@@ -6,7 +6,7 @@ import time
 from ..errors import Die, Exit, fail
 from ..herdr import herdr
 from ..permission import logical_cwd
-from ..store import _dumps, event, update_or_jq
+from ..store import _dumps, event, member, update
 
 STANDING_ORDERS_TEMPLATE = 'standing-orders-template.md'
 GATES = '# Gates\n\nOne entry per open question for the human: question, options, default on no answer.\n'
@@ -41,18 +41,10 @@ def write_new(path, text, line_text):
 
 
 def re_register(store, pane, workspace, tab, now):
-    """json_update of the master's entry."""
+    """json_update of .master.pane_id, .master.workspace_id, .master.tab_id and .master.registered_at."""
     def mutate(doc):
-        if not isinstance(doc, dict):
-            raise ValueError('not an object')
-        master = doc.get('master')
-        if master is None:
-            master = doc['master'] = {}
-        if not isinstance(master, dict):
-            raise ValueError('master is not an object')
-        master.update({'pane_id': pane, 'workspace_id': workspace, 'tab_id': tab, 'registered_at': now})
-    update_or_jq(store, mutate, '.master.pane_id = $pane | .master.workspace_id = $ws | .master.tab_id = $tab | .master.registered_at = $now',
-                 '--arg', 'pane', pane, '--arg', 'ws', workspace, '--arg', 'tab', tab, '--arg', 'now', now)
+        member(doc, 'master').update({'pane_id': pane, 'workspace_id': workspace, 'tab_id': tab, 'registered_at': now})
+    update(store, mutate)
 
 
 def run(ctx, args):

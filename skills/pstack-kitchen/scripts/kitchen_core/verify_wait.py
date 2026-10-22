@@ -150,11 +150,11 @@ class Waiter:
             if self.errexit:
                 raise
 
-    def update(self, verdict, body, apply, *jq_args):
-        vs.update_verifying(self.store, verdict, body, apply, *jq_args, errexit=self.errexit)
+    def update(self, verdict, apply):
+        vs.update_verifying(self.store, verdict, apply, errexit=self.errexit)
 
     def drop_idle(self, verdict):
-        self.update(verdict, 'del(.verifying.idle_since)', lambda v: v.pop('idle_since', None))
+        self.update(verdict, lambda v: v.pop('idle_since', None))
 
     def grace(self, name, kind, verdict, until, brief, session):
         """At the deadline a live verifier is asked, once, to write an inconclusive verdict with what it proved and what it never reached, and given
@@ -176,10 +176,10 @@ class Waiter:
                 delivery = 'skipped:devin-working'
 
             def stamp(verifying):
+                # .verifying.grace_at, .verifying.grace_until and .verifying.grace_delivery
                 verifying['grace_at'], verifying['grace_until'], verifying['grace_delivery'] = now, int(grace_until), delivery
 
-            self.update(verdict, '.verifying.grace_at = $at | .verifying.grace_until = $until | .verifying.grace_delivery = $d', stamp,
-                        '--argjson', 'at', str(now), '--argjson', 'until', grace_until, '--arg', 'd', delivery)
+            self.update(verdict, stamp)
             if delivery == 'prompted':
                 text = (f'Deadline reached: write {verdict} now with status inconclusive, listing what you proved (with its evidence) and what you never '
                         'reached, then end your turn. Stop any process you started first, and write the file complete in one write: create it under a '
@@ -188,7 +188,7 @@ class Waiter:
                     submit_typed(name, os.path.basename(verdict))
                 else:
                     delivery = 'skipped:prompt-failed'
-                    self.update(verdict, '.verifying.grace_delivery = $d', lambda v: v.__setitem__('grace_delivery', delivery), '--arg', 'd', delivery)
+                    self.update(verdict, lambda v: v.__setitem__('grace_delivery', delivery))
             event(store, 'master', 'verify-grace', brief, delivery)
         while True:
             if os.path.isfile(verdict) and header_field(verdict, 'status'):
@@ -234,7 +234,7 @@ class Waiter:
             vs.verification_still_open(store, verdict)
             if agent_status(name) in ('idle', 'done'):
                 vs.redeliver_packet(ctx, store, 'the verify that started this verifier stopped before sending its packet', name, packet, brief, kind)
-            self.update(verdict, '.verifying.delivered = true', lambda v: v.__setitem__('delivered', True))
+            self.update(verdict, lambda v: v.__setitem__('delivered', True))
         state = ''
         while True:
             if os.path.isfile(verdict) and header_field(verdict, 'status'):
@@ -270,7 +270,7 @@ class Waiter:
                     if idle_since:
                         self.drop_idle(verdict)
                 elif not idle_since:
-                    self.update(verdict, '.verifying.idle_since = $at', lambda v, at=now: v.__setitem__('idle_since', at), '--argjson', 'at', str(now))
+                    self.update(verdict, lambda v, at=now: v.__setitem__('idle_since', at))
                 elif stall_limit(now - vs.shell_arithmetic(idle_since)):
                     self.stalled = True
                     break

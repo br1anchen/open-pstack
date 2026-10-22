@@ -4,15 +4,7 @@ import sys
 import time
 
 from .errors import Die, Exit
-from .store import alt, event, expected_report, load, update_or_jq
-
-# record_dispatch's jq program at the base: where the native update cannot take a document's shapes, jq decides.
-RECORD_DISPATCH = (
-    '.dispatch = {brief: $brief, at: $now, head: $head, generation: (.sidekick.generation // 0)} | .sent = {file: $brief, kind: "BRIEF", at: $now, epoch: $epoch}\n'
-    '\t\t | (if $seen == "" then . else .sent.seen = $seen end)\n'
-    '\t\t | .heads[$brief | split("/") | last | rtrimstr(".md")] //= $head\n'
-    '\t\t | .pending = ((.pending // []) + (if $seen == "" then [$brief] else [] end) | unique)')
-
+from .store import alt, event, expected_report, listing, load, member, peek, update
 
 def fresh_per_brief(kind):
     """Sidekick kinds that start a fresh session for every brief."""
@@ -20,7 +12,7 @@ def fresh_per_brief(kind):
 
 
 def record_dispatch(store, brief, now=None):
-    """The dispatch record (record_dispatch in the bash before phase 3): the dispatch, the sent message, the unit's base head, and the pending list."""
+    """The dispatch record: .dispatch (with .sidekick.generation), .sent (with .sent.seen when a report already exists), the unit's base head, and the pending list."""
     old = expected_report(store, brief)
     seen = f'{old}:{int(os.stat(old).st_mtime)}' if os.path.isfile(old) else ''
     pair = load(store)
@@ -32,28 +24,20 @@ def record_dispatch(store, brief, now=None):
     epoch = int(stamp)
 
     def mutate(doc):
-        sidekick = doc.get('sidekick')
-        generation = alt(sidekick.get('generation') if isinstance(sidekick, dict) else None, 0)
+        generation = alt(peek(doc, 'sidekick').get('generation'), 0)
         doc['dispatch'] = {'brief': brief, 'at': at, 'head': head, 'generation': generation}
         doc['sent'] = {'file': brief, 'kind': 'BRIEF', 'at': at, 'epoch': epoch}
         if seen:
             doc['sent']['seen'] = seen
-        heads = doc.get('heads')
-        if heads is None:
-            heads = doc['heads'] = {}
-        if not isinstance(heads, dict):
-            raise ValueError('heads is not an object')
+        heads = member(doc, 'heads')
         key = brief.split('/')[-1]
         key = key[:-3] if key.endswith('.md') else key
         if alt(heads.get(key), None) is None:
             heads[key] = head
-        pending = alt(doc.get('pending'), [])
-        if not isinstance(pending, list):
-            raise ValueError('pending is not an array')
+        pending = listing(doc, 'pending')
         doc['pending'] = sorted({*pending, *([] if seen else [brief])})
 
-    update_or_jq(store, mutate, RECORD_DISPATCH, '--arg', 'brief', brief, '--arg', 'now', at, '--arg', 'head', head, '--arg', 'seen', seen,
-                 '--argjson', 'epoch', str(epoch))
+    update(store, mutate)
 
 
 def take_queued(store, now=None):

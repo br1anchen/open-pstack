@@ -629,13 +629,17 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         files[f'home/.claude/projects/{slug}/s1.jsonl'] = '{"permissionMode":"auto"}\n{"permissionMode":"bypassPermissions"}\n'
         self.assertEqual(self.detect_in(alone, files=files, session='s1'), 'bypassPermissions')
 
-    def test_detect_ends_with_the_status_of_a_failing_command_only_when_the_caller_runs_with_errexit(self):
+    def test_a_settings_file_that_is_missing_unparsable_or_without_the_key_gives_no_mode_and_the_next_file_is_read(self):
         alone = {100: (1, 'bash', 'bash')}
-        files = {'cwd/.claude/settings.local.json': '{not json', 'home/.claude/settings.json': '{"permissions": {"defaultMode": "plan"}}'}
-        self.assertEqual(self.detect_in(alone, files=files), 'plan')
-        with self.assertRaises(Exit) as raised:
-            self.detect_in(alone, strict=True, files=files)
-        self.assertEqual(raised.exception.code, 5)
+        later = {'home/.claude/settings.json': '{"permissions": {"defaultMode": "plan"}}'}
+        for name, first in (('a file that does not parse', '{not json'), ('a file with no permissions', '{}'), ('a file with no defaultMode', '{"permissions": {}}'),
+                            ('a permissions that is a string', '{"permissions": "x"}'), ('a defaultMode that is a number', '{"permissions": {"defaultMode": 3}}')):
+            for strict in (False, True):
+                self.assertEqual(self.detect_in(alone, strict=strict, files={'cwd/.claude/settings.local.json': first, **later}), 'plan', (name, strict))
+        (self.path / 'home/.claude/settings.json').unlink()
+        self.assertEqual(self.detect_in(alone, strict=True, files={'cwd/.claude/settings.local.json': '{not json'}), 'auto')
+        (self.path / 'cwd/.claude/settings.local.json').unlink()
+        self.assertEqual(self.detect_in(alone, strict=True), 'auto')
 
 
 
@@ -1775,7 +1779,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'an existing handoff is overwritten': dict(args=run, files={'session-handoff.md': 'old text\n', **rich}, pair=pair),
             'a master with no generation': dict(args=run, files=rich, pair={'slug': 'demo', 'master': {'name': 'm1'}}),
             'a master that is a string ends with the jq error': dict(args=run, files=rich, pair={'slug': 'demo', 'master': 'm1'}),
-            'a dispatch that is a string is jq\'s error and the command goes on': dict(args=run, files=rich, pair={'slug': 'demo', 'dispatch': 'x'}),
+            'a dispatch that is a string is damage': dict(args=run, files=rich, pair={'slug': 'demo', 'dispatch': 'x'}),
             'a verifying that is an array': dict(args=run, files=rich, pair={'slug': 'demo', 'verifying': [1]}),
             'a dangling brief symlink is skipped': dict(args=run, files=rich, pair={'slug': 'demo'}, links={'st/briefs/009-z.md': '/nonexistent/brief.md'}),
             'no pair.json': dict(args=run, nopair=True),
@@ -1787,9 +1791,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a store with briefs only': (0, 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master'),
             'an existing handoff is overwritten': (0, 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master'),
             'a master with no generation': (0, 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master'),
-            'a master that is a string ends with the jq error': (5, '/st/pair.json:15): Cannot index string with string ("generation")'),
-            "a dispatch that is a string is jq's error and the command goes on": (0, 'Cannot index string with string ("brief")'),
-            'a verifying that is an array': (0, 'Cannot index array with string ("unit")'),
+            'a master that is a string ends with the jq error': (1, 'pair.json is damaged: master is string, not an object'),
+            'a dispatch that is a string is damage': (1, 'pair.json is damaged: dispatch is string, not an object'),
+            'a verifying that is an array': (1, 'pair.json is damaged: verifying is array, not an object'),
             'a dangling brief symlink is skipped': (0, 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master'),
             'no pair.json': (1, 'pair.sh: no pair.json in'),
             'too many arguments': (1, 'pair.sh: usage: kitchen.sh new-handoff'),
@@ -1806,9 +1810,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('(master generation 3)', text)
         self.assertNotIn('old text', out['an existing handoff is overwritten']['files']['session-handoff.md'])
         string_master = out['a master that is a string ends with the jq error']
-        self.assertEqual((string_master['rc'], 'session-handoff.md' in string_master['files']), (5, False))
-        self.assertIn('Cannot index string with string ("generation")', string_master['stderr'])
-        self.assertIn('Cannot index string with string ("brief")', out["a dispatch that is a string is jq's error and the command goes on"]['stderr'])
+        self.assertEqual((string_master['rc'], 'session-handoff.md' in string_master['files']), (1, False))
+        self.assertIn('pair.json is damaged: master is string, not an object', string_master['stderr'])
+        self.assertIn('pair.json is damaged: dispatch is string, not an object', out['a dispatch that is a string is damage']['stderr'])
         self.assertNotIn('009-z', out['a dangling brief symlink is skipped']['files']['session-handoff.md'])
 
     FEEDBACK_REPORT = '# Feedback\n\n## Gaps\n\n### 1. a gap\n\nit hurt\n\n### 2. another\n\nagain\n'
@@ -1881,8 +1885,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a maintainer.json that is not JSON': (0, 'delivered: notification for the human (agent  is gone); read it with: cat'),
             'a maintainer.json that is an array': (0, 'delivered: notification for the human (agent  is gone); read it with: cat'),
             'herdr answers an agent of null': (0, 'delivered: notification for the human (agent mt moved off pane p7); read it with: cat'),
-            'a master that is a string': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
-            'a master that is an array': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
+            'a master that is a string': (1, 'pair.json is damaged: master is string, not an object'),
+            'a master that is an array': (1, 'pair.json is damaged: master is array, not an object'),
             'a skill_builds entry that is a number stops with jq, leaving the lock': (5, '/st/pair.json:20): Cannot index number with string ("path")'),
             'a skill_builds entry that is an array': (5, '/st/pair.json:22): Cannot index array with string ("path")'),
             'a skill_builds path that is a number': (0, 'delivered: notification for the human (no maintainer is registered); read it with: cat'),
@@ -1906,14 +1910,13 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('filed with: ', out['builds: the same skills and another']['state'][f'pstack/feedback/inbox/{stem}.md'].replace('repo-<H>', ''))
         self.assertEqual(out['a report with no gap']['rc'], 1)
         for name in ('a master that is a string', 'a master that is an array'):
-            self.assertEqual(out[name]['rc'], 0, name)
-            self.assertIn('Cannot index', out[name]['stderr'], name)
-            self.assertIn('master:  ()', out[name]['state'][f'pstack/feedback/inbox/{stem}.md'], name)
+            self.assertEqual(out[name]['rc'], 1, name)
+            self.assertIn('pair.json is damaged: master is', out[name]['stderr'], name)
+            self.assertNotIn(f'pstack/feedback/inbox/{stem}.md', out[name]['state'], name)
         stopped = out['a skill_builds entry that is a number stops with jq, leaving the lock']
         self.assertEqual(stopped['rc'], 5)
         self.assertIn('pstack/feedback/.lock/', stopped['state'])
         self.assertEqual(out['a dangling link at the name being allocated']['rc'], 0)
-        self.assertIn('filed: ', out['a master that is a string']['stdout'])
 
     def test_feedback_inbox_and_close_match_the_bash_at_the_phase_4_base(self):
         inbox = lambda *names: {f'pstack/feedback/inbox/{n}.md': self.feedback_inbox_file(n) for n in names}
@@ -2121,10 +2124,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a role with no pane is skipped': (0, 'closed sidekick s1 (p1)'),
             'a pane already gone': (0, 'closed verifier v1 (p3)'),
             'a role already closed is skipped': (0, 'closed consultant c1 (p2)'),
-            'a consultant that is a string': (0, 'closed verifier v1 (p3)'),
-            'a verifier that is an array': (0, 'closed consultant c1 (p2)'),
-            'a sidekick that is false': (0, 'closed verifier v1 (p3)'),
-            'a verifying that is a string': (0, 'closed verifier v1 (p3)'),
+            'a consultant that is a string': (1, 'pair.json is damaged: consultant is string, not an object'),
+            'a verifier that is an array': (1, 'pair.json is damaged: verifier is array, not an object'),
+            'a sidekick that is false': (1, 'pair.json is damaged: sidekick is boolean, not an object'),
+            'a verifying that is a string': (1, 'pair.json is damaged: verifying is string, not an object'),
             'a Prime role with a session': (5, 'closed consultant c1 (p2)'),
             'a role that does not exit keeps its pane': (5, 'verifier v1 did not exit; its pane p3 stays open'),
             '--force is only read as the second argument': (1, 'pair.sh: no pair.json in --force; run: pair.sh init'),
@@ -2142,7 +2145,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertIn('a verification is open (001)', out['an open verification refuses']['stderr'])
         self.assertEqual(out['a working sidekick refuses']['rc'], 5)
         self.assertEqual(out['an open verification and --force']['rc'], 0)
-        self.assertIn('Cannot index string with string', out['a consultant that is a string']['stderr'])
+        self.assertIn('pair.json is damaged: consultant is string, not an object', out['a consultant that is a string']['stderr'])
         self.assertNotIn('closed consultant', out['a consultant that is a string']['stdout'])
 
     HANDOFF_FILLED = '# Handoff\n\n## Goal\n\nfinish the port\n\n## Next\n\nunit 025\n'
@@ -2216,10 +2219,10 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a master that is not Claude': (5, 'pair.sh: rotate-master restarts a Claude master; m1 is codex'),
             'an unfinished rotation keeps its generation': (0, '/st/sessions/master-4-handoff.md (generation 4, session sess-1)'),
             'sessions are replaced by the same session': (0, '/st/sessions/master-2-handoff.md (generation 2, session sess-2)'),
-            'a master that is a string ends with the jq error': (5, '/st/pair.json:15): Cannot index string with string ("name")'),
-            'a master with sessions that is not a list': (5, 'Cannot iterate over string ("x")'),
-            'a master with sessions that is 0': (5, 'Cannot iterate over number (0)'),
-            'a master with sessions that is an empty string': (5, 'Cannot iterate over string ("")'),
+            'a master that is a string ends with the jq error': (1, 'pair.json is damaged: master is string, not an object'),
+            'a master with sessions that is not a list': (1, 'pair.json is damaged: sessions is string, not an array'),
+            'a master with sessions that is 0': (1, 'pair.json is damaged: sessions is number, not an array'),
+            'a master with sessions that is an empty string': (1, 'pair.json is damaged: sessions is string, not an array'),
             'a master with sessions that is false': (0, '/st/sessions/master-1-handoff.md (generation 1, session sess-1)'),
             'a master with sessions that is null': (0, '/st/sessions/master-1-handoff.md (generation 1, session sess-1)'),
             'no pair.json': (1, 'pair.sh: no pair.json in'),
@@ -2237,7 +2240,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotIn('--remote-control', out['remote control off']['calls'])
         self.assertEqual(out['the next master does not start']['rc'], 2)
         self.assertEqual(out['a handoff with a placeholder']['rc'], 1)
-        self.assertEqual(out['a master that is a string ends with the jq error']['rc'], 5)
+        self.assertEqual(out['a master that is a string ends with the jq error']['rc'], 1)
         self.assertIn('(generation 4, session sess-1)', out['an unfinished rotation keeps its generation']['stdout'])
         self.assertIn('master-4-handoff.md', out['an unfinished rotation keeps its generation']['stdout'])
 
@@ -2289,7 +2292,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'run from no pane': (5, "pair.sh: take-master runs from the new master's pane p5, not an unknown pane"),
             'a previous master still working when the wait is over': (0, 'closed the old master m1 (p0)'),
             'a previous master that settles during the wait': (0, 'closed the old master m1 (p0)'),
-            'a master that is a string': (5, '/st/pair.json:15): Cannot index string with string ("name")'),
+            'a master that is a string': (1, 'pair.json is damaged: master is string, not an object'),
             'unreviewed units are listed': (0, 'warning: unreviewed: unit 001 cites no joo run'),
             'a review that cites the engine is not listed': (0, 'master: demo-master in p5 (generation 2)'),
             'a skipped engine over an empty range': (0, 'master: demo-master in p5 (generation 2)'),
@@ -2320,7 +2323,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotIn('warning: unreviewed', out['a skipped engine over an empty range']['stdout'])
         self.assertIn('skipped is only for a deletion-only range', out['a skipped engine over a range that adds lines']['stdout'])
         self.assertNotIn('warning: unreviewed', out['a landing brief is not listed']['stdout'])
-        self.assertEqual(out['a master that is a string']['rc'], 5)
+        self.assertEqual(out['a master that is a string']['rc'], 1)
 
 
     def spawn_command_cases(self):
@@ -2461,9 +2464,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual((r.returncode, r.stdout), (0, 'function\n'), r.stderr)
         self.assertIn('pycore __stop_prime_role "$1" sidekick', text)
 
-    def test_update_or_jq_waits_out_a_held_lock_in_its_jq_fallback(self):
-        """The fallback (taken when the native mutate cannot apply) retries the held lock as update() does: the lock is held when the call starts and
-        released at the first poll, where the first attempt used to die. No real wait: the poll is the test's own function."""
+    def test_update_waits_out_a_held_lock_and_dies_when_it_is_never_released(self):
+        """The held lock is retried as the bash did: the lock is held when the call starts and released at the first poll. No real wait: the poll is the test's own function."""
         st = self.path / 'lockwait'
         st.mkdir()
         (st / 'pair.json').write_text('{"a": 1}\n')
@@ -2475,24 +2477,55 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             polls.append(seconds)
             lock.rmdir()
 
-        def refuses(doc):
-            raise TypeError('only jq can apply this')
-
-        # update() is made to refuse before it takes the lock, so the only wait is the fallback's own
-        with mock.patch.object(store, 'update', side_effect=TypeError), mock.patch.object(store.time, 'sleep', release), \
-                mock.patch.dict(os.environ, {'PAIR_LOCK_POLL_S': '0.25'}):
-            store.update_or_jq(str(st), refuses, '.b = 2')
+        with mock.patch.object(store.time, 'sleep', release), mock.patch.dict(os.environ, {'PAIR_LOCK_POLL_S': '0.25'}):
+            store.update(str(st), lambda doc: doc.update(b=2))
         self.assertEqual(polls, [0.25])
         self.assertEqual(json.loads((st / 'pair.json').read_text()), {'a': 1, 'b': 2})
         self.assertFalse(lock.exists())
-        # a lock that is never released still ends in the die, after PAIR_LOCK_TRIES polls
         lock.mkdir()
-        with mock.patch.object(store, 'update', side_effect=TypeError), mock.patch.object(store.time, 'sleep', lambda s: None), \
-                mock.patch.dict(os.environ, {'PAIR_LOCK_TRIES': '3'}):
+        with mock.patch.object(store.time, 'sleep', lambda s: None), mock.patch.dict(os.environ, {'PAIR_LOCK_TRIES': '3'}):
             with self.assertRaises(Die) as caught:
-                store.update_or_jq(str(st), refuses, '.c = 3')
+                store.update(str(st), lambda doc: doc.update(c=3))
         self.assertIn('pair.json lock held for 10s', caught.exception.message)
 
+    def test_a_mutate_that_meets_a_wrong_typed_value_is_damage_and_writes_nothing(self):
+        st = self.path / 'damage'
+        st.mkdir()
+        text = '{"a": "x", "b": {"c": 1}}\n'
+        (st / 'pair.json').write_text(text)
+        for name, mutate, message in (('a TypeError', lambda doc: doc['a'] + 1, 'can only concatenate str'),
+                                      ('an AttributeError', lambda doc: doc['a'].get('k'), "'str' object has no attribute 'get'"),
+                                      ('a KeyError', lambda doc: doc['b']['d'], "'d'"),
+                                      ('member of a string', lambda doc: store.member(doc, 'a'), 'a is string, not an object'),
+                                      ('listing of an object', lambda doc: store.listing(doc, 'b'), 'b is object, not an array')):
+            with self.assertRaises(Die) as caught:
+                store.update(str(st), mutate)
+            self.assertEqual(caught.exception.code, 1, name)
+            self.assertTrue(caught.exception.message.startswith('pair.json is damaged: '), name)
+            self.assertIn(message, caught.exception.message, name)
+            self.assertEqual((st / 'pair.json').read_text(), text, name)
+            self.assertFalse((st / 'pair.json.tmp').exists(), name)
+            self.assertFalse((st / '.pair.lock').exists(), name)
+
+    def test_json_type_names_the_six_json_types(self):
+        self.assertEqual([store.json_type(v) for v in (None, True, 3, 1.5, 'x', [], {})], ['null', 'boolean', 'number', 'number', 'string', 'array', 'object'])
+
+    def test_a_wrong_typed_value_is_damage_through_a_real_read_command_and_a_real_write_command(self):
+        self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
+        st = self.path / 'state/pstack/pair/demo'
+        doc = json.loads((st / 'pair.json').read_text())
+        doc['sidekick'] = 'x'
+        (st / 'pair.json').write_text(json.dumps(doc))
+        r = self.run_pair('failover', str(st))
+        self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: pair.json is damaged: sidekick is string, not an object\n'))
+        doc['sidekick'], doc['master'] = {}, 'y'
+        (st / 'pair.json').write_text(json.dumps(doc))
+        before = (st / 'pair.json').read_bytes()
+        r = self.run_pair('init', 'demo')
+        self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: pair.json is damaged: master is string, not an object\n'))
+        self.assertEqual((st / 'pair.json').read_bytes(), before)
+        self.assertFalse((st / 'pair.json.tmp').exists())
+        self.assertFalse((st / '.pair.lock').exists())
 
     def rotation_world(self, kind='devin', **sidekick):
         """A rotation-due sidekick of this kind in p1, the master in p0; the bootstrap writes its ready file."""
@@ -2782,7 +2815,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertEqual(self.run_pair('init', 'demo').returncode, 0)
         st = self.path / 'state/pstack/pair/demo'
         kitchen = root / 'skills/pstack-kitchen/scripts/kitchen.sh'
-        for text, reason in (('not json\n', 'Expecting value: line 1 column 1'), ('[1]\n', 'expected an object, found list')):
+        for text, reason in (('not json\n', 'Expecting value: line 1 column 1'), ('[1]\n', 'expected an object, found array')):
             (st / 'pair.json').write_text(text)
             for script, args in ((None, ('status', str(st))), (kitchen, ('new-handoff', str(st)))):
                 r = self.run_pair(*args, script=script)
@@ -3687,7 +3720,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a manifest changed since the verified base': (0, 'warning: dependency manifests changed since the verified base: requirements.txt'),
             'a heads that is a string': (2, 'Cannot index string with string ("001-x")'),
             'a dispatch that is a string': (0, 'land-check: pass'),
-            'a landing that is a string': (0, 'Cannot index string with string ("parent")'),
+            'a landing that is a string': (1, 'pair.json is damaged: landing is string, not an object'),
             'a master that is a string': (0, 'land-check: pass'),
             'a missing engine run': (2, 'unreviewed: unit 001 cites no joo run'),
             'a cited engine run': (0, 'land-check: pass (review engine: joo)'),
@@ -3716,7 +3749,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         self.assertNotIn('covered', out['a unit squashed into the stack']['stdout'])
         self.assertIn('landing verification: clean (<T>/st/verdicts/landing-v10.md)'.replace('clean', 'reject'), out['the newest landing verdict counts']['stdout'])
         self.assertIn('is no longer an ancestor of', out['a recorded landing parent that is no longer an ancestor']['stderr'])
-        self.assertIn('Cannot index string with string ("parent")', out['a landing that is a string']['stderr'])
+        self.assertIn('pair.json is damaged: landing is string, not an object', out['a landing that is a string']['stderr'])
         self.assertIn(gap, out['a skip over a dangling dispatch head']['stdout'])
         self.assertIn('unit 001 cites no joo run', out['a skip with no proof']['stdout'])
 
@@ -3950,7 +3983,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
     def test_update_verifying_drop_verifying_and_release_close_touch_only_the_verification_they_name(self):
         other_attempt = {'verdict': '/v/001-x-v2.md', 'units': '001', 'idle_since': 5}
         mine = {'verdict': '/v/001-x-v1.md', 'units': '001', 'idle_since': 5, 'closing': {'token': 'testhost:4242:9'}}
-        write = 'vs.update_verifying(store, "/v/001-x-v1.md", ".verifying.idle_since = $at", lambda v: v.__setitem__("idle_since", 99), "--argjson", "at", "99")'
+        write = 'vs.update_verifying(store, "/v/001-x-v1.md", lambda v: v.__setitem__("idle_since", 99))'
         # (document, call, verifying after)
         cases = {
             'a stale-attempt write after the next attempt started': (other_attempt, write, other_attempt),
@@ -4352,8 +4385,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             before = (store / 'pair.json').read_text()
             self.assertEqual(self.kitchen_py(store, 'vs.handoff_due(store, "landing")\nprint("rc=0")')[:2], (0, 'rc=0\n'), name)
             self.assertEqual((store / 'pair.json').read_text(), before, name)
-        for name, master, word in (('a master that is a string', 'x', 'Cannot index'), ('a count that is a string', {'units_since_handoff': 'a'}, 'cannot be added'),
-                                   ('a count that is not whole', {'units_since_handoff': 1.5}, 'invalid arithmetic operator')):
+        for name, master, word in (('a master that is a string', 'x', 'pair.json is damaged: master is string, not an object'),
+                                  ('a count that is a string', {'units_since_handoff': 'a'}, 'pair.json is damaged: units_since_handoff is string, not an integer'),
+                                   ('a count that is not whole', {'units_since_handoff': 1.5}, 'pair.json is damaged: units_since_handoff is number, not an integer')):
             store = self.claim_store(f'hoe{name[:8]}{len(name)}', {'verdict': 'v'}, {'master': master})
             before = (store / 'pair.json').read_text()
             rc, out, err = self.kitchen_py(store, 'vs.handoff_due(store, "001-x")\nprint("rc=0")')
@@ -4368,7 +4402,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         cases = {
             'a verifier exit wait of abc': (world(files={'verdicts/001-x-v1.md': V()}, env={'KITCHEN_VERIFIER_EXIT_S': 'abc'}), 'abc'),
             'a verifier exit wait of 1.5': (world(files={'verdicts/001-x-v1.md': V()}, env={'KITCHEN_VERIFIER_EXIT_S': '1.5'}), '1.5'),
-            'a top-level scratch that is a number, at a close': (world(files={'verdicts/001-x-v1.md': V()}, pair={'scratch': 5}), 'Traceback'),
+            'a top-level scratch that is a number, at a close': (world(files={'verdicts/001-x-v1.md': V()}, pair={'scratch': 5}), 'pair.json is damaged: scratch is number, not an array'),
             'an idle_since of abc': (world(verifying={'idle_since': 'abc'}), 'abc'),
             'an idle_since of 1.5': (world(verifying={'idle_since': 1.5}), '1.5'),
             'an idle_since of true': (world(verifying={'idle_since': True}), 'true'),
@@ -4378,7 +4412,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
         }
         cancel = {
             'a cancel with a verifier exit wait of abc': (self.verify_world(env={'KITCHEN_VERIFIER_EXIT_S': 'abc'}), 'abc'),
-            'a cancel with a top-level scratch that is a number': (self.verify_world(pair={'scratch': 5}), 'Traceback'),
+            'a cancel with a top-level scratch that is a number': (self.verify_world(pair={'scratch': 5}), 'pair.json is damaged: scratch is number, not an array'),
         }
         for n, (name, (spec, word)) in enumerate({**cases, **cancel}.items()):
             got = self.kitchen_world(f'vfail{n}', spec)
@@ -4500,9 +4534,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'the same path last': ({'skill_builds': [stamp(at='t')]}, 0, [stamp(at='t')], ''),
             'another path last': ({'skill_builds': [stamp('/old', 't')]}, 0, [stamp('/old', 't'), stamp()], ''),
             'two rows': ({'skill_builds': [stamp(at='t'), stamp('/old', 't')]}, 0, [stamp(at='t'), stamp('/old', 't'), stamp()], ''),
-            'a string': ({'skill_builds': 'x'}, 5, 'x', 'Cannot index string with number (-1)'),
-            'an object': ({'skill_builds': {}}, 5, {}, 'Cannot index object with number (-1)'),
-            'a number': ({'skill_builds': 3}, 5, 3, 'Cannot index number with number (-1)'),
+            'a string': ({'skill_builds': 'x'}, 1, 'x', 'pair.json is damaged: skill_builds is string, not an array'),
+            'an object': ({'skill_builds': {}}, 1, {}, 'pair.json is damaged: skill_builds is object, not an array'),
+            'a number': ({'skill_builds': 3}, 1, 3, 'pair.json is damaged: skill_builds is number, not an array'),
             'null': ({'skill_builds': None}, 0, None, ''),
             'false': ({'skill_builds': False}, 0, False, ''),
             'rows that are strings': ({'skill_builds': ['a']}, 0, ['a', stamp()], 'Cannot index string with string ("path")'),
@@ -4511,8 +4545,8 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             st = self.path / f'rsb{n}'
             st.mkdir()
             (st / 'pair.json').write_text(json.dumps(doc, indent=2) + '\n')
-            code = ('import sys\nfrom kitchen_core import setup\nfrom pstack_core.errors import Exit\ntry:\n    setup.record_skill_build(Ctx, store)\n    code = 0\n'
-                    'except Exit as e:\n    sys.stderr.write(e.stderr)\n    code = e.code\nprint("rc=%d" % code)')
+            code = ('import sys\nfrom kitchen_core import setup\nfrom pstack_core.errors import Die\ntry:\n    setup.record_skill_build(Ctx, store)\n    code = 0\n'
+                    'except Die as e:\n    sys.stderr.write(e.message)\n    code = e.code\nprint("rc=%d" % code)')
             rc, out, err = self.kitchen_py(st, 'class Ctx:\n    skill_root = "/skills/pstack-kitchen"\n' + code)
             self.assertEqual((rc, out), (0, f'rc={status}\n'), name)
             self.assertIn(said, err, name)
@@ -4672,7 +4706,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a plan whose risk keeps its reason': (0, 'sent PLAN 001-x.md to consultant c1\n'),
             'too few arguments': (1, 'usage: kitchen.sh discuss <store> <plan-path> [--timeout MS]'),
             'an escalated plan with no consultant': (5, 'an escalated plan goes to the consultant too; start it: kitchen.sh consultant <T>/st --reason TEXT'),
-            'an escalated plan with a consultant that is a string': (5, 'Cannot index string with string ("name")'),
+            'an escalated plan with a consultant that is a string': (1, 'pair.json is damaged: consultant is string, not an object'),
             'an escalated plan both roles answer': (0, 'sent PLAN 001-x.md to sidekick s1\nsent PLAN 001-x.md to consultant c1\nsidekick_state: idle\n' + answers),
             'a store given with a trailing slash, answered': (0, 'consultant_response: <T>/st//advice/001-x.md'),
             'a store given with a trailing slash, answered by a hook': (0, 'consultant_response: <T>/st//advice/001-x.md'),
@@ -4714,7 +4748,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'outside herdr': (1, 'not running inside Herdr (HERDR_ENV != 1)'),
             'a pair.json that is an array': (1, 'pair.json is damaged: expected an object'),
             'no pair.json': (5, 'no pair.json in <T>/st; run: pair.sh init <slug>'),
-            'a sidekick that is a string': (5, 'Cannot index string with string ("name")'),
+            'a sidekick that is a string': (1, 'pair.json is damaged: sidekick is string, not an object'),
             'a rotation that succeeds before a routine plan': (0, 'rotated: the pi sidekick starts this plan in a fresh session\nstate: idle\nreport: <T>/st/reports/001-x.md\n'),
             'a rotation flag that is the string true': (4, 'rotated: the pi sidekick starts this plan in a fresh session\n'),
             'a rotation that is not due': (4, 'state: idle\nreport: missing\n'),
@@ -4724,7 +4758,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a rotation in a paused store': (5, 'rotating the sidekick before this plan failed:\npair.sh: the store is paused (lunch)'),
             'a rotation before an escalated plan': (0, 'rotated: the pi sidekick starts this plan in a fresh session\nsent PLAN 001-x.md to sidekick s1\n'),
             'a rotation that leaves the plan unanswered': (4, 'rotated: the pi sidekick starts this plan in a fresh session\n'),
-            'a sidekick that is a string with a consultant due': (5, 'Cannot index string with string ("kind")'),
+            'a sidekick that is a string with a consultant due': (1, 'pair.json is damaged: sidekick is string, not an object'),
             'a prime-agent rotation': (4, 'rotated: the prime-agent sidekick starts this plan in a fresh session\n'),
         }
         self.kitchen_cases('disc', cases, expect)
@@ -4998,7 +5032,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a start that succeeds': (0, 'consultant c1 (codex) started in p1'),
             'a start anchored on the sidekick pane': (0, 'started in'),
             'a start whose anchor pane is gone': (0, 'started in'),
-            'a master that is a string': (5, 'jq: error (at <T>/st/pair.json:21): Cannot index string with string ("pane_id")'),
+            'a master that is a string': (1, 'pair.json is damaged: master is string, not an object'),
             'a start that returns 4': (4, 'consultant settled but advice/000-ready.md is missing; state=idle. Read the pane before prompting again.'),
             'a start that returns 3': (3, 'consultant bootstrap did not settle: {"error":{"code":"prompt_failed"}}'),
             'a start that dies with 5': (5, 'pair.sh: devin task sessions start fresh; recover partial work from the store instead of passing --resume'),
@@ -5007,16 +5041,16 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'the roster kind and its native args': (0, 'consultant c1 (pi) started in p1'),
             'the roster kind failing its preflight takes the fallback': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
             'a failover over earlier failovers': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
-            'a failover over failovers that are no array': (5, 'jq: error (at <T>/st/pair.json:25): string ("x") and array ([{"from":"pi","to":"codex...]) cannot be added'),
+            'a failover over failovers that are no array': (1, 'pair.json is damaged: failovers is string, not an array'),
             'the roster kind failing its preflight with no fallback': (2, 'pair.sh: consultant pi failed its preflight and the roster names no other fallback: pi 1.0.2 at'),
             'a fallback that is the kind itself': (2, 'pair.sh: consultant pi failed its preflight and the roster names no other fallback: pi 1.0.2 at'),
             'a failing preflight that says nothing': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
             'a failing preflight with a long message': (0, 'failover: consultant pi -> codex (preflight: pi 1.0.2 at'),
             'a roster kind that returns 4 after its preflight': (4, 'consultant settled but advice/000-ready.md is missing; state=idle. Read the pane before prompting again.'),
             'a live consultant skips the preflight': (0, 'consultant c1 already live (idle) in null'),
-            'a consultant that is a string': (5, 'jq: error (at <T>/st/pair.json:19): Cannot index string with string ("name")'),
+            'a consultant that is a string': (1, 'pair.json is damaged: consultant is string, not an object'),
             'escalations already recorded': (0, 'started in'),
-            'escalations that are no array': (5, 'jq: error (at <T>/st/pair.json:38): string ("x") and array ([{"reason":"a contract","...]) cannot be added'),
+            'escalations that are no array': (1, 'pair.json is damaged: escalations is string, not an array'),
             'an empty roster and no --kind': (1, 'pair.sh: no --kind and no [consultant] kind in the host roster'),
             'a roster that does not parse': (1, 'Traceback (most recent call last):'),
             'no reason': (1, 'pair.sh: --reason is required: the escalation that warrants the consultant'),
@@ -5525,7 +5559,7 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             'a brief under a plan that is not there': (0, 'risk: routine\n'),
             'an escalated brief with a live consultant': (0, 'escalate: the brief says risk: escalated'),
             'an escalated brief with a consultant that is gone': (0, 'next: kitchen.sh consultant <T>/st --reason "the brief says risk: escalated", then a plan round with it'),
-            'an escalated brief with a consultant that is a string': (0, 'Cannot index string with string ("name")'),
+            'an escalated brief with a consultant that is a string': (1, 'pair.json is damaged: consultant is string, not an object'),
             'a pair.json that is an array and an escalated brief': (1, 'pair.json is damaged: expected an object'),
             'a pair.json that does not parse and an escalated brief': (1, 'pair.json is damaged: '),
             'a risk word with a no-break space after it': (0, 'risk: routine\n'),
@@ -5657,11 +5691,11 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             '--kind pi, whose session is a path': (4, started + 'pi (model unspecified)) in p1 on'),
             '--timeout': (4, 'deadline 20m (--timeout)'),
             'a tab launch, whose env words reach tab create': (4, started),
-            'a tab launch whose master is a string, with a live sidekick pane': (5, 'Cannot index string with string ("pane_id")'),
+            'a tab launch whose master is a string, with a live sidekick pane': (1, 'pair.json is damaged: master is string, not an object'),
             '--timeout as the sum 1+1': (4, 'deadline 1+1m (--timeout)'),
             '--timeout as the product 2*15': (4, 'deadline 2*15m (--timeout)'),
             '--timeout in octal': (4, 'deadline 010m (--timeout)'),
-            'a roster that does not parse, with --kind': (2, 'Traceback'),
+            'a roster that does not parse, with --kind': (2, 'verifier entry is not JSON'),
             '--base': (4, started),
             '--base that is no commit': (1, '--base nothere is not a commit'),
             'a unit with a recorded base behind where its branch leaves trunk': (4, "is behind where its branch leaves remotes/origin/main; measuring from"),
@@ -5696,9 +5730,9 @@ roles=(sidekick); store_dirs=(plans); slug_max=21
             '--wait with nothing open': (5, 'no verification is open; start one with kitchen.sh verify'),
             'too few arguments': (1, 'usage: kitchen.sh verify <store> <NNN>...'),
             'a pair.json that is an array': (1, 'pair.json is damaged: expected an object'),
-            'a verifier that is a string': (5, 'Cannot index string with string ("name")'),
+            'a verifier that is a string': (1, 'pair.json is damaged: verifier is string, not an object'),
             'a heads that is a string': (1, 'Cannot index string with string ("001-x")'),
-            'a master that is a string': (5, 'Cannot index string with string ("pane_id")'),
+            'a master that is a string': (1, 'pair.json is damaged: master is string, not an object'),
             'a sidekick that is a string': (5, 'Cannot index string with string ("kind")'),
             'outside herdr': (1, 'not running inside Herdr'),
         }

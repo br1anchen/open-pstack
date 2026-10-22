@@ -38,4 +38,4 @@ def tolerant_field(store, role, key, check=False, default=None, empty=False):
         if check:
             raise Exit(2)
         return ''
-    return field(store, role, key, check=check, default=default, empty=empty)
+    return field(store, role, key, default=default, empty=empty)

@@ -2,7 +2,6 @@ import glob
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 
@@ -149,7 +148,7 @@ def run(ctx, args):
     except NoPairJson:
         sys.stderr.write(f'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\n')
         sys.stderr.flush()
-        code = subprocess.run(['jq', '-r', '.master.name', ''], check=False).returncode
+        code = 2
     finally:
         out.close()
     return 1 if out.failed else code
