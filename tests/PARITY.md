@@ -17,6 +17,10 @@ Three behaviours differ from what an agent might expect. Each is a line in SPEC.
 
 A host with no `python3` on PATH now ends a script with bash's own `exec: python3: not found` (exit 127) where it printed `pair.sh: python3 is required on PATH` and exited 1; the missing `herdr` line is unchanged.
 
+The lines that once repeated a tool's error text (jq's, grep's, tee's) are the program's own messages now: `<prog>: cannot read <path>: <reason>`, `<prog>: cannot write <path>: <reason>`,
+`<prog>: pair.json is missing from <store>` and the step-row refusal in `wait`, with the same exit codes and streams. `stop` and `wait` no longer leave an empty `pair.json.tmp` behind.
+`test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words` pins each.
+
 ## History
 
 The table of accepted differences from the bash bases (D1 to D27 and the per-unit rows) is in git: `git show b60b497:tests/PARITY.md`.

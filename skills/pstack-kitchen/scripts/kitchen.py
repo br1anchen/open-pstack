@@ -1529,7 +1529,7 @@ def brief_scope(brief: Path) -> list[str]:
         elif line.startswith('must not write:') or line.startswith('## '):
             on = False
         elif on and line.startswith('- '):
-            # As pair-core's scope_entries: a backquoted entry is kept whole,
+            # Reads an entry as pstack_core's scope_entries does: a backquoted entry is kept whole,
             # else a " — " (or – or --) annotation and a trailing (...) note go.
             e = line[2:]
             if e.startswith('`'):

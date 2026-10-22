@@ -1,6 +1,6 @@
 """The consultant's commands, shared by pstack-trio and pstack-kitchen: a plan round that reaches the sidekick and the consultant, and the
-consult files (new-consult, consult, advice). Ported from pstack-trio's consultant-core.sh; kitchen_core.discuss wraps discuss_with_consultant
-for escalated plans (one wake) and the trio registers it as its own discuss."""
+consult files (new-consult, consult, advice). kitchen_core.dispatch wraps discuss_with_consultant for escalated plans (one wake) and the trio
+registers it as its own discuss."""
 
 import glob
 import os
