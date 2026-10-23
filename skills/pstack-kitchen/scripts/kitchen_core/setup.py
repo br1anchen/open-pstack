@@ -195,7 +195,7 @@ def consultant(ctx, args):
             native = fb_args
     # The escalation is recorded once the consultant is up, so a start that fails (a trust prompt) and is retried counts it once.
     end_with_parent()
-    code = pair_spawn.spawn_consultant(ctx, store, kind, permission, '60000', list(native))
+    code = pair_spawn.spawn_consultant(ctx, store, pair_spawn.SpawnRequest(kind, permission, args=tuple(native)))
     if code:
         raise Exit(code)
     stamp = now()

@@ -16,6 +16,7 @@ import re
 import sys
 import time
 import contextlib
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -529,8 +530,11 @@ def verify(ctx, args):
                         scratch=scratch_path(ctx, store, scratch_id, c.head))
     if o.landing:
         record_landing_parent(store, o, c)
-    write_packet(ctx, root, f'{ctx.skill_root}/scripts', store, packet, verdict, v.scratch, c.base, c.head, v.identity, 'landing' if o.landing else c.cls, timeout_m,
-                 c.risk, allunits, o.units, o.covered, o.landing, last, slug, c.cls, c.data, c.cfg)
+    write_packet(packet, Packet(
+        template=f'{ctx.skill_root}/references/verdict-template.md', tool_dir=f'{ctx.skill_root}/scripts', root=root, store=store, verdict=verdict,
+        scratch=v.scratch, base=c.base, head=c.head, identity=v.identity, vclass='landing' if o.landing else c.cls, timeout_m=timeout_m, risk=c.risk,
+        units=tuple(allunits), own=tuple(o.units), covered=tuple(o.covered), landing=o.landing, last=last, slug=slug, data=c.data,
+        config=c.cfg[1] if len(c.cfg) > 1 else ''))
     pane, started = launch_verifier(v)
     record_start(v, pane, started)
     deliver_packet(v)
@@ -666,75 +670,111 @@ def section_lines(path, pattern, keep_heading):
     return found
 
 
-def write_packet(ctx, root, here, store, packet, verdict, scratch, base, head, identity, vclass, timeout_m, risk, allunits, units, covered, landing, last,
-                 slug, cls, data, cfg):
+@dataclass(frozen=True)
+class Packet:
+    """What the verifier's packet says: where the repo and the kitchen's scripts are, the range, the units, and the verifier it is for. `units` are all
+    the units proved (the fix's covered ones first), `own` those named as the fix; `config` is the kitchen config the diff was classified under."""
+    template: str
+    tool_dir: str
+    root: str
+    store: str
+    verdict: str
+    scratch: str
+    base: str
+    head: str
+    identity: str
+    vclass: str
+    timeout_m: int
+    risk: str
+    units: tuple
+    own: tuple
+    covered: tuple
+    landing: bool
+    last: str
+    slug: str
+    data: dict
+    config: str
+
+
+PACKET_RULE = 'Write rule: you write only your verdict file and the scratch worktree you were given; work only in that worktree and write nothing else but the verdict.'
+
+
+def landing_sections(p, parts):
+    """Adds the packet's opening for a landing to parts: the stack's header and each covered unit's goal."""
+    parts += [f'# Verify landing: the stack at {p.head[:9]}\n\nverdict: {p.verdict}\ntemplate: {p.template}\nscratch: {p.scratch}\n'
+              f'range: {p.base}..{p.head}\nrisk: landing\nunits: landing\nverifier-agent: {p.identity}\nverifier-class: {p.vclass}\nverifier-outcome: prepared\n'
+              f'deadline: {p.timeout_m}m from now\n\n',
+              f'{PACKET_RULE}\n\n',
+              '## Stack\n\nEach unit below was verified on its own. Prove that together, at this tip,\nthey still hold: run every Prove command, then drive the main flows the\n'
+              'briefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n']
+    stacked = landing_covered_briefs(p.store, p.root, p.base, p.head)
+    parts += [f'- {b}\n' for b in stacked]
+    parts.append('\n## Goals\n\n')
+    for b in stacked:
+        name = os.path.basename(b)[:-3]
+        parts.append(f'### Unit {name[:3]} {name[4:]}\n\n')
+        goal = section_lines(b, r'^## Goal', False)
+        while goal and goal[0] == '':
+            goal.pop(0)
+        parts.append('\n'.join(goal).rstrip('\n') + '\n\n')
+
+
+def unit_sections(p, parts):
+    """Adds the packet's opening for named units to parts: the header, then each unit's Goal and Acceptance, its commands, and the lessons that apply to the briefs."""
+    parts += [f'# Verify {p.last}: {p.slug}\n\nverdict: {p.verdict}\ntemplate: {p.template}\nscratch: {p.scratch}\nrange: {p.base}..{p.head}\n'
+              f'risk: {p.risk}\nunits: {" ".join(p.units)}\nverifier-agent: {p.identity}\nverifier-class: {p.vclass}\nverifier-outcome: prepared\n'
+              f'deadline: {p.timeout_m}m from now\n\n',
+              f'{PACKET_RULE}\n\n']
+    if p.covered:
+        parts.append(f"Unit {' '.join(p.own)} fixes unit {' '.join(p.covered)}: prove every unit's Acceptance at this one head.\n\n")
+    for u in p.units:
+        b = unit_brief(p.store, u)
+        parts.append(f'## Unit {u}\n\nbrief: {b}\n\n')
+        parts += [line + '\n' for line in section_lines(b, r'^## (Goal|Acceptance)', True)]
+        parts.append('\n')
+        parts.append(brief_commands(p.store, p.root, b, u))
+    briefs = []
+    for u in p.units:
+        found = sorted(glob.glob(f'{glob.escape(p.store)}/briefs/{glob.escape(u)}-*.md'))
+        briefs += found if found else [f'{p.store}/briefs/{u}-*.md']
+    lessons = kpy.kitchen_py.lesson_packet([Path(b) for b in briefs]).rstrip('\n')
+    if lessons:
+        parts.append(f'{lessons}\n\n')
+
+
+def prove_section(p, parts):
+    """Adds the packet's Prove block to parts: the gates the verifier runs in the scratch worktree, then the feature map and the verification skills."""
+    parts += ['## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo\'s scripts give you\n'
+              'your own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n'
+              '```bash\nexport PSTACK_KITCHEN_ROLE=verifier',
+              f' PSTACK_KITCHEN_RUN={read(p.store, "slug")}\n']
+    tool = f'{p.tool_dir}/kitchen.py' + (f' --config {p.config}' if p.config else '')
+    if (p.data.get('scratch_setup') or []):
+        parts.append(f'python3 {tool} --repo {p.scratch} setup\n')
+    forked = git.run(p.root, 'merge-base', p.base, p.head, quiet=True)
+    merge_base = forked.stdout.rstrip('\n') if forked.returncode == 0 else p.base
+    for profile in p.data.get('behavioral') or []:
+        parts.append(f'python3 {tool} --repo {p.scratch} gate {profile} behavioral --role verifier --base {merge_base}\n')
+    # A landing verification also runs the touched profiles' landing commands.
+    if p.risk == 'landing':
+        for profile in p.data.get('landing') or []:
+            parts.append(f'python3 {tool} --repo {p.scratch} gate {profile} landing --role verifier --base {merge_base}\n')
+    features = p.data.get('features') or []
+    parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(features)) + '\n')
+    skills = sorted([d + '/' for d in glob.glob(f'{glob.escape(p.root)}/.agents/skills/verify-*') if os.path.isdir(d)])
+    parts.append('verification skill: ' + ''.join(s + ' ' for s in skills) + '\n')
+
+
+def write_packet(path, packet):
     """The verifier's packet, written even when a step fails midway, so what was gathered stays."""
-    parts = []
-    rule = 'Write rule: you write only your verdict file and the scratch worktree you were given; work only in that worktree and write nothing else but the verdict.'
+    p, parts = packet, []
     try:
-        if landing:
-            parts.append(f'# Verify landing: the stack at {head[:9]}\n\nverdict: {verdict}\ntemplate: {ctx.skill_root}/references/verdict-template.md\nscratch: {scratch}\n'
-                         f'range: {base}..{head}\nrisk: landing\nunits: landing\nverifier-agent: {identity}\nverifier-class: {vclass}\nverifier-outcome: prepared\n'
-                         f'deadline: {timeout_m}m from now\n\n')
-            parts.append(f'{rule}\n\n')
-            parts.append('## Stack\n\nEach unit below was verified on its own. Prove that together, at this tip,\nthey still hold: run every Prove command, then drive the main flows the\n'
-                         'briefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n')
-            stacked = landing_covered_briefs(store, root, base, head)
-            for b in stacked:
-                parts.append(f'- {b}\n')
-            parts.append('\n## Goals\n\n')
-            for b in stacked:
-                name = os.path.basename(b)[:-3]
-                parts.append(f'### Unit {name[:3]} {name[4:]}\n\n')
-                goal = section_lines(b, r'^## Goal', False)
-                while goal and goal[0] == '':
-                    goal.pop(0)
-                parts.append('\n'.join(goal).rstrip('\n') + '\n\n')
-        else:
-            parts.append(f'# Verify {last}: {slug}\n\nverdict: {verdict}\ntemplate: {ctx.skill_root}/references/verdict-template.md\nscratch: {scratch}\nrange: {base}..{head}\n'
-                         f'risk: {risk}\nunits: {" ".join(allunits)}\nverifier-agent: {identity}\nverifier-class: {vclass}\nverifier-outcome: prepared\n'
-                         f'deadline: {timeout_m}m from now\n\n')
-            parts.append(f'{rule}\n\n')
-            if covered:
-                parts.append(f"Unit {' '.join(units)} fixes unit {' '.join(covered)}: prove every unit's Acceptance at this one head.\n\n")
-            for u in allunits:
-                b = unit_brief(store, u)
-                parts.append(f'## Unit {u}\n\nbrief: {b}\n\n')
-                for line in section_lines(b, r'^## (Goal|Acceptance)', True):
-                    parts.append(line + '\n')
-                parts.append('\n')
-                parts.append(brief_commands(store, root, b, u))
-            ubriefs = []
-            for u in allunits:
-                found = sorted(glob.glob(f'{glob.escape(store)}/briefs/{glob.escape(u)}-*.md'))
-                ubriefs += found if found else [f'{store}/briefs/{u}-*.md']
-            lessons = kpy.kitchen_py.lesson_packet([Path(b) for b in ubriefs]).rstrip('\n')
-            if lessons:
-                parts.append(f'{lessons}\n\n')
-        if os.path.isfile(f'{store}/standing-orders.md'):
-            orders = read_text(f'{store}/standing-orders.md').rstrip('\n')
-            parts.append(f'## Standing orders\n\nThey bind you as they bind the sidekick ({store}/standing-orders.md):\n\n{orders}\n\n')
-        diff = git.run(root, 'diff', '--stat', f'{base}...{head}').stdout
+        (landing_sections if p.landing else unit_sections)(p, parts)
+        if os.path.isfile(f'{p.store}/standing-orders.md'):
+            orders = read_text(f'{p.store}/standing-orders.md').rstrip('\n')
+            parts.append(f'## Standing orders\n\nThey bind you as they bind the sidekick ({p.store}/standing-orders.md):\n\n{orders}\n\n')
+        diff = git.run(p.root, 'diff', '--stat', f'{p.base}...{p.head}').stdout
         parts.append(f'## Changed\n\n```\n{tail_lines(diff, 40)}\n```\n\n')
-        parts.append('## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo\'s scripts give you\n'
-                     'your own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n'
-                     '```bash\nexport PSTACK_KITCHEN_ROLE=verifier')
-        parts.append(f' PSTACK_KITCHEN_RUN={read(store, "slug")}\n')
-        config = cfg[1] if len(cfg) > 1 else ''
-        tool = f'{here}/kitchen.py' + (f' --config {config}' if config else '')
-        if (data.get('scratch_setup') or []):
-            parts.append(f'python3 {tool} --repo {scratch} setup\n')
-        forked = git.run(root, 'merge-base', base, head, quiet=True)
-        merge_base = forked.stdout.rstrip('\n') if forked.returncode == 0 else base
-        for profile in data.get('behavioral') or []:
-            parts.append(f'python3 {tool} --repo {scratch} gate {profile} behavioral --role verifier --base {merge_base}\n')
-        # A landing verification also runs the touched profiles' landing commands.
-        if risk == 'landing':
-            for profile in data.get('landing') or []:
-                parts.append(f'python3 {tool} --repo {scratch} gate {profile} landing --role verifier --base {merge_base}\n')
-        features = data.get('features') or []
-        parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(features)) + '\n')
-        skills = sorted([p + '/' for p in glob.glob(f'{glob.escape(root)}/.agents/skills/verify-*') if os.path.isdir(p)])
-        parts.append('verification skill: ' + ''.join(s + ' ' for s in skills) + '\n')
+        prove_section(p, parts)
     finally:
-        write_text(packet, ''.join(parts))
+        write_text(path, ''.join(parts))

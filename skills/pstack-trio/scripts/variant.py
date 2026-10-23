@@ -9,7 +9,7 @@ from pstack_core.commands.stop import clear_queue, stop_role
 from pstack_core.store import field, header_field, pair_file, whole_number, who
 from pstack_core.errors import Die, MasterKindUnknown, NoDiverseKinds, PlanNotAgreed
 from pstack_core.panes import agent_kind, agent_status, require_herdr
-from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
+from pstack_core.spawn import SpawnRequest, record_fallback, set_placement, spawn_consultant, spawn_sidekick
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
 from pstack_core.wait import agent_state, end_with_parent, timeout_ms
 
@@ -108,11 +108,11 @@ def spawn(ctx, args):
     cpermission = opts['cpermission'] or opts['permission']
     if only != 'consultant':
         record_fallback(store, opts['fallback'], fallback_args)
-        rc = spawn_sidekick(ctx, store, sidekick_kind, opts['permission'], master_pane, opts['timeout'], '', '', rest)
+        rc = spawn_sidekick(ctx, store, SpawnRequest(sidekick_kind, opts['permission'], master_pane, opts['timeout'], args=tuple(rest)))
         if rc != 0:
             return rc
     if only != 'sidekick':
-        rc = spawn_consultant(ctx, store, consultant_kind, cpermission, opts['timeout'], rest)
+        rc = spawn_consultant(ctx, store, SpawnRequest(consultant_kind, cpermission, timeout=opts['timeout'], args=tuple(rest)))
         if rc != 0:
             return rc
     sidekick_entry = field(store, 'sidekick', 'kind', default='absent')

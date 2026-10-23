@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+from dataclasses import dataclass, field as dataclass_field
 
 from .errors import BadNumber, BadSlug, DamagedStore, LockHeld, MissingStore
 
@@ -468,24 +469,22 @@ def update(store, mutate):
             pass
 
 
+@dataclass(slots=True)
 class Context:
     """What a variant's class attributes configure: skill, state root, labels, roles, store directories, slug limit, unfilled pattern, the name
     its messages carry (pair.sh, kitchen.sh) and whether it writes a repeated master wake once."""
 
-    __slots__ = ('skill', 'skill_root', 'state_root', 'store_label', 'roles', 'store_dirs', 'slug_max', 'unfilled_re', 'prog', 'event_dedupe', '_variant')
-
-    def __init__(self, skill, skill_root, state_root, store_label, roles, store_dirs, slug_max, unfilled_re, prog='pair.sh', event_dedupe=False):
-        self.skill = skill
-        self.skill_root = skill_root
-        self.state_root = state_root
-        self.store_label = store_label
-        self.roles = roles
-        self.store_dirs = store_dirs
-        self.slug_max = slug_max
-        self.unfilled_re = unfilled_re
-        self.prog = prog
-        self.event_dedupe = event_dedupe
-        self._variant = None
+    skill: str
+    skill_root: str
+    state_root: str
+    store_label: str
+    roles: tuple
+    store_dirs: tuple
+    slug_max: int
+    unfilled_re: str
+    prog: str = 'pair.sh'
+    event_dedupe: bool = False
+    _variant: object = dataclass_field(default=None, init=False, repr=False, compare=False)
 
     @property
     def variant(self):

@@ -5,7 +5,7 @@ import io
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from . import agents
 from .argv import Spec, read
@@ -65,7 +65,22 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
     return True
 
 
-def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, pane, args):
+@dataclass(frozen=True)
+class SpawnRequest:
+    """How to start a role's agent: its kind and permission ('' for the kind's default), the pane to split from, the start timeout in milliseconds, the
+    split direction, the pane to reuse, and the agent's own arguments."""
+    kind: str
+    permission: str = ''
+    anchor: str = ''
+    timeout: str = '60000'
+    direction: str = ''
+    pane: str = ''
+    args: tuple = ()
+
+
+def spawn_role(ctx, store, role, request):
+    kind, permission, anchor, timeout, direction, pane, args = (request.kind, request.permission, request.anchor, request.timeout, request.direction,
+                                                                 request.pane, list(request.args))
     master_mode = mode_of_this_shell()
     if not permission:
         permission = 'bypassPermissions' if kind == 'devin' else master_mode
@@ -230,11 +245,12 @@ def preflight_reason(kind, args):
         sys.stderr = seen
 
 
-def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pane, args):
+def spawn_sidekick(ctx, store, request):
     """Starts the sidekick, or its recorded fallback when the kind's preflight fails. The fallback starts with its own recorded arguments and
     its kind's default permission. A live sidekick skips the preflight. Returns spawn_role's 0, 3 or 4."""
+    kind = request.kind
     if agents.has_preflight(kind) and agent_status(field(store, 'sidekick', 'name')) == 'absent':
-        code, reason = preflight_reason(kind, args)
+        code, reason = preflight_reason(kind, list(request.args))
         if code != 0:
             reason = f'preflight: {reason or "no answer"}'
             sys.stderr.write(f'{kind} failed {reason}\n')
@@ -243,16 +259,16 @@ def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pan
             if not name or name == kind:
                 raise NoFallback(f'no fallback recorded for a failed {kind}; pass --fallback KIND or fix the agent')
             record_failover(store, kind, name, reason)
-            return spawn_role(ctx, store, 'sidekick', name, '', anchor, timeout, direction, pane, names(fallback, 'args'))
-    return spawn_role(ctx, store, 'sidekick', kind, permission, anchor, timeout, direction, pane, args)
+            return spawn_role(ctx, store, 'sidekick', replace(request, kind=name, permission='', args=tuple(names(fallback, 'args'))))
+    return spawn_role(ctx, store, 'sidekick', request)
 
 
-def spawn_consultant(ctx, store, kind, permission, timeout, args):
+def spawn_consultant(ctx, store, request):
     """The consultant splits from the sidekick's pane, so the master keeps its height; the master's pane when the sidekick's is gone."""
     anchor = field(store, 'sidekick', 'pane_id')
     if not anchor or herdr('pane', 'get', anchor)[0] != 0:
         anchor = field(store, 'master', 'pane_id')
-    return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args)
+    return spawn_role(ctx, store, 'consultant', replace(request, anchor=anchor))
 
 
 def usage(ctx):
@@ -299,8 +315,8 @@ def start_sidekick(ctx, store, options):
     pair_file(store)
     set_placement(store, options.placement)
     record_fallback(store, options.fallback, options.fallback_args)
-    return spawn_sidekick(ctx, store, options.kind, options.permission, field(store, 'master', 'pane_id'), options.timeout, options.direction, options.pane,
-                          list(options.native))
+    return spawn_sidekick(ctx, store, SpawnRequest(options.kind, options.permission, field(store, 'master', 'pane_id'), options.timeout, options.direction,
+                                                   options.pane, options.native))
 
 
 def spawn(ctx, args):

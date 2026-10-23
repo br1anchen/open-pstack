@@ -12,7 +12,7 @@ from ..errors import Die, RotationFailed, translate
 from ..exits import exit_command, exit_deadline, exit_poll, stop_prime_role
 from ..gates import require_not_paused, check_scope
 from ..panes import MERGED, agent_prompt, agent_status, herdr, require_herdr
-from ..spawn import spawn_role, record_failover
+from ..spawn import SpawnRequest, spawn_role, record_failover
 from ..wait import end_with_parent
 from ..replies import queued_brief
 from ..review import require_filled
@@ -60,7 +60,7 @@ def rotate(ctx, args):
         raise Die(f'{who("sidekick", name)} is {status}; wait for its report and turn to end before rotating', 5)
     start_args = names(sidekick, 'start_args')
     event(store, 'master', 'rotate', '-', f'generation:{field(store, "sidekick", "generation")}')
-    return spawn_role(ctx, store, 'sidekick', kind, 'none', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'), start_args)
+    return spawn_role(ctx, store, 'sidekick', SpawnRequest(kind, 'none', field(store, 'master', 'pane_id'), pane=field(store, 'sidekick', 'pane_id'), args=tuple(start_args)))
 
 
 def rotate_if_due(ctx, store, what):
@@ -165,8 +165,8 @@ def failover(ctx, args):
                 raise Die(f'{kind} sidekick has not exited; close it by hand, then rerun failover', 5)
             exit_poll()
     record_failover(store, kind, fallback, reason)
-    rc = spawn_role(ctx, store, 'sidekick', fallback, '', field(store, 'master', 'pane_id'), '60000', '', field(store, 'sidekick', 'pane_id'),
-                    names(recorded, 'args'))
+    rc = spawn_role(ctx, store, 'sidekick', SpawnRequest(fallback, anchor=field(store, 'master', 'pane_id'), pane=field(store, 'sidekick', 'pane_id'),
+                                                          args=tuple(names(recorded, 'args'))))
     running = field(store, 'dispatch', 'brief')
     if rc == 0 and running and not os.path.isfile(expected_report(store, running)):
         print(f'next: re-dispatch {running} with "resumed after failover from {kind}" in its Context')

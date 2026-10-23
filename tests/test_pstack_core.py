@@ -1816,7 +1816,7 @@ class CoreTests(unittest.TestCase):
         outcomes = {}
         for n, (name, spec) in enumerate(cases.items()):
             got = self.kitchen_world(f'{label}{n}', spec)
-            self.maxDiff = None
+            
             rc, text = expect[name]
             self.assertEqual(got['rc'], rc, f'{name}: {got["stdout"]}{got["stderr"]}')
             self.assertIn(text, f'{got["stdout"]}\n{got["stderr"]}', name)
@@ -7462,6 +7462,53 @@ class OptionReaderGuardTests(unittest.TestCase):
         paths = [p for r in ARGV_ROOTS for p in sorted((root / 'skills' / r).glob('**/*.py')) if p.name != 'argv.py']
         paths += [root / 'skills' / f for f in ARGV_FILES]
         stray = [f'{p.relative_to(root)}:{n}' for p in paths for n in hand_rolled_option_reads(p.read_text())]
+        self.assertEqual(stray, [])
+
+
+MAX_BODY_LINES = 80
+MAX_PARAMETERS = 8
+
+
+def oversized_functions(source):
+    """(name, line, what) of each function whose body runs over MAX_BODY_LINES or that takes more than MAX_PARAMETERS parameters; self and cls do not
+    count, keyword-only parameters do. A method is named for its class."""
+    found = []
+
+    def visit(node, owner):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                visit(child, f'{owner}{child.name}.')
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                a = child.args
+                params = [p.arg for p in (*a.posonlyargs, *a.args, *a.kwonlyargs, *filter(None, (a.vararg, a.kwarg)))]
+                if owner and params[:1] in (['self'], ['cls']):
+                    params = params[1:]
+                body = child.end_lineno - child.body[0].lineno + 1
+                if body > MAX_BODY_LINES:
+                    found.append((f'{owner}{child.name}', child.lineno, f'{body} body lines'))
+                if len(params) > MAX_PARAMETERS:
+                    found.append((f'{owner}{child.name}', child.lineno, f'{len(params)} parameters'))
+                visit(child, f'{owner}{child.name}.')
+            else:
+                visit(child, owner)
+    visit(ast.parse(source), '')
+    return found
+
+
+class FunctionSizeGuardTests(unittest.TestCase):
+    def test_the_guard_counts_body_lines_and_parameters_without_self_and_cls(self):
+        wide = 'class K:\n    def m(self, a, b, c, d, e, f, g, *, h, i):\n        pass\n    @classmethod\n    def n(cls, a, b, c, d, e, f, g, h):\n        pass\n'
+        self.assertEqual(oversized_functions(wide), [('K.m', 2, '9 parameters')])
+        self.assertEqual(oversized_functions('def f(cls, a, b, c, d, e, f, g, h):\n    pass\n'), [('f', 1, '9 parameters')])
+        long_body = 'def f():\n    """doc"""\n' + '    x = 1\n' * (MAX_BODY_LINES - 1)
+        self.assertEqual(oversized_functions(long_body), [])
+        self.assertEqual(oversized_functions(long_body + '    x = 1\n'), [('f', 1, f'{MAX_BODY_LINES + 1} body lines')])
+
+    @unittest.expectedFailure  # the long bodies are split in step 3 of unit 075, which removes this mark
+    def test_no_core_or_variant_function_runs_over_80_body_lines_or_takes_more_than_8_parameters(self):
+        paths = [p for r in ARGV_ROOTS for p in sorted((root / 'skills' / r).glob('**/*.py'))]
+        paths += [root / 'skills' / f for f in ARGV_FILES]
+        stray = [f'{p.relative_to(root)}:{line} {name}: {what}' for p in paths for name, line, what in oversized_functions(p.read_text())]
         self.assertEqual(stray, [])
 
 
