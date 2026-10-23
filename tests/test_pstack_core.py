@@ -31,7 +31,7 @@ from pstack_core import agents, argv, cli, exits, git, numbers, panes, permissio
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
     AgentBlocked, AgentBusy, AgentNotLive, BadNumber, BadScratch, DamagedStore, Die, EmptyStepLog, Exit, FileFailed, LockHeld, MissingStore, NoBrief, NotInHerdr, PairError, PairJsonGone, Paused, PlanNotAgreed,
-    StepLogUnreadable, ToolFailed, UnitNotCheckable, Unfilled, VerificationTaken, refuse_as, translate,
+    StepLogUnreadable, StepRefused, ToolFailed, UnitNotCheckable, Unfilled, VerificationTaken, refuse_as, translate,
 )
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
 
@@ -2527,6 +2527,49 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(said, [f'landing verification: none; kitchen.sh verify {st} --landing proves the stack tip with a fresh verifier\n'])
         self.assertEqual(landing.clean_landing_ranges(str(st), '', None, '', said.append), [])
         self.assertEqual(len(said), 1)
+
+    def test_finish_wants_the_checkout_at_the_reports_head_with_nothing_uncommitted_unless_the_brief_commits_nothing(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import step
+        repo = self.path / 'head-repo'
+        repo.mkdir()
+        env = {**self.env, **self.GIT}
+
+        def git_(*args):
+            return subprocess.run(['git', '-C', str(repo), *args], env=env, check=True, capture_output=True, text=True).stdout.strip()
+
+        git_('init', '-q', '-b', 'main')
+        (repo / 'f.txt').write_text('one\n')
+        git_('add', 'f.txt')
+        git_('commit', '-q', '-m', 'one')
+        first = git_('rev-parse', 'HEAD')
+        (repo / 'f.txt').write_text('two\n')
+        git_('commit', '-q', '-am', 'two')
+        second = git_('rev-parse', 'HEAD')
+        report, commits, commitless = self.path / 'r.md', self.path / 'b-yes.md', self.path / 'b-no.md'
+        commits.write_text('commit: yes\n')
+        commitless.write_text('commit: no\n')
+        with mock.patch.dict(os.environ, env):
+            report.write_text('head: nonesuch\n')
+            with self.assertRaises(StepRefused) as refused:
+                step.require_head_checked_out(str(repo), str(report), str(commits))
+            self.assertEqual(refused.exception.message, "r.md: head: nonesuch is not a commit; name the unit's last commit and finish again")
+            report.write_text(f'head: {first}\n')
+            with self.assertRaises(StepRefused) as refused:
+                step.require_head_checked_out(str(repo), str(report), str(commits))
+            self.assertIn(f"the checkout is at {second[:9]}, not the report's head: {first[:9]}", refused.exception.message)
+            report.write_text(f'head: {second}\n')
+            self.assertEqual(step.require_head_checked_out(str(repo), str(report), str(commits)), second)
+            (repo / 'new.txt').write_text('x\n')
+            with self.assertRaises(StepRefused) as refused:
+                step.require_head_checked_out(str(repo), str(report), str(commits))
+            self.assertIn('the checkout holds work the unit\'s head does not:\n?? new.txt\n', refused.exception.message)
+            self.assertEqual(step.require_head_checked_out(str(repo), str(report), str(commitless)), second)
 
     def test_feedback_moves_a_file_into_place_or_names_the_move_it_could_not_make(self):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))

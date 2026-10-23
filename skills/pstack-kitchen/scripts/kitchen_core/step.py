@@ -280,6 +280,32 @@ def verify_running(store, report, head, job):
                      f'kitchen.sh finish {store} {report}\n')
 
 
+def require_head_checked_out(root, report, brief):
+    """The full sha of the report's `head:`, once the checkout is at it with nothing uncommitted: the kitchen reruns the brief's Verify commands at the
+    unit's tip, so a head that is no commit, another HEAD or a dirty tree is refused with what to do."""
+    found = git.run(root, 'rev-parse', '--verify', '--quiet', f'{header_field(report, "head")}^{{commit}}')
+    if found.returncode != 0:
+        raise StepRefused(f'{os.path.basename(report)}: head: {header_field(report, "head")} is not a commit; name the unit\'s last commit and finish again')
+    head = found.stdout.rstrip('\n')
+    current = git.run(root, 'rev-parse', 'HEAD')
+    if current.returncode != 0:
+        raise ToolFailed(exit_code(current.returncode))
+    cur = current.stdout.rstrip('\n')
+    if cur != head:
+        raise StepRefused(f"the checkout is at {cur[:9]}, not the report's head: {head[:9]}; the kitchen reruns the brief's Verify commands at the unit's tip, so check out that "
+                  'head (or fix head:) and finish again')
+    if not header_field(brief, 'commit').startswith('no'):
+        # a plain assignment: git failing (a DamagedStore index) ends the command with git's status, before any job directory exists
+        listed = git.run(root, 'status', '--porcelain', '--untracked-files=normal')
+        if listed.returncode != 0:
+            raise ToolFailed(exit_code(listed.returncode))
+        dirty = listed.stdout.rstrip('\n')
+        if dirty:
+            raise StepRefused(f"the checkout holds work the unit's head does not:\n{dirty}\nThe kitchen reruns the brief's Verify commands at the unit's tip. Commit this as a "
+                      'step (kitchen.sh step) and name it in head:, or remove it, then finish again')
+    return head
+
+
 def finish(ctx, args):
     require_herdr()
     default_signals()
@@ -297,26 +323,7 @@ def finish(ctx, args):
     if wanted == '' or wanted.startswith('<'):
         return core_report.finish(ctx, args)
     root = read(store, 'git_root')
-    found = git.run(root, 'rev-parse', '--verify', '--quiet', f'{header_field(report, "head")}^{{commit}}')
-    if found.returncode != 0:
-        raise Die(f'{os.path.basename(report)}: head: {header_field(report, "head")} is not a commit; name the unit\'s last commit and finish again')
-    head = found.stdout.rstrip('\n')
-    current = git.run(root, 'rev-parse', 'HEAD')
-    if current.returncode != 0:
-        raise Exit(exit_code(current.returncode))
-    cur = current.stdout.rstrip('\n')
-    if cur != head:
-        raise Die(f"the checkout is at {cur[:9]}, not the report's head: {head[:9]}; the kitchen reruns the brief's Verify commands at the unit's tip, so check out that "
-                  'head (or fix head:) and finish again')
-    if not header_field(brief, 'commit').startswith('no'):
-        # a plain assignment: git failing (a DamagedStore index) ends the command with git's status, before any job directory exists
-        listed = git.run(root, 'status', '--porcelain', '--untracked-files=normal')
-        if listed.returncode != 0:
-            raise Exit(exit_code(listed.returncode))
-        dirty = listed.stdout.rstrip('\n')
-        if dirty:
-            raise Die(f"the checkout holds work the unit's head does not:\n{dirty}\nThe kitchen reruns the brief's Verify commands at the unit's tip. Commit this as a "
-                      'step (kitchen.sh step) and name it in head:, or remove it, then finish again')
+    head = require_head_checked_out(root, report, brief)
     unit = unit_name(brief)
     job = verify_job(ctx, store, brief, head)
     if os.path.isfile(f'{job}/rc') and read_text(f'{job}/rc').rstrip('\n') != '0' and os.path.isfile(f'{job}/consumed'):
