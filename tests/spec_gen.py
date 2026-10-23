@@ -6,6 +6,7 @@ import glob
 import os
 import re
 import subprocess
+from dataclasses import dataclass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
@@ -42,11 +43,19 @@ AB_MARK = (
 )
 
 
+@dataclass
 class T:  # one test
-    pass
+    id: str
+    src: str
+    path: str
+    line: int
+    asserts: str
+    has_assert: bool
+    strings: str
+    ab: bool
 
 
-tests = []
+tests: list[T] = []
 for path in sorted(glob.glob('tests/test_pstack_*.py')):
     mod = os.path.basename(path)[:-3]
     src = open(path).read()
@@ -55,11 +64,6 @@ for path in sorted(glob.glob('tests/test_pstack_*.py')):
         for fn in cls.body:
             if isinstance(fn, ast.FunctionDef) and fn.name.startswith('test_'):
                 seg = ast.get_source_segment(src, fn) or ''
-                t = T()
-                t.id = f'{mod}.{cls.name}.{fn.name}'
-                t.src = seg
-                t.path = path
-                t.line = fn.lineno
                 asserts = []
                 strings = []
                 for n in ast.walk(fn):
@@ -73,17 +77,24 @@ for path in sorted(glob.glob('tests/test_pstack_*.py')):
                         asserts.append(ast.unparse(n))
                     if isinstance(n, ast.Constant) and isinstance(n.value, str):
                         strings.append(n.value)
-                t.asserts = '\n'.join(asserts)
-                t.has_assert = bool(asserts)
-                t.strings = '\n'.join(strings)
                 name = fn.name
-                t.ab = (
-                    cls.name == 'BashReachTests'
-                    or any(m in seg for m in AB_MARK)
-                    or re.search(
-                        r'(match|equal|same).*(bash|base)|bash|phase_[34]|_base', name
-                    )
-                    is not None
+                t = T(
+                    id=f'{mod}.{cls.name}.{fn.name}',
+                    src=seg,
+                    path=path,
+                    line=fn.lineno,
+                    asserts='\n'.join(asserts),
+                    has_assert=bool(asserts),
+                    strings='\n'.join(strings),
+                    ab=(
+                        cls.name == 'BashReachTests'
+                        or any(m in seg for m in AB_MARK)
+                        or re.search(
+                            r'(match|equal|same).*(bash|base)|bash|phase_[34]|_base',
+                            name,
+                        )
+                        is not None
+                    ),
                 )
                 tests.append(t)
 golden_tests = {
@@ -404,7 +415,8 @@ def py_exits(path):
                     )
                 elif (
                     isinstance(n, ast.Call)
-                    and getattr(n.func, 'id', '') in classes
+                    and isinstance(n.func, ast.Name)
+                    and n.func.id in classes
                     and classes[n.func.id][0] in range(2, 9)
                 ):
                     found.append(
@@ -500,9 +512,9 @@ def sh_exits(path):
             )
             fn = next(
                 (
-                    re.match(r'^([A-Za-z_][\w-]*)\(\)', lines[j]).group(1)
+                    head.group(1)
                     for j in range(i, -1, -1)
-                    if re.match(r'^[A-Za-z_][\w-]*\(\)', lines[j])
+                    if (head := re.match(r'^([A-Za-z_][\w-]*)\(\)', lines[j]))
                 ),
                 'script',
             )
@@ -832,6 +844,7 @@ for p in prefixes:
         src = 'docs only'
     else:
         m = re.match(r'^([^:]+):(\d+):', prod[0])
+        assert m is not None
         src = f'{m.group(1)}:{m.group(2)}'
     docs = [
         l
