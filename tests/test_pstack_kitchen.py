@@ -4410,6 +4410,58 @@ esac
         self.assertIn('### Unit 002 next\n\nUsers can list numbers.', goals)
         self.assertIn('## Flows driven', (skill / 'references/verdict-template.md').read_text())
 
+    PLAN_VERIFICATION = (
+        '# Plan 900\n\n## Verification\n\n'
+        '- **Each open gap:** a test that fails at the old head and passes at the unit head.\n'
+        '- **Scenario:** `tests/pstack-pair/scenario.sh` for pair, guided and trio, diffed against the goldens. The suite, '
+        '`python3 scripts/check-pstack.py`, and `python3 tests/spec_gen.py` with 0 missing.\n'
+        '- `python3 tests/run.py -k plan_cmd`\n'
+        '- **Master obligations, not a verifier\'s:**\n'
+        '  - a landing verification after the last unit;\n'
+        '  - `kitchen.sh feedback --close` for each of the 21 reports.\n\n'
+        '```bash\npython3 -c "print(\'fenced\')"\n```\n\n'
+        '```bash\nkitchen.sh log demo x y z w  # master-only\n```\n\n'
+        '## Risks\n\n- `python3 not_a_verification.py`\n')
+
+    def landing_world(self, units, plan_text=None):
+        """A landing over units (seq, slug, goal, acceptance) of briefs that name plans/900-demo.md; returns the landing packet's text."""
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        plan = self.store / 'plans/900-demo.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text(self.PLAN_VERIFICATION if plan_text is None else plan_text)
+        (self.store / 'reviews/900-demo.md').write_text('verdict: agreed\n')
+        for seq, slug, goal, acceptance in units:
+            b = self.brief(seq, slug, ['src/**', 'tests/**'], plan=str(plan))
+            text = re.sub(r'(## Goal\n\n)x', rf'\g<1>{goal}', b.read_text(), count=1)
+            b.write_text(re.sub(r'(## Acceptance\n\n)[^\n]*', lambda m: m.group(1) + acceptance, text, count=1))
+            self.dispatch(b)
+            self.write(f'src/mod{seq}.py', f'X = {seq}\n')
+            self.write(f'tests/test_mod{seq}.py', f'x = {seq}\n')
+            self.done(b, self.commit(slug))
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--every', '0')
+        return (self.store / 'verdicts/landing-v1-packet.md').read_text()
+
+    def test_a_landing_packet_runs_a_plans_fenced_and_whole_span_commands_and_lists_the_rest_as_master_obligations(self):
+        packet = self.landing_world([('001', 'util', 'g1', 'a1')])
+        plan = self.store / 'plans/900-demo.md'
+        lines = packet.split('\n')
+        section = packet.split(f'## Plan verification: {plan}')[1].split('\n## ')[0]
+        prove = self.prove_block(self.store / 'verdicts/landing-v1-packet.md')
+        self.assertIn('python3 tests/run.py -k plan_cmd', prove)
+        self.assertIn('python3 -c "print(\'fenced\')"', prove)
+        self.assertFalse([l for l in lines if l.startswith('python3 tests/spec_gen.py')])
+        self.assertFalse([l for l in prove if 'spec_gen' in l or 'not_a_verification' in l or 'check-pstack' in l])
+        self.assertIn('not for the verifier:', section)
+        self.assertIn('(master-only)\n```bash\nkitchen.sh log demo x y z w  # master-only\n```', section)
+        obligations = section.split('Master obligations, not yours: report what evidence you see, or write "pending"\n')[1].strip('\n').split('\n')
+        self.assertIn('- line 6: **Scenario:** `tests/pstack-pair/scenario.sh` for pair, guided and trio, diffed against the goldens. The suite, '
+                      '`python3 scripts/check-pstack.py`, and `python3 tests/spec_gen.py` with 0 missing.', obligations)
+        self.assertIn('- line 9: a landing verification after the last unit;', obligations)
+        self.assertIn('- line 10: `kitchen.sh feedback --close` for each of the 21 reports.', obligations)
+        self.assertNotIn('- line 7: python3 tests/run.py -k plan_cmd`', obligations)
+        self.assertFalse([o for o in obligations if 'not_a_verification' in o])
+
     def test_the_landing_packet_runs_setup_first_when_declared(self):
         self.declare_setup()
         self.verify_landing()

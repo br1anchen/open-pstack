@@ -40,24 +40,93 @@ def brief_commands(store, root, brief, unit):
         sys.stdout.flush()
         sys.stderr.write(f'warning: unit {unit or "?"}: brief-verify: {first}\n')
         return f'Brief commands: none (brief-verify: {first})\n\n'
-    text, n, apart = '', 0, ''
+    runnable, apart = partition(commands, store, root)
+    text = ''
+    for n, command in enumerate(runnable, 1):
+        fence = fence_for(command)
+        if n == 1:
+            text += 'Brief commands:\n\nRun each command in a fresh shell from the scratch root.\n\n'
+        text += f'Command {n}:\n\n{fence}bash\n{command}\n{fence}\n\n'
+    return text + apart_text(apart)
+
+
+def partition(commands, store, root):
+    """The commands a verifier can run in the scratch, and the others as (reason, command): one ending in `# master-only` (on its first or last line)
+    writes the store, and one naming the main checkout or the store cannot run in the scratch."""
+    runnable, apart = [], []
     for command in commands:
         parts = command.split('\n')
-        first, last = parts[0], parts[-1]
-        fence = fence_for(command)
-        if re.search(r'# master-only[ \t\n\r\f\v]*$', first) or re.search(r'# master-only[ \t\n\r\f\v]*$', last):
-            why = 'master-only'
+        if re.search(r'# master-only[ \t\n\r\f\v]*$', parts[0]) or re.search(r'# master-only[ \t\n\r\f\v]*$', parts[-1]):
+            apart.append(('master-only', command))
         elif names_path(command, root) or names_path(command, store):
-            why = 'absolute path'
+            apart.append(('absolute path', command))
         else:
-            n += 1
-            if n == 1:
-                text += 'Brief commands:\n\nRun each command in a fresh shell from the scratch root.\n\n'
-            text += f'Command {n}:\n\n{fence}bash\n{command}\n{fence}\n\n'
+            runnable.append(command)
+    return runnable, apart
+
+
+def apart_text(apart):
+    """The commands partition set apart, each in full with its reason; '' when none."""
+    if not apart:
+        return ''
+    return 'not for the verifier:\n\n' + ''.join(f'({why})\n{fence_for(c)}bash\n{c}\n{fence_for(c)}\n\n' for why, c in apart)
+
+
+LIST_ITEM_SPAN = re.compile(r'^\s*(?:[-*+]|\d+[.)])\s+`([^`]+)`\.?\s*$')
+LIST_MARKER = re.compile(r'^\s*(?:[-*+]|\d+[.)])\s+')
+
+
+def plan_verification(plan):
+    """A plan's `## Verification` split into (commands, obligations). A command is a fenced block, or a list item that is one whole inline code span;
+    both are shell text a person wrote as such. Every other non-blank line, with its line number in the plan, is an obligation; no command is built
+    from prose. ([], []) when the plan cannot be read or has no Verification."""
+    try:
+        lines = read_text(plan).split('\n')
+    except OSError:
+        return [], []
+    commands, obligations, fenced, block, inside = [], [], False, [], False
+    for number, line in enumerate(lines, 1):
+        if not inside:
+            inside = line.strip() == '## Verification'
             continue
-        apart += f'({why})\n{fence}bash\n{command}\n{fence}\n\n'
-    if apart:
-        text += f'not for the verifier:\n\n{apart}'
+        if line.startswith('## ') and not fenced:
+            break
+        if line.startswith('```'):
+            if fenced and any(x.strip() and not x.lstrip().startswith('#') for x in block):
+                commands.append('\n'.join(block).strip())
+            fenced, block = not fenced, []
+        elif fenced:
+            block.append(line)
+        elif span := LIST_ITEM_SPAN.match(line):
+            commands.append(span.group(1))
+        elif line.strip():
+            obligations.append((number, LIST_MARKER.sub('', line.strip())))
+    return commands, obligations
+
+
+def landing_plans(p):
+    """For each distinct plan the landing's covered briefs name: (plan, runnable commands, apart, obligations), in order of first mention."""
+    found, seen = [], set()
+    for brief in landing_covered_briefs(p.store, p.root, p.base, p.head):
+        plan = header_field(brief, 'plan')
+        if plan in ('', 'none') or plan in seen:
+            continue
+        seen.add(plan)
+        commands, obligations = plan_verification(plan)
+        runnable, apart = partition(commands, p.store, p.root)
+        found.append((plan, runnable, apart, obligations))
+    return found
+
+
+def plan_sections(p):
+    """The landing packet's `## Plan verification` section for each plan: the commands set apart, and the lines that are the master's to report on."""
+    text = ''
+    for plan, runnable, apart, obligations in landing_plans(p):
+        text += f'## Plan verification: {plan}\n\n{len(runnable)} command{"" if len(runnable) == 1 else "s"} from it run in the Prove block below.\n\n'
+        text += apart_text(apart)
+        if obligations:
+            text += 'Master obligations, not yours: report what evidence you see, or write "pending"\n\n'
+            text += ''.join(f'- line {n}: {t}\n' for n, t in obligations) + '\n'
     return text
 
 
@@ -148,6 +217,7 @@ def landing_sections(p, parts):
         while goal and goal[0] == '':
             goal.pop(0)
         parts.append('\n'.join(goal).rstrip('\n') + '\n\n')
+    parts.append(plan_sections(p))
 
 
 CONTEXT_RULE = 'These are decisions a review accepted; do not judge them again. Judge only the named units\' Acceptance.'
@@ -224,6 +294,9 @@ def prove_section(p, parts):
     if p.risk == 'landing':
         for profile in p.data.get('landing') or []:
             parts.append(f'python3 {tool} --repo {p.scratch} gate {profile} landing --role verifier --base {merge_base}\n')
+        for plan, runnable, _, _ in landing_plans(p):
+            for n, command in enumerate(runnable, 1):
+                parts.append(f'# plan {plan}: Verification command {n}\n(cd {p.scratch}\n{command}\n)\n')
     features = p.data.get('features') or []
     parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(features)) + '\n')
     skills = sorted([d + '/' for d in glob.glob(f'{glob.escape(p.root)}/.agents/skills/verify-*') if os.path.isdir(d)])
