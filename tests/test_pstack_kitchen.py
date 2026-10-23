@@ -3809,7 +3809,7 @@ esac
     def test_covers_names_a_missing_brief_once(self):
         self.three_units()
         out = self.run_sh('verify', str(self.store), '003', '--covers', '001,099', code=1)
-        self.assertEqual(out.count('no brief for unit 099'), 1, out)
+        self.assertEqual(out, 'kitchen.sh: no brief for unit 099\n')
 
     def covers_packet(self):
         packet = (self.store / 'verdicts/003-u3-v1-packet.md').read_text()
@@ -3821,11 +3821,9 @@ esac
                                                       'KNOWN_DEAD grew by two names: accepted.\n\n## Checked\n\nread it\n')
         self.run_sh('verify', str(self.store), '003', '--covers', '001')
         packet, context = self.covers_packet()
-        lines = context.split('\n')
-        for line in ('These are decisions a review accepted; do not judge them again. Judge only the named units\' Acceptance.',
-                     'unit 002-u2: accepted (reviews/002-u2.md)', 'Amendments:', 'KNOWN_DEAD grew by two names: accepted.'):
-            self.assertIn(line, lines)
-        self.assertNotIn('read it', lines)
+        self.assertEqual(context.strip('\n').split('\n'), [
+            'These are decisions a review accepted; do not judge them again. Judge only the named units\' Acceptance.', '',
+            'unit 002-u2: accepted (reviews/002-u2.md)', '', 'Amendments:', '', 'KNOWN_DEAD grew by two names: accepted.'])
         before_context = packet.split('## Context: units between')[0]
         self.assertNotIn('unit 002-u2', before_context)
         self.assertEqual([l for l in before_context.split('\n') if l.startswith('## Unit ')], ['## Unit 001', '## Unit 003'])

@@ -3976,10 +3976,12 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(oldest(order), ('a', '002'), order)
         for order in itertools.permutations(['001', '004', '002', '006']):
             self.assertEqual(oldest(order)[0], 'a', order)
+        refused = {('001', '003', '004'): ('004', '003'), ('001', '004', '003'): ('004', '003'), ('003', '001', '004'): ('003', '001'),
+                   ('003', '004', '001'): ('003', '004'), ('004', '001', '003'): ('004', '003'), ('004', '003', '001'): ('004', '003')}
         for order in itertools.permutations(['001', '003', '004']):
             with self.assertRaises(UnitNotCheckable) as caught:
                 oldest(order)
-            self.assertRegex(caught.exception.message, r'^units 00[134] and 00[134] have no common order: pass --base REV$')
+            self.assertEqual(caught.exception.message, 'units %s and %s have no common order: pass --base REV' % refused[order], order)
 
     def kitchen_core_module(self, name):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
