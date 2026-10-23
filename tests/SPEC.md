@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at 5d2fe0e by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 676325e by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -197,7 +197,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): verifier entry is not JSON: … — skills/pstack-kitchen/scripts/kitchen_core/verify.py:167 — test_pstack_core.CoreTests.test_verify_behaviour
 - exit 2 (herdr or gate failure): batch of … diff lines is over review.max_batch_diff; verify each unit — skills/pstack-kitchen/scripts/kitchen_core/verify.py:515 — test_pstack_kitchen.KitchenScriptTests.test_a_batch_over_review_max_batch_diff_is_refused_but_a_fix_verified_with_its_unit_is_not
 - exit 2 (herdr or gate failure): pane … is not a live Herdr pane; HERDR_PANE_ID is stale when a harness runs commands thro — skills/pstack-pair/scripts/pstack_core/commands/init.py:81 — test_pstack_core.CoreTests.test_init_names_the_pane_flag_when_herdr_pane_id_is_stale
-- exit 2 (herdr or gate failure): (returns 2 in run()) — skills/pstack-pair/scripts/pstack_core/commands/metrics.py:257 — not a caller contract: the events log that init creates is unreadable; no caller sends it
+- exit 2 (herdr or gate failure): (returns 2 in run()) — skills/pstack-pair/scripts/pstack_core/commands/metrics.py:277 — not a caller contract: the events log that init creates is unreadable; no caller sends it
 - exit 2 (herdr or gate failure): Prime delivery failed for … — skills/pstack-pair/scripts/pstack_core/commands/notes.py:113 — not a caller contract: the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind
 - exit 2 (herdr or gate failure): herdr prompt failed for … — skills/pstack-pair/scripts/pstack_core/commands/notes.py:115 — test_pstack_core.CoreTests.test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line (+3)
 - exit 2 (herdr or gate failure): … has no valid status: line (one of …) — skills/pstack-pair/scripts/pstack_core/commands/report.py:77 — test_pstack_core.CoreTests.test_finish_refuses_a_report_with_no_valid_status_line
@@ -331,7 +331,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `warning: unreviewed:` (read by skills/pstack-kitchen/references/master.md:81) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:389 — test_pstack_core.CoreTests.test_take_master_behaviour (+3)
 - `redelivered:` (read by skills/pstack-kitchen/references/master.md:111) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:227 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_the_wait_itself (+4)
 - `deadline` (read by skills/pstack-kitchen/references/master.md:100) — skills/pstack-kitchen/scripts/kitchen.py:786 — test_pstack_core.CoreTests.test_the_verify_wait_hides_the_minute_count_it_prints (+8)
-- `advice:` (read by skills/pstack-trio/references/master.md:54) — skills/pstack-pair/scripts/pstack_core/commands/metrics.py:188 — test_pstack_pair.PairScriptTests.test_trio (+2)
+- `advice:` (read by skills/pstack-trio/references/master.md:54) — skills/pstack-pair/scripts/pstack_core/commands/metrics.py:218 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `advice_status:` — skills/pstack-pair/scripts/pstack_core/consult.py:276 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `paused:` (read by skills/pstack-pair-guided/SKILL.md:290) — skills/pstack-kitchen/scripts/kitchen_core/wait.py:44 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `gates: still running` (read by skills/pstack-kitchen/references/brief-template.md:67) — skills/pstack-kitchen/scripts/kitchen_core/step.py:179 — test_pstack_core.CoreTests.test_step_behaviour (+1)
@@ -353,7 +353,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `steers/NNN-<slug>-s<k>.md` written by master: mid-brief direction k for unit NNN, from [the steer template](references/steer-template.md); `supersedes:` nam — skills/pstack-pair/SKILL.md:63 — test_pstack_pair.PairScriptTests.test_trio (+17)
 - `reports/NNN-<slug>-s<k>.md` written by sidekick: objection to steer k, from [the steer response template](references/steer-response-template.md) — skills/pstack-pair/SKILL.md:64 — test_pstack_pair.PairScriptTests.test_trio (+76)
 - `reports/NNN-<slug>.md` written by sidekick: evidence for brief NNN, from [the report template](references/report-template.md), or the agree/object respons — skills/pstack-pair/SKILL.md:65 — test_pstack_pair.PairScriptTests.test_trio (+76)
-- `reviews/NNN-<slug>.md` written by master: verdict on report NNN, from [the review template](references/review-template.md); `agreed` on a plan unlocks i — skills/pstack-pair/SKILL.md:66 — test_pstack_pair.PairScriptTests.test_trio (+25)
+- `reviews/NNN-<slug>.md` written by master: verdict on report NNN, from [the review template](references/review-template.md); `agreed` on a plan unlocks i — skills/pstack-pair/SKILL.md:66 — test_pstack_pair.PairScriptTests.test_trio (+26)
 - `scratch/<id>` written by master via `pair.sh scratch`: link to a throwaway worktree at a unit's commit for rerunning its checks, kept inside the repo's git directory — skills/pstack-pair/SKILL.md:67 — test_pstack_pair.PairScriptTests.test_trio (+34)
 - `gates.md` written by master: open questions for the human — skills/pstack-pair/SKILL.md:68 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `decisions.tsv` written by master via `pair.sh log`: the show-me-your-work trail — skills/pstack-pair/SKILL.md:69 — test_pstack_pair.PairScriptTests.test_trio (+4)
@@ -363,7 +363,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `followups.md` written by master via `pair.sh note`: follow-ups from every note, for a later brief or an issue — skills/pstack-pair/SKILL.md:74 — test_pstack_pair.PairScriptTests.test_trio (+4)
 - `session-handoff.md` written by master: compact recovery and next-task context, read at bootstrap — skills/pstack-pair/SKILL.md:75 — test_pstack_core.CoreTests.test_new_handoff_behaviour (+3)
 - `sessions/` written by `pair.sh spawn` / `rotate`: prior ready reports; retained session exports and timing evidence — skills/pstack-pair/SKILL.md:76 — test_pstack_pair.PairScriptTests.test_trio (+20)
-- `events.tsv` written by every `pair.sh` command: one row per message, report, wake, and log entry, read by `pair.sh metrics` — skills/pstack-pair/SKILL.md:77 — test_pstack_pair.PairScriptTests.test_trio (+38)
+- `events.tsv` written by every `pair.sh` command: one row per message, report, wake, and log entry, read by `pair.sh metrics` — skills/pstack-pair/SKILL.md:77 — test_pstack_pair.PairScriptTests.test_trio (+39)
 - `plans/NNN-<slug>.direction.md` written by master: the human's plain-language summary, from [the direction template](references/direction-template.md) — skills/pstack-pair-guided/SKILL.md:65 — test_pstack_pair.PairScriptTests.test_trio (+25)
 - `reports/NNN-<slug>-q<k>.md` written by sidekick: ask k on unit NNN, from [the ask template](references/ask-template.md) — skills/pstack-pair-guided/SKILL.md:66 — test_pstack_pair.PairScriptTests.test_trio (+76)
 - `answers/NNN-<slug>-a<k>.md` written by master: the answer to ask k, from [the answer template](references/answer-template.md) — skills/pstack-pair-guided/SKILL.md:67 — test_pstack_pair.PairScriptTests.test_trio (+9)
@@ -371,8 +371,8 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `advice/NNN-<slug>.md` written by consultant: design critique of plan NNN, from [the plan advice template](references/plan-advice-template.md) — skills/pstack-trio/SKILL.md:80 — test_pstack_pair.PairScriptTests.test_trio (+17)
 - `advice/NNN-<slug>-c<k>.md` written by consultant: answer to consult k, from [the advice template](references/advice-template.md) — skills/pstack-trio/SKILL.md:81 — test_pstack_pair.PairScriptTests.test_trio (+17)
 - `gates.tsv` written by `kitchen.sh step`: one row per step check: time, unit, commit, pass or fail, profiles — skills/pstack-kitchen/SKILL.md:207 — test_pstack_core.CoreTests.test_step_and_finish_outlive_the_shell_that_ran_them (+5)
-- `verdicts/NNN-<slug>-v<k>.md` written by verifier, or `verify` for gates mode: the verdict, from [the verdict template](references/verdict-template.md) — skills/pstack-kitchen/SKILL.md:208 — test_pstack_pair.PairScriptTests.test_trio (+51)
-- `verdicts/NNN-<slug>-v<k>-packet.md` written by `kitchen.sh verify`: what the verifier was given — skills/pstack-kitchen/SKILL.md:209 — test_pstack_pair.PairScriptTests.test_trio (+51)
+- `verdicts/NNN-<slug>-v<k>.md` written by verifier, or `verify` for gates mode: the verdict, from [the verdict template](references/verdict-template.md) — skills/pstack-kitchen/SKILL.md:208 — test_pstack_pair.PairScriptTests.test_trio (+53)
+- `verdicts/NNN-<slug>-v<k>-packet.md` written by `kitchen.sh verify`: what the verifier was given — skills/pstack-kitchen/SKILL.md:209 — test_pstack_pair.PairScriptTests.test_trio (+53)
 - `pair.json` `.consultant.failovers` — skills/pstack-kitchen/scripts/kitchen_core/setup.py:219 — test_pstack_core.CoreTests.test_consultant_behaviour (+9)
 - `pair.json` `.consultant.kind` — skills/pstack-pair/scripts/pstack_core/spawn.py:132 — test_pstack_pair.PairScriptTests.test_trio (+41)
 - `pair.json` `.master.generation` — skills/pstack-kitchen/scripts/kitchen_core/master.py:144 — test_pstack_pair.PairScriptTests.test_trio (+20)
