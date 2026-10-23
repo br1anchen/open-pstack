@@ -216,7 +216,7 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    verdict <file>`), so a later landing does not uncover units an earlier one
    proved; the newest landing verdict alone sets the `landing verification:`
    line and the manifest warning. A unit that rejected and has a verified fix
-   is covered by it too (`covered: unit NNN by its verified fix, unit MMM`):
+   is covered by it too (`covered: unit NNN by its verified fix, unit MMM`, MMM the fix with the clean verdict):
    land-check reads the fix brief's `- verdict:` line and its `- original brief:`
    line (a unit's own fix covers the unit of that line, when the rejected
    verdict named it) or its `- unit brief:` lines (a landing fix covers each

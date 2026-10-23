@@ -335,7 +335,10 @@ def fix_covers(store):
     lines, or whose verdict is gone, covers nothing."""
     covers = {}
     for brief in sorted(glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')):
-        text = read_text(brief)
+        try:
+            text = read_text(brief)
+        except OSError:
+            continue
         verdicts = context_values(text, 'verdict')
         own = context_values(text, 'original brief')
         listed = context_values(text, 'unit brief')
@@ -360,16 +363,18 @@ def fix_covers(store):
 
 
 def verified_fix(store, seq, covers, links=1, seen=()):
-    """The seq of a fix that covers unit seq and is verified: it has a clean verdict, or is itself covered by one that is, within FIX_LINKS links. A
-    cycle, a chain longer than that and a last fix with no clean verdict give ''."""
+    """The seq of the fix with the clean verdict that covers unit seq, directly or through fixes of fixes within FIX_LINKS links. A cycle, a chain
+    longer than that and a last fix with no clean verdict give ''."""
     seen = (*seen, seq)
     for fix in covers.get(seq, ()):
         if fix in seen:
             continue
         if clean_verdict_for(store, fix):
             return fix
-        if links < FIX_LINKS and verified_fix(store, fix, covers, links + 1, seen):
-            return fix
+        if links < FIX_LINKS:
+            deeper = verified_fix(store, fix, covers, links + 1, seen)
+            if deeper:
+                return deeper
     return ''
 
 

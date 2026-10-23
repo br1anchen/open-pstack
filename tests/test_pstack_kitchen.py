@@ -9420,7 +9420,20 @@ esac
     def test_a_chain_of_five_fix_links_covers_the_unit(self):
         self.fix_chain(5)
         out = self.run_sh('land-check', str(self.store))
-        self.assertIn('covered: unit 001 by its verified fix, unit 002\n', out)
+        self.assertIn('covered: unit 001 by its verified fix, unit 006\n', out)
+
+    def test_a_fix_of_a_rejected_fix_is_named_by_the_fix_with_the_clean_verdict(self):
+        self.fix_chain(2)
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn('covered: unit 001 by its verified fix, unit 003\n', out)
+        self.assertNotIn('unit 002\n', out)
+
+    def test_a_chain_with_a_middle_fix_brief_gone_covers_nothing(self):
+        self.fix_chain(2)
+        (self.store / 'briefs/002-util-fix.md').unlink()
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn('unverified: unit 001', out)
+        self.assertNotIn('by its verified fix', out)
 
     def test_a_chain_longer_than_five_links_covers_nothing(self):
         self.fix_chain(6)
