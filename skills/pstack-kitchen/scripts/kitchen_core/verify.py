@@ -22,6 +22,7 @@ from pstack_core.commands.report import require_pair
 from pstack_core.commands.scratch import make_scratch
 from pstack_core.errors import (
     BadRevision,
+    CloseHeld,
     Die,
     PairError,
     ToolFailed,
@@ -462,6 +463,8 @@ def close_wait(ctx, store, say):
     try:
         with contextlib.redirect_stderr(Sink(say)):
             return waiter.run()
+    except CloseHeld:
+        raise
     except Exception as e:
         text, rc = translate(e, ctx.prog)
         say(text)
@@ -480,7 +483,7 @@ def close_unread(ctx, store):
     closed_brief = read(store, 'verifying.brief')
     if read(store, 'verifying.verdict') != open_verdict:
         closed, closed_status = '', CLOSED_BY_ANOTHER_CALL
-        closed_rc = 0 if header_field(open_verdict, 'status') == 'clean' else 2
+        closed_rc = 0 if Waiter.verdict_status(open_verdict)[1] == 'clean' else 2
     else:
         lines = []
         ended = close_wait(ctx, store, lines.append)

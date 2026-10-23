@@ -10623,6 +10623,11 @@ class CoreTests(unittest.TestCase):
                 5,
                 'verification closed elsewhere\n',
             ),
+            'invalid': (
+                '# V\n\nunits: 001\n',
+                2,
+                'verdict: {v}\nstatus: invalid (status is not clean, reject, or inconclusive) (closed by another verify --wait)\n',
+            ),
             'clean': (
                 verdict_text,
                 0,
@@ -11838,11 +11843,11 @@ class CoreTests(unittest.TestCase):
             'closing <T>/st/verdicts/001-x-v1.md: another call is closing it; waiting for it',
             got['stdout'],
         )
-        self.assertIn(
-            'another call has held the close of <T>/st/verdicts/001-x-v1.md for 0s; kitchen.sh verify <T>/st --wait',
+        self.assertEqual(
             got['stderr']
             .replace(str(self.path / 'heldclose0'), '<T>')
             .replace('heldclose', '<T>'),
+            'pair.sh: another call has held the close of <T>/st/verdicts/001-x-v1.md for 0s; kitchen.sh verify <T>/st --wait\n',
         )
         self.assertIn('"verifying"', got['files']['pair.json'])
 

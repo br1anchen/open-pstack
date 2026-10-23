@@ -280,23 +280,22 @@ class Waiter:
         nobody read) says nothing: its caller prints the line."""
         self.await_close(v)
         outcome = header_field(v.packet, 'verifier-outcome')
-        if outcome == 'cancelled' or not (
-            outcome in NO_VERDICT or self.written(v.verdict)
-        ):
+        present = os.path.isfile(v.verdict)
+        if outcome == 'cancelled' or not (present or outcome in NO_VERDICT):
             if not self.closing:
                 self.say(vs.CLOSED_ELSEWHERE)
             return WaiterOutcome(5, CANCELLED_BY_ANOTHER_CALL)
-        if self.written(v.verdict):
+        if present:
             problem, status = self.verdict_status(v.verdict)
             self.status = f'{status} ({problem})' if problem else status
         else:
-            problem, status = '', 'inconclusive'
+            status = 'inconclusive'
             self.status = f'inconclusive ({NO_VERDICT[outcome]})'
         rc = 0 if status == 'clean' else 2
         if self.closing:
             return WaiterOutcome(rc, CLOSED_BY_ANOTHER_CALL)
         self.say(
-            f'verdict: {v.verdict if self.written(v.verdict) else "none"}\nstatus: {self.status} (closed by another verify --wait)\n'
+            f'verdict: {v.verdict if present else "none"}\nstatus: {self.status} (closed by another verify --wait)\n'
         )
         if status == 'reject':
             for line in findings(v.verdict):
