@@ -41,6 +41,9 @@ case "$1 $2" in
 		printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","name":"%s","pane_id":"%s","agent_session":{"kind":"path","value":"%s"}}}}\n' "$s" "$(kind_of "$n")" "$n" "$pid" "$(cat "$FAKE/sessions/$n")"
 	else printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","name":"%s","pane_id":"%s"}}}\n' "$s" "$(kind_of "$n")" "$n" "$pid"; fi ;;
 "agent start")
+	# $FAKE/start-busy-once: the pane is still settling after its split, for one start. $FAKE/start-busy: for every start.
+	if [ -e "$FAKE/start-busy-once" ]; then rm -f "$FAKE/start-busy-once"; printf '{"error":{"code":"agent_pane_busy"}}\n' >&2; exit 1; fi
+	if [ -e "$FAKE/start-busy" ]; then printf '{"error":{"code":"agent_pane_busy"}}\n' >&2; exit 1; fi
 	# $FAKE/start-fail: the agent cannot start in the pane (not a folder-trust dialog).
 	if [ -e "$FAKE/start-fail" ]; then printf '{"error":{"code":"start_failed"}}\n' >&2; exit 1; fi
 	name="$3"; kind=""; shift 3

@@ -18054,6 +18054,80 @@ class HerdrCallTests(unittest.TestCase):
         self.assertEqual(stray, [])
 
 
+class AgentStartRetryTests(unittest.TestCase):
+    """agent_start against the fake herdr: a pane herdr calls busy is tried again, any other refusal is not."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.fake = Path(tmp.name)
+        env = {
+            'FAKE': str(self.fake),
+            'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
+            'PAIR_START_RETRY_S': '0',
+        }
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def starts(self):
+        log = (self.fake / 'calls.log').read_text().splitlines()
+        return [line for line in log if line.startswith('agent start')]
+
+    def start(self, **kwargs):
+        return panes.agent_start('a', 'pi', 'p1', ['--model', 'm'], **kwargs)
+
+    def test_a_busy_pane_is_tried_again_and_the_start_that_follows_is_the_result(self):
+        (self.fake / 'start-busy-once').touch()
+        r = self.start()
+        self.assertEqual((r.returncode, len(self.starts())), (0, 2))
+
+    def test_a_pane_busy_on_every_try_is_tried_five_times_and_the_last_error_is_passed_through(
+        self,
+    ):
+        (self.fake / 'start-busy').touch()
+        r = self.start()
+        self.assertEqual(
+            (r.returncode, len(self.starts()), r.stderr),
+            (1, 5, '{"error":{"code":"agent_pane_busy"}}\n'),
+        )
+
+    def test_a_start_herdr_refuses_for_another_reason_is_tried_once(self):
+        (self.fake / 'start-fail').touch()
+        r = self.start()
+        self.assertEqual((r.returncode, len(self.starts())), (1, 1))
+        self.assertIn('start_failed', r.stderr)
+
+    def test_an_agent_not_ready_start_is_tried_once(self):
+        (self.fake / 'trust-dialog').touch()
+        r = self.start()
+        self.assertEqual((r.returncode, len(self.starts())), (1, 1))
+        self.assertIn('agent_not_ready', r.stderr)
+
+    def test_the_last_tries_text_reaches_each_kind_of_caller_in_its_own_stream(self):
+        (self.fake / 'start-fail').touch()
+        err = io.StringIO()
+        with mock.patch.object(sys, 'stderr', err):
+            inherited = self.start(stderr=None)
+        self.assertEqual(
+            (inherited.returncode, err.getvalue()),
+            (1, '{"error":{"code":"start_failed"}}\n'),
+        )
+        dropped = self.start(stderr=panes.DEVNULL)
+        self.assertEqual((dropped.returncode, dropped.stderr), (1, None))
+        merged = self.start(stdout=panes.PIPE, stderr=panes.MERGED)
+        self.assertEqual(merged.stdout, '{"error":{"code":"start_failed"}}\n')
+
+    def test_a_busy_try_before_a_refusal_never_reaches_the_inherited_stream(self):
+        (self.fake / 'start-busy-once').touch()
+        (self.fake / 'start-fail').touch()
+        err = io.StringIO()
+        with mock.patch.object(sys, 'stderr', err):
+            self.start(stderr=None)
+        self.assertEqual(err.getvalue(), '{"error":{"code":"start_failed"}}\n')
+        self.assertEqual(len(self.starts()), 2)
+
+
 class ReportReadyTests(unittest.TestCase):
     def test_a_done_report_is_withheld_when_the_steps_cannot_be_read(self):
         with tempfile.TemporaryDirectory() as tmp:

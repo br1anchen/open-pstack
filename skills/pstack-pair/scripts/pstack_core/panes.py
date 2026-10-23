@@ -8,7 +8,7 @@ import sys
 import time
 
 from .errors import NoPaneId, NotInHerdr, PaneSizeUnreadable, TrustPrompt
-from .numbers import env_int
+from .numbers import env_float, env_int
 from .store import TEXT, load, peek, text_at
 
 TRUST_RE = re.compile(
@@ -47,25 +47,43 @@ def herdr_ok(*args):
     return run_herdr(args, stdout=DEVNULL, stderr=None).returncode == 0
 
 
+START_TRIES = 5
+
+
 def agent_start(name, kind, pane, args, timeout_ms=60000, stdout=DEVNULL, stderr=PIPE):
-    """herdr agent start NAME in the pane, running `args` as the agent's command line: the CompletedProcess."""
-    return run_herdr(
-        [
-            'agent',
-            'start',
-            name,
-            '--kind',
-            kind,
-            '--pane',
-            pane,
-            '--timeout',
-            str(timeout_ms),
-            '--',
-            *args,
-        ],
-        stdout,
-        stderr,
-    )
+    """herdr agent start NAME in the pane, running `args` as the agent's command line: the CompletedProcess of the last try. A pane herdr calls busy
+    (agent_pane_busy, as a pane split a moment ago can be) is tried again, up to five tries PAIR_START_RETRY_S apart; any other error ends it. Each
+    try's stderr is captured to read the code, and the last one's text goes to `stderr` as the caller asked: inherited, dropped, merged into stdout
+    or in the result."""
+    argv = [
+        'agent',
+        'start',
+        name,
+        '--kind',
+        kind,
+        '--pane',
+        pane,
+        '--timeout',
+        str(timeout_ms),
+        '--',
+        *args,
+    ]
+    capture = stderr if stderr == MERGED else PIPE
+    for tries in range(1, START_TRIES + 1):
+        r = run_herdr(argv, stdout, capture)
+        text = r.stdout if capture == MERGED else r.stderr
+        if (
+            r.returncode == 0
+            or tries == START_TRIES
+            or error_code(text or '') != 'agent_pane_busy'
+        ):
+            break
+        time.sleep(env_float('PAIR_START_RETRY_S', 1))
+    if stderr is None and r.stderr:
+        sys.stderr.write(r.stderr)
+    if stderr == DEVNULL:
+        r.stderr = None
+    return r
 
 
 def agent_prompt(
