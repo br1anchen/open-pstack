@@ -177,8 +177,8 @@ def prove_section(p, parts):
     """Adds the packet's Prove block to parts: the gates the verifier runs in the scratch worktree, then the feature map and the verification skills."""
     parts += ['## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo\'s scripts give you\n'
               'your own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n'
-              '```bash\nexport PSTACK_KITCHEN_ROLE=verifier',
-              f' PSTACK_KITCHEN_RUN={read(p.store, "slug")}\n']
+              '```bash\nexport PSTACK_KITCHEN_ROLE=verifier']
+    parts.append(f' PSTACK_KITCHEN_RUN={read(p.store, "slug")}\n')
     tool = f'{p.tool_dir}/kitchen.py' + (f' --config {p.config}' if p.config else '')
     if (p.data.get('scratch_setup') or []):
         parts.append(f'python3 {tool} --repo {p.scratch} setup\n')

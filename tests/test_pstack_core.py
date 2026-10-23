@@ -1816,7 +1816,7 @@ class CoreTests(unittest.TestCase):
         outcomes = {}
         for n, (name, spec) in enumerate(cases.items()):
             got = self.kitchen_world(f'{label}{n}', spec)
-            
+            self.maxDiff = None
             rc, text = expect[name]
             self.assertEqual(got['rc'], rc, f'{name}: {got["stdout"]}{got["stderr"]}')
             self.assertIn(text, f'{got["stdout"]}\n{got["stderr"]}', name)
