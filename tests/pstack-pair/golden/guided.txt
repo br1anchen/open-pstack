@@ -2298,6 +2298,7 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "generation": 3,
     "bootstrap_pending": false,
     "permission_mode": "native-args",
+    "closed": false,
     "rotation_required": false
   },
   "placement": "split",

@@ -163,6 +163,7 @@ def record_started(store, role, kind, pane, args, permission, master_mode):
         entry['generation'] = count(entry, 'generation') + 1
         entry['bootstrap_pending'] = True
         entry['permission_mode'] = permission
+        entry['closed'] = False
         member(doc, 'master')['permission_mode'] = master_mode
     update(store, started)
 

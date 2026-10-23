@@ -3581,6 +3581,17 @@ esac
         self.assertIn('close\tsidekick:pi', (self.store / 'events.tsv').read_text().replace('\t-\t', '\t'))
         self.assertEqual(self.run_sh('close', str(self.store)), '')
 
+    def test_a_role_restarted_after_close_is_closed_again_by_the_next_close(self):
+        """`closed` belongs to the run of the agent that was closed: a start records a live agent, so the next close ends it and closes its pane."""
+        self.run_sh('close', str(self.store))
+        self.assertTrue(self.state()['sidekick']['closed'])
+        self.run_sh('spawn', str(self.store))
+        self.assertFalse(self.state()['sidekick']['closed'])
+        before = len(self.pane_calls('pane close'))
+        self.assertIn('closed sidekick demo-sidekick', self.run_sh('close', str(self.store)))
+        self.assertEqual(len(self.pane_calls('pane close')), before + 1)
+        self.assertTrue(self.state()['sidekick']['closed'])
+
     def test_init_refuses_under_the_verifier_role_before_any_herdr_call_or_store_write(self):
         refusal = 'init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier'
         calls = self.fake / 'calls.log'
