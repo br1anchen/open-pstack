@@ -1389,19 +1389,47 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(self.prompts(top), [])
 
     def test_a_steer_for_a_unit_that_is_not_the_dispatched_one_is_refused_with_or_without_a_dispatch(self):
-        # review n2: between briefs or before any dispatch, an unreported unit is not the sidekick's to steer, and a stale blocked report is not resumed
-        for label, dispatch, report in (('between', {'brief': '{st}/briefs/002-y.md', 'at': '2026-01-01T00:00:00Z', 'generation': 1}, None),
-                                        ('none', None, None), ('blocked-between', {'brief': '{st}/briefs/002-y.md', 'at': '2026-01-01T00:00:00Z', 'generation': 1}, 'blocked')):
+        # review n2, n4: between briefs or before any dispatch, an unreported unit is not the sidekick's to steer, and a stale blocked report keeps its old advice
+        fold = 'fold the steer into the next brief instead'
+        for label, dispatch, report in (('between', True, None), ('none', False, None), ('blocked-between', True, 'blocked'), ('partial-none', False, 'partial')):
             top, st, run, steer = self.busy_world('nd-' + label, 'idle', report=report)
             pair = json.loads((st / 'pair.json').read_text())
             pair.pop('dispatch')
             if dispatch:
-                pair['dispatch'] = {k: v.replace('{st}', str(st)) if isinstance(v, str) else v for k, v in dispatch.items()}
+                pair['dispatch'] = {'brief': f'{st}/briefs/002-y.md', 'at': '2026-01-01T00:00:00Z', 'generation': 1}
             (st / 'pair.json').write_text(json.dumps(pair))
             r = run('steer', '{st}', str(steer))
+            advice = f'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)' if report else fold
             self.assertEqual((r.returncode, r.stdout), (5, ''), label)
-            self.assertEqual(r.stderr, 'pair.sh: sidekick s1 is idle and no objection is open on unit 001; fold the steer into the next brief instead\n', label)
+            self.assertEqual(r.stderr, f'pair.sh: sidekick s1 is idle and no objection is open on unit 001; {advice}\n', label)
             self.assertEqual(self.prompts(top), [], label)
+
+    def test_after_a_resume_the_old_report_no_longer_counts_so_the_next_steer_is_delivered_not_resumed(self):
+        # review n4: fresh_reply's rule (a report older than .sent.epoch answers an earlier send) decides "has a report" for steer too
+        top, st, run, steer = self.busy_world('resume-then-steer', 'idle', report='blocked', effect='may write: src/b.py', brief=self.BRIEF_001)
+        os.utime(st / 'reports/001-x.md', (1000, 1000))
+        first = run('steer', '{st}', str(steer))
+        self.assertIn('resumed unit 001', first.stdout)
+        second = st / 'steers/001-x-s2.md'
+        second.write_text((self.STEER_001 % 'none').replace('{st}', str(st)).replace('Steer 001-s1', 'Steer 001-s2'))
+        r = run('steer', '{st}', str(second))
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        self.assertEqual(r.stdout, f'steered s1 with {second}; unit 001 has no report yet, so it reads the steer now\n')
+        self.assertEqual(len(self.prompts(top)), 2)
+        self.assertEqual((st / 'briefs/001-x.md').read_text().count('- src/b.py'), 1)
+
+    def test_the_resume_writes_the_live_steers_effects_into_the_scope_section_only(self):
+        # review n4: a "may write:" line in the Steps is not the Scope's list, and the scope parser is the check-in's (a withdrawn steer adds nothing)
+        brief = ('# Brief 001-x\n\n## Steps\n\nmay write:\n- not the list\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- docs/**\n\n## Goal\n\nx\n')
+        top, st, run, steer = self.busy_world('resume-scope', 'idle', report='partial', effect='must not write: lib/z.py', brief=brief)
+        run('steer', '{st}', str(steer))
+        self.assertEqual((st / 'briefs/001-x.md').read_text(), brief.replace('- docs/**\n', '- docs/**\n- lib/z.py\n'))
+        top, st, run, steer = self.busy_world('resume-scope2', 'idle', report='partial', effect='may write: src/q.py', brief=brief)
+        run('steer', '{st}', str(steer))
+        self.assertEqual((st / 'briefs/001-x.md').read_text(), brief.replace('- src/a.py\n', '- src/a.py\n- src/q.py\n'))
+        top, st, run, steer = self.busy_world('resume-quote', 'idle', report='partial', effect='may write: "', brief=brief)
+        run('steer', '{st}', str(steer))
+        self.assertEqual((st / 'briefs/001-x.md').read_text(), brief)
 
     def test_sidekick_busy_reads_the_pane_and_dispatch_time_of_the_store_and_takes_the_status_the_caller_holds(self):
         from pstack_core import checkin

@@ -4,12 +4,13 @@ import re
 import sys
 import time
 
-from ..checkin import sidekick_busy
+from ..checkin import live_steer_effects, sidekick_busy
 from ..store import event, field, load, peek, text_at, read_text, header_field, member, names, newest, unit_name, update, who
 from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
 from ..prime import prime_steer
 from ..review import has_placeholder
+from ..replies import file_mtime, sent_epoch
 from ..send import prompt_sidekick, record_dispatch
 from ..argv import Spec, read
 from ..wait import TIMING, end_with_parent, print_outcome, timeout_ms, wait_for
@@ -94,21 +95,32 @@ def dispatched_unit(store):
     return unit_name(brief) if brief else ''
 
 
+def unit_report_status(store, report):
+    """The status of the unit's report, or '' when it has none since the last send: a report older than .sent.epoch answers an earlier send (the rule
+    replies.fresh_reply applies), so after a resume the stale blocked report no longer counts."""
+    if not os.path.isfile(report) or file_mtime(report) < sent_epoch(store):
+        return ''
+    return header_field(report, 'status')
+
+
 def settled_route(ctx, store, name, status, steer_path):
     """How a steer reaches a sidekick that is between turns: 'objection' when the unit's newest `-s<k>` report has status object (the steer answers it),
-    'deliver' when the unit is the dispatched one and has no report yet (nothing to fold the steer into, so the sidekick takes it now), 'resume' when it is the dispatched one and its report is blocked or
-    partial (the steer re-sends the brief). Any other unit report refuses the steer with what to do instead, and a steer that answers an objection but supersedes nothing is refused too."""
+    'deliver' when the unit is the dispatched one and has no report since the last send (nothing to fold the steer into, so the sidekick takes it
+    now), 'resume' when it is the dispatched one and its report is blocked or partial (the steer re-sends the brief). Any other unit report refuses
+    the steer with what to do instead, and a steer that answers an objection but supersedes nothing is refused too."""
     seq = os.path.basename(steer_path)[:3]
     slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
     objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
     if not objection or header_field(objection, 'status') != 'object':
-        report = f'{store}/reports/{seq}-{slug}.md'
-        unit_status = header_field(report, 'status') if os.path.isfile(report) else ''
-        if not unit_status and dispatched_unit(store) == f'{seq}-{slug}':
+        unit_status = unit_report_status(store, f'{store}/reports/{seq}-{slug}.md')
+        current = dispatched_unit(store) == f'{seq}-{slug}'
+        if current and not unit_status:
             return 'deliver'
-        if unit_status in ('blocked', 'partial') and dispatched_unit(store) == f'{seq}-{slug}':
+        if current and unit_status in ('blocked', 'partial'):
             return 'resume'
-        if unit_status == 'done':
+        if unit_status in ('blocked', 'partial'):
+            advice = f'apply its scope effect to the brief and re-dispatch it (dispatch {store} <brief> --send-only)'
+        elif unit_status == 'done':
             # only the kitchen has verify --covers
             advice = f'write a fix brief and verify it with --covers {seq}' if ctx.skill == 'pstack-kitchen' else 'write a fix brief'
         else:
@@ -119,40 +131,32 @@ def settled_route(ctx, store, name, status, steer_path):
     return 'objection'
 
 
-def scope_effect_entries(steer_path):
-    """(heading, paths) of a steer's scope effect: `may write:` or `must not write:` and the paths it names, or None for `none`."""
-    line = header_field(steer_path, 'scope effect').split(' \u2014 ')[0].strip()
-    heading = next((h for h in ('may write', 'must not write') if line.startswith(h)), None)
-    if heading is None:
-        return None
-    rest = line[len(heading):]
-    paths = [q.strip('"').replace('`', '') for q in re.findall(r'"[^"]*"', rest)] or [rest.lstrip(': ').split(' ')[0].replace('`', '')]
-    return f'{heading}:', [p for p in paths if p]
-
-
-def apply_scope_effect(brief, steer_path):
-    """The steer's scope effect written into the brief's Scope: each path becomes an entry under its heading (`may write:` or `must not write:`),
-    unless that list already holds it. A heading the Scope lacks is added at the end of the section."""
-    effect = scope_effect_entries(steer_path)
-    if effect is None:
-        return
-    heading, paths = effect
+def apply_scope_effects(store, seq, brief):
+    """The unit's live steers' scope effects written into the brief's Scope: each path becomes an entry under `may write:` or `must not write:`,
+    unless that list already holds it. A heading the Scope section lacks is added at its end, and a brief with no Scope section gets one."""
     lines = read_text(brief).split('\n')
-    for path in paths:
-        entry = f'- {path}'
-        start = next((i for i, l in enumerate(lines) if l.startswith(heading)), None)
-        if start is None:
+    for heading, paths in zip(('may write:', 'must not write:'), live_steer_effects(store, seq)):
+        for path in paths:
+            entry = f'- {path}'
             scope = next((i for i, l in enumerate(lines) if l.startswith('## Scope')), None)
-            end = next((i for i in range(scope + 1, len(lines)) if lines[i].startswith('## ')), len(lines)) if scope is not None else len(lines)
-            while end > 0 and lines[end - 1] == '':
-                end -= 1
-            lines[end:end] = ['', heading, entry]
-            continue
-        end = start + 1
-        while end < len(lines) and lines[end].startswith('- '):
-            end += 1
-        if entry not in lines[start + 1:end]:
-            lines.insert(end, entry)
+            if scope is None:
+                while lines and lines[-1] == '':
+                    lines.pop()
+                lines += ['', '## Scope']
+                scope = len(lines) - 1
+            end = next((i for i in range(scope + 1, len(lines)) if lines[i].startswith('## ')), len(lines))
+            start = next((i for i in range(scope + 1, end) if lines[i].startswith(heading)), None)
+            if start is None:
+                at = end
+                while at > scope + 1 and lines[at - 1] == '':
+                    at -= 1
+                lines[at:at] = ['', heading, entry]
+                continue
+            last = start + 1
+            while last < end and lines[last].startswith('- '):
+                last += 1
+            if entry not in lines[start + 1:last]:
+                lines.insert(last, entry)
     with open(brief, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
 
@@ -166,7 +170,7 @@ def resume_unit(store, name, steer_path, timeout, ctx):
     brief = f'{store}/briefs/{seq}-{slug}.md'
     if not os.path.isfile(brief):
         raise NoObjectionOpen(f'{who("sidekick", name)} is idle and unit {seq} has no brief at {brief} to resume')
-    apply_scope_effect(brief, steer_path)
+    apply_scope_effects(store, seq, brief)
     event(store, 'master', 'send-steer', steer_path, 'resume')
     record_dispatch(store, brief)
     prompt_sidekick(name, f'{ctx.skill} BRIEF {brief} resume after STEER {steer_path}')

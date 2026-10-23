@@ -166,9 +166,9 @@ def scope_entries(brief, want):
     return found
 
 
-def steer_scope_entries(store, seq):
-    """The paths a unit's live steers allow beyond its brief: the `scope effect: may write ...` line of each steer
-    that is not a withdraw and that no later steer withdraws by `supersedes:`. A line with a quote and no quoted
+def live_steer_effects(store, seq):
+    """(may, mustnot): the paths a unit's live steers allow beyond its brief (`scope effect: may write ...`) and forbid (`must not write ...`), in
+    steer order. A steer is live when it is not a withdraw and no later steer withdraws it by `supersedes:`. A line with a quote and no quoted
     string adds nothing."""
     files = sorted(glob.glob(os.path.join(glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md')))
     withdrawn = ' '
@@ -177,28 +177,33 @@ def steer_scope_entries(store, seq):
             sup = header_field(f, 'supersedes').split(' ')[0]
             if sup != 'none':
                 withdrawn += os.path.basename(sup.rstrip('/') or sup) + ' '
-    found = []
+    found = {'may write': [], 'must not write': []}
     for f in files:
         if not os.path.isfile(f) or header_field(f, 'kind') == 'withdraw':
             continue
         if f' {os.path.basename(f)} ' in withdrawn:
             continue
-        line = header_field(f, 'scope effect')
-        if not line.startswith('may write'):
-            continue
         # the paths come before a note (` \u2014 <note>`), which may quote words of its own: quoted or not is decided by what precedes it
-        line = line.split(' \u2014 ')[0]
-        if '"' in line:
-            quoted = re.findall(r'"[^"]*"', line)
-            found.extend(q.replace('"', '').replace('`', '') for q in quoted)
-        else:
-            rest = line[len('may write'):]
-            rest = rest[1:] if rest.startswith(':') else rest
-            rest = rest[1:] if rest.startswith(' ') else rest
-            rest = rest.split(' ')[0].replace('`', '')
-            if rest:
-                found.append(rest)
-    return found
+        line = header_field(f, 'scope effect').split(' \u2014 ')[0]
+        for head, paths in found.items():
+            if not line.startswith(head):
+                continue
+            if '"' in line:
+                quoted = re.findall(r'"[^"]*"', line)
+                paths.extend(q.replace('"', '').replace('`', '') for q in quoted)
+            else:
+                rest = line[len(head):]
+                rest = rest[1:] if rest.startswith(':') else rest
+                rest = rest[1:] if rest.startswith(' ') else rest
+                rest = rest.split(' ')[0].replace('`', '')
+                if rest:
+                    paths.append(rest)
+    return found['may write'], found['must not write']
+
+
+def steer_scope_entries(store, seq):
+    """The paths a unit's live steers allow beyond its brief."""
+    return live_steer_effects(store, seq)[0]
 
 
 def scope_match(pattern, path):
