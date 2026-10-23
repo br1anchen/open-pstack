@@ -8097,6 +8097,17 @@ esac
         line = next(l for l in text.splitlines() if l.startswith('13. '))
         return text, line
 
+    def assert_standing_orders_say_who_they_bind(self, packet):
+        section = packet.split('## Standing orders', 1)[1].split('## Changed', 1)[0]
+        self.assertIn(
+            "An order about the verifier, or about running the repo's commands and tests, binds you; one about the sidekick's scope, steps, commits or reports does not.",
+            section,
+        )
+        self.assertNotIn('as they bind the sidekick', section)
+        self.assertNotIn(
+            '\n# ', section, 'the inlined orders open no top-level section'
+        )
+
     def test_the_unit_packet_carries_the_runs_standing_orders(self):
         self.verify_app_unit('clean', 0)
         text, line = self.standing_line()
@@ -8105,6 +8116,7 @@ esac
         self.assertIn(f'{self.store}/standing-orders.md', packet)
         self.assertIn(line, packet)
         self.assertLess(packet.index('## Standing orders'), packet.index('## Changed'))
+        self.assert_standing_orders_say_who_they_bind(packet)
 
     def test_the_landing_packet_carries_the_runs_standing_orders(self):
         self.verify_landing()
@@ -8113,6 +8125,7 @@ esac
         self.assertIn('## Standing orders', packet)
         self.assertIn(line, packet)
         self.assertLess(packet.index('## Standing orders'), packet.index('## Changed'))
+        self.assert_standing_orders_say_who_they_bind(packet)
 
     def test_a_store_without_standing_orders_still_gets_its_packets(self):
         (self.store / 'standing-orders.md').unlink()

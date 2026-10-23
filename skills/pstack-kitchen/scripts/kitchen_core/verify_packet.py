@@ -465,8 +465,11 @@ def write_packet(path, packet):
         (landing_sections if p.landing else unit_sections)(p, parts)
         if os.path.isfile(f'{p.store}/standing-orders.md'):
             orders = read_text(f'{p.store}/standing-orders.md').rstrip('\n')
+            if orders.startswith('# '):
+                orders = orders.partition('\n')[2].lstrip('\n')
             parts.append(
-                f'## Standing orders\n\nThey bind you as they bind the sidekick ({p.store}/standing-orders.md):\n\n{orders}\n\n'
+                f"## Standing orders\n\nFrom {p.store}/standing-orders.md. An order about the verifier, or about running the repo's commands and tests, "
+                f"binds you; one about the sidekick's scope, steps, commits or reports does not.\n\n{orders}\n\n"
             )
         diff = git.run(p.root, 'diff', '--stat', f'{p.base}...{p.head}').stdout
         parts.append(f'## Changed\n\n```\n{tail_lines(diff, 40)}\n```\n\n')

@@ -9,8 +9,8 @@ work?", and then your pane closes.
 
 1. Read the packet. It names the verdict file to write, the template, the
    scratch worktree at the unit's head, the range, each unit's Goal and
-   Acceptance, the changed files, the commands to run, and the feature map.
-   Work only in the scratch worktree. Write nothing else but the verdict;
+   Acceptance, the run's standing orders, the changed files, the commands to
+   run, and the feature map. Work only in the scratch worktree. Write nothing else but the verdict;
    the packet's `Write rule:` line says so again. Its `Brief commands` are
    the unit's Verify commands, each in a block of its own: run each in a fresh
    shell from the scratch root. `Brief commands: none (brief-verify: ...)` means
@@ -35,7 +35,9 @@ work?", and then your pane closes.
    A check against the base (running the old code to compare) runs in a second
    scratch of its own (`kitchen.sh scratch <store> <id> --at <base>`), never in
    the one the gates use.
-   The packet's standing orders bind you as they bind the sidekick.
+   A standing order about the verifier, or about running the repo's commands and
+   tests, binds you; one about the sidekick's scope, steps, commits or reports
+   does not.
 2. Prepare the scratch the repo's way. When the packet's Prove block starts
    with a `kitchen.py ... setup` line, run it before anything else: it is the
    repo's declared preparation, such as its dependency install, and a bare
