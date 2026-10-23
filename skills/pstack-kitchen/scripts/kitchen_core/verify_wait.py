@@ -321,10 +321,6 @@ class Waiter:
             self.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
 
     @staticmethod
-    def written(verdict):
-        return os.path.isfile(verdict) and bool(header_field(verdict, 'status'))
-
-    @staticmethod
     def verdict_status(verdict):
         """(the verdict's problem, its status): a verdict with a problem is `invalid`, whatever its status line says."""
         problem = vs.verdict_problem(verdict)
