@@ -62,6 +62,10 @@ work?", and then your pane closes.
    its second you check only now, after your own pass, so known trouble does
    not narrow what you look for. Mark each lesson held or hit in the
    verdict's Lessons section; a hit that breaks Acceptance is also a finding.
+   A `--covers` packet may end its units with a `Context: units between`
+   section: units inside the range that you were not asked to verify, each
+   with the exceptions its review accepted. They are context, not Acceptance;
+   do not judge them again, and judge only the named units' Acceptance.
 6. Write the verdict from the template, copying the packet's `verifier-agent:`
    line into the verdict header. The header's `range:` line is the packet's
    range copied as it is, with nothing after the head:

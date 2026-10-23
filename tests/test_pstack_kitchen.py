@@ -3806,6 +3806,38 @@ esac
         self.assertIn('units 001 and 002 have no common order: pass --base REV', out)
         self.assertNotIn('verifying', self.state())
 
+    def covers_packet(self):
+        packet = (self.store / 'verdicts/003-u3-v1-packet.md').read_text()
+        return packet, packet.split('## Context: units between')[1].split('\n## ')[0] if '## Context: units between' in packet else ''
+
+    def test_a_covers_packet_lists_the_unit_between_with_its_accepted_exception_as_context(self):
+        self.three_units()
+        (self.store / 'reviews/002-u2.md').write_text('# Review 002\n\nverdict: accept\n\n## Amendments\n\n'
+                                                      'KNOWN_DEAD grew by two names: accepted.\n\n## Checked\n\nread it\n')
+        self.run_sh('verify', str(self.store), '003', '--covers', '001')
+        packet, context = self.covers_packet()
+        lines = context.split('\n')
+        for line in ('These are decisions a review accepted; do not judge them again. Judge only the named units\' Acceptance.',
+                     'unit 002-u2: accepted (reviews/002-u2.md)', 'Amendments:', 'KNOWN_DEAD grew by two names: accepted.'):
+            self.assertIn(line, lines)
+        self.assertNotIn('read it', lines)
+        before_context = packet.split('## Context: units between')[0]
+        self.assertNotIn('unit 002-u2', before_context)
+        self.assertEqual([l for l in before_context.split('\n') if l.startswith('## Unit ')], ['## Unit 001', '## Unit 003'])
+
+    def test_a_covers_packet_says_a_unit_between_has_no_accepted_review(self):
+        self.three_units()
+        (self.store / 'reviews/002-u2.md').write_text('verdict: revise\n\n## Amendments\n\nnot taken\n')
+        self.run_sh('verify', str(self.store), '003', '--covers', '001')
+        lines = self.covers_packet()[1].split('\n')
+        self.assertIn('unit 002-u2: no accepted review', lines)
+        self.assertNotIn('not taken', lines)
+
+    def test_a_packet_without_covers_has_no_units_between_context(self):
+        self.three_units()
+        self.run_sh('verify', str(self.store), '003')
+        self.assertNotIn('Context: units between', self.covers_packet()[0])
+
     def test_covers_rejects_a_value_that_is_not_a_unit_number(self):
         self.three_units()
         self.assertIn("--covers takes unit numbers (NNN)", self.run_sh('verify', str(self.store), '003', '--covers', '001,x', code=1))

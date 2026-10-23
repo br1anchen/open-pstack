@@ -120,6 +120,12 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    - `--covers` takes one unit per flag or a comma list, and the fix is named
      last: `verify 015 --covers 010,011,013` checks out 015's head. `verify`
      refuses a head that does not contain a named unit's head, and says which.
+     The range starts at the oldest named unit's dispatch head by git ancestry,
+     whatever order the units are named in; two heads with no common order are
+     refused (`units NNN and MMM have no common order: pass --base REV`), and
+     `--base` wins. The packet lists each unit inside the range that is not
+     named under `## Context: units between`, with its review path and the
+     review's Amendments, for the verifier to read and not judge.
    - A verifier that hits its provider (a rate limit, an outage) writes no
      verdict. `verify` reports `inconclusive` with the provider's error,
      including when the limit resets, and a routine unit verifies again on

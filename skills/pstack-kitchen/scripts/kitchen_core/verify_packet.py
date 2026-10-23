@@ -150,6 +150,38 @@ def landing_sections(p, parts):
         parts.append('\n'.join(goal).rstrip('\n') + '\n\n')
 
 
+CONTEXT_RULE = 'These are decisions a review accepted; do not judge them again. Judge only the named units\' Acceptance.'
+
+
+def units_between(p):
+    """The unit briefs not named whose recorded head lies in the packet's base..head, oldest name first."""
+    index, found = StackIndex.build(p.root, p.base, p.head), []
+    for brief in sorted(glob.glob(f'{glob.escape(p.store)}/briefs/[0-9][0-9][0-9]-*.md')):
+        name = os.path.basename(brief)[:-3]
+        if name[:3] in p.units or is_landing(brief):
+            continue
+        if inclusion(RecordedUnit(p.store, brief), index).covered:
+            found.append(name)
+    return found
+
+
+def context_section(p):
+    """The `## Context: units between` section of a covers packet: each intervening unit with its accepted review's Amendments, as context the
+    verifier does not judge. '' when no unit lies between."""
+    between = units_between(p)
+    if not between:
+        return ''
+    text = f'## Context: units between\n\n{CONTEXT_RULE}\n\n'
+    for name in between:
+        review = f'{p.store}/reviews/{name}.md'
+        if header_field(review, 'verdict') != 'accept':
+            text += f'unit {name}: no accepted review\n\n'
+            continue
+        amendments = '\n'.join(section_lines(review, r'^## Amendments', False)).strip('\n') or 'none'
+        text += f'unit {name}: accepted (reviews/{name}.md)\n\nAmendments:\n\n{amendments}\n\n'
+    return text
+
+
 def unit_sections(p, parts):
     """Adds the packet's opening for named units to parts: the header, then each unit's Goal and Acceptance, its commands, and the lessons that apply to the briefs."""
     parts += [f'# Verify {p.last}: {p.slug}\n\nverdict: {p.verdict}\ntemplate: {p.template}\nscratch: {p.scratch}\nrange: {p.base}..{p.head}\n'
@@ -164,6 +196,8 @@ def unit_sections(p, parts):
         parts += [line + '\n' for line in section_lines(b, r'^## (Goal|Acceptance)', True)]
         parts.append('\n')
         parts.append(brief_commands(p.store, p.root, b, u))
+    if p.covered:
+        parts.append(context_section(p))
     briefs = []
     for u in p.units:
         found = sorted(glob.glob(f'{glob.escape(p.store)}/briefs/{glob.escape(u)}-*.md'))

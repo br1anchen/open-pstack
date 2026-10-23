@@ -8,6 +8,9 @@ verifier-agent: <copy the verifier-agent: line from the packet>
 
 ## Findings
 
+<A `Context: units between` section of the packet lists units you were not
+asked to verify; a finding never rests on one of them.>
+
 <For reject: one numbered finding per broken Acceptance line or regression,
 each naming the acceptance line or behaviour, what happened instead, and the
 Evidence block that shows it. For clean: "none". For inconclusive: what you
