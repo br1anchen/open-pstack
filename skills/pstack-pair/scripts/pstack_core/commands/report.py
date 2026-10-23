@@ -1,5 +1,8 @@
 import os
 
+from .. import procinfo
+from ..errors import Die, MissingStore, refuse_as
+from ..panes import DEVNULL, agent_prompt, agent_status, require_herdr
 from ..store import (
     event,
     expected_report,
@@ -14,9 +17,6 @@ from ..store import (
     unit_name,
     update,
 )
-from ..errors import Die, MissingStore, refuse_as
-from ..panes import agent_prompt, agent_status, DEVNULL, require_herdr
-from .. import procinfo
 from ..wait import mark_report_seen, read_wait_owner, wait_owner_path
 from .status import latest
 

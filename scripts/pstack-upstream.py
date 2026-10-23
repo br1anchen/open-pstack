@@ -12,15 +12,15 @@ Exit codes: 0 done or nothing to do, 2 refused or tool failure (nothing written)
 """
 
 import argparse
-from dataclasses import dataclass
 import difflib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 
 CURSOR_KEYS = ('disable-model-invocation', 'mode', 'icon', 'color', 'reminder')
 ADAPTER = (

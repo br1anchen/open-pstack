@@ -5,11 +5,11 @@ import re
 import sys
 import time
 
-from .store import member, update
 from .numbers import env_float, env_int
 from .panes import MERGED, agent_prompt, agent_status, dig, herdr, pane_text, parse
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
+from .store import member, update
 
 
 def exit_command(kind):

@@ -1,9 +1,9 @@
 import importlib.util
-from pathlib import Path
-import tempfile
 import os
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 # git and the scripts report resolved paths; on macOS the temp dir is under
 # /var, a link to /private/var, so tests work in the resolved one.

@@ -8,9 +8,8 @@ import sys
 from . import git
 from .argv import Spec, read
 from .checkin import scope_entries, scope_match
-from .store import header_field, paused_reason, read_text, event, pair_file, write_text
 from .errors import BadScope, Die, Paused, PlanNotAgreed
-
+from .store import event, header_field, pair_file, paused_reason, read_text, write_text
 
 PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd')
 

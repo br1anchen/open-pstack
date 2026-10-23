@@ -9,15 +9,7 @@ import os
 import re
 import sys
 
-from pstack_core.store import (
-    expected_report,
-    read_text,
-    header_field,
-    load,
-    peek,
-    read,
-    text_at,
-)
+from pstack_core import git
 from pstack_core.errors import (
     BadLandingBase,
     BadRevision,
@@ -26,9 +18,17 @@ from pstack_core.errors import (
     UnitNotCheckable,
     translate,
 )
-from pstack_core import git
 from pstack_core.review import range_floor, trunk_ref
 from pstack_core.steplog import StepLog
+from pstack_core.store import (
+    expected_report,
+    header_field,
+    load,
+    peek,
+    read,
+    read_text,
+    text_at,
+)
 from pstack_core.variant import commit_of
 
 

@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 
 from pstack_core.checkin import scope_entries
+from pstack_core.errors import Die, EmptyScope, KitchenPyFailed
+from pstack_core.panes import agent_status
 from pstack_core.store import (
     field,
     header_field,
@@ -17,8 +19,6 @@ from pstack_core.store import (
     risk_of,
     write_text,
 )
-from pstack_core.errors import Die, EmptyScope, KitchenPyFailed
-from pstack_core.panes import agent_status
 
 from . import kpy
 

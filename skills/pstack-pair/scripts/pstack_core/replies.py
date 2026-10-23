@@ -5,6 +5,7 @@ import glob
 import os
 import re
 
+from .commands.status import latest
 from .review import noted_through, review_base
 from .steplog import StepLog
 from .store import (
@@ -20,7 +21,6 @@ from .store import (
     unit_name,
     update,
 )
-from .commands.status import latest
 
 
 def file_mtime(path):

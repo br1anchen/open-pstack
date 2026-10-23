@@ -10,20 +10,20 @@ import sys
 
 from pstack_core import send
 from pstack_core.argv import Spec, read
-from pstack_core.commands.rotate import queue as core_queue, rotate_if_due
+from pstack_core.commands.report import require_pair
+from pstack_core.commands.rotate import queue as core_queue
+from pstack_core.commands.rotate import rotate_if_due
 from pstack_core.consult import discuss_with_consultant
+from pstack_core.errors import Die, MissingStore, translate
+from pstack_core.numbers import whole_number
 from pstack_core.panes import agent_status
 from pstack_core.store import field, pair_file, risk_of
-from pstack_core.numbers import whole_number
-from pstack_core.commands.report import require_pair
-from pstack_core.errors import Die, MissingStore, translate
 from pstack_core.wait import default_signals
 
 from .classify import classify_brief
 from .landing import is_landing, land_check_problems
 from .units import has_pair
 from .wait import block, log_checkin_wake, quiet_wait, refused
-
 
 NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}
 DISPATCH_SPEC = Spec(valued=tuple(NUMBER_FLAGS), unknown='collect')

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Generate tests/SPEC.md from the code, the docs and the tests (U0 of plan 043)."""
 
-import ast, os, re, subprocess, sys, json, glob
+import ast
+import glob
+import os
+import re
+import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)

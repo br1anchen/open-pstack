@@ -10,29 +10,17 @@ are its functions, read the repo's kitchen and git and return data; none of them
 `child_env`): those belong to `gate` and to `brief-verify` without --list, which verify never runs. test_verify_kpy_calls_leave_the_environment_alone pins
 that."""
 
+import contextlib
 import glob
 import json
 import os
 import re
 import sys
 import time
-import contextlib
 from types import SimpleNamespace
 
-from pstack_core.commands.scratch import make_scratch
-from pstack_core.store import (
-    wake,
-    event,
-    header_field,
-    pair_file,
-    peek,
-    read,
-    read_text,
-    write_text,
-    update,
-)
-from pstack_core.numbers import env_float, env_int
 from pstack_core.commands.report import require_pair
+from pstack_core.commands.scratch import make_scratch
 from pstack_core.errors import (
     BadRevision,
     CloseHeld,
@@ -41,23 +29,25 @@ from pstack_core.errors import (
     ToolFailed,
     translate,
 )
+from pstack_core.numbers import env_float, env_int
 from pstack_core.panes import require_herdr
+from pstack_core.store import (
+    event,
+    header_field,
+    pair_file,
+    peek,
+    read,
+    read_text,
+    update,
+    wake,
+    write_text,
+)
 from pstack_core.variant import commit_of
 
 from . import kpy
 from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
 from .landing import latest_landing_verdict, manifest_warning
-from .verify_launch import (
-    choose_verifier,
-    deliver_packet,
-    launch_verifier,
-    record_start,
-    verifier_identity,
-)
-from .verify_options import parse_options
-from .verify_packet import Packet, write_packet
-from .verify_wait import warn_unreviewed, Waiter, WaiterOutcome
 from .units import (
     Verdict,
     brief_or_nothing,
@@ -68,6 +58,16 @@ from .units import (
     unit_brief,
     unit_range,
 )
+from .verify_launch import (
+    choose_verifier,
+    deliver_packet,
+    launch_verifier,
+    record_start,
+    verifier_identity,
+)
+from .verify_options import parse_options
+from .verify_packet import Packet, write_packet
+from .verify_wait import Waiter, WaiterOutcome, warn_unreviewed
 
 USAGE = (
     'usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | '

@@ -4,8 +4,8 @@
 import argparse
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 ROOTS = ('.agents/skills', '.claude/skills', '.pi/agent/skills', '.grok/skills')
 

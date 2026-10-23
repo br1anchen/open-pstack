@@ -11,24 +11,8 @@ from dataclasses import dataclass, replace
 
 from .argv import Spec, read
 from .checkin import CheckIn, checkin, sidekick_activity
-from .store import (
-    wake,
-    now_s,
-    TEXT,
-    read_text,
-    acquire_lock,
-    field,
-    header_field,
-    member,
-    paused_reason,
-    peek,
-    load,
-    text_at,
-    unit_name,
-    update,
-)
-from .numbers import exit_code, env_float, env_int, tdiv, whole_number
 from .errors import BadStepRow, Die, MissingStore, PairError, refuse_as
+from .numbers import env_float, env_int, exit_code, tdiv, whole_number
 from .panes import (
     agent_state,
     agent_status,
@@ -41,6 +25,7 @@ from .panes import (
 from .providers import provider_hint
 from .replies import (
     dispatched,
+    file_mtime,
     fresh_reply,
     latest_report,
     mark_seen,
@@ -50,9 +35,24 @@ from .replies import (
     seen_reply,
     unreviewed_steps,
     withheld_report,
-    file_mtime,
 )
 from .review import review_base
+from .store import (
+    TEXT,
+    acquire_lock,
+    field,
+    header_field,
+    load,
+    member,
+    now_s,
+    paused_reason,
+    peek,
+    read_text,
+    text_at,
+    unit_name,
+    update,
+    wake,
+)
 
 
 class WaitResult:

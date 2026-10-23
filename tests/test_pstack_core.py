@@ -2,14 +2,13 @@
 
 import ast
 import calendar
-import functools
 import contextlib
+import functools
 import inspect
 import io
 import json
 import os
 import re
-import shlex
 import select
 import shutil
 import signal
@@ -19,8 +18,8 @@ import sys
 import tempfile
 import time
 import tokenize
-import zlib
 import unittest
+import zlib
 from pathlib import Path
 from unittest import mock
 
@@ -46,7 +45,6 @@ from pstack_core import (
     store,
     wait,
 )  # noqa: E402
-from pstack_core.store import Context  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
     AgentBlocked,
     AgentBusy,
@@ -69,12 +67,13 @@ from pstack_core.errors import (  # noqa: E402
     StepLogUnreadable,
     StepRefused,
     ToolFailed,
-    UnitNotCheckable,
     Unfilled,
+    UnitNotCheckable,
     VerificationTaken,
     refuse_as,
     translate,
 )
+from pstack_core.store import Context  # noqa: E402
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
 
 sys.path.insert(0, str(root / 'tests'))
@@ -5445,6 +5444,7 @@ class CoreTests(unittest.TestCase):
             sys.path.pop(0)
         kitchen_variant.load_kitchen_core()
         from types import SimpleNamespace
+
         from kitchen_core import verify
 
         st = self.path / 'gates-st'
@@ -5527,7 +5527,8 @@ class CoreTests(unittest.TestCase):
     def test_init_and_stop_name_the_path_they_could_not_create_or_remove_in_their_own_words(
         self,
     ):
-        from pstack_core.commands import init as init_command, stop as stop_command
+        from pstack_core.commands import init as init_command
+        from pstack_core.commands import stop as stop_command
 
         plain = self.path / 'a-file'
         plain.write_text('x')
@@ -7647,7 +7648,8 @@ class CoreTests(unittest.TestCase):
         """A plan or brief path given with trailing slashes is read as the name before them: its unit number is the first three characters of that
         name, and the marker the prompt waits to see leave the sidekick's input is that name. (pair.sh resolves a path before it gets there, so the
         slashes reach these two functions only when called as here.)"""
-        from pstack_core import replies, send as send_module
+        from pstack_core import replies
+        from pstack_core import send as send_module
 
         for path in ('/s/plans/012-x.md', '/s/plans/012-x.md/', '/s/plans/012-x.md//'):
             self.assertEqual(replies.first3(path), '012', path)

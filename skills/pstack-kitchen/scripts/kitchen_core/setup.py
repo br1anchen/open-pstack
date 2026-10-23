@@ -8,27 +8,27 @@ import os
 import sys
 from dataclasses import replace
 
-from pstack_core import agents, spawn as pair_spawn
-from pstack_core.spawn import spawn_options, start_sidekick
+from pstack_core import agents, git
+from pstack_core import spawn as pair_spawn
 from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
+from pstack_core.commands.report import require_pair
+from pstack_core.errors import DamagedStore, Die, Exit, SetupFailed
+from pstack_core.panes import agent_status, require_herdr
+from pstack_core.spawn import spawn_options, start_sidekick
 from pstack_core.store import (
-    field,
-    read_text,
     event,
+    field,
     json_type,
     listing,
     load,
     member,
     now,
     pair_file,
+    read_text,
     text_at,
     update,
 )
-from pstack_core.commands.report import require_pair
-from pstack_core.errors import DamagedStore, Die, Exit, SetupFailed
-from pstack_core import git
-from pstack_core.panes import agent_status, require_herdr
 from pstack_core.wait import end_with_parent
 
 from . import kpy

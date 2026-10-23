@@ -5,6 +5,12 @@ import sys
 
 from .. import git
 from ..argv import Spec, read
+from ..errors import Die, PairError, PromptFailed
+from ..panes import DEVNULL, agent_prompt, agent_status
+from ..prime import prime_steer
+from ..replies import file_mtime, sent_epoch
+from ..review import noted_through, open_notes, require_filled, review_base
+from ..steplog import StepLog
 from ..store import (
     count,
     dispatched_brief,
@@ -13,25 +19,19 @@ from ..store import (
     fill_template,
     header_field,
     load,
-    peek,
+    new_from_template,
+    newest,
     note_id,
-    text_at,
     pair_file,
     pause_notice,
+    peek,
     read_text,
     steer_notice,
     suffix_number,
+    text_at,
     unit_name,
     write_text,
-    new_from_template,
-    newest,
 )
-from ..errors import Die, PairError, PromptFailed
-from ..panes import agent_prompt, agent_status, DEVNULL
-from ..prime import prime_steer
-from ..replies import file_mtime, sent_epoch
-from ..review import noted_through, open_notes, require_filled, review_base
-from ..steplog import StepLog
 
 
 def blocking_lines(path):

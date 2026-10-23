@@ -4,12 +4,12 @@ import re
 import sys
 import time
 
-from ..store import read_text, event, field, header_field, update, who
-from ..numbers import env_float, env_int, tdiv
+from ..argv import read
 from ..errors import Die, FileFailed, PairJsonGone
+from ..numbers import env_float, env_int, tdiv
 from ..panes import DEVNULL, agent_prompt, agent_status, herdr, pane_text, require_herdr
 from ..replies import file_mtime
-from ..argv import read
+from ..store import event, field, header_field, read_text, update, who
 from ..wait import (
     TIMING,
     WaitResult,

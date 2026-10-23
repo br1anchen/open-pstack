@@ -9,22 +9,6 @@ from dataclasses import dataclass, replace
 
 from . import agents
 from .argv import Spec, read
-from .send import fresh_kind, submit_typed, visible_without_blanks
-from .store import (
-    count,
-    event,
-    field,
-    listing,
-    load,
-    member,
-    names,
-    peek,
-    text_at,
-    update,
-    pair_file,
-    who,
-)
-from .numbers import exit_code, env_float, env_int, whole_number
 from .errors import (
     AgentStartFailed,
     BadPlacement,
@@ -34,6 +18,7 @@ from .errors import (
     NoFallback,
     PrimeFailed,
 )
+from .numbers import env_float, env_int, exit_code, whole_number
 from .panes import (
     DEVNULL,
     MERGED,
@@ -50,8 +35,22 @@ from .panes import (
 )
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
+from .send import fresh_kind, submit_typed, visible_without_blanks
+from .store import (
+    count,
+    event,
+    field,
+    listing,
+    load,
+    member,
+    names,
+    pair_file,
+    peek,
+    text_at,
+    update,
+    who,
+)
 from .wait import end_with_parent
-
 
 FRESH_SESSION_FLAGS = (
     '-c',

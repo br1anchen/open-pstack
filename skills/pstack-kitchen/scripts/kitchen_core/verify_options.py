@@ -3,10 +3,10 @@
 import re
 from types import SimpleNamespace
 
-from pstack_core.argv import Spec, read as read_options
+from pstack_core.argv import Spec
+from pstack_core.argv import read as read_options
 from pstack_core.errors import Die
 from pstack_core.numbers import whole_number
-
 
 VERIFY_SPEC = Spec(
     valued=(

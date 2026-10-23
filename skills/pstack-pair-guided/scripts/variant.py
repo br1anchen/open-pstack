@@ -3,7 +3,10 @@ import os
 import re
 
 from pstack_core.argv import Spec, read
+from pstack_core.errors import Die, MissingStore, PlanNotAgreed, refuse_as
+from pstack_core.gates import require_not_paused
 from pstack_core.panes import require_herdr
+from pstack_core.send import send_and_wait
 from pstack_core.store import (
     fill_template,
     header_field,
@@ -12,9 +15,6 @@ from pstack_core.store import (
     read_text,
     write_text,
 )
-from pstack_core.errors import Die, MissingStore, PlanNotAgreed, refuse_as
-from pstack_core.gates import require_not_paused
-from pstack_core.send import send_and_wait
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
 from pstack_core.wait import TIMEOUT_ONLY, end_with_parent, timeout_ms
 

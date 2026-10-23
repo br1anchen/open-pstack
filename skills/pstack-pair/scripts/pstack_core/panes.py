@@ -7,10 +7,9 @@ import subprocess
 import sys
 import time
 
-from .store import TEXT, load, peek, text_at
-from .numbers import env_int
 from .errors import NoPaneId, NotInHerdr, PaneSizeUnreadable, TrustPrompt
-
+from .numbers import env_int
+from .store import TEXT, load, peek, text_at
 
 TRUST_RE = re.compile(
     'trust this folder|project you created or one you trust|do you trust the (files|contents)',

@@ -5,25 +5,25 @@ import subprocess
 import sys
 import time
 
+from ..errors import Die, MissingStore, translate
+from ..panes import agent_status
 from ..store import (
+    event,
     header_field,
     load,
     names,
     newest,
+    pair_file,
+    pause_notice,
     paused_reason,
     peek,
+    progress_path,
     read_text,
+    steer_notice,
     suffix_number,
     text_at,
     unit_name,
-    event,
-    pair_file,
-    pause_notice,
-    progress_path,
-    steer_notice,
 )
-from ..errors import Die, MissingStore, translate
-from ..panes import agent_status
 
 
 class Tee:

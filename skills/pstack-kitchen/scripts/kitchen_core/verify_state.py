@@ -6,29 +6,16 @@ compare-and-set), and the claim of a close is the token `<host>:<pid>:<n>` (host
 command's process, forked children included; n a random number below 32768) written by the first closer only."""
 
 import contextlib
-import time
-import zlib
 import io
 import os
 import random
 import re
 import socket
 import sys
+import time
+import zlib
 
-from pstack_core.store import (
-    read_text,
-    write_text,
-    count,
-    event,
-    header_field,
-    json_type,
-    member,
-    peek,
-    read,
-    read_int,
-    update,
-)
-from pstack_core.numbers import env_int, int_or_none
+from pstack_core.commands.scratch import remove_scratch
 from pstack_core.errors import (
     DamagedStore,
     NoVerification,
@@ -37,10 +24,23 @@ from pstack_core.errors import (
     VerificationTaken,
     translate,
 )
-from pstack_core.commands.scratch import remove_scratch
 from pstack_core.exits import exit_command, stop_prime_role
+from pstack_core.numbers import env_int, int_or_none
 from pstack_core.panes import agent_prompt, agent_status, herdr
 from pstack_core.send import submit_typed
+from pstack_core.store import (
+    count,
+    event,
+    header_field,
+    json_type,
+    member,
+    peek,
+    read,
+    read_int,
+    read_text,
+    update,
+    write_text,
+)
 
 
 def hostname():

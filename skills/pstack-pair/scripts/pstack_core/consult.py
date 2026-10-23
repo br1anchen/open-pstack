@@ -12,22 +12,6 @@ from dataclasses import dataclass
 from . import argv, git
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
-from .store import (
-    wake,
-    TEXT,
-    event,
-    field,
-    fill_template,
-    header_field,
-    newest_first,
-    pair_file,
-    read,
-    read_text,
-    update,
-    now,
-    write_text,
-    who,
-)
 from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, PromptFailed, Unfilled
 from .gates import require_not_paused
 from .panes import (
@@ -42,6 +26,22 @@ from .panes import (
 )
 from .review import require_filled
 from .send import require_fresh_session, submit_typed
+from .store import (
+    TEXT,
+    event,
+    field,
+    fill_template,
+    header_field,
+    newest_first,
+    now,
+    pair_file,
+    read,
+    read_text,
+    update,
+    wake,
+    who,
+    write_text,
+)
 from .wait import TIMEOUT_ONLY, end_with_parent, timeout_ms
 
 CONSULT_KINDS = ('design', 'finding', 'objection', 'review', 'glance')

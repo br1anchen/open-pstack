@@ -6,24 +6,23 @@ import time
 
 from .. import git
 from ..argv import Spec, read
+from ..errors import Die, open_notes_refusal
+from ..replies import dispatched
+from ..review import open_notes
+from ..steplog import StepLog
 from ..store import (
     acquire_lock,
     event,
     load,
     note_id,
     pair_file,
-    text_at,
     pause_notice,
     paused_reason,
     progress_path,
     steer_notice,
+    text_at,
     unit_name,
 )
-from ..errors import Die, open_notes_refusal
-from ..replies import dispatched
-from ..review import open_notes
-from ..steplog import StepLog
-
 
 RESOLVES = re.compile(r'((?:[0-9]{3}-)?n[0-9]+(,(?:[0-9]{3}-)?n[0-9]+)*)?')
 

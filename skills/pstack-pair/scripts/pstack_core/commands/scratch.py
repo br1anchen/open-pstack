@@ -6,8 +6,8 @@ import sys
 
 from .. import git
 from ..argv import Spec, read
-from ..store import basename, load, names, pair_file, text_at, update
 from ..errors import BadScratch, Die, FileFailed, ScratchNotMade
+from ..store import basename, load, names, pair_file, text_at, update
 
 
 def parent_dir(path):

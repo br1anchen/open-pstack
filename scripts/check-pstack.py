@@ -2,9 +2,9 @@
 """Check the vendored suite's discovery, inventory, links, and runtime entrypoints."""
 
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from urllib.parse import unquote
 
 root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]

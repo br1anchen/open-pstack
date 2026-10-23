@@ -25,10 +25,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-
-import tomllib
 
 CONFIG = '.agents/kitchen.toml'
 STAGES = ('fast', 'behavioral', 'landing')

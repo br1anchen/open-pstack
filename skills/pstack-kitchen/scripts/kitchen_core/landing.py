@@ -8,17 +8,17 @@ import re
 import sys
 import tempfile
 
+from pstack_core import git
+from pstack_core.errors import Die
+from pstack_core.numbers import int_or_none
+from pstack_core.review import trunk_ref
 from pstack_core.store import (
     field,
     header_field,
-    read_text,
     new_from_template,
     pair_file,
+    read_text,
 )
-from pstack_core.numbers import int_or_none
-from pstack_core.errors import Die
-from pstack_core import git
-from pstack_core.review import trunk_ref
 from pstack_core.variant import commit_of
 
 from . import kpy
@@ -27,8 +27,8 @@ from .units import (
     StackIndex,
     Verdict,
     dispatch_head,
-    inclusion,
     has_pair,
+    inclusion,
     is_ancestor,
     repo_root,
     unit_brief,

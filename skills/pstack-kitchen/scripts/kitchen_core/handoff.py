@@ -5,18 +5,18 @@ import os
 import sys
 import time
 
+from pstack_core.errors import Die
 from pstack_core.replies import queued_brief
 from pstack_core.store import (
     basename,
     field,
     fill_template,
-    newest,
     header_field,
+    newest,
     pair_file,
     read,
     write_text,
 )
-from pstack_core.errors import Die
 
 
 def newest_matching(pattern, skip_packets=False):

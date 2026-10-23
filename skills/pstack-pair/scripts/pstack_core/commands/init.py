@@ -8,10 +8,10 @@ from dataclasses import dataclass
 
 from .. import git
 from ..argv import Spec, read
-from ..store import _dumps, event, member, update
 from ..errors import Die, Exit, FileFailed, PathFailed
 from ..panes import herdr, require_herdr
 from ..permission import logical_cwd
+from ..store import _dumps, event, member, update
 
 STANDING_ORDERS_TEMPLATE = 'standing-orders-template.md'
 GATES = '# Gates\n\nOne entry per open question for the human: question, options, default on no answer.\n'

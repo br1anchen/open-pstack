@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 
 from . import git, procinfo
+from .numbers import int_or_none, tdiv
 from .replies import dispatched, file_mtime
 from .review import noted_through, open_notes, range_floor
 from .steplog import StepLog
@@ -22,7 +23,6 @@ from .store import (
     text_at,
     update,
 )
-from .numbers import int_or_none, tdiv
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 

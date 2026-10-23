@@ -3,10 +3,10 @@ import importlib.util
 import io
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 # git and the scripts report resolved paths; on macOS the temp dir is under

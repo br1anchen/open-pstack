@@ -4,9 +4,9 @@ import glob
 import os
 from dataclasses import dataclass
 
-from .store import last_line, read_text, unit_name, write_text
-from .numbers import int_or_none
 from .errors import EmptyStepLog, StepLogUnreadable
+from .numbers import int_or_none
+from .store import last_line, read_text, unit_name, write_text
 
 
 @dataclass(frozen=True)

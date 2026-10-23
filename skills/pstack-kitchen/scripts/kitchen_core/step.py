@@ -22,8 +22,14 @@ import time
 from dataclasses import dataclass
 
 from pstack_core import git
+from pstack_core.commands import report as core_report
+from pstack_core.commands import step as core_step
+from pstack_core.errors import Die, Exit, StepRefused, ToolFailed, open_notes_refusal
+from pstack_core.numbers import env_float, env_int, exit_code, int_or_none
 from pstack_core.panes import require_herdr
-from pstack_core.commands import report as core_report, step as core_step
+from pstack_core.replies import file_mtime
+from pstack_core.review import range_floor
+from pstack_core.steplog import StepLog
 from pstack_core.store import (
     event,
     expected_report,
@@ -34,11 +40,6 @@ from pstack_core.store import (
     read_text,
     unit_name,
 )
-from pstack_core.numbers import env_float, env_int, exit_code, int_or_none
-from pstack_core.errors import Die, Exit, StepRefused, ToolFailed, open_notes_refusal
-from pstack_core.replies import file_mtime
-from pstack_core.review import range_floor
-from pstack_core.steplog import StepLog
 from pstack_core.wait import default_signals
 
 from . import kpy

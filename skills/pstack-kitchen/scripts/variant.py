@@ -5,6 +5,7 @@ import zlib
 from pathlib import Path
 
 from pstack_core import consult
+from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.store import (
     dispatched_brief,
     expected_report,
@@ -13,7 +14,6 @@ from pstack_core.store import (
     read_text,
     risk_of,
 )
-from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 
 TrioVariant = load_skill_variant(Path(__file__).resolve().parents[2], 'pstack-trio')

@@ -6,25 +6,10 @@ import shutil
 import sys
 import time
 
+from pstack_core import procinfo
 from pstack_core.agents import mcp_args, permission_args
-from pstack_core.argv import Spec, read as read_options
-from pstack_core.store import (
-    read_text,
-    event,
-    field,
-    json_type,
-    listing,
-    load,
-    member,
-    pair_file,
-    peek,
-    read,
-    read_flag,
-    text_at,
-    update,
-    who,
-)
-from pstack_core.numbers import env_float, env_int
+from pstack_core.argv import Spec
+from pstack_core.argv import read as read_options
 from pstack_core.errors import (
     DamagedStore,
     Die,
@@ -34,6 +19,7 @@ from pstack_core.errors import (
     RotateRefused,
 )
 from pstack_core.exits import end_agent, exit_deadline, stop_prime_role
+from pstack_core.numbers import env_float, env_int
 from pstack_core.panes import (
     DEVNULL,
     agent_kind,
@@ -46,10 +32,25 @@ from pstack_core.panes import (
     reply_at,
     require_herdr,
 )
-from pstack_core import procinfo
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
+from pstack_core.store import (
+    event,
+    field,
+    json_type,
+    listing,
+    load,
+    member,
+    pair_file,
+    peek,
+    read,
+    read_flag,
+    read_text,
+    text_at,
+    update,
+    who,
+)
 
 from .verify_wait import warn_unreviewed
 

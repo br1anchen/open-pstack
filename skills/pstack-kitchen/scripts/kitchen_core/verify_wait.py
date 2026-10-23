@@ -11,25 +11,11 @@ import time
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-from pstack_core.argv import Spec, read as read_options
+from pstack_core.argv import Spec
+from pstack_core.argv import read as read_options
 from pstack_core.checkin import busy
-from pstack_core.store import (
-    wake,
-    now_s,
-    read_text,
-    event,
-    header_field,
-    json_type,
-    load,
-    names,
-    peek,
-    read,
-    read_flag,
-    read_int,
-    text_at,
-)
-from pstack_core.numbers import env_float, env_int, tdiv
 from pstack_core.errors import DamagedStore, VerdictMissing, VerificationTaken
+from pstack_core.numbers import env_float, env_int, tdiv
 from pstack_core.panes import agent_prompt, agent_status, pane_text
 from pstack_core.providers import (
     agent_session_error,
@@ -38,10 +24,24 @@ from pstack_core.providers import (
     prime_role_error,
 )
 from pstack_core.send import submit_typed
+from pstack_core.store import (
+    event,
+    header_field,
+    json_type,
+    load,
+    names,
+    now_s,
+    peek,
+    read,
+    read_flag,
+    read_int,
+    read_text,
+    text_at,
+    wake,
+)
 
 from . import verify_state as vs
 from .landing import accepted_units, engine_met, review_engine
-
 
 NOT_GIVEN = object()
 

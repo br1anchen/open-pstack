@@ -12,9 +12,9 @@ import sys
 import time
 
 from pstack_core.argv import Spec, read
-from pstack_core.store import wake, field, read_text
-from pstack_core.numbers import env_float, env_int, int_or_none, whole_number
 from pstack_core.errors import BadNumber, Die, PathFailed, translate
+from pstack_core.numbers import env_float, env_int, int_or_none, whole_number
+from pstack_core.store import field, read_text, wake
 from pstack_core.wait import WaitOwner, default_signals, release, wait_for, wait_target
 
 

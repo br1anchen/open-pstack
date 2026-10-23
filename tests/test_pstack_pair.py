@@ -8,18 +8,17 @@ golden diff. The permission mode comes from the agent above the test process,
 so run this from a plain shell or a default-mode agent session.
 """
 
-from pathlib import Path
 import ast
-import os
 import json
-from datetime import datetime, timedelta
-import re
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta
+from pathlib import Path
 
 # git and the scripts report resolved paths; on macOS the temp dir is under
 # /var, a link to /private/var, so tests work in the resolved one.

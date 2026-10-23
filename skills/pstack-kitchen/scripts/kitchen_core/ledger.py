@@ -5,8 +5,8 @@ import re
 import sys
 from pathlib import Path
 
-from pstack_core.store import event, read_text, now, pair_file, read, who
 from pstack_core.errors import Die, Exit, ToolFailed
+from pstack_core.store import event, now, pair_file, read, read_text, who
 
 from . import kpy
 

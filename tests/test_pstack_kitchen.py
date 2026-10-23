@@ -14,11 +14,10 @@ import sys
 import tempfile
 import textwrap
 import time
-import zlib
-import unittest
-from pathlib import Path
-
 import tomllib
+import unittest
+import zlib
+from pathlib import Path
 from unittest import mock
 
 # git and the scripts report resolved paths; on macOS the temp dir is under

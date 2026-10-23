@@ -7,8 +7,18 @@ import time
 
 from ..argv import Spec, read
 from ..checkin import sidekick_busy
+from ..errors import Die, RotationFailed, translate
+from ..exits import end_agent, exit_deadline, stop_prime_role
+from ..gates import check_scope, require_not_paused
+from ..numbers import env_float, env_int
+from ..panes import agent_status, herdr, require_herdr
+from ..replies import queued_brief
+from ..review import require_filled
+from ..send import store_relative
+from ..spawn import SpawnRequest, record_failover, spawn_role
 from ..store import (
     event,
+    expected_report,
     field,
     load,
     names,
@@ -16,19 +26,9 @@ from ..store import (
     peek,
     read_flag,
     text_at,
-    expected_report,
     who,
 )
-from ..numbers import env_float, env_int
-from ..errors import Die, RotationFailed, translate
-from ..exits import end_agent, exit_deadline, stop_prime_role
-from ..gates import require_not_paused, check_scope
-from ..panes import agent_status, herdr, require_herdr
-from ..spawn import SpawnRequest, spawn_role, record_failover
 from ..wait import end_with_parent
-from ..replies import queued_brief
-from ..review import require_filled
-from ..send import store_relative
 
 
 def rotate(ctx, args):

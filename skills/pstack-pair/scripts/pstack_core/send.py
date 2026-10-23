@@ -11,20 +11,7 @@ import time
 from dataclasses import dataclass
 
 from . import git
-from .store import (
-    TEXT,
-    event,
-    expected_report,
-    load,
-    peek,
-    text_at,
-    update,
-    count,
-    member,
-    names,
-    who,
-)
-from .numbers import env_float
+from .argv import read
 from .errors import (
     AgentBlocked,
     AgentBusy,
@@ -36,6 +23,7 @@ from .errors import (
     refuse_as,
 )
 from .gates import check_scope, require_not_paused
+from .numbers import env_float
 from .panes import (
     DEVNULL,
     agent_kind,
@@ -46,7 +34,19 @@ from .panes import (
 )
 from .replies import first3, pending, queued_brief
 from .review import require_filled
-from .argv import read
+from .store import (
+    TEXT,
+    count,
+    event,
+    expected_report,
+    load,
+    member,
+    names,
+    peek,
+    text_at,
+    update,
+    who,
+)
 from .wait import (
     TIMING,
     WaitOutcome,

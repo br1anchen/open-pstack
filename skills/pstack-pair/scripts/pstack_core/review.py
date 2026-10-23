@@ -4,18 +4,18 @@ import os
 import re
 
 from . import git
+from .errors import Unfilled
 from .steplog import StepLog
 from .store import (
     header_field,
-    note_id,
     load,
+    note_id,
     peek,
     read_text,
     suffix_number,
     text_at,
     unit_name,
 )
-from .errors import Unfilled
 
 
 def note_files(store, unit):

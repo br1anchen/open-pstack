@@ -11,12 +11,12 @@ from .commands import (
     rotate,
     scratch,
     status,
-    step,
     steer,
+    step,
     stop,
 )
-from .store import Context
 from .errors import Die, translate
+from .store import Context
 from .variant import load_variant_class
 
 COMMANDS = {

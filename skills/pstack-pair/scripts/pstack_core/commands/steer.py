@@ -4,29 +4,29 @@ import re
 import sys
 import time
 
+from ..argv import Spec, read
 from ..checkin import live_steer_effects, sidekick_busy
+from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
+from ..panes import DEVNULL, agent_prompt, agent_status, herdr_ok, require_herdr
+from ..prime import prime_steer
+from ..replies import file_mtime, sent_epoch
+from ..review import has_placeholder
+from ..send import prompt_sidekick, prune_pending, record_dispatch
 from ..store import (
     event,
     field,
-    load,
-    peek,
-    text_at,
-    read_text,
     header_field,
+    load,
     member,
     names,
     newest,
+    peek,
+    read_text,
+    text_at,
     unit_name,
     update,
     who,
 )
-from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
-from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
-from ..prime import prime_steer
-from ..review import has_placeholder
-from ..replies import file_mtime, sent_epoch
-from ..send import prompt_sidekick, prune_pending, record_dispatch
-from ..argv import Spec, read
 from ..wait import TIMING, end_with_parent, print_outcome, timeout_ms, wait_for
 from .report import require_pair
 

@@ -5,9 +5,9 @@ import sys
 import time
 from dataclasses import dataclass
 
-from ..store import read_text
-from ..numbers import env_int
 from ..errors import Die
+from ..numbers import env_int
+from ..store import read_text
 
 WHOLE_NUMBER = re.compile(r'[0-9]+', re.ASCII)
 WORDS = re.compile(r'[a-z]+', re.ASCII | re.IGNORECASE)
