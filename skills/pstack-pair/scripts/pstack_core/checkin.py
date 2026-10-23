@@ -103,14 +103,34 @@ def busy_command(pane, since, now, env=None):
     return f'{best} for {tdiv(best_et, 60)}m' if best else ''
 
 
-def sidekick_activity(store, now):
-    """The longest-running process in the sidekick's pane started since the current dispatch, or ''."""
+def busy(status, pane, since, now, env=None):
+    """What keeps an agent from taking a message between turns, or '': 'working' for herdr's working status, or the command (as busy_command
+    names it) that a pane the agent left idle or done has run since `since`. A blocked agent is never busy: it may sit at an approval UI, which a
+    caller refuses and does not wait on."""
+    if status == 'working':
+        return 'working'
+    if status in ('idle', 'done') and since is not None:
+        return busy_command(pane, since, now, env)
+    return ''
+
+
+def dispatch_facts(store):
+    """(pane, dispatch epoch) of the sidekick's current dispatch; the epoch is None where there is no dispatch, no pane or no readable time."""
     pair = load(store)
     pane, at = text_at(peek(pair, 'sidekick'), 'pane_id'), text_at(peek(pair, 'dispatch'), 'at')
-    if not pane or not at:
-        return ''
-    since = iso_epoch(at)
-    return '' if since is None else busy_command(pane, since, now)
+    return pane, (iso_epoch(at) if pane and at else None)
+
+
+def sidekick_activity(store, now):
+    """The longest-running process in the sidekick's pane started since the current dispatch, or ''."""
+    pane, since = dispatch_facts(store)
+    return busy('idle', pane, since, now)
+
+
+def sidekick_busy(store, status, now):
+    """busy() for the sidekick: its herdr status and the command its pane has run since the current dispatch."""
+    pane, since = dispatch_facts(store)
+    return busy(status, pane, since, now)
 
 
 def scope_entries(brief, want):

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 from pstack_core.argv import Spec, read as read_options
-from pstack_core.checkin import busy_command
+from pstack_core.checkin import busy
 from pstack_core.store import wake, now_s, read_text, event, header_field, json_type, load, names, peek, read, read_flag, read_int, text_at
 from pstack_core.numbers import env_float, env_int, tdiv
 from pstack_core.errors import DamagedStore, VerdictMissing, VerificationTaken
@@ -78,7 +78,7 @@ def verifier_shown(store, state):
     """The verifier's state for a progress line: working when its pane runs a command of its own."""
     if state in ('idle', 'done'):
         since = read_int(store, 'verifying.started')
-        command = busy_command(read(store, 'verifier.pane_id'), since, now_s()) if since is not None else ''
+        command = busy(state, read(store, 'verifier.pane_id'), since, now_s())
         if command:
             return f'working ({command})'
     return state
@@ -284,8 +284,7 @@ class Waiter:
                 if verifier_provider_error(store, name, v.session):
                     break
                 started = read_int(store, 'verifying.started')
-                busy = busy_command(read(store, 'verifier.pane_id'), started, now_s()) if started is not None else ''
-                if busy:
+                if busy(state, read(store, 'verifier.pane_id'), started, now_s()):
                     if idle_since is not None:
                         self.drop_idle(verdict)
                 elif idle_since is None:

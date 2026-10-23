@@ -651,6 +651,21 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(checkin.busy_command('p1', 0, 700, env), 'bash for 8m')
         self.assertEqual(checkin.busy_command('p3', 0, 2200, env), '')
 
+    def test_an_agent_is_busy_when_herdr_says_working_or_its_pane_runs_a_command_it_started_since_the_dispatch(self):
+        from pstack_core import checkin
+        here = ['HERDR_PANE_ID=p1', 'HERDR_SOCKET_PATH=/s']
+        self.tree({11: dict(ppid=1, argv=['x'], comm='sleep', elapsed=300, environ=here)})
+        env = {'HERDR_SOCKET_PATH': '/s'}
+        self.assertEqual(checkin.busy('working', 'p1', 1000, 2200, env), 'working')
+        self.assertEqual(checkin.busy('working', 'p9', None, 2200, env), 'working')
+        self.assertEqual(checkin.busy('idle', 'p1', 1000, 2200, env), 'sleep for 5m')
+        self.assertEqual(checkin.busy('done', 'p1', 1000, 2200, env), 'sleep for 5m')
+        self.assertEqual(checkin.busy('idle', 'p9', 1000, 2200, env), '')
+        self.assertEqual(checkin.busy('idle', 'p1', 2000, 2200, env), '')
+        self.assertEqual(checkin.busy('idle', 'p1', None, 2200, env), '')
+        self.assertEqual(checkin.busy('blocked', 'p1', 1000, 2200, env), '')
+        self.assertEqual(checkin.busy('unknown', 'p1', 1000, 2200, env), '')
+
     def test_the_approval_mode_comes_from_the_whole_command_line_not_the_name_ps_would_cut(self):
         home, cwd = str(self.path / 'home'), str(self.path / 'cwd')
         top = self.tree({100: dict(ppid=101, comm='bash', argv=['bash']),
