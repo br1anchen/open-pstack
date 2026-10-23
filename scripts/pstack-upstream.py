@@ -238,7 +238,7 @@ def merge_files(ours, base, theirs, base_rev, to_rev):
     try:
         result = subprocess.run(cmd, capture_output=True)
     except OSError as error:
-        raise Stop(EXIT_ERROR, f'git merge-file did not run: {error}')
+        raise Stop(EXIT_ERROR, f'git merge-file did not run: {error}') from error
     # 0 is clean and 1-127 is the conflict count; anything else, a signal included, is a tool failure.
     if 0 <= result.returncode <= 127:
         return result.stdout, result.returncode

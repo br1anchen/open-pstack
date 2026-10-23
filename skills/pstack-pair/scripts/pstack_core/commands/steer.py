@@ -70,7 +70,7 @@ def check_steer_file(ctx, steer_path):
         text = read_text(steer_path)
     except OSError as e:
         sys.stderr.write(f'{ctx.prog}: cannot read {steer_path}: {e.strerror}\n')
-        raise BadSteer(f'not a steer file: {steer_path}')
+        raise BadSteer(f'not a steer file: {steer_path}') from e
     if not re.search(r'(?m)^## Direction', text):
         raise BadSteer(f'not a steer file: {steer_path}')
     if has_placeholder(text) or re.search(r'(?m)^(kind|scope effect): .*\|', text):

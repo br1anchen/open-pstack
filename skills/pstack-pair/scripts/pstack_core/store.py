@@ -426,10 +426,10 @@ def acquire_lock(store):
         try:
             os.mkdir(lock)
             return lock
-        except OSError:
+        except OSError as err:
             i += 1
             if i >= tries:
-                raise LockHeld(store)
+                raise LockHeld(store) from err
             time.sleep(poll)
 
 

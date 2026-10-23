@@ -127,7 +127,7 @@ def parse_entry(text):
     try:
         return json.loads(text)
     except ValueError as e:
-        raise BadVerifierEntry(f'verifier entry is not JSON: {e}')
+        raise BadVerifierEntry(f'verifier entry is not JSON: {e}') from e
 
 
 def verifier_identity(kind, args):
