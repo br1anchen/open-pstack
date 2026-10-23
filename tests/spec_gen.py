@@ -180,7 +180,7 @@ variants = [
 ]
 cmd_lines = []
 base_pair = {c[0] for c in parse_help(helptext('skills/pstack-pair/scripts/pair.sh'))}
-for label, skill, gk, script in variants:
+for label, _, gk, script in variants:
     cmds = parse_help(helptext(script))
     for name, args, i in cmds:
         if (

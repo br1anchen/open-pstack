@@ -5397,7 +5397,7 @@ esac
             'codex',
             code=4,
         )
-        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.brief('001', 'util', ['src/**', 'tests/**'])
         self.assertIn(
             '--kind must be design, finding, objection, review, or glance',
             self.run_sh('new-consult', str(self.store), '001', code=1),
@@ -5831,7 +5831,7 @@ esac
         return review
 
     def test_a_rename_cannot_use_the_deletion_only_skip(self):
-        review = self.skipped_unit(
+        self.skipped_unit(
             lambda: self.write('src/old.py', 'O = 1\n'),
             lambda: self.git('mv', 'src/old.py', 'src/new.py'),
         )
@@ -5841,7 +5841,7 @@ esac
         )
 
     def test_a_mode_change_cannot_use_the_deletion_only_skip(self):
-        review = self.skipped_unit(
+        self.skipped_unit(
             lambda: self.write('src/run.sh', '#!/bin/sh\n'),
             lambda: (self.repo / 'src/run.sh').chmod(0o755),
         )
@@ -5963,9 +5963,7 @@ esac
             (self.repo / 'src').mkdir(exist_ok=True)
             (self.repo / 'src/blob.bin').write_bytes(bytes(range(256)))
 
-        review = self.skipped_unit(
-            lay_out, lambda: self.git('rm', '-q', 'src/blob.bin')
-        )
+        self.skipped_unit(lay_out, lambda: self.git('rm', '-q', 'src/blob.bin'))
         self.assertIn(
             'land-check: pass (review engine: joo)',
             self.run_sh('land-check', str(self.store)),
@@ -6012,7 +6010,7 @@ esac
 
     def test_verify_nudges_a_handoff_after_the_configured_number_of_units(self):
         self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'
-        heads = self.three_units()
+        self.three_units()
         out = self.run_sh('verify', str(self.store), '001')
         self.assertNotIn('since your last handoff', out)
         out = self.run_sh('verify', str(self.store), '002')
@@ -7585,7 +7583,7 @@ esac
         )
 
     def test_a_plan_command_block_fails_at_its_first_failing_line(self):
-        packet = self.landing_world([('001', 'util', 'g1', 'a1')])
+        self.landing_world([('001', 'util', 'g1', 'a1')])
         plan = self.store / 'plans/900-demo.md'
         prove = '\n'.join(
             self.prove_block(self.store / 'verdicts/landing-v1-packet.md')
@@ -9214,7 +9212,7 @@ esac
         later = self.commit('later')
         self.write_landing(2, reverting, later)
         out = self.land_check(2)
-        self.assertIn(f'covered: unit 002 (rebased as', out)
+        self.assertIn('covered: unit 002 (rebased as', out)
         self.assertIn(f'by the clean landing verdict {v1}\n', out)
         self.assertIn('unverified: unit 001', out)
         self.assertNotIn('covered: unit 001', out)
@@ -9858,7 +9856,7 @@ esac
             code=1,
         )
         self.write('src/more.py', 'M = 1\n')
-        more = self.commit('more')
+        self.commit('more')
         self.run_sh(
             'verify',
             str(self.store),

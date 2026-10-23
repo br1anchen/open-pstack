@@ -638,9 +638,16 @@ class CoreTests(unittest.TestCase):
         ):
             runs.append(('kitchen', command[0], kitchen_args + command))
         seen = {}
-        for kind, name, argv in runs:
+        for kind, name, command_argv in runs:
             r = subprocess.run(
-                [sys.executable, '-I', '-c', probe, str(scripts), json.dumps(argv)],
+                [
+                    sys.executable,
+                    '-I',
+                    '-c',
+                    probe,
+                    str(scripts),
+                    json.dumps(command_argv),
+                ],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -3107,12 +3114,12 @@ class CoreTests(unittest.TestCase):
         self.assertIn(f'pair.sh step {st} <sha> <summary> --resolves <n-ids>', first)
         self.assertNotIn('NOTE:', run('progress', '{st}', 'two').stdout)
         self.assertIn('fix the thing', run('notes', '{st}').stdout)
-        for label, status, agents in (
+        for label, status, sidekick_agents in (
             ('clear note', 'clear', {'s1': 'working claude'}),
             ('idle sidekick', 'blocking', {'s1': 'idle claude'}),
         ):
             top, st, run, draft = self.note_world(
-                'nc-' + label.replace(' ', '-'), status, agents=agents
+                'nc-' + label.replace(' ', '-'), status, agents=sidekick_agents
             )
             r = run('note', '{st}', str(draft))
             self.assertEqual(
@@ -3185,7 +3192,7 @@ class CoreTests(unittest.TestCase):
             'a line that opens and closes a fence on itself': f'{fence3}{{{{x}}}}{fence3} is code\n',
             'a longer fence holding a shorter one': f'{bt * 4}\n{fence3}\n{{{{x}}}}\n{bt * 4}\n',
             'a tilde fence': f'{tl * 3}\n{{{{x}}}}\n{tl * 3}\n',
-            'a span by run length': f'``a`{{{{b}}}}`` c\n',
+            'a span by run length': '``a`{{b}}`` c\n',
             'a double-backtick span holding one backtick and a placeholder': 'use ``a`b{{c}}`` here\n',
         }
         bad = {
@@ -9336,7 +9343,7 @@ class CoreTests(unittest.TestCase):
             ('no brief for unit', 'nobrief'),
         )
         said = ''
-        for label, (stack_base, head) in stacks.items():
+        for label, (_, head) in stacks.items():
             subprocess.run(
                 ['git', '-C', str(repo), 'checkout', '-q', label],
                 check=True,
@@ -11149,7 +11156,7 @@ class CoreTests(unittest.TestCase):
                 )
 
     def test_verify_wait_behaviour_for_the_wait_itself(self):
-        world, V = self.wait_world, self.vverdict
+        world = self.wait_world
         flip = (
             'python3 -c \'import json, sys; p = sys.argv[1]; d = json.load(open(p)); d["verifying"]["verdict"] = "/elsewhere/other-v1.md"; json.dump(d, open(p, "w"))\' '
             '"$FAKE/../st/pair.json"\n'
@@ -11362,7 +11369,6 @@ class CoreTests(unittest.TestCase):
             ),
             'outside herdr': (1, 'not running inside Herdr'),
         }
-        host = self.live_and_dead_token_hosts()[0]
         out = self.kitchen_cases(
             'vwait2',
             {k: {**v, 'mask': self.wait_mask()} for k, v in cases.items()},
@@ -16157,7 +16163,6 @@ class CoreTests(unittest.TestCase):
     def test_unit_range_measures_from_the_first_units_base_to_the_last_units_head_and_says_why_it_cannot(
         self,
     ):
-        units = self.kitchen_core_module('units')
         st, repo, shas, stacks = self.range_world('urange')
         subprocess.run(
             ['git', '-C', str(repo), 'checkout', '-q', 'main'],
