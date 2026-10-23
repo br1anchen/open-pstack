@@ -195,9 +195,10 @@ def sort_u(lines):
 
 @dataclass(frozen=True)
 class CheckIn:
-    """The check-in digest for a sidekick still working: `lines` are the newline-ended lines to print, the rest are the facts the master
-    is woken for."""
-    lines: tuple
+    """The check-in digest for a sidekick still working: `lines` are the newline-ended lines to print, `notices` those of them that say what
+    the sidekick is running or what the digest assumed (a quiet dispatch still shows them), and the rest are the facts the master is woken for."""
+    lines: tuple[str, ...]
+    notices: tuple[str, ...]
     stale: bool
     outside_scope: int
     objected: int
@@ -216,7 +217,7 @@ class CheckIn:
         return self.stale or self.overrun or self.outside_scope > 0 or self.objected > 0 or self.open_notes > 0
 
 
-def checkin(ctx, store, interval=9, now=None):
+def checkin(ctx, store, interval=9, now=None) -> CheckIn | None:
     """The check-in digest for a sidekick still working at the interval, bounded so the master can poll it cheaply; None when no dispatched
     brief is on disk to report on."""
     now = int(time.time()) if now is None else now
@@ -270,8 +271,10 @@ def checkin(ctx, store, interval=9, now=None):
             f.write(f'{total}\n')
     else:
         out.append('progress: none yet\n')
+    notices = []
     if run and 'running:' not in tag:
-        out.append(f'running: {run}\n')
+        notices.append(f'running: {run}\n')
+        out.append(notices[-1])
     touched = status_paths(cwd)
     if head:
         diff = git.out(cwd, 'diff', '--name-only', f'{head}..HEAD')
@@ -282,7 +285,8 @@ def checkin(ctx, store, interval=9, now=None):
         counted = git.out(cwd, 'rev-list', '--count', f'{head}..HEAD')
         commits = int(counted) if counted is not None and counted.isdigit() else 0
     if floor_note:
-        out.append(f'note: {floor_note}\n')
+        notices.append(f'note: {floor_note}\n')
+        out.append(notices[-1])
     out.append(f'touched: {len(touched)} files, {commits} commits since dispatch\n')
     out.extend(f'  {f}\n' for f in touched[:30])
     may = [re.sub(r'/$', '/*', p) for p in [*scope_entries(brief, 'may'), *steer_scope_entries(store, seq)]]
@@ -302,4 +306,4 @@ def checkin(ctx, store, interval=9, now=None):
     if committed:
         blocking = len(open_notes(store, brief))
         out.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {blocking} blocking notes open\n')
-    return CheckIn(tuple(out), stale, len(outside), objected, blocking, elapsed, int(timebox) if timebox else None)
+    return CheckIn(tuple(out), tuple(notices), stale, len(outside), objected, blocking, elapsed, int(timebox) if timebox else None)

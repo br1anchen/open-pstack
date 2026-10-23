@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 
 from . import git
-from .store import TEXT, env_float, event, expected_report, load, peek, tdiv, text_at, update, count, member, names, who
+from .store import TEXT, env_float, event, expected_report, load, peek, text_at, update, count, member, names, who
 from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, FreshSessionRequired, MissingStore, PromptFailed, refuse_as
 from .gates import check_scope, require_not_paused
 from .panes import DEVNULL, agent_kind, agent_prompt, agent_status, error_code, require_herdr
@@ -135,19 +135,19 @@ def sent_line(kind, file):
     return f'sent: {kind} {file}; follow it with the wait command\n'
 
 
-def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None):
+def send_and_wait(ctx, store, file, kind, timeout, send_only, now=None):
     """Shared by discuss and answer: send the message, then wait for the reply."""
     name = send_message(ctx, store, file, kind, now)
     if send_only:
         sys.stdout.write(sent_line(kind, file))
         return 0
-    return print_outcome(wait_for(ctx, store, timeout=timeout, interval=interval, name=name, now=now))
+    return print_outcome(wait_for(ctx, store, timeout=timeout, name=name, now=now))
 
 
 @dataclass(frozen=True)
 class DispatchResult:
     """A dispatched brief: the lines printed once it was sent, how its wait ended (None with send_only) and the status the command ends with."""
-    sent_lines: tuple
+    sent_lines: tuple[str, ...]
     outcome: WaitOutcome | None
     status: int
 
@@ -193,14 +193,14 @@ def discuss(ctx, args):
     opts = read(args[2:], TIMING)
     timeout = timeout_ms(opts)
     opts.refuse_leftovers()
-    interval, send_only = tdiv(timeout, 60000), opts.present('--send-only')
+    send_only = opts.present('--send-only')
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
     require_not_paused(store)
     from .commands.rotate import rotate_if_due
     rotate_if_due(ctx, store, 'plan')
     try:
-        return send_and_wait(ctx, store, os.path.realpath(plan), 'PLAN', timeout, interval, send_only)
+        return send_and_wait(ctx, store, os.path.realpath(plan), 'PLAN', timeout, send_only)
     except MissingStore as e:
         raise refuse_as(e, ctx.prog, 2) from None
 
@@ -210,13 +210,13 @@ def store_relative(store, path):
     return f'{store}/{path}' if not os.path.isfile(path) and os.path.isfile(f'{store}/{path}') else path
 
 
-def dispatch_brief(ctx, store, brief, *, timeout, interval, send_only, owner=None, quiet=False):
-    """Send a brief and, unless send_only, wait for its reply (see wait_for for owner and quiet)."""
+def dispatch_brief(ctx, store, brief, *, timeout, send_only, owner=None, quiet=False, out=None):
+    """Send a brief and, unless send_only, wait for its reply (see wait_for for owner, quiet and out)."""
     try:
         name = send_message(ctx, store, brief, 'BRIEF')
         if send_only:
             return DispatchResult((sent_line('BRIEF', brief),), None, 0)
-        outcome = wait_for(ctx, store, timeout=timeout, interval=interval, owner=owner, quiet=quiet, name=name)
+        outcome = wait_for(ctx, store, timeout=timeout, owner=owner, quiet=quiet, name=name, out=out)
     except MissingStore as e:
         raise refuse_as(e, ctx.prog, 2) from None
     return DispatchResult((), outcome, outcome.status)
@@ -227,7 +227,6 @@ class DispatchRequest:
     store: str
     brief: str
     timeout: int
-    interval: int
     send_only: bool
 
 
@@ -241,7 +240,7 @@ def dispatch_request(ctx, args):
     opts = read(args[2:], TIMING)
     timeout = timeout_ms(opts)
     opts.refuse_leftovers()
-    interval, send_only = tdiv(timeout, 60000), opts.present('--send-only')
+    send_only = opts.present('--send-only')
     if not os.path.isfile(brief):
         raise Die(f'brief not found: {brief}')
     brief = os.path.realpath(brief)
@@ -252,11 +251,11 @@ def dispatch_request(ctx, args):
         raise Die(f'the queue holds {queued}; dispatch that first, or: pair.sh queue {store} --clear', 5)
     from .commands.rotate import rotate_if_due
     rotate_if_due(ctx, store, 'brief')
-    return DispatchRequest(store, brief, timeout, interval, send_only)
+    return DispatchRequest(store, brief, timeout, send_only)
 
 
 def dispatch(ctx, args):
     request = dispatch_request(ctx, args)
-    result = dispatch_brief(ctx, request.store, request.brief, timeout=request.timeout, interval=request.interval, send_only=request.send_only)
+    result = dispatch_brief(ctx, request.store, request.brief, timeout=request.timeout, send_only=request.send_only)
     sys.stdout.write(''.join(result.sent_lines))
     return result.status if result.outcome is None else print_outcome(result.outcome)

@@ -57,18 +57,19 @@ def dispatch(ctx, args):
     if has_pair(store):
         rotate_if_due(ctx, store, 'brief')
     # --max belongs to the quiet wait, not to the pair's dispatch.
+    held = []
     try:
         request = send.dispatch_request(ctx, [store, brief, *opts.stripped('--max')])
-        result = send.dispatch_brief(ctx, request.store, request.brief, timeout=request.timeout, interval=request.interval, send_only=request.send_only, quiet=True)
+        result = send.dispatch_brief(ctx, request.store, request.brief, timeout=request.timeout, send_only=request.send_only, quiet=True, out=held.append)
     except Exception as e:
-        return refused(ctx, e)
+        return refused(ctx, e, held)
     outcome = result.outcome
     if outcome is not None and outcome.kind == 'checkin' and outcome.checkin is not None:
         if not outcome.flagged:
-            sys.stdout.write(block(''.join(outcome.lines)))
+            sys.stdout.write(block(''.join(held) + ''.join(outcome.checkin.notices)))
             return quiet_wait(ctx, store, list(args[2:]))
         log_checkin_wake(ctx, store, outcome)
-    sys.stdout.write(block(''.join(result.sent_lines) + ('' if outcome is None else outcome.stdout)))
+    sys.stdout.write(block(''.join(result.sent_lines) + ''.join(held) + ('' if outcome is None else ''.join(outcome.digest))))
     return result.status
 
 

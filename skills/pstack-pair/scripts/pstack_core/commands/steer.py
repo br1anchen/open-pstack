@@ -4,7 +4,7 @@ import re
 import sys
 import time
 
-from ..store import event, field, read_text, header_field, member, names, newest, tdiv, unit_name, update, who
+from ..store import event, field, read_text, header_field, member, names, newest, unit_name, update, who
 from ..errors import Die
 from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
 from ..prime import prime_steer
@@ -50,7 +50,7 @@ def steer(ctx, args):
     opts = read(args[2:], Spec(valued=TIMING.valued, flags=(*TIMING.flags, '--force', '--interrupt'), unknown='collect'))
     timeout = timeout_ms(opts)
     opts.refuse_leftovers()
-    interval, force, interrupt = tdiv(timeout, 60000), opts.present('--force'), opts.present('--interrupt')
+    force, interrupt = opts.present('--force'), opts.present('--interrupt')
     if not os.path.isfile(steer_path):
         raise Die(f'steer not found: {steer_path}')
     try:
@@ -114,7 +114,7 @@ def steer(ctx, args):
         # The reply to this steer is any report on the unit written from now.
         open_the_objection_round(store, int(time.time()))
         prompt_sidekick(name, message)
-        return print_outcome(wait_for(ctx, store, timeout=timeout, interval=interval, name=name))
+        return print_outcome(wait_for(ctx, store, timeout=timeout, name=name))
     elif status == 'unknown':
         if not force:
             raise Die(f'{who("sidekick", name)} is unknown; read the pane, then pass --force to steer anyway', 5)

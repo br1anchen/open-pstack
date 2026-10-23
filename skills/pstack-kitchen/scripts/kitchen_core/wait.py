@@ -14,7 +14,7 @@ import time
 from pstack_core.argv import Spec, read
 from pstack_core.store import wake, env_float, env_int, field, int_or_none, read_text, whole_number
 from pstack_core.errors import BadNumber, Die, PathFailed, translate
-from pstack_core.wait import NoStoreToWait, WaitOwner, default_signals, release, wait_for, wait_target
+from pstack_core.wait import WaitOwner, default_signals, release, wait_for, wait_target
 
 
 def poll_sleep(seconds):
@@ -47,12 +47,12 @@ def log_checkin_wake(ctx, store, outcome):
     wake(ctx, store, field(store, 'dispatch', 'brief'), 'report:unready' if outcome.unready else 'checkin')
 
 
-def refused(ctx, error):
-    """The status a refused wait or dispatch ends with, after the message the core gives the error. What it leaves on stdout is an empty line, or
-    `state: ` for a store with no pair.json."""
+def refused(ctx, error, held):
+    """The status a refused wait or dispatch ends with: what it had printed (`held`, at least an empty line), then the message the core gives
+    the error."""
+    sys.stdout.write(block(''.join(held)))
     text, status = translate(error, ctx.prog)
     sys.stderr.write(text)
-    sys.stdout.write(error.stdout if isinstance(error, NoStoreToWait) else '\n')
     return status
 
 
@@ -72,10 +72,12 @@ def quiet_wait(ctx, store, rest):
     def under_max():
         return quiet_now() - start < (limit if limit is not None else env_int('KITCHEN_QUIET_MAX_S', 3600))
 
+    held = []
     try:
-        _, timeout, interval = wait_target(ctx, [store, *args])
         while True:
-            outcome = wait_for(ctx, store, timeout=timeout, interval=interval, owner=owner, quiet=True)
+            held.clear()
+            _, timeout = wait_target(ctx, [store, *args], held.append)
+            outcome = wait_for(ctx, store, timeout=timeout, owner=owner, quiet=True, out=held.append)
             owner = owner.after(outcome)
             checkin = outcome.kind == 'checkin' and outcome.checkin is not None
             if checkin and not outcome.flagged:
@@ -85,10 +87,10 @@ def quiet_wait(ctx, store, rest):
                 write(f"quiet: {(quiet_now() - start) // 60}m with nothing flagged; the sidekick works on\n")
             if checkin:
                 log_checkin_wake(ctx, store, outcome)
-            write(block(outcome.stdout))
+            write(block(''.join(held) + ''.join(outcome.digest)))
             return outcome.status
     except Exception as e:
-        return refused(ctx, e)
+        return refused(ctx, e, held)
     finally:
         release(store, owner)
 

@@ -9,7 +9,7 @@ from pstack_core.errors import Die, MissingStore, PlanNotAgreed, refuse_as
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
-from pstack_core.wait import TIMEOUT_ONLY, end_with_parent, tdiv, timeout_ms
+from pstack_core.wait import TIMEOUT_ONLY, end_with_parent, timeout_ms
 
 def answer(ctx, args):
     """Deliver the human's or master's answer to a sidekick's ask (a message of kind ANSWER) and wait for its reply."""
@@ -21,14 +21,13 @@ def answer(ctx, args):
     opts = read(args[2:], TIMEOUT_ONLY)
     timeout = timeout_ms(opts)
     opts.refuse_leftovers()
-    interval = tdiv(timeout, 60000)
     if not os.path.isfile(path):
         raise Die(f'answer not found: {path}')
     require_not_paused(store)
     if not re.search(r'(?m)^## Answer', read_text(path)):
         raise Die(f'not an answer file: {path}')
     try:
-        return send_and_wait(ctx, store, os.path.realpath(path), 'ANSWER', timeout, interval, False)
+        return send_and_wait(ctx, store, os.path.realpath(path), 'ANSWER', timeout, False)
     except MissingStore as e:
         raise refuse_as(e, ctx.prog, 2) from None
 

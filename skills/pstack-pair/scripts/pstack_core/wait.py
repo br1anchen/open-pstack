@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from .argv import Spec, read
 from .checkin import CheckIn, checkin, sidekick_activity
 from .store import wake, now_s, TEXT, exit_code, read_text, acquire_lock, env_float, env_int, field, header_field, member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number
-from .errors import BadStepRow, Die, Exit, MissingStore, PairError, refuse_as, translate
+from .errors import BadStepRow, Die, MissingStore, PairError, refuse_as
 from .panes import agent_state, agent_status, error_code, error_state, herdr_get, pane_busy, require_herdr
 from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
@@ -35,20 +35,16 @@ class WaitResult:
 class WaitOutcome:
     """How a wait ended. `status` is the exit code the wait command ends with and `kind` says why it returned: report (a report is ready), steps
     (unreviewed steps), idle (the reply was already shown), blocked (the sidekick is blocked and no report is ready), checkin (the sidekick is
-    still working), missing (no report and the sidekick is not working) or superseded (a newer wait took the store). `lines` are the newline-ended
-    chunks of stdout the command prints before its check-in digest, for printing only; the rest are the facts a caller branches on."""
+    still working), missing (no report and the sidekick is not working) or superseded (a newer wait took the store). The stdout the command prints
+    goes to the wait's `out` as it is produced; a return on a check-in adds its `digest`, newline-ended chunks for printing only, which the caller
+    prints after what `out` received. The rest are the facts a caller branches on."""
     status: int
     kind: str
-    lines: tuple = ()
     checkin: CheckIn | None = None
+    digest: tuple[str, ...] = ()
     unready: bool = False
     paused: bool = False
     unowned: bool = False
-
-    @property
-    def stdout(self):
-        """Everything the wait command prints."""
-        return ''.join(self.lines) + ('' if self.checkin is None else ''.join(self.checkin.lines))
 
     @property
     def flagged(self):
@@ -67,11 +63,6 @@ class WaitOwner:
     def after(self, outcome):
         """The owner for the wait that follows `outcome`: the claim is made once, and a claim that failed stays failed."""
         return replace(self, claim=False, checked=self.checked and not outcome.unowned)
-
-
-class NoStoreToWait(Exit):
-    """The wait command's refusal of a store with no pair.json: it ends with `stdout` on standard output."""
-    stdout = 'state: \n'
 
 
 TIMING = Spec(valued=('--timeout', '--every'), flags=('--send-only',), unknown='collect')
@@ -93,11 +84,13 @@ def reply_mode(result):
     return 'steps' if not result.ready and result.steps_due else 'reply'
 
 
-def finish_wait(ctx, store, interval, result, mode, report='', now=None, quiet=False):
-    """The outcome of a wait that returned. Its stderr is written as it happens and its stdout is the outcome's lines. A quiet caller records no
-    wake for a check-in return; it records it itself when it returns the outcome."""
-    lines = []
-    write = lines.append
+def finish_wait(ctx, store, interval, result, mode=None, now=None, quiet=False, out=None):
+    """The outcome of a wait that returned. Its stderr is written as it happens and its stdout goes to `out` (default: standard output) as it
+    is produced, so what a failure interrupts has already been seen. A quiet caller records no wake for a check-in return; it records it itself
+    when it returns the outcome."""
+    write = sys.stdout.write if out is None else out
+    report = result.ready
+    mode = reply_mode(result) if mode is None else mode
     clock = now_s if now is None else (lambda: now)
     name = lambda: field(store, 'sidekick', 'name')
     if result.code != 0:
@@ -136,27 +129,27 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None, quiet=F
         wake(ctx, store, report, f'report:{status_of(ctx, report)}')
         write(queue_note(store, report))
         write(review_delta(store, report))
-        return WaitOutcome(3 if state == 'blocked' else 0, 'report', tuple(lines), paused=paused)
+        return WaitOutcome(3 if state == 'blocked' else 0, 'report', paused=paused)
     running = dispatched(store)
     if mode == 'steps':
         rows = unreviewed_steps(ctx, store)
         if rows is None:
-            return WaitOutcome(1, 'steps', tuple(lines), paused=paused)
-        last = rows[-1].split('\t')
-        try:
-            k = json.loads(last[0])
-        except ValueError:
-            raise BadStepRow(f'the last step row does not start with a JSON step number: {last[0]!r}') from None
+            return WaitOutcome(1, 'steps', paused=paused)
         first = rows[0].split('\t')[0]
         write(f'steps: {len(rows)} to review on {unit_name(running)}\n')
         for row in rows:
             cols = row.split('\t')
             write(f'  {cols[0]} {(cols[1] if len(cols) > 1 else "")[:9]} {cols[2] if len(cols) > 2 else ""}\n')
+        last = rows[-1].split('\t')
         write(f'range: {review_base(store, running)[:9]}..{(last[1] if len(last) > 1 else "")[:9]}\n')
         write(f'next: review the range, then pair.sh new-note {store} {os.path.basename(running.rstrip("/") or running)[:3]}\n')
+        try:
+            k = json.loads(last[0])
+        except ValueError:
+            raise BadStepRow(f'the last step row does not start with a JSON step number: {last[0]!r}') from None
         update(store, lambda doc: set_shown(doc, unit_name(running), k))
         wake(ctx, store, running, f'steps:{first}')
-        return WaitOutcome(0, 'steps', tuple(lines), paused=paused)
+        return WaitOutcome(0, 'steps', paused=paused)
     withheld = withheld_report(ctx, store)
     activity = sidekick_activity(store, clock())
     shown = seen_reply(store)
@@ -170,24 +163,25 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None, quiet=F
         if peek(load(store), 'sent').get('kind') == 'BRIEF':
             write(queue_note(store, shown))
             write(review_delta(store, shown))
-        return WaitOutcome(4, 'idle', tuple(lines), paused=paused)
-    why = ''
+        return WaitOutcome(4, 'idle', paused=paused)
+    why, missing = '', 'report: missing\n'
     if withheld:
         write(f'report: {withheld[0]} written but not ready: {withheld[1]}\n')
-        why = 'report:unready'
-    else:
-        write('report: missing\n')
+        why, missing = 'report:unready', ''
     if state == 'blocked':
+        write(missing)
         wake(ctx, store, running, why or 'blocked')
         write(provider_hint(store))
-        return WaitOutcome(3, 'blocked', tuple(lines), unready=bool(withheld), paused=paused)
+        return WaitOutcome(3, 'blocked', unready=bool(withheld), paused=paused)
     if agent_status(name()) == 'working' or activity:
         if not quiet:
             wake(ctx, store, running, why or 'checkin')
-        return WaitOutcome(4, 'checkin', tuple(lines), checkin(ctx, store, interval, clock()), bool(withheld), paused)
+        digest = checkin(ctx, store, interval, clock())
+        return WaitOutcome(4, 'checkin', digest, tuple(line for line in (missing, *(digest.lines if digest else ())) if line), bool(withheld), paused)
+    write(missing)
     wake(ctx, store, running, why or 'missing')
     write(provider_hint(store))
-    return WaitOutcome(4, 'missing', tuple(lines), unready=bool(withheld), paused=paused)
+    return WaitOutcome(4, 'missing', unready=bool(withheld), paused=paused)
 
 
 def sent_file(store):
@@ -367,18 +361,20 @@ def take_ownership(ctx, store, owner):
     return token, False
 
 
-def wait_for(ctx, store, *, timeout, interval, owner=None, quiet=False, name=None, now=None):
-    """Wait for the sidekick's reply and say how the wait ended. It ends superseded when a newer wait took the store. With no owner it owns the
-    store under this pid and gives the claim back; with one the caller keeps the claim and releases it (release). quiet leaves the wake for a check-in
-    return to the caller."""
+def wait_for(ctx, store, *, timeout, owner=None, quiet=False, name=None, now=None, out=None):
+    """Wait for the sidekick's reply and say how the wait ended; its stdout goes to `out` as finish_wait describes. It ends superseded when a
+    newer wait took the store. With no owner it owns the store under this pid and gives the claim back; with one the caller keeps the claim and
+    releases it (release). quiet leaves the wake for a check-in return to the caller."""
+    write = sys.stdout.write if out is None else out
     name = field(store, 'sidekick', 'name') if name is None else name
     token, unowned = take_ownership(ctx, store, owner)
     try:
         result = wait_for_reply(ctx, store, name, timeout, now, token=token)
         if result.superseded:
-            outcome = WaitOutcome(4, 'superseded', (f'{SUPERSEDED}\n',))
+            write(f'{SUPERSEDED}\n')
+            outcome = WaitOutcome(4, 'superseded')
         else:
-            outcome = finish_wait(ctx, store, interval, result, reply_mode(result), result.ready, now, quiet)
+            outcome = finish_wait(ctx, store, tdiv(timeout, 60000), result, now=now, quiet=quiet, out=out)
     finally:
         if owner is None and token is not None:
             try:
@@ -399,14 +395,15 @@ def release(store, owner):
 
 
 def print_outcome(outcome):
-    """Print the outcome's stdout and return the exit status the command ends with."""
-    sys.stdout.write(outcome.stdout)
+    """Print what follows the stdout a wait streamed to its `out` and return the exit status the command ends with."""
+    sys.stdout.write(''.join(outcome.digest))
     return outcome.status
 
 
-def wait_target(ctx, args):
-    """(store, timeout in milliseconds, interval in minutes) of a wait's arguments, `<store> [--timeout MS | --every MIN]`, for a store that
-    exists."""
+def wait_target(ctx, args, out=None):
+    """(store, timeout in milliseconds) of a wait's arguments, `<store> [--timeout MS | --every MIN]`, for a store that exists; a store with no
+    pair.json is refused after `state: ` goes to `out`."""
+    write = sys.stdout.write if out is None else out
     require_herdr()
     end_with_parent()
     if len(args) < 1:
@@ -416,8 +413,9 @@ def wait_target(ctx, args):
     timeout = timeout_ms(opts)
     opts.refuse_leftovers()
     if not os.path.isfile(f'{store}/pair.json'):
-        raise NoStoreToWait(2, translate(MissingStore(store), ctx.prog)[0])
-    return store, timeout, tdiv(timeout, 60000)
+        write('state: \n')
+        raise refuse_as(MissingStore(store), ctx.prog, 2)
+    return store, timeout
 
 
 def wait(ctx, args):
@@ -428,9 +426,5 @@ def wait(ctx, args):
             raise refuse_as(MissingStore(args[0]), ctx.prog, 2)
         release_wait(args[0], str(os.getpid()))
         return 0
-    try:
-        store, timeout, interval = wait_target(ctx, args)
-    except NoStoreToWait as e:
-        sys.stdout.write(e.stdout)
-        raise
-    return print_outcome(wait_for(ctx, store, timeout=timeout, interval=interval))
+    store, timeout = wait_target(ctx, args)
+    return print_outcome(wait_for(ctx, store, timeout=timeout))

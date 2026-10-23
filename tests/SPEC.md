@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at d143f24 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 6f2c81f by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -166,7 +166,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - `kitchen.sh new-brief` (the pair command, unchanged) — skills/pstack-kitchen/scripts/kitchen.sh help:3 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_new_plan_new_brief_and_new_steer_fill_the_kitchen_templates
 - `kitchen.sh queue` (the pair command, unchanged) — skills/pstack-kitchen/scripts/kitchen.sh help:3 — test_pstack_core.CoreTests.test_queue_behaviour
 - `kitchen.sh notes` (the pair command, unchanged) — skills/pstack-kitchen/scripts/kitchen.sh help:3 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_notes_lists_a_blocking_note_until_a_step_resolves_it_and_followups_are_tagged
-- `kitchen.sh new-note` (the pair command, unchanged) — skills/pstack-kitchen/scripts/kitchen.sh help:3 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_notes_lists_a_blocking_note_until_a_step_resolves_it_and_followups_are_tagged
+- `kitchen.sh new-note` (the pair command, unchanged) — skills/pstack-kitchen/scripts/kitchen.sh help:3 — test_pstack_core.CoreTests.test_a_wait_that_fails_after_it_printed_shows_what_it_printed_before_its_message_in_the_pair_and_in_the_kitchen
 - `kitchen.sh note` (the pair command, unchanged) — skills/pstack-kitchen/scripts/kitchen.sh help:3 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_notes_lists_a_blocking_note_until_a_step_resolves_it_and_followups_are_tagged
 - `kitchen.sh next` (the pair command, unchanged) — skills/pstack-kitchen/scripts/kitchen.sh help:3 — test_pstack_core.CoreTests.test_rotate_master_behaviour
 - `kitchen.sh progress` (the pair command, unchanged) — skills/pstack-kitchen/scripts/kitchen.sh help:3 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_pause_reaches_the_sidekick_at_progress_until_resume
@@ -187,7 +187,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 ## Exit codes
 
 - exit 2 (herdr or gate failure): landing refused: kitchen.sh land-check … fails — skills/pstack-kitchen/scripts/kitchen_core/dispatch.py:52 — test_pstack_core.CoreTests.test_dispatch_of_a_landing_brief_goes_through_the_python_land_check (+1)
-- exit 2 (herdr or gate failure): …: risk: must start with routine or escalated, as kitchen.sh classify prints it — skills/pstack-kitchen/scripts/kitchen_core/dispatch.py:95 — test_pstack_core.CoreTests.test_discuss_behaviour
+- exit 2 (herdr or gate failure): …: risk: must start with routine or escalated, as kitchen.sh classify prints it — skills/pstack-kitchen/scripts/kitchen_core/dispatch.py:96 — test_pstack_core.CoreTests.test_discuss_behaviour
 - exit 2 (herdr or gate failure): the next master did not start in …; you stay the master (generation …), so carry on and  — skills/pstack-kitchen/scripts/kitchen_core/master.py:173 — test_pstack_core.CoreTests.test_rotate_master_behaviour
 - exit 2 (herdr or gate failure): this run is in a linked worktree and its [scratch].setup failed:
 … — skills/pstack-kitchen/scripts/kitchen_core/setup.py:109 — test_pstack_core.CoreTests.test_init_behaviour
@@ -223,8 +223,8 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): sidekick … is not live; run: pair.sh spawn … --kind <kind> — skills/pstack-pair/scripts/pstack_core/send.py:105 — test_pstack_core.CoreTests.test_discuss_behaviour (+2)
 - exit 2 (herdr or gate failure): agent start failed in …; inspect: herdr pane read … --source visible — skills/pstack-pair/scripts/pstack_core/spawn.py:127 — test_pstack_core.CoreTests.test_failover_refuses_and_reports_what_a_caller_reads
 - exit 2 (herdr or gate failure): no fallback recorded for a failed …; pass --fallback KIND or fix the agent — skills/pstack-pair/scripts/pstack_core/spawn.py:243 — test_pstack_core.CoreTests.test_spawn_reports_the_failure_a_caller_branches_on
-- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:83 — test_pstack_pair.PairScriptTests.test_trio (+230)
-- exit 2 (herdr or gate failure): the last step row does not start with a JSON step number: … — skills/pstack-pair/scripts/pstack_core/wait.py:149 — test_pstack_core.CoreTests.test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words
+- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:83 — test_pstack_pair.PairScriptTests.test_trio (+231)
+- exit 2 (herdr or gate failure): the last step row does not start with a JSON step number: … — skills/pstack-pair/scripts/pstack_core/wait.py:149 — test_pstack_core.CoreTests.test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words (+1)
 - exit 2 (herdr or gate failure): cannot read the master's agent kind from herdr; run pair.sh init first — skills/pstack-trio/scripts/variant.py:63 — test_pstack_core.CoreTests.test_trio_spawn_and_discuss_report_the_state_they_stop_on
 - exit 3 (agent blocked): sidekick … is …; resolve that before queueing — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:123 — test_pstack_core.CoreTests.test_queue_behaviour (+1)
 - exit 3 (agent blocked): sidekick … did not settle after esc; inspect: herdr agent read … --source visible --line — skills/pstack-pair/scripts/pstack_core/commands/steer.py:79 — test_pstack_pair.PairScriptTests.test_trio (+2)
@@ -242,7 +242,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 4 (no report, queue empty, check-in or still running): no report found — skills/pstack-pair/scripts/pstack_core/commands/report.py:25 — test_pstack_core.CoreTests.test_report_next_and_finish_say_what_is_missing (+1)
 - exit 4 (no report, queue empty, check-in or still running): (returns 4 in consult()) — skills/pstack-pair/scripts/pstack_core/consult.py:284 — test_pstack_core.CoreTests.test_consult_and_advice_report_what_the_consultant_is_doing (+1)
 - exit 4 (no report, queue empty, check-in or still running): no advice found — skills/pstack-pair/scripts/pstack_core/consult.py:292 — test_pstack_core.CoreTests.test_consult_and_advice_report_what_the_consultant_is_doing (+1)
-- exit 5 (wrong state): an escalated plan goes to the consultant too; start it: kitchen.sh consultant … --reason  — skills/pstack-kitchen/scripts/kitchen_core/dispatch.py:100 — test_pstack_core.CoreTests.test_discuss_behaviour
+- exit 5 (wrong state): an escalated plan goes to the consultant too; start it: kitchen.sh consultant … --reason  — skills/pstack-kitchen/scripts/kitchen_core/dispatch.py:101 — test_pstack_core.CoreTests.test_discuss_behaviour
 - exit 5 (wrong state): a verification is open (…); finish it (kitchen.sh verify … --wait) or pass --force — skills/pstack-kitchen/scripts/kitchen_core/master.py:69 — test_pstack_core.CoreTests.test_close_behaviour
 - exit 5 (wrong state): the sidekick is working; kitchen.sh stop … first, or pass --force — skills/pstack-kitchen/scripts/kitchen_core/master.py:71 — test_pstack_core.CoreTests.test_close_behaviour
 - exit 5 (wrong state): no handoff; write one first: kitchen.sh new-handoff … — skills/pstack-kitchen/scripts/kitchen_core/master.py:130 — test_pstack_core.CoreTests.test_rotate_master_behaviour
@@ -287,19 +287,19 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 5 (wrong state): … asks whether to trust …, and that decision is yours: open … there once and trust the  — skills/pstack-pair/scripts/pstack_core/panes.py:118 — test_pstack_core.CoreTests.test_spawn_reports_the_failure_a_caller_branches_on
 - exit 5 (wrong state): the … sidekick needs a fresh session or a successful bootstrap before another task; inspe — skills/pstack-pair/scripts/pstack_core/send.py:48 — test_pstack_core.CoreTests.test_answer_names_the_state_that_blocks_it
 - exit 5 (wrong state): sidekick … is …; run: pair.sh wait … — skills/pstack-pair/scripts/pstack_core/send.py:108 — test_pstack_core.CoreTests.test_discuss_behaviour (+2)
-- exit 5 (wrong state): the queue holds …; dispatch that first, or: pair.sh queue … --clear — skills/pstack-pair/scripts/pstack_core/send.py:252 — test_pstack_pair.PairScriptTests.test_trio (+3)
+- exit 5 (wrong state): the queue holds …; dispatch that first, or: pair.sh queue … --clear — skills/pstack-pair/scripts/pstack_core/send.py:251 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - exit 5 (wrong state): … task sessions start fresh; recover partial work from the store instead of passing … — skills/pstack-pair/scripts/pstack_core/spawn.py:88 — test_pstack_core.CoreTests.test_consultant_behaviour (+1)
 - exit 5 (wrong state): Prime start failed in …; its pane and recorded launch stay for inspection — skills/pstack-pair/scripts/pstack_core/spawn.py:142 — not a caller contract: the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human
 - exit 5 (wrong state): Prime did not report its session; inspect … before prompting — skills/pstack-pair/scripts/pstack_core/spawn.py:144 — test_pstack_core.CoreTests.test_a_prime_sidekick_that_reports_no_session_ends_spawn_with_5_and_keeps_its_pane_and_launch_record
-- exit 6 (plan not agreed): medium plan needs approval: posted or human in … (found '…') — skills/pstack-pair-guided/scripts/variant.py:116 — test_pstack_pair.PairScriptTests.test_guided (+1)
-- exit 6 (plan not agreed): large plan needs approval: human in … (found '…'); post the direction summary and wait f — skills/pstack-pair-guided/scripts/variant.py:119 — test_pstack_core.CoreTests.test_a_plan_needs_the_approval_and_advice_its_variant_asks_for
-- exit 6 (plan not agreed): plan … has scale '…'; set small, medium, or large — skills/pstack-pair-guided/scripts/variant.py:121 — test_pstack_core.CoreTests.test_a_plan_needs_the_approval_and_advice_its_variant_asks_for
+- exit 6 (plan not agreed): medium plan needs approval: posted or human in … (found '…') — skills/pstack-pair-guided/scripts/variant.py:115 — test_pstack_pair.PairScriptTests.test_guided (+1)
+- exit 6 (plan not agreed): large plan needs approval: human in … (found '…'); post the direction summary and wait f — skills/pstack-pair-guided/scripts/variant.py:118 — test_pstack_core.CoreTests.test_a_plan_needs_the_approval_and_advice_its_variant_asks_for
+- exit 6 (plan not agreed): plan … has scale '…'; set small, medium, or large — skills/pstack-pair-guided/scripts/variant.py:120 — test_pstack_core.CoreTests.test_a_plan_needs_the_approval_and_advice_its_variant_asks_for
 - exit 6 (plan not agreed): playbook … needs an agreed plan; brief has plan: … — skills/pstack-pair/scripts/pstack_core/gates.py:33 — test_pstack_core.CoreTests.test_queue_behaviour (+1)
 - exit 6 (plan not agreed): plan not found: … — skills/pstack-pair/scripts/pstack_core/gates.py:35 — test_pstack_core.CoreTests.test_discuss_behaviour (+2)
 - exit 6 (plan not agreed): plan … has no review; run pair.sh discuss and write reviews/…-<slug>.md with verdict: ag — skills/pstack-pair/scripts/pstack_core/gates.py:39 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - exit 6 (plan not agreed): plan … review verdict is '…', not agreed — skills/pstack-pair/scripts/pstack_core/gates.py:43 — test_pstack_core.CoreTests.test_queue_and_dispatch_refuse_with_the_exit_code_a_caller_branches_on
 - exit 6 (plan not agreed): plan … has no consultant advice under advice/…-*; run pair.sh discuss so both agents res — skills/pstack-trio/scripts/variant.py:171 — test_pstack_core.CoreTests.test_a_plan_needs_the_approval_and_advice_its_variant_asks_for
-- exit 7 (steer, consult or ask cap): ask … exceeds the two-ask cap for unit …; re-plan the unit, or pass --force to answer an — skills/pstack-pair-guided/scripts/variant.py:78 — test_pstack_core.CoreTests.test_a_plan_needs_the_approval_and_advice_its_variant_asks_for (+1)
+- exit 7 (steer, consult or ask cap): ask … exceeds the two-ask cap for unit …; re-plan the unit, or pass --force to answer an — skills/pstack-pair-guided/scripts/variant.py:77 — test_pstack_core.CoreTests.test_a_plan_needs_the_approval_and_advice_its_variant_asks_for (+1)
 - exit 7 (steer, consult or ask cap): unit … already has two fresh steers; stop the unit and re-brief, or pass --force — skills/pstack-pair/scripts/pstack_core/commands/notes.py:189 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - exit 7 (steer, consult or ask cap): blocking review notes are still open on …:
 …
@@ -308,10 +308,10 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - exit 7 (steer, consult or ask cap): unit … already had its glance; send a finding consult, or pass --force — skills/pstack-pair/scripts/pstack_core/consult.py:204 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - exit 7 (steer, consult or ask cap): unit … already has three consults; take the question to a plan round, or pass --force — skills/pstack-pair/scripts/pstack_core/consult.py:206 — test_pstack_pair.PairScriptTests.test_trio (+1)
 - exit 8 (kinds not diverse): all three agents would be …; pstack-trio needs at least two distinct kinds (master …, si — skills/pstack-trio/scripts/variant.py:65 — test_pstack_pair.PairScriptTests.test_trio
-- exit 4: wait returns 4 with the report path already shown (review-delta printed) — skills/pstack-pair/scripts/pstack_core/wait.py:173 — test_pstack_pair.PairScriptTests.test_trio (+3)
-- exit 3: wait returns 3 when the sidekick is blocked — skills/pstack-pair/scripts/pstack_core/wait.py:183 — test_pstack_pair.PairScriptTests.test_trio (+34)
-- exit 4: wait returns 4 for a check-in digest or a missing report — skills/pstack-pair/scripts/pstack_core/wait.py:190 — test_pstack_pair.PairScriptTests.test_trio (+7)
-- exit 4: wait returns 4 when a newer wait owns the store (superseded) — skills/pstack-pair/scripts/pstack_core/wait.py:379 — test_pstack_core.CoreTests.test_a_newer_wait_supersedes_the_older_and_the_wait_that_returns_releases_the_store (+5)
+- exit 4: wait returns 4 with the report path already shown (review-delta printed) — skills/pstack-pair/scripts/pstack_core/wait.py:166 — test_pstack_pair.PairScriptTests.test_trio (+3)
+- exit 3: wait returns 3 when the sidekick is blocked — skills/pstack-pair/scripts/pstack_core/wait.py:175 — test_pstack_pair.PairScriptTests.test_trio (+34)
+- exit 4: wait returns 4 for a check-in digest or a missing report — skills/pstack-pair/scripts/pstack_core/wait.py:184 — test_pstack_pair.PairScriptTests.test_trio (+9)
+- exit 4: wait returns 4 when a newer wait owns the store (superseded) — skills/pstack-pair/scripts/pstack_core/wait.py:375 — test_pstack_core.CoreTests.test_a_newer_wait_supersedes_the_older_and_the_wait_that_returns_releases_the_store (+5)
 - exit 4: spawn returns 4 while the bootstrap READY report is missing — skills/pstack-pair/scripts/pstack_core/spawn.py:96 — test_pstack_core.CoreTests.test_spawn_reports_the_failure_a_caller_branches_on
 - exit 3: spawn returns 3 when the bootstrap did not settle — skills/pstack-pair/scripts/pstack_core/spawn.py:172 — test_pstack_pair.PairScriptTests.test_trio (+5)
 - exit 4: spawn returns 4 when the agent settled but READY is missing — skills/pstack-pair/scripts/pstack_core/spawn.py:183 — test_pstack_core.CoreTests.test_spawn_behaviour (+3)
@@ -325,16 +325,16 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `NOTE:` (read by skills/pstack-kitchen/references/sidekick.md:57) — skills/pstack-pair/scripts/pstack_core/store.py:396 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `STEER:` (read by skills/pstack-pair-guided/SKILL.md:184) — skills/pstack-pair/scripts/pstack_core/store.py:402 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `REPORT` (read by skills/pstack-kitchen/SKILL.md:3) — skills/pstack-pair/scripts/pstack_core/commands/report.py:38 — test_pstack_pair.PairScriptTests.test_trio (+5)
-- `running:` (read by skills/pstack-kitchen/references/master.md:71) — skills/pstack-pair/scripts/pstack_core/checkin.py:257 — test_pstack_pair.PairScriptTests.test_trio (+8)
-- `steps:` (read by skills/pstack-pair-guided/SKILL.md:257) — skills/pstack-pair/scripts/pstack_core/checkin.py:304 — test_pstack_pair.PairScriptTests.test_trio (+7)
-- `idle:` (read by skills/pstack-kitchen/references/master.md:60) — skills/pstack-pair/scripts/pstack_core/wait.py:166 — test_pstack_pair.PairScriptTests.test_trio (+3)
+- `running:` (read by skills/pstack-kitchen/references/master.md:71) — skills/pstack-pair/scripts/pstack_core/checkin.py:258 — test_pstack_pair.PairScriptTests.test_trio (+8)
+- `steps:` (read by skills/pstack-pair-guided/SKILL.md:257) — skills/pstack-pair/scripts/pstack_core/checkin.py:308 — test_pstack_pair.PairScriptTests.test_trio (+8)
+- `idle:` (read by skills/pstack-kitchen/references/master.md:60) — skills/pstack-pair/scripts/pstack_core/wait.py:159 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `queued:` (read by skills/pstack-pair-guided/references/master.md:211) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:46 — test_pstack_pair.PairScriptTests.test_trio (+5)
 - `rotated:` (read by skills/pstack-kitchen/references/master.md:67) — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:87 — test_pstack_pair.PairScriptTests.test_trio (+13)
-- `report_status:` (read by skills/pstack-pair-guided/SKILL.md:153) — skills/pstack-pair/scripts/pstack_core/wait.py:135 — test_pstack_pair.PairScriptTests.test_trio (+16)
+- `report_status:` (read by skills/pstack-pair-guided/SKILL.md:153) — skills/pstack-pair/scripts/pstack_core/wait.py:128 — test_pstack_pair.PairScriptTests.test_trio (+16)
 - `review-delta:` (read by skills/pstack-pair-guided/references/master.md:102) — skills/pstack-pair/scripts/pstack_core/replies.py:166 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `provider_error:` (read by skills/pstack-pair/references/master.md:242) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:317 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_the_wait_itself (+6)
-- `editing:` (read by skills/pstack-kitchen/references/master.md:71) — skills/pstack-pair/scripts/pstack_core/checkin.py:261 — test_pstack_pair.PairScriptTests.test_trio (+6)
-- `written but not ready` (read by skills/pstack-kitchen/references/master.md:75) — skills/pstack-pair/scripts/pstack_core/wait.py:176 — test_pstack_core.CoreTests.test_the_quiet_wait_behaviour (+4)
+- `editing:` (read by skills/pstack-kitchen/references/master.md:71) — skills/pstack-pair/scripts/pstack_core/checkin.py:262 — test_pstack_pair.PairScriptTests.test_trio (+6)
+- `written but not ready` (read by skills/pstack-kitchen/references/master.md:75) — skills/pstack-pair/scripts/pstack_core/wait.py:169 — test_pstack_core.CoreTests.test_the_quiet_wait_behaviour (+5)
 - `closed:` (read by skills/pstack-kitchen/references/master.md:81) — skills/pstack-kitchen/scripts/kitchen_core/feedback.py:216 — test_pstack_core.CoreTests.test_verify_behaviour (+5)
 - `cancelled:` (read by skills/pstack-kitchen/references/master.md:81) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:276 — test_pstack_core.CoreTests.test_verify_cancel_behaviour (+4)
 - `audit:` (read by skills/pstack-kitchen/SKILL.md:143) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:342 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_verdicts (+2)
@@ -347,36 +347,36 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `paused:` (read by skills/pstack-pair-guided/SKILL.md:290) — skills/pstack-pair/scripts/pstack_core/commands/status.py:101 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `gates: still running` (read by skills/pstack-kitchen/references/brief-template.md:67) — skills/pstack-kitchen/scripts/kitchen_core/step.py:178 — test_pstack_core.CoreTests.test_step_behaviour (+1)
 - `gates: queued` (read by skills/pstack-kitchen/SKILL.md:70) — docs only — test_pstack_kitchen.KitchenScriptTests.test_a_step_waiting_for_a_gate_slot_says_where_it_stands (+1)
-- `unowned:` — skills/pstack-pair/scripts/pstack_core/wait.py:46 — test_pstack_kitchen.KitchenScriptTests.test_a_failed_first_claim_leaves_the_quiet_wait_unowned_not_superseded
-- `ready:` (read by skills/pstack-pair/references/master.md:82) — skills/pstack-kitchen/scripts/variant.py:193 — test_pstack_pair.PairScriptTests.test_trio (+8)
+- `unowned:` — skills/pstack-pair/scripts/pstack_core/wait.py:47 — test_pstack_kitchen.KitchenScriptTests.test_a_failed_first_claim_leaves_the_quiet_wait_unowned_not_superseded
+- `ready:` (read by skills/pstack-pair/references/master.md:82) — skills/pstack-kitchen/scripts/variant.py:193 — test_pstack_pair.PairScriptTests.test_trio (+9)
 - `superseded` (read by skills/pstack-kitchen/references/master.md:60) — skills/pstack-pair/scripts/pstack_core/commands/notes.py:184 — test_pstack_core.CoreTests.test_a_newer_wait_supersedes_the_older_and_the_wait_that_returns_releases_the_store (+9)
 - `sidekick_response:` — skills/pstack-pair/scripts/pstack_core/consult.py:83 — test_pstack_pair.PairScriptTests.test_trio (+3)
-- `report: missing` (read by skills/pstack-pair-guided/SKILL.md:105) — skills/pstack-pair/scripts/pstack_core/wait.py:179 — test_pstack_pair.PairScriptTests.test_trio (+7)
-- `next:` (read by skills/pstack-pair-guided/references/sidekick.md:85) — skills/pstack-kitchen/scripts/kitchen.py:2028 — test_pstack_pair.PairScriptTests.test_trio (+21)
+- `report: missing` (read by skills/pstack-pair-guided/SKILL.md:105) — skills/pstack-pair/scripts/pstack_core/wait.py:167 — test_pstack_pair.PairScriptTests.test_trio (+9)
+- `next:` (read by skills/pstack-pair-guided/references/sidekick.md:85) — skills/pstack-kitchen/scripts/kitchen.py:2028 — test_pstack_pair.PairScriptTests.test_trio (+22)
 
 ## Store files and fields
 
-- `pair.json` written by master via `pair.sh`: agent names, pane ids, cwd, git root, the sidekick's fallback and failovers, pane placement (split or tab) — skills/pstack-pair/SKILL.md:58 — test_pstack_pair.PairScriptTests.test_trio (+107)
+- `pair.json` written by master via `pair.sh`: agent names, pane ids, cwd, git root, the sidekick's fallback and failovers, pane placement (split or tab) — skills/pstack-pair/SKILL.md:58 — test_pstack_pair.PairScriptTests.test_trio (+108)
 - `standing-orders.md` written by master: numbered constraints pasted by path into every brief — skills/pstack-pair/SKILL.md:59 — test_pstack_pair.PairScriptTests.test_trio (+8)
 - `plans/NNN-<slug>.md` written by master: one plan round, from [the plan template](references/plan-template.md) — skills/pstack-pair/SKILL.md:60 — test_pstack_pair.PairScriptTests.test_trio (+25)
 - `briefs/NNN-<slug>.md` written by master: one unit, from [the brief template](references/brief-template.md) — skills/pstack-pair/SKILL.md:61 — test_pstack_pair.PairScriptTests.test_trio (+59)
 - `progress/NNN-<slug>.md` written by sidekick via `pair.sh progress`: one timestamped line per completed step or change of approach; a check-in shows only the lines the master has  — skills/pstack-pair/SKILL.md:62 — test_pstack_pair.PairScriptTests.test_trio (+16)
 - `steers/NNN-<slug>-s<k>.md` written by master: mid-brief direction k for unit NNN, from [the steer template](references/steer-template.md); `supersedes:` nam — skills/pstack-pair/SKILL.md:63 — test_pstack_pair.PairScriptTests.test_trio (+17)
-- `reports/NNN-<slug>-s<k>.md` written by sidekick: objection to steer k, from [the steer response template](references/steer-response-template.md) — skills/pstack-pair/SKILL.md:64 — test_pstack_pair.PairScriptTests.test_trio (+79)
-- `reports/NNN-<slug>.md` written by sidekick: evidence for brief NNN, from [the report template](references/report-template.md), or the agree/object respons — skills/pstack-pair/SKILL.md:65 — test_pstack_pair.PairScriptTests.test_trio (+79)
+- `reports/NNN-<slug>-s<k>.md` written by sidekick: objection to steer k, from [the steer response template](references/steer-response-template.md) — skills/pstack-pair/SKILL.md:64 — test_pstack_pair.PairScriptTests.test_trio (+80)
+- `reports/NNN-<slug>.md` written by sidekick: evidence for brief NNN, from [the report template](references/report-template.md), or the agree/object respons — skills/pstack-pair/SKILL.md:65 — test_pstack_pair.PairScriptTests.test_trio (+80)
 - `reviews/NNN-<slug>.md` written by master: verdict on report NNN, from [the review template](references/review-template.md); `agreed` on a plan unlocks i — skills/pstack-pair/SKILL.md:66 — test_pstack_pair.PairScriptTests.test_trio (+30)
 - `scratch/<id>` written by master via `pair.sh scratch`: link to a throwaway worktree at a unit's commit for rerunning its checks, kept inside the repo's git directory — skills/pstack-pair/SKILL.md:67 — test_pstack_pair.PairScriptTests.test_trio (+34)
 - `gates.md` written by master: open questions for the human — skills/pstack-pair/SKILL.md:68 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `decisions.tsv` written by master via `pair.sh log`: the show-me-your-work trail — skills/pstack-pair/SKILL.md:69 — test_pstack_pair.PairScriptTests.test_trio (+4)
 - `status.md` written by `pair.sh status`: derived table; never hand-edited — skills/pstack-pair/SKILL.md:70 — test_pstack_pair.PairScriptTests.test_trio (+3)
-- `steps/NNN-<slug>.tsv` written by sidekick via `pair.sh step`: one row per committed step: number, commit, time, notes it resolves, summary — skills/pstack-pair/SKILL.md:72 — test_pstack_pair.PairScriptTests.test_trio (+28)
-- `notes/NNN-<slug>-n<k>.md` written by master via `pair.sh new-note` and `note`: review of the unit's steps through step k, from [the note template](references/note-template.md): blocking ite — skills/pstack-pair/SKILL.md:73 — test_pstack_pair.PairScriptTests.test_trio (+31)
+- `steps/NNN-<slug>.tsv` written by sidekick via `pair.sh step`: one row per committed step: number, commit, time, notes it resolves, summary — skills/pstack-pair/SKILL.md:72 — test_pstack_pair.PairScriptTests.test_trio (+29)
+- `notes/NNN-<slug>-n<k>.md` written by master via `pair.sh new-note` and `note`: review of the unit's steps through step k, from [the note template](references/note-template.md): blocking ite — skills/pstack-pair/SKILL.md:73 — test_pstack_pair.PairScriptTests.test_trio (+32)
 - `followups.md` written by master via `pair.sh note`: follow-ups from every note, for a later brief or an issue — skills/pstack-pair/SKILL.md:74 — test_pstack_pair.PairScriptTests.test_trio (+4)
 - `session-handoff.md` written by master: compact recovery and next-task context, read at bootstrap — skills/pstack-pair/SKILL.md:75 — test_pstack_core.CoreTests.test_new_handoff_behaviour (+3)
 - `sessions/` written by `pair.sh spawn` / `rotate`: prior ready reports; retained session exports and timing evidence — skills/pstack-pair/SKILL.md:76 — test_pstack_pair.PairScriptTests.test_trio (+20)
 - `events.tsv` written by every `pair.sh` command: one row per message, report, wake, and log entry, read by `pair.sh metrics` — skills/pstack-pair/SKILL.md:77 — test_pstack_pair.PairScriptTests.test_trio (+39)
 - `plans/NNN-<slug>.direction.md` written by master: the human's plain-language summary, from [the direction template](references/direction-template.md) — skills/pstack-pair-guided/SKILL.md:65 — test_pstack_pair.PairScriptTests.test_trio (+25)
-- `reports/NNN-<slug>-q<k>.md` written by sidekick: ask k on unit NNN, from [the ask template](references/ask-template.md) — skills/pstack-pair-guided/SKILL.md:66 — test_pstack_pair.PairScriptTests.test_trio (+79)
+- `reports/NNN-<slug>-q<k>.md` written by sidekick: ask k on unit NNN, from [the ask template](references/ask-template.md) — skills/pstack-pair-guided/SKILL.md:66 — test_pstack_pair.PairScriptTests.test_trio (+80)
 - `answers/NNN-<slug>-a<k>.md` written by master: the answer to ask k, from [the answer template](references/answer-template.md) — skills/pstack-pair-guided/SKILL.md:67 — test_pstack_pair.PairScriptTests.test_trio (+9)
 - `consults/NNN-<slug>-c<k>.md` written by master: question k about unit NNN for the consultant, from [the consult template](references/consult-template.md), wit — skills/pstack-trio/SKILL.md:77 — test_pstack_pair.PairScriptTests.test_trio (+7)
 - `advice/NNN-<slug>.md` written by consultant: design critique of plan NNN, from [the plan advice template](references/plan-advice-template.md) — skills/pstack-trio/SKILL.md:80 — test_pstack_pair.PairScriptTests.test_trio (+17)

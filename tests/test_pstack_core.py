@@ -1566,13 +1566,13 @@ class CoreTests(unittest.TestCase):
                 tokens.append(token)
                 return wait.WaitResult(0, 'idle', '', '/s/reports/001-x.md')
 
-            def finish(ctx_, store, interval, result, mode, report='', now=None, quiet=False):
-                return wait.WaitOutcome(0, 'report', ('report: /s/reports/001-x.md\n',))
+            def finish(ctx_, store, interval, result, mode=None, now=None, quiet=False, out=None):
+                return wait.WaitOutcome(0, 'report', digest=('report: /s/reports/001-x.md\n',))
 
             with mock.patch.object(wait, 'claim_wait', claim), mock.patch.object(wait, 'release_wait', release if fail_release else (lambda *a: None)), \
                     mock.patch.object(wait, 'wait_for_reply', reply), mock.patch.object(wait, 'finish_wait', finish), mock.patch.object(sys, 'stderr', err), \
                     mock.patch('sys.stdout', new_callable=io.StringIO) as out, mock.patch.dict(os.environ, {}, clear=False):
-                outcome = wait.wait_for(ctx, '/s', timeout='1000', interval='9', name='s1')
+                outcome = wait.wait_for(ctx, '/s', timeout=1000, name='s1')
                 code = wait.print_outcome(outcome)
             err.seek(0)
             text = err.read()
@@ -6209,12 +6209,27 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(got.splitlines(), ['', 'rc=1'])
         self.assertEqual(perr, 'kitchen.sh: pair.json is damaged: sidekick is number, not an object\n')
 
+    def test_a_wait_that_fails_after_it_printed_shows_what_it_printed_before_its_message_in_the_pair_and_in_the_kitchen(self):
+        """A step row with no JSON number ends the wait after its `state:`, `steps:`, `range:` and `next:` lines (the output at 61781042f)."""
+        spec = self.quiet_wait_cases()['steps wake an escalated brief']
+        spec = {**spec, 'files': {**spec['files'], 'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n02\t{c2}\t6\t\ttwo\n'}}
+        message = "pair.sh: the last step row does not start with a JSON step number: '02'\n"
+        for label, got in (('kitchen', self.kitchen_world('badrow-out', spec)), ('pair', self.script_run('badrow-pair', root / 'skills', 'pstack-pair', spec))):
+            self.assertRegex(got['stdout'], r'\Astate: working\nsteps: 2 to review on 001-x\n  1 [0-9a-f]{9} one\n  02 [0-9a-f]{9} two\n'
+                                            r'range: [0-9a-f]{9}\.\.[0-9a-f]{9}\nnext: review the range, then pair.sh new-note <T>/st 001\n\Z', label)
+            self.assertEqual((got['rc'], got['stderr']), (2, message), label)
+
     def test_each_caller_of_captured_receives_the_status_its_command_returns_as_it_did_when_a_closure_raised_it(self):
         ctx = Context('pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 21, '')
         kitchen_wait, kitchen_dispatch = self.kitchen_core_module('wait'), self.kitchen_core_module('dispatch')
         for code in (0, 1, 2, 4):
-            outcome = wait.WaitOutcome(code, 'missing', ('state: \n',))
-            with mock.patch.object(kitchen_wait, 'wait_target', return_value=('/st', 0, 0)), mock.patch.object(kitchen_wait, 'wait_for', return_value=outcome), \
+            outcome = wait.WaitOutcome(code, 'missing')
+
+            def waited(ctx_, store, *, timeout, owner, quiet, out):
+                out('state: \n')
+                return outcome
+
+            with mock.patch.object(kitchen_wait, 'wait_target', return_value=('/st', 0)), mock.patch.object(kitchen_wait, 'wait_for', waited), \
                     mock.patch.object(kitchen_wait, 'release') as release, mock.patch('sys.stdout', new_callable=io.StringIO) as out:
                 self.assertEqual(kitchen_wait.quiet_wait(ctx, '/st', []), code, ('wait', code))
             self.assertEqual((out.getvalue(), release.call_count), ('state: \n', 1), ('wait', code))
@@ -7559,23 +7574,26 @@ class CheckInFactTests(DispatchedStore):
 
 
 class WaitSeamTests(DispatchedStore):
-    """What a wait says about how it ended, who owns the store while it waits, and which layer records the master's wake."""
+    """What a wait says about how it ended, who owns the store while it waits, and which layer prints and records what."""
     kitchen_core_module = CoreTests.kitchen_core_module
 
     def events(self):
         path = self.store / 'events.tsv'
         return [line.split('\t')[2:] for line in path.read_text().splitlines()] if path.exists() else []
 
-    def finish(self, agent, *, state='working', report='', mode='reply', quiet=False):
+    def finish(self, agent, *, state='working', report='', mode='reply', quiet=False, activity=''):
+        """finish_wait on the store; what it streamed to `out` is in self.printed."""
+        self.printed = []
         with mock.patch.object(wait, 'agent_status', return_value=agent), mock.patch.object(wait, 'agent_state', return_value=state), \
-                mock.patch('sys.stdout', new_callable=io.StringIO):
-            return wait.finish_wait(self.ctx, str(self.store), 9, wait.WaitResult(0, '', '', report), mode, report, self.EPOCH + 60, quiet)
+                mock.patch.object(wait, 'sidekick_activity', return_value=activity), mock.patch('pstack_core.checkin.sidekick_activity', return_value=activity):
+            return wait.finish_wait(self.ctx, str(self.store), 9, wait.WaitResult(0, '', '', report), mode, self.EPOCH + 60, quiet, self.printed.append)
 
     def test_a_working_sidekick_ends_the_wait_on_its_check_in_and_the_core_records_the_wake(self):
         got = self.finish('working')
         self.assertEqual((got.status, got.kind, got.unready, got.paused, got.flagged), (4, 'checkin', False, False, False))
         self.assertEqual(got.checkin.elapsed_min, 1)
-        self.assertEqual(got.lines, ('state: working\n', 'report: missing\n'))
+        self.assertEqual(self.printed, ['state: working\n'])
+        self.assertEqual(got.digest, ('report: missing\n', *got.checkin.lines))
         self.assertEqual(self.events(), [['master', 'wake', '001-x', 'checkin']])
 
     def test_a_quiet_wait_records_no_wake_for_the_check_in_it_returns(self):
@@ -7590,12 +7608,14 @@ class WaitSeamTests(DispatchedStore):
 
     def test_a_sidekick_that_is_not_working_leaves_the_wait_missing(self):
         got = self.finish('idle', state='settled')
-        self.assertEqual((got.status, got.kind, got.checkin), (4, 'missing', None))
+        self.assertEqual((got.status, got.kind, got.checkin, got.digest), (4, 'missing', None, ()))
+        self.assertEqual(self.printed[:2], ['state: settled\n', 'report: missing\n'])
         self.assertEqual(self.events(), [['master', 'wake', '001-x', 'missing']])
 
     def test_a_blocked_sidekick_without_a_report_ends_the_wait_blocked(self):
         got = self.finish('blocked', state='blocked')
         self.assertEqual((got.status, got.kind), (3, 'blocked'))
+        self.assertEqual(self.printed[:2], ['state: blocked\n', 'report: missing\n'])
         self.assertEqual(self.events(), [['master', 'wake', '001-x', 'blocked']])
 
     def test_a_ready_report_ends_the_wait_with_the_report(self):
@@ -7606,8 +7626,15 @@ class WaitSeamTests(DispatchedStore):
         with mock.patch.object(wait, 'withheld_report', return_value=None):
             got = self.finish('idle', state='settled', report=str(report), mode='reply')
         self.assertEqual((got.status, got.kind, got.checkin), (0, 'report', None))
-        self.assertIn(f'report: {report}\n', got.lines)
+        self.assertIn(f'report: {report}\n', self.printed)
         self.assertEqual(self.events()[-1], ['master', 'wake', '001-x', 'report:done'])
+
+    def test_a_withheld_report_is_unready_and_takes_the_place_of_the_missing_line(self):
+        with mock.patch.object(wait, 'withheld_report', return_value=('/s/reports/001-x.md', 'open blocking notes n1')):
+            got = self.finish('working', quiet=True)
+        self.assertEqual((got.kind, got.unready), ('checkin', True))
+        self.assertEqual(self.printed, ['state: working\n', 'report: /s/reports/001-x.md written but not ready: open blocking notes n1\n'])
+        self.assertEqual(got.digest, got.checkin.lines)
 
     def wait_in(self, owner, reply=None, **kw):
         """wait_for on the store with the reply the test names: the claim it saw while it waited, and its outcome."""
@@ -7617,10 +7644,10 @@ class WaitSeamTests(DispatchedStore):
             seen.append((token, wait.read_wait_owner(store)))
             return reply or wait.WaitResult(0, '', '', '')
 
-        done = wait.WaitOutcome(4, 'missing', ('state: idle\n',))
+        done = wait.WaitOutcome(4, 'missing')
         with mock.patch.object(wait, 'wait_for_reply', reply_), mock.patch.object(wait, 'finish_wait', return_value=done), \
                 mock.patch('sys.stderr', new_callable=io.StringIO) as err:
-            outcome = wait.wait_for(self.ctx, str(self.store), timeout=0, interval=0, owner=owner, name='s', **kw)
+            outcome = wait.wait_for(self.ctx, str(self.store), timeout=0, owner=owner, name='s', **kw)
         return seen, outcome, err.getvalue()
 
     def test_a_wait_with_no_owner_claims_the_store_under_its_pid_and_gives_it_back(self):
@@ -7651,9 +7678,10 @@ class WaitSeamTests(DispatchedStore):
 
     def test_a_wait_whose_store_a_newer_wait_took_ends_superseded(self):
         (self.store / 'wait.pid').write_text('newer\n')
+        printed = []
         with mock.patch.object(wait, 'herdr_get', side_effect=AssertionError('no herdr call')):
-            outcome = wait.wait_for(self.ctx, str(self.store), timeout=0, interval=0, owner=wait.WaitOwner('old', claim=False), name='s')
-        self.assertEqual((outcome.status, outcome.kind, outcome.stdout), (4, 'superseded', f'{wait.SUPERSEDED}\n'))
+            outcome = wait.wait_for(self.ctx, str(self.store), timeout=0, owner=wait.WaitOwner('old', claim=False), name='s', out=printed.append)
+        self.assertEqual((outcome.status, outcome.kind, outcome.digest, printed), (4, 'superseded', (), [f'{wait.SUPERSEDED}\n']))
         self.assertEqual(wait.read_wait_owner(str(self.store)), 'newer')
 
     def test_release_gives_back_only_the_claim_it_holds(self):
@@ -7665,14 +7693,20 @@ class WaitSeamTests(DispatchedStore):
         self.assertIsNone(wait.read_wait_owner(store))
         wait.release(str(self.path / 'nowhere'), wait.WaitOwner('kitchen-1'))
 
-    def dispatch_world(self, outcome):
-        """The kitchen's dispatch on the store, its core sending the brief and returning outcome; the quiet wait it hands off to is a stub."""
+    def dispatch_world(self, outcome, printed):
+        """The kitchen's dispatch on the store, its core sending the brief and returning outcome after it streamed `printed`; the quiet wait it hands off
+        to is a stub."""
         dispatch = self.kitchen_core_module('dispatch')
-        result = send.DispatchResult((), outcome, outcome.status)
         handed = []
-        request = send.DispatchRequest(str(self.store), str(self.brief), 0, 0, False)
+
+        def brief_sent(ctx, store, brief, *, timeout, send_only, owner=None, quiet=False, out=None):
+            for chunk in printed:
+                out(chunk)
+            return send.DispatchResult((), outcome, outcome.status)
+
+        request = send.DispatchRequest(str(self.store), str(self.brief), 0, False)
         with mock.patch.object(dispatch, 'require_pair'), mock.patch.object(dispatch, 'classify_brief'), mock.patch.object(dispatch, 'rotate_if_due'), \
-                mock.patch.object(dispatch.send, 'dispatch_request', return_value=request), mock.patch.object(dispatch.send, 'dispatch_brief', return_value=result), \
+                mock.patch.object(dispatch.send, 'dispatch_request', return_value=request), mock.patch.object(dispatch.send, 'dispatch_brief', brief_sent), \
                 mock.patch.object(dispatch, 'quiet_wait', side_effect=lambda *a: handed.append(a) or 4), mock.patch('sys.stdout', new_callable=io.StringIO) as out:
             status = dispatch.dispatch(self.ctx, [str(self.store), str(self.brief)])
         return status, out.getvalue(), handed
@@ -7680,23 +7714,67 @@ class WaitSeamTests(DispatchedStore):
     def test_a_dispatch_that_swallows_a_check_in_records_no_wake_and_the_wait_it_hands_off_to_records_one(self):
         quiet = self.finish('working', quiet=True)
         self.assertFalse(quiet.flagged)
-        status, out, handed = self.dispatch_world(quiet)
-        self.assertEqual((status, out, len(handed)), (4, 'state: working\nreport: missing\n', 1))
+        status, out, handed = self.dispatch_world(quiet, self.printed)
+        self.assertEqual((status, out, len(handed)), (4, 'state: working\n', 1))
         self.assertEqual(self.events(), [], 'the dispatch records nothing for the check-in it swallowed')
         kitchen_wait = self.kitchen_core_module('wait')
-        with mock.patch.object(kitchen_wait, 'wait_target', return_value=(str(self.store), 0, 0)), mock.patch.object(kitchen_wait, 'wait_for', return_value=quiet), \
+        printed = self.printed
+
+        def returns(ctx, store, *, timeout, owner, quiet, out):
+            for chunk in printed:
+                out(chunk)
+            return self.quiet
+
+        self.quiet = quiet
+        with mock.patch.object(kitchen_wait, 'wait_target', return_value=(str(self.store), 0)), mock.patch.object(kitchen_wait, 'wait_for', returns), \
                 mock.patch.object(kitchen_wait, 'release'), mock.patch.object(kitchen_wait, 'quiet_now', side_effect=[0, 10 ** 6, 10 ** 6]), \
                 mock.patch('sys.stdout', new_callable=io.StringIO):
             self.assertEqual(kitchen_wait.quiet_wait(self.ctx, str(self.store), []), 4)
         self.assertEqual(self.events(), [['master', 'wake', '001-x', 'checkin']], 'the wait that returns records exactly one')
 
+    def test_a_dispatch_that_swallows_a_check_in_still_prints_what_the_sidekick_runs_and_the_base_note(self):
+        """The bytes the kitchen printed (kitchen_core 61781042f: the SWALLOWED filter kept every digest line it did not name) for a quiet check-in
+        whose digest has a `running:` line and a `note:` line."""
+        for name in ('trunk1.txt', 'trunk2.txt'):
+            (self.cwd / name).write_text(name)
+            self.git('add', name)
+            self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', name)
+        self.git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+        self.brief.write_text(self.brief.read_text() + '- trunk1.txt\n- trunk2.txt\n')
+        quiet = self.finish('working', quiet=True, activity='sleep for 3m')
+        self.assertFalse(quiet.flagged, quiet.checkin.lines)
+        status, out, handed = self.dispatch_world(quiet, self.printed)
+        self.assertEqual(status, 4)
+        self.assertRegex(out, rf'\Astate: working\nrunning: sleep for 3m\nnote: recorded base {self.head[:9]} is behind where its branch leaves '
+                              r'remotes/origin/main; measuring from [0-9a-f]{9}\n\Z')
+
     def test_a_dispatch_that_returns_a_flagged_check_in_prints_it_and_records_one_wake(self):
         (self.cwd / 'other.txt').write_text('y')
         flagged = self.finish('working', quiet=True)
         self.assertTrue(flagged.flagged)
-        status, out, handed = self.dispatch_world(flagged)
-        self.assertEqual((status, handed, out.count('check-in:'), out.count('outside scope: 1')), (4, [], 1, 1))
+        status, out, handed = self.dispatch_world(flagged, self.printed)
+        self.assertEqual((status, handed, out.count('check-in:'), out.count('outside scope: 1'), out.startswith('state: working\nreport: missing\ncheck-in:')),
+                         (4, [], 1, 1, True))
         self.assertEqual(self.events(), [['master', 'wake', '001-x', 'checkin']])
+
+    def test_a_quiet_wait_checks_the_store_at_every_poll_and_ends_with_the_refusal_the_pair_gives(self):
+        """Kitchen wait at 61781042f, whose inner wait checked the store each poll: after a quiet check-in the store loses its pair.json, and the next poll ends 2
+        with `state: ` on stdout and the pair's refusal on stderr."""
+        kitchen_wait = self.kitchen_core_module('wait')
+        quiet = self.finish('working', quiet=True)
+        store, calls = str(self.store), []
+
+        def returns(ctx, store_, *, timeout, owner, quiet, out):
+            calls.append(owner)
+            os.unlink(f'{store}/pair.json')
+            return self.quiet
+
+        self.quiet = quiet
+        with mock.patch.object(wait, 'require_herdr'), mock.patch.object(wait, 'end_with_parent'), mock.patch.object(kitchen_wait, 'wait_for', returns), \
+                mock.patch.object(kitchen_wait, 'quiet_now', return_value=0), mock.patch.object(kitchen_wait, 'poll_sleep'), \
+                mock.patch('sys.stdout', new_callable=io.StringIO) as out, mock.patch('sys.stderr', new_callable=io.StringIO) as err:
+            status = kitchen_wait.quiet_wait(self.ctx, store, [])
+        self.assertEqual((status, len(calls), out.getvalue(), err.getvalue()), (2, 1, 'state: \n', f'pair.sh: no pair.json in {store}; run: pair.sh init <slug>\n'))
 
 
 if __name__ == '__main__':
