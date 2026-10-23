@@ -5,33 +5,45 @@ import sys
 import time
 from dataclasses import dataclass
 
-from ..store import Die, prog, read_text
+from ..store import Die, env_int, prog, read_text
 
 WHOLE_NUMBER = re.compile(r'[0-9]+', re.ASCII)
 WORDS = re.compile(r'[a-z]+', re.ASCII | re.IGNORECASE)
-LEADING_NUMBER = re.compile(r'[0-9]*', re.ASCII)
 PAUSED_UNIT = re.compile(r'-[sq][0-9]+$')
 
 
 @dataclass(frozen=True)
 class Event:
-    """One events.tsv row. `time` is None when the row's time column is not a whole number."""
+    """One events.tsv row. `time` is None when the time column is not a whole number; `note_id` is a note's id when it is one."""
     time: int | None
     actor: str
     kind: str
     unit: str
     detail: str
+    note_id: int | None = None
 
 
 def parse_event(row):
-    """The only place a malformed row is decided: missing columns read as empty, an unusable time becomes None."""
+    """None for a row with too few columns."""
     columns = row.split('\t')
-    time_, actor, kind, unit, detail = (columns + [''] * 6)[1:6]
-    return Event(int(time_) if WHOLE_NUMBER.fullmatch(time_) else None, actor, kind, unit, detail)
+    if len(columns) < 6:
+        return None
+    _, time_, actor, kind, unit, detail = columns[:6]
+    note_id = None
+    if kind == 'note':
+        id_ = detail.split(':')[0]
+        note_id = int(id_) if WHOLE_NUMBER.fullmatch(id_) else None
+    return Event(int(time_) if WHOLE_NUMBER.fullmatch(time_) else None, actor, kind, unit, detail, note_id)
 
 
-def parse_events(lines):
-    return [parse_event(row) for row in lines]
+def parse_events(log):
+    """The events in a log, in file order. The log has no header, but a store from an older build may start with one."""
+    rows = read_text(log).split('\n')
+    if rows and rows[-1] == '':
+        rows.pop()
+    if rows and rows[0].startswith('ts\t'):
+        rows = rows[1:]
+    return [e for e in map(parse_event, rows) if e]
 
 
 def minutes(seconds):
@@ -47,8 +59,7 @@ class Metrics:
 
     def __init__(self, now):
         self.now = now
-        self.first = self.last = 0
-        self.seen = False
+        self.first = self.last = None
         self.sk_on = self.co_on = False
         self.sk_since = self.sk_unit = self.sk_kind = self.sk_free = None
         self.co_since = self.co_kind = None
@@ -60,21 +71,29 @@ class Metrics:
         self.plans = self.consults = 0
         self.review_from = None
         self.queued, self.steps, self.noted, self.verdicts = set(), {}, {}, {}
-        self.handlers = {
+        self.counters = {
+            'send-brief': self.count_send_brief, 'send-answer': self.count_send_brief, 'queue': self.count_queue,
+            'failover': self.count_failover, 'step': self.count_step, 'note': self.count_note, 'wake': self.count_wake,
+            'log': self.count_log,
+        }
+        self.timed = {
             'send-brief': self.on_send_brief, 'send-answer': self.on_send_brief, 'send-plan': self.on_send_plan,
-            'send-consult': self.on_send_consult, 'send-steer': self.on_send_steer, 'queue': self.on_queue,
-            'failover': self.on_failover, 'step': self.on_step, 'note': self.on_note, 'report': self.on_report,
-            'advice': self.on_advice, 'wake': self.on_wake, 'log': self.on_log,
+            'send-consult': self.on_send_consult, 'send-steer': self.on_send_steer, 'step': self.on_step,
+            'note': self.on_note, 'report': self.on_report, 'advice': self.on_advice, 'wake': self.on_wake,
+            'log': self.on_log,
         }
 
     def record(self, e):
-        if e.time is not None:
-            if not self.seen:
-                self.first, self.seen = e.time, True
-            self.last = e.time
-        handler = self.handlers.get(e.kind)
-        if handler:
-            handler(e)
+        """Every event is counted; only an event with a time moves the clock and the busy figures."""
+        if e.kind in self.counters:
+            self.counters[e.kind](e)
+        if e.time is None:
+            return
+        if self.first is None:
+            self.first = e.time
+        self.last = e.time
+        if e.kind in self.timed:
+            self.timed[e.kind](e)
 
     def sk_start(self, t, unit, kind):
         if self.sk_on:
@@ -121,77 +140,35 @@ class Metrics:
             self.consults += 1
             self.consult_t += spent
 
-    def on_send_brief(self, e):
-        if e.time is not None:
-            self.sk_start(e.time, e.unit, 'brief')
+    def count_send_brief(self, e):
         if e.detail == 'queued':
             self.taken += 1
 
-    def on_send_plan(self, e):
-        if e.time is None:
-            return
-        if e.detail == 'consultant':
-            self.co_start(e.time, 'plan')
-        else:
-            self.sk_start(e.time, e.unit, 'plan')
-
-    def on_send_consult(self, e):
-        if e.time is not None:
-            self.co_start(e.time, 'consult')
-
-    def on_send_steer(self, e):
-        if e.time is not None and e.detail == 'objection':
-            self.sk_start(e.time, e.unit, 'brief')
-
-    def on_queue(self, e):
+    def count_queue(self, e):
         if e.unit != '-':
             self.queued.add(e.unit)
 
-    def on_failover(self, e):
+    def count_failover(self, e):
         self.failovers.append(e.detail)
 
-    def on_step(self, e):
+    def count_step(self, e):
         self.nsteps += 1
-        if e.time is not None:
-            self.steps[e.unit, e.detail.split(':')[0]] = e.time
 
-    def on_note(self, e):
+    def count_note(self, e):
         self.nnotes += 1
-        id_, _, flag = e.detail.partition(':')
-        if flag.split(':')[0] == 'blocking':
+        if e.detail.split(':')[1:2] == ['blocking']:
             self.nblock += 1
-        if e.time is None:
-            return
-        done = self.noted.get(e.unit, 0)
-        if WHOLE_NUMBER.fullmatch(id_):
-            for n in range(done + 1, int(id_) + 1):
-                if (e.unit, str(n)) in self.steps:
-                    self.stall_secs.append(e.time - self.steps[e.unit, str(n)])
-        self.noted[e.unit] = int(LEADING_NUMBER.match(id_).group(0) or 0)
 
-    def on_report(self, e):
-        if e.actor == 'sidekick' and e.time is not None:
-            self.sk_end(e.time, e.unit)
-
-    def on_advice(self, e):
-        if e.actor == 'consultant' and e.time is not None:
-            self.co_end(e.time)
-
-    def on_wake(self, e):
+    def count_wake(self, e):
         self.wakes += 1
         if e.detail == 'checkin':
             self.checkins += 1
-        if e.time is None:
-            return
-        if e.detail.startswith(('report:', 'sidekick:')):
-            self.sk_end(e.time, e.unit)
-        if e.detail.startswith(('advice:', 'consultant:')):
-            self.co_end(e.time)
 
-    def on_log(self, e):
+    def count_log(self, e):
         if not e.detail.startswith(('review:', 'plan:')):
             return
-        for word in WORDS.findall(e.detail.lower()):
+        for found in WORDS.findall(e.detail):
+            word = found.lower()
             stem = word[:-2] if word.endswith('ed') else word
             if stem in ('accept', 'reject'):
                 self.verdicts[stem] = self.verdicts.get(stem, 0) + 1
@@ -199,18 +176,62 @@ class Metrics:
             if word in ('agreed', 'revise'):
                 self.verdicts[word] = self.verdicts.get(word, 0) + 1
                 break
-        if e.detail.startswith('review:') and self.review_from is not None and e.time is not None:
+
+    def on_send_brief(self, e):
+        self.sk_start(e.time, e.unit, 'brief')
+
+    def on_send_plan(self, e):
+        if e.detail == 'consultant':
+            self.co_start(e.time, 'plan')
+        else:
+            self.sk_start(e.time, e.unit, 'plan')
+
+    def on_send_consult(self, e):
+        self.co_start(e.time, 'consult')
+
+    def on_send_steer(self, e):
+        if e.detail == 'objection':
+            self.sk_start(e.time, e.unit, 'brief')
+
+    def on_step(self, e):
+        self.steps[e.unit, e.detail.split(':')[0]] = e.time
+
+    def on_note(self, e):
+        if e.note_id is None:
+            return
+        for n in range(self.noted.get(e.unit, 0) + 1, e.note_id + 1):
+            if (e.unit, str(n)) in self.steps:
+                self.stall_secs.append(e.time - self.steps[e.unit, str(n)])
+        self.noted[e.unit] = e.note_id
+
+    def on_report(self, e):
+        if e.actor == 'sidekick':
+            self.sk_end(e.time, e.unit)
+
+    def on_advice(self, e):
+        if e.actor == 'consultant':
+            self.co_end(e.time)
+
+    def on_wake(self, e):
+        if e.detail.startswith(('report:', 'sidekick:')):
+            self.sk_end(e.time, e.unit)
+        if e.detail.startswith(('advice:', 'consultant:')):
+            self.co_end(e.time)
+
+    def on_log(self, e):
+        if e.detail.startswith('review:') and self.review_from is not None:
             self.review_secs.append(e.time - self.review_from)
             self.review_from = None
 
     def report(self):
-        live = (self.sk_on or self.co_on) and self.now >= self.last
-        end = self.now if live else self.last
+        first, last = self.first or 0, self.last or 0
+        live = (self.sk_on or self.co_on) and self.now >= last
+        end = self.now if live else last
         sk_busy, running = self.sk_busy, ''
         if self.sk_on:
             running = f'running: {self.sk_unit} for {minutes(end - self.sk_since)}\n'
             sk_busy += end - self.sk_since
-        wall = end - self.first
+        wall = end - first
         pct = lambda busy: int(100 * busy / wall) if wall else 0
         out = [f'wall: {minutes(wall)} from first event to {"now" if self.sk_on or self.co_on else "last"}\n',
                f'sidekick: busy {minutes(sk_busy)} ({pct(sk_busy)}% of wall), idle {minutes(self.sk_idle)} across {self.sk_gaps} gaps; '
@@ -243,24 +264,18 @@ def run(ctx, args):
     log = f'{store}/events.tsv'
     if not (os.path.exists(log) and os.stat(log).st_size > 0):
         raise Die(f'no events.tsv in {store}; it is written from the first command on')
-    now = os.environ.get('PAIR_METRICS_NOW') or ''
-    metrics = Metrics(int(now) if WHOLE_NUMBER.fullmatch(now) else int(time.time()))
+    metrics = Metrics(env_int('PAIR_METRICS_NOW', int(time.time())))
     # A directory in place of the log is skipped with a warning and counts nothing; a log that cannot be read ends with exit 2.
+    events = []
     if os.path.isdir(log):
         sys.stderr.write(f'{prog()}: warning: {log} is a directory: skipped\n')
-        records = []
     else:
         try:
-            records = read_text(log).split('\n')
+            events = parse_events(log)
         except OSError as e:
             sys.stderr.write(f'{prog()}: cannot read {log}: {os.strerror(e.errno)}\n')
             return 2
-    if records and records[-1] == '':
-        records.pop()
-    # event() writes no header; a store from an older build may start with one, and that line is skipped.
-    if records and records[0].startswith('ts\t'):
-        records = records[1:]
-    for event in parse_events(records):
+    for event in events:
         metrics.record(event)
     sys.stdout.write(metrics.report())
     return 0

@@ -3484,18 +3484,51 @@ class CoreTests(unittest.TestCase):
         return '\n'.join(rows) + '\n'
 
     def test_metrics_takes_the_lower_middle_brief_duration_as_the_median(self):
-        def median_line(spans):
-            return self.metrics_of(self.brief_rows(*spans)).splitlines()[1]
-        self.assertIn('3 briefs (median 2m)', median_line([(0, 60), (100, 220), (300, 600)]))
-        self.assertIn('4 briefs (median 2m)', median_line([(0, 60), (100, 220), (300, 600), (700, 1300)]))
-        self.assertIn('0 briefs (median 0m)', self.metrics_of('2026\t100\tmaster\tqueue\t001-a\t\n').splitlines()[1])
+        odd = self.metrics_of(self.brief_rows((0, 60), (100, 220), (300, 600)))
+        self.assertEqual(odd, (
+            'wall: 10m from first event to last\n'
+            'sidekick: busy 8m (80% of wall), idle 2m across 2 gaps; 3 briefs (median 2m), 0 plan responses (0m)\n'
+            'master: 0 wakes, 0 of them check-ins; review latency median 0m over 0 reviews\n'
+            'verdicts: none\n'
+            'briefs:\n  000-a 1m\n  001-a 2m\n  002-a 5m\n'))
+        even = self.metrics_of(self.brief_rows((0, 60), (100, 220), (300, 600), (700, 1300)))
+        self.assertEqual(even, (
+            'wall: 22m from first event to last\n'
+            'sidekick: busy 18m (83% of wall), idle 4m across 3 gaps; 4 briefs (median 2m), 0 plan responses (0m)\n'
+            'master: 0 wakes, 0 of them check-ins; review latency median 0m over 0 reviews\n'
+            'verdicts: none\n'
+            'briefs:\n  000-a 1m\n  001-a 2m\n  002-a 5m\n  003-a 10m\n'))
+        self.assertEqual(self.metrics_of('2026\t100\tmaster\tqueue\t001-a\t\n'), (
+            'wall: 0m from first event to last\n'
+            'sidekick: busy 0m (0% of wall), idle 0m across 0 gaps; 0 briefs (median 0m), 0 plan responses (0m)\n'
+            'queue: 1 briefs queued, 0 taken by the sidekick; 0 started the moment a report landed\n'
+            'master: 0 wakes, 0 of them check-ins; review latency median 0m over 0 reviews\n'
+            'verdicts: none\n'))
 
-    def test_metrics_leaves_a_row_with_an_unusable_time_out_of_the_timeline(self):
-        rows = self.FIRST_EVENTS + '2026\tabc\tmaster\tqueue\t002-b\t\n2026\t\tmaster\tsend-brief\t003-c\t\n\nshort\n'
-        out = self.metrics_of(rows)
-        self.assertEqual(out.splitlines()[0], 'wall: 1m from first event to last')
-        self.assertIn('queue: 1 briefs queued, 0 taken by the sidekick; 0 started the moment a report landed\n', out)
-        self.assertNotIn('003-c', out)
+    def test_metrics_counts_a_row_with_an_unusable_time_but_keeps_it_off_the_timeline(self):
+        clean = self.metrics_of(self.FIRST_EVENTS)
+        for bad in ('abc', '', '-5', ' 7', '1e3'):
+            out = self.metrics_of(self.FIRST_EVENTS + f'2026\t{bad}\tmaster\tqueue\t002-b\t\n2026\t{bad}\tmaster\tsend-brief\t003-c\t\n')
+            self.assertEqual(out.replace('queue: 1 briefs queued, 0 taken by the sidekick; 0 started the moment a report landed\n', ''), clean, bad)
+            self.assertIn('queue: 1 briefs queued', out)
+
+    def test_metrics_drops_a_row_with_too_few_columns(self):
+        clean = self.metrics_of(self.FIRST_EVENTS)
+        for short in ('2026\t300\tmaster\tqueue', '', 'short', '2026\t300'):
+            self.assertEqual(self.metrics_of(self.FIRST_EVENTS + short + '\n'), clean, short)
+
+    def test_metrics_counts_a_verdict_word_only_in_ascii_letters(self):
+        log = '2026\t100\tmaster\tlog\t-\t'
+        self.assertIn('verdicts: accept 1\n', self.metrics_of(f'{log}review: ACCEPTED\n'))
+        self.assertIn('verdicts: none\n', self.metrics_of(f'{log}review: ac\u212aept acce\u017fpted\n'))
+
+    def test_metrics_refuses_a_clock_that_is_not_a_whole_number(self):
+        st = self.path / 'clock'
+        st.mkdir()
+        (st / 'events.tsv').write_text(self.FIRST_EVENTS)
+        self.env['PAIR_METRICS_NOW'] = 'soon'
+        r = self.pair_py('metrics', str(st))
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', 'pair.sh: PAIR_METRICS_NOW must be a whole number\n'))
 
     def test_metrics_gives_a_legacy_header_store_the_same_output_as_the_headerless_one(self):
         self.assertEqual(self.metrics_of(LEGACY_HEADER + '\n' + self.FIRST_EVENTS), self.metrics_of(self.FIRST_EVENTS))
