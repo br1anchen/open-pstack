@@ -27,7 +27,7 @@ scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
 import run as run_module  # noqa: E402
-from pstack_core import cli, exits, git, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
+from pstack_core import argv, cli, exits, git, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.store import Die, Exit  # noqa: E402
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
@@ -7091,6 +7091,62 @@ class FillTemplateTests(unittest.TestCase):
             source = (root / 'skills' / rel).read_text()
             self.assertIn('fill_template(', source)
             self.assertNotIn("text.replace(", source)
+
+
+class ArgvReaderTests(unittest.TestCase):
+    def test_valued_flags_take_the_next_token_whatever_it_looks_like_and_keep_their_order(self):
+        spec = argv.Spec(valued=('--fallback-arg', '--kind'), flags=('--tab',))
+        got = argv.read(['--kind', 'pi', '--fallback-arg', '--x', '--tab', '--fallback-arg', 'y', '--kind', 'codex'], spec)
+        self.assertEqual(got.occurrences, (('--kind', 'pi'), ('--fallback-arg', '--x'), ('--tab', None), ('--fallback-arg', 'y'), ('--kind', 'codex')))
+        self.assertEqual(got.all('--fallback-arg'), ['--x', 'y'])
+        self.assertEqual((got.last('--kind'), got.last('--tab'), got.last('--missing', 'd')), ('codex', True, 'd'))
+        self.assertTrue(got.present('--tab'))
+        self.assertFalse(got.present('--missing'))
+
+    def test_a_valued_flag_with_no_value_and_an_unknown_token_are_the_two_lexical_refusals(self):
+        spec = argv.Spec(valued=('--timeout',))
+        with self.assertRaises(Die) as caught:
+            argv.read(['--timeout'], spec)
+        self.assertEqual((caught.exception.code, caught.exception.message), (1, '--timeout needs a value'))
+        with self.assertRaises(Die) as caught:
+            argv.read(['--timeout', '1', '--bogus', '--timeout'], spec)
+        self.assertEqual((caught.exception.code, caught.exception.message), (1, 'unknown option --bogus'))
+        self.assertEqual(argv.read([], spec).occurrences, ())
+
+    def test_collected_unknown_tokens_keep_their_order_and_can_be_refused_afterwards(self):
+        spec = argv.Spec(valued=('--max',), unknown='collect')
+        got = argv.read(['--timeout', '5', '--max', '9', 'x'], spec)
+        self.assertEqual((got.leftovers, got.all('--max')), (('--timeout', '5', 'x'), ['9']))
+        self.assertEqual(got.stripped('--max'), ['--timeout', '5', 'x'])
+        self.assertEqual(got.stripped(), ['--timeout', '5', '--max', '9', 'x'])
+        with self.assertRaises(Die) as caught:
+            got.refuse_leftovers()
+        self.assertEqual(caught.exception.message, 'unknown option --timeout')
+        argv.read(['--max', '1'], spec).refuse_leftovers()
+
+    def test_dashdash_ends_the_options_only_for_a_spec_that_declares_it(self):
+        with_dash = argv.read(['--tab', '--', '--model', 'x', '--tab'], argv.Spec(flags=('--tab',), dashdash=True))
+        self.assertEqual((with_dash.occurrences, with_dash.after_dashdash), ((('--tab', None),), ('--model', 'x', '--tab')))
+        self.assertEqual(argv.read(['--'], argv.Spec(dashdash=True)).after_dashdash, ())
+        with self.assertRaises(Die) as caught:
+            argv.read(['--'], argv.Spec())
+        self.assertEqual(caught.exception.message, 'unknown option --')
+
+    def test_a_slot_flag_counts_only_at_its_slot(self):
+        spec = argv.Spec(flags=('--force',), slots={'--force': 0}, unknown='collect')
+        self.assertTrue(argv.read(['--force'], spec).present('--force'))
+        late = argv.read(['x', '--force'], spec)
+        self.assertEqual((late.present('--force'), late.leftovers), (False, ('x', '--force')))
+        with self.assertRaises(Die):
+            argv.read(['x', '--force'], argv.Spec(flags=('--force',), slots={'--force': 0}))
+
+    def test_positionals_are_the_tokens_matching_the_pattern(self):
+        spec = argv.Spec(valued=('--covers',), flags=('--wait',), positional=r'[0-9]{3}')
+        got = argv.read(['001', '--covers', '002', '--wait', '003'], spec)
+        self.assertEqual((got.positionals, got.all('--covers')), (('001', '003'), ['002']))
+        with self.assertRaises(Die) as caught:
+            argv.read(['12'], spec)
+        self.assertEqual(caught.exception.message, 'unknown option 12')
 
 
 if __name__ == '__main__':
