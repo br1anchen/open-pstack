@@ -252,7 +252,12 @@ def step(ctx, args):
     # into the row it has). It is looked up first, so an earlier commit can be re-recorded whatever HEAD and the tree are now.
     if log.has(full):
         return core_step.step(ctx, args)
-    left = core_step.unresolved_notes(store, brief, core_step.resolves_arg(args[3:]))
+    resolves = core_step.resolves_arg(args[3:])
+    if error := core_step.malformed_resolves(resolves):
+        raise Die(error)
+    if error := core_step.unpublished_resolves(store, unit, resolves):
+        raise Die(error)
+    left = core_step.unresolved_notes(store, brief, resolves)
     if left:
         raise open_notes_refusal(ctx.prog, left)
     check_checkout(root, sha, full)

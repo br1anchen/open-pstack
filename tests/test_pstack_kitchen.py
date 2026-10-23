@@ -2573,6 +2573,29 @@ esac
         self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'slow'))
         self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
 
+    def test_a_note_published_while_gates_run_refuses_the_rerun_and_the_resolving_rerun_reuses_the_job(self):
+        self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
+                   .replace('fast = ["test ! -e FAIL"]', 'fast = ["sleep 5"]'))
+        self.commit('slow gate')
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.write('src/util.py', 'X = 4\n')
+        self.write('tests/test_app.py', 'x = 4\n')
+        sha = self.commit('step')
+        self.env['KITCHEN_STEP_SLICE_S'] = '1'
+        self.assertIn('gates: still running', self.run_sh('step', str(self.store), sha, 'slow', code=4))
+        note = self.store / 'notes/001-util-n1.md'
+        note.parent.mkdir(exist_ok=True)
+        note.write_text('# N\n\nstatus: blocking\n')
+        self.env['KITCHEN_STEP_SLICE_S'] = '30'
+        self.assertEqual(self.run_sh('step', str(self.store), sha, 'slow', code=5),
+                         f'kitchen.sh: step: blocking note n1 is open ({note}); fix it and record the fix with --resolves n1\n')
+        self.assertFalse((self.store / 'steps/001-util.tsv').exists())
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'slow', '--resolves', 'n1'))
+        job = next((self.store / 'steps/jobs').iterdir())
+        self.assertEqual(sorted(p.name for p in job.glob('out.*')), ['out.1'])
+        self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
+        self.assertEqual((self.store / 'steps/001-util.tsv').read_text().split('\t')[3], 'n1')
+
     def await_job_line(self, text, bound=120):
         """Poll the step job's output for a line the detached gate prints; the bound only turns a hang into a failure."""
         import threading

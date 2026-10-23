@@ -28,6 +28,24 @@ def resolves_arg(args):
     return read(args, Spec(valued=('--resolves',))).last('--resolves', '')
 
 
+def malformed_resolves(resolves):
+    """The message for a --resolves value that is no list of note ids, else ''."""
+    return '' if RESOLVES.fullmatch(resolves) else '--resolves takes note ids like n2,n3, or 001-n2 for another unit\'s note'
+
+
+def unpublished_resolves(store, unit, resolves):
+    """The message for the first --resolves id that names no published note, else ''."""
+    for note in resolves.replace(',', ' ').split():
+        if re.match(r'[0-9]{3}-', note):
+            # another unit's note: notes/<NNN>-<slug>-n<k>.md
+            seq, bare = note.split('-', 1)
+            if not glob.glob(os.path.join(glob.escape(store), 'notes', f'{seq}-*-{bare}.md')):
+                return f'--resolves {note}: no published note {bare} on unit {seq}; resolve only notes pair.sh notes printed'
+        elif not os.path.isfile(f'{store}/notes/{unit}-{note}.md'):
+            return f'--resolves {note}: no published note {note} on {unit}; resolve only notes pair.sh notes printed'
+    return ''
+
+
 def step(ctx, args, now=None):
     """The sidekick records a committed step and goes straight on; the master's wait picks it up for review. --resolves names the
     notes the step fixes. A commit this unit recorded already only gains the notes it now resolves; the check for it and the append
@@ -36,8 +54,8 @@ def step(ctx, args, now=None):
         raise Die(f'usage: {ctx.prog} step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha, summary = args[:3]
     resolves = resolves_arg(args[3:])
-    if not RESOLVES.fullmatch(resolves):
-        raise Die('--resolves takes note ids like n2,n3, or 001-n2 for another unit\'s note')
+    if error := malformed_resolves(resolves):
+        raise Die(error)
     pair_file(store)
     brief = dispatched(store)
     if not brief:
@@ -48,14 +66,8 @@ def step(ctx, args, now=None):
         raise Die(f'not a commit: {sha}; commit the step first')
     full = r.stdout.rstrip('\n')
     unit = unit_name(brief)
-    for note in resolves.replace(',', ' ').split():
-        if re.match(r'[0-9]{3}-', note):
-            # another unit's note: notes/<NNN>-<slug>-n<k>.md
-            seq, bare = note.split('-', 1)
-            if not glob.glob(os.path.join(glob.escape(store), 'notes', f'{seq}-*-{bare}.md')):
-                raise Die(f'--resolves {note}: no published note {bare} on unit {seq}; resolve only notes pair.sh notes printed')
-        elif not os.path.isfile(f'{store}/notes/{unit}-{note}.md'):
-            raise Die(f'--resolves {note}: no published note {note} on {unit}; resolve only notes pair.sh notes printed')
+    if error := unpublished_resolves(store, unit, resolves):
+        raise Die(error)
     os.makedirs(f'{store}/steps', exist_ok=True)
     os.makedirs(f'{store}/progress', exist_ok=True)
     log = StepLog(store, brief)

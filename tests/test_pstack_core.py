@@ -5929,6 +5929,8 @@ class CoreTests(unittest.TestCase):
             'a step on the unit base, so an empty range': step('{k1}', 'x', pair={'heads': {'002-y': '{k1}'}}),
             'a step that resolves a note': step('{k1}', 'fix', '--resolves', 'n1', files={'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}),
             'a step that leaves a blocking note open': step('{k1}', 'fix', '--resolves', 'n2', files={'notes/002-y-n1.md': '# N\n\nstatus: blocking\n', 'notes/002-y-n2.md': '# N\n\nstatus: blocking\n'}),
+            'a malformed --resolves while a note is open': step('{k1}', 'fix', '--resolves', '1-n1', files={'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}),
+            'an unpublished --resolves while a note is open': step('{k1}', 'fix', '--resolves', 'n9', files={'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}),
             'a brief stamped with a kitchen snapshot': step('{k1}', 'x', topfiles={'snap.toml': (self.LAUNCH_TOML, 0o644)},
                                                           files={'briefs/002-y.md': self.launch_brief('002', 'y', 'kitchen: {T}/snap.toml\n')}),
             'a base behind where the branch leaves trunk': step('{k1}', 'x', pair={'heads': {'002-y': '{u0}'}}),
@@ -5958,6 +5960,8 @@ class CoreTests(unittest.TestCase):
             'a step on the unit base, so an empty range': (0, 'gates: pass (contracts)'),
             'a step that resolves a note': recorded,
             'a step that leaves a blocking note open': (5, 'pair.sh: step: blocking note n1 is open (<T>/st/notes/002-y-n1.md); fix it and record the fix with --resolves n1'),
+            'a malformed --resolves while a note is open': (1, "pair.sh: --resolves takes note ids like n2,n3, or 001-n2 for another unit's note"),
+            'an unpublished --resolves while a note is open': (1, 'pair.sh: --resolves n9: no published note n9 on 002-y; resolve only notes pair.sh notes printed'),
             'a brief stamped with a kitchen snapshot': recorded,
             'a base behind where the branch leaves trunk': recorded,
             'two arguments': (1, 'usage: kitchen.sh step <store> <sha> <summary>'),
@@ -5968,7 +5972,11 @@ class CoreTests(unittest.TestCase):
         # the second of two failing steps counts the failures in a row; a step whose gates run on leaves a job directory with its log and a link to it
         self.assertIn('2 failed checks in a row; write the report as blocked', out['a step whose gate fails twice in a row']['second'][1])
         self.assertTrue(any(name.endswith('/out.1') for name in out['a first step']['files']))
-        self.assertFalse(any('steps/jobs' in name for name in out['a step that leaves a blocking note open']['files']), 'the refusal comes before any gate starts')
+        refused = out['a step that leaves a blocking note open']
+        self.assertEqual((refused['rc'], refused['stderr']), (5, 'pair.sh: step: blocking note n1 is open (<T>/st/notes/002-y-n1.md); fix it and record the fix with --resolves n1\n'))
+        self.assertFalse(any('steps/jobs' in name for name in refused['files']), 'the refusal comes before any gate starts')
+        for name in ('a malformed --resolves while a note is open', 'an unpublished --resolves while a note is open'):
+            self.assertFalse(any('steps/jobs' in n for n in out[name]['files']), name)
         self.assertIn('gates: pass', out['a first step']['stdout'])
         self.assertEqual(out['a step whose gate fails']['events'][-1].split('\t')[:2], ['sidekick', 'gate-fail'])
         self.assertEqual(out['a gate that passed after a rerun under load']['events'][-2].split('\t')[:2], ['sidekick', 'gate-flaky'])
