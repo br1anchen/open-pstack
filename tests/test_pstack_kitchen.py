@@ -3446,6 +3446,8 @@ esac
         spec = importlib.util.spec_from_file_location(
             'kitchen_variant_under_test', skill / 'scripts/variant.py'
         )
+        if spec is None or spec.loader is None:
+            raise ImportError(f'cannot load {skill / "scripts/variant.py"}')
         module = importlib.util.module_from_spec(spec)
         sys.path.insert(0, str(root / 'skills/pstack-pair/scripts'))
         spec.loader.exec_module(module)

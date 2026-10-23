@@ -15,6 +15,8 @@ tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/pstack-upstream.py'
 spec = importlib.util.spec_from_file_location('pstack_upstream', SCRIPT)
+if spec is None or spec.loader is None:
+    raise ImportError(f'cannot load {SCRIPT}')
 pu = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pu)
 

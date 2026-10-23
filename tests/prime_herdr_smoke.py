@@ -86,7 +86,7 @@ class Provider(BaseHTTPRequestHandler):
         self.wfile.write(b'data: [DONE]\n\n')
         self.wfile.flush()
 
-    def log_message(self, *args):
+    def log_message(self, format, *args):
         pass
 
 

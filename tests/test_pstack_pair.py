@@ -2507,6 +2507,7 @@ class EntryScriptTests(unittest.TestCase):
             ('dirname', shutil.which('dirname')),
             ('readlink', shutil.which('readlink')),
         ):
+            assert target is not None
             (bin_dir / tool).symlink_to(target)
         env = {**self.env, 'PATH': str(bin_dir)}
         for key in ENTRY_SCRIPTS:

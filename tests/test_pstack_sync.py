@@ -12,6 +12,8 @@ tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
 spec = importlib.util.spec_from_file_location(
     'pstack_sync', Path(__file__).resolve().parents[1] / 'scripts/pstack-sync.py'
 )
+if spec is None or spec.loader is None:
+    raise ImportError('cannot load scripts/pstack-sync.py')
 sync_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sync_module)
 
