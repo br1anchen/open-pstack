@@ -7481,7 +7481,7 @@ def oversized_functions(source):
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 a = child.args
                 params = [p.arg for p in (*a.posonlyargs, *a.args, *a.kwonlyargs, *filter(None, (a.vararg, a.kwarg)))]
-                if owner and params[:1] in (['self'], ['cls']):
+                if isinstance(node, ast.ClassDef) and params[:1] in (['self'], ['cls']):
                     params = params[1:]
                 body = child.end_lineno - child.body[0].lineno + 1
                 if body > MAX_BODY_LINES:
@@ -7500,6 +7500,8 @@ class FunctionSizeGuardTests(unittest.TestCase):
         wide = 'class K:\n    def m(self, a, b, c, d, e, f, g, *, h, i):\n        pass\n    @classmethod\n    def n(cls, a, b, c, d, e, f, g, h):\n        pass\n'
         self.assertEqual(oversized_functions(wide), [('K.m', 2, '9 parameters')])
         self.assertEqual(oversized_functions('def f(cls, a, b, c, d, e, f, g, h):\n    pass\n'), [('f', 1, '9 parameters')])
+        nested = 'class K:\n    def m(self):\n        def inner(self, a, b, c, d, e, f, g, h):\n            pass\n'
+        self.assertEqual(oversized_functions(nested), [('K.m.inner', 3, '9 parameters')])
         long_body = 'def f():\n    """doc"""\n' + '    x = 1\n' * (MAX_BODY_LINES - 1)
         self.assertEqual(oversized_functions(long_body), [])
         self.assertEqual(oversized_functions(long_body + '    x = 1\n'), [('f', 1, f'{MAX_BODY_LINES + 1} body lines')])
