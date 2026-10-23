@@ -55,8 +55,10 @@ case "$1 $2" in
 	name="$3"; text="$4"; wait=0; until=""; shift 4
 	if [ "$text" = /exit ] || [ "$text" = /quit ]; then
 		# $FAKE/exit-dialog/<name>: Claude's background-work dialog (the file's text) stays up and the agent with it until Enter is sent.
-		# $FAKE/exit-stuck/<name>: the exit command is taken but the agent stays and its screen shows no dialog.
+		# $FAKE/exit-stuck/<name>: the exit command is taken but the agent stays, its screen shows no dialog, and it leaves on the Nth
+		# `agent read` after the command (N is the file's number).
 		if [ -s "$FAKE/exit-dialog/$name" ]; then mkdir -p "$FAKE/screen"; cp "$FAKE/exit-dialog/$name" "$FAKE/screen/$name"
+		elif [ -s "$FAKE/exit-stuck/$name" ]; then mkdir -p "$FAKE/exit-reads"; cp "$FAKE/exit-stuck/$name" "$FAKE/exit-reads/$name"
 		elif [ ! -e "$FAKE/exit-stuck/$name" ]; then rm -f "$FAKE/agents/$name"; fi
 		printf '{}\n'; exit 0
 	fi
@@ -134,6 +136,10 @@ case "$1 $2" in
 	fi
 	ok "$(status_of "$3")" ;;
 "agent read")
+	if [ -s "$FAKE/exit-reads/$3" ]; then
+		left=$(( $(cat "$FAKE/exit-reads/$3") - 1 ))
+		if [ "$left" -gt 0 ]; then echo "$left" >"$FAKE/exit-reads/$3"; else rm -f "$FAKE/exit-reads/$3" "$FAKE/agents/$3"; fi
+	fi
 	# $FAKE/screen/<name>: the pane shows exactly that text.
 	# $FAKE/busy/<name>: the pane shows a working agent whatever herdr's state says.
 	# The hint wraps, as it does in a 28-column Devin pane.

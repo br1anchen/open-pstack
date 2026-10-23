@@ -3582,9 +3582,11 @@ esac
         self.assertEqual(self.run_sh('close', str(self.store)), '')
 
     def close_with_dialog(self, text, keys):
+        self.env['PAIR_EXIT_POLL_S'] = '0'
         (self.fake / 'exit-dialog').mkdir(exist_ok=True)
         (self.fake / 'exit-dialog/demo-sidekick').write_text(text)
-        self.assertIn('closed sidekick demo-sidekick', self.run_sh('close', str(self.store)))
+        pane = self.state()['sidekick']['pane_id']
+        self.assertIn(f'closed sidekick demo-sidekick ({pane})\n', self.run_sh('close', str(self.store)))
         self.assertEqual([l.rsplit(' ', 1)[1] for l in self.pane_calls('agent send-keys demo-sidekick')], keys)
         self.assertTrue(self.state()['sidekick']['closed'])
 
@@ -3595,13 +3597,13 @@ esac
         self.close_with_dialog('Move to background and exit?\n', ['1', 'enter'])
 
     def test_close_sends_no_keys_to_a_pane_that_shows_no_exit_dialog(self):
+        self.env['PAIR_EXIT_POLL_S'] = '0'
+        # The agent stays after the exit command and leaves on the second pane read: the status check, then the helper's look at the screen.
         (self.fake / 'exit-stuck').mkdir()
-        (self.fake / 'exit-stuck/demo-sidekick').touch()
-        self.env['PAIR_EXIT_DEADLINE_S'] = '0'
-        out = self.run_sh('close', str(self.store), code=5)
-        self.assertIn('sidekick demo-sidekick did not exit', out)
+        (self.fake / 'exit-stuck/demo-sidekick').write_text('2\n')
+        pane = self.state()['sidekick']['pane_id']
+        self.assertIn(f'closed sidekick demo-sidekick ({pane})\n', self.run_sh('close', str(self.store)))
         self.assertEqual(self.pane_calls('agent send-keys demo-sidekick'), [])
-        self.assertFalse(self.state()['sidekick']['closed'])
 
     def restart(self, how):
         """Starts the closed roles again: `spawn`, the consultant, or a rotation of the sidekick."""

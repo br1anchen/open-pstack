@@ -138,6 +138,7 @@ esac
         self.assertFalse(self.state()['sidekick']['rotation_required'])
 
     def exit_dialog(self, text):
+        self.env['PAIR_EXIT_POLL_S'] = '0'
         (self.fake / 'exit-dialog').mkdir(exist_ok=True)
         (self.fake / 'exit-dialog/demo-sidekick').write_text(text)
 
@@ -159,11 +160,11 @@ esac
 
     def test_rotate_sends_no_keys_to_a_pane_that_shows_no_exit_dialog(self):
         self.complete_task()
-        self.env['PAIR_EXIT_DEADLINE_S'] = '0'
+        self.env['PAIR_EXIT_POLL_S'] = '0'
+        # The agent stays after the exit command and leaves on the second pane read: the status check, then the helper's look at the screen.
         (self.fake / 'exit-stuck').mkdir()
-        (self.fake / 'exit-stuck/demo-sidekick').touch()
-        out = self.run_command('rotate', str(self.store), code=5)
-        self.assertIn('devin has not exited; inspect demo-sidekick before retrying rotate', out)
+        (self.fake / 'exit-stuck/demo-sidekick').write_text('2\n')
+        self.run_command('rotate', str(self.store))
         self.assertEqual(self.send_keys(), [])
 
     def fresh_session_state(self, state, settles):
