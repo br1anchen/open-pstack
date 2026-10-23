@@ -4421,6 +4421,10 @@ esac
         '  - `kitchen.sh feedback --close` for each of the 21 reports.\n\n'
         '```bash\npython3 -c "print(\'fenced\')"\n```\n\n'
         '```bash\nkitchen.sh log demo x y z w  # master-only\n```\n\n'
+        '```bash\nkitchen.sh feedback --close <id> <commit|none> "<note>"\n```\n\n'
+        '```text\npython3 not_a_shell_fence.py\n```\n\n'
+        '```bash\n# only a comment\n```\n\n'
+        '```bash\nfalse\necho after\n```\n\n'
         '## Risks\n\n- `python3 not_a_verification.py`\n')
 
     def landing_world(self, units, plan_text=None, verified=()):
@@ -4445,25 +4449,65 @@ esac
         self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--every', '0')
         return (self.store / 'verdicts/landing-v1-packet.md').read_text()
 
-    def test_a_landing_packet_runs_a_plans_fenced_and_whole_span_commands_and_lists_the_rest_as_master_obligations(self):
+    def test_a_landing_packet_runs_only_a_plans_shell_fences_and_lists_every_other_line_as_a_master_obligation(self):
         packet = self.landing_world([('001', 'util', 'g1', 'a1')])
         plan = self.store / 'plans/900-demo.md'
-        lines = packet.split('\n')
         section = packet.split(f'## Plan verification: {plan}')[1].split('\n## ')[0]
         prove = self.prove_block(self.store / 'verdicts/landing-v1-packet.md')
-        self.assertIn('python3 tests/run.py -k plan_cmd', prove)
         self.assertIn('python3 -c "print(\'fenced\')"', prove)
-        self.assertFalse([l for l in lines if l.startswith('python3 tests/spec_gen.py')])
-        self.assertFalse([l for l in prove if 'spec_gen' in l or 'not_a_verification' in l or 'check-pstack' in l])
-        self.assertIn('not for the verifier:', section)
-        self.assertIn('(master-only)\n```bash\nkitchen.sh log demo x y z w  # master-only\n```', section)
-        obligations = section.split('Master obligations, not yours: report what evidence you see, or write "pending"\n')[1].strip('\n').split('\n')
-        self.assertIn('- line 6: **Scenario:** `tests/pstack-pair/scenario.sh` for pair, guided and trio, diffed against the goldens. The suite, '
-                      '`python3 scripts/check-pstack.py`, and `python3 tests/spec_gen.py` with 0 missing.', obligations)
-        self.assertIn('- line 9: a landing verification after the last unit;', obligations)
-        self.assertIn('- line 10: `kitchen.sh feedback --close` for each of the 21 reports.', obligations)
-        self.assertNotIn('- line 7: python3 tests/run.py -k plan_cmd`', obligations)
-        self.assertFalse([o for o in obligations if 'not_a_verification' in o])
+        self.assertEqual([l for l in prove if l.startswith('# plan ')], [f'# plan {plan}: Verification command 1', f'# plan {plan}: Verification command 2'])
+        self.assertFalse([l for l in prove if any(x in l for x in ('spec_gen', 'not_a_verification', 'check-pstack', 'plan_cmd', 'not_a_shell_fence', '<id>'))])
+        self.assertIn('2 commands from it run in the Prove block below.', section)
+        self.assertIn('(master-only)\n```bash\nkitchen.sh log demo x y z w  # master-only\n```', section.split('Master obligations')[0])
+        obligations = section.split('Master obligations, not yours: report what evidence you see, or write "pending"\n\n')[1].strip('\n').split('\n')
+        self.assertEqual(obligations, [
+            '- line 5: **Each open gap:** a test that fails at the old head and passes at the unit head.',
+            '- line 6: **Scenario:** `tests/pstack-pair/scenario.sh` for pair, guided and trio, diffed against the goldens. The suite, '
+            '`python3 scripts/check-pstack.py`, and `python3 tests/spec_gen.py` with 0 missing.',
+            '- line 7: `python3 tests/run.py -k plan_cmd`',
+            "- line 8: **Master obligations, not a verifier's:**",
+            '- line 9: a landing verification after the last unit;',
+            '- line 10: `kitchen.sh feedback --close` for each of the 21 reports.',
+            '- line 20: ```bash', '- line 21: kitchen.sh feedback --close <id> <commit|none> "<note>"', '- line 22: ```',
+            '- line 24: ```text', '- line 25: python3 not_a_shell_fence.py', '- line 26: ```',
+            '- line 28: ```bash', '- line 29: # only a comment', '- line 30: ```'])
+
+    def test_a_plan_command_block_fails_at_its_first_failing_line(self):
+        packet = self.landing_world([('001', 'util', 'g1', 'a1')])
+        plan = self.store / 'plans/900-demo.md'
+        prove = '\n'.join(self.prove_block(self.store / 'verdicts/landing-v1-packet.md'))
+        scratch = Path(self.tmp.name) / 'scratch'
+        scratch.mkdir()
+        runs = []
+        for n in (1, 2):
+            block = prove.split(f'# plan {plan}: Verification command {n}\n')[1].split('\n# plan ')[0]
+            block = re.sub(r'\(set -e\ncd \S+\n', f'(set -e\ncd {scratch}\n', block)
+            runs.append(subprocess.run(['bash', '-c', block], capture_output=True, text=True))
+        self.assertEqual((runs[0].returncode, runs[0].stdout), (0, 'fenced\n'))
+        self.assertEqual((runs[1].returncode, runs[1].stdout), (1, ''))
+
+    def test_a_landing_packet_warns_of_a_plan_that_is_missing_or_has_no_verification(self):
+        plan = self.store / 'plans/900-demo.md'
+        packet = self.landing_world([('001', 'util', 'g1', 'a1')], plan_text='# Plan 900\n\n## Goal\n\nx\n')
+        self.assertIn(f'## Plan verification: {plan}\n\nwarning: plan {plan}: no ## Verification section\n', packet)
+        self.assertNotIn('commands from it run', packet)
+
+    def test_a_landing_packet_warns_on_stderr_of_a_plan_that_does_not_exist(self):
+        plan = self.store / 'plans/900-demo.md'
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], plan=str(plan))
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text(self.PLAN_VERIFICATION)
+        (self.store / 'reviews/900-demo.md').write_text('verdict: agreed\n')
+        self.git('update-ref', 'refs/remotes/origin/main', self.git('rev-list', '--max-parents=0', 'HEAD'))
+        self.dispatch(b)
+        self.write('src/mod.py', 'X = 1\n')
+        self.write('tests/test_mod.py', 'x = 1\n')
+        self.done(b, self.commit('util'))
+        plan.unlink()
+        out = self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--every', '0')
+        packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
+        self.assertIn(f'## Plan verification: {plan}\n\nwarning: plan {plan}: no such file\n', packet)
+        self.assertIn(f'warning: plan {plan}: no such file', out)
 
     def test_a_landing_packet_adds_the_acceptance_of_a_unit_with_no_clean_verdict_and_names_both_kinds_of_unit(self):
         packet = self.landing_world([('001', 'util', 'g1', 'Acceptance one holds.'), ('002', 'next', 'g2', 'Acceptance two holds.')], verified=('001',))

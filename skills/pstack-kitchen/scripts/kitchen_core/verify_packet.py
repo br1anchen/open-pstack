@@ -72,18 +72,20 @@ def apart_text(apart):
     return 'not for the verifier:\n\n' + ''.join(f'({why})\n{fence_for(c)}bash\n{c}\n{fence_for(c)}\n\n' for why, c in apart)
 
 
-LIST_ITEM_SPAN = re.compile(r'^\s*(?:[-*+]|\d+[.)])\s+`([^`]+)`\.?\s*$')
 LIST_MARKER = re.compile(r'^\s*(?:[-*+]|\d+[.)])\s+')
+PLACEHOLDER = re.compile(r'(?<!<)<[A-Za-z_][\w .|-]*>')
+SHELL_FENCES = ('bash', 'sh', 'shell')
 
 
 def plan_verification(plan):
-    """A plan's `## Verification` split into (commands, obligations). A command is a fenced block, or a list item that is one whole inline code span;
-    both are shell text a person wrote as such. Every other non-blank line, with its line number in the plan, is an obligation; no command is built
-    from prose. ([], []) when the plan cannot be read or has no Verification."""
+    """A plan's `## Verification` split into (commands, obligations, problem). A command is a fenced block whose info string is bash, sh or shell, holds
+    a non-comment line, and has no `<placeholder>`; the person wrote it as shell. Every other non-blank line, a fence of any other kind in full, and
+    every inline code span is an obligation with its line number in the plan; no command is built from prose. problem is `no such file` or
+    `no ## Verification section` when the plan gives nothing to read, else ''."""
     try:
         lines = read_text(plan).split('\n')
     except OSError:
-        return [], []
+        return [], [], 'no such file'
     commands, obligations, fenced, block, inside = [], [], False, [], False
     for number, line in enumerate(lines, 1):
         if not inside:
@@ -91,37 +93,47 @@ def plan_verification(plan):
             continue
         if line.startswith('## ') and not fenced:
             break
-        if line.startswith('```'):
-            if fenced and any(x.strip() and not x.lstrip().startswith('#') for x in block):
-                commands.append('\n'.join(block).strip())
-            fenced, block = not fenced, []
+        if line.startswith('```') and not fenced:
+            fenced, block = True, [(number, line)]
         elif fenced:
-            block.append(line)
-        elif span := LIST_ITEM_SPAN.match(line):
-            commands.append(span.group(1))
+            block.append((number, line))
+            if line.startswith('```'):
+                fenced = False
+                words = block[0][1][3:].split()
+                body = [x for _, x in block[1:-1]]
+                if (words[:1] and words[0].lower() in SHELL_FENCES and any(x.strip() and not x.lstrip().startswith('#') for x in body)
+                        and not PLACEHOLDER.search('\n'.join(body))):
+                    commands.append('\n'.join(body).strip())
+                else:
+                    obligations += [(n, x.strip()) for n, x in block if x.strip()]
         elif line.strip():
             obligations.append((number, LIST_MARKER.sub('', line.strip())))
-    return commands, obligations
+    return commands, obligations, '' if inside else 'no ## Verification section'
 
 
 def landing_plans(p):
-    """For each distinct plan the landing's covered briefs name: (plan, runnable commands, apart, obligations), in order of first mention."""
+    """For each distinct plan the landing's covered briefs name: (plan, runnable commands, apart, obligations, problem), in order of first mention."""
     found, seen = [], set()
     for brief in landing_covered_briefs(p.store, p.root, p.base, p.head):
         plan = header_field(brief, 'plan')
         if plan in ('', 'none') or plan in seen:
             continue
         seen.add(plan)
-        commands, obligations = plan_verification(plan)
+        commands, obligations, problem = plan_verification(plan)
         runnable, apart = partition(commands, p.store, p.root)
-        found.append((plan, runnable, apart, obligations))
+        found.append((plan, runnable, apart, obligations, problem))
     return found
 
 
 def plan_sections(p):
     """The landing packet's `## Plan verification` section for each plan: the commands set apart, and the lines that are the master's to report on."""
     text = ''
-    for plan, runnable, apart, obligations in landing_plans(p):
+    for plan, runnable, apart, obligations, problem in landing_plans(p):
+        if problem:
+            sys.stdout.flush()
+            sys.stderr.write(f'warning: plan {plan}: {problem}\n')
+            text += f'## Plan verification: {plan}\n\nwarning: plan {plan}: {problem}\n\n'
+            continue
         text += f'## Plan verification: {plan}\n\n{len(runnable)} command{"" if len(runnable) == 1 else "s"} from it run in the Prove block below.\n\n'
         text += apart_text(apart)
         if obligations:
@@ -303,9 +315,9 @@ def prove_section(p, parts):
     if p.risk == 'landing':
         for profile in p.data.get('landing') or []:
             parts.append(f'python3 {tool} --repo {p.scratch} gate {profile} landing --role verifier --base {merge_base}\n')
-        for plan, runnable, _, _ in landing_plans(p):
+        for plan, runnable, *_ in landing_plans(p):
             for n, command in enumerate(runnable, 1):
-                parts.append(f'# plan {plan}: Verification command {n}\n(cd {p.scratch}\n{command}\n)\n')
+                parts.append(f'# plan {plan}: Verification command {n}\n(set -e\ncd {p.scratch}\n{command}\n)\n')
     features = p.data.get('features') or []
     parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(features)) + '\n')
     skills = sorted([d + '/' for d in glob.glob(f'{glob.escape(p.root)}/.agents/skills/verify-*') if os.path.isdir(d)])
