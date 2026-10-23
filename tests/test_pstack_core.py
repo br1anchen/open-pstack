@@ -3506,21 +3506,43 @@ class CoreTests(unittest.TestCase):
             'verdicts: none\n'))
 
     def test_metrics_counts_a_row_with_an_unusable_time_but_keeps_it_off_the_timeline(self):
-        clean = self.metrics_of(self.FIRST_EVENTS)
-        for bad in ('abc', '', '-5', ' 7', '1e3'):
-            out = self.metrics_of(self.FIRST_EVENTS + f'2026\t{bad}\tmaster\tqueue\t002-b\t\n2026\t{bad}\tmaster\tsend-brief\t003-c\t\n')
-            self.assertEqual(out.replace('queue: 1 briefs queued, 0 taken by the sidekick; 0 started the moment a report landed\n', ''), clean, bad)
-            self.assertIn('queue: 1 briefs queued', out)
+        rows = self.FIRST_EVENTS + '2026\tabc\tmaster\tqueue\t002-b\t\n2026\t\tmaster\tsend-brief\t003-c\t\n2026\t-5\tmaster\tqueue\t004-d\t\n'
+        self.assertEqual(self.metrics_of(rows), (
+            'wall: 1m from first event to last\n'
+            'sidekick: busy 1m (100% of wall), idle 0m across 0 gaps; 1 briefs (median 1m), 0 plan responses (0m)\n'
+            'queue: 2 briefs queued, 0 taken by the sidekick; 0 started the moment a report landed\n'
+            'master: 0 wakes, 0 of them check-ins; review latency median 0m over 0 reviews\n'
+            'verdicts: none\n'
+            'briefs:\n  001-a 1m\n'))
 
     def test_metrics_drops_a_row_with_too_few_columns(self):
-        clean = self.metrics_of(self.FIRST_EVENTS)
-        for short in ('2026\t300\tmaster\tqueue', '', 'short', '2026\t300'):
-            self.assertEqual(self.metrics_of(self.FIRST_EVENTS + short + '\n'), clean, short)
+        rows = self.FIRST_EVENTS + '2026\t300\tmaster\tqueue\n\nshort\n'
+        self.assertEqual(self.metrics_of(rows), (
+            'wall: 1m from first event to last\n'
+            'sidekick: busy 1m (100% of wall), idle 0m across 0 gaps; 1 briefs (median 1m), 0 plan responses (0m)\n'
+            'master: 0 wakes, 0 of them check-ins; review latency median 0m over 0 reviews\n'
+            'verdicts: none\n'
+            'briefs:\n  001-a 1m\n'))
 
     def test_metrics_counts_a_verdict_word_only_in_ascii_letters(self):
         log = '2026\t100\tmaster\tlog\t-\t'
-        self.assertIn('verdicts: accept 1\n', self.metrics_of(f'{log}review: ACCEPTED\n'))
-        self.assertIn('verdicts: none\n', self.metrics_of(f'{log}review: ac\u212aept acce\u017fpted\n'))
+        block = ('wall: 0m from first event to last\n'
+                 'sidekick: busy 0m (0% of wall), idle 0m across 0 gaps; 0 briefs (median 0m), 0 plan responses (0m)\n'
+                 'master: 0 wakes, 0 of them check-ins; review latency median 0m over 0 reviews\n')
+        self.assertEqual(self.metrics_of(f'{log}review: ACCEPTED\n'), block + 'verdicts: accept 1\n')
+        self.assertEqual(self.metrics_of(f'{log}review: ac\u212aept acce\u017fpted\n'), block + 'verdicts: none\n')
+
+    def test_metrics_pairs_a_note_with_its_step_only_for_a_whole_number_id(self):
+        rows = ['0\tmaster\tsend-brief\t001-a\t', '60\tsidekick\treport\t001-a\t', '10\tsidekick\tstep\t001-a\t1',
+                '20\tsidekick\tstep\t001-a\t3', '30\tsidekick\tstep\t001-a\t4', '100\tmaster\tnote\t001-a\t3.0:x',
+                '110\tmaster\tnote\t001-a\t 4:x', '130\tmaster\tnote\t001-a\t1:x']
+        self.assertEqual(self.metrics_of(''.join(f'2026\t{row}\n' for row in rows)), (
+            'wall: 2m from first event to last\n'
+            'sidekick: busy 1m (46% of wall), idle 0m across 0 gaps; 1 briefs (median 1m), 0 plan responses (0m)\n'
+            'master: 0 wakes, 0 of them check-ins; review latency median 0m over 0 reviews\n'
+            'steps: 3 committed, 3 notes (0 blocking); step to note median 2m\n'
+            'verdicts: none\n'
+            'briefs:\n  001-a 1m\n'))
 
     def test_metrics_refuses_a_clock_that_is_not_a_whole_number(self):
         st = self.path / 'clock'
