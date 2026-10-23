@@ -213,7 +213,8 @@ def inbox():
             ),
             '',
         )
-        repo = (re.match(r'^.*\((.*)\)$', lines[0]) or [None, ''])[1] if lines else ''
+        titled = re.match(r'^.*\((.*)\)$', lines[0]) if lines else None
+        repo = titled.group(1) if titled else ''
         build = header_field(f, 'build').split(' ')[0]
         gaps = sum(1 for line in lines if line.startswith('### '))
         if gaps == 0:

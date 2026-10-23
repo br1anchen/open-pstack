@@ -112,7 +112,7 @@ def verifier_entry(store, cls):
             if fallback.get('kind')
             else None,
         }
-    if kind == 'master':
+    if kind == 'master' and isinstance(entry, dict):
         return {
             **entry,
             'kind': agent_kind(field(store, 'master', 'pane_id')),

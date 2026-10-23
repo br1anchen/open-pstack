@@ -429,7 +429,13 @@ class Waiter:
             self.status = 'inconclusive (the verifier hit its provider, not the work)'
             say(f'verdict: none\nstatus: {self.status}\nprovider_error: {provider}\n')
             fallback_kind = text_at(v.fallback, 'kind')
-            if not v.retried and v.fallback and fallback_kind != v.kind and v.argv:
+            if (
+                self.retry
+                and not v.retried
+                and v.fallback
+                and fallback_kind != v.kind
+                and v.argv
+            ):
                 say(f'retry: verifying again on the fallback, {fallback_kind}\n')
                 sys.stdout.flush()
                 again = [

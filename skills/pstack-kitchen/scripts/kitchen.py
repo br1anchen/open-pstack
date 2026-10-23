@@ -28,6 +28,7 @@ import time
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypedDict
 
 CONFIG = '.agents/kitchen.toml'
 STAGES = ('fast', 'behavioral', 'landing')
@@ -307,11 +308,12 @@ def parse(data: dict) -> Kitchen:
         if not isinstance(g, dict):
             raise KitchenError(f'{where}: expected a table')
         _check_keys(g, where, {'sources', 'outputs', 'command'})
-        lists = {}
+        lists: dict[str, list[str]] = {}
         for key in ('sources', 'outputs'):
-            lists[key] = _strings(g.get(key), f'{where}.{key}') if key in g else None
-            if not lists[key]:
+            listed = _strings(g[key], f'{where}.{key}') if key in g else []
+            if not listed:
                 raise KitchenError(f'{where}.{key}: list at least one glob')
+            lists[key] = listed
         command = g.get('command', '')
         if not isinstance(command, str):
             raise KitchenError(f'{where}.command: expected a string')
@@ -1034,9 +1036,9 @@ def run_gate(
     # path has 104-108 bytes.
     tmp = None
     if commands and not inside:
-        base = gate_tmp_base()
-        sweep_gate_tmp(base)
-        tmp = tempfile.mkdtemp(prefix=f'kg-{os.getpid()}-', dir=base)
+        tmp_base = gate_tmp_base()
+        sweep_gate_tmp(tmp_base)
+        tmp = tempfile.mkdtemp(prefix=f'kg-{os.getpid()}-', dir=tmp_base)
         env['TMPDIR'] = tmp
     try:
         out = _run_gate(
@@ -2064,7 +2066,14 @@ def roster_data() -> tuple[Path, dict]:
 
 
 # The escalated verifier (and verify --landing's) when the roster names none: claude on the strongest model.
-DEFAULT_ESCALATED_VERIFIER = {
+class DefaultVerifier(TypedDict):
+    kind: str
+    args: list[str]
+    fallback: None
+    source: str
+
+
+DEFAULT_ESCALATED_VERIFIER: DefaultVerifier = {
     'kind': 'claude',
     'args': ['--model', 'claude-opus-5-5'],
     'fallback': None,
@@ -2884,6 +2893,16 @@ def evidence_line(r: dict[str, str]) -> str:
     )
 
 
+@dataclass
+class Candidate:
+    kind: str
+    cls: str
+    match: str
+    area: str
+    runs: list[str]
+    rows: list[dict[str, str]]
+
+
 def lesson_candidates(rows: list[dict[str, str]], lessons: list[Lesson]) -> list[dict]:
     """(kind, class, match, area) seen in two runs or more, or once by a catch,
     in rows no open lesson already covers and no dismissal has seen. The most
@@ -2911,7 +2930,7 @@ def lesson_candidates(rows: list[dict[str, str]], lessons: list[Lesson]) -> list
         groups.setdefault((r['kind'], r['class'], row_match(r)), []).append(r)
     out = []
     for (kind, cls, match), rs in sorted(groups.items()):
-        found = []
+        found: list[Candidate] = []
         for d in sorted({d for r in rs for d in r['area'].split(',') if d}):
             m = [r for r in rs if any(covers(d, e) for e in r['area'].split(','))]
             runs = sorted({r['run'] for r in m})
@@ -2926,28 +2945,23 @@ def lesson_candidates(rows: list[dict[str, str]], lessons: list[Lesson]) -> list
             ):
                 continue
             if len(runs) >= CANDIDATE_RUNS.get(kind, 2):
-                found.append(
-                    {
-                        'kind': kind,
-                        'class': cls,
-                        'match': match,
-                        'area': d,
-                        'runs': runs,
-                        'rows': m,
-                    }
-                )
+                found.append(Candidate(kind, cls, match, d, runs, m))
         for c in found:
             if any(
-                o is not c and covers(c['area'], o['area']) and o['runs'] == c['runs']
+                o is not c and covers(c.area, o.area) and o.runs == c.runs
                 for o in found
             ):
                 continue
             out.append(
-                {k: c[k] for k in ('kind', 'class', 'match', 'area', 'runs')}
-                | {
-                    'evidence': list(
-                        dict.fromkeys(evidence_line(r) for r in c['rows'])
-                    )[:5]
+                {
+                    'kind': c.kind,
+                    'class': c.cls,
+                    'match': c.match,
+                    'area': c.area,
+                    'runs': c.runs,
+                    'evidence': list(dict.fromkeys(evidence_line(r) for r in c.rows))[
+                        :5
+                    ],
                 }
             )
     return sorted(out, key=lambda c: -len(c['runs']))
