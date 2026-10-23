@@ -406,6 +406,25 @@ class GateTests(KitchenTests):
         self.assertEqual([(c['command'], c['log'].endswith('app-fast-1.log')) for c in only], [('echo second', True)])
         self.assertIn('--only 2: app.fast has 2 commands', self.run_kitchen('gate', 'app', 'fast', '--only', '2', code=1))
 
+    def test_gate_and_brief_verify_give_their_commands_the_base_and_a_tmpdir_without_writing_os_environ(self):
+        from unittest import mock
+        self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["echo $PSTACK_KITCHEN_STEP_BASE $TMPDIR"]'))
+        brief = self.repo / 'brief.md'
+        brief.write_text('## Verify\n\n```bash\necho $PSTACK_KITCHEN_STEP_BASE $TMPDIR\n```\n')
+        k, _ = kitchen.load(self.repo, None, None)
+        inv = kitchen.Invocation(str(self.repo))
+        env = {**self.env, 'PSTACK_KITCHEN_GATE_SLOTS': '1'}
+        with mock.patch.dict(os.environ, env, clear=True):
+            os.environ.pop(kitchen.WRAPPED, None)
+            snapshot = dict(os.environ)
+            runs = [kitchen.run_gate(inv, self.repo, k, 'app', 'fast', None, base=self.base),
+                    kitchen.run_brief_verify(inv, self.repo, k, brief, None, base=self.base)]
+            self.assertEqual(dict(os.environ), snapshot)
+        for r in runs:
+            (command,) = r['commands']
+            base, tmp = Path(command['log']).read_text().split()
+            self.assertEqual((base, Path(tmp).name.startswith('kg-')), (self.base, True), r)
+
     def test_heavy_gate_releases_its_slot(self):
         self.write('.agents/kitchen.toml', KITCHEN.replace('sample = 0.2', 'sample = 0.2\nheavy = true'))
         self.data('gate', 'app', 'fast')
@@ -427,7 +446,7 @@ class GateTests(KitchenTests):
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(kitchen, 'acquire_slot', spy), \
                 mock.patch.object(kitchen, 'machine_gate_slots', lambda: 1):
             os.environ.pop(kitchen.WRAPPED, None)
-            kitchen.run_gate(self.repo, k, 'app', 'fast', None)
+            kitchen.run_gate(kitchen.Invocation(str(self.repo)), self.repo, k, 'app', 'fast', None)
         return taken
 
     @staticmethod
@@ -609,6 +628,27 @@ class WrapTests(KitchenTests):
         self.assertTrue(r['passed'], r)
         self.assertEqual([c['exit'] for c in r['commands']], [0, 0])
         self.assertEqual(self.entered.read_text(), 'x\n')
+
+    def test_child_args_name_the_repo_and_only_the_config_and_revision_given(self):
+        root = str(self.repo)
+        self.assertEqual(kitchen.child_args(kitchen.Invocation(root)), ['--repo', root])
+        self.assertEqual(kitchen.child_args(kitchen.Invocation(root, 'k.toml', 'HEAD~1')), ['--repo', root, '--config', 'k.toml', '--at', 'HEAD~1'])
+
+    def test_a_wrapped_gate_re_runs_kitchen_py_inside_the_wrap_with_the_invocation_it_was_given(self):
+        from unittest import mock
+        self.kitchen()
+        self.write('wrap/enter.sh', '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$(dirname "$0")/argv"\n'
+                   'PATH="$(dirname "$0")/bin:$PATH" exec "$@"\n')
+        self.commit('wrap')
+        inv = kitchen.Invocation(str(self.repo), None, 'HEAD')
+        k, _ = kitchen.load(self.repo, 'HEAD', None)
+        with mock.patch.dict(os.environ, {**self.env, 'PSTACK_KITCHEN_GATE_SLOTS': '1'}, clear=True):
+            os.environ.pop(kitchen.WRAPPED, None)
+            self.assertTrue(kitchen.run_gate(inv, self.repo, k, 'app', 'fast', None)['passed'])
+        argv = (self.repo / 'wrap/argv').read_text().splitlines()
+        self.assertEqual(argv[:2], [sys.executable, str(script)])
+        self.assertEqual(argv[2:2 + len(kitchen.child_args(inv))], kitchen.child_args(inv))
+        self.assertEqual(argv[2 + len(kitchen.child_args(inv)):][:3], ['gate', 'app', 'fast'])
 
     def test_a_wrapped_gate_records_one_row_with_the_heavy_wait_and_the_wall_time(self):
         self.kitchen()

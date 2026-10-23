@@ -677,8 +677,6 @@ def machine_gate_slots() -> int:
     return max(1, int(slots)) if slots else max(1, (os.cpu_count() or 8) // 8)
 
 
-# Global options that re-run this script inside a profile's wrap; set by main.
-INVOCATION: list[str] = []
 WRAPPED = 'KITCHEN_WRAPPED'
 
 
@@ -690,11 +688,17 @@ def wrap_of(kitchen: Kitchen, p: Profile) -> str:
 # like) enters its wrap once per gate: this script re-runs itself inside it
 # and writes its result to a file, since a wrap's shell hook may print to
 # stdout. The outer run keeps the heavy slot.
-def run_wrapped(root: Path, wrap: str, profile: str, stage: str, log_dir: Path,
-                keep_going: bool, only: int | None, role: str) -> dict:
+def child_args(inv: 'Invocation') -> list[str]:
+    """The global options a child kitchen.py (re-run inside a wrap) is given to read the same kitchen: --repo, and --config and --at when set.
+    kitchen_core/worker.py builds the same line for the detached gate and brief-verify children."""
+    return ['--repo', str(inv.root), *(['--config', inv.config] if inv.config else []), *(['--at', inv.at] if inv.at else [])]
+
+
+def run_wrapped(inv: 'Invocation', root: Path, wrap: str, profile: str, stage: str, log_dir: Path,
+                keep_going: bool, only: int | None, env: dict[str, str]) -> dict:
     result = log_dir / f'{profile}-{stage}-result.json'
     result.unlink(missing_ok=True)
-    inner = [sys.executable, str(Path(__file__).resolve()), *INVOCATION, 'gate', profile, stage,
+    inner = [sys.executable, str(Path(__file__).resolve()), *child_args(inv), 'gate', profile, stage,
              '--log-dir', str(log_dir), '--result', str(result)]
     inner += ['--keep-going'] if keep_going else []
     inner += ['--only', str(only)] if only is not None else []
@@ -702,7 +706,7 @@ def run_wrapped(root: Path, wrap: str, profile: str, stage: str, log_dir: Path,
     start = time.monotonic()
     with open(log, 'w') as out:
         code = subprocess.run(['bash', '-c', f'{wrap} {shlex.join(inner)}'], cwd=root, stdout=out,
-                              stderr=subprocess.STDOUT, env={**os.environ, WRAPPED: '1', ROLE: role}, check=False).returncode
+                              stderr=subprocess.STDOUT, env={**env, WRAPPED: '1'}, check=False).returncode
     if result.exists():
         return json.loads(result.read_text())
     tail = log.read_text(errors='replace').splitlines()[-20:]
@@ -745,15 +749,22 @@ def sweep_gate_tmp(base: Path) -> None:
             continue
 
 
-def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Path | None,
-             keep_going: bool = False, only: int | None = None, result: Path | None = None,
-             role: str | None = None, base: str | None = None) -> dict:
-    role = role or os.environ.get(ROLE) or 'sidekick'
+def child_env(root: Path, role: str, base: str | None) -> dict[str, str]:
+    """The environment the commands of a gate or a brief's Verify block run in: this process's, with the role and, for a --base, the commit it names."""
+    env = {**os.environ, ROLE: role}
     if base:
         sha = git(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}', check=False).strip()
         if not sha:
             raise KitchenError(f'--base {base} is not a commit')
-        os.environ[BASE] = sha
+        env[BASE] = sha
+    return env
+
+
+def run_gate(inv: 'Invocation', root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Path | None,
+             keep_going: bool = False, only: int | None = None, result: Path | None = None,
+             role: str | None = None, base: str | None = None) -> dict:
+    role = role or os.environ.get(ROLE) or 'sidekick'
+    env = child_env(root, role, base)
     if role not in ROLES:
         raise KitchenError(f'role must be sidekick or verifier, not {role}')
     if profile not in kitchen.profiles:
@@ -779,10 +790,10 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
         base = gate_tmp_base()
         sweep_gate_tmp(base)
         tmp = tempfile.mkdtemp(prefix=f'kg-{os.getpid()}-', dir=base)
-        os.environ['TMPDIR'] = tmp
+        env['TMPDIR'] = tmp
     try:
-        out = _run_gate(root, kitchen, p, profile, stage, commands, log_dir, keep_going, only, result, role,
-                        inside, wrap)
+        out = _run_gate(inv, root, kitchen, p, profile, stage, commands, log_dir, keep_going, only, result, role,
+                        inside, wrap, env)
     finally:
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -911,8 +922,9 @@ def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> 
             'unmeasured': [p for p in profiles if p not in slowest]}
 
 
-def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str, commands: list, log_dir: Path,
-              keep_going: bool, only: int | None, result: Path | None, role: str, inside: bool, wrap: str) -> dict:
+def _run_gate(inv: 'Invocation', root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str, commands: list, log_dir: Path,
+              keep_going: bool, only: int | None, result: Path | None, role: str, inside: bool, wrap: str,
+              env: dict[str, str]) -> dict:
     # A heavy gate takes the heavy slot first and the machine gate slot second,
     # so one waiting for a build to finish holds nothing the other kitchens'
     # gates need; every heavy gate takes them in that order, so none deadlock.
@@ -933,9 +945,9 @@ def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str
                 print(f'kitchen: waited {waited:.0f}s for one of {slots} machine gate slots', file=sys.stderr)
         start = time.monotonic()
         if wrap and commands and not inside:
-            out = run_wrapped(root, wrap, profile, stage, log_dir, keep_going, only, role)
+            out = run_wrapped(inv, root, wrap, profile, stage, log_dir, keep_going, only, env)
         else:
-            out = _run_commands(profile, stage, commands, log_dir, keep_going, result, role, root, waited)
+            out = _run_commands(profile, stage, commands, log_dir, keep_going, result, role, root, waited, env)
         out['waited'] = waited
         if commands and not inside:
             out.update(heavy_waited=heavy_waited, wall=round(time.monotonic() - start, 1))
@@ -943,12 +955,12 @@ def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str
 
 
 def _run_commands(profile: str, stage: str, commands: list, log_dir: Path, keep_going: bool, result: Path | None,
-                  role: str, root: Path, waited: float) -> dict:
+                  role: str, root: Path, waited: float, env: dict[str, str]) -> dict:
     results = []
     for i, cmd in commands:
         log = log_dir / f'{profile}-{stage}-{i}.log'
         start = time.monotonic()
-        code = run_command(root, cmd, log, role)
+        code = run_command(root, cmd, log, env)
         r = {'command': cmd, 'exit': code, 'seconds': round(time.monotonic() - start, 1), 'log': str(log)}
         load = overloaded() if code != 0 else None
         if load is not None:
@@ -956,7 +968,7 @@ def _run_commands(profile: str, stage: str, commands: list, log_dir: Path, keep_
             # change: it gets one rerun, recorded as flaky when it passes.
             first = log.with_name(f'{log.stem}.first.log')
             log.rename(first)
-            code = run_command(root, cmd, log, role)
+            code = run_command(root, cmd, log, env)
             r.update(exit=code, seconds=round(time.monotonic() - start, 1),
                      retried={'load': load, 'first_exit': r['exit'], 'first_log': str(first)}, flaky=code == 0)
         if code != 0:
@@ -971,10 +983,9 @@ def _run_commands(profile: str, stage: str, commands: list, log_dir: Path, keep_
     return out
 
 
-def run_command(root: Path, cmd: str, log: Path, role: str) -> int:
+def run_command(root: Path, cmd: str, log: Path, env: dict[str, str]) -> int:
     with open(log, 'w') as out:
-        return subprocess.run(['bash', '-c', cmd], cwd=root, stdout=out, stderr=subprocess.STDOUT,
-                              env={**os.environ, ROLE: role}, check=False).returncode
+        return subprocess.run(['bash', '-c', cmd], cwd=root, stdout=out, stderr=subprocess.STDOUT, env=env, check=False).returncode
 
 
 def _complete(text: str) -> bool:
@@ -1021,17 +1032,13 @@ def brief_verify_commands(brief: Path) -> list[str]:
     return commands
 
 
-def run_brief_verify(root: Path, kitchen: Kitchen, brief: Path, log_dir: Path | None, result: Path | None = None,
+def run_brief_verify(inv: 'Invocation', root: Path, kitchen: Kitchen, brief: Path, log_dir: Path | None, result: Path | None = None,
                      role: str | None = None, base: str | None = None) -> dict:
     """Every command of the brief's Verify block, exactly as written, each in its
     own bash from the repo root, inside [run].wrap entered once, holding one
     machine gate slot. Every command runs even after one fails."""
     role = role or os.environ.get(ROLE) or 'sidekick'
-    if base:
-        sha = git(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}', check=False).strip()
-        if not sha:
-            raise KitchenError(f'--base {base} is not a commit')
-        os.environ[BASE] = sha
+    env = child_env(root, role, base)
     commands = brief_verify_commands(brief)
     log_dir = log_dir or state_dir(root) / 'logs' / time.strftime('%Y%m%dT%H%M%S')
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -1046,18 +1053,18 @@ def run_brief_verify(root: Path, kitchen: Kitchen, brief: Path, log_dir: Path | 
             f'kitchen: queued {pos} of {n} for {slots} machine gate slot{"s" if slots > 1 else ""}',
             file=sys.stderr, flush=True))
         tmp = tempfile.mkdtemp(prefix=f'kg-{os.getpid()}-', dir=gate_tmp_base())
-        os.environ['TMPDIR'] = tmp
+        env['TMPDIR'] = tmp
     try:
         if kitchen.wrap and not inside:
             wrapped = log_dir / 'verify-result.json'
             wrapped.unlink(missing_ok=True)
-            inner = [sys.executable, str(Path(__file__).resolve()), *INVOCATION, 'brief-verify', str(brief),
+            inner = [sys.executable, str(Path(__file__).resolve()), *child_args(inv), 'brief-verify', str(brief),
                      '--log-dir', str(log_dir), '--result', str(wrapped), '--role', role]
             log = log_dir / 'verify-wrap.log'
             start = time.monotonic()
             with open(log, 'w') as f:
                 code = subprocess.run(['bash', '-c', f'{kitchen.wrap} {shlex.join(inner)}'], cwd=root, stdout=f,
-                                      stderr=subprocess.STDOUT, env={**os.environ, WRAPPED: '1', ROLE: role},
+                                      stderr=subprocess.STDOUT, env={**env, WRAPPED: '1'},
                                       check=False).returncode
             if wrapped.exists():
                 out['commands'] = json.loads(wrapped.read_text())['commands']
@@ -1069,7 +1076,7 @@ def run_brief_verify(root: Path, kitchen: Kitchen, brief: Path, log_dir: Path | 
             for i, cmd in enumerate(commands):
                 log = log_dir / f'verify-{i}.log'
                 start = time.monotonic()
-                code = run_command(root, cmd, log, role)
+                code = run_command(root, cmd, log, env)
                 r = {'command': cmd, 'exit': code, 'seconds': round(time.monotonic() - start, 1), 'log': str(log)}
                 if code != 0:
                     r['tail'] = log.read_text(errors='replace').splitlines()[-20:]
@@ -1154,7 +1161,7 @@ def shell_builtins() -> set[str]:
     return set(out.split())
 
 
-def doctor(root: Path, kitchen: Kitchen, source: Source, run: bool) -> list[dict]:
+def doctor(inv: 'Invocation', root: Path, kitchen: Kitchen, source: Source, run: bool) -> list[dict]:
     checks = []
     builtins = shell_builtins()
 
@@ -1274,7 +1281,7 @@ def doctor(root: Path, kitchen: Kitchen, source: Source, run: bool) -> list[dict
             if not p.commands['fast']:
                 continue
             print(f'doctor: {p.name} fast gate ({len(p.commands["fast"])} commands)...', file=sys.stderr, flush=True)
-            g = run_gate(root, kitchen, p.name, 'fast', None, keep_going=True)
+            g = run_gate(inv, root, kitchen, p.name, 'fast', None, keep_going=True)
             print(f'doctor: {p.name} {"pass" if g["passed"] else "FAIL"} in '
                   f'{round(sum(c["seconds"] for c in g["commands"]), 1)}s', file=sys.stderr, flush=True)
             baseline[p.name] = {'passed': g['passed'], 'seconds': round(sum(c['seconds'] for c in g['commands']), 1)}
@@ -2751,8 +2758,7 @@ def main(argv: list[str] | None = None) -> int:
                 emit(r, args.json, lessons_text(r, args.all))
             return 0
         kitchen, source = load(root, args.at, args.config)
-        INVOCATION[:] = ['--repo', str(root)] + (['--config', args.config] if args.config else []) \
-            + (['--at', args.at] if args.at else [])
+        inv = Invocation(str(root), args.config, args.at)
         if args.cmd == 'doctor':
             for warning in kitchen_warnings(kitchen):
                 print(warning, file=sys.stderr)
@@ -2762,7 +2768,7 @@ def main(argv: list[str] | None = None) -> int:
                  if r['passed'] else f'setup: FAIL exit {r["exit"]} (log {r["log"]})\n' + '\n'.join(f'  | {t}' for t in r['tail']))
             return 0 if r['passed'] else 2
         if args.cmd == 'gate':
-            r = run_gate(root, kitchen, args.profile, args.stage, args.log_dir, args.keep_going, args.only, args.result,
+            r = run_gate(inv, root, kitchen, args.profile, args.stage, args.log_dir, args.keep_going, args.only, args.result,
                          args.role, args.base)
             lines = [f'{args.profile} {args.stage}: {"pass" if r["passed"] else "FAIL"}'
                      + ('' if r['commands'] else ' (no commands)')]
@@ -2777,7 +2783,7 @@ def main(argv: list[str] | None = None) -> int:
             emit(r, args.json, '\n'.join(lines))
             return 0 if r['passed'] else 2
         if args.cmd == 'brief-verify':
-            r = run_brief_verify(root, kitchen, args.brief, args.log_dir, args.result, args.role, args.base)
+            r = run_brief_verify(inv, root, kitchen, args.brief, args.log_dir, args.result, args.role, args.base)
             lines = [f'verify: {"pass" if r["passed"] else "FAIL"} '
                      + (f'({len(r["commands"])} commands from the brief)' if r['commands'] else '(the brief names none)')]
             for x in r['commands']:
@@ -2801,7 +2807,7 @@ def main(argv: list[str] | None = None) -> int:
             emit({'commits': rows}, args.json, '\n'.join(lines))
             return 0
         if args.cmd == 'doctor':
-            checks = doctor(root, kitchen, source, args.run)
+            checks = doctor(inv, root, kitchen, source, args.run)
             lines = []
             for x in checks:
                 lines.append(f'{x["status"]:4} {x["check"]}: {x["detail"]}')

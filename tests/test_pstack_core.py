@@ -4894,15 +4894,8 @@ class CoreTests(unittest.TestCase):
 
     def test_verify_kpy_calls_leave_the_environment_alone(self):
         """verify reaches kitchen.py's library functions in process. The queries it makes (roster, snapshot, classify, timing, brief-verify --list, lesson-packet)
-        write nothing to os.environ, and INVOCATION, which kitchen.py keeps in process, is read only by `gate` and by `brief-verify` without --list
-        (kitchen.py :686 and :1043), neither of which verify runs."""
+        write nothing to os.environ."""
         kpy = self.kitchen_core_module('kpy')
-        source = (root / 'skills/pstack-kitchen/scripts/kitchen.py').read_text().splitlines()
-        reads = [n for n, line in enumerate(source, start=1) if 'INVOCATION' in line and 'INVOCATION[:]' not in line and 'INVOCATION: list' not in line]
-        self.assertEqual(len(reads), 2, [source[n - 1] for n in reads])
-        for n in reads:
-            enclosing = next(source[m - 1] for m in range(n, 0, -1) if source[m - 1].startswith('def '))
-            self.assertRegex(enclosing, r'def (run_wrapped|run_brief_verify)\(')  # the gate's wrapper and the brief's Verify commands, run by `gate` and `brief-verify`
         top = self.path / 'kpyenv'
         repo = top / 'repo'
         (repo / '.agents').mkdir(parents=True)
