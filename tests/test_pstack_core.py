@@ -22,6 +22,7 @@ import tokenize
 import unittest
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 root = Path(__file__).resolve().parents[1]
@@ -10575,6 +10576,30 @@ class CoreTests(unittest.TestCase):
                 waiter.run(), verify_wait.WaiterOutcome(5, closed_elsewhere=True)
             )
         self.assertEqual(said, ['verification closed elsewhere\n'])
+
+    def test_a_provider_stop_with_a_fallback_but_no_retry_hook_ends_with_the_provider_error(
+        self,
+    ):
+        verify_wait = self.kitchen_core_module('verify_wait')
+        ctx = Context(
+            'pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 21, '', 'kitchen.sh'
+        )
+        said = []
+        waiter = verify_wait.Waiter(ctx, '/st', 0, out=said.append)
+        v = SimpleNamespace(
+            verdict='/nowhere/001-x-v1.md',
+            unit='001-x',
+            brief='/st/briefs/001-x.md',
+            kind='claude',
+            fallback={'kind': 'pi', 'args': []},
+            retried=False,
+            argv=['001'],
+        )
+        with mock.patch.object(verify_wait, 'wake'):
+            outcome = waiter.report(v, 'settled', 'rate limit', '', '')
+        self.assertEqual(outcome.rc, 2)
+        self.assertNotIn('retry: verifying again', ''.join(said))
+        self.assertIn('provider_error: rate limit', ''.join(said))
 
     def test_audit_due_follows_the_crc32_of_the_unit_and_the_sample_rate(self):
         vs = self.kitchen_core_module('verify_state')
