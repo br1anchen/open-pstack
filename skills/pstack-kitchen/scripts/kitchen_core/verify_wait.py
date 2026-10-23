@@ -14,7 +14,12 @@ from types import SimpleNamespace
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
 from pstack_core.checkin import busy
-from pstack_core.errors import DamagedStore, VerdictMissing, VerificationTaken
+from pstack_core.errors import (
+    CloseHeld,
+    DamagedStore,
+    VerdictMissing,
+    VerificationTaken,
+)
 from pstack_core.numbers import env_float, env_int, tdiv
 from pstack_core.panes import agent_prompt, agent_status, pane_text
 from pstack_core.providers import (
@@ -148,14 +153,24 @@ def delivery_note(store):
     return f' ({delivery})' if delivery else ''
 
 
+CLOSED_BY_ANOTHER_CALL = 'closed by another call'
+CANCELLED_BY_ANOTHER_CALL = 'cancelled by another call'
+
+# What a lost close says of an attempt that left no verdict, by the outcome its packet records.
+NO_VERDICT = {
+    'provider': 'the verifier hit its provider, not the work',
+    'stalled': 'the verifier sat idle and wrote no verdict',
+    'missing': 'the verifier left no verdict',
+}
+
+
 @dataclass(frozen=True)
 class WaiterOutcome:
-    """How a wait on the verification ended: the status the command ends with (4 while it still runs, 5 when another call closed it), the status
-    a verdict or a provider stop gave when the wait said one, and whether another call had closed the verification."""
+    """How a wait on the verification ended: the status the command ends with (4 while it still runs, 5 when another call cancelled it) and the
+    status a verdict, a provider stop or another call's close gave when the wait said one."""
 
     rc: int
     status: str = ''
-    closed_elsewhere: bool = False
 
 
 class Waiter:
@@ -251,14 +266,72 @@ class Waiter:
             self.sleep(env_float('KITCHEN_VERIFY_GRACE_POLL_S', 5))
 
     def run(self):
-        try:
-            return self.wait()
-        except VerificationTaken:
-            self.say(vs.CLOSED_ELSEWHERE)
-            return WaiterOutcome(5, closed_elsewhere=True)
-
-    def wait(self):
         v = self.snapshot()
+        try:
+            return self.wait(v)
+        except VerificationTaken:
+            return self.lose(v)
+
+    def lose(self, v):
+        """Another call took the close of the verification this wait owns. This wait reports the attempt it took, not whatever `.verifying` names
+        by now (a fallback may have started), and repeats none of the close: it waits for the winner to end it, then reads the attempt's packet
+        outcome and its verdict. A cancelled attempt has no verdict and ends with 5; any other ends as the verdict says, 0 when clean and 2
+        otherwise. A close that does not end within KITCHEN_VERIFY_CLOSE_WAIT_S is a refusal. A closing wait (the next `verify` closing a verdict
+        nobody read) says nothing: its caller prints the line."""
+        self.await_close(v)
+        outcome = header_field(v.packet, 'verifier-outcome')
+        if outcome == 'cancelled' or not (
+            outcome in NO_VERDICT or self.written(v.verdict)
+        ):
+            if not self.closing:
+                self.say(vs.CLOSED_ELSEWHERE)
+            return WaiterOutcome(5, CANCELLED_BY_ANOTHER_CALL)
+        if self.written(v.verdict):
+            problem, status = self.verdict_status(v.verdict)
+            self.status = f'{status} ({problem})' if problem else status
+        else:
+            problem, status = '', 'inconclusive'
+            self.status = f'inconclusive ({NO_VERDICT[outcome]})'
+        rc = 0 if status == 'clean' else 2
+        if self.closing:
+            return WaiterOutcome(rc, CLOSED_BY_ANOTHER_CALL)
+        self.say(
+            f'verdict: {v.verdict if self.written(v.verdict) else "none"}\nstatus: {self.status} (closed by another verify --wait)\n'
+        )
+        if status == 'reject':
+            for line in findings(v.verdict):
+                self.say(line + '\n')
+        return WaiterOutcome(rc, self.status)
+
+    def await_close(self, v):
+        """Waits while `.verifying` still names the attempt this wait took, for KITCHEN_VERIFY_CLOSE_WAIT_S (120 by default) at most."""
+        store = self.store
+        since = None
+        while read(store, 'verifying.verdict') == v.verdict:
+            if since is None:
+                since = now_s()
+                sys.stdout.write(
+                    f'closing {v.verdict}: another call is closing it; waiting for it\n'
+                )
+                sys.stdout.flush()
+            limit = env_int('KITCHEN_VERIFY_CLOSE_WAIT_S', 120)
+            if not now_s() - since < limit:
+                raise CloseHeld(
+                    f'another call has held the close of {v.verdict} for {limit}s; kitchen.sh verify {store} --wait'
+                )
+            self.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
+
+    @staticmethod
+    def written(verdict):
+        return os.path.isfile(verdict) and bool(header_field(verdict, 'status'))
+
+    @staticmethod
+    def verdict_status(verdict):
+        """(the verdict's problem, its status): a verdict with a problem is `invalid`, whatever its status line says."""
+        problem = vs.verdict_problem(verdict)
+        return problem, 'invalid' if problem else header_field(verdict, 'status')
+
+    def wait(self, v):
         self.send_unsent_packet(v)
         state, ended = self.poll(v)
         if ended:
@@ -407,8 +480,7 @@ class Waiter:
         (the verdict's problem, its status)."""
         problem = status = ''
         if os.path.isfile(v.verdict):
-            problem = vs.verdict_problem(v.verdict)
-            status = 'invalid' if problem else header_field(v.verdict, 'status')
+            problem, status = self.verdict_status(v.verdict)
             vs.set_outcome(v.packet, status)
         else:
             vs.set_outcome(

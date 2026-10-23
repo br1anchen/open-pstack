@@ -16,20 +16,17 @@ import json
 import os
 import re
 import sys
-import time
 from types import SimpleNamespace
 
 from pstack_core.commands.report import require_pair
 from pstack_core.commands.scratch import make_scratch
 from pstack_core.errors import (
     BadRevision,
-    CloseHeld,
     Die,
     PairError,
     ToolFailed,
     translate,
 )
-from pstack_core.numbers import env_float, env_int
 from pstack_core.panes import require_herdr
 from pstack_core.store import (
     event,
@@ -67,7 +64,12 @@ from .verify_launch import (
 )
 from .verify_options import parse_options
 from .verify_packet import Packet, write_packet
-from .verify_wait import Waiter, WaiterOutcome, warn_unreviewed
+from .verify_wait import (
+    CLOSED_BY_ANOTHER_CALL,
+    Waiter,
+    WaiterOutcome,
+    warn_unreviewed,
+)
 
 USAGE = (
     'usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | '
@@ -476,11 +478,10 @@ def close_unread(ctx, store):
     ):
         return
     closed_brief = read(store, 'verifying.brief')
-    waiting_since, by_another, closed, closed_rc, closed_status = None, False, '', 0, ''
-    while True:
-        if read(store, 'verifying.verdict') != open_verdict:
-            by_another = True
-            break
+    if read(store, 'verifying.verdict') != open_verdict:
+        closed, closed_status = '', CLOSED_BY_ANOTHER_CALL
+        closed_rc = 0 if header_field(open_verdict, 'status') == 'clean' else 2
+    else:
         lines = []
         ended = close_wait(ctx, store, lines.append)
         closed, closed_rc, closed_status = (
@@ -488,25 +489,9 @@ def close_unread(ctx, store):
             ended.rc,
             ended.status,
         )
-        if closed_status or not ended.closed_elsewhere:
-            break
-        # Another call is closing this verdict: wait for it to finish, then go on as after a close of our own.
-        if waiting_since is None:
-            waiting_since = int(time.time())
-            out(f'closing {open_verdict}: another call is closing it; waiting for it\n')
-        limit = env_int('KITCHEN_VERIFY_CLOSE_WAIT_S', 120)
-        if not int(time.time()) - waiting_since < limit:
-            raise CloseHeld(
-                f'another call has held the close of {open_verdict} for {limit}s; kitchen.sh verify {store} --wait'
-            )
-        time.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
-    if by_another:
-        closed_status = 'closed by another call'
-        closed = ''
-        closed_rc = 0 if header_field(open_verdict, 'status') == 'clean' else 2
-    elif not closed_status:
-        warn(f'closing the unread verdict {open_verdict} failed:\n{closed}\n')
-        raise ToolFailed(closed_rc if closed_rc > 0 else 5)
+        if not closed_status:
+            warn(f'closing the unread verdict {open_verdict} failed:\n{closed}\n')
+            raise ToolFailed(closed_rc if closed_rc > 0 else 5)
     out(f'closed: {open_verdict} ({closed_status})\n{closed}\n')
     # A verdict that is not clean is the master's to act on before another verification starts.
     if closed_rc != 0:

@@ -6816,6 +6816,194 @@ esac
         ]
         self.assertEqual(len(rows), 1, rows)
 
+    def hold_close_claim(self):
+        """A live process (this test) holds the close claim of the open verification, so a call that reaches the close loses it."""
+        self.env.update({'HOSTNAME': 'claimhost', 'KITCHEN_VERIFY_POLL_S': '0'})
+        self.set_close_claim(f'claimhost:{os.getpid()}:held')
+
+    def finish_close(self, open_, outcome, then=None):
+        """The close the claim holder was making ends: the attempt's outcome is in its packet and `.verifying` is gone, or is `then`."""
+        packet = Path(open_['packet'])
+        packet.write_text(
+            re.sub(
+                r'(?m)^verifier-outcome:.*',
+                f'verifier-outcome: {outcome}',
+                packet.read_text(),
+            )
+        )
+        state = self.state()
+        if then is None:
+            del state['verifying']
+        else:
+            state['verifying'] = then
+        swap = self.store / 'pair.json.swap'
+        swap.write_text(json.dumps(state))
+        os.replace(swap, self.store / 'pair.json')
+
+    def lose_a_close(self, args, finish):
+        """Runs `kitchen.sh <args>` as a call that finds the close claim held, waits for its line saying so, lets `finish` end the holder's close by
+        editing the store, and returns (status, output, the herdr calls the loser made after it began to wait). The loser waits on a store
+        change, so no timing is involved."""
+        self.hold_close_claim()
+        call = subprocess.Popen(
+            [str(self.script), *args],
+            cwd=self.repo,
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        self.addCleanup(call.kill)
+        assert call.stdout is not None
+        waiting = call.stdout.readline()
+        self.assertIn('another call is closing it; waiting for it', waiting)
+        before = (self.fake / 'calls.log').read_text()
+        finish()
+        rest, _ = call.communicate()
+        calls = (self.fake / 'calls.log').read_text()
+        return call.returncode, waiting + rest, calls[len(before) :]
+
+    def master_verify_rows(self):
+        return [
+            r
+            for r in (self.store / 'events.tsv').read_text().splitlines()
+            if '\tmaster\tverify\t' in r
+        ]
+
+    def lose_a_wait(self, finish):
+        return self.lose_a_close(
+            ['verify', str(self.store), '--wait', '--every', '1'], finish
+        )
+
+    def test_a_verify_wait_that_loses_the_close_reports_the_clean_verdict_and_exits_0(
+        self,
+    ):
+        first = self.open_slow_verification()
+        self.written_verdict(first, 'clean')
+        rc, out, calls = self.lose_a_wait(lambda: self.finish_close(first, 'clean'))
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f'verdict: {first["verdict"]}\n', out)
+        self.assertIn('status: clean (closed by another verify --wait)', out)
+        self.assertEqual(calls, '')
+        self.assertEqual(self.master_verify_rows(), [])
+        self.assertEqual(self.outcome_of(first['packet']), 'clean')
+
+    def test_a_verify_wait_that_loses_the_close_reports_the_rejection_and_exits_2(
+        self,
+    ):
+        first = self.open_slow_verification()
+        self.written_verdict(first, 'reject', findings='1. add returns 0')
+        rc, out, calls = self.lose_a_wait(lambda: self.finish_close(first, 'reject'))
+        self.assertEqual(rc, 2, out)
+        self.assertIn('status: reject (closed by another verify --wait)', out)
+        self.assertIn('1. add returns 0', out)
+        self.assertEqual(calls, '')
+        self.assertEqual(self.master_verify_rows(), [])
+
+    def test_a_verify_wait_that_loses_the_close_reports_the_attempt_it_lost_to_not_a_fallback(
+        self,
+    ):
+        """The holder's close ends and a fallback attempt is already in `.verifying` when the loser resumes: the loser reports the old verdict and
+        leaves the new attempt alone."""
+        first = self.open_slow_verification()
+        self.written_verdict(first, 'clean')
+        fallback = {
+            **first,
+            'verdict': first['verdict'].replace('-v1.md', '-v2.md'),
+            'packet': first['packet'].replace('-v1-', '-v2-'),
+        }
+        fallback.pop('closing', None)
+        rc, out, calls = self.lose_a_wait(
+            lambda: self.finish_close(first, 'provider', then=fallback)
+        )
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f'verdict: {first["verdict"]}\n', out)
+        self.assertNotIn('-v2', out)
+        self.assertEqual(self.state()['verifying'], fallback)
+        self.assertEqual(calls, '')
+
+    def test_a_verify_wait_that_loses_the_close_to_a_malformed_clean_verdict_is_not_a_success(
+        self,
+    ):
+        first = self.open_slow_verification()
+        Path(first['verdict']).write_text('status: clean\nunits: 001\n')
+        rc, out, _ = self.lose_a_wait(lambda: self.finish_close(first, 'invalid'))
+        self.assertEqual(rc, 2, out)
+        self.assertIn(
+            'status: invalid (no command output under Evidence) (closed by another verify --wait)',
+            out,
+        )
+
+    def test_a_verify_wait_that_loses_the_close_of_an_attempt_with_no_verdict_after_a_provider_stop_exits_2_and_starts_no_fallback(
+        self,
+    ):
+        self.rate_limited_verifier()
+        self.env.update({'KITCHEN_VERIFY_POLL_S': '0', 'KITCHEN_VERDICT_SETTLE_S': '0'})
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('ratelimit-live')
+        self.run_sh(
+            'verify', str(self.store), '001', '--every', '0', '--timeout', '60', code=4
+        )
+        first = self.state()['verifying']
+        starts = len(self.verifier_starts())
+        rc, out, calls = self.lose_a_wait(lambda: self.finish_close(first, 'provider'))
+        self.assertEqual(rc, 2, out)
+        self.assertIn(
+            'status: inconclusive (the verifier hit its provider, not the work) (closed by another verify --wait)',
+            out,
+        )
+        self.assertNotIn('retry:', out)
+        self.assertEqual(len(self.verifier_starts()), starts)
+        self.assertEqual(calls, '')
+
+    def test_a_verify_wait_that_loses_a_close_that_never_completes_refuses_after_the_wait(
+        self,
+    ):
+        first = self.open_slow_verification()
+        self.written_verdict(first, 'clean')
+        self.hold_close_claim()
+        self.env['KITCHEN_VERIFY_CLOSE_WAIT_S'] = '0'
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '1', code=5)
+        self.assertIn(
+            f'another call has held the close of {first["verdict"]} for 0s', out
+        )
+        self.assertNotIn('status: clean', out)
+        self.assertEqual(self.state()['verifying']['verdict'], first['verdict'])
+
+    def test_verify_that_finds_its_unread_verdict_closed_by_another_call_waits_once_and_prints_its_own_line(
+        self,
+    ):
+        first = self.open_slow_verification()
+        self.written_verdict(first, 'clean')
+        rc, out, calls = self.lose_a_close(
+            ['verify', str(self.store), '001', '--every', '0', '--timeout', '60'],
+            lambda: self.finish_close(first, 'clean'),
+        )
+        self.assertEqual(rc, 4, out)
+        self.assertEqual(out.count('waiting for it'), 1, out)
+        self.assertIn(f'closed: {first["verdict"]} (closed by another call)', out)
+        self.assertNotIn('failed', out)
+        self.assertNotEqual(self.state()['verifying']['verdict'], first['verdict'])
+
+    def test_verify_that_finds_its_unread_verdict_cancelled_by_another_call_says_so_and_starts_nothing(
+        self,
+    ):
+        first = self.open_slow_verification()
+        self.written_verdict(first, 'clean')
+        starts = len(self.verifier_starts())
+        rc, out, calls = self.lose_a_close(
+            ['verify', str(self.store), '001', '--every', '0', '--timeout', '60'],
+            lambda: self.finish_close(first, 'cancelled'),
+        )
+        self.assertEqual(rc, 5, out)
+        self.assertIn(f'closed: {first["verdict"]} (cancelled by another call)', out)
+        self.assertNotIn('failed', out)
+        self.assertEqual(len(self.verifier_starts()), starts)
+
     def test_a_cancel_racing_an_idle_update_leaves_no_verifying(self):
         """Fails with the idle update written without the ownership filter: it brings `.verifying` back as {idle_since: N}."""
         self.env.update(
@@ -6885,28 +7073,44 @@ esac
     def test_two_close_outs_of_one_written_verdict_log_it_and_count_the_handoff_once(
         self,
     ):
-        """The second closer enters while the first is waiting for the verifier to leave, holding the claim: it ends with `closed elsewhere`
-        and logs, prints and counts nothing. Without the claim both close it: two `verify` rows and a handoff count of 2."""
-        self.env['KITCHEN_VERIFIER_EXIT_S'] = '1'
+        """The second closer enters while the first is waiting for the verifier to leave, holding the claim: it waits for that close, prints the
+        verdict with `(closed by another verify --wait)`, exits 0, and logs and counts nothing. Without the claim both close it: two `verify`
+        rows and a handoff count of 2. The test releases the first through a pipe, so no timing is involved."""
+        self.env.update({'KITCHEN_VERIFIER_EXIT_S': '1', 'KITCHEN_VERIFY_POLL_S': '0'})
         first = self.open_slow_verification()
         self.written_verdict(first, 'clean')
-        self.on_nth_get(
-            1,
-            f'{self.script} verify {self.store} --wait --every 1 >{self.fake}/second.out 2>&1; echo $? >{self.fake}/second.rc',
-        )
-        out = self.run_sh('verify', str(self.store), '--wait', '--every', '1')
-        self.assertIn('status: clean', out)
-        self.assertEqual((self.fake / 'second.rc').read_text().strip(), '5')
+        held, go = self.fake / 'held.fifo', self.fake / 'go.fifo'
+        os.mkfifo(held)
+        os.mkfifo(go)
+        self.on_nth_get(1, f'echo held >{held}\ncat {go} >/dev/null')
+        wait = [str(self.script), 'verify', str(self.store), '--wait', '--every', '1']
+
+        def start():
+            return subprocess.Popen(
+                wait,
+                cwd=self.repo,
+                env=self.env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+
+        winner = start()
+        self.addCleanup(winner.kill)
+        self.assertEqual(held.read_text().strip(), 'held')
+        loser = start()
+        self.addCleanup(loser.kill)
+        assert loser.stdout is not None
         self.assertIn(
-            'verification closed elsewhere', (self.fake / 'second.out').read_text()
+            'another call is closing it; waiting for it', loser.stdout.readline()
         )
-        self.assertNotIn('status: clean', (self.fake / 'second.out').read_text())
-        rows = [
-            r
-            for r in (self.store / 'events.tsv').read_text().splitlines()
-            if '\tmaster\tverify\t' in r
-        ]
-        self.assertEqual(len(rows), 1, rows)
+        go.write_text('go\n')
+        winner_out, _ = winner.communicate()
+        loser_rest, _ = loser.communicate()
+        self.assertEqual((winner.returncode, loser.returncode), (0, 0), loser_rest)
+        self.assertIn('status: clean\n', winner_out)
+        self.assertIn('status: clean (closed by another verify --wait)', loser_rest)
+        self.assertEqual(len(self.master_verify_rows()), 1)
         self.assertEqual(self.state()['master']['units_since_handoff'], 1)
 
     def test_a_waiter_in_the_grace_whose_verification_was_cancelled_and_replaced_exits_5_and_touches_nothing(
@@ -6952,7 +7156,7 @@ esac
         self.assertEqual(self.outcome_of(second['packet']), 'running')
         self.assertEqual(len(self.verifier_starts()), 2)
 
-    def test_a_waiter_whose_verification_the_next_verify_closed_after_the_loop_exits_5_and_leaves_the_new_packet(
+    def test_a_waiter_whose_verification_the_next_verify_closed_after_the_loop_reports_the_verdict_and_leaves_the_new_packet(
         self,
     ):
         """A stalled verifier ends the loop at the fourth status poll; the fifth is the waiter's read of the provider error after it. There the
@@ -6970,8 +7174,9 @@ esac
             f'{open_["verdict"]}\n{self.script} verify {self.store} 001 --every 0 --timeout 60 >/dev/null 2>&1'
         )
         self.on_nth_get(5, written)
-        out = self.run_sh('verify', str(self.store), '--wait', '--every', '1', code=5)
-        self.assertIn('verification closed elsewhere', out)
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '1')
+        self.assertIn(f'verdict: {open_["verdict"]}\n', out)
+        self.assertIn('status: clean (closed by another verify --wait)', out)
         self.assertEqual(self.outcome_of(open_['packet']), 'clean')
         second = self.state()['verifying']
         self.assertNotEqual(second['verdict'], open_['verdict'])

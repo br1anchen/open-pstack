@@ -661,7 +661,7 @@ HINTS = {
     ): ['verification closed elsewhere'],
     (
         f'{KITCHEN}/verify_wait.py',
-        at(f'{KITCHEN}/verify_wait.py', 'except VerificationTaken:', 'WaiterOutcome(5'),
+        at(f'{KITCHEN}/verify_wait.py', 'def lose(self', 'WaiterOutcome(5'),
     ): ['verification closed elsewhere'],
     (
         f'{KITCHEN}/verify_state.py',

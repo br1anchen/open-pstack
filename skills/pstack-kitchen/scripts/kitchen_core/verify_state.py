@@ -179,7 +179,8 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     herdr('pane', 'close', pane)
     if kind == 'prime-agent':
         update(store, lambda doc: set_member(doc, 'verifier', 'closed', True))
-    remove_scratch(ctx, store, scratch)
+    if scratch:
+        remove_scratch(ctx, store, scratch)
     return 0
 
 

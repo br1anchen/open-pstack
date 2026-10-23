@@ -10570,19 +10570,86 @@ class CoreTests(unittest.TestCase):
     def test_a_wait_whose_verification_another_call_closed_says_so_to_its_sink_and_ends_with_5(
         self,
     ):
+        """The attempt has no verdict and its packet records no outcome of a verifier that stopped (a cancel writes `cancelled`, a vanished attempt
+        nothing): the wait says `verification closed elsewhere` and ends with 5. A closing wait says nothing and its outcome names the cancel."""
         verify_wait = self.kitchen_core_module('verify_wait')
         ctx = Context(
             'pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 21, '', 'kitchen.sh'
         )
-        said = []
-        waiter = verify_wait.Waiter(ctx, '/st', 0, out=said.append)
-        with mock.patch.object(
-            verify_wait.Waiter, 'wait', side_effect=VerificationTaken()
-        ):
-            self.assertEqual(
-                waiter.run(), verify_wait.WaiterOutcome(5, closed_elsewhere=True)
+        taken = SimpleNamespace(verdict='/nowhere/001-x-v1.md', packet='/nowhere/p.md')
+        for closing, want in ((False, ['verification closed elsewhere\n']), (True, [])):
+            said = []
+            waiter = verify_wait.Waiter(ctx, '/st', 0, closing=closing, out=said.append)
+            with (
+                mock.patch.object(verify_wait.Waiter, 'snapshot', return_value=taken),
+                mock.patch.object(
+                    verify_wait.Waiter, 'wait', side_effect=VerificationTaken()
+                ),
+                mock.patch.object(verify_wait.Waiter, 'await_close'),
+            ):
+                self.assertEqual(
+                    waiter.run(),
+                    verify_wait.WaiterOutcome(5, 'cancelled by another call'),
+                )
+            self.assertEqual(said, want)
+
+    def test_a_lost_close_reports_the_attempt_by_its_packet_outcome_and_its_verdict(
+        self,
+    ):
+        """The wait that lost the close reads the outcome the winner wrote to the packet before it dropped `.verifying`: a cancel, or an outcome
+        that names no verifier stop and leaves no verdict, is `closed elsewhere` (5); a verifier that stopped without a verdict is inconclusive
+        (2), whatever the provider path would have done next; a written verdict is the verdict."""
+        verdict_text = 'status: clean\nunits: 001\n\n## Evidence\n\n```\n$ true\n```\n'
+        cases = {
+            'provider': (
+                None,
+                2,
+                'verdict: none\nstatus: inconclusive (the verifier hit its provider, not the work) (closed by another verify --wait)\n',
+            ),
+            'stalled': (
+                None,
+                2,
+                'verdict: none\nstatus: inconclusive (the verifier sat idle and wrote no verdict) (closed by another verify --wait)\n',
+            ),
+            'missing': (
+                None,
+                2,
+                'verdict: none\nstatus: inconclusive (the verifier left no verdict) (closed by another verify --wait)\n',
+            ),
+            'cancelled': (None, 5, 'verification closed elsewhere\n'),
+            'running': (None, 5, 'verification closed elsewhere\n'),
+            'a cancel that left a verdict behind': (
+                verdict_text,
+                5,
+                'verification closed elsewhere\n',
+            ),
+            'clean': (
+                verdict_text,
+                0,
+                'verdict: {v}\nstatus: clean (closed by another verify --wait)\n',
+            ),
+        }
+        done = set()
+        for name, (text, rc, said) in cases.items():
+            outcome = 'cancelled' if name.startswith('a cancel') else name
+            st = self.claim_store(f'lost-{len(done)}', {})
+            done.add(name)
+            (st / 'verdicts/p.md').write_text(f'verifier-outcome: {outcome}\n')
+            if text:
+                (st / 'verdicts/v.md').write_text(text)
+            code = (
+                'from types import SimpleNamespace\n'
+                'from kitchen_core import verify_wait\n'
+                'said = []\n'
+                'w = verify_wait.Waiter(ctx, store, 0, out=said.append)\n'
+                'v = SimpleNamespace(verdict=store + "/verdicts/v.md", packet=store + "/verdicts/p.md")\n'
+                'o = w.lose(v)\n'
+                'print(o.rc, "".join(said).replace(store, "<S>"))\n'
             )
-        self.assertEqual(said, ['verification closed elsewhere\n'])
+            status, out, err = self.kitchen_py(st, code)
+            self.assertEqual(
+                out, f'{rc} {said.replace("{v}", "<S>/verdicts/v.md")}\n', (name, err)
+            )
 
     def test_a_provider_stop_with_a_fallback_but_no_retry_hook_ends_with_the_provider_error(
         self,
@@ -10662,6 +10729,31 @@ class CoreTests(unittest.TestCase):
             'kitchen.sh: scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review\n',
         )
         self.assertNotIn('closing', (st / 'pair.json').read_text())
+
+    def test_a_close_of_a_verification_with_no_scratch_id_removes_no_scratch_and_succeeds(
+        self,
+    ):
+        """The id `.verifying.scratch` holds can be empty (the first closer deleted it); removing "" would fail with "scratch id must look like"."""
+        verifying = {
+            'verdict': '/v/001-x-v1.md',
+            'units': '001',
+            'brief': '001-x',
+            'packet': '/nonexistent/p.md',
+        }
+        extra = {
+            'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'},
+            'git_root': str(self.path),
+        }
+        st = self.claim_store('noscratch', verifying, extra)
+        rc, out, err = self.kitchen_py(
+            st,
+            'from unittest import mock\n'
+            'with mock.patch.object(vs, "end_agent", return_value=("", True)):\n'
+            '    print("rc=%d" % vs.close_verifier(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md"))\n',
+            pid=os.getpid(),
+            prog='kitchen.sh',
+        )
+        self.assertEqual((out, err), ('rc=0\n', ''))
 
     def test_a_failing_scratch_removal_shows_its_error_in_the_failure_text_of_closing_an_unread_verdict(
         self,
@@ -11070,8 +11162,10 @@ class CoreTests(unittest.TestCase):
             'a verdict closed with a claim whose owner is gone': world(
                 files=verdict(V()), verifying={'closing': {'token': '@HOST@:@DEAD@:1'}}
             ),
-            'a verdict while another live call holds the claim': world(
-                files=verdict(V()), verifying={'closing': {'token': '@HOST@:@LIVE@:1'}}
+            'a verdict whose close another live call holds past the wait': world(
+                files=verdict(V()),
+                verifying={'closing': {'token': '@HOST@:@LIVE@:1'}},
+                env={'KITCHEN_VERIFY_CLOSE_WAIT_S': '0'},
             ),
             'a verdict whose scratch the scratch command refuses': world(
                 files=verdict(V()), verifying={'scratch': 'bad id'}
@@ -11128,9 +11222,9 @@ class CoreTests(unittest.TestCase):
             ),
             'a verdict with no status line': (4, 'verifying: units 001 by claude'),
             'a verdict closed with a claim whose owner is gone': (0, 'status: clean'),
-            'a verdict while another live call holds the claim': (
+            'a verdict whose close another live call holds past the wait': (
                 5,
-                'verification closed elsewhere',
+                'another call has held the close of',
             ),
             'a verdict whose scratch the scratch command refuses': (
                 1,
@@ -11159,7 +11253,7 @@ class CoreTests(unittest.TestCase):
         )
         self.assertIn(
             '"verifying"',
-            out['a verdict while another live call holds the claim']['files'][
+            out['a verdict whose close another live call holds past the wait']['files'][
                 'pair.json'
             ],
         )
