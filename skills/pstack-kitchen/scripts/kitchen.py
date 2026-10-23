@@ -802,10 +802,11 @@ def run_gate(inv: 'Invocation', root: Path, kitchen: Kitchen, profile: str, stag
     return out
 
 
-def run_setup(root: Path, kitchen: Kitchen, role: str = 'verifier') -> dict:
+def run_setup(inv: 'Invocation', role: str = 'verifier') -> dict:
     """Prepare a bare worktree the repo's way: [scratch].setup, in order, inside the wrap entered
     once, from the repo root, as `role`. Fail-fast. No gate slot or retry; only a verifier's run
     is a timing sample, since it is the one the verifier's deadline budgets for."""
+    root, kitchen, _ = open_kitchen(inv)
     log_dir = state_dir(root) / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
     log = log_dir / f'setup-{time.strftime("%Y%m%dT%H%M%S")}-{os.getpid()}.log'
@@ -822,6 +823,13 @@ def run_setup(root: Path, kitchen: Kitchen, role: str = 'verifier') -> dict:
         record_setup_timing(root, code == 0, seconds)
     return {'passed': code == 0, 'commands': kitchen.scratch_setup, 'exit': code, 'seconds': seconds,
             'log': str(log), 'tail': [] if code == 0 else log.read_text(errors='replace').splitlines()[-20:]}
+
+
+def setup_text(r: dict) -> str:
+    """What `setup` says of a run_setup result."""
+    if r['passed']:
+        return f'setup: ok ({len(r["commands"])} commands' + (f', log {r["log"]}' if r['log'] else '') + ')'
+    return f'setup: FAIL exit {r["exit"]} (log {r["log"]})\n' + '\n'.join(f'  | {t}' for t in r['tail'])
 
 
 TIMINGS = 'timings.tsv'
@@ -2763,9 +2771,8 @@ def main(argv: list[str] | None = None) -> int:
             for warning in kitchen_warnings(kitchen):
                 print(warning, file=sys.stderr)
         if args.cmd == 'setup':
-            r = run_setup(root, kitchen, args.role)
-            emit(r, args.json, (f'setup: ok ({len(r["commands"])} commands' + (f', log {r["log"]}' if r['log'] else '') + ')')
-                 if r['passed'] else f'setup: FAIL exit {r["exit"]} (log {r["log"]})\n' + '\n'.join(f'  | {t}' for t in r['tail']))
+            r = run_setup(inv, args.role)
+            emit(r, args.json, setup_text(r))
             return 0 if r['passed'] else 2
         if args.cmd == 'gate':
             r = run_gate(inv, root, kitchen, args.profile, args.stage, args.log_dir, args.keep_going, args.only, args.result,

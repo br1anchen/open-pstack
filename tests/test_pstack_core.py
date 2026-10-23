@@ -360,31 +360,6 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(seen['kitchen', 'catch'][0]['kitchen_core'], True)
         self.assertIn('usage: kitchen.sh catch <store> <layer> <text> [<unit>]', seen['kitchen', 'catch'][2])
 
-    def test_kpy_run_equals_the_subprocess_in_output_stderr_and_status(self):
-        """kitchen_core.kpy.run against `python3 kitchen.py`: a passing call, a failing one that prints to stderr, and an argparse error."""
-        repo = self.path / 'kpyrepo'
-        (repo / '.agents').mkdir(parents=True)
-        (repo / '.agents/kitchen.toml').write_text('version = 1\n\n[profile.app]\npaths = ["src/**"]\nfast = ["true"]\n')
-        subprocess.run(['git', 'init', '-q', '-b', 'main', str(repo)], check=True)
-        bad = self.path / 'badrepo'
-        (bad / '.agents').mkdir(parents=True)
-        (bad / '.agents/kitchen.toml').write_text('version = 1\n\n[profile.app]\nfsat = ["true"]\n')
-        subprocess.run(['git', 'init', '-q', '-b', 'main', str(bad)], check=True)
-        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
-        try:
-            import variant as kitchen_variant
-        finally:
-            sys.path.pop(0)
-        kitchen_variant.load_kitchen_core()
-        from kitchen_core import kpy
-        cases = [(repo, ['--json', 'validate']), (bad, ['validate']), (repo, ['--no-such-flag'])]
-        for repository, args in cases:
-            sub = subprocess.run([sys.executable, str(root / 'skills/pstack-kitchen/scripts/kitchen.py'), '--repo', str(repository), *args],
-                                 capture_output=True, text=True, check=False, timeout=60)
-            ours = kpy.run(repository, args)
-            self.assertEqual(ours, (sub.returncode, sub.stdout, sub.stderr), (str(repository), args))
-        self.assertEqual([kpy.run(repo, ['validate'])[0], kpy.run(bad, ['validate'])[0], kpy.run(repo, ['--no-such-flag'])[0]], [0, 1, 2])
-
     def test_a_kitchen_command_run_from_the_filesystem_root_loads_kitchen_core(self):
         kitchen_args = ['--skill-root', str(root / 'skills/pstack-kitchen')]
         probe = ('import sys; sys.path.insert(0, sys.argv[1]); from pstack_core import cli\n'
@@ -6388,7 +6363,7 @@ class CoreTests(unittest.TestCase):
                                 ('fleet', lambda: kp.fleet(top / 'state/pstack/kitchen/runs', None))):
                 query()
                 self.assertEqual(dict(os.environ), snapshot, name)
-            self.assertEqual(kpy.run(str(repo), ['setup', '--role', 'sidekick'])[0], 0)
+            self.assertTrue(kp.run_setup(kp.Invocation(str(repo)), 'sidekick')['passed'])
             self.assertEqual(dict(os.environ), snapshot, 'setup')
         self.assertEqual(dict(os.environ), before)
 

@@ -13,6 +13,8 @@ sys.dont_write_bytecode = True
 
 
 def kitchen(py, repo, config, *args):
+    # The process boundary the detached children keep: they outlive the command that started them. The global options are kitchen.child_args's
+    # --repo and --config; this file runs standalone under -I and cannot import kitchen.py.
     rc = subprocess.run([sys.executable, py, '--repo', repo, *(['--config', config] if config else []), *args], stdin=subprocess.DEVNULL).returncode
     # the same mapping as pstack_core.store.exit_code; this file runs standalone under -I and imports nothing from it
     return 128 - rc if rc < 0 else rc

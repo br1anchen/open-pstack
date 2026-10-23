@@ -1,9 +1,8 @@
 """init, spawn, consultant and fleet: the commands that set a kitchen run up.
 
 The pair's init and spawn are called as the core's functions.
-kitchen.py is reached through kpy: `roster`, `validate` and `fleet` are its functions, and `setup` (kpy.run, until unit 074) runs the
-repo's commands as a child process with a copy of the environment. None writes os.environ or reads INVOCATION (kitchen.py :745, :771, :1023, :1038 belong
-to `gate` and to `brief-verify` without --list). test_setup_kpy_calls_leave_the_environment_alone pins that."""
+kitchen.py is reached through kpy: `roster`, `validate`, `fleet` and `run_setup` are its functions. `run_setup` runs the repo's commands as a child
+process with a copy of the environment; none of them writes os.environ. test_setup_kpy_calls_leave_the_environment_alone pins that."""
 
 import os
 import sys
@@ -102,10 +101,14 @@ def worktree_setup(ctx, store, found):
         return
     if git.run(root, 'rev-parse', '--path-format=absolute', '--git-dir').stdout.rstrip('\n') == git.run(root, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.rstrip('\n'):
         return
-    status, out, err = kpy.run(root, ['setup', '--role', 'sidekick'])
-    out = (out + err).rstrip('\n')
-    event(store, 'master', 'setup', '-', 'pass' if status == 0 else 'fail')
-    if status != 0:
+    kitchen_py = kpy.kitchen_py
+    try:
+        result = kitchen_py.run_setup(kpy.invocation(store), 'sidekick')
+        passed, out = result['passed'], kitchen_py.setup_text(result)
+    except kitchen_py.KitchenError as e:
+        passed, out = False, f'kitchen: {e}'
+    event(store, 'master', 'setup', '-', 'pass' if passed else 'fail')
+    if not passed:
         raise SetupFailed(f'this run is in a linked worktree and its [scratch].setup failed:\n{out}')
     sys.stdout.write(f'worktree: prepared with [scratch].setup ({out})\n')
 
