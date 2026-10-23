@@ -1481,6 +1481,12 @@ class CoreTests(unittest.TestCase):
         r = run('note', '{st}', str(draft))
         self.assertEqual((r.returncode, r.stdout), (2, f'published {published} (blocking)\n'))
         self.assertIn('herdr prompt failed for s1', r.stderr)
+        # any other failure of the delivery also comes after the published line: a lock that stays held while a Devin's next step is parked
+        top, st, run, draft = self.note_world('npl', 'blocking', agents={'s1': 'working devin'}, pair={'sidekick': {'kind': 'devin', 'generation': 1, 'name': 's1'}})
+        (st / '.pair.lock').mkdir()
+        r = run('note', '{st}', str(draft), extra_env={'PAIR_LOCK_TRIES': '1'})
+        self.assertEqual((r.returncode, r.stdout), (1, f'published {st}/notes/001-x-n1.md (blocking)\n'))
+        self.assertEqual(r.stderr, f'pair.sh: pair.json lock held for 10s; remove {st}/.pair.lock if no pair.sh is running\n')
         # Prime takes the message through prime_steer
         from pstack_core.commands import notes as notes_mod
         sent = []
@@ -6185,12 +6191,20 @@ class CoreTests(unittest.TestCase):
             translate(KeyError('bug'), 'pair.sh')
         self.assertEqual(translate(refuse_as(MissingStore('/s'), 'pair.sh', 2), 'pair.sh'), ('pair.sh: no pair.json in /s; run: pair.sh init <slug>\n', 2))
 
-    def test_a_damaged_pair_json_ends_kitchen_wait_and_dispatch_with_the_message_and_status_the_core_gives_through_captured(self):
-        damaged = {'not json': ('not json', 'Expecting value: line 1 column 1 (char 0)'), 'an array': ('[1]', 'expected an object, found array')}
-        for name, (text, why) in damaged.items():
-            for word, args in (('wait', ['wait', '{st}', '--timeout', '0']), ('dispatch', ['dispatch', '{st}', '{st}/briefs/001-x.md'])):
-                got = self.kitchen_world(f'{word}{name.replace(" ", "")}', dict(args=args, files={'pair.json': text}))
-                self.assertEqual((got['rc'], got['stdout'], got['stderr']), (1, '', f'pair.sh: pair.json is damaged: {why}\n'), (word, name))
+    def test_a_damaged_field_ends_kitchen_wait_through_captured_with_the_message_and_status_the_core_gives(self):
+        st = self.path / 'capwait'
+        st.mkdir()
+        (st / 'pair.json').write_text(json.dumps({'master': {'name': 'm1'}, 'sidekick': 3, 'git_root': str(self.path)}) + '\n')
+        code = ('import shutil\nfrom pstack_core import cli\nfrom kitchen_core import wait as kitchen_wait\n'
+                'taken = []\nreal = kitchen_wait.captured\n'
+                'def spy(*args, **kw):\n    result = real(*args, **kw)\n    taken.append(result)\n    return result\n'
+                'kitchen_wait.captured = spy\ncli.shutil.which = lambda name: "/x/herdr"\n'
+                f'rc = cli.main(["--skill-root", {str(root / "skills/pstack-kitchen")!r}, "wait", store, "--timeout", "0"])\n'
+                'print("rc=%d" % rc)\nprint("first=%r" % (taken[0],))')
+        prc, got, perr = self.kitchen_py(st, code, env={'HERDR_ENV': '1'})
+        self.assertEqual(prc, 0, perr)
+        self.assertEqual(got.splitlines(), ['', 'rc=1', "first=(1, '')"])
+        self.assertEqual(perr, 'kitchen.sh: pair.json is damaged: sidekick is number, not an object\n')
 
     def test_captured_gives_the_status_and_stdout_of_a_call_and_leaves_the_environment_as_it_found_it(self):
         units = self.kitchen_core_module('units')

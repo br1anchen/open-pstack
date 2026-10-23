@@ -5,7 +5,7 @@ import sys
 
 from ..argv import Spec, read
 from ..store import count, dispatched_brief, event, field, fill_template, header_field, load, peek, note_id, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest
-from ..errors import Die, PromptFailed
+from ..errors import Die, PairError, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL
 from ..prime import prime_steer
 from ..review import noted_through, open_notes, require_filled, review_base
@@ -85,7 +85,7 @@ def note(ctx, args):
     event(store, 'master', 'note', unit, f'{k}:{status}')
     try:
         delivery = deliver_blocking_note(ctx, store, path) if status == 'blocking' and os.path.isfile(f'{store}/pair.json') else ''
-    except PromptFailed:
+    except PairError:
         # the note is out; the master must also know it went undelivered
         print(f'published {path} ({status})')
         raise
