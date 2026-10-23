@@ -4423,7 +4423,7 @@ esac
         '```bash\nkitchen.sh log demo x y z w  # master-only\n```\n\n'
         '## Risks\n\n- `python3 not_a_verification.py`\n')
 
-    def landing_world(self, units, plan_text=None):
+    def landing_world(self, units, plan_text=None, verified=()):
         """A landing over units (seq, slug, goal, acceptance) of briefs that name plans/900-demo.md; returns the landing packet's text."""
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)
@@ -4439,6 +4439,9 @@ esac
             self.write(f'src/mod{seq}.py', f'X = {seq}\n')
             self.write(f'tests/test_mod{seq}.py', f'x = {seq}\n')
             self.done(b, self.commit(slug))
+        for seq in verified:
+            (self.store / 'verdicts').mkdir(exist_ok=True)
+            (self.store / f'verdicts/{seq}-v1.md').write_text(f'# Verdict\n\nstatus: clean\nunits: {seq}\n')
         self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--every', '0')
         return (self.store / 'verdicts/landing-v1-packet.md').read_text()
 
@@ -4461,6 +4464,23 @@ esac
         self.assertIn('- line 10: `kitchen.sh feedback --close` for each of the 21 reports.', obligations)
         self.assertNotIn('- line 7: python3 tests/run.py -k plan_cmd`', obligations)
         self.assertFalse([o for o in obligations if 'not_a_verification' in o])
+
+    def test_a_landing_packet_adds_the_acceptance_of_a_unit_with_no_clean_verdict_and_names_both_kinds_of_unit(self):
+        packet = self.landing_world([('001', 'util', 'g1', 'Acceptance one holds.'), ('002', 'next', 'g2', 'Acceptance two holds.')], verified=('001',))
+        plan = self.store / 'plans/900-demo.md'
+        stack = packet.split('## Stack\n\n')[1].split('\n- ')[0].split('\n')
+        self.assertEqual(stack[:2], ['Verified on their own: 001-util.',
+                                     'Folded into this landing, with no verdict of their own: 002-next; their Acceptance is below, and you prove it here.'])
+        self.assertNotIn('Each unit below was verified on its own.', packet)
+        folded = [l for l in packet.split('\n') if l.startswith('## Acceptance: ')]
+        self.assertEqual(folded, [f'## Acceptance: unit 002-next (plan {plan})'])
+        self.assertEqual(packet.split(folded[0] + '\n\n')[1].split('\n## ')[0].strip('\n').split('\n'), ['Acceptance two holds.'])
+        self.assertNotIn('Acceptance one holds.', packet)
+
+    def test_a_landing_packet_over_units_all_verified_says_none_are_folded_in(self):
+        packet = self.landing_world([('001', 'util', 'g1', 'Acceptance one holds.')], verified=('001',))
+        self.assertIn('Verified on their own: 001-util.\nFolded into this landing, with no verdict of their own: none.\n', packet)
+        self.assertFalse([l for l in packet.split('\n') if l.startswith('## Acceptance: ')])
 
     def test_the_landing_packet_runs_setup_first_when_declared(self):
         self.declare_setup()

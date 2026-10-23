@@ -37,6 +37,14 @@ surface (the command, URL or screen) and the Evidence block that shows it, or
 the reason none applies ("no user-facing flow"). A landing verdict that names
 no flow for a touched profile has proved only that the commands pass.>
 
+## Folded Acceptance
+
+<A landing verdict answers every line of each `## Acceptance: unit ...`
+section of the packet, the units that had no clean verdict of their own: the
+line, then `held` or `broken`, and the Evidence block that shows it. "none"
+when the packet has no such section. A line left unanswered is a line not
+proved, and the review reads this section.>
+
 ## Not covered
 
 <Acceptance lines or surfaces you did not exercise, and why, or "none".>

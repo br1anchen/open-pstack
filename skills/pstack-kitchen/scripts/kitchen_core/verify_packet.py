@@ -11,7 +11,7 @@ from pstack_core import git
 from pstack_core.store import expected_report, header_field, read, read_text, write_text
 
 from . import kpy
-from .landing import is_landing
+from .landing import clean_verdict_for, is_landing
 from .units import RecordedUnit, StackIndex, inclusion, unit_brief
 
 
@@ -200,23 +200,32 @@ PACKET_RULE = 'Write rule: you write only your verdict file and the scratch work
 
 
 def landing_sections(p, parts):
-    """Adds the packet's opening for a landing to parts: the stack's header and each covered unit's goal."""
+    """Adds the packet's opening for a landing to parts: the stack's header with the units verified on their own and those folded in, each covered unit's
+    goal, the Acceptance of each folded unit, and the Verification of the plans the briefs name."""
     parts += [f'# Verify landing: the stack at {p.head[:9]}\n\nverdict: {p.verdict}\ntemplate: {p.template}\nscratch: {p.scratch}\n'
               f'range: {p.base}..{p.head}\nrisk: landing\nunits: landing\nverifier-agent: {p.identity}\nverifier-class: {p.vclass}\nverifier-outcome: prepared\n'
               f'deadline: {p.timeout_m}m from now\n\n',
               f'{PACKET_RULE}\n\n',
-              '## Stack\n\nEach unit below was verified on its own. Prove that together, at this tip,\nthey still hold: run every Prove command, then drive the main flows the\n'
-              'briefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n']
+              '## Stack\n\n']
     stacked = landing_covered_briefs(p.store, p.root, p.base, p.head)
+    names = {b: os.path.basename(b)[:-3] for b in stacked}
+    folded = [b for b in stacked if not clean_verdict_for(p.store, names[b][:3])]
+    verified = ', '.join(names[b] for b in stacked if b not in folded) or 'none'
+    parts.append(f'Verified on their own: {verified}.\nFolded into this landing, with no verdict of their own: '
+                 + (f'{", ".join(names[b] for b in folded)}; their Acceptance is below, and you prove it here.' if folded else 'none.')
+                 + '\n\nProve that together, at this tip, they still hold: run every Prove command, then drive the main flows the\n'
+                 'briefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n')
     parts += [f'- {b}\n' for b in stacked]
     parts.append('\n## Goals\n\n')
     for b in stacked:
-        name = os.path.basename(b)[:-3]
-        parts.append(f'### Unit {name[:3]} {name[4:]}\n\n')
+        parts.append(f'### Unit {names[b][:3]} {names[b][4:]}\n\n')
         goal = section_lines(b, r'^## Goal', False)
         while goal and goal[0] == '':
             goal.pop(0)
         parts.append('\n'.join(goal).rstrip('\n') + '\n\n')
+    for b in folded:
+        parts.append(f'## Acceptance: unit {names[b]} (plan {header_field(b, "plan") or "none"})\n\n'
+                     + '\n'.join(section_lines(b, r'^## Acceptance', False)).strip('\n') + '\n\n')
     parts.append(plan_sections(p))
 
 
