@@ -10,10 +10,17 @@ paths = [
   "sources.json",
   "scripts/**",
   "tests/**",
+  "pyproject.toml",
+  "uv.lock",
+  ".git-blame-ignore-revs",
 ]
 fast = [
   "python3 scripts/check-pstack.py",
   "for f in skills/*/scripts/*.sh; do bash -n \"$f\" || exit 1; done",
+  "uv lock --check",
+  "uv run --frozen ruff format --check",
+  "uv run --frozen ruff check",
+  "uv check --frozen",
   "python3 tests/run.py",
 ]
 behavioral = ["python3 tests/run.py"]
@@ -31,8 +38,12 @@ sample = 0.0
 
 [escalate]
 paths = [".agents/kitchen.toml"]
-manifests = ["sources.json"]
+manifests = ["sources.json", "pyproject.toml", "uv.lock"]
 max_diff_lines = 600
+
+# A verifier scratch gets the locked dev tools before its gates.
+[scratch]
+setup = ["uv sync --frozen"]
 
 [[policy.forbid]]
 id = "test-sleep"
