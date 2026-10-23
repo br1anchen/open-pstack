@@ -8,6 +8,7 @@ import tempfile
 import sys
 import time
 
+from pstack_core.argv import Spec, read
 from pstack_core.checkin import iso_epoch
 from pstack_core.store import Die, Exit, prog, read_text, write_text, damaged, field, event, header_field, json_type, listing, load, pair_file, text_at
 from pstack_core.panes import agent_prompt, herdr, reply_at, require_herdr
@@ -341,14 +342,7 @@ def maintainer(ctx, args):
     fb = fb_root()
     file = f'{fb}/maintainer.json'
     if sub == 'on':
-        pane = ''
-        while rest:
-            if rest[0] == '--pane':
-                if len(rest) < 2:
-                    raise Die('--pane needs a value')
-                pane, rest = rest[1], rest[2:]
-            else:
-                raise Die(f'unknown option {rest[0]}')
+        pane = read(rest, Spec(valued=('--pane',))).last('--pane', '')
         require_herdr('maintainer on needs Herdr (HERDR_ENV=1)')
         pane = pane or os.environ.get('HERDR_PANE_ID', '')
         if not pane:

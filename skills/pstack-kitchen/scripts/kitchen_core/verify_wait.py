@@ -10,6 +10,7 @@ import sys
 import time
 from types import SimpleNamespace
 
+from pstack_core.argv import Spec, read as read_options
 from pstack_core.checkin import busy_command
 from pstack_core.store import (
     Die, Exit, now_s, read_text, damaged, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv,
@@ -360,14 +361,7 @@ class Waiter:
     @staticmethod
     def shown(argv):
         """The arguments a retried call carried, less its --retry-entry and that entry."""
-        out, i = [], 0
-        while i < len(argv):
-            if argv[i] == '--retry-entry':
-                i += 2
-                continue
-            out.append(argv[i])
-            i += 1
-        return out
+        return read_options(argv, Spec(valued=('--retry-entry',), unknown='collect')).stripped('--retry-entry')
 
     def fallback(self):
         """verifying.entry.fallback as an object, {} when there is none."""

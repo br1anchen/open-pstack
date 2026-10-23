@@ -14,6 +14,7 @@ import sys
 import time
 
 from pstack_core import wait as core_wait
+from pstack_core.argv import Spec, read
 from pstack_core.store import Die, Exit, env_float, env_int, event, field, int_or_none, read_text, whole_number
 from pstack_core.wait import default_signals
 
@@ -94,16 +95,11 @@ def release(ctx, store):
 def quiet_wait(ctx, store, rest):
     """Returns the exit status the wait ends with."""
     write = sys.stdout.write
+    opts = read(rest, Spec(valued=('--max',), unknown='collect'))
     limit = None
-    args, rest = [], list(rest)
-    while rest:
-        if rest[0] == '--max':
-            if len(rest) < 2:
-                raise Die('--max needs a value')
-            limit = whole_number(rest[1], '--max', 'minutes') * 60
-            rest = rest[2:]
-        else:
-            args.append(rest.pop(0))
+    for value in opts.all('--max'):
+        limit = whole_number(value, '--max', 'minutes') * 60
+    args = list(opts.leftovers)
     start = quiet_now()
     # One wait owns the store under this process's pid: the first inner wait claims it, the later ones only check it. A claim that could not be
     # made (the inner wait says `unowned:`) leaves the rest of this run unowned: its later waits must not read the missing claim as a newer owner.

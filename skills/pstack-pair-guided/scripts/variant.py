@@ -2,12 +2,13 @@ import glob
 import os
 import re
 
+from pstack_core.argv import Spec, read
 from pstack_core.panes import require_herdr
-from pstack_core.store import Die, fill_template, header_field, newest, pair_file, read_text, whole_number, write_text
+from pstack_core.store import Die, fill_template, header_field, newest, pair_file, read_text, write_text
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
-from pstack_core.wait import end_with_parent, tdiv
+from pstack_core.wait import TIMEOUT_ONLY, end_with_parent, tdiv, timeout_ms
 
 def answer(ctx, args):
     """Deliver the human's or master's answer to a sidekick's ask (a message of kind ANSWER) and wait for its reply."""
@@ -15,19 +16,8 @@ def answer(ctx, args):
     end_with_parent()
     if len(args) < 2:
         raise Die('usage: pair.sh answer <store> <answer-path> [--timeout MS | --every MIN]')
-    store, path, rest = args[0], args[1], args[2:]
-    timeout, i = 540000, 0
-    while i < len(rest):
-        option = rest[i]
-        if option not in ('--timeout', '--every'):
-            raise Die(f'unknown option {option}')
-        if i + 1 >= len(rest):
-            raise Die(f'{option} needs a value')
-        if option == '--timeout':
-            timeout = whole_number(rest[i + 1], '--timeout', 'milliseconds')
-        else:
-            timeout = whole_number(rest[i + 1], '--every', 'minutes') * 60000
-        i += 2
+    store, path = args[0], args[1]
+    timeout = timeout_ms(read(args[2:], TIMEOUT_ONLY))
     interval = tdiv(timeout, 60000)
     if not os.path.isfile(path):
         raise Die(f'answer not found: {path}')
@@ -63,7 +53,8 @@ def new_answer(ctx, args):
     """answers/NNN-<slug>-a<k>.md, the answer to the newest ask on unit NNN, from the answer template; prints its path."""
     if len(args) < 2:
         raise Die('usage: pair.sh new-answer <store> <NNN> [--force]')
-    store, seq, force = args[0], args[1], args[2:3] == ['--force']
+    store, seq = args[0], args[1]
+    force = read(args[2:], Spec(flags=('--force',), slots={'--force': 0}, unknown='collect')).present('--force')
     pair_file(store)
     asks = [p for p in glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-*-q[0-9]*.md'))
             if re.fullmatch(r'\d{3}-.+-q\d+\.md', os.path.basename(p))]

@@ -7,6 +7,7 @@ import sys
 import time
 
 from pstack_core.agents import mcp_args, permission_args
+from pstack_core.argv import Spec, read as read_options
 from pstack_core.store import (
     Die, Exit, read_text, damaged, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at,
     update, who,
@@ -59,7 +60,7 @@ def close(ctx, args):
     if not args:
         raise Die('usage: kitchen.sh close <store> [--force]')
     store = args[0]
-    force = len(args) > 1 and args[1] == '--force'
+    force = read_options(args[1:], Spec(flags=('--force',), slots={'--force': 0}, unknown='collect')).present('--force')
     pair_file(store)
     if not force:
         if field(store, 'verifying', 'verdict'):
@@ -119,14 +120,8 @@ def rotate_master(ctx, args):
     require_herdr()
     if not args:
         raise Die('usage: kitchen.sh rotate-master <store> [--model MODEL]')
-    store, rest, model = args[0], args[1:], ''
-    while rest:
-        if rest[0] == '--model':
-            if len(rest) < 2:
-                raise Die('--model needs a value')
-            model, rest = rest[1], rest[2:]
-        else:
-            raise Die(f'unknown option {rest[0]}')
+    store = args[0]
+    model = read_options(args[1:], Spec(valued=('--model',))).last('--model', '')
     pair_file(store)
     handoff = f'{store}/session-handoff.md'
     if not os.path.isfile(handoff):

@@ -10,6 +10,7 @@ import os
 import sys
 
 from pstack_core import send
+from pstack_core.argv import Spec, read
 from pstack_core.commands.rotate import queue as core_queue, rotate_if_due
 from pstack_core.consult import discuss_with_consultant
 from pstack_core.panes import agent_status
@@ -46,6 +47,7 @@ def core_dispatch(ctx, args):
 
 
 NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}
+DISPATCH_SPEC = Spec(valued=tuple(NUMBER_FLAGS), unknown='collect')
 
 
 def dispatch(ctx, args):
@@ -54,11 +56,9 @@ def dispatch(ctx, args):
         raise Die('usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]')
     store, brief = args[0], args[1]
     # every number flag is read before the command changes anything
-    for i, flag in enumerate(args[2:], 2):
-        if flag in NUMBER_FLAGS:
-            if i + 1 >= len(args):
-                raise Die(f'{flag} needs a value')
-            whole_number(args[i + 1], flag, NUMBER_FLAGS[flag])
+    opts = read(args[2:], DISPATCH_SPEC)
+    for flag, value in opts.occurrences:
+        whole_number(value, flag, NUMBER_FLAGS[flag])
     # A brief path may be given relative to the store (briefs/NNN-x.md).
     if not os.path.isfile(brief) and os.path.isfile(f'{store}/{brief}'):
         brief = f'{store}/{brief}'
@@ -75,14 +75,7 @@ def dispatch(ctx, args):
         rotate_if_due(ctx, store, 'brief')
     wait_args = list(args[2:])
     # --max belongs to the quiet wait, not to the pair's dispatch.
-    send_args, i = [], 0
-    while i < len(wait_args):
-        if wait_args[i] == '--max':
-            i += 2
-        else:
-            send_args.append(wait_args[i])
-            i += 1
-    rc, out = core_dispatch(ctx, [store, brief, *send_args])
+    rc, out = core_dispatch(ctx, [store, brief, *opts.stripped('--max')])
     if rc == 4 and has_checkin(out):
         if not quiet_flagged(out):
             kept = [line for line in out.split('\n') if not line.startswith(SWALLOWED)]

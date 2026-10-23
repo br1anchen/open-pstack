@@ -10,6 +10,7 @@ import os
 import sys
 
 from pstack_core import agents, spawn as pair_spawn
+from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
 from pstack_core.store import Die, Exit, field, read_text, damaged, event, json_type, listing, load, member, now, pair_file, text_at, update
 from pstack_core import git
@@ -142,24 +143,10 @@ def spawn(ctx, args):
     require_herdr()
     if len(args) < 1:
         raise Die('usage: kitchen.sh spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [-- agent-args...]')
-    store, kind, fallback, rest, native, fb_args = args[0], '', '', [], [], []
-    rest_in = list(args[1:])
-    while rest_in:
-        flag = rest_in[0]
-        if flag in ('--kind', '--fallback'):
-            if len(rest_in) < 2:
-                raise Die(f'{flag} needs a value')
-            if flag == '--kind':
-                kind = rest_in[1]
-            else:
-                fallback = rest_in[1]
-            rest_in = rest_in[2:]
-        elif flag == '--':
-            native = rest_in[1:]
-            break
-        else:
-            rest.append(flag)
-            rest_in = rest_in[1:]
+    store, fb_args = args[0], []
+    opts = read(args[1:], Spec(valued=('--kind', '--fallback'), dashdash=True, unknown='collect'))
+    kind, fallback = opts.last('--kind', ''), opts.last('--fallback', '')
+    rest, native = list(opts.leftovers), list(opts.after_dashdash)
     roster = json.loads(roster_json())
     if not kind:
         kind = roster_text(roster, 'sidekick', 'kind')
@@ -182,25 +169,10 @@ def consultant(ctx, args):
     require_herdr()
     if len(args) < 1:
         raise Die('usage: kitchen.sh consultant <store> --reason TEXT [--kind KIND] [--permission MODE|none] [-- agent-args...]')
-    store, reason, kind, permission, native = args[0], '', '', '', []
-    rest = list(args[1:])
-    while rest:
-        flag = rest[0]
-        if flag in ('--reason', '--kind', '--permission'):
-            if len(rest) < 2:
-                raise Die(f'{flag} needs a value')
-            if flag == '--reason':
-                reason = rest[1]
-            elif flag == '--kind':
-                kind = rest[1]
-            else:
-                permission = rest[1]
-            rest = rest[2:]
-        elif flag == '--':
-            native = rest[1:]
-            break
-        else:
-            raise Die(f'unknown option {flag}')
+    store = args[0]
+    opts = read(args[1:], Spec(valued=('--reason', '--kind', '--permission'), dashdash=True))
+    reason, kind, permission = opts.last('--reason', ''), opts.last('--kind', ''), opts.last('--permission', '')
+    native = list(opts.after_dashdash)
     pair_file(store)
     if not reason:
         raise Die('--reason is required: the escalation that warrants the consultant')

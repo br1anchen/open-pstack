@@ -2,6 +2,7 @@ import glob
 import os
 import sys
 
+from pstack_core.argv import Spec, read
 from pstack_core.consult import advice, advice_is_stop, consult, discuss_with_consultant, new_consult
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, stop_role
@@ -9,7 +10,7 @@ from pstack_core.store import Die, field, header_field, pair_file, whole_number,
 from pstack_core.panes import agent_kind, agent_status, require_herdr
 from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
-from pstack_core.wait import agent_state, end_with_parent
+from pstack_core.wait import agent_state, end_with_parent, timeout_ms
 
 def stop(ctx, args):
     """STOP to each of the run's roles in turn (--only names one): the trio's stop, which the kitchen runs too. It loops over
@@ -19,22 +20,9 @@ def stop(ctx, args):
     end_with_parent()
     if not args:
         raise Die('usage: pair.sh stop <store> [--only sidekick|consultant] [--timeout MS]')
-    store, rest = args[0], args[1:]
-    timeout, only, i = 300000, '', 0
-    while i < len(rest):
-        option = rest[i]
-        if option not in ('--only', '--timeout', '--every'):
-            raise Die(f'unknown option {option}')
-        if i + 1 >= len(rest):
-            raise Die(f'{option} needs a value')
-        value = rest[i + 1]
-        if option == '--only':
-            only = value
-        elif option == '--timeout':
-            timeout = whole_number(value, '--timeout', 'milliseconds')
-        else:
-            timeout = whole_number(value, '--every', 'minutes') * 60000
-        i += 2
+    store = args[0]
+    opts = read(args[1:], Spec(valued=('--only', '--timeout', '--every')))
+    timeout, only = timeout_ms(opts, 300000), opts.last('--only', '')
     clear_queue(store)
     rc = 0
     for role in ctx.roles:
@@ -79,6 +67,7 @@ def require_diverse_kinds(master, sidekick, consultant):
 
 VALUED = {'--sidekick': 'sidekick', '--consultant': 'consultant', '--fallback': 'fallback', '--only': 'only', '--permission': 'permission',
           '--consultant-permission': 'cpermission', '--timeout': 'timeout'}
+SPEC = Spec(valued=(*VALUED, '--kind', '--fallback-arg'), flags=('--tab', '--split'), dashdash=True)
 
 
 def spawn(ctx, args):
@@ -88,28 +77,17 @@ def spawn(ctx, args):
     require_herdr()
     if not args:
         raise Die(USAGE)
-    store, rest = args[0], list(args[1:])
+    store = args[0]
     opts = {'sidekick': '', 'consultant': '', 'only': '', 'permission': '', 'cpermission': '', 'timeout': '60000', 'fallback': '', 'placement': ''}
-    fallback_args = []
-    while rest:
-        flag = rest[0]
-        if flag in VALUED or flag in ('--kind', '--fallback-arg'):
-            if len(rest) < 2:
-                raise Die(f'{flag} needs a value')
-            if flag == '--kind':
-                opts['sidekick'], opts['consultant'] = rest[1], opts['consultant'] or rest[1]
-            elif flag == '--fallback-arg':
-                fallback_args.append(rest[1])
-            else:
-                opts[VALUED[flag]] = rest[1]
-            rest = rest[2:]
+    parsed = read(args[1:], SPEC)
+    for flag, value in parsed.occurrences:
+        if flag == '--kind':
+            opts['sidekick'], opts['consultant'] = value, opts['consultant'] or value
+        elif flag in VALUED:
+            opts[VALUED[flag]] = value
         elif flag in ('--tab', '--split'):
-            opts['placement'], rest = flag[2:], rest[1:]
-        elif flag == '--':
-            rest = rest[1:]
-            break
-        else:
-            raise Die(f'unknown option {flag}')
+            opts['placement'] = flag[2:]
+    fallback_args, rest = parsed.all('--fallback-arg'), list(parsed.after_dashdash)
     whole_number(opts['timeout'], '--timeout', 'milliseconds')
     pair_file(store)
     set_placement(store, opts['placement'])
