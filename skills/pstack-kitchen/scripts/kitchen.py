@@ -1845,6 +1845,8 @@ def read_lessons(path: Path) -> list[Lesson]:
             if on and line.startswith('- '):
                 evidence.append(line[2:].strip())
                 continue
+            if on and not evidence and not line.strip():
+                continue
             on = False
             k = re.match(r'^([a-z-]+):\s*(.*)$', line)
             if k and k.group(1) == 'evidence':
@@ -1871,16 +1873,26 @@ def lessons_preamble(path: Path) -> str:
     return (text[:m.start()] if m else text).rstrip('\n') + '\n'
 
 
+def lesson_text(x: Lesson) -> str:
+    """One lesson as the formatters keep it: blank lines around the field lines, the evidence list and the notes."""
+    blocks = [f'## {x.id}: {x.rule}'.rstrip()]
+    fields = [f'{k}: {x.fields[k]}'.rstrip() for k in LESSON_FIELDS if k in x.fields]
+    if fields:
+        blocks.append('\n'.join(fields))
+    if x.evidence:
+        blocks += ['evidence:', '\n'.join(f'- {e}'.rstrip() for e in x.evidence)]
+    else:
+        blocks.append('evidence:')
+    if x.notes:
+        blocks.append('\n'.join(n.rstrip() for n in x.notes))
+    return '\n\n'.join(blocks) + '\n'
+
+
 def write_lessons(path: Path, lessons: list[Lesson]) -> None:
     head = lessons_preamble(path)
-    body = []
-    for x in lessons:
-        body.append(f'## {x.id}: {x.rule}\n\n' + ''.join(f'{k}: {x.fields[k]}\n' for k in LESSON_FIELDS if k in x.fields)
-                    + 'evidence:\n' + ''.join(f'- {e}\n' for e in x.evidence)
-                    + (''.join(f'{n}\n' for n in ['', *x.notes]) if x.notes else ''))
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + '.tmp')
-    tmp.write_text(head + ''.join('\n' + b for b in body))
+    tmp.write_text(head + ''.join('\n' + lesson_text(x) for x in lessons))
     tmp.replace(path)
 
 

@@ -1052,11 +1052,36 @@ class LessonTests(KitchenTests):
         text = (self.repo / '.agents/LESSONS.md').read_text()
         self.assertIn('## L001: Every write to the store clears the cache.\n\nstatus: proposed\nkind: reject\n'
                       'class: verify\nlayer: verify\narea: src/lib\n', text)
-        self.assertIn('evidence:\n- 2026-10-01 run-a 001: the cache is never cleared\n', text)
+        self.assertIn('evidence:\n\n- 2026-10-01 run-a 001: the cache is never cleared\n', text)
         self.assertEqual(self.candidates(), [])
         self.assertIn('needs evidence', self.run_kitchen('lessons', 'add', 'reject', 'verify', 'docs', 'x', code=1))
         self.assertEqual(self.data('lessons', 'add', 'reject', 'verify', 'src', 'Second rule.')['id'], 'L002')
         self.assertEqual([x['id'] for x in self.data('lessons')['lessons']], ['L001', 'L002'])
+
+    def test_lessons_add_and_set_write_the_formatter_canonical_file(self):
+        self.row('run-a', 'reject', 'verify', '001', 'src/lib', 'the cache is never cleared')
+        self.row('run-b', 'reject', 'verify', '003', 'src/lib', 'cache stale after write')
+        self.run_kitchen('lessons', 'add', 'reject', 'verify', 'src/lib', 'Every write to the store clears the cache.')
+        self.run_kitchen('lessons', 'set', 'L001', 'retired', '--note', 'covered by the cache lint')
+        text = (self.repo / '.agents/LESSONS.md').read_text()
+        lesson = re.sub(r'^since: .*$', 'since: TODAY', text[text.index('## L001'):], flags=re.M)
+        self.assertEqual(lesson, (
+            '## L001: Every write to the store clears the cache.\n'
+            '\n'
+            'status: retired\n'
+            'kind: reject\n'
+            'class: verify\n'
+            'layer: verify\n'
+            'area: src/lib\n'
+            'since: TODAY\n'
+            'note: covered by the cache lint\n'
+            '\n'
+            'evidence:\n'
+            '\n'
+            '- 2026-10-01 run-a 001: the cache is never cleared\n'
+            '- 2026-10-02 run-b 003: cache stale after write\n'))
+        self.run_kitchen('lessons', 'set', 'L001', 'retired', '--note', 'covered by the cache lint')
+        self.assertEqual((self.repo / '.agents/LESSONS.md').read_text(), text)
 
     def test_a_narrow_lesson_leaves_trouble_outside_it_to_propose(self):
         for run, area in [('run-a', 'src/lib'), ('run-b', 'src/lib'), ('run-c', 'src/api'), ('run-d', 'src/api')]:
@@ -1130,7 +1155,7 @@ class LessonTests(KitchenTests):
         text = path.read_text()
         self.assertTrue(text.startswith('# Our lessons\n\nTeam note.\n\nRules learned'))
         self.assertIn('is counted on the host, not here.\n\n## L001: Rule one.\n', text)
-        self.assertIn('evidence:\n- 2026-10-01 run-a 001: missed a caller\n\nWhy: the API module has three entry points.\n'
+        self.assertIn('evidence:\n\n- 2026-10-01 run-a 001: missed a caller\n\nWhy: the API module has three entry points.\n'
                       'reviewer: ana\n', text)
         self.assertIn('status: active\n', text)
 
