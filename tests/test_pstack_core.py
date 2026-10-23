@@ -3477,6 +3477,26 @@ class CoreTests(unittest.TestCase):
             '  - 2m (stopped)\n'
             '  running: 003-gamma for 126m\n'))
 
+    def brief_rows(self, *spans):
+        rows = []
+        for n, (start, end) in enumerate(spans):
+            rows += [f'2026\t{start}\tmaster\tsend-brief\t00{n}-a\t', f'2026\t{end}\tsidekick\treport\t00{n}-a\t']
+        return '\n'.join(rows) + '\n'
+
+    def test_metrics_takes_the_lower_middle_brief_duration_as_the_median(self):
+        def median_line(spans):
+            return self.metrics_of(self.brief_rows(*spans)).splitlines()[1]
+        self.assertIn('3 briefs (median 2m)', median_line([(0, 60), (100, 220), (300, 600)]))
+        self.assertIn('4 briefs (median 2m)', median_line([(0, 60), (100, 220), (300, 600), (700, 1300)]))
+        self.assertIn('0 briefs (median 0m)', self.metrics_of('2026\t100\tmaster\tqueue\t001-a\t\n').splitlines()[1])
+
+    def test_metrics_leaves_a_row_with_an_unusable_time_out_of_the_timeline(self):
+        rows = self.FIRST_EVENTS + '2026\tabc\tmaster\tqueue\t002-b\t\n2026\t\tmaster\tsend-brief\t003-c\t\n\nshort\n'
+        out = self.metrics_of(rows)
+        self.assertEqual(out.splitlines()[0], 'wall: 1m from first event to last')
+        self.assertIn('queue: 1 briefs queued, 0 taken by the sidekick; 0 started the moment a report landed\n', out)
+        self.assertNotIn('003-c', out)
+
     def test_metrics_gives_a_legacy_header_store_the_same_output_as_the_headerless_one(self):
         self.assertEqual(self.metrics_of(LEGACY_HEADER + '\n' + self.FIRST_EVENTS), self.metrics_of(self.FIRST_EVENTS))
 
