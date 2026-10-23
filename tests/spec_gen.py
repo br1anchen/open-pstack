@@ -321,7 +321,7 @@ for c, src, text, lits in manual_exit:
 # ---- Messages ---------------------------------------------------------------
 prefixes = ['PAUSE:', 'NOTE:', 'STEER:', 'REPORT', 'running:', 'steps:', 'idle:', 'queued:', 'rotated:', 'report_status:', 'review-delta:', 'provider_error:', 'editing:',
             'written but not ready', 'closed:', 'cancelled:', 'audit:', 'covered:', 'warning: unreviewed:', 'redelivered:', 'deadline ', 'advice:', 'advice_status:',
-            'paused:', 'gates: still running', 'gates: queued', 'unowned:', 'ready:', 'superseded', 'sidekick_response:', 'report: missing', 'next:']
+            'paused:', 'gates: still running', 'gates: queued', 'ready:', 'superseded', 'sidekick_response:', 'report: missing', 'next:']
 msg_out = []
 for p in prefixes:
     hits = [l for l in git_grep(re.escape(p), *PROD) if not re.match(r'^[^:]+:\d+:\s*(#|""")', l)]

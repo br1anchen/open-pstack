@@ -44,7 +44,7 @@ class WaitOutcome:
     digest: tuple[str, ...] = ()
     unready: bool = False
     paused: bool = False
-    unowned: bool = False
+    claim_failed: bool = False
 
     @property
     def flagged(self):
@@ -62,7 +62,7 @@ class WaitOwner:
 
     def after(self, outcome):
         """The owner for the wait that follows `outcome`: the claim is made once, and a claim that failed stays failed."""
-        return replace(self, claim=False, checked=self.checked and not outcome.unowned)
+        return replace(self, claim=False, checked=self.checked and not outcome.claim_failed)
 
 
 TIMING = Spec(valued=('--timeout', '--every'), flags=('--send-only',), unknown='collect')
@@ -346,7 +346,7 @@ def end_with_parent():
 
 
 def take_ownership(ctx, store, owner):
-    """(token, unowned) for a wait: the token it checks for supersession (None checks nothing) and whether its own claim failed. Without an owner
+    """(token, claim_failed) for a wait: the token it checks for supersession (None checks nothing) and whether its own claim failed. Without an owner
     the wait claims the store under this pid; with one it claims only when the owner says so, and a lock that stays held must not fail a wait whose
     work is done (a dispatch has delivered its brief): it waits without ownership."""
     if owner is not None and not owner.checked:
@@ -367,7 +367,7 @@ def wait_for(ctx, store, *, timeout, owner=None, quiet=False, name=None, now=Non
     releases it (release). quiet leaves the wake for a check-in return to the caller."""
     write = sys.stdout.write if out is None else out
     name = field(store, 'sidekick', 'name') if name is None else name
-    token, unowned = take_ownership(ctx, store, owner)
+    token, claim_failed = take_ownership(ctx, store, owner)
     try:
         result = wait_for_reply(ctx, store, name, timeout, now, token=token)
         if result.superseded:
@@ -381,7 +381,7 @@ def wait_for(ctx, store, *, timeout, owner=None, quiet=False, name=None, now=Non
                 release_wait(store, token)
             except PairError as e:
                 sys.stderr.write(f'{ctx.prog}: wait: could not release wait.pid ({e.message})\n')
-    return replace(outcome, unowned=unowned)
+    return replace(outcome, claim_failed=claim_failed)
 
 
 def release(store, owner):

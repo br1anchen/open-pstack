@@ -1576,7 +1576,7 @@ class CoreTests(unittest.TestCase):
                 code = wait.print_outcome(outcome)
             err.seek(0)
             text = err.read()
-            self.assertEqual((code, out.getvalue(), outcome.unowned), (0, 'report: /s/reports/001-x.md\n', fail_claim), (fail_claim, fail_release))
+            self.assertEqual((code, out.getvalue(), outcome.claim_failed), (0, 'report: /s/reports/001-x.md\n', fail_claim), (fail_claim, fail_release))
             self.assertEqual(text.count('could not claim wait.pid'), 1 if fail_claim else 0, text)
             self.assertEqual(text.count('could not release wait.pid'), 1 if fail_release and not fail_claim else 0, text)
             self.assertEqual(tokens, [None] if fail_claim else [str(os.getpid())])
@@ -7659,12 +7659,12 @@ class WaitSeamTests(DispatchedStore):
     def test_a_wait_with_no_owner_claims_the_store_under_its_pid_and_gives_it_back(self):
         seen, outcome, err = self.wait_in(None)
         self.assertEqual(seen, [(str(os.getpid()), str(os.getpid()))])
-        self.assertEqual((outcome.unowned, wait.read_wait_owner(str(self.store)), err), (False, None, ''))
+        self.assertEqual((outcome.claim_failed, wait.read_wait_owner(str(self.store)), err), (False, None, ''))
 
     def test_an_owner_claims_once_and_keeps_the_claim(self):
         owner = wait.WaitOwner('kitchen-1')
         seen, outcome, _ = self.wait_in(owner)
-        self.assertEqual((seen, outcome.unowned, wait.read_wait_owner(str(self.store))), ([('kitchen-1', 'kitchen-1')], False, 'kitchen-1'))
+        self.assertEqual((seen, outcome.claim_failed, wait.read_wait_owner(str(self.store))), ([('kitchen-1', 'kitchen-1')], False, 'kitchen-1'))
         later = owner.after(outcome)
         self.assertEqual(later, wait.WaitOwner('kitchen-1', claim=False, checked=True))
         (self.store / 'wait.pid').write_text('someone-else\n')
@@ -7675,12 +7675,12 @@ class WaitSeamTests(DispatchedStore):
         owner = wait.WaitOwner('kitchen-1')
         with mock.patch.object(wait, 'claim_wait', side_effect=LockHeld('x')):
             seen, outcome, err = self.wait_in(owner)
-        self.assertEqual((seen, outcome.unowned), ([(None, None)], True))
+        self.assertEqual((seen, outcome.claim_failed), ([(None, None)], True))
         self.assertIn('could not claim wait.pid', err)
         later = owner.after(outcome)
         self.assertEqual(later, wait.WaitOwner('kitchen-1', claim=False, checked=False))
         seen, outcome, err = self.wait_in(later)
-        self.assertEqual((seen, outcome.unowned, err), ([(None, None)], False, ''), 'it neither claims nor checks')
+        self.assertEqual((seen, outcome.claim_failed, err), ([(None, None)], False, ''), 'it neither claims nor checks')
 
     def test_a_wait_whose_store_a_newer_wait_took_ends_superseded(self):
         (self.store / 'wait.pid').write_text('newer\n')
