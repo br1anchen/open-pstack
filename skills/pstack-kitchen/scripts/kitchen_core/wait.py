@@ -45,7 +45,12 @@ def block(text):
 
 def log_checkin_wake(ctx, store, outcome):
     """The one wake row for a wait or dispatch that returns on a check-in: the core records none for a quiet check-in return."""
-    wake(ctx, store, field(store, 'dispatch', 'brief'), 'report:unready' if outcome.unready else 'checkin')
+    wake(
+        ctx,
+        store,
+        field(store, 'dispatch', 'brief'),
+        'report:unready' if outcome.unready else 'checkin',
+    )
 
 
 def refused(ctx, error, held):
@@ -71,21 +76,27 @@ def quiet_wait(ctx, store, rest):
     owner = WaitOwner(str(os.getpid()))
 
     def under_max():
-        return quiet_now() - start < (limit if limit is not None else env_int('KITCHEN_QUIET_MAX_S', 3600))
+        return quiet_now() - start < (
+            limit if limit is not None else env_int('KITCHEN_QUIET_MAX_S', 3600)
+        )
 
     held = []
     try:
         while True:
             held.clear()
             _, timeout = wait_target(ctx, [store, *args], held.append)
-            outcome = wait_for(ctx, store, timeout=timeout, owner=owner, quiet=True, out=held.append)
+            outcome = wait_for(
+                ctx, store, timeout=timeout, owner=owner, quiet=True, out=held.append
+            )
             owner = owner.after(outcome)
             checkin = outcome.kind == 'checkin' and outcome.checkin is not None
             if checkin and not outcome.flagged:
                 if under_max():
                     poll_sleep(env_float('KITCHEN_QUIET_POLL_S', 1))
                     continue
-                write(f"quiet: {(quiet_now() - start) // 60}m with nothing flagged; the sidekick works on\n")
+                write(
+                    f'quiet: {(quiet_now() - start) // 60}m with nothing flagged; the sidekick works on\n'
+                )
             if checkin:
                 log_checkin_wake(ctx, store, outcome)
             write(block(''.join(held) + ''.join(outcome.digest)))
@@ -99,5 +110,7 @@ def quiet_wait(ctx, store, rest):
 def wait(ctx, args):
     default_signals()
     if len(args) < 1:
-        raise Die('usage: kitchen.sh wait <store> [--timeout MS | --every MIN] [--max MIN]')
+        raise Die(
+            'usage: kitchen.sh wait <store> [--timeout MS | --every MIN] [--max MIN]'
+        )
     return quiet_wait(ctx, args[0], args[1:])

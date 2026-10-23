@@ -5,14 +5,32 @@ import re
 
 from . import git
 from .steplog import StepLog
-from .store import header_field, note_id, load, peek, read_text, suffix_number, text_at, unit_name
+from .store import (
+    header_field,
+    note_id,
+    load,
+    peek,
+    read_text,
+    suffix_number,
+    text_at,
+    unit_name,
+)
 from .errors import Unfilled
 
 
 def note_files(store, unit):
     """notes/<unit>-n<k>.md in glob order; a .md.draft is not published."""
-    return sorted(f for f in glob.glob(os.path.join(glob.escape(store), 'notes', glob.escape(unit_name(unit)) + '-n[0-9]*.md'))
-                       if os.path.exists(f))
+    return sorted(
+        f
+        for f in glob.glob(
+            os.path.join(
+                glob.escape(store),
+                'notes',
+                glob.escape(unit_name(unit)) + '-n[0-9]*.md',
+            )
+        )
+        if os.path.exists(f)
+    )
 
 
 def note_number(path):
@@ -21,7 +39,10 @@ def note_number(path):
 
 
 def noted_through(store, unit):
-    return max([n for n in map(note_number, note_files(store, unit)) if n is not None], default=0)
+    return max(
+        [n for n in map(note_number, note_files(store, unit)) if n is not None],
+        default=0,
+    )
 
 
 def open_notes(store, brief):
@@ -48,8 +69,17 @@ def open_notes(store, brief):
 def trunk_ref(root):
     current = git.out(root, 'symbolic-ref', '--quiet', 'HEAD') or ''
     origin = git.out(root, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') or ''
-    for ref in [*origin.split(), 'refs/remotes/origin/main', 'refs/remotes/origin/master', 'refs/heads/main', 'refs/heads/master']:
-        if ref != current and git.out(root, 'rev-parse', '--verify', '--quiet', ref) is not None:
+    for ref in [
+        *origin.split(),
+        'refs/remotes/origin/main',
+        'refs/remotes/origin/master',
+        'refs/heads/main',
+        'refs/heads/master',
+    ]:
+        if (
+            ref != current
+            and git.out(root, 'rev-parse', '--verify', '--quiet', ref) is not None
+        ):
             return ref
     return None
 
@@ -68,7 +98,10 @@ def range_floor(root, base, tip, allow_head=False):
     if not git.ok(root, 'merge-base', '--is-ancestor', mb, tmb):
         return base, ''
     trunk_name = trunk.removeprefix('refs/')
-    return tmb, f'recorded base {base[:9]} is behind where its branch leaves {trunk_name}; measuring from {tmb[:9]}'
+    return (
+        tmb,
+        f'recorded base {base[:9]} is behind where its branch leaves {trunk_name}; measuring from {tmb[:9]}',
+    )
 
 
 def review_base(store, unit):
@@ -84,7 +117,11 @@ def review_base(store, unit):
         base = text_at(peek(pair, 'dispatch'), 'head')
     root = text_at(pair, 'git_root') or text_at(pair, 'cwd')
     last = log.last()
-    tip = last.sha if last else git.out(root, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
+    tip = (
+        last.sha
+        if last
+        else git.out(root, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
+    )
     if base and tip:
         base = range_floor(root, base, tip)[0]
     return base
@@ -92,13 +129,18 @@ def review_base(store, unit):
 
 PAIR = r'\x7b\x7b[^}]*\x7d\x7d'
 
+
 @functools.cache
 def template_pairs():
     """Every complete placeholder pair that occurs in one of the skills' templates (skills/*/references/*-template.md beside this module's
     skills directory), once per process: the exact text a template leaves for its writer to fill."""
-    skills = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    skills = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
     found = set()
-    for path in glob.glob(os.path.join(glob.escape(skills), '*', 'references', '*-template.md')):
+    for path in glob.glob(
+        os.path.join(glob.escape(skills), '*', 'references', '*-template.md')
+    ):
         try:
             found.update(re.findall(PAIR, read_text(path)))
         except OSError:
@@ -117,11 +159,21 @@ def split_code(text):
         line = lines[i]
         stripped = line.strip()
         m = None if unclosed else re.match(r'(`{3,}|~{3,})', stripped)
-        if m and m.group(1)[0] * len(m.group(1)) not in stripped[len(m.group(1)):]:
+        if m and m.group(1)[0] * len(m.group(1)) not in stripped[len(m.group(1)) :]:
             fence = m.group(1)
-            close = next((j for j in range(i + 1, len(lines)) if re.fullmatch(re.escape(fence[0]) + '{' + str(len(fence)) + ',}', lines[j].strip())), None)
+            close = next(
+                (
+                    j
+                    for j in range(i + 1, len(lines))
+                    if re.fullmatch(
+                        re.escape(fence[0]) + '{' + str(len(fence)) + ',}',
+                        lines[j].strip(),
+                    )
+                ),
+                None,
+            )
             if close is not None:
-                code.append(('\n'.join(lines[i + 1:close]), i + 2))
+                code.append(('\n'.join(lines[i + 1 : close]), i + 2))
                 i = close + 1
                 continue
             unclosed = True
@@ -131,13 +183,20 @@ def split_code(text):
             if not run:
                 break
             k = len(run.group())
-            end = next((r for r in re.finditer('`+', line[run.end():]) if len(r.group()) == k), None)
+            end = next(
+                (
+                    r
+                    for r in re.finditer('`+', line[run.end() :])
+                    if len(r.group()) == k
+                ),
+                None,
+            )
             if end is None:
-                out.append(line[pos:run.end()])
+                out.append(line[pos : run.end()])
                 pos = run.end()
                 continue
-            out.append(line[pos:run.start()] + ' ')
-            code.append((line[run.end():run.end() + end.start()], i + 1))
+            out.append(line[pos : run.start()] + ' ')
+            code.append((line[run.end() : run.end() + end.start()], i + 1))
             pos = run.end() + end.end()
         out.append(line[pos:])
         prose.append((''.join(out), i + 1))
@@ -158,12 +217,12 @@ def placeholder_line(text):
     joined = '\n'.join(line for line, _ in prose)
     m = re.search(PAIR, joined)
     if m:
-        found.append(prose[joined[:m.start()].count('\n')][1])
+        found.append(prose[joined[: m.start()].count('\n')][1])
     templates = template_pairs()
     for piece, first in code:
         for m in re.finditer(PAIR, piece):
             if m.group() in templates:
-                found.append(first + piece[:m.start()].count('\n'))
+                found.append(first + piece[: m.start()].count('\n'))
                 break
     return min(found, default=None)
 
@@ -179,7 +238,11 @@ def require_filled(ctx, path):
         return
     found = [placeholder_line(text)] if has_placeholder(text) else []
     if ctx.unfilled_re:
-        found += [n for line, n in split_code(text)[0] if re.search(ctx.unfilled_re, line)][:1]
+        found += [
+            n for line, n in split_code(text)[0] if re.search(ctx.unfilled_re, line)
+        ][:1]
     if found:
         n = min(found)
-        raise Unfilled(f'{path} still has unfilled placeholders: line {n}: {text.split(chr(10))[n - 1].strip()}')
+        raise Unfilled(
+            f'{path} still has unfilled placeholders: line {n}: {text.split(chr(10))[n - 1].strip()}'
+        )

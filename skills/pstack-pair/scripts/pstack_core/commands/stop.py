@@ -10,7 +10,14 @@ from ..errors import Die, FileFailed, PairJsonGone
 from ..panes import DEVNULL, agent_prompt, agent_status, herdr, pane_text, require_herdr
 from ..replies import file_mtime
 from ..argv import read
-from ..wait import TIMING, WaitResult, end_with_parent, finish_wait, print_outcome, timeout_ms
+from ..wait import (
+    TIMING,
+    WaitResult,
+    end_with_parent,
+    finish_wait,
+    print_outcome,
+    timeout_ms,
+)
 from .report import require_pair
 
 DEFAULT_TIMEOUT = 300000
@@ -25,11 +32,15 @@ def stop_candidates(store, role):
     """The stop-like reports (or advice) of the role on disk, as "path:mtime" rows."""
     directory = 'advice' if role == 'consultant' else 'reports'
     rows = []
-    for f in sorted(glob.glob(os.path.join(glob.escape(store), directory, '[0-9][0-9][0-9]-*.md'))):
+    for f in sorted(
+        glob.glob(os.path.join(glob.escape(store), directory, '[0-9][0-9][0-9]-*.md'))
+    ):
         if not os.path.isfile(f):
             continue
         if not re.fullmatch(r'[0-9]{3}-stop\.md', os.path.basename(f)):
-            if 'STOP' not in first_line(f) and not re.search('stop', header_field(f, 'status'), re.IGNORECASE):
+            if 'STOP' not in first_line(f) and not re.search(
+                'stop', header_field(f, 'status'), re.IGNORECASE
+            ):
                 continue
         rows.append(f'{f}:{file_mtime(f)}')
     return rows
@@ -62,18 +73,24 @@ def devin_send_now(store, role, name, text, before, deadline):
         if f'❭ {text}' in screen:
             seen = True
             send_enter(name)
-        elif f'○ {text}' in screen and re.search(r'send queued messages now|↵ send now', screen, re.IGNORECASE):
+        elif f'○ {text}' in screen and re.search(
+            r'send queued messages now|↵ send now', screen, re.IGNORECASE
+        ):
             send_enter(name)
             return True
         time.sleep(1)
     if stop_written(store, role, before):
         return True
     if f'❭ {text}' in pane_text(name):
-        sys.stderr.write(f'{role}: STOP is still typed in the input box; read it: herdr agent read {name} --source visible\n')
+        sys.stderr.write(
+            f'{role}: STOP is still typed in the input box; read it: herdr agent read {name} --source visible\n'
+        )
         return False
     if not seen:
         send_enter(name)
-        sys.stderr.write(f'{role}: STOP never showed in the pane; sent one Enter as a fallback\n')
+        sys.stderr.write(
+            f'{role}: STOP never showed in the pane; sent one Enter as a fallback\n'
+        )
         return False
     return True
 
@@ -137,4 +154,6 @@ def stop(ctx, args):
         raise Die(f'{who("sidekick", name)} is blocked; inspect it before stopping', 3)
     clear_queue(store)
     code, out, err = stop_role(ctx, store, 'sidekick', timeout)
-    return print_outcome(finish_wait(ctx, store, interval, WaitResult(code, out, err), 'any'))
+    return print_outcome(
+        finish_wait(ctx, store, interval, WaitResult(code, out, err), 'any')
+    )

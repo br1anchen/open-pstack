@@ -1,5 +1,6 @@
 """How a command ends: the two ways a command function ends itself, the domain failures helpers raise, and the one translation from either to
 stderr text and an exit code."""
+
 import os
 
 
@@ -63,7 +64,9 @@ class LockHeld(PairError):
     """The mkdir lock on pair.json stayed held for the whole wait."""
 
     def __init__(self, store):
-        super().__init__(f'pair.json lock held for 10s; remove {store}/.pair.lock if no pair.sh is running')
+        super().__init__(
+            f'pair.json lock held for 10s; remove {store}/.pair.lock if no pair.sh is running'
+        )
 
 
 class BadNumber(PairError):
@@ -381,7 +384,13 @@ def translate(exc, prog):
 
 def open_notes_refusal(prog, notes):
     """The Exit (status 5) that refuses a step while blocking notes, given as (id, file), are open: one line each, naming the fix."""
-    return Exit(5, ''.join(f'{prog}: step: blocking note {k} is open ({f}); fix it and record the fix with --resolves {k}\n' for k, f in notes))
+    return Exit(
+        5,
+        ''.join(
+            f'{prog}: step: blocking note {k} is open ({f}); fix it and record the fix with --resolves {k}\n'
+            for k, f in notes
+        ),
+    )
 
 
 def refuse_as(exc, prog, code):

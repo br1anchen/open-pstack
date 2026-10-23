@@ -1,4 +1,5 @@
 """The check-in digest and what it reads: the sidekick's tree, its processes, and the brief's Scope."""
+
 import calendar
 import fnmatch
 import glob
@@ -11,7 +12,16 @@ from . import git, procinfo
 from .replies import dispatched, file_mtime
 from .review import noted_through, open_notes, range_floor
 from .steplog import StepLog
-from .store import header_field, load, names, peek, progress_path, read_text, text_at, update
+from .store import (
+    header_field,
+    load,
+    names,
+    peek,
+    progress_path,
+    read_text,
+    text_at,
+    update,
+)
 from .numbers import int_or_none, tdiv
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
@@ -19,7 +29,9 @@ SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 
 def status_entries(root):
     """(status, path) of each entry git status lists, NUL-delimited; a rename or copy counts at its new path."""
-    raw = git.run(root, 'status', '--porcelain=v1', '-z', '--untracked-files=all', quiet=True).stdout.split('\0')
+    raw = git.run(
+        root, 'status', '--porcelain=v1', '-z', '--untracked-files=all', quiet=True
+    ).stdout.split('\0')
     if raw and raw[-1] == '':
         raw.pop()
     entries, skip = [], False
@@ -63,11 +75,21 @@ def tree_activity(cwd, head, now):
 def iso_epoch(stamp):
     """jq fromdateiso8601, or None where jq fails: C strptime("%Y-%m-%dT%H:%M:%SZ") with its leading blanks, one or two digits
     a field and day 31 allowed in any month, then timegm, whose result -1 reads as an error. Anything after the Z must start with a blank."""
-    m = re.fullmatch(r'\s*(\d{1,4})-\s*(\d{1,2})-\s*(\d{1,2})T\s*(\d{1,2}):\s*(\d{1,2}):\s*(\d{1,2})Z(?:\s.*)?', stamp, re.DOTALL)
+    m = re.fullmatch(
+        r'\s*(\d{1,4})-\s*(\d{1,2})-\s*(\d{1,2})T\s*(\d{1,2}):\s*(\d{1,2}):\s*(\d{1,2})Z(?:\s.*)?',
+        stamp,
+        re.DOTALL,
+    )
     if not m:
         return None
     year, month, day, hour, minute, second = map(int, m.groups())
-    if not (1 <= month <= 12 and 1 <= day <= 31 and hour <= 23 and minute <= 59 and second <= 61):
+    if not (
+        1 <= month <= 12
+        and 1 <= day <= 31
+        and hour <= 23
+        and minute <= 59
+        and second <= 61
+    ):
         return None
     epoch = calendar.timegm((year, month, day, hour, minute, second))
     return None if epoch == -1 else epoch
@@ -117,7 +139,10 @@ def busy(status, pane, since, now, env=None):
 def dispatch_facts(store):
     """(pane, dispatch epoch) of the sidekick's current dispatch; the epoch is None where there is no dispatch, no pane or no readable time."""
     pair = load(store)
-    pane, at = text_at(peek(pair, 'sidekick'), 'pane_id'), text_at(peek(pair, 'dispatch'), 'at')
+    pane, at = (
+        text_at(peek(pair, 'sidekick'), 'pane_id'),
+        text_at(peek(pair, 'dispatch'), 'at'),
+    )
     return pane, (iso_epoch(at) if pane and at else None)
 
 
@@ -170,7 +195,13 @@ def live_steer_effects(store, seq):
     """(may, mustnot): the paths a unit's live steers allow beyond its brief (`scope effect: may write ...`) and forbid (`must not write ...`), in
     steer order. A steer is live when it is not a withdraw and no later steer withdraws it by `supersedes:`. A line with a quote and no quoted
     string adds nothing."""
-    files = sorted(glob.glob(os.path.join(glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md')))
+    files = sorted(
+        glob.glob(
+            os.path.join(
+                glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md'
+            )
+        )
+    )
     withdrawn = ' '
     for f in files:
         if os.path.isfile(f) and header_field(f, 'kind') == 'withdraw':
@@ -192,7 +223,7 @@ def live_steer_effects(store, seq):
                 quoted = re.findall(r'"[^"]*"', line)
                 paths.extend(q.replace('"', '').replace('`', '') for q in quoted)
             else:
-                rest = line[len(head):]
+                rest = line[len(head) :]
                 rest = rest[1:] if rest.startswith(':') else rest
                 rest = rest[1:] if rest.startswith(' ') else rest
                 rest = rest.split(' ')[0].replace('`', '')
@@ -224,6 +255,7 @@ def sort_u(lines):
 class CheckIn:
     """The check-in digest for a sidekick still working: `lines` are the newline-ended lines to print, `notices` those of them that say what
     the sidekick is running or what the digest assumed (a quiet dispatch still shows them), and the rest are the facts the master is woken for."""
+
     lines: tuple[str, ...]
     notices: tuple[str, ...]
     stale: bool
@@ -236,13 +268,23 @@ class CheckIn:
 
     @property
     def overrun(self):
-        return self.elapsed_min is not None and self.timebox_min is not None and self.elapsed_min > self.timebox_min
+        return (
+            self.elapsed_min is not None
+            and self.timebox_min is not None
+            and self.elapsed_min > self.timebox_min
+        )
 
     @property
     def flagged(self):
         """Whether the digest carries something the master must see: a stale log, a write outside Scope, an objection, a blocking note not
         announced by an earlier digest or a timebox overrun."""
-        return self.stale or self.overrun or self.outside_scope > 0 or self.objected > 0 or self.fresh_notes > 0
+        return (
+            self.stale
+            or self.overrun
+            or self.outside_scope > 0
+            or self.objected > 0
+            or self.fresh_notes > 0
+        )
 
 
 def progress_section(store, interval, now, cwd, head, run):
@@ -254,7 +296,11 @@ def progress_section(store, interval, now, cwd, head, run):
         return ['progress: none yet\n'], False, ''
     text = read_text(prog)
     total = text.count('\n')
-    seen = int_or_none(read_text(f'{prog}.seen')) or 0 if os.path.isfile(f'{prog}.seen') else 0
+    seen = (
+        int_or_none(read_text(f'{prog}.seen')) or 0
+        if os.path.isfile(f'{prog}.seen')
+        else 0
+    )
     if seen > total:
         seen = 0
     age_m = tdiv(now - file_mtime(prog), 60)
@@ -268,7 +314,9 @@ def progress_section(store, interval, now, cwd, head, run):
                 tag = f'  editing: last change {tdiv(now - active, 60)}m ago'
             else:
                 stale = True
-    lines = [f'progress: +{total - seen} lines (last {age_m}m ago){"  STALE" if stale else tag}\n']
+    lines = [
+        f'progress: +{total - seen} lines (last {age_m}m ago){"  STALE" if stale else tag}\n'
+    ]
     logged = text.split('\n')
     if logged and logged[-1] == '':
         logged.pop()
@@ -291,8 +339,15 @@ def touched_section(store, brief, seq, cwd, head):
     touched = sort_u(touched)
     lines = [f'touched: {len(touched)} files, {commits} commits since dispatch\n']
     lines += [f'  {f}\n' for f in touched[:30]]
-    may = [re.sub(r'/$', '/*', p) for p in [*scope_entries(brief, 'may'), *steer_scope_entries(store, seq)]]
-    outside = [f for f in touched if f != '.agents/LESSONS.md' and not any(scope_match(p, f) for p in may)]
+    may = [
+        re.sub(r'/$', '/*', p)
+        for p in [*scope_entries(brief, 'may'), *steer_scope_entries(store, seq)]
+    ]
+    outside = [
+        f
+        for f in touched
+        if f != '.agents/LESSONS.md' and not any(scope_match(p, f) for p in may)
+    ]
     if outside:
         lines.append(f'outside scope: {len(outside)}\n')
         lines += [f'  {f}\n' for f in outside[:30]]
@@ -303,17 +358,35 @@ def steers_section(store, brief, seq):
     """(lines, objected, blocking) of the steers sent, applied and objected to, and of the steps committed, reviewed through and the blocking
     notes open (their files)."""
     prog = progress_path(store)
-    sent = len(glob.glob(os.path.join(glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md')))
-    objected = len(glob.glob(os.path.join(glob.escape(store), 'reports', glob.escape(seq) + '-*-s[0-9]*.md')))
+    sent = len(
+        glob.glob(
+            os.path.join(
+                glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md'
+            )
+        )
+    )
+    objected = len(
+        glob.glob(
+            os.path.join(
+                glob.escape(store), 'reports', glob.escape(seq) + '-*-s[0-9]*.md'
+            )
+        )
+    )
     applied = 0
     if os.path.isfile(prog):
-        applied = sum(1 for line in read_text(prog).split('\n') if re.search(r' steer s[0-9]+ applied', line))
+        applied = sum(
+            1
+            for line in read_text(prog).split('\n')
+            if re.search(r' steer s[0-9]+ applied', line)
+        )
     lines = [f'steers: {sent} sent, {applied} applied, {objected} objected\n']
     committed = len(StepLog(store, brief).rows())
     blocking = []
     if committed:
         blocking = open_notes(store, brief)
-        lines.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {len(blocking)} blocking notes open\n')
+        lines.append(
+            f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {len(blocking)} blocking notes open\n'
+        )
     return lines, objected, blocking
 
 
@@ -323,7 +396,9 @@ def announce_notes(store, open_names):
     announced = names(load(store), 'announced_notes')
     fresh = [n for n in open_names if n not in announced]
     if sorted(open_names) != sorted(announced):
-        update(store, lambda doc: doc.__setitem__('announced_notes', sorted(open_names)))
+        update(
+            store, lambda doc: doc.__setitem__('announced_notes', sorted(open_names))
+        )
     return len(fresh)
 
 
@@ -336,7 +411,11 @@ def checkin(ctx, store, interval=9, now=None) -> CheckIn | None:
     if not brief or not os.path.isfile(brief):
         return None
     dispatch = peek(pair, 'dispatch')
-    at, head, cwd = text_at(dispatch, 'at'), text_at(dispatch, 'head'), text_at(pair, 'cwd')
+    at, head, cwd = (
+        text_at(dispatch, 'at'),
+        text_at(dispatch, 'head'),
+        text_at(pair, 'cwd'),
+    )
     floor_note = ''
     tip = git.out(cwd, 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
     if head and tip:
@@ -347,7 +426,9 @@ def checkin(ctx, store, interval=9, now=None) -> CheckIn | None:
     timebox = m.group(0) if m else ''
     since = iso_epoch(at)
     elapsed = None if since is None else tdiv(now - since, 60)
-    out = [f'check-in: {base}  elapsed {"?" if elapsed is None else elapsed}m of {timebox or "?"}m\n']
+    out = [
+        f'check-in: {base}  elapsed {"?" if elapsed is None else elapsed}m of {timebox or "?"}m\n'
+    ]
     run = sidekick_activity(store, now)
     lines, stale, tag = progress_section(store, interval, now, cwd, head, run)
     out += lines
@@ -363,4 +444,14 @@ def checkin(ctx, store, interval=9, now=None) -> CheckIn | None:
     lines, objected, blocking = steers_section(store, brief, seq)
     out += lines
     fresh = announce_notes(store, [os.path.basename(f) for f in blocking])
-    return CheckIn(tuple(out), tuple(notices), stale, outside, objected, len(blocking), fresh, elapsed, int(timebox) if timebox else None)
+    return CheckIn(
+        tuple(out),
+        tuple(notices),
+        stale,
+        outside,
+        objected,
+        len(blocking),
+        fresh,
+        elapsed,
+        int(timebox) if timebox else None,
+    )

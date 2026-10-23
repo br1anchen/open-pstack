@@ -14,7 +14,14 @@ def run(root, *args, quiet=False, stdin=None, stdout=PIPE, stderr=None, binary=F
     sys.stdout.flush()
     sys.stderr.flush()
     argv = ['git', *(['-C', root] if root is not None else []), *args]
-    return subprocess.run(argv, input=stdin, stdout=stdout, stderr=DEVNULL if quiet else stderr, check=False, **({} if binary else TEXT))
+    return subprocess.run(
+        argv,
+        input=stdin,
+        stdout=stdout,
+        stderr=DEVNULL if quiet else stderr,
+        check=False,
+        **({} if binary else TEXT),
+    )
 
 
 def ok(root, *args, stdout=DEVNULL):

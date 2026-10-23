@@ -20,10 +20,27 @@ import contextlib
 from types import SimpleNamespace
 
 from pstack_core.commands.scratch import make_scratch
-from pstack_core.store import wake, event, header_field, pair_file, peek, read, read_text, write_text, update
+from pstack_core.store import (
+    wake,
+    event,
+    header_field,
+    pair_file,
+    peek,
+    read,
+    read_text,
+    write_text,
+    update,
+)
 from pstack_core.numbers import env_float, env_int
 from pstack_core.commands.report import require_pair
-from pstack_core.errors import BadRevision, CloseHeld, Die, PairError, ToolFailed, translate
+from pstack_core.errors import (
+    BadRevision,
+    CloseHeld,
+    Die,
+    PairError,
+    ToolFailed,
+    translate,
+)
 from pstack_core.panes import require_herdr
 from pstack_core.variant import commit_of
 
@@ -31,15 +48,32 @@ from . import kpy
 from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
 from .landing import latest_landing_verdict, manifest_warning
-from .verify_launch import choose_verifier, deliver_packet, launch_verifier, record_start, verifier_identity
+from .verify_launch import (
+    choose_verifier,
+    deliver_packet,
+    launch_verifier,
+    record_start,
+    verifier_identity,
+)
 from .verify_options import parse_options
 from .verify_packet import Packet, write_packet
 from .verify_wait import warn_unreviewed, Waiter, WaiterOutcome
-from .units import Verdict, brief_or_nothing, heads_in, is_ancestor, landing_base, repo_root, unit_brief, unit_range
+from .units import (
+    Verdict,
+    brief_or_nothing,
+    heads_in,
+    is_ancestor,
+    landing_base,
+    repo_root,
+    unit_brief,
+    unit_range,
+)
 
-USAGE = ('usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | '
-         'kitchen.sh verify <store> --landing [--base REV] [--parent REF|none] [--head REV] [...] | kitchen.sh verify <store> --wait '
-         '[--every MIN | --until-verdict] | kitchen.sh verify <store> --cancel')
+USAGE = (
+    'usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | '
+    'kitchen.sh verify <store> --landing [--base REV] [--parent REF|none] [--head REV] [...] | kitchen.sh verify <store> --wait '
+    '[--every MIN | --until-verdict] | kitchen.sh verify <store> --cancel'
+)
 
 
 def out(text):
@@ -54,7 +88,9 @@ def warn(text):
 def next_index(directory, prefix, letter):
     """The next k for files <prefix>-<letter><k>.* in directory."""
     k = 0
-    for path in sorted(glob.glob(f'{glob.escape(directory)}/{glob.escape(prefix)}-{letter}[0-9]*')):
+    for path in sorted(
+        glob.glob(f'{glob.escape(directory)}/{glob.escape(prefix)}-{letter}[0-9]*')
+    ):
         if not os.path.exists(path):
             continue
         m = re.match(rf'.*-{letter}([0-9]+)', os.path.basename(path))
@@ -78,7 +114,9 @@ def classify_landing(store, root, o):
             raise BadRevision(f'--parent {o.parent_ref} is not a commit')
         label = o.parent_ref
         if not (override != head and is_ancestor(root, override, head)):
-            raise BadRevision(f'--parent {o.parent_ref} ({override[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts')
+            raise BadRevision(
+                f'--parent {o.parent_ref} ({override[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts'
+            )
     if o.range_base:
         base = commit_of(root, o.range_base)
         if base is None:
@@ -88,37 +126,90 @@ def classify_landing(store, root, o):
     # A rebase since the last landing verdict may have moved a dependency manifest.
     prior = latest_landing_verdict(store)
     if prior:
-        sys.stdout.write(manifest_warning(store, commit_of(root, Verdict.parse(prior).refs()[0]) or '', base, head))
+        sys.stdout.write(
+            manifest_warning(
+                store, commit_of(root, Verdict.parse(prior).refs()[0]) or '', base, head
+            )
+        )
     # The stack lands under the kitchen as it is now.
     snap = kitchen_snapshot(store, root)
     cfg = ['--config', snap] if snap else []
-    data = kpy.call(kpy.kitchen_py.classify_change, kpy.invocation(store, root, snap or None, head), base=base, head=head)
-    return SimpleNamespace(base=base, head=head, override=override, label=label, cfg=cfg, data=data,
-                           risk='landing', mode='unit', cls='escalated')
+    data = kpy.call(
+        kpy.kitchen_py.classify_change,
+        kpy.invocation(store, root, snap or None, head),
+        base=base,
+        head=head,
+    )
+    return SimpleNamespace(
+        base=base,
+        head=head,
+        override=override,
+        label=label,
+        cfg=cfg,
+        data=data,
+        risk='landing',
+        mode='unit',
+        cls='escalated',
+    )
 
 
 def classify_units(ctx, store, root, o, allunits):
     """The named units' range and class. A unit dispatched as escalated is verified as escalated, whatever its diff touches."""
     base, head = unit_range(ctx, store, allunits, o.covered, o.range_base)
     heads_in(store, head, allunits)
-    escalate = tuple(f'unit {u} was dispatched as escalated' for u in allunits if header_field(brief_or_nothing(ctx, store, u), 'risk') == 'escalated')
+    escalate = tuple(
+        f'unit {u} was dispatched as escalated'
+        for u in allunits
+        if header_field(brief_or_nothing(ctx, store, u), 'risk') == 'escalated'
+    )
     cfg = brief_kitchen(brief_or_nothing(ctx, store, allunits[-1]))
-    data = kpy.call(kpy.kitchen_py.classify_change, kpy.invocation(store, root, cfg[1] if cfg else None, head), base=base, head=head, escalate=escalate)
+    data = kpy.call(
+        kpy.kitchen_py.classify_change,
+        kpy.invocation(store, root, cfg[1] if cfg else None, head),
+        base=base,
+        head=head,
+        escalate=escalate,
+    )
     verify_class = data.get('verify') or {}
-    return SimpleNamespace(base=base, head=head, override='', label='', cfg=cfg, data=data, risk=data.get('risk') or '',
-                           mode=verify_class.get('mode') or '', cls=verify_class.get('kind') or '')
+    return SimpleNamespace(
+        base=base,
+        head=head,
+        override='',
+        label='',
+        cfg=cfg,
+        data=data,
+        risk=data.get('risk') or '',
+        mode=verify_class.get('mode') or '',
+        cls=verify_class.get('kind') or '',
+    )
 
 
 def verdict_paths(store, landing, allunits):
     """(last unit, its brief, its slug, verdict path, packet path) for the verification this call starts."""
     if landing:
         k = next_index(f'{store}/verdicts', 'landing', 'v')
-        return 'landing', '-', '', f'{store}/verdicts/landing-v{k}.md', f'{store}/verdicts/landing-v{k}-packet.md'
+        return (
+            'landing',
+            '-',
+            '',
+            f'{store}/verdicts/landing-v{k}.md',
+            f'{store}/verdicts/landing-v{k}-packet.md',
+        )
     last = allunits[-1]
     brief = unit_brief(store, last)
-    slug = os.path.basename(brief)[:-3][4:] if brief.endswith('.md') else os.path.basename(brief)[4:]
+    slug = (
+        os.path.basename(brief)[:-3][4:]
+        if brief.endswith('.md')
+        else os.path.basename(brief)[4:]
+    )
     k = next_index(f'{store}/verdicts', f'{last}-{slug}', 'v')
-    return last, brief, slug, f'{store}/verdicts/{last}-{slug}-v{k}.md', f'{store}/verdicts/{last}-{slug}-v{k}-packet.md'
+    return (
+        last,
+        brief,
+        slug,
+        f'{store}/verdicts/{last}-{slug}-v{k}.md',
+        f'{store}/verdicts/{last}-{slug}-v{k}-packet.md',
+    )
 
 
 def deadline_minutes(store, root, data, o):
@@ -129,7 +220,9 @@ def deadline_minutes(store, root, data, o):
         out(f'deadline {o.timeout_m}m (--timeout)\n')
         return o.timeout_m
     inv = kpy.invocation(store, root)
-    deadline = kpy.call(kpy.kitchen_py.deadline, inv, data['behavioral'], bool(data['scratch_setup']))
+    deadline = kpy.call(
+        kpy.kitchen_py.deadline, inv, data['behavioral'], bool(data['scratch_setup'])
+    )
     minutes = deadline['minutes']
     out(kpy.kitchen_py.deadline_text(deadline) + '\n')
     profiles = data.get('landing') or [] if o.landing else []
@@ -139,14 +232,17 @@ def deadline_minutes(store, root, data, o):
         unmeasured = len(timed['unmeasured'])
         added = int((3 * seconds + 59) / 60) + 10 * unmeasured
         minutes += added
-        out(f'deadline +{added}m for the landing gates of {" ".join(profiles)}: 3 x {seconds / 60:.0f}m measured'
-            f'{"" if unmeasured == 0 else f", {unmeasured} unmeasured at 10m each"}; now {minutes}m\n')
+        out(
+            f'deadline +{added}m for the landing gates of {" ".join(profiles)}: 3 x {seconds / 60:.0f}m measured'
+            f'{"" if unmeasured == 0 else f", {unmeasured} unmeasured at 10m each"}; now {minutes}m\n'
+        )
     return minutes
 
 
 def record_landing_parent(store, o, c):
     """The last point verify can die before it starts the verifier: only now is the stack's parent recorded or cleared."""
     if o.parent_ref == 'none':
+
         def clear(doc):
             section = peek(doc, 'landing')
             section.pop('parent', None)
@@ -154,6 +250,7 @@ def record_landing_parent(store, o, c):
 
         update(store, clear)
     elif c.override:
+
         def record(doc):
             vs.set_member(doc, 'landing', 'parent', c.override)
             vs.set_member(doc, 'landing', 'parent_ref', c.label)
@@ -177,21 +274,64 @@ def start_verification(ctx, store, argv, o, root, allunits, c):
     timeout_m = deadline_minutes(store, root, data, o)
     entry, kind, args_list = choose_verifier(store, root, c.cls, o)
     scratch_id = '000-landing-verify' if o.landing else f'{last}-{slug}-verify'
-    v = SimpleNamespace(ctx=ctx, store=store, argv=argv, landing=o.landing, units=allunits, last=last, slug=slug, brief=brief, base=c.base, head=c.head,
-                        cls=c.cls, risk=c.risk, data=data, verdict=verdict, packet=packet, timeout_m=timeout_m, entry=entry, kind=kind, args=args_list,
-                        identity=verifier_identity(kind, args_list), scratch_id=scratch_id, retried=bool(o.retry_entry),
-                        scratch=scratch_path(ctx, store, scratch_id, c.head))
+    v = SimpleNamespace(
+        ctx=ctx,
+        store=store,
+        argv=argv,
+        landing=o.landing,
+        units=allunits,
+        last=last,
+        slug=slug,
+        brief=brief,
+        base=c.base,
+        head=c.head,
+        cls=c.cls,
+        risk=c.risk,
+        data=data,
+        verdict=verdict,
+        packet=packet,
+        timeout_m=timeout_m,
+        entry=entry,
+        kind=kind,
+        args=args_list,
+        identity=verifier_identity(kind, args_list),
+        scratch_id=scratch_id,
+        retried=bool(o.retry_entry),
+        scratch=scratch_path(ctx, store, scratch_id, c.head),
+    )
     if o.landing:
         record_landing_parent(store, o, c)
-    write_packet(packet, Packet(
-        template=f'{ctx.skill_root}/references/verdict-template.md', tool_dir=f'{ctx.skill_root}/scripts', root=root, store=store, verdict=verdict,
-        scratch=v.scratch, base=c.base, head=c.head, identity=v.identity, vclass='landing' if o.landing else c.cls, timeout_m=timeout_m, risk=c.risk,
-        units=tuple(allunits), own=tuple(o.units), covered=tuple(o.covered), landing=o.landing, last=last, slug=slug, data=c.data,
-        config=c.cfg[1] if len(c.cfg) > 1 else ''))
+    write_packet(
+        packet,
+        Packet(
+            template=f'{ctx.skill_root}/references/verdict-template.md',
+            tool_dir=f'{ctx.skill_root}/scripts',
+            root=root,
+            store=store,
+            verdict=verdict,
+            scratch=v.scratch,
+            base=c.base,
+            head=c.head,
+            identity=v.identity,
+            vclass='landing' if o.landing else c.cls,
+            timeout_m=timeout_m,
+            risk=c.risk,
+            units=tuple(allunits),
+            own=tuple(o.units),
+            covered=tuple(o.covered),
+            landing=o.landing,
+            last=last,
+            slug=slug,
+            data=c.data,
+            config=c.cfg[1] if len(c.cfg) > 1 else '',
+        ),
+    )
     pane, started = launch_verifier(v)
     record_start(v, pane, started)
     deliver_packet(v)
-    return Waiter(ctx, store, o.every_m, retry=lambda again: verify(ctx, again)).run().rc
+    return (
+        Waiter(ctx, store, o.every_m, retry=lambda again: verify(ctx, again)).run().rc
+    )
 
 
 def verify(ctx, args):
@@ -212,7 +352,10 @@ def verify(ctx, args):
         return vs.verify_cancel(ctx, store)
     if o.wait:
         if not read(store, 'verifying.verdict'):
-            raise Die(f'no verification is open; start one with kitchen.sh verify {store} <NNN>', 5)
+            raise Die(
+                f'no verification is open; start one with kitchen.sh verify {store} <NNN>',
+                5,
+            )
         return Waiter(ctx, store, o.every_m, retry=retry).run().rc
     if not o.landing and not o.units:
         raise Die('name at least one unit NNN, or --landing')
@@ -220,7 +363,10 @@ def verify(ctx, args):
         raise Die('--landing verifies the whole stack; name no units')
     close_unread(ctx, store)
     if read(store, 'verifying.verdict'):
-        raise Die(f'a verification is open ({read(store, "verifying.units")}); kitchen.sh verify {store} --wait', 5)
+        raise Die(
+            f'a verification is open ({read(store, "verifying.units")}); kitchen.sh verify {store} --wait',
+            5,
+        )
     allunits = [*o.covered, *o.units]
     require_pair(ctx, store)
     root = repo_root(store)
@@ -228,11 +374,24 @@ def verify(ctx, args):
         raise Die('--head goes with --landing')
     if o.parent_ref and not o.landing:
         raise Die('--parent goes with --landing')
-    c = classify_landing(store, root, o) if o.landing else classify_units(ctx, store, root, o, allunits)
+    c = (
+        classify_landing(store, root, o)
+        if o.landing
+        else classify_units(ctx, store, root, o, allunits)
+    )
     data = c.data
     # A batch of independent units has a size cap; a fix verified with the unit it fixes does not, since splitting it would re-reject the first.
-    if not o.covered and len(o.units) > 1 and is_number(data.get('diff_lines')) and is_number(data.get('max_batch_diff')) and data['diff_lines'] > data['max_batch_diff']:
-        raise Die(f'batch of {json.dumps(data["diff_lines"])} diff lines is over review.max_batch_diff; verify each unit', 2)
+    if (
+        not o.covered
+        and len(o.units) > 1
+        and is_number(data.get('diff_lines'))
+        and is_number(data.get('max_batch_diff'))
+        and data['diff_lines'] > data['max_batch_diff']
+    ):
+        raise Die(
+            f'batch of {json.dumps(data["diff_lines"])} diff lines is over review.max_batch_diff; verify each unit',
+            2,
+        )
     return start_verification(ctx, store, argv, o, root, allunits, c)
 
 
@@ -252,8 +411,10 @@ def scratch_path(ctx, store, scratch_id, head):
 
 def gates_verdict(ctx, store, verdict, last, slug, allunits, base, head):
     """The verdict a gates-mode verification writes itself: every step passed its profiles' fast gates and the policy check."""
-    text = (f'# Verdict {last}: {slug}\n\nstatus: clean\nunits: {" ".join(allunits)}\nrange: {base[:9]}..{head[:9]}\nverifier: gates\n\n'
-            "## Findings\n\nnone\n\n## Evidence\n\nEvery step passed its profiles' fast gates and the policy check:\n\n```\n")
+    text = (
+        f'# Verdict {last}: {slug}\n\nstatus: clean\nunits: {" ".join(allunits)}\nrange: {base[:9]}..{head[:9]}\nverifier: gates\n\n'
+        "## Findings\n\nnone\n\n## Evidence\n\nEvery step passed its profiles' fast gates and the policy check:\n\n```\n"
+    )
     for u in allunits:
         wanted = os.path.basename(brief_or_nothing(ctx, store, u))
         wanted = wanted[:-3] if wanted.endswith('.md') else wanted
@@ -287,7 +448,15 @@ def close_wait(ctx, store, say):
     the wait writes to its sinks, and what the code under it writes to sys.stderr (the Prime cleanup's reasons, herdr's reply problems), which
     stands in for the sink here; a child process on the close path has its stderr piped to sys.stderr by the code that runs it. A failure ends
     the outcome with its message after what was said, and the status of the verdict the wait had already shown."""
-    waiter = Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again), out=say, err=say)
+    waiter = Waiter(
+        ctx,
+        store,
+        0,
+        closing=True,
+        retry=lambda again: verify(ctx, again),
+        out=say,
+        err=say,
+    )
     try:
         with contextlib.redirect_stderr(Sink(say)):
             return waiter.run()
@@ -300,7 +469,11 @@ def close_wait(ctx, store, say):
 def close_unread(ctx, store):
     """A verdict written but never read closes the verification it belonged to; the new one starts after it."""
     open_verdict = read(store, 'verifying.verdict')
-    if not (open_verdict and os.path.isfile(open_verdict) and header_field(open_verdict, 'status')):
+    if not (
+        open_verdict
+        and os.path.isfile(open_verdict)
+        and header_field(open_verdict, 'status')
+    ):
         return
     closed_brief = read(store, 'verifying.brief')
     waiting_since, by_another, closed, closed_rc, closed_status = None, False, '', 0, ''
@@ -310,7 +483,11 @@ def close_unread(ctx, store):
             break
         lines = []
         ended = close_wait(ctx, store, lines.append)
-        closed, closed_rc, closed_status = ''.join(lines).rstrip('\n'), ended.rc, ended.status
+        closed, closed_rc, closed_status = (
+            ''.join(lines).rstrip('\n'),
+            ended.rc,
+            ended.status,
+        )
         if closed_status or not ended.closed_elsewhere:
             break
         # Another call is closing this verdict: wait for it to finish, then go on as after a close of our own.
@@ -319,7 +496,9 @@ def close_unread(ctx, store):
             out(f'closing {open_verdict}: another call is closing it; waiting for it\n')
         limit = env_int('KITCHEN_VERIFY_CLOSE_WAIT_S', 120)
         if not int(time.time()) - waiting_since < limit:
-            raise CloseHeld(f'another call has held the close of {open_verdict} for {limit}s; kitchen.sh verify {store} --wait')
+            raise CloseHeld(
+                f'another call has held the close of {open_verdict} for {limit}s; kitchen.sh verify {store} --wait'
+            )
         time.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
     if by_another:
         closed_status = 'closed by another call'
@@ -333,5 +512,3 @@ def close_unread(ctx, store):
     if closed_rc != 0:
         wake(ctx, store, closed_brief, f'verify:{closed_status.split(" ")[0]}')
         raise ToolFailed(closed_rc)
-
-

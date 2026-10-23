@@ -1,12 +1,25 @@
 """The readers of a store's replies, as the wait loop uses them. Each takes the pieces of state it reads from the store and returns what the
 loop prints."""
+
 import glob
 import os
 import re
 
 from .review import noted_through, review_base
 from .steplog import StepLog
-from .store import count, expected_report, field, header_field, load, names, peek, read_text, suffix_number, unit_name, update
+from .store import (
+    count,
+    expected_report,
+    field,
+    header_field,
+    load,
+    names,
+    peek,
+    read_text,
+    suffix_number,
+    unit_name,
+    update,
+)
 from .commands.status import latest
 
 
@@ -55,23 +68,39 @@ def queue_note(store, report):
     if queued:
         # The queue never moves on its own: after any status it waits for the master's dispatch, which rotates a due sidekick first.
         status = header_field(report, 'status') if os.path.isfile(report) else 'done'
-        held = f' (held: report is {status or "unknown"}; dispatch it yourself)' if status != 'done' else ''
+        held = (
+            f' (held: report is {status or "unknown"}; dispatch it yourself)'
+            if status != 'done'
+            else ''
+        )
         out += f'queued: {queued}{held}\n'
     return out
 
 
 def pending(store):
     """The non-empty lines of the pending briefs; a pending that is not an array is damage."""
-    return [line for item in names(load(store), 'pending') for line in item.split('\n') if line]
+    return [
+        line
+        for item in names(load(store), 'pending')
+        for line in item.split('\n')
+        if line
+    ]
 
 
 def pending_report(ctx, store):
     """The oldest pending brief whose report exists and is ready, unless a review already covers its unit."""
     for brief in pending(store):
-        if glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(first3(brief)) + '-*.md')):
+        if glob.glob(
+            os.path.join(
+                glob.escape(store), 'reviews', glob.escape(first3(brief)) + '-*.md'
+            )
+        ):
             continue
         report = expected_report(store, brief)
-        if os.path.isfile(report) and ctx.variant.report_ready(ctx, store, report).ready:
+        if (
+            os.path.isfile(report)
+            and ctx.variant.report_ready(ctx, store, report).ready
+        ):
             return report
     return None
 
@@ -84,7 +113,10 @@ def fresh_reply(ctx, store):
     unit = re.sub(r'-a[0-9]+$', '', unit_name(sent))
     floor = sent_epoch(store)
     reports = os.path.join(glob.escape(store), 'reports')
-    candidates = [f'{store}/reports/{unit}.md', *sorted(glob.glob(os.path.join(reports, glob.escape(unit) + '-[sq][0-9]*.md')))]
+    candidates = [
+        f'{store}/reports/{unit}.md',
+        *sorted(glob.glob(os.path.join(reports, glob.escape(unit) + '-[sq][0-9]*.md'))),
+    ]
     best, reply = -1, ''
     for f in candidates:
         if not os.path.isfile(f):
@@ -134,7 +166,11 @@ def unreviewed_steps(ctx, store):
         if written_after and ctx.variant.report_ready(ctx, store, report).ready:
             return None
     through = noted_through(store, brief)
-    rows = [f'{s.number}\t{s.sha}\t{s.summary}' for s in steps if s.index is not None and s.index > through]
+    rows = [
+        f'{s.number}\t{s.sha}\t{s.summary}'
+        for s in steps
+        if s.index is not None and s.index > through
+    ]
     return rows or None
 
 

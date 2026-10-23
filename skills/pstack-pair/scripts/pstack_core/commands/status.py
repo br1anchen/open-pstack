@@ -5,7 +5,23 @@ import subprocess
 import sys
 import time
 
-from ..store import header_field, load, names, newest, paused_reason, peek, read_text, suffix_number, text_at, unit_name, event, pair_file, pause_notice, progress_path, steer_notice
+from ..store import (
+    header_field,
+    load,
+    names,
+    newest,
+    paused_reason,
+    peek,
+    read_text,
+    suffix_number,
+    text_at,
+    unit_name,
+    event,
+    pair_file,
+    pause_notice,
+    progress_path,
+    steer_notice,
+)
 from ..errors import Die, MissingStore, translate
 from ..panes import agent_status
 
@@ -18,7 +34,9 @@ class Tee:
         try:
             self.file = open(path, 'w', encoding='utf-8')
         except OSError as e:
-            sys.stderr.write(f'{ctx.prog}: cannot write {path}: {os.strerror(e.errno)}\n')
+            sys.stderr.write(
+                f'{ctx.prog}: cannot write {path}: {os.strerror(e.errno)}\n'
+            )
             sys.stderr.flush()
             self.file, self.failed = None, True
 
@@ -50,7 +68,11 @@ def unit_row(store, f, consultant):
     if report:
         rstatus = header_field(report, 'status') or 'unlabelled'
     verdict = 'none'
-    reviews = sorted(glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')))
+    reviews = sorted(
+        glob.glob(
+            os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')
+        )
+    )
     if reviews:
         verdict = header_field(reviews[0], 'verdict') or 'unlabelled'
     if not consultant:
@@ -59,7 +81,13 @@ def unit_row(store, f, consultant):
     advice = latest(store, 'advice', seq)
     if advice:
         astatus = header_field(advice, 'status') or 'unlabelled'
-        n = len(glob.glob(os.path.join(glob.escape(store), 'advice', glob.escape(seq) + '-*-c[0-9]*.md')))
+        n = len(
+            glob.glob(
+                os.path.join(
+                    glob.escape(store), 'advice', glob.escape(seq) + '-*-c[0-9]*.md'
+                )
+            )
+        )
         if n > 0:
             astatus = f'{astatus} (c{n})'
     return f'| {seq} | {kind} | {slug} | {rstatus} | {astatus} | {verdict} |\n'
@@ -68,12 +96,20 @@ def unit_row(store, f, consultant):
 def unanswered_asks(store):
     """How many sidekick asks (reports named NNN-<slug>-q<k>) have no answer file yet."""
     asks = 0
-    for f in glob.glob(os.path.join(glob.escape(store), 'reports', '[0-9][0-9][0-9]-*-q[0-9]*.md')):
+    for f in glob.glob(
+        os.path.join(glob.escape(store), 'reports', '[0-9][0-9][0-9]-*-q[0-9]*.md')
+    ):
         if not os.path.exists(f):
             continue
         base = os.path.basename(f)
         k = suffix_number(unit_name(f), 'q') or unit_name(f)
-        if not glob.glob(os.path.join(glob.escape(store), 'answers', f'{glob.escape(base[:3])}-*-a{glob.escape(k)}.md')):
+        if not glob.glob(
+            os.path.join(
+                glob.escape(store),
+                'answers',
+                f'{glob.escape(base[:3])}-*-a{glob.escape(k)}.md',
+            )
+        ):
             asks += 1
     return asks
 
@@ -91,10 +127,16 @@ def lines(ctx, store, out):
     for role in ctx.roles:
         name = text_at(peek(pair, role), 'name')
         pane = text_at(peek(pair, role), 'pane_id', 'unassigned')
-        out.write(f'{role}: ' + ' '.join(filter(None, [name, f'({pane})', agent_status(name)])) + '\n')
+        out.write(
+            f'{role}: '
+            + ' '.join(filter(None, [name, f'({pane})', agent_status(name)]))
+            + '\n'
+        )
     out.write('\n')
     if consultant:
-        out.write('| seq | kind | unit | report | advice | review |\n|---|---|---|---|---|---|\n')
+        out.write(
+            '| seq | kind | unit | report | advice | review |\n|---|---|---|---|---|---|\n'
+        )
     else:
         out.write('| seq | kind | unit | report | review |\n|---|---|---|---|---|\n')
     units = []
@@ -117,7 +159,9 @@ def lines(ctx, store, out):
         out.write(f'paused: {paused_reason(store)}\n')
     scratch = [w for line in names(pair, 'scratch') for w in line.split()]
     if scratch:
-        out.write('\nopen scratch worktrees (remove with pair.sh scratch <store> <id> --remove):\n')
+        out.write(
+            '\nopen scratch worktrees (remove with pair.sh scratch <store> <id> --remove):\n'
+        )
         for w in scratch:
             out.write(f'  {w}\n')
     if os.path.isdir(f'{store}/answers'):
@@ -126,7 +170,9 @@ def lines(ctx, store, out):
             out.write(f'unanswered asks: {asks}\n')
     gates = f'{store}/gates.md'
     if os.path.isfile(gates) and os.path.getsize(gates) > 0:
-        open_gates = sum(1 for line in read_text(gates).split('\n') if line.startswith('- '))
+        open_gates = sum(
+            1 for line in read_text(gates).split('\n') if line.startswith('- ')
+        )
         if open_gates:
             out.write(f'\nopen gates: {open_gates}\n')
 
@@ -150,12 +196,16 @@ def run(ctx, args):
 
 def log(ctx, args):
     if len(args) != 6:
-        raise Die(f'usage: {ctx.prog} log <store> <phase> <decision> <why> <evidence> <result>')
+        raise Die(
+            f'usage: {ctx.prog} log <store> <phase> <decision> <why> <evidence> <result>'
+        )
     store, phase, decision, *rest = args
     helper = f'{ctx.skill_root}/../show-me-your-work/scripts/log.sh'
     if not (os.path.isfile(helper) and os.access(helper, os.X_OK)):
         raise Die(f'show-me-your-work log helper not found at {helper}')
-    code = subprocess.run([helper, f'{store}/decisions.tsv', phase, decision, *rest], check=False).returncode
+    code = subprocess.run(
+        [helper, f'{store}/decisions.tsv', phase, decision, *rest], check=False
+    ).returncode
     if code:
         return code
     event(store, 'master', 'log', '-', f'{phase}: {decision}')

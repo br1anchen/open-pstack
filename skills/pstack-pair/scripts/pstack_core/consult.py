@@ -12,10 +12,34 @@ from dataclasses import dataclass
 from . import argv, git
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
-from .store import wake, TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, now, write_text, who
+from .store import (
+    wake,
+    TEXT,
+    event,
+    field,
+    fill_template,
+    header_field,
+    newest_first,
+    pair_file,
+    read,
+    read_text,
+    update,
+    now,
+    write_text,
+    who,
+)
 from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, PromptFailed, Unfilled
 from .gates import require_not_paused
-from .panes import DEVNULL, agent_prompt, agent_state, agent_status, await_file, error_code, error_state, require_herdr
+from .panes import (
+    DEVNULL,
+    agent_prompt,
+    agent_state,
+    agent_status,
+    await_file,
+    error_code,
+    error_state,
+    require_herdr,
+)
 from .review import require_filled
 from .send import require_fresh_session, submit_typed
 from .wait import TIMEOUT_ONLY, end_with_parent, timeout_ms
@@ -30,7 +54,14 @@ def plan_answer(store, role, seq, plan):
         found = reports[0] if reports else None
     else:
         found = latest_plan_advice(store, seq)
-    if found and os.path.exists(found) and (not os.path.exists(plan) or os.stat(found).st_mtime_ns > os.stat(plan).st_mtime_ns):
+    if (
+        found
+        and os.path.exists(found)
+        and (
+            not os.path.exists(plan)
+            or os.stat(found).st_mtime_ns > os.stat(plan).st_mtime_ns
+        )
+    ):
         return found
     return ''
 
@@ -60,7 +91,9 @@ def deliver_plan(ctx, store, role, name, seq, plan):
     working, with nothing typed and no answer, still idle, gets the plan once more."""
     text = f'{ctx.skill} PLAN {plan}'
     sys.stdout.flush()
-    r = agent_prompt(name, text, wait=True, until='working', timeout_ms=30000, stdout=DEVNULL)
+    r = agent_prompt(
+        name, text, wait=True, until='working', timeout_ms=30000, stdout=DEVNULL
+    )
     took = 1 if r.returncode == 0 else 0
     if not took:
         err = r.stderr
@@ -73,9 +106,19 @@ def deliver_plan(ctx, store, role, name, seq, plan):
         return
     if agent_status(name) in ('idle', 'done'):
         event(store, 'master', 'plan-redeliver', plan, role)
-        sys.stdout.write(f'redelivered: {role} {name} sat idle without the plan; sent it again\n')
+        sys.stdout.write(
+            f'redelivered: {role} {name} sat idle without the plan; sent it again\n'
+        )
         sys.stdout.flush()
-        agent_prompt(name, text, wait=True, until='working', timeout_ms=30000, stdout=DEVNULL, stderr=DEVNULL)
+        agent_prompt(
+            name,
+            text,
+            wait=True,
+            until='working',
+            timeout_ms=30000,
+            stdout=DEVNULL,
+            stderr=DEVNULL,
+        )
         submit_typed(name, os.path.basename(plan))
 
 
@@ -83,6 +126,7 @@ def deliver_plan(ctx, store, role, name, seq, plan):
 class PlanRound:
     """Who a plan round reaches: the roles to send the plan now, the roles to wait on (those sent and those that had already answered), those that
     had answered, and the sidekick when it is busy on a unit and its half is deferred."""
+
     send: tuple
     wait_on: tuple
     answered: tuple
@@ -103,15 +147,23 @@ def plan_round_for(store, seq, plan):
         if status in ('idle', 'done'):
             send.append(role)
         elif status == 'absent':
-            raise AgentNotLive(f'{who(role, name)} is not live; run: pair.sh spawn {store} --only {role} --{role} <kind>')
+            raise AgentNotLive(
+                f'{who(role, name)} is not live; run: pair.sh spawn {store} --only {role} --{role} <kind>'
+            )
         elif status == 'blocked':
-            raise AgentBlocked(f'{who(role, name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60')
+            raise AgentBlocked(
+                f'{who(role, name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60'
+            )
         else:
             if role != 'sidekick':
-                raise AgentBusy(f'{who(role, name)} is {status}; wait for it before a plan round')
+                raise AgentBusy(
+                    f'{who(role, name)} is {status}; wait for it before a plan round'
+                )
             deferred = 'sidekick'
     if deferred and 'consultant' not in send and 'consultant' not in answered:
-        raise AgentBusy(f"sidekick {field(store, 'sidekick', 'name')} is working and the consultant has nothing to answer; wait for the sidekick before a plan round")
+        raise AgentBusy(
+            f'sidekick {field(store, "sidekick", "name")} is working and the consultant has nothing to answer; wait for the sidekick before a plan round'
+        )
     return PlanRound(tuple(send), tuple(wait_on), tuple(answered), deferred)
 
 
@@ -134,7 +186,13 @@ def await_answer(store, role, seq, slug, plan, timeout):
     is polled for its file. An empty answer is a missing one."""
     name = field(store, role, 'name')
     sys.stdout.flush()
-    r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
+    r = subprocess.run(
+        ['herdr', 'agent', 'wait', name, '--timeout', str(timeout)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        **TEXT,
+    )
     status = agent_state(r.stdout, 'settled')
     if r.returncode != 0:
         status = agent_status(name)
@@ -142,7 +200,11 @@ def await_answer(store, role, seq, slug, plan, timeout):
     if not found and status != 'blocked':
         sys.stdout.write(f'{role} settled without a response; polling for the file\n')
         sys.stdout.flush()
-        reply = f'{store}/reports/{seq}-{slug}.md' if role == 'sidekick' else f'{store}/advice/{seq}-{slug}.md'
+        reply = (
+            f'{store}/reports/{seq}-{slug}.md'
+            if role == 'sidekick'
+            else f'{store}/advice/{seq}-{slug}.md'
+        )
         if not os.path.isfile(reply):
             await_file(reply, timeout)
         found = plan_answer(store, role, seq, plan)
@@ -176,7 +238,9 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     rc, woke = 0, []
     for role in ('sidekick', 'consultant'):
         if role == round_.deferred:
-            write('sidekick_response: deferred (it is working on a unit); run discuss again once it reports, to send it this plan\n')
+            write(
+                'sidekick_response: deferred (it is working on a unit); run discuss again once it reports, to send it this plan\n'
+            )
             event(store, 'master', 'defer-plan', plan, 'sidekick')
             rc = 4
             continue
@@ -190,12 +254,12 @@ def discuss_with_consultant(ctx, args, one_wake=False):
         write(f'{role}_state: {status}\n')
         if found:
             write(f'{role}_response: {found}\n')
-            write(f"{role}_status: {header_field(found, 'status')}\n")
+            write(f'{role}_status: {header_field(found, "status")}\n')
             if status != 'answered':
                 if one_wake:
-                    woke.append(f"{role}:{header_field(found, 'status')}")
+                    woke.append(f'{role}:{header_field(found, "status")}')
                 else:
-                    wake(ctx, store, plan, f"{role}:{header_field(found, 'status')}")
+                    wake(ctx, store, plan, f'{role}:{header_field(found, "status")}')
         else:
             write(f'{role}_response: missing\n')
             rc = 4
@@ -210,7 +274,9 @@ def new_consult(ctx, args):
     """Consults on a unit are capped at three; a fourth means the design is wrong and belongs in a plan round. A glance, the short diff read at a
     check-in, sits outside that cap, one per unit."""
     if len(args) < 2:
-        raise Die(f'usage: {ctx.prog} new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]')
+        raise Die(
+            f'usage: {ctx.prog} new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]'
+        )
     store, seq = args[0], args[1]
     opts = argv.read(args[2:], argv.Spec(valued=('--kind',), flags=('--force',)))
     kind, force = opts.last('--kind', ''), opts.present('--force')
@@ -218,13 +284,17 @@ def new_consult(ctx, args):
     if kind not in CONSULT_KINDS:
         raise Die('--kind must be design, finding, objection, review, or glance')
     base = glob.escape(store)
-    units = sorted(glob.glob(f'{base}/briefs/{glob.escape(seq)}-*.md')) + sorted(glob.glob(f'{base}/plans/{glob.escape(seq)}-*.md'))
+    units = sorted(glob.glob(f'{base}/briefs/{glob.escape(seq)}-*.md')) + sorted(
+        glob.glob(f'{base}/plans/{glob.escape(seq)}-*.md')
+    )
     if not units:
         raise Die(f'no plan or brief for unit {seq}')
     unit = units[0]
     slug = os.path.basename(unit)[4:-3]
     glances = counted = 0
-    for consult in sorted(glob.glob(f'{base}/consults/{glob.escape(seq)}-{glob.escape(slug)}-c[0-9]*.md')):
+    for consult in sorted(
+        glob.glob(f'{base}/consults/{glob.escape(seq)}-{glob.escape(slug)}-c[0-9]*.md')
+    ):
         if os.path.exists(consult):
             if header_field(consult, 'kind') == 'glance':
                 glances += 1
@@ -232,14 +302,29 @@ def new_consult(ctx, args):
                 counted += 1
     if kind == 'glance':
         if glances and not force:
-            raise Die(f'unit {seq} already had its glance; send a finding consult, or pass --force', 7)
+            raise Die(
+                f'unit {seq} already had its glance; send a finding consult, or pass --force',
+                7,
+            )
     elif counted >= 3 and not force:
-        raise Die(f'unit {seq} already has three consults; take the question to a plan round, or pass --force', 7)
+        raise Die(
+            f'unit {seq} already has three consults; take the question to a plan round, or pass --force',
+            7,
+        )
     os.makedirs(f'{store}/consults', exist_ok=True)
     k = glances + counted + 1
     path = f'{store}/consults/{seq}-{slug}-c{k}.md'
-    text = fill_template(f'{ctx.skill_root}/references/consult-template.md',
-                         {'SEQ': seq, 'SLUG': slug, 'K': str(k), 'STORE': store, 'KIND': kind, 'UNIT': unit})
+    text = fill_template(
+        f'{ctx.skill_root}/references/consult-template.md',
+        {
+            'SEQ': seq,
+            'SLUG': slug,
+            'K': str(k),
+            'STORE': store,
+            'KIND': kind,
+            'UNIT': unit,
+        },
+    )
     if kind == 'glance':
         text = re.sub(r'^timebox: .*', 'timebox: 5', text, flags=re.M)
     write_text(path, text)
@@ -252,8 +337,10 @@ def stamp_send_state(store, path):
     how live the tree it reads is. A file with a placeholder left in it is refused after the write. Returns (the store's cwd, the sidekick's state)."""
     sidekick_state = agent_status(field(store, 'sidekick', 'name'))
     cwd = read(store, 'cwd')
-    state_line = f"sidekick state at send: {sidekick_state} at {git.out(cwd, 'rev-parse', '--short', 'HEAD') or '?'}"
-    text = re.sub(r'^sidekick state at send:.*', lambda _: state_line, read_text(path), flags=re.M)
+    state_line = f'sidekick state at send: {sidekick_state} at {git.out(cwd, "rev-parse", "--short", "HEAD") or "?"}'
+    text = re.sub(
+        r'^sidekick state at send:.*', lambda _: state_line, read_text(path), flags=re.M
+    )
     write_text(path, text)
     if '{{' in text or re.search(r'^kind: .*\|', text, re.M):
         raise Unfilled(f'{path} still has unfilled placeholders')
@@ -265,11 +352,17 @@ def require_consultant_idle(store):
     name = field(store, 'consultant', 'name')
     status = agent_status(name)
     if status == 'absent':
-        raise AgentNotLive(f'{who("consultant", name)} is not live; run: pair.sh spawn {store} --only consultant --consultant <kind>')
+        raise AgentNotLive(
+            f'{who("consultant", name)} is not live; run: pair.sh spawn {store} --only consultant --consultant <kind>'
+        )
     if status == 'blocked':
-        raise AgentBlocked(f'{who("consultant", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60')
+        raise AgentBlocked(
+            f'{who("consultant", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60'
+        )
     if status not in ('idle', 'done'):
-        raise AgentBusy(f'{who("consultant", name)} is {status}; wait for its current advice first')
+        raise AgentBusy(
+            f'{who("consultant", name)} is {status}; wait for its current advice first'
+        )
     return name
 
 
@@ -291,13 +384,25 @@ def consult(ctx, args):
         raise Die(f'not a consult file: {path}')
     named = re.fullmatch(r'(\d{3})-(.+)-c(\d+)\.md', os.path.basename(path))
     if not named:
-        raise Die(f'{path}: the file name must be NNN-<slug>-c<k>.md, as new-consult makes it')
+        raise Die(
+            f'{path}: the file name must be NNN-<slug>-c<k>.md, as new-consult makes it'
+        )
     seq, slug, k = named.groups()
     kind = header_field(path, 'kind')
     cwd, sidekick_state = stamp_send_state(store, path)
     name = require_consultant_idle(store)
     head = git.out(cwd, 'rev-parse', 'HEAD') or ''
-    update(store, lambda doc: doc.update(consult={'file': path, 'at': now(), 'head': head, 'sidekick_state': sidekick_state}))
+    update(
+        store,
+        lambda doc: doc.update(
+            consult={
+                'file': path,
+                'at': now(),
+                'head': head,
+                'sidekick_state': sidekick_state,
+            }
+        ),
+    )
     event(store, 'master', 'send-consult', path, kind)
     sys.stdout.flush()
     r = agent_prompt(name, f'{ctx.skill} CONSULT {path}', wait=True, timeout_ms=timeout)
@@ -315,8 +420,8 @@ def consult(ctx, args):
         await_file(advice, timeout)
     if os.path.isfile(advice):
         print(f'advice: {advice}')
-        print(f"advice_status: {header_field(advice, 'status')}")
-        wake(ctx, store, advice, f"advice:{header_field(advice, 'status')}")
+        print(f'advice_status: {header_field(advice, "status")}')
+        wake(ctx, store, advice, f'advice:{header_field(advice, "status")}')
         if status == 'blocked':
             return 3
         return 0

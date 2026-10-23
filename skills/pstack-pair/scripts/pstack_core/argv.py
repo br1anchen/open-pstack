@@ -4,6 +4,7 @@
 with no value after it (`<flag> needs a value`) and, when the spec refuses unknown tokens, a token no flag explains (`unknown option <token>`). What a
 value means (a whole number, a choice, a comma list), which occurrence wins and what the flags exclude stay with the command that reads them.
 """
+
 import re
 from dataclasses import dataclass, field
 
@@ -26,6 +27,7 @@ class Spec:
     positional a pattern; a token that matches it in full is a positional
     slots      {flag: index}: that flag counts only as the token at that index of `args`, and is an ordinary token anywhere else
     """
+
     valued: tuple = ()
     flags: tuple = ()
     dashdash: bool = False
@@ -58,7 +60,12 @@ class Parsed:
 
     def stripped(self, *flags):
         """The tokens as given, less every occurrence of the named flags and their values."""
-        return [token for name, tokens in self.spans if name not in flags for token in tokens]
+        return [
+            token
+            for name, tokens in self.spans
+            if name not in flags
+            for token in tokens
+        ]
 
     def refuse_leftovers(self):
         if self.leftovers:
@@ -80,14 +87,14 @@ def read(args, spec=None):
                     break
                 raise ArgvError(f'{token} needs a value')
             occurrences.append((token, tokens[i + 1]))
-            spans.append((token, tokens[i:i + 2]))
+            spans.append((token, tokens[i : i + 2]))
             i += 2
             continue
         if recognised and token in spec.flags:
             occurrences.append((token, None))
             spans.append((token, [token]))
         elif spec.dashdash and token == '--':
-            after = tokens[i + 1:]
+            after = tokens[i + 1 :]
             break
         elif spec.positional and re.fullmatch(spec.positional, token):
             positionals.append(token)
@@ -98,4 +105,10 @@ def read(args, spec=None):
         else:
             raise ArgvError(f'unknown option {token}')
         i += 1
-    return Parsed(tuple(occurrences), tuple(positionals), tuple(leftovers), tuple(after), tuple(spans))
+    return Parsed(
+        tuple(occurrences),
+        tuple(positionals),
+        tuple(leftovers),
+        tuple(after),
+        tuple(spans),
+    )

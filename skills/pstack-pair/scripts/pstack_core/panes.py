@@ -12,7 +12,10 @@ from .numbers import env_int
 from .errors import NoPaneId, NotInHerdr, PaneSizeUnreadable, TrustPrompt
 
 
-TRUST_RE = re.compile('trust this folder|project you created or one you trust|do you trust the (files|contents)', re.IGNORECASE)
+TRUST_RE = re.compile(
+    'trust this folder|project you created or one you trust|do you trust the (files|contents)',
+    re.IGNORECASE,
+)
 
 
 DEVNULL, PIPE, MERGED = subprocess.DEVNULL, subprocess.PIPE, subprocess.STDOUT
@@ -21,7 +24,9 @@ DEVNULL, PIPE, MERGED = subprocess.DEVNULL, subprocess.PIPE, subprocess.STDOUT
 def run_herdr(args, stdout=PIPE, stderr=PIPE):
     """The one place herdr is run: its CompletedProcess, with each stream captured (PIPE), dropped (DEVNULL), merged into stdout (MERGED) or
     left on the terminal (None)."""
-    return subprocess.run(['herdr', *args], stdout=stdout, stderr=stderr, check=False, **TEXT)
+    return subprocess.run(
+        ['herdr', *args], stdout=stdout, stderr=stderr, check=False, **TEXT
+    )
 
 
 def require_herdr(what=None):
@@ -45,10 +50,28 @@ def herdr_ok(*args):
 
 def agent_start(name, kind, pane, args, timeout_ms=60000, stdout=DEVNULL, stderr=PIPE):
     """herdr agent start NAME in the pane, running `args` as the agent's command line: the CompletedProcess."""
-    return run_herdr(['agent', 'start', name, '--kind', kind, '--pane', pane, '--timeout', str(timeout_ms), '--', *args], stdout, stderr)
+    return run_herdr(
+        [
+            'agent',
+            'start',
+            name,
+            '--kind',
+            kind,
+            '--pane',
+            pane,
+            '--timeout',
+            str(timeout_ms),
+            '--',
+            *args,
+        ],
+        stdout,
+        stderr,
+    )
 
 
-def agent_prompt(name, text, wait=False, until=None, timeout_ms=None, stdout=PIPE, stderr=PIPE):
+def agent_prompt(
+    name, text, wait=False, until=None, timeout_ms=None, stdout=PIPE, stderr=PIPE
+):
     """herdr agent prompt NAME TEXT, optionally waiting (until a state) up to timeout_ms: the CompletedProcess."""
     if until and not wait:
         raise ValueError('agent_prompt: until needs wait')
@@ -76,8 +99,12 @@ def pick_direction(pane):
         if isinstance(each, dict) and each.get('pane_id') == pane:
             rect = each.get('rect') if isinstance(each.get('rect'), dict) else {}
             width, height = rect.get('width'), rect.get('height')
-            if not all(isinstance(n, int) and not isinstance(n, bool) for n in (width, height)):
-                raise PaneSizeUnreadable(f'pane {pane} has a size that is not a number: {width} x {height}')
+            if not all(
+                isinstance(n, int) and not isinstance(n, bool) for n in (width, height)
+            ):
+                raise PaneSizeUnreadable(
+                    f'pane {pane} has a size that is not a number: {width} x {height}'
+                )
             return 'right' if width >= 2 * height else 'down'
     return 'right'
 
@@ -90,14 +117,36 @@ def new_pane(store, role, anchor, direction, cwd, env=()):
     env_args = [part for kv in env for part in ('--env', kv)]
     if pair.get('placement') == 'tab':
         master = text_at(peek(pair, 'master'), 'pane_id')
-        made = herdr_json('tab', 'create', '--workspace', master.split(':', 1)[0], '--cwd', cwd, '--label', f'{slug}-{role}', '--no-focus', *env_args)
+        made = herdr_json(
+            'tab',
+            'create',
+            '--workspace',
+            master.split(':', 1)[0],
+            '--cwd',
+            cwd,
+            '--label',
+            f'{slug}-{role}',
+            '--no-focus',
+            *env_args,
+        )
         pane = dig(made, 'result', 'root_pane', 'pane_id')
         if not pane or not isinstance(pane, str):
             raise NoPaneId('tab create returned no pane id')
         print(f'tab {slug}-{role} -> {pane}')
         return pane
     direction = direction or pick_direction(anchor)
-    made = herdr_json('pane', 'split', '--pane', anchor, '--direction', direction, '--cwd', cwd, '--no-focus', *env_args)
+    made = herdr_json(
+        'pane',
+        'split',
+        '--pane',
+        anchor,
+        '--direction',
+        direction,
+        '--cwd',
+        cwd,
+        '--no-focus',
+        *env_args,
+    )
     pane = dig(made, 'result', 'pane', 'pane_id')
     if not pane or not isinstance(pane, str):
         raise NoPaneId('pane split returned no pane id')
@@ -116,8 +165,10 @@ def refuse_untrusted(pane, kind, directory, close=False):
     # A pane split for this start holds nothing else; a retry opens its own.
     if close:
         herdr('pane', 'close', pane)
-    raise TrustPrompt(f'{kind} asks whether to trust {directory}, and that decision is yours: open {kind} there once and trust the folder (or pick another '
-                      'kind), then rerun the spawn')
+    raise TrustPrompt(
+        f'{kind} asks whether to trust {directory}, and that decision is yours: open {kind} there once and trust the folder (or pick another '
+        'kind), then rerun the spawn'
+    )
 
 
 def await_file(path, timeout_ms):
@@ -130,8 +181,10 @@ def await_file(path, timeout_ms):
     return os.path.isfile(path)
 
 
-BUSY = re.compile(r'esc (twice )?to interrupt|guide devin while it works|send queued messages now|↵ send now|ctrl\+enter to send now',
-                  re.IGNORECASE)
+BUSY = re.compile(
+    r'esc (twice )?to interrupt|guide devin while it works|send queued messages now|↵ send now|ctrl\+enter to send now',
+    re.IGNORECASE,
+)
 
 
 def herdr(*args):
@@ -142,7 +195,11 @@ def herdr(*args):
 
 def pane_text(name):
     """The pane's visible screen as one line."""
-    return re.sub(r'[\n\t ]+', ' ', herdr('agent', 'read', name, '--source', 'visible', '--lines', '40')[1])
+    return re.sub(
+        r'[\n\t ]+',
+        ' ',
+        herdr('agent', 'read', name, '--source', 'visible', '--lines', '40')[1],
+    )
 
 
 def pane_busy(name):

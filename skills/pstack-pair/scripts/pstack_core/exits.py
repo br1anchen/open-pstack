@@ -1,5 +1,6 @@
 """Ending an agent: the command that makes each kind exit, and the cleanup of a Prime role's daemon session and pane (stop_prime_role).
 The deadlines are 15 s and 1 s; PAIR_EXIT_DEADLINE_S and PAIR_EXIT_POLL_S let a test shorten them."""
+
 import re
 import sys
 import time
@@ -28,7 +29,10 @@ def exit_poll():
 TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
 
 # Claude's dialog when background work is running at exit, by the text it shows and the keys that stop the tasks and exit.
-EXIT_DIALOGS = (('exit and stop tasks', ('enter',)), ('move to background and exit', ('1', 'enter')))
+EXIT_DIALOGS = (
+    ('exit and stop tasks', ('enter',)),
+    ('move to background and exit', ('1', 'enter')),
+)
 
 
 def answer_exit_dialog(name):
@@ -66,13 +70,18 @@ def shell_owns_foreground(pane):
         return False
     process = dig(parse(info), 'result', 'process_info')
     shell = process.get('shell_pid') if isinstance(process, dict) else None
-    return isinstance(shell, (int, float)) and not isinstance(shell, bool) and process.get('foreground_process_group_id') == shell
+    return (
+        isinstance(shell, (int, float))
+        and not isinstance(shell, bool)
+        and process.get('foreground_process_group_id') == shell
+    )
 
 
 def stop_prime_role(store, role):
     """End a Prime role's daemon session and wait for its client to leave the pane: True when the session is stopped and recorded, False (the
     reason on stderr) when the role cannot be cleaned up and its pane must stay for inspection."""
     from .store import field
+
     name = field(store, role, 'name')
     status = agent_status(name)
     if status != 'absent' and not record_prime_session(store, role):
@@ -81,7 +90,9 @@ def stop_prime_role(store, role):
     if active is None:
         return False
     if status != 'absent' and not active:
-        sys.stderr.write(f'no live daemon session matches {name} in its recorded socket; inspect the client before cleanup\n')
+        sys.stderr.write(
+            f'no live daemon session matches {name} in its recorded socket; inspect the client before cleanup\n'
+        )
         return False
     # Detach while the client is still an active Herdr target. A blocked client cannot take /quit through agent.prompt; Ctrl+D exits its
     # empty editor. Stopping the worker alone leaves the TUI displaying a session-closed error.
@@ -93,10 +104,17 @@ def stop_prime_role(store, role):
         if prime_command(store, role, 'stop', active, '--json')[0] != 0:
             return False
         failed, sessions = prime_sessions(store, role)
-        if failed or not all(each is None or isinstance(each, dict) for each in sessions):
+        if failed or not all(
+            each is None or isinstance(each, dict) for each in sessions
+        ):
             return False
-        if any(each is not None and each.get("activeSessionId") == active for each in sessions):
-            sys.stderr.write(f'Prime session {active} is still active; its pane and scratch stay\n')
+        if any(
+            each is not None and each.get('activeSessionId') == active
+            for each in sessions
+        ):
+            sys.stderr.write(
+                f'Prime session {active} is still active; its pane and scratch stay\n'
+            )
             return False
     # The reporter releases on stop. Wait for the actual shell as well: killing a worker does not by itself prove the TUI has exited or
     # released its PTY.
@@ -109,11 +127,14 @@ def stop_prime_role(store, role):
         if owns:
             break
         if int(time.time()) >= deadline:
-            sys.stderr.write(f'Prime client has not exited in {pane}; inspect it before cleanup\n')
+            sys.stderr.write(
+                f'Prime client has not exited in {pane}; inspect it before cleanup\n'
+            )
             return False
         exit_poll()
 
     def mutate(doc):
         member(doc, role)['session_stopped'] = True
+
     update(store, mutate)
     return True

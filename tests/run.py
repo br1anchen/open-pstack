@@ -31,7 +31,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 here = Path(__file__).resolve().parent
-SUITES = ['test_pstack_core', 'test_pstack_kitchen', 'test_pstack_pair', 'test_pstack_sync', 'test_pstack_upstream', 'test_run']
+SUITES = [
+    'test_pstack_core',
+    'test_pstack_kitchen',
+    'test_pstack_pair',
+    'test_pstack_sync',
+    'test_pstack_upstream',
+    'test_run',
+]
 
 
 # The jq every test process finds first on PATH. TRIPWIRE_LOG, when a test sets it, collects the arguments of each call.
@@ -74,9 +81,16 @@ def as_text(data):
 
 def run_one(test_id, timeout=0, *, cwd=here, env=None):
     start = time.monotonic()
-    p = subprocess.Popen([sys.executable, '-m', 'unittest', '-q', test_id], cwd=cwd, env=env,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    p = subprocess.Popen(
+        [sys.executable, '-m', 'unittest', '-q', test_id],
+        cwd=cwd,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
     try:
         out, _ = p.communicate(timeout=timeout or None)
         return test_id, p.returncode, time.monotonic() - start, out
@@ -90,8 +104,12 @@ def run_one(test_id, timeout=0, *, cwd=here, env=None):
             out, _ = p.communicate(timeout=10)
         except subprocess.TimeoutExpired as e2:
             out = as_text(e2.output) or partial
-        return (test_id, 'timeout', time.monotonic() - start,
-                f'TIMEOUT after {timeout}s\n{as_text(out)}')
+        return (
+            test_id,
+            'timeout',
+            time.monotonic() - start,
+            f'TIMEOUT after {timeout}s\n{as_text(out)}',
+        )
 
 
 def main():
@@ -99,17 +117,25 @@ def main():
     ap.add_argument('suites', nargs='*', default=SUITES)
     ap.add_argument('-j', '--jobs', type=int, default=os.cpu_count() or 4)
     ap.add_argument('-k', '--keyword', default='')
-    ap.add_argument('--timeout', type=int,
-                    default=int(os.environ.get('PSTACK_TEST_TIMEOUT_S', '1200')),
-                    help='seconds a test may run; 0 for no limit')
+    ap.add_argument(
+        '--timeout',
+        type=int,
+        default=int(os.environ.get('PSTACK_TEST_TIMEOUT_S', '1200')),
+        help='seconds a test may run; 0 for no limit',
+    )
     ap.add_argument('--slowest', type=int, default=8)
     args = ap.parse_args()
     ids = [i for i in test_ids(args.suites) if args.keyword in i]
     start = time.monotonic()
     failed, times = [], []
-    with tempfile.TemporaryDirectory(prefix='pstack-tests-jq-') as jq_dir, ThreadPoolExecutor(max_workers=args.jobs) as pool:
+    with (
+        tempfile.TemporaryDirectory(prefix='pstack-tests-jq-') as jq_dir,
+        ThreadPoolExecutor(max_workers=args.jobs) as pool,
+    ):
         env = tripwire_env(jq_dir)
-        for fut in as_completed([pool.submit(run_one, i, args.timeout, env=env) for i in ids]):
+        for fut in as_completed(
+            [pool.submit(run_one, i, args.timeout, env=env) for i in ids]
+        ):
             test_id, code, secs, out = fut.result()
             times.append((secs, test_id))
             if code != 0:  # an int, or 'timeout'
@@ -117,9 +143,11 @@ def main():
                 print(f'FAIL {test_id} ({secs:.1f}s)\n{out}', flush=True)
     wall = time.monotonic() - start
     print('slowest:')
-    for secs, test_id in sorted(times, reverse=True)[:args.slowest]:
+    for secs, test_id in sorted(times, reverse=True)[: args.slowest]:
         print(f'  {secs:6.1f}s  {test_id}')
-    print(f'{len(ids)} tests, {len(failed)} failed, {wall:.0f}s wall with {args.jobs} jobs')
+    print(
+        f'{len(ids)} tests, {len(failed)} failed, {wall:.0f}s wall with {args.jobs} jobs'
+    )
     for test_id in failed:
         print(f'failed: {test_id}')
     return 1 if failed else 0

@@ -10,8 +10,25 @@ import time
 
 from pstack_core.argv import Spec, read
 from pstack_core.checkin import iso_epoch
-from pstack_core.store import read_text, write_text, field, event, header_field, json_type, listing, load, pair_file, text_at
-from pstack_core.errors import DamagedStore, Die, EmptyFeedbackReport, FeedbackLocked, FileFailed
+from pstack_core.store import (
+    read_text,
+    write_text,
+    field,
+    event,
+    header_field,
+    json_type,
+    listing,
+    load,
+    pair_file,
+    text_at,
+)
+from pstack_core.errors import (
+    DamagedStore,
+    Die,
+    EmptyFeedbackReport,
+    FeedbackLocked,
+    FileFailed,
+)
 from pstack_core.panes import agent_prompt, herdr, reply_at, require_herdr
 from pstack_core.replies import file_mtime
 
@@ -27,7 +44,9 @@ STALE_MINUTES = 1
 
 
 def state_home():
-    return os.environ.get('XDG_STATE_HOME') or f'{os.environ.get("HOME", "")}/.local/state'
+    return (
+        os.environ.get('XDG_STATE_HOME') or f'{os.environ.get("HOME", "")}/.local/state'
+    )
 
 
 def fb_root():
@@ -164,7 +183,12 @@ def aligned(rows):
             widths[n] = max(widths.get(n, 0), len(cell))
     out = []
     for row in rows:
-        out.append(''.join(cell.ljust(widths[n] + 2) if n < len(row) - 1 else cell for n, cell in enumerate(row)))
+        out.append(
+            ''.join(
+                cell.ljust(widths[n] + 2) if n < len(row) - 1 else cell
+                for n, cell in enumerate(row)
+            )
+        )
     return out
 
 
@@ -181,14 +205,33 @@ def inbox():
         lines = read_lines(f)
         if lines and lines[-1] == '':
             lines.pop()
-        run = next((m.group(1) for m in (re.match(r'run: ([^ ]*) .*', line) for line in lines) if m), '')
+        run = next(
+            (
+                m.group(1)
+                for m in (re.match(r'run: ([^ ]*) .*', line) for line in lines)
+                if m
+            ),
+            '',
+        )
         repo = (re.match(r'^.*\((.*)\)$', lines[0]) or [None, ''])[1] if lines else ''
         build = header_field(f, 'build').split(' ')[0]
         gaps = sum(1 for line in lines if line.startswith('### '))
         if gaps == 0:
             # a report with no gap ends the listing with status 1
             raise EmptyFeedbackReport()
-        rows.append((secs, [header_field(f, 'id'), run, repo, build, str(gaps), age_text((now - secs) // 60)]))
+        rows.append(
+            (
+                secs,
+                [
+                    header_field(f, 'id'),
+                    run,
+                    repo,
+                    build,
+                    str(gaps),
+                    age_text((now - secs) // 60),
+                ],
+            )
+        )
     if not rows:
         sys.stdout.write('feedback inbox: empty\n')
         return 0
@@ -224,7 +267,9 @@ def close(args):
     rm_f(inbox_file)
     sys.stdout.write(f'already closed: {id_}\n')
     lines = read_lines(done_file)
-    start = next((n for n, line in enumerate(lines) if line.startswith('## Closed')), None)
+    start = next(
+        (n for n, line in enumerate(lines) if line.startswith('## Closed')), None
+    )
     if start is not None:
         text = '\n'.join(lines[start:])
         sys.stdout.write(text if text.endswith('\n') else text + '\n')
@@ -238,16 +283,28 @@ def maintainer_problem(fb, record=NOT_READ):
     if not os.path.isfile(file):
         return 'no maintainer is registered'
     record = maintainer_record(file) if record is NOT_READ else record
-    name, pane, session = registered(record, 'name'), registered(record, 'pane'), registered(record, 'session')
+    name, pane, session = (
+        registered(record, 'name'),
+        registered(record, 'pane'),
+        registered(record, 'session'),
+    )
     code, info = herdr('agent', 'get', name)
     if code != 0:
         return f'agent {name} is gone'
     info = info.rstrip('\n')
     if (reply_at(info, 'result', 'agent', 'pane_id') or '') != pane:
         return f'agent {name} moved off pane {pane}'
-    if session and (reply_at(info, 'result', 'agent', 'agent_session', 'value') or '') != session:
+    if (
+        session
+        and (reply_at(info, 'result', 'agent', 'agent_session', 'value') or '')
+        != session
+    ):
         return f'agent {name} is a different session than the one registered'
-    return f'agent {name} is blocked on a dialog' if reply_at(info, 'result', 'agent', 'agent_status') == 'blocked' else ''
+    return (
+        f'agent {name} is blocked on a dialog'
+        if reply_at(info, 'result', 'agent', 'agent_status') == 'blocked'
+        else ''
+    )
 
 
 def gap_found(path):
@@ -266,15 +323,34 @@ def gap_found(path):
 
 def deliver_report(fb, path):
     """Tells the registered maintainer a report was filed, or, when none can be told, shows the human a notification; says which on stdout."""
-    record = maintainer_record(f'{fb}/maintainer.json') if os.path.isfile(f'{fb}/maintainer.json') else None
+    record = (
+        maintainer_record(f'{fb}/maintainer.json')
+        if os.path.isfile(f'{fb}/maintainer.json')
+        else None
+    )
     problem = maintainer_problem(fb, record)
     if not problem:
-        if agent_prompt(registered(record, 'name'), f'pstack-kitchen FEEDBACK {path}').returncode == 0:
+        if (
+            agent_prompt(
+                registered(record, 'name'), f'pstack-kitchen FEEDBACK {path}'
+            ).returncode
+            == 0
+        ):
             sys.stdout.write(f'delivered: to maintainer {registered(record, "name")}\n')
             return 0
     problem = problem or 'the prompt to the maintainer failed'
-    herdr('notification', 'show', 'pstack-kitchen: feedback filed', '--body', path, '--sound', 'request')
-    sys.stdout.write(f'delivered: notification for the human ({problem}); read it with: cat {path}\n')
+    herdr(
+        'notification',
+        'show',
+        'pstack-kitchen: feedback filed',
+        '--body',
+        path,
+        '--sound',
+        'request',
+    )
+    sys.stdout.write(
+        f'delivered: notification for the human ({problem}); read it with: cat {path}\n'
+    )
     return 0
 
 
@@ -287,7 +363,9 @@ def file_report(ctx, args):
         raise Die(f'no such file: {src}')
     skills_dir = os.path.dirname(ctx.skill_root)
     if not gap_found(src):
-        raise Die(f'{src} has no gap: a `### <n>. <title>` heading under `## Gaps` (see {ctx.skill_root}/references/feedback-template.md)')
+        raise Die(
+            f'{src} has no gap: a `### <n>. <title>` heading under `## Gaps` (see {ctx.skill_root}/references/feedback-template.md)'
+        )
     fb = fb_root()
     os.makedirs(f'{fb}/inbox', exist_ok=True)
     os.makedirs(f'{fb}/done', exist_ok=True)
@@ -304,7 +382,9 @@ def file_report(ctx, args):
     tmp = scratch_file(fb, '.filing-')
     fb_lock(fb)
     k, name = 1, stem
-    while os.path.exists(f'{fb}/inbox/{name}.md') or os.path.exists(f'{fb}/done/{name}.md'):
+    while os.path.exists(f'{fb}/inbox/{name}.md') or os.path.exists(
+        f'{fb}/done/{name}.md'
+    ):
         k += 1
         name = f'{stem}-{k}'
     out = open(tmp, 'w', encoding='utf-8', newline='')
@@ -313,13 +393,20 @@ def file_report(ctx, args):
         out.write(text)
         out.flush()
 
-    master_name, master_pane = field(store, 'master', 'name', default='unknown'), field(store, 'master', 'pane_id', default='unknown')
+    master_name, master_pane = (
+        field(store, 'master', 'name', default='unknown'),
+        field(store, 'master', 'pane_id', default='unknown'),
+    )
     put(f'# Kitchen feedback: {run} ({repo})\nid: {name}\n')
-    put(f'run: {run}   store: {store}   repo: {git_root}   master: {master_name} ({master_pane})\n')
+    put(
+        f'run: {run}   store: {store}   repo: {git_root}   master: {master_name} ({master_pane})\n'
+    )
     put(f'build: {build_rev(first) if first else "unknown"} ({first or "unknown"})\n')
     if first and first != skills_dir:
         put(f'filed with: {build_rev(skills_dir)} ({skills_dir})\n')
-    put(f'retro: {retro}\nfiled: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\nstatus: open\n\n')
+    put(
+        f'retro: {retro}\nfiled: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\nstatus: open\n\n'
+    )
     out.write(read_text(src))
     out.close()
     move_into_place(tmp, f'{fb}/inbox/{name}.md')
@@ -361,12 +448,18 @@ def maintainer(ctx, args):
         agent = reply_at(info, 'result', 'agent')
         agent = agent if isinstance(agent, dict) else {}
         session = agent.get('agent_session')
-        record = {'name': agent.get('name'), 'pane': agent.get('pane_id'), 'session': session.get('value') if isinstance(session, dict) else None,
-                  'since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
+        record = {
+            'name': agent.get('name'),
+            'pane': agent.get('pane_id'),
+            'session': session.get('value') if isinstance(session, dict) else None,
+            'since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        }
         write_text(tmp, json.dumps(record, indent=2, ensure_ascii=False) + '\n')
         if not record['name']:
             rm_f(tmp)
-            raise Die(f'herdr reports no name for the agent on pane {pane}; name it first')
+            raise Die(
+                f'herdr reports no name for the agent on pane {pane}; name it first'
+            )
         move_into_place(tmp, file)
         sys.stdout.write(f'maintainer: {record["name"]} on {record["pane"] or ""}\n')
         return 0
@@ -380,6 +473,8 @@ def maintainer(ctx, args):
             return 0
         record = maintainer_record(file)
         problem = maintainer_problem(fb, record)
-        sys.stdout.write(f'maintainer: {registered(record, "name")} on {registered(record, "pane")} since {registered(record, "since")}: {problem or "live"}\n')
+        sys.stdout.write(
+            f'maintainer: {registered(record, "name")} on {registered(record, "pane")} since {registered(record, "since")}: {problem or "live"}\n'
+        )
         return 0
     raise Die(USAGE_MAINTAINER)

@@ -8,13 +8,46 @@ import re
 import sys
 import time
 
-from pstack_core.agents import has_mcp_arg, has_permission_arg, has_trust_arg, mcp_args, permission_args, trust_args
-from pstack_core.errors import BadVerifierEntry, DamagedStore, PrimeFailed, ToolFailed, UnknownVerifierKind, VerifierStartFailed
-from pstack_core.panes import TRUST_RE, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, reply_at
+from pstack_core.agents import (
+    has_mcp_arg,
+    has_permission_arg,
+    has_trust_arg,
+    mcp_args,
+    permission_args,
+    trust_args,
+)
+from pstack_core.errors import (
+    BadVerifierEntry,
+    DamagedStore,
+    PrimeFailed,
+    ToolFailed,
+    UnknownVerifierKind,
+    VerifierStartFailed,
+)
+from pstack_core.panes import (
+    TRUST_RE,
+    agent_kind,
+    agent_prompt,
+    agent_start,
+    agent_status,
+    herdr,
+    new_pane,
+    reply_at,
+)
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
-from pstack_core.store import event, field, json_type, load, names, peek, read, text_at, update
+from pstack_core.store import (
+    event,
+    field,
+    json_type,
+    load,
+    names,
+    peek,
+    read,
+    text_at,
+    update,
+)
 
 from . import kpy
 from . import verify_state as vs
@@ -25,8 +58,26 @@ def shell_word(word):
     if word == '':
         return "''"
     if any(ord(c) < 32 or ord(c) == 127 for c in word):
-        names = {'\n': '\\n', '\t': '\\t', '\r': '\\r', '\x1b': '\\E', '\x07': '\\a', '\x08': '\\b', '\x0c': '\\f', '\x0b': '\\v', "'": "\\'", '\\': '\\\\'}
-        return "$'" + ''.join(names.get(c, f'\\{ord(c):03o}' if ord(c) < 32 or ord(c) == 127 else c) for c in word) + "'"
+        names = {
+            '\n': '\\n',
+            '\t': '\\t',
+            '\r': '\\r',
+            '\x1b': '\\E',
+            '\x07': '\\a',
+            '\x08': '\\b',
+            '\x0c': '\\f',
+            '\x0b': '\\v',
+            "'": "\\'",
+            '\\': '\\\\',
+        }
+        return (
+            "$'"
+            + ''.join(
+                names.get(c, f'\\{ord(c):03o}' if ord(c) < 32 or ord(c) == 127 else c)
+                for c in word
+            )
+            + "'"
+        )
     escaped = re.sub(r'([ !"$&\'()*,;<>?\[\\\]^`{|}])', r'\\\1', word)
     if escaped[0] in '#~':
         escaped = '\\' + escaped
@@ -50,11 +101,24 @@ def verifier_entry(store, cls):
         if fallback is None:
             fallback = {}
         elif not isinstance(fallback, dict):
-            raise DamagedStore(f'sidekick.fallback is {json_type(fallback)}, not an object')
-        return {'kind': sidekick.get('kind'), 'args': names(sidekick, 'start_args'), 'source': 'sidekick',
-                'fallback': {'kind': fallback['kind'], 'args': names(fallback, 'args')} if fallback.get('kind') else None}
+            raise DamagedStore(
+                f'sidekick.fallback is {json_type(fallback)}, not an object'
+            )
+        return {
+            'kind': sidekick.get('kind'),
+            'args': names(sidekick, 'start_args'),
+            'source': 'sidekick',
+            'fallback': {'kind': fallback['kind'], 'args': names(fallback, 'args')}
+            if fallback.get('kind')
+            else None,
+        }
     if kind == 'master':
-        return {**entry, 'kind': agent_kind(field(store, 'master', 'pane_id')), 'args': [], 'source': 'master'}
+        return {
+            **entry,
+            'kind': agent_kind(field(store, 'master', 'pane_id')),
+            'args': [],
+            'source': 'master',
+        }
     return entry
 
 
@@ -74,12 +138,34 @@ def verifier_identity(kind, args):
         if skip:
             skip = False
             continue
-        if a in ('--permission-mode', '--respect-workspace-trust', '-a', '-s', '--ask-for-approval', '--sandbox', '--mcp-config'):
+        if a in (
+            '--permission-mode',
+            '--respect-workspace-trust',
+            '-a',
+            '-s',
+            '--ask-for-approval',
+            '--sandbox',
+            '--mcp-config',
+        ):
             skip = True
             continue
-        if (a.startswith(('--permission-mode=', '--respect-workspace-trust=', '--ask-for-approval=', '--sandbox=', '--mcp-config='))
-                or a in ('--approve', '--no-approve', '-na', '--strict-mcp-config', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions',
-                         '--dangerously-bypass-approvals-and-sandbox')):
+        if a.startswith(
+            (
+                '--permission-mode=',
+                '--respect-workspace-trust=',
+                '--ask-for-approval=',
+                '--sandbox=',
+                '--mcp-config=',
+            )
+        ) or a in (
+            '--approve',
+            '--no-approve',
+            '-na',
+            '--strict-mcp-config',
+            '--dangerously-skip-permissions',
+            '--allow-dangerously-skip-permissions',
+            '--dangerously-bypass-approvals-and-sandbox',
+        ):
             continue
         shown += ' ' + shell_word(a)
     return f'{kind}{shown}' if shown else f'{kind} (model unspecified)'
@@ -89,7 +175,11 @@ def verifier_args(kind, entry, directory):
     """A verifier starts with its entry's arguments, then its kind's permission default, trust flag and MCP opt-out when they are missing; entry is the
     entry as an object (or None for a kind the class does not name), directory the repo the scratch is checked out from, whose MCP servers the
     opt-out names."""
-    args = list(entry['args']) if isinstance(entry, dict) and isinstance(entry.get('args'), list) else []
+    args = (
+        list(entry['args'])
+        if isinstance(entry, dict) and isinstance(entry.get('args'), list)
+        else []
+    )
     lines = []
     if not has_permission_arg(args):
         permission = 'bypassPermissions' if kind == 'devin' else mode_of_this_shell()
@@ -113,7 +203,11 @@ def record_verifier_session(store, name):
     held = held if isinstance(held, dict) else {}
     session = text_at(held, 'value') if held.get('kind') == 'path' else ''
     if not session:
-        ident = text_at(held, 'value') if agent.get('agent') == 'claude' and held.get('kind') == 'id' else ''
+        ident = (
+            text_at(held, 'value')
+            if agent.get('agent') == 'claude' and held.get('kind') == 'id'
+            else ''
+        )
         cwd = text_at(agent, 'cwd')
         if not cwd:
             scratch = f'{store}/scratch/{read(store, "verifying.scratch")}'
@@ -130,7 +224,11 @@ def choose_verifier(store, root, cls, o):
     if o.retry_entry:
         retried = parse_entry(o.retry_entry)
         kind = retried.get('kind') if isinstance(retried, dict) else ''
-        picked = {'kind': retried.get('kind'), 'args': retried.get('args')} if isinstance(retried, dict) else None
+        picked = (
+            {'kind': retried.get('kind'), 'args': retried.get('args')}
+            if isinstance(retried, dict)
+            else None
+        )
     elif o.kind_override:
         kind = o.kind_override
         picked = pick_entry(entry, kind)
@@ -145,7 +243,10 @@ def choose_verifier(store, root, cls, o):
 
 def pick_entry(entry, kind):
     """The first of the entry and its fallback that names the kind, as {kind, args}; None when neither does."""
-    for candidate in (entry, entry.get('fallback') if isinstance(entry, dict) else None):
+    for candidate in (
+        entry,
+        entry.get('fallback') if isinstance(entry, dict) else None,
+    ):
         if isinstance(candidate, dict) and candidate.get('kind') == kind:
             return {'kind': candidate.get('kind'), 'args': candidate.get('args')}
     return None
@@ -160,14 +261,30 @@ def launch_verifier(v):
     if not (anchor and herdr('pane', 'get', anchor)[0] == 0):
         anchor = field(store, 'master', 'pane_id')
     if read(store, 'placement') == 'tab':
-        field(store, 'master', 'pane_id')  # a master that is no object ends verify before any herdr call
+        field(
+            store, 'master', 'pane_id'
+        )  # a master that is no object ends verify before any herdr call
     with contextlib.redirect_stdout(io.StringIO()):
-        pane = new_pane(store, 'verifier', anchor, '', v.scratch, env=('PSTACK_KITCHEN_ROLE=verifier', f'PSTACK_KITCHEN_RUN={read(store, "slug")}'))
+        pane = new_pane(
+            store,
+            'verifier',
+            anchor,
+            '',
+            v.scratch,
+            env=(
+                'PSTACK_KITCHEN_ROLE=verifier',
+                f'PSTACK_KITCHEN_RUN={read(store, "slug")}',
+            ),
+        )
     sys.stdout.flush()
     started = agent_start(v.name, v.kind, pane, v.args, stderr=None).returncode == 0
     if not started and v.kind != 'prime-agent':
         why = f'verifier start failed in {pane}'
-        screen = re.sub(r'[\n\t ]+', ' ', herdr('pane', 'read', pane, '--source', 'visible', '--lines', '40')[1])
+        screen = re.sub(
+            r'[\n\t ]+',
+            ' ',
+            herdr('pane', 'read', pane, '--source', 'visible', '--lines', '40')[1],
+        )
         if TRUST_RE.search(screen):
             why = f'{v.kind} asks whether to trust {v.scratch}, and that decision is yours: open {v.kind} in the repo once and trust it, or verify with another kind'
             herdr('pane', 'send-keys', pane, 'esc')
@@ -192,10 +309,30 @@ def record_start(v, pane, started):
         vs.set_member(doc, 'verifier', 'kind', v.kind)
         if v.kind == 'prime-agent':
             verifier = doc['verifier']
-            verifier['start_args'], verifier['session'], verifier['session_stopped'], verifier['closed'], verifier['launch_cwd'] = list(v.args), None, False, False, v.scratch
-        doc['verifying'] = {'verdict': v.verdict, 'packet': v.packet, 'brief': v.brief, 'scratch': v.scratch_id, 'units': v.units_label, 'risk': v.risk,
-                            'sample': sample, 'unit': unit_label, 'started': started_at, 'deadline': started_at + v.timeout_m * 60, 'class': v.cls,
-                            'entry': v.entry, 'retried': v.retried, 'argv': v.argv, 'delivered': False}
+            (
+                verifier['start_args'],
+                verifier['session'],
+                verifier['session_stopped'],
+                verifier['closed'],
+                verifier['launch_cwd'],
+            ) = list(v.args), None, False, False, v.scratch
+        doc['verifying'] = {
+            'verdict': v.verdict,
+            'packet': v.packet,
+            'brief': v.brief,
+            'scratch': v.scratch_id,
+            'units': v.units_label,
+            'risk': v.risk,
+            'sample': sample,
+            'unit': unit_label,
+            'started': started_at,
+            'deadline': started_at + v.timeout_m * 60,
+            'class': v.cls,
+            'entry': v.entry,
+            'retried': v.retried,
+            'argv': v.argv,
+            'delivered': False,
+        }
 
     update(store, mutate)
     vs.set_outcome(v.packet, 'running')
@@ -203,12 +340,18 @@ def record_start(v, pane, started):
         if not started:
             vs.set_outcome(v.packet, 'start-failed')
             record_prime_session(store, 'verifier')
-            raise PrimeFailed(f'Prime verifier start failed in {pane}; its pane and scratch stay for inspection (verify-wait can resume cleanup once its session is reported)')
+            raise PrimeFailed(
+                f'Prime verifier start failed in {pane}; its pane and scratch stay for inspection (verify-wait can resume cleanup once its session is reported)'
+            )
         if not record_prime_session(store, 'verifier'):
-            raise PrimeFailed('Prime verifier did not report its session; its pane and scratch stay for inspection')
+            raise PrimeFailed(
+                'Prime verifier did not report its session; its pane and scratch stay for inspection'
+            )
     event(store, 'master', 'send-verify', v.brief, f'{v.kind}:{v.units_label}')
     record_verifier_session(store, v.name)
-    sys.stdout.write(f'verifier {v.name} ({v.identity}) in {pane} on {v.base[:9]}..{v.head[:9]}\n')
+    sys.stdout.write(
+        f'verifier {v.name} ({v.identity}) in {pane} on {v.base[:9]}..{v.head[:9]}\n'
+    )
 
 
 def deliver_packet(v):
@@ -216,10 +359,21 @@ def deliver_packet(v):
     agent gets one more Enter, which submits the typed text. A startup screen can also swallow the prompt whole: an agent never seen working, with
     nothing typed and no verdict, still idle, gets the packet once more."""
     sys.stdout.flush()
-    took = agent_prompt(v.name, vs.verify_prompt(v.ctx, v.packet), wait=True, until='working', timeout_ms=30000).returncode == 0
+    took = (
+        agent_prompt(
+            v.name,
+            vs.verify_prompt(v.ctx, v.packet),
+            wait=True,
+            until='working',
+            timeout_ms=30000,
+        ).returncode
+        == 0
+    )
     submitted = submit_typed(v.name, os.path.basename(v.packet))
     if not took and submitted == 0 and not os.path.isfile(v.verdict):
         if agent_status(v.name) in ('idle', 'done'):
-            vs.redeliver_packet(v.ctx, v.store, 'the verifier sat idle without the packet')
+            vs.redeliver_packet(
+                v.ctx, v.store, 'the verifier sat idle without the packet'
+            )
     update(v.store, lambda doc: vs.set_member(doc, 'verifying', 'delivered', True))
     record_verifier_session(v.store, v.name)

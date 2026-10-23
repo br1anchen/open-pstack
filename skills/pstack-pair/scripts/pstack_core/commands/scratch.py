@@ -18,7 +18,9 @@ def parent_dir(path):
 
 def run_quiet(*argv):
     """A command with stdout and stderr dropped: its exit code."""
-    return subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode
+    return subprocess.run(
+        argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+    ).returncode
 
 
 def remove_tree(path):
@@ -33,12 +35,16 @@ def locate(store, ident):
     The store must exist, the id must look like NNN-<slug> and the store's cwd must be a git root."""
     pair_file(store)
     if not re.fullmatch(r'[0-9]{3}-[a-z0-9_-]+', ident):
-        raise BadScratch('scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review')
+        raise BadScratch(
+            'scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review'
+        )
     cwd = text_at(load(store), 'git_root')
     if not cwd:
         raise BadScratch("the store's cwd is not inside a git repository")
     link = f'{store}/scratch/{ident}'
-    found = git.run(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir', stderr=git.PIPE)
+    found = git.run(
+        cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir', stderr=git.PIPE
+    )
     sys.stderr.write(found.stderr)
     common = found.stdout.rstrip('\n')
     path = f'{common}/pstack-scratch/{basename(parent_dir(store))}-{basename(store)}/{ident}'
@@ -63,7 +69,12 @@ def remove_scratch(ctx, store, ident):
         os.rmdir(parent_dir(path))
     except OSError:
         pass
-    update(store, lambda doc: doc.update(scratch=[x for x in names(doc, 'scratch') if x != ident]))
+    update(
+        store,
+        lambda doc: doc.update(
+            scratch=[x for x in names(doc, 'scratch') if x != ident]
+        ),
+    )
     return path
 
 
@@ -72,10 +83,26 @@ def copy_live_changes(cwd, path):
     A diff that does not apply is said on stderr and leaves the worktree at HEAD."""
     diff = git.run(cwd, 'diff', 'HEAD', '--binary', binary=True).stdout
     if diff:
-        if git.run(path, 'apply', '--index', '-', stdin=diff, stdout=None, quiet=True, binary=True).returncode != 0:
-            sys.stderr.write('live diff did not apply cleanly; scratch is at HEAD only\n')
+        if (
+            git.run(
+                path,
+                'apply',
+                '--index',
+                '-',
+                stdin=diff,
+                stdout=None,
+                quiet=True,
+                binary=True,
+            ).returncode
+            != 0
+        ):
+            sys.stderr.write(
+                'live diff did not apply cleanly; scratch is at HEAD only\n'
+            )
             git.ok(path, 'checkout', '--', '.')
-    untracked = git.run(cwd, 'ls-files', '--others', '--exclude-standard', '-z', binary=True).stdout
+    untracked = git.run(
+        cwd, 'ls-files', '--others', '--exclude-standard', '-z', binary=True
+    ).stdout
     for raw in untracked.split(b'\0'):
         if raw:
             f = os.fsdecode(raw)
@@ -97,19 +124,50 @@ def make_scratch(ctx, store, ident, *, at=''):
     if os.path.islink(link) or os.path.exists(link):
         os.unlink(link)
     os.symlink(path, link)
-    if at and git.run(cwd, 'rev-parse', '--verify', '--quiet', f'{at}^{{commit}}', stdout=git.DEVNULL).returncode != 0:
+    if (
+        at
+        and git.run(
+            cwd,
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            f'{at}^{{commit}}',
+            stdout=git.DEVNULL,
+        ).returncode
+        != 0
+    ):
         raise BadScratch(f'not a commit: {at}')
     jj = os.path.isdir(f'{cwd}/.jj')
     if jj:
-        added = subprocess.run(['jj', '-R', cwd, 'workspace', 'add', '--name', f'scratch-{ident}', *(['-r', at] if at else []), path],
-                               stdout=subprocess.DEVNULL, check=False)
+        added = subprocess.run(
+            [
+                'jj',
+                '-R',
+                cwd,
+                'workspace',
+                'add',
+                '--name',
+                f'scratch-{ident}',
+                *(['-r', at] if at else []),
+                path,
+            ],
+            stdout=subprocess.DEVNULL,
+            check=False,
+        )
         if added.returncode != 0:
             raise ScratchNotMade('jj workspace add failed')
-    elif git.run(cwd, 'worktree', 'add', '--detach', path, at or 'HEAD', stdout=git.DEVNULL).returncode != 0:
+    elif (
+        git.run(
+            cwd, 'worktree', 'add', '--detach', path, at or 'HEAD', stdout=git.DEVNULL
+        ).returncode
+        != 0
+    ):
         raise ScratchNotMade('git worktree add failed')
     if not at and not jj:
         copy_live_changes(cwd, path)
-    update(store, lambda doc: doc.update(scratch=sorted({*names(doc, 'scratch'), ident})))
+    update(
+        store, lambda doc: doc.update(scratch=sorted({*names(doc, 'scratch'), ident}))
+    )
     return path
 
 

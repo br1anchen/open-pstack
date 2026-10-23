@@ -17,6 +17,7 @@ PAUSED_UNIT = re.compile(r'-[sq][0-9]+$')
 @dataclass(frozen=True)
 class Event:
     """One events.tsv row. `time` is None when the time column is not a whole number; `note_id` is a note's id when it is one."""
+
     time: int | None
     actor: str
     kind: str
@@ -35,7 +36,14 @@ def parse_event(row):
     if kind == 'note':
         id_ = detail.split(':')[0]
         note_id = int(id_) if WHOLE_NUMBER.fullmatch(id_) else None
-    return Event(int(time_) if WHOLE_NUMBER.fullmatch(time_) else None, actor, kind, unit, detail, note_id)
+    return Event(
+        int(time_) if WHOLE_NUMBER.fullmatch(time_) else None,
+        actor,
+        kind,
+        unit,
+        detail,
+        note_id,
+    )
 
 
 def parse_events(log):
@@ -65,8 +73,12 @@ class Metrics:
         self.sk_on = self.co_on = False
         self.sk_since = self.sk_unit = self.sk_kind = self.sk_free = None
         self.co_since = self.co_kind = None
-        self.sk_busy = self.sk_idle = self.co_busy = self.plan_sk = self.plan_co = self.consult_t = 0
-        self.sk_gaps = self.pickups = self.taken = self.nsteps = self.nnotes = self.nblock = self.wakes = self.checkins = 0
+        self.sk_busy = self.sk_idle = self.co_busy = self.plan_sk = self.plan_co = (
+            self.consult_t
+        ) = 0
+        self.sk_gaps = self.pickups = self.taken = self.nsteps = self.nnotes = (
+            self.nblock
+        ) = self.wakes = self.checkins = 0
         self.failovers = []
         self.briefs = []
         self.brief_secs, self.stall_secs, self.review_secs = [], [], []
@@ -74,14 +86,26 @@ class Metrics:
         self.review_from = None
         self.queued, self.steps, self.noted, self.verdicts = set(), {}, {}, {}
         self.counters = {
-            'send-brief': self.count_send_brief, 'send-answer': self.count_send_brief, 'queue': self.count_queue,
-            'failover': self.count_failover, 'step': self.count_step, 'note': self.count_note, 'wake': self.count_wake,
+            'send-brief': self.count_send_brief,
+            'send-answer': self.count_send_brief,
+            'queue': self.count_queue,
+            'failover': self.count_failover,
+            'step': self.count_step,
+            'note': self.count_note,
+            'wake': self.count_wake,
             'log': self.count_log,
         }
         self.timed = {
-            'send-brief': self.on_send_brief, 'send-answer': self.on_send_brief, 'send-plan': self.on_send_plan,
-            'send-consult': self.on_send_consult, 'send-steer': self.on_send_steer, 'step': self.on_step,
-            'note': self.on_note, 'report': self.on_report, 'advice': self.on_advice, 'wake': self.on_wake,
+            'send-brief': self.on_send_brief,
+            'send-answer': self.on_send_brief,
+            'send-plan': self.on_send_plan,
+            'send-consult': self.on_send_consult,
+            'send-steer': self.on_send_steer,
+            'step': self.on_step,
+            'note': self.on_note,
+            'report': self.on_report,
+            'advice': self.on_advice,
+            'wake': self.on_wake,
             'log': self.on_log,
         }
 
@@ -235,27 +259,45 @@ class Metrics:
             sk_busy += end - self.sk_since
         wall = end - first
         pct = lambda busy: int(100 * busy / wall) if wall else 0
-        out = [f'wall: {minutes(wall)} from first event to {"now" if self.sk_on or self.co_on else "last"}\n',
-               f'sidekick: busy {minutes(sk_busy)} ({pct(sk_busy)}% of wall), idle {minutes(self.sk_idle)} across {self.sk_gaps} gaps; '
-               f'{len(self.brief_secs)} briefs (median {minutes(median(self.brief_secs))}), '
-               f'{self.plans} plan responses ({minutes(self.plan_sk)})\n']
+        out = [
+            f'wall: {minutes(wall)} from first event to {"now" if self.sk_on or self.co_on else "last"}\n',
+            f'sidekick: busy {minutes(sk_busy)} ({pct(sk_busy)}% of wall), idle {minutes(self.sk_idle)} across {self.sk_gaps} gaps; '
+            f'{len(self.brief_secs)} briefs (median {minutes(median(self.brief_secs))}), '
+            f'{self.plans} plan responses ({minutes(self.plan_sk)})\n',
+        ]
         if self.queued or self.taken:
-            out.append(f'queue: {len(self.queued)} briefs queued, {self.taken} taken by the sidekick; '
-                       f'{self.pickups} started the moment a report landed\n')
+            out.append(
+                f'queue: {len(self.queued)} briefs queued, {self.taken} taken by the sidekick; '
+                f'{self.pickups} started the moment a report landed\n'
+            )
         if self.co_busy or self.consults or self.co_on:
-            out.append(f'consultant: busy {minutes(self.co_busy)} ({pct(self.co_busy)}% of wall); '
-                       f'{self.consults} consults ({minutes(self.consult_t)}), plan advice {minutes(self.plan_co)}\n')
-        out.append(f'master: {self.wakes} wakes, {self.checkins} of them check-ins; '
-                   f'review latency median {minutes(median(self.review_secs))} over {len(self.review_secs)} reviews\n')
+            out.append(
+                f'consultant: busy {minutes(self.co_busy)} ({pct(self.co_busy)}% of wall); '
+                f'{self.consults} consults ({minutes(self.consult_t)}), plan advice {minutes(self.plan_co)}\n'
+            )
+        out.append(
+            f'master: {self.wakes} wakes, {self.checkins} of them check-ins; '
+            f'review latency median {minutes(median(self.review_secs))} over {len(self.review_secs)} reviews\n'
+        )
         if self.failovers:
-            out.append(f'failovers: {len(self.failovers)} ({", ".join(self.failovers)})\n')
+            out.append(
+                f'failovers: {len(self.failovers)} ({", ".join(self.failovers)})\n'
+            )
         if self.nsteps:
-            out.append(f'steps: {self.nsteps} committed, {self.nnotes} notes ({self.nblock} blocking); '
-                       f'step to note median {minutes(median(self.stall_secs))}\n')
-        verdicts = ''.join(f' {name} {self.verdicts[name]}' for name in ('agreed', 'accept', 'revise', 'reject') if name in self.verdicts)
+            out.append(
+                f'steps: {self.nsteps} committed, {self.nnotes} notes ({self.nblock} blocking); '
+                f'step to note median {minutes(median(self.stall_secs))}\n'
+            )
+        verdicts = ''.join(
+            f' {name} {self.verdicts[name]}'
+            for name in ('agreed', 'accept', 'revise', 'reject')
+            if name in self.verdicts
+        )
         out.append(f'verdicts:{verdicts or " none"}\n')
         if self.brief_secs or running:
-            out.append(f'briefs:\n{"".join(self.briefs)}{"  " + running if running else ""}')
+            out.append(
+                f'briefs:\n{"".join(self.briefs)}{"  " + running if running else ""}'
+            )
         return ''.join(out)
 
 

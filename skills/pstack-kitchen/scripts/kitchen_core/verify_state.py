@@ -15,20 +15,36 @@ import re
 import socket
 import sys
 
-from pstack_core.store import read_text, write_text, count, event, header_field, json_type, member, peek, read, read_int, update
+from pstack_core.store import (
+    read_text,
+    write_text,
+    count,
+    event,
+    header_field,
+    json_type,
+    member,
+    peek,
+    read,
+    read_int,
+    update,
+)
 from pstack_core.numbers import env_int, int_or_none
-from pstack_core.errors import DamagedStore, NoVerification, PrimeFailed, ToolFailed, VerificationTaken, translate
+from pstack_core.errors import (
+    DamagedStore,
+    NoVerification,
+    PrimeFailed,
+    ToolFailed,
+    VerificationTaken,
+    translate,
+)
 from pstack_core.commands.scratch import remove_scratch
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.panes import agent_prompt, agent_status, herdr
 from pstack_core.send import submit_typed
 
 
-
 def hostname():
     return os.environ.get('HOSTNAME') or socket.gethostname() or 'localhost'
-
-
 
 
 def names_verdict(doc, verdict):
@@ -39,6 +55,7 @@ def names_verdict(doc, verdict):
 def update_verifying(store, verdict, apply):
     """json_update that applies `apply(verifying)` only while the store still names the verification with verdict. A write that lands after
     another call closed it changes nothing."""
+
     def mutate(doc):
         if names_verdict(doc, verdict):
             apply(doc['verifying'])
@@ -48,6 +65,7 @@ def update_verifying(store, verdict, apply):
 
 def drop_verifying(store, verdict):
     """Clears `.verifying` only while it still names the verification with verdict: another call may have closed it and started the next."""
+
     def mutate(doc):
         if names_verdict(doc, verdict):
             del doc['verifying']
@@ -101,6 +119,7 @@ def alt_token(closing):
 
 def release_close(store, verdict, token):
     """Gives up the claim token on the verification with verdict, when it is still the holder's."""
+
     def apply(verifying):
         closing = verifying.get('closing')
         if isinstance(closing, dict):
@@ -115,7 +134,9 @@ def release_close(store, verdict, token):
 
 def my_claim(store):
     """Whether the claim in the store is this process's (the token names this host and pid)."""
-    return read(store, 'verifying.closing.token').startswith(f'{hostname()}:{os.getpid()}:')
+    return read(store, 'verifying.closing.token').startswith(
+        f'{hostname()}:{os.getpid()}:'
+    )
 
 
 CLOSED_ELSEWHERE = 'verification closed elsewhere\n'
@@ -146,7 +167,9 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     scratch = read(store, 'verifying.scratch')
     if kind == 'prime-agent':
         if not stop_prime_role(store, 'verifier'):
-            raise PrimeFailed('Prime verifier cleanup failed; its pane and scratch stay for inspection')
+            raise PrimeFailed(
+                'Prime verifier cleanup failed; its pane and scratch stay for inspection'
+            )
     else:
         agent_prompt(name, exit_command(kind))
         gone = int(time.time()) + env_int('KITCHEN_VERIFIER_EXIT_S', 15)
@@ -185,7 +208,9 @@ def set_outcome(packet, value):
     if not os.path.isfile(packet):
         return
     text = read_text(packet)
-    text = re.sub(r'(?m)^verifier-outcome:.*', lambda m: f'verifier-outcome: {value}', text)
+    text = re.sub(
+        r'(?m)^verifier-outcome:.*', lambda m: f'verifier-outcome: {value}', text
+    )
     write_text(packet, text)
 
 
@@ -203,7 +228,9 @@ def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind='', say
     event(store, 'master', 'verify-redeliver', brief, kind)
     (say or sys.stdout.write)(f'redelivered: {why}; sent it again\n')
     sys.stdout.flush()
-    agent_prompt(name, verify_prompt(ctx, packet), wait=True, until='working', timeout_ms=30000)
+    agent_prompt(
+        name, verify_prompt(ctx, packet), wait=True, until='working', timeout_ms=30000
+    )
     submit_typed(name, os.path.basename(packet))
 
 
@@ -215,6 +242,7 @@ def audit_due(unit, sample):
 def verdict_problem(verdict):
     """Empty when a verdict is well formed, else what is wrong."""
     from .units import Verdict
+
     return Verdict.parse(verdict).problem
 
 
@@ -233,8 +261,10 @@ def handoff_due(store, unit, say=None):
     n = read_int(store, 'master.units_since_handoff')
     if n % every != 0:
         return
-    (say or sys.stdout.write)(f'master: {n} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, '
-                              f'kitchen.sh rotate-master {store}\n')
+    (say or sys.stdout.write)(
+        f'master: {n} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, '
+        f'kitchen.sh rotate-master {store}\n'
+    )
 
 
 def verify_cancel(ctx, store):
@@ -243,7 +273,9 @@ def verify_cancel(ctx, store):
     if not verdict:
         raise NoVerification('no verification open')
     if os.path.isfile(verdict) and header_field(verdict, 'status'):
-        raise NoVerification(f'the verdict is written ({verdict}); kitchen.sh verify {store} --wait reads it')
+        raise NoVerification(
+            f'the verdict is written ({verdict}); kitchen.sh verify {store} --wait reads it'
+        )
     units = read(store, 'verifying.units')
     brief = read(store, 'verifying.brief')
     packet = read(store, 'verifying.packet')

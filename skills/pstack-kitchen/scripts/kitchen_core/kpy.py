@@ -37,7 +37,10 @@ def __getattr__(name):
 def invocation(store, root=None, config=None, at=None):
     """The Invocation of kitchen.py's queries for a run: the store's repo (or `root`), a `--config` snapshot where the unit has one, and a revision."""
     from .units import repo_root
-    return load().Invocation(str(root) if root is not None else repo_root(store), config, at)
+
+    return load().Invocation(
+        str(root) if root is not None else repo_root(store), config, at
+    )
 
 
 def explain(error):
@@ -53,4 +56,3 @@ def call(query, *args, **kwargs):
     except load().KitchenError as e:
         explain(e)
         raise ToolFailed(e.code) from None
-

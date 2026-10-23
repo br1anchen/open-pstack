@@ -24,7 +24,13 @@ class Step:
         if len(cols) == 1:
             return cls(row, row, None, (), '')
         cols += [''] * (5 - len(cols))
-        return cls(cols[0], cols[1], int_or_none(cols[2]), tuple(i for i in cols[3].split(',') if i), '\t'.join(cols[4:]))
+        return cls(
+            cols[0],
+            cols[1],
+            int_or_none(cols[2]),
+            tuple(i for i in cols[3].split(',') if i),
+            '\t'.join(cols[4:]),
+        )
 
     @property
     def index(self):
@@ -49,12 +55,19 @@ class StepLog:
     @classmethod
     def all(cls, store):
         """The log of every unit that has one, in file-name order."""
-        return [cls(store, os.path.basename(p)[:-4]) for p in sorted(glob.glob(os.path.join(glob.escape(store), 'steps', '*.tsv')))]
+        return [
+            cls(store, os.path.basename(p)[:-4])
+            for p in sorted(
+                glob.glob(os.path.join(glob.escape(store), 'steps', '*.tsv'))
+            )
+        ]
 
     def rows(self):
         """Every recorded step in order; none for a missing file. An unreadable file raises OSError."""
         try:
-            return [Step.parse(line) for line in read_text(self.path).split('\n') if line]
+            return [
+                Step.parse(line) for line in read_text(self.path).split('\n') if line
+            ]
         except FileNotFoundError:
             return []
 
@@ -88,7 +101,13 @@ class StepLog:
 
     def append(self, number, sha, epoch, resolves, summary):
         """Adds the step; its summary is one line of one cell."""
-        step = Step(str(number), sha, epoch, tuple(i for i in resolves.split(',') if i), summary.replace('\t', ' ').replace('\n', ' '))
+        step = Step(
+            str(number),
+            sha,
+            epoch,
+            tuple(i for i in resolves.split(',') if i),
+            summary.replace('\t', ' ').replace('\n', ' '),
+        )
         with open(self.path, 'a', encoding='utf-8') as f:
             f.write(step.row() + '\n')
         return step
@@ -104,7 +123,10 @@ class StepLog:
             cols = line.split('\t')
             if len(cols) > 3 and cols[1] == sha:
                 found = True
-                ids = {*(i for i in cols[3].split(',') if i), *(i for i in resolves.split(',') if i)}
+                ids = {
+                    *(i for i in cols[3].split(',') if i),
+                    *(i for i in resolves.split(',') if i),
+                }
                 cols[3] = ','.join(sorted(ids, key=note_order))
                 lines[n] = '\t'.join(cols)
                 break

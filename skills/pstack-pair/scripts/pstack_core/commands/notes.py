@@ -5,7 +5,27 @@ import sys
 
 from .. import git
 from ..argv import Spec, read
-from ..store import count, dispatched_brief, event, field, fill_template, header_field, load, peek, note_id, text_at, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest
+from ..store import (
+    count,
+    dispatched_brief,
+    event,
+    field,
+    fill_template,
+    header_field,
+    load,
+    peek,
+    note_id,
+    text_at,
+    pair_file,
+    pause_notice,
+    read_text,
+    steer_notice,
+    suffix_number,
+    unit_name,
+    write_text,
+    new_from_template,
+    newest,
+)
 from ..errors import Die, PairError, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL
 from ..prime import prime_steer
@@ -42,8 +62,10 @@ def notes(ctx, args):
     if not open_:
         print('notes: none open; go on with the next step')
         return 0
-    print(f'notes: {len(open_)} open. Fix each Blocking item as a fixup commit before the next step, then record it: '
-          f'pair.sh step {store} <sha> "<summary>" --resolves <n-ids>')
+    print(
+        f'notes: {len(open_)} open. Fix each Blocking item as a fixup commit before the next step, then record it: '
+        f'pair.sh step {store} <sha> "<summary>" --resolves <n-ids>'
+    )
     for f in open_:
         sys.stdout.write(f'\n=== {note_id(f)} ({f})\n')
         for line in blocking_lines(f):
@@ -80,7 +102,11 @@ def note(ctx, args):
     name = unit_name(path)
     unit = re.sub(r'-n[0-9]+$', '', name)
     # judged before the note exists: an open blocking note withholds a done report, and this one would withhold the report it is about
-    reported = delivered_report(ctx, store, unit) if status == 'blocking' and os.path.isfile(f'{store}/pair.json') else None
+    reported = (
+        delivered_report(ctx, store, unit)
+        if status == 'blocking' and os.path.isfile(f'{store}/pair.json')
+        else None
+    )
     os.replace(draft, path)
     k = suffix_number(name, 'n') or name
     lines = followups(path, f'{unit} n{k}')
@@ -88,15 +114,25 @@ def note(ctx, args):
         f.write(''.join(lines))
     event(store, 'master', 'note', unit, f'{k}:{status}')
     try:
-        delivery = deliver_blocking_note(ctx, store, path) if status == 'blocking' and os.path.isfile(f'{store}/pair.json') else ''
+        delivery = (
+            deliver_blocking_note(ctx, store, path)
+            if status == 'blocking' and os.path.isfile(f'{store}/pair.json')
+            else ''
+        )
     except PairError:
         # the note is out; the master must also know it went undelivered
         print(f'published {path} ({status})')
         raise
     print(f'published {path} ({status}){delivery}')
     if reported:
-        route = f' and verify it with --covers {unit[:3]}' if ctx.skill == 'pstack-kitchen' else ''
-        sys.stderr.write(f'{ctx.prog}: note: unit {unit[:3]} already reported {header_field(reported, "status")}; the sidekick will not read this note: write a fix brief{route}\n')
+        route = (
+            f' and verify it with --covers {unit[:3]}'
+            if ctx.skill == 'pstack-kitchen'
+            else ''
+        )
+        sys.stderr.write(
+            f'{ctx.prog}: note: unit {unit[:3]} already reported {header_field(reported, "status")}; the sidekick will not read this note: write a fix brief{route}\n'
+        )
     return 0
 
 
@@ -104,10 +140,17 @@ def delivered_report(ctx, store, unit):
     """The unit's report when the master was already given it, else None: the file is there, ready (the pair's own check), and written since the
     last send when that send was this unit's."""
     report = f'{store}/reports/{unit}.md'
-    if not os.path.isfile(report) or not ctx.variant.report_ready(ctx, store, report).ready:
+    if (
+        not os.path.isfile(report)
+        or not ctx.variant.report_ready(ctx, store, report).ready
+    ):
         return None
     sent = field(store, 'sent', 'file')
-    if sent and re.sub(r'-a[0-9]+$', '', unit_name(sent)) == unit and file_mtime(report) < sent_epoch(store):
+    if (
+        sent
+        and re.sub(r'-a[0-9]+$', '', unit_name(sent)) == unit
+        and file_mtime(report) < sent_epoch(store)
+    ):
         return None
     return report
 
@@ -117,6 +160,7 @@ def deliver_blocking_note(ctx, store, path):
     its next `pair.sh notes` (every step boundary) lists the note; Prime takes it through its daemon; every other kind through a prompt.
     The text to append to the published line, empty when the sidekick is not working."""
     from .steer import park_for_devin
+
     name = field(store, 'sidekick', 'name')
     if agent_status(name) != 'working':
         return ''
@@ -139,16 +183,26 @@ def new_note(ctx, args):
     store, seq = args[0], args[1]
     through = read(args[2:], Spec(valued=('--through',))).last('--through', '')
     pair_file(store)
-    briefs = sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
+    briefs = sorted(
+        glob.glob(
+            os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')
+        )
+    )
     if not briefs:
         raise Die(f'no brief for unit {seq}')
     unit = unit_name(briefs[0])
     log = StepLog(store, unit)
     recorded = len(log.rows())
     if not recorded:
-        if dispatched_brief(store) and unit_name(dispatched_brief(store)) == unit and through in ('', '0'):
+        if (
+            dispatched_brief(store)
+            and unit_name(dispatched_brief(store)) == unit
+            and through in ('', '0')
+        ):
             if os.path.exists(f'{store}/notes/{unit}-n0.md'):
-                raise Die(f'unit {seq} already has a published n0; wait for its first step')
+                raise Die(
+                    f'unit {seq} already has a published n0; wait for its first step'
+                )
             return new_first_note(ctx, store, unit)
         raise Die(f'unit {seq} has no steps recorded')
     done = noted_through(store, unit)
@@ -159,14 +213,21 @@ def new_note(ctx, args):
     if not (re.fullmatch(r'[0-9]+', k) and int(k) <= recorded):
         raise Die(f'unit {seq} has no step {k}')
     if int(k) <= done:
-        raise Die(f'unit {seq} is reviewed through step {k} already; wait for the next steps')
+        raise Die(
+            f'unit {seq} is reviewed through step {k} already; wait for the next steps'
+        )
     base = review_base(store, unit)
     step = log.at(int(k))
     to = step.sha if step else ''
     os.makedirs(f'{store}/notes', exist_ok=True)
     path = f'{store}/notes/{unit}-n{k}.md.draft'
-    write_text(path, fill_template(f'{ctx.skill_root}/references/note-template.md',
-                                   {'UNIT': unit, 'K': k, 'RANGE': f'{base[:9]}..{to[:9]}'}))
+    write_text(
+        path,
+        fill_template(
+            f'{ctx.skill_root}/references/note-template.md',
+            {'UNIT': unit, 'K': k, 'RANGE': f'{base[:9]}..{to[:9]}'},
+        ),
+    )
     print(path)
     return 0
 
@@ -175,11 +236,29 @@ def new_first_note(ctx, store, unit):
     """n0: a note on the dispatched unit before its first step, over the range from the unit's base to the tree's HEAD (through: step 0). A
     published n0 is never overwritten; the notes after it keep their step ranges."""
     pair = load(store)
-    head = git.out(text_at(pair, 'git_root') or text_at(pair, 'cwd'), 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
+    head = (
+        git.out(
+            text_at(pair, 'git_root') or text_at(pair, 'cwd'),
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            'HEAD',
+        )
+        or ''
+    )
     os.makedirs(f'{store}/notes', exist_ok=True)
     path = f'{store}/notes/{unit}-n0.md.draft'
-    write_text(path, fill_template(f'{ctx.skill_root}/references/note-template.md',
-                                   {'UNIT': unit, 'K': '0', 'RANGE': f'{review_base(store, unit)[:9]}..{head[:9]}'}))
+    write_text(
+        path,
+        fill_template(
+            f'{ctx.skill_root}/references/note-template.md',
+            {
+                'UNIT': unit,
+                'K': '0',
+                'RANGE': f'{review_base(store, unit)[:9]}..{head[:9]}',
+            },
+        ),
+    )
     print(path)
     return 0
 
@@ -201,31 +280,73 @@ def new_brief(ctx, args):
 def new_steer(ctx, args):
     """Fresh steers on a unit are capped at two; one that supersedes an objected steer is a discussion round."""
     if len(args) < 2:
-        raise Die(f'usage: {ctx.prog} new-steer <store> <NNN> [--supersedes STEER | --force]')
+        raise Die(
+            f'usage: {ctx.prog} new-steer <store> <NNN> [--supersedes STEER | --force]'
+        )
     store, seq = args[0], args[1]
     opts = read(args[2:], Spec(valued=('--supersedes',), flags=('--force',)))
     force = opts.present('--force')
-    supersedes = os.path.realpath(opts.last('--supersedes')) if opts.present('--supersedes') else 'none'
+    supersedes = (
+        os.path.realpath(opts.last('--supersedes'))
+        if opts.present('--supersedes')
+        else 'none'
+    )
     pair_file(store)
-    briefs = sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
+    briefs = sorted(
+        glob.glob(
+            os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')
+        )
+    )
     if not briefs:
         raise Die(f'no brief for unit {seq}')
     slug = unit_name(briefs[0])[4:]
     # a dangling symlink is no steer: the glob alone lists one
-    existing = [f for f in glob.glob(os.path.join(glob.escape(store), 'steers', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')) if os.path.exists(f)]
+    existing = [
+        f
+        for f in glob.glob(
+            os.path.join(
+                glob.escape(store),
+                'steers',
+                f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md',
+            )
+        )
+        if os.path.exists(f)
+    ]
     k = len(existing) + 1
     fresh = sum(1 for f in existing if header_field(f, 'supersedes') == 'none')
     if supersedes != 'none':
         if not os.path.isfile(supersedes):
             raise Die(f'superseded steer not found: {supersedes}')
-        reports = glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md'))
+        reports = glob.glob(
+            os.path.join(
+                glob.escape(store),
+                'reports',
+                f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md',
+            )
+        )
         if header_field(newest(reports) or '', 'status') != 'object':
-            raise Die(f'no open objection on unit {seq} to answer; send a fresh steer instead')
+            raise Die(
+                f'no open objection on unit {seq} to answer; send a fresh steer instead'
+            )
     elif fresh >= 2 and not force:
-        raise Die(f'unit {seq} already has two fresh steers; stop the unit and re-brief, or pass --force', 7)
+        raise Die(
+            f'unit {seq} already has two fresh steers; stop the unit and re-brief, or pass --force',
+            7,
+        )
     os.makedirs(f'{store}/steers', exist_ok=True)
     path = f'{store}/steers/{seq}-{slug}-s{k}.md'
-    write_text(path, fill_template(f'{ctx.skill_root}/references/steer-template.md',
-                                   {'SEQ': seq, 'SLUG': slug, 'K': str(k), 'STORE': store, 'SUPERSEDES': supersedes}))
+    write_text(
+        path,
+        fill_template(
+            f'{ctx.skill_root}/references/steer-template.md',
+            {
+                'SEQ': seq,
+                'SLUG': slug,
+                'K': str(k),
+                'STORE': store,
+                'SUPERSEDES': supersedes,
+            },
+        ),
+    )
     print(path)
     return 0

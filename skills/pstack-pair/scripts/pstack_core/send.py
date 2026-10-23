@@ -11,15 +11,50 @@ import time
 from dataclasses import dataclass
 
 from . import git
-from .store import TEXT, event, expected_report, load, peek, text_at, update, count, member, names, who
+from .store import (
+    TEXT,
+    event,
+    expected_report,
+    load,
+    peek,
+    text_at,
+    update,
+    count,
+    member,
+    names,
+    who,
+)
 from .numbers import env_float
-from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, FreshSessionRequired, MissingStore, PromptFailed, refuse_as
+from .errors import (
+    AgentBlocked,
+    AgentBusy,
+    AgentNotLive,
+    Die,
+    FreshSessionRequired,
+    MissingStore,
+    PromptFailed,
+    refuse_as,
+)
 from .gates import check_scope, require_not_paused
-from .panes import DEVNULL, agent_kind, agent_prompt, agent_status, error_code, require_herdr
+from .panes import (
+    DEVNULL,
+    agent_kind,
+    agent_prompt,
+    agent_status,
+    error_code,
+    require_herdr,
+)
 from .replies import first3, pending, queued_brief
 from .review import require_filled
 from .argv import read
-from .wait import TIMING, WaitOutcome, end_with_parent, print_outcome, timeout_ms, wait_for
+from .wait import (
+    TIMING,
+    WaitOutcome,
+    end_with_parent,
+    print_outcome,
+    timeout_ms,
+    wait_for,
+)
 
 
 def prune_pending(store):
@@ -29,7 +64,11 @@ def prune_pending(store):
     for brief in pending(store):
         if os.path.isfile(expected_report(store, brief)):
             continue
-        if glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(first3(brief)) + '-*.md')):
+        if glob.glob(
+            os.path.join(
+                glob.escape(store), 'reviews', glob.escape(first3(brief)) + '-*.md'
+            )
+        ):
             continue
         keep.append(brief)
     update(store, lambda doc: doc.__setitem__('pending', keep))
@@ -39,20 +78,35 @@ def record_sent(store, file, kind, now=None):
     """The message the sidekick is answering: its report is the one a wait looks for, even when a newer brief already sits in the queue."""
     stamp = time.time() if now is None else now
     at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))
-    update(store, lambda doc: doc.__setitem__('sent', {'file': file, 'kind': kind, 'at': at, 'epoch': int(stamp)}))
+    update(
+        store,
+        lambda doc: doc.__setitem__(
+            'sent', {'file': file, 'kind': kind, 'at': at, 'epoch': int(stamp)}
+        ),
+    )
 
 
 def require_fresh_session(store):
     sidekick = peek(load(store), 'sidekick')
     kind = text_at(sidekick, 'kind')
-    if sidekick.get('rotation_required') is True or sidekick.get('bootstrap_pending') is True:
-        raise FreshSessionRequired(f'the {kind} sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate '
-                                   f'{store} after a completed task. The queue is preserved.')
+    if (
+        sidekick.get('rotation_required') is True
+        or sidekick.get('bootstrap_pending') is True
+    ):
+        raise FreshSessionRequired(
+            f'the {kind} sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate '
+            f'{store} after a completed task. The queue is preserved.'
+        )
 
 
 def visible_without_blanks(name):
     """The last 12 visible lines of the pane with its newlines, spaces and box bars removed."""
-    r = subprocess.run(['herdr', 'agent', 'read', name, '--source', 'visible', '--lines', '12'], capture_output=True, check=False, **TEXT)
+    r = subprocess.run(
+        ['herdr', 'agent', 'read', name, '--source', 'visible', '--lines', '12'],
+        capture_output=True,
+        check=False,
+        **TEXT,
+    )
     return re.sub('[\n │]', '', r.stdout)
 
 
@@ -69,7 +123,12 @@ def submit_typed(name, marker):
             return submitted
         if kind == 'devin' and agent_status(name) == 'working':
             return submitted
-        subprocess.run(['herdr', 'agent', 'send-keys', name, 'enter'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(
+            ['herdr', 'agent', 'send-keys', name, 'enter'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
         tries += 1
         submitted = tries
     return submitted
@@ -78,14 +137,21 @@ def submit_typed(name, marker):
 def prompt_sidekick(name, text):
     """Sends one message and confirms the sidekick took it. A narrow pane can hide the working state, so a timeout or stall here is not an
     error; the wait that follows looks for the reply file either way."""
-    r = agent_prompt(name, text, wait=True, until='working', timeout_ms=30000, stdout=DEVNULL)
+    r = agent_prompt(
+        name, text, wait=True, until='working', timeout_ms=30000, stdout=DEVNULL
+    )
     if r.returncode != 0:
         err = r.stderr
         code = error_code(err)
         if code not in ('timeout', 'agent_prompt_stalled'):
             sys.stderr.write(err)
             raise PromptFailed(f'herdr prompt failed for {name}')
-    return submit_typed(name, os.path.basename(text.rsplit(' ', 1)[-1].rstrip('/') or text.rsplit(' ', 1)[-1]))
+    return submit_typed(
+        name,
+        os.path.basename(
+            text.rsplit(' ', 1)[-1].rstrip('/') or text.rsplit(' ', 1)[-1]
+        ),
+    )
 
 
 def send_message(ctx, store, file, kind, now=None):
@@ -103,14 +169,23 @@ def send_message(ctx, store, file, kind, now=None):
     status = agent_status(name)
     if status not in ('idle', 'done'):
         if status == 'absent':
-            raise AgentNotLive(f'{who("sidekick", name)} is not live; run: pair.sh spawn {store} --kind <kind>')
+            raise AgentNotLive(
+                f'{who("sidekick", name)} is not live; run: pair.sh spawn {store} --kind <kind>'
+            )
         if status == 'blocked':
-            raise AgentBlocked(f'{who("sidekick", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60')
-        raise AgentBusy(f'{who("sidekick", name)} is {status}; run: pair.sh wait {store}')
+            raise AgentBlocked(
+                f'{who("sidekick", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60'
+            )
+        raise AgentBusy(
+            f'{who("sidekick", name)} is {status}; run: pair.sh wait {store}'
+        )
     # Delivery is not interruptible: a dispatch wrapped in a short timeout was killed after recording a brief and before sending it, and
     # the store waited on a sidekick that never got it. TERM, INT and HUP wait until the message is in; the wait that follows may be cut
     # short safely.
-    held = {number: signal.signal(number, signal.SIG_IGN) for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+    held = {
+        number: signal.signal(number, signal.SIG_IGN)
+        for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+    }
     try:
         if kind == 'BRIEF':
             if queued_brief(store) == file:
@@ -128,7 +203,9 @@ def send_message(ctx, store, file, kind, now=None):
         # TERM and HUP go back to what the process inherited (an ignored one stays ignored), but INT goes to its default even if it was inherited
         # as ignored.
         for number, previous in held.items():
-            signal.signal(number, signal.SIG_DFL if number == signal.SIGINT else previous)
+            signal.signal(
+                number, signal.SIG_DFL if number == signal.SIGINT else previous
+            )
     return name
 
 
@@ -148,6 +225,7 @@ def send_and_wait(ctx, store, file, kind, timeout, send_only, now=None):
 @dataclass(frozen=True)
 class DispatchResult:
     """A dispatched brief: the lines printed once it was sent, how its wait ended (None with send_only) and the status the command ends with."""
+
     sent_lines: tuple[str, ...]
     outcome: WaitOutcome | None
     status: int
@@ -164,14 +242,21 @@ def record_dispatch(store, brief, now=None):
     seen = f'{old}:{int(os.stat(old).st_mtime)}' if os.path.isfile(old) else ''
     pair = load(store)
     cwd = text_at(pair, 'cwd')
-    head = git.run(cwd, 'rev-parse', 'HEAD', quiet=True).stdout.rstrip('\n') if cwd else ''
+    head = (
+        git.run(cwd, 'rev-parse', 'HEAD', quiet=True).stdout.rstrip('\n') if cwd else ''
+    )
     stamp = time.time() if now is None else now
     at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stamp))
     epoch = int(stamp)
 
     def mutate(doc):
         generation = count(peek(doc, 'sidekick'), 'generation')
-        doc['dispatch'] = {'brief': brief, 'at': at, 'head': head, 'generation': generation}
+        doc['dispatch'] = {
+            'brief': brief,
+            'at': at,
+            'head': head,
+            'generation': generation,
+        }
         doc['sent'] = {'file': brief, 'kind': 'BRIEF', 'at': at, 'epoch': epoch}
         if seen:
             doc['sent']['seen'] = seen
@@ -199,25 +284,36 @@ def discuss(ctx, args):
         raise Die(f'plan not found: {plan}')
     require_not_paused(store)
     from .commands.rotate import rotate_if_due
+
     rotate_if_due(ctx, store, 'plan')
     try:
-        return send_and_wait(ctx, store, os.path.realpath(plan), 'PLAN', timeout, send_only)
+        return send_and_wait(
+            ctx, store, os.path.realpath(plan), 'PLAN', timeout, send_only
+        )
     except MissingStore as e:
         raise refuse_as(e, ctx.prog, 2) from None
 
 
 def store_relative(store, path):
     """A brief path as given when it exists, else the same path under the store (briefs/NNN-x.md), else as given."""
-    return f'{store}/{path}' if not os.path.isfile(path) and os.path.isfile(f'{store}/{path}') else path
+    return (
+        f'{store}/{path}'
+        if not os.path.isfile(path) and os.path.isfile(f'{store}/{path}')
+        else path
+    )
 
 
-def dispatch_brief(ctx, store, brief, *, timeout, send_only, owner=None, quiet=False, out=None):
+def dispatch_brief(
+    ctx, store, brief, *, timeout, send_only, owner=None, quiet=False, out=None
+):
     """Send a brief and, unless send_only, wait for its reply (see wait_for for owner, quiet and out)."""
     try:
         name = send_message(ctx, store, brief, 'BRIEF')
         if send_only:
             return DispatchResult((sent_line('BRIEF', brief),), None, 0)
-        outcome = wait_for(ctx, store, timeout=timeout, owner=owner, quiet=quiet, name=name, out=out)
+        outcome = wait_for(
+            ctx, store, timeout=timeout, owner=owner, quiet=quiet, name=name, out=out
+        )
     except MissingStore as e:
         raise refuse_as(e, ctx.prog, 2) from None
     return DispatchResult((), outcome, outcome.status)
@@ -235,7 +331,9 @@ def dispatch_request(ctx, args):
     """The checks a dispatch makes before it sends anything, and what it was asked for."""
     require_herdr()
     if len(args) < 2:
-        raise Die(f'usage: {ctx.prog} dispatch <store> <brief-path> [--timeout MS | --every MIN]')
+        raise Die(
+            f'usage: {ctx.prog} dispatch <store> <brief-path> [--timeout MS | --every MIN]'
+        )
     store, brief = args[0], store_relative(args[0], args[1])
     end_with_parent()
     opts = read(args[2:], TIMING)
@@ -249,14 +347,24 @@ def dispatch_request(ctx, args):
     ctx.variant.require_agreed_plan(ctx, store, brief)
     queued = queued_brief(store)
     if queued and queued != brief:
-        raise Die(f'the queue holds {queued}; dispatch that first, or: pair.sh queue {store} --clear', 5)
+        raise Die(
+            f'the queue holds {queued}; dispatch that first, or: pair.sh queue {store} --clear',
+            5,
+        )
     from .commands.rotate import rotate_if_due
+
     rotate_if_due(ctx, store, 'brief')
     return DispatchRequest(store, brief, timeout, send_only)
 
 
 def dispatch(ctx, args):
     request = dispatch_request(ctx, args)
-    result = dispatch_brief(ctx, request.store, request.brief, timeout=request.timeout, send_only=request.send_only)
+    result = dispatch_brief(
+        ctx,
+        request.store,
+        request.brief,
+        timeout=request.timeout,
+        send_only=request.send_only,
+    )
     sys.stdout.write(''.join(result.sent_lines))
     return result.status if result.outcome is None else print_outcome(result.outcome)

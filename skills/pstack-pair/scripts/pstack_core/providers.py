@@ -1,5 +1,6 @@
 """What a sidekick that stopped without a report may have hit: its model provider's errors, read from the pane,
 the agent's own session log, or herdr."""
+
 import glob
 import os
 import re
@@ -7,15 +8,19 @@ import re
 from .panes import agent_status, dig, herdr, pane_text, parse
 from .store import load, read_text, member, newest, newest_first, peek, text_at, update
 
-PROVIDER_ERROR_RE = ('capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|'
-                     'econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|'
-                     'billing verification failed|billing_error')
+PROVIDER_ERROR_RE = (
+    'capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|'
+    'econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|'
+    'billing verification failed|billing_error'
+)
 
 
 # The window is greedy, so where several matches overlap the one taken is the last, where grep -o took the longest.
 def error_context(text, before, after):
     """Every provider error in text with up to `before` characters ahead of it and `after` behind it on its line, matches that overlap taken as one."""
-    pattern = re.compile(f'.{{0,{before}}}(?:{PROVIDER_ERROR_RE}).{{0,{after}}}', re.IGNORECASE)
+    pattern = re.compile(
+        f'.{{0,{before}}}(?:{PROVIDER_ERROR_RE}).{{0,{after}}}', re.IGNORECASE
+    )
     return [found.group(0) for found in pattern.finditer(text)]
 
 
@@ -58,8 +63,12 @@ def muse_session_error(cwd):
     '' when none does."""
     if not cwd:
         return ''
-    base = os.environ.get('XDG_DATA_HOME') or f'{os.environ.get("HOME", "")}/.local/share'
-    logs = glob.glob(os.path.join(glob.escape(base), 'muse/sessions/*/*/*/*/session.jsonl'))
+    base = (
+        os.environ.get('XDG_DATA_HOME') or f'{os.environ.get("HOME", "")}/.local/share'
+    )
+    logs = glob.glob(
+        os.path.join(glob.escape(base), 'muse/sessions/*/*/*/*/session.jsonl')
+    )
     logs = newest_first(logs)[:20]
     chosen = ''
     for log in logs:
@@ -83,9 +92,15 @@ def record_prime_session(store, role):
         return False
     agent = dig(parse(out), 'result', 'agent')
     session = dig(agent, 'agent_session')
-    if not (isinstance(agent, dict) and isinstance(session, dict) and agent.get('agent') == 'prime-agent'
-            and agent.get('pane_id') == text_at(section, 'pane_id') and session.get('kind') in ('path', 'id')
-            and isinstance(session.get('value'), str) and session['value']):
+    if not (
+        isinstance(agent, dict)
+        and isinstance(session, dict)
+        and agent.get('agent') == 'prime-agent'
+        and agent.get('pane_id') == text_at(section, 'pane_id')
+        and session.get('kind') in ('path', 'id')
+        and isinstance(session.get('value'), str)
+        and session['value']
+    ):
         return False
     chosen = {'kind': session['kind'], 'value': session['value']}
 
@@ -99,7 +114,12 @@ def record_prime_session(store, role):
 def prime_role_error(store, role):
     record_prime_session(store, role)
     session = peek(load(store), role).get('session')
-    if isinstance(session, dict) and session.get('kind') == 'path' and isinstance(session.get('value'), str) and session['value']:
+    if (
+        isinstance(session, dict)
+        and session.get('kind') == 'path'
+        and isinstance(session.get('value'), str)
+        and session['value']
+    ):
         return agent_session_error(session['value'])
     return ''
 
@@ -122,7 +142,11 @@ def provider_hint(store, phase=''):
         logged = muse_session_error(text_at(pair, 'cwd'))
     out = ''
     if agent_status(name) == 'absent':
-        out += f'provider_error: the {kind} sidekick exited on: {logged}\n' if logged else f'provider_error: the {kind} sidekick exited\n'
+        out += (
+            f'provider_error: the {kind} sidekick exited on: {logged}\n'
+            if logged
+            else f'provider_error: the {kind} sidekick exited\n'
+        )
         if fallback:
             out += f'next: pair.sh failover {store} --reason exited\n'
         return out

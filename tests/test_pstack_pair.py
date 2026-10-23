@@ -7,6 +7,7 @@ After an intended change, regenerate with PSTACK_PAIR_UPDATE=1 and review the
 golden diff. The permission mode comes from the agent above the test process,
 so run this from a plain shell or a default-mode agent session.
 """
+
 from pathlib import Path
 import ast
 import os
@@ -27,6 +28,7 @@ tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / 'tests'))
 from test_pstack_core import event_log, watch_jq  # noqa: E402
+
 here = root / 'tests/pstack-pair'
 skills = root / 'skills'
 
@@ -37,7 +39,11 @@ LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
 def inherited_env():
     """The test runner's environment without what a kitchen or pair run exports to its agents
     (PSTACK_KITCHEN_ROLE and the like), so the result does not depend on which role runs the suite."""
-    return {k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT' and not k.startswith(LEAKED_PREFIXES)}
+    return {
+        k: v
+        for k, v in os.environ.items()
+        if k != 'PSTACK_PLACEMENT' and not k.startswith(LEAKED_PREFIXES)
+    }
 
 
 class PairScriptTests(unittest.TestCase):
@@ -46,7 +52,13 @@ class PairScriptTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         env = inherited_env()
         watch_jq(self, env)
-        out = subprocess.run([here / 'scenario.sh', skills, variant], env=env, capture_output=True, text=True, check=True).stdout
+        out = subprocess.run(
+            [here / 'scenario.sh', skills, variant],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
         golden = here / 'golden' / f'{variant}.txt'
         if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
             golden.write_text(out)
@@ -71,30 +83,54 @@ class DevinSessionTests(unittest.TestCase):
         self.fake.mkdir()
         self.repo = self.path / 'repo'
         self.repo.mkdir()
-        self.env = {**inherited_env(), 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
-                    'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
-                    'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
-                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0'}
+        self.env = {
+            **inherited_env(),
+            'FAKE': str(self.fake),
+            'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'),
+            'PAIR_FILE_POLL_MS': '200',
+            'PAIR_SETTLE_POLL_S': '0.2',
+            'PAIR_STOP_POLL_S': '0.2',
+            'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
+            'HOME': str(self.path / 'home'),
+            'XDG_STATE_HOME': str(self.path / 'state'),
+            'HERDR_ENV': '1',
+            'HERDR_PANE_ID': 'p0',
+            'PAIR_SUBMIT_CHECK_S': '0',
+        }
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
         watch_jq(self, self.env)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
         self.store = self.path / 'state/pstack/pair/demo'
         self.run_command('init', 'demo')
         hook = self.fake / 'hook'
-        hook.write_text(f'''#!/usr/bin/env bash
+        hook.write_text(f"""#!/usr/bin/env bash
 case "$2" in
 Load*)
   [ -e "$FAKE/no-ready" ] || printf 'status: done\\n' >'{self.store}/reports/000-ready.md'
   ;;
 esac
-''')
+""")
         hook.chmod(0o755)
-        self.run_command('spawn', str(self.store), '--kind', 'devin', '--',
-                         '--model', 'swe-2-high', '--permission-mode', 'smart')
+        self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'devin',
+            '--',
+            '--model',
+            'swe-2-high',
+            '--permission-mode',
+            'smart',
+        )
 
     def run_command(self, *args, code=0):
-        result = subprocess.run([self.script, *args], cwd=self.repo, env=self.env,
-                                capture_output=True, text=True)
+        result = subprocess.run(
+            [self.script, *args],
+            cwd=self.repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         return result.stdout + result.stderr
 
@@ -108,7 +144,9 @@ esac
 
     def complete_task(self, status='done'):
         brief = self.write_brief('001-first.md')
-        self.run_command('dispatch', str(self.store), str(brief), '--timeout', '1', code=4)
+        self.run_command(
+            'dispatch', str(self.store), str(brief), '--timeout', '1', code=4
+        )
         report = self.store / 'reports' / brief.name
         report.write_text(f'status: {status}\nhead: abc123\n')
         queued = self.write_brief('002-next.md')
@@ -122,13 +160,28 @@ esac
         report, queued = self.complete_task()
         self.run_command('next', str(self.store), code=5)
         self.assertEqual((self.store / 'queue').read_text().strip(), str(queued))
-        self.assertEqual(self.state()['dispatch']['brief'], str(self.store / 'briefs/001-first.md'))
-        out = self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=4)
-        self.assertIn('rotated: the devin sidekick starts this brief in a fresh session', out)
+        self.assertEqual(
+            self.state()['dispatch']['brief'], str(self.store / 'briefs/001-first.md')
+        )
+        out = self.run_command(
+            'dispatch', str(self.store), str(queued), '--timeout', '1', code=4
+        )
+        self.assertIn(
+            'rotated: the devin sidekick starts this brief in a fresh session', out
+        )
         state = self.state()
         self.assertEqual(state['sidekick']['generation'], 2)
-        self.assertEqual(state['sidekick']['start_args'],
-                         ['--respect-workspace-trust', 'false', '--model', 'swe-2-high', '--permission-mode', 'smart'])
+        self.assertEqual(
+            state['sidekick']['start_args'],
+            [
+                '--respect-workspace-trust',
+                'false',
+                '--model',
+                'swe-2-high',
+                '--permission-mode',
+                'smart',
+            ],
+        )
         self.assertFalse(state['sidekick']['rotation_required'])
         self.assertTrue(report.exists())
         self.assertEqual(state['dispatch']['brief'], str(queued))
@@ -143,7 +196,11 @@ esac
         (self.fake / 'exit-dialog/demo-sidekick').write_text(text)
 
     def send_keys(self):
-        return [l for l in (self.fake / 'calls.log').read_text().splitlines() if l.startswith('agent send-keys demo-sidekick')]
+        return [
+            l
+            for l in (self.fake / 'calls.log').read_text().splitlines()
+            if l.startswith('agent send-keys demo-sidekick')
+        ]
 
     def rotate_through_dialog(self, text, keys):
         self.complete_task()
@@ -153,7 +210,10 @@ esac
         self.assertEqual(self.state()['sidekick']['generation'], 2)
 
     def test_rotate_gets_through_claudes_exit_dialog_by_stopping_the_tasks(self):
-        self.rotate_through_dialog('Background work is running\n 1. Exit and stop tasks\n 2. Move to background\n 3. Stay\n', ['enter'])
+        self.rotate_through_dialog(
+            'Background work is running\n 1. Exit and stop tasks\n 2. Move to background\n 3. Stay\n',
+            ['enter'],
+        )
 
     def test_rotate_gets_through_the_older_move_to_background_and_exit_dialog(self):
         self.rotate_through_dialog('Move to background and exit?\n', ['1', 'enter'])
@@ -170,10 +230,12 @@ esac
     def fresh_session_state(self, state, settles):
         """The rotated sidekick is `state` once its bootstrap has run; with `settles` (idle or blocked) its next herdr wait ends in that state."""
         settle = self.fake / 'settle'
-        settle.write_text(f'#!/bin/sh\nprintf "{settles} devin\\n" >"$FAKE/agents/demo-sidekick"\n')
+        settle.write_text(
+            f'#!/bin/sh\nprintf "{settles} devin\\n" >"$FAKE/agents/demo-sidekick"\n'
+        )
         settle.chmod(0o755)
         hook = self.fake / 'hook'
-        hook.write_text(f'''#!/usr/bin/env bash
+        hook.write_text(f"""#!/usr/bin/env bash
 case "$2" in
 Load*)
   printf 'status: done\\n' >'{self.store}/reports/000-ready.md'
@@ -181,44 +243,69 @@ Load*)
   {'mkdir -p "$FAKE/once"; cp "$FAKE/settle" "$FAKE/once/wait"' if settles else ':'}
   ;;
 esac
-''')
+""")
 
     def dispatch_after_rotation(self, state, settles, code):
         self.env['PAIR_ROTATE_READY_S'] = '1'
         _, queued = self.complete_task()
         self.fresh_session_state(state, settles)
         before = len((self.fake / 'calls.log').read_text().splitlines())
-        out = self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=code)
-        sent = [l for l in (self.fake / 'calls.log').read_text().splitlines()[before:]
-                if l.startswith('agent prompt demo-sidekick') and ' BRIEF ' in l]
+        out = self.run_command(
+            'dispatch', str(self.store), str(queued), '--timeout', '1', code=code
+        )
+        sent = [
+            l
+            for l in (self.fake / 'calls.log').read_text().splitlines()[before:]
+            if l.startswith('agent prompt demo-sidekick') and ' BRIEF ' in l
+        ]
         return out, sent
 
     def test_dispatch_sends_the_brief_once_the_rotated_session_goes_idle(self):
         out, sent = self.dispatch_after_rotation('working', 'idle', 4)
-        self.assertIn('rotated: the devin sidekick starts this brief in a fresh session', out)
+        self.assertIn(
+            'rotated: the devin sidekick starts this brief in a fresh session', out
+        )
         self.assertEqual(len(sent), 1)
 
     def test_dispatch_sends_nothing_when_the_rotated_session_stays_working(self):
         out, sent = self.dispatch_after_rotation('working', None, 5)
-        self.assertIn('the fresh devin sidekick demo-sidekick is working after the rotation; nothing was sent for this brief', out)
+        self.assertIn(
+            'the fresh devin sidekick demo-sidekick is working after the rotation; nothing was sent for this brief',
+            out,
+        )
         self.assertNotIn('rotated:', out)
         self.assertEqual(sent, [])
 
     def waits(self):
-        return [l for l in (self.fake / 'calls.log').read_text().splitlines() if l.startswith('agent wait demo-sidekick')]
+        return [
+            l
+            for l in (self.fake / 'calls.log').read_text().splitlines()
+            if l.startswith('agent wait demo-sidekick')
+        ]
 
     def test_dispatch_waits_for_idle_done_or_blocked_up_to_the_ready_bound(self):
         self.dispatch_after_rotation('working', 'idle', 4)
-        self.assertIn('agent wait demo-sidekick --until idle --until done --until blocked --timeout 1000', self.waits())
+        self.assertIn(
+            'agent wait demo-sidekick --until idle --until done --until blocked --timeout 1000',
+            self.waits(),
+        )
 
-    def test_dispatch_sends_nothing_when_the_rotated_session_turns_blocked_during_the_wait(self):
+    def test_dispatch_sends_nothing_when_the_rotated_session_turns_blocked_during_the_wait(
+        self,
+    ):
         out, sent = self.dispatch_after_rotation('working', 'blocked', 5)
-        self.assertIn('sidekick demo-sidekick is blocked, probably on an approval dialog after the rotation', out)
+        self.assertIn(
+            'sidekick demo-sidekick is blocked, probably on an approval dialog after the rotation',
+            out,
+        )
         self.assertEqual(sent, [])
 
     def test_dispatch_sends_nothing_when_the_rotated_session_is_blocked(self):
         out, sent = self.dispatch_after_rotation('blocked', None, 5)
-        self.assertIn('sidekick demo-sidekick is blocked, probably on an approval dialog after the rotation', out)
+        self.assertIn(
+            'sidekick demo-sidekick is blocked, probably on an approval dialog after the rotation',
+            out,
+        )
         self.assertEqual(sent, [])
 
     def test_partial_task_keeps_session_and_queue(self):
@@ -253,10 +340,14 @@ esac
                 if rotated:
                     self.run_command('rotate', str(self.store), code=4)
                 else:
-                    self.run_command('spawn', str(self.store), '--kind', 'devin', code=4)
+                    self.run_command(
+                        'spawn', str(self.store), '--kind', 'devin', code=4
+                    )
                 generation = self.state()['sidekick']['generation']
                 self.run_command('spawn', str(self.store), '--kind', 'devin', code=4)
-                brief = self.write_brief('002-next.md' if rotated else '003-after-ready.md')
+                brief = self.write_brief(
+                    '002-next.md' if rotated else '003-after-ready.md'
+                )
                 self.run_command('dispatch', str(self.store), str(brief), code=5)
                 (self.store / 'reports/000-ready.md').write_text('status: done\n')
                 (self.fake / 'no-ready').unlink()
@@ -265,14 +356,26 @@ esac
                 self.assertFalse(state['sidekick']['bootstrap_pending'])
                 self.assertFalse(state['sidekick']['rotation_required'])
                 self.assertEqual(state['sidekick']['generation'], generation)
-                self.run_command('dispatch', str(self.store), str(brief), '--timeout', '1', code=4)
+                self.run_command(
+                    'dispatch', str(self.store), str(brief), '--timeout', '1', code=4
+                )
 
     def test_default_bypass_is_preserved_on_rotation(self):
         (self.fake / 'agents/demo-sidekick').unlink()
-        self.run_command('spawn', str(self.store), '--kind', 'devin', '--',
-                         '--model', 'swe-2-high')
-        args = ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false', '--model', 'swe-2-high']
-        self.assertEqual(self.state()['sidekick']['permission_mode'], 'bypassPermissions')
+        self.run_command(
+            'spawn', str(self.store), '--kind', 'devin', '--', '--model', 'swe-2-high'
+        )
+        args = [
+            '--permission-mode',
+            'dangerous',
+            '--respect-workspace-trust',
+            'false',
+            '--model',
+            'swe-2-high',
+        ]
+        self.assertEqual(
+            self.state()['sidekick']['permission_mode'], 'bypassPermissions'
+        )
         self.assertEqual(self.state()['sidekick']['start_args'], args)
         self.complete_task()
         self.run_command('rotate', str(self.store))
@@ -280,12 +383,22 @@ esac
 
     def test_explicit_permission_overrides_default_bypass(self):
         for options, expected in [
-            (['--permission', 'auto'], ['--permission-mode', 'smart', '--respect-workspace-trust', 'false']),
-            (['--', '--permission-mode', 'smart'], ['--respect-workspace-trust', 'false', '--permission-mode', 'smart']),
-            (['--permission', 'none', '--', '--model', 'swe-2-high'],
-             ['--respect-workspace-trust', 'false', '--model', 'swe-2-high']),
-            (['--', '--respect-workspace-trust', 'true'],
-             ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'true']),
+            (
+                ['--permission', 'auto'],
+                ['--permission-mode', 'smart', '--respect-workspace-trust', 'false'],
+            ),
+            (
+                ['--', '--permission-mode', 'smart'],
+                ['--respect-workspace-trust', 'false', '--permission-mode', 'smart'],
+            ),
+            (
+                ['--permission', 'none', '--', '--model', 'swe-2-high'],
+                ['--respect-workspace-trust', 'false', '--model', 'swe-2-high'],
+            ),
+            (
+                ['--', '--respect-workspace-trust', 'true'],
+                ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'true'],
+            ),
         ]:
             with self.subTest(options=options):
                 (self.fake / 'agents/demo-sidekick').unlink()
@@ -296,34 +409,58 @@ esac
         self.script = skills / 'pstack-trio/scripts/pair.sh'
         self.store = self.path / 'state/pstack/trio/permissions'
         self.run_command('init', 'permissions')
-        (self.fake / 'hook').write_text(f'''#!/usr/bin/env bash
+        (self.fake / 'hook').write_text(f"""#!/usr/bin/env bash
 case "$2" in
 Load*)
   printf 'status: done\\n' >'{self.store}/reports/000-ready.md'
   printf 'status: answered\\n' >'{self.store}/advice/000-ready.md'
   ;;
 esac
-''')
-        self.run_command('spawn', str(self.store), '--sidekick', 'devin',
-                         '--consultant', 'codex')
+""")
+        self.run_command(
+            'spawn', str(self.store), '--sidekick', 'devin', '--consultant', 'codex'
+        )
         state = self.state()
-        self.assertEqual(state['sidekick']['start_args'], ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false'])
-        self.assertEqual(state['consultant']['permission_mode'], state['master']['permission_mode'])
+        self.assertEqual(
+            state['sidekick']['start_args'],
+            ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false'],
+        )
+        self.assertEqual(
+            state['consultant']['permission_mode'], state['master']['permission_mode']
+        )
         (self.fake / 'agents/permissions-sidekick').unlink()
         (self.fake / 'agents/permissions-consultant').unlink()
-        self.run_command('spawn', str(self.store), '--sidekick', 'devin',
-                         '--consultant', 'codex', '--permission', 'auto',
-                         '--consultant-permission', 'plan')
+        self.run_command(
+            'spawn',
+            str(self.store),
+            '--sidekick',
+            'devin',
+            '--consultant',
+            'codex',
+            '--permission',
+            'auto',
+            '--consultant-permission',
+            'plan',
+        )
         state = self.state()
-        self.assertEqual(state['sidekick']['start_args'], ['--permission-mode', 'smart', '--respect-workspace-trust', 'false'])
-        self.assertEqual(state['consultant']['start_args'],
-                         ['-a', 'on-request', '-s', 'read-only', '--disable', 'plugins'])
+        self.assertEqual(
+            state['sidekick']['start_args'],
+            ['--permission-mode', 'smart', '--respect-workspace-trust', 'false'],
+        )
+        self.assertEqual(
+            state['consultant']['start_args'],
+            ['-a', 'on-request', '-s', 'read-only', '--disable', 'plugins'],
+        )
 
 
 class FreshSessionTests(unittest.TestCase):
     """Every sidekick kind starts a fresh session for each completed brief, in pair, guided and trio alike."""
 
-    VARIANTS = (('pstack-pair', 'pair'), ('pstack-pair-guided', 'pair-guided'), ('pstack-trio', 'trio'))
+    VARIANTS = (
+        ('pstack-pair', 'pair'),
+        ('pstack-pair-guided', 'pair-guided'),
+        ('pstack-trio', 'trio'),
+    )
 
     def world(self, skill, state_dir):
         self.tmp = tmp = tempfile.TemporaryDirectory()
@@ -332,24 +469,52 @@ class FreshSessionTests(unittest.TestCase):
         fake, repo = path / 'fake', path / 'repo'
         fake.mkdir()
         repo.mkdir()
-        env = {**inherited_env(), 'FAKE': str(fake), 'HERDR_SOCKET_PATH': str(fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2',
-               'PAIR_STOP_POLL_S': '0.2', 'PATH': f'{here / "bin"}:{os.environ["PATH"]}', 'HOME': str(path / 'home'), 'XDG_STATE_HOME': str(path / 'state'),
-               'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0'}
+        env = {
+            **inherited_env(),
+            'FAKE': str(fake),
+            'HERDR_SOCKET_PATH': str(fake / 'herdr.sock'),
+            'PAIR_FILE_POLL_MS': '200',
+            'PAIR_SETTLE_POLL_S': '0.2',
+            'PAIR_STOP_POLL_S': '0.2',
+            'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
+            'HOME': str(path / 'home'),
+            'XDG_STATE_HOME': str(path / 'state'),
+            'HERDR_ENV': '1',
+            'HERDR_PANE_ID': 'p0',
+            'PAIR_SUBMIT_CHECK_S': '0',
+        }
         env.pop('CLAUDE_CODE_SESSION_ID', None)
         watch_jq(self, env)
         script = skills / skill / 'scripts/pair.sh'
         store = path / 'state/pstack' / state_dir / 'demo'
 
         def run(*args, code=0):
-            r = subprocess.run([script, *args], cwd=repo, env=env, capture_output=True, text=True, check=False)
+            r = subprocess.run(
+                [script, *args],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
             self.assertEqual(r.returncode, code, r.stdout + r.stderr)
             return r.stdout + r.stderr
 
         run('init', 'demo')
         hook = fake / 'hook'
-        hook.write_text(f'#!/usr/bin/env bash\ncase "$2" in\nLoad*) case "$1" in *consultant) f=advice ;; *) f=reports ;; esac\n  printf \'status: done\\n\' >\'{store}\'/$f/000-ready.md ;;\nesac\n')
+        hook.write_text(
+            f'#!/usr/bin/env bash\ncase "$2" in\nLoad*) case "$1" in *consultant) f=advice ;; *) f=reports ;; esac\n  printf \'status: done\\n\' >\'{store}\'/$f/000-ready.md ;;\nesac\n'
+        )
         hook.chmod(0o755)
-        run('spawn', str(store), *(('--sidekick', 'claude', '--consultant', 'codex') if skill == 'pstack-trio' else ('--kind', 'claude')))
+        run(
+            'spawn',
+            str(store),
+            *(
+                ('--sidekick', 'claude', '--consultant', 'codex')
+                if skill == 'pstack-trio'
+                else ('--kind', 'claude')
+            ),
+        )
 
         def brief(name):
             b = store / 'briefs' / name
@@ -380,7 +545,10 @@ class FreshSessionTests(unittest.TestCase):
                 self.assertTrue((store / 'queue').exists())
                 self.assertEqual(state()['sidekick']['generation'], 1)
                 out = run('dispatch', str(store), str(queued), '--timeout', '1', code=4)
-                self.assertIn('rotated: the claude sidekick starts this brief in a fresh session', out)
+                self.assertIn(
+                    'rotated: the claude sidekick starts this brief in a fresh session',
+                    out,
+                )
                 self.assertEqual(state()['sidekick']['generation'], 2)
                 self.assertFalse(state()['sidekick']['rotation_required'])
                 self.assertFalse((store / 'queue').exists())
@@ -405,8 +573,9 @@ class FreshSessionTests(unittest.TestCase):
                 out = run('dispatch', str(store), str(queued), '--timeout', '1', code=4)
                 self.assertNotIn('rotated:', out)
                 self.assertEqual(state()['sidekick']['generation'], 1)
-                self.assertNotIn('agent prompt demo-sidekick /exit', (fake / 'calls.log').read_text())
-
+                self.assertNotIn(
+                    'agent prompt demo-sidekick /exit', (fake / 'calls.log').read_text()
+                )
 
     def test_the_trios_plan_round_rotates_a_due_sidekick_before_it_sends(self):
         run, state, brief, store, fake, first = self.world('pstack-trio', 'trio')
@@ -418,13 +587,18 @@ class FreshSessionTests(unittest.TestCase):
         plan.parent.mkdir(exist_ok=True)
         plan.write_text('# Plan 002: next\n\nrisk: routine\n')
         out = run('discuss', str(store), str(plan), '--timeout', '1', code=4)
-        self.assertIn('rotated: the claude sidekick starts this plan in a fresh session', out)
+        self.assertIn(
+            'rotated: the claude sidekick starts this plan in a fresh session', out
+        )
         self.assertNotIn('needs a fresh session', out)
         self.assertIn('sent PLAN 002-next.md to sidekick', out)
         self.assertIn('sent PLAN 002-next.md to consultant', out)
         self.assertEqual(state()['sidekick']['generation'], 2)
         calls = (fake / 'calls.log').read_text()
-        self.assertLess(calls.index('take the sidekick role (generation 2'), calls.index(f'PLAN {plan}'))
+        self.assertLess(
+            calls.index('take the sidekick role (generation 2'),
+            calls.index(f'PLAN {plan}'),
+        )
 
 
 class RangeFloorTests(unittest.TestCase):
@@ -435,13 +609,25 @@ class RangeFloorTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name) / 'repo'
         self.repo.mkdir()
-        self.env = {**inherited_env(), 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
-                    'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+        self.env = {
+            **inherited_env(),
+            'GIT_AUTHOR_NAME': 't',
+            'GIT_AUTHOR_EMAIL': 't@t',
+            'GIT_COMMITTER_NAME': 't',
+            'GIT_COMMITTER_EMAIL': 't@t',
+        }
         self.git('init', '-q', '-b', 'work')
         self.c0 = self.commit('a.txt')
 
     def git(self, *args):
-        return subprocess.run(['git', *args], cwd=self.repo, env=self.env, check=True, capture_output=True, text=True).stdout.strip()
+        return subprocess.run(
+            ['git', *args],
+            cwd=self.repo,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
 
     def commit(self, name):
         (self.repo / name).write_text(name)
@@ -455,7 +641,9 @@ class RangeFloorTests(unittest.TestCase):
             from pstack_core import review
         finally:
             sys.path.pop(0)
-        return review.range_floor(str(self.repo), base, tip, allow_head='--allow-head' in flags)
+        return review.range_floor(
+            str(self.repo), base, tip, allow_head='--allow-head' in flags
+        )
 
     def test_with_no_trunk_ref_the_base_stays(self):
         c1 = self.commit('b.txt')
@@ -476,7 +664,9 @@ class RangeFloorTests(unittest.TestCase):
         self.assertEqual(rev, trunk)
         self.assertIn('behind where its branch leaves remotes/origin/main', note)
 
-    def test_a_step_zero_rebase_equal_to_trunk_floors_a_digest_but_not_a_verification(self):
+    def test_a_step_zero_rebase_equal_to_trunk_floors_a_digest_but_not_a_verification(
+        self,
+    ):
         trunk = self.commit('t.txt')
         self.git('update-ref', 'refs/remotes/origin/main', trunk)
         self.assertEqual(self.floor(self.c0, trunk, '--allow-head')[0], trunk)
@@ -496,18 +686,32 @@ class EventLogTests(unittest.TestCase):
 
     def test_two_identical_events_in_one_second_leave_one_row(self):
         wake = 'master wake 001-a.md checkin'
-        self.assertEqual(self.log((100, wake), (100, wake)), ['100\tmaster\twake\t001-a\tcheckin'])
+        self.assertEqual(
+            self.log((100, wake), (100, wake)), ['100\tmaster\twake\t001-a\tcheckin']
+        )
 
     def test_without_the_kitchen_flag_every_event_is_written(self):
         wake = 'master wake 001-a.md checkin'
         self.assertEqual(len(self.log((100, wake), (100, wake), dedupe='')), 2)
 
     def test_events_that_differ_in_any_field_or_second_all_stay(self):
-        rows = self.log((100, 'master wake 001-a checkin'), (100, 'master wake 001-a missing'), (101, 'master wake 001-a missing'),
-                        (101, 'master wake 001-a missing'), (101, 'master wake 002-b missing'), (101, 'master wake 002-b missing'))
-        self.assertEqual([r.split('\t') for r in rows],
-                         [['100', 'master', 'wake', '001-a', 'checkin'], ['100', 'master', 'wake', '001-a', 'missing'],
-                          ['101', 'master', 'wake', '001-a', 'missing'], ['101', 'master', 'wake', '002-b', 'missing']])
+        rows = self.log(
+            (100, 'master wake 001-a checkin'),
+            (100, 'master wake 001-a missing'),
+            (101, 'master wake 001-a missing'),
+            (101, 'master wake 001-a missing'),
+            (101, 'master wake 002-b missing'),
+            (101, 'master wake 002-b missing'),
+        )
+        self.assertEqual(
+            [r.split('\t') for r in rows],
+            [
+                ['100', 'master', 'wake', '001-a', 'checkin'],
+                ['100', 'master', 'wake', '001-a', 'missing'],
+                ['101', 'master', 'wake', '001-a', 'missing'],
+                ['101', 'master', 'wake', '002-b', 'missing'],
+            ],
+        )
 
 
 class ReadinessTests(unittest.TestCase):
@@ -521,11 +725,26 @@ class ReadinessTests(unittest.TestCase):
         self.fake.mkdir()
         self.cwd = self.path / 'repo'
         self.cwd.mkdir()
-        self.env = {**inherited_env(), 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
-                    'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
-                    'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
-                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0', 'PAIR_BUSY_POLL': '0.2',
-                    'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+        self.env = {
+            **inherited_env(),
+            'FAKE': str(self.fake),
+            'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'),
+            'PAIR_FILE_POLL_MS': '200',
+            'PAIR_SETTLE_POLL_S': '0.2',
+            'PAIR_STOP_POLL_S': '0.2',
+            'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
+            'HOME': str(self.path / 'home'),
+            'XDG_STATE_HOME': str(self.path / 'state'),
+            'HERDR_ENV': '1',
+            'HERDR_PANE_ID': 'p0',
+            'PAIR_SUBMIT_CHECK_S': '0',
+            'PAIR_SETTLE_HOLD': '0',
+            'PAIR_BUSY_POLL': '0.2',
+            'GIT_AUTHOR_NAME': 't',
+            'GIT_AUTHOR_EMAIL': 't@t',
+            'GIT_COMMITTER_NAME': 't',
+            'GIT_COMMITTER_EMAIL': 't@t',
+        }
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
         watch_jq(self, self.env)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
@@ -534,17 +753,38 @@ class ReadinessTests(unittest.TestCase):
         self.commit('c0')
         self.run_command('init', 'demo')
         hook = self.fake / 'hook'
-        hook.write_text(f"#!/usr/bin/env bash\ncase \"$2\" in\nLoad*) printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;\nesac\n")
+        hook.write_text(
+            f"#!/usr/bin/env bash\ncase \"$2\" in\nLoad*) printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;\nesac\n"
+        )
         hook.chmod(0o755)
-        self.run_command('spawn', str(self.store), '--kind', 'pi', '--permission', 'auto', '--', '--model', 'm')
+        self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'pi',
+            '--permission',
+            'auto',
+            '--',
+            '--model',
+            'm',
+        )
         self.brief = self.store / 'briefs/001-first.md'
         self.brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
-        self.run_command('dispatch', str(self.store), str(self.brief), '--timeout', '1', code=4)
+        self.run_command(
+            'dispatch', str(self.store), str(self.brief), '--timeout', '1', code=4
+        )
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
         self.report = self.store / 'reports/001-first.md'
 
     def git(self, *args):
-        return subprocess.run(['git', *args], cwd=self.cwd, env=self.env, check=True, capture_output=True, text=True).stdout.strip()
+        return subprocess.run(
+            ['git', *args],
+            cwd=self.cwd,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
 
     def commit(self, message):
         (self.cwd / 'f.txt').write_text(message)
@@ -553,7 +793,14 @@ class ReadinessTests(unittest.TestCase):
         return self.git('rev-parse', 'HEAD')
 
     def run_command(self, *args, code=0):
-        r = subprocess.run([self.script, *args], cwd=self.cwd, env=self.env, capture_output=True, text=True, check=False)
+        r = subprocess.run(
+            [self.script, *args],
+            cwd=self.cwd,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         self.assertEqual(r.returncode, code, r.stdout + r.stderr)
         return r.stdout + r.stderr
 
@@ -578,11 +825,15 @@ class ReadinessTests(unittest.TestCase):
         self.note(1)
         self.write_report(c1)
         out = self.wait(4)
-        self.assertIn(f'report: {self.report} written but not ready: open blocking notes n1', out)
+        self.assertIn(
+            f'report: {self.report} written but not ready: open blocking notes n1', out
+        )
         self.assertNotIn('report_status', out)
         self.assertIn('report:unready', (self.store / 'events.tsv').read_text())
 
-    def test_the_resolving_step_does_not_expose_the_old_report_until_it_is_rewritten(self):
+    def test_the_resolving_step_does_not_expose_the_old_report_until_it_is_rewritten(
+        self,
+    ):
         c1 = self.commit('one')
         self.step(c1)
         self.note(1)
@@ -591,7 +842,10 @@ class ReadinessTests(unittest.TestCase):
         self.step(c2, 'n1')
         self.note(2, 'clear')
         out = self.wait(4)
-        self.assertIn(f'written but not ready: the report\'s head {c1[:9]} predates step 2 {c2[:9]}', out)
+        self.assertIn(
+            f"written but not ready: the report's head {c1[:9]} predates step 2 {c2[:9]}",
+            out,
+        )
         self.write_report(c2)
         out = self.wait(0)
         self.assertIn(f'report: {self.report}\nreport_status: done', out)
@@ -601,7 +855,9 @@ class ReadinessTests(unittest.TestCase):
         os.utime(self.report, (1_000_000, 1_000_000))
         self.assertIn('report_status: blocked', self.wait(0))
         (self.fake / 'agents/demo-sidekick').write_text('idle pi\n')
-        self.run_command('dispatch', str(self.store), str(self.brief), '--timeout', '1', code=4)
+        self.run_command(
+            'dispatch', str(self.store), str(self.brief), '--timeout', '1', code=4
+        )
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
         out = self.wait(4)
         self.assertNotIn('report_status', out)
@@ -614,10 +870,16 @@ class ReadinessTests(unittest.TestCase):
         self.step(c1)
         self.note(1)
         self.write_report(c1)
-        self.assertIn('blocking review notes are still open', self.run_command('finish', str(self.store), str(self.report), code=7))
+        self.assertIn(
+            'blocking review notes are still open',
+            self.run_command('finish', str(self.store), str(self.report), code=7),
+        )
         c2 = self.commit('two')
         self.step(c2, 'n1')
-        self.assertIn(f'predates step 2 {c2[:9]}', self.run_command('finish', str(self.store), str(self.report), code=7))
+        self.assertIn(
+            f'predates step 2 {c2[:9]}',
+            self.run_command('finish', str(self.store), str(self.report), code=7),
+        )
         self.write_report(c2)
         self.run_command('finish', str(self.store), str(self.report))
 
@@ -654,7 +916,9 @@ class ReadinessTests(unittest.TestCase):
         state['pending'] = [str(self.brief)]
         (self.store / 'pair.json').write_text(json.dumps(state))
         self.assertNotIn('report_status', self.wait(4))
-        (self.store / 'notes/001-first-n1.md').write_text('# Note\n\nstatus: resolved\n')
+        (self.store / 'notes/001-first-n1.md').write_text(
+            '# Note\n\nstatus: resolved\n'
+        )
         self.assertIn(f'report: {self.report}', self.wait(0))
 
     def quiet_log(self, minutes=20):
@@ -672,7 +936,9 @@ class ReadinessTests(unittest.TestCase):
         self.quiet_log()
         (self.cwd / 'f.txt').write_text('changed')
         out = self.wait(4)
-        self.assertRegex(out, r'progress: \+1 lines \(last 20m ago\)  editing: last change 0m ago')
+        self.assertRegex(
+            out, r'progress: \+1 lines \(last 20m ago\)  editing: last change 0m ago'
+        )
         self.assertNotIn('STALE', out)
 
     def test_old_files_and_no_command_is_stale(self):
@@ -687,12 +953,16 @@ class ReadinessTests(unittest.TestCase):
         self.age('f.txt', 3600)
         self.assertIn('editing: last change', self.wait(4))
 
-    @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
+    @unittest.skipUnless(
+        Path('/proc/self').exists(), 'background work is read from /proc, Linux only'
+    )
     def test_a_running_command_wins_over_editing(self):
         self.quiet_log()
         (self.cwd / 'f.txt').write_text('changed')
         pane = json.loads((self.store / 'pair.json').read_text())['sidekick']['pane_id']
-        proc = subprocess.Popen(['sleep', '30'], cwd=self.cwd, env={**self.env, 'HERDR_PANE_ID': pane})
+        proc = subprocess.Popen(
+            ['sleep', '30'], cwd=self.cwd, env={**self.env, 'HERDR_PANE_ID': pane}
+        )
         self.addCleanup(lambda: (proc.kill(), proc.wait()))
         time.sleep(1.1)
         out = self.wait(4)
@@ -726,7 +996,7 @@ class ReadinessTests(unittest.TestCase):
         out = self.wait(4)
         self.assertIn('touched: 0 files, 0 commits since dispatch', out)
         self.assertNotIn('trunk1.txt', out)
-        self.assertIn("note: recorded base", out)
+        self.assertIn('note: recorded base', out)
         self.commit_file('own.txt')
         out = self.wait(4)
         self.assertIn('touched: 1 files, 1 commits since dispatch\n  own.txt', out)
@@ -740,27 +1010,42 @@ class ReadinessTests(unittest.TestCase):
 
     def scoped_brief(self, name, *entries):
         b = self.store / f'briefs/{name}.md'
-        b.write_text('playbook: investigation\nplan: none\ntimebox: 30\n\n## Scope\n\nmay write:\n'
-                     + ''.join(f'- {e}\n' for e in entries) + '\nmust not write:\n- x\n')
+        b.write_text(
+            'playbook: investigation\nplan: none\ntimebox: 30\n\n## Scope\n\nmay write:\n'
+            + ''.join(f'- {e}\n' for e in entries)
+            + '\nmust not write:\n- x\n'
+        )
         return b
 
     def test_a_scope_line_listing_several_paths_is_refused_at_dispatch_and_queue(self):
-        b = self.scoped_brief('002-second', 'src/a.py, src/b.py', 'docs/ — fine, with a comma in its note')
+        b = self.scoped_brief(
+            '002-second', 'src/a.py, src/b.py', 'docs/ — fine, with a comma in its note'
+        )
         for cmd in ('dispatch', 'queue'):
             out = self.run_command(cmd, str(self.store), str(b), code=1)
             self.assertIn('Scope takes one path or glob per line', out)
             self.assertIn('- src/a.py, src/b.py', out)
             self.assertNotIn('docs/', out.split('split these', 1)[1])
 
-    def test_an_and_between_two_paths_is_refused_but_prose_and_quoted_names_are_not(self):
-        bad = self.scoped_brief('002-second', 'src/Showcase.tsx and src/Review.test.tsx — new', 'a.ts and b.ts')
+    def test_an_and_between_two_paths_is_refused_but_prose_and_quoted_names_are_not(
+        self,
+    ):
+        bad = self.scoped_brief(
+            '002-second',
+            'src/Showcase.tsx and src/Review.test.tsx — new',
+            'a.ts and b.ts',
+        )
         for cmd in ('dispatch', 'queue'):
             out = self.run_command(cmd, str(self.store), str(bad), code=1)
             self.assertIn('Scope takes one path or glob per line', out)
             self.assertIn('- src/Showcase.tsx and src/Review.test.tsx', out)
             self.assertIn('- a.ts and b.ts', out)
-        ok = self.scoped_brief('003-third', 'README and docs', '`docs/this and that.md` — a quoted name with and',
-                               'README.md and docs')
+        ok = self.scoped_brief(
+            '003-third',
+            'README and docs',
+            '`docs/this and that.md` — a quoted name with and',
+            'README.md and docs',
+        )
         out = self.run_command('queue', str(self.store), str(ok))
         self.assertNotIn('Scope takes one path', out)
         self.assertIn('queued ', out)
@@ -773,15 +1058,22 @@ class ReadinessTests(unittest.TestCase):
         # back two seconds rather than the test sleeping into the next one.
         path = self.store / 'pair.json'
         state = json.loads(path.read_text())
-        at = datetime.fromisoformat(state['dispatch']['at'].replace('Z', '+00:00')) - timedelta(seconds=2)
+        at = datetime.fromisoformat(
+            state['dispatch']['at'].replace('Z', '+00:00')
+        ) - timedelta(seconds=2)
         state['dispatch']['at'] = at.strftime('%Y-%m-%dT%H:%M:%SZ')
         path.write_text(json.dumps(state))
-        proc = subprocess.Popen(['sleep', seconds], cwd=self.cwd,
-                                env={**self.env, 'HERDR_PANE_ID': state['sidekick']['pane_id']})
+        proc = subprocess.Popen(
+            ['sleep', seconds],
+            cwd=self.cwd,
+            env={**self.env, 'HERDR_PANE_ID': state['sidekick']['pane_id']},
+        )
         self.addCleanup(lambda: (proc.kill(), proc.wait()))
         return proc
 
-    @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
+    @unittest.skipUnless(
+        Path('/proc/self').exists(), 'background work is read from /proc, Linux only'
+    )
     def test_a_settle_is_not_believed_while_background_work_runs(self):
         (self.fake / 'agents/demo-sidekick').write_text('done pi\n')
         self.assertNotIn('check-in:', self.wait(4))
@@ -791,7 +1083,9 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('running: sleep for 0m', out)
         self.assertIn('progress: none yet', out)
 
-    @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
+    @unittest.skipUnless(
+        Path('/proc/self').exists(), 'background work is read from /proc, Linux only'
+    )
     def test_the_digest_names_background_work_even_when_the_log_is_fresh(self):
         self.quiet_log(minutes=0)
         self.background()
@@ -799,8 +1093,12 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(out.count('running: sleep for 0m'), 1)
         self.assertNotIn('STALE', out)
 
-    @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
-    def test_an_already_shown_reply_does_not_end_the_wait_while_background_work_runs(self):
+    @unittest.skipUnless(
+        Path('/proc/self').exists(), 'background work is read from /proc, Linux only'
+    )
+    def test_an_already_shown_reply_does_not_end_the_wait_while_background_work_runs(
+        self,
+    ):
         c1 = self.commit('one')
         self.step(c1)
         self.write_report(c1)
@@ -823,8 +1121,12 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('report_status: done', self.wait(0))
 
     def test_quoted_paths_with_commas_or_spaces_stay_in_scope_in_the_digest(self):
-        self.scoped_brief('001-first', '`docs/a, b.toml` — note, with commas', 'my dir/file one.txt — a path with spaces',
-                          'src/ — the tree')
+        self.scoped_brief(
+            '001-first',
+            '`docs/a, b.toml` — note, with commas',
+            'my dir/file one.txt — a path with spaces',
+            'src/ — the tree',
+        )
         for f in ('docs/a, b.toml', 'my dir/file one.txt', 'src/x.py', 'other.txt'):
             (self.cwd / f).parent.mkdir(parents=True, exist_ok=True)
             (self.cwd / f).write_text('x')
@@ -833,11 +1135,24 @@ class ReadinessTests(unittest.TestCase):
 
     def test_a_double_star_directory_in_a_scope_entry_matches_zero_directories(self):
         self.scoped_brief('001-first', 'd/**/*.py', 'e/**/')
-        for f in ('d/build.py', 'd/a/b/deep.py', 'e/x.txt', 'f/build.py', 'd/build.txt'):
+        for f in (
+            'd/build.py',
+            'd/a/b/deep.py',
+            'e/x.txt',
+            'f/build.py',
+            'd/build.txt',
+        ):
             (self.cwd / f).parent.mkdir(parents=True, exist_ok=True)
             (self.cwd / f).write_text('x')
         out = self.wait(4)
-        self.assertEqual(sorted(line.strip() for line in out.split('outside scope:', 1)[1].splitlines()[1:] if line.startswith('  ')), ['d/build.txt', 'f/build.py'])
+        self.assertEqual(
+            sorted(
+                line.strip()
+                for line in out.split('outside scope:', 1)[1].splitlines()[1:]
+                if line.startswith('  ')
+            ),
+            ['d/build.txt', 'f/build.py'],
+        )
 
     def test_the_lessons_file_the_master_commits_is_never_outside_scope(self):
         self.assertEqual(self.outside('.agents/LESSONS.md', 'other.txt'), ['other.txt'])
@@ -845,7 +1160,9 @@ class ReadinessTests(unittest.TestCase):
     def steer(self, k, kind, effect, supersedes='none'):
         f = self.store / f'steers/001-first-s{k}.md'
         f.parent.mkdir(exist_ok=True)
-        f.write_text(f'# Steer 001-s{k}: first\n\nbrief: {self.brief}\nsupersedes: {supersedes}\nkind: {kind}\nscope effect: {effect}\n')
+        f.write_text(
+            f'# Steer 001-s{k}: first\n\nbrief: {self.brief}\nsupersedes: {supersedes}\nkind: {kind}\nscope effect: {effect}\n'
+        )
         return f
 
     def outside(self, *files):
@@ -854,8 +1171,15 @@ class ReadinessTests(unittest.TestCase):
             (self.cwd / f).parent.mkdir(parents=True, exist_ok=True)
             (self.cwd / f).write_text('x')
         out = self.wait(4)
-        return [line.strip() for line in out.split('outside scope:', 1)[1].splitlines()[1:] if line.startswith('  ')] \
-            if 'outside scope:' in out else []
+        return (
+            [
+                line.strip()
+                for line in out.split('outside scope:', 1)[1].splitlines()[1:]
+                if line.startswith('  ')
+            ]
+            if 'outside scope:' in out
+            else []
+        )
 
     def test_a_file_a_steers_may_write_effect_allows_is_not_outside_scope(self):
         self.steer(1, 'scope', 'may write: docs/new.md \u2014 regenerated only')
@@ -871,7 +1195,9 @@ class ReadinessTests(unittest.TestCase):
 
     def test_a_quoted_list_of_paths_in_a_steer_all_count(self):
         self.steer(1, 'scope', 'may write "gen/**" and "`docs/two.md`"')
-        self.assertEqual(self.outside('gen/a/b.json', 'docs/two.md', 'other.txt'), ['other.txt'])
+        self.assertEqual(
+            self.outside('gen/a/b.json', 'docs/two.md', 'other.txt'), ['other.txt']
+        )
 
     def test_a_withdrawn_steers_path_is_outside_scope_again(self):
         first = self.steer(1, 'scope', 'may write: docs/new.md')
@@ -897,23 +1223,52 @@ class ReadinessTests(unittest.TestCase):
         (self.cwd / 'services/x/state.rs').write_text('x')
         self.git('add', '-A')
         self.git('commit', '-q', '-m', 'tree')
-        b = self.scoped_brief('002-second', 'services/x/state.rs', 'state/first_window.rs', 'services/x/new_file.rs',
-                              'services/x/*.rs', 'nowhere/*.rs')
+        b = self.scoped_brief(
+            '002-second',
+            'services/x/state.rs',
+            'state/first_window.rs',
+            'services/x/new_file.rs',
+            'services/x/*.rs',
+            'nowhere/*.rs',
+        )
         out = self.run_command('queue', str(self.store), str(b))
-        self.assertIn('warning: Scope entry "state/first_window.rs" matches no file or directory', out)
-        self.assertIn('warning: Scope entry "nowhere/*.rs" matches no file or directory', out)
+        self.assertIn(
+            'warning: Scope entry "state/first_window.rs" matches no file or directory',
+            out,
+        )
+        self.assertIn(
+            'warning: Scope entry "nowhere/*.rs" matches no file or directory', out
+        )
         self.assertEqual(out.count('warning:'), 2)
 
     def test_an_absolute_scope_entry_is_checked_as_it_is(self):
         # A8. The store sits outside the repo; its path in the Scope must not be read as a path under the repo root.
         (self.store / 'followups.md').write_text('x')
-        b = self.scoped_brief('002-second', f'{self.store}/followups.md', f'{self.store}/reports/', f'{self.store}/*.md', f'{self.store}/new.md',
-                              f'{self.store}/nodir/new.md', f'{self.store}/nodir/*.md', '/nonexistent-root/x.md')
+        b = self.scoped_brief(
+            '002-second',
+            f'{self.store}/followups.md',
+            f'{self.store}/reports/',
+            f'{self.store}/*.md',
+            f'{self.store}/new.md',
+            f'{self.store}/nodir/new.md',
+            f'{self.store}/nodir/*.md',
+            '/nonexistent-root/x.md',
+        )
         out = self.run_command('queue', str(self.store), str(b))
         warned = [line for line in out.splitlines() if line.startswith('warning:')]
         self.assertEqual(len(warned), 3, out)
-        for entry in (f'{self.store}/nodir/new.md', f'{self.store}/nodir/*.md', '/nonexistent-root/x.md'):
-            self.assertTrue(any(f'Scope entry "{entry}" matches no file or directory' in line for line in warned), (entry, out))
+        for entry in (
+            f'{self.store}/nodir/new.md',
+            f'{self.store}/nodir/*.md',
+            '/nonexistent-root/x.md',
+        ):
+            self.assertTrue(
+                any(
+                    f'Scope entry "{entry}" matches no file or directory' in line
+                    for line in warned
+                ),
+                (entry, out),
+            )
 
     def test_a_future_mtime_does_not_keep_it_active(self):
         self.quiet_log()
@@ -950,27 +1305,43 @@ class PiSidekickTests(unittest.TestCase):
         repo = self.path / 'repo'
         repo.mkdir()
         self.cwd = repo
-        self.env = {**inherited_env(), 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
-                    'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
-                    'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
-                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0',
-                    'PAIR_PREFLIGHT_RETRY_S': '0'}
+        self.env = {
+            **inherited_env(),
+            'FAKE': str(self.fake),
+            'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'),
+            'PAIR_FILE_POLL_MS': '200',
+            'PAIR_SETTLE_POLL_S': '0.2',
+            'PAIR_STOP_POLL_S': '0.2',
+            'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
+            'HOME': str(self.path / 'home'),
+            'XDG_STATE_HOME': str(self.path / 'state'),
+            'HERDR_ENV': '1',
+            'HERDR_PANE_ID': 'p0',
+            'PAIR_SUBMIT_CHECK_S': '0',
+            'PAIR_SETTLE_HOLD': '0',
+            'PAIR_PREFLIGHT_RETRY_S': '0',
+        }
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
         watch_jq(self, self.env)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
         self.store = self.path / 'state/pstack/pair/demo'
         self.run_command('init', 'demo')
         hook = self.fake / 'hook'
-        hook.write_text(f'''#!/usr/bin/env bash
+        hook.write_text(f"""#!/usr/bin/env bash
 case "$2" in
 Load*) printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;
 esac
-''')
+""")
         hook.chmod(0o755)
 
     def run_command(self, *args, code=0):
-        result = subprocess.run([self.script, *args], cwd=self.cwd, env=self.env,
-                                capture_output=True, text=True)
+        result = subprocess.run(
+            [self.script, *args],
+            cwd=self.cwd,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         return result.stdout + result.stderr
 
@@ -978,22 +1349,54 @@ esac
         return json.loads((self.store / 'pair.json').read_text())
 
     def spawn_pi(self, *fallback, code=0):
-        return self.run_command('spawn', str(self.store), '--kind', 'pi', '--permission', 'auto',
-                                *fallback, '--', '--model', 'devin/swe-2', '--thinking', 'high', code=code)
+        return self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'pi',
+            '--permission',
+            'auto',
+            *fallback,
+            '--',
+            '--model',
+            'devin/swe-2',
+            '--thinking',
+            'high',
+            code=code,
+        )
 
     def dispatch(self):
         brief = self.store / 'briefs/001-first.md'
         brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
-        return brief, self.run_command('dispatch', str(self.store), str(brief), '--timeout', '1', code=4)
+        return brief, self.run_command(
+            'dispatch', str(self.store), str(brief), '--timeout', '1', code=4
+        )
 
     def spawn_prime(self, *fallback, code=0):
-        return self.run_command('spawn', str(self.store), '--kind', 'prime-agent', '--permission', 'auto',
-                                *fallback, '--', '--model', 'devin/swe-2', '--thinking', 'high',
-                                '--daemon-socket', '/tmp/owned-prime.sock', code=code)
+        return self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'prime-agent',
+            '--permission',
+            'auto',
+            *fallback,
+            '--',
+            '--model',
+            'devin/swe-2',
+            '--thinking',
+            'high',
+            '--daemon-socket',
+            '/tmp/owned-prime.sock',
+            code=code,
+        )
 
     def prime_calls(self, command):
-        return [json.loads(line) for line in (self.fake / 'prime.log').read_text().splitlines()
-                if json.loads(line)[0] == command]
+        return [
+            json.loads(line)
+            for line in (self.fake / 'prime.log').read_text().splitlines()
+            if json.loads(line)[0] == command
+        ]
 
     def complete_prime(self, status='done'):
         brief, _ = self.dispatch()
@@ -1006,8 +1409,17 @@ esac
         self.spawn_prime()
         role = self.state()['sidekick']
         self.assertEqual(role['kind'], 'prime-agent')
-        self.assertEqual(role['start_args'], ['--model', 'devin/swe-2', '--thinking', 'high',
-                                             '--daemon-socket', '/tmp/owned-prime.sock'])
+        self.assertEqual(
+            role['start_args'],
+            [
+                '--model',
+                'devin/swe-2',
+                '--thinking',
+                'high',
+                '--daemon-socket',
+                '/tmp/owned-prime.sock',
+            ],
+        )
         self.assertTrue(Path(role['session']['value']).is_file())
         preflight = json.loads((self.fake / 'prime.log').read_text().splitlines()[0])
         self.assertIn('--no-session', preflight)
@@ -1021,7 +1433,10 @@ esac
         self.assertFalse((self.fake / 'prime-sessions.json').exists())
         self.spawn_prime('--fallback', 'devin')
         self.assertEqual(self.state()['sidekick']['kind'], 'devin')
-        self.assertIn('preflight: prime-agent 0.10.0', self.state()['sidekick']['failovers'][0]['reason'])
+        self.assertIn(
+            'preflight: prime-agent 0.10.0',
+            self.state()['sidekick']['failovers'][0]['reason'],
+        )
 
     def test_prime_preflight_retries_once(self):
         (self.fake / 'prime-fail-once').touch()
@@ -1033,28 +1448,46 @@ esac
         self.script = skills / 'pstack-trio/scripts/pair.sh'
         self.store = self.path / 'state/pstack/trio/prime'
         self.run_command('init', 'prime')
-        (self.fake / 'hook').write_text(f'''#!/usr/bin/env bash
+        (self.fake / 'hook').write_text(f"""#!/usr/bin/env bash
 case "$2" in
 Load*)
   printf 'status: done\\n' >'{self.store}/reports/000-ready.md'
   printf 'status: answered\\n' >'{self.store}/advice/000-ready.md'
   ;;
 esac
-''')
-        self.run_command('spawn', str(self.store), '--sidekick', 'prime-agent',
-                         '--consultant', 'prime-agent', '--', '--model', 'mock/smoke')
+""")
+        self.run_command(
+            'spawn',
+            str(self.store),
+            '--sidekick',
+            'prime-agent',
+            '--consultant',
+            'prime-agent',
+            '--',
+            '--model',
+            'mock/smoke',
+        )
         state = self.state()
-        self.assertNotEqual(state['sidekick']['session'], state['consultant']['session'])
+        self.assertNotEqual(
+            state['sidekick']['session'], state['consultant']['session']
+        )
         self.assertEqual(state['sidekick']['kind'], 'prime-agent')
         self.assertEqual(state['consultant']['kind'], 'prime-agent')
         self.assertEqual(len(self.prime_calls('--fake-start')), 2)
 
-    def test_prime_rotation_stops_only_owned_session_and_preserves_queue_and_transcript(self):
+    def test_prime_rotation_stops_only_owned_session_and_preserves_queue_and_transcript(
+        self,
+    ):
         self.spawn_prime()
         before = self.state()['sidekick']
         sessions_file = self.fake / 'prime-sessions.json'
         sessions = json.loads(sessions_file.read_text())
-        other = {'activeSessionId': 'unrelated', 'sessionId': 'other', 'sessionFile': '/tmp/other.jsonl', 'name': 'human'}
+        other = {
+            'activeSessionId': 'unrelated',
+            'sessionId': 'other',
+            'sessionFile': '/tmp/other.jsonl',
+            'name': 'human',
+        }
         sessions_file.write_text(json.dumps(sessions + [other]))
         self.complete_prime()
         queued = self.store / 'briefs/002-next.md'
@@ -1070,9 +1503,14 @@ esac
         self.assertNotEqual(after['session'], before['session'])
         self.assertTrue(Path(before['session']['value']).exists())
         self.assertTrue((self.store / 'queue').exists())
-        self.assertEqual(self.prime_calls('stop'), [['stop', 'live-1', '--json', '--socket', '/tmp/owned-prime.sock']])
+        self.assertEqual(
+            self.prime_calls('stop'),
+            [['stop', 'live-1', '--json', '--socket', '/tmp/owned-prime.sock']],
+        )
         self.assertIn(other, json.loads(sessions_file.read_text()))
-        self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=4)
+        self.run_command(
+            'dispatch', str(self.store), str(queued), '--timeout', '1', code=4
+        )
 
     def test_prime_partial_report_keeps_its_session(self):
         self.spawn_prime()
@@ -1094,7 +1532,9 @@ esac
         self.spawn_prime('--fallback', 'devin')
         (self.fake / 'prime-stop-fail').touch()
         (self.fake / 'agents/demo-sidekick').write_text('blocked prime-agent\n')
-        self.run_command('failover', str(self.store), '--reason', 'provider failed', code=5)
+        self.run_command(
+            'failover', str(self.store), '--reason', 'provider failed', code=5
+        )
         self.assertEqual(len(self.prime_calls('--fake-start')), 1)
         self.assertEqual(self.state()['sidekick']['kind'], 'prime-agent')
         self.assertNotIn('--kind devin', (self.fake / 'calls.log').read_text())
@@ -1105,42 +1545,74 @@ esac
         sessions = json.loads(path.read_text())
         sessions.append({**sessions[0], 'activeSessionId': 'duplicate'})
         path.write_text(json.dumps(sessions))
-        self.run_command('failover', str(self.store), '--reason', 'provider failed', code=5)
+        self.run_command(
+            'failover', str(self.store), '--reason', 'provider failed', code=5
+        )
         self.assertEqual(self.prime_calls('stop'), [])
 
     def test_prime_live_client_without_a_matching_worker_starts_nothing(self):
         self.spawn_prime('--fallback', 'devin')
         (self.fake / 'prime-sessions.json').write_text('[]')
-        self.run_command('failover', str(self.store), '--reason', 'daemon mismatch', code=5)
+        self.run_command(
+            'failover', str(self.store), '--reason', 'daemon mismatch', code=5
+        )
         self.assertEqual(self.prime_calls('stop'), [])
-        self.assertNotIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
+        self.assertNotIn(
+            'agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text()
+        )
         self.assertEqual(self.state()['sidekick']['kind'], 'prime-agent')
 
     def test_prime_relative_daemon_socket_uses_launch_directory(self):
-        self.run_command('spawn', str(self.store), '--kind', 'prime-agent', '--', '--daemon-socket', 'daemon.sock')
+        self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'prime-agent',
+            '--',
+            '--daemon-socket',
+            'daemon.sock',
+        )
         self.complete_prime()
         self.run_command('rotate', str(self.store))
-        self.assertEqual(self.prime_calls('stop')[0][-2:], ['--socket', str(self.cwd / 'daemon.sock')])
+        self.assertEqual(
+            self.prime_calls('stop')[0][-2:],
+            ['--socket', str(self.cwd / 'daemon.sock')],
+        )
 
     def test_prime_working_steer_uses_exact_daemon_session_without_escape(self):
         self.spawn_prime()
         self.dispatch()
         steer = self.store / 'steers/001-first-s1.md'
-        steer.write_text('scope effect: none\n\n## Direction\n\nCorrect the acceptance criteria.\n')
+        steer.write_text(
+            'scope effect: none\n\n## Direction\n\nCorrect the acceptance criteria.\n'
+        )
         (self.fake / 'agents/demo-sidekick').write_text('working prime-agent\n')
         self.run_command('steer', str(self.store), str(steer))
         send = self.prime_calls('send')
         self.assertEqual(send[0][:3], ['send', '--json', 'live-1'])
         self.assertEqual(send[0][-2:], ['--socket', '/tmp/owned-prime.sock'])
-        self.assertNotIn('send-keys demo-sidekick esc', (self.fake / 'calls.log').read_text())
+        self.assertNotIn(
+            'send-keys demo-sidekick esc', (self.fake / 'calls.log').read_text()
+        )
 
     def test_prime_blocked_provider_error_is_read_from_owned_transcript(self):
         self.spawn_prime('--fallback', 'devin')
         self.dispatch()
         path = Path(self.state()['sidekick']['session']['value'])
         with path.open('a') as log:
-            log.write(json.dumps({'type': 'message', 'message': {'role': 'assistant',
-                      'stopReason': 'error', 'errorMessage': 'Error: capacity issues'}}) + '\n')
+            log.write(
+                json.dumps(
+                    {
+                        'type': 'message',
+                        'message': {
+                            'role': 'assistant',
+                            'stopReason': 'error',
+                            'errorMessage': 'Error: capacity issues',
+                        },
+                    }
+                )
+                + '\n'
+            )
         (self.fake / 'agents/demo-sidekick').write_text('blocked prime-agent\n')
         out = self.run_command('wait', str(self.store), '--timeout', '1', code=3)
         self.assertIn('capacity issues', out)
@@ -1153,21 +1625,44 @@ esac
         self.spawn_pi()
         state = self.state()
         self.assertEqual(state['sidekick']['kind'], 'pi')
-        self.assertEqual(state['sidekick']['start_args'],
-                         ['--approve', '--model', 'devin/swe-2', '--thinking', 'high'])
+        self.assertEqual(
+            state['sidekick']['start_args'],
+            ['--approve', '--model', 'devin/swe-2', '--thinking', 'high'],
+        )
         self.assertNotIn('failovers', state['sidekick'])
         preflight = (self.fake / 'pi.log').read_text().split('\n')[0]
-        self.assertEqual(preflight, '--no-session --no-approve --no-context-files --no-skills -p '
-                         '--model devin/swe-2 --thinking high Reply with exactly: OK')
+        self.assertEqual(
+            preflight,
+            '--no-session --no-approve --no-context-files --no-skills -p '
+            '--model devin/swe-2 --thinking high Reply with exactly: OK',
+        )
 
     def test_failed_preflight_starts_the_fallback_with_its_own_args(self):
-        (self.fake / 'pi-fail').write_text('Error: capacity issues with this serving model\n')
-        out = self.spawn_pi('--fallback', 'devin', '--fallback-arg', '--model', '--fallback-arg', 'swe-2-high')
+        (self.fake / 'pi-fail').write_text(
+            'Error: capacity issues with this serving model\n'
+        )
+        out = self.spawn_pi(
+            '--fallback',
+            'devin',
+            '--fallback-arg',
+            '--model',
+            '--fallback-arg',
+            'swe-2-high',
+        )
         self.assertIn('failover: pi -> devin', out)
         sidekick = self.state()['sidekick']
         self.assertEqual(sidekick['kind'], 'devin')
-        self.assertEqual(sidekick['start_args'],
-                         ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false', '--model', 'swe-2-high'])
+        self.assertEqual(
+            sidekick['start_args'],
+            [
+                '--permission-mode',
+                'dangerous',
+                '--respect-workspace-trust',
+                'false',
+                '--model',
+                'swe-2-high',
+            ],
+        )
         self.assertEqual(sidekick['failovers'][0]['from'], 'pi')
         self.assertIn('capacity issues', sidekick['failovers'][0]['reason'])
         self.assertIn('preflight: pi 1.0.2 at ', sidekick['failovers'][0]['reason'])
@@ -1190,30 +1685,78 @@ esac
         self.run_command('finish', str(self.store), str(report))
 
     def spawn_muse(self, *fallback, code=0):
-        return self.run_command('spawn', str(self.store), '--kind', 'muse', '--permission', 'auto',
-                                *fallback, '--', '--model', 'muse-wonder-full', '--reasoning-effort', 'max', code=code)
+        return self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'muse',
+            '--permission',
+            'auto',
+            *fallback,
+            '--',
+            '--model',
+            'muse-wonder-full',
+            '--reasoning-effort',
+            'max',
+            code=code,
+        )
 
     def test_muse_starts_trusted_without_approvals_after_a_clean_preflight(self):
         self.spawn_muse()
         sidekick = self.state()['sidekick']
         self.assertEqual(sidekick['kind'], 'muse')
-        self.assertEqual(sidekick['start_args'], ['--approval-mode', 'never', '--disable-sandbox', '--trust-workspace',
-                                                  '--model', 'muse-wonder-full', '--reasoning-effort', 'max'])
-        self.assertEqual((self.fake / 'muse.log').read_text().splitlines()[0],
-                         'exec --model muse-wonder-full Reply with exactly: OK')
+        self.assertEqual(
+            sidekick['start_args'],
+            [
+                '--approval-mode',
+                'never',
+                '--disable-sandbox',
+                '--trust-workspace',
+                '--model',
+                'muse-wonder-full',
+                '--reasoning-effort',
+                'max',
+            ],
+        )
+        self.assertEqual(
+            (self.fake / 'muse.log').read_text().splitlines()[0],
+            'exec --model muse-wonder-full Reply with exactly: OK',
+        )
 
     def test_a_muse_account_out_of_usage_fails_over_at_spawn(self):
-        (self.fake / 'muse-fail').write_text('Usage limit reached. Upgrade for increased limits, or wait for usage to reset at 18:00.\n')
-        out = self.spawn_muse('--fallback', 'codex', '--fallback-arg', '--model', '--fallback-arg', 'gpt-6.1-sol')
+        (self.fake / 'muse-fail').write_text(
+            'Usage limit reached. Upgrade for increased limits, or wait for usage to reset at 18:00.\n'
+        )
+        out = self.spawn_muse(
+            '--fallback',
+            'codex',
+            '--fallback-arg',
+            '--model',
+            '--fallback-arg',
+            'gpt-6.1-sol',
+        )
         self.assertIn('failover: muse -> codex', out)
         sidekick = self.state()['sidekick']
         self.assertEqual(sidekick['kind'], 'codex')
         self.assertIn('Usage limit reached', sidekick['failovers'][0]['reason'])
 
     def test_native_muse_safety_flags_win_over_the_translation(self):
-        self.run_command('spawn', str(self.store), '--kind', 'muse', '--permission', 'auto', '--',
-                         '--yolo', '--model', 'muse-spark-1.3')
-        self.assertEqual(self.state()['sidekick']['start_args'], ['--yolo', '--model', 'muse-spark-1.3'])
+        self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'muse',
+            '--permission',
+            'auto',
+            '--',
+            '--yolo',
+            '--model',
+            'muse-spark-1.3',
+        )
+        self.assertEqual(
+            self.state()['sidekick']['start_args'],
+            ['--yolo', '--model', 'muse-spark-1.3'],
+        )
 
     def test_failed_preflight_without_fallback_starts_nothing(self):
         (self.fake / 'pi-fail').write_text('No API key found for devin.\n')
@@ -1224,31 +1767,42 @@ esac
         (self.fake / 'stall').touch()
         out = self.spawn_pi()
         self.assertIn('prompt looked stalled', out)
-        self.assertIn('send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text())
+        self.assertIn(
+            'send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text()
+        )
         self.assertFalse(self.state()['sidekick']['bootstrap_pending'])
 
     def bootstrap_prompts(self):
-        return [line for line in (self.fake / 'calls.log').read_text().splitlines()
-                if line.startswith('agent prompt demo-sidekick Load the')]
+        return [
+            line
+            for line in (self.fake / 'calls.log').read_text().splitlines()
+            if line.startswith('agent prompt demo-sidekick Load the')
+        ]
 
     def test_a_swallowed_bootstrap_is_sent_once_more_to_an_idle_agent(self):
         (self.fake / 'prompt-drop').write_text('')
         out = self.spawn_pi()
         self.assertIn('prompt looked stalled', out)
         self.assertEqual(len(self.bootstrap_prompts()), 2)
-        self.assertNotIn('send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text())
+        self.assertNotIn(
+            'send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text()
+        )
         self.assertFalse(self.state()['sidekick']['bootstrap_pending'])
 
     def test_a_typed_bootstrap_gets_an_enter_and_no_second_prompt(self):
         (self.fake / 'stall').touch()
         self.spawn_pi()
         self.assertEqual(len(self.bootstrap_prompts()), 1)
-        self.assertIn('send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text())
+        self.assertIn(
+            'send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text()
+        )
 
     def test_a_blocked_agent_gets_no_keys_and_no_resend(self):
         (self.fake / 'prompt-drop').write_text('blocked')
         out = self.spawn_pi(code=3)
-        self.assertIn('is blocked on a dialog that needs the human; no keys were sent', out)
+        self.assertIn(
+            'is blocked on a dialog that needs the human; no keys were sent', out
+        )
         self.assertEqual(len(self.bootstrap_prompts()), 1)
         self.assertNotIn('send-keys', (self.fake / 'calls.log').read_text())
 
@@ -1259,11 +1813,15 @@ esac
         f.write_text(f'#!/usr/bin/env bash\n{script}\n')
         f.chmod(0o755)
 
-    def test_a_ready_file_that_lands_between_the_stall_and_the_recheck_is_not_resent(self):
+    def test_a_ready_file_that_lands_between_the_stall_and_the_recheck_is_not_resent(
+        self,
+    ):
         (self.fake / 'prompt-drop').write_text('')
         # The agent answers late: the ready file appears after the stall, at the
         # pane read that looks for a typed prompt, before the recheck.
-        self.once('read', f'printf "status: done\\n" >{self.store}/reports/000-ready.md')
+        self.once(
+            'read', f'printf "status: done\\n" >{self.store}/reports/000-ready.md'
+        )
         out = self.spawn_pi()
         self.assertEqual(len(self.bootstrap_prompts()), 1)
         self.assertIn('ready:', out)
@@ -1272,9 +1830,12 @@ esac
         (self.fake / 'prompt-drop').write_text('')
         self.env = {**self.env, 'PAIR_BOOTSTRAP_WAIT_MS': '1000'}
         # Another spawn takes the role after the stall, before the recheck.
-        self.once('read', f"python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d[\"sidekick\"][\"generation\"]+=1; json.dump(d,open(sys.argv[2],\"w\"),indent=2)'"
-                          f" {self.store}/pair.json {self.store}/pair.json.new"
-                          f" && mv {self.store}/pair.json.new {self.store}/pair.json")
+        self.once(
+            'read',
+            f'python3 -c \'import json,sys; d=json.load(open(sys.argv[1])); d["sidekick"]["generation"]+=1; json.dump(d,open(sys.argv[2],"w"),indent=2)\''
+            f' {self.store}/pair.json {self.store}/pair.json.new'
+            f' && mv {self.store}/pair.json.new {self.store}/pair.json',
+        )
         self.spawn_pi(code=3)
         self.assertEqual(len(self.bootstrap_prompts()), 1)
         self.assertNotIn('send-keys', (self.fake / 'calls.log').read_text())
@@ -1293,42 +1854,81 @@ esac
         out = self.run_command('finish', str(self.store), str(report))
         self.assertIn('rotation: required before the next task', out)
         self.run_command('next', str(self.store), code=5)
-        out = self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=4)
-        self.assertIn('rotated: the pi sidekick starts this brief in a fresh session', out)
-        self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
+        out = self.run_command(
+            'dispatch', str(self.store), str(queued), '--timeout', '1', code=4
+        )
+        self.assertIn(
+            'rotated: the pi sidekick starts this brief in a fresh session', out
+        )
+        self.assertIn(
+            'agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text()
+        )
         sidekick = self.state()['sidekick']
-        self.assertEqual((sidekick['kind'], sidekick['generation'], sidekick['start_args']), ('pi', 2, args))
+        self.assertEqual(
+            (sidekick['kind'], sidekick['generation'], sidekick['start_args']),
+            ('pi', 2, args),
+        )
         self.assertFalse(sidekick['rotation_required'])
         self.assertFalse((self.store / 'queue').exists())
 
     def test_pi_refuses_session_resume_args(self):
-        out = self.run_command('spawn', str(self.store), '--kind', 'pi', '--', '--continue', code=5)
+        out = self.run_command(
+            'spawn', str(self.store), '--kind', 'pi', '--', '--continue', code=5
+        )
         self.assertIn('pi task sessions start fresh', out)
 
     def test_tab_placement_gives_the_sidekick_its_own_tab(self):
-        self.run_command('spawn', str(self.store), '--kind', 'pi', '--tab', '--', '--model', 'devin/swe-2')
+        self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'pi',
+            '--tab',
+            '--',
+            '--model',
+            'devin/swe-2',
+        )
         calls = (self.fake / 'calls.log').read_text()
-        self.assertRegex(calls, r'tab create --workspace p0 --cwd \S+ --label demo-sidekick --no-focus')
+        self.assertRegex(
+            calls,
+            r'tab create --workspace p0 --cwd \S+ --label demo-sidekick --no-focus',
+        )
         self.assertNotIn('pane split', calls)
         state = self.state()
-        self.assertEqual((state['placement'], state['sidekick']['pane_id'][:1]), ('tab', 't'))
-        self.assertIn(f"take the sidekick role (generation 1, pane {state['sidekick']['pane_id']})", calls)
+        self.assertEqual(
+            (state['placement'], state['sidekick']['pane_id'][:1]), ('tab', 't')
+        )
+        self.assertIn(
+            f'take the sidekick role (generation 1, pane {state["sidekick"]["pane_id"]})',
+            calls,
+        )
 
     def test_placement_defaults_from_the_environment_and_split_overrides(self):
         self.env['PSTACK_PLACEMENT'] = 'tab'
         self.spawn_pi()
         self.assertEqual(self.state()['placement'], 'tab')
         (self.fake / 'agents/demo-sidekick').unlink()
-        self.run_command('spawn', str(self.store), '--kind', 'pi', '--split', '--', '--model', 'devin/swe-2')
+        self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'pi',
+            '--split',
+            '--',
+            '--model',
+            'devin/swe-2',
+        )
         self.assertEqual(self.state()['placement'], 'split')
 
     def test_init_names_a_stale_pane_and_takes_pane(self):
         self.env['HERDR_PANE_ID'] = 'gone7'
         out = self.run_command('init', 'other', code=2)
-        self.assertIn("pane gone7 is not a live Herdr pane", out)
+        self.assertIn('pane gone7 is not a live Herdr pane', out)
         self.assertIn('--pane ID', out)
         self.run_command('init', 'other', '--pane', 'p0')
-        master = json.loads((self.path / 'state/pstack/pair/other/pair.json').read_text())['master']
+        master = json.loads(
+            (self.path / 'state/pstack/pair/other/pair.json').read_text()
+        )['master']
         self.assertEqual(master['pane_id'], 'p0')
 
     def test_prompts_typed_but_reported_sent_are_submitted(self):
@@ -1357,12 +1957,25 @@ esac
         hook = self.fake / 'once/prompt'
         hook.write_text('#!/bin/sh\nkill -TERM "$(cut -d" " -f4 /proc/$PPID/stat)"\n')
         hook.chmod(0o755)
-        proc = subprocess.run([str(self.script), 'dispatch', str(self.store), str(brief), '--send-only'], cwd=self.cwd, env=self.env,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False, timeout=60)
-        self.assertTrue((self.fake / 'once/prompt.ran').exists(), 'the TERM was never sent')
+        proc = subprocess.run(
+            [str(self.script), 'dispatch', str(self.store), str(brief), '--send-only'],
+            cwd=self.cwd,
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        self.assertTrue(
+            (self.fake / 'once/prompt.ran').exists(), 'the TERM was never sent'
+        )
         # What matters is that the TERM did not stop the delivery.
         self.assertIn(f'sent: BRIEF {brief}', proc.stdout, proc.stderr)
-        self.assertIn(f'agent prompt demo-sidekick pstack-pair BRIEF {brief}', (self.fake / 'calls.log').read_text())
+        self.assertIn(
+            f'agent prompt demo-sidekick pstack-pair BRIEF {brief}',
+            (self.fake / 'calls.log').read_text(),
+        )
 
     def test_live_pi_skips_the_preflight(self):
         self.spawn_pi()
@@ -1374,13 +1987,22 @@ esac
         self.spawn_pi('--fallback', 'devin')
         pane = self.state()['sidekick']['pane_id']
         brief, _ = self.dispatch()
-        out = self.run_command('failover', str(self.store), '--reason', 'provider-error')
-        self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
+        out = self.run_command(
+            'failover', str(self.store), '--reason', 'provider-error'
+        )
+        self.assertIn(
+            'agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text()
+        )
         sidekick = self.state()['sidekick']
-        self.assertEqual((sidekick['kind'], sidekick['pane_id'], sidekick['generation']), ('devin', pane, 2))
+        self.assertEqual(
+            (sidekick['kind'], sidekick['pane_id'], sidekick['generation']),
+            ('devin', pane, 2),
+        )
         self.assertEqual(sidekick['failovers'][-1]['reason'], 'provider-error')
         self.assertIn(f'next: re-dispatch {brief}', out)
-        self.assertIn('failovers: 1 (pi:devin)', self.run_command('metrics', str(self.store)))
+        self.assertIn(
+            'failovers: 1 (pi:devin)', self.run_command('metrics', str(self.store))
+        )
         self.run_command('failover', str(self.store), code=5)
 
     def test_failover_needs_a_fallback_and_force_for_a_working_sidekick(self):
@@ -1391,7 +2013,9 @@ esac
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
         self.run_command('failover', str(self.store), code=5)
         self.run_command('failover', str(self.store), '--force')
-        self.assertIn('send-keys demo-sidekick esc', (self.fake / 'calls.log').read_text())
+        self.assertIn(
+            'send-keys demo-sidekick esc', (self.fake / 'calls.log').read_text()
+        )
         self.assertEqual(self.state()['sidekick']['kind'], 'devin')
 
     def test_missing_report_names_a_provider_error_and_the_failover(self):
@@ -1399,10 +2023,13 @@ esac
         screen = self.fake / 'screen'
         screen.mkdir()
         (screen / 'demo-sidekick').write_text(
-            'Error: We are currently experiencing capacity issues with this serving model.\n')
+            'Error: We are currently experiencing capacity issues with this serving model.\n'
+        )
         _, out = self.dispatch()
         self.assertIn('report: missing', out)
-        self.assertIn('provider_error: Error: We are currently experiencing capacity issues', out)
+        self.assertIn(
+            'provider_error: Error: We are currently experiencing capacity issues', out
+        )
         self.assertIn(f'pair.sh failover {self.store} --reason provider-error', out)
 
     def test_missing_report_without_provider_error_says_nothing_extra(self):
@@ -1704,8 +2331,12 @@ exit codes: the pair's, plus 2 for a failed gate, a rejected or invalid verdict,
 }
 
 
-ENTRY_SCRIPTS = {'pair': 'pstack-pair/scripts/pair.sh', 'guided': 'pstack-pair-guided/scripts/pair.sh', 'trio': 'pstack-trio/scripts/pair.sh',
-                 'kitchen': 'pstack-kitchen/scripts/kitchen.sh'}
+ENTRY_SCRIPTS = {
+    'pair': 'pstack-pair/scripts/pair.sh',
+    'guided': 'pstack-pair-guided/scripts/pair.sh',
+    'trio': 'pstack-trio/scripts/pair.sh',
+    'kitchen': 'pstack-kitchen/scripts/kitchen.sh',
+}
 
 
 class EntryScriptTests(unittest.TestCase):
@@ -1714,38 +2345,78 @@ class EntryScriptTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.env = {**inherited_env(), 'PATH': f'{here / "bin"}:{os.environ["PATH"]}', 'HOME': self.tmp.name, 'XDG_STATE_HOME': f'{self.tmp.name}/state',
-                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0'}
+        self.env = {
+            **inherited_env(),
+            'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
+            'HOME': self.tmp.name,
+            'XDG_STATE_HOME': f'{self.tmp.name}/state',
+            'HERDR_ENV': '1',
+            'HERDR_PANE_ID': 'p0',
+        }
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
 
     def run_script(self, key, *args, env=None):
-        return subprocess.run(['bash', str(skills / ENTRY_SCRIPTS[key]), *args], env=env or self.env, capture_output=True, text=True, check=False, timeout=60)
+        return subprocess.run(
+            ['bash', str(skills / ENTRY_SCRIPTS[key]), *args],
+            env=env or self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
 
     def prog(self, key):
         return 'kitchen.sh' if key == 'kitchen' else 'pair.sh'
 
-    def test_each_entry_script_is_a_shebang_at_most_two_comments_and_one_exec_line(self):
+    def test_each_entry_script_is_a_shebang_at_most_two_comments_and_one_exec_line(
+        self,
+    ):
         for key, rel in ENTRY_SCRIPTS.items():
             path = skills / rel
             lines = path.read_text().splitlines()
             self.assertEqual(lines[0], '#!/usr/bin/env bash', key)
             comments = [line for line in lines[1:] if line.startswith('#')]
-            code = [line for line in lines[1:] if line.strip() and not line.startswith('#')]
+            code = [
+                line for line in lines[1:] if line.strip() and not line.startswith('#')
+            ]
             self.assertLessEqual(len(comments), 2, key)
             self.assertEqual(len(code), 1, key)
             core = 'pair.py' if key == 'pair' else '../../pstack-pair/scripts/pair.py'
-            self.assertEqual(code[0], 'exec python3 -I "$(dirname "$(readlink -f "$0")")/' + core + '" --skill-root "$(dirname "$(dirname "$(readlink -f "$0")")")" "$@"', key)
-            self.assertEqual(subprocess.run(['bash', '-n', str(path)], capture_output=True, text=True, check=False).returncode, 0, key)
+            self.assertEqual(
+                code[0],
+                'exec python3 -I "$(dirname "$(readlink -f "$0")")/'
+                + core
+                + '" --skill-root "$(dirname "$(dirname "$(readlink -f "$0")")")" "$@"',
+                key,
+            )
+            self.assertEqual(
+                subprocess.run(
+                    ['bash', '-n', str(path)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                ).returncode,
+                0,
+                key,
+            )
             self.assertTrue(os.access(path, os.X_OK), key)
 
     def test_help_prints_the_usage_text_of_the_dispatch_head_byte_for_byte(self):
         for key in ENTRY_SCRIPTS:
             for word in ('help', '-h', '--help'):
                 r = self.run_script(key, word)
-                self.assertEqual((r.returncode, r.stdout, r.stderr), (0, HELP[key], ''), (key, word))
+                self.assertEqual(
+                    (r.returncode, r.stdout, r.stderr), (0, HELP[key], ''), (key, word)
+                )
 
-    def test_a_help_line_the_pair_guided_and_trio_share_is_written_once_in_the_source(self):
-        sources = [skills / 'pstack-pair/scripts/pstack_core/variant.py', skills / 'pstack-pair-guided/scripts/variant.py', skills / 'pstack-trio/scripts/variant.py']
+    def test_a_help_line_the_pair_guided_and_trio_share_is_written_once_in_the_source(
+        self,
+    ):
+        sources = [
+            skills / 'pstack-pair/scripts/pstack_core/variant.py',
+            skills / 'pstack-pair-guided/scripts/variant.py',
+            skills / 'pstack-trio/scripts/variant.py',
+        ]
         literals = []
         for source in sources:
             found = set()
@@ -1753,42 +2424,100 @@ class EntryScriptTests(unittest.TestCase):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):
                     found.update(node.value.split('\n'))
             literals.append(found)
-        twice = sorted({line for key in ('pair', 'guided', 'trio') for line in HELP[key].split('\n')
-                        if len(line) >= 30 and sum(line in found for found in literals) > 1})
+        twice = sorted(
+            {
+                line
+                for key in ('pair', 'guided', 'trio')
+                for line in HELP[key].split('\n')
+                if len(line) >= 30 and sum(line in found for found in literals) > 1
+            }
+        )
         self.assertEqual(twice, [])
-        self.assertTrue(any(len(line) >= 30 and sum(line in HELP[key] for key in ('pair', 'guided', 'trio')) == 3 for line in HELP['pair'].split('\n')))
+        self.assertTrue(
+            any(
+                len(line) >= 30
+                and sum(line in HELP[key] for key in ('pair', 'guided', 'trio')) == 3
+                for line in HELP['pair'].split('\n')
+            )
+        )
 
     def test_no_command_prints_the_usage_text_and_exits_1(self):
         for key in ENTRY_SCRIPTS:
             r = self.run_script(key)
-            self.assertEqual((r.returncode, r.stdout, r.stderr), (1, HELP[key], ''), key)
+            self.assertEqual(
+                (r.returncode, r.stdout, r.stderr), (1, HELP[key], ''), key
+            )
 
-    def test_an_unknown_or_malformed_word_prints_the_usage_text_then_the_script_name_and_the_word_and_exits_1(self):
+    def test_an_unknown_or_malformed_word_prints_the_usage_text_then_the_script_name_and_the_word_and_exits_1(
+        self,
+    ):
         for key in ENTRY_SCRIPTS:
-            for word in ('frob', 'Frob', 'init2', '-x', '__permission_args', 'new_plan', 'a b'):
+            for word in (
+                'frob',
+                'Frob',
+                'init2',
+                '-x',
+                '__permission_args',
+                'new_plan',
+                'a b',
+            ):
                 r = self.run_script(key, word)
-                self.assertEqual((r.returncode, r.stdout, r.stderr), (1, HELP[key], f'{self.prog(key)}: unknown command: {word}\n'), (key, word))
+                self.assertEqual(
+                    (r.returncode, r.stdout, r.stderr),
+                    (1, HELP[key], f'{self.prog(key)}: unknown command: {word}\n'),
+                    (key, word),
+                )
 
     def test_a_command_another_variant_has_is_unknown_here(self):
-        for key, word in (('pair', 'answer'), ('pair', 'consult'), ('guided', 'consult'), ('trio', 'answer'), ('kitchen', 'answer'), ('trio', 'verify'),
-                          ('pair', 'verify'), ('guided', 'new-consult'), ('pair', 'new-direction'), ('trio', 'new-answer')):
+        for key, word in (
+            ('pair', 'answer'),
+            ('pair', 'consult'),
+            ('guided', 'consult'),
+            ('trio', 'answer'),
+            ('kitchen', 'answer'),
+            ('trio', 'verify'),
+            ('pair', 'verify'),
+            ('guided', 'new-consult'),
+            ('pair', 'new-direction'),
+            ('trio', 'new-answer'),
+        ):
             r = self.run_script(key, word)
-            self.assertEqual((r.returncode, r.stdout, r.stderr), (1, HELP[key], f'{self.prog(key)}: unknown command: {word}\n'), (key, word))
+            self.assertEqual(
+                (r.returncode, r.stdout, r.stderr),
+                (1, HELP[key], f'{self.prog(key)}: unknown command: {word}\n'),
+                (key, word),
+            )
 
     def test_answer_reaches_its_command_through_the_guided_script_only(self):
         r = self.run_script('guided', 'answer')
-        self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', 'pair.sh: usage: pair.sh answer <store> <answer-path> [--timeout MS | --every MIN]\n'))
+        self.assertEqual(
+            (r.returncode, r.stdout, r.stderr),
+            (
+                1,
+                '',
+                'pair.sh: usage: pair.sh answer <store> <answer-path> [--timeout MS | --every MIN]\n',
+            ),
+        )
 
     def test_a_missing_herdr_ends_every_command_including_help_with_one_line(self):
         bin_dir = Path(self.tmp.name) / 'bin-without-herdr'
         bin_dir.mkdir()
-        for tool, target in (('bash', shutil.which('bash')), ('python3', sys.executable), ('dirname', shutil.which('dirname')), ('readlink', shutil.which('readlink'))):
+        for tool, target in (
+            ('bash', shutil.which('bash')),
+            ('python3', sys.executable),
+            ('dirname', shutil.which('dirname')),
+            ('readlink', shutil.which('readlink')),
+        ):
             (bin_dir / tool).symlink_to(target)
         env = {**self.env, 'PATH': str(bin_dir)}
         for key in ENTRY_SCRIPTS:
             for words in (('help',), (), ('frob',), ('status', '/nowhere')):
                 r = self.run_script(key, *words, env=env)
-                self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', f'{self.prog(key)}: herdr is required on PATH\n'), (key, words))
+                self.assertEqual(
+                    (r.returncode, r.stdout, r.stderr),
+                    (1, '', f'{self.prog(key)}: herdr is required on PATH\n'),
+                    (key, words),
+                )
 
 
 if __name__ == '__main__':

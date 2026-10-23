@@ -10,6 +10,7 @@ The script never fetches: --upstream is a checkout the caller has fetched.
 Exit codes: 0 done or nothing to do, 2 refused or tool failure (nothing written),
 3 conflicts to resolve, 4 judge rows to decide in the manifest.
 """
+
 import argparse
 from dataclasses import dataclass
 import difflib
@@ -22,8 +23,10 @@ import sys
 import tempfile
 
 CURSOR_KEYS = ('disable-model-invocation', 'mode', 'icon', 'color', 'reminder')
-ADAPTER = ('Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. '
-           'Its runtime mappings apply to all referenced playbooks and scripts.')
+ADAPTER = (
+    'Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. '
+    'Its runtime mappings apply to all referenced playbooks and scripts.'
+)
 SKILL_ROOTS = ('pstack/skills', 'pstack/automations/benny/skills')
 MARKER = '<<<<<<< local'
 ACTIONABLE = ('add', 'fast-forward', 'merge', 'conflict', 'remove')
@@ -56,7 +59,7 @@ def adapt(local_name, rel, data):
                 line = f'name: {local_name}'
         if not dropping:
             kept.append(line)
-    body = text[match.end():]
+    body = text[match.end() :]
     if local_name != 'pstack':
         body = f'\n{ADAPTER}\n\n{body}'
     return ('---\n' + '\n'.join(kept) + '\n---\n' + body).encode()
@@ -65,7 +68,9 @@ def adapt(local_name, rel, data):
 def run_git(cwd, *args, input=None):
     result = subprocess.run(['git', *args], cwd=cwd, capture_output=True, input=input)
     if result.returncode:
-        raise Stop(EXIT_ERROR, f'git {" ".join(args)} failed: {result.stderr.decode().strip()}')
+        raise Stop(
+            EXIT_ERROR, f'git {" ".join(args)} failed: {result.stderr.decode().strip()}'
+        )
     return result.stdout
 
 
@@ -73,7 +78,7 @@ def skill_of(path):
     """(upstream skill dir, dir name, path inside it) for a file under a skills root."""
     for root in SKILL_ROOTS:
         if path.startswith(root + '/'):
-            name, _, rel = path[len(root) + 1:].partition('/')
+            name, _, rel = path[len(root) + 1 :].partition('/')
             if rel:
                 return f'{root}/{name}', name, rel
     return None
@@ -114,16 +119,42 @@ class Upstream:
         return self.git('cat-file', 'blob', sha)
 
     def deltas(self, base, to):
-        tokens = self.git('diff', '-z', '-M', '--raw', '--no-abbrev', base, to, '--', *SKILL_ROOTS).decode().split('\0')
+        tokens = (
+            self.git(
+                'diff', '-z', '-M', '--raw', '--no-abbrev', base, to, '--', *SKILL_ROOTS
+            )
+            .decode()
+            .split('\0')
+        )
         found, i = [], 0
         while i < len(tokens) and tokens[i]:
             old_mode, new_mode, old_sha, new_sha, status = tokens[i][1:].split()
             status = status[0]
             if status in 'RC':
-                found.append(Delta(status, tokens[i + 1], tokens[i + 2], old_mode, new_mode, old_sha, new_sha))
+                found.append(
+                    Delta(
+                        status,
+                        tokens[i + 1],
+                        tokens[i + 2],
+                        old_mode,
+                        new_mode,
+                        old_sha,
+                        new_sha,
+                    )
+                )
                 i += 3
             else:
-                found.append(Delta(status, tokens[i + 1], tokens[i + 1], old_mode, new_mode, old_sha, new_sha))
+                found.append(
+                    Delta(
+                        status,
+                        tokens[i + 1],
+                        tokens[i + 1],
+                        old_mode,
+                        new_mode,
+                        old_sha,
+                        new_sha,
+                    )
+                )
                 i += 2
         return found
 
@@ -175,16 +206,35 @@ class Tree:
         return 'unmapped', None
 
     def collides(self, name):
-        return name in self.skills or name in self.watch or (self.root / 'skills' / name).exists()
+        return (
+            name in self.skills
+            or name in self.watch
+            or (self.root / 'skills' / name).exists()
+        )
 
     def write_manifest(self):
-        self.manifest_path.write_text(json.dumps(self.manifest, indent=2, ensure_ascii=False) + '\n')
+        self.manifest_path.write_text(
+            json.dumps(self.manifest, indent=2, ensure_ascii=False) + '\n'
+        )
 
 
 def merge_files(ours, base, theirs, base_rev, to_rev):
     """git merge-file with diff3 markers on three paths. Returns (bytes, conflict count)."""
-    cmd = ['git', 'merge-file', '-p', '--diff3', '-L', 'local', '-L', f'upstream {base_rev[:7]}',
-           '-L', f'upstream {to_rev[:7]}', ours, base, theirs]
+    cmd = [
+        'git',
+        'merge-file',
+        '-p',
+        '--diff3',
+        '-L',
+        'local',
+        '-L',
+        f'upstream {base_rev[:7]}',
+        '-L',
+        f'upstream {to_rev[:7]}',
+        ours,
+        base,
+        theirs,
+    ]
     try:
         result = subprocess.run(cmd, capture_output=True)
     except OSError as error:
@@ -192,7 +242,10 @@ def merge_files(ours, base, theirs, base_rev, to_rev):
     # 0 is clean and 1-127 is the conflict count; anything else, a signal included, is a tool failure.
     if 0 <= result.returncode <= 127:
         return result.stdout, result.returncode
-    raise Stop(EXIT_ERROR, f'git merge-file failed with exit {result.returncode}: {result.stderr.decode().strip()}')
+    raise Stop(
+        EXIT_ERROR,
+        f'git merge-file failed with exit {result.returncode}: {result.stderr.decode().strip()}',
+    )
 
 
 def merge3(ours, base, theirs, base_rev, to_rev):
@@ -232,17 +285,37 @@ def build(tree, up, base, to):
             if tree.collides(name):
                 if name not in collided:
                     collided.add(name)
-                    rows.append(Row('judge', f'skills/{name}', 'new upstream skill collides with a local skill or file'))
+                    rows.append(
+                        Row(
+                            'judge',
+                            f'skills/{name}',
+                            'new upstream skill collides with a local skill or file',
+                        )
+                    )
                 continue
             mapped_new[name] = upstream_dir
         dest = f'skills/{local}/{rel}'
-        theirs = adapt(local, rel, up.blob(delta.new_sha)) if delta.status != 'D' else None
+        theirs = (
+            adapt(local, rel, up.blob(delta.new_sha)) if delta.status != 'D' else None
+        )
         ours = tree.read(dest)
         if delta.status == 'A':
             if ours is None:
-                rows.append(Row('add', dest, 'new skill' if kind == 'new' else '', theirs, delta.new_mode))
+                rows.append(
+                    Row(
+                        'add',
+                        dest,
+                        'new skill' if kind == 'new' else '',
+                        theirs,
+                        delta.new_mode,
+                    )
+                )
             elif ours != theirs:
-                rows.append(Row('judge', dest, 'added upstream, a different file exists locally'))
+                rows.append(
+                    Row(
+                        'judge', dest, 'added upstream, a different file exists locally'
+                    )
+                )
         elif delta.status == 'D':
             if ours is not None:
                 rows.append(Row('keep', dest, 'deleted upstream'))
@@ -251,10 +324,16 @@ def build(tree, up, base, to):
         elif delta.status == 'R':
             rows.extend(renamed(tree, up, delta, base_dirs, dest, theirs))
         else:
-            rows.append(Row('judge', dest, f'upstream changed the file type ({delta.status})'))
+            rows.append(
+                Row('judge', dest, f'upstream changed the file type ({delta.status})')
+            )
     for row in rows:
         if row.disposition == 'add' and row.note == 'new skill':
-            row.new_skill = next((n, d) for n, d in mapped_new.items() if row.path.startswith(f'skills/{n}/'))
+            row.new_skill = next(
+                (n, d)
+                for n, d in mapped_new.items()
+                if row.path.startswith(f'skills/{n}/')
+            )
     return sorted(rows, key=lambda r: (r.path, r.disposition))
 
 
@@ -292,7 +371,10 @@ def renamed(tree, up, delta, base_dirs, dest, theirs):
         return [Row('add', dest, f'renamed from {old_dest}', theirs, delta.new_mode)]
     if ours_old != adapt(old_local, old_found[2], up.blob(delta.old_sha)):
         return [Row('judge', old_dest, f'customized file renamed upstream to {dest}')]
-    return [Row('remove', old_dest, f'renamed to {dest}'), Row('add', dest, f'renamed from {old_dest}', theirs, delta.new_mode)]
+    return [
+        Row('remove', old_dest, f'renamed to {dest}'),
+        Row('add', dest, f'renamed from {old_dest}', theirs, delta.new_mode),
+    ]
 
 
 def watched(tree, up, base, to):
@@ -319,14 +401,20 @@ def summarize(rows):
 def print_rows(rows):
     for row in rows:
         if row.disposition != 'noop':
-            print(f'{row.disposition:<13} {row.path}' + (f'  ({row.note})' if row.note else ''))
+            print(
+                f'{row.disposition:<13} {row.path}'
+                + (f'  ({row.note})' if row.note else '')
+            )
 
 
 def print_watched(tree, up, base, to):
     if tree.watch:
         print('watched (never written):')
         for name, stat in watched(tree, up, base, to).items():
-            print(f'  {name}: ' + (stat.replace(chr(10), chr(10) + "    ") if stat else 'no change'))
+            print(
+                f'  {name}: '
+                + (stat.replace(chr(10), chr(10) + '    ') if stat else 'no change')
+            )
 
 
 def context(args):
@@ -334,7 +422,12 @@ def context(args):
     up = Upstream(args.upstream)
     base = up.commit(tree.manifest['upstream']['revision'])
     to = up.commit(getattr(args, 'to', None) or 'HEAD')
-    if base != to and subprocess.run(['git', 'merge-base', '--is-ancestor', base, to], cwd=up.checkout).returncode:
+    if (
+        base != to
+        and subprocess.run(
+            ['git', 'merge-base', '--is-ancestor', base, to], cwd=up.checkout
+        ).returncode
+    ):
         raise Stop(EXIT_ERROR, f'{base[:7]} is not an ancestor of {to[:7]}')
     return tree, up, base, to
 
@@ -350,7 +443,10 @@ def cmd_plan(args):
         print('unmapped upstream skills (never imported): ' + ', '.join(names))
     counts = summarize(rows)
     todo = sum(counts.get(d, 0) for d in ACTIONABLE + ('judge',))
-    print('summary: ' + (', '.join(f'{n} {d}' for d, n in sorted(counts.items())) or 'no changes'))
+    print(
+        'summary: '
+        + (', '.join(f'{n} {d}' for d, n in sorted(counts.items())) or 'no changes')
+    )
     pending = tree.manifest['upstream'].get('pending')
     if pending:
         print(f'pending: update to {pending["revision"][:7]} is unresolved')
@@ -360,7 +456,9 @@ def cmd_plan(args):
 
 
 def dirty(root, paths):
-    out = run_git(root, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--', *paths)
+    out = run_git(
+        root, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--', *paths
+    )
     return [e[3:] for e in out.decode().split('\0') if e]
 
 
@@ -370,13 +468,18 @@ def cmd_apply(args):
     pending = upstream.get('pending')
     if pending:
         if to != pending['revision']:
-            raise Stop(EXIT_ERROR, f'update to {pending["revision"][:7]} is unresolved; rerun with --to {pending["revision"][:7]}')
+            raise Stop(
+                EXIT_ERROR,
+                f'update to {pending["revision"][:7]} is unresolved; rerun with --to {pending["revision"][:7]}',
+            )
         return resume(tree, pending)
     rows = build(tree, up, base, to)
     judge = [r for r in rows if r.disposition == 'judge']
     if judge:
         print_rows(judge)
-        print('judge rows: decide each in sources.json (excluded) or commit a hand change, then rerun. Nothing was written.')
+        print(
+            'judge rows: decide each in sources.json (excluded) or commit a hand change, then rerun. Nothing was written.'
+        )
         return EXIT_JUDGE
     todo = [r for r in rows if r.disposition in ACTIONABLE]
     if not todo and base == to:
@@ -385,7 +488,11 @@ def cmd_apply(args):
     paths = sorted({r.path for r in todo} | {'sources.json'})
     unclean = dirty(tree.root, paths)
     if unclean:
-        raise Stop(EXIT_ERROR, 'uncommitted changes in the way (commit or stash them): ' + ', '.join(unclean))
+        raise Stop(
+            EXIT_ERROR,
+            'uncommitted changes in the way (commit or stash them): '
+            + ', '.join(unclean),
+        )
     for row in todo:
         file = tree.root / row.path
         if row.disposition == 'remove':
@@ -400,14 +507,21 @@ def cmd_apply(args):
     conflicts = [r.path for r in todo if r.disposition == 'conflict']
     version = up.version(to) or upstream.get('version')
     if conflicts:
-        upstream['pending'] = {'revision': to, 'version': version, 'conflicts': conflicts,
-                               'written': [r.path for r in todo if r.disposition != 'remove'], 'deleted': []}
+        upstream['pending'] = {
+            'revision': to,
+            'version': version,
+            'conflicts': conflicts,
+            'written': [r.path for r in todo if r.disposition != 'remove'],
+            'deleted': [],
+        }
     else:
         upstream['revision'], upstream['version'] = to, version
     tree.write_manifest()
     print_rows(todo)
     if conflicts:
-        print(f'{len(conflicts)} file(s) hold conflict markers. Resolve them, then rerun with --to {to[:7]}.')
+        print(
+            f'{len(conflicts)} file(s) hold conflict markers. Resolve them, then rerun with --to {to[:7]}.'
+        )
         return EXIT_CONFLICT
     print(f'applied {to[:7]}')
     return 0
@@ -423,14 +537,20 @@ def resume(tree, pending):
         elif MARKER.encode() in data:
             unresolved.append(path)
     if missing:
-        raise Stop(EXIT_ERROR, 'conflicted file(s) missing (restore them, or list them in upstream.pending.deleted): '
-                   + ', '.join(missing))
+        raise Stop(
+            EXIT_ERROR,
+            'conflicted file(s) missing (restore them, or list them in upstream.pending.deleted): '
+            + ', '.join(missing),
+        )
     if unresolved:
         print('\n'.join(f'conflict      {p}' for p in unresolved))
         print('Resolve the markers above, then rerun with the same --to.')
         return EXIT_CONFLICT
     upstream = tree.manifest['upstream']
-    upstream['revision'], upstream['version'] = pending['revision'], pending['version'] or upstream.get('version')
+    upstream['revision'], upstream['version'] = (
+        pending['revision'],
+        pending['version'] or upstream.get('version'),
+    )
     del upstream['pending']
     tree.write_manifest()
     print(f'applied {pending["revision"][:7]}')
@@ -439,7 +559,12 @@ def resume(tree, pending):
 
 def diffstat(ours, theirs):
     added = removed = 0
-    for line in difflib.unified_diff(theirs.decode(errors='replace').splitlines(), ours.decode(errors='replace').splitlines(), lineterm='', n=0):
+    for line in difflib.unified_diff(
+        theirs.decode(errors='replace').splitlines(),
+        ours.decode(errors='replace').splitlines(),
+        lineterm='',
+        n=0,
+    ):
         if line.startswith('+') and not line.startswith('+++'):
             added += 1
         elif line.startswith('-') and not line.startswith('---'):
@@ -449,8 +574,15 @@ def diffstat(ours, theirs):
 
 def audit(tree, up, rev):
     base_tree = up.tree(rev)
-    report = {'customized': [], 'binary': [], 'absent': [], 'local_only_files': [], 'local_only_skills': [],
-              'watched': dict(tree.watch), 'unmapped': unmapped_dirs(tree, up, rev)}
+    report = {
+        'customized': [],
+        'binary': [],
+        'absent': [],
+        'local_only_files': [],
+        'local_only_skills': [],
+        'watched': dict(tree.watch),
+        'unmapped': unmapped_dirs(tree, up, rev),
+    }
     mapped_files = {}
     for path, (_, sha) in sorted(base_tree.items()):
         found = skill_of(path)
@@ -477,7 +609,9 @@ def audit(tree, up, rev):
             rel = file.relative_to(folder).as_posix()
             if rel not in rels:
                 report['local_only_files'].append(f'skills/{local}/{rel}')
-    report['local_only_skills'] = sorted(n for n, v in tree.skills.items() if not v.startswith('pstack/'))
+    report['local_only_skills'] = sorted(
+        n for n, v in tree.skills.items() if not v.startswith('pstack/')
+    )
     return report
 
 
@@ -490,9 +624,16 @@ def cmd_audit(args):
     print(f'customized upstream files ({len(report["customized"])}):')
     for path, added, removed in report['customized']:
         print(f'  {path}  +{added} -{removed}')
-    for heading, key in (('binary files that differ', 'binary'), ('upstream files absent locally', 'absent'),
-                         ('local-only files in mapped skills (includes kept upstream deletions)', 'local_only_files'),
-                         ('local-only skills', 'local_only_skills'), ('unmapped upstream skills', 'unmapped')):
+    for heading, key in (
+        ('binary files that differ', 'binary'),
+        ('upstream files absent locally', 'absent'),
+        (
+            'local-only files in mapped skills (includes kept upstream deletions)',
+            'local_only_files',
+        ),
+        ('local-only skills', 'local_only_skills'),
+        ('unmapped upstream skills', 'unmapped'),
+    ):
         print(f'{heading} ({len(report[key])}):')
         for item in report[key]:
             print(f'  {item}')
@@ -503,19 +644,37 @@ def cmd_audit(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1], help='the repo to update')
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        '--root',
+        type=Path,
+        default=Path(__file__).resolve().parents[1],
+        help='the repo to update',
+    )
     sub = parser.add_subparsers(dest='command', required=True)
     for name in ('audit', 'plan', 'apply'):
         command = sub.add_parser(name)
-        command.add_argument('--upstream', type=Path, required=True, help='a fetched cursor/plugins checkout')
+        command.add_argument(
+            '--upstream',
+            type=Path,
+            required=True,
+            help='a fetched cursor/plugins checkout',
+        )
         if name == 'audit':
-            command.add_argument('--at', help='revision to compare with; default the pinned one')
+            command.add_argument(
+                '--at', help='revision to compare with; default the pinned one'
+            )
         else:
-            command.add_argument('--to', help='target revision; default the checkout HEAD')
+            command.add_argument(
+                '--to', help='target revision; default the checkout HEAD'
+            )
     args = parser.parse_args(argv)
     try:
-        return {'audit': cmd_audit, 'plan': cmd_plan, 'apply': cmd_apply}[args.command](args)
+        return {'audit': cmd_audit, 'plan': cmd_plan, 'apply': cmd_apply}[args.command](
+            args
+        )
     except Stop as stop:
         print(f'error: {stop}', file=sys.stderr)
         return stop.code

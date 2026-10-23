@@ -32,12 +32,16 @@ def install_standing_orders(ctx, orders):
     try:
         shutil.copyfile(source, orders)
     except OSError as e:
-        sys.stderr.write(f'{ctx.prog}: cannot copy {source} to {orders}: {os.strerror(e.errno)}\n')
+        sys.stderr.write(
+            f'{ctx.prog}: cannot copy {source} to {orders}: {os.strerror(e.errno)}\n'
+        )
         return
     try:
         os.chmod(orders, os.stat(orders).st_mode | stat.S_IWUSR)
     except OSError as e:
-        sys.stderr.write(f'{ctx.prog}: cannot make {orders} writable: {os.strerror(e.errno)}\n')
+        sys.stderr.write(
+            f'{ctx.prog}: cannot make {orders} writable: {os.strerror(e.errno)}\n'
+        )
 
 
 def write_new(path, text):
@@ -51,8 +55,17 @@ def write_new(path, text):
 
 def re_register(store, pane, workspace, tab, now):
     """json_update of .master.pane_id, .master.workspace_id, .master.tab_id and .master.registered_at."""
+
     def mutate(doc):
-        member(doc, 'master').update({'pane_id': pane, 'workspace_id': workspace, 'tab_id': tab, 'registered_at': now})
+        member(doc, 'master').update(
+            {
+                'pane_id': pane,
+                'workspace_id': workspace,
+                'tab_id': tab,
+                'registered_at': now,
+            }
+        )
+
     update(store, mutate)
 
 
@@ -72,7 +85,10 @@ class InitResult:
 def init_request(ctx, args):
     """The InitRequest of `init <slug> [--store DIR] [--pane ID]`, once the command may run here at all."""
     if os.environ.get('PSTACK_KITCHEN_ROLE') == 'verifier':
-        raise Exit(2, f'{ctx.prog}: init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier\n')
+        raise Exit(
+            2,
+            f'{ctx.prog}: init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier\n',
+        )
     require_herdr()
     if not args:
         raise Die(f'usage: {ctx.prog} init <slug> [--store DIR] [--pane ID]')
@@ -81,10 +97,14 @@ def init_request(ctx, args):
     store, longest = opts.last('--store', ''), ctx.roles[-1]
     pane = opts.last('--pane', os.environ.get('HERDR_PANE_ID', ''))
     if not re.fullmatch(rf'[a-z][a-z0-9_-]{{0,{ctx.slug_max}}}', slug):
-        raise Die(f"slug must match [a-z][a-z0-9_-]{{0,{ctx.slug_max}}} (so <slug>-{longest} fits Herdr's 32-char name limit)")
+        raise Die(
+            f"slug must match [a-z][a-z0-9_-]{{0,{ctx.slug_max}}} (so <slug>-{longest} fits Herdr's 32-char name limit)"
+        )
     store = store or f'{ctx.state_root}/{slug}'
     if not pane:
-        raise Die('HERDR_PANE_ID is unset; run from a Herdr-managed pane, or pass --pane ID')
+        raise Die(
+            'HERDR_PANE_ID is unset; run from a Herdr-managed pane, or pass --pane ID'
+        )
     return InitRequest(slug, store, pane)
 
 
@@ -98,20 +118,43 @@ def init_store(ctx, request, out=None):
     master = f'{slug}-master'
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     cwd, root = logical_cwd(), git.toplevel()
-    workspace, tab = os.environ.get('HERDR_WORKSPACE_ID', ''), os.environ.get('HERDR_TAB_ID', '')
+    workspace, tab = (
+        os.environ.get('HERDR_WORKSPACE_ID', ''),
+        os.environ.get('HERDR_TAB_ID', ''),
+    )
     # HERDR_PANE_ID can be stale: Codex runs every session's commands through one shared app-server daemon, which keeps the pane it was
     # started in.
     if herdr('agent', 'rename', pane, master)[0] != 0:
-        raise Die(f"pane {pane} is not a live Herdr pane; HERDR_PANE_ID is stale when a harness runs commands through a shared daemon "
-                  "(Codex's app-server). Pass your pane with --pane ID (herdr agent list shows each agent's pane)", 2)
+        raise Die(
+            f'pane {pane} is not a live Herdr pane; HERDR_PANE_ID is stale when a harness runs commands through a shared daemon '
+            "(Codex's app-server). Pass your pane with --pane ID (herdr agent list shows each agent's pane)",
+            2,
+        )
     if os.path.isfile(f'{store}/pair.json'):
         re_register(store, pane, workspace, tab, now)
         write(f'store: {store} (re-registered master {master} in {pane})\n')
     else:
-        doc = {'slug': slug, 'store': store, 'created_at': now, 'cwd': cwd, 'git_root': root,
-               'master': {'name': master, 'pane_id': pane, 'workspace_id': workspace, 'tab_id': tab, 'registered_at': now}}
+        doc = {
+            'slug': slug,
+            'store': store,
+            'created_at': now,
+            'cwd': cwd,
+            'git_root': root,
+            'master': {
+                'name': master,
+                'pane_id': pane,
+                'workspace_id': workspace,
+                'tab_id': tab,
+                'registered_at': now,
+            },
+        }
         for role in ctx.roles:
-            doc[role] = {'name': f'{slug}-{role}', 'pane_id': None, 'kind': None, 'started_at': None}
+            doc[role] = {
+                'name': f'{slug}-{role}',
+                'pane_id': None,
+                'kind': None,
+                'started_at': None,
+            }
         if 'consultant' in doc:
             doc['scratch'] = []
         write_new(f'{store}/pair.json', _dumps(doc))

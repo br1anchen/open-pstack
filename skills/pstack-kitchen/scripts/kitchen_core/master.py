@@ -8,12 +8,43 @@ import time
 
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec, read as read_options
-from pstack_core.store import read_text, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at, update, who
+from pstack_core.store import (
+    read_text,
+    event,
+    field,
+    json_type,
+    listing,
+    load,
+    member,
+    pair_file,
+    peek,
+    read,
+    read_flag,
+    text_at,
+    update,
+    who,
+)
 from pstack_core.numbers import env_float, env_int
-from pstack_core.errors import DamagedStore, Die, Exit, HandoffNotReady, NextMasterNotStarted, RotateRefused
+from pstack_core.errors import (
+    DamagedStore,
+    Die,
+    Exit,
+    HandoffNotReady,
+    NextMasterNotStarted,
+    RotateRefused,
+)
 from pstack_core.exits import end_agent, exit_deadline, stop_prime_role
 from pstack_core.panes import (
-    DEVNULL, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, refuse_untrusted, reply_at, require_herdr,
+    DEVNULL,
+    agent_kind,
+    agent_prompt,
+    agent_start,
+    agent_status,
+    herdr,
+    new_pane,
+    refuse_untrusted,
+    reply_at,
+    require_herdr,
 )
 from pstack_core import procinfo
 from pstack_core.permission import caller_pid, mode_of_this_shell
@@ -55,13 +86,21 @@ def close(ctx, args):
     if not args:
         raise Die('usage: kitchen.sh close <store> [--force]')
     store = args[0]
-    force = read_options(args[1:], Spec(flags=('--force',), slots={'--force': 0}, unknown='collect')).present('--force')
+    force = read_options(
+        args[1:], Spec(flags=('--force',), slots={'--force': 0}, unknown='collect')
+    ).present('--force')
     pair_file(store)
     if not force:
         if field(store, 'verifying', 'verdict'):
-            raise Die(f"a verification is open ({field(store, 'verifying', 'units')}); finish it (kitchen.sh verify {store} --wait) or pass --force", 5)
+            raise Die(
+                f'a verification is open ({field(store, "verifying", "units")}); finish it (kitchen.sh verify {store} --wait) or pass --force',
+                5,
+            )
         if agent_status(field(store, 'sidekick', 'name')) == 'working':
-            raise Die(f'the sidekick is working; kitchen.sh stop {store} first, or pass --force', 5)
+            raise Die(
+                f'the sidekick is working; kitchen.sh stop {store} first, or pass --force',
+                5,
+            )
     failed = False
     for role in ('verifier', 'consultant', 'sidekick'):
         if not close_role(store, role):
@@ -108,14 +147,26 @@ def section_has_text(path, heading):
 
 def herdr_session(name):
     """the session value of `herdr agent get NAME`, a reply that cannot be read ignored."""
-    return reply_at(herdr('agent', 'get', name)[1], 'result', 'agent', 'agent_session', 'value', quiet=True) or ''
+    return (
+        reply_at(
+            herdr('agent', 'get', name)[1],
+            'result',
+            'agent',
+            'agent_session',
+            'value',
+            quiet=True,
+        )
+        or ''
+    )
 
 
 def check_handoff(ctx, store):
     """The handoff the next master reads: written from the template, filled, with text under Goal and Next. Returns its path."""
     handoff = f'{store}/session-handoff.md'
     if not os.path.isfile(handoff):
-        raise HandoffNotReady(f'no handoff; write one first: kitchen.sh new-handoff {store}')
+        raise HandoffNotReady(
+            f'no handoff; write one first: kitchen.sh new-handoff {store}'
+        )
     require_filled(ctx, handoff)
     for heading in ('Goal', 'Next'):
         if not section_has_text(handoff, f'## {heading}'):
@@ -128,9 +179,15 @@ def rotatable_master(store):
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')
     if read(store, 'master.previous.name'):
-        raise RotateRefused(f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first')
+        raise RotateRefused(
+            f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first'
+        )
     if agent_status(name) == 'absent':
-        raise RotateRefused(f"{who('master', name)} is not live" + (f' in {pane}' if pane else '') + "; run this from the master's own session")
+        raise RotateRefused(
+            f'{who("master", name)} is not live'
+            + (f' in {pane}' if pane else '')
+            + "; run this from the master's own session"
+        )
     kind = agent_kind(name)
     if kind != 'claude':
         raise RotateRefused(f'rotate-master restarts a Claude master; {name} is {kind}')
@@ -142,7 +199,9 @@ def master_generation(store, session):
     gen = read(store, 'master.generation', '1')
     sessions = listing(peek(load(store), 'master'), 'sessions')
     if sessions and not isinstance(sessions[-1], dict):
-        raise DamagedStore(f'master.sessions holds {json_type(sessions[-1])}, not an object')
+        raise DamagedStore(
+            f'master.sessions holds {json_type(sessions[-1])}, not an object'
+        )
     if session and sessions and session == text_at(sessions[-1], 'session'):
         gen = text_at(sessions[-1], 'generation')
     return int(gen)
@@ -171,7 +230,9 @@ def start_next_master(store, pane, temp, argv, gen_n):
         refuse_untrusted(new_pane_id, 'claude', cwd, True)
         herdr('pane', 'close', new_pane_id)
         event(store, 'master', 'rotate-failed', '-', f'generation:{gen_n + 1}')
-        raise NextMasterNotStarted(f'the next master did not start in {new_pane_id}; you stay the master (generation {gen_n}), so carry on and rotate at a later boundary')
+        raise NextMasterNotStarted(
+            f'the next master did not start in {new_pane_id}; you stay the master (generation {gen_n}), so carry on and rotate at a later boundary'
+        )
     return new_pane_id
 
 
@@ -195,7 +256,9 @@ def record_handover(store, handoff, gen_n, session, old, new):
         master['name'], master['pane_id'], master['registered_at'] = new[0], new[1], now
         master['generation'] = gen_n + 1
         master['units_since_handoff'] = 0
-        master['sessions'] = kept + [{'generation': gen_n, 'session': session, 'handoff': copy, 'at': now}]
+        master['sessions'] = kept + [
+            {'generation': gen_n, 'session': session, 'handoff': copy, 'at': now}
+        ]
 
     update(store, mutate)
     return copy
@@ -215,22 +278,35 @@ def rotate_master(ctx, args):
     gen_n = master_generation(store, session)
     next_gen = gen_n + 1
     # Herdr names are unique, so the new master holds a generation name until take-master frees the run's own.
-    temp = f"{read(store, 'slug')}-master-g{next_gen}"
+    temp = f'{read(store, "slug")}-master-g{next_gen}'
     argv, remote = next_master_argv(store, temp, model)
     new_pane_id = start_next_master(store, pane, temp, argv, gen_n)
-    copy = record_handover(store, handoff, gen_n, session, (name, pane), (temp, new_pane_id))
+    copy = record_handover(
+        store, handoff, gen_n, session, (name, pane), (temp, new_pane_id)
+    )
     event(store, 'master', 'handoff', '-', f'generation:{gen_n}')
     event(store, 'master', 'spawn', '-', f'claude:generation:{next_gen}')
     skill = ctx.skill
-    agent_prompt(temp, f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {next_gen}). '
-             f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read {store}/session-handoff.md.', wait=True, until='working',
-             timeout_ms=30000)
+    agent_prompt(
+        temp,
+        f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {next_gen}). '
+        f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read {store}/session-handoff.md.',
+        wait=True,
+        until='working',
+        timeout_ms=30000,
+    )
     submit_typed(temp, 'take-master')
     out = sys.stdout
-    out.write(f'handoff recorded: {copy} (generation {gen_n}, session {session or "unknown"})\n')
-    out.write(f'next master: {temp} (generation {next_gen}) in {new_pane_id}{", remote control on" if remote else ""}; it closes this pane with take-master\n')
-    out.write(f'next: end your turn now, with no further commands, and act on no later prompt or task notification: generation {next_gen} owns the run. '
-              f'Resume this session later with: claude --resume {session or "<id>"}\n')
+    out.write(
+        f'handoff recorded: {copy} (generation {gen_n}, session {session or "unknown"})\n'
+    )
+    out.write(
+        f'next master: {temp} (generation {next_gen}) in {new_pane_id}{", remote control on" if remote else ""}; it closes this pane with take-master\n'
+    )
+    out.write(
+        f'next: end your turn now, with no further commands, and act on no later prompt or task notification: generation {next_gen} owns the run. '
+        f'Resume this session later with: claude --resume {session or "<id>"}\n'
+    )
     return 0
 
 
@@ -248,20 +324,28 @@ def take_master(ctx, args):
         return 0
     here = os.environ.get('HERDR_PANE_ID', '')
     if here != pane:
-        raise Die(f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}", 5)
+        raise Die(
+            f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}",
+            5,
+        )
     prev_pane = read(store, 'master.previous.pane_id')
     deadline = int(time.time()) + env_int('KITCHEN_TAKEOVER_WAIT_S', 30)
     while agent_status(prev) == 'working' and int(time.time()) < deadline:
         time.sleep(env_float('KITCHEN_ROTATE_POLL_S', 2))
     # Close the pane only while it still holds the old master, or nothing.
-    host = reply_at(herdr('agent', 'get', prev_pane)[1], 'result', 'agent', 'name', quiet=True) or ''
+    host = (
+        reply_at(
+            herdr('agent', 'get', prev_pane)[1], 'result', 'agent', 'name', quiet=True
+        )
+        or ''
+    )
     closed = 'kept'
     if herdr('pane', 'get', prev_pane)[0] != 0:
         closed = 'gone'
     elif not host or host == prev:
         if herdr('pane', 'close', prev_pane)[0] == 0:
             closed = 'closed'
-    base = f"{read(store, 'slug')}-master"
+    base = f'{read(store, "slug")}-master'
     if name != base and herdr('agent', 'rename', pane, base)[0] == 0:
         name = base
 
@@ -271,15 +355,25 @@ def take_master(ctx, args):
         master.pop('previous', None)
 
     update(store, mutate)
-    event(store, 'master', 'takeover', '-', f"generation:{field(store, 'master', 'generation')}")
+    event(
+        store,
+        'master',
+        'takeover',
+        '-',
+        f'generation:{field(store, "master", "generation")}',
+    )
     out = sys.stdout
     if closed == 'closed':
         out.write(f'closed the old master {prev} ({prev_pane})\n')
     elif closed == 'gone':
         out.write(f'the old master pane {prev_pane} is already gone\n')
     else:
-        out.write(f'left pane {prev_pane} open: it now holds {host}, not the old master {prev}\n')
-    out.write(f"master: {name} in {pane} (generation {field(store, 'master', 'generation')})\n")
+        out.write(
+            f'left pane {prev_pane} open: it now holds {host}, not the old master {prev}\n'
+        )
+    out.write(
+        f'master: {name} in {pane} (generation {field(store, "master", "generation")})\n'
+    )
     out.flush()
     warn_unreviewed(store)
     return 0

@@ -24,7 +24,16 @@ from dataclasses import dataclass
 from pstack_core import git
 from pstack_core.panes import require_herdr
 from pstack_core.commands import report as core_report, step as core_step
-from pstack_core.store import event, expected_report, field, header_field, pair_file, read, read_text, unit_name
+from pstack_core.store import (
+    event,
+    expected_report,
+    field,
+    header_field,
+    pair_file,
+    read,
+    read_text,
+    unit_name,
+)
 from pstack_core.numbers import env_float, env_int, exit_code, int_or_none
 from pstack_core.errors import Die, Exit, StepRefused, ToolFailed, open_notes_refusal
 from pstack_core.replies import file_mtime
@@ -58,8 +67,15 @@ def detached(command, argv, log, store):
     sys.stdout.flush()
     sys.stderr.flush()
     with open(log, 'w', encoding='utf-8') as out:
-        subprocess.Popen([sys.executable, '-I', WORKER, command, *argv], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
-                         start_new_session=True, preexec_fn=ignore_interrupts)
+        subprocess.Popen(
+            [sys.executable, '-I', WORKER, command, *argv],
+            stdin=subprocess.DEVNULL,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            env=env,
+            start_new_session=True,
+            preexec_fn=ignore_interrupts,
+        )
 
 
 def slice_deadline():
@@ -90,22 +106,28 @@ def point_at(ctx, link, target):
         os.replace(fresh, link)
     except OSError as e:
         remove_path(fresh)
-        sys.stderr.write(f'{ctx.prog}: cannot point {link} at {target}: {os.strerror(e.errno)}\n')
+        sys.stderr.write(
+            f'{ctx.prog}: cannot point {link} at {target}: {os.strerror(e.errno)}\n'
+        )
 
 
 def queue_line(log):
     """What the step says of a gate still waiting for a machine slot or the heavy slot: the log's last `kitchen: queued|waited` line."""
     try:
-        lines = [l for l in read_text(log).split('\n') if re.match(r'kitchen: (queued|waited) ', l)]
+        lines = [
+            l
+            for l in read_text(log).split('\n')
+            if re.match(r'kitchen: (queued|waited) ', l)
+        ]
     except OSError:
         return ''
     if not lines:
         return ''
     last = lines[-1]
     if re.fullmatch(r'kitchen: queued .* heavy slots?', last):
-        return f'gates: {last[len("kitchen: "):]}, behind heavy gates from other kitchens\n'
+        return f'gates: {last[len("kitchen: ") :]}, behind heavy gates from other kitchens\n'
     if last.startswith('kitchen: queued '):
-        return f'gates: {last[len("kitchen: "):]}, behind gates from other kitchens\n'
+        return f'gates: {last[len("kitchen: ") :]}, behind gates from other kitchens\n'
     return ''
 
 
@@ -122,9 +144,15 @@ def wait_for_rc(job):
 def check_checkout(root, sha, full):
     """The gates run on the checkout, so they prove HEAD: a step names the commit they ran on, and a tracked file edited since would be proven too."""
     if git.run(root, 'rev-parse', 'HEAD').stdout.rstrip('\n') != full:
-        raise StepRefused(f'step {sha}: HEAD is {git.run(root, "rev-parse", "--short", "HEAD").stdout.rstrip(chr(10))}; commit the step and record HEAD')
-    if git.run(root, 'status', '--porcelain', '--untracked-files=no').stdout.rstrip('\n'):
-        raise StepRefused(f'step {sha}: the tree has uncommitted changes to tracked files; commit or stash them first')
+        raise StepRefused(
+            f'step {sha}: HEAD is {git.run(root, "rev-parse", "--short", "HEAD").stdout.rstrip(chr(10))}; commit the step and record HEAD'
+        )
+    if git.run(root, 'status', '--porcelain', '--untracked-files=no').stdout.rstrip(
+        '\n'
+    ):
+        raise StepRefused(
+            f'step {sha}: the tree has uncommitted changes to tracked files; commit or stash them first'
+        )
 
 
 def step_base(store, root, unit, log, sha, full):
@@ -135,7 +163,11 @@ def step_base(store, root, unit, log, sha, full):
     if not base:
         raise StepRefused(f'no base for {unit}; was it dispatched?')
     counted = git.run(root, 'rev-list', '--count', f'{base}..{full}', quiet=True)
-    if (int(counted.stdout) if counted.returncode == 0 and counted.stdout.strip().isdigit() else 0) == 0:
+    if (
+        int(counted.stdout)
+        if counted.returncode == 0 and counted.stdout.strip().isdigit()
+        else 0
+    ) == 0:
         parent = git.run(root, 'rev-parse', '--verify', '--quiet', f'{full}~1')
         if parent.returncode != 0:
             raise StepRefused(f'{sha} has no parent to check it against')
@@ -158,7 +190,9 @@ def start_gates(ctx, store, root, brief, job, base, full):
     run = len([n for n in os.listdir(job) if re.match(r'out\.[0-9]', n)]) + 1
     point_at(ctx, f'{job}/out', f'out.{run}')
     try:
-        found = kpy.kitchen_py.classify_change(kpy.invocation(store, root, cfg[1] if cfg else None), base=base, head=full)
+        found = kpy.kitchen_py.classify_change(
+            kpy.invocation(store, root, cfg[1] if cfg else None), base=base, head=full
+        )
     except kpy.KitchenError as e:
         kpy.explain(e)
         raise ToolFailed(e.code) from None
@@ -168,20 +202,30 @@ def start_gates(ctx, store, root, brief, job, base, full):
         f.write(''.join(f'{name}\n' for name in found['profiles']))
     with open(f'{job}/base', 'w') as f:
         f.write(base + '\n')
-    detached('step', [root, str(kpy.KITCHEN_PY), job, base, full, cfg[1] if cfg else ''], f'{job}/out.{run}', store)
+    detached(
+        'step',
+        [root, str(kpy.KITCHEN_PY), job, base, full, cfg[1] if cfg else ''],
+        f'{job}/out.{run}',
+        store,
+    )
 
 
 def gates_running(store, sha, summary, full, job):
-    sys.stdout.write(f'gates: still running for {full[:9]} ({int(time.time()) - file_mtime(f"{job}/base")}s so far; log: {job}/out)\n')
+    sys.stdout.write(
+        f'gates: still running for {full[:9]} ({int(time.time()) - file_mtime(f"{job}/base")}s so far; log: {job}/out)\n'
+    )
     sys.stdout.write(queue_line(f'{job}/out'))
-    sys.stdout.write(f'next: this step is not recorded yet; do not end your turn. Run the same command again now, in the foreground, until it records: '
-                     f'kitchen.sh step {store} {sha} "{summary}"\n')
+    sys.stdout.write(
+        f'next: this step is not recorded yet; do not end your turn. Run the same command again now, in the foreground, until it records: '
+        f'kitchen.sh step {store} {sha} "{summary}"\n'
+    )
 
 
 @dataclass(frozen=True)
 class GateRun:
     """What a finished gate job says: whether it passed, the state recorded for the step (a step with no profile ran no gate: none, never pass), the
     profiles it ran and the classification of the range."""
+
     passed: bool
     state: str
     profiles: list
@@ -193,27 +237,43 @@ def settle_gates(store, unit, full, job):
     open(f'{job}/consumed', 'w').close()
     rc = int_or_none(read_text(f'{job}/rc').rstrip('\n'))
     classified = read_text(f'{job}/classify.json').rstrip('\n')
-    profiles = [l for l in read_text(f'{job}/profiles').split('\n')][:-1] if read_text(f'{job}/profiles') else []
+    profiles = (
+        [l for l in read_text(f'{job}/profiles').split('\n')][:-1]
+        if read_text(f'{job}/profiles')
+        else []
+    )
     state = 'fail' if rc != 0 else 'none' if not profiles else 'pass'
     os.makedirs(f'{store}/steps', exist_ok=True)
     with open(f'{store}/gates.tsv', 'a') as f:
-        f.write(f'{int(time.time())}\t{unit}\t{full[:9]}\t{state}\t{",".join(profiles)}\n')
+        f.write(
+            f'{int(time.time())}\t{unit}\t{full[:9]}\t{state}\t{",".join(profiles)}\n'
+        )
     return GateRun(rc == 0, state, profiles, classified)
 
 
 def report_failed_gates(store, unit, brief, full, job, summary):
     """The failing log and what to do next: the step ends with status 2, and with two failures in a row the master hears of it as a blocked report."""
     sys.stdout.write(read_text(f'{job}/out'))
-    event(store, 'sidekick', 'gate-fail', brief, f'{full[:9]} {job}/{os.readlink(f"{job}/out")}')
+    event(
+        store,
+        'sidekick',
+        'gate-fail',
+        brief,
+        f'{full[:9]} {job}/{os.readlink(f"{job}/out")}',
+    )
     fails = 0
     for row in read_text(f'{store}/gates.tsv').split('\n'):
         cols = row.split('\t')
         if len(cols) > 1 and cols[1] == unit:
             fails = fails + 1 if len(cols) > 3 and cols[3] == 'fail' else 0
     if fails >= 2:
-        sys.stdout.write(f'next: {fails} failed checks in a row; write the report as blocked with the logs under Questions, then kitchen.sh finish\n')
+        sys.stdout.write(
+            f'next: {fails} failed checks in a row; write the report as blocked with the logs under Questions, then kitchen.sh finish\n'
+        )
     else:
-        sys.stdout.write(f'next: fix it in a new commit and run kitchen.sh step {store} <new-sha> "{summary}" again\n')
+        sys.stdout.write(
+            f'next: fix it in a new commit and run kitchen.sh step {store} <new-sha> "{summary}" again\n'
+        )
     raise ToolFailed(2)
 
 
@@ -225,17 +285,28 @@ def report_passed_gates(store, brief, job, run):
         sys.stdout.write(f'gates: none ran; no profile covers {unmapped}\n')
         return
     sys.stdout.write(f'gates: pass ({",".join(run.profiles)})\n')
-    names = '\n'.join(m.group(1) for m in (re.match(r'flaky under load: ([^ ]*) ', l) for l in read_text(f'{job}/out').split('\n')) if m)
+    names = '\n'.join(
+        m.group(1)
+        for m in (
+            re.match(r'flaky under load: ([^ ]*) ', l)
+            for l in read_text(f'{job}/out').split('\n')
+        )
+        if m
+    )
     flaky = ','.join(sorted(set(n for n in names.split('\n') if n)))
     if flaky:
-        sys.stdout.write(f'flaky under load: {flaky} failed, then passed on a rerun (see {job}/out)\n')
+        sys.stdout.write(
+            f'flaky under load: {flaky} failed, then passed on a rerun (see {job}/out)\n'
+        )
         event(store, 'sidekick', 'gate-flaky', brief, flaky)
 
 
 def step(ctx, args):
     default_signals()
     if len(args) < 3:
-        raise Die('usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
+        raise Die(
+            'usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]'
+        )
     store, sha, summary = args[0], args[1], args[2]
     pair_file(store)
     brief = field(store, 'dispatch', 'brief')
@@ -275,25 +346,39 @@ def step(ctx, args):
 
 
 def verify_running(store, report, head, job):
-    sys.stdout.write(f"verify: the brief's Verify commands are still running at {head[:9]} (log: {job}/out)\n")
-    sys.stdout.write('next: the report is not sent yet; do not end your turn. Run the same command again now, in the foreground, until it sends: '
-                     f'kitchen.sh finish {store} {report}\n')
+    sys.stdout.write(
+        f"verify: the brief's Verify commands are still running at {head[:9]} (log: {job}/out)\n"
+    )
+    sys.stdout.write(
+        'next: the report is not sent yet; do not end your turn. Run the same command again now, in the foreground, until it sends: '
+        f'kitchen.sh finish {store} {report}\n'
+    )
 
 
 def require_head_checked_out(root, report, brief):
     """The full sha of the report's `head:`, once the checkout is at it with nothing uncommitted: the kitchen reruns the brief's Verify commands at the
     unit's tip, so a head that is no commit, another HEAD or a dirty tree is refused with what to do."""
-    found = git.run(root, 'rev-parse', '--verify', '--quiet', f'{header_field(report, "head")}^{{commit}}')
+    found = git.run(
+        root,
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        f'{header_field(report, "head")}^{{commit}}',
+    )
     if found.returncode != 0:
-        raise StepRefused(f'{os.path.basename(report)}: head: {header_field(report, "head")} is not a commit; name the unit\'s last commit and finish again')
+        raise StepRefused(
+            f"{os.path.basename(report)}: head: {header_field(report, 'head')} is not a commit; name the unit's last commit and finish again"
+        )
     head = found.stdout.rstrip('\n')
     current = git.run(root, 'rev-parse', 'HEAD')
     if current.returncode != 0:
         raise ToolFailed(exit_code(current.returncode))
     cur = current.stdout.rstrip('\n')
     if cur != head:
-        raise StepRefused(f"the checkout is at {cur[:9]}, not the report's head: {head[:9]}; the kitchen reruns the brief's Verify commands at the unit's tip, so check out that "
-                  'head (or fix head:) and finish again')
+        raise StepRefused(
+            f"the checkout is at {cur[:9]}, not the report's head: {head[:9]}; the kitchen reruns the brief's Verify commands at the unit's tip, so check out that "
+            'head (or fix head:) and finish again'
+        )
     if not header_field(brief, 'commit').startswith('no'):
         # a plain assignment: git failing (a DamagedStore index) ends the command with git's status, before any job directory exists
         listed = git.run(root, 'status', '--porcelain', '--untracked-files=normal')
@@ -301,8 +386,10 @@ def require_head_checked_out(root, report, brief):
             raise ToolFailed(exit_code(listed.returncode))
         dirty = listed.stdout.rstrip('\n')
         if dirty:
-            raise StepRefused(f"the checkout holds work the unit's head does not:\n{dirty}\nThe kitchen reruns the brief's Verify commands at the unit's tip. Commit this as a "
-                      'step (kitchen.sh step) and name it in head:, or remove it, then finish again')
+            raise StepRefused(
+                f"the checkout holds work the unit's head does not:\n{dirty}\nThe kitchen reruns the brief's Verify commands at the unit's tip. Commit this as a "
+                'step (kitchen.sh step) and name it in head:, or remove it, then finish again'
+            )
     return head
 
 
@@ -316,8 +403,13 @@ def finish(ctx, args):
     pair_file(store)
     brief = field(store, 'dispatch', 'brief')
     # Everything but the dispatched unit's done report, and a report the pair's checks refuse anyway (no head:, open notes), goes straight on.
-    if (not os.path.isfile(report) or header_field(report, 'status') != 'done' or not brief or report != expected_report(store, brief)
-            or not core_report.pair_report_ready(ctx, store, report)):
+    if (
+        not os.path.isfile(report)
+        or header_field(report, 'status') != 'done'
+        or not brief
+        or report != expected_report(store, brief)
+        or not core_report.pair_report_ready(ctx, store, report)
+    ):
         return core_report.finish(ctx, args)
     wanted = header_field(report, 'head')
     if wanted == '' or wanted.startswith('<'):
@@ -326,13 +418,22 @@ def finish(ctx, args):
     head = require_head_checked_out(root, report, brief)
     unit = unit_name(brief)
     job = verify_job(ctx, store, brief, head)
-    if os.path.isfile(f'{job}/rc') and read_text(f'{job}/rc').rstrip('\n') != '0' and os.path.isfile(f'{job}/consumed'):
+    if (
+        os.path.isfile(f'{job}/rc')
+        and read_text(f'{job}/rc').rstrip('\n') != '0'
+        and os.path.isfile(f'{job}/consumed')
+    ):
         remove_path(job)
     if not os.path.isdir(job):
         os.makedirs(job, exist_ok=True)
         cfg = brief_kitchen(brief)
         base = recorded_head(store, unit)
-        detached('finish', [root, str(kpy.KITCHEN_PY), brief, job, cfg[1] if cfg else '', base], f'{job}/out', store)
+        detached(
+            'finish',
+            [root, str(kpy.KITCHEN_PY), brief, job, cfg[1] if cfg else '', base],
+            f'{job}/out',
+            store,
+        )
     if not wait_for_rc(job):
         verify_running(store, args[1], head, job)
         raise Exit(4)
@@ -341,8 +442,10 @@ def finish(ctx, args):
     sys.stdout.write(read_text(f'{job}/out'))
     if int_or_none(rc) != 0:
         event(store, 'sidekick', 'finish-verify-fail', brief, head[:9])
-        sys.stdout.write('next: the master did not get this report. Fix what failed in a new commit, record it with kitchen.sh step, name it in head:, and finish again; if the '
-                         'commands cannot pass, write the report as blocked with this output under Questions, then kitchen.sh finish\n')
+        sys.stdout.write(
+            'next: the master did not get this report. Fix what failed in a new commit, record it with kitchen.sh step, name it in head:, and finish again; if the '
+            'commands cannot pass, write the report as blocked with this output under Questions, then kitchen.sh finish\n'
+        )
         raise Exit(2)
     event(store, 'sidekick', 'finish-verify-pass', brief, head[:9])
     return core_report.finish(ctx, args)

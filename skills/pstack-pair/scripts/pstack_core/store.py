@@ -15,7 +15,13 @@ TEXT = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'}
 
 def newest_first(paths):
     """The paths by modification time, newest first; two that share a time go by name without its extension (003-x.md before 003-x-s1.md)."""
-    return sorted(paths, key=lambda p: (-os.lstat(p).st_mtime_ns, os.path.splitext(os.path.basename(p))[0]))
+    return sorted(
+        paths,
+        key=lambda p: (
+            -os.lstat(p).st_mtime_ns,
+            os.path.splitext(os.path.basename(p))[0],
+        ),
+    )
 
 
 def newest(paths):
@@ -78,7 +84,7 @@ def header_field(path, key):
     try:
         for line in read_text(path).split('\n'):
             if line.startswith(prefix):
-                return line[len(prefix):].lstrip(' \t\n\r\f\v')
+                return line[len(prefix) :].lstrip(' \t\n\r\f\v')
     except OSError:
         pass
     return ''
@@ -291,8 +297,10 @@ def pause_notice(store):
     reason = paused_reason(store)
     if reason is None:
         return ''
-    return (f'PAUSE: {reason}. This is your safe point: commit what is verified, write the report as partial with where '
-            'you stopped and the next step under Deviations, run pair.sh finish, and end the turn.\n')
+    return (
+        f'PAUSE: {reason}. This is your safe point: commit what is verified, write the report as partial with where '
+        'you stopped and the next step under Deviations, run pair.sh finish, and end the turn.\n'
+    )
 
 
 def progress_path(store):
@@ -337,10 +345,14 @@ def open_steers(store):
     found = []
     for f in names(load(store), 'notice_steers'):
         name = os.path.basename(f)
-        if not os.path.isfile(f) or not re.fullmatch(re.escape(unit) + r'-s[0-9].*\.md', name, re.S):
+        if not os.path.isfile(f) or not re.fullmatch(
+            re.escape(unit) + r'-s[0-9].*\.md', name, re.S
+        ):
             continue
         k = steer_number(f)
-        if os.path.isfile(prog) and re.search(f'steer s{re.escape(k)} (applied|withdrawn|late)', read_text(prog)):
+        if os.path.isfile(prog) and re.search(
+            f'steer s{re.escape(k)} (applied|withdrawn|late)', read_text(prog)
+        ):
             continue
         if os.path.isfile(f'{store}/reports/{unit}-s{k}.md'):
             continue
@@ -356,14 +368,17 @@ def note_notice(ctx, store):
     update(store, lambda doc: doc.pop('notice_notes', None))
     return ''.join(
         f'NOTE: read {f} now, before your next tool call. Fix each blocking item first, as a fixup commit recorded with '
-        f'{ctx.prog} step {store} <sha> <summary> --resolves <n-ids>.\n' for f in parked)
+        f'{ctx.prog} step {store} <sha> <summary> --resolves <n-ids>.\n'
+        for f in parked
+    )
 
 
 def steer_notice(ctx, store):
     return note_notice(ctx, store) + ''.join(
         f'STEER: read {f} now, before your next tool call. Agree: apply it and run pair.sh progress {store} '
         f'"steer s{steer_number(f)} applied: <what changed>". Object: write the steer response and run pair.sh finish on it.\n'
-        for f in open_steers(store))
+        for f in open_steers(store)
+    )
 
 
 def fill_template(path, values, braced=True):
@@ -378,17 +393,27 @@ def fill_template(path, values, braced=True):
 def new_from_template(ctx, store, slug, directory, template):
     pair_file(store)
     if not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', slug):
-        raise BadSlug(f'{directory.removesuffix("s")} slug must be lowercase [a-z0-9_-]')
+        raise BadSlug(
+            f'{directory.removesuffix("s")} slug must be lowercase [a-z0-9_-]'
+        )
     seq = next_seq(store)
     path = f'{store}/{directory}/{seq}-{slug}.md'
-    write_text(path, fill_template(f'{ctx.skill_root}/references/{template}', {'SEQ': seq, 'SLUG': slug, 'STORE': store}))
+    write_text(
+        path,
+        fill_template(
+            f'{ctx.skill_root}/references/{template}',
+            {'SEQ': seq, 'SLUG': slug, 'STORE': store},
+        ),
+    )
     return path
 
 
 def _dumps(doc):
     """The text jq writes for doc. Python's own output matches for every string and number a store holds
     except DEL, which jq escapes, and the spellings of numbers no writer produces (see the tests)."""
-    return (json.dumps(doc, indent=2, ensure_ascii=False) + '\n').replace('\x7f', '\\u007f')
+    return (json.dumps(doc, indent=2, ensure_ascii=False) + '\n').replace(
+        '\x7f', '\\u007f'
+    )
 
 
 def acquire_lock(store):
@@ -445,12 +470,15 @@ class Context:
     unfilled_re: str
     prog: str = 'pair.sh'
     event_dedupe: bool = False
-    _variant: object = dataclass_field(default=None, init=False, repr=False, compare=False)
+    _variant: object = dataclass_field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     @property
     def variant(self):
         """The skill's Variant, loaded on first use so a command that needs no hook pays for none."""
         if self._variant is None:
             from .variant import load_variant
+
             self._variant = load_variant(self)
         return self._variant

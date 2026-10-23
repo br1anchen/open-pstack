@@ -5,6 +5,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Proc:
     """One process as /proc shows it. argv is the whole command line; comm is the kernel's name for the program, cut at 15 characters."""
+
     pid: int
     ppid: int
     uid: int
@@ -38,13 +39,30 @@ def read(pid, root):
         status = _text(f'{base}/status')
         uptime = float(_text(f'{root}/uptime').split()[0])
         # the program name in stat may hold spaces and brackets, so the fields count from the last bracket: state is the first after it
-        fields = stat[stat.rindex(')') + 2:].split()
+        fields = stat[stat.rindex(')') + 2 :].split()
         ppid, started = int(fields[1]), int(fields[19])
-        uid = next(int(line.split()[2]) for line in status.split('\n') if line.startswith('Uid:'))
+        uid = next(
+            int(line.split()[2])
+            for line in status.split('\n')
+            if line.startswith('Uid:')
+        )
     except (OSError, ValueError, IndexError, StopIteration):
         return None
-    argv = tuple(cmdline.split('\0')[:-1] if cmdline.endswith('\0') else cmdline.split('\0')) if cmdline else ()
-    return Proc(pid, ppid, uid, comm, argv, max(0, int(uptime - started / os.sysconf('SC_CLK_TCK'))))
+    argv = (
+        tuple(
+            cmdline.split('\0')[:-1] if cmdline.endswith('\0') else cmdline.split('\0')
+        )
+        if cmdline
+        else ()
+    )
+    return Proc(
+        pid,
+        ppid,
+        uid,
+        comm,
+        argv,
+        max(0, int(uptime - started / os.sysconf('SC_CLK_TCK'))),
+    )
 
 
 def alive(pid):

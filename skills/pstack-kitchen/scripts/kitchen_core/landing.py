@@ -8,7 +8,13 @@ import re
 import sys
 import tempfile
 
-from pstack_core.store import field, header_field, read_text, new_from_template, pair_file
+from pstack_core.store import (
+    field,
+    header_field,
+    read_text,
+    new_from_template,
+    pair_file,
+)
 from pstack_core.numbers import int_or_none
 from pstack_core.errors import Die
 from pstack_core import git
@@ -16,7 +22,18 @@ from pstack_core.review import trunk_ref
 from pstack_core.variant import commit_of
 
 from . import kpy
-from .units import RecordedUnit, StackIndex, Verdict, dispatch_head, inclusion, has_pair, is_ancestor, repo_root, unit_brief, unit_head
+from .units import (
+    RecordedUnit,
+    StackIndex,
+    Verdict,
+    dispatch_head,
+    inclusion,
+    has_pair,
+    is_ancestor,
+    repo_root,
+    unit_brief,
+    unit_head,
+)
 
 
 def out(text):
@@ -24,7 +41,10 @@ def out(text):
 
 
 def is_landing(brief):
-    return header_field(brief, 'playbook') in ('opening-a-pr', 'shipping') or header_field(brief, 'landing') == 'yes'
+    return (
+        header_field(brief, 'playbook') in ('opening-a-pr', 'shipping')
+        or header_field(brief, 'landing') == 'yes'
+    )
 
 
 def review_engine(store):
@@ -35,7 +55,9 @@ def review_engine(store):
 def validated_engine(store):
     """(ok, engine): the kitchen's [review].engine from `validate`; not ok when kitchen.py fails, which land-check says."""
     try:
-        found = kpy.kitchen_py.validate(kpy.invocation(store) if has_pair(store) else kpy.kitchen_py.Invocation())
+        found = kpy.kitchen_py.validate(
+            kpy.invocation(store) if has_pair(store) else kpy.kitchen_py.Invocation()
+        )
     except kpy.KitchenError:
         return False, ''
     return True, found.review_engine
@@ -58,17 +80,38 @@ def unit_adds_no_lines(store, brief):
     if not git.ok(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}'):
         return False
     with tempfile.TemporaryFile() as names, tempfile.TemporaryFile() as nums:
-        if not (git.ok(root, 'diff', '--raw', '-z', '--no-renames', f'{base}...{head}', stdout=names)
-                and git.ok(root, 'diff', '--numstat', '-z', '--no-renames', f'{base}...{head}', stdout=nums)):
+        if not (
+            git.ok(
+                root,
+                'diff',
+                '--raw',
+                '-z',
+                '--no-renames',
+                f'{base}...{head}',
+                stdout=names,
+            )
+            and git.ok(
+                root,
+                'diff',
+                '--numstat',
+                '-z',
+                '--no-renames',
+                f'{base}...{head}',
+                stdout=nums,
+            )
+        ):
             return False
         names.seek(0)
         nums.seek(0)
-        raw, numstat = names.read().decode('utf-8', 'replace'), nums.read().decode('utf-8', 'replace')
+        raw, numstat = (
+            names.read().decode('utf-8', 'replace'),
+            nums.read().decode('utf-8', 'replace'),
+        )
     ok, modified, counted = True, set(), set()
     parts = raw.split('\0')
     for i in range(0, len(parts) - 1, 2):
         record, path = parts[i], parts[i + 1]
-        fields = (record.lstrip(':').split(' ') + ['', '', '', '', ''])
+        fields = record.lstrip(':').split(' ') + ['', '', '', '', '']
         old_mode, new_mode, status = fields[0], fields[1], fields[4]
         if status == 'D':
             continue
@@ -86,7 +129,12 @@ def unit_adds_no_lines(store, brief):
         if path not in modified:
             continue
         counted.add(path)
-        if not (added.isdigit() and deleted.isdigit() and int(added) == 0 and int(deleted) > 0):
+        if not (
+            added.isdigit()
+            and deleted.isdigit()
+            and int(added) == 0
+            and int(deleted) > 0
+        ):
             ok = False
     return ok and modified <= counted
 
@@ -95,7 +143,9 @@ def engine_met(store, brief, review, engine):
     """(met, gap): the review cites a run of the engine, or says `engine: skipped (deletion-only, proof: ...)` over a range that only deletes."""
     if cites_engine(review, engine):
         return True, ''
-    if re.fullmatch(r'skipped \(deletion-only, proof: .+\)', header_field(review, 'engine')):
+    if re.fullmatch(
+        r'skipped \(deletion-only, proof: .+\)', header_field(review, 'engine')
+    ):
         if unit_adds_no_lines(store, brief):
             return True, ''
         return False, '; skipped is only for a deletion-only range'
@@ -109,14 +159,31 @@ def manifest_warning(store, verified_base, current_base, head=''):
     if not verified_base or not current_base or verified_base == current_base:
         return ''
     root = repo_root(store)
-    if is_ancestor(root, current_base, verified_base) and is_ancestor(root, verified_base, head or 'HEAD'):
+    if is_ancestor(root, current_base, verified_base) and is_ancestor(
+        root, verified_base, head or 'HEAD'
+    ):
         return ''
-    listed = git.run(root, 'diff', '--name-only', '-z', '--no-renames', verified_base, current_base, quiet=True).stdout
+    listed = git.run(
+        root,
+        'diff',
+        '--name-only',
+        '-z',
+        '--no-renames',
+        verified_base,
+        current_base,
+        quiet=True,
+    ).stdout
     try:
-        files = ', '.join(kpy.kitchen_py.manifests(kpy.invocation(store, root), listed.split('\0')))
+        files = ', '.join(
+            kpy.kitchen_py.manifests(kpy.invocation(store, root), listed.split('\0'))
+        )
     except kpy.KitchenError:
         files = ''
-    return f'warning: dependency manifests changed since the verified base: {files}\n' if files else ''
+    return (
+        f'warning: dependency manifests changed since the verified base: {files}\n'
+        if files
+        else ''
+    )
 
 
 def landing_field(store, key):
@@ -134,8 +201,10 @@ def current_landing_base(store):
         if pc and pc != head and is_ancestor(root, pc, head):
             return pc
         sys.stdout.flush()
-        sys.stderr.write(f'landing base: recorded parent {landing_field(store, "parent_ref")} ({parent[:9]}) is no longer an ancestor of '
-                         f'{head[:9]}; using the trunk merge-base\n')
+        sys.stderr.write(
+            f'landing base: recorded parent {landing_field(store, "parent_ref")} ({parent[:9]}) is no longer an ancestor of '
+            f'{head[:9]}; using the trunk merge-base\n'
+        )
     trunk = trunk_ref(root)
     if not trunk:
         return ''
@@ -143,7 +212,9 @@ def current_landing_base(store):
     return found.stdout.rstrip('\n') if found.returncode == 0 else ''
 
 
-def landing_unmatched_note(store, seq, brief, uhead, landing_verdict, base, head, found):
+def landing_unmatched_note(
+    store, seq, brief, uhead, landing_verdict, base, head, found
+):
     """Why a unit outside a clean landing verdict's range could not be matched by patch-id, as one land-check note line."""
     root = repo_root(store)
     ubase = dispatch_head(store, brief)
@@ -154,7 +225,7 @@ def landing_unmatched_note(store, seq, brief, uhead, landing_verdict, base, head
     elif found.reason == 'reverted':
         note = f"unit {seq}'s commits match by patch-id but {found.by[:9]} reverts them"
     elif not base:
-        note = (f'landing verdict {landing_verdict} has no base that resolves; unit {seq} cannot be matched by patch-id; verify --landing covers it')
+        note = f'landing verdict {landing_verdict} has no base that resolves; unit {seq} cannot be matched by patch-id; verify --landing covers it'
     elif ubase and is_ancestor(root, head, ubase):
         note = f'unit {seq} is newer than landing verdict {landing_verdict}; verify --landing again'
     else:
@@ -203,7 +274,9 @@ class LandingRange:
 
 def accepted_units(store):
     """(review, seq, brief) for each accepted review of a unit that commits and is not a landing brief, in glob order."""
-    for review in sorted(glob.glob(f'{glob.escape(store)}/reviews/[0-9][0-9][0-9]-*.md')):
+    for review in sorted(
+        glob.glob(f'{glob.escape(store)}/reviews/[0-9][0-9][0-9]-*.md')
+    ):
         if not os.path.exists(review) or header_field(review, 'verdict') != 'accept':
             continue
         seq = os.path.basename(review)[:3]
@@ -241,7 +314,9 @@ def clean_landing_ranges(store, root, verdict, landing_verdict, say):
         if head_rev:
             ranges.append(LandingRange(path, root, base_rev, head_rev))
         elif path == landing_verdict:
-            say(f'land-check: note: landing verdict {path} range head does not resolve; no unit is covered by it\n')
+            say(
+                f'land-check: note: landing verdict {path} range head does not resolve; no unit is covered by it\n'
+            )
     return ranges
 
 
@@ -256,35 +331,58 @@ def landing_range_covering(store, seq, brief, ranges, landing_verdict, say):
         newest = newest or found
         if found.covered:
             if found.sha:
-                say(f'covered: unit {seq} (rebased as {found.sha[:9]}) by the clean landing verdict {held.path}\n')
+                say(
+                    f'covered: unit {seq} (rebased as {found.sha[:9]}) by the clean landing verdict {held.path}\n'
+                )
             else:
                 say(f'covered: unit {seq} by the clean landing verdict {held.path}\n')
             return held.path
     if ranges[0].path == landing_verdict:
-        say(landing_unmatched_note(store, seq, brief, unit.head, landing_verdict, ranges[0].base, ranges[0].head, newest))
+        say(
+            landing_unmatched_note(
+                store,
+                seq,
+                brief,
+                unit.head,
+                landing_verdict,
+                ranges[0].base,
+                ranges[0].head,
+                newest,
+            )
+        )
     return ''
 
 
-def say_landing_verification(store, root, verdict, landing_verdict, verdict_base_rev, verdict_head_rev, say):
+def say_landing_verification(
+    store, root, verdict, landing_verdict, verdict_base_rev, verdict_head_rev, say
+):
     """The `landing verification:` lines. A landing verification is reported, not required."""
     if landing_verdict:
         say(manifest_warning(store, verdict_base_rev, current_landing_base(store)))
         say(f'landing verification: {verdict.status} ({landing_verdict})\n')
         if verdict_head_rev:
             if is_ancestor(root, verdict_head_rev, 'HEAD'):
-                counted = git.run(root, 'rev-list', '--count', f'{verdict_head_rev}..HEAD', quiet=True).stdout.rstrip('\n')
+                counted = git.run(
+                    root, 'rev-list', '--count', f'{verdict_head_rev}..HEAD', quiet=True
+                ).stdout.rstrip('\n')
                 behind = counted or '0'
                 try:
                     behind_n = int(behind)
                 except ValueError:
                     behind_n = 0
                 if behind_n != 0:
-                    say(f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, {behind} commit{"" if behind_n == 1 else "s"} behind HEAD\n')
+                    say(
+                        f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, {behind} commit{"" if behind_n == 1 else "s"} behind HEAD\n'
+                    )
             else:
-                say(f"landing verdict {landing_verdict} at {verdict_head_rev[:9]}, not in HEAD's history (rebased or another branch); verify --landing "
-                    'again\n')
+                say(
+                    f"landing verdict {landing_verdict} at {verdict_head_rev[:9]}, not in HEAD's history (rebased or another branch); verify --landing "
+                    'again\n'
+                )
     else:
-        say(f'landing verification: none; kitchen.sh verify {store} --landing proves the stack tip with a fresh verifier\n')
+        say(
+            f'landing verification: none; kitchen.sh verify {store} --landing proves the stack tip with a fresh verifier\n'
+        )
 
 
 def land_check(store, say=out):
@@ -306,22 +404,32 @@ def land_check(store, say=out):
     if landing_verdict:
         root = repo_root(store)
         verdict = Verdict.parse(landing_verdict)
-        verdict_base_rev, verdict_head_rev = (commit_of(root, ref) or '' for ref in verdict.refs())
+        verdict_base_rev, verdict_head_rev = (
+            commit_of(root, ref) or '' for ref in verdict.refs()
+        )
         ranges = clean_landing_ranges(store, root, verdict, landing_verdict, say)
     for review, seq, brief in accepted_units(store):
         if engine:
             met, gap = engine_met(store, brief, review, engine)
             if not met:
-                problems.append(f'unreviewed: unit {seq} cites no {engine} run; review its range with {engine} and add "engine: {engine} <run id or artifact path>" '
-                                f'to {review}{gap}\n')
+                problems.append(
+                    f'unreviewed: unit {seq} cites no {engine} run; review its range with {engine} and add "engine: {engine} <run id or artifact path>" '
+                    f'to {review}{gap}\n'
+                )
                 say(problems[-1])
         covering = clean_verdict_for(store, seq)
         if not covering and ranges:
-            covering = landing_range_covering(store, seq, brief, ranges, landing_verdict, say)
+            covering = landing_range_covering(
+                store, seq, brief, ranges, landing_verdict, say
+            )
         if not covering:
-            problems.append(f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n')
+            problems.append(
+                f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n'
+            )
             say(problems[-1])
-    say_landing_verification(store, root, verdict, landing_verdict, verdict_base_rev, verdict_head_rev, say)
+    say_landing_verification(
+        store, root, verdict, landing_verdict, verdict_base_rev, verdict_head_rev, say
+    )
     if problems:
         return problems
     say(f'land-check: pass (review engine: {engine or "none"})\n')
@@ -365,11 +473,19 @@ def scope(texts):
                 cur = mustnot
             elif cur is not None and line.startswith('- '):
                 cur.append(line)
-    return '\nmay write:\n' + '\n'.join(union(may)) + '\n\nmust not write:\n' + '\n'.join(union(mustnot) or ['- none']) + '\n\n'
+    return (
+        '\nmay write:\n'
+        + '\n'.join(union(may))
+        + '\n\nmust not write:\n'
+        + '\n'.join(union(mustnot) or ['- none'])
+        + '\n\n'
+    )
 
 
 def lines(texts, name):
-    body = union(l for t in texts for l in section(t, name).strip('\n').splitlines() if l.strip())
+    body = union(
+        l for t in texts for l in section(t, name).strip('\n').splitlines() if l.strip()
+    )
     return '\n' + '\n'.join(body) + '\n\n'
 
 
@@ -381,12 +497,17 @@ def fix_brief_fills(verdict, store, briefs, olds, landing):
         return {
             'Goal': f'\nFix every finding in the landing verdict {verdict}, so a fresh `kitchen.sh verify {store} --landing` of the stack passes.\n\n',
             'Steps': steps,
-            'Context': f'\n- verdict: {verdict}\n' + ''.join(f'- unit brief: {b}\n' for b in briefs) + '\n',
-            'Scope': scope(olds), 'Acceptance': lines(olds, 'Acceptance'), 'Forbidden': lines(olds, 'Forbidden'),
-            'Verify': '\n' + ''.join(section(t, 'Verify').strip('\n') + '\n\n' for t in olds),
+            'Context': f'\n- verdict: {verdict}\n'
+            + ''.join(f'- unit brief: {b}\n' for b in briefs)
+            + '\n',
+            'Scope': scope(olds),
+            'Acceptance': lines(olds, 'Acceptance'),
+            'Forbidden': lines(olds, 'Forbidden'),
+            'Verify': '\n'
+            + ''.join(section(t, 'Verify').strip('\n') + '\n\n' for t in olds),
         }
     fills = {
-        'Goal': f'\nFix every finding in the verifier\'s verdict {verdict}, so a fresh verification of the same acceptance passes.\n\n',
+        'Goal': f"\nFix every finding in the verifier's verdict {verdict}, so a fresh verification of the same acceptance passes.\n\n",
         'Steps': steps,
         'Context': f'\n- verdict: {verdict}\n- original brief: {briefs[0]}\n\n',
     }
@@ -410,7 +531,13 @@ def revise(ctx, args):
     if landing:
         briefs = [unit_brief(store, u) for u in re.findall(r'[0-9]{3}', units)]
         if not briefs:
-            briefs = [b for b in sorted(glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')) if os.path.isfile(b) and not is_landing(b)]
+            briefs = [
+                b
+                for b in sorted(
+                    glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')
+                )
+                if os.path.isfile(b) and not is_landing(b)
+            ]
         if not briefs:
             raise Die(f'no unit briefs to fix in {store}/briefs')
         slug = 'landing-fix'
@@ -419,18 +546,36 @@ def revise(ctx, args):
         if not numbers:
             raise Die(f'{verdict} names no unit (units: {units})')
         briefs = [unit_brief(store, numbers[-1])]
-        name = os.path.basename(briefs[0])[:-3] if briefs[0].endswith('.md') else os.path.basename(briefs[0])
+        name = (
+            os.path.basename(briefs[0])[:-3]
+            if briefs[0].endswith('.md')
+            else os.path.basename(briefs[0])
+        )
         slug = re.sub(r'-fix[0-9]*$', '', name[4:]) + '-fix'
     path = new_from_template(ctx, store, slug, 'briefs', 'brief-template.md')
     olds, new = [open(b).read() for b in briefs], open(path).read()
     last = olds[-1]
     new = re.sub(r'^playbook: .*$', 'playbook: bug-fix', new, count=1, flags=re.M)
     for key in ('timebox', 'commit'):
-        new = re.sub(rf'^{key}: .*$', f'{key}: {header(last, key)}', new, count=1, flags=re.M)
-    new = re.sub(r'^plan: .*$', f'plan: {"none" if landing else header(last, "plan")}', new, count=1, flags=re.M)
+        new = re.sub(
+            rf'^{key}: .*$', f'{key}: {header(last, key)}', new, count=1, flags=re.M
+        )
+    new = re.sub(
+        r'^plan: .*$',
+        f'plan: {"none" if landing else header(last, "plan")}',
+        new,
+        count=1,
+        flags=re.M,
+    )
     fills = fix_brief_fills(verdict, store, briefs, olds, landing)
     for name, body in fills.items():
-        new = re.sub(rf'(^## {name}\n)(.*?)(?=^## |\Z)', lambda m, b=body: m.group(1) + b, new, count=1, flags=re.M | re.S)
+        new = re.sub(
+            rf'(^## {name}\n)(.*?)(?=^## |\Z)',
+            lambda m, b=body: m.group(1) + b,
+            new,
+            count=1,
+            flags=re.M | re.S,
+        )
     with open(path, 'w') as f:
         f.write(new)
     out(f'{path}\n')

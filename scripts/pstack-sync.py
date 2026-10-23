@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Expose one pstack skill tree to local agents, preserving replaced installs."""
+
 import argparse
 import json
 import os
@@ -44,14 +45,24 @@ def sync(source, home, apply=False):
                 link = Path(staging) / skill.name
                 link.symlink_to(skill.resolve(), target_is_directory=True)
                 os.replace(link, target)
-    return {'skills': len(skills), 'changed': changes, 'backup': str(backup) if backup else None}
+    return {
+        'skills': len(skills),
+        'changed': changes,
+        'backup': str(backup) if backup else None,
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', type=Path, default=Path(__file__).resolve().parents[1] / 'skills')
+    parser.add_argument(
+        '--source', type=Path, default=Path(__file__).resolve().parents[1] / 'skills'
+    )
     parser.add_argument('--home', type=Path, default=Path.home())
-    parser.add_argument('--apply', action='store_true', help='install links; otherwise report drift only')
+    parser.add_argument(
+        '--apply',
+        action='store_true',
+        help='install links; otherwise report drift only',
+    )
     args = parser.parse_args()
     result = sync(args.source.resolve(), args.home.expanduser().absolute(), args.apply)
     print(json.dumps(result, indent=2))

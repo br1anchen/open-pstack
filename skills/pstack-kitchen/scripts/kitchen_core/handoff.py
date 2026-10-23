@@ -6,7 +6,16 @@ import sys
 import time
 
 from pstack_core.replies import queued_brief
-from pstack_core.store import basename, field, fill_template, newest, header_field, pair_file, read, write_text
+from pstack_core.store import (
+    basename,
+    field,
+    fill_template,
+    newest,
+    header_field,
+    pair_file,
+    read,
+    write_text,
+)
 from pstack_core.errors import Die
 
 
@@ -29,11 +38,15 @@ def handoff_units(store):
         seq, slug = name[:3], name[:-3][4:]
         report = newest_matching(f'{esc}/reports/{seq}-*.md')
         rstatus = header_field(report, 'status') if report else '-'
-        verdict = newest_matching(f'{esc}/verdicts/{seq}-*-v[0-9]*.md', skip_packets=True)
+        verdict = newest_matching(
+            f'{esc}/verdicts/{seq}-*-v[0-9]*.md', skip_packets=True
+        )
         vstatus = header_field(verdict, 'status') if verdict else '-'
         review = f'{store}/reviews/{seq}-{slug}.md'
         rv = header_field(review, 'verdict') if os.path.isfile(review) else '-'
-        out.append(f'| {seq} {slug} | {rstatus or "-"} | {vstatus or "-"} | {rv or "-"} |')
+        out.append(
+            f'| {seq} {slug} | {rstatus or "-"} | {vstatus or "-"} | {rv or "-"} |'
+        )
     text = '\n'.join(out) + '\n'
     # a .dispatch or .verifying that is not an object is damage, found where it is read
     brief = field(store, 'dispatch', 'brief')
@@ -57,9 +70,21 @@ def new_handoff(ctx, args):
     # a .master that is not an object ends the command before any file is written
     generation = field(store, 'master', 'generation', default='1')
     units = handoff_units(store).rstrip('\n')
-    write_text(path, fill_template(f'{ctx.skill_root}/references/handoff-template.md',
-                                   {'SLUG': read(store, 'slug'), 'STORE': store, 'GENERATION': generation,
-                                    'WRITTEN': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'UNITS': units}))
+    write_text(
+        path,
+        fill_template(
+            f'{ctx.skill_root}/references/handoff-template.md',
+            {
+                'SLUG': read(store, 'slug'),
+                'STORE': store,
+                'GENERATION': generation,
+                'WRITTEN': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                'UNITS': units,
+            },
+        ),
+    )
     sys.stdout.write(path + '\n')
-    sys.stdout.write(f'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master {store}\n')
+    sys.stdout.write(
+        f'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master {store}\n'
+    )
     return 0

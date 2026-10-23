@@ -18,7 +18,9 @@ PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd
 def require_not_paused(store):
     reason = paused_reason(store)
     if reason is not None:
-        raise Paused(f'the store is paused ({reason}): start nothing new; record where the work stands and end your turn, or run pair.sh resume {store}')
+        raise Paused(
+            f'the store is paused ({reason}): start nothing new; record where the work stands and end your turn, or run pair.sh resume {store}'
+        )
 
 
 def require_agreed_plan(ctx, store, brief, extra):
@@ -30,17 +32,27 @@ def require_agreed_plan(ctx, store, brief, extra):
         return
     plan = header_field(brief, 'plan')
     if not plan or plan == 'none':
-        raise PlanNotAgreed(f'playbook {playbook} needs an agreed plan; brief has plan: {plan or "<missing>"}')
+        raise PlanNotAgreed(
+            f'playbook {playbook} needs an agreed plan; brief has plan: {plan or "<missing>"}'
+        )
     if not os.path.isfile(plan):
         raise PlanNotAgreed(f'plan not found: {plan}')
     seq = os.path.basename(plan.rstrip('/') or plan)[:3]
-    reviews = sorted(glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')))
+    reviews = sorted(
+        glob.glob(
+            os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')
+        )
+    )
     if not reviews:
-        raise PlanNotAgreed(f'plan {plan} has no review; run pair.sh discuss and write reviews/{seq}-<slug>.md with verdict: agreed')
+        raise PlanNotAgreed(
+            f'plan {plan} has no review; run pair.sh discuss and write reviews/{seq}-<slug>.md with verdict: agreed'
+        )
     review = reviews[0]
     verdict = header_field(review, 'verdict')
     if verdict != 'agreed':
-        raise PlanNotAgreed(f"plan {plan} review verdict is '{verdict or 'missing'}', not agreed")
+        raise PlanNotAgreed(
+            f"plan {plan} review verdict is '{verdict or 'missing'}', not agreed"
+        )
     extra(ctx, store, plan, review, seq)
 
 
@@ -52,7 +64,11 @@ def scope_entry_exists(root, entry, tracked):
     """Whether a may-write entry names something that exists, or a new file in a directory that does. A glob matches when a file
     does or its fixed directory prefix exists."""
     # An absolute entry names that path itself, not a path under the repo root.
-    at = (lambda path: path) if entry.startswith('/') else (lambda path: f'{root}/{path}')
+    at = (
+        (lambda path: path)
+        if entry.startswith('/')
+        else (lambda path: f'{root}/{path}')
+    )
     if any(c in entry for c in '*?['):
         prefix = re.split(r'[*?\[]', entry, maxsplit=1)[0]
         directory = prefix.rpartition('/')[0] if '/' in prefix else ''
@@ -60,12 +76,14 @@ def scope_entry_exists(root, entry, tracked):
             directory = '/'
         if directory and not os.path.isdir(at(directory)):
             return False
-        for line in (tracked.split('\n') if tracked else ['']):
+        for line in tracked.split('\n') if tracked else ['']:
             if scope_match(entry, line):
                 return True
         return bool(directory)
     if entry.endswith('/'):
-        return os.path.isdir(at(entry)) or os.path.isdir(at(os.path.dirname(entry[:-1])))
+        return os.path.isdir(at(entry)) or os.path.isdir(
+            at(os.path.dirname(entry[:-1]))
+        )
     return os.path.exists(at(entry)) or os.path.isdir(at(os.path.dirname(entry)))
 
 
@@ -88,7 +106,9 @@ def scope_lists_several(brief):
                 found.append(f'- {entry}')
                 continue
             pieces = re.split(r' and ', entry)
-            if len(pieces) > 1 and all('/' in w or re.search(r'\.[A-Za-z0-9]+$', w) for w in pieces):
+            if len(pieces) > 1 and all(
+                '/' in w or re.search(r'\.[A-Za-z0-9]+$', w) for w in pieces
+            ):
                 found.append(f'- {entry}')
     return found
 
@@ -98,24 +118,33 @@ def check_scope(brief, root):
     without refusing, on an entry that matches nothing in the repo, the usual sign of a path written relative to its neighbour."""
     bad = scope_lists_several(brief)
     if bad:
-        raise BadScope(f'{os.path.basename(brief)}: Scope takes one path or glob per line; split these (a path with a comma goes in backquotes):\n' + '\n'.join(bad))
+        raise BadScope(
+            f'{os.path.basename(brief)}: Scope takes one path or glob per line; split these (a path with a comma goes in backquotes):\n'
+            + '\n'.join(bad)
+        )
     r = git.run(root, 'ls-files', '-co', '--exclude-standard', quiet=True)
     tracked = r.stdout.rstrip('\n') if r.returncode == 0 else ''
     for entry in scope_entries(brief, 'may'):
         if entry and not scope_entry_exists(root, entry, tracked):
-            sys.stderr.write(f'warning: Scope entry "{entry}" matches no file or directory in {root}; is it relative to a neighbouring entry?\n')
+            sys.stderr.write(
+                f'warning: Scope entry "{entry}" matches no file or directory in {root}; is it relative to a neighbouring entry?\n'
+            )
 
 
 def pause(ctx, args):
     if not args:
         raise Die(f'usage: {ctx.prog} pause <store> [--reason TEXT]')
     store = args[0]
-    reason = read(args[1:], Spec(valued=('--reason',))).last('--reason', 'paused by the human')
+    reason = read(args[1:], Spec(valued=('--reason',))).last(
+        '--reason', 'paused by the human'
+    )
     pair_file(store)
     write_text(f'{store}/paused', f'{reason}\n')
     event(store, 'master', 'pause', '-', reason)
-    print(f'paused {store}: the sidekick stops at its next step or progress boundary, and dispatch, queue, discuss, '
-          'consult, and answer refuse until pair.sh resume')
+    print(
+        f'paused {store}: the sidekick stops at its next step or progress boundary, and dispatch, queue, discuss, '
+        'consult, and answer refuse until pair.sh resume'
+    )
     return 0
 
 

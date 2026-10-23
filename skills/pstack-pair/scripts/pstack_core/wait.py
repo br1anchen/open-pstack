@@ -1,5 +1,6 @@
 """wait: the timing options, the loop that waits for the sidekick's reply, and finish_wait, which prints the outcome. WaitResult carries code,
 out, err, ready and steps_due."""
+
 import json
 import os
 import signal
@@ -10,20 +11,56 @@ from dataclasses import dataclass, replace
 
 from .argv import Spec, read
 from .checkin import CheckIn, checkin, sidekick_activity
-from .store import wake, now_s, TEXT, read_text, acquire_lock, field, header_field, member, paused_reason, peek, load, text_at, unit_name, update
+from .store import (
+    wake,
+    now_s,
+    TEXT,
+    read_text,
+    acquire_lock,
+    field,
+    header_field,
+    member,
+    paused_reason,
+    peek,
+    load,
+    text_at,
+    unit_name,
+    update,
+)
 from .numbers import exit_code, env_float, env_int, tdiv, whole_number
 from .errors import BadStepRow, Die, MissingStore, PairError, refuse_as
-from .panes import agent_state, agent_status, error_code, error_state, herdr_get, pane_busy, require_herdr
+from .panes import (
+    agent_state,
+    agent_status,
+    error_code,
+    error_state,
+    herdr_get,
+    pane_busy,
+    require_herdr,
+)
 from .providers import provider_hint
-from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
-                      unreviewed_steps, withheld_report, file_mtime)
+from .replies import (
+    dispatched,
+    fresh_reply,
+    latest_report,
+    mark_seen,
+    pending_report,
+    queue_note,
+    review_delta,
+    seen_reply,
+    unreviewed_steps,
+    withheld_report,
+    file_mtime,
+)
 from .review import review_base
 
 
 class WaitResult:
     __slots__ = ('code', 'out', 'err', 'ready', 'steps_due', 'superseded')
 
-    def __init__(self, code=0, out='', err='', ready='', steps_due=False, superseded=False):
+    def __init__(
+        self, code=0, out='', err='', ready='', steps_due=False, superseded=False
+    ):
         self.superseded = superseded
         self.code = code
         self.out = out
@@ -39,6 +76,7 @@ class WaitOutcome:
     still working), missing (no report and the sidekick is not working) or superseded (a newer wait took the store). The stdout the command prints
     goes to the wait's `out` as it is produced; a return on a check-in adds its `digest`, newline-ended chunks for printing only, which the caller
     prints after what `out` received. The rest are the facts a caller branches on."""
+
     status: int
     kind: str
     checkin: CheckIn | None = None
@@ -57,16 +95,21 @@ class WaitOutcome:
 class WaitOwner:
     """The ownership of wait.pid for a caller that runs several waits as one. `token` is what wait.pid holds; `claim` is whether the next wait takes
     the store; `checked` is whether it ends superseded when another token holds it. A claim that failed leaves the owner unchecked."""
+
     token: str
     claim: bool = True
     checked: bool = True
 
     def after(self, outcome):
         """The owner for the wait that follows `outcome`: the claim is made once, and a claim that failed stays failed."""
-        return replace(self, claim=False, checked=self.checked and not outcome.claim_failed)
+        return replace(
+            self, claim=False, checked=self.checked and not outcome.claim_failed
+        )
 
 
-TIMING = Spec(valued=('--timeout', '--every'), flags=('--send-only',), unknown='collect')
+TIMING = Spec(
+    valued=('--timeout', '--every'), flags=('--send-only',), unknown='collect'
+)
 TIMEOUT_ONLY = Spec(valued=('--timeout', '--every'), unknown='collect')
 
 
@@ -107,13 +150,23 @@ def report_returned(ctx, store, report, state, paused, write):
     sent = sent_file(store)
     if sent is None:
         # basename '---' reads the word as an option, prints its error and gives nothing to compare.
-        sys.stderr.write("basename: unrecognized option '---'\nTry 'basename --help' for more information.\n")
-    if sent is not None and os.path.basename(report)[:3] == os.path.basename(sent.rstrip('/') or sent)[:3]:
+        sys.stderr.write(
+            "basename: unrecognized option '---'\nTry 'basename --help' for more information.\n"
+        )
+    if (
+        sent is not None
+        and os.path.basename(report)[:3]
+        == os.path.basename(sent.rstrip('/') or sent)[:3]
+    ):
         try:
             stamp = str(file_mtime(report))
         except OSError:
-            sys.stderr.write("stat: cannot read file system information for '%m': No such file or directory\n")
-            sys.stderr.write(f"stat: cannot read file system information for '{report}': No such file or directory\n")
+            sys.stderr.write(
+                "stat: cannot read file system information for '%m': No such file or directory\n"
+            )
+            sys.stderr.write(
+                f"stat: cannot read file system information for '{report}': No such file or directory\n"
+            )
             stamp = ''
         seen = f'{report}:{stamp}'
         update(store, lambda doc: set_sent_seen(doc, seen))
@@ -134,14 +187,22 @@ def steps_returned(ctx, store, running, paused, write):
     write(f'steps: {len(rows)} to review on {unit_name(running)}\n')
     for row in rows:
         cols = row.split('\t')
-        write(f'  {cols[0]} {(cols[1] if len(cols) > 1 else "")[:9]} {cols[2] if len(cols) > 2 else ""}\n')
+        write(
+            f'  {cols[0]} {(cols[1] if len(cols) > 1 else "")[:9]} {cols[2] if len(cols) > 2 else ""}\n'
+        )
     last = rows[-1].split('\t')
-    write(f'range: {review_base(store, running)[:9]}..{(last[1] if len(last) > 1 else "")[:9]}\n')
-    write(f'next: review the range, then pair.sh new-note {store} {os.path.basename(running.rstrip("/") or running)[:3]}\n')
+    write(
+        f'range: {review_base(store, running)[:9]}..{(last[1] if len(last) > 1 else "")[:9]}\n'
+    )
+    write(
+        f'next: review the range, then pair.sh new-note {store} {os.path.basename(running.rstrip("/") or running)[:3]}\n'
+    )
     try:
         k = json.loads(last[0])
     except ValueError:
-        raise BadStepRow(f'the last step row does not start with a JSON step number: {last[0]!r}') from None
+        raise BadStepRow(
+            f'the last step row does not start with a JSON step number: {last[0]!r}'
+        ) from None
     update(store, lambda doc: set_shown(doc, unit_name(running), k))
     wake(ctx, store, running, f'steps:{first}')
     return WaitOutcome(0, 'steps', paused=paused)
@@ -151,7 +212,9 @@ def idle_returned(ctx, store, shown, paused, write):
     """The outcome of a wait whose reply the master was already shown: nothing new, so it says so and the master sends the next message."""
     sent = sent_file(store)
     sent = '-' if sent is None else sent
-    write(f'idle: the reply to {os.path.basename(sent.rstrip("/") or sent)} was already shown ({shown}); send the next message\n')
+    write(
+        f'idle: the reply to {os.path.basename(sent.rstrip("/") or sent)} was already shown ({shown}); send the next message\n'
+    )
     wake(ctx, store, sent, 'idle')
     # Since notify marks a report it announced, this is the normal path to a report the master already has by message: show what the
     # report path would add. A plan response or advice carries neither.
@@ -161,7 +224,9 @@ def idle_returned(ctx, store, shown, paused, write):
     return WaitOutcome(4, 'idle', paused=paused)
 
 
-def finish_wait(ctx, store, interval, result, mode=None, now=None, quiet=False, out=None):
+def finish_wait(
+    ctx, store, interval, result, mode=None, now=None, quiet=False, out=None
+):
     """The outcome of a wait that returned. Its stderr is written as it happens and its stdout goes to `out` (default: standard output) as it
     is produced, so what a failure interrupts has already been seen. A quiet caller records no wake for a check-in return; it records it itself
     when it returns the outcome."""
@@ -174,7 +239,9 @@ def finish_wait(ctx, store, interval, result, mode=None, now=None, quiet=False, 
     reason = paused_reason(store)
     paused = reason is not None
     if paused:
-        write(f'paused: {reason} (start nothing new; record the next step in gates.md and end your turn)\n')
+        write(
+            f'paused: {reason} (start nothing new; record the next step in gates.md and end your turn)\n'
+        )
     if not report and mode == 'any':
         report = latest_report(store) or ''
     if report:
@@ -185,7 +252,13 @@ def finish_wait(ctx, store, interval, result, mode=None, now=None, quiet=False, 
     withheld = withheld_report(ctx, store)
     activity = sidekick_activity(store, clock())
     shown = seen_reply(store)
-    if shown and not withheld and not activity and result.code == 0 and agent_status(name()) != 'working':
+    if (
+        shown
+        and not withheld
+        and not activity
+        and result.code == 0
+        and agent_status(name()) != 'working'
+    ):
         return idle_returned(ctx, store, shown, paused, write)
     why, missing = '', 'report: missing\n'
     if withheld:
@@ -200,7 +273,16 @@ def finish_wait(ctx, store, interval, result, mode=None, now=None, quiet=False, 
         if not quiet:
             wake(ctx, store, running, why or 'checkin')
         digest = checkin(ctx, store, interval, clock())
-        return WaitOutcome(4, 'checkin', digest, tuple(line for line in (missing, *(digest.lines if digest else ())) if line), bool(withheld), paused)
+        return WaitOutcome(
+            4,
+            'checkin',
+            digest,
+            tuple(
+                line for line in (missing, *(digest.lines if digest else ())) if line
+            ),
+            bool(withheld),
+            paused,
+        )
     write(missing)
     wake(ctx, store, running, why or 'missing')
     write(provider_hint(store))
@@ -215,7 +297,9 @@ def sent_file(store):
 def status_of(ctx, report):
     """header_field "$report" status, whose grep complains on stderr when the file is gone."""
     if not os.path.isfile(report):
-        sys.stderr.write(f'{ctx.prog}: cannot read {report}: No such file or directory\n')
+        sys.stderr.write(
+            f'{ctx.prog}: cannot read {report}: No such file or directory\n'
+        )
     return header_field(report, 'status')
 
 
@@ -223,7 +307,12 @@ def mark_report_seen(store, report):
     """mark_seen plus the sent entry's seen mark, as finish_wait leaves a report it returned: no later wait returns it again."""
     mark_seen(store, report)
     sent = sent_file(store)
-    if sent and os.path.basename(report)[:3] == os.path.basename(sent.rstrip('/') or sent)[:3] and os.path.isfile(report):
+    if (
+        sent
+        and os.path.basename(report)[:3]
+        == os.path.basename(sent.rstrip('/') or sent)[:3]
+        and os.path.isfile(report)
+    ):
         seen = f'{report}:{file_mtime(report)}'
         update(store, lambda doc: set_sent_seen(doc, seen))
 
@@ -289,7 +378,11 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
     deadline = clock() + tdiv(timeout, 1000)
     settled_at = None
     # what the top of the loop looks for: a report written in the last slice must not read as missing because the deadline ended the wait
-    arrived = lambda: bool(pending_report(ctx, store) or fresh_reply(ctx, store) or ctx.variant.steps_due(ctx, store, dispatched(store)))
+    arrived = lambda: bool(
+        pending_report(ctx, store)
+        or fresh_reply(ctx, store)
+        or ctx.variant.steps_due(ctx, store, dispatched(store))
+    )
     while True:
         if token is not None and superseded(store, token):
             result.superseded = True
@@ -307,7 +400,12 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
         slice_ms = (deadline - clock()) * 1000
         slice_ms = min(slice_ms, 30000)
         slice_ms = max(slice_ms, 1000)
-        r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(slice_ms)], capture_output=True, check=False, **TEXT)
+        r = subprocess.run(
+            ['herdr', 'agent', 'wait', name, '--timeout', str(slice_ms)],
+            capture_output=True,
+            check=False,
+            **TEXT,
+        )
         result.code = exit_code(r.returncode)
         result.out = r.stdout.rstrip('\n')
         result.err = r.stderr.rstrip('\n')
@@ -315,9 +413,17 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
             state = agent_state(result.out, None)
             if state == 'blocked':
                 break
-            if pending_report(ctx, store) or fresh_reply(ctx, store) or ctx.variant.steps_due(ctx, store, dispatched(store)):
+            if (
+                pending_report(ctx, store)
+                or fresh_reply(ctx, store)
+                or ctx.variant.steps_due(ctx, store, dispatched(store))
+            ):
                 continue
-            if not pane_busy(name) and not sidekick_activity(store, clock()) and seen_reply(store):
+            if (
+                not pane_busy(name)
+                and not sidekick_activity(store, clock())
+                and seen_reply(store)
+            ):
                 break
             if pane_busy(name) or sidekick_activity(store, clock()):
                 settled_at = None
@@ -362,6 +468,7 @@ def end_with_parent():
     default_signals()
     try:
         import ctypes
+
         ctypes.CDLL(None).prctl(PR_SET_PDEATHSIG, int(signal.SIGTERM))
     except (OSError, AttributeError):
         # best effort: a host with no Linux prctl (macOS libc) keeps the wait, which then ends at its own timeout
@@ -379,12 +486,16 @@ def take_ownership(ctx, store, owner):
         try:
             claim_wait(store, token)
         except PairError as e:
-            sys.stderr.write(f'{ctx.prog}: wait: could not claim wait.pid ({e.message}); waiting without ownership\n')
+            sys.stderr.write(
+                f'{ctx.prog}: wait: could not claim wait.pid ({e.message}); waiting without ownership\n'
+            )
             return None, True
     return token, False
 
 
-def wait_for(ctx, store, *, timeout, owner=None, quiet=False, name=None, now=None, out=None):
+def wait_for(
+    ctx, store, *, timeout, owner=None, quiet=False, name=None, now=None, out=None
+):
     """Wait for the sidekick's reply and say how the wait ended; its stdout goes to `out` as finish_wait describes. It ends superseded when a
     newer wait took the store. With no owner it owns the store under this pid and gives the claim back; with one the caller keeps the claim and
     releases it (release). quiet leaves the wake for a check-in return to the caller."""
@@ -397,13 +508,17 @@ def wait_for(ctx, store, *, timeout, owner=None, quiet=False, name=None, now=Non
             write(f'{SUPERSEDED}\n')
             outcome = WaitOutcome(4, 'superseded')
         else:
-            outcome = finish_wait(ctx, store, tdiv(timeout, 60000), result, now=now, quiet=quiet, out=out)
+            outcome = finish_wait(
+                ctx, store, tdiv(timeout, 60000), result, now=now, quiet=quiet, out=out
+            )
     finally:
         if owner is None and token is not None:
             try:
                 release_wait(store, token)
             except PairError as e:
-                sys.stderr.write(f'{ctx.prog}: wait: could not release wait.pid ({e.message})\n')
+                sys.stderr.write(
+                    f'{ctx.prog}: wait: could not release wait.pid ({e.message})\n'
+                )
     return replace(outcome, claim_failed=claim_failed)
 
 

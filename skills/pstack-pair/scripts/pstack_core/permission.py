@@ -19,9 +19,23 @@ def agent_mode(comm, args):
     else:
         if '--dangerously-bypass-approvals-and-sandbox' in args:
             return 'bypassPermissions'
-        if any(f in args for f in ('-a never', '--ask-for-approval never', '--ask-for-approval=never')):
+        if any(
+            f in args
+            for f in (
+                '-a never',
+                '--ask-for-approval never',
+                '--ask-for-approval=never',
+            )
+        ):
             return 'dontAsk'
-        if any(f in args for f in ('-a on-request', '--ask-for-approval on-request', '--ask-for-approval=on-request')):
+        if any(
+            f in args
+            for f in (
+                '-a on-request',
+                '--ask-for-approval on-request',
+                '--ask-for-approval=on-request',
+            )
+        ):
             return 'auto'
     return ''
 
@@ -45,7 +59,7 @@ def detect(pid, cwd, home, session, read_proc):
     """The master's permission mode, in Claude Code vocabulary: auto | acceptEdits | bypassPermissions | manual | dontAsk | plan.
     Sources in order: the launching command line of the agent process above the shell with pid `pid`, the current Claude session
     transcript, settings defaultMode, then auto.
-"""
+    """
     mode, depth = '', 0
 
     while pid > 1 and depth < DEPTH_LIMIT:
@@ -64,11 +78,18 @@ def detect(pid, cwd, home, session, read_proc):
         pid = proc.ppid
         depth += 1
     if mode == '' and session:
-        transcript = f'{home}/.claude/projects/{re.sub(r"[/.]", "-", cwd)}/{session}.jsonl'
+        transcript = (
+            f'{home}/.claude/projects/{re.sub(r"[/.]", "-", cwd)}/{session}.jsonl'
+        )
         if os.path.isfile(transcript):
             mode = transcript_mode(transcript)
     if mode == '':
-        for f in (f'{cwd}/.claude/settings.local.json', f'{cwd}/.claude/settings.json', f'{home}/.claude/settings.local.json', f'{home}/.claude/settings.json'):
+        for f in (
+            f'{cwd}/.claude/settings.local.json',
+            f'{cwd}/.claude/settings.json',
+            f'{home}/.claude/settings.local.json',
+            f'{home}/.claude/settings.json',
+        ):
             if not os.path.isfile(f):
                 continue
             mode = settings_mode(f)
@@ -95,7 +116,13 @@ def logical_cwd():
 
 def mode_of_this_shell():
     root = procinfo.proc_root()
-    return detect(caller_pid(), logical_cwd(), os.environ['HOME'], os.environ.get('CLAUDE_CODE_SESSION_ID', ''), lambda pid: procinfo.read(pid, root))
+    return detect(
+        caller_pid(),
+        logical_cwd(),
+        os.environ['HOME'],
+        os.environ.get('CLAUDE_CODE_SESSION_ID', ''),
+        lambda pid: procinfo.read(pid, root),
+    )
 
 
 def permission(ctx, args):

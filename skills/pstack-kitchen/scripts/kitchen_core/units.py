@@ -9,13 +9,27 @@ import os
 import re
 import sys
 
-from pstack_core.store import expected_report, read_text, header_field, load, peek, read, text_at
-from pstack_core.errors import BadLandingBase, BadRevision, HeadNotCarried, NoBrief, UnitNotCheckable, translate
+from pstack_core.store import (
+    expected_report,
+    read_text,
+    header_field,
+    load,
+    peek,
+    read,
+    text_at,
+)
+from pstack_core.errors import (
+    BadLandingBase,
+    BadRevision,
+    HeadNotCarried,
+    NoBrief,
+    UnitNotCheckable,
+    translate,
+)
 from pstack_core import git
 from pstack_core.review import range_floor, trunk_ref
 from pstack_core.steplog import StepLog
 from pstack_core.variant import commit_of
-
 
 
 def has_pair(store):
@@ -41,7 +55,15 @@ def is_ancestor(root, older, newer):
 def patch_id(root, commit, inverse=False, u0=False):
     """The patch-id of a commit's own change (or, inverse, of the diff from the commit to its parent: not `diff-tree -R`, which swaps the a/ and b/
     prefixes patch-id hashes). u0 is the same patch with no context lines, which a later edit near the change cannot alter."""
-    args = ['diff-tree', '-p', '--binary', '--full-index', *(['-U0'] if u0 else []), commit, *([f'{commit}^'] if inverse else [])]
+    args = [
+        'diff-tree',
+        '-p',
+        '--binary',
+        '--full-index',
+        *(['-U0'] if u0 else []),
+        commit,
+        *([f'{commit}^'] if inverse else []),
+    ]
     return first_field(git.run(root, *args).stdout)
 
 
@@ -86,7 +108,11 @@ class RecordedUnit:
     def __init__(self, store, brief):
         self.store = store
         self.brief = brief
-        self.id = os.path.basename(brief)[:-3] if brief.endswith('.md') else os.path.basename(brief)
+        self.id = (
+            os.path.basename(brief)[:-3]
+            if brief.endswith('.md')
+            else os.path.basename(brief)
+        )
         self.root = repo_root(store)
         self.head = unit_head(store, brief)
 
@@ -106,7 +132,13 @@ class StackIndex:
     def __init__(self, root, base, head):
         self.root, self.base, self.head = root, base, head
         self._loaded = False
-        self.commits, self.position, self.id_of, self.id0_of, self.by_id = [], {}, {}, {}, {}
+        self.commits, self.position, self.id_of, self.id0_of, self.by_id = (
+            [],
+            {},
+            {},
+            {},
+            {},
+        )
 
     @classmethod
     def build(cls, root, base, head):
@@ -116,7 +148,13 @@ class StackIndex:
         if self._loaded:
             return self
         self._loaded = True
-        listed = git.run(self.root, 'rev-list', '--reverse', '--no-merges', f'{self.base}..{self.head}').stdout
+        listed = git.run(
+            self.root,
+            'rev-list',
+            '--reverse',
+            '--no-merges',
+            f'{self.base}..{self.head}',
+        ).stdout
         for n, commit in enumerate(c for c in listed.split('\n') if c):
             ident = patch_id(self.root, commit)
             self.commits.append(commit)
@@ -152,11 +190,19 @@ def rebased_in(unit, index):
         return Inclusion('missing')
     if not git.ok(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}'):
         return Inclusion('missing')
-    if any(git.run(root, 'rev-list', '--merges', f'{base}..{head}').stdout.split('\n')[:1]):
+    if any(
+        git.run(root, 'rev-list', '--merges', f'{base}..{head}').stdout.split('\n')[:1]
+    ):
         return Inclusion('merge', reason='merge')
     index.load()
     undo, tip_id, ids = set(), '', 0
-    for commit in (c for c in git.run(root, 'rev-list', '--no-merges', f'{base}..{head}').stdout.split('\n') if c):
+    for commit in (
+        c
+        for c in git.run(
+            root, 'rev-list', '--no-merges', f'{base}..{head}'
+        ).stdout.split('\n')
+        if c
+    ):
         ident = patch_id(root, commit)
         if not ident:
             continue
@@ -169,11 +215,15 @@ def rebased_in(unit, index):
             undo.add(inverted)
     if ids == 0:
         return Inclusion('missing')
-    net = first_field(git.run(root, 'diff-tree', '-p', '--binary', '--full-index', '-U0', head, base).stdout)
+    net = first_field(
+        git.run(
+            root, 'diff-tree', '-p', '--binary', '--full-index', '-U0', head, base
+        ).stdout
+    )
     if net:
         undo.add(net)
     sha = index.by_id[tip_id]
-    for later in index.commits[index.position[sha] + 1:]:
+    for later in index.commits[index.position[sha] + 1 :]:
         if index.id0_of[later] and index.id0_of[later] in undo:
             return Inclusion('reverted', by=later, reason='reverted')
     return Inclusion('rebased', sha=sha)
@@ -184,7 +234,11 @@ def inclusion(unit, index):
     if not unit.head:
         return Inclusion('missing')
     if is_ancestor(unit.root, unit.head, index.head):
-        return Inclusion('ancestor') if is_ancestor(unit.root, unit.head, index.base) else Inclusion('direct')
+        return (
+            Inclusion('ancestor')
+            if is_ancestor(unit.root, unit.head, index.base)
+            else Inclusion('direct')
+        )
     return rebased_in(unit, index)
 
 
@@ -200,18 +254,35 @@ def heads_in(store, head, units):
         brief = unit_brief(store, unit)
         uhead = unit_head(store, brief)
         if not uhead:
-            sys.stderr.write(f'note: unit {unit} has no usable head; its inclusion was not checked\n')
+            sys.stderr.write(
+                f'note: unit {unit} has no usable head; its inclusion was not checked\n'
+            )
             continue
         if is_ancestor(root, uhead, head):
             continue
         trunk = trunk_ref(root) or ''
-        found = rebased_in(RecordedUnit(store, brief), StackIndex.build(root, git.run(root, 'merge-base', trunk, head, quiet=True).stdout.rstrip('\n'), head))
+        found = rebased_in(
+            RecordedUnit(store, brief),
+            StackIndex.build(
+                root,
+                git.run(root, 'merge-base', trunk, head, quiet=True).stdout.rstrip(
+                    '\n'
+                ),
+                head,
+            ),
+        )
         if found.kind == 'rebased':
-            sys.stderr.write(f"note: unit {unit}'s head is not in {head[:9]}; its commits match by patch-id (rebased as {found.sha[:9]})\n")
+            sys.stderr.write(
+                f"note: unit {unit}'s head is not in {head[:9]}; its commits match by patch-id (rebased as {found.sha[:9]})\n"
+            )
         elif found.reason == 'reverted':
-            raise HeadNotCarried(f"unit {unit}'s commits match by patch-id but {found.by[:9]} reverts them in the checked-out head {head[:9]} (unit {last})")
+            raise HeadNotCarried(
+                f"unit {unit}'s commits match by patch-id but {found.by[:9]} reverts them in the checked-out head {head[:9]} (unit {last})"
+            )
         else:
-            raise HeadNotCarried(f"unit {unit}'s head {uhead[:9]} is not in the checked-out head {head[:9]} (unit {last}); name the unit that carries all the others last")
+            raise HeadNotCarried(
+                f"unit {unit}'s head {uhead[:9]} is not in the checked-out head {head[:9]} (unit {last}); name the unit that carries all the others last"
+            )
 
 
 class Verdict:
@@ -228,7 +299,13 @@ class Verdict:
         packet = (path[:-3] if path.endswith('.md') else path) + '-packet.md'
         span = header_field(packet, 'range') or header_field(path, 'range')
         span = re.split(r'[ \t\n\v\f\r]', span, maxsplit=1)[0]
-        return cls(path, header_field(path, 'status'), header_field(path, 'units'), span.split('..', 1)[0], span.rsplit('..', 1)[-1])
+        return cls(
+            path,
+            header_field(path, 'status'),
+            header_field(path, 'units'),
+            span.split('..', 1)[0],
+            span.rsplit('..', 1)[-1],
+        )
 
     @property
     def landing(self):
@@ -275,18 +352,26 @@ def landing_base(store, root, head, parent_override='', parent_label='', range_b
             sys.stdout.write(f'landing base: recorded parent {label} ({found[:9]})\n')
             return found
         if parent_override:
-            raise BadLandingBase(f'--parent {label} ({parent[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts')
-        sys.stdout.write(f'landing base: recorded parent {label} ({parent[:9]}) is no longer an ancestor of {head[:9]}; using the trunk merge-base\n')
+            raise BadLandingBase(
+                f'--parent {label} ({parent[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts'
+            )
+        sys.stdout.write(
+            f'landing base: recorded parent {label} ({parent[:9]}) is no longer an ancestor of {head[:9]}; using the trunk merge-base\n'
+        )
     trunk = trunk_ref(root) or ''
     if not trunk:
-        raise BadLandingBase("cannot tell this repo's trunk; pass --base <trunk ref or commit>")
+        raise BadLandingBase(
+            "cannot tell this repo's trunk; pass --base <trunk ref or commit>"
+        )
     merged = git.run(root, 'merge-base', trunk, head)
     base = merged.stdout.rstrip('\n')
     if merged.returncode != 0:
         raise BadLandingBase(f'no merge-base between {trunk} and HEAD; pass --base')
     name = trunk.removeprefix('refs/')
     if base == head:
-        raise BadLandingBase(f'HEAD is already on {name}, so the landing range is empty; pass --base <where the stack starts>')
+        raise BadLandingBase(
+            f'HEAD is already on {name}, so the landing range is empty; pass --base <where the stack starts>'
+        )
     sys.stdout.write(f'landing base: merge-base of {name} and HEAD ({base[:9]})\n')
     return base
 
@@ -326,7 +411,9 @@ def oldest_base(store, briefs):
             owner, oldest = unit, base
     for unit, base in heads:
         if not is_ancestor(root, oldest, base):
-            raise UnitNotCheckable(f'units {owner} and {unit} have no common order: pass --base REV')
+            raise UnitNotCheckable(
+                f'units {owner} and {unit} have no common order: pass --base REV'
+            )
     return oldest, owner
 
 
@@ -337,7 +424,9 @@ def unit_range(ctx, store, units, covered=(), range_base=''):
     base moves up to where the unit's branch leaves trunk when trunk has replaced the recorded one (a note says so), unless range_base is given."""
     first, last = units[0], units[-1]
     brief_or_nothing(ctx, store, first)
-    base, owner = oldest_base(store, {u: quiet_brief(store, u) for u in ([first] if range_base else units)})
+    base, owner = oldest_base(
+        store, {u: quiet_brief(store, u) for u in ([first] if range_base else units)}
+    )
     for unit in units:
         if unit in covered:
             continue
@@ -349,15 +438,21 @@ def unit_range(ctx, store, units, covered=(), range_base=''):
             continue
         if status in ('partial', 'blocked', 'failed'):
             sys.stdout.flush()
-            sys.stderr.write(f"note: unit {unit}'s report is {status}; checking the head it names\n")
+            sys.stderr.write(
+                f"note: unit {unit}'s report is {status}; checking the head it names\n"
+            )
         elif status == '':
             raise UnitNotCheckable(f"unit {unit}'s report has no status:")
         else:
-            raise UnitNotCheckable(f"unit {unit}'s report is {status}, not done, partial, blocked, or failed")
+            raise UnitNotCheckable(
+                f"unit {unit}'s report is {status}, not done, partial, blocked, or failed"
+            )
     report = expected_report(store, brief_or_nothing(ctx, store, last))
     if not os.path.exists(report):
         sys.stdout.flush()
-        sys.stderr.write(f'{ctx.prog}: cannot read {report}: No such file or directory\n')
+        sys.stderr.write(
+            f'{ctx.prog}: cannot read {report}: No such file or directory\n'
+        )
     head = header_field(report, 'head')
     if not head:
         raise UnitNotCheckable(f"unit {last}'s report has no head:")

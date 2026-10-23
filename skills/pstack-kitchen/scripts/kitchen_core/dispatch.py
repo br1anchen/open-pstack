@@ -32,7 +32,9 @@ DISPATCH_SPEC = Spec(valued=tuple(NUMBER_FLAGS), unknown='collect')
 def dispatch(ctx, args):
     default_signals()
     if len(args) < 2:
-        raise Die('usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]')
+        raise Die(
+            'usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]'
+        )
     store, brief = args[0], args[1]
     # every number flag is read before the command changes anything
     opts = read(args[2:], DISPATCH_SPEC)
@@ -56,16 +58,34 @@ def dispatch(ctx, args):
     held = []
     try:
         request = send.dispatch_request(ctx, [store, brief, *opts.stripped('--max')])
-        result = send.dispatch_brief(ctx, request.store, request.brief, timeout=request.timeout, send_only=request.send_only, quiet=True, out=held.append)
+        result = send.dispatch_brief(
+            ctx,
+            request.store,
+            request.brief,
+            timeout=request.timeout,
+            send_only=request.send_only,
+            quiet=True,
+            out=held.append,
+        )
     except Exception as e:
         return refused(ctx, e, held)
     outcome = result.outcome
-    if outcome is not None and outcome.kind == 'checkin' and outcome.checkin is not None:
+    if (
+        outcome is not None
+        and outcome.kind == 'checkin'
+        and outcome.checkin is not None
+    ):
         if not outcome.flagged:
             sys.stdout.write(block(''.join(held) + ''.join(outcome.checkin.notices)))
             return quiet_wait(ctx, store, list(args[2:]))
         log_checkin_wake(ctx, store, outcome)
-    sys.stdout.write(block(''.join(result.sent_lines) + ''.join(held) + ('' if outcome is None else ''.join(outcome.digest))))
+    sys.stdout.write(
+        block(
+            ''.join(result.sent_lines)
+            + ''.join(held)
+            + ('' if outcome is None else ''.join(outcome.digest))
+        )
+    )
     return result.status
 
 
@@ -74,9 +94,19 @@ def queue(ctx, args):
     # A brief path may be given relative to the store (briefs/NNN-x.md), as for dispatch.
     if len(args) >= 2:
         pair_file(args[0])
-    if len(args) >= 2 and args[1] != '--clear' and not os.path.isfile(args[1]) and os.path.isfile(f'{args[0]}/{args[1]}'):
+    if (
+        len(args) >= 2
+        and args[1] != '--clear'
+        and not os.path.isfile(args[1])
+        and os.path.isfile(f'{args[0]}/{args[1]}')
+    ):
         args[1] = f'{args[0]}/{args[1]}'
-    if len(args) >= 2 and args[1] != '--clear' and os.path.isfile(args[1]) and not is_landing(args[1]):
+    if (
+        len(args) >= 2
+        and args[1] != '--clear'
+        and os.path.isfile(args[1])
+        and not is_landing(args[1])
+    ):
         with contextlib.redirect_stdout(io.StringIO()):
             classify_brief(args[0], args[1])
     return core_queue(ctx, args)
@@ -89,12 +119,20 @@ def discuss(ctx, args):
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
     if risk_of(plan) not in ('routine', 'escalated'):
-        raise Die(f'{plan}: risk: must start with routine or escalated, as kitchen.sh classify prints it', 2)
+        raise Die(
+            f'{plan}: risk: must start with routine or escalated, as kitchen.sh classify prints it',
+            2,
+        )
     escalated = risk_of(plan) == 'escalated'
     if escalated and not has_pair(store):
         sys.stderr.write(translate(MissingStore(store), ctx.prog)[0])
-    if escalated and not (has_pair(store) and agent_status(field(store, 'consultant', 'name')) != 'absent'):
-        raise Die(f'an escalated plan goes to the consultant too; start it: kitchen.sh consultant {store} --reason TEXT', 5)
+    if escalated and not (
+        has_pair(store) and agent_status(field(store, 'consultant', 'name')) != 'absent'
+    ):
+        raise Die(
+            f'an escalated plan goes to the consultant too; start it: kitchen.sh consultant {store} --reason TEXT',
+            5,
+        )
     if not os.path.isfile(f'{store}/pair.json'):
         return send.discuss(ctx, list(args))
     rotate_if_due(ctx, store, 'plan')

@@ -12,7 +12,19 @@ from pstack_core import agents, spawn as pair_spawn
 from pstack_core.spawn import spawn_options, start_sidekick
 from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
-from pstack_core.store import field, read_text, event, json_type, listing, load, member, now, pair_file, text_at, update
+from pstack_core.store import (
+    field,
+    read_text,
+    event,
+    json_type,
+    listing,
+    load,
+    member,
+    now,
+    pair_file,
+    text_at,
+    update,
+)
 from pstack_core.commands.report import require_pair
 from pstack_core.errors import DamagedStore, Die, Exit, SetupFailed
 from pstack_core import git
@@ -48,6 +60,7 @@ def record_skill_build(ctx, store):
         if not isinstance(current, list):
             raise DamagedStore(f'skill_builds is {json_type(current)}, not an array')
         doc['skill_builds'] = current + [{'path': skills_dir, 'at': stamp}]
+
     stamp = now()
     update(store, mutate)
 
@@ -58,6 +71,7 @@ def stamp_skill_builds(ctx, store):
 
     def mutate(doc):
         doc['skill_builds'] = [{'path': skills_dir, 'at': stamp}]
+
     update(store, mutate)
 
 
@@ -71,22 +85,30 @@ def validated(store):
 
 def init(ctx, args):
     lines = []
-    made = core_init.init_store(ctx, core_init.init_request(ctx, list(args)), lines.append)
+    made = core_init.init_store(
+        ctx, core_init.init_request(ctx, list(args)), lines.append
+    )
     sys.stdout.write(''.join(lines))
     store, orders = made.store, made.orders
     stamp_skill_builds(ctx, store)
     found = validated(store)
     if found is None:
         sys.stdout.flush()
-        sys.stderr.write('kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching\n')
+        sys.stderr.write(
+            'kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching\n'
+        )
         return 0
     text = read_text(orders)
     if 'kitchen.toml review.self' not in text and found.review_self:
         with open(orders, 'a') as f:
-            f.write(f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {", ".join(found.review_self)} (kitchen.toml review.self).\n')
+            f.write(
+                f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {", ".join(found.review_self)} (kitchen.toml review.self).\n'
+            )
     if 'kitchen.toml landing.mode' not in text:
         with open(orders, 'a') as f:
-            f.write(f'17. Landing goes as far as `{found.landing}` (kitchen.toml landing.mode) and never merges.\n')
+            f.write(
+                f'17. Landing goes as far as `{found.landing}` (kitchen.toml landing.mode) and never merges.\n'
+            )
     worktree_setup(ctx, store, found)
     return 0
 
@@ -99,7 +121,11 @@ def worktree_setup(ctx, store, found):
     root = repo_root(store)
     if not found.setup:
         return
-    if git.run(root, 'rev-parse', '--path-format=absolute', '--git-dir').stdout.rstrip('\n') == git.run(root, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.rstrip('\n'):
+    if git.run(root, 'rev-parse', '--path-format=absolute', '--git-dir').stdout.rstrip(
+        '\n'
+    ) == git.run(
+        root, 'rev-parse', '--path-format=absolute', '--git-common-dir'
+    ).stdout.rstrip('\n'):
         return
     kitchen_py = kpy.kitchen_py
     try:
@@ -109,7 +135,9 @@ def worktree_setup(ctx, store, found):
         passed, out = False, f'kitchen: {e}'
     event(store, 'master', 'setup', '-', 'pass' if passed else 'fail')
     if not passed:
-        raise SetupFailed(f'this run is in a linked worktree and its [scratch].setup failed:\n{out}')
+        raise SetupFailed(
+            f'this run is in a linked worktree and its [scratch].setup failed:\n{out}'
+        )
     sys.stdout.write(f'worktree: prepared with [scratch].setup ({out})\n')
 
 
@@ -137,16 +165,27 @@ def roster_lines(roster, *keys):
 def spawn(ctx, args):
     require_herdr()
     if len(args) < 1:
-        raise Die('usage: kitchen.sh spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [-- agent-args...]')
+        raise Die(
+            'usage: kitchen.sh spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [-- agent-args...]'
+        )
     store, fb_args = args[0], []
-    opts = read(args[1:], Spec(valued=('--kind', '--fallback', '--fallback-arg'), dashdash=True, unknown='collect'))
+    opts = read(
+        args[1:],
+        Spec(
+            valued=('--kind', '--fallback', '--fallback-arg'),
+            dashdash=True,
+            unknown='collect',
+        ),
+    )
     kind, fallback = opts.last('--kind', ''), opts.last('--fallback', '')
     native = list(opts.after_dashdash)
     roster = host_roster()
     if not kind:
         kind = roster_text(roster, 'sidekick', 'kind')
         if not kind:
-            raise Die('no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)')
+            raise Die(
+                'no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)'
+            )
         if not native:
             native = roster_lines(roster, 'sidekick', 'args')
     if not fallback and kind == roster_text(roster, 'sidekick', 'kind'):
@@ -154,18 +193,35 @@ def spawn(ctx, args):
         fb_args = roster_lines(roster, 'sidekick', 'fallback', 'args')
     given = spawn_options(list(opts.leftovers))
     end_with_parent()
-    return start_sidekick(ctx, store, replace(given, kind=kind, fallback=fallback, native=tuple(native),
-                                              fallback_args=(*opts.all('--fallback-arg'), *fb_args)))
+    return start_sidekick(
+        ctx,
+        store,
+        replace(
+            given,
+            kind=kind,
+            fallback=fallback,
+            native=tuple(native),
+            fallback_args=(*opts.all('--fallback-arg'), *fb_args),
+        ),
+    )
 
 
 def consultant(ctx, args):
     """The consultant joins only when a unit escalates: the scarcest quota is spent on design questions that warrant it."""
     require_herdr()
     if len(args) < 1:
-        raise Die('usage: kitchen.sh consultant <store> --reason TEXT [--kind KIND] [--permission MODE|none] [-- agent-args...]')
+        raise Die(
+            'usage: kitchen.sh consultant <store> --reason TEXT [--kind KIND] [--permission MODE|none] [-- agent-args...]'
+        )
     store = args[0]
-    opts = read(args[1:], Spec(valued=('--reason', '--kind', '--permission'), dashdash=True))
-    reason, kind, permission = opts.last('--reason', ''), opts.last('--kind', ''), opts.last('--permission', '')
+    opts = read(
+        args[1:], Spec(valued=('--reason', '--kind', '--permission'), dashdash=True)
+    )
+    reason, kind, permission = (
+        opts.last('--reason', ''),
+        opts.last('--kind', ''),
+        opts.last('--permission', ''),
+    )
     native = list(opts.after_dashdash)
     pair_file(store)
     if not reason:
@@ -182,26 +238,41 @@ def consultant(ctx, args):
         raise Die('no --kind and no [consultant] kind in the host roster')
     # A consultant whose kind has a preflight (Muse, pi, Prime) is checked before its pane starts, as the sidekick is: a logged-out account or a
     # spent plan starts the roster's [consultant.fallback] instead.
-    if agents.has_preflight(kind) and agent_status(field(store, 'consultant', 'name')) == 'absent':
+    if (
+        agents.has_preflight(kind)
+        and agent_status(field(store, 'consultant', 'name')) == 'absent'
+    ):
         code, why = pair_spawn.preflight_reason(kind, native)
         if code != 0:
             if not fallback or fallback == kind:
-                raise Die(f'consultant {kind} failed its preflight and the roster names no other fallback: {why or "no answer"}', 2)
+                raise Die(
+                    f'consultant {kind} failed its preflight and the roster names no other fallback: {why or "no answer"}',
+                    2,
+                )
             shown = ((why or 'no answer').replace('\n', ' ') + ' ')[:200]
-            sys.stdout.write(f'failover: consultant {kind} -> {fallback} (preflight: {shown})\n')
-            record_consultant_failover(store, kind, fallback, f'preflight: {why or "no answer"}')
+            sys.stdout.write(
+                f'failover: consultant {kind} -> {fallback} (preflight: {shown})\n'
+            )
+            record_consultant_failover(
+                store, kind, fallback, f'preflight: {why or "no answer"}'
+            )
             event(store, 'master', 'failover', '-', f'consultant:{kind}:{fallback}')
             kind = fallback
             native = fb_args
     # The escalation is recorded once the consultant is up, so a start that fails (a trust prompt) and is retried counts it once.
     end_with_parent()
-    code = pair_spawn.spawn_consultant(ctx, store, pair_spawn.SpawnRequest(kind, permission, args=tuple(native)))
+    code = pair_spawn.spawn_consultant(
+        ctx, store, pair_spawn.SpawnRequest(kind, permission, args=tuple(native))
+    )
     if code:
         raise Exit(code)
     stamp = now()
 
     def mutate(doc):
-        doc['escalations'] = listing(doc, 'escalations') + [{'reason': reason, 'at': stamp}]
+        doc['escalations'] = listing(doc, 'escalations') + [
+            {'reason': reason, 'at': stamp}
+        ]
+
     update(store, mutate)
     event(store, 'master', 'escalate', '-', reason)
     return 0
@@ -213,7 +284,10 @@ def record_consultant_failover(store, source, target, reason):
 
     def mutate(doc):
         entry = member(doc, 'consultant')
-        entry['failovers'] = listing(entry, 'failovers') + [{'from': source, 'to': target, 'reason': reason, 'at': stamp}]
+        entry['failovers'] = listing(entry, 'failovers') + [
+            {'from': source, 'to': target, 'reason': reason, 'at': stamp}
+        ]
+
     update(store, mutate)
 
 
@@ -221,8 +295,15 @@ def fleet(ctx, args):
     """Every run on the host and each skills build; read-only and repo-free."""
     kp = kpy.kitchen_py
     try:
-        parsed = kp.build_parser().parse_args(['fleet', *args])  # kitchen.py's own parser answers a bad option, as it does on a terminal
+        parsed = kp.build_parser().parse_args(
+            ['fleet', *args]
+        )  # kitchen.py's own parser answers a bad option, as it does on a terminal
     except SystemExit as stopped:
         raise Exit(stopped.code) from None
-    sys.stdout.write(kp.fleet_text(kp.fleet(parsed.runs or kp.pstack_state() / 'kitchen/runs', parsed.since)) + '\n')
+    sys.stdout.write(
+        kp.fleet_text(
+            kp.fleet(parsed.runs or kp.pstack_state() / 'kitchen/runs', parsed.since)
+        )
+        + '\n'
+    )
     return 0

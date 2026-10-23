@@ -6,7 +6,19 @@ import time
 
 from .. import git
 from ..argv import Spec, read
-from ..store import acquire_lock, event, load, note_id, pair_file, text_at, pause_notice, paused_reason, progress_path, steer_notice, unit_name
+from ..store import (
+    acquire_lock,
+    event,
+    load,
+    note_id,
+    pair_file,
+    text_at,
+    pause_notice,
+    paused_reason,
+    progress_path,
+    steer_notice,
+    unit_name,
+)
 from ..errors import Die, open_notes_refusal
 from ..replies import dispatched
 from ..review import open_notes
@@ -20,7 +32,11 @@ def unresolved_notes(store, brief, resolves):
     """(id, file) of the blocking notes on the unit that are open and that `resolves` (a comma list of note ids) does not name."""
     named = set(resolves.split(','))
     seq = unit_name(brief)[:3]
-    return [(note_id(f), f) for f in open_notes(store, brief) if note_id(f) not in named and f'{seq}-{note_id(f)}' not in named]
+    return [
+        (note_id(f), f)
+        for f in open_notes(store, brief)
+        if note_id(f) not in named and f'{seq}-{note_id(f)}' not in named
+    ]
 
 
 def resolves_arg(args):
@@ -30,7 +46,11 @@ def resolves_arg(args):
 
 def malformed_resolves(resolves):
     """The message for a --resolves value that is no list of note ids, else ''."""
-    return '' if RESOLVES.fullmatch(resolves) else '--resolves takes note ids like n2,n3, or 001-n2 for another unit\'s note'
+    return (
+        ''
+        if RESOLVES.fullmatch(resolves)
+        else "--resolves takes note ids like n2,n3, or 001-n2 for another unit's note"
+    )
 
 
 def unpublished_resolves(store, unit, resolves):
@@ -39,7 +59,9 @@ def unpublished_resolves(store, unit, resolves):
         if re.match(r'[0-9]{3}-', note):
             # another unit's note: notes/<NNN>-<slug>-n<k>.md
             seq, bare = note.split('-', 1)
-            if not glob.glob(os.path.join(glob.escape(store), 'notes', f'{seq}-*-{bare}.md')):
+            if not glob.glob(
+                os.path.join(glob.escape(store), 'notes', f'{seq}-*-{bare}.md')
+            ):
                 return f'--resolves {note}: no published note {bare} on unit {seq}; resolve only notes pair.sh notes printed'
         elif not os.path.isfile(f'{store}/notes/{unit}-{note}.md'):
             return f'--resolves {note}: no published note {note} on {unit}; resolve only notes pair.sh notes printed'
@@ -51,7 +73,9 @@ def step(ctx, args, now=None):
     notes the step fixes. A commit this unit recorded already only gains the notes it now resolves; the check for it and the append
     are one critical section under the store lock, so two calls for one commit leave one row."""
     if len(args) < 3:
-        raise Die(f'usage: {ctx.prog} step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
+        raise Die(
+            f'usage: {ctx.prog} step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]'
+        )
     store, sha, summary = args[:3]
     resolves = resolves_arg(args[3:])
     if error := malformed_resolves(resolves):
@@ -60,7 +84,14 @@ def step(ctx, args, now=None):
     brief = dispatched(store)
     if not brief:
         raise Die('no brief dispatched; a step belongs to a running brief')
-    r = git.run(text_at(load(store), 'cwd'), 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}', stderr=git.PIPE)
+    r = git.run(
+        text_at(load(store), 'cwd'),
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        f'{sha}^{{commit}}',
+        stderr=git.PIPE,
+    )
     sys.stderr.write(r.stderr)
     if r.returncode != 0:
         raise Die(f'not a commit: {sha}; commit the step first')
@@ -90,12 +121,16 @@ def step(ctx, args, now=None):
         sys.stdout.write(steer_notice(ctx, store))
         return 0
     with open(progress_path(store), 'a', encoding='utf-8') as f:
-        f.write(f'{time.strftime("%H:%M", time.localtime(stamp))} step {k} {full[:9]}: {summary}\n')
+        f.write(
+            f'{time.strftime("%H:%M", time.localtime(stamp))} step {k} {full[:9]}: {summary}\n'
+        )
     event(store, 'sidekick', 'step', brief, f'{k}:{full[:9]}')
     if paused_reason(store) is not None:
         sys.stdout.write(f'step {k} recorded at {full[:9]}.\n')
         sys.stdout.write(pause_notice(store))
     else:
-        sys.stdout.write(f'step {k} recorded at {full[:9]}; go on with the next step. At the next step boundary: pair.sh notes {store}\n')
+        sys.stdout.write(
+            f'step {k} recorded at {full[:9]}; go on with the next step. At the next step boundary: pair.sh notes {store}\n'
+        )
     sys.stdout.write(steer_notice(ctx, store))
     return 0

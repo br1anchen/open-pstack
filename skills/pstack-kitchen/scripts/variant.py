@@ -5,7 +5,14 @@ import zlib
 from pathlib import Path
 
 from pstack_core import consult
-from pstack_core.store import dispatched_brief, expected_report, header_field, read, read_text, risk_of
+from pstack_core.store import (
+    dispatched_brief,
+    expected_report,
+    header_field,
+    read,
+    read_text,
+    risk_of,
+)
 from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 
@@ -20,7 +27,11 @@ def load_kitchen_core():
     module = sys.modules.get('kitchen_core')
     if module is not None:
         return module
-    spec = importlib.util.spec_from_file_location('kitchen_core', KITCHEN_CORE_DIR / '__init__.py', submodule_search_locations=[str(KITCHEN_CORE_DIR)])
+    spec = importlib.util.spec_from_file_location(
+        'kitchen_core',
+        KITCHEN_CORE_DIR / '__init__.py',
+        submodule_search_locations=[str(KITCHEN_CORE_DIR)],
+    )
     module = importlib.util.module_from_spec(spec)
     sys.modules['kitchen_core'] = module
     try:
@@ -29,7 +40,6 @@ def load_kitchen_core():
         del sys.modules['kitchen_core']
         raise
     return module
-
 
 
 def verify_block(ctx, brief):
@@ -154,27 +164,47 @@ class KitchenVariant(TrioVariant):
     STATE_DIR = 'kitchen/runs'
     store_label = 'Kitchen'
     roles = ('sidekick', 'verifier', 'consultant')
-    store_dirs = ('plans', 'briefs', 'reports', 'reviews', 'progress', 'steers', 'consults', 'advice', 'scratch', 'verdicts')
+    store_dirs = (
+        'plans',
+        'briefs',
+        'reports',
+        'reviews',
+        'progress',
+        'steers',
+        'consults',
+        'advice',
+        'scratch',
+        'verdicts',
+    )
     event_dedupe = True
     usage = USAGE
     # Its own table, as every variant has one: stop is the trio's, which loops over the kitchen's roles (the verifier too). Spawn
     # stays the pair's, under kitchen.sh's wrapper.
     commands = {'stop': TrioVariant.commands['stop']}
+
     def startup(self, ctx, words):
         """Every command word stamps the skills build on a store named as its second word: a run keeps the list of skills directories its
         commands ran from."""
         if len(words) >= 2 and os.path.isfile(f'{words[1]}/pair.json'):
             load_kitchen_core()
             from kitchen_core.setup import record_skill_build
+
             record_skill_build(ctx, words[1])
 
-    verify_job = staticmethod(verify_job)  # finish (kitchen_core.step) keeps its Verify run where report_ready looks for it
+    verify_job = staticmethod(
+        verify_job
+    )  # finish (kitchen_core.step) keeps its Verify run where report_ready looks for it
 
     def require_agreed_plan(self, ctx, store, brief):
         """Routine units run on the brief alone; an escalated one needs the agreed plan with the consultant's advice, as in the trio. A
         routine brief that names a plan still needs it agreed. The gate to apply is an argument, as the bash passed it in a global."""
         if risk_of(brief) == 'escalated':
-            require_agreed_plan(ctx, store, brief, lambda *args: TrioVariant.plan_gate_extra(self, *args))
+            require_agreed_plan(
+                ctx,
+                store,
+                brief,
+                lambda *args: TrioVariant.plan_gate_extra(self, *args),
+            )
             return
         if header_field(brief, 'plan') in ('', 'none'):
             return
@@ -206,34 +236,56 @@ class KitchenVariant(TrioVariant):
             rc = ''
         if rc == '0':
             return base
-        return ReportReadiness(False, '', f"the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them)")
-
+        return ReportReadiness(
+            False,
+            '',
+            f"the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them)",
+        )
 
 
 def _kitchen_command(module, function):
     """A command of kitchen_core, loaded when it runs: the package is imported for a kitchen command that needs it and not before."""
+
     def run(ctx, args):
         load_kitchen_core()
         import importlib
-        return getattr(importlib.import_module(f'kitchen_core.{module}'), function)(ctx, args)
+
+        return getattr(importlib.import_module(f'kitchen_core.{module}'), function)(
+            ctx, args
+        )
+
     run.__name__ = function
     run.command = (module, function)
     return run
 
 
-KitchenVariant.commands = {**KitchenVariant.commands, 'new-consult': consult.new_consult, 'consult': consult.consult, 'advice': consult.advice,
-                           'catch': _kitchen_command('ledger', 'catch'), 'retro': _kitchen_command('ledger', 'retro'),
-                           'new-handoff': _kitchen_command('handoff', 'new_handoff'), 'feedback': _kitchen_command('feedback', 'feedback'),
-                           'maintainer': _kitchen_command('feedback', 'maintainer'), 'close': _kitchen_command('master', 'close'),
-                           'rotate-master': _kitchen_command('master', 'rotate_master'),
-                           'take-master': _kitchen_command('master', 'take_master'),
-                           'land-check': _kitchen_command('landing', 'land_check_command'), 'revise': _kitchen_command('landing', 'revise'),
-                           'verify': _kitchen_command('verify', 'verify'), 'classify': _kitchen_command('classify', 'classify'),
-                           'queue': _kitchen_command('dispatch', 'queue'), 'discuss': _kitchen_command('dispatch', 'discuss'),
-                           'init': _kitchen_command('setup', 'init'), 'spawn': _kitchen_command('setup', 'spawn'),
-                           'consultant': _kitchen_command('setup', 'consultant'), 'fleet': _kitchen_command('setup', 'fleet'),
-                           'wait': _kitchen_command('wait', 'wait'),
-                           'dispatch': _kitchen_command('dispatch', 'dispatch'),
-                           'step': _kitchen_command('step', 'step'), 'finish': _kitchen_command('step', 'finish')}
+KitchenVariant.commands = {
+    **KitchenVariant.commands,
+    'new-consult': consult.new_consult,
+    'consult': consult.consult,
+    'advice': consult.advice,
+    'catch': _kitchen_command('ledger', 'catch'),
+    'retro': _kitchen_command('ledger', 'retro'),
+    'new-handoff': _kitchen_command('handoff', 'new_handoff'),
+    'feedback': _kitchen_command('feedback', 'feedback'),
+    'maintainer': _kitchen_command('feedback', 'maintainer'),
+    'close': _kitchen_command('master', 'close'),
+    'rotate-master': _kitchen_command('master', 'rotate_master'),
+    'take-master': _kitchen_command('master', 'take_master'),
+    'land-check': _kitchen_command('landing', 'land_check_command'),
+    'revise': _kitchen_command('landing', 'revise'),
+    'verify': _kitchen_command('verify', 'verify'),
+    'classify': _kitchen_command('classify', 'classify'),
+    'queue': _kitchen_command('dispatch', 'queue'),
+    'discuss': _kitchen_command('dispatch', 'discuss'),
+    'init': _kitchen_command('setup', 'init'),
+    'spawn': _kitchen_command('setup', 'spawn'),
+    'consultant': _kitchen_command('setup', 'consultant'),
+    'fleet': _kitchen_command('setup', 'fleet'),
+    'wait': _kitchen_command('wait', 'wait'),
+    'dispatch': _kitchen_command('dispatch', 'dispatch'),
+    'step': _kitchen_command('step', 'step'),
+    'finish': _kitchen_command('step', 'finish'),
+}
 
 VARIANT = KitchenVariant
