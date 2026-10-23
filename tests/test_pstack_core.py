@@ -30,7 +30,7 @@ import run as run_module  # noqa: E402
 from pstack_core import agents, argv, cli, exits, git, numbers, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
-    BadNumber, BadScratch, DamagedStore, Die, EmptyStepLog, Exit, FileFailed, LockHeld, MissingStore, NoBrief, NotInHerdr, PairError, PairJsonGone, Paused, PlanNotAgreed,
+    AgentBlocked, AgentBusy, AgentNotLive, BadNumber, BadScratch, DamagedStore, Die, EmptyStepLog, Exit, FileFailed, LockHeld, MissingStore, NoBrief, NotInHerdr, PairError, PairJsonGone, Paused, PlanNotAgreed,
     StepLogUnreadable, ToolFailed, UnitNotCheckable, Unfilled, VerificationTaken, refuse_as, translate,
 )
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
@@ -7408,17 +7408,16 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(consult.stamp_send_state(str(st), str(draft)), (str(self.path), 'working'))
         self.assertEqual(draft.read_text(), 'kind: finding\nsidekick state at send: working at ?\n\n## Question\nq\n')
         draft.write_text('kind: finding|design\nsidekick state at send: x\n')
-        with mock.patch.object(consult, 'agent_status', return_value='idle'), self.assertRaises(Die) as refused:
+        with mock.patch.object(consult, 'agent_status', return_value='idle'), self.assertRaises(Unfilled) as refused:
             consult.stamp_send_state(str(st), str(draft))
         self.assertEqual(refused.exception.message, f'{draft} still has unfilled placeholders')
-        for status, code in (('idle', None), ('done', None), ('absent', 2), ('blocked', 3), ('working', 5)):
+        for status, refusal in (('idle', None), ('done', None), ('absent', AgentNotLive), ('blocked', AgentBlocked), ('working', AgentBusy)):
             with mock.patch.object(consult, 'agent_status', return_value=status):
-                if code is None:
+                if refusal is None:
                     self.assertEqual(consult.require_consultant_idle(str(st)), 'c1')
                 else:
-                    with self.assertRaises(Die) as refused:
+                    with self.assertRaises(refusal):
                         consult.require_consultant_idle(str(st))
-                    self.assertEqual(refused.exception.code, code)
 
     def test_a_trio_plan_round_and_the_consult_commands_run_with_no_jq(self):
         """The consultant's commands are Python: with a jq on PATH that fails, pair.sh discuss, new-consult, consult and advice still end as they do with one."""

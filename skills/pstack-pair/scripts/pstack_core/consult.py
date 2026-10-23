@@ -13,7 +13,7 @@ from . import argv, git
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
 from .store import wake, TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, now, write_text, who
-from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, PromptFailed
+from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, PromptFailed, Unfilled
 from .gates import require_not_paused
 from .panes import DEVNULL, agent_prompt, agent_state, agent_status, await_file, error_code, error_state, require_herdr
 from .review import require_filled
@@ -256,7 +256,7 @@ def stamp_send_state(store, path):
     text = re.sub(r'^sidekick state at send:.*', lambda _: state_line, read_text(path), flags=re.M)
     write_text(path, text)
     if '{{' in text or re.search(r'^kind: .*\|', text, re.M):
-        raise Die(f'{path} still has unfilled placeholders')
+        raise Unfilled(f'{path} still has unfilled placeholders')
     return cwd, sidekick_state
 
 
@@ -265,11 +265,11 @@ def require_consultant_idle(store):
     name = field(store, 'consultant', 'name')
     status = agent_status(name)
     if status == 'absent':
-        raise Die(f'{who("consultant", name)} is not live; run: pair.sh spawn {store} --only consultant --consultant <kind>', 2)
+        raise AgentNotLive(f'{who("consultant", name)} is not live; run: pair.sh spawn {store} --only consultant --consultant <kind>')
     if status == 'blocked':
-        raise Die(f'{who("consultant", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
+        raise AgentBlocked(f'{who("consultant", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60')
     if status not in ('idle', 'done'):
-        raise Die(f'{who("consultant", name)} is {status}; wait for its current advice first', 5)
+        raise AgentBusy(f'{who("consultant", name)} is {status}; wait for its current advice first')
     return name
 
 
