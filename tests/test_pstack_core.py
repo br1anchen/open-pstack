@@ -18810,13 +18810,12 @@ def registered_commands():
         commands += load_skill_variant(root / 'skills', skill).commands.values()
     for command in commands:
         module, name = getattr(command, 'command', (None, command.__name__))
-        source = inspect.getsourcefile(command)
-        assert source is not None
-        path = (
-            f'pstack-kitchen/scripts/kitchen_core/{module}.py'
-            if module
-            else os.path.relpath(source, root / 'skills')
-        )
+        if module:
+            path = f'pstack-kitchen/scripts/kitchen_core/{module}.py'
+        else:
+            source = inspect.getsourcefile(command)
+            assert source is not None
+            path = os.path.relpath(source, root / 'skills')
         found.add((path, name))
     return found
 
