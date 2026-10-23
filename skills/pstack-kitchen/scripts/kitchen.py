@@ -689,9 +689,9 @@ def wrap_of(kitchen: Kitchen, p: Profile) -> str:
 # and writes its result to a file, since a wrap's shell hook may print to
 # stdout. The outer run keeps the heavy slot.
 def child_args(inv: 'Invocation') -> list[str]:
-    """The global options a child kitchen.py (re-run inside a wrap) is given to read the same kitchen: --repo, and --config and --at when set.
-    kitchen_core/worker.py builds the same line for the detached gate and brief-verify children."""
-    return ['--repo', str(inv.root), *(['--config', inv.config] if inv.config else []), *(['--at', inv.at] if inv.at else [])]
+    """The global options a child kitchen.py (re-run inside a wrap) is given to read the same kitchen: the resolved --repo, and --config and --at
+    when set. kitchen_core/worker.py, the process boundary of the detached gate and brief-verify children, shares the --repo and --config part."""
+    return ['--repo', str(repo_root(inv.root)), *(['--config', inv.config] if inv.config else []), *(['--at', inv.at] if inv.at else [])]
 
 
 def run_wrapped(inv: 'Invocation', root: Path, wrap: str, profile: str, stage: str, log_dir: Path,
@@ -2766,7 +2766,6 @@ def main(argv: list[str] | None = None) -> int:
                 emit(r, args.json, lessons_text(r, args.all))
             return 0
         kitchen, source = load(root, args.at, args.config)
-        inv = Invocation(str(root), args.config, args.at)
         if args.cmd == 'doctor':
             for warning in kitchen_warnings(kitchen):
                 print(warning, file=sys.stderr)

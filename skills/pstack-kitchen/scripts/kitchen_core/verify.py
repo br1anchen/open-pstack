@@ -4,8 +4,8 @@ It is built on units.py (ranges, inclusion, verdicts), verify_state.py (the clai
 wait); nothing calls back into it. A command that fails ends it with an Exit or a Die.
 
 kitchen.py is reached through kpy: the queries verify makes (roster_data, snapshot, classify_change, timing, deadline, brief_verify_list and lesson_packet)
-are its functions, read the repo's kitchen and git and return data; none of them writes os.environ or reads INVOCATION: those belong to `gate` and to
-`brief-verify` without --list (kitchen.py :745, :771, :1023, :1038), which verify never runs. test_verify_kpy_calls_leave_the_environment_alone pins
+are its functions, read the repo's kitchen and git and return data; none of them writes os.environ or builds a child's command line (`child_args`,
+`child_env`): those belong to `gate` and to `brief-verify` without --list, which verify never runs. test_verify_kpy_calls_leave_the_environment_alone pins
 that."""
 
 import glob

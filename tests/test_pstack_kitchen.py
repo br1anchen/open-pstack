@@ -646,9 +646,24 @@ class WrapTests(KitchenTests):
             os.environ.pop(kitchen.WRAPPED, None)
             self.assertTrue(kitchen.run_gate(inv, self.repo, k, 'app', 'fast', None)['passed'])
         argv = (self.repo / 'wrap/argv').read_text().splitlines()
-        self.assertEqual(argv[:2], [sys.executable, str(script)])
-        self.assertEqual(argv[2:2 + len(kitchen.child_args(inv))], kitchen.child_args(inv))
-        self.assertEqual(argv[2 + len(kitchen.child_args(inv)):][:3], ['gate', 'app', 'fast'])
+        self.assertEqual(argv[:9], [sys.executable, str(script), '--repo', str(self.repo), '--at', 'HEAD', 'gate', 'app', 'fast'])
+
+    def test_a_wrapped_brief_verify_re_runs_kitchen_py_inside_the_wrap_with_the_invocation_it_was_given(self):
+        from unittest import mock
+        self.kitchen()
+        self.write('wrap/enter.sh', '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$(dirname "$0")/argv"\n'
+                   'PATH="$(dirname "$0")/bin:$PATH" exec "$@"\n')
+        brief = self.repo / 'brief.md'
+        brief.write_text('## Verify\n\n```bash\ntrue\n```\n')
+        self.commit('wrap')
+        inv = kitchen.Invocation(str(self.repo), None, 'HEAD')
+        k, _ = kitchen.load(self.repo, 'HEAD', None)
+        with mock.patch.dict(os.environ, {**self.env, 'PSTACK_KITCHEN_GATE_SLOTS': '1'}, clear=True):
+            os.environ.pop(kitchen.WRAPPED, None)
+            self.assertTrue(kitchen.run_brief_verify(inv, self.repo, k, brief, None, role='verifier')['passed'])
+        argv = (self.repo / 'wrap/argv').read_text().splitlines()
+        self.assertEqual(argv[:7], [sys.executable, str(script), '--repo', str(self.repo), '--at', 'HEAD', 'brief-verify'])
+        self.assertEqual((argv[7], argv[-2:]), (str(brief), ['--role', 'verifier']))
 
     def test_a_wrapped_gate_records_one_row_with_the_heavy_wait_and_the_wall_time(self):
         self.kitchen()
