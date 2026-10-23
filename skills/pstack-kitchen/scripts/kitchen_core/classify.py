@@ -14,7 +14,6 @@ from pstack_core.errors import Die, EmptyScope, KitchenPyFailed
 from pstack_core.panes import agent_status
 
 from . import kpy
-from .kpy import Kitchen
 
 CLASSIFY_FAILED = 'kitchen.py classify failed; run kitchen.py validate in the repo'
 
@@ -63,7 +62,6 @@ def brief_kitchen(brief):
 
 def classify_brief(store, brief):
     """Stamps risk, profiles, verify and kitchen on the brief and prints the summary."""
-    kit = Kitchen(store)
     globs = scope_entries(brief, 'may')
     if not globs:
         raise EmptyScope(f"{brief} lists nothing under Scope's may write:")
@@ -87,9 +85,13 @@ def classify_brief(store, brief):
     set_header(brief, 'profiles', ", ".join(profiles) or 'none')
     set_header(brief, 'verify', verify_line)
     sys.stdout.write(f'risk: {risk}\n')
-    status, _ = kit.soft([*cfg, 'lessons', 'stamp', brief], show=True)
-    if status != 0:
-        raise KitchenPyFailed('kitchen.py lessons stamp failed; run kitchen.py lessons in the repo')
+    try:
+        picked = kpy.kitchen_py.lessons_stamp(kpy.invocation(store, config=cfg[1] if cfg else None), Path(brief))
+    except kpy.KitchenError as e:
+        kpy.explain(e)
+        raise KitchenPyFailed('kitchen.py lessons stamp failed; run kitchen.py lessons in the repo') from None
+    if picked:
+        sys.stdout.write(f'lessons: {" ".join(x.id for x in picked)}\n')
     lines = [f'profiles: {", ".join(profiles)}', f'verify: {verify_line}', *(f'escalate: {reason}' for reason in escalate)]
     lines += [f'warn: {warning}' for warning in data.get('warnings') or []]
     if data.get('bookkeeping'):

@@ -29,14 +29,19 @@ def load():
     return module
 
 
-kitchen_py = load()
-KitchenError = kitchen_py.KitchenError
+def __getattr__(name):
+    """`kpy.kitchen_py` is kitchen.py, and `kpy.KitchenError` its error, imported when first named."""
+    if name == 'kitchen_py':
+        return load()
+    if name == 'KitchenError':
+        return load().KitchenError
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
 
 
 def invocation(store, root=None, config=None, at=None):
     """The Invocation of kitchen.py's queries for a run: the store's repo (or `root`), a `--config` snapshot where the unit has one, and a revision."""
     from .units import repo_root
-    return kitchen_py.Invocation(str(root) if root is not None else repo_root(store), config, at)
+    return load().Invocation(str(root) if root is not None else repo_root(store), config, at)
 
 
 def explain(error):

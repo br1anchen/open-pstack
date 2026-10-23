@@ -805,6 +805,15 @@ class HostKitchenTests(KitchenTests):
         self.stdout = result.stdout
         return result.stdout + result.stderr
 
+    def test_snapshot_returns_the_path_of_a_copy_named_by_the_kitchen_content(self):
+        with mock.patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stdout(io.StringIO()) as out:
+            first = kitchen.snapshot(kitchen.Invocation(str(self.repo)), Path(self.tmp.name) / 'snaps')
+            again = kitchen.snapshot(kitchen.Invocation(str(self.repo)), Path(self.tmp.name) / 'snaps')
+        self.assertEqual(out.getvalue(), '')
+        self.assertEqual((first, again), (again, first))
+        self.assertRegex(first, r'/snaps/[0-9a-f]{12}\.toml$')
+        self.assertEqual(Path(first).read_text(), KITCHEN)
+
     def test_origin_key_reads_every_remote_spelling(self):
         for url, key in [('git@github.com:Acme/Widget.git', 'github.com/Acme/Widget'),
                          ('https://GitHub.com/acme/widget/', 'github.com/acme/widget'),
@@ -1442,6 +1451,21 @@ class LibraryTests(KitchenTests):
             kitchen.validate(inv)
         printed = self.run_kitchen('validate', code=caught.exception.code)
         self.assertEqual(printed, f'kitchen: {caught.exception}\n')
+        self.silent()
+
+    def test_validate_raises_for_a_missing_kitchen_and_for_toml_that_does_not_parse(self):
+        inv = self.library()
+        self.write('.agents/kitchen.toml', 'version = [\n')
+        with self.assertRaises(kitchen.KitchenError) as broken:
+            kitchen.validate(inv)
+        self.assertIn('.agents/kitchen.toml: ', str(broken.exception))
+        self.assertEqual(self.run_kitchen('validate', code=broken.exception.code), f'kitchen: {broken.exception}\n')
+        (self.repo / '.agents/kitchen.toml').unlink()
+        with self.assertRaises(kitchen.KitchenError) as missing:
+            kitchen.validate(inv)
+        self.assertIn('no kitchen at ', str(missing.exception))
+        self.assertIn('run the pstack-kitchen-setup skill', str(missing.exception))
+        self.assertEqual(self.run_kitchen('validate', code=missing.exception.code), f'kitchen: {missing.exception}\n')
         self.silent()
 
     def test_validate_returns_the_warnings_of_a_kitchen_file_that_keeps_ignored_keys(self):

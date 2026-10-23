@@ -4893,7 +4893,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(got, rows, kind)
 
     def test_verify_kpy_calls_leave_the_environment_alone(self):
-        """verify reaches kitchen.py in process (kpy.run). The commands it makes (roster, snapshot, classify, timing, brief-verify --list, lesson-packet)
+        """verify reaches kitchen.py's library functions in process. The queries it makes (roster, snapshot, classify, timing, brief-verify --list, lesson-packet)
         write nothing to os.environ, and INVOCATION, which kitchen.py keeps in process, is read only by `gate` and by `brief-verify` without --list
         (kitchen.py :686 and :1043), neither of which verify runs."""
         kpy = self.kitchen_core_module('kpy')
@@ -4918,16 +4918,20 @@ class CoreTests(unittest.TestCase):
         before = dict(os.environ)
         with mock.patch.dict(os.environ, {'HOME': str(top), 'XDG_STATE_HOME': str(top / 'state')}):
             snapshot = dict(os.environ)
-            calls = [(None, ['--json', 'roster']), (str(repo), ['snapshot', str(top / 'kitchens')]), (str(repo), ['--at', 'HEAD', '--json', 'classify', '--base', 'HEAD', '--head', 'HEAD']),
-                     (str(repo), ['--json', 'timing', '--deadline', '--stage', 'behavioral', 'app']), (str(repo), ['timing', '--deadline', '--stage', 'behavioral', 'app']),
-                     (str(repo), ['--json', 'timing', '--stage', 'landing', 'app']), (str(repo), ['--json', 'brief-verify', str(brief), '--list']),
-                     (None, ['lesson-packet', str(brief), str(top / 'brief2.md')])]
+            kp = kpy.kitchen_py
+            inv = kp.Invocation(str(repo))
+            calls = [('roster', lambda: kp.roster_data()), ('snapshot', lambda: kp.snapshot(inv, top / 'kitchens')),
+                     ('classify', lambda: kp.classify_change(kp.Invocation(str(repo), None, 'HEAD'), base='HEAD', head='HEAD')),
+                     ('deadline', lambda: kp.deadline(inv, ['app'], False)), ('timing', lambda: kp.timing(inv, ['app'], 'landing')),
+                     ('brief-verify --list', lambda: kp.brief_verify_list(inv, brief)),
+                     ('lesson-packet', lambda: kp.lesson_packet([brief, top / 'brief2.md']))]
             statuses = []
-            for repo_arg, args in calls:
-                statuses.append(kpy.run(repo_arg, args)[0])
-                self.assertEqual(dict(os.environ), snapshot, args)
+            for name, query in calls:
+                query()
+                statuses.append(name)
+                self.assertEqual(dict(os.environ), snapshot, name)
         self.assertEqual(dict(os.environ), before)
-        self.assertEqual(statuses.count(0), len(calls), statuses)
+        self.assertEqual(len(statuses), len(calls), statuses)
 
     def test_record_skill_build_stamps_a_later_skills_directory_on_a_stamped_run_only(self):
         """A later skills directory is stamped on a stamped run before any command: kitchen_core.setup.record_skill_build on pair.json files of every
@@ -6074,7 +6078,7 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('kitchen:', out['a routine brief']['files'][brief])
 
     def test_classify_kpy_calls_leave_the_environment_alone(self):
-        """classify reaches kitchen.py's snapshot, `--json classify` and `lessons stamp` in process; none of them writes os.environ (the writes are in
+        """classify reaches kitchen.py's snapshot, classify and lessons stamp functions in process; none of them writes os.environ (the writes are in
         `gate` and `brief-verify`, kitchen.py :745, :771, :1023, :1038)."""
         kpy = self.kitchen_core_module('kpy')
         top = self.path / 'kpycls'
@@ -6089,9 +6093,12 @@ class CoreTests(unittest.TestCase):
         before = dict(os.environ)
         with mock.patch.dict(os.environ, {'HOME': str(top), 'XDG_STATE_HOME': str(top / 'state')}):
             snapshot = dict(os.environ)
-            for args in (['snapshot', str(top / 'kitchens')], ['--json', 'classify', '--paths', 'src/**'], ['lessons', 'stamp', str(brief)]):
-                self.assertEqual(kpy.run(str(repo), args)[0], 0, args)
-                self.assertEqual(dict(os.environ), snapshot, args)
+            kp = kpy.kitchen_py
+            inv = kp.Invocation(str(repo))
+            for name, query in (('snapshot', lambda: kp.snapshot(inv, top / 'kitchens')), ('classify', lambda: kp.classify_change(inv, paths=['src/**'])),
+                                ('lessons stamp', lambda: kp.lessons_stamp(inv, brief))):
+                query()
+                self.assertEqual(dict(os.environ), snapshot, name)
         self.assertEqual(dict(os.environ), before)
 
     def test_a_steer_scope_line_with_a_quote_and_no_quoted_string_adds_nothing_and_the_scan_goes_on(self):
@@ -6345,7 +6352,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual((out.getvalue(), release.call_count), ('state: \n', 1), ('wait', code))
 
     def test_step_kpy_call_leaves_the_environment_alone(self):
-        """step reaches kitchen.py's `--json classify --base --head` in process (the gates, the policy check and brief-verify run in the detached scripts, as
+        """step reaches kitchen.py's classify function in process (the gates, the policy check and brief-verify run in the detached scripts, as
         `python3 kitchen.py` children, so what they write to os.environ is theirs)."""
         kpy = self.kitchen_core_module('kpy')
         top = self.path / 'kpystep'
@@ -6363,9 +6370,8 @@ class CoreTests(unittest.TestCase):
         before = dict(os.environ)
         with mock.patch.dict(os.environ, {'HOME': str(top), 'XDG_STATE_HOME': str(top / 'state')}):
             snapshot = dict(os.environ)
-            status, out, _ = kpy.run(str(repo), ['--json', 'classify', '--base', shas[0], '--head', shas[1]])
-            self.assertEqual(status, 0)
-            self.assertEqual(json.loads(out)['profiles'], ['app'])
+            found = kpy.kitchen_py.classify_change(kpy.kitchen_py.Invocation(str(repo)), base=shas[0], head=shas[1])
+            self.assertEqual(found['profiles'], ['app'])
             self.assertEqual(dict(os.environ), snapshot)
         self.assertEqual(dict(os.environ), before)
 

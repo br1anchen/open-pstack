@@ -2486,6 +2486,12 @@ def deadline(inv: Invocation, profiles: list[str], with_setup: bool = False) -> 
     return verify_deadline(repo_root(inv.root), profiles, with_setup)
 
 
+def lessons_stamp(inv: Invocation, brief: Path) -> list[Lesson]:
+    """Writes the active lessons for the brief's scope into its Lessons section and returns them."""
+    root, _, source = open_kitchen(inv)
+    return stamp_lessons(brief, lessons_path(root, source))
+
+
 def brief_verify_list(inv: Invocation, brief: Path) -> list[str]:
     """The commands a brief's Verify block parses into, in the repo's kitchen."""
     open_kitchen(inv)
@@ -2684,7 +2690,7 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     sys.stdout.write(draft)
             elif args.lessons_cmd == 'stamp':
-                picked = stamp_lessons(args.brief, path)
+                picked = lessons_stamp(inv, args.brief)
                 if picked or args.json:
                     emit({'lessons': [x.id for x in picked]}, args.json, f'lessons: {" ".join(x.id for x in picked)}')
             elif args.lessons_cmd == 'set':
