@@ -31,6 +31,8 @@ differ:
   tail: fix it in a new commit and run `step` again with that commit. When it
   says two failures in a row, stop: write the report with status `blocked`,
   the logs under Questions, and what you tried, then `kitchen.sh finish`.
+  The gates run in your checkout itself, so commit everything before `step`
+  and leave the tree alone until it records.
   The checks run detached, and `step` returns within about two minutes; when
   it prints `gates: still running`, run the same command again, at once, to
   keep waiting. Never move `step` to your harness's background and wait for a
