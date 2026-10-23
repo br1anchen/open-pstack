@@ -137,7 +137,9 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
     if agent_status(name()) == 'working' or activity:
         if os.environ.get('PAIR_QUIET_WAIT') != '1':
             wake(ctx, store, running, why or 'checkin')
-        write(checkin(ctx, store, interval, clock()))
+        digest = checkin(ctx, store, interval, clock())
+        if digest:
+            write(''.join(digest.lines))
     else:
         wake(ctx, store, running, why or 'missing')
         write(provider_hint(store))

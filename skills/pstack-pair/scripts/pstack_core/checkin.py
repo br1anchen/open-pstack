@@ -5,6 +5,7 @@ import glob
 import os
 import re
 import time
+from dataclasses import dataclass
 
 from . import git, procinfo
 from .replies import dispatched, file_mtime
@@ -192,14 +193,38 @@ def sort_u(lines):
     return sorted(set(lines))
 
 
+@dataclass(frozen=True)
+class CheckIn:
+    """The check-in digest for a sidekick still working: `lines` are the newline-ended lines to print, the rest are the facts the master
+    is woken for."""
+    lines: tuple
+    stale: bool
+    outside_scope: int
+    objected: int
+    open_notes: int
+    elapsed_min: int | None
+    timebox_min: int | None
+
+    @property
+    def overrun(self):
+        return self.elapsed_min is not None and self.timebox_min is not None and self.elapsed_min > self.timebox_min
+
+    @property
+    def flagged(self):
+        """Whether the digest carries something the master must see: a stale log, a write outside Scope, an objection, an open blocking note
+        or a timebox overrun."""
+        return self.stale or self.overrun or self.outside_scope > 0 or self.objected > 0 or self.open_notes > 0
+
+
 def checkin(ctx, store, interval=9, now=None):
-    """The check-in digest for a sidekick still working at the interval, bounded so the master can poll it cheaply."""
+    """The check-in digest for a sidekick still working at the interval, bounded so the master can poll it cheaply; None when no dispatched
+    brief is on disk to report on."""
     now = int(time.time()) if now is None else now
     out = []
     pair = load(store)
     brief = dispatched(store)
     if not brief or not os.path.isfile(brief):
-        return ''
+        return None
     dispatch = peek(pair, 'dispatch')
     at, head, cwd = text_at(dispatch, 'at'), text_at(dispatch, 'head'), text_at(pair, 'cwd')
     floor_note = ''
@@ -211,8 +236,8 @@ def checkin(ctx, store, interval=9, now=None):
     m = re.match(r'[0-9]+', header_field(brief, 'timebox'))
     timebox = m.group(0) if m else ''
     since = iso_epoch(at)
-    elapsed = '?' if since is None else str(tdiv(now - since, 60))
-    out.append(f'check-in: {base}  elapsed {elapsed}m of {timebox or "?"}m\n')
+    elapsed = None if since is None else tdiv(now - since, 60)
+    out.append(f'check-in: {base}  elapsed {"?" if elapsed is None else elapsed}m of {timebox or "?"}m\n')
     run = sidekick_activity(store, now)
     prog = progress_path(store)
     stale = ''
@@ -273,6 +298,8 @@ def checkin(ctx, store, interval=9, now=None):
         applied = sum(1 for line in read_text(prog).split('\n') if re.search(r' steer s[0-9]+ applied', line))
     out.append(f'steers: {sent} sent, {applied} applied, {objected} objected\n')
     committed = len(StepLog(store, brief).rows())
+    blocking = 0
     if committed:
-        out.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {len(open_notes(store, brief))} blocking notes open\n')
-    return ''.join(out)
+        blocking = len(open_notes(store, brief))
+        out.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {blocking} blocking notes open\n')
+    return CheckIn(tuple(out), stale.endswith('STALE'), len(outside), objected, blocking, elapsed, int(timebox) if timebox else None)

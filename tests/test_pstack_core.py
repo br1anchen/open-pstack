@@ -7459,5 +7459,69 @@ class EndsItselfGuardTests(unittest.TestCase):
         self.assertEqual(sorted(set(BOUNDARIES) - used), [], 'a boundary that no longer ends itself leaves the list')
 
 
+class CheckInFactTests(unittest.TestCase):
+    """CheckIn's flags come from the store's facts, not from reading the rendered digest."""
+    EPOCH = 1_700_000_000
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name)
+        self.cwd, self.store = self.path / 'cwd', self.path / 'st'
+        for d in (self.cwd, self.store / 'briefs', self.store / 'reports'):
+            d.mkdir(parents=True)
+        self.git('init', '-q')
+        (self.cwd / 'f.txt').write_text('x')
+        self.git('add', 'f.txt')
+        self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'one')
+        self.head = self.git('rev-parse', 'HEAD').strip()
+        self.brief = self.store / 'briefs/001-x.md'
+        self.brief.write_text('playbook: investigation\nplan: none\ntimebox: 10\n\n## Scope\n\nmay write:\n- f.txt\n')
+        at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(self.EPOCH))
+        (self.store / 'pair.json').write_text(json.dumps({'cwd': str(self.cwd), 'sidekick': {'name': 's', 'pane_id': 'p9'},
+                                                            'dispatch': {'brief': str(self.brief), 'at': at, 'head': self.head}}))
+        self.ctx = Context('pstack-pair', '/x', str(self.store), 'Pair', ('sidekick',), ('plans',), 21, '')
+
+    def git(self, *args):
+        return subprocess.run(['git', *args], cwd=self.cwd, capture_output=True, text=True, check=True).stdout
+
+    def digest(self, minutes, interval=9):
+        from pstack_core import checkin
+        return checkin.checkin(self.ctx, str(self.store), interval, self.EPOCH + minutes * 60)
+
+    def test_a_quiet_digest_inside_the_timebox_is_not_flagged(self):
+        got = self.digest(5)
+        self.assertEqual((got.elapsed_min, got.timebox_min, got.overrun, got.flagged), (5, 10, False, False))
+        self.assertEqual(got.lines[0], 'check-in: 001-x.md  elapsed 5m of 10m\n')
+
+    def test_the_timebox_overrun_is_flagged_from_the_elapsed_and_timebox_minutes(self):
+        self.assertEqual((self.digest(10).overrun, self.digest(11).overrun, self.digest(11).flagged), (False, True, True))
+
+    def test_a_write_outside_scope_is_counted_and_flagged(self):
+        (self.cwd / 'other.txt').write_text('y')
+        got = self.digest(1)
+        self.assertEqual((got.outside_scope, got.flagged), (1, True))
+
+    def test_an_objection_is_counted_and_flagged(self):
+        (self.store / 'reports/001-x-s1.md').write_text('status: object\n')
+        got = self.digest(1)
+        self.assertEqual((got.objected, got.flagged), (1, True))
+
+    def test_a_progress_log_nobody_touched_for_the_interval_is_stale_and_flagged(self):
+        prog = self.store / 'progress/001-x.md'
+        prog.parent.mkdir()
+        prog.write_text('- started\n')
+        os.utime(prog, (self.EPOCH, self.EPOCH))
+        (self.cwd / 'f.txt').write_text('x')
+        os.utime(self.cwd / 'f.txt', (self.EPOCH - 7200, self.EPOCH - 7200))
+        got = self.digest(30)
+        self.assertEqual((got.stale, got.flagged), (True, True))
+        self.assertFalse(self.digest(1).stale)
+
+    def test_no_dispatched_brief_gives_no_digest(self):
+        self.brief.unlink()
+        self.assertIsNone(self.digest(1))
+
+
 if __name__ == '__main__':
     unittest.main()
