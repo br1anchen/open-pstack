@@ -8,7 +8,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from pstack_core.store import Exit
+from pstack_core.errors import ToolFailed
 
 KITCHEN_PY = Path(__file__).resolve().parents[1] / 'kitchen.py'
 MODULE = 'kitchen_py'
@@ -93,7 +93,7 @@ class Kitchen:
             sys.stdout.write(stdout)
         self.show(stderr)
         if status != 0:
-            raise Exit(status)
+            raise ToolFailed(status)
         return stdout
 
     def soft(self, args, show=False):

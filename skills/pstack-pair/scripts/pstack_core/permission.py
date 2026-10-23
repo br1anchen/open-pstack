@@ -41,7 +41,7 @@ def settings_mode(path):
     return mode if isinstance(mode, str) else ''
 
 
-def detect(pid, cwd, home, session, read_proc=procinfo.read):
+def detect(pid, cwd, home, session, read_proc):
     """The master's permission mode, in Claude Code vocabulary: auto | acceptEdits | bypassPermissions | manual | dontAsk | plan.
     Sources in order: the launching command line of the agent process above the shell with pid `pid`, the current Claude session
     transcript, settings defaultMode, then auto.
@@ -94,7 +94,8 @@ def logical_cwd():
 
 
 def mode_of_this_shell():
-    return detect(caller_pid(), logical_cwd(), os.environ['HOME'], os.environ.get('CLAUDE_CODE_SESSION_ID', ''))
+    root = procinfo.proc_root()
+    return detect(caller_pid(), logical_cwd(), os.environ['HOME'], os.environ.get('CLAUDE_CODE_SESSION_ID', ''), lambda pid: procinfo.read(pid, root))
 
 
 def permission(ctx, args):

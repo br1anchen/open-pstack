@@ -4,7 +4,8 @@ import re
 import sys
 import time
 
-from ..store import Die, Exit, prog, read_text, env_float, env_int, event, field, header_field, tdiv, update, who
+from ..store import read_text, env_float, env_int, event, field, header_field, tdiv, update, who
+from ..errors import Die, FileFailed, PairJsonGone
 from ..panes import DEVNULL, agent_prompt, agent_status, herdr, pane_text, require_herdr
 from ..replies import file_mtime
 from ..argv import read
@@ -110,9 +111,9 @@ def clear_queue(store):
     except FileNotFoundError:
         pass
     except OSError as e:
-        raise Exit(1, f'{prog()}: cannot remove {store}/queue: {os.strerror(e.errno)}\n') from None
+        raise FileFailed('remove', f'{store}/queue', e) from None
     if not os.path.isfile(f'{store}/pair.json'):
-        raise Exit(2, f'{prog()}: pair.json is missing from {store}\n')
+        raise PairJsonGone(store)
     update(store, lambda doc: doc.__setitem__('pending', []))
 
 
@@ -120,13 +121,13 @@ def stop(ctx, args):
     require_herdr()
     end_with_parent()
     if not args:
-        raise Die(f'usage: {prog()} stop <store> [--timeout MS]')
+        raise Die(f'usage: {ctx.prog} stop <store> [--timeout MS]')
     store = args[0]
     opts = read(args[1:], TIMING)
     timeout = timeout_ms(opts, DEFAULT_TIMEOUT)
     opts.refuse_leftovers()
     interval = tdiv(timeout, 60000)
-    require_pair(store)
+    require_pair(ctx, store)
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     if status == 'absent':

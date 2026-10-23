@@ -18,7 +18,8 @@ class Proc:
 
 
 def proc_root():
-    """Where processes are read from: /proc, or the tree PAIR_PROC_ROOT names (tests build one)."""
+    """Where processes are read from: /proc, or the tree PAIR_PROC_ROOT names (tests build one). The one reader of the variable: a caller asks
+    once and passes the answer on."""
     return os.environ.get('PAIR_PROC_ROOT') or '/proc'
 
 
@@ -27,9 +28,8 @@ def _text(path):
         return f.read()
 
 
-def read(pid, root=None):
+def read(pid, root):
     """The process with this pid, or None when it is not there or vanishes while it is read."""
-    root = root or proc_root()
     base = f'{root}/{pid}'
     try:
         stat = _text(f'{base}/stat')
@@ -47,9 +47,8 @@ def read(pid, root=None):
     return Proc(pid, ppid, uid, comm, argv, max(0, int(uptime - started / os.sysconf('SC_CLK_TCK'))))
 
 
-def of_user(uid, root=None):
+def of_user(uid, root):
     """Every process the user runs, as read now; a process that is gone before it is read is left out."""
-    root = root or proc_root()
     try:
         names = os.listdir(root)
     except OSError:
@@ -58,9 +57,9 @@ def of_user(uid, root=None):
     return [p for p in found if p is not None and p.uid == uid]
 
 
-def environ(pid, root=None):
+def environ(pid, root):
     """The process's environment as KEY=value lines, or None when it cannot be read."""
     try:
-        return _text(f'{root or proc_root()}/{pid}/environ').replace('\0', '\n').split('\n')
+        return _text(f'{root}/{pid}/environ').replace('\0', '\n').split('\n')
     except OSError:
         return None

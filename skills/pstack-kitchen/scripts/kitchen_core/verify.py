@@ -22,9 +22,11 @@ from pstack_core.argv import Spec, read as read_options
 from pstack_core.agents import has_mcp_arg, has_permission_arg, has_trust_arg, mcp_args, permission_args, trust_args
 from pstack_core.commands import scratch as scratch_command
 from pstack_core.store import (
-    Die, Exit, prog, damaged, env_float, env_int, event, expected_report, field, header_field, json_type, load, names, pair_file, peek, read,
-    text_at, read_text, write_text, update, whole_number,
+    wake,     env_float, env_int, event, expected_report, field, header_field, json_type, load, names, pair_file, peek, read, text_at, read_text, write_text,
+    update, whole_number,
 )
+from pstack_core.commands.report import require_pair
+from pstack_core.errors import DamagedStore, Die, Exit, PairError, ToolFailed, translate
 from pstack_core import git
 from pstack_core.panes import TRUST_RE, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, parse, reply_at, require_herdr
 from pstack_core.permission import mode_of_this_shell
@@ -151,7 +153,7 @@ def verifier_entry(kit, cls):
         if fallback is None:
             fallback = {}
         elif not isinstance(fallback, dict):
-            raise damaged(f'sidekick.fallback is {json_type(fallback)}, not an object')
+            raise DamagedStore(f'sidekick.fallback is {json_type(fallback)}, not an object')
         return {'kind': sidekick.get('kind'), 'args': names(sidekick, 'start_args'), 'source': 'sidekick',
                 'fallback': {'kind': fallback['kind'], 'args': names(fallback, 'args')} if fallback.get('kind') else None}
     if kind == 'master':
@@ -308,15 +310,15 @@ def classify_landing(store, root, kit, o):
                            risk='landing', mode='unit', cls='escalated')
 
 
-def classify_units(store, kit, o, allunits):
+def classify_units(ctx, store, kit, o, allunits):
     """The named units' range and class. A unit dispatched as escalated is verified as escalated, whatever its diff touches."""
-    base, head = unit_range(store, allunits, o.covered, o.range_base)
+    base, head = unit_range(ctx, store, allunits, o.covered, o.range_base)
     heads_in(store, head, allunits)
     esc = []
     for u in allunits:
-        if header_field(brief_or_nothing(store, u), 'risk') == 'escalated':
+        if header_field(brief_or_nothing(ctx, store, u), 'risk') == 'escalated':
             esc += ['--escalate', f'unit {u} was dispatched as escalated']
-    cfg = brief_kitchen(brief_or_nothing(store, allunits[-1]))
+    cfg = brief_kitchen(brief_or_nothing(ctx, store, allunits[-1]))
     classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head, *esc])
     data = json.loads(classified)
     verify_class = data.get('verify') or {}
@@ -502,22 +504,23 @@ def verify(ctx, args):
     if read(store, 'verifying.verdict'):
         raise Die(f'a verification is open ({read(store, "verifying.units")}); kitchen.sh verify {store} --wait', 5)
     allunits = [*o.covered, *o.units]
-    root = repo_root(store, check=True)
+    require_pair(ctx, store)
+    root = repo_root(store)
     if o.land_head and not o.landing:
         raise Die('--head goes with --landing')
     if o.parent_ref and not o.landing:
         raise Die('--parent goes with --landing')
     kit = Kitchen(store, root)
-    c = classify_landing(store, root, kit, o) if o.landing else classify_units(store, kit, o, allunits)
+    c = classify_landing(store, root, kit, o) if o.landing else classify_units(ctx, store, kit, o, allunits)
     data = c.data
     # A batch of independent units has a size cap; a fix verified with the unit it fixes does not, since splitting it would re-reject the first.
     if not o.covered and len(o.units) > 1 and is_number(data.get('diff_lines')) and is_number(data.get('max_batch_diff')) and data['diff_lines'] > data['max_batch_diff']:
         raise Die(f'batch of {json.dumps(data["diff_lines"])} diff lines is over review.max_batch_diff; verify each unit', 2)
     last, brief, slug, verdict, packet = verdict_paths(store, o.landing, allunits)
     if c.mode == 'gates':
-        gates_verdict(store, verdict, last, slug, allunits, c.base, c.head)
+        gates_verdict(ctx, store, verdict, last, slug, allunits, c.base, c.head)
         event(store, 'master', 'verify', brief, 'gates:clean')
-        event(store, 'master', 'wake', brief, 'verify:clean')
+        wake(ctx, store, brief, 'verify:clean')
         out(f'verdict: {verdict}\nstatus: clean (gates only; mode gates)\n')
         warn_unreviewed(store)
         vs.handoff_due(store, last)
@@ -557,23 +560,24 @@ def scratch_path(ctx, store, scratch_id, head):
     try:
         with contextlib.redirect_stdout(sink):
             rc = scratch_command.run(ctx, [store, scratch_id, '--at', head])
-    except Die as e:
-        warn(f'{prog()}: {e.message}\n')
-        raise Exit(e.code)
+    except (Die, PairError) as e:
+        text, code = translate(e, ctx.prog)
+        warn(text)
+        raise ToolFailed(code) from None
     if rc:
-        raise Exit(rc)
+        raise ToolFailed(rc)
     lines = sink.getvalue().split('\n')
     if lines and lines[-1] == '':
         lines.pop()
     return lines[-1] if lines else ''
 
 
-def gates_verdict(store, verdict, last, slug, allunits, base, head):
+def gates_verdict(ctx, store, verdict, last, slug, allunits, base, head):
     """The verdict a gates-mode verification writes itself: every step passed its profiles' fast gates and the policy check."""
     text = (f'# Verdict {last}: {slug}\n\nstatus: clean\nunits: {" ".join(allunits)}\nrange: {base[:9]}..{head[:9]}\nverifier: gates\n\n'
             "## Findings\n\nnone\n\n## Evidence\n\nEvery step passed its profiles' fast gates and the policy check:\n\n```\n")
     for u in allunits:
-        wanted = os.path.basename(brief_or_nothing(store, u))
+        wanted = os.path.basename(brief_or_nothing(ctx, store, u))
         wanted = wanted[:-3] if wanted.endswith('.md') else wanted
         try:
             for line in read_text(f'{store}/gates.tsv').split('\n'):
@@ -597,7 +601,7 @@ def close_unread(ctx, store):
         if read(store, 'verifying.verdict') != open_verdict:
             by_another = True
             break
-        closed_rc, closed = captured(lambda: Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again)).run(), merge_stderr=True)
+        closed_rc, closed = captured(ctx, lambda: Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again)).run(), merge_stderr=True)
         closed_status = next((line[len('status: '):] for line in closed.split('\n') if line.startswith('status: ')), '')
         if closed_status:
             break
@@ -621,7 +625,7 @@ def close_unread(ctx, store):
     out(f'closed: {open_verdict} ({closed_status})\n{closed}\n')
     # A verdict that is not clean is the master's to act on before another verification starts.
     if closed_rc != 0:
-        event(store, 'master', 'wake', closed_brief, f'verify:{closed_status.split(" ")[0]}')
+        wake(ctx, store, closed_brief, f'verify:{closed_status.split(" ")[0]}')
         raise Exit(closed_rc)
 
 

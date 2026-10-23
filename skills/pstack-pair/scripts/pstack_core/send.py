@@ -10,7 +10,8 @@ import sys
 import time
 
 from . import git
-from .store import Die, Exit, TEXT, missing_pair, env_float, event, expected_report, load, peek, tdiv, text_at, update, count, member, names, prog, who
+from .store import TEXT, env_float, event, expected_report, load, peek, tdiv, text_at, update, count, member, names, who
+from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, FreshSessionRequired, MissingStore, PromptFailed, refuse_as
 from .gates import check_scope, require_not_paused
 from .panes import DEVNULL, agent_kind, agent_prompt, agent_status, error_code, require_herdr
 from .replies import first3, pending, queued_brief
@@ -43,8 +44,8 @@ def require_fresh_session(store):
     sidekick = peek(load(store), 'sidekick')
     kind = text_at(sidekick, 'kind')
     if sidekick.get('rotation_required') is True or sidekick.get('bootstrap_pending') is True:
-        raise Die(f'the {kind} sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate {store} '
-                  'after a completed task. The queue is preserved.', 5)
+        raise FreshSessionRequired(f'the {kind} sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate '
+                                   f'{store} after a completed task. The queue is preserved.')
 
 
 def visible_without_blanks(name):
@@ -81,7 +82,7 @@ def prompt_sidekick(name, text):
         code = error_code(err)
         if code not in ('timeout', 'agent_prompt_stalled'):
             sys.stderr.write(err)
-            raise Die(f'herdr prompt failed for {name}', 2)
+            raise PromptFailed(f'herdr prompt failed for {name}')
     return submit_typed(name, os.path.basename(text.rsplit(' ', 1)[-1].rstrip('/') or text.rsplit(' ', 1)[-1]))
 
 
@@ -89,14 +90,9 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
     """Shared by discuss, dispatch and answer: refuse unfilled files and a sidekick that cannot take input, then prompt and wait."""
     require_filled(ctx, file)
     if not os.path.isfile(f'{store}/pair.json'):
-        # field() runs pair_file in a substitution, so its die only ends that subshell and jq then fails on an empty file name: a pair of
-        # error lines each time. A brief reads the repo root first (check_scope then warns about every entry against an empty root), and the
-        # fresh-session check reads the kind: the second pair, with status 2. A plan gets only the second.
-        missing = missing_pair(store)
         if kind == 'BRIEF':
-            sys.stderr.write(missing)
             check_scope(file, '')
-        raise Exit(2, missing)
+        raise MissingStore(store)
     pair = load(store)
     if kind == 'BRIEF':
         check_scope(file, text_at(pair, 'git_root') or text_at(pair, 'cwd'))
@@ -105,10 +101,10 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
     status = agent_status(name)
     if status not in ('idle', 'done'):
         if status == 'absent':
-            raise Die(f'{who("sidekick", name)} is not live; run: pair.sh spawn {store} --kind <kind>', 2)
+            raise AgentNotLive(f'{who("sidekick", name)} is not live; run: pair.sh spawn {store} --kind <kind>')
         if status == 'blocked':
-            raise Die(f'{who("sidekick", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
-        raise Die(f'{who("sidekick", name)} is {status}; run: pair.sh wait {store}', 5)
+            raise AgentBlocked(f'{who("sidekick", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60')
+        raise AgentBusy(f'{who("sidekick", name)} is {status}; run: pair.sh wait {store}')
     # Delivery is not interruptible: a dispatch wrapped in a short timeout was killed after recording a brief and before sending it, and
     # the store waited on a sidekick that never got it. TERM, INT and HUP wait until the message is in; the wait that follows may be cut
     # short safely.
@@ -172,7 +168,7 @@ def record_dispatch(store, brief, now=None):
 def discuss(ctx, args):
     require_herdr()
     if len(args) < 2:
-        raise Die(f'usage: {prog()} discuss <store> <plan-path> [--timeout MS]')
+        raise Die(f'usage: {ctx.prog} discuss <store> <plan-path> [--timeout MS]')
     store, plan = args[0], args[1]
     end_with_parent()
     opts = read(args[2:], TIMING)
@@ -184,7 +180,10 @@ def discuss(ctx, args):
     require_not_paused(store)
     from .commands.rotate import rotate_if_due
     rotate_if_due(ctx, store, 'plan')
-    return send_and_wait(ctx, store, os.path.realpath(plan), 'PLAN', timeout, interval, send_only)
+    try:
+        return send_and_wait(ctx, store, os.path.realpath(plan), 'PLAN', timeout, interval, send_only)
+    except MissingStore as e:
+        raise refuse_as(e, ctx.prog, 2) from None
 
 
 def store_relative(store, path):
@@ -195,7 +194,7 @@ def store_relative(store, path):
 def dispatch(ctx, args):
     require_herdr()
     if len(args) < 2:
-        raise Die(f'usage: {prog()} dispatch <store> <brief-path> [--timeout MS | --every MIN]')
+        raise Die(f'usage: {ctx.prog} dispatch <store> <brief-path> [--timeout MS | --every MIN]')
     store, brief = args[0], store_relative(args[0], args[1])
     end_with_parent()
     opts = read(args[2:], TIMING)
@@ -212,4 +211,7 @@ def dispatch(ctx, args):
         raise Die(f'the queue holds {queued}; dispatch that first, or: pair.sh queue {store} --clear', 5)
     from .commands.rotate import rotate_if_due
     rotate_if_due(ctx, store, 'brief')
-    return send_and_wait(ctx, store, brief, 'BRIEF', timeout, interval, send_only)
+    try:
+        return send_and_wait(ctx, store, brief, 'BRIEF', timeout, interval, send_only)
+    except MissingStore as e:
+        raise refuse_as(e, ctx.prog, 2) from None

@@ -13,9 +13,9 @@ from types import SimpleNamespace
 from pstack_core.argv import Spec, read as read_options
 from pstack_core.checkin import busy_command
 from pstack_core.store import (
-    Die, Exit, now_s, read_text, damaged, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv,
-    text_at,
+    wake,     now_s, read_text, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv, text_at,
 )
+from pstack_core.errors import DamagedStore, Die, Exit
 from pstack_core.panes import agent_prompt, agent_status, pane_text
 from pstack_core.providers import agent_session_error, error_context, muse_session_error, prime_role_error
 from pstack_core.send import submit_typed
@@ -188,7 +188,7 @@ class Waiter:
                 sys.stdout.write(f'verifying: units {read(store, "verifying.units")} by {kind}, past its deadline; grace {limit - now}s left'
                                  f'{delivery_note(store)}, verifier {verifier_shown(store, state)}\n')
                 sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
-                event(store, 'master', 'wake', brief, 'verify:grace')
+                wake(self.ctx, store, brief, 'verify:grace')
                 raise Exit(4)
             self.sleep(env_float('KITCHEN_VERIFY_GRACE_POLL_S', 5))
 
@@ -209,7 +209,7 @@ class Waiter:
         sample = peek(load(store), 'verifying').get('sample')
         v.sample = 0 if sample is None else sample
         if isinstance(v.sample, bool) or not isinstance(v.sample, (int, float)):
-            raise damaged(f'verifying.sample is {json_type(v.sample)}, not a number')
+            raise DamagedStore(f'verifying.sample is {json_type(v.sample)}, not a number')
         v.unit, v.pane = read(store, 'verifying.unit'), read(store, 'verifier.pane_id')
         v.fallback, v.retried, v.argv = self.fallback(), read_flag(store, 'verifying.retried') is True, self.argv()
         v.until = now_s() + self.every_m * 60
@@ -243,7 +243,7 @@ class Waiter:
                 sys.stdout.write(f'verifying: units {read(store, "verifying.units")} by {v.kind}, {tdiv(now - started, 60)}m of {tdiv(deadline - started, 60)}m, verifier '
                                  f'{verifier_shown(store, state)}\n')
                 sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
-                event(store, 'master', 'wake', read(store, 'verifying.brief'), 'verify:progress')
+                wake(self.ctx, store, read(store, 'verifying.brief'), 'verify:progress')
                 raise Exit(4)
             # A verifier that ended its turn on a provider error will not write.
             idle_since = read_int(store, 'verifying.idle_since')
@@ -321,21 +321,21 @@ class Waiter:
                 sys.stdout.flush()
                 again = [store, *v.argv, '--retry-entry', json.dumps(v.fallback, ensure_ascii=False, separators=(',', ':'))]
                 self.retry(again)  # verifying again on the fallback, as the exec of kitchen.sh verify did; it never returns
-            event(store, 'master', 'wake', v.brief, 'verify:provider')
+            wake(self.ctx, store, v.brief, 'verify:provider')
             # A retried call carries its entry; the advice is for the master's own call.
             sys.stdout.write(f'next: wait for the limit, or kitchen.sh verify {store} {" ".join(self.shown(v.argv))} --kind <another kind>\n')
             raise Exit(2)
         if not present and self.stalled:
             idle_limit = env_int('KITCHEN_VERIFY_IDLE_S', 600)
-            event(store, 'master', 'wake', v.brief, 'verify:stalled')
+            wake(self.ctx, store, v.brief, 'verify:stalled')
             raise Die(f'no verdict at {verdict}: the verifier sat idle {idle_limit // 60}m with nothing running; rerun: '
                       f'kitchen.sh verify {store} {" ".join(self.shown(v.argv))}', 4)
         if not present:
-            event(store, 'master', 'wake', v.brief, 'verify:missing')
+            wake(self.ctx, store, v.brief, 'verify:missing')
             raise Die(f'no verdict at {verdict} (verifier {state or "gone"}); read the packet and verify by hand, or rerun', 4)
         event(store, 'master', 'verify', v.brief, status)
         if not self.closing:
-            event(store, 'master', 'wake', v.brief, f'verify:{status.split(" ")[0]}')
+            wake(self.ctx, store, v.brief, f'verify:{status.split(" ")[0]}')
         sys.stdout.write(f'verdict: {verdict}\nstatus: {status}{f" ({problem})" if problem else ""}\n')
         if status == 'clean':
             if v.risk == 'routine' and vs.audit_due(unit, v.sample):
@@ -369,7 +369,7 @@ class Waiter:
         if fallback is None:
             return {}
         if not isinstance(fallback, dict):
-            raise damaged(f'verifying.entry.fallback is {json_type(fallback)}, not an object')
+            raise DamagedStore(f'verifying.entry.fallback is {json_type(fallback)}, not an object')
         return fallback
 
     def argv(self):

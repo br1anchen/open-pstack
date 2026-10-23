@@ -15,7 +15,8 @@ import time
 
 from pstack_core import wait as core_wait
 from pstack_core.argv import Spec, read
-from pstack_core.store import Die, Exit, env_float, env_int, event, field, int_or_none, read_text, whole_number
+from pstack_core.store import wake, env_float, env_int, field, int_or_none, read_text, whole_number
+from pstack_core.errors import Die, ToolFailed
 from pstack_core.wait import default_signals
 
 from .units import captured
@@ -63,9 +64,9 @@ def has_checkin(text):
     return any(line.startswith('check-in:') for line in text.split('\n'))
 
 
-def log_checkin_wake(store, out):
+def log_checkin_wake(ctx, store, out):
     """The one wake row for a wait or dispatch that returns on a check-in: the pair core logs none of its own under PAIR_QUIET_WAIT."""
-    event(store, 'master', 'wake', field(store, 'dispatch', 'brief'), 'report:unready' if 'written but not ready' in out else 'checkin')
+    wake(ctx, store, field(store, 'dispatch', 'brief'), 'report:unready' if 'written but not ready' in out else 'checkin')
 
 
 def inner_wait(ctx, store, args, claim, unowned):
@@ -75,9 +76,9 @@ def inner_wait(ctx, store, args, claim, unowned):
     def run():
         code = core_wait.wait(ctx, [store, *args])
         if code:
-            raise Exit(code)
+            raise ToolFailed(code)
 
-    return captured(run, env={'PAIR_WAIT_OWNER': owner, 'PAIR_WAIT_CLAIM': str(claim), 'PAIR_WAIT_UNOWNED': str(unowned), 'PAIR_QUIET_WAIT': '1'})
+    return captured(ctx, run, env={'PAIR_WAIT_OWNER': owner, 'PAIR_WAIT_CLAIM': str(claim), 'PAIR_WAIT_UNOWNED': str(unowned), 'PAIR_QUIET_WAIT': '1'})
 
 
 def release(ctx, store):
@@ -87,9 +88,9 @@ def release(ctx, store):
     def run():
         code = core_wait.wait(ctx, [store, '--release'])
         if code:
-            raise Exit(code)
+            raise ToolFailed(code)
 
-    captured(run, merge_stderr=True, env={'PAIR_WAIT_OWNER': owner})
+    captured(ctx, run, merge_stderr=True, env={'PAIR_WAIT_OWNER': owner})
 
 
 def quiet_wait(ctx, store, rest):
@@ -120,7 +121,7 @@ def quiet_wait(ctx, store, rest):
         if rc == 4 and has_checkin(out) and not quiet_flagged(out):
             write(f"quiet: {(quiet_now() - start) // 60}m with nothing flagged; the sidekick works on\n")
         if rc == 4 and has_checkin(out):
-            log_checkin_wake(store, out)
+            log_checkin_wake(ctx, store, out)
         write(out + '\n')
         release(ctx, store)
         return rc

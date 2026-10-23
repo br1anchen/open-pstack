@@ -6,7 +6,8 @@ import sys
 import time
 
 from pstack_core.replies import queued_brief
-from pstack_core.store import Die, basename, field, fill_template, newest, header_field, pair_file, read, write_text
+from pstack_core.store import basename, field, fill_template, newest, header_field, pair_file, read, write_text
+from pstack_core.errors import Die
 
 
 def newest_matching(pattern, skip_packets=False):

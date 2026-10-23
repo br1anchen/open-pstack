@@ -165,9 +165,32 @@ def static_text(node):
 def strings_in(node):
     return [static_text(n) for n in ast.walk(node) if isinstance(n, (ast.Constant, ast.JoinedStr)) and static_text(n)]
 
+def error_classes():
+    """errors.py's domain exceptions as {name: (code, message template)}: the class-level `code` (inherited from the base) and the text its
+    `__init__` hands to super().__init__, when it builds one."""
+    tree = ast.parse(open('skills/pstack-pair/scripts/pstack_core/errors.py').read())
+    classes = {n.name: n for n in tree.body if isinstance(n, ast.ClassDef)}
+    def code_of(name):
+        node = classes[name]
+        for st in node.body:
+            if isinstance(st, ast.Assign) and any(getattr(t, 'id', '') == 'code' for t in st.targets) and isinstance(st.value, ast.Constant):
+                return st.value.value
+        base = node.bases[0].id if node.bases and isinstance(node.bases[0], ast.Name) else ''
+        return code_of(base) if base in classes else 1
+    def template_of(name):
+        node = classes[name]
+        for init in (st for st in node.body if isinstance(st, ast.FunctionDef) and st.name == '__init__'):
+            for call in (n for n in ast.walk(init) if isinstance(n, ast.Call) and getattr(n.func, 'attr', '') == '__init__'):
+                if call.args:
+                    return static_text(call.args[-1])
+        return ''
+    return {name: (code_of(name), template_of(name)) for name in classes if name not in ('Die', 'Exit', 'ToolFailed', 'RotationFailed')}
+
 def py_exits(path):
-    """Die(msg, N) and `return N` (N in 2..8) of a Python file, found by parsing the calls whole, so a code on a continuation line counts."""
+    """Die(msg, N), a domain exception whose class carries a code in 2..8, and `return N` (N in 2..8) of a Python file, found by parsing the calls whole,
+    so a code on a continuation line counts."""
     tree = ast.parse(open(path).read())
+    classes = error_classes()
     func_of = {}
     for f in ast.walk(tree):
         if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -180,6 +203,8 @@ def py_exits(path):
             for n in ast.walk(st):
                 if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == 'Die' and len(n.args) == 2 and isinstance(n.args[1], ast.Constant) and n.args[1].value in range(2, 9):
                     found.append((n.args[1].value, n.lineno, static_text(n.args[0]) or '(message built at runtime)'))
+                elif isinstance(n, ast.Call) and getattr(n.func, 'id', '') in classes and classes[n.func.id][0] in range(2, 9):
+                    found.append((classes[n.func.id][0], n.lineno, (static_text(n.args[0]) if n.args else '') or classes[n.func.id][1] or '(message built at runtime)'))
                 elif isinstance(n, ast.Return) and isinstance(n.value, ast.Constant) and type(n.value.value) is int and n.value.value in range(2, 9):
                     ctx = [t for t in strings_in(prev) if len(t) >= 12] if isinstance(prev, ast.Expr) and isinstance(prev.value, ast.Call) else []
                     found.append((n.value.value, n.lineno, ctx[-1].strip() if ctx else f'(returns {n.value.value} in {func_of.get(n, "module")}())'))
@@ -226,7 +251,7 @@ PAIR = 'skills/pstack-pair/scripts/pstack_core'
 KITCHEN = 'skills/pstack-kitchen/scripts/kitchen_core'
 WAIT, SPAWN, CONSULT = f'{PAIR}/wait.py', f'{PAIR}/spawn.py', f'{PAIR}/consult.py'
 manual_at = [(WAIT, at(WAIT, 'write(review_delta(store, shown))', 'return 4')), (WAIT, at(WAIT, "write(provider_hint(store))\n        return 3", 'return 3')),
-             (WAIT, at(WAIT, "event(store, 'master', 'wake', running, why or 'missing')", 'return 4')),
+             (WAIT, at(WAIT, "wake(ctx, store, running, why or 'missing')", 'return 4')),
              (SPAWN, at(SPAWN, 'bootstrap still pending', 'return 4')), (SPAWN, at(SPAWN, "event(store, role, 'spawn', '-', f'{kind}:failed')", 'return 3')),
              (SPAWN, at(SPAWN, "event(store, role, 'spawn', '-', f'{kind}:unready')", 'return 4'))]
 exit_lines, seen = [], set()
@@ -252,9 +277,9 @@ HINTS = {(WAIT, at(WAIT, "write(f'{SUPERSEDED}\\n')", 'return 4')): ['superseded
 NOT_CONTRACT = {
     (f'{PAIR}/commands/metrics.py', at(f'{PAIR}/commands/metrics.py', "cannot read {log}: ", 'return 2')): 'the events log that init creates is unreadable; no caller sends it',
     (f'{PAIR}/commands/scratch.py', at(f'{PAIR}/commands/scratch.py', "raise Die('jj workspace add failed', 2)", 'raise Die')): 'jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
-    (f'{PAIR}/commands/notes.py', at(f'{PAIR}/commands/notes.py', "Prime delivery failed for", 'raise Die')): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
-    (SPAWN, at(SPAWN, "Prime start failed in {pane}", 'raise Die')): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
-    (CONSULT, at(CONSULT, "is working and the consultant has nothing to answer", 'raise Die')): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
+    (f'{PAIR}/commands/notes.py', at(f'{PAIR}/commands/notes.py', "Prime delivery failed for", 'raise PromptFailed')): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
+    (SPAWN, at(SPAWN, "Prime start failed in {pane}", 'raise PrimeFailed')): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
+    (CONSULT, at(CONSULT, "is working and the consultant has nothing to answer", 'raise AgentBusy')): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
 }
 exit_out = []
 for c, path, no, msg, f in exit_lines:

@@ -75,15 +75,16 @@ def busy_command(pane, since, now, env=None):
     """The longest-running process carrying the pane's HERDR_PANE_ID that started since the dispatch, preferring a
     command over the shell that runs it, as "<command> for Nm"; or ''. Linux only."""
     env = os.environ if env is None else env
-    if not pane or not os.path.isdir(procinfo.proc_root()):
+    root = procinfo.proc_root()
+    if not pane or not os.path.isdir(root):
         return ''
     sock = env.get('HERDR_SOCKET_PATH', '')
     best, best_et, shell, shell_et = '', -1, '', -1
-    for proc in procinfo.of_user(os.getuid()):
+    for proc in procinfo.of_user(os.getuid(), root):
         et, comm = proc.elapsed, proc.comm
         if not now - et > since:
             continue
-        lines = procinfo.environ(proc.pid)
+        lines = procinfo.environ(proc.pid, root)
         if lines is None:
             continue
         if f'HERDR_PANE_ID={pane}' not in lines:

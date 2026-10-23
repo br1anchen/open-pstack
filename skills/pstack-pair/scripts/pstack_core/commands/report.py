@@ -1,9 +1,7 @@
 import os
 
-from ..store import (
-    Die, Exit, prog, event, missing_pair, expected_report, field, header_field, load, member, open_steers, peek, steer_number, text_at,
-    unit_name, update,
-)
+from ..store import event, expected_report, field, header_field, load, member, open_steers, peek, steer_number, text_at, unit_name, update
+from ..errors import Die, MissingStore, refuse_as
 from ..panes import agent_prompt, agent_status, DEVNULL, require_herdr
 from ..wait import mark_report_seen, wait_owner_path
 from .status import latest
@@ -13,15 +11,15 @@ from .status import latest
 # ask-template). Advice (answered) goes through notify, not finish.
 FINISH_STATUSES = ('done', 'partial', 'blocked', 'failed', 'object', 'agree', 'asking')
 
-def require_pair(store, times=1):
-    """field() on a store without pair.json: pair_file's message, then jq's, and exit 2 from jq."""
+def require_pair(ctx, store):
+    """The check of the commands that end a store with no pair.json with status 2."""
     if not os.path.isfile(f'{store}/pair.json'):
-        raise Exit(2, missing_pair(store) * times)
+        raise refuse_as(MissingStore(store), ctx.prog, 2)
 
 
 def report(ctx, args):
     if len(args) < 1:
-        raise Die(f'usage: {prog()} report <store> [NNN]')
+        raise Die(f'usage: {ctx.prog} report <store> [NNN]')
     path = latest(args[0], 'reports', args[1] if len(args) > 1 and args[1] else None)
     if path is None:
         raise Die('no report found', 4)
@@ -32,13 +30,13 @@ def report(ctx, args):
 def notify(ctx, args):
     require_herdr()
     if len(args) != 2:
-        raise Die(f'usage: {prog()} notify <store> <report-or-advice-path>')
+        raise Die(f'usage: {ctx.prog} notify <store> <report-or-advice-path>')
     store = os.path.realpath(args[0])
     file = os.path.realpath(args[1])
     if not os.path.isfile(file):
         raise Die(f'file not found: {file}')
     word = 'ADVICE' if file.startswith(f'{store}/advice/') else 'REPORT'
-    require_pair(store)
+    require_pair(ctx, store)
     event(store, 'consultant' if word == 'ADVICE' else 'sidekick', word.lower(), file, header_field(file, 'status'))
     master = field(store, 'master', 'name')
     status = agent_status(master)
@@ -58,7 +56,7 @@ def notify(ctx, args):
 
 def next_brief(ctx, args):
     if len(args) != 1:
-        raise Die(f'usage: {prog()} next <store>')
+        raise Die(f'usage: {ctx.prog} next <store>')
     pair = load(args[0])
     kind = text_at(peek(pair, 'sidekick'), 'kind')
     raise Die(f'a {kind} sidekick leaves the queue for the master to dispatch after a fresh session', 5)
@@ -67,7 +65,7 @@ def next_brief(ctx, args):
 def finish(ctx, args):
     require_herdr()
     if len(args) != 2:
-        raise Die(f'usage: {prog()} finish <store> <report-path>')
+        raise Die(f'usage: {ctx.prog} finish <store> <report-path>')
     store = os.path.realpath(args[0])
     report = os.path.realpath(args[1])
     if not os.path.isfile(report):
@@ -75,8 +73,7 @@ def finish(ctx, args):
     status = header_field(report, 'status')
     if status not in FINISH_STATUSES:
         raise Die(f'{report} has no valid status: line (one of {", ".join(FINISH_STATUSES)})', 2)
-    if not os.path.isfile(f'{store}/pair.json'):
-        raise Exit(2, missing_pair(store) * (2 if status == 'done' else 1))
+    require_pair(ctx, store)
     pair = load(store)
     dispatched = text_at(peek(pair, 'dispatch'), 'brief', '-')
     if status == 'done' and report == expected_report(store, dispatched):

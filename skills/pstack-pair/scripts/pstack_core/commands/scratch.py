@@ -6,7 +6,8 @@ import sys
 
 from .. import git
 from ..argv import Spec, read
-from ..store import Die, basename, prog, load, names, pair_file, text_at, update
+from ..store import basename, load, names, pair_file, text_at, update
+from ..errors import Die
 
 
 def parent_dir(path):
@@ -29,7 +30,7 @@ def remove_tree(path):
 
 def run(ctx, args):
     if len(args) < 2:
-        raise Die(f'usage: {prog()} scratch <store> <id> [--at SHA] [--remove]')
+        raise Die(f'usage: {ctx.prog} scratch <store> <id> [--at SHA] [--remove]')
     store, ident = args[0], args[1]
     opts = read(args[2:], Spec(valued=('--at',), flags=('--remove',)))
     remove, at = opts.present('--remove'), opts.last('--at', '')
@@ -69,7 +70,7 @@ def run(ctx, args):
         os.makedirs(f'{store}/scratch', exist_ok=True)
         os.makedirs(parent_dir(path), exist_ok=True)
     except OSError as e:
-        sys.stderr.write(f'{prog()}: cannot create {e.filename}: {os.strerror(e.errno)}\n')
+        sys.stderr.write(f'{ctx.prog}: cannot create {e.filename}: {os.strerror(e.errno)}\n')
         return 1
     if os.path.islink(link) or os.path.exists(link):
         os.unlink(link)

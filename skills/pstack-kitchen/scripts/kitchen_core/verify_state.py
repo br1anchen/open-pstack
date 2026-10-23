@@ -17,9 +17,9 @@ import socket
 import sys
 
 from pstack_core.store import (
-    Die, Exit, prog, TEXT, exit_code, read_text, write_text, count, damaged, env_int, event, header_field, int_or_none, json_type, member, peek,
-    read, read_int, update,
+    TEXT, exit_code, read_text, write_text, count, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update,
 )
+from pstack_core.errors import DamagedStore, Die, Exit, translate
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.panes import agent_prompt, agent_status, herdr
 from pstack_core.send import submit_typed
@@ -97,7 +97,7 @@ def alt_token(closing):
         return token if token not in (None, False) else None
     if closing is None:
         return None
-    raise damaged(f'closing is {json_type(closing)}, not an object')
+    raise DamagedStore(f'closing is {json_type(closing)}, not an object')
 
 
 def release_close(store, verdict, token):
@@ -108,7 +108,7 @@ def release_close(store, verdict, token):
             if closing.get('token') == token:
                 del verifying['closing']
         elif closing is not None:
-            raise damaged(f'closing is {json_type(closing)}, not an object')
+            raise DamagedStore(f'closing is {json_type(closing)}, not an object')
 
     with contextlib.redirect_stderr(io.StringIO()):
         update_verifying(store, verdict, apply)
@@ -185,14 +185,9 @@ def run_close(ctx, store, name, kind, pane, verdict):
     the same status returned. close_verifier's own 70 is "not ours to close" (False, closed elsewhere); any other nonzero status ends the command."""
     try:
         rc = close_verifier(ctx, store, name, kind, pane, verdict)
-    except Die as e:
-        sys.stderr.write(f'{prog()}: {e.message}\n')
-        rc = e.code
-    except Exit as e:
-        rc = e.code
-    except Exception as e:  # any failure of the close is a nonzero status
-        sys.stderr.write(f'{prog()}: {e}\n')
-        rc = 1
+    except Exception as e:
+        text, rc = translate(e, ctx.prog)
+        sys.stderr.write(text)
     if rc == 0:
         return True
     if rc == 70:

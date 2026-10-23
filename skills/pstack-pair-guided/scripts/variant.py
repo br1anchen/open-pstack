@@ -4,7 +4,8 @@ import re
 
 from pstack_core.argv import Spec, read
 from pstack_core.panes import require_herdr
-from pstack_core.store import Die, fill_template, header_field, newest, pair_file, read_text, write_text
+from pstack_core.store import fill_template, header_field, newest, pair_file, read_text, write_text
+from pstack_core.errors import Die, MissingStore, refuse_as
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
@@ -26,7 +27,10 @@ def answer(ctx, args):
     require_not_paused(store)
     if not re.search(r'(?m)^## Answer', read_text(path)):
         raise Die(f'not an answer file: {path}')
-    return send_and_wait(ctx, store, os.path.realpath(path), 'ANSWER', timeout, interval, False)
+    try:
+        return send_and_wait(ctx, store, os.path.realpath(path), 'ANSWER', timeout, interval, False)
+    except MissingStore as e:
+        raise refuse_as(e, ctx.prog, 2) from None
 
 
 def new_direction(ctx, args):

@@ -9,11 +9,13 @@ import time
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec, read as read_options
 from pstack_core.store import (
-    Die, Exit, read_text, damaged, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at,
-    update, who,
+    read_text, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at, update, who,
 )
+from pstack_core.errors import DamagedStore, Die, Exit
 from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
-from pstack_core.panes import DEVNULL, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, pane_text, refuse_untrusted, reply_at, require_herdr
+from pstack_core.panes import (
+    DEVNULL, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, pane_text, refuse_untrusted, reply_at, require_herdr,
+)
 from pstack_core import procinfo
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
@@ -81,7 +83,7 @@ def detect_model_arg():
     name and arguments for each pid; node or bun running a claude script count as claude. '' when none."""
     pid, depth = caller_pid(), 0
     while pid > 1 and depth < 12:
-        proc = procinfo.read(pid)
+        proc = procinfo.read(pid, procinfo.proc_root())
         if proc is None:
             break
         comm, args = os.path.basename(proc.comm), proc.args
@@ -145,7 +147,7 @@ def rotate_master(ctx, args):
     # A rotation that never finished already recorded this session; it keeps that generation instead of skipping one.
     sessions = listing(peek(load(store), 'master'), 'sessions')
     if sessions and not isinstance(sessions[-1], dict):
-        raise damaged(f'master.sessions holds {json_type(sessions[-1])}, not an object')
+        raise DamagedStore(f'master.sessions holds {json_type(sessions[-1])}, not an object')
     if session and sessions and session == text_at(sessions[-1], 'session'):
         gen = text_at(sessions[-1], 'generation')
     gen_n = int(gen)
@@ -180,7 +182,7 @@ def rotate_master(ctx, args):
         listed = listing(master, 'sessions')
         for each in listed:
             if not isinstance(each, dict):
-                raise damaged(f'sessions holds {json_type(each)}, not an object')
+                raise DamagedStore(f'sessions holds {json_type(each)}, not an object')
         kept = [e for e in listed if session == '' or e.get('session') != session]
         master['previous'] = {'name': name, 'pane_id': pane, 'session': session}
         master['name'], master['pane_id'], master['registered_at'] = temp, new_pane_id, now

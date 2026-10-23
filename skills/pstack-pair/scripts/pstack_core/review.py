@@ -1,10 +1,12 @@
+import functools
 import glob
 import os
 import re
 
 from . import git
 from .steplog import StepLog
-from .store import Die, header_field, note_id, load, peek, read_text, suffix_number, text_at, unit_name
+from .store import header_field, note_id, load, peek, read_text, suffix_number, text_at, unit_name
+from .errors import Unfilled
 
 
 def note_files(store, unit):
@@ -90,23 +92,18 @@ def review_base(store, unit):
 
 PAIR = r'\x7b\x7b[^}]*\x7d\x7d'
 
-_template_pairs = None
-
-
+@functools.cache
 def template_pairs():
     """Every complete placeholder pair that occurs in one of the skills' templates (skills/*/references/*-template.md beside this module's
     skills directory), once per process: the exact text a template leaves for its writer to fill."""
-    global _template_pairs
-    if _template_pairs is None:
-        skills = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        found = set()
-        for path in glob.glob(os.path.join(glob.escape(skills), '*', 'references', '*-template.md')):
-            try:
-                found.update(re.findall(PAIR, read_text(path)))
-            except OSError:
-                pass
-        _template_pairs = found
-    return _template_pairs
+    skills = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    found = set()
+    for path in glob.glob(os.path.join(glob.escape(skills), '*', 'references', '*-template.md')):
+        try:
+            found.update(re.findall(PAIR, read_text(path)))
+        except OSError:
+            pass
+    return found
 
 
 def split_code(text):
@@ -167,4 +164,4 @@ def require_filled(ctx, path):
     except OSError:
         return
     if has_placeholder(text) or (ctx.unfilled_re and any(re.search(ctx.unfilled_re, line) for line in prose_lines(text))):
-        raise Die(f'{path} still has unfilled placeholders')
+        raise Unfilled(f'{path} still has unfilled placeholders')

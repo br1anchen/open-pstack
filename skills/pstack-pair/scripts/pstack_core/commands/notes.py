@@ -4,10 +4,8 @@ import re
 import sys
 
 from ..argv import Spec, read
-from ..store import (
-    Die, prog, count, dispatched_brief, event, field, fill_template, header_field, load, peek, note_id, pair_file, pause_notice,
-    read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest,
-)
+from ..store import count, dispatched_brief, event, field, fill_template, header_field, load, peek, note_id, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest
+from ..errors import Die, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL
 from ..prime import prime_steer
 from ..review import noted_through, open_notes, require_filled, review_base
@@ -30,14 +28,14 @@ def blocking_lines(path):
 
 def notes(ctx, args):
     if len(args) != 1:
-        raise Die(f'usage: {prog()} notes <store>')
+        raise Die(f'usage: {ctx.prog} notes <store>')
     store = args[0]
     pair_file(store)
     brief = dispatched_brief(store)
     if not brief:
         print('notes: none open')
         return 0
-    sys.stdout.write(pause_notice(store) + steer_notice(store))
+    sys.stdout.write(pause_notice(store) + steer_notice(ctx, store))
     open_ = open_notes(store, brief)
     if not open_:
         print('notes: none open; go on with the next step')
@@ -66,7 +64,7 @@ def followups(path, tag):
 
 def note(ctx, args):
     if len(args) != 2:
-        raise Die(f'usage: {prog()} note <store> <note-draft-path>')
+        raise Die(f'usage: {ctx.prog} note <store> <note-draft-path>')
     store, draft = args
     if not os.path.isfile(draft):
         raise Die(f'note not found: {draft}')
@@ -87,7 +85,7 @@ def note(ctx, args):
     event(store, 'master', 'note', unit, f'{k}:{status}')
     try:
         delivery = deliver_blocking_note(ctx, store, path) if status == 'blocking' and os.path.isfile(f'{store}/pair.json') else ''
-    except Die:
+    except PromptFailed:
         # the note is out; the master must also know it went undelivered
         print(f'published {path} ({status})')
         raise
@@ -107,18 +105,18 @@ def deliver_blocking_note(ctx, store, path):
     kind = field(store, 'sidekick', 'kind')
     if kind == 'devin':
         park_for_devin(store, path, 'notice_notes')
-        return f"; left for {name}: it lands at the sidekick's next {prog()} step, notes, or progress, between tool calls"
+        return f"; left for {name}: it lands at the sidekick's next {ctx.prog} step, notes, or progress, between tool calls"
     if kind == 'prime-agent':
         if not prime_steer(store, message):
-            raise Die(f'Prime delivery failed for {name}', 2)
+            raise PromptFailed(f'Prime delivery failed for {name}')
     elif agent_prompt(name, message, stdout=DEVNULL, stderr=None).returncode != 0:
-        raise Die(f'herdr prompt failed for {name}', 2)
+        raise PromptFailed(f'herdr prompt failed for {name}')
     return f'; sent to {name}'
 
 
 def new_note(ctx, args):
     if len(args) < 2:
-        raise Die(f'usage: {prog()} new-note <store> <NNN> [--through K]')
+        raise Die(f'usage: {ctx.prog} new-note <store> <NNN> [--through K]')
     store, seq = args[0], args[1]
     through = read(args[2:], Spec(valued=('--through',))).last('--through', '')
     pair_file(store)
@@ -152,14 +150,14 @@ def new_note(ctx, args):
 
 def new_plan(ctx, args):
     if len(args) != 2:
-        raise Die(f'usage: {prog()} new-plan <store> <slug>')
+        raise Die(f'usage: {ctx.prog} new-plan <store> <slug>')
     print(new_from_template(ctx, args[0], args[1], 'plans', 'plan-template.md'))
     return 0
 
 
 def new_brief(ctx, args):
     if len(args) != 2:
-        raise Die(f'usage: {prog()} new-brief <store> <slug>')
+        raise Die(f'usage: {ctx.prog} new-brief <store> <slug>')
     print(new_from_template(ctx, args[0], args[1], 'briefs', 'brief-template.md'))
     return 0
 
@@ -167,7 +165,7 @@ def new_brief(ctx, args):
 def new_steer(ctx, args):
     """Fresh steers on a unit are capped at two; one that supersedes an objected steer is a discussion round."""
     if len(args) < 2:
-        raise Die(f'usage: {prog()} new-steer <store> <NNN> [--supersedes STEER | --force]')
+        raise Die(f'usage: {ctx.prog} new-steer <store> <NNN> [--supersedes STEER | --force]')
     store, seq = args[0], args[1]
     opts = read(args[2:], Spec(valued=('--supersedes',), flags=('--force',)))
     force = opts.present('--force')

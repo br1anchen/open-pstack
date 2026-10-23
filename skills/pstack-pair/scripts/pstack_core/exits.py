@@ -3,7 +3,7 @@ The deadlines are 15 s and 1 s; PAIR_EXIT_DEADLINE_S and PAIR_EXIT_POLL_S let a 
 import sys
 import time
 
-from .store import Exit, env_float, env_int, member, update
+from .store import env_float, env_int, member, update
 from .panes import agent_prompt, agent_status, dig, herdr, parse
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
@@ -83,12 +83,3 @@ def stop_prime_role(store, role):
         member(doc, role)['session_stopped'] = True
     update(store, mutate)
     return True
-
-
-def stopped(store, role):
-    """stop_prime_role as a caller tests it: a failed pair.json write is the answer "no", its message printed; a die ends the command."""
-    try:
-        return stop_prime_role(store, role)
-    except Exit as e:
-        sys.stderr.write(e.stderr)
-        return False

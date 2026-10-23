@@ -2,10 +2,10 @@
 
 import glob
 import os
-import sys
 from dataclasses import dataclass
 
-from .store import Exit, int_or_none, last_line, prog, read_text, unit_name, write_text
+from .store import int_or_none, last_line, read_text, unit_name, write_text
+from .errors import EmptyStepLog, StepLogUnreadable
 
 
 @dataclass(frozen=True)
@@ -74,16 +74,15 @@ class StepLog:
         return any(s.sha == sha for s in self.rows())
 
     def next_number(self):
-        """One more than the rows there are. A file with none ends the command 1, an unreadable one 2."""
+        """One more than the rows there are. A file with none is an EmptyStepLog, an unreadable one a StepLogUnreadable."""
         if not os.path.isfile(self.path):
             return 1
         try:
             count = len(self.rows())
         except OSError as e:
-            sys.stderr.write(f'{prog()}: cannot read {self.path}: {os.strerror(e.errno)}\n')
-            raise Exit(2)
+            raise StepLogUnreadable('read', self.path, e) from None
         if count == 0:
-            raise Exit(1)
+            raise EmptyStepLog()
         return count + 1
 
     def append(self, number, sha, epoch, resolves, summary):

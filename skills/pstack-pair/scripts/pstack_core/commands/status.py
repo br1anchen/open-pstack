@@ -5,24 +5,20 @@ import subprocess
 import sys
 import time
 
-from ..store import Die, prog, header_field, load, names, newest, paused_reason, peek, read_text, suffix_number, text_at, unit_name, event, pair_file, pause_notice, progress_path, steer_notice
+from ..store import header_field, load, names, newest, paused_reason, peek, read_text, suffix_number, text_at, unit_name, event, pair_file, pause_notice, progress_path, steer_notice
+from ..errors import Die, MissingStore, translate
 from ..panes import agent_status
-
-
-class NoPairJson(Exception):
-    """bash's field() runs pair_file in a command substitution, so its die only ends that subshell
-    and jq then fails on an empty file name: exit 2, after both messages."""
 
 
 class Tee:
     """The pipe into tee: every line goes to stdout and to status.md as it is produced."""
 
-    def __init__(self, path):
+    def __init__(self, ctx, path):
         self.failed = False
         try:
             self.file = open(path, 'w', encoding='utf-8')
         except OSError as e:
-            sys.stderr.write(f'{prog()}: cannot write {path}: {os.strerror(e.errno)}\n')
+            sys.stderr.write(f'{ctx.prog}: cannot write {path}: {os.strerror(e.errno)}\n')
             sys.stderr.flush()
             self.file, self.failed = None, True
 
@@ -49,7 +45,7 @@ def lines(ctx, store, out):
     out.write(f'# {ctx.store_label} status\n\n')
     out.write(f'generated: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\n')
     if not os.path.isfile(f'{store}/pair.json'):
-        raise NoPairJson(store)
+        raise MissingStore(store)
     pair = load(store)
     master = peek(pair, 'master')
     name = text_at(master, 'name')
@@ -128,14 +124,14 @@ def lines(ctx, store, out):
 
 def run(ctx, args):
     if len(args) != 1:
-        raise Die(f'usage: {prog()} status <store>')
+        raise Die(f'usage: {ctx.prog} status <store>')
     store = args[0]
-    out = Tee(f'{store}/status.md')
+    out = Tee(ctx, f'{store}/status.md')
     code = 0
     try:
         lines(ctx, store, out)
-    except NoPairJson:
-        sys.stderr.write(f'{prog()}: no pair.json in {store}; run: pair.sh init <slug>\n')
+    except MissingStore as e:
+        sys.stderr.write(translate(e, ctx.prog)[0])
         sys.stderr.flush()
         code = 2
     finally:
@@ -145,21 +141,21 @@ def run(ctx, args):
 
 def log(ctx, args):
     if len(args) != 6:
-        raise Die(f'usage: {prog()} log <store> <phase> <decision> <why> <evidence> <result>')
+        raise Die(f'usage: {ctx.prog} log <store> <phase> <decision> <why> <evidence> <result>')
     store, phase, decision, *rest = args
     helper = f'{ctx.skill_root}/../show-me-your-work/scripts/log.sh'
     if not (os.path.isfile(helper) and os.access(helper, os.X_OK)):
         raise Die(f'show-me-your-work log helper not found at {helper}')
     code = subprocess.run([helper, f'{store}/decisions.tsv', phase, decision, *rest], check=False).returncode
     if code:
-        raise SystemExit(code)
+        return code
     event(store, 'master', 'log', '-', f'{phase}: {decision}')
     return 0
 
 
 def progress(ctx, args):
     if len(args) != 2:
-        raise Die(f'usage: {prog()} progress <store> <text>')
+        raise Die(f'usage: {ctx.prog} progress <store> <text>')
     store, text = args
     pair_file(store)
     path = progress_path(store)
@@ -169,5 +165,5 @@ def progress(ctx, args):
     with open(path, 'a', encoding='utf-8') as f:
         f.write(f'{time.strftime("%H:%M")} {text}\n')
     event(store, 'sidekick', 'progress', path)
-    sys.stdout.write(f'{path}\n{pause_notice(store)}{steer_notice(store)}')
+    sys.stdout.write(f'{path}\n{pause_notice(store)}{steer_notice(ctx, store)}')
     return 0

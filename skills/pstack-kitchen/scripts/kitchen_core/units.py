@@ -13,9 +13,8 @@ import re
 import sys
 import tempfile
 
-from pstack_core.store import (
-    Die, Exit, prog, expected_report, read_text, missing_pair, header_field, load, peek, read, text_at,
-)
+from pstack_core.store import expected_report, read_text, header_field, load, peek, read, text_at
+from pstack_core.errors import Die, NoBrief, translate
 from pstack_core import git
 from pstack_core.review import range_floor, trunk_ref
 from pstack_core.steplog import StepLog
@@ -23,10 +22,10 @@ from pstack_core.variant import commit_of
 
 
 
-def captured(call, merge_stderr=False, env=None):
+def captured(ctx, call, merge_stderr=False, env=None):
     """(status, text) of call run with its stdout captured, and its stderr too when merge_stderr, that of a child process included, in the order
-    it was written: a return ends it with 0, an Exit or a Die with its code after what it prints, an OSError or ValueError with 1. env is set for
-    the call and restored after it."""
+    it was written: a return ends it with 0, a failure with its translation (errors.translate) after what it prints. env is set for the call and
+    restored after it."""
     status = 0
     saved = dict(os.environ)
     os.environ.update(env or {})
@@ -42,15 +41,9 @@ def captured(call, merge_stderr=False, env=None):
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out) if merge_stderr else contextlib.nullcontext():
                 try:
                     call()
-                except Exit as e:
-                    sys.stderr.write(e.stderr)
-                    status = e.code
-                except Die as e:
-                    sys.stderr.write(f'{prog()}: {e.message}\n')
-                    status = e.code
-                except (OSError, ValueError) as e:
-                    sys.stderr.write(f'{prog()}: {e}\n')
-                    status = 1
+                except Exception as e:
+                    text, status = translate(e, ctx.prog)
+                    sys.stderr.write(text)
         finally:
             out.close()
             if fd2 is not None:
@@ -63,29 +56,13 @@ def captured(call, merge_stderr=False, env=None):
     return status, text.rstrip('\n')
 
 
-TOLD = set()
+def has_pair(store):
+    """Whether the store has a pair.json."""
+    return os.path.isfile(f'{store}/pair.json')
 
 
-def has_pair(store, check=False, quiet=False):
-    """Whether the store has a pair.json. A command calls this once, before its first read; a store without one gets the two lines a missing
-    pair.json gets (quiet leaves them out) and, with check, the command ends with 2. The message is told once for a store in one process, however
-    many reads follow."""
-    if os.path.isfile(f'{store}/pair.json'):
-        return True
-    if not quiet and os.path.realpath(store) not in TOLD:
-        TOLD.add(os.path.realpath(store))
-        sys.stdout.flush()
-        sys.stderr.write(missing_pair(store))
-        sys.stderr.flush()
-    if check:
-        raise Exit(2)
-    return False
-
-
-def repo_root(store, quiet=False, check=False):
-    """`.git_root` of pair.json; empty for a store with no pair.json, after has_pair's message."""
-    if not has_pair(store, check, quiet):
-        return ''
+def repo_root(store):
+    """`.git_root` of pair.json; a store with none is a MissingStore."""
     return read(store, 'git_root')
 
 
@@ -133,10 +110,10 @@ def unit_head(store, brief):
 
 
 def unit_brief(store, nnn):
-    """The unit's brief path (the first by `ls`), or the command's death."""
+    """The unit's brief path (the first by `ls`), or NoBrief."""
     found = sorted(glob.glob(f'{glob.escape(store)}/briefs/{glob.escape(nnn)}-*.md'))
     if not found:
-        raise Die(f'no brief for unit {nnn}')
+        raise NoBrief(f'no brief for unit {nnn}')
     return found[0]
 
 
@@ -352,29 +329,29 @@ def landing_base(store, root, head, parent_override='', parent_label='', range_b
     return base
 
 
-def brief_or_nothing(store, nnn):
+def brief_or_nothing(ctx, store, nnn):
     """The unit's brief: a missing brief says so on stderr and gives an empty path, and the command around it goes on."""
     try:
         return unit_brief(store, nnn)
-    except Die as e:
+    except NoBrief as e:
         sys.stdout.flush()
-        sys.stderr.write(f'{prog()}: {e.message}\n')
+        sys.stderr.write(translate(e, ctx.prog)[0])
         return ''
 
 
-def unit_range(store, units, covered=(), range_base=''):
+def unit_range(ctx, store, units, covered=(), range_base=''):
     """(base, head) for the units, first to last, from their dispatch heads and done reports. A unit named in covered needs no done report: a later
     fix unit carries it. A partial, blocked or failed unit can still be checked at the head its report names (a note says it is not done). The
     base moves up to where the unit's branch leaves trunk when trunk has replaced the recorded one (a note says so), unless range_base is given."""
     first, last = units[0], units[-1]
-    brief = brief_or_nothing(store, first)
+    brief = brief_or_nothing(ctx, store, first)
     base = dispatch_head(store, brief)
     if not base:
         raise Die(f'unit {first} was never dispatched')
     for unit in units:
         if unit in covered:
             continue
-        report = expected_report(store, brief_or_nothing(store, unit))
+        report = expected_report(store, brief_or_nothing(ctx, store, unit))
         if not os.path.isfile(report):
             raise Die(f'unit {unit} has no report')
         status = header_field(report, 'status')
@@ -387,10 +364,10 @@ def unit_range(store, units, covered=(), range_base=''):
             raise Die(f"unit {unit}'s report has no status:")
         else:
             raise Die(f"unit {unit}'s report is {status}, not done, partial, blocked, or failed")
-    report = expected_report(store, brief_or_nothing(store, last))
+    report = expected_report(store, brief_or_nothing(ctx, store, last))
     if not os.path.exists(report):
         sys.stdout.flush()
-        sys.stderr.write(f'{prog()}: cannot read {report}: No such file or directory\n')
+        sys.stderr.write(f'{ctx.prog}: cannot read {report}: No such file or directory\n')
     head = header_field(report, 'head')
     if not head:
         raise Die(f"unit {last}'s report has no head:")

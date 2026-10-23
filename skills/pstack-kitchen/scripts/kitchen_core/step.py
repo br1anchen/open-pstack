@@ -23,9 +23,8 @@ import time
 from pstack_core import git
 from pstack_core.panes import require_herdr
 from pstack_core.commands import report as core_report, step as core_step
-from pstack_core.store import (
-    Die, Exit, env_float, env_int, event, exit_code, expected_report, field, header_field, int_or_none, pair_file, prog, read, read_text, unit_name,
-)
+from pstack_core.store import env_float, env_int, event, exit_code, expected_report, field, header_field, int_or_none, pair_file, read, read_text, unit_name
+from pstack_core.errors import Die, Exit
 from pstack_core.replies import file_mtime
 from pstack_core.review import range_floor
 from pstack_core.steplog import StepLog
@@ -41,7 +40,7 @@ WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'worker.py')
 
 def verify_job(ctx, store, brief, head):
     """Where finish keeps the run of the brief's Verify block at commit head: the kitchen variant's own function, which report_ready reads too."""
-    return ctx.variant.verify_job(store, brief, head)
+    return ctx.variant.verify_job(ctx, store, brief, head)
 
 
 def ignore_interrupts():
@@ -80,7 +79,7 @@ def remove_path(path):
             pass
 
 
-def point_at(link, target):
+def point_at(ctx, link, target):
     """Make link a symbolic link to target, replacing what was there."""
     fresh = f'{link}.{os.getpid()}'
     try:
@@ -89,7 +88,7 @@ def point_at(link, target):
         os.replace(fresh, link)
     except OSError as e:
         remove_path(fresh)
-        sys.stderr.write(f'{prog()}: cannot point {link} at {target}: {os.strerror(e.errno)}\n')
+        sys.stderr.write(f'{ctx.prog}: cannot point {link} at {target}: {os.strerror(e.errno)}\n')
 
 
 def queue_line(log):
@@ -157,7 +156,7 @@ def step(ctx, args):
             remove_path(f'{job}/{leftover}')
         os.makedirs(job, exist_ok=True)
         run = len([n for n in os.listdir(job) if re.match(r'out\.[0-9]', n)]) + 1
-        point_at(f'{job}/out', f'out.{run}')
+        point_at(ctx, f'{job}/out', f'out.{run}')
         code, found, err = kpy.run(root, [*cfg, '--json', 'classify', '--base', base, '--head', full])
         if err:
             sys.stdout.flush()
@@ -252,7 +251,7 @@ def finish(ctx, args):
         raise Die(f"the checkout is at {cur[:9]}, not the report's head: {head[:9]}; the kitchen reruns the brief's Verify commands at the unit's tip, so check out that "
                   'head (or fix head:) and finish again')
     if not header_field(brief, 'commit').startswith('no'):
-        # a plain assignment: git failing (a damaged index) ends the command with git's status, before any job directory exists
+        # a plain assignment: git failing (a DamagedStore index) ends the command with git's status, before any job directory exists
         listed = git.run(root, 'status', '--porcelain', '--untracked-files=normal')
         if listed.returncode != 0:
             raise Exit(exit_code(listed.returncode))

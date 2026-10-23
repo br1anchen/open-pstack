@@ -2,9 +2,10 @@ import re
 import shutil
 import sys
 
-from . import gates, permission, send, spawn, store, wait
+from . import gates, permission, send, spawn, wait
 from .commands import init, metrics, notes, report, rotate, scratch, status, step, steer, stop
-from .store import Context, Die, Exit
+from .store import Context
+from .errors import Die, translate
 from .variant import load_variant_class
 
 COMMANDS = {'init': init.run, 'log': status.log, 'new-plan': notes.new_plan, 'new-brief': notes.new_brief, 'new-steer': notes.new_steer,
@@ -37,9 +38,6 @@ def parse(argv):
     return argv[1], argv[2:]
 
 
-PROG = 'pair.sh'
-
-
 COMMAND_WORD = re.compile(r'[a-z][a-z-]*')
 
 
@@ -48,19 +46,18 @@ def build(skill_root):
     variant = load_variant_class(skill_root)()
     state_root = variant.state_root()
     ctx = Context(variant.PAIR_SKILL, skill_root, state_root, variant.store_label, tuple(variant.roles), tuple(variant.store_dirs),
-                  variant.slug_max, variant.unfilled_re)
+                  variant.slug_max, variant.unfilled_re, variant.PAIR_PROG, variant.event_dedupe)
     ctx._variant = variant
     return variant, ctx
 
 
 def main(argv):
-    global PROG
     sys.stdout.reconfigure(line_buffering=True)
+    prog = 'pair.sh'
     try:
         skill_root, words = parse(argv)
         variant, ctx = build(skill_root)
-        PROG = store.PROG = variant.PAIR_PROG
-        store.dedupe_wakes = variant.event_dedupe
+        prog = ctx.prog
         if shutil.which('herdr') is None:
             raise Die('herdr is required on PATH')
         variant.startup(ctx, words)
@@ -76,12 +73,7 @@ def main(argv):
             sys.stdout.write(variant.usage)
             raise Die(f'unknown command: {cmd}')
         return command(ctx, words[1:])
-    except Exit as e:
-        sys.stderr.write(e.stderr)
-        return e.code
-    except Die as e:
-        sys.stderr.write(f'{PROG}: {e.message}\n')
-        return e.code
-    except (OSError, ValueError) as e:
-        sys.stderr.write(f'{PROG}: {e}\n')
-        return 1
+    except Exception as e:
+        text, code = translate(e, prog)
+        sys.stderr.write(text)
+        return code

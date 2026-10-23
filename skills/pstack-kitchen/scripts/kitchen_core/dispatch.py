@@ -14,7 +14,9 @@ from pstack_core.argv import Spec, read
 from pstack_core.commands.rotate import queue as core_queue, rotate_if_due
 from pstack_core.consult import discuss_with_consultant
 from pstack_core.panes import agent_status
-from pstack_core.store import Die, Exit, field, risk_of, whole_number
+from pstack_core.store import field, pair_file, risk_of, whole_number
+from pstack_core.commands.report import require_pair
+from pstack_core.errors import Die, Exit, MissingStore, ToolFailed, translate
 from pstack_core.wait import default_signals
 
 from .classify import classify_brief
@@ -33,8 +35,8 @@ def land_check_quietly(ctx, store):
     def run():
         code = land_check(store)
         if code:
-            raise Exit(code)
-    return captured(run)[0]
+            raise ToolFailed(code)
+    return captured(ctx, run)[0]
 
 
 def core_dispatch(ctx, args):
@@ -42,8 +44,8 @@ def core_dispatch(ctx, args):
     def run():
         code = send.dispatch(ctx, list(args))
         if code:
-            raise Exit(code)
-    return captured(run, env={'PAIR_QUIET_WAIT': '1'})
+            raise ToolFailed(code)
+    return captured(ctx, run, env={'PAIR_QUIET_WAIT': '1'})
 
 
 NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}
@@ -68,10 +70,10 @@ def dispatch(ctx, args):
         if land_check_quietly(ctx, store) != 0:
             raise Die(f'landing refused: kitchen.sh land-check {store} fails', 2)
     else:
-        has_pair(store, check=True)
+        require_pair(ctx, store)
         classify_brief(store, brief)
     # a landing brief that land-check passed on a store with no pair.json goes on to the core dispatch, which refuses it
-    if has_pair(store, quiet=True):
+    if has_pair(store):
         rotate_if_due(ctx, store, 'brief')
     wait_args = list(args[2:])
     # --max belongs to the quiet wait, not to the pair's dispatch.
@@ -81,7 +83,7 @@ def dispatch(ctx, args):
             kept = [line for line in out.split('\n') if not line.startswith(SWALLOWED)]
             sys.stdout.write('\n'.join(kept).rstrip('\n') + '\n')
             raise Exit(quiet_wait(ctx, store, wait_args))
-        log_checkin_wake(store, out)
+        log_checkin_wake(ctx, store, out)
     sys.stdout.write(out + '\n')
     return rc
 
@@ -89,8 +91,8 @@ def dispatch(ctx, args):
 def queue(ctx, args):
     args = list(args)
     # A brief path may be given relative to the store (briefs/NNN-x.md), as for dispatch.
-    if len(args) >= 2 and not has_pair(args[0]):
-        raise Exit(1)
+    if len(args) >= 2:
+        pair_file(args[0])
     if len(args) >= 2 and args[1] != '--clear' and not os.path.isfile(args[1]) and os.path.isfile(f'{args[0]}/{args[1]}'):
         args[1] = f'{args[0]}/{args[1]}'
     if len(args) >= 2 and args[1] != '--clear' and os.path.isfile(args[1]) and not is_landing(args[1]):
@@ -108,6 +110,8 @@ def discuss(ctx, args):
     if risk_of(plan) not in ('routine', 'escalated'):
         raise Die(f'{plan}: risk: must start with routine or escalated, as kitchen.sh classify prints it', 2)
     escalated = risk_of(plan) == 'escalated'
+    if escalated and not has_pair(store):
+        sys.stderr.write(translate(MissingStore(store), ctx.prog)[0])
     if escalated and not (has_pair(store) and agent_status(field(store, 'consultant', 'name')) != 'absent'):
         raise Die(f'an escalated plan goes to the consultant too; start it: kitchen.sh consultant {store} --reason TEXT', 5)
     if not os.path.isfile(f'{store}/pair.json'):

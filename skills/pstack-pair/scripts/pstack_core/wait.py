@@ -9,10 +9,8 @@ import time
 
 from .argv import Spec, read
 from .checkin import checkin, sidekick_activity
-from .store import (
-    Die, Exit, now_s, prog, TEXT, exit_code, missing_pair as store_missing, read_text, acquire_lock, env_float, env_int, event, field, header_field,
-    member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number,
-)
+from .store import wake, now_s, TEXT, exit_code, read_text, acquire_lock, env_float, env_int, field, header_field, member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number
+from .errors import BadStepRow, Die, MissingStore, PairError, refuse_as
 from .panes import agent_state, agent_status, error_code, error_state, herdr_get, pane_busy, require_herdr
 from .providers import provider_hint
 from .replies import (dispatched, fresh_reply, latest_report, mark_seen, pending_report, queue_note, review_delta, seen_reply,
@@ -87,8 +85,8 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
             seen = f'{report}:{stamp}'
             update(store, lambda doc: set_sent_seen(doc, seen))
         write(f'report: {report}\n')
-        write(f'report_status: {status_of(report)}\n')
-        event(store, 'master', 'wake', report, f'report:{status_of(report)}')
+        write(f'report_status: {status_of(ctx, report)}\n')
+        wake(ctx, store, report, f'report:{status_of(ctx, report)}')
         write(queue_note(store, report))
         write(review_delta(store, report))
         return 3 if state == 'blocked' else 0
@@ -108,9 +106,9 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         try:
             k = json.loads(last[0])
         except ValueError:
-            raise Exit(2, f'{prog()}: the last step row does not start with a JSON step number: {last[0]!r}\n')
+            raise BadStepRow(f'the last step row does not start with a JSON step number: {last[0]!r}') from None
         update(store, lambda doc: set_shown(doc, unit_name(running), k))
-        event(store, 'master', 'wake', running, f'steps:{first}')
+        wake(ctx, store, running, f'steps:{first}')
         return 0
     withheld = withheld_report(ctx, store)
     activity = sidekick_activity(store, clock())
@@ -119,7 +117,7 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
         sent = sent_file(store)
         sent = '-' if sent is None else sent
         write(f'idle: the reply to {os.path.basename(sent.rstrip("/") or sent)} was already shown ({shown}); send the next message\n')
-        event(store, 'master', 'wake', sent, 'idle')
+        wake(ctx, store, sent, 'idle')
         # Since notify marks a report it announced, this is the normal path to a report the master already has by message: show what the
         # report path would add. A plan response or advice carries neither.
         if peek(load(store), 'sent').get('kind') == 'BRIEF':
@@ -133,15 +131,15 @@ def finish_wait(ctx, store, interval, result, mode, report='', now=None):
     else:
         write('report: missing\n')
     if state == 'blocked':
-        event(store, 'master', 'wake', running, why or 'blocked')
+        wake(ctx, store, running, why or 'blocked')
         write(provider_hint(store))
         return 3
     if agent_status(name()) == 'working' or activity:
         if os.environ.get('PAIR_QUIET_WAIT') != '1':
-            event(store, 'master', 'wake', running, why or 'checkin')
+            wake(ctx, store, running, why or 'checkin')
         write(checkin(ctx, store, interval, clock()))
     else:
-        event(store, 'master', 'wake', running, why or 'missing')
+        wake(ctx, store, running, why or 'missing')
         write(provider_hint(store))
     return 4
 
@@ -151,10 +149,10 @@ def sent_file(store):
     return text_at(peek(load(store), 'sent'), 'file', None)
 
 
-def status_of(report):
+def status_of(ctx, report):
     """header_field "$report" status, whose grep complains on stderr when the file is gone."""
     if not os.path.isfile(report):
-        sys.stderr.write(f'{prog()}: cannot read {report}: No such file or directory\n')
+        sys.stderr.write(f'{ctx.prog}: cannot read {report}: No such file or directory\n')
     return header_field(report, 'status')
 
 
@@ -323,9 +321,9 @@ def owned_wait(ctx, store, name, timeout, interval, now=None):
     elif not held or os.environ.get('PAIR_WAIT_CLAIM') == '1':
         try:
             claim_wait(store, token)
-        except Die as e:
+        except PairError as e:
             # A lock that stays held must not fail a wait whose work is done (a dispatch has delivered its brief): wait without ownership.
-            sys.stderr.write(f'{prog()}: wait: could not claim wait.pid ({e.message}); waiting without ownership\n')
+            sys.stderr.write(f'{ctx.prog}: wait: could not claim wait.pid ({e.message}); waiting without ownership\n')
             token = None
             if held:
                 sys.stdout.write('unowned: wait.pid could not be claimed\n')
@@ -339,34 +337,29 @@ def owned_wait(ctx, store, name, timeout, interval, now=None):
         if not held and token is not None:
             try:
                 release_wait(store, token)
-            except Die as e:
-                sys.stderr.write(f'{prog()}: wait: could not release wait.pid ({e.message})\n')
-
-
-def no_pair(store):
-    # The bash goes on with an empty agent name and prints a pair of error lines for every field() it then reads; the
-    # first pair and the status are kept.
-    sys.stdout.write('state: \n')
-    raise Exit(2, store_missing(store))
+            except PairError as e:
+                sys.stderr.write(f'{ctx.prog}: wait: could not release wait.pid ({e.message})\n')
 
 
 def wait(ctx, args):
     if len(args) == 2 and args[1] == '--release':
         # kitchen.sh's quiet wait gives its claim back when it exits (internal; it runs from an exiting shell, so no herdr checks)
         if not os.path.isfile(f'{args[0]}/pair.json'):
-            no_pair(args[0])
+            sys.stdout.write('state: \n')
+            raise refuse_as(MissingStore(args[0]), ctx.prog, 2)
         release_wait(args[0], wait_token())
         return 0
     require_herdr()
     end_with_parent()
     if len(args) < 1:
-        raise Die(f'usage: {prog()} wait <store> [--timeout MS | --every MIN]')
+        raise Die(f'usage: {ctx.prog} wait <store> [--timeout MS | --every MIN]')
     store = args[0]
     opts = read(args[1:], TIMING)
     timeout = timeout_ms(opts)
     opts.refuse_leftovers()
     interval = tdiv(timeout, 60000)
     if not os.path.isfile(f'{store}/pair.json'):
-        no_pair(store)
+        sys.stdout.write('state: \n')
+        raise refuse_as(MissingStore(store), ctx.prog, 2)
     name = field(store, 'sidekick', 'name')
     return owned_wait(ctx, store, name, timeout, interval)

@@ -4,7 +4,8 @@ import re
 import sys
 import time
 
-from ..store import Die, prog, event, field, read_text, header_field, member, names, newest, tdiv, unit_name, update, who
+from ..store import event, field, read_text, header_field, member, names, newest, tdiv, unit_name, update, who
+from ..errors import Die
 from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
 from ..prime import prime_steer
 from ..review import has_placeholder
@@ -14,8 +15,8 @@ from ..wait import TIMING, end_with_parent, owned_wait, timeout_ms
 from .report import require_pair
 
 
-def usage():
-    return f'usage: {prog()} steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]'
+def usage(ctx):
+    return f'usage: {ctx.prog} steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]'
 
 
 def park_for_devin(store, path, key='notice_steers'):
@@ -44,7 +45,7 @@ def steer(ctx, args):
     require_herdr()
     end_with_parent()
     if len(args) < 2:
-        raise Die(usage())
+        raise Die(usage(ctx))
     store, steer_path = args[0], os.path.realpath(args[1])
     opts = read(args[2:], Spec(valued=TIMING.valued, flags=(*TIMING.flags, '--force', '--interrupt'), unknown='collect'))
     timeout = timeout_ms(opts)
@@ -55,7 +56,7 @@ def steer(ctx, args):
     try:
         text = read_text(steer_path)
     except OSError as e:
-        sys.stderr.write(f'{prog()}: cannot read {steer_path}: {e.strerror}\n')
+        sys.stderr.write(f'{ctx.prog}: cannot read {steer_path}: {e.strerror}\n')
         raise Die(f'not a steer file: {steer_path}')
     if not re.search(r'(?m)^## Direction', text):
         raise Die(f'not a steer file: {steer_path}')
@@ -65,7 +66,7 @@ def steer(ctx, args):
     effect = header_field(steer_path, 'scope effect').rstrip().split(' \u2014 ')[0]
     if not re.fullmatch(r'none|may write: \S.*|may write "[^"]+"(?: and "[^"]+")*|must not write: \S.*', effect):
         raise Die(f'{steer_path}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"')
-    require_pair(store)
+    require_pair(ctx, store)
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     message = f'{ctx.skill} STEER {steer_path}'

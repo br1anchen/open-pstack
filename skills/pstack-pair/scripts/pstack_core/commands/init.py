@@ -7,7 +7,8 @@ import time
 
 from .. import git
 from ..argv import Spec, read
-from ..store import Die, Exit, prog, _dumps, event, member, update
+from ..store import _dumps, event, member, update
+from ..errors import Die, Exit, FileFailed, NotWritten
 from ..panes import herdr, require_herdr
 from ..permission import logical_cwd
 
@@ -21,21 +22,21 @@ def make_dir(path):
     try:
         os.makedirs(path, exist_ok=True)
     except OSError as e:
-        raise Exit(1, f'{prog()}: cannot create {e.filename or path}: {os.strerror(e.errno)}\n') from None
+        raise FileFailed('create', e.filename or path, e) from None
 
 
-def install_standing_orders(skill_root, orders):
+def install_standing_orders(ctx, orders):
     """Copy the template to orders and make the copy writable; a failure is said on stderr and init goes on."""
-    source = f'{skill_root}/references/{STANDING_ORDERS_TEMPLATE}'
+    source = f'{ctx.skill_root}/references/{STANDING_ORDERS_TEMPLATE}'
     try:
         shutil.copyfile(source, orders)
     except OSError as e:
-        sys.stderr.write(f'{prog()}: cannot copy {source} to {orders}: {os.strerror(e.errno)}\n')
+        sys.stderr.write(f'{ctx.prog}: cannot copy {source} to {orders}: {os.strerror(e.errno)}\n')
         return
     try:
         os.chmod(orders, os.stat(orders).st_mode | stat.S_IWUSR)
     except OSError as e:
-        sys.stderr.write(f'{prog()}: cannot make {orders} writable: {os.strerror(e.errno)}\n')
+        sys.stderr.write(f'{ctx.prog}: cannot make {orders} writable: {os.strerror(e.errno)}\n')
 
 
 def write_new(path, text):
@@ -44,7 +45,7 @@ def write_new(path, text):
         with open(path, 'w', encoding='utf-8') as f:
             f.write(text)
     except OSError as e:
-        raise Die(f'{path}: {e.strerror}')
+        raise NotWritten(path, e) from None
 
 
 def re_register(store, pane, workspace, tab, now):
@@ -56,10 +57,10 @@ def re_register(store, pane, workspace, tab, now):
 
 def run(ctx, args):
     if os.environ.get('PSTACK_KITCHEN_ROLE') == 'verifier':
-        raise Exit(2, f'{prog()}: init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier\n')
+        raise Exit(2, f'{ctx.prog}: init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier\n')
     require_herdr()
     if not args:
-        raise Die(f'usage: {prog()} init <slug> [--store DIR] [--pane ID]')
+        raise Die(f'usage: {ctx.prog} init <slug> [--store DIR] [--pane ID]')
     slug = args[0]
     opts = read(args[1:], Spec(valued=('--store', '--pane')))
     store, longest = opts.last('--store', ''), ctx.roles[-1]
@@ -96,7 +97,7 @@ def run(ctx, args):
     # The template comes from a read-only install, so give the copy its own mode.
     orders = f'{store}/standing-orders.md'
     if not os.path.isfile(orders):
-        install_standing_orders(ctx.skill_root, orders)
+        install_standing_orders(ctx, orders)
     if not os.path.isfile(f'{store}/gates.md'):
         write_new(f'{store}/gates.md', GATES)
     if not os.path.isfile(f'{store}/decisions.tsv'):

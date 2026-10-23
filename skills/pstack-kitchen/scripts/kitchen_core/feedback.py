@@ -10,7 +10,8 @@ import time
 
 from pstack_core.argv import Spec, read
 from pstack_core.checkin import iso_epoch
-from pstack_core.store import Die, Exit, prog, read_text, write_text, damaged, field, event, header_field, json_type, listing, load, pair_file, text_at
+from pstack_core.store import read_text, write_text, field, event, header_field, json_type, listing, load, pair_file, text_at
+from pstack_core.errors import DamagedStore, Die, Exit, FileFailed
 from pstack_core.panes import agent_prompt, herdr, reply_at, require_herdr
 from pstack_core.replies import file_mtime
 
@@ -97,7 +98,7 @@ def move_into_place(src, dst):
     try:
         os.replace(src, dst)
     except OSError as e:
-        raise Exit(1, f'{prog()}: cannot move {src} to {dst}: {os.strerror(e.errno)}\n') from None
+        raise FileFailed('move', f'{src} to {dst}', e) from None
 
 
 NOT_READ = object()
@@ -129,7 +130,7 @@ def first_build(store):
     builds = listing(load(store), 'skill_builds')
     first = builds[0] if builds else None
     if first is not None and not isinstance(first, dict):
-        raise damaged(f'skill_builds holds {json_type(first)}, not an object')
+        raise DamagedStore(f'skill_builds holds {json_type(first)}, not an object')
     return text_at(first or {}, 'path')
 
 
@@ -140,7 +141,7 @@ def rm_f(path):
     except FileNotFoundError:
         pass
     except OSError as e:
-        raise Exit(1, f'{prog()}: cannot remove {path}: {os.strerror(e.errno)}\n') from None
+        raise FileFailed('remove', path, e) from None
 
 
 def read_lines(path):

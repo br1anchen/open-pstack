@@ -12,7 +12,9 @@ import sys
 from pstack_core import agents, spawn as pair_spawn
 from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
-from pstack_core.store import Die, Exit, field, read_text, damaged, event, json_type, listing, load, member, now, pair_file, text_at, update
+from pstack_core.store import field, read_text, event, json_type, listing, load, member, now, pair_file, text_at, update
+from pstack_core.commands.report import require_pair
+from pstack_core.errors import DamagedStore, Die, Exit, ToolFailed
 from pstack_core import git
 from pstack_core.panes import agent_status, require_herdr
 from pstack_core.wait import end_with_parent
@@ -24,7 +26,7 @@ from .units import captured, has_pair, repo_root
 def last_build_path(builds):
     last = builds[-1]
     if not isinstance(last, dict):
-        raise damaged(f'skill_builds holds {json_type(last)}, not an object')
+        raise DamagedStore(f'skill_builds holds {json_type(last)}, not an object')
     return text_at(last, 'path')
 
 
@@ -32,7 +34,7 @@ def record_skill_build(ctx, store):
     """A run stamped at init lists the skills directories its commands ran from; a command from a different one adds a row. A run from before
     stamps stays unstamped."""
     skills_dir = os.path.dirname(ctx.skill_root)
-    if not has_pair(store, quiet=True):
+    if not has_pair(store):
         return
     raw = load(store).get('skill_builds')
     if raw is None or raw is False:
@@ -44,7 +46,7 @@ def record_skill_build(ctx, store):
     def mutate(doc):
         current = doc.get('skill_builds')
         if not isinstance(current, list):
-            raise damaged(f'skill_builds is {json_type(current)}, not an array')
+            raise DamagedStore(f'skill_builds is {json_type(current)}, not an array')
         doc['skill_builds'] = current + [{'path': skills_dir, 'at': stamp}]
     stamp = now()
     update(store, mutate)
@@ -69,9 +71,9 @@ def init(ctx, args):
     def run_core_init():
         code = core_init.run(ctx, list(args))
         if code:
-            raise Exit(code)
+            raise ToolFailed(code)
 
-    code, out = captured(run_core_init)
+    code, out = captured(ctx, run_core_init)
     if code:
         raise Exit(code)
     sys.stdout.write(out + '\n')
@@ -91,15 +93,16 @@ def init(ctx, args):
     if 'kitchen.toml landing.mode' not in text:
         with open(orders, 'a') as f:
             f.write(f'17. Landing goes as far as `{data.get("landing") or ""}` (kitchen.toml landing.mode) and never merges.\n')
-    worktree_setup(store, found)
+    worktree_setup(ctx, store, found)
     return 0
 
 
-def worktree_setup(store, found):
+def worktree_setup(ctx, store, found):
     """A run in a linked worktree (git worktree add, a jj workspace) starts without the main checkout's untracked dependencies, so its gates would run
     whatever tool the PATH has instead of the repo's pinned one. init prepares it once the way verifier scratches are prepared: the repo's
     [scratch].setup, as the sidekick. A failed setup stops init with its log. found is validate's JSON."""
-    root = repo_root(store, check=True)
+    require_pair(ctx, store)
+    root = repo_root(store)
     if not (json.loads(found).get('setup') or []):
         return
     if git.run(root, 'rev-parse', '--path-format=absolute', '--git-dir').stdout.rstrip('\n') == git.run(root, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.rstrip('\n'):

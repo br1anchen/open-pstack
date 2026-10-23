@@ -5,7 +5,8 @@ import sys
 import time
 from dataclasses import dataclass
 
-from ..store import Die, env_int, prog, read_text
+from ..store import env_int, read_text
+from ..errors import Die
 
 WHOLE_NUMBER = re.compile(r'[0-9]+', re.ASCII)
 WORDS = re.compile(r'[a-z]+', re.ASCII | re.IGNORECASE)
@@ -259,7 +260,7 @@ class Metrics:
 
 def run(ctx, args):
     if len(args) != 1:
-        raise Die(f'usage: {prog()} metrics <store>')
+        raise Die(f'usage: {ctx.prog} metrics <store>')
     store = args[0]
     log = f'{store}/events.tsv'
     if not (os.path.exists(log) and os.stat(log).st_size > 0):
@@ -268,12 +269,12 @@ def run(ctx, args):
     # A directory in place of the log is skipped with a warning and counts nothing; a log that cannot be read ends with exit 2.
     events = []
     if os.path.isdir(log):
-        sys.stderr.write(f'{prog()}: warning: {log} is a directory: skipped\n')
+        sys.stderr.write(f'{ctx.prog}: warning: {log} is a directory: skipped\n')
     else:
         try:
             events = parse_events(log)
         except OSError as e:
-            sys.stderr.write(f'{prog()}: cannot read {log}: {os.strerror(e.errno)}\n')
+            sys.stderr.write(f'{ctx.prog}: cannot read {log}: {os.strerror(e.errno)}\n')
             return 2
     for event in events:
         metrics.record(event)

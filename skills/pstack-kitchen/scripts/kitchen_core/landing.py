@@ -8,14 +8,15 @@ import re
 import sys
 import tempfile
 
-from pstack_core.store import Die, field, header_field, read_text, int_or_none, new_from_template, pair_file
+from pstack_core.store import field, header_field, read_text, int_or_none, new_from_template, pair_file
+from pstack_core.errors import Die
 from pstack_core import git
 from pstack_core.review import trunk_ref
 from pstack_core.panes import parse
 from pstack_core.variant import commit_of
 
 from . import kpy
-from .units import RecordedUnit, StackIndex, Verdict, dispatch_head, inclusion, is_ancestor, repo_root, unit_brief, unit_head
+from .units import RecordedUnit, StackIndex, Verdict, dispatch_head, inclusion, has_pair, is_ancestor, repo_root, unit_brief, unit_head
 
 
 def out(text):
@@ -33,7 +34,7 @@ def review_engine(store):
 
 def validated_engine(store):
     """(ok, engine): the kitchen's [review].engine from `validate`; not ok when kitchen.py fails, which land-check says."""
-    rc, text, _ = kpy.run(repo_root(store, quiet=True), ['--json', 'validate'])
+    rc, text, _ = kpy.run(repo_root(store) if has_pair(store) else '', ['--json', 'validate'])
     if rc != 0:
         return False, ''
     found = parse(text)

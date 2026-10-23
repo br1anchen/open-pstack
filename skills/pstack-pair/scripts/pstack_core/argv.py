@@ -7,7 +7,7 @@ value means (a whole number, a choice, a comma list), which occurrence wins and 
 import re
 from dataclasses import dataclass, field
 
-from .store import Die
+from .errors import Die
 
 
 class ArgvError(Die):

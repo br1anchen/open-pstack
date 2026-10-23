@@ -11,9 +11,8 @@ import sys
 from . import argv, git
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
-from .store import (
-    Die, prog, TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, now, write_text, who,
-)
+from .store import wake, TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, now, write_text, who
+from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, PromptFailed
 from .gates import require_not_paused
 from .panes import DEVNULL, agent_prompt, agent_state, agent_status, await_file, error_code, error_state, require_herdr
 from .review import require_filled
@@ -67,7 +66,7 @@ def deliver_plan(ctx, store, role, name, seq, plan):
         code = error_code(err)
         if code not in ('timeout', 'agent_prompt_stalled'):
             sys.stderr.write(err)
-            raise Die(f'herdr prompt failed for {name}', 2)
+            raise PromptFailed(f'herdr prompt failed for {name}')
     submitted = submit_typed(name, os.path.basename(plan))
     if took or submitted or plan_answer(store, role, seq, plan):
         return
@@ -87,7 +86,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     write = sys.stdout.write
     require_herdr()
     if len(args) < 2:
-        raise Die(f'usage: {prog()} discuss <store> <plan-path> [--timeout MS]')
+        raise Die(f'usage: {ctx.prog} discuss <store> <plan-path> [--timeout MS]')
     store, plan, timeout = args[0], args[1], 540000
     opts = argv.read(args[2:], TIMEOUT_ONLY)
     timeout = timeout_ms(opts, timeout)
@@ -112,15 +111,15 @@ def discuss_with_consultant(ctx, args, one_wake=False):
         if status in ('idle', 'done'):
             send.append(role)
         elif status == 'absent':
-            raise Die(f'{who(role, name)} is not live; run: pair.sh spawn {store} --only {role} --{role} <kind>', 2)
+            raise AgentNotLive(f'{who(role, name)} is not live; run: pair.sh spawn {store} --only {role} --{role} <kind>')
         elif status == 'blocked':
-            raise Die(f'{who(role, name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
+            raise AgentBlocked(f'{who(role, name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60')
         else:
             if role != 'sidekick':
-                raise Die(f'{who(role, name)} is {status}; wait for it before a plan round', 5)
+                raise AgentBusy(f'{who(role, name)} is {status}; wait for it before a plan round')
             deferred = 'sidekick'
     if deferred and 'consultant' not in send and 'consultant' not in answered:
-        raise Die(f"sidekick {field(store, 'sidekick', 'name')} is working and the consultant has nothing to answer; wait for the sidekick before a plan round", 5)
+        raise AgentBusy(f"sidekick {field(store, 'sidekick', 'name')} is working and the consultant has nothing to answer; wait for the sidekick before a plan round")
     if 'sidekick' in send:
         require_fresh_session(store)
     for role in send:
@@ -165,14 +164,14 @@ def discuss_with_consultant(ctx, args, one_wake=False):
                 if one_wake:
                     woke.append(f"{role}:{header_field(found, 'status')}")
                 else:
-                    event(store, 'master', 'wake', plan, f"{role}:{header_field(found, 'status')}")
+                    wake(ctx, store, plan, f"{role}:{header_field(found, 'status')}")
         else:
             write(f'{role}_response: missing\n')
             rc = 4
         if status == 'blocked':
             rc = 3
     if woke:
-        event(store, 'master', 'wake', plan, ','.join(woke))
+        wake(ctx, store, plan, ','.join(woke))
     return rc
 
 
@@ -180,7 +179,7 @@ def new_consult(ctx, args):
     """Consults on a unit are capped at three; a fourth means the design is wrong and belongs in a plan round. A glance, the short diff read at a
     check-in, sits outside that cap, one per unit."""
     if len(args) < 2:
-        raise Die(f'usage: {prog()} new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]')
+        raise Die(f'usage: {ctx.prog} new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]')
     store, seq = args[0], args[1]
     opts = argv.read(args[2:], argv.Spec(valued=('--kind',), flags=('--force',)))
     kind, force = opts.last('--kind', ''), opts.present('--force')
@@ -222,7 +221,7 @@ def consult(ctx, args):
     consultant reads committed work at that head, or a scratch snapshot, never a tree that moves under it."""
     require_herdr()
     if len(args) < 2:
-        raise Die(f'usage: {prog()} consult <store> <consult-path> [--timeout MS]')
+        raise Die(f'usage: {ctx.prog} consult <store> <consult-path> [--timeout MS]')
     store, path = args[0], os.path.realpath(args[1])
     opts = argv.read(args[2:], TIMEOUT_ONLY)
     timeout = timeout_ms(opts, 900000)
@@ -274,7 +273,7 @@ def consult(ctx, args):
     if os.path.isfile(advice):
         print(f'advice: {advice}')
         print(f"advice_status: {header_field(advice, 'status')}")
-        event(store, 'master', 'wake', advice, f"advice:{header_field(advice, 'status')}")
+        wake(ctx, store, advice, f"advice:{header_field(advice, 'status')}")
         if status == 'blocked':
             return 3
         return 0
@@ -287,7 +286,7 @@ def consult(ctx, args):
 
 def advice(ctx, args):
     if not args:
-        raise Die(f'usage: {prog()} advice <store> [NNN]')
+        raise Die(f'usage: {ctx.prog} advice <store> [NNN]')
     found = latest(args[0], 'advice', args[1] if len(args) > 1 else None)
     if not found:
         raise Die('no advice found', 4)

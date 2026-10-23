@@ -5,7 +5,7 @@ import zlib
 from pathlib import Path
 
 from pstack_core import consult
-from pstack_core.store import dispatched_brief, expected_report, header_field, prog, read, read_text, risk_of
+from pstack_core.store import dispatched_brief, expected_report, header_field, read, read_text, risk_of
 from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.variant import ReportReadiness, commit_of, load_skill_variant
 
@@ -32,12 +32,12 @@ def load_kitchen_core():
 
 
 
-def verify_block(brief):
+def verify_block(ctx, brief):
     """The lines of the brief's Verify section, each ending in a newline."""
     try:
         records = read_text(brief).split('\n')
     except OSError as e:
-        sys.stderr.write(f'{prog()}: cannot read {brief}: {os.strerror(e.errno)}\n')
+        sys.stderr.write(f'{ctx.prog}: cannot read {brief}: {os.strerror(e.errno)}\n')
         return ''
     if records[-1] == '':
         records.pop()
@@ -52,12 +52,12 @@ def verify_block(brief):
     return ''.join(out)
 
 
-def verify_job(store, brief, head):
+def verify_job(ctx, store, brief, head):
     """Where finish keeps the run of the brief's Verify block at commit head: one per head and block, so an amended block runs again. The block's
     key is its crc32; a job directory under the old POSIX cksum key is never read, so the first finish after the switch runs a fresh Verify."""
     unit = os.path.basename(brief)
     unit = unit[:-3] if unit.endswith('.md') and unit != '.md' else unit
-    key = zlib.crc32(verify_block(brief).encode('utf-8'))
+    key = zlib.crc32(verify_block(ctx, brief).encode('utf-8'))
     return f'{store}/steps/jobs/{unit}-verify-{head[:12]}-{key}'
 
 
@@ -201,7 +201,7 @@ class KitchenVariant(TrioVariant):
         if head is None:
             return ReportReadiness(False, '', 'its head: is not a commit')
         try:
-            rc = read_text(f'{verify_job(store, brief, head)}/rc').rstrip('\n')
+            rc = read_text(f'{verify_job(ctx, store, brief, head)}/rc').rstrip('\n')
         except OSError:
             rc = ''
         if rc == '0':

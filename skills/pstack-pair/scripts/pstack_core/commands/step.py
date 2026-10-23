@@ -6,7 +6,8 @@ import time
 
 from .. import git
 from ..argv import Spec, read
-from ..store import Die, prog, event, load, pair_file, text_at, pause_notice, paused_reason, progress_path, steer_notice, unit_name
+from ..store import event, load, pair_file, text_at, pause_notice, paused_reason, progress_path, steer_notice, unit_name
+from ..errors import Die
 from ..replies import dispatched
 from ..steplog import StepLog
 
@@ -15,7 +16,7 @@ def step(ctx, args, now=None):
     """The sidekick records a committed step and goes straight on; the master's wait picks it up for review. --resolves names the
     notes the step fixes."""
     if len(args) < 3:
-        raise Die(f'usage: {prog()} step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
+        raise Die(f'usage: {ctx.prog} step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha, summary = args[:3]
     resolves = read(args[3:], Spec(valued=('--resolves',))).last('--resolves', '')
     if not re.fullmatch(r'((?:[0-9]{3}-)?n[0-9]+(,(?:[0-9]{3}-)?n[0-9]+)*)?', resolves):
@@ -44,7 +45,7 @@ def step(ctx, args, now=None):
     if log.add_resolves(full, resolves):
         # this unit already recorded this commit: it only gains the notes it now resolves, and nothing else is written
         sys.stdout.write(f'step {full[:9]}: already recorded\n')
-        sys.stdout.write(steer_notice(store))
+        sys.stdout.write(steer_notice(ctx, store))
         return 0
     k = log.next_number()
     stamp = time.time() if now is None else now
@@ -57,5 +58,5 @@ def step(ctx, args, now=None):
         sys.stdout.write(pause_notice(store))
     else:
         sys.stdout.write(f'step {k} recorded at {full[:9]}; go on with the next step. At the next step boundary: pair.sh notes {store}\n')
-    sys.stdout.write(steer_notice(store))
+    sys.stdout.write(steer_notice(ctx, store))
     return 0

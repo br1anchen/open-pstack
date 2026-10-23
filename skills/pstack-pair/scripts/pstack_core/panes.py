@@ -7,7 +7,8 @@ import subprocess
 import sys
 import time
 
-from .store import Die, TEXT, env_int, load, peek, text_at
+from .store import TEXT, env_int, load, peek, text_at
+from .errors import NoPaneId, NotInHerdr, PaneSizeUnreadable, TrustPrompt
 
 
 TRUST_RE = re.compile('trust this folder|project you created or one you trust|do you trust the (files|contents)', re.IGNORECASE)
@@ -25,7 +26,7 @@ def run_herdr(args, stdout=PIPE, stderr=PIPE):
 def require_herdr(what=None):
     """Ends with the caller's message (the default says the command must run inside Herdr) when HERDR_ENV is not 1."""
     if os.environ.get('HERDR_ENV') != '1':
-        raise Die(what or 'not running inside Herdr (HERDR_ENV != 1)')
+        raise NotInHerdr(what)
 
 
 def herdr_json(*args):
@@ -75,7 +76,7 @@ def pick_direction(pane):
             rect = each.get('rect') if isinstance(each.get('rect'), dict) else {}
             width, height = rect.get('width'), rect.get('height')
             if not all(isinstance(n, int) and not isinstance(n, bool) for n in (width, height)):
-                raise Die(f'pane {pane} has a size that is not a number: {width} x {height}')
+                raise PaneSizeUnreadable(f'pane {pane} has a size that is not a number: {width} x {height}')
             return 'right' if width >= 2 * height else 'down'
     return 'right'
 
@@ -91,14 +92,14 @@ def new_pane(store, role, anchor, direction, cwd, env=()):
         made = herdr_json('tab', 'create', '--workspace', master.split(':', 1)[0], '--cwd', cwd, '--label', f'{slug}-{role}', '--no-focus', *env_args)
         pane = dig(made, 'result', 'root_pane', 'pane_id')
         if not pane or not isinstance(pane, str):
-            raise Die('tab create returned no pane id', 2)
+            raise NoPaneId('tab create returned no pane id')
         print(f'tab {slug}-{role} -> {pane}')
         return pane
     direction = direction or pick_direction(anchor)
     made = herdr_json('pane', 'split', '--pane', anchor, '--direction', direction, '--cwd', cwd, '--no-focus', *env_args)
     pane = dig(made, 'result', 'pane', 'pane_id')
     if not pane or not isinstance(pane, str):
-        raise Die('pane split returned no pane id', 2)
+        raise NoPaneId('pane split returned no pane id')
     print(f'split {anchor} {direction} -> {pane}')
     return pane
 
@@ -114,8 +115,8 @@ def refuse_untrusted(pane, kind, directory, close=False):
     # A pane split for this start holds nothing else; a retry opens its own.
     if close:
         herdr('pane', 'close', pane)
-    raise Die(f'{kind} asks whether to trust {directory}, and that decision is yours: open {kind} there once and trust the folder (or pick another '
-              'kind), then rerun the spawn', 5)
+    raise TrustPrompt(f'{kind} asks whether to trust {directory}, and that decision is yours: open {kind} there once and trust the folder (or pick another '
+                      'kind), then rerun the spawn')
 
 
 def await_file(path, timeout_ms):

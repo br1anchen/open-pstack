@@ -4,6 +4,8 @@ import os
 import re
 import time
 
+from .errors import BadNumber, BadSlug, DamagedStore, LockHeld, MissingStore
+
 
 # What subprocess.run takes to give str output: UTF-8, a byte that is not UTF-8 shown as U+FFFD.
 TEXT = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'}
@@ -34,16 +36,12 @@ def last_line(path, block=4096):
     return lines[-1] if lines[-1] else (lines[-2] if len(lines) > 1 else '')
 
 
-# Whether a master wake row identical to the last row is written once: the variant's event_dedupe, set by cli.main (the kitchen's).
-dedupe_wakes = False
-
-
-def event(store, actor, name, unit, detail=''):
+def event(store, actor, name, unit, detail='', dedupe=False):
     """One events.tsv row. Never fails the command it records.
 
     The file has no header: a store's first row is data.
 
-    With dedupe_wakes a master wake row identical to the last row in epoch, actor,
+    With dedupe a master wake row identical to the last row in epoch, actor,
     event, unit and detail is not written twice."""
     log = f'{store}/events.tsv'
     unit = os.path.basename(unit or '-')
@@ -53,7 +51,7 @@ def event(store, actor, name, unit, detail=''):
     epoch = int(now)
     row = f'{epoch}\t{actor}\t{name}\t{unit}\t{detail}'
     try:
-        if dedupe_wakes and actor == 'master' and name == 'wake':
+        if dedupe and actor == 'master' and name == 'wake':
             try:
                 if last_line(log).split('\t', 1)[-1] == row:
                     return
@@ -65,6 +63,11 @@ def event(store, actor, name, unit, detail=''):
             f.write(text)
     except OSError:
         pass
+
+
+def wake(ctx, store, unit, detail):
+    """The row for a master wake, written once when the variant dedupes them (the kitchen's event_dedupe)."""
+    event(store, 'master', 'wake', unit, detail, dedupe=ctx.event_dedupe)
 
 
 def header_field(path, key):
@@ -103,27 +106,22 @@ def risk_of(brief):
     return words[0] if words else ''
 
 
-def missing_pair(store):
-    """The line a command prints for a store with no pair.json."""
-    return f'{prog()}: no pair.json in {store}; run: pair.sh init <slug>\n'
-
-
 def pair_file(store):
     path = f'{store}/pair.json'
     if not os.path.isfile(path):
-        raise Die(f'no pair.json in {store}; run: pair.sh init <slug>')
+        raise MissingStore(store)
     return path
 
 
 def load(store):
     """pair.json, the read side of every field. Writes go through update() in this module, under the .pair.lock.
-    A file that does not parse, or is not an object, is one message: pair.json is damaged (plan 043 decision b)."""
+    A file that does not parse, or is not an object, is one message: pair.json is DamagedStore (plan 043 decision b)."""
     try:
         doc = json.loads(read_text(pair_file(store)))
     except ValueError as e:
-        raise Die(f'pair.json is damaged: {e}', 1)
+        raise DamagedStore(e) from None
     if not isinstance(doc, dict):
-        raise damaged(f'expected an object, found {json_type(doc)}')
+        raise DamagedStore(f'expected an object, found {json_type(doc)}')
     return doc
 
 
@@ -145,18 +143,13 @@ def who(role, name):
     return f'{role} {name}' if name else role
 
 
-def damaged(what):
-    """The one error for a pair.json value of a type the code cannot read (plan 043 decision b)."""
-    return Die(f'pair.json is damaged: {what}', 1)
-
-
 def peek(doc, key):
     """The object at doc[key], {} when it is null or absent and left out of doc; any other type is damage."""
     value = doc.get(key)
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise damaged(f'{key} is {json_type(value)}, not an object')
+        raise DamagedStore(f'{key} is {json_type(value)}, not an object')
     return value
 
 
@@ -165,7 +158,7 @@ def names(doc, key):
     items = listing(doc, key)
     for item in items:
         if not isinstance(item, str):
-            raise damaged(f'{key} holds {json_type(item)}, not a string')
+            raise DamagedStore(f'{key} holds {json_type(item)}, not a string')
     return items
 
 
@@ -175,7 +168,7 @@ def count(doc, key):
     if value is None or value is False:
         return 0
     if isinstance(value, bool) or not isinstance(value, int):
-        raise damaged(f'{key} is {json_type(value)}, not an integer')
+        raise DamagedStore(f'{key} is {json_type(value)}, not an integer')
     return value
 
 
@@ -185,7 +178,7 @@ def member(doc, key):
     if value is None:
         value = doc[key] = {}
     if not isinstance(value, dict):
-        raise damaged(f'{key} is {json_type(value)}, not an object')
+        raise DamagedStore(f'{key} is {json_type(value)}, not an object')
     return value
 
 
@@ -195,7 +188,7 @@ def listing(doc, key):
     if value is None or value is False:
         return []
     if not isinstance(value, list):
-        raise damaged(f'{key} is {json_type(value)}, not an array')
+        raise DamagedStore(f'{key} is {json_type(value)}, not an array')
     return value
 
 
@@ -207,7 +200,7 @@ def text_at(doc, key, default=''):
     if isinstance(value, str):
         return value
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise damaged(f'{key} is {json_type(value)}, not a string')
+        raise DamagedStore(f'{key} is {json_type(value)}, not a string')
     return str(value)
 
 
@@ -230,12 +223,12 @@ def walk(store, path):
         if value is None:
             return {}, last
         if not isinstance(value, dict):
-            raise damaged(f'{held} is {json_type(value)}, not an object')
+            raise DamagedStore(f'{held} is {json_type(value)}, not an object')
         value, held = value.get(key), key
     if value is None:
         return {}, last
     if not isinstance(value, dict):
-        raise damaged(f'{held} is {json_type(value)}, not an object')
+        raise DamagedStore(f'{held} is {json_type(value)}, not an object')
     return value, last
 
 
@@ -250,7 +243,7 @@ def read_int(store, path):
     holder, key = walk(store, path)
     value = holder.get(key)
     if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
-        raise damaged(f'{path} is {json_type(value)}, not a whole number')
+        raise DamagedStore(f'{path} is {json_type(value)}, not a whole number')
     return value
 
 
@@ -284,7 +277,7 @@ def exit_code(returncode):
 def whole_number(text, flag, unit):
     """A CLI number: ASCII digits only, so a sign, a fraction or an expression is a usage error."""
     if not (text.isascii() and text.isdigit()):
-        raise Die(f'{flag} must be a whole number of {unit}', 1)
+        raise BadNumber(f'{flag} must be a whole number of {unit}')
     return int(text)
 
 
@@ -298,7 +291,7 @@ def env_int(name, default):
     """${NAME:-default} as a whole number; anything else is a usage error."""
     text = os.environ.get(name) or str(default)
     if not (text.isascii() and text.isdigit()):
-        raise Die(f'{name} must be a whole number', 1)
+        raise BadNumber(f'{name} must be a whole number')
     return int(text)
 
 
@@ -306,7 +299,7 @@ def env_float(name, default):
     """${NAME:-default} as a number of seconds, fractions allowed; anything else is a usage error."""
     text = os.environ.get(name) or str(default)
     if not re.fullmatch(r'[0-9]+(\.[0-9]*)?|\.[0-9]+', text):
-        raise Die(f'{name} must be a number', 1)
+        raise BadNumber(f'{name} must be a number')
     return float(text)
 
 
@@ -393,7 +386,7 @@ def open_steers(store):
     return found
 
 
-def note_notice(store):
+def note_notice(ctx, store):
     """The blocking notes parked for a Devin sidekick (.notice_notes), once: each is printed and taken off the list."""
     parked = [f for f in names(load(store), 'notice_notes') if os.path.isfile(f)]
     if not parked:
@@ -401,11 +394,11 @@ def note_notice(store):
     update(store, lambda doc: doc.pop('notice_notes', None))
     return ''.join(
         f'NOTE: read {f} now, before your next tool call. Fix each blocking item first, as a fixup commit recorded with '
-        f'{prog()} step {store} <sha> <summary> --resolves <n-ids>.\n' for f in parked)
+        f'{ctx.prog} step {store} <sha> <summary> --resolves <n-ids>.\n' for f in parked)
 
 
-def steer_notice(store):
-    return note_notice(store) + ''.join(
+def steer_notice(ctx, store):
+    return note_notice(ctx, store) + ''.join(
         f'STEER: read {f} now, before your next tool call. Agree: apply it and run pair.sh progress {store} '
         f'"steer s{steer_number(f)} applied: <what changed>". Object: write the steer response and run pair.sh finish on it.\n'
         for f in open_steers(store))
@@ -423,7 +416,7 @@ def fill_template(path, values, braced=True):
 def new_from_template(ctx, store, slug, directory, template):
     pair_file(store)
     if not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', slug):
-        raise Die(f'{directory.removesuffix("s")} slug must be lowercase [a-z0-9_-]')
+        raise BadSlug(f'{directory.removesuffix("s")} slug must be lowercase [a-z0-9_-]')
     seq = next_seq(store)
     path = f'{store}/{directory}/{seq}-{slug}.md'
     write_text(path, fill_template(f'{ctx.skill_root}/references/{template}', {'SEQ': seq, 'SLUG': slug, 'STORE': store}))
@@ -449,7 +442,7 @@ def acquire_lock(store):
         except OSError:
             i += 1
             if i >= tries:
-                raise Die(f'pair.json lock held for 10s; remove {store}/.pair.lock if no pair.sh is running')
+                raise LockHeld(store)
             time.sleep(poll)
 
 
@@ -475,38 +468,13 @@ def update(store, mutate):
             pass
 
 
-PROG = 'pair.sh'
-
-
-def prog():
-    """The name of the script that runs: pair.sh, or the variant's own (kitchen.sh); cli.main sets it."""
-    return PROG
-
-
-class Die(Exception):
-    """End the command with a message: the first part is the message and the second the exit code (1 when absent)."""
-
-    def __init__(self, *parts):
-        self.message = str(parts[0])
-        self.code = int(parts[1]) if len(parts) >= 2 else 1
-        super().__init__(self.message)
-
-
-class Exit(Exception):
-    """End the command with a code after the given text on stderr, printed as it is and without pair.sh's prefix."""
-
-    def __init__(self, code, stderr=''):
-        self.code = code
-        self.stderr = stderr
-        super().__init__(stderr)
-
-
 class Context:
-    """What a variant's class attributes configure: skill, state root, labels, roles, store directories, slug limit and unfilled pattern."""
+    """What a variant's class attributes configure: skill, state root, labels, roles, store directories, slug limit, unfilled pattern, the name
+    its messages carry (pair.sh, kitchen.sh) and whether it writes a repeated master wake once."""
 
-    __slots__ = ('skill', 'skill_root', 'state_root', 'store_label', 'roles', 'store_dirs', 'slug_max', 'unfilled_re', '_variant')
+    __slots__ = ('skill', 'skill_root', 'state_root', 'store_label', 'roles', 'store_dirs', 'slug_max', 'unfilled_re', 'prog', 'event_dedupe', '_variant')
 
-    def __init__(self, skill, skill_root, state_root, store_label, roles, store_dirs, slug_max, unfilled_re):
+    def __init__(self, skill, skill_root, state_root, store_label, roles, store_dirs, slug_max, unfilled_re, prog='pair.sh', event_dedupe=False):
         self.skill = skill
         self.skill_root = skill_root
         self.state_root = state_root
@@ -515,6 +483,8 @@ class Context:
         self.store_dirs = store_dirs
         self.slug_max = slug_max
         self.unfilled_re = unfilled_re
+        self.prog = prog
+        self.event_dedupe = event_dedupe
         self._variant = None
 
     @property

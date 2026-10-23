@@ -29,7 +29,10 @@ sys.dont_write_bytecode = True
 import run as run_module  # noqa: E402
 from pstack_core import agents, argv, cli, exits, git, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
-from pstack_core.store import Die, Exit  # noqa: E402
+from pstack_core.errors import (  # noqa: E402
+    BadNumber, DamagedStore, Die, EmptyStepLog, Exit, FileFailed, LockHeld, MissingStore, NoBrief, NotInHerdr, PairError, PairJsonGone, Paused, PlanNotAgreed,
+    StepLogUnreadable, ToolFailed, Unfilled, refuse_as, translate,
+)
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
 
 sys.path.insert(0, str(root / 'tests'))
@@ -71,10 +74,9 @@ def mask(text):
 def event_log(*calls, dedupe='1'):
     """The rows (without their stamp) that store.event writes for (epoch, 'actor event unit detail') calls made at those epoch seconds."""
     with tempfile.TemporaryDirectory() as directory:
-        with mock.patch.object(store, 'dedupe_wakes', dedupe == '1'):
-            for epoch, args in calls:
-                with mock.patch('time.time', return_value=float(epoch)):
-                    store.event(directory, *args.split(' ', 3))
+        for epoch, args in calls:
+            with mock.patch('time.time', return_value=float(epoch)):
+                store.event(directory, *args.split(' ', 3), dedupe=dedupe == '1')
         return [row.split('\t', 1)[1] for row in (Path(directory) / 'events.tsv').read_text().splitlines()]
 
 
@@ -160,10 +162,10 @@ class CoreTests(unittest.TestCase):
     def test_event_dedupes_a_repeated_master_wake_in_one_second(self):
         b = self.path / 'b'
         b.mkdir()
-        with mock.patch.object(store, 'dedupe_wakes', True), mock.patch('time.time', return_value=1000.0):
+        with mock.patch('time.time', return_value=1000.0):
             for _ in range(2):
-                store.event(str(b), 'master', 'wake', '001', 'r')
-            store.event(str(b), 'master', 'log', '-', 'r')
+                store.event(str(b), 'master', 'wake', '001', 'r', dedupe=True)
+            store.event(str(b), 'master', 'log', '-', 'r', dedupe=True)
         self.assertEqual(mask((b / 'events.tsv').read_text()), ['master\twake\t001\tr', 'master\tlog\t-\tr'])
 
     def test_header_field_is_the_first_matching_lines_value_without_its_leading_blanks(self):
@@ -643,18 +645,17 @@ class CoreTests(unittest.TestCase):
     def test_procinfo_reads_the_full_command_line_the_parent_the_user_and_the_seconds_running(self):
         long_args = ['/opt/a-long-agent-name/bin/agent', '--ask-for-approval', 'never', '--note', 'two words']
         top = self.tree({7: dict(ppid=3, comm='agent (x) y', argv=long_args, uid=1234, elapsed=321)})
-        proc = procinfo.read(7)
+        proc = procinfo.read(7, str(top))
         self.assertEqual(proc, procinfo.Proc(7, 3, 1234, 'agent (x) y', tuple(long_args), 321))
         self.assertEqual(proc.args, '/opt/a-long-agent-name/bin/agent --ask-for-approval never --note two words')
-        self.assertEqual(procinfo.read(8), None)
-        self.assertEqual(procinfo.read(7, str(top)), proc)
+        self.assertEqual(procinfo.read(8, str(top)), None)
 
     def test_procinfo_leaves_out_a_process_that_vanishes_while_it_is_read(self):
-        self.tree({1: dict(ppid=0, comm='init', argv=['init'], uid=0), 2: dict(ppid=1, comm='mine', argv=['mine'])}, **{'3': ['stat', 'comm']})
-        self.assertEqual(procinfo.read(3), None)
-        self.assertEqual([p.pid for p in procinfo.of_user(os.getuid())], [2])
-        self.assertEqual(procinfo.environ(3), None)
-        self.assertEqual(procinfo.environ(2), [''])
+        top = str(self.tree({1: dict(ppid=0, comm='init', argv=['init'], uid=0), 2: dict(ppid=1, comm='mine', argv=['mine'])}, **{'3': ['stat', 'comm']}))
+        self.assertEqual(procinfo.read(3, top), None)
+        self.assertEqual([p.pid for p in procinfo.of_user(os.getuid(), top)], [2])
+        self.assertEqual(procinfo.environ(3, top), None)
+        self.assertEqual(procinfo.environ(2, top), [''])
 
     def test_a_check_in_names_the_longest_running_command_in_the_pane_of_this_user_started_since_the_dispatch(self):
         from pstack_core import checkin
@@ -676,18 +677,20 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(checkin.busy_command('p3', 0, 2200, env), '')
 
     def test_the_approval_mode_comes_from_the_whole_command_line_not_the_name_ps_would_cut(self):
+        home, cwd = str(self.path / 'home'), str(self.path / 'cwd')
         top = self.tree({100: dict(ppid=101, comm='bash', argv=['bash']),
                          101: dict(ppid=1, comm='codex', argv=['/opt/some-long-directory/codex', '--ask-for-approval', 'never'])})
-        self.assertEqual(permission.detect(100, str(self.path / 'cwd'), str(self.path / 'home'), ''), 'dontAsk')
-        self.assertEqual(permission.detect(5, str(self.path / 'cwd'), str(self.path / 'home'), ''), 'auto')
-        self.tree({100: dict(ppid=101, comm='bash', argv=['bash']),
-                   101: dict(ppid=1, comm='node', argv=['/usr/local/lib/node_modules/@openai/codex-linux-x64-with-a-long-name/bin/codex-agent',
-                                                         '--ask-for-approval=never'])})
-        self.assertEqual(procinfo.read(101).comm, 'node')
-        self.assertEqual(permission.detect(100, str(self.path / 'cwd'), str(self.path / 'home'), ''), 'dontAsk')
-        self.tree({100: dict(ppid=1, comm='a-very-long-executable-name', argv=['/x/a-very-long-executable-name', '--ask-for-approval=never'])})
-        self.assertEqual(procinfo.read(100).comm, 'a-very-long-exe')
-        self.assertEqual(procinfo.read(100).argv[0], '/x/a-very-long-executable-name')
+        read_proc = lambda pid: procinfo.read(pid, str(top))
+        self.assertEqual(permission.detect(100, cwd, home, '', read_proc), 'dontAsk')
+        self.assertEqual(permission.detect(5, cwd, home, '', read_proc), 'auto')
+        top = self.tree({100: dict(ppid=101, comm='bash', argv=['bash']),
+                         101: dict(ppid=1, comm='node', argv=['/usr/local/lib/node_modules/@openai/codex-linux-x64-with-a-long-name/bin/codex-agent',
+                                                               '--ask-for-approval=never'])})
+        self.assertEqual(procinfo.read(101, str(top)).comm, 'node')
+        self.assertEqual(permission.detect(100, cwd, home, '', read_proc), 'dontAsk')
+        top = self.tree({100: dict(ppid=1, comm='a-very-long-executable-name', argv=['/x/a-very-long-executable-name', '--ask-for-approval=never'])})
+        self.assertEqual(procinfo.read(100, str(top)).comm, 'a-very-long-exe')
+        self.assertEqual(procinfo.read(100, str(top)).argv[0], '/x/a-very-long-executable-name')
 
     def test_detect_reads_the_agent_above_the_shell_and_stops_after_twelve_hops(self):
         shell = (101, 'bash', 'bash')
@@ -1314,7 +1317,7 @@ class CoreTests(unittest.TestCase):
                'a pair after a backtick span': 'see `a` then {{z}}\n'}
         for label, text in bad.items():
             f.write_text(text)
-            with self.assertRaises(Die, msg=label):
+            with self.assertRaises(Unfilled, msg=label):
                 review.require_filled(ctx, str(f))
 
     def test_a_steer_whose_scope_effect_is_not_one_of_the_three_is_refused_before_any_herdr_call(self):
@@ -1439,7 +1442,7 @@ class CoreTests(unittest.TestCase):
             self.assertIsNone(review.require_filled(ctx, str(f)), label)
         for label, text in bad.items():
             f.write_text(text)
-            with self.assertRaises(Die, msg=label):
+            with self.assertRaises(Unfilled, msg=label):
                 review.require_filled(ctx, str(f))
 
     def test_the_guided_unfilled_re_reads_prose_only(self):
@@ -1449,7 +1452,7 @@ class CoreTests(unittest.TestCase):
         f.write_text(f'# R\n\nstatus: agree\n\n{fence3}\nstatus: agree | object\n{fence3}\n')
         self.assertIsNone(review.require_filled(ctx, str(f)))
         f.write_text('# R\n\nstatus: agree | object\n')
-        with self.assertRaises(Die):
+        with self.assertRaises(Unfilled):
             review.require_filled(ctx, str(f))
 
     def test_steering_a_settled_sidekick_after_a_done_unit_advises_covers_only_in_the_kitchen_and_reads_the_units_own_report(self):
@@ -1548,10 +1551,10 @@ class CoreTests(unittest.TestCase):
 
             def claim(store, token):
                 if fail_claim:
-                    raise Die('pair.json lock held for 10s; remove x if no pair.sh is running')
+                    raise LockHeld('x')
 
             def release(store, token):
-                raise Die('pair.json lock held for 10s; remove x if no pair.sh is running')
+                raise LockHeld('x')
 
             def reply(ctx_, store, name, timeout, now=None, token=None):
                 tokens.append(token)
@@ -1572,6 +1575,19 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(text.count('could not claim wait.pid'), 1 if fail_claim else 0, text)
             self.assertEqual(text.count('could not release wait.pid'), 1 if fail_release and not fail_claim else 0, text)
             self.assertEqual(tokens, [None] if fail_claim else [str(os.getpid())])
+
+    def test_a_store_with_no_pair_json_gets_its_line_once_from_dispatch_and_from_finish(self):
+        top, st, run = self.own_world('onceline', files={})
+        line = f'pair.sh: no pair.json in {st}/nope; run: pair.sh init <slug>\n'
+        brief = top / 'outside.md'
+        brief.write_text('# Brief 001: x\n\nplaybook: docs\nplan: none\n\n## Scope\n\nmay write:\n- src/**\n')
+        r = run('dispatch', '{st}/nope', str(brief), '--timeout', '0')
+        self.assertEqual((r.returncode, r.stdout), (2, ''))
+        self.assertEqual(r.stderr, 'warning: Scope entry "src/**" matches no file or directory in ; is it relative to a neighbouring entry?\n' + line)
+        report = top / 'done.md'
+        report.write_text('# R\n\nstatus: done\nhead: abc\n')
+        r = run('finish', '{st}/nope', str(report))
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', line))
 
     def test_wait_release_checks_its_store(self):
         top, st, run = self.own_world('rl')
@@ -2149,24 +2165,23 @@ class CoreTests(unittest.TestCase):
         target = self.path / 'moved.md'
         feedback.move_into_place(made, str(target))
         self.assertEqual((os.path.exists(made), target.exists()), (False, True))
-        with self.assertRaises(Exit) as caught:
+        with self.assertRaises(FileFailed) as caught:
             feedback.move_into_place(made, str(target))
-        self.assertEqual((caught.exception.code, caught.exception.stderr),
-                         (1, f'pair.sh: cannot move {made} to {target}: No such file or directory\n'))
+        self.assertEqual(translate(caught.exception, 'pair.sh'), (f'pair.sh: cannot move {made} to {target}: No such file or directory\n', 1))
         self.assertEqual(feedback.aligned([['a', 'bb', 'c'], ['ddd', 'e']]), ['a    bb  c', 'ddd  e'])
 
     def test_init_and_stop_name_the_path_they_could_not_create_or_remove_in_their_own_words(self):
         from pstack_core.commands import init as init_command, stop as stop_command
         plain = self.path / 'a-file'
         plain.write_text('x')
-        with self.assertRaises(Exit) as made:
+        with self.assertRaises(FileFailed) as made:
             init_command.make_dir(str(plain / 'sub'))
-        self.assertEqual((made.exception.code, made.exception.stderr), (1, f'pair.sh: cannot create {plain}/sub: Not a directory\n'))
+        self.assertEqual(translate(made.exception, 'pair.sh'), (f'pair.sh: cannot create {plain}/sub: Not a directory\n', 1))
         store = self.path / 'stop-store'
         (store / 'queue').mkdir(parents=True)
-        with self.assertRaises(Exit) as stuck:
+        with self.assertRaises(FileFailed) as stuck:
             stop_command.clear_queue(str(store))
-        self.assertEqual((stuck.exception.code, stuck.exception.stderr), (1, f'pair.sh: cannot remove {store}/queue: Is a directory\n'))
+        self.assertEqual(translate(stuck.exception, 'pair.sh'), (f'pair.sh: cannot remove {store}/queue: Is a directory\n', 1))
         (store / 'queue').rmdir()
         skills = self.path / 'skill-root'
         (skills / 'references').mkdir(parents=True)
@@ -2174,19 +2189,19 @@ class CoreTests(unittest.TestCase):
         orders.mkdir()
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            init_command.install_standing_orders(str(skills), str(orders))
+            init_command.install_standing_orders(Context('pstack-pair', str(skills), '/s', 'Pair', (), (), 21, ''), str(orders))
         source = f'{skills}/references/standing-orders-template.md'
         self.assertEqual(err.getvalue(), f'pair.sh: cannot copy {source} to {orders}: No such file or directory\n')
         (skills / 'references/standing-orders-template.md').write_text('t\n')
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            init_command.install_standing_orders(str(skills), str(orders))
+            init_command.install_standing_orders(Context('pstack-pair', str(skills), '/s', 'Pair', (), (), 21, ''), str(orders))
         self.assertEqual(err.getvalue(), f'pair.sh: cannot copy {source} to {orders}: Is a directory\n')
         orders.rmdir()
-        init_command.install_standing_orders(str(skills), str(orders))
+        init_command.install_standing_orders(Context('pstack-pair', str(skills), '/s', 'Pair', (), (), 21, ''), str(orders))
         self.assertEqual((orders.read_text(), os.stat(orders).st_mode & 0o200), ('t\n', 0o200))
         (store / 'queue').write_text('x')
-        with self.assertRaises(Exit):
+        with self.assertRaises(PairJsonGone):
             stop_command.clear_queue(str(store))
         self.assertFalse((store / 'queue').exists())
 
@@ -2206,12 +2221,13 @@ class CoreTests(unittest.TestCase):
         step.remove_path(str(job / 'rc'))
         step.remove_path(str(job / 'absent'))
         self.assertEqual(sorted(os.listdir(job)), [])
-        step.point_at(str(job / 'out'), 'out.1')
-        step.point_at(str(job / 'out'), 'out.2')
+        bare = Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, '')
+        step.point_at(bare, str(job / 'out'), 'out.1')
+        step.point_at(bare, str(job / 'out'), 'out.2')
         self.assertEqual((os.readlink(job / 'out'), sorted(os.listdir(job))), ('out.2', ['out']))
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            step.point_at(str(job / 'missing' / 'out'), 'out.3')
+            step.point_at(bare, str(job / 'missing' / 'out'), 'out.3')
         self.assertEqual(err.getvalue(), f'pair.sh: cannot point {job}/missing/out at out.3: No such file or directory\n')
         self.assertEqual(sorted(os.listdir(job)), ['out'])
 
@@ -2223,7 +2239,7 @@ class CoreTests(unittest.TestCase):
             sys.path.pop(0)
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            block = kitchen_variant.verify_block(str(self.path / 'no-brief.md'))
+            block = kitchen_variant.verify_block(Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, ''), str(self.path / 'no-brief.md'))
         self.assertEqual((block, err.getvalue()), ('', f'pair.sh: cannot read {self.path}/no-brief.md: No such file or directory\n'))
 
     def test_the_feedback_lock_is_a_directory_waited_on_taken_over_when_stale_and_given_up_after_a_hundred_tries(self):
@@ -2741,7 +2757,7 @@ class CoreTests(unittest.TestCase):
         self.assertFalse(lock.exists())
         lock.mkdir()
         with mock.patch.object(store.time, 'sleep', lambda s: None), mock.patch.dict(os.environ, {'PAIR_LOCK_TRIES': '3'}):
-            with self.assertRaises(Die) as caught:
+            with self.assertRaises(LockHeld) as caught:
                 store.update(str(st), lambda doc: doc.update(c=3))
         self.assertIn('pair.json lock held for 10s', caught.exception.message)
 
@@ -2756,7 +2772,7 @@ class CoreTests(unittest.TestCase):
                                       ('names holding a number', lambda doc: store.names(doc, 'l'), 'l holds number, not a string'),
                                       ('count of a string', lambda doc: store.count(doc, 'n'), 'n is string, not an integer'),
                                       ('count of a boolean', lambda doc: store.count({'n': True}, 'n'), 'n is boolean, not an integer')):
-            with self.assertRaises(Die) as caught:
+            with self.assertRaises(DamagedStore) as caught:
                 store.update(str(st), mutate)
             self.assertEqual((caught.exception.code, caught.exception.message), (1, f'pair.json is damaged: {message}'), name)
             self.assertEqual((st / 'pair.json').read_text(), text, name)
@@ -3016,21 +3032,21 @@ class CoreTests(unittest.TestCase):
         for text, want in (('5', 5), ('0', 0), ('010', 10), ('007', 7), ('99999999999999999999', 99999999999999999999)):
             self.assertEqual(store.whole_number(text, '--timeout', 'milliseconds'), want, text)
         for text in ('', '-1', '+1', ' 5', '5 ', '1.5', '1+1', '0x10', '1e3', '\u0665', 'abc', '5_0'):
-            with self.assertRaises(Die) as caught:
+            with self.assertRaises(BadNumber) as caught:
                 store.whole_number(text, '--timeout', 'milliseconds')
             self.assertEqual((caught.exception.code, caught.exception.message), (1, '--timeout must be a whole number of milliseconds'), repr(text))
         for name, text, want in (('N', '3', 3), ('N', '0', 0), ('N', '', 7)):
             with mock.patch.dict(os.environ, {name: text}):
                 self.assertEqual(store.env_int(name, 7), want, text)
         for text in ('abc', '1.5', '-1', ' 5'):
-            with mock.patch.dict(os.environ, {'N': text}), self.assertRaises(Die) as caught:
+            with mock.patch.dict(os.environ, {'N': text}), self.assertRaises(BadNumber) as caught:
                 store.env_int('N', 7)
             self.assertEqual(caught.exception.message, 'N must be a whole number', text)
         for text, want in (('0.25', 0.25), ('2', 2.0), ('.5', 0.5), ('3.', 3.0), ('', 1.5)):
             with mock.patch.dict(os.environ, {'N': text}):
                 self.assertEqual(store.env_float('N', 1.5), want, text)
         for text in ('abc', '-1', '1e3', 'nan', 'inf', '0x1', ' 1'):
-            with mock.patch.dict(os.environ, {'N': text}), self.assertRaises(Die) as caught:
+            with mock.patch.dict(os.environ, {'N': text}), self.assertRaises(BadNumber) as caught:
                 store.env_float('N', 1.5)
             self.assertEqual(caught.exception.message, 'N must be a number', text)
 
@@ -3068,7 +3084,7 @@ class CoreTests(unittest.TestCase):
             f.write_text(text)
             for name, ctx in ctxs.items():
                 if (text, name) in refused:
-                    with self.assertRaises(Die) as caught:
+                    with self.assertRaises(Unfilled) as caught:
                         review.require_filled(ctx, str(f))
                     self.assertEqual((caught.exception.message, caught.exception.code), (f'{f} still has unfilled placeholders', 1), (text, name))
                 else:
@@ -3107,28 +3123,28 @@ class CoreTests(unittest.TestCase):
         target.mkdir()
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            tee = Tee(str(target))
+            tee = Tee(Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, ''), str(target))
         self.assertEqual((err.getvalue(), tee.failed), (f'pair.sh: cannot write {target}: Is a directory\n', True))
         # stop on a store whose pair.json is gone
         from pstack_core.commands import stop as stop_command
         bare = self.path / 'bare'
         bare.mkdir()
-        with self.assertRaises(Exit) as caught:
+        with self.assertRaises(PairJsonGone) as caught:
             stop_command.clear_queue(str(bare))
-        self.assertEqual((caught.exception.code, caught.exception.stderr), (2, f'pair.sh: pair.json is missing from {bare}\n'))
+        self.assertEqual(translate(caught.exception, 'pair.sh'), (f'pair.sh: pair.json is missing from {bare}\n', 2))
         self.assertEqual(sorted(os.listdir(bare)), [])
         # a report that is gone when the wait reads its status
         gone = str(self.path / 'gone.md')
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            self.assertEqual(wait.status_of(gone), '')
+            self.assertEqual(wait.status_of(Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, ''), gone), '')
         self.assertEqual(err.getvalue(), f'pair.sh: cannot read {gone}: No such file or directory\n')
         # a covered last unit whose report is gone
         units = self.kitchen_core_module('units')
         err = io.StringIO()
         with mock.patch.object(units, 'brief_or_nothing', return_value='/b/001-x.md'), mock.patch.object(units, 'dispatch_head', return_value='abc'), \
                 mock.patch.object(units, 'expected_report', return_value=gone), contextlib.redirect_stderr(err), self.assertRaises(Die) as caught:
-            units.unit_range('/st', ['001'], covered=['001'])
+            units.unit_range(Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, ''), '/st', ['001'], covered=['001'])
         self.assertEqual((err.getvalue(), caught.exception.message), (f'pair.sh: cannot read {gone}: No such file or directory\n', "unit 001's report has no head:"))
         # a step row whose first column is not a JSON number
         spec = self.quiet_wait_cases()['steps wake an escalated brief']
@@ -3185,7 +3201,7 @@ class CoreTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {'X_KNOB': ''}):
             self.assertEqual(store.env_int('X_KNOB', 5), 5)
         with mock.patch.dict(os.environ, {'X_KNOB': '1.5'}):
-            with self.assertRaises(Die) as caught:
+            with self.assertRaises(BadNumber) as caught:
                 store.env_int('X_KNOB', 5)
         self.assertEqual((caught.exception.message, caught.exception.code), ('X_KNOB must be a whole number', 1))
 
@@ -3331,7 +3347,7 @@ class CoreTests(unittest.TestCase):
     def test_update_of_a_pair_json_that_does_not_parse_leaves_it_alone_and_frees_the_lock(self):
         st = self.fixture_store()
         (st / 'pair.json').write_text('{"a": ')
-        with self.assertRaises(Die) as caught:
+        with self.assertRaises(DamagedStore) as caught:
             store.update(str(st), lambda doc: None)
         self.assertEqual(caught.exception.message[:24], 'pair.json is damaged: Ex')
         self.assertEqual((st / 'pair.json').read_text(), '{"a": ')
@@ -3342,7 +3358,7 @@ class CoreTests(unittest.TestCase):
         (st / '.pair.lock').mkdir()
         sleeps = []
         with mock.patch.dict(os.environ, {'PAIR_LOCK_TRIES': '3'}), mock.patch.object(store.time, 'sleep', sleeps.append):
-            with self.assertRaises(Die) as cm:
+            with self.assertRaises(LockHeld) as cm:
                 store.update(str(st), lambda doc: doc.update(x=1))
         self.assertEqual((cm.exception.message, cm.exception.code, len(sleeps)),
                          (f'pair.json lock held for 10s; remove {st}/.pair.lock if no pair.sh is running', 1, 2))
@@ -3820,7 +3836,7 @@ class CoreTests(unittest.TestCase):
                 with contextlib.redirect_stderr(buf):
                     try:
                         units.heads_in(str(st), head, names)
-                    except Die as e:
+                    except (Die, PairError) as e:
                         buf.write(f'kitchen.sh: {e.message}\n')
                         status = e.code
                 kinds = [name for line in buf.getvalue().splitlines() for phrase, name in phrases if phrase in line]
@@ -3846,7 +3862,7 @@ class CoreTests(unittest.TestCase):
         for n in ('001', '002', '009', '010', '011'):
             try:
                 found[n] = units.unit_brief(str(st), n).replace(str(st), '<S>')
-            except Die as e:
+            except NoBrief as e:
                 found[n] = f'kitchen.sh: {e.message}'
         self.assertEqual(found, {'001': '<S>/briefs/001-a.md', '002': '<S>/briefs/002-b.md', '009': '<S>/briefs/009-badreport.md',
                                  '010': 'kitchen.sh: no brief for unit 010', '011': 'kitchen.sh: no brief for unit 011'})
@@ -4207,7 +4223,7 @@ class CoreTests(unittest.TestCase):
         given, is the process id verify_state takes for the running command."""
         pre = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nsys.path.insert(0, {str(root / "skills/pstack-kitchen/scripts")!r})\n'
                'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import units, verify, verify_state as vs\nfrom pstack_core.store import Context\n'
-               'from pstack_core.store import Die, Exit\n'
+               'from pstack_core.errors import Die, Exit, PairError\n'
                f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "")\n'
                f'store = {str(store)!r}\n' + (f'import os\nos.getpid = lambda: {pid}\n' if pid else ''))
         r = subprocess.run([sys.executable, '-I', '-c', pre + code], env={k: v for k, v in {**self.env, **self.GIT, 'HOSTNAME': 'testhost', **(env or {})}.items() if v is not None}, capture_output=True,
@@ -4578,7 +4594,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(timing(['--timeout', '0']), (0, 0, False, []))
         for flag, unit in (('--timeout', 'milliseconds'), ('--every', 'minutes')):
             for word in ('-5', 'x', '1.5', '1+1', '', '0x10'):
-                with self.assertRaises(Die) as caught:
+                with self.assertRaises(BadNumber) as caught:
                     timing([flag, word])
                 self.assertEqual((caught.exception.code, caught.exception.message), (1, f'{flag} must be a whole number of {unit}'), (flag, word))
 
@@ -4889,8 +4905,8 @@ class CoreTests(unittest.TestCase):
             st = self.path / f'rsb{n}'
             st.mkdir()
             (st / 'pair.json').write_text(json.dumps(doc, indent=2) + '\n')
-            code = ('import sys\nfrom kitchen_core import setup\nfrom pstack_core.store import Die\ntry:\n    setup.record_skill_build(Ctx, store)\n    code = 0\n'
-                    'except Die as e:\n    sys.stderr.write(e.message)\n    code = e.code\nprint("rc=%d" % code)')
+            code = ('import sys\nfrom kitchen_core import setup\nfrom pstack_core.errors import Die, PairError\ntry:\n    setup.record_skill_build(Ctx, store)\n    code = 0\n'
+                    'except (Die, PairError) as e:\n    sys.stderr.write(e.message)\n    code = e.code\nprint("rc=%d" % code)')
             rc, out, err = self.kitchen_py(st, 'class Ctx:\n    skill_root = "/skills/pstack-kitchen"\n' + code)
             self.assertEqual((rc, out), (0, f'rc={status}\n'), name)
             self.assertIn(said, err, name)
@@ -4942,8 +4958,8 @@ class CoreTests(unittest.TestCase):
         (repo / '.agents').mkdir(parents=True)
         subprocess.run(['git', '-C', str(repo), 'init', '-q'], check=True, capture_output=True, env={**self.env, **self.GIT})
         (st / 'pair.json').write_text(json.dumps({'git_root': str(repo)}) + '\n')
-        code = ('import sys\nfrom pstack_core.store import Die\nfrom kitchen_core import classify\ntry:\n    print("[%s]" % classify.kitchen_snapshot(store))\n    code = 0\n'
-                'except Die as e:\n    sys.stderr.write("pair.sh: %s\\n" % e.message)\n    code = e.code\nprint("rc=%d" % code)')
+        code = ('import sys\nfrom pstack_core.errors import Die, PairError\nfrom kitchen_core import classify\ntry:\n    print("[%s]" % classify.kitchen_snapshot(store))\n    code = 0\n'
+                'except (Die, PairError) as e:\n    sys.stderr.write("pair.sh: %s\\n" % e.message)\n    code = e.code\nprint("rc=%d" % code)')
         (repo / '.agents/kitchen.toml').write_text(self.LAUNCH_TOML)
         prc, got, perr = self.kitchen_py(st, code, cwd=repo)
         self.assertEqual((got, perr), ('[]\nrc=0\n', ''))
@@ -6056,7 +6072,7 @@ class CoreTests(unittest.TestCase):
         from pstack_core import variant as pair_variant
         st = self.claim_store('gen', None, {'sidekick': {'generation': 'x'}})
         before = (st / 'pair.json').read_text()
-        with mock.patch.object(send.subprocess, 'run'), self.assertRaises(Die) as caught:
+        with mock.patch.object(send.subprocess, 'run'), self.assertRaises(DamagedStore) as caught:
             send.record_dispatch(str(st), str(st / 'briefs/001-x.md'), now=0)
         self.assertEqual((caught.exception.code, caught.exception.message), (1, 'pair.json is damaged: generation is string, not an integer'))
         self.assertEqual((st / 'pair.json').read_text(), before)
@@ -6064,7 +6080,7 @@ class CoreTests(unittest.TestCase):
         (shown / 'steps').mkdir()
         (shown / 'steps/001-x.tsv').write_text('1\tabc\t0\t\tdid it\n')
         before = (shown / 'pair.json').read_text()
-        with mock.patch('pstack_core.replies.unreviewed_steps', return_value=[]), self.assertRaises(Die) as caught:
+        with mock.patch('pstack_core.replies.unreviewed_steps', return_value=[]), self.assertRaises(DamagedStore) as caught:
             pair_variant.steps_due_in(None, str(shown), str(shown / 'briefs/001-x.md'))
         self.assertEqual((caught.exception.code, caught.exception.message), (1, 'pair.json is damaged: 001-x is string, not an integer'))
         self.assertEqual((shown / 'pair.json').read_text(), before)
@@ -6088,7 +6104,7 @@ class CoreTests(unittest.TestCase):
 
     def test_the_modules_merged_into_their_callers_homes_are_gone_and_their_commands_still_resolve(self):
         pair, kitchen = root / 'skills/pstack-pair/scripts/pstack_core', root / 'skills/pstack-kitchen/scripts/kitchen_core'
-        gone = [pair / f'{n}.py' for n in ('context', 'errors', 'herdr', 'dispatch')]
+        gone = [pair / f'{n}.py' for n in ('context', 'herdr', 'dispatch')]
         gone += [pair / 'commands' / f'{n}.py' for n in ('log', 'progress', 'pause', 'spawn', 'send', 'templates', 'queue', 'failover')]
         gone += [kitchen / f'{n}.py' for n in ('reviews', 'discuss')]
         self.assertEqual([str(p.relative_to(root)) for p in gone if p.exists()], [])
@@ -6138,10 +6154,11 @@ class CoreTests(unittest.TestCase):
             subprocess.run([sys.executable, '-c', 'import sys; sys.stderr.write("child says\\n")'], check=False)
             sys.stderr.write('after\n')
 
-        self.assertEqual(units.captured(writes_around_a_child, merge_stderr=True), (0, 'before\nchild says\nafter'))
+        ctx = Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, '')
+        self.assertEqual(units.captured(ctx, writes_around_a_child, merge_stderr=True), (0, 'before\nchild says\nafter'))
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            self.assertEqual(units.captured(writes_around_a_child), (0, ''))
+            self.assertEqual(units.captured(ctx, writes_around_a_child), (0, ''))
         self.assertEqual(err.getvalue(), 'before\nafter\n')
 
     def test_closing_a_verification_folds_the_stderr_of_the_scratch_removal_into_the_closed_text(self):
@@ -6150,9 +6167,30 @@ class CoreTests(unittest.TestCase):
         world = self.path / 'world'
         world.mkdir()
         ctx = Context('pstack-kitchen', str(root / 'skills/pstack-kitchen'), str(self.path / 'state'), 'Kitchen', ('sidekick',), (), 21, '')
-        status, text = units.captured(lambda: verify_state.remove_scratch(ctx, str(world), '001-x-verify'), merge_stderr=True)
+        status, text = units.captured(ctx, lambda: verify_state.remove_scratch(ctx, str(world), '001-x-verify'), merge_stderr=True)
         self.assertEqual(status, 0)
         self.assertIn('no pair.json in', text)
+
+    def test_translate_turns_a_failure_into_stderr_text_and_an_exit_code(self):
+        cases = [(Exit(4, 'said\n'), 'pair.sh', ('said\n', 4)), (Exit(2), 'pair.sh', ('', 2)), (Die('refused', 5), 'pair.sh', ('pair.sh: refused\n', 5)),
+                 (Die('refused'), 'kitchen.sh', ('kitchen.sh: refused\n', 1)), (PairError('plain'), 'pair.sh', ('pair.sh: plain\n', 1)),
+                 (DamagedStore('a is string, not an object'), 'kitchen.sh', ('kitchen.sh: pair.json is damaged: a is string, not an object\n', 1)),
+                 (MissingStore('/s'), 'pair.sh', ('pair.sh: no pair.json in /s; run: pair.sh init <slug>\n', 1)),
+                 (Paused('paused'), 'pair.sh', ('pair.sh: paused\n', 5)), (PlanNotAgreed('no plan'), 'pair.sh', ('pair.sh: no plan\n', 6)),
+                 (ToolFailed(7), 'pair.sh', ('', 7)), (ToolFailed(3, 'it said so'), 'pair.sh', ('pair.sh: it said so\n', 3)),
+                 (OSError('disk'), 'pair.sh', ('pair.sh: disk\n', 1)), (ValueError('bad'), 'kitchen.sh', ('kitchen.sh: bad\n', 1))]
+        for exc, prog, want in cases:
+            self.assertEqual(translate(exc, prog), want, repr(exc))
+        with self.assertRaises(KeyError):
+            translate(KeyError('bug'), 'pair.sh')
+        self.assertEqual(translate(refuse_as(MissingStore('/s'), 'pair.sh', 2), 'pair.sh'), ('pair.sh: no pair.json in /s; run: pair.sh init <slug>\n', 2))
+
+    def test_a_damaged_pair_json_ends_kitchen_wait_and_dispatch_with_the_message_and_status_the_core_gives_through_captured(self):
+        damaged = {'not json': ('not json', 'Expecting value: line 1 column 1 (char 0)'), 'an array': ('[1]', 'expected an object, found array')}
+        for name, (text, why) in damaged.items():
+            for word, args in (('wait', ['wait', '{st}', '--timeout', '0']), ('dispatch', ['dispatch', '{st}', '{st}/briefs/001-x.md'])):
+                got = self.kitchen_world(f'{word}{name.replace(" ", "")}', dict(args=args, files={'pair.json': text}))
+                self.assertEqual((got['rc'], got['stdout'], got['stderr']), (1, '', f'pair.sh: pair.json is damaged: {why}\n'), (word, name))
 
     def test_captured_gives_the_status_and_stdout_of_a_call_and_leaves_the_environment_as_it_found_it(self):
         units = self.kitchen_core_module('units')
@@ -6168,11 +6206,17 @@ class CoreTests(unittest.TestCase):
         def exits_quietly():
             raise Exit(4, 'said\n')
 
+        def ends_in_a_domain_failure():
+            print('before')
+            raise PairError('refused')
+
+        ctx = Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, '')
         with contextlib.redirect_stderr(out):
-            results = [units.captured(lambda: print('hello\n')), units.captured(ends_in_die), units.captured(exits_quietly),
-                       units.captured(sets_env, env={'KITCHEN_CAPTURED_PROBE': 'on'}), units.captured(lambda: print('o') or sys.stderr.write('e\n'), merge_stderr=True)]
-        self.assertEqual(results, [(0, 'hello'), (5, 'before'), (4, ''), (0, 'on'), (0, 'o\ne')])
-        self.assertEqual(out.getvalue(), 'pair.sh: refused\nsaid\n')
+            results = [units.captured(ctx, lambda: print('hello\n')), units.captured(ctx, ends_in_die), units.captured(ctx, exits_quietly),
+                       units.captured(ctx, sets_env, env={'KITCHEN_CAPTURED_PROBE': 'on'}),
+                       units.captured(ctx, lambda: print('o') or sys.stderr.write('e\n'), merge_stderr=True), units.captured(ctx, ends_in_a_domain_failure)]
+        self.assertEqual(results, [(0, 'hello'), (5, 'before'), (4, ''), (0, 'on'), (0, 'o\ne'), (1, 'before')])
+        self.assertEqual(out.getvalue(), 'pair.sh: refused\nsaid\npair.sh: refused\n')
         self.assertNotIn('KITCHEN_CAPTURED_PROBE', os.environ)
 
     def test_step_kpy_call_leaves_the_environment_alone(self):
@@ -6392,7 +6436,7 @@ class CoreTests(unittest.TestCase):
                  (['001', '010'], [], '', 'no brief for unit 010\n'), (['001', '010'], ['010'], '', 'no brief for unit 010\n'),
                  (['010', '001'], [], '', 'no brief for unit 010\n'), (['008'], [], '', ('nothere', u2, '')), (['001', '009'], [], '', "unit 009's head is not a commit\n")]
         for names, covered, range_base, want in calls:
-            py = ('try:\n    base, head = units.unit_range(store, %r, %r, %r)\n    print(base, head)\n    code = 0\nexcept Die as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
+            py = ('try:\n    base, head = units.unit_range(ctx, store, %r, %r, %r)\n    print(base, head)\n    code = 0\nexcept (Die, PairError) as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
                   '    code = e.code\nprint("rc=%%d" %% code)' % (names, covered, range_base))
             prc, got, perr = self.kitchen_py(st, py, pid=os.getpid(), cwd=repo)
             self.assertEqual(prc, 0, perr)
@@ -6433,7 +6477,7 @@ class CoreTests(unittest.TestCase):
                  ('a parent with no ref', {'landing': {'parent': trunk}}, {}, 0, f'landing base: recorded parent  ({short(trunk)})\n')]
         for name, landing, opts, status, said in cases:
             (st / 'pair.json').write_text(json.dumps({**base_doc, **landing}, indent=2) + '\n')
-            py = ('try:\n    rev = units.landing_base(store, %r, %r, %r, %r, %r)\n    print("rev=" + rev)\n    code = 0\nexcept Die as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
+            py = ('try:\n    rev = units.landing_base(store, %r, %r, %r, %r, %r)\n    print("rev=" + rev)\n    code = 0\nexcept (Die, PairError) as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
                   '    code = e.code\nprint("rc=%%d" %% code)' % (str(repo), tip, opts.get('override', ''), opts.get('label', ''), opts.get('range_base', '')))
             prc, got, perr = self.kitchen_py(st, py, cwd=repo)
             if status == 0:
@@ -6451,7 +6495,7 @@ class CoreTests(unittest.TestCase):
                 git('checkout', '-q', '--detach', tip)
                 git('update-ref', '-d', 'refs/heads/main')
                 head = tip
-            py = ('try:\n    print("rev=" + units.landing_base(store, %r, %r))\n    code = 0\nexcept Die as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
+            py = ('try:\n    print("rev=" + units.landing_base(store, %r, %r))\n    code = 0\nexcept (Die, PairError) as e:\n    sys.stderr.write("pair.sh: %%s\\n" %% e.message)\n'
                   '    code = e.code\nprint("rc=%%d" %% code)' % (str(repo), head))
             prc, got, perr = self.kitchen_py(st, py, cwd=repo)
             self.assertEqual((got, perr), ('rc=1\n', "pair.sh: cannot tell this repo's trunk; pass --base <trunk ref or commit>\n"), name)
@@ -6992,10 +7036,10 @@ class HerdrCallTests(unittest.TestCase):
 
     def test_require_herdr_says_the_default_or_the_callers_message_outside_herdr(self):
         with mock.patch.dict(os.environ, {'HERDR_ENV': '0'}):
-            with self.assertRaises(Die) as caught:
+            with self.assertRaises(NotInHerdr) as caught:
                 panes.require_herdr()
             self.assertEqual(str(caught.exception), 'not running inside Herdr (HERDR_ENV != 1)')
-            with self.assertRaises(Die) as caught:
+            with self.assertRaises(NotInHerdr) as caught:
                 panes.require_herdr('maintainer on needs Herdr (HERDR_ENV=1)')
             self.assertEqual(str(caught.exception), 'maintainer on needs Herdr (HERDR_ENV=1)')
         with mock.patch.dict(os.environ, {'HERDR_ENV': '1'}):
@@ -7128,15 +7172,12 @@ class StepLogTests(unittest.TestCase):
 
     def test_a_file_with_only_blank_lines_ends_the_next_number_with_1_and_an_unreadable_one_with_2(self):
         Path(self.log.path).write_text('\n\n')
-        with self.assertRaises(Exit) as caught:
+        with self.assertRaises(EmptyStepLog) as caught:
             self.log.next_number()
-        self.assertEqual(caught.exception.code, 1)
-        err = io.StringIO()
-        with mock.patch.object(steplog, 'read_text', side_effect=PermissionError(13, 'Permission denied')), mock.patch.object(sys, 'stderr', err), \
-                self.assertRaises(Exit) as caught:
+        self.assertEqual(translate(caught.exception, 'pair.sh'), ('', 1))
+        with mock.patch.object(steplog, 'read_text', side_effect=PermissionError(13, 'Permission denied')), self.assertRaises(StepLogUnreadable) as caught:
             self.log.next_number()
-        self.assertEqual(caught.exception.code, 2)
-        self.assertIn('cannot read', err.getvalue())
+        self.assertEqual(translate(caught.exception, 'pair.sh'), (f'pair.sh: cannot read {self.log.path}: Permission denied\n', 2))
 
     def test_resolves_join_the_row_of_a_recorded_commit_in_note_order_once(self):
         self.log.append(1, 'abc', 5, 'n10', 'one')

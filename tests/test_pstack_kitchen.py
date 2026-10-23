@@ -28,6 +28,10 @@ sys.path.insert(0, str(script.parent))
 import kitchen
 
 sys.path.insert(0, str(root / 'tests'))
+sys.path.insert(0, str(root / 'skills/pstack-pair/scripts'))
+from pstack_core.store import Context  # noqa: E402
+
+BARE_CTX = Context('pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 20, '')
 from test_pstack_core import event_log, watch_jq  # noqa: E402
 
 LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
@@ -1704,15 +1708,15 @@ esac
             brief = Path(self.tmp.name) / f'{name.replace(" ", "-")}-001-x.md'
             brief.write_bytes(b'# Brief\n\n## Goal\n\ng\n\n## Verify\n' + block + b'\n## Forbidden\n\nnone\n')
             sha = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
-            self.assertEqual(module.verify_job('/store', str(brief), sha), f'/store/steps/jobs/{brief.stem}-verify-a1b2c3d4e5f6-{cksum}', name)
+            self.assertEqual(module.verify_job(BARE_CTX, '/store', str(brief), sha), f'/store/steps/jobs/{brief.stem}-verify-a1b2c3d4e5f6-{cksum}', name)
         bare = Path(self.tmp.name) / '002-y.md'
         bare.write_bytes(b'# Brief\n\n## Verify\n\ntrue')
-        self.assertEqual(module.verify_job('/store', str(bare), 'abc'), '/store/steps/jobs/002-y-verify-abc-2002284698', 'a Verify block that ends the file')
+        self.assertEqual(module.verify_job(BARE_CTX, '/store', str(bare), 'abc'), '/store/steps/jobs/002-y-verify-abc-2002284698', 'a Verify block that ends the file')
 
     def test_kitchen_report_ready_adds_the_verify_job_to_the_pairs_readiness(self):
         # the why strings below are the literals an agent reads when report_ready says a done report is not ready.
         module = self.kitchen_variant()
-        ready = lambda path: module.VARIANT().report_ready(None, str(self.store), str(path))
+        ready = lambda path: module.VARIANT().report_ready(BARE_CTX, str(self.store), str(path))
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.verify_block(b, 'true')
         self.dispatch(b)
@@ -1720,7 +1724,7 @@ esac
         head = self.commit('work')
         report = self.store / 'reports' / b.name
         self.done(b, head)
-        job = Path(module.verify_job(str(self.store), str(b), head))
+        job = Path(module.verify_job(BARE_CTX, str(self.store), str(b), head))
         short = f"the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them)"
         got = ready(report)
         self.assertEqual((got.ready, got.open, got.why), (False, '', short), 'rc missing')
@@ -1763,17 +1767,17 @@ esac
         """Plan 043 U5 switched the Verify job key from POSIX cksum to crc32. A completed job directory under the old key (rc 0) does not make a
         done report ready and is not the directory finish uses now, so the first finish after the switch runs the Verify block again."""
         module = self.kitchen_variant()
-        ready = lambda path: module.VARIANT().report_ready(None, str(self.store), str(path))
+        ready = lambda path: module.VARIANT().report_ready(BARE_CTX, str(self.store), str(path))
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.verify_block(b, 'true')
         self.dispatch(b)
         self.write('src/util.py', 'X = 2\n')
         head = self.commit('work')
         self.done(b, head)
-        block = module.verify_block(str(b))
+        block = module.verify_block(BARE_CTX, str(b))
         old_key = subprocess.run(['cksum'], input=block.encode(), capture_output=True, check=True).stdout.split()[0].decode()
         old_job = self.store / 'steps/jobs' / f'{b.stem}-verify-{head[:12]}-{old_key}'
-        new_job = Path(module.verify_job(str(self.store), str(b), head))
+        new_job = Path(module.verify_job(BARE_CTX, str(self.store), str(b), head))
         self.assertNotEqual(old_key, str(zlib.crc32(block.encode())))
         self.assertNotEqual(old_job, new_job)
         old_job.mkdir(parents=True)
@@ -2655,7 +2659,7 @@ esac
         self.done(b, head)
         report = self.store / 'reports' / b.name
         module = self.kitchen_variant()
-        job = Path(module.verify_job(str(self.store), str(b), head))
+        job = Path(module.verify_job(BARE_CTX, str(self.store), str(b), head))
         code, out, err = self.core_finish(report)
         why = f"001-util: the brief's Verify commands have not passed at {head[:9]} (kitchen.sh finish runs them); rewrite the report at the unit's last commit (head:), then finish again\n"
         self.assertEqual((code, out, err), (7, '', 'kitchen.sh: ' + why))

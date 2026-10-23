@@ -9,11 +9,11 @@ import time
 from . import agents
 from .argv import Spec, read
 from .send import fresh_kind, submit_typed, visible_without_blanks
-from .store import (
-    Die, exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, prog, pair_file,
-    whole_number, who,
+from .store import exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, pair_file, whole_number, who
+from .errors import AgentStartFailed, BadPlacement, Die, FreshStartOnly, NoFallback, PrimeFailed
+from .panes import (
+    DEVNULL, MERGED, PIPE, agent_field, agent_prompt, agent_start, agent_status, await_file, herdr, new_pane, refuse_untrusted, require_herdr,
 )
-from .panes import DEVNULL, MERGED, PIPE, agent_field, agent_prompt, agent_start, agent_status, await_file, herdr, new_pane, refuse_untrusted, require_herdr
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
 from .wait import end_with_parent
@@ -85,7 +85,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
     if fresh_kind(kind):
         for arg in args:
             if arg in FRESH_SESSION_FLAGS or arg.startswith(('--resume=', '--session=')):
-                raise Die(f'{kind} task sessions start fresh; recover partial work from the store instead of passing {arg}', 5)
+                raise FreshStartOnly(f'{kind} task sessions start fresh; recover partial work from the store instead of passing {arg}')
     ready = 'advice/000-ready.md' if role == 'consultant' else 'reports/000-ready.md'
     name = field(store, role, 'name')
     status = agent_status(name)
@@ -124,7 +124,7 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
                 prime_start_failed = True
             else:
                 refuse_untrusted(pane, kind, cwd, True)
-                raise Die(f'agent start failed in {pane}; inspect: herdr pane read {pane} --source visible', 2)
+                raise AgentStartFailed(f'agent start failed in {pane}; inspect: herdr pane read {pane} --source visible')
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
     def started(doc):
@@ -139,9 +139,9 @@ def spawn_role(ctx, store, role, kind, permission, anchor, timeout, direction, p
         update_role(store, role, {'session': None, 'session_stopped': False, 'closed': False, 'launch_cwd': cwd})
         if prime_start_failed:
             record_prime_session(store, role)
-            raise Die(f'Prime start failed in {pane}; its pane and recorded launch stay for inspection', 5)
+            raise PrimeFailed(f'Prime start failed in {pane}; its pane and recorded launch stay for inspection')
         if not record_prime_session(store, role):
-            raise Die(f'Prime did not report its session; inspect {name} before prompting', 5)
+            raise PrimeFailed(f'Prime did not report its session; inspect {name} before prompting')
     print(f'{role} {name} ({kind}) started in {pane} with permission {permission} (master: {master_mode})')
     generation = field(store, role, 'generation')
     if os.path.isfile(f'{store}/{ready}'):
@@ -190,7 +190,7 @@ def set_placement(store, want=''):
     if not want:
         return
     if want not in ('split', 'tab'):
-        raise Die(f'placement must be split or tab, not {want}')
+        raise BadPlacement(f'placement must be split or tab, not {want}')
 
     def mutate(doc):
         doc['placement'] = want
@@ -240,7 +240,7 @@ def spawn_sidekick(ctx, store, kind, permission, anchor, timeout, direction, pan
             fallback = peek(peek(load(store), 'sidekick'), 'fallback')
             name = text_at(fallback, 'kind')
             if not name or name == kind:
-                raise Die(f'no fallback recorded for a failed {kind}; pass --fallback KIND or fix the agent', 2)
+                raise NoFallback(f'no fallback recorded for a failed {kind}; pass --fallback KIND or fix the agent')
             record_failover(store, kind, name, reason)
             return spawn_role(ctx, store, 'sidekick', name, '', anchor, timeout, direction, pane, names(fallback, 'args'))
     return spawn_role(ctx, store, 'sidekick', kind, permission, anchor, timeout, direction, pane, args)
@@ -254,8 +254,8 @@ def spawn_consultant(ctx, store, kind, permission, timeout, args):
     return spawn_role(ctx, store, 'consultant', kind, permission, anchor, timeout, '', '', args)
 
 
-def usage():
-    return (f'usage: {prog()} spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] '
+def usage(ctx):
+    return (f'usage: {ctx.prog} spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] '
             '[-- agent-args...]')
 
 
@@ -268,7 +268,7 @@ def spawn(ctx, args):
     end_with_parent()
     require_herdr()
     if not args:
-        raise Die(usage())
+        raise Die(usage(ctx))
     store = args[0]
     opts = {'kind': '', 'direction': '', 'pane': '', 'timeout': '60000', 'permission': '', 'fallback': '', 'placement': ''}
     parsed = read(args[1:], SPEC)

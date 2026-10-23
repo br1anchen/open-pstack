@@ -8,7 +8,8 @@ import sys
 from . import git
 from .argv import Spec, read
 from .checkin import scope_entries, scope_match
-from .store import Die, header_field, paused_reason, read_text, prog, event, pair_file, write_text
+from .store import header_field, paused_reason, read_text, event, pair_file, write_text
+from .errors import BadScope, Die, Paused, PlanNotAgreed
 
 
 PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd')
@@ -17,7 +18,7 @@ PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd
 def require_not_paused(store):
     reason = paused_reason(store)
     if reason is not None:
-        raise Die(f'the store is paused ({reason}): start nothing new; record where the work stands and end your turn, or run pair.sh resume {store}', 5)
+        raise Paused(f'the store is paused ({reason}): start nothing new; record where the work stands and end your turn, or run pair.sh resume {store}')
 
 
 def require_agreed_plan(ctx, store, brief, extra):
@@ -29,17 +30,17 @@ def require_agreed_plan(ctx, store, brief, extra):
         return
     plan = header_field(brief, 'plan')
     if not plan or plan == 'none':
-        raise Die(f'playbook {playbook} needs an agreed plan; brief has plan: {plan or "<missing>"}', 6)
+        raise PlanNotAgreed(f'playbook {playbook} needs an agreed plan; brief has plan: {plan or "<missing>"}')
     if not os.path.isfile(plan):
-        raise Die(f'plan not found: {plan}', 6)
+        raise PlanNotAgreed(f'plan not found: {plan}')
     seq = os.path.basename(plan.rstrip('/') or plan)[:3]
     reviews = sorted(glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')))
     if not reviews:
-        raise Die(f'plan {plan} has no review; run pair.sh discuss and write reviews/{seq}-<slug>.md with verdict: agreed', 6)
+        raise PlanNotAgreed(f'plan {plan} has no review; run pair.sh discuss and write reviews/{seq}-<slug>.md with verdict: agreed')
     review = reviews[0]
     verdict = header_field(review, 'verdict')
     if verdict != 'agreed':
-        raise Die(f"plan {plan} review verdict is '{verdict or 'missing'}', not agreed", 6)
+        raise PlanNotAgreed(f"plan {plan} review verdict is '{verdict or 'missing'}', not agreed")
     extra(ctx, store, plan, review, seq)
 
 
@@ -97,7 +98,7 @@ def check_scope(brief, root):
     without refusing, on an entry that matches nothing in the repo, the usual sign of a path written relative to its neighbour."""
     bad = scope_lists_several(brief)
     if bad:
-        raise Die(f'{os.path.basename(brief)}: Scope takes one path or glob per line; split these (a path with a comma goes in backquotes):\n' + '\n'.join(bad))
+        raise BadScope(f'{os.path.basename(brief)}: Scope takes one path or glob per line; split these (a path with a comma goes in backquotes):\n' + '\n'.join(bad))
     r = git.run(root, 'ls-files', '-co', '--exclude-standard', quiet=True)
     tracked = r.stdout.rstrip('\n') if r.returncode == 0 else ''
     for entry in scope_entries(brief, 'may'):
@@ -107,7 +108,7 @@ def check_scope(brief, root):
 
 def pause(ctx, args):
     if not args:
-        raise Die(f'usage: {prog()} pause <store> [--reason TEXT]')
+        raise Die(f'usage: {ctx.prog} pause <store> [--reason TEXT]')
     store = args[0]
     reason = read(args[1:], Spec(valued=('--reason',))).last('--reason', 'paused by the human')
     pair_file(store)
@@ -120,7 +121,7 @@ def pause(ctx, args):
 
 def resume(ctx, args):
     if len(args) != 1:
-        raise Die(f'usage: {prog()} resume <store>')
+        raise Die(f'usage: {ctx.prog} resume <store>')
     store = args[0]
     pair_file(store)
     try:

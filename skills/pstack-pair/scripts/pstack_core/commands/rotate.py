@@ -7,8 +7,9 @@ import sys
 import time
 
 from ..argv import Spec, read
-from ..store import Die, Exit, prog, event, field, load, names, pair_file, peek, read_flag, text_at, env_float, expected_report, who
-from ..exits import exit_command, exit_deadline, exit_poll, stopped
+from ..store import event, field, load, names, pair_file, peek, read_flag, text_at, env_float, expected_report, who
+from ..errors import Die, RotationFailed, translate
+from ..exits import exit_command, exit_deadline, exit_poll, stop_prime_role
 from ..gates import require_not_paused, check_scope
 from ..panes import MERGED, agent_prompt, agent_status, herdr, require_herdr
 from ..spawn import spawn_role, record_failover
@@ -26,7 +27,7 @@ def rotate(ctx, args):
     end_with_parent()
     require_herdr()
     if len(args) != 1:
-        raise Die(f'usage: {prog()} rotate <store>')
+        raise Die(f'usage: {ctx.prog} rotate <store>')
     store = args[0]
     pair_file(store)
     require_not_paused(store)
@@ -40,7 +41,7 @@ def rotate(ctx, args):
     status = agent_status(name)
     if status in ('idle', 'done'):
         if kind == 'prime-agent':
-            if not stopped(store, 'sidekick'):
+            if not stop_prime_role(store, 'sidekick'):
                 raise Die('Prime session cleanup failed; no new session was started', 5)
         else:
             r = agent_prompt(name, exit_command(kind), stderr=MERGED)
@@ -53,7 +54,7 @@ def rotate(ctx, args):
                     raise Die(f'{kind} has not exited; inspect {name} before retrying rotate', 5)
                 exit_poll()
     elif status == 'absent':
-        if kind == 'prime-agent' and not stopped(store, 'sidekick'):
+        if kind == 'prime-agent' and not stop_prime_role(store, 'sidekick'):
             raise Die('Prime session cleanup failed; no new session was started', 5)
     else:
         raise Die(f'{who("sidekick", name)} is {status}; wait for its report and turn to end before rotating', 5)
@@ -78,14 +79,11 @@ def rotate_if_due(ctx, store, what):
     with contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
         try:
             code = rotate(ctx, [store])
-        except Exit as e:
-            said.write(e.stderr)
-            code = e.code
-        except Die as e:
-            said.write(f'{prog()}: {e.message}\n')
-            code = e.code
+        except Exception as e:
+            text, code = translate(e, ctx.prog)
+            said.write(text)
     if code:
-        raise Die(f'rotating the sidekick before this {what} failed:\n{said.getvalue().rstrip(chr(10))}', code)
+        raise RotationFailed(code, f'rotating the sidekick before this {what} failed:\n{said.getvalue().rstrip(chr(10))}')
     sys.stdout.write(f"rotated: the {field(store, 'sidekick', 'kind')} sidekick starts this {what} in a fresh session\n")
 
 
@@ -93,7 +91,7 @@ def queue(ctx, args):
     """The master's next brief, held until the master dispatches it, which rotates a due sidekick first. One slot: more than one
     queued brief is a plan."""
     if len(args) < 2:
-        raise Die(f'usage: {prog()} queue <store> <brief-path> [--replace] | {prog()} queue <store> --clear')
+        raise Die(f'usage: {ctx.prog} queue <store> <brief-path> [--replace] | {ctx.prog} queue <store> --clear')
     store, brief = args[0], args[1]
     pair_file(store)
     brief = store_relative(store, brief)
@@ -137,7 +135,7 @@ def failover(ctx, args):
     end_with_parent()
     require_herdr()
     if not args:
-        raise Die(f'usage: {prog()} failover <store> [--reason TEXT] [--force]')
+        raise Die(f'usage: {ctx.prog} failover <store> [--reason TEXT] [--force]')
     store = args[0]
     opts = read(args[1:], Spec(valued=('--reason',), flags=('--force',)))
     reason, force = opts.last('--reason', 'requested'), opts.present('--force')
@@ -157,7 +155,7 @@ def failover(ctx, args):
         herdr('agent', 'send-keys', name, 'esc')
         time.sleep(env_float('PAIR_ESC_WAIT_S', 2))
     if kind == 'prime-agent':
-        if not stopped(store, 'sidekick'):
+        if not stop_prime_role(store, 'sidekick'):
             raise Die('Prime session cleanup failed; no fallback was started', 5)
     elif status != 'absent':
         agent_prompt(name, exit_command(kind))

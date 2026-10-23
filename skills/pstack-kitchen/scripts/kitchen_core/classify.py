@@ -9,7 +9,8 @@ import re
 import sys
 
 from pstack_core.checkin import scope_entries
-from pstack_core.store import Die, field, header_field, pair_file, read_text, risk_of, write_text
+from pstack_core.store import field, header_field, pair_file, read_text, risk_of, write_text
+from pstack_core.errors import Die
 from pstack_core.panes import agent_status
 
 from .kpy import Kitchen
