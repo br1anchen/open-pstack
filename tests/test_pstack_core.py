@@ -6176,8 +6176,11 @@ class CoreTests(unittest.TestCase):
         world = self.path / 'world'
         world.mkdir()
         ctx = Context('pstack-kitchen', str(root / 'skills/pstack-kitchen'), str(self.path / 'state'), 'Kitchen', ('sidekick',), (), 21, '')
-        status, text = units.captured(ctx, lambda: verify_state.remove_scratch(ctx, str(world), '001-x-verify'), merge_stderr=True)
-        self.assertEqual(status, 1)
+        def removes():
+            verify_state.remove_scratch(ctx, str(world), '001-x-verify')
+
+        status, text = units.captured(ctx, removes, merge_stderr=True)
+        self.assertEqual(status, 0)
         self.assertIn('no pair.json in', text)
 
     def test_translate_turns_a_failure_into_stderr_text_and_an_exit_code(self):
@@ -6208,6 +6211,18 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(prc, 0, perr)
         self.assertEqual(got.splitlines(), ['', 'rc=1', "first=(1, '')"])
         self.assertEqual(perr, 'kitchen.sh: pair.json is damaged: sidekick is number, not an object\n')
+
+    def test_each_caller_of_captured_receives_the_status_its_command_returns_as_it_did_when_a_closure_raised_it(self):
+        ctx = Context('pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 21, '')
+        kitchen_wait, kitchen_dispatch = self.kitchen_core_module('wait'), self.kitchen_core_module('dispatch')
+        for code in (0, 1, 2, 4):
+            with mock.patch.object(kitchen_wait.core_wait, 'wait', return_value=code):
+                self.assertEqual(kitchen_wait.inner_wait(ctx, '/st', [], 1, 0), (code, ''), ('wait', code))
+                self.assertEqual(kitchen_wait.release(ctx, '/st'), None)
+            with mock.patch.object(kitchen_dispatch.send, 'dispatch', return_value=code):
+                self.assertEqual(kitchen_dispatch.core_dispatch(ctx, ['/st', '/b']), (code, ''), ('dispatch', code))
+            with mock.patch.object(kitchen_dispatch, 'land_check', return_value=code):
+                self.assertEqual(kitchen_dispatch.land_check_quietly(ctx, '/st'), code, ('land-check', code))
 
     def test_captured_gives_the_status_and_stdout_of_a_call_and_leaves_the_environment_as_it_found_it(self):
         units = self.kitchen_core_module('units')
