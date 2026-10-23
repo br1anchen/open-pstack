@@ -117,7 +117,12 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      it as `stalled` and exits 4 with the command to rerun. Any attempt that
      ends without a clean or rejecting verdict prints the verifier's
      `transcript:` and whether the packet ever reached it; one that never got
-     its packet says nothing about the work, so rerun it.
+     its packet says nothing about the work, so rerun it. A verifier's
+     exit is answered like a sidekick's ("Exit and stop tasks" for Claude's
+     background-work dialog) and waits `KITCHEN_VERIFIER_EXIT_S` (15 s) for
+     herdr to drop the agent. When herdr refuses the exit command, the close
+     says `verifier exit refused: <herdr error>` on stderr and still closes
+     the pane and removes the scratch.
    - `--covers` takes one unit per flag or a comma list, and the fix is named
      last: `verify 015 --covers 010,011,013` checks out 015's head. `verify`
      refuses a head that does not contain a named unit's head, and says which.

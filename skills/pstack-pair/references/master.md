@@ -209,7 +209,12 @@ report in the store. They send only once the fresh session is idle or done: a se
 working after `PAIR_ROTATE_READY_S`, blocked on a dialog, or gone fails the rotation (exit 5) and nothing is sent; inspect it and
 dispatch again. `rotate`, `failover` and `close` end Claude through one helper that answers its
 "Background work is running" exit dialog with "Exit and stop tasks" (the unit is committed by then), read from the pane;
-a pane that shows no such dialog gets no keys. `pair.sh rotate` stays as a command to run by hand. Keep partial work in
+a pane that shows no such dialog gets no keys. An exit herdr refuses with `agent_not_ready` means the pane is already back at its
+shell: the helper waits for herdr to stop listing the agent, and counts it as exited only then. `pair.sh rotate` stays as a command to run by hand,
+and starts the new session with this build's `references/no-mcp.json` in place of the path the first spawn recorded. Every agent start
+tries again, up to five times `PAIR_START_RETRY_S` (1 s) apart, when herdr calls the pane busy (`agent_pane_busy`, as a pane split a moment ago
+can be); any other refusal ends it at once. A bootstrap that finished after `spawn` returned (a dialog held it) leaves `bootstrap_pending` set;
+`dispatch` clears it when `reports/000-ready.md` exists, no rotation is due and the agent is live, and logs `sidekick spawn - <kind>:ready`. Keep partial work in
 its session. Storage cleanup requires a coordinated pause and recovery handoff.
 
 ## Queueing
