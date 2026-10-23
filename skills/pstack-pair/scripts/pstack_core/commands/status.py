@@ -40,6 +40,44 @@ def latest(store, directory, seq=None):
     return newest(glob.glob(os.path.join(glob.escape(store), directory, pattern)))
 
 
+def unit_row(store, f, consultant):
+    """The status table line of one plan or brief file: its newest report, review verdict and, with a consultant, advice."""
+    base = os.path.basename(f)
+    seq, slug = base[:3], base.removesuffix('.md')[4:]
+    kind = re.sub(r's$', '', os.path.basename(os.path.dirname(f)))
+    rstatus = 'none'
+    report = latest(store, 'reports', seq)
+    if report:
+        rstatus = header_field(report, 'status') or 'unlabelled'
+    verdict = 'none'
+    reviews = sorted(glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')))
+    if reviews:
+        verdict = header_field(reviews[0], 'verdict') or 'unlabelled'
+    if not consultant:
+        return f'| {seq} | {kind} | {slug} | {rstatus} | {verdict} |\n'
+    astatus = 'none'
+    advice = latest(store, 'advice', seq)
+    if advice:
+        astatus = header_field(advice, 'status') or 'unlabelled'
+        n = len(glob.glob(os.path.join(glob.escape(store), 'advice', glob.escape(seq) + '-*-c[0-9]*.md')))
+        if n > 0:
+            astatus = f'{astatus} (c{n})'
+    return f'| {seq} | {kind} | {slug} | {rstatus} | {astatus} | {verdict} |\n'
+
+
+def unanswered_asks(store):
+    """How many sidekick asks (reports named NNN-<slug>-q<k>) have no answer file yet."""
+    asks = 0
+    for f in glob.glob(os.path.join(glob.escape(store), 'reports', '[0-9][0-9][0-9]-*-q[0-9]*.md')):
+        if not os.path.exists(f):
+            continue
+        base = os.path.basename(f)
+        k = suffix_number(unit_name(f), 'q') or unit_name(f)
+        if not glob.glob(os.path.join(glob.escape(store), 'answers', f'{glob.escape(base[:3])}-*-a{glob.escape(k)}.md')):
+            asks += 1
+    return asks
+
+
 def lines(ctx, store, out):
     consultant = 'consultant' in ctx.roles
     out.write(f'# {ctx.store_label} status\n\n')
@@ -65,29 +103,7 @@ def lines(ctx, store, out):
             if os.path.exists(f) and not f.endswith('.direction.md'):
                 units.append(f'{os.path.basename(f)}\t{f}')
     for entry in sorted(units):
-        f = entry.split('\t', 1)[1]
-        base = os.path.basename(f)
-        seq, slug = base[:3], base.removesuffix('.md')[4:]
-        kind = re.sub(r's$', '', os.path.basename(os.path.dirname(f)))
-        rstatus = 'none'
-        report = latest(store, 'reports', seq)
-        if report:
-            rstatus = header_field(report, 'status') or 'unlabelled'
-        verdict = 'none'
-        reviews = sorted(glob.glob(os.path.join(glob.escape(store), 'reviews', glob.escape(seq) + '-*.md')))
-        if reviews:
-            verdict = header_field(reviews[0], 'verdict') or 'unlabelled'
-        if consultant:
-            astatus = 'none'
-            advice = latest(store, 'advice', seq)
-            if advice:
-                astatus = header_field(advice, 'status') or 'unlabelled'
-                n = len(glob.glob(os.path.join(glob.escape(store), 'advice', glob.escape(seq) + '-*-c[0-9]*.md')))
-                if n > 0:
-                    astatus = f'{astatus} (c{n})'
-            out.write(f'| {seq} | {kind} | {slug} | {rstatus} | {astatus} | {verdict} |\n')
-        else:
-            out.write(f'| {seq} | {kind} | {slug} | {rstatus} | {verdict} |\n')
+        out.write(unit_row(store, entry.split('\t', 1)[1], consultant))
     report = latest(store, 'reports')
     if report:
         out.write(f'\nlatest report: {report}\n')
@@ -105,14 +121,7 @@ def lines(ctx, store, out):
         for w in scratch:
             out.write(f'  {w}\n')
     if os.path.isdir(f'{store}/answers'):
-        asks = 0
-        for f in glob.glob(os.path.join(glob.escape(store), 'reports', '[0-9][0-9][0-9]-*-q[0-9]*.md')):
-            if not os.path.exists(f):
-                continue
-            base = os.path.basename(f)
-            k = suffix_number(unit_name(f), 'q') or unit_name(f)
-            if not glob.glob(os.path.join(glob.escape(store), 'answers', f'{glob.escape(base[:3])}-*-a{glob.escape(k)}.md')):
-                asks += 1
+        asks = unanswered_asks(store)
         if asks > 0:
             out.write(f'unanswered asks: {asks}\n')
     gates = f'{store}/gates.md'
