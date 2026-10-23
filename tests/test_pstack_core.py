@@ -2571,6 +2571,24 @@ class CoreTests(unittest.TestCase):
             self.assertIn('the checkout holds work the unit\'s head does not:\n?? new.txt\n', refused.exception.message)
             self.assertEqual(step.require_head_checked_out(str(repo), str(report), str(commitless)), second)
 
+    def test_a_filed_report_is_shown_to_the_human_when_no_maintainer_is_registered_to_be_told(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import feedback
+        fb = self.path / 'fb'
+        fb.mkdir()
+        calls = []
+        with mock.patch.object(feedback, 'herdr', side_effect=lambda *a: calls.append(a) or (0, '')), mock.patch.object(feedback, 'agent_prompt') as prompt, \
+                contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(feedback.deliver_report(str(fb), '/fb/inbox/x.md'), 0)
+        self.assertEqual(said.getvalue(), 'delivered: notification for the human (no maintainer is registered); read it with: cat /fb/inbox/x.md\n')
+        self.assertEqual(calls, [('notification', 'show', 'pstack-kitchen: feedback filed', '--body', '/fb/inbox/x.md', '--sound', 'request')])
+        prompt.assert_not_called()
+
     def test_feedback_moves_a_file_into_place_or_names_the_move_it_could_not_make(self):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
         try:

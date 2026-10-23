@@ -264,6 +264,20 @@ def gap_found(path):
     return found
 
 
+def deliver_report(fb, path):
+    """Tells the registered maintainer a report was filed, or, when none can be told, shows the human a notification; says which on stdout."""
+    record = maintainer_record(f'{fb}/maintainer.json') if os.path.isfile(f'{fb}/maintainer.json') else None
+    problem = maintainer_problem(fb, record)
+    if not problem:
+        if agent_prompt(registered(record, 'name'), f'pstack-kitchen FEEDBACK {path}').returncode == 0:
+            sys.stdout.write(f'delivered: to maintainer {registered(record, "name")}\n')
+            return 0
+    problem = problem or 'the prompt to the maintainer failed'
+    herdr('notification', 'show', 'pstack-kitchen: feedback filed', '--body', path, '--sound', 'request')
+    sys.stdout.write(f'delivered: notification for the human ({problem}); read it with: cat {path}\n')
+    return 0
+
+
 def file_report(ctx, args):
     if len(args) != 2:
         raise Die(USAGE_FILE)
@@ -314,16 +328,7 @@ def file_report(ctx, args):
     event(store, 'master', 'feedback', '-', name)
     sys.stdout.write(f'filed: {path}\n')
     sys.stdout.flush()
-    record = maintainer_record(f'{fb}/maintainer.json') if os.path.isfile(f'{fb}/maintainer.json') else None
-    problem = maintainer_problem(fb, record)
-    if not problem:
-        if agent_prompt(registered(record, 'name'), f'pstack-kitchen FEEDBACK {path}').returncode == 0:
-            sys.stdout.write(f'delivered: to maintainer {registered(record, "name")}\n')
-            return 0
-    problem = problem or 'the prompt to the maintainer failed'
-    herdr('notification', 'show', 'pstack-kitchen: feedback filed', '--body', path, '--sound', 'request')
-    sys.stdout.write(f'delivered: notification for the human ({problem}); read it with: cat {path}\n')
-    return 0
+    return deliver_report(fb, path)
 
 
 def feedback(ctx, args):
