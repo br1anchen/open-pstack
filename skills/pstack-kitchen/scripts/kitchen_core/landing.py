@@ -176,6 +176,31 @@ def latest_landing_verdict(store):
     return found
 
 
+def landing_verdicts(store):
+    """Every landing verdict file in the store, newest first: the numbered ones, highest number first."""
+    numbered = []
+    for f in glob.glob(f'{glob.escape(store)}/verdicts/landing-v[0-9]*.md'):
+        number = f.rpartition('-v')[2]
+        n = int_or_none(number[:-3] if number.endswith('.md') else number)
+        if n is not None and os.path.exists(f) and not f.endswith('-packet.md'):
+            numbered.append((n, f))
+    return [f for n, f in sorted(numbered, reverse=True)]
+
+
+class LandingRange:
+    """A clean landing verdict whose range resolves, with the stack it names built on first use."""
+
+    def __init__(self, path, root, base, head):
+        self.path, self.root, self.base, self.head = path, root, base, head
+        self._index = None
+
+    @property
+    def index(self):
+        if self._index is None:
+            self._index = StackIndex.build(self.root, self.base, self.head)
+        return self._index
+
+
 def accepted_units(store):
     """(review, seq, brief) for each accepted review of a unit that commits and is not a landing brief, in glob order."""
     for review in sorted(glob.glob(f'{glob.escape(store)}/reviews/[0-9][0-9][0-9]-*.md')):
@@ -207,7 +232,8 @@ def clean_verdict_for(store, seq):
 
 def land_check(store, say=out):
     """Says what it finds line by line and returns the problem lines, none when the stack may land. A unit with no clean verdict of its own is
-    covered by the latest landing verdict when that one is clean and its range's head contains the unit's head. A kitchen that names a review
+    covered by the newest clean landing verdict whose range holds it (head contained, or rebased by patch-id with no revert after); the newest landing
+    verdict still decides the `landing verification:` line, the manifest warning and the note for a unit nothing holds. A kitchen that names a review
     engine requires each accepted unit's review note to cite a run of it: `engine: <name> <run id or artifact path>`."""
     problems = []
     ok, engine = validated_engine(store)
@@ -217,19 +243,22 @@ def land_check(store, say=out):
         return [problem]
     root = ''
     landing_verdict = latest_landing_verdict(store)
-    landing_head = landing_base = verdict_base_rev = verdict_head_rev = ''
+    verdict_base_rev = verdict_head_rev = ''
     verdict = None
+    ranges = []
     if landing_verdict:
-        verdict = Verdict.parse(landing_verdict)
-        base_ref, head_ref = verdict.refs()
-        verdict_base_rev = commit_of(repo_root(store), base_ref) or ''
         root = repo_root(store)
-        verdict_head_rev = commit_of(root, head_ref) or ''
-    if landing_verdict and verdict.status == 'clean':
-        landing_head, landing_base = verdict_head_rev, verdict_base_rev
-        if not landing_head:
-            say(f'land-check: note: landing verdict {landing_verdict} range head does not resolve; no unit is covered by it\n')
-    index = None
+        verdict = Verdict.parse(landing_verdict)
+        verdict_base_rev, verdict_head_rev = (commit_of(root, ref) or '' for ref in verdict.refs())
+        for path in landing_verdicts(store):
+            found = verdict if path == landing_verdict else Verdict.parse(path)
+            if found.status != 'clean':
+                continue
+            base_rev, head_rev = (commit_of(root, ref) or '' for ref in found.refs())
+            if head_rev:
+                ranges.append(LandingRange(path, root, base_rev, head_rev))
+            elif path == landing_verdict:
+                say(f'land-check: note: landing verdict {path} range head does not resolve; no unit is covered by it\n')
     for review, seq, brief in accepted_units(store):
         if engine:
             met, gap = engine_met(store, brief, review, engine)
@@ -238,20 +267,22 @@ def land_check(store, say=out):
                                 f'to {review}{gap}\n')
                 say(problems[-1])
         covering = clean_verdict_for(store, seq)
-        if not covering and landing_head:
+        if not covering and ranges:
             unit = RecordedUnit(store, brief)
             if unit.head:
-                if index is None:
-                    index = StackIndex.build(root, landing_base, landing_head)
-                found = inclusion(unit, index)
-                if found.covered:
-                    covering = landing_verdict
-                    if found.sha:
-                        say(f'covered: unit {seq} (rebased as {found.sha[:9]}) by the clean landing verdict {landing_verdict}\n')
-                    else:
-                        say(f'covered: unit {seq} by the clean landing verdict {landing_verdict}\n')
-                else:
-                    say(landing_unmatched_note(store, seq, brief, unit.head, landing_verdict, landing_base, landing_head, found))
+                newest = None
+                for held in ranges:
+                    found = inclusion(unit, held.index)
+                    newest = newest or found
+                    if found.covered:
+                        covering = held.path
+                        if found.sha:
+                            say(f'covered: unit {seq} (rebased as {found.sha[:9]}) by the clean landing verdict {held.path}\n')
+                        else:
+                            say(f'covered: unit {seq} by the clean landing verdict {held.path}\n')
+                        break
+                if not covering and ranges[0].path == landing_verdict:
+                    say(landing_unmatched_note(store, seq, brief, unit.head, landing_verdict, ranges[0].base, ranges[0].head, newest))
         if not covering:
             problems.append(f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n')
             say(problems[-1])

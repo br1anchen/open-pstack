@@ -5396,6 +5396,62 @@ esac
         landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n')
         return landing
 
+    def units_with_reviews(self, count):
+        heads = []
+        for n in range(1, count + 1):
+            b = self.brief(f'00{n}', f'u{n}', ['src/**', 'tests/**'])
+            self.dispatch(b)
+            self.write(f'src/mod{n}.py', f'X = {n}\n')
+            self.write(f'tests/test_mod{n}.py', f'x = {n}\n')
+            heads.append(self.commit(f'u{n}'))
+            self.done(b, heads[-1])
+            (self.store / f'reviews/00{n}-u{n}.md').write_text('verdict: accept\n')
+        return heads
+
+    def write_landing(self, k, base, tip, status='clean'):
+        landing = self.store / f'verdicts/landing-v{k}.md'
+        landing.parent.mkdir(exist_ok=True)
+        landing.write_text(f'# Verdict\n\nstatus: {status}\nunits: landing\nrange: {base[:9]}..{tip[:9]}\n')
+        return landing
+
+    def test_land_check_credits_a_unit_to_an_older_clean_landing_verdict_that_holds_it(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        h1, h2, h3, h4 = self.units_with_reviews(4)
+        v1 = self.write_landing(1, init, h1)
+        v2 = self.write_landing(2, h1, h3)
+        out = self.land_check(2)
+        self.assertIn(f'covered: unit 001 by the clean landing verdict {v1}\n', out)
+        self.assertIn(f'covered: unit 002 by the clean landing verdict {v2}\n', out)
+        self.assertIn(f'covered: unit 003 by the clean landing verdict {v2}\n', out)
+        self.assertIn(f'land-check: note: unit 004 is newer than landing verdict {v2}; verify --landing again\n', out)
+        self.assertIn(f'unverified: unit 004 has no clean verdict (kitchen.sh verify {self.store} 004)\n', out)
+        self.assertNotIn('unverified: unit 001', out)
+        self.assertIn(f'landing verification: clean ({v2})\n', out)
+
+    def test_land_check_skips_an_older_landing_verdict_that_is_not_clean(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        h1, h2 = self.units_with_reviews(2)
+        self.write_landing(1, init, h1, status='reject')
+        v2 = self.write_landing(2, h1, h2)
+        out = self.land_check(2)
+        self.assertIn(f'covered: unit 002 by the clean landing verdict {v2}\n', out)
+        self.assertIn('unverified: unit 001', out)
+
+    def test_land_check_keeps_the_revert_check_inside_an_older_landing_verdict(self):
+        init, heads = self.two_unit_stack()
+        trunk = self.stack_on_a_new_trunk(init, heads)
+        self.git('revert', '--no-edit', 'HEAD~1')
+        reverting = self.git('rev-parse', 'HEAD')
+        v1 = self.write_landing(1, trunk, reverting)
+        self.write('docs/later.md', '# later\n')
+        later = self.commit('later')
+        self.write_landing(2, reverting, later)
+        out = self.land_check(2)
+        self.assertIn(f'covered: unit 002 (rebased as', out)
+        self.assertIn(f'by the clean landing verdict {v1}\n', out)
+        self.assertIn('unverified: unit 001', out)
+        self.assertNotIn('covered: unit 001', out)
+
     def test_a_unit_whose_patch_was_later_reverted_in_the_stack_is_neither_covered_nor_accepted_by_verify(self):
         init, heads = self.two_unit_stack()
         self.stack_on_a_new_trunk(init, heads)

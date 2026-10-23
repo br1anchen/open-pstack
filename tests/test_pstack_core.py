@@ -4325,7 +4325,7 @@ class CoreTests(unittest.TestCase):
             'a unit with no head': world(files={**landing('{c1}..{c3}'), 'reports/001-x.md': '# R\n\nstatus: partial\n'}),
             'a unit whose head is its last recorded step': world(files={**landing('{c1}..{c3}'), 'reports/001-x.md': '# R\n\nstatus: partial\n',
                                                                        'steps/001-x.tsv': '1\t{c2}\tfirst\n'}),
-            'the newest landing verdict counts': world(files={'verdicts/landing-v2.md': verdict('{c1}..{c3}'), 'verdicts/landing-v10.md': verdict('{c1}..{c3}', status='reject')}),
+            'an older clean landing verdict still covers a unit while the newest decides the landing line': world(files={'verdicts/landing-v2.md': verdict('{c1}..{c3}'), 'verdicts/landing-v10.md': verdict('{c1}..{c3}', status='reject')}),
             'a packet range beats the verdict range': world(files={**landing('{c1}..{c1}'), 'verdicts/landing-v1-packet.md': '# P\n\nrange: {c1}..{c3}\n'}),
             'words after the range': world(files=landing('{c1}..{c3} from the packet')),
             'a landing verdict behind HEAD': world(files=landing('{c1}..{c2}')),
@@ -4379,7 +4379,7 @@ class CoreTests(unittest.TestCase):
             'a unit whose range holds a merge': (2, "range holds a merge commit, so patch-ids do not cover it"),
             'a unit with no head': (2, 'unverified: unit 001'),
             'a unit whose head is its last recorded step': (0, 'covered: unit 001 by the clean landing verdict'),
-            'the newest landing verdict counts': (2, 'landing verification: reject'),
+            'an older clean landing verdict still covers a unit while the newest decides the landing line': (0, 'covered: unit 001 by the clean landing verdict'),
             'a packet range beats the verdict range': (0, 'covered: unit 001 by the clean landing verdict'),
             'words after the range': (0, 'covered: unit 001 by the clean landing verdict'),
             'a landing verdict behind HEAD': (0, '1 commit behind HEAD'),
@@ -4419,7 +4419,9 @@ class CoreTests(unittest.TestCase):
         self.assertRegex(out['a unit rebased into the stack']['stdout'], r'covered: unit 001 \(rebased as [0-9a-f]{9}\) by the clean landing verdict <T>/st/verdicts/landing-v1\.md')
         self.assertIn('reverts them', out['a rebased unit whose patch was reverted later']['stdout'])
         self.assertNotIn('covered', out['a unit squashed into the stack']['stdout'])
-        self.assertIn('landing verification: clean (<T>/st/verdicts/landing-v10.md)'.replace('clean', 'reject'), out['the newest landing verdict counts']['stdout'])
+        newest = out['an older clean landing verdict still covers a unit while the newest decides the landing line']['stdout']
+        self.assertIn('covered: unit 001 by the clean landing verdict <T>/st/verdicts/landing-v2.md\n', newest)
+        self.assertIn('landing verification: reject (<T>/st/verdicts/landing-v10.md)\n', newest)
         self.assertIn('is no longer an ancestor of', out['a recorded landing parent that is no longer an ancestor']['stderr'])
         self.assertIn('pair.json is damaged: landing is string, not an object', out['a landing that is a string']['stderr'])
         self.assertIn(gap, out['a skip over a dangling dispatch head']['stdout'])

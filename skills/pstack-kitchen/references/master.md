@@ -204,6 +204,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    its head is in HEAD's history, and as `not in HEAD's history (rebased or
    another branch)` when it is not (a `--head` branch, a verdict from before a
    rebase).
+   A unit with no clean verdict of its own is credited to the newest clean
+   landing verdict whose range holds it (`covered: unit NNN by the clean landing
+   verdict <file>`), so a later landing does not uncover units an earlier one
+   proved; the newest landing verdict alone sets the `landing verification:`
+   line and the manifest warning.
    The check that a rebased unit was not reverted later in the stack
    compares patches without context lines, so a commit that deletes an
    identical line elsewhere in the same file reads as a revert and leaves the
