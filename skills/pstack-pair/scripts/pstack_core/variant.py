@@ -3,6 +3,7 @@ import os
 import re
 
 from . import git
+from .errors import reason
 from .review import noted_through, open_notes
 from .steplog import StepLog
 from .store import count, header_field, load, peek, text_at, unit_name
@@ -192,7 +193,7 @@ class Variant:
             return ReportReadiness(
                 False,
                 '',
-                f'the steps or notes cannot be read: {e.filename}: {os.strerror(e.errno)}',
+                f'the steps or notes cannot be read: {e.filename}: {reason(e)}',
             )
         if opened:
             names = ','.join(re.sub(r'.*-(n[0-9]+)\.md$', r'\1', p) for p in opened)

@@ -5,7 +5,7 @@ import subprocess
 import sys
 import time
 
-from ..errors import Die, MissingStore, translate
+from ..errors import Die, MissingStore, reason, translate
 from ..panes import agent_status
 from ..store import (
     event,
@@ -34,9 +34,7 @@ class Tee:
         try:
             self.file = open(path, 'w', encoding='utf-8')
         except OSError as e:
-            sys.stderr.write(
-                f'{ctx.prog}: cannot write {path}: {os.strerror(e.errno)}\n'
-            )
+            sys.stderr.write(f'{ctx.prog}: cannot write {path}: {reason(e)}\n')
             sys.stderr.flush()
             self.file, self.failed = None, True
 

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from .. import git
 from ..argv import Spec, read
-from ..errors import Die, Exit, FileFailed, PathFailed
+from ..errors import Die, Exit, FileFailed, PathFailed, reason
 from ..panes import herdr, require_herdr
 from ..permission import logical_cwd
 from ..store import _dumps, event, member, update
@@ -32,16 +32,12 @@ def install_standing_orders(ctx, orders):
     try:
         shutil.copyfile(source, orders)
     except OSError as e:
-        sys.stderr.write(
-            f'{ctx.prog}: cannot copy {source} to {orders}: {os.strerror(e.errno)}\n'
-        )
+        sys.stderr.write(f'{ctx.prog}: cannot copy {source} to {orders}: {reason(e)}\n')
         return
     try:
         os.chmod(orders, os.stat(orders).st_mode | stat.S_IWUSR)
     except OSError as e:
-        sys.stderr.write(
-            f'{ctx.prog}: cannot make {orders} writable: {os.strerror(e.errno)}\n'
-        )
+        sys.stderr.write(f'{ctx.prog}: cannot make {orders} writable: {reason(e)}\n')
 
 
 def write_new(path, text):

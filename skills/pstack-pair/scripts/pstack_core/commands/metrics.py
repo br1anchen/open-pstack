@@ -5,7 +5,7 @@ import sys
 import time
 from dataclasses import dataclass
 
-from ..errors import Die
+from ..errors import Die, reason
 from ..numbers import env_int
 from ..store import read_text
 
@@ -317,7 +317,7 @@ def run(ctx, args):
         try:
             events = parse_events(log)
         except OSError as e:
-            sys.stderr.write(f'{ctx.prog}: cannot read {log}: {os.strerror(e.errno)}\n')
+            sys.stderr.write(f'{ctx.prog}: cannot read {log}: {reason(e)}\n')
             return 2
     for event in events:
         metrics.record(event)

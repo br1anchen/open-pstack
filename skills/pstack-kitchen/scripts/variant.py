@@ -5,6 +5,7 @@ import zlib
 from pathlib import Path
 
 from pstack_core import consult
+from pstack_core.errors import reason
 from pstack_core.gates import no_gate, require_agreed_plan
 from pstack_core.store import (
     dispatched_brief,
@@ -49,7 +50,7 @@ def verify_block(ctx, brief):
     try:
         records = read_text(brief).split('\n')
     except OSError as e:
-        sys.stderr.write(f'{ctx.prog}: cannot read {brief}: {os.strerror(e.errno)}\n')
+        sys.stderr.write(f'{ctx.prog}: cannot read {brief}: {reason(e)}\n')
         return ''
     if records[-1] == '':
         records.pop()

@@ -3,6 +3,7 @@
 import ast
 import calendar
 import contextlib
+import errno
 import functools
 import inspect
 import io
@@ -32,6 +33,7 @@ from pstack_core import (
     agents,
     argv,
     cli,
+    errors,
     exits,
     git,
     numbers,
@@ -18038,6 +18040,15 @@ class ReportReadyTests(unittest.TestCase):
             report = f'{tmp}/reports/001-x.md'
             Path(report).write_text('# Report 001: x\n\nstatus: done\nhead: abcdef0\n')
             self.assertTrue(Variant().report_ready(None, tmp, report).ready)
+
+
+class OSErrorReasonTests(unittest.TestCase):
+    def test_an_error_with_an_errno_gives_the_system_text(self):
+        error = OSError(errno.ENOENT, 'No such file or directory')
+        self.assertEqual(errors.reason(error), os.strerror(errno.ENOENT))
+
+    def test_an_error_with_no_errno_gives_its_own_text(self):
+        self.assertEqual(errors.reason(OSError('disk gone')), 'disk gone')
 
 
 class LoadModuleTests(unittest.TestCase):

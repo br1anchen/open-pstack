@@ -353,11 +353,18 @@ class EmptyFeedbackReport(PairError):
     """A report in the feedback inbox names no gap, which ends the listing."""
 
 
+def reason(error):
+    """The system's text for an OSError: strerror of its errno, or str(error) when it carries none."""
+    if error.errno is None:
+        return str(error)
+    return os.strerror(error.errno)
+
+
 class FileFailed(PairError):
     """A file operation failed: `cannot <verb> <what>: <the system's reason>`."""
 
     def __init__(self, verb, what, error):
-        super().__init__(f'cannot {verb} {what}: {os.strerror(error.errno)}')
+        super().__init__(f'cannot {verb} {what}: {reason(error)}')
 
 
 class StepLogUnreadable(FileFailed):

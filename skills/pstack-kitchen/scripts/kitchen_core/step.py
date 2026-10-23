@@ -24,7 +24,14 @@ from dataclasses import dataclass
 from pstack_core import git
 from pstack_core.commands import report as core_report
 from pstack_core.commands import step as core_step
-from pstack_core.errors import Die, Exit, StepRefused, ToolFailed, open_notes_refusal
+from pstack_core.errors import (
+    Die,
+    Exit,
+    StepRefused,
+    ToolFailed,
+    open_notes_refusal,
+    reason,
+)
 from pstack_core.numbers import env_float, env_int, exit_code, int_or_none
 from pstack_core.panes import require_herdr
 from pstack_core.replies import file_mtime
@@ -107,9 +114,7 @@ def point_at(ctx, link, target):
         os.replace(fresh, link)
     except OSError as e:
         remove_path(fresh)
-        sys.stderr.write(
-            f'{ctx.prog}: cannot point {link} at {target}: {os.strerror(e.errno)}\n'
-        )
+        sys.stderr.write(f'{ctx.prog}: cannot point {link} at {target}: {reason(e)}\n')
 
 
 def queue_line(log):
