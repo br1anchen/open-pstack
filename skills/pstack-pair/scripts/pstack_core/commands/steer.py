@@ -10,7 +10,7 @@ from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
 from ..prime import prime_steer
 from ..review import has_placeholder
-from ..send import prompt_sidekick
+from ..send import prompt_sidekick, record_dispatch
 from ..argv import Spec, read
 from ..wait import TIMING, end_with_parent, print_outcome, timeout_ms, wait_for
 from .report import require_pair
@@ -90,8 +90,8 @@ def steer_working(store, name, steer_path, message, interrupt):
 
 def settled_route(ctx, store, name, status, steer_path):
     """How a steer reaches a sidekick that is between turns: 'objection' when the unit's newest `-s<k>` report has status object (the steer answers it),
-    'deliver' when the unit has no report yet (nothing to fold the steer into, so the sidekick takes it now). Any other unit report refuses the
-    steer with what to do instead, and a steer that answers an objection but supersedes nothing is refused too."""
+    'deliver' when the unit has no report yet (nothing to fold the steer into, so the sidekick takes it now), 'resume' when its report is blocked or
+    partial (the steer re-sends the brief). Any other unit report refuses the steer with what to do instead, and a steer that answers an objection but supersedes nothing is refused too."""
     seq = os.path.basename(steer_path)[:3]
     slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
     objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
@@ -101,8 +101,8 @@ def settled_route(ctx, store, name, status, steer_path):
             return 'deliver'
         unit_status = header_field(report, 'status')
         if unit_status in ('blocked', 'partial'):
-            advice = f'apply its scope effect to the brief and re-dispatch it (dispatch {store} <brief> --send-only)'
-        elif unit_status == 'done':
+            return 'resume'
+        if unit_status == 'done':
             # only the kitchen has verify --covers
             advice = f'write a fix brief and verify it with --covers {seq}' if ctx.skill == 'pstack-kitchen' else 'write a fix brief'
         else:
@@ -111,6 +111,61 @@ def settled_route(ctx, store, name, status, steer_path):
     if header_field(steer_path, 'supersedes') == 'none':
         raise BadSteer(f'{steer_path} answers {objection} but its supersedes: line says none')
     return 'objection'
+
+
+def scope_effect_entries(steer_path):
+    """(heading, paths) of a steer's scope effect: `may write:` or `must not write:` and the paths it names, or None for `none`."""
+    line = header_field(steer_path, 'scope effect').split(' \u2014 ')[0].strip()
+    heading = next((h for h in ('may write', 'must not write') if line.startswith(h)), None)
+    if heading is None:
+        return None
+    rest = line[len(heading):]
+    paths = [q.strip('"').replace('`', '') for q in re.findall(r'"[^"]*"', rest)] or [rest.lstrip(': ').split(' ')[0].replace('`', '')]
+    return f'{heading}:', [p for p in paths if p]
+
+
+def apply_scope_effect(brief, steer_path):
+    """The steer's scope effect written into the brief's Scope: each path becomes an entry under its heading (`may write:` or `must not write:`),
+    unless that list already holds it. A heading the Scope lacks is added at the end of the section."""
+    effect = scope_effect_entries(steer_path)
+    if effect is None:
+        return
+    heading, paths = effect
+    lines = read_text(brief).split('\n')
+    for path in paths:
+        entry = f'- {path}'
+        start = next((i for i, l in enumerate(lines) if l.startswith(heading)), None)
+        if start is None:
+            scope = next((i for i, l in enumerate(lines) if l.startswith('## Scope')), None)
+            end = next((i for i in range(scope + 1, len(lines)) if lines[i].startswith('## ')), len(lines)) if scope is not None else len(lines)
+            while end > 0 and lines[end - 1] == '':
+                end -= 1
+            lines[end:end] = ['', heading, entry]
+            continue
+        end = start + 1
+        while end < len(lines) and lines[end].startswith('- '):
+            end += 1
+        if entry not in lines[start + 1:end]:
+            lines.insert(end, entry)
+    with open(brief, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+
+
+def resume_unit(store, name, steer_path, timeout, ctx):
+    """A steer to a sidekick whose unit ended blocked or partial: the steer's scope effect goes into the brief and the brief is sent again, so the
+    sidekick resumes it with the steer's Direction. record_dispatch keeps the unit's base (heads) and records the old report as seen, so only a report
+    written after this send counts as the unit's answer."""
+    seq = os.path.basename(steer_path)[:3]
+    slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
+    brief = f'{store}/briefs/{seq}-{slug}.md'
+    if not os.path.isfile(brief):
+        raise NoObjectionOpen(f'{who("sidekick", name)} is idle and unit {seq} has no brief at {brief} to resume')
+    apply_scope_effect(brief, steer_path)
+    event(store, 'master', 'send-steer', steer_path, 'resume')
+    record_dispatch(store, brief)
+    prompt_sidekick(name, f'{ctx.skill} BRIEF {brief} resume after STEER {steer_path}')
+    print(f'resumed unit {seq}: sent {brief} again after {steer_path}')
+    return print_outcome(wait_for(ctx, store, timeout=timeout, name=name))
 
 
 def steer(ctx, args):
@@ -131,7 +186,10 @@ def steer(ctx, args):
     if sidekick_busy(store, status, time.time()):
         steer_working(store, name, steer_path, message, interrupt)
     elif status in ('idle', 'done'):
-        if settled_route(ctx, store, name, status, steer_path) == 'deliver':
+        route = settled_route(ctx, store, name, status, steer_path)
+        if route == 'resume':
+            return resume_unit(store, name, steer_path, timeout, ctx)
+        if route == 'deliver':
             event(store, 'master', 'send-steer', steer_path, 'idle')
             prompt_sidekick(name, message)
             print(f'steered {name} with {steer_path}; unit {os.path.basename(steer_path)[:3]} has no report yet, so it reads the steer now')

@@ -1335,9 +1335,7 @@ class CoreTests(unittest.TestCase):
 
     def test_steering_a_settled_sidekick_says_what_to_do_by_the_units_report(self):
         # A9. Exit 5, the first clause as before, the advice by the status of the unit's own report (not an -s<k> objection); no herdr prompt.
-        for label, report, advice in (('blocked', 'blocked', 'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)'),
-                                      ('partial', 'partial', 'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)'),
-                                      ('done', 'done', 'write a fix brief'),
+        for label, report, advice in (('done', 'done', 'write a fix brief'),
                                       ('failed', 'failed', 'fold the steer into the next brief instead')):
             files = {} if report is None else {'reports/001-x.md': f'# R\n\nstatus: {report}\nhead: {{c3}}\n'}
             top, st, run = self.own_world('sa-' + label.replace(' ', '-'), files=files, agents={'s1': 'idle claude'})
@@ -1354,9 +1352,11 @@ class CoreTests(unittest.TestCase):
     DISPATCHED = {'brief': '{st}/briefs/001-x.md', 'at': '2026-01-01T00:00:00Z', 'generation': 1}
     STEER_001 = '# Steer 001-s1: x\n\nbrief: {st}/briefs/001-x.md\nsupersedes: none\nkind: scope\nscope effect: %s\n\n## Direction\n\nDo it.\n'
 
-    def busy_world(self, label, status, procs=None, report=None, effect='none', **spec):
+    def busy_world(self, label, status, procs=None, report=None, effect='none', brief=None, **spec):
         """A world whose sidekick s1 (pane p1) was dispatched 001-x and shows this herdr status; procs run in its pane, report is 001-x's report."""
         files = {} if report is None else {'reports/001-x.md': f'# R\n\nstatus: {report}\nhead: {{c3}}\n'}
+        if brief is not None:
+            files['briefs/001-x.md'] = brief
         sent = {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1}
         top, st, run = self.own_world(label, files=files, agents={'s1': f'{status} claude'}, procs=procs,
                                       pair={'sidekick': self.SK, 'dispatch': self.DISPATCHED, 'sent': sent, 'pending': ['{st}/briefs/001-x.md']}, **spec)
@@ -1514,13 +1514,61 @@ class CoreTests(unittest.TestCase):
             steer.write_text('# Steer 001-s1: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n')
             r = run('steer', '{st}', str(steer))
             self.assertEqual(r.stderr, f'pair.sh: sidekick s1 is idle and no objection is open on unit 001; {advice}\n', skill)
+        # an -s<k> report that is not `object` beside a blocked unit report is not the unit's report: the blocked unit report decides, and resumes
         top, st, run = self.own_world('sc-s1', files={'reports/001-x.md': '# R\n\nstatus: blocked\n', 'reports/001-x-s1.md': '# R\n\nstatus: partial\n'},
                                       agents={'s1': 'idle claude'})
         steer = st / 'steers/001-x-s2.md'
         steer.parent.mkdir(exist_ok=True)
         steer.write_text('# Steer 001-s2: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n')
         r = run('steer', '{st}', str(steer))
-        self.assertIn('apply its scope effect to the brief and re-dispatch it', r.stderr)
+        self.assertIn('resumed unit 001', r.stdout)
+
+    BRIEF_001 = '# Brief 001-x\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- docs/**\n\n## Goal\n\nx\n'
+
+    def test_a_steer_to_a_blocked_or_partial_unit_resumes_it_with_the_scope_effect_in_the_brief_and_the_old_report_set_aside(self):
+        # python-port-4(1020)#4: the steer used to be refused with the manual route; now it is that route.
+        for report, effect, entry, heading in (('blocked', 'may write: src/b.py \u2014 the fix lives there', '- src/b.py', 'may write:'),
+                                               ('partial', 'must not write: tests/golden/**', '- tests/golden/**', 'must not write:'),
+                                               ('blocked', 'may write "src/c.py" and "src/d.py"', '- src/d.py', 'may write:')):
+            label = f'resume-{report}-{heading[:3]}-{entry[-4:-3]}'
+            top, st, run, steer = self.busy_world(label, 'idle', report=report, effect=effect, brief=self.BRIEF_001)
+            pair = json.loads((st / 'pair.json').read_text())
+            pair['heads'] = {'001-x': 'c1base'}
+            (st / 'pair.json').write_text(json.dumps(pair))
+            old = st / 'reports/001-x.md'
+            os.utime(old, (1000, 1000))
+            r = run('steer', '{st}', str(steer))
+            self.assertIn(f'resumed unit 001: sent {st}/briefs/001-x.md again after {steer}', r.stdout, (label, r.stderr))
+            brief = (st / 'briefs/001-x.md').read_text().split('\n')
+            start = brief.index(heading)
+            self.assertIn(entry, brief[start:start + 4], label)
+            self.assertEqual(brief.count(entry), 1, label)
+            prompts = self.prompts(top)
+            self.assertEqual(len(prompts), 1, label)
+            self.assertTrue(prompts[0].startswith(f'agent prompt s1 pstack-pair BRIEF {st}/briefs/001-x.md resume after STEER {steer}'), prompts)
+            after = json.loads((st / 'pair.json').read_text())
+            self.assertEqual(after['heads'], {'001-x': 'c1base'}, label)
+            self.assertEqual(after['dispatch']['brief'], f'{st}/briefs/001-x.md', label)
+            # the stale report is retired twice over: .sent.seen names it as already shown, and fresh_reply counts only reports written since .sent.epoch
+            self.assertEqual(after['sent']['seen'], f'{old}:1000', label)
+            self.assertGreater(after['sent']['epoch'], 1000, label)
+            self.assertEqual(after['sent']['kind'], 'BRIEF', label)
+
+    def test_resuming_twice_adds_the_scope_entry_once_and_a_brief_without_the_heading_gets_it(self):
+        top, st, run, steer = self.busy_world('resume-twice', 'idle', report='partial', effect='may write: src/b.py', brief='# Brief 001-x\n\n## Scope\n\nmay write:\n- src/a.py\n\n## Goal\n\nx\n')
+        for _ in range(2):
+            run('steer', '{st}', str(steer))
+        self.assertEqual((st / 'briefs/001-x.md').read_text().count('- src/b.py'), 1)
+        top, st, run, steer = self.busy_world('resume-heading', 'idle', report='partial', effect='must not write: docs/x.md', brief='# Brief 001-x\n\n## Scope\n\nmay write:\n- src/a.py\n\n## Goal\n\nx\n')
+        run('steer', '{st}', str(steer))
+        self.assertEqual((st / 'briefs/001-x.md').read_text(), '# Brief 001-x\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- docs/x.md\n\n## Goal\n\nx\n')
+
+    def test_a_herdr_blocked_agent_is_not_resumed_and_its_brief_stays_as_written(self):
+        top, st, run, steer = self.busy_world('resume-blocked', 'blocked', report='blocked', effect='may write: src/b.py', brief=self.BRIEF_001)
+        r = run('steer', '{st}', str(steer))
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertEqual((st / 'briefs/001-x.md').read_text(), self.BRIEF_001)
+        self.assertEqual(self.prompts(top), [])
 
     def test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line(self):
         top, st, run, draft = self.note_world('np', 'blocking', agents={'s1': 'working claude'})
