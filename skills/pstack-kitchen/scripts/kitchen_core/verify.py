@@ -582,12 +582,29 @@ def gates_verdict(ctx, store, verdict, last, slug, allunits, base, head):
     write_text(verdict, text)
 
 
+class Sink:
+    """A text stream whose writes go to a callable, for the one sink a close says its stdout and stderr to."""
+
+    def __init__(self, say):
+        self.say = say
+
+    def write(self, text):
+        self.say(text)
+        return len(text)
+
+    def flush(self):
+        pass
+
+
 def close_wait(ctx, store, say):
-    """The WaiterOutcome of closing the verdict nobody read. Everything the wait says on either stream goes to `say` in the order it was said; a
-    failure ends the outcome with its message after what was said, and the status of the verdict the wait had already shown."""
+    """The WaiterOutcome of closing the verdict nobody read. Everything the wait says on either stream goes to `say` in the order it was said: what
+    the wait writes to its sinks, and what the code under it writes to sys.stderr (the Prime cleanup's reasons, herdr's reply problems), which
+    stands in for the sink here; a child process on the close path has its stderr piped to sys.stderr by the code that runs it. A failure ends
+    the outcome with its message after what was said, and the status of the verdict the wait had already shown."""
     waiter = Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again), out=say, err=say)
     try:
-        return waiter.run()
+        with contextlib.redirect_stderr(Sink(say)):
+            return waiter.run()
     except Exception as e:
         text, rc = translate(e, ctx.prog)
         say(text)

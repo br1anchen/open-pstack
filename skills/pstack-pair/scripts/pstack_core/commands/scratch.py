@@ -38,7 +38,9 @@ def locate(store, ident):
     if not cwd:
         raise BadScratch("the store's cwd is not inside a git repository")
     link = f'{store}/scratch/{ident}'
-    common = git.run(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.rstrip('\n')
+    found = git.run(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir', stderr=git.PIPE)
+    sys.stderr.write(found.stderr)
+    common = found.stdout.rstrip('\n')
     path = f'{common}/pstack-scratch/{basename(parent_dir(store))}-{basename(store)}/{ident}'
     if not os.path.islink(link) and os.path.isdir(link):
         path = link

@@ -6209,6 +6209,34 @@ class CoreTests(unittest.TestCase):
             with mock.patch.object(verify, 'Waiter', Said):
                 self.assertEqual((verify.close_wait(ctx, '/st', lines.append), lines), want, fail)
 
+    def test_closing_keeps_the_direct_and_child_stderr_of_the_code_under_the_wait_in_the_order_it_was_written(self):
+        """The old capture held fd 2 for the wait; now stderr written in process, and the stderr of the git child that the scratch removal runs, land
+        in the closed text between the lines the wait said and the failure it ends with."""
+        verify = self.kitchen_core_module('verify')
+        from pstack_core.commands import scratch
+        from pstack_core.errors import PrimeFailed
+        ctx = Context('pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 21, '', 'kitchen.sh')
+        st = self.path / 'stderr-order'
+        st.mkdir()
+        (st / 'pair.json').write_text(json.dumps({'git_root': '/nonexistent-dir'}) + '\n')
+
+        class Writes:
+            def __init__(self, *args, out, err, **kwargs):
+                self.status, self.out = '', out
+
+            def run(self):
+                self.out('a stdout line\n')
+                sys.stderr.write('PY-STDERR prime reason\n')
+                scratch.remove_scratch(ctx, str(st), '001-x-verify')
+                raise PrimeFailed('Prime verifier cleanup failed')
+
+        lines = []
+        with mock.patch.object(verify, 'Waiter', Writes):
+            ended = verify.close_wait(ctx, str(st), lines.append)
+        self.assertEqual((ended.rc, lines[:2], lines[-1]), (5, ['a stdout line\n', 'PY-STDERR prime reason\n'], 'kitchen.sh: Prime verifier cleanup failed\n'))
+        self.assertEqual(len(lines), 4, lines)
+        self.assertRegex(lines[2], r"\Afatal: cannot change to '/nonexistent-dir'")
+
     def test_run_close_says_the_refusal_of_the_scratch_removal_to_the_sink_it_is_given(self):
         verify_state = self.kitchen_core_module('verify_state')
         world = self.path / 'world-sink'
