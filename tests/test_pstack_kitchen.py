@@ -5233,6 +5233,36 @@ esac
         self.assertIn('gate app behavioral', packet)
         self.assertIn('## Acceptance', packet)
 
+    def test_the_verifier_close_answers_claudes_background_work_dialog(self):
+        self.env.update({'PAIR_EXIT_POLL_S': '0', 'KITCHEN_VERIFIER_EXIT_S': '5'})
+        (self.fake / 'exit-dialog').mkdir()
+        (self.fake / 'exit-dialog/demo-verifier').write_text(
+            'Background work is running\n 1. Exit and stop tasks\n 2. Stay\n'
+        )
+        _, out = self.verify_app_unit('clean', 0)
+        self.assertIn('status: clean\n', out)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertIn('agent send-keys demo-verifier enter', calls)
+        self.assertFalse((self.fake / 'agents/demo-verifier').exists())
+        self.assertRegex(calls, r'pane close p\d')
+
+    def test_a_verifier_exit_herdr_refuses_is_said_and_the_close_goes_on(self):
+        self.env.update({'PAIR_EXIT_POLL_S': '0', 'KITCHEN_VERIFIER_EXIT_S': '0'})
+        (self.fake / 'exit-refused').mkdir()
+        (self.fake / 'exit-refused/demo-verifier').touch()
+        _, out = self.verify_app_unit('clean', 0)
+        self.assertIn('verifier exit refused: {"error":{"code":"exit_refused"}}', out)
+        self.assertRegex((self.fake / 'calls.log').read_text(), r'pane close p\d')
+        self.assertEqual(list((self.store / 'scratch').iterdir()), [])
+
+    def test_a_verifier_pane_back_at_its_shell_closes_like_any_other(self):
+        self.env.update({'PAIR_EXIT_POLL_S': '0', 'KITCHEN_VERIFIER_EXIT_S': '5'})
+        (self.fake / 'exit-not-ready').mkdir()
+        (self.fake / 'exit-not-ready/demo-verifier').touch()
+        _, out = self.verify_app_unit('clean', 0)
+        self.assertNotIn('verifier exit refused', out)
+        self.assertFalse((self.fake / 'agents/demo-verifier').exists())
+
     def test_prime_verifier_stops_worker_before_removing_scratch(self):
         self.set_roster(
             '[verifier]\nkind = "prime-agent"\nargs = ["--model", "devin/swe-2", "--daemon-socket", "/tmp/verifier.sock"]\n'

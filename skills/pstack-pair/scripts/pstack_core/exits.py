@@ -6,7 +6,16 @@ import sys
 import time
 
 from .numbers import env_float, env_int
-from .panes import MERGED, agent_prompt, agent_status, dig, herdr, pane_text, parse
+from .panes import (
+    MERGED,
+    agent_prompt,
+    agent_status,
+    dig,
+    error_code,
+    herdr,
+    pane_text,
+    parse,
+)
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
 from .store import member, update
@@ -48,10 +57,15 @@ def answer_exit_dialog(name):
 def end_agent(name, kind, deadline):
     """Sends the kind's exit command and waits until the agent is absent or the epoch second `deadline` passes, answering Claude's exit dialog
     meanwhile. (error, gone): error is the text of an exit command herdr refused ('' for one it took or whose agent was already gone), and an
-    agent that was refused is not waited on."""
+    agent that was refused is not waited on. A refusal with agent_not_ready means the pane is already back at its shell and herdr has not dropped
+    the agent yet: the wait goes on, and the agent counts as exited only once herdr no longer lists it."""
     r = agent_prompt(name, exit_command(kind), stderr=MERGED)
     err = r.stdout.rstrip('\n')
-    if r.returncode != 0 and not TOLERATED.search(err):
+    if (
+        r.returncode != 0
+        and not TOLERATED.search(err)
+        and error_code(err) != 'agent_not_ready'
+    ):
         return err, False
     while agent_status(name) != 'absent':
         if int(time.time()) >= deadline:

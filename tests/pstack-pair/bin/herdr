@@ -56,6 +56,16 @@ case "$1 $2" in
 	printf 'idle %s\n' "$kind" >"$FAKE/agents/$name"; ok idle "$kind" ;;
 "agent prompt")
 	name="$3"; text="$4"; wait=0; until=""; shift 4
+	# $FAKE/exit-refused/<name>: herdr refuses the exit command for a reason of its own and the agent stays.
+	if { [ "$text" = /exit ] || [ "$text" = /quit ]; } && [ -e "$FAKE/exit-refused/$name" ]; then
+		printf '{"error":{"code":"exit_refused"}}\n' >&2; exit 1
+	fi
+	if { [ "$text" = /exit ] || [ "$text" = /quit ]; } && [ -e "$FAKE/exit-not-ready/$name" ]; then
+		# $FAKE/exit-not-ready/<name>: the pane is already back at its shell, so herdr refuses the exit command; the agent is dropped from the
+		# list, unless the file says "stays".
+		grep -qx stays "$FAKE/exit-not-ready/$name" || rm -f "$FAKE/agents/$name"
+		printf '{"error":{"code":"agent_not_ready","message":"no longer the pane foreground process"}}\n' >&2; exit 1
+	fi
 	if [ "$text" = /exit ] || [ "$text" = /quit ]; then
 		# $FAKE/exit-dialog/<name>: Claude's background-work dialog (the file's text) stays up and the agent with it until Enter is sent.
 		# $FAKE/exit-stuck/<name>: the exit command is taken but the agent stays, its screen shows no dialog, and it leaves on the Nth

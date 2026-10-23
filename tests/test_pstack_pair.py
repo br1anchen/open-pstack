@@ -226,6 +226,28 @@ esac
         self.run_command('rotate', str(self.store))
         self.assertEqual(self.send_keys(), [])
 
+    def exit_not_ready(self, text):
+        self.env['PAIR_EXIT_POLL_S'] = '0'
+        self.env['PAIR_EXIT_DEADLINE_S'] = '0'
+        (self.fake / 'exit-not-ready').mkdir()
+        (self.fake / 'exit-not-ready/demo-sidekick').write_text(text)
+
+    def test_rotate_takes_a_pane_back_at_its_shell_as_exited(self):
+        self.complete_task()
+        self.exit_not_ready('')
+        out = self.run_command('rotate', str(self.store))
+        self.assertNotIn('exit failed', out)
+        self.assertEqual(self.state()['sidekick']['generation'], 2)
+
+    def test_rotate_does_not_count_an_agent_not_ready_exit_whose_agent_is_still_listed(
+        self,
+    ):
+        self.complete_task()
+        self.exit_not_ready('stays\n')
+        out = self.run_command('rotate', str(self.store), code=5)
+        self.assertIn('has not exited', out)
+        self.assertEqual(self.state()['sidekick']['generation'], 1)
+
     def fresh_session_state(self, state, settles):
         """The rotated sidekick is `state` once its bootstrap has run; with `settles` (idle or blocked) its next herdr wait ends in that state."""
         settle = self.fake / 'settle'

@@ -24,9 +24,9 @@ from pstack_core.errors import (
     VerificationTaken,
     translate,
 )
-from pstack_core.exits import exit_command, stop_prime_role
+from pstack_core.exits import end_agent, stop_prime_role
 from pstack_core.numbers import env_int, int_or_none
-from pstack_core.panes import agent_prompt, agent_status, herdr
+from pstack_core.panes import agent_prompt, herdr
 from pstack_core.send import submit_typed
 from pstack_core.store import (
     count,
@@ -171,10 +171,11 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
                 'Prime verifier cleanup failed; its pane and scratch stay for inspection'
             )
     else:
-        agent_prompt(name, exit_command(kind))
-        gone = int(time.time()) + env_int('KITCHEN_VERIFIER_EXIT_S', 15)
-        while agent_status(name) != 'absent' and int(time.time()) < gone:
-            time.sleep(1)
+        refused, _ = end_agent(
+            name, kind, int(time.time()) + env_int('KITCHEN_VERIFIER_EXIT_S', 15)
+        )
+        if refused:
+            sys.stderr.write(f'verifier exit refused: {refused}\n')
     herdr('pane', 'close', pane)
     if kind == 'prime-agent':
         update(store, lambda doc: set_member(doc, 'verifier', 'closed', True))
