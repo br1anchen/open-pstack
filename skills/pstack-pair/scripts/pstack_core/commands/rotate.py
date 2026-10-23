@@ -7,6 +7,7 @@ import sys
 import time
 
 from ..argv import Spec, read
+from ..checkin import sidekick_busy
 from ..store import event, field, load, names, pair_file, peek, read_flag, text_at, expected_report, who
 from ..numbers import env_float
 from ..errors import Die, RotationFailed, translate
@@ -118,9 +119,10 @@ def queue(ctx, args):
         raise Die(f'the queue holds {queued}; pass --replace to swap it', 5)
     name = text_at(peek(pair, 'sidekick'), 'name')
     status = agent_status(name)
-    if status in ('idle', 'done'):
+    busy = sidekick_busy(store, status, time.time())
+    if status in ('idle', 'done') and not busy:
         raise Die(f'{who("sidekick", name)} is {status}; dispatch instead: pair.sh dispatch {store} {brief}', 5)
-    if status != 'working':
+    if not busy:
         raise Die(f'{who("sidekick", name)} is {status}; resolve that before queueing', 3)
     with open(f'{store}/queue.tmp', 'w', encoding='utf-8') as f:
         f.write(f'{brief}\n')

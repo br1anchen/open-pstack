@@ -507,7 +507,7 @@ class CoreTests(unittest.TestCase):
             'an idle sidekick that never replies': dict(idle, args=run + ['--timeout', '1000']),
             '--every on the wait': dict(idle, args=run + ['--every', '1'], report_after=reply),
             'an idle sidekick and a prompt that fails': dict(idle, promptfail=True),
-            'an idle sidekick with no objection': dict(args=run, agents={'s1': 'idle claude'}, files=steer),
+            'an idle sidekick whose unit failed and no objection': dict(args=run, agents={'s1': 'idle claude'}, files={**steer, 'reports/001-x.md': '# R\n\nstatus: failed\n'}),
             'an idle sidekick whose objection was answered': dict(idle, files={**steer, 'reports/001-x-s1.md': '# R\n\nstatus: agree\n'}),
             'an idle sidekick and a steer that supersedes none': dict(idle, files={**steer, 'steers/001-x-s1.md': self.STEER_TEXT + '\nsupersedes: none\n'}),
             'an idle sidekick and a steer that supersedes an objection': dict(idle, report_after=reply, files={**steer, 'steers/001-x-s1.md': self.STEER_TEXT + '\nsupersedes: s1\n'}),
@@ -814,6 +814,11 @@ class CoreTests(unittest.TestCase):
         for rel, text in spec.get('fakefiles', {}).items():
             (fake / rel).parent.mkdir(parents=True, exist_ok=True)
             (fake / rel).write_text(text)
+        if spec.get('procs'):
+            # processes (pid: dict(comm, elapsed, ...)) run from the sidekick's pane p1 on the world's herdr socket, as a harness's background command
+            here = [f'HERDR_PANE_ID={spec.get("procs_pane", "p1")}', f'HERDR_SOCKET_PATH={top / "herdr.sock"}']
+            write_proc_tree(top / 'procs', {pid: dict(ppid=1, argv=[row['comm']], environ=here, **row) for pid, row in spec['procs'].items()})
+            env['PAIR_PROC_ROOT'] = str(top / 'procs')
         if spec.get('pstable'):
             rows = [line.split('\t', 3) for line in spec['pstable'].splitlines()]
             write_proc_tree(top / 'proc', {int(pid.replace('SELF', str(os.getpid()))): dict(ppid=int(ppid), comm=comm, argv=args.split(' '))
@@ -1333,7 +1338,6 @@ class CoreTests(unittest.TestCase):
         for label, report, advice in (('blocked', 'blocked', 'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)'),
                                       ('partial', 'partial', 'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)'),
                                       ('done', 'done', 'write a fix brief'),
-                                      ('no report', None, 'fold the steer into the next brief instead'),
                                       ('failed', 'failed', 'fold the steer into the next brief instead')):
             files = {} if report is None else {'reports/001-x.md': f'# R\n\nstatus: {report}\nhead: {{c3}}\n'}
             top, st, run = self.own_world('sa-' + label.replace(' ', '-'), files=files, agents={'s1': 'idle claude'})
@@ -1345,6 +1349,61 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(r.stderr, f'pair.sh: sidekick s1 is idle and no objection is open on unit 001; {advice.format(st=st)}\n', label)
             calls = (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else ''
             self.assertNotIn('agent prompt', calls, label)
+
+    SK = {'kind': 'claude', 'generation': 1, 'name': 's1', 'pane_id': 'p1'}
+    DISPATCHED = {'brief': '{st}/briefs/001-x.md', 'at': '2026-01-01T00:00:00Z', 'generation': 1}
+    STEER_001 = '# Steer 001-s1: x\n\nbrief: {st}/briefs/001-x.md\nsupersedes: none\nkind: scope\nscope effect: %s\n\n## Direction\n\nDo it.\n'
+
+    def busy_world(self, label, status, procs=None, report=None, effect='none', **spec):
+        """A world whose sidekick s1 (pane p1) was dispatched 001-x and shows this herdr status; procs run in its pane, report is 001-x's report."""
+        files = {} if report is None else {'reports/001-x.md': f'# R\n\nstatus: {report}\nhead: {{c3}}\n'}
+        sent = {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 1}
+        top, st, run = self.own_world(label, files=files, agents={'s1': f'{status} claude'}, procs=procs,
+                                      pair={'sidekick': self.SK, 'dispatch': self.DISPATCHED, 'sent': sent, 'pending': ['{st}/briefs/001-x.md']}, **spec)
+        steer = st / 'steers/001-x-s1.md'
+        steer.parent.mkdir(exist_ok=True)
+        steer.write_text((self.STEER_001 % effect).replace('{st}', str(st)))
+        return top, st, run, steer
+
+    def prompts(self, top):
+        calls = (top / 'fake/calls.log').read_text() if (top / 'fake/calls.log').exists() else ''
+        return [l for l in calls.splitlines() if l.startswith('agent prompt')]
+
+    BG = {50: dict(comm='make', elapsed=300)}
+
+    def test_a_steer_to_a_sidekick_idle_on_its_own_background_command_is_delivered_as_a_working_steer(self):
+        # gotham-1095#1: the harness reports idle while its command still runs; the old refusal said "no objection is open".
+        for status in ('idle', 'done'):
+            top, st, run, steer = self.busy_world('bg-' + status, status, procs=self.BG, report='done')
+            r = run('steer', '{st}', str(steer))
+            self.assertEqual((r.returncode, r.stderr), (0, ''), status)
+            self.assertIn(f'steered s1 with {steer}', r.stdout)
+            self.assertEqual(self.prompts(top), [f'agent prompt s1 pstack-pair STEER {steer}'], status)
+
+    def test_a_steer_to_an_idle_sidekick_whose_unit_has_no_report_is_delivered(self):
+        # python-port-3#3, python-port-4(1020)#4: nothing to fold the steer into yet, so the sidekick gets it now.
+        top, st, run, steer = self.busy_world('noreport', 'idle')
+        r = run('steer', '{st}', str(steer))
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        self.assertIn(f'steered s1 with {steer}; unit 001 has no report yet', r.stdout)
+        self.assertEqual(self.prompts(top), [f'agent prompt s1 pstack-pair STEER {steer} --wait --until working --timeout 30000'])
+
+    def test_a_steer_to_a_blocked_agent_is_still_refused_even_with_a_command_in_its_pane(self):
+        top, st, run, steer = self.busy_world('blockedbg', 'blocked', procs=self.BG)
+        r = run('steer', '{st}', str(steer))
+        self.assertEqual((r.returncode, r.stdout), (3, ''))
+        self.assertEqual(r.stderr, 'pair.sh: sidekick s1 is blocked; inspect: herdr agent read s1 --source visible --lines 60\n')
+        self.assertEqual(self.prompts(top), [])
+
+    def test_queue_accepts_a_sidekick_idle_on_a_background_command_and_refuses_a_blocked_or_quiet_one(self):
+        # gate-speed-1106#7
+        for status, procs, code, said in (('idle', self.BG, 0, "queued {st}/briefs/002-y.md; it waits for the master's dispatch"),
+                                          ('done', self.BG, 0, 'queued'), ('idle', None, 5, 'sidekick s1 is idle; dispatch instead'),
+                                          ('blocked', self.BG, 3, 'sidekick s1 is blocked; resolve that before queueing')):
+            top, st, run, steer = self.busy_world(f'q-{status}-{bool(procs)}', status, procs=procs, report='done')
+            r = run('queue', '{st}', '{st}/briefs/002-y.md')
+            self.assertEqual(r.returncode, code, (status, procs, r.stderr))
+            self.assertIn(said.replace('{st}', str(st)), r.stdout + r.stderr)
 
     def note_world(self, label, status, **spec):
         top, st, run = self.own_world(label, files={'steps/001-x.tsv': '1\t{c1}\t5\t\tone\n'}, **spec)
@@ -6788,7 +6847,7 @@ class CoreTests(unittest.TestCase):
             'a working prime sidekick whose daemon fails': (2, 'Prime steer failed for s1'),
             'a working sidekick whose esc cannot be sent': (2, 'herdr send-keys failed for s1'),
             'an unknown sidekick': (5, 'sidekick s1 is unknown; read the pane, then pass --force to steer anyway'),
-            'an idle sidekick with no objection': (5, 'sidekick s1 is idle and no objection is open on unit 001; fold the steer into the next brief instead'),
+            'an idle sidekick whose unit failed and no objection': (5, 'sidekick s1 is idle and no objection is open on unit 001; fold the steer into the next brief instead'),
             'the sidekick is blocked': (3, 'sidekick s1 is blocked; inspect: herdr agent read s1 --source visible --lines 60'),
         })
 

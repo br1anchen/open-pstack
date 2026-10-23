@@ -4,6 +4,7 @@ import re
 import sys
 import time
 
+from ..checkin import sidekick_busy
 from ..store import event, field, read_text, header_field, member, names, newest, unit_name, update, who
 from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
@@ -87,15 +88,18 @@ def steer_working(store, name, steer_path, message, interrupt):
         print(f'steered {name} with {steer_path}; its harness hands it over between tool calls and the ack lands in the progress log')
 
 
-def open_objection(ctx, store, name, status, steer_path):
-    """The objection a steer answers when the sidekick is between turns: the unit's newest `-s<k>` report with status object. Without one the steer
-    is refused with what to do instead; a steer that supersedes nothing is refused too."""
+def settled_route(ctx, store, name, status, steer_path):
+    """How a steer reaches a sidekick that is between turns: 'objection' when the unit's newest `-s<k>` report has status object (the steer answers it),
+    'deliver' when the unit has no report yet (nothing to fold the steer into, so the sidekick takes it now). Any other unit report refuses the
+    steer with what to do instead, and a steer that answers an objection but supersedes nothing is refused too."""
     seq = os.path.basename(steer_path)[:3]
     slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
     objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
     if not objection or header_field(objection, 'status') != 'object':
         report = f'{store}/reports/{seq}-{slug}.md'
-        unit_status = header_field(report, 'status') if os.path.isfile(report) else ''
+        if not os.path.isfile(report):
+            return 'deliver'
+        unit_status = header_field(report, 'status')
         if unit_status in ('blocked', 'partial'):
             advice = f'apply its scope effect to the brief and re-dispatch it (dispatch {store} <brief> --send-only)'
         elif unit_status == 'done':
@@ -106,6 +110,7 @@ def open_objection(ctx, store, name, status, steer_path):
         raise NoObjectionOpen(f'{who("sidekick", name)} is {status} and no objection is open on unit {seq}; {advice}')
     if header_field(steer_path, 'supersedes') == 'none':
         raise BadSteer(f'{steer_path} answers {objection} but its supersedes: line says none')
+    return 'objection'
 
 
 def steer(ctx, args):
@@ -123,10 +128,14 @@ def steer(ctx, args):
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     message = f'{ctx.skill} STEER {steer_path}'
-    if status == 'working':
+    if sidekick_busy(store, status, time.time()):
         steer_working(store, name, steer_path, message, interrupt)
     elif status in ('idle', 'done'):
-        open_objection(ctx, store, name, status, steer_path)
+        if settled_route(ctx, store, name, status, steer_path) == 'deliver':
+            event(store, 'master', 'send-steer', steer_path, 'idle')
+            prompt_sidekick(name, message)
+            print(f'steered {name} with {steer_path}; unit {os.path.basename(steer_path)[:3]} has no report yet, so it reads the steer now')
+            return 0
         event(store, 'master', 'send-steer', steer_path, 'objection')
         # The reply to this steer is any report on the unit written from now.
         open_the_objection_round(store, int(time.time()))
