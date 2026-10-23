@@ -8,8 +8,10 @@ to `gate` and to `brief-verify` without --list). test_setup_kpy_calls_leave_the_
 import json
 import os
 import sys
+from dataclasses import replace
 
 from pstack_core import agents, spawn as pair_spawn
+from pstack_core.spawn import spawn_options, start_sidekick
 from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
 from pstack_core.store import field, read_text, event, json_type, listing, load, member, now, pair_file, text_at, update
@@ -142,9 +144,7 @@ def spawn(ctx, args):
     store, fb_args = args[0], []
     opts = read(args[1:], Spec(valued=('--kind', '--fallback', '--fallback-arg'), dashdash=True, unknown='collect'))
     kind, fallback = opts.last('--kind', ''), opts.last('--fallback', '')
-    rest, native = list(opts.leftovers), list(opts.after_dashdash)
-    for a in opts.all('--fallback-arg'):
-        rest += ['--fallback-arg', a]
+    native = list(opts.after_dashdash)
     roster = json.loads(roster_json())
     if not kind:
         kind = roster_text(roster, 'sidekick', 'kind')
@@ -155,11 +155,10 @@ def spawn(ctx, args):
     if not fallback and kind == roster_text(roster, 'sidekick', 'kind'):
         fallback = roster_text(roster, 'sidekick', 'fallback', 'kind')
         fb_args = roster_lines(roster, 'sidekick', 'fallback', 'args')
-    if fallback:
-        rest += ['--fallback', fallback]
-    for a in fb_args:
-        rest += ['--fallback-arg', a]
-    return pair_spawn.spawn(ctx, [store, '--kind', kind, *rest, '--', *native])
+    given = spawn_options(list(opts.leftovers))
+    end_with_parent()
+    return start_sidekick(ctx, store, replace(given, kind=kind, fallback=fallback, native=tuple(native),
+                                              fallback_args=(*opts.all('--fallback-arg'), *fb_args)))
 
 
 def consultant(ctx, args):

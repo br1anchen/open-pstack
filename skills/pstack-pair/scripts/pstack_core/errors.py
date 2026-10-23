@@ -221,6 +221,23 @@ class EmptyScope(PairError):
     """A brief lists nothing it may write."""
 
 
+class KindRequired(PairError):
+    """spawn was given no agent kind."""
+
+    def __init__(self):
+        super().__init__('--kind is required (run: herdr agent, for the kind list)')
+
+
+class BadScratch(PairError):
+    """A scratch id, the store's repository or the commit a scratch starts at cannot be used."""
+
+
+class ScratchNotMade(PairError):
+    """git or jj would not add the scratch worktree."""
+
+    code = 2
+
+
 class SetupFailed(PairError):
     """The run's [scratch].setup failed in a linked worktree."""
 

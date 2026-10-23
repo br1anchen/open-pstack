@@ -20,7 +20,7 @@ from types import SimpleNamespace
 
 from pstack_core.argv import Spec, read as read_options
 from pstack_core.agents import has_mcp_arg, has_permission_arg, has_trust_arg, mcp_args, permission_args, trust_args
-from pstack_core.commands import scratch as scratch_command
+from pstack_core.commands.scratch import make_scratch
 from pstack_core.store import (
     wake,     env_float, env_int, event, expected_report, field, header_field, json_type, load, names, pair_file, peek, read, text_at, read_text, write_text,
     update, whole_number,
@@ -423,9 +423,7 @@ def launch_verifier(v):
             why = f'{v.kind} asks whether to trust {v.scratch}, and that decision is yours: open {v.kind} in the repo once and trust it, or verify with another kind'
             herdr('pane', 'send-keys', pane, 'esc')
         herdr('pane', 'close', pane)
-        removed = vs.remove_scratch(v.ctx, store, v.scratch_id)
-        if removed:
-            raise ToolFailed(removed)
+        vs.remove_scratch(v.ctx, store, v.scratch_id)
         vs.set_outcome(v.packet, 'start-failed')
         raise VerifierStartFailed(why)
     return pane, started
@@ -558,20 +556,12 @@ def is_number(value):
 
 def scratch_path(ctx, store, scratch_id, head):
     """The scratch worktree's path at head; the scratch command's refusal ends verify with its status."""
-    sink = io.StringIO()
     try:
-        with contextlib.redirect_stdout(sink):
-            rc = scratch_command.run(ctx, [store, scratch_id, '--at', head])
-    except (Die, PairError) as e:
+        return make_scratch(ctx, store, scratch_id, at=head)
+    except PairError as e:
         text, code = translate(e, ctx.prog)
         warn(text)
         raise ToolFailed(code) from None
-    if rc:
-        raise ToolFailed(rc)
-    lines = sink.getvalue().split('\n')
-    if lines and lines[-1] == '':
-        lines.pop()
-    return lines[-1] if lines else ''
 
 
 def gates_verdict(ctx, store, verdict, last, slug, allunits, base, head):

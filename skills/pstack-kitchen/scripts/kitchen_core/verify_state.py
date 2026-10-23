@@ -10,16 +10,16 @@ import time
 import zlib
 import io
 import os
-import subprocess
 import random
 import re
 import socket
 import sys
 
 from pstack_core.store import (
-    TEXT, exit_code, read_text, write_text, count, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update,
+    read_text, write_text, count, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update,
 )
 from pstack_core.errors import ClosedElsewhere, DamagedStore, NoVerification, PrimeFailed, ToolFailed, translate
+from pstack_core.commands.scratch import remove_scratch
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.panes import agent_prompt, agent_status, herdr
 from pstack_core.send import submit_typed
@@ -157,27 +157,8 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     herdr('pane', 'close', pane)
     if kind == 'prime-agent':
         update(store, lambda doc: set_member(doc, 'verifier', 'closed', True))
-    return remove_scratch(ctx, store, scratch)
-
-
-def core_argv(ctx, *command):
-    """The words that run the core as a process of its own, with this command's skill root."""
-    from pstack_core import cli
-    pair_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(cli.__file__))), 'pair.py')
-    return [sys.executable, '-I', pair_py, '--skill-root', ctx.skill_root, *command]
-
-
-def scratch_process(ctx, store, scratch, *options, capture=False):
-    """The core's scratch command as a process of its own: (status, stdout when captured). Its errors, a traceback included, are its own stderr."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    r = subprocess.run(core_argv(ctx, 'scratch', store, scratch, *options), stdout=subprocess.PIPE if capture else subprocess.DEVNULL, check=False, **TEXT)
-    return exit_code(r.returncode), r.stdout if capture else ''
-
-
-def remove_scratch(ctx, store, scratch):
-    """The status of removing the scratch."""
-    return scratch_process(ctx, store, scratch, '--remove')[0]
+    remove_scratch(ctx, store, scratch)
+    return 0
 
 
 def run_close(ctx, store, name, kind, pane, verdict):

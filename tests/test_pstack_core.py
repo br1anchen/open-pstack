@@ -30,7 +30,7 @@ import run as run_module  # noqa: E402
 from pstack_core import agents, argv, cli, exits, git, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
-    BadNumber, DamagedStore, Die, EmptyStepLog, Exit, FileFailed, LockHeld, MissingStore, NoBrief, NotInHerdr, PairError, PairJsonGone, Paused, PlanNotAgreed,
+    BadNumber, BadScratch, DamagedStore, Die, EmptyStepLog, Exit, FileFailed, LockHeld, MissingStore, NoBrief, NotInHerdr, PairError, PairJsonGone, Paused, PlanNotAgreed,
     StepLogUnreadable, ToolFailed, UnitNotCheckable, Unfilled, refuse_as, translate,
 )
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
@@ -4232,13 +4232,13 @@ class CoreTests(unittest.TestCase):
         self.assertIn('true 1', landing)
         self.assertIn('true 2', landing)
 
-    def kitchen_py(self, store, code, env=None, cwd=None, pid=None):
+    def kitchen_py(self, store, code, env=None, cwd=None, pid=None, prog='pair.sh'):
         """Python run in a fresh interpreter with kitchen_core.verify_state loaded as `vs` and a context `ctx`: (status, stdout, stderr). pid, when
         given, is the process id verify_state takes for the running command."""
         pre = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nsys.path.insert(0, {str(root / "skills/pstack-kitchen/scripts")!r})\n'
                'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import units, verify, verify_state as vs\nfrom pstack_core.store import Context\n'
                'from pstack_core.errors import Die, Exit, PairError\n'
-               f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "")\n'
+               f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "", {prog!r})\n'
                f'store = {str(store)!r}\n' + (f'import os\nos.getpid = lambda: {pid}\n' if pid else ''))
         r = subprocess.run([sys.executable, '-I', '-c', pre + code], env={k: v for k, v in {**self.env, **self.GIT, 'HOSTNAME': 'testhost', **(env or {})}.items() if v is not None}, capture_output=True,
                            text=True, check=False, timeout=120, cwd=cwd)
@@ -4360,7 +4360,7 @@ class CoreTests(unittest.TestCase):
         extra = {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}, 'git_root': str(self.path)}
         st = self.claim_store('rcpy', verifying, extra)
         rc, out, err = self.kitchen_py(st, 'try:\n    vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\nexcept (Exit, PairError) as e:\n    print("rc=%d" % e.code)\n',
-                                       pid=os.getpid())
+                                       pid=os.getpid(), prog='kitchen.sh')
         self.assertEqual(out, 'rc=1\n')
         self.assertEqual(self.mask_token(err).replace(str(st), '<S>'), 'kitchen.sh: scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review\n')
         self.assertNotIn('closing', (st / 'pair.json').read_text())
@@ -6143,11 +6143,7 @@ class CoreTests(unittest.TestCase):
         for name, number, want in (('TERM', signal.SIGTERM, 143), ('KILL', signal.SIGKILL, 137), ('HUP', signal.SIGHUP, 129)):
             bash = subprocess.run(['bash', '-c', f'out="$(sh -c "kill -{name} \\$\\$")"; echo $?'], capture_output=True, text=True, check=True).stdout.strip()
             self.assertEqual(bash, str(want))
-            st = self.claim_store(f'sig{name}', {'verdict': 'v'})
-            code = (f'from unittest import mock\nwith mock.patch.object(vs, "core_argv", return_value=["sh", "-c", "kill -{name} $$"]):\n'
-                    '    print(vs.scratch_process(ctx, store, "x", "--remove"))')
-            rc, out, err = self.kitchen_py(st, code)
-            self.assertEqual((rc, out), (0, f"({want}, '')\n"), (name, err))
+            self.assertEqual(store.exit_code(-number), want)
 
     def test_a_message_names_the_role_alone_where_the_store_records_no_agent_name_and_a_grace_line_leaves_out_a_delivery_that_is_not_recorded(self):
         verify_wait = self.kitchen_core_module('verify_wait')
@@ -6175,18 +6171,47 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(units.captured(ctx, writes_around_a_child), (0, ''))
         self.assertEqual(err.getvalue(), 'before\nafter\n')
 
-    def test_closing_a_verification_folds_the_stderr_of_the_scratch_removal_into_the_closed_text(self):
-        units = self.kitchen_core_module('units')
+    def test_removing_the_scratch_of_a_store_with_no_pair_json_raises_the_core_refusal_in_process(self):
         verify_state = self.kitchen_core_module('verify_state')
         world = self.path / 'world'
         world.mkdir()
-        ctx = Context('pstack-kitchen', str(root / 'skills/pstack-kitchen'), str(self.path / 'state'), 'Kitchen', ('sidekick',), (), 21, '')
-        def removes():
+        ctx = Context('pstack-kitchen', str(root / 'skills/pstack-kitchen'), str(self.path / 'state'), 'Kitchen', ('sidekick',), (), 21, '', 'kitchen.sh')
+        with self.assertRaises(MissingStore) as refused:
             verify_state.remove_scratch(ctx, str(world), '001-x-verify')
+        self.assertEqual(translate(refused.exception, ctx.prog), (f'kitchen.sh: no pair.json in {world}; run: pair.sh init <slug>\n', 1))
 
-        status, text = units.captured(ctx, removes, merge_stderr=True)
-        self.assertEqual(status, 0)
-        self.assertIn('no pair.json in', text)
+    def test_a_scratch_is_made_and_removed_in_process_and_each_returns_its_path(self):
+        from pstack_core.commands import scratch
+        ctx = Context('pstack-pair', '/x', '/s', 'Pair', ('sidekick',), (), 21, '')
+        repo, st = self.path / 'scr-repo', self.path / 'scr-st'
+        repo.mkdir()
+        st.mkdir()
+        env = {**self.env, **self.GIT}
+        for args in (('init', '-q', '-b', 'main'), ('commit', '-q', '--allow-empty', '-m', 'one')):
+            subprocess.run(['git', '-C', str(repo), *args], env=env, check=True, capture_output=True)
+        (st / 'pair.json').write_text(json.dumps({'git_root': str(repo)}) + '\n')
+        head = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], env=env, capture_output=True, text=True, check=True).stdout.strip()
+        with mock.patch.dict(os.environ, env):
+            path = scratch.make_scratch(ctx, str(st), '001-x', at=head)
+            self.assertTrue(os.path.isdir(path))
+            self.assertEqual(scratch.make_scratch(ctx, str(st), '001-x', at=head), path)
+            self.assertEqual(json.loads((st / 'pair.json').read_text())['scratch'], ['001-x'])
+            with self.assertRaises(BadScratch) as refused:
+                scratch.make_scratch(ctx, str(st), 'bad id')
+            self.assertEqual(translate(refused.exception, 'pair.sh'), ('pair.sh: scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review\n', 1))
+            with self.assertRaises(BadScratch) as refused:
+                scratch.make_scratch(ctx, str(st), '002-y', at='0' * 40)
+            self.assertEqual(translate(refused.exception, 'pair.sh'), (f'pair.sh: not a commit: {"0" * 40}\n', 1))
+            self.assertEqual(scratch.remove_scratch(ctx, str(st), '001-x'), path)
+            self.assertFalse(os.path.exists(path))
+            self.assertEqual(json.loads((st / 'pair.json').read_text())['scratch'], [])
+
+    def test_spawn_options_read_the_words_after_the_store_with_the_last_of_a_repeated_option_winning(self):
+        from pstack_core.spawn import SpawnOptions, spawn_options
+        self.assertEqual(spawn_options([]), SpawnOptions())
+        got = spawn_options(['--kind', 'a', '--kind', 'b', '--fallback', 'c', '--fallback-arg', '--x', '--fallback-arg', 'y', '--tab', '--split', '--pane', 'p9',
+                             '--timeout', '5', '--', 'n1', '--n2'])
+        self.assertEqual(got, SpawnOptions(kind='b', fallback='c', fallback_args=('--x', 'y'), pane='p9', timeout='5', placement='split', native=('n1', '--n2')))
 
     def test_translate_turns_a_failure_into_stderr_text_and_an_exit_code(self):
         cases = [(Exit(4, 'said\n'), 'pair.sh', ('said\n', 4)), (Exit(2), 'pair.sh', ('', 2)), (Die('refused', 5), 'pair.sh', ('pair.sh: refused\n', 5)),

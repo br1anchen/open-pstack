@@ -5,12 +5,13 @@ import io
 import os
 import sys
 import time
+from dataclasses import dataclass
 
 from . import agents
 from .argv import Spec, read
 from .send import fresh_kind, submit_typed, visible_without_blanks
 from .store import exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, pair_file, whole_number, who
-from .errors import AgentStartFailed, BadPlacement, Die, FreshStartOnly, NoFallback, PrimeFailed
+from .errors import AgentStartFailed, BadPlacement, Die, FreshStartOnly, KindRequired, NoFallback, PrimeFailed
 from .panes import (
     DEVNULL, MERGED, PIPE, agent_field, agent_prompt, agent_start, agent_status, await_file, herdr, new_pane, refuse_untrusted, require_herdr,
 )
@@ -263,25 +264,48 @@ VALUED = {'--kind': 'kind', '--fallback': 'fallback', '--permission': 'permissio
 SPEC = Spec(valued=(*VALUED, '--fallback-arg'), flags=('--tab', '--split'), dashdash=True)
 
 
-def spawn(ctx, args):
+@dataclass(frozen=True)
+class SpawnOptions:
+    """What `spawn` reads from its words after the store; the empty string is an option not given."""
+    kind: str = ''
+    fallback: str = ''
+    fallback_args: tuple = ()
+    permission: str = ''
+    direction: str = ''
+    pane: str = ''
+    timeout: str = '60000'
+    placement: str = ''
+    native: tuple = ()
+
+
+def spawn_options(words):
+    """The SpawnOptions of the words after the store; the last of a repeated option wins, and an option that takes a value takes the next word."""
+    parsed = read(words, SPEC)
+    given = {}
+    placement = ''
+    for flag, value in parsed.occurrences:
+        if flag in VALUED:
+            given[VALUED[flag]] = value
+        elif flag in ('--tab', '--split'):
+            placement = flag[2:]
+    return SpawnOptions(**given, fallback_args=tuple(parsed.all('--fallback-arg')), placement=placement, native=tuple(parsed.after_dashdash))
+
+
+def start_sidekick(ctx, store, options):
     """Starts the sidekick (or its recorded fallback) in a pane: 0, 3 (the bootstrap did not settle) or 4 (it settled without the ready file)."""
+    whole_number(options.timeout, '--timeout', 'milliseconds')
+    if not options.kind:
+        raise KindRequired()
+    pair_file(store)
+    set_placement(store, options.placement)
+    record_fallback(store, options.fallback, options.fallback_args)
+    return spawn_sidekick(ctx, store, options.kind, options.permission, field(store, 'master', 'pane_id'), options.timeout, options.direction, options.pane,
+                          list(options.native))
+
+
+def spawn(ctx, args):
     end_with_parent()
     require_herdr()
     if not args:
         raise Die(usage(ctx))
-    store = args[0]
-    opts = {'kind': '', 'direction': '', 'pane': '', 'timeout': '60000', 'permission': '', 'fallback': '', 'placement': ''}
-    parsed = read(args[1:], SPEC)
-    for flag, value in parsed.occurrences:
-        if flag in VALUED:
-            opts[VALUED[flag]] = value
-        elif flag in ('--tab', '--split'):
-            opts['placement'] = flag[2:]
-    fallback_args, rest = parsed.all('--fallback-arg'), list(parsed.after_dashdash)
-    whole_number(opts['timeout'], '--timeout', 'milliseconds')
-    if not opts['kind']:
-        raise Die('--kind is required (run: herdr agent, for the kind list)')
-    pair_file(store)
-    set_placement(store, opts['placement'])
-    record_fallback(store, opts['fallback'], fallback_args)
-    return spawn_sidekick(ctx, store, opts['kind'], opts['permission'], field(store, 'master', 'pane_id'), opts['timeout'], opts['direction'], opts['pane'], rest)
+    return start_sidekick(ctx, args[0], spawn_options(args[1:]))
