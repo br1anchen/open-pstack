@@ -18,6 +18,20 @@ work?", and then your pane closes.
    under `not for the verifier:` hold master-only commands and commands that name
    the main checkout or the store (by absolute path, `~/` or `$HOME/`), each with
    its reason; you run neither kind.
+   Under `Inputs (read-only)` the packet lists the existing store paths the
+   briefs name (a report, a triage table, a plan): read them, never write them.
+   A landing packet also cites each plan's Verification under `Plan
+   verification: <plan>`. Only a fenced `bash`, `sh` or `shell` block of it
+   runs, as a numbered `# plan ...: Verification command N` block in the Prove
+   block (it stops at its first failing line); every other line of the
+   Verification, each inline code span included, is listed under `Master
+   obligations, not yours`: report the evidence you see, or write `pending`,
+   and never run one. A plan that is missing or has no Verification says so
+   in a `warning:` line.
+   A landing packet's `Verified on their own` and `Folded into this landing`
+   lines name which units have a clean verdict of their own. For each folded
+   unit it carries a `## Acceptance: unit ...` section: prove every line of it
+   at this tip, and answer each in the verdict's `Folded Acceptance` section.
    A check against the base (running the old code to compare) runs in a second
    scratch of its own (`kitchen.sh scratch <store> <id> --at <base>`), never in
    the one the gates use.
@@ -34,7 +48,11 @@ work?", and then your pane closes.
    your own ports, emulators, and data, and stop every server, emulator, or
    process you start before step 7.
 3. Run every command under Prove. They are the repo's behavioral gates for
-   the touched profiles. Run anything that can outlast your harness's
+   the touched profiles. Each gate line ends in `# median 6m 12s over 10 runs`,
+   the median of the gate's last 10 passing runs, or in `# unmeasured` when
+   fewer than 3 passing runs are on record; a line before it, `# over 8
+   minutes: run it in the background, wait for it to finish, then check its
+   exit status`, marks a gate whose median is 8 minutes or more. Run anything that can outlast your harness's
    foreground limit (a sweep, a long suite) in the background and wait on its
    process or log. Never count a script your harness killed as passing
    evidence: say in an inconclusive verdict what was interrupted and what that

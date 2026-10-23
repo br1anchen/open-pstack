@@ -86,7 +86,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      it, and land-check still needs a clean verdict and an accepted review.
      A clean landing verdict counts as that verdict for every unit whose head
      its range contains (`covered:` in land-check); an inconclusive one is
-     still yours to settle.
+     still yours to settle. The landing packet carries the Acceptance of each
+     such folded unit and the verdict must answer every line of it.
      A `batch` unit may wait for the next done unit and verify together
      (`kitchen.sh verify <store> 004 005`); verify a batch before landing at
      the latest. Exit 2 with `reject`: run the `revise` command it prints,
@@ -186,7 +187,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    master would; anything the kitchen missed is
    `kitchen.sh catch <store> <layer> "<what>" <NNN>`, naming the layer that
    should have caught it and the unit it was in.
-8. **Land.** When the last units were folded into the landing verification,
+8. **Land.** When the last units were folded into the landing verification
+   (its packet lists their Acceptance, which the verdict answers line by line),
    its clean verdict comes first, then the review notes for those units, then
    `kitchen.sh land-check <store>`. Review the stack as a
    whole for anything between units, then the landing brief. Review it from
