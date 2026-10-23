@@ -11,7 +11,7 @@ from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
 from ..argv import Spec, read
-from ..wait import TIMING, end_with_parent, owned_wait, timeout_ms
+from ..wait import TIMING, end_with_parent, print_outcome, timeout_ms, wait_for
 from .report import require_pair
 
 
@@ -114,7 +114,7 @@ def steer(ctx, args):
         # The reply to this steer is any report on the unit written from now.
         open_the_objection_round(store, int(time.time()))
         prompt_sidekick(name, message)
-        return owned_wait(ctx, store, name, timeout, interval)
+        return print_outcome(wait_for(ctx, store, timeout=timeout, interval=interval, name=name))
     elif status == 'unknown':
         if not force:
             raise Die(f'{who("sidekick", name)} is unknown; read the pane, then pass --force to steer anyway', 5)

@@ -1,8 +1,7 @@
 """dispatch, queue and discuss: send a brief and wait quietly, hold the next brief, and run a plan round. The plan round with the consultant is pstack_core.consult's.
 
-The core's dispatch is called as a function with its stdout captured (units.captured) and PAIR_QUIET_WAIT=1 set for the call; its nonzero return
-is its exit status. When the digest is a check-in with nothing flagged, the quiet wait's status is the command's status, and the dispatch's own wake
-row and its digest are not reached."""
+The core's dispatch_brief runs quiet and returns a DispatchResult. When its wait returned on a check-in with nothing flagged, the quiet wait's
+status is the command's status, and the check-in is neither printed nor recorded as a wake."""
 
 import contextlib
 import io
@@ -16,28 +15,18 @@ from pstack_core.consult import discuss_with_consultant
 from pstack_core.panes import agent_status
 from pstack_core.store import field, pair_file, risk_of, whole_number
 from pstack_core.commands.report import require_pair
-from pstack_core.errors import Die, Exit, MissingStore, translate
+from pstack_core.errors import Die, MissingStore, translate
 from pstack_core.wait import default_signals
 
 from .classify import classify_brief
 from .landing import is_landing, land_check
 from .units import captured, has_pair
-from .wait import has_checkin, log_checkin_wake, quiet_flagged, quiet_wait
-
-
-# grep -v -e '^check-in:' -e '^progress:' -e '^touched:' -e '^  ' -e '^steers:' -e '^steps:' -e '^report: missing': what a quiet dispatch prints of the
-# digest it swallowed
-SWALLOWED = ('check-in:', 'progress:', 'touched:', '  ', 'steers:', 'steps:', 'report: missing')
+from .wait import block, log_checkin_wake, quiet_wait, refused
 
 
 def land_check_quietly(ctx, store):
     """land-check's verdict without the command's usage and pair.json checks; its stdout is dropped."""
     return captured(ctx, lambda: land_check(store))[0]
-
-
-def core_dispatch(ctx, args):
-    """The core's dispatch with PAIR_QUIET_WAIT=1: (status, stdout)."""
-    return captured(ctx, lambda: send.dispatch(ctx, list(args)), env={'PAIR_QUIET_WAIT': '1'})
 
 
 NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}
@@ -67,17 +56,20 @@ def dispatch(ctx, args):
     # a landing brief that land-check passed on a store with no pair.json goes on to the core dispatch, which refuses it
     if has_pair(store):
         rotate_if_due(ctx, store, 'brief')
-    wait_args = list(args[2:])
     # --max belongs to the quiet wait, not to the pair's dispatch.
-    rc, out = core_dispatch(ctx, [store, brief, *opts.stripped('--max')])
-    if rc == 4 and has_checkin(out):
-        if not quiet_flagged(out):
-            kept = [line for line in out.split('\n') if not line.startswith(SWALLOWED)]
-            sys.stdout.write('\n'.join(kept).rstrip('\n') + '\n')
-            raise Exit(quiet_wait(ctx, store, wait_args))
-        log_checkin_wake(ctx, store, out)
-    sys.stdout.write(out + '\n')
-    return rc
+    try:
+        request = send.dispatch_request(ctx, [store, brief, *opts.stripped('--max')])
+        result = send.dispatch_brief(ctx, request.store, request.brief, timeout=request.timeout, interval=request.interval, send_only=request.send_only, quiet=True)
+    except Exception as e:
+        return refused(ctx, e)
+    outcome = result.outcome
+    if outcome is not None and outcome.kind == 'checkin' and outcome.checkin is not None:
+        if not outcome.flagged:
+            sys.stdout.write(block(''.join(outcome.lines)))
+            return quiet_wait(ctx, store, list(args[2:]))
+        log_checkin_wake(ctx, store, outcome)
+    sys.stdout.write(block(''.join(result.sent_lines) + ('' if outcome is None else outcome.stdout)))
+    return result.status
 
 
 def queue(ctx, args):

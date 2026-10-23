@@ -253,10 +253,12 @@ def at(path, anchor, line):
 PAIR = 'skills/pstack-pair/scripts/pstack_core'
 KITCHEN = 'skills/pstack-kitchen/scripts/kitchen_core'
 WAIT, SPAWN, CONSULT = f'{PAIR}/wait.py', f'{PAIR}/spawn.py', f'{PAIR}/consult.py'
-manual_at = [(WAIT, at(WAIT, 'write(review_delta(store, shown))', 'return 4')), (WAIT, at(WAIT, "write(provider_hint(store))\n        return 3", 'return 3')),
-             (WAIT, at(WAIT, "wake(ctx, store, running, why or 'missing')", 'return 4')),
+manual_at = [(WAIT, at(WAIT, 'write(review_delta(store, shown))', "WaitOutcome(4, 'idle'")),
+             (WAIT, at(WAIT, "write(provider_hint(store))\n        return WaitOutcome(3", "WaitOutcome(3, 'blocked'")),
+             (WAIT, at(WAIT, "wake(ctx, store, running, why or 'missing')", "WaitOutcome(4, 'missing'")),
              (SPAWN, at(SPAWN, 'bootstrap still pending', 'return 4')), (SPAWN, at(SPAWN, "event(store, role, 'spawn', '-', f'{kind}:failed')", 'return 3')),
-             (SPAWN, at(SPAWN, "event(store, role, 'spawn', '-', f'{kind}:unready')", 'return 4'))]
+             (SPAWN, at(SPAWN, "event(store, role, 'spawn', '-', f'{kind}:unready')", 'return 4')),
+             (WAIT, at(WAIT, "WaitOutcome(4, 'superseded'", "WaitOutcome(4, 'superseded'"))]
 exit_lines, seen = [], set()
 for path in git_grep(r'.', *PROD, flags='-lE'):
     if '/tests/' in path or not path.endswith(('.py', '.sh')):
@@ -270,8 +272,7 @@ for path in git_grep(r'.', *PROD, flags='-lE'):
         exit_lines.append((c, path, no, msg, frag(msg)))
 exit_lines.sort(key=lambda x: (x[0], x[1], x[2]))
 # lines whose code carries no message: the text a test must show for them
-HINTS = {(WAIT, at(WAIT, "write(f'{SUPERSEDED}\\n')", 'return 4')): ['superseded: a newer wait owns this store'],
-         (CONSULT, at(CONSULT, "print(f\"advice_status: {header_field(advice, 'status')}\")", 'return 3')): ['advice_status: answered'],
+HINTS = {(CONSULT, at(CONSULT, "print(f\"advice_status: {header_field(advice, 'status')}\")", 'return 3')): ['advice_status: answered'],
          (CONSULT, at(CONSULT, "if status == 'blocked':\n        print('advice: missing')", 'return 3')): ['advice: missing'],
          (CONSULT, at(CONSULT, "    print('advice: missing')\n    return 4", 'return 4')): ['advice: missing'],
          (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "vs.set_outcome(v.packet, 'start-failed')\n        raise VerifierStartFailed(why)", 'raise VerifierStartFailed(why)')): ['verifier start failed in'],
@@ -306,6 +307,7 @@ manual_exit = [
     (4, f'{WAIT}:{manual_at[0][1]}', 'wait returns 4 with the report path already shown (review-delta printed)', ['review-delta:']),
     (3, f'{WAIT}:{manual_at[1][1]}', 'wait returns 3 when the sidekick is blocked', ['blocked']),
     (4, f'{WAIT}:{manual_at[2][1]}', 'wait returns 4 for a check-in digest or a missing report', ['report: missing']),
+    (4, f'{WAIT}:{manual_at[6][1]}', 'wait returns 4 when a newer wait owns the store (superseded)', ['superseded: a newer wait owns this store']),
     (4, f'{SPAWN}:{manual_at[3][1]}', 'spawn returns 4 while the bootstrap READY report is missing', ['bootstrap still pending']),
     (3, f'{SPAWN}:{manual_at[4][1]}', 'spawn returns 3 when the bootstrap did not settle', ['did not settle']),
     (4, f'{SPAWN}:{manual_at[5][1]}', 'spawn returns 4 when the agent settled but READY is missing', ['is missing; state=']),

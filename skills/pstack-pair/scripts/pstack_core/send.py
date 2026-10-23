@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 
 from . import git
 from .store import TEXT, env_float, event, expected_report, load, peek, tdiv, text_at, update, count, member, names, who
@@ -17,7 +18,7 @@ from .panes import DEVNULL, agent_kind, agent_prompt, agent_status, error_code, 
 from .replies import first3, pending, queued_brief
 from .review import require_filled
 from .argv import read
-from .wait import TIMING, owned_wait, end_with_parent, timeout_ms
+from .wait import TIMING, WaitOutcome, end_with_parent, print_outcome, timeout_ms, wait_for
 
 
 def prune_pending(store):
@@ -86,8 +87,8 @@ def prompt_sidekick(name, text):
     return submit_typed(name, os.path.basename(text.rsplit(' ', 1)[-1].rstrip('/') or text.rsplit(' ', 1)[-1]))
 
 
-def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None):
-    """Shared by discuss, dispatch and answer: refuse unfilled files and a sidekick that cannot take input, then prompt and wait."""
+def send_message(ctx, store, file, kind, now=None):
+    """Refuse unfilled files and a sidekick that cannot take input, record the send and prompt the sidekick: its name."""
     require_filled(ctx, file)
     if not os.path.isfile(f'{store}/pair.json'):
         if kind == 'BRIEF':
@@ -127,10 +128,28 @@ def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None
         # as ignored.
         for number, previous in held.items():
             signal.signal(number, signal.SIG_DFL if number == signal.SIGINT else previous)
+    return name
+
+
+def sent_line(kind, file):
+    return f'sent: {kind} {file}; follow it with the wait command\n'
+
+
+def send_and_wait(ctx, store, file, kind, timeout, interval, send_only, now=None):
+    """Shared by discuss and answer: send the message, then wait for the reply."""
+    name = send_message(ctx, store, file, kind, now)
     if send_only:
-        print(f'sent: {kind} {file}; follow it with the wait command')
+        sys.stdout.write(sent_line(kind, file))
         return 0
-    return owned_wait(ctx, store, name, timeout, interval, now)
+    return print_outcome(wait_for(ctx, store, timeout=timeout, interval=interval, name=name, now=now))
+
+
+@dataclass(frozen=True)
+class DispatchResult:
+    """A dispatched brief: the lines printed once it was sent, how its wait ended (None with send_only) and the status the command ends with."""
+    sent_lines: tuple
+    outcome: WaitOutcome | None
+    status: int
 
 
 def fresh_kind(kind):
@@ -191,7 +210,29 @@ def store_relative(store, path):
     return f'{store}/{path}' if not os.path.isfile(path) and os.path.isfile(f'{store}/{path}') else path
 
 
-def dispatch(ctx, args):
+def dispatch_brief(ctx, store, brief, *, timeout, interval, send_only, owner=None, quiet=False):
+    """Send a brief and, unless send_only, wait for its reply (see wait_for for owner and quiet)."""
+    try:
+        name = send_message(ctx, store, brief, 'BRIEF')
+        if send_only:
+            return DispatchResult((sent_line('BRIEF', brief),), None, 0)
+        outcome = wait_for(ctx, store, timeout=timeout, interval=interval, owner=owner, quiet=quiet, name=name)
+    except MissingStore as e:
+        raise refuse_as(e, ctx.prog, 2) from None
+    return DispatchResult((), outcome, outcome.status)
+
+
+@dataclass(frozen=True)
+class DispatchRequest:
+    store: str
+    brief: str
+    timeout: int
+    interval: int
+    send_only: bool
+
+
+def dispatch_request(ctx, args):
+    """The checks a dispatch makes before it sends anything, and what it was asked for."""
     require_herdr()
     if len(args) < 2:
         raise Die(f'usage: {ctx.prog} dispatch <store> <brief-path> [--timeout MS | --every MIN]')
@@ -211,7 +252,11 @@ def dispatch(ctx, args):
         raise Die(f'the queue holds {queued}; dispatch that first, or: pair.sh queue {store} --clear', 5)
     from .commands.rotate import rotate_if_due
     rotate_if_due(ctx, store, 'brief')
-    try:
-        return send_and_wait(ctx, store, brief, 'BRIEF', timeout, interval, send_only)
-    except MissingStore as e:
-        raise refuse_as(e, ctx.prog, 2) from None
+    return DispatchRequest(store, brief, timeout, interval, send_only)
+
+
+def dispatch(ctx, args):
+    request = dispatch_request(ctx, args)
+    result = dispatch_brief(ctx, request.store, request.brief, timeout=request.timeout, interval=request.interval, send_only=request.send_only)
+    sys.stdout.write(''.join(result.sent_lines))
+    return result.status if result.outcome is None else print_outcome(result.outcome)

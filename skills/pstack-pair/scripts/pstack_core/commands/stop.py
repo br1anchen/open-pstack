@@ -9,7 +9,7 @@ from ..errors import Die, FileFailed, PairJsonGone
 from ..panes import DEVNULL, agent_prompt, agent_status, herdr, pane_text, require_herdr
 from ..replies import file_mtime
 from ..argv import read
-from ..wait import TIMING, WaitResult, end_with_parent, finish_wait, timeout_ms
+from ..wait import TIMING, WaitResult, end_with_parent, finish_wait, print_outcome, timeout_ms
 from .report import require_pair
 
 DEFAULT_TIMEOUT = 300000
@@ -136,4 +136,4 @@ def stop(ctx, args):
         raise Die(f'{who("sidekick", name)} is blocked; inspect it before stopping', 3)
     clear_queue(store)
     code, out, err = stop_role(ctx, store, 'sidekick', timeout)
-    return finish_wait(ctx, store, interval, WaitResult(code, out, err), 'any')
+    return print_outcome(finish_wait(ctx, store, interval, WaitResult(code, out, err), 'any'))
