@@ -215,7 +215,15 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    landing verdict whose range holds it (`covered: unit NNN by the clean landing
    verdict <file>`), so a later landing does not uncover units an earlier one
    proved; the newest landing verdict alone sets the `landing verification:`
-   line and the manifest warning.
+   line and the manifest warning. A unit that rejected and has a verified fix
+   is covered by it too (`covered: unit NNN by its verified fix, unit MMM`):
+   land-check reads the fix brief's `- verdict:` line and its `- original brief:`
+   line (a unit's own fix covers the unit of that line, when the rejected
+   verdict named it) or its `- unit brief:` lines (a landing fix covers each
+   unit listed, when the rejected verdict was a landing verdict), which `revise`
+   writes. The fix needs a clean verdict, or a fix of its own that has one, within
+   5 links; a cycle, a missing line or a gone verdict covers nothing. A fix that
+   carries one unit's acceptance does not cover the other units its verdict named.
    The check that a rebased unit was not reverted later in the stack
    compares patches without context lines, so a commit that deletes an
    identical line elsewhere in the same file reads as a revert and leaves the

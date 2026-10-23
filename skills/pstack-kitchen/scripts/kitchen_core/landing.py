@@ -320,6 +320,59 @@ def clean_landing_ranges(store, root, verdict, landing_verdict, say):
     return ranges
 
 
+FIX_LINKS = 5
+
+
+def context_values(text, key):
+    """The values of a brief's `- key: value` lines under its Context heading."""
+    return re.findall(rf'(?m)^- {key}: (.+)$', section(text, 'Context'))
+
+
+def fix_covers(store):
+    """{unit: the fix briefs that cover it}, from the Context lines `revise` writes and no others. A fix brief names the rejected verdict it was drafted
+    from (`- verdict:`). A unit's own fix names the unit whose acceptance it carries (`- original brief:`), which the verdict must name; a landing fix
+    lists the units it carries (`- unit brief:`), and its verdict must be a landing verdict. Either verdict must have rejected. A brief missing its
+    lines, or whose verdict is gone, covers nothing."""
+    covers = {}
+    for brief in sorted(glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')):
+        text = read_text(brief)
+        verdicts = context_values(text, 'verdict')
+        own = context_values(text, 'original brief')
+        listed = context_values(text, 'unit brief')
+        if not verdicts or bool(own) == bool(listed):
+            continue
+        verdict = verdicts[0]
+        if header_field(verdict, 'status') != 'reject':
+            continue
+        units = header_field(verdict, 'units')
+        if own:
+            carried = [os.path.basename(own[0])[:3]]
+            carried = [u for u in carried if u in re.findall(r'[0-9]{3}', units)]
+        elif units.startswith('landing'):
+            carried = [os.path.basename(path)[:3] for path in listed]
+        else:
+            carried = []
+        fix = os.path.basename(brief)[:3]
+        for unit in carried:
+            if unit != fix and re.fullmatch(r'[0-9]{3}', unit):
+                covers.setdefault(unit, []).append(fix)
+    return covers
+
+
+def verified_fix(store, seq, covers, links=1, seen=()):
+    """The seq of a fix that covers unit seq and is verified: it has a clean verdict, or is itself covered by one that is, within FIX_LINKS links. A
+    cycle, a chain longer than that and a last fix with no clean verdict give ''."""
+    seen = (*seen, seq)
+    for fix in covers.get(seq, ()):
+        if fix in seen:
+            continue
+        if clean_verdict_for(store, fix):
+            return fix
+        if links < FIX_LINKS and verified_fix(store, fix, covers, links + 1, seen):
+            return fix
+    return ''
+
+
 def landing_range_covering(store, seq, brief, ranges, landing_verdict, say):
     """The path of the first clean landing verdict whose range holds the unit, or '' with the note for a unit the newest one does not match."""
     unit = RecordedUnit(store, brief)
@@ -408,6 +461,7 @@ def land_check(store, say=out):
             commit_of(root, ref) or '' for ref in verdict.refs()
         )
         ranges = clean_landing_ranges(store, root, verdict, landing_verdict, say)
+    fixes = fix_covers(store)
     for review, seq, brief in accepted_units(store):
         if engine:
             met, gap = engine_met(store, brief, review, engine)
@@ -422,6 +476,11 @@ def land_check(store, say=out):
             covering = landing_range_covering(
                 store, seq, brief, ranges, landing_verdict, say
             )
+        if not covering:
+            fix = verified_fix(store, seq, fixes)
+            if fix:
+                say(f'covered: unit {seq} by its verified fix, unit {fix}\n')
+                covering = fix
         if not covering:
             problems.append(
                 f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n'

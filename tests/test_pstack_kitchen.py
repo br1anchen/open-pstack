@@ -9312,6 +9312,140 @@ esac
         self.assertIn(f'covered: unit 001 by the clean landing verdict {landing}', out)
         self.assertIn('land-check: pass', out)
 
+    def fix_world(self, units=('001',), accepted=None):
+        """Accepted units with briefs and no verdicts: the land-check store the fix-chain tests build on."""
+        for seq in units:
+            self.brief(seq, 'util', ['src/**'])
+        for seq in accepted or units:
+            (self.store / f'reviews/{seq}-util.md').write_text('verdict: accept\n')
+        (self.store / 'verdicts').mkdir(exist_ok=True)
+
+    def verdict_file(self, name, status, units):
+        path = self.store / f'verdicts/{name}.md'
+        path.write_text(
+            f'# Verdict\n\nstatus: {status}\nunits: {units}\n\n## Evidence\n\n```\n$ true\n```\n'
+        )
+        return path
+
+    def revise_fix(self, verdict):
+        """The fix brief `revise` drafts from a rejected verdict, as the master runs it: its path."""
+        return Path(self.run_sh('revise', str(self.store), str(verdict)).strip())
+
+    def reject_and_fix(self, seq, units=None):
+        """A rejecting verdict of unit(s) and the fix brief drafted from it: (the verdict, the fix brief)."""
+        verdict = self.verdict_file(f'{seq}-util-v1', 'reject', units or seq)
+        return verdict, self.revise_fix(verdict)
+
+    def test_a_verified_fix_covers_the_unit_its_verdict_rejected(self):
+        self.fix_world()
+        rejected, fix = self.reject_and_fix('001')
+        self.assertEqual(fix.name[:3], '002')
+        self.assertIn(
+            'unverified: unit 001', self.run_sh('land-check', str(self.store), code=2)
+        )
+        self.verdict_file('002-util-fix-v1', 'clean', '002')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn('covered: unit 001 by its verified fix, unit 002\n', out)
+        self.assertIn('land-check: pass', out)
+
+    def test_a_fix_with_no_clean_verdict_covers_nothing(self):
+        self.fix_world()
+        _, fix = self.reject_and_fix('001')
+        self.verdict_file('002-util-fix-v1', 'reject', '002')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn('unverified: unit 001', out)
+        self.assertNotIn('by its verified fix', out)
+
+    def test_one_verdict_rejecting_two_units_is_fixed_for_the_last_only(self):
+        """`revise` carries the last named unit's acceptance, so its clean fix covers that unit and not the other one the verdict named."""
+        self.fix_world(('001', '002'))
+        _, fix = self.reject_and_fix('001', '001 002')
+        self.assertEqual(fix.name[:3], '003')
+        self.assertIn(
+            f'- original brief: {self.store}/briefs/002-util.md', fix.read_text()
+        )
+        self.verdict_file('003-util-fix-v1', 'clean', '003')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn('covered: unit 002 by its verified fix, unit 003\n', out)
+        self.assertIn('unverified: unit 001', out)
+        self.assertNotIn('unverified: unit 002', out)
+
+    def test_a_landing_fix_covers_each_unit_it_lists(self):
+        self.fix_world(('001', '002'))
+        rejected = self.verdict_file('landing-v1', 'reject', 'landing')
+        fix = self.revise_fix(rejected)
+        text = fix.read_text()
+        self.assertIn(f'- unit brief: {self.store}/briefs/001-util.md', text)
+        self.assertIn(f'- unit brief: {self.store}/briefs/002-util.md', text)
+        self.verdict_file('003-landing-fix-v1', 'clean', '003')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn('covered: unit 001 by its verified fix, unit 003\n', out)
+        self.assertIn('covered: unit 002 by its verified fix, unit 003\n', out)
+
+    def test_a_fix_covers_only_through_the_lines_revise_writes(self):
+        self.fix_world()
+        _, fix = self.reject_and_fix('001')
+        self.verdict_file('002-util-fix-v1', 'clean', '002')
+        original = fix.read_text()
+        for name, text in {
+            'no verdict line': re.sub(r'(?m)^- verdict: .*\n', '', original),
+            'no original brief line': re.sub(
+                r'(?m)^- original brief: .*\n', '', original
+            ),
+            'a verdict that is gone': original.replace(
+                '- verdict: ', '- verdict: /nowhere'
+            ),
+        }.items():
+            with self.subTest(name):
+                fix.write_text(text)
+                out = self.run_sh('land-check', str(self.store), code=2)
+                self.assertIn('unverified: unit 001', out)
+        fix.write_text(original)
+        self.verdict_file('001-util-v1', 'clean', '001')
+        self.run_sh('land-check', str(self.store))
+        # A reject names the fixed unit; a verdict that rejected another one does not make this fix cover 001.
+        self.verdict_file('001-util-v1', 'reject', '009')
+        self.assertIn(
+            'unverified: unit 001', self.run_sh('land-check', str(self.store), code=2)
+        )
+
+    def fix_chain(self, links):
+        """Unit 001 rejected, its fix rejected in turn, and so on for `links` fixes; only the last fix has a clean verdict."""
+        self.fix_world()
+        self.reject_and_fix('001')
+        for n in range(2, links + 1):
+            self.revise_fix(self.verdict_file(f'00{n}-util-fix-v1', 'reject', f'00{n}'))
+        self.verdict_file(f'00{links + 1}-util-fix-v1', 'clean', f'00{links + 1}')
+
+    def test_a_chain_of_five_fix_links_covers_the_unit(self):
+        self.fix_chain(5)
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn('covered: unit 001 by its verified fix, unit 002\n', out)
+
+    def test_a_chain_longer_than_five_links_covers_nothing(self):
+        self.fix_chain(6)
+        self.assertIn(
+            'unverified: unit 001', self.run_sh('land-check', str(self.store), code=2)
+        )
+
+    def test_a_cycle_of_fixes_covers_nothing(self):
+        """Unit 001's brief says it is the fix of 002 and 002's says it is the fix of 001; neither has a clean verdict."""
+        self.fix_world(('001', '002'), accepted=('001',))
+        for seq, other in (('001', '002'), ('002', '001')):
+            brief = self.store / f'briefs/{seq}-util.md'
+            verdict = self.verdict_file(f'{other}-util-v1', 'reject', other)
+            context = f'\n- verdict: {verdict}\n- original brief: {self.store}/briefs/{other}-util.md\n\n'
+            brief.write_text(
+                re.sub(
+                    r'(?ms)^(## Context\n).*?(?=^## )',
+                    lambda m, c=context: m.group(1) + c,
+                    brief.read_text(),
+                )
+            )
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn('unverified: unit 001', out)
+        self.assertNotIn('by its verified fix', out)
+
     def landing_range_world(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
