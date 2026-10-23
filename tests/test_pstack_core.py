@@ -1374,11 +1374,55 @@ class CoreTests(unittest.TestCase):
     def test_a_steer_to_a_sidekick_idle_on_its_own_background_command_is_delivered_as_a_working_steer(self):
         # gotham-1095#1: the harness reports idle while its command still runs; the old refusal said "no objection is open".
         for status in ('idle', 'done'):
-            top, st, run, steer = self.busy_world('bg-' + status, status, procs=self.BG, report='done')
+            top, st, run, steer = self.busy_world('bg-' + status, status, procs=self.BG)
             r = run('steer', '{st}', str(steer))
             self.assertEqual((r.returncode, r.stderr), (0, ''), status)
-            self.assertIn(f'steered s1 with {steer}', r.stdout)
+            self.assertIn(f'steered s1 with {steer}; its harness hands it over', r.stdout)
             self.assertEqual(self.prompts(top), [f'agent prompt s1 pstack-pair STEER {steer}'], status)
+
+    def test_a_unit_that_reported_keeps_its_refusal_even_when_a_command_still_runs_in_the_pane(self):
+        # review n2: a dev server or watcher started since the dispatch does not make a settled unit steerable
+        top, st, run, steer = self.busy_world('bg-done', 'idle', procs=self.BG, report='done')
+        r = run('steer', '{st}', str(steer))
+        self.assertEqual((r.returncode, r.stdout), (5, ''))
+        self.assertEqual(r.stderr, 'pair.sh: sidekick s1 is idle and no objection is open on unit 001; write a fix brief\n')
+        self.assertEqual(self.prompts(top), [])
+
+    def test_a_steer_for_a_unit_that_is_not_the_dispatched_one_is_refused_with_or_without_a_dispatch(self):
+        # review n2: between briefs or before any dispatch, an unreported unit is not the sidekick's to steer, and a stale blocked report is not resumed
+        for label, dispatch, report in (('between', {'brief': '{st}/briefs/002-y.md', 'at': '2026-01-01T00:00:00Z', 'generation': 1}, None),
+                                        ('none', None, None), ('blocked-between', {'brief': '{st}/briefs/002-y.md', 'at': '2026-01-01T00:00:00Z', 'generation': 1}, 'blocked')):
+            top, st, run, steer = self.busy_world('nd-' + label, 'idle', report=report)
+            pair = json.loads((st / 'pair.json').read_text())
+            pair.pop('dispatch')
+            if dispatch:
+                pair['dispatch'] = {k: v.replace('{st}', str(st)) if isinstance(v, str) else v for k, v in dispatch.items()}
+            (st / 'pair.json').write_text(json.dumps(pair))
+            r = run('steer', '{st}', str(steer))
+            self.assertEqual((r.returncode, r.stdout), (5, ''), label)
+            self.assertEqual(r.stderr, 'pair.sh: sidekick s1 is idle and no objection is open on unit 001; fold the steer into the next brief instead\n', label)
+            self.assertEqual(self.prompts(top), [], label)
+
+    def test_sidekick_busy_reads_the_pane_and_dispatch_time_of_the_store_and_takes_the_status_the_caller_holds(self):
+        from pstack_core import checkin
+        st = self.path / 'sb'
+        st.mkdir()
+        here = ['HERDR_PANE_ID=p1', 'HERDR_SOCKET_PATH=/s']
+        self.tree({11: dict(ppid=1, argv=['x'], comm='make', elapsed=300, environ=here)})
+        with mock.patch.dict(os.environ, {'HERDR_SOCKET_PATH': '/s'}):
+            def pair(**doc):
+                (st / 'pair.json').write_text(json.dumps(doc))
+            pair(sidekick={'pane_id': 'p1'}, dispatch={'at': '2026-01-01T00:00:00Z'})
+            now = calendar.timegm((2026, 1, 1, 0, 10, 0))
+            self.assertEqual(checkin.sidekick_busy(str(st), 'idle', now), 'make for 5m')
+            self.assertEqual(checkin.sidekick_busy(str(st), 'working', now), 'working')
+            self.assertEqual(checkin.sidekick_busy(str(st), 'blocked', now), '')
+            pair(sidekick={'pane_id': 'p1'}, dispatch={'at': '2026-01-01T00:08:00Z'})
+            self.assertEqual(checkin.sidekick_busy(str(st), 'idle', now), '')
+            pair(sidekick={'pane_id': 'p1'})
+            self.assertEqual(checkin.sidekick_busy(str(st), 'idle', now), '')
+            pair(sidekick={}, dispatch={'at': '2026-01-01T00:00:00Z'})
+            self.assertEqual(checkin.sidekick_busy(str(st), 'idle', now), '')
 
     def test_a_steer_to_an_idle_sidekick_whose_unit_has_no_report_is_delivered(self):
         # python-port-3#3, python-port-4(1020)#4: nothing to fold the steer into yet, so the sidekick gets it now.
@@ -3625,6 +3669,12 @@ class CoreTests(unittest.TestCase):
             'queue: 1 briefs queued, 0 taken by the sidekick; 0 started the moment a report landed\n'
             'master: 0 wakes, 0 of them check-ins; review latency median 0m over 0 reviews\n'
             'verdicts: none\n'))
+
+    def test_metrics_counts_a_steer_that_starts_the_sidekicks_turn_when_it_reaches_an_idle_or_settled_sidekick(self):
+        # review n2: an idle delivery and a resume start a turn like an objection round; a steer into a working turn does not
+        for detail, briefs in (('idle', 1), ('resume', 1), ('objection', 1), ('working', 0)):
+            out = self.metrics_of(f'2026\t0\tmaster\tsend-steer\t001-a\t{detail}\n2026\t600\tsidekick\treport\t001-a\tdone\n')
+            self.assertIn(f'{briefs} briefs', out, detail)
 
     def test_metrics_counts_a_row_with_an_unusable_time_but_keeps_it_off_the_timeline(self):
         rows = self.FIRST_EVENTS + '2026\tabc\tmaster\tqueue\t002-b\t\n2026\t\tmaster\tsend-brief\t003-c\t\n2026\t-5\tmaster\tqueue\t004-d\t\n'

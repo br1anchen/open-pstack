@@ -124,11 +124,12 @@ def dispatch_facts(store):
 def sidekick_activity(store, now):
     """The longest-running process in the sidekick's pane started since the current dispatch, or ''."""
     pane, since = dispatch_facts(store)
-    return busy('idle', pane, since, now)
+    return busy_command(pane, since, now) if since is not None else ''
 
 
 def sidekick_busy(store, status, now):
-    """busy() for the sidekick: its herdr status and the command its pane has run since the current dispatch."""
+    """busy() for the sidekick: the herdr status the caller already holds (steer and queue branch on it, so it is not read twice) and the command its
+    pane has run since the current dispatch."""
     pane, since = dispatch_facts(store)
     return busy(status, pane, since, now)
 

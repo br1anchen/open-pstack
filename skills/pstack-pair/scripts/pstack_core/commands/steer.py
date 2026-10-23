@@ -5,7 +5,7 @@ import sys
 import time
 
 from ..checkin import sidekick_busy
-from ..store import event, field, read_text, header_field, member, names, newest, unit_name, update, who
+from ..store import event, field, load, peek, text_at, read_text, header_field, member, names, newest, unit_name, update, who
 from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
 from ..prime import prime_steer
@@ -88,19 +88,25 @@ def steer_working(store, name, steer_path, message, interrupt):
         print(f'steered {name} with {steer_path}; its harness hands it over between tool calls and the ack lands in the progress log')
 
 
+def dispatched_unit(store):
+    """The unit (NNN-slug) of the sidekick's current dispatch, or ''."""
+    brief = text_at(peek(load(store), 'dispatch'), 'brief')
+    return unit_name(brief) if brief else ''
+
+
 def settled_route(ctx, store, name, status, steer_path):
     """How a steer reaches a sidekick that is between turns: 'objection' when the unit's newest `-s<k>` report has status object (the steer answers it),
-    'deliver' when the unit has no report yet (nothing to fold the steer into, so the sidekick takes it now), 'resume' when its report is blocked or
+    'deliver' when the unit is the dispatched one and has no report yet (nothing to fold the steer into, so the sidekick takes it now), 'resume' when it is the dispatched one and its report is blocked or
     partial (the steer re-sends the brief). Any other unit report refuses the steer with what to do instead, and a steer that answers an objection but supersedes nothing is refused too."""
     seq = os.path.basename(steer_path)[:3]
     slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
     objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
     if not objection or header_field(objection, 'status') != 'object':
         report = f'{store}/reports/{seq}-{slug}.md'
-        if not os.path.isfile(report):
+        unit_status = header_field(report, 'status') if os.path.isfile(report) else ''
+        if not unit_status and dispatched_unit(store) == f'{seq}-{slug}':
             return 'deliver'
-        unit_status = header_field(report, 'status')
-        if unit_status in ('blocked', 'partial'):
+        if unit_status in ('blocked', 'partial') and dispatched_unit(store) == f'{seq}-{slug}':
             return 'resume'
         if unit_status == 'done':
             # only the kitchen has verify --covers
@@ -183,13 +189,17 @@ def steer(ctx, args):
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     message = f'{ctx.skill} STEER {steer_path}'
-    if sidekick_busy(store, status, time.time()):
+    if status == 'working':
         steer_working(store, name, steer_path, message, interrupt)
     elif status in ('idle', 'done'):
         route = settled_route(ctx, store, name, status, steer_path)
         if route == 'resume':
             return resume_unit(store, name, steer_path, timeout, ctx)
         if route == 'deliver':
+            if sidekick_busy(store, status, time.time()):
+                # the harness reports idle while a command it started since the dispatch still runs
+                steer_working(store, name, steer_path, message, interrupt)
+                return 0
             event(store, 'master', 'send-steer', steer_path, 'idle')
             prompt_sidekick(name, message)
             print(f'steered {name} with {steer_path}; unit {os.path.basename(steer_path)[:3]} has no report yet, so it reads the steer now')

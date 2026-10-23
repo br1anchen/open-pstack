@@ -192,7 +192,7 @@ class Metrics:
         self.co_start(e.time, 'consult')
 
     def on_send_steer(self, e):
-        if e.detail == 'objection':
+        if e.detail in ('objection', 'idle', 'resume'):
             self.sk_start(e.time, e.unit, 'brief')
 
     def on_step(self, e):
