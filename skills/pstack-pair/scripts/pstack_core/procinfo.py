@@ -47,6 +47,23 @@ def read(pid, root):
     return Proc(pid, ppid, uid, comm, argv, max(0, int(uptime - started / os.sysconf('SC_CLK_TCK'))))
 
 
+def alive(pid):
+    """True when `pid` (a number, or the text of one) is a running process. Anything that is not a pid above 1 is not alive."""
+    try:
+        number = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if number <= 1:
+        return False
+    try:
+        os.kill(number, 0)
+    except ProcessLookupError:
+        return False
+    except (OSError, OverflowError):
+        return True
+    return True
+
+
 def of_user(uid, root):
     """Every process the user runs, as read now; a process that is gone before it is read is left out."""
     try:

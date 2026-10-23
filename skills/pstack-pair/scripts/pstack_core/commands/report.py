@@ -3,7 +3,8 @@ import os
 from ..store import event, expected_report, field, header_field, load, member, open_steers, peek, steer_number, text_at, unit_name, update
 from ..errors import Die, MissingStore, refuse_as
 from ..panes import agent_prompt, agent_status, DEVNULL, require_herdr
-from ..wait import mark_report_seen, wait_owner_path
+from .. import procinfo
+from ..wait import mark_report_seen, read_wait_owner, wait_owner_path
 from .status import latest
 
 # What a role runs finish on declares one of these: a report (done, partial, blocked, failed: report-template), a steer or plan objection
@@ -40,13 +41,17 @@ def notify(ctx, args):
     event(store, 'consultant' if word == 'ADVICE' else 'sidekick', word.lower(), file, header_field(file, 'status'))
     master = field(store, 'master', 'name')
     status = agent_status(master)
-    if status in ('idle', 'done'):
+    owner = read_wait_owner(store)
+    if status in ('idle', 'done') and word == 'REPORT' and procinfo.alive(owner):
+        # A wait that owns the store returns this report to the master itself; prompting an idle master as well wakes it twice.
+        print(f'master {master} is {status}; the wait that owns the store returns {file}')
+    elif status in ('idle', 'done'):
         code = agent_prompt(master, f'{ctx.skill} {word} {file}', stdout=DEVNULL, stderr=None).returncode
         if code:
             return code
         print(f'prompted master {master} (was {status}) with {word} {file}')
-        # The master has the message. A wait that owns the store (wait.pid present, whatever it holds) will return the report itself; with none the
-        # next wait would return it again. A file a killed wait left behind costs one duplicate wake, never a missed report.
+        # The master has the message. With no wait.pid the next wait would return the report again, so it is marked seen. A wait.pid whose process
+        # is gone, left by a killed wait, is not marked: one duplicate wake, never a missed report.
         if word == 'REPORT' and not os.path.exists(wait_owner_path(store)):
             mark_report_seen(store, file)
     else:

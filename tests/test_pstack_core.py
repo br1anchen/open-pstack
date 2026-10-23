@@ -902,7 +902,7 @@ class CoreTests(unittest.TestCase):
             (fake / rel).write_text(text)
         (st / 'events.tsv').write_text('2026-01-01T00:00:00Z\t1\tmaster\tinit\t-\tbefore\n')
         if spec.get('live_wait', bool(spec.get('args')) and spec['args'][0] in ('finish', 'notify')):
-            # a wait that owns the store and is running (this test process): notify leaves the report for it, as the base always did
+            # a wait that owns the store and is running (this test process): notify leaves the report for it and prompts nobody
             (st / 'wait.pid').write_text(f'{os.getpid()}\n')
         return top, st, env, fill
 
@@ -1277,7 +1277,7 @@ class CoreTests(unittest.TestCase):
                 f'{pair} finish "$ST" "$ST/reports/002-y.md" >"$FAKE/finish.out" 2>&1\ncp "$ST/pair.json" "$FAKE/after-notify.json"\n')
         top, st, run = self.own_world('dwait', files={}, agents={'s1': 'idle claude'}, once={'wait': hook}, pair={})
         r = run('dispatch', '{st}', '{st}/briefs/002-y.md', '--timeout', '5000')
-        self.assertIn('prompted master', (top / 'fake/finish.out').read_text())
+        self.assertIn('master m1 is idle; the wait that owns the store returns ', (top / 'fake/finish.out').read_text())
         after = json.loads((top / 'fake/after-notify.json').read_text())
         self.assertEqual(after['pending'], [f'{st}/briefs/002-y.md'])
         self.assertNotIn('seen', after['sent'])
@@ -1970,19 +1970,31 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(review.open_notes(str(st) + '/', '002-y.md'), [])
         self.assertEqual(run('notes', str(st) + '/').stdout, 'notes: none open; go on with the next step\n')
 
-    def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
-        # A1 and A2 together: the running wait returns the report itself, so notify must leave it unseen.
+    def test_notify_leaves_the_report_to_a_live_wait_that_owns_the_store(self):
+        # The running wait returns the report itself: notify neither prompts the master nor marks the report seen.
         top, st, run = self.own_world('nl')
         (st / 'wait.pid').write_text(f'{os.getpid()}\n')
         before = (st / 'pair.json').read_text()
         r = run('notify', '{st}', '{st}/reports/001-x.md')
-        self.assertIn('prompted master m1', r.stdout)
+        self.assertEqual(r.stdout, f'master m1 is idle; the wait that owns the store returns {st}/reports/001-x.md\n')
+        self.assertNotIn('agent prompt m1', (top / 'fake/calls.log').read_text())
         self.assertEqual((st / 'pair.json').read_text(), before)
         self.assertEqual((st / 'wait.pid').read_text(), f'{os.getpid()}\n')
         r = run('wait', '{st}', '--timeout', '1000')
         self.assertIn(f'report: {st}/reports/001-x.md', r.stdout)
 
+    def test_notify_prompts_the_master_when_wait_pid_names_a_dead_process(self):
+        top, st, run = self.own_world('nd')
+        (st / 'wait.pid').write_text('99999999\n')
+        r = run('notify', '{st}', '{st}/reports/001-x.md')
+        self.assertEqual(r.stdout, f'prompted master m1 (was idle) with REPORT {st}/reports/001-x.md\n')
+        self.assertIn('agent prompt m1', (top / 'fake/calls.log').read_text())
 
+    def test_notify_prompts_with_advice_even_while_a_live_wait_owns_the_store(self):
+        top, st, run = self.own_world('na', files={'advice/001-x.md': 'status: answered\n'})
+        (st / 'wait.pid').write_text(f'{os.getpid()}\n')
+        r = run('notify', '{st}', '{st}/advice/001-x.md')
+        self.assertEqual(r.stdout, f'prompted master m1 (was idle) with ADVICE {st}/advice/001-x.md\n')
 
     KITCHEN_TOML = 'version = 1\n\n[profile.app]\npaths = ["src/**", "docs/**", "extra/**"]\nfast = ["true"]\n\n[escalate]\npaths = ["contracts/**"]\n'
 
@@ -6137,7 +6149,7 @@ class CoreTests(unittest.TestCase):
 
     def test_finish_behaviour(self):
         cases = self.finish_cases()
-        sent = (0, 'prompted master m1')
+        sent = (0, 'master m1 is idle; the wait that owns the store returns ')
         expect = {
             'a done report whose Verify commands pass': (0, 'verify: pass (1 commands from the brief)'),
             'a done report whose Verify commands pass, finished twice': (0, 'verify: pass (1 commands from the brief)'),

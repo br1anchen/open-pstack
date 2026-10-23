@@ -391,11 +391,10 @@ queued: <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-master
   herdr agent read demo-master --source visible --lines 40
-  herdr agent prompt demo-master pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/005-qone.md
   herdr agent get demo-sidekick
 
 [during that wait the sidekick ran: pair.sh finish 005-qone.md]
-prompted master demo-master (was idle) with REPORT <T>/state/pstack/pair-guided/demo/reports/005-qone.md
+master demo-master is idle; the wait that owns the store returns <T>/state/pstack/pair-guided/demo/reports/005-qone.md
 rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate <T>/state/pstack/pair-guided/demo
 next: end the turn with the single line: pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/005-qone.md
 
@@ -446,11 +445,10 @@ queued: <T>/state/pstack/pair-guided/demo/briefs/007-qthree.md (held: report is 
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-master
   herdr agent read demo-master --source visible --lines 40
-  herdr agent prompt demo-master pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/006-qtwo.md
   herdr agent get demo-sidekick
 
 [during that wait the sidekick ran: pair.sh finish 006-qtwo.md]
-prompted master demo-master (was idle) with REPORT <T>/state/pstack/pair-guided/demo/reports/006-qtwo.md
+master demo-master is idle; the wait that owns the store returns <T>/state/pstack/pair-guided/demo/reports/006-qtwo.md
 next: end the turn with the single line: pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/006-qtwo.md
 
 $ pair.sh status <T>/state/pstack/pair-guided/demo
@@ -728,11 +726,10 @@ review-delta: <SHA>..<SHA> (steps reviewed through 4)
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-master
   herdr agent read demo-master --source visible --lines 40
-  herdr agent prompt demo-master pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/013-qsteps.md
   herdr agent get demo-sidekick
 
 [during that wait the sidekick ran: pair.sh finish 013-qsteps.md]
-prompted master demo-master (was idle) with REPORT <T>/state/pstack/pair-guided/demo/reports/013-qsteps.md
+master demo-master is idle; the wait that owns the store returns <T>/state/pstack/pair-guided/demo/reports/013-qsteps.md
 late steer: <T>/state/pstack/pair-guided/demo/steers/013-qsteps-s1.md arrived after this report; record pair.sh progress <T>/state/pstack/pair-guided/demo "steer s1 late: reported" and the master folds it into the next brief
 rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate <T>/state/pstack/pair-guided/demo
 next: end the turn with the single line: pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/013-qsteps.md
