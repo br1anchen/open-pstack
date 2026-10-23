@@ -1,4 +1,4 @@
-"""wait: the option parser, the loop that waits for the sidekick's reply, and finish_wait, which prints the outcome. WaitResult carries code,
+"""wait: the timing options, the loop that waits for the sidekick's reply, and finish_wait, which prints the outcome. WaitResult carries code,
 out, err, ready and steps_due."""
 import json
 import os
@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 
+from .argv import Spec, read
 from .checkin import checkin, sidekick_activity
 from .store import (
     Die, Exit, now_s, prog, TEXT, exit_code, missing_pair as store_missing, read_text, acquire_lock, env_float, env_int, event, field, header_field,
@@ -31,26 +32,19 @@ class WaitResult:
         self.steps_due = steps_due
 
 
-def wait_opts(args, timeout=540000):
-    """wait_opts(): (timeout in milliseconds, check-in interval in minutes, send_only, leftover args). --timeout takes
-    milliseconds and --every minutes, both whole numbers."""
-    rest, send_only, i = [], False, 0
-    while i < len(args):
-        arg = args[i]
-        if arg == '--timeout':
-            if i + 1 >= len(args):
-                raise Die('--timeout needs a value')
-            timeout, i = whole_number(args[i + 1], '--timeout', 'milliseconds'), i + 2
-        elif arg == '--every':
-            if i + 1 >= len(args):
-                raise Die('--every needs a value')
-            timeout, i = whole_number(args[i + 1], '--every', 'minutes') * 60000, i + 2
-        elif arg == '--send-only':
-            send_only, i = True, i + 1
-        else:
-            rest.append(arg)
-            i += 1
-    return timeout, tdiv(timeout, 60000), send_only, rest
+TIMING = Spec(valued=('--timeout', '--every'), flags=('--send-only',), unknown='collect')
+TIMEOUT_ONLY = Spec(valued=('--timeout', '--every'))
+
+
+def timeout_ms(parsed, default=540000):
+    """The wait's timeout in milliseconds: --timeout takes milliseconds and --every minutes, both whole numbers, and the last of them wins."""
+    timeout = default
+    for flag, value in parsed.occurrences:
+        if flag == '--timeout':
+            timeout = whole_number(value, '--timeout', 'milliseconds')
+        elif flag == '--every':
+            timeout = whole_number(value, '--every', 'minutes') * 60000
+    return timeout
 
 
 def reply_mode(result):
@@ -368,9 +362,10 @@ def wait(ctx, args):
     if len(args) < 1:
         raise Die(f'usage: {prog()} wait <store> [--timeout MS | --every MIN]')
     store = args[0]
-    timeout, interval, _, rest = wait_opts(args[1:])
-    if rest:
-        raise Die(f'unknown option {rest[0]}')
+    opts = read(args[1:], TIMING)
+    timeout = timeout_ms(opts)
+    opts.refuse_leftovers()
+    interval = tdiv(timeout, 60000)
     if not os.path.isfile(f'{store}/pair.json'):
         no_pair(store)
     name = field(store, 'sidekick', 'name')

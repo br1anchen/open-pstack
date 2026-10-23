@@ -4,12 +4,13 @@ import re
 import sys
 import time
 
-from ..store import Die, prog, event, field, read_text, header_field, member, names, newest, unit_name, update, who
+from ..store import Die, prog, event, field, read_text, header_field, member, names, newest, tdiv, unit_name, update, who
 from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
 from ..prime import prime_steer
 from ..review import has_placeholder
 from ..send import prompt_sidekick
-from ..wait import end_with_parent, owned_wait, wait_opts
+from ..argv import Spec, read
+from ..wait import TIMING, end_with_parent, owned_wait, timeout_ms
 from .report import require_pair
 
 
@@ -45,15 +46,10 @@ def steer(ctx, args):
     if len(args) < 2:
         raise Die(usage())
     store, steer_path = args[0], os.path.realpath(args[1])
-    timeout, interval, _, rest = wait_opts(args[2:])
-    force = interrupt = False
-    for opt in rest:
-        if opt == '--force':
-            force = True
-        elif opt == '--interrupt':
-            interrupt = True
-        else:
-            raise Die(f'unknown option {opt}')
+    opts = read(args[2:], Spec(valued=TIMING.valued, flags=(*TIMING.flags, '--force', '--interrupt'), unknown='collect'))
+    timeout = timeout_ms(opts)
+    opts.refuse_leftovers()
+    interval, force, interrupt = tdiv(timeout, 60000), opts.present('--force'), opts.present('--interrupt')
     if not os.path.isfile(steer_path):
         raise Die(f'steer not found: {steer_path}')
     try:

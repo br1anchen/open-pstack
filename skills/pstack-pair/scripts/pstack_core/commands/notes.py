@@ -3,6 +3,7 @@ import os
 import re
 import sys
 
+from ..argv import Spec, read
 from ..store import (
     Die, prog, count, dispatched_brief, event, field, fill_template, header_field, load, peek, note_id, pair_file, pause_notice,
     read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest,
@@ -118,14 +119,8 @@ def deliver_blocking_note(ctx, store, path):
 def new_note(ctx, args):
     if len(args) < 2:
         raise Die(f'usage: {prog()} new-note <store> <NNN> [--through K]')
-    store, seq, rest = args[0], args[1], args[2:]
-    through = ''
-    if rest and rest[0] == '--through':
-        if len(rest) < 2:
-            raise Die('--through needs a value')
-        through = rest[1]
-    elif rest and rest[0] != '':
-        raise Die(f'unknown option {rest[0]}')
+    store, seq = args[0], args[1]
+    through = read(args[2:], Spec(valued=('--through',))).last('--through', '')
     pair_file(store)
     briefs = sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
     if not briefs:
@@ -173,17 +168,10 @@ def new_steer(ctx, args):
     """Fresh steers on a unit are capped at two; one that supersedes an objected steer is a discussion round."""
     if len(args) < 2:
         raise Die(f'usage: {prog()} new-steer <store> <NNN> [--supersedes STEER | --force]')
-    store, seq, rest = args[0], args[1], args[2:]
-    force, supersedes = False, 'none'
-    while rest:
-        if rest[0] == '--force':
-            force, rest = True, rest[1:]
-        elif rest[0] == '--supersedes':
-            if len(rest) < 2:
-                raise Die('--supersedes needs a value')
-            supersedes, rest = os.path.realpath(rest[1]), rest[2:]
-        else:
-            raise Die(f'unknown option {rest[0]}')
+    store, seq = args[0], args[1]
+    opts = read(args[2:], Spec(valued=('--supersedes',), flags=('--force',)))
+    force = opts.present('--force')
+    supersedes = os.path.realpath(opts.last('--supersedes')) if opts.present('--supersedes') else 'none'
     pair_file(store)
     briefs = sorted(glob.glob(os.path.join(glob.escape(store), 'briefs', glob.escape(seq) + '-*.md')))
     if not briefs:

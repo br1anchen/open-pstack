@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 
+from .argv import Spec, read
 from .prime import with_timeout
 from .store import TEXT, env_float
 
@@ -116,14 +117,8 @@ def tool_line(tool):
 
 
 def preflight_muse(args):
-    kept, i = [], 0
-    while i < len(args):
-        if args[i] in ('--model', '--provider', '--contributor-mode', '--permission-profile'):
-            if i + 1 < len(args):
-                kept += [args[i], args[i + 1]]
-            i += 2
-        else:
-            i += 1
+    parsed = read(args, Spec(valued=('--model', '--provider', '--contributor-mode', '--permission-profile'), unknown='collect'))
+    kept = [token for pair in parsed.occurrences for token in pair]
     r = with_timeout(timeout_s(), ['muse', 'exec', *kept, 'Reply with exactly: OK'], cwd='/tmp', stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     out = r.stdout.rstrip('\n')
     if r.returncode == 0 and 'OK' in out:

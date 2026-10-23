@@ -6,6 +6,7 @@ import sys
 import time
 
 from .. import git
+from ..argv import Spec, read
 from ..store import Die, Exit, prog, _dumps, event, member, update
 from ..panes import herdr, require_herdr
 from ..permission import logical_cwd
@@ -59,21 +60,10 @@ def run(ctx, args):
     require_herdr()
     if not args:
         raise Die(f'usage: {prog()} init <slug> [--store DIR] [--pane ID]')
-    slug, rest = args[0], args[1:]
-    store, longest, pane = '', ctx.roles[-1], os.environ.get('HERDR_PANE_ID', '')
-    i = 0
-    while i < len(rest):
-        option = rest[i]
-        if option in ('--store', '--pane'):
-            if i + 1 >= len(rest):
-                raise Die(f'{option} needs a value')
-            if option == '--store':
-                store = rest[i + 1]
-            else:
-                pane = rest[i + 1]
-            i += 2
-        else:
-            raise Die(f'unknown option {option}')
+    slug = args[0]
+    opts = read(args[1:], Spec(valued=('--store', '--pane')))
+    store, longest = opts.last('--store', ''), ctx.roles[-1]
+    pane = opts.last('--pane', os.environ.get('HERDR_PANE_ID', ''))
     if not re.fullmatch(rf'[a-z][a-z0-9_-]{{0,{ctx.slug_max}}}', slug):
         raise Die(f"slug must match [a-z][a-z0-9_-]{{0,{ctx.slug_max}}} (so <slug>-{longest} fits Herdr's 32-char name limit)")
     store = store or f'{ctx.state_root}/{slug}'

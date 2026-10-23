@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 
+from ..argv import Spec, read
 from ..store import Die, Exit, prog, event, field, load, names, pair_file, peek, read_flag, text_at, env_float, expected_report, who
 from ..exits import exit_command, exit_deadline, exit_poll, stopped
 from ..gates import require_not_paused, check_scope
@@ -104,12 +105,7 @@ def queue(ctx, args):
         event(store, 'master', 'queue', '-', 'cleared')
         print('queue cleared')
         return 0
-    replace = False
-    option = args[2] if len(args) > 2 else ''
-    if option == '--replace':
-        replace = True
-    elif option != '':
-        raise Die(f'unknown option {option}')
+    replace = read(args[2:], Spec(flags=('--replace',))).present('--replace')
     if not os.path.isfile(brief):
         raise Die(f'brief not found: {brief}')
     brief = os.path.realpath(brief)
@@ -142,17 +138,9 @@ def failover(ctx, args):
     require_herdr()
     if not args:
         raise Die(f'usage: {prog()} failover <store> [--reason TEXT] [--force]')
-    store, rest = args[0], list(args[1:])
-    reason, force = 'requested', False
-    while rest:
-        if rest[0] == '--reason':
-            if len(rest) < 2:
-                raise Die('--reason needs a value')
-            reason, rest = rest[1], rest[2:]
-        elif rest[0] == '--force':
-            force, rest = True, rest[1:]
-        else:
-            raise Die(f'unknown option {rest[0]}')
+    store = args[0]
+    opts = read(args[1:], Spec(valued=('--reason',), flags=('--force',)))
+    reason, force = opts.last('--reason', 'requested'), opts.present('--force')
     pair_file(store)
     kind = field(store, 'sidekick', 'kind')
     recorded = peek(peek(load(store), 'sidekick'), 'fallback')

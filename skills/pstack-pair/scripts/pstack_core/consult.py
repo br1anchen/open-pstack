@@ -8,17 +8,17 @@ import re
 import subprocess
 import sys
 
-from . import git
+from . import argv, git
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
 from .store import (
-    Die, prog, TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, whole_number, now, write_text, who,
+    Die, prog, TEXT, event, field, fill_template, header_field, newest_first, pair_file, read, read_text, update, now, write_text, who,
 )
 from .gates import require_not_paused
 from .panes import DEVNULL, agent_prompt, agent_state, agent_status, await_file, error_code, error_state, require_herdr
 from .review import require_filled
 from .send import require_fresh_session, submit_typed
-from .wait import end_with_parent
+from .wait import TIMEOUT_ONLY, end_with_parent, timeout_ms
 
 CONSULT_KINDS = ('design', 'finding', 'objection', 'review', 'glance')
 
@@ -89,19 +89,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     if len(args) < 2:
         raise Die(f'usage: {prog()} discuss <store> <plan-path> [--timeout MS]')
     store, plan, timeout = args[0], args[1], 540000
-    rest = list(args[2:])
-    while rest:
-        if rest[0] == '--timeout':
-            if len(rest) < 2:
-                raise Die('--timeout needs a value')
-            timeout = whole_number(rest[1], '--timeout', 'milliseconds')
-        elif rest[0] == '--every':
-            if len(rest) < 2:
-                raise Die('--every needs a value')
-            timeout = whole_number(rest[1], '--every', 'minutes') * 60000
-        else:
-            raise Die(f'unknown option {rest[0]}')
-        rest = rest[2:]
+    timeout = timeout_ms(argv.read(args[2:], TIMEOUT_ONLY), timeout)
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
     plan = os.path.realpath(plan)
@@ -186,34 +174,14 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     return rc
 
 
-def timeout_options(rest, timeout):
-    """--timeout MS or --every MIN, each with a value, checked before any state changes: the timeout in milliseconds."""
-    while rest:
-        if rest[0] not in ('--timeout', '--every'):
-            raise Die(f'unknown option {rest[0]}')
-        if len(rest) < 2:
-            raise Die(f'{rest[0]} needs a value')
-        timeout = whole_number(rest[1], '--timeout', 'milliseconds') if rest[0] == '--timeout' else whole_number(rest[1], '--every', 'minutes') * 60000
-        rest = rest[2:]
-    return timeout
-
-
 def new_consult(ctx, args):
     """Consults on a unit are capped at three; a fourth means the design is wrong and belongs in a plan round. A glance, the short diff read at a
     check-in, sits outside that cap, one per unit."""
     if len(args) < 2:
         raise Die(f'usage: {prog()} new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]')
-    store, seq, rest = args[0], args[1], list(args[2:])
-    kind, force = '', False
-    while rest:
-        if rest[0] == '--kind':
-            if len(rest) < 2:
-                raise Die('--kind needs a value')
-            kind, rest = rest[1], rest[2:]
-        elif rest[0] == '--force':
-            force, rest = True, rest[1:]
-        else:
-            raise Die(f'unknown option {rest[0]}')
+    store, seq = args[0], args[1]
+    opts = argv.read(args[2:], argv.Spec(valued=('--kind',), flags=('--force',)))
+    kind, force = opts.last('--kind', ''), opts.present('--force')
     pair_file(store)
     if kind not in CONSULT_KINDS:
         raise Die('--kind must be design, finding, objection, review, or glance')
@@ -254,7 +222,7 @@ def consult(ctx, args):
     if len(args) < 2:
         raise Die(f'usage: {prog()} consult <store> <consult-path> [--timeout MS]')
     store, path = args[0], os.path.realpath(args[1])
-    timeout = timeout_options(list(args[2:]), 900000)
+    timeout = timeout_ms(argv.read(args[2:], TIMEOUT_ONLY), 900000)
     end_with_parent()
     if not os.path.isfile(path):
         raise Die(f'consult not found: {path}')

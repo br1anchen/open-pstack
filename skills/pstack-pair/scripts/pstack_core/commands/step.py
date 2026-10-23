@@ -5,6 +5,7 @@ import sys
 import time
 
 from .. import git
+from ..argv import Spec, read
 from ..store import Die, prog, event, load, pair_file, text_at, pause_notice, paused_reason, progress_path, steer_notice, unit_name
 from ..replies import dispatched
 from ..steplog import StepLog
@@ -16,15 +17,7 @@ def step(ctx, args, now=None):
     if len(args) < 3:
         raise Die(f'usage: {prog()} step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha, summary = args[:3]
-    rest = args[3:]
-    resolves = ''
-    option = rest[0] if rest else ''
-    if option == '--resolves':
-        if len(rest) < 2:
-            raise Die('--resolves needs a value')
-        resolves = rest[1]
-    elif option != '':
-        raise Die(f'unknown option {option}')
+    resolves = read(args[3:], Spec(valued=('--resolves',))).last('--resolves', '')
     if not re.fullmatch(r'((?:[0-9]{3}-)?n[0-9]+(,(?:[0-9]{3}-)?n[0-9]+)*)?', resolves):
         raise Die('--resolves takes note ids like n2,n3, or 001-n2 for another unit\'s note')
     pair_file(store)

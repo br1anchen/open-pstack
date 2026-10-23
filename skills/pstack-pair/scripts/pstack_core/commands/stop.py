@@ -7,7 +7,8 @@ import time
 from ..store import Die, Exit, prog, read_text, env_float, env_int, event, field, header_field, tdiv, update, who
 from ..panes import DEVNULL, agent_prompt, agent_status, herdr, pane_text, require_herdr
 from ..replies import file_mtime
-from ..wait import WaitResult, end_with_parent, finish_wait, wait_opts
+from ..argv import read
+from ..wait import TIMING, WaitResult, end_with_parent, finish_wait, timeout_ms
 from .report import require_pair
 
 DEFAULT_TIMEOUT = 300000
@@ -121,9 +122,10 @@ def stop(ctx, args):
     if not args:
         raise Die(f'usage: {prog()} stop <store> [--timeout MS]')
     store = args[0]
-    timeout, interval, _, rest = wait_opts(args[1:], DEFAULT_TIMEOUT)
-    if rest:
-        raise Die(f'unknown option {rest[0]}')
+    opts = read(args[1:], TIMING)
+    timeout = timeout_ms(opts, DEFAULT_TIMEOUT)
+    opts.refuse_leftovers()
+    interval = tdiv(timeout, 60000)
     require_pair(store)
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)

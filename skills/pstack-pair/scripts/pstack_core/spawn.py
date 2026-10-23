@@ -7,6 +7,7 @@ import sys
 import time
 
 from . import agents
+from .argv import Spec, read
 from .send import fresh_kind, submit_typed, visible_without_blanks
 from .store import (
     Die, exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, prog, pair_file,
@@ -259,6 +260,7 @@ def usage():
 
 
 VALUED = {'--kind': 'kind', '--fallback': 'fallback', '--permission': 'permission', '--direction': 'direction', '--pane': 'pane', '--timeout': 'timeout'}
+SPEC = Spec(valued=(*VALUED, '--fallback-arg'), flags=('--tab', '--split'), dashdash=True)
 
 
 def spawn(ctx, args):
@@ -267,26 +269,15 @@ def spawn(ctx, args):
     require_herdr()
     if not args:
         raise Die(usage())
-    store, rest = args[0], list(args[1:])
+    store = args[0]
     opts = {'kind': '', 'direction': '', 'pane': '', 'timeout': '60000', 'permission': '', 'fallback': '', 'placement': ''}
-    fallback_args = []
-    while rest:
-        flag = rest[0]
-        if flag in VALUED or flag == '--fallback-arg':
-            if len(rest) < 2:
-                raise Die(f'{flag} needs a value')
-            if flag == '--fallback-arg':
-                fallback_args.append(rest[1])
-            else:
-                opts[VALUED[flag]] = rest[1]
-            rest = rest[2:]
+    parsed = read(args[1:], SPEC)
+    for flag, value in parsed.occurrences:
+        if flag in VALUED:
+            opts[VALUED[flag]] = value
         elif flag in ('--tab', '--split'):
-            opts['placement'], rest = flag[2:], rest[1:]
-        elif flag == '--':
-            rest = rest[1:]
-            break
-        else:
-            raise Die(f'unknown option {flag}')
+            opts['placement'] = flag[2:]
+    fallback_args, rest = parsed.all('--fallback-arg'), list(parsed.after_dashdash)
     whole_number(opts['timeout'], '--timeout', 'milliseconds')
     if not opts['kind']:
         raise Die('--kind is required (run: herdr agent, for the kind list)')

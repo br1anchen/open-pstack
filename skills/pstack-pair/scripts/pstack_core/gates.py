@@ -6,6 +6,7 @@ import re
 import sys
 
 from . import git
+from .argv import Spec, read
 from .checkin import scope_entries, scope_match
 from .store import Die, header_field, paused_reason, read_text, prog, event, pair_file, write_text
 
@@ -107,14 +108,8 @@ def check_scope(brief, root):
 def pause(ctx, args):
     if not args:
         raise Die(f'usage: {prog()} pause <store> [--reason TEXT]')
-    store, rest = args[0], args[1:]
-    reason = 'paused by the human'
-    if rest and rest[0] == '--reason':
-        if len(rest) < 2:
-            raise Die('--reason needs a value')
-        reason = rest[1]
-    elif rest and rest[0] != '':
-        raise Die(f'unknown option {rest[0]}')
+    store = args[0]
+    reason = read(args[1:], Spec(valued=('--reason',))).last('--reason', 'paused by the human')
     pair_file(store)
     write_text(f'{store}/paused', f'{reason}\n')
     event(store, 'master', 'pause', '-', reason)

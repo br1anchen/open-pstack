@@ -4493,13 +4493,18 @@ class CoreTests(unittest.TestCase):
     def test_the_timeout_and_interval_of_a_wait_are_whole_numbers_and_a_float_knob_takes_a_fraction(self):
         """--timeout (milliseconds) and --every (minutes) take digits only: a sign, a fraction or an expression is a usage error with status 1 naming
         the flag. PAIR_BUSY_POLL takes a fraction, and a word there is a usage error too."""
-        self.assertEqual(wait.wait_opts(['--timeout', '90000', '--send-only', 'x']), (90000, 1, True, ['x']))
-        self.assertEqual(wait.wait_opts(['--every', '2']), (120000, 2, False, []))
-        self.assertEqual(wait.wait_opts(['--timeout', '0']), (0, 0, False, []))
+        def timing(args):
+            opts = argv.read(args, wait.TIMING)
+            timeout = wait.timeout_ms(opts)
+            return timeout, store.tdiv(timeout, 60000), opts.present('--send-only'), list(opts.leftovers)
+
+        self.assertEqual(timing(['--timeout', '90000', '--send-only', 'x']), (90000, 1, True, ['x']))
+        self.assertEqual(timing(['--every', '2']), (120000, 2, False, []))
+        self.assertEqual(timing(['--timeout', '0']), (0, 0, False, []))
         for flag, unit in (('--timeout', 'milliseconds'), ('--every', 'minutes')):
             for word in ('-5', 'x', '1.5', '1+1', '', '0x10'):
                 with self.assertRaises(Die) as caught:
-                    wait.wait_opts([flag, word])
+                    timing([flag, word])
                 self.assertEqual((caught.exception.code, caught.exception.message), (1, f'{flag} must be a whole number of {unit}'), (flag, word))
 
     def test_verify_wait_behaviour_for_the_wait_itself(self):

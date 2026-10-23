@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 from .. import git
+from ..argv import Spec, read
 from ..store import Die, basename, prog, load, names, pair_file, text_at, update
 
 
@@ -29,17 +30,9 @@ def remove_tree(path):
 def run(ctx, args):
     if len(args) < 2:
         raise Die(f'usage: {prog()} scratch <store> <id> [--at SHA] [--remove]')
-    store, ident, rest = args[0], args[1], args[2:]
-    remove, at = False, ''
-    while rest:
-        if rest[0] == '--remove':
-            remove, rest = True, rest[1:]
-        elif rest[0] == '--at':
-            if len(rest) < 2:
-                raise Die('--at needs a value')
-            at, rest = rest[1], rest[2:]
-        else:
-            raise Die(f'unknown option {rest[0]}')
+    store, ident = args[0], args[1]
+    opts = read(args[2:], Spec(valued=('--at',), flags=('--remove',)))
+    remove, at = opts.present('--remove'), opts.last('--at', '')
     pair_file(store)
     if not re.fullmatch(r'[0-9]{3}-[a-z0-9_-]+', ident):
         raise Die('scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review')

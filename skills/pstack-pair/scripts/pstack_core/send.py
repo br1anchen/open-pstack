@@ -10,12 +10,13 @@ import sys
 import time
 
 from . import git
-from .store import Die, Exit, TEXT, missing_pair, env_float, event, expected_report, load, peek, text_at, update, count, member, names, prog, who
+from .store import Die, Exit, TEXT, missing_pair, env_float, event, expected_report, load, peek, tdiv, text_at, update, count, member, names, prog, who
 from .gates import check_scope, require_not_paused
 from .panes import DEVNULL, agent_kind, agent_prompt, agent_status, error_code, require_herdr
 from .replies import first3, pending, queued_brief
 from .review import require_filled
-from .wait import owned_wait, end_with_parent, wait_opts
+from .argv import read
+from .wait import TIMING, owned_wait, end_with_parent, timeout_ms
 
 
 def prune_pending(store):
@@ -174,9 +175,10 @@ def discuss(ctx, args):
         raise Die(f'usage: {prog()} discuss <store> <plan-path> [--timeout MS]')
     store, plan = args[0], args[1]
     end_with_parent()
-    timeout, interval, send_only, rest = wait_opts(args[2:])
-    if rest:
-        raise Die(f'unknown option {rest[0]}')
+    opts = read(args[2:], TIMING)
+    timeout = timeout_ms(opts)
+    opts.refuse_leftovers()
+    interval, send_only = tdiv(timeout, 60000), opts.present('--send-only')
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
     require_not_paused(store)
@@ -196,9 +198,10 @@ def dispatch(ctx, args):
         raise Die(f'usage: {prog()} dispatch <store> <brief-path> [--timeout MS | --every MIN]')
     store, brief = args[0], store_relative(args[0], args[1])
     end_with_parent()
-    timeout, interval, send_only, rest = wait_opts(args[2:])
-    if rest:
-        raise Die(f'unknown option {rest[0]}')
+    opts = read(args[2:], TIMING)
+    timeout = timeout_ms(opts)
+    opts.refuse_leftovers()
+    interval, send_only = tdiv(timeout, 60000), opts.present('--send-only')
     if not os.path.isfile(brief):
         raise Die(f'brief not found: {brief}')
     brief = os.path.realpath(brief)
