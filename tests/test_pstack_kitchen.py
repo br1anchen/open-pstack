@@ -4427,7 +4427,7 @@ esac
         '```bash\nfalse\necho after\n```\n\n'
         '## Risks\n\n- `python3 not_a_verification.py`\n')
 
-    def landing_world(self, units, plan_text=None, verified=()):
+    def landing_world(self, units, plan_text=None, verified=(), statuses=(), with_plan=True):
         """A landing over units (seq, slug, goal, acceptance) of briefs that name plans/900-demo.md; returns the landing packet's text."""
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)
@@ -4436,16 +4436,16 @@ esac
         plan.write_text(self.PLAN_VERIFICATION if plan_text is None else plan_text)
         (self.store / 'reviews/900-demo.md').write_text('verdict: agreed\n')
         for seq, slug, goal, acceptance in units:
-            b = self.brief(seq, slug, ['src/**', 'tests/**'], plan=str(plan))
+            b = self.brief(seq, slug, ['src/**', 'tests/**'], plan=str(plan) if with_plan else 'none')
             text = re.sub(r'(## Goal\n\n)x', lambda m: m.group(1) + goal.replace('STORE', str(self.store)), b.read_text(), count=1)
             b.write_text(re.sub(r'(## Acceptance\n\n)[^\n]*', lambda m: m.group(1) + acceptance, text, count=1))
             self.dispatch(b)
             self.write(f'src/mod{seq}.py', f'X = {seq}\n')
             self.write(f'tests/test_mod{seq}.py', f'x = {seq}\n')
             self.done(b, self.commit(slug))
-        for seq in verified:
+        for seq, status in [(seq, 'clean') for seq in verified] + list(statuses):
             (self.store / 'verdicts').mkdir(exist_ok=True)
-            (self.store / f'verdicts/{seq}-v1.md').write_text(f'# Verdict\n\nstatus: clean\nunits: {seq}\n')
+            (self.store / f'verdicts/{seq}-v1.md').write_text(f'# Verdict\n\nstatus: {status}\nunits: {seq}\n')
         self.run_sh('verify', str(self.store), '--timeout', '60', '--landing', '--every', '0')
         return (self.store / 'verdicts/landing-v1-packet.md').read_text()
 
@@ -4520,6 +4520,21 @@ esac
         self.assertEqual(folded, [f'## Acceptance: unit 002-next (plan {plan})'])
         self.assertEqual(packet.split(folded[0] + '\n\n')[1].split('\n## ')[0].strip('\n').split('\n'), ['Acceptance two holds.'])
         self.assertNotIn('Acceptance one holds.', packet)
+
+    def test_a_unit_whose_only_verdict_is_a_reject_or_inconclusive_is_folded_with_its_acceptance(self):
+        packet = self.landing_world([('001', 'util', 'g1', 'Acceptance one holds.'), ('002', 'next', 'g2', 'Acceptance two holds.')],
+                                    statuses=(('001', 'reject'), ('002', 'inconclusive')))
+        plan = self.store / 'plans/900-demo.md'
+        self.assertIn('Verified on their own: none.\nFolded into this landing, with no verdict of their own: 001-util, 002-next; '
+                      'their Acceptance is below, and you prove it here.\n', packet)
+        self.assertEqual([l for l in packet.split('\n') if l.startswith('## Acceptance: ')],
+                         [f'## Acceptance: unit 001-util (plan {plan})', f'## Acceptance: unit 002-next (plan {plan})'])
+        self.assertIn('## Acceptance: unit 001-util (plan %s)\n\nAcceptance one holds.\n' % plan, packet)
+
+    def test_a_folded_unit_whose_brief_names_no_plan_shows_plan_none(self):
+        packet = self.landing_world([('001', 'util', 'g1', 'Acceptance one holds.')], with_plan=False)
+        self.assertIn('## Acceptance: unit 001-util (plan none)\n\nAcceptance one holds.\n', packet)
+        self.assertNotIn('## Plan verification', packet)
 
     def test_a_landing_packet_over_units_all_verified_says_none_are_folded_in(self):
         packet = self.landing_world([('001', 'util', 'g1', 'Acceptance one holds.')], verified=('001',))
