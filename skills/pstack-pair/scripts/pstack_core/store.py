@@ -429,7 +429,7 @@ def update(store, mutate):
             pass
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class Context:
     """What a variant's class attributes configure: skill, state root, labels, roles, store directories, slug limit, unfilled pattern, the name
     its messages carry (pair.sh, kitchen.sh) and whether it writes a repeated master wake once."""
