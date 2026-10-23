@@ -59,6 +59,7 @@ from pstack_core.errors import (  # noqa: E402
     Die,
     EmptyStepLog,
     Exit,
+    FeedbackLocked,
     FileFailed,
     LockHeld,
     MissingStore,
@@ -342,12 +343,6 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(
             (self.path / 'events.tsv').read_text().endswith('\tsidekick\tstep\t-\t\n')
         )
-
-    def commit(self, name):
-        (self.path / 'repo' / name).write_text(name)
-        self.git('add', '-A')
-        self.git('commit', '-q', '-m', name)
-        return self.git('rev-parse', 'HEAD')
 
     def init_cases(self):
         cases = {
@@ -1258,13 +1253,12 @@ class CoreTests(unittest.TestCase):
                 args=run, agents=idle, files=answer, promptfail=True
             ),
         }
-        return {
-            n: {
-                **spec,
-                'mtimes': {rel: self.OLD_MTIME for rel in spec.get('files', {})},
-            }
-            for n, spec in cases.items()
-        }
+        out = {}
+        for n, spec in cases.items():
+            files = spec.get('files', {})
+            assert isinstance(files, dict)
+            out[n] = {**spec, 'mtimes': {rel: self.OLD_MTIME for rel in files}}
+        return out
 
     READY_HOOK = (
         '#!/bin/sh\nst="$FAKE/../st"\ncase "$2" in Load*) case "$1" in c1) printf "# R\\n\\nstatus: answered\\n" >"$st/advice/000-ready.md" ;; '
@@ -2371,6 +2365,7 @@ class CoreTests(unittest.TestCase):
             open_release()
         # The pipe closes when everything that held it has ended: a Python wait left behind by a signal to the shell alone must follow
         # its shell (PR_SET_PDEATHSIG) instead of running on to its timeout.
+        assert proc.stdout is not None
         if not select.select([proc.stdout], [], [], 10)[0]:
             kill_group()
             self.fail('the wait outlived its shell')
@@ -4275,20 +4270,18 @@ class CoreTests(unittest.TestCase):
         }
         feature = 'playbook: feature\nplan: {st}/plans/001-x.md\n'
         run = ['dispatch', '{st}', '{st}/briefs/003-z.md', '--timeout', '20000']
+        base_files = {'briefs/003-z.md': brief_text()}
         base = dict(
             args=run,
             agents=idle,
-            files={'briefs/003-z.md': brief_text()},
+            files=base_files,
             repo_files={'src/a.py': 'x', 'docs/guide.md': 'x'},
             report_after='1 {st}/reports/003-z.md',
         )
-        mod = lambda **kw: {
-            **base,
-            **kw,
-            'files': {'briefs/003-z.md': brief_text(), **kw.pop('files', {})}
-            if False
-            else {**base['files'], **kw.get('files', {})},
-        }
+
+        def mod(files=None, **kw):
+            return {**base, **kw, 'files': {**base_files, **(files or {})}}
+
         steps = {'steps/003-z.tsv': '1\t{c1}\t5\t\tone\n2\t{c2}\t6\t\ttwo\n'}
         return {
             'a dispatch to a report': base,
@@ -5695,7 +5688,7 @@ class CoreTests(unittest.TestCase):
         fresh = []
         (fb / '.lock').rmdir() if (fb / '.lock').exists() else None
         (fb / '.lock').mkdir()
-        with self.assertRaises(Exception) as caught:
+        with self.assertRaises(FeedbackLocked) as caught:
             feedback.fb_lock(str(fb), sleep=fresh.append)
         self.assertEqual(
             (len(fresh), caught.exception.message),
@@ -6404,13 +6397,10 @@ class CoreTests(unittest.TestCase):
             ),
             **extra,
         }
-        engine = dict(
-            review_engine=True,
-            files={
-                'briefs/001-x.md': '# Brief\n\ncommit: yes\nplaybook: bug-fix\n',
-                'reviews/001-x.md': '# R\n\nverdict: accept\n',
-            },
-        )
+        engine_files = {
+            'briefs/001-x.md': '# Brief\n\ncommit: yes\nplaybook: bug-fix\n',
+            'reviews/001-x.md': '# R\n\nverdict: accept\n',
+        }
         cases = {
             'a previous master that is live': world(),
             'a previous master that is gone but whose pane is there': world(
@@ -6456,11 +6446,13 @@ class CoreTests(unittest.TestCase):
                 },
             ),
             'a master that is a string': world(pair={'slug': 'demo', 'master': 'x'}),
-            'unreviewed units are listed': world(**engine),
+            'unreviewed units are listed': world(
+                review_engine=True, files=engine_files
+            ),
             'a review that cites the engine is not listed': world(
                 review_engine=True,
                 files={
-                    **engine['files'],
+                    **engine_files,
                     'reviews/001-x.md': '# R\n\nverdict: accept\nengine: joo /tmp/run.json\n',
                 },
             ),
@@ -6468,7 +6460,7 @@ class CoreTests(unittest.TestCase):
                 review_engine=True,
                 pair={'slug': 'demo', 'master': master, 'heads': {'001-x': '{c3}'}},
                 files={
-                    **engine['files'],
+                    **engine_files,
                     'reviews/001-x.md': '# R\n\nverdict: accept\nengine: skipped (deletion-only, proof: none)\n',
                     'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n',
                 },
@@ -6477,7 +6469,7 @@ class CoreTests(unittest.TestCase):
                 review_engine=True,
                 pair={'slug': 'demo', 'master': master, 'heads': {'001-x': '{c1}'}},
                 files={
-                    **engine['files'],
+                    **engine_files,
                     'reviews/001-x.md': '# R\n\nverdict: accept\nengine: skipped (deletion-only, proof: none)\n',
                     'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n',
                 },
@@ -6485,14 +6477,14 @@ class CoreTests(unittest.TestCase):
             'a landing brief is not listed': world(
                 review_engine=True,
                 files={
-                    **engine['files'],
+                    **engine_files,
                     'briefs/001-x.md': '# B\n\ncommit: yes\nplaybook: shipping\n',
                 },
             ),
             'a review not accepted is not listed': world(
                 review_engine=True,
                 files={
-                    **engine['files'],
+                    **engine_files,
                     'reviews/001-x.md': '# R\n\nverdict: reject\n',
                 },
             ),
@@ -7283,7 +7275,7 @@ class CoreTests(unittest.TestCase):
             'PAIR_BOOTSTRAP_WAIT_MS': '300',
             'PAIR_PRIME_COMMAND_TIMEOUT': '2',
         }
-        entry = {
+        entry: dict[str, object] = {
             'name': 's1',
             'kind': kind,
             'generation': 1,
@@ -7292,8 +7284,12 @@ class CoreTests(unittest.TestCase):
             'start_args': ['--model', 'm', 'a b'],
             **sidekick,
         }
+        pair: dict[str, dict[str, object]] = {
+            'master': {'name': 'm1', 'pane_id': 'p0'},
+            'sidekick': entry,
+        }
         world = dict(
-            pair={'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': entry},
+            pair=pair,
             panes={'p0': 'm1', 'p1': ''},
             agents={'s1': f'idle {kind}'},
             hook=self.READY_HOOK,
@@ -7314,7 +7310,7 @@ class CoreTests(unittest.TestCase):
                 ),
                 'sessions/s1': '/t/one.jsonl',
             }
-            world['pair']['sidekick']['session'] = {
+            pair['sidekick']['session'] = {
                 'kind': 'path',
                 'value': '/t/one.jsonl',
             }
@@ -7470,7 +7466,7 @@ class CoreTests(unittest.TestCase):
                 if fallback is None
                 else fallback
             )
-            entry = {
+            entry: dict[str, object] = {
                 'name': 's1',
                 'kind': kind,
                 'generation': 1,
@@ -7478,8 +7474,12 @@ class CoreTests(unittest.TestCase):
                 'fallback': fb,
                 **sidekick,
             }
+            pair: dict[str, dict[str, object]] = {
+                'master': {'name': 'm1', 'pane_id': 'p0'},
+                'sidekick': entry,
+            }
             w = dict(
-                pair={'master': {'name': 'm1', 'pane_id': 'p0'}, 'sidekick': entry},
+                pair=pair,
                 panes={'p0': 'm1', 'p1': ''},
                 agents={'s1': f'idle {kind}'},
                 hook=self.READY_HOOK,
@@ -7500,7 +7500,7 @@ class CoreTests(unittest.TestCase):
                     ),
                     'sessions/s1': '/t/one.jsonl',
                 }
-                w['pair']['sidekick']['session'] = {
+                pair['sidekick']['session'] = {
                     'kind': 'path',
                     'value': '/t/one.jsonl',
                 }
@@ -8919,7 +8919,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(
                 caught.exception.message,
                 'units %s and %s have no common order: pass --base REV'
-                % refused[order],
+                % refused[order[0], order[1], order[2]],
                 order,
             )
 
@@ -12897,15 +12897,13 @@ class CoreTests(unittest.TestCase):
             'profiles:', out['a landing brief']['files']['briefs/002-y.md']
         )
 
-    SETUP_HOOK = {
-        'hook': READY_HOOK,
-        'env': {
-            'PAIR_SUBMIT_CHECK_S': '0',
-            'PAIR_FILE_POLL_MS': '100',
-            'PAIR_BOOTSTRAP_WAIT_MS': '300',
-            'PAIR_PREFLIGHT_RETRY_S': '0',
-        },
+    SETUP_ENV = {
+        'PAIR_SUBMIT_CHECK_S': '0',
+        'PAIR_FILE_POLL_MS': '100',
+        'PAIR_BOOTSTRAP_WAIT_MS': '300',
+        'PAIR_PREFLIGHT_RETRY_S': '0',
     }
+    SETUP_HOOK = {'hook': READY_HOOK, 'env': SETUP_ENV}
     SETUP_MASK = [
         (r'<SK>[^\s"\\]*(pair|kitchen)\.sh: line [0-9]+: \[: ', 'pair.sh: [: '),
         (r'setup-[0-9]{8}T[0-9]{6}-[0-9]+\.log', 'setup-<LOG>.log'),
@@ -13048,7 +13046,7 @@ class CoreTests(unittest.TestCase):
             ),
             'no store argument': dict(base, args=['spawn']),
             'a store with no pair.json': run('--kind', 'claude', nopair=True),
-            'outside herdr': run(env={**self.SETUP_HOOK['env'], 'HERDR_ENV': '0'}),
+            'outside herdr': run(env={**self.SETUP_ENV, 'HERDR_ENV': '0'}),
             'a pi preflight that fails with the roster fallback': run(
                 '--kind',
                 'pi',
@@ -13103,7 +13101,7 @@ class CoreTests(unittest.TestCase):
             pair=pair(),
             panes={'p0': 'm1'},
             hook=self.READY_HOOK,
-            env=self.SETUP_HOOK['env'],
+            env=self.SETUP_ENV,
             mask=self.SETUP_MASK,
             args=['consultant', '{st}', '--reason', 'a contract'],
         )
@@ -13214,7 +13212,7 @@ class CoreTests(unittest.TestCase):
             'no store argument': dict(base, args=['consultant']),
             'a store with no pair.json': run('--kind', 'codex', nopair=True),
             'outside herdr': run(
-                '--kind', 'codex', env={**self.SETUP_HOOK['env'], 'HERDR_ENV': '0'}
+                '--kind', 'codex', env={**self.SETUP_ENV, 'HERDR_ENV': '0'}
             ),
         }
 
@@ -14231,6 +14229,7 @@ class CoreTests(unittest.TestCase):
         )
         os.close(write)
         self.addCleanup(os.close, read)
+        assert proc.stdout is not None
         pid = int(proc.stdout.readline())
 
         def kill_command():
@@ -18050,7 +18049,8 @@ class HerdrCallTests(unittest.TestCase):
                 stray += [
                     f'{path.relative_to(root)}:{node.lineno}'
                     for node in ast.walk(ast.parse(path.read_text(), str(path)))
-                    if self.spells_agent_start_or_prompt(node)
+                    if isinstance(node, (ast.Call, ast.List))
+                    and self.spells_agent_start_or_prompt(node)
                 ]
         self.assertEqual(stray, [])
 
@@ -18604,6 +18604,7 @@ def oversized_functions(source):
                 ]
                 if isinstance(node, ast.ClassDef) and params[:1] in (['self'], ['cls']):
                     params = params[1:]
+                assert child.end_lineno is not None
                 body = child.end_lineno - child.body[0].lineno + 1
                 if body > MAX_BODY_LINES:
                     found.append(
@@ -18663,12 +18664,12 @@ def fstring_pieces(source):
     """(start, end, delimiter) of every f-string piece, positions as (line, column) in characters; an implicitly concatenated string is one piece per literal."""
     pieces, open_starts = [], []
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
-        if token.type == tokenize.FSTRING_START:
+        if tokenize.tok_name[token.type] == 'FSTRING_START':
             opening = token.string.lstrip('fFrR')
             open_starts.append(
                 (token.start, opening if opening in ('"""', "'''") else opening[:1])
             )
-        elif token.type == tokenize.FSTRING_END:
+        elif tokenize.tok_name[token.type] == 'FSTRING_END':
             start, delimiter = open_starts.pop()
             pieces.append((start, token.end, delimiter))
     return pieces
@@ -18809,10 +18810,12 @@ def registered_commands():
         commands += load_skill_variant(root / 'skills', skill).commands.values()
     for command in commands:
         module, name = getattr(command, 'command', (None, command.__name__))
+        source = inspect.getsourcefile(command)
+        assert source is not None
         path = (
             f'pstack-kitchen/scripts/kitchen_core/{module}.py'
             if module
-            else os.path.relpath(inspect.getsourcefile(command), root / 'skills')
+            else os.path.relpath(source, root / 'skills')
         )
         found.add((path, name))
     return found
@@ -19255,6 +19258,7 @@ class WaitSeamTests(DispatchedStore):
         def brief_sent(
             ctx, store, brief, *, timeout, send_only, owner=None, quiet=False, out=None
         ):
+            assert out is not None
             for chunk in printed:
                 out(chunk)
             return send.DispatchResult((), outcome, outcome.status)

@@ -740,6 +740,7 @@ class GateTests(KitchenTests):
 
             def release_when_queued(directory, prefix, slots, on_wait=None):
                 def wait(pos, n):
+                    assert on_wait is not None
                     on_wait(pos, n)
                     holder.close()
 
@@ -5513,7 +5514,9 @@ esac
         calls = (self.fake / 'calls.log').read_text()
         self.assertRegex(calls, r'pane send-keys p\d+ esc')
         self.assertNotRegex(calls, r'send-keys \S+ enter')
-        pane = re.search(r'pane send-keys (p\d+) esc', calls).group(1)
+        sent = re.search(r'pane send-keys (p\d+) esc', calls)
+        assert sent is not None
+        pane = sent.group(1)
         self.assertIn(f'pane close {pane}', calls)
         self.assertNotIn('escalate', (self.store / 'events.tsv').read_text())
         self.assertEqual(self.state().get('escalations', []), [])
@@ -6415,11 +6418,13 @@ esac
         )
 
     def packet_range(self, name):
-        return re.search(
+        found = re.search(
             r'^range: (\S+)\.\.(\S+)$',
             (self.store / f'verdicts/{name}-packet.md').read_text(),
             re.M,
-        ).groups()
+        )
+        assert found is not None
+        return found.groups()
 
     def test_covers_measures_from_the_oldest_dispatch_head_whatever_the_order_named(
         self,
@@ -6709,9 +6714,9 @@ esac
         )
 
     def outcome_of(self, packet):
-        return re.search(
-            r'^verifier-outcome: (\S+)$', Path(packet).read_text(), re.M
-        ).group(1)
+        found = re.search(r'^verifier-outcome: (\S+)$', Path(packet).read_text(), re.M)
+        assert found is not None
+        return found.group(1)
 
     def test_verify_while_a_background_waiter_holds_the_close_claim_waits_for_it_and_starts_its_verification(
         self,
@@ -6759,6 +6764,7 @@ esac
             text=True,
         )
         self.addCleanup(nxt.kill)
+        assert nxt.stdout is not None
         self.assertIn(
             'another call is closing it; waiting for it', nxt.stdout.readline()
         )
@@ -8244,7 +8250,9 @@ esac
 
     def file_feedback(self, text=None):
         out = self.run_sh('feedback', str(self.store), str(self.gap_file(text)))
-        return out, Path(re.search(r'^filed: (.+)$', out, re.MULTILINE).group(1))
+        filed = re.search(r'^filed: (.+)$', out, re.MULTILINE)
+        assert filed is not None
+        return out, Path(filed.group(1))
 
     def calls(self):
         return (self.fake / 'calls.log').read_text()
