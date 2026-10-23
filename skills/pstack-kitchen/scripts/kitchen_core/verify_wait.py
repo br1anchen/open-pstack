@@ -13,9 +13,8 @@ from types import SimpleNamespace
 
 from pstack_core.argv import Spec, read as read_options
 from pstack_core.checkin import busy_command
-from pstack_core.store import (
-    wake,     now_s, read_text, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv, text_at,
-)
+from pstack_core.store import wake, now_s, read_text, event, header_field, json_type, load, names, peek, read, read_flag, read_int, text_at
+from pstack_core.numbers import env_float, env_int, tdiv
 from pstack_core.errors import DamagedStore, VerdictMissing, VerificationTaken
 from pstack_core.panes import agent_prompt, agent_status, pane_text
 from pstack_core.providers import agent_session_error, error_context, muse_session_error, prime_role_error

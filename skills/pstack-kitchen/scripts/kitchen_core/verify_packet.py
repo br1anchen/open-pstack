@@ -1,0 +1,211 @@
+"""The verifier's packet: what a fresh verifier is told, written from the units' briefs, the range's diff and the kitchen's gates."""
+
+import glob
+import os
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+from pstack_core import git
+from pstack_core.store import expected_report, header_field, read, read_text, write_text
+
+from . import kpy
+from .landing import is_landing
+from .units import RecordedUnit, StackIndex, inclusion, unit_brief
+
+
+def fence_for(text):
+    """A code fence for text: three backticks, or one more than the longest run of them in the text."""
+    longest = max((len(m) for m in re.findall(r'`+', text)), default=0)
+    return '`' * ((longest if longest >= 3 else 2) + 1)
+
+
+def names_path(text, path):
+    """Whether command text names path as a whole path: after a leading ~/, $HOME/ or ${HOME}/ is spelled out, path appears not inside a longer path and
+    is followed by /, space, a quote, ), ;, &, | or the end."""
+    home = os.environ.get('HOME', '')
+    text = re.sub(r"""(^|[\s=:"'(])(~|\$HOME|\$\{HOME\}|"\$HOME"|"\$\{HOME\}")/""", lambda m: m.group(1) + home + '/', text, flags=re.M)
+    return re.search(r"""(^|[^A-Za-z0-9_./-])""" + re.escape(path) + r"""(/|[\s"'`);&|]|$)""", text, flags=re.M) is not None
+
+
+def brief_commands(store, root, brief, unit):
+    """The brief's Verify commands for a verifier's packet, each in a block of its own, run from the scratch root. A command that ends in
+    `# master-only` (on its first or last line) writes the store, and one that names the main checkout or the store cannot run in the scratch; both are
+    listed apart, in full, each with its reason. A Verify block the kitchen refuses is said so in the packet and warned of, not skipped."""
+    try:
+        commands = kpy.kitchen_py.brief_verify_list(kpy.invocation(store, root), Path(brief))
+    except kpy.KitchenError as e:
+        first = f'kitchen: {e}'.split('\n')[0]
+        sys.stdout.flush()
+        sys.stderr.write(f'warning: unit {unit or "?"}: brief-verify: {first}\n')
+        return f'Brief commands: none (brief-verify: {first})\n\n'
+    text, n, apart = '', 0, ''
+    for command in commands:
+        parts = command.split('\n')
+        first, last = parts[0], parts[-1]
+        fence = fence_for(command)
+        if re.search(r'# master-only[ \t\n\r\f\v]*$', first) or re.search(r'# master-only[ \t\n\r\f\v]*$', last):
+            why = 'master-only'
+        elif names_path(command, root) or names_path(command, store):
+            why = 'absolute path'
+        else:
+            n += 1
+            if n == 1:
+                text += 'Brief commands:\n\nRun each command in a fresh shell from the scratch root.\n\n'
+            text += f'Command {n}:\n\n{fence}bash\n{command}\n{fence}\n\n'
+            continue
+        apart += f'({why})\n{fence}bash\n{command}\n{fence}\n\n'
+    if apart:
+        text += f'not for the verifier:\n\n{apart}'
+    return text
+
+
+def landing_covered_briefs(store, root, base, head):
+    """The done unit briefs a landing range holds: those whose head is in base..head, or whose commits were rebased into it."""
+    covered, index = [], StackIndex.build(root, base, head)
+    for brief in sorted(glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')):
+        if not os.path.exists(brief) or header_field(expected_report(store, brief), 'status') != 'done' or is_landing(brief):
+            continue
+        if inclusion(RecordedUnit(store, brief), index).covered:
+            covered.append(brief)
+    return covered
+
+
+def tail_lines(text, count):
+    lines = text.split('\n')
+    if lines and lines[-1] == '':
+        lines.pop()
+    return '\n'.join(lines[-count:])
+
+
+def section_lines(path, pattern, keep_heading):
+    """The lines under the brief's `## Goal` and `## Acceptance` headings, headings included with keep_heading, else the Goal section without its heading."""
+    found, show = [], False
+    try:
+        lines = read_text(path).split('\n')
+    except OSError:
+        return found
+    if lines and lines[-1] == '':
+        lines.pop()
+    for line in lines:
+        if re.match(pattern, line):
+            show = True
+            if keep_heading:
+                found.append(line)
+            continue
+        if line.startswith('## '):
+            show = False
+        if show:
+            found.append(line)
+    return found
+
+
+@dataclass(frozen=True)
+class Packet:
+    """What the verifier's packet says: where the repo and the kitchen's scripts are, the range, the units, and the verifier it is for. `units` are all
+    the units proved (the fix's covered ones first), `own` those named as the fix; `config` is the kitchen config the diff was classified under."""
+    template: str
+    tool_dir: str
+    root: str
+    store: str
+    verdict: str
+    scratch: str
+    base: str
+    head: str
+    identity: str
+    vclass: str
+    timeout_m: int
+    risk: str
+    units: tuple
+    own: tuple
+    covered: tuple
+    landing: bool
+    last: str
+    slug: str
+    data: dict
+    config: str
+
+
+PACKET_RULE = 'Write rule: you write only your verdict file and the scratch worktree you were given; work only in that worktree and write nothing else but the verdict.'
+
+
+def landing_sections(p, parts):
+    """Adds the packet's opening for a landing to parts: the stack's header and each covered unit's goal."""
+    parts += [f'# Verify landing: the stack at {p.head[:9]}\n\nverdict: {p.verdict}\ntemplate: {p.template}\nscratch: {p.scratch}\n'
+              f'range: {p.base}..{p.head}\nrisk: landing\nunits: landing\nverifier-agent: {p.identity}\nverifier-class: {p.vclass}\nverifier-outcome: prepared\n'
+              f'deadline: {p.timeout_m}m from now\n\n',
+              f'{PACKET_RULE}\n\n',
+              '## Stack\n\nEach unit below was verified on its own. Prove that together, at this tip,\nthey still hold: run every Prove command, then drive the main flows the\n'
+              'briefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n']
+    stacked = landing_covered_briefs(p.store, p.root, p.base, p.head)
+    parts += [f'- {b}\n' for b in stacked]
+    parts.append('\n## Goals\n\n')
+    for b in stacked:
+        name = os.path.basename(b)[:-3]
+        parts.append(f'### Unit {name[:3]} {name[4:]}\n\n')
+        goal = section_lines(b, r'^## Goal', False)
+        while goal and goal[0] == '':
+            goal.pop(0)
+        parts.append('\n'.join(goal).rstrip('\n') + '\n\n')
+
+
+def unit_sections(p, parts):
+    """Adds the packet's opening for named units to parts: the header, then each unit's Goal and Acceptance, its commands, and the lessons that apply to the briefs."""
+    parts += [f'# Verify {p.last}: {p.slug}\n\nverdict: {p.verdict}\ntemplate: {p.template}\nscratch: {p.scratch}\nrange: {p.base}..{p.head}\n'
+              f'risk: {p.risk}\nunits: {" ".join(p.units)}\nverifier-agent: {p.identity}\nverifier-class: {p.vclass}\nverifier-outcome: prepared\n'
+              f'deadline: {p.timeout_m}m from now\n\n',
+              f'{PACKET_RULE}\n\n']
+    if p.covered:
+        parts.append(f"Unit {' '.join(p.own)} fixes unit {' '.join(p.covered)}: prove every unit's Acceptance at this one head.\n\n")
+    for u in p.units:
+        b = unit_brief(p.store, u)
+        parts.append(f'## Unit {u}\n\nbrief: {b}\n\n')
+        parts += [line + '\n' for line in section_lines(b, r'^## (Goal|Acceptance)', True)]
+        parts.append('\n')
+        parts.append(brief_commands(p.store, p.root, b, u))
+    briefs = []
+    for u in p.units:
+        found = sorted(glob.glob(f'{glob.escape(p.store)}/briefs/{glob.escape(u)}-*.md'))
+        briefs += found if found else [f'{p.store}/briefs/{u}-*.md']
+    lessons = kpy.kitchen_py.lesson_packet([Path(b) for b in briefs]).rstrip('\n')
+    if lessons:
+        parts.append(f'{lessons}\n\n')
+
+
+def prove_section(p, parts):
+    """Adds the packet's Prove block to parts: the gates the verifier runs in the scratch worktree, then the feature map and the verification skills."""
+    parts += ['## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo\'s scripts give you\n'
+              'your own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n'
+              '```bash\nexport PSTACK_KITCHEN_ROLE=verifier',
+              f' PSTACK_KITCHEN_RUN={read(p.store, "slug")}\n']
+    tool = f'{p.tool_dir}/kitchen.py' + (f' --config {p.config}' if p.config else '')
+    if (p.data.get('scratch_setup') or []):
+        parts.append(f'python3 {tool} --repo {p.scratch} setup\n')
+    forked = git.run(p.root, 'merge-base', p.base, p.head, quiet=True)
+    merge_base = forked.stdout.rstrip('\n') if forked.returncode == 0 else p.base
+    for profile in p.data.get('behavioral') or []:
+        parts.append(f'python3 {tool} --repo {p.scratch} gate {profile} behavioral --role verifier --base {merge_base}\n')
+    # A landing verification also runs the touched profiles' landing commands.
+    if p.risk == 'landing':
+        for profile in p.data.get('landing') or []:
+            parts.append(f'python3 {tool} --repo {p.scratch} gate {profile} landing --role verifier --base {merge_base}\n')
+    features = p.data.get('features') or []
+    parts.append('```\n\nfeature map: ' + ('none listed' if len(features) == 0 else ', '.join(features)) + '\n')
+    skills = sorted([d + '/' for d in glob.glob(f'{glob.escape(p.root)}/.agents/skills/verify-*') if os.path.isdir(d)])
+    parts.append('verification skill: ' + ''.join(s + ' ' for s in skills) + '\n')
+
+
+def write_packet(path, packet):
+    """The verifier's packet, written even when a step fails midway, so what was gathered stays."""
+    p, parts = packet, []
+    try:
+        (landing_sections if p.landing else unit_sections)(p, parts)
+        if os.path.isfile(f'{p.store}/standing-orders.md'):
+            orders = read_text(f'{p.store}/standing-orders.md').rstrip('\n')
+            parts.append(f'## Standing orders\n\nThey bind you as they bind the sidekick ({p.store}/standing-orders.md):\n\n{orders}\n\n')
+        diff = git.run(p.root, 'diff', '--stat', f'{p.base}...{p.head}').stdout
+        parts.append(f'## Changed\n\n```\n{tail_lines(diff, 40)}\n```\n\n')
+        prove_section(p, parts)
+    finally:
+        write_text(path, ''.join(parts))

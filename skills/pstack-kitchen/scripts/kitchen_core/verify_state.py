@@ -15,9 +15,8 @@ import re
 import socket
 import sys
 
-from pstack_core.store import (
-    read_text, write_text, count, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update,
-)
+from pstack_core.store import read_text, write_text, count, event, header_field, json_type, member, peek, read, read_int, update
+from pstack_core.numbers import env_int, int_or_none
 from pstack_core.errors import DamagedStore, NoVerification, PrimeFailed, ToolFailed, VerificationTaken, translate
 from pstack_core.commands.scratch import remove_scratch
 from pstack_core.exits import exit_command, stop_prime_role

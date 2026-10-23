@@ -4,7 +4,8 @@ import glob
 import os
 from dataclasses import dataclass
 
-from .store import int_or_none, last_line, read_text, unit_name, write_text
+from .store import last_line, read_text, unit_name, write_text
+from .numbers import int_or_none
 from .errors import EmptyStepLog, StepLogUnreadable
 
 

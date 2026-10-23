@@ -7,7 +7,8 @@ import subprocess
 import sys
 import time
 
-from .store import TEXT, env_int, load, peek, text_at
+from .store import TEXT, load, peek, text_at
+from .numbers import env_int
 from .errors import NoPaneId, NotInHerdr, PaneSizeUnreadable, TrustPrompt
 
 

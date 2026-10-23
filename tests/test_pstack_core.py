@@ -27,7 +27,7 @@ scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
 import run as run_module  # noqa: E402
-from pstack_core import agents, argv, cli, exits, git, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
+from pstack_core import agents, argv, cli, exits, git, numbers, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
     BadNumber, BadScratch, DamagedStore, Die, EmptyStepLog, Exit, FileFailed, LockHeld, MissingStore, NoBrief, NotInHerdr, PairError, PairJsonGone, Paused, PlanNotAgreed,
@@ -3013,24 +3013,24 @@ class CoreTests(unittest.TestCase):
 
     def test_whole_numbers_and_seconds_are_read_as_digits_and_nothing_else(self):
         for text, want in (('5', 5), ('0', 0), ('010', 10), ('007', 7), ('99999999999999999999', 99999999999999999999)):
-            self.assertEqual(store.whole_number(text, '--timeout', 'milliseconds'), want, text)
+            self.assertEqual(numbers.whole_number(text, '--timeout', 'milliseconds'), want, text)
         for text in ('', '-1', '+1', ' 5', '5 ', '1.5', '1+1', '0x10', '1e3', '\u0665', 'abc', '5_0'):
             with self.assertRaises(BadNumber) as caught:
-                store.whole_number(text, '--timeout', 'milliseconds')
+                numbers.whole_number(text, '--timeout', 'milliseconds')
             self.assertEqual((caught.exception.code, caught.exception.message), (1, '--timeout must be a whole number of milliseconds'), repr(text))
         for name, text, want in (('N', '3', 3), ('N', '0', 0), ('N', '', 7)):
             with mock.patch.dict(os.environ, {name: text}):
-                self.assertEqual(store.env_int(name, 7), want, text)
+                self.assertEqual(numbers.env_int(name, 7), want, text)
         for text in ('abc', '1.5', '-1', ' 5'):
             with mock.patch.dict(os.environ, {'N': text}), self.assertRaises(BadNumber) as caught:
-                store.env_int('N', 7)
+                numbers.env_int('N', 7)
             self.assertEqual(caught.exception.message, 'N must be a whole number', text)
         for text, want in (('0.25', 0.25), ('2', 2.0), ('.5', 0.5), ('3.', 3.0), ('', 1.5)):
             with mock.patch.dict(os.environ, {'N': text}):
-                self.assertEqual(store.env_float('N', 1.5), want, text)
+                self.assertEqual(numbers.env_float('N', 1.5), want, text)
         for text in ('abc', '-1', '1e3', 'nan', 'inf', '0x1', ' 1'):
             with mock.patch.dict(os.environ, {'N': text}), self.assertRaises(BadNumber) as caught:
-                store.env_float('N', 1.5)
+                numbers.env_float('N', 1.5)
             self.assertEqual(caught.exception.message, 'N must be a number', text)
 
     def test_with_timeout_gives_the_commands_exit_124_when_it_runs_out_and_127_when_it_is_missing(self):
@@ -3180,12 +3180,12 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(store.get(str(st), 'consultant.name', 'x'), 'x')
         self.assertEqual(store.get(str(st), 'verifier.kind', 'x'), 'x')
         with mock.patch.dict(os.environ, {'X_KNOB': '12'}):
-            self.assertEqual(store.env_int('X_KNOB', 5), 12)
+            self.assertEqual(numbers.env_int('X_KNOB', 5), 12)
         with mock.patch.dict(os.environ, {'X_KNOB': ''}):
-            self.assertEqual(store.env_int('X_KNOB', 5), 5)
+            self.assertEqual(numbers.env_int('X_KNOB', 5), 5)
         with mock.patch.dict(os.environ, {'X_KNOB': '1.5'}):
             with self.assertRaises(BadNumber) as caught:
-                store.env_int('X_KNOB', 5)
+                numbers.env_int('X_KNOB', 5)
         self.assertEqual((caught.exception.message, caught.exception.code), ('X_KNOB must be a whole number', 1))
 
     def test_init_refuses_under_the_verifier_role_before_any_herdr_call_or_store_write(self):
@@ -4211,7 +4211,7 @@ class CoreTests(unittest.TestCase):
         """Python run in a fresh interpreter with kitchen_core.verify_state loaded as `vs` and a context `ctx`: (status, stdout, stderr). pid, when
         given, is the process id verify_state takes for the running command."""
         pre = (f'import sys\nsys.path.insert(0, {str(scripts)!r})\nsys.path.insert(0, {str(root / "skills/pstack-kitchen/scripts")!r})\n'
-               'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import units, verify, verify_state as vs\nfrom pstack_core.store import Context\n'
+               'import variant\nvariant.load_kitchen_core()\nfrom kitchen_core import units, verify, verify_launch, verify_packet, verify_state as vs\nfrom pstack_core.store import Context\n'
                'from pstack_core.errors import Die, Exit, PairError\n'
                f'ctx = Context("pstack-kitchen", {str(root / "skills/pstack-kitchen")!r}, "/s", "Kitchen", ("sidekick",), ("plans",), 20, "", {prog!r})\n'
                f'store = {str(store)!r}\n' + (f'import os\nos.getpid = lambda: {pid}\n' if pid else ''))
@@ -4607,7 +4607,7 @@ class CoreTests(unittest.TestCase):
         def timing(args):
             opts = argv.read(args, wait.TIMING)
             timeout = wait.timeout_ms(opts)
-            return timeout, store.tdiv(timeout, 60000), opts.present('--send-only'), list(opts.leftovers)
+            return timeout, numbers.tdiv(timeout, 60000), opts.present('--send-only'), list(opts.leftovers)
 
         self.assertEqual(timing(['--timeout', '90000', '--send-only', 'x']), (90000, 1, True, ['x']))
         self.assertEqual(timing(['--every', '2']), (120000, 2, False, []))
@@ -4825,19 +4825,19 @@ class CoreTests(unittest.TestCase):
         lists = [[], words[:2], words[2:12], words[12:22], words[22:], ['--model', 'x', '--permission-mode', 'y', '--approve', '--yolo']]
         want = ['claude (model unspecified)', 'claude --model opus', "claude a\\ b it\\'s '' $'tab\\there' $'new\\nline' \u00e9 \\~x \\#x x# a=b",
                 'claude a\\,b \\{x\\} \\* \\!x', 'claude \\$HOME \\"q\\" \\\\ a\\;b a\\&b \\<x\\> %s $\'\\177\' $\'\\E[0m\'', 'claude --model x --yolo']
-        code = ''.join(f'print(verify.verifier_identity("claude", {args!r}))\n' for args in lists)
+        code = ''.join(f'print(verify_launch.verifier_identity("claude", {args!r}))\n' for args in lists)
         self.assertEqual(self.kitchen_py(st, code)[1].splitlines(), want)
         # the connection flags (the model aside) belong to the kitchen, not to the identity
-        self.assertEqual(self.kitchen_py(st, 'print(verify.verifier_identity("pi", ["--model", "m", "--approve", "-a", "never"]))')[1], 'pi --model m\n')
+        self.assertEqual(self.kitchen_py(st, 'print(verify_launch.verifier_identity("pi", ["--model", "m", "--approve", "-a", "never"]))')[1], 'pi --model m\n')
         texts = ['', 'plain', 'with ``` fence', 'a ````` longer run', '`one`', '``two``', 'a\nb```c\n````']
-        got = self.kitchen_py(st, ''.join(f'print(verify.fence_for({t!r}))\n' for t in texts))[1].splitlines()
+        got = self.kitchen_py(st, ''.join(f'print(verify_packet.fence_for({t!r}))\n' for t in texts))[1].splitlines()
         self.assertEqual(got, ['```', '```', '````', '``````', '```', '```', '`````'])
         paths = ['/work/repo', '/tmp/x y', '/a.b', '/tmp/store']
         commands = {'cd /work/repo && ls': 'ynnn', 'cat /work/repo/x': 'ynnn', 'cat /work/repo2/x': 'nnnn', 'cat "/work/repo"': 'ynnn', "cat '/work/repo'": 'ynnn',
                     'x/work/repo': 'nnnn', 'cat ~/work/repo': 'nnnn', 'cat $HOME/w': 'nnnn', 'cat ${HOME}/w': 'nnnn', 'cat "$HOME/w"': 'nnnn', 'cat /tmp/x y/z': 'nynn',
                     'echo /a.b;': 'nnyn', 'echo /aXb': 'nnnn', 'echo /work/repo|wc': 'ynnn', 'echo /work/repo&': 'ynnn', 'echo=/work/repo': 'ynnn', 'a:/work/repo': 'ynnn',
                     '(/work/repo)': 'ynnn', 'multi\nline /work/repo\nend': 'ynnn', '/tmp/store': 'nnny', 'a /tmp/store/briefs/x.md': 'nnny'}
-        code = ''.join(f'print("y" if verify.names_path({c!r}, {p!r}) else "n", end="")\n' for c in commands for p in paths)
+        code = ''.join(f'print("y" if verify_packet.names_path({c!r}, {p!r}) else "n", end="")\n' for c in commands for p in paths)
         out = self.kitchen_py(st, code, env={'HOME': '/work'})[1]
         self.assertEqual({c: out[n * 4:n * 4 + 4] for n, c in enumerate(commands)}, commands)
         directory = self.path / 'vidx'
@@ -4863,7 +4863,7 @@ class CoreTests(unittest.TestCase):
             'prime-agent': ['', '--model m', '--approve', '-a never', '--permission-mode plan --strict-mcp-config'],
         }
         for kind, rows in expected.items():
-            code = ''.join(f'print(" ".join(verify.verifier_args({kind!r}, {json.loads(e) if e else None!r}, "/tmp")))\n' for e in entries)
+            code = ''.join(f'print(" ".join(verify_launch.verifier_args({kind!r}, {json.loads(e) if e else None!r}, "/tmp")))\n' for e in entries)
             got = self.kitchen_py(st, code, pid=os.getpid(), cwd='/tmp')[1].splitlines()
             self.assertEqual(got, rows, kind)
 
@@ -6146,11 +6146,11 @@ class CoreTests(unittest.TestCase):
             store.last_line(str(self.path / 'absent'))
 
     def test_a_child_killed_by_a_signal_ends_the_command_with_128_plus_the_signal(self):
-        self.assertEqual([store.exit_code(n) for n in (0, 1, 4, 255, -15, -9, -1)], [0, 1, 4, 255, 143, 137, 129])
+        self.assertEqual([numbers.exit_code(n) for n in (0, 1, 4, 255, -15, -9, -1)], [0, 1, 4, 255, 143, 137, 129])
         for name, number, want in (('TERM', signal.SIGTERM, 143), ('KILL', signal.SIGKILL, 137), ('HUP', signal.SIGHUP, 129)):
             bash = subprocess.run(['bash', '-c', f'out="$(sh -c "kill -{name} \\$\\$")"; echo $?'], capture_output=True, text=True, check=True).stdout.strip()
             self.assertEqual(bash, str(want))
-            self.assertEqual(store.exit_code(-number), want)
+            self.assertEqual(numbers.exit_code(-number), want)
 
     def test_a_message_names_the_role_alone_where_the_store_records_no_agent_name_and_a_grace_line_leaves_out_a_delivery_that_is_not_recorded(self):
         verify_wait = self.kitchen_core_module('verify_wait')
@@ -7526,7 +7526,7 @@ BOUNDARIES = {
     ('pstack-pair/scripts/pstack_core/send.py', 'dispatch_request'): 'the dispatch command\'s own checks, which the kitchen\'s dispatch runs before it sends',
     ('pstack-pair/scripts/pstack_core/send.py', 'dispatch_brief'): 'the dispatch command\'s refusal of a store with no pair.json, whoever sends the brief',
     ('pstack-pair/scripts/pstack_core/wait.py', 'wait_target'): 'the wait command\'s own arguments, which the kitchen\'s wait reads too',
-    ('pstack-kitchen/scripts/kitchen_core/verify.py', 'parse_options'): 'reduces the verify command\'s own words to its options',
+    ('pstack-kitchen/scripts/kitchen_core/verify_options.py', 'parse_options'): 'reduces the verify command\'s own words to its options',
     ('pstack-kitchen/scripts/kitchen_core/feedback.py', 'close'): 'the feedback command\'s --close, which reads its own arguments',
     ('pstack-kitchen/scripts/kitchen_core/feedback.py', 'file_report'): 'the feedback command\'s filing, which reads its own arguments',
 }

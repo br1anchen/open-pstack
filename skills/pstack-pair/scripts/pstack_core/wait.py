@@ -10,7 +10,8 @@ from dataclasses import dataclass, replace
 
 from .argv import Spec, read
 from .checkin import CheckIn, checkin, sidekick_activity
-from .store import wake, now_s, TEXT, exit_code, read_text, acquire_lock, env_float, env_int, field, header_field, member, paused_reason, peek, load, tdiv, text_at, unit_name, update, whole_number
+from .store import wake, now_s, TEXT, read_text, acquire_lock, field, header_field, member, paused_reason, peek, load, text_at, unit_name, update
+from .numbers import exit_code, env_float, env_int, tdiv, whole_number
 from .errors import BadStepRow, Die, MissingStore, PairError, refuse_as
 from .panes import agent_state, agent_status, error_code, error_state, herdr_get, pane_busy, require_herdr
 from .providers import provider_hint

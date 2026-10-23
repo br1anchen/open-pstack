@@ -10,7 +10,8 @@ from dataclasses import dataclass, replace
 from . import agents
 from .argv import Spec, read
 from .send import fresh_kind, submit_typed, visible_without_blanks
-from .store import exit_code, count, env_float, env_int, event, field, listing, load, member, names, peek, text_at, update, pair_file, whole_number, who
+from .store import count, event, field, listing, load, member, names, peek, text_at, update, pair_file, who
+from .numbers import exit_code, env_float, env_int, whole_number
 from .errors import AgentStartFailed, BadPlacement, Die, FreshStartOnly, KindRequired, NoFallback, PrimeFailed
 from .panes import (
     DEVNULL, MERGED, PIPE, agent_field, agent_prompt, agent_start, agent_status, await_file, herdr, new_pane, refuse_untrusted, require_herdr,

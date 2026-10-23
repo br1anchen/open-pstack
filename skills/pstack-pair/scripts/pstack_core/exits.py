@@ -3,7 +3,8 @@ The deadlines are 15 s and 1 s; PAIR_EXIT_DEADLINE_S and PAIR_EXIT_POLL_S let a 
 import sys
 import time
 
-from .store import env_float, env_int, member, update
+from .store import member, update
+from .numbers import env_float, env_int
 from .panes import agent_prompt, agent_status, dig, herdr, parse
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session

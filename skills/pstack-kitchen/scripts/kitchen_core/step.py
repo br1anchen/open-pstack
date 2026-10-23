@@ -23,7 +23,8 @@ import time
 from pstack_core import git
 from pstack_core.panes import require_herdr
 from pstack_core.commands import report as core_report, step as core_step
-from pstack_core.store import env_float, env_int, event, exit_code, expected_report, field, header_field, int_or_none, pair_file, read, read_text, unit_name
+from pstack_core.store import event, expected_report, field, header_field, pair_file, read, read_text, unit_name
+from pstack_core.numbers import env_float, env_int, exit_code, int_or_none
 from pstack_core.errors import Die, Exit
 from pstack_core.replies import file_mtime
 from pstack_core.review import range_floor

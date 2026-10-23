@@ -6,7 +6,8 @@ import subprocess
 import sys
 
 from .providers import record_prime_session
-from .store import TEXT, exit_code, load, names, peek, text_at
+from .store import TEXT, load, names, peek, text_at
+from .numbers import exit_code
 from .panes import parse
 
 def with_timeout(seconds, argv, **kwargs):

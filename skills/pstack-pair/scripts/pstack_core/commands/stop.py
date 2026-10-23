@@ -4,7 +4,8 @@ import re
 import sys
 import time
 
-from ..store import read_text, env_float, env_int, event, field, header_field, tdiv, update, who
+from ..store import read_text, event, field, header_field, update, who
+from ..numbers import env_float, env_int, tdiv
 from ..errors import Die, FileFailed, PairJsonGone
 from ..panes import DEVNULL, agent_prompt, agent_status, herdr, pane_text, require_herdr
 from ..replies import file_mtime

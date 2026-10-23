@@ -7,7 +7,8 @@ import sys
 import time
 
 from ..argv import Spec, read
-from ..store import event, field, load, names, pair_file, peek, read_flag, text_at, env_float, expected_report, who
+from ..store import event, field, load, names, pair_file, peek, read_flag, text_at, expected_report, who
+from ..numbers import env_float
 from ..errors import Die, RotationFailed, translate
 from ..exits import exit_command, exit_deadline, exit_poll, stop_prime_role
 from ..gates import require_not_paused, check_scope

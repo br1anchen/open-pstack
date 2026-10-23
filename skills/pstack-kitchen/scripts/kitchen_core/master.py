@@ -8,9 +8,8 @@ import time
 
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec, read as read_options
-from pstack_core.store import (
-    read_text, env_float, env_int, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at, update, who,
-)
+from pstack_core.store import read_text, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at, update, who
+from pstack_core.numbers import env_float, env_int
 from pstack_core.errors import DamagedStore, Die, Exit
 from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
 from pstack_core.panes import (

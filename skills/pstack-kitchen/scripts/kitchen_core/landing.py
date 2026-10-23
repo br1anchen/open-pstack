@@ -8,7 +8,8 @@ import re
 import sys
 import tempfile
 
-from pstack_core.store import field, header_field, read_text, int_or_none, new_from_template, pair_file
+from pstack_core.store import field, header_field, read_text, new_from_template, pair_file
+from pstack_core.numbers import int_or_none
 from pstack_core.errors import Die
 from pstack_core import git
 from pstack_core.review import trunk_ref

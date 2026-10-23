@@ -11,7 +11,8 @@ import time
 
 from .argv import Spec, read
 from .prime import with_timeout
-from .store import TEXT, env_float
+from .store import TEXT
+from .numbers import env_float
 
 PAIR_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 

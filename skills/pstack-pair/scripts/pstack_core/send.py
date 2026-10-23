@@ -11,7 +11,8 @@ import time
 from dataclasses import dataclass
 
 from . import git
-from .store import TEXT, env_float, event, expected_report, load, peek, text_at, update, count, member, names, who
+from .store import TEXT, event, expected_report, load, peek, text_at, update, count, member, names, who
+from .numbers import env_float
 from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, FreshSessionRequired, MissingStore, PromptFailed, refuse_as
 from .gates import check_scope, require_not_paused
 from .panes import DEVNULL, agent_kind, agent_prompt, agent_status, error_code, require_herdr

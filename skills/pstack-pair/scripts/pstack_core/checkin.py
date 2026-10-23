@@ -11,7 +11,8 @@ from . import git, procinfo
 from .replies import dispatched, file_mtime
 from .review import noted_through, open_notes, range_floor
 from .steplog import StepLog
-from .store import int_or_none, header_field, load, peek, progress_path, read_text, tdiv, text_at
+from .store import header_field, load, peek, progress_path, read_text, text_at
+from .numbers import int_or_none, tdiv
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
 

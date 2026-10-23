@@ -5,7 +5,8 @@ import sys
 import time
 from dataclasses import dataclass
 
-from ..store import env_int, read_text
+from ..store import read_text
+from ..numbers import env_int
 from ..errors import Die
 
 WHOLE_NUMBER = re.compile(r'[0-9]+', re.ASCII)
