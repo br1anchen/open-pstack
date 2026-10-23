@@ -75,7 +75,7 @@ from pstack_core.errors import (  # noqa: E402
     translate,
 )
 from pstack_core.store import Context  # noqa: E402
-from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
+from pstack_core.variant import Variant, load_module, load_skill_variant  # noqa: E402
 
 sys.path.insert(0, str(root / 'tests'))
 
@@ -18038,6 +18038,16 @@ class ReportReadyTests(unittest.TestCase):
             report = f'{tmp}/reports/001-x.md'
             Path(report).write_text('# Report 001: x\n\nstatus: done\nhead: abcdef0\n')
             self.assertTrue(Variant().report_ready(None, tmp, report).ready)
+
+
+class LoadModuleTests(unittest.TestCase):
+    def test_a_path_that_does_not_load_raises_an_import_error_naming_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = f'{tmp}/variant.txt'
+            Path(path).write_text('x = 1\n')
+            with self.assertRaises(ImportError) as caught:
+                load_module(path, 'not_a_python_file')
+        self.assertEqual(str(caught.exception), f'cannot load {path}')
 
 
 class GitCallTests(unittest.TestCase):

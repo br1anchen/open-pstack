@@ -15,6 +15,8 @@ def load():
     module = sys.modules.get(MODULE)
     if module is None:
         spec = importlib.util.spec_from_file_location(MODULE, KITCHEN_PY)
+        if spec is None or spec.loader is None:
+            raise ImportError(f'cannot load {KITCHEN_PY}')
         module = importlib.util.module_from_spec(spec)
         sys.modules[MODULE] = module
         try:

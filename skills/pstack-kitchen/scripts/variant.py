@@ -32,6 +32,8 @@ def load_kitchen_core():
         KITCHEN_CORE_DIR / '__init__.py',
         submodule_search_locations=[str(KITCHEN_CORE_DIR)],
     )
+    if spec is None or spec.loader is None:
+        raise ImportError(f'cannot load {KITCHEN_CORE_DIR}')
     module = importlib.util.module_from_spec(spec)
     sys.modules['kitchen_core'] = module
     try:

@@ -247,6 +247,8 @@ def steps_due_in(ctx, store, brief):
 
 def load_module(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f'cannot load {path}')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
