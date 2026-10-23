@@ -1942,7 +1942,8 @@ esac
         steps.write_text('1\tabc\t1\t\tone\n2\tdef\t2\t\ttwo\n')
         text = b.read_text()
         for header, risk, due in (('risk: routine', 'routine', False), ('risk: escalated', 'escalated', True), ('risk: escalated (contract X changes)', 'escalated', True),
-                                  ('risk:', '', False), ('risk: Escalated', 'Escalated', False), ('risk:\tescalated\tfor a contract', 'escalated', True)):
+                                  ('risk:', '', False), ('risk: Escalated', 'Escalated', False), ('risk:\tescalated\tfor a contract', 'escalated', True),
+                                  ('risk: escalated: contract X changes', 'escalated', True), ('risk: routine: tests only', 'routine', False), ('risk: :', '', False)):
             b.write_text(re.sub(r'^risk:.*$', header, text, flags=re.M))
             self.assertEqual(module.risk_of(str(b)), risk, header)
             self.assertEqual(module.VARIANT().steps_due(ctx, str(self.store), str(b)), due, header)

@@ -107,9 +107,10 @@ def template_pairs():
 
 
 def split_code(text):
-    """(prose lines, code pieces) of text. A fence opens on a line whose stripped start is three or more backticks or tildes and closes on a
-    later line of that character alone, at least as long; an unclosed fence is prose to the end, and a line that opens and closes a fence on
-    itself opens nothing. In the prose lines, a backtick span (matched by run length) is cut out and becomes a code piece."""
+    """(prose lines, code pieces) of text, each as (text, first line number). A fence opens on a line whose stripped start is three or more
+    backticks or tildes and closes on a later line of that character alone, at least as long; an unclosed fence is prose to the end, and a line
+    that opens and closes a fence on itself opens nothing. In the prose lines, a backtick span (matched by run length) is cut out and becomes a
+    code piece."""
     lines = text.split('\n')
     prose, code, i, unclosed = [], [], 0, False
     while i < len(lines):
@@ -120,7 +121,7 @@ def split_code(text):
             fence = m.group(1)
             close = next((j for j in range(i + 1, len(lines)) if re.fullmatch(re.escape(fence[0]) + '{' + str(len(fence)) + ',}', lines[j].strip())), None)
             if close is not None:
-                code.append('\n'.join(lines[i + 1:close]))
+                code.append(('\n'.join(lines[i + 1:close]), i + 2))
                 i = close + 1
                 continue
             unclosed = True
@@ -136,26 +137,39 @@ def split_code(text):
                 pos = run.end()
                 continue
             out.append(line[pos:run.start()] + ' ')
-            code.append(line[run.end():run.end() + end.start()])
+            code.append((line[run.end():run.end() + end.start()], i + 1))
             pos = run.end() + end.end()
         out.append(line[pos:])
-        prose.append(''.join(out))
+        prose.append((''.join(out), i + 1))
         i += 1
     return prose, code
 
 
 def prose_lines(text):
-    return split_code(text)[0]
+    return [line for line, _ in split_code(text)[0]]
+
+
+def placeholder_line(text):
+    """The number of the first line with an unfilled placeholder, or None: a complete pair in the prose, or, inside a fence or a backtick span,
+    a pair whose exact text is one a template leaves to be filled (so code that holds some other double-brace text, a CI matrix expression say,
+    is not one)."""
+    prose, code = split_code(text)
+    found = []
+    joined = '\n'.join(line for line, _ in prose)
+    m = re.search(PAIR, joined)
+    if m:
+        found.append(prose[joined[:m.start()].count('\n')][1])
+    templates = template_pairs()
+    for piece, first in code:
+        for m in re.finditer(PAIR, piece):
+            if m.group() in templates:
+                found.append(first + piece[:m.start()].count('\n'))
+                break
+    return min(found, default=None)
 
 
 def has_placeholder(text):
-    """An unfilled placeholder: a complete pair in the prose, or, inside a fence or a backtick span, a pair whose exact text is one a template
-    leaves to be filled (so code that holds some other double-brace text, a CI matrix expression say, is not one)."""
-    prose, code = split_code(text)
-    if re.search(PAIR, '\n'.join(prose)):
-        return True
-    templates = template_pairs()
-    return any(pair in templates for piece in code for pair in re.findall(PAIR, piece))
+    return placeholder_line(text) is not None
 
 
 def require_filled(ctx, path):
@@ -163,5 +177,9 @@ def require_filled(ctx, path):
         text = read_text(path)
     except OSError:
         return
-    if has_placeholder(text) or (ctx.unfilled_re and any(re.search(ctx.unfilled_re, line) for line in prose_lines(text))):
-        raise Unfilled(f'{path} still has unfilled placeholders')
+    found = [placeholder_line(text)] if has_placeholder(text) else []
+    if ctx.unfilled_re:
+        found += [n for line, n in split_code(text)[0] if re.search(ctx.unfilled_re, line)][:1]
+    if found:
+        n = min(found)
+        raise Unfilled(f'{path} still has unfilled placeholders: line {n}: {text.split(chr(10))[n - 1].strip()}')

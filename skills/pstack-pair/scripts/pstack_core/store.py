@@ -103,9 +103,10 @@ def basename(path):
 
 
 def risk_of(brief):
-    """A brief's or plan's risk class: the first word of its risk: header, which a master may follow with the reason."""
+    """A brief's or plan's risk class: the first word of its risk: header, less a colon after it, which a master may follow with the reason
+    (`escalated (contract change)` or `escalated: contract change`)."""
     words = [w for w in re.split(r'[ \t\n]+', header_field(brief, 'risk')) if w]
-    return words[0] if words else ''
+    return words[0].removesuffix(':') if words else ''
 
 
 def pair_file(store):

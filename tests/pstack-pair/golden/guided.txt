@@ -106,7 +106,7 @@ sidekick demo-sidekick already live (idle) in p1
 new-plan -> <T>/state/pstack/pair-guided/demo/plans/001-design.md
 
 $ pair.sh discuss <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/plans/001-design.md
-pair.sh: <T>/state/pstack/pair-guided/demo/plans/001-design.md still has unfilled placeholders
+pair.sh: <T>/state/pstack/pair-guided/demo/plans/001-design.md still has unfilled placeholders: line 3: round: {{1, or the previous round plus one}}
 [exit 1]
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/002-early.md
@@ -638,7 +638,7 @@ $ pair.sh new-note <T>/state/pstack/pair-guided/demo 013
 [exit 0]
 
 $ pair.sh note <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md.draft
-pair.sh: <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md.draft still has unfilled placeholders
+pair.sh: <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md.draft still has unfilled placeholders: line 6: status: {{blocking | clear}}
 [exit 1]
 
 $ pair.sh note <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/notes/013-qsteps-n1.md.draft

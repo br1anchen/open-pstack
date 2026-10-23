@@ -1315,6 +1315,24 @@ class CoreTests(unittest.TestCase):
             with self.assertRaises(Unfilled, msg=label):
                 review.require_filled(ctx, str(f))
 
+    def test_unfilled_names_the_first_offending_line_stripped(self):
+        ctx = Context('pstack-pair-guided', '/x', '/s', 'Pair', ('sidekick',), ('plans',), 21, '^(decided by|status): .*\\|')
+        f = self.path / 'where.md'
+        fence = '```'
+        cases = {
+            'a prose pair on line 3': ('# T\n\n   fill {{x}} in  \nlater {{y}}\n', 3, 'fill {{x}} in'),
+            'a pair across lines is named at its first line': ('a\nfill {{x\nmore}} in\n', 2, 'fill {{x'),
+            'a template pair in a fence is named at its own line': (f'a\n{fence}\nok\n{{{{UNIT}}}}\n{fence}\n', 4, '{{UNIT}}'),
+            'a pair after a backtick span': ('a\nsee `b` then {{z}}\n', 2, 'see `b` then {{z}}'),
+            'the guided pattern before a later pair': ('# T\nstatus: a | b\nthen {{x}}\n', 2, 'status: a | b'),
+            'a pair before the guided pattern': ('# T\nthen {{x}}\nstatus: a | b\n', 2, 'then {{x}}'),
+        }
+        for label, (text, line, shown) in cases.items():
+            f.write_text(text)
+            with self.assertRaises(Unfilled, msg=label) as caught:
+                review.require_filled(ctx, str(f))
+            self.assertEqual(caught.exception.message, f'{f} still has unfilled placeholders: line {line}: {shown}', label)
+
     def test_a_steer_whose_scope_effect_is_not_one_of_the_three_is_refused_before_any_herdr_call(self):
         # A5.
         for label, effect, ok in (('prose around the form', 'add "may write: x"', False), ('empty', '', False), ('a bare path', 'src/x.py', False),
@@ -3388,14 +3406,14 @@ class CoreTests(unittest.TestCase):
         f = self.path / 'f.md'
         guided = '^(decided by|status): .*\\|'
         ctxs = {'plain': Context('x', '', '', '', (), (), 1, ''), 'guided': Context('x', '', '', '', (), (), 1, guided)}
-        refused = {('status: done | partial\n', 'guided'), ('a {{b}} c\n', 'plain'), ('a {{b}} c\n', 'guided')}
+        refused = {('status: done | partial\n', 'guided'): 'status: done | partial', ('a {{b}} c\n', 'plain'): 'a {{b}} c', ('a {{b}} c\n', 'guided'): 'a {{b}} c'}
         for text in ('status: done\n', 'status: done | partial\n', 'decided by: human\n', 'a {{b}} c\n', 'x\n'):
             f.write_text(text)
             for name, ctx in ctxs.items():
                 if (text, name) in refused:
                     with self.assertRaises(Unfilled) as caught:
                         review.require_filled(ctx, str(f))
-                    self.assertEqual((caught.exception.message, caught.exception.code), (f'{f} still has unfilled placeholders', 1), (text, name))
+                    self.assertEqual((caught.exception.message, caught.exception.code), (f'{f} still has unfilled placeholders: line 1: {refused[(text, name)]}', 1), (text, name))
                 else:
                     self.assertIsNone(review.require_filled(ctx, str(f)), (text, name))
         self.assertIsNone(review.require_filled(ctxs['guided'], str(self.path / 'missing.md')))

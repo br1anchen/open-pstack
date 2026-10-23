@@ -3,7 +3,7 @@
 round: {{1, or the previous round plus one}}
 supersedes: {{none, or the previous plan path}}
 store: {{STORE}}
-risk: {{routine | escalated: from kitchen.sh classify on a brief with the planned Scope; escalated goes to the consultant too}}
+risk: {{routine | escalated, from kitchen.sh classify on a brief with the planned Scope; escalated goes to the consultant too. A reason may follow the class, as in `escalated: contract X changes`}}
 
 ## Goal
 
