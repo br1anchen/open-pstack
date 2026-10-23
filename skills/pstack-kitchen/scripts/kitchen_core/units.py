@@ -301,14 +301,32 @@ def brief_or_nothing(ctx, store, nnn):
         return ''
 
 
+def oldest_base(ctx, store, units):
+    """The oldest dispatch head among the units by git ancestry, whatever order they are named in. A unit never dispatched ends the command when it
+    is the first; later ones without a recorded base are left out. Two heads neither of which is an ancestor of the other have no order."""
+    root = repo_root(store)
+    oldest, owner = '', ''
+    for unit in units:
+        base = dispatch_head(store, brief_or_nothing(ctx, store, unit))
+        if not base:
+            if not owner and unit == units[0]:
+                raise UnitNotCheckable(f'unit {unit} was never dispatched')
+            continue
+        if not owner or is_ancestor(root, base, oldest):
+            oldest, owner = base, unit
+        elif not is_ancestor(root, oldest, base):
+            raise UnitNotCheckable(f'units {owner} and {unit} have no common order: pass --base REV')
+    return oldest
+
+
 def unit_range(ctx, store, units, covered=(), range_base=''):
-    """(base, head) for the units, first to last, from their dispatch heads and done reports. A unit named in covered needs no done report: a later
+    """(base, head) for the units from their dispatch heads and done reports: the base is the oldest unit's dispatch head, the head the last unit's
+    report head. A unit named in covered needs no done report: a later
     fix unit carries it. A partial, blocked or failed unit can still be checked at the head its report names (a note says it is not done). The
     base moves up to where the unit's branch leaves trunk when trunk has replaced the recorded one (a note says so), unless range_base is given."""
     first, last = units[0], units[-1]
-    brief = brief_or_nothing(ctx, store, first)
-    base = dispatch_head(store, brief)
-    if not base:
+    base = oldest_base(ctx, store, units) if not range_base else ''
+    if range_base and not dispatch_head(store, brief_or_nothing(ctx, store, first)):
         raise UnitNotCheckable(f'unit {first} was never dispatched')
     for unit in units:
         if unit in covered:

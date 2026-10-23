@@ -3776,6 +3776,36 @@ esac
         self.assertIn('note: unit 001 has no usable head; its inclusion was not checked', out)
         self.assertIn('note: unit 002 has no usable head; its inclusion was not checked', out)
 
+    def packet_range(self, name):
+        return re.search(r'^range: (\S+)\.\.(\S+)$', (self.store / f'verdicts/{name}-packet.md').read_text(), re.M).groups()
+
+    def test_covers_measures_from_the_oldest_dispatch_head_whatever_the_order_named(self):
+        heads = self.three_units()
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.run_sh('verify', str(self.store), '003', '--covers', '002,001')
+        self.assertEqual(self.packet_range('003-u3-v1'), (init, heads[2]))
+        self.run_sh('verify', str(self.store), '003', '--covers', '001,002')
+        self.assertEqual(self.packet_range('003-u3-v2'), (init, heads[2]))
+        self.run_sh('verify', str(self.store), '003', '--covers', '002')
+        self.assertEqual(self.packet_range('003-u3-v3'), (heads[0], heads[2]))
+
+    def test_covers_base_flag_beats_the_oldest_dispatch_head(self):
+        heads = self.three_units()
+        self.run_sh('verify', str(self.store), '003', '--covers', '002,001', '--base', heads[1])
+        self.assertEqual(self.packet_range('003-u3-v1'), (heads[1], heads[2]))
+
+    def test_covers_refuses_dispatch_heads_with_no_common_order(self):
+        self.three_units()
+        tree = self.git('rev-parse', 'HEAD^{tree}')
+        stray = self.git('commit-tree', tree, '-m', 'unrelated')
+        path = self.store / 'pair.json'
+        state = json.loads(path.read_text())
+        state['heads']['002-u2'] = stray
+        path.write_text(json.dumps(state))
+        out = self.run_sh('verify', str(self.store), '003', '--covers', '001,002', code=1)
+        self.assertIn('units 001 and 002 have no common order: pass --base REV', out)
+        self.assertNotIn('verifying', self.state())
+
     def test_covers_rejects_a_value_that_is_not_a_unit_number(self):
         self.three_units()
         self.assertIn("--covers takes unit numbers (NNN)", self.run_sh('verify', str(self.store), '003', '--covers', '001,x', code=1))
