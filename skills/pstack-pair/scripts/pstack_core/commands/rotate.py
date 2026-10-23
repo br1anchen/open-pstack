@@ -84,11 +84,12 @@ def rotate_if_due(ctx, store, what):
 
 def require_idle_session(store, what):
     """The fresh session has logged READY while its first turn may still run, and send refuses a working sidekick. Waits up to
-    PAIR_ROTATE_READY_S (60) for it to be idle or done; a session that is blocked on a dialog or gone is not waited for. Anything else sends nothing."""
+    PAIR_ROTATE_READY_S (60) for it to be idle or done; a session that is blocked on a dialog or gone is not waited for, and one that turns blocked during the wait ends it. Anything else sends nothing."""
     name = field(store, 'sidekick', 'name')
     state = agent_status(name)
     if state not in ('idle', 'done', 'blocked', 'absent'):
-        subprocess.run(['herdr', 'agent', 'wait', name, '--until', 'idle', '--until', 'done', '--timeout', str(env_int('PAIR_ROTATE_READY_S', 60) * 1000)],
+        subprocess.run(['herdr', 'agent', 'wait', name, '--until', 'idle', '--until', 'done', '--until', 'blocked',
+                        '--timeout', str(env_int('PAIR_ROTATE_READY_S', 60) * 1000)],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         state = agent_status(name)
     if state not in ('idle', 'done'):

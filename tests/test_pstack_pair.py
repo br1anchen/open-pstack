@@ -168,9 +168,9 @@ esac
         self.assertEqual(self.send_keys(), [])
 
     def fresh_session_state(self, state, settles):
-        """The rotated sidekick is `state` once its bootstrap has run; with `settles` its next herdr wait ends in idle."""
+        """The rotated sidekick is `state` once its bootstrap has run; with `settles` (idle or blocked) its next herdr wait ends in that state."""
         settle = self.fake / 'settle'
-        settle.write_text('#!/bin/sh\nprintf "idle devin\\n" >"$FAKE/agents/demo-sidekick"\n')
+        settle.write_text(f'#!/bin/sh\nprintf "{settles} devin\\n" >"$FAKE/agents/demo-sidekick"\n')
         settle.chmod(0o755)
         hook = self.fake / 'hook'
         hook.write_text(f'''#!/usr/bin/env bash
@@ -194,18 +194,30 @@ esac
         return out, sent
 
     def test_dispatch_sends_the_brief_once_the_rotated_session_goes_idle(self):
-        out, sent = self.dispatch_after_rotation('working', True, 4)
+        out, sent = self.dispatch_after_rotation('working', 'idle', 4)
         self.assertIn('rotated: the devin sidekick starts this brief in a fresh session', out)
         self.assertEqual(len(sent), 1)
 
     def test_dispatch_sends_nothing_when_the_rotated_session_stays_working(self):
-        out, sent = self.dispatch_after_rotation('working', False, 5)
+        out, sent = self.dispatch_after_rotation('working', None, 5)
         self.assertIn('the fresh devin sidekick demo-sidekick is working after the rotation; nothing was sent for this brief', out)
         self.assertNotIn('rotated:', out)
         self.assertEqual(sent, [])
 
+    def waits(self):
+        return [l for l in (self.fake / 'calls.log').read_text().splitlines() if l.startswith('agent wait demo-sidekick')]
+
+    def test_dispatch_waits_for_idle_done_or_blocked_up_to_the_ready_bound(self):
+        self.dispatch_after_rotation('working', 'idle', 4)
+        self.assertIn('agent wait demo-sidekick --until idle --until done --until blocked --timeout 1000', self.waits())
+
+    def test_dispatch_sends_nothing_when_the_rotated_session_turns_blocked_during_the_wait(self):
+        out, sent = self.dispatch_after_rotation('working', 'blocked', 5)
+        self.assertIn('sidekick demo-sidekick is blocked, probably on an approval dialog after the rotation', out)
+        self.assertEqual(sent, [])
+
     def test_dispatch_sends_nothing_when_the_rotated_session_is_blocked(self):
-        out, sent = self.dispatch_after_rotation('blocked', False, 5)
+        out, sent = self.dispatch_after_rotation('blocked', None, 5)
         self.assertIn('sidekick demo-sidekick is blocked, probably on an approval dialog after the rotation', out)
         self.assertEqual(sent, [])
 
