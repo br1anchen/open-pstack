@@ -7913,6 +7913,46 @@ class FunctionSizeGuardTests(unittest.TestCase):
         self.assertEqual(stray, [])
 
 
+def fstring_expressions_before_3_12(source):
+    """(line, expression) of each f-string replacement field that Python 3.11 cannot parse: one with a backslash, or one that holds the string's own delimiter."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.JoinedStr):
+            continue
+        text = ast.get_source_segment(source, node) or ''
+        opening = text.lstrip('fFrR')[:3]
+        delimiter = opening if opening in ('"""', "'''") else opening[:1]
+        for part in node.values:
+            if isinstance(part, ast.FormattedValue):
+                expression = ast.get_source_segment(source, part.value) or ''
+                if '\\' in expression or delimiter in expression:
+                    found.append((part.lineno, expression))
+    return found
+
+
+PYTHON_3_12_ONLY = unittest.skipIf(sys.version_info < (3, 12), 'the check needs the 3.12 parser; on 3.11 the parse error is the finding')
+
+
+class PythonFloorTests(unittest.TestCase):
+    @PYTHON_3_12_ONLY
+    def test_the_check_finds_a_backslash_or_a_reused_quote_in_a_replacement_field(self):
+        def found(source):
+            return [expression for _, expression in fstring_expressions_before_3_12(source)]
+
+        self.assertEqual(found('''f'{x}' f"{y!r}"'''), [])
+        self.assertEqual(found('''f"{'a'.join(b)}"'''), [])
+        self.assertEqual(found('''f'{"a".join(b)}\''''), [])
+        self.assertEqual(found("""f'''{'a'.join(b)}'''"""), [])
+        self.assertEqual(found('''f'{'a'.join(b)}\''''), ["'a'.join(b)"])
+        self.assertEqual(found('f"{\'x\\n\'.strip()}"'), ["'x\\n'.strip()"])
+
+    @PYTHON_3_12_ONLY
+    def test_no_tracked_python_file_uses_an_f_string_that_only_python_3_12_parses(self):
+        names = subprocess.run(['git', 'ls-files', '*.py'], cwd=root, capture_output=True, text=True, check=True).stdout.split()
+        stray = [f'{name}:{line} {expression}' for name in names for line, expression in fstring_expressions_before_3_12((root / name).read_text())]
+        self.assertEqual(stray, [])
+
+
 ENDS_ITSELF = ('Die', 'Exit', 'refuse_as')
 
 # Functions that are not a registered command and still end it themselves, with the reason each may: the dispatcher, a command's argument reduction, and
