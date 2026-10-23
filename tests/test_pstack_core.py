@@ -7185,7 +7185,7 @@ ARGV_FILES = ('pstack-kitchen/scripts/variant.py', 'pstack-trio/scripts/variant.
 
 def hand_rolled_option_reads(source):
     """Line numbers of each `while` loop that walks a token list by hand and names a flag in doing so: it pops index 0, reads `[i + 1]` (or
-    `[1 + i]`), or tests `len(x)` and indexes x by a variable. The names of the lists do not matter; a loop over text lines names no flag."""
+    `[1 + i]`), tests `len(x)` and indexes x by a variable, or drops the front of the list it tests (`x = x[2:]`). The names of the lists do not matter; a loop over text lines names no flag."""
     found = set()
     for loop in (n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.While)):
         if not any(isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.startswith('--') for n in ast.walk(loop)):
@@ -7202,6 +7202,10 @@ def hand_rolled_option_reads(source):
                     found.add(node.lineno)
             elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in lengthed and isinstance(node.slice, ast.Name):
                 found.add(node.lineno)
+            elif (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Subscript)
+                  and isinstance(node.value.value, ast.Name) and node.value.value.id == node.targets[0].id and isinstance(node.value.slice, ast.Slice)
+                  and isinstance(node.value.slice.lower, ast.Constant)):
+                found.add(node.lineno)
     return sorted(found)
 
 
@@ -7211,10 +7215,11 @@ class OptionReaderGuardTests(unittest.TestCase):
             'pop': 'def f(tokens):\n    while tokens:\n        if tokens.pop(0) == "--x":\n            pass\n',
             'index': 'def f(opts, i):\n    while i < len(opts):\n        return opts[i] == "--x" and opts[i + 1]\n',
             'index reversed': 'def f(opts, i):\n    while opts:\n        return opts[1 + i] == "--x"\n',
+            'slice': 'def f(rest):\n    while rest:\n        if rest[0] == "--x":\n            rest = rest[2:]\n',
             'length': 'def f(args, i):\n    while i < len(args):\n        i += 1\n        return args[i] == "--x"\n',
         }
         for name, source in shapes.items():
-            self.assertEqual(hand_rolled_option_reads(source), [3] if name != 'length' else [4], name)
+            self.assertEqual(hand_rolled_option_reads(source), {'length': [4], 'slice': [4]}.get(name, [3]), name)
         fine = ('def f(rest, queue):\n    first = rest[0]\n    value = rest.pop(0)\n    while queue:\n        queue = queue[1:]\n'
                 '    while rest:\n        rest.pop(0)\n    return [first, value, rest[1 + 1]]\n')
         self.assertEqual(hand_rolled_option_reads(fine), [])
