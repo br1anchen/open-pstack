@@ -146,8 +146,9 @@ def verifier_entry(store, cls):
     implementing) and the master sentinel resolved to the master's own kind. One object: kind, args, fallback and where it came from."""
     try:
         roster = kpy.kitchen_py.roster_data()[1]
-    except kpy.KitchenError:
-        roster = parse_entry('')  # a roster that does not parse gives no entry at all, which is the one error parse_entry has
+    except kpy.KitchenError as e:
+        kpy.explain(e)
+        raise ToolFailed(2) from None
     verifiers = roster.get('verifier') if isinstance(roster, dict) else None
     entry = verifiers.get(cls) if isinstance(verifiers, dict) else None
     kind = entry.get('kind') if isinstance(entry, dict) else ''

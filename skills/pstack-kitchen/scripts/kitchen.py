@@ -2693,13 +2693,32 @@ def main(argv: list[str] | None = None) -> int:
                  (f'{used["source"]}: {used["path"]}' if used['source'] else 'no kitchen')
                  + f'\nhost ({kind}): {path}' + ('' if path.is_file() else ' (absent)'))
             return 0
-        kitchen, source = load(root, args.at, args.config)
-        INVOCATION[:] = ['--repo', str(root)] + (['--config', args.config] if args.config else []) \
-            + (['--at', args.at] if args.at else [])
-        if args.cmd in ('validate', 'doctor'):
-            for warning in kitchen_warnings(kitchen):
+        if args.cmd == 'validate':
+            r = validate(inv)
+            for warning in r.warnings:
                 print(warning, file=sys.stderr)
+            emit(r.as_dict(), args.json, r.text())
+            return 0
+        if args.cmd == 'snapshot':
+            snap = snapshot(inv, args.dir)
+            if snap:
+                print(snap)
+            return 0
+        if args.cmd == 'manifests':
+            text = sys.stdin.buffer.read().decode('utf-8', 'surrogateescape')
+            hits = manifests(inv, text.split('\0') if args.z else text.splitlines())
+            emit({'manifests': hits}, args.json, '\n'.join(hits))
+            return 0
+        if args.cmd == 'classify':
+            r = classify_change(inv, args.base, args.head, args.working_tree, args.paths, args.escalate)
+            emit(r, args.json, classify_text(r))
+            return 0
+        if args.cmd == 'brief-verify' and args.list:
+            cmds = brief_verify_list(inv, args.brief)
+            emit({'commands': cmds}, args.json, '\n'.join(f'{i}: {c}' for i, c in enumerate(cmds)) or 'none')
+            return 0
         if args.cmd == 'lessons':
+            _, _, source = open_kitchen(inv)
             path, ledger = lessons_path(root, source), state_dir(root) / 'ledger.tsv'
             today = time.strftime('%Y-%m-%d', time.gmtime())
             if args.lessons_cmd == 'add':
@@ -2731,29 +2750,17 @@ def main(argv: list[str] | None = None) -> int:
                 r = lessons_overview(inv)
                 emit(r, args.json, lessons_text(r, args.all))
             return 0
-        if args.cmd == 'snapshot':
-            snap = snapshot(inv, args.dir)
-            if snap:
-                print(snap)
-            return 0
-        if args.cmd == 'validate':
-            r = validate(inv)
-            emit(r.as_dict(), args.json, r.text())
-            return 0
+        kitchen, source = load(root, args.at, args.config)
+        INVOCATION[:] = ['--repo', str(root)] + (['--config', args.config] if args.config else []) \
+            + (['--at', args.at] if args.at else [])
+        if args.cmd == 'doctor':
+            for warning in kitchen_warnings(kitchen):
+                print(warning, file=sys.stderr)
         if args.cmd == 'setup':
             r = run_setup(root, kitchen, args.role)
             emit(r, args.json, (f'setup: ok ({len(r["commands"])} commands' + (f', log {r["log"]}' if r['log'] else '') + ')')
                  if r['passed'] else f'setup: FAIL exit {r["exit"]} (log {r["log"]})\n' + '\n'.join(f'  | {t}' for t in r['tail']))
             return 0 if r['passed'] else 2
-        if args.cmd == 'manifests':
-            text = sys.stdin.buffer.read().decode('utf-8', 'surrogateescape')
-            hits = manifests(inv, text.split('\0') if args.z else text.splitlines())
-            emit({'manifests': hits}, args.json, '\n'.join(hits))
-            return 0
-        if args.cmd == 'classify':
-            r = classify_change(inv, args.base, args.head, args.working_tree, args.paths, args.escalate)
-            emit(r, args.json, classify_text(r))
-            return 0
         if args.cmd == 'gate':
             r = run_gate(root, kitchen, args.profile, args.stage, args.log_dir, args.keep_going, args.only, args.result,
                          args.role, args.base)
@@ -2770,10 +2777,6 @@ def main(argv: list[str] | None = None) -> int:
             emit(r, args.json, '\n'.join(lines))
             return 0 if r['passed'] else 2
         if args.cmd == 'brief-verify':
-            if args.list:
-                cmds = brief_verify_list(inv, args.brief)
-                emit({'commands': cmds}, args.json, '\n'.join(f'{i}: {c}' for i, c in enumerate(cmds)) or 'none')
-                return 0
             r = run_brief_verify(root, kitchen, args.brief, args.log_dir, args.result, args.role, args.base)
             lines = [f'verify: {"pass" if r["passed"] else "FAIL"} '
                      + (f'({len(r["commands"])} commands from the brief)' if r['commands'] else '(the brief names none)')]

@@ -1,7 +1,6 @@
 """catch and retro: the run's ledger rows, and the counts a retro prints.."""
 
 import json
-import json
 import re
 import sys
 from pathlib import Path
