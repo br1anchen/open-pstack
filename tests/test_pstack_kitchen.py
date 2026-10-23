@@ -569,7 +569,7 @@ class GateTests(KitchenTests):
             '.agents/kitchen.toml',
             KITCHEN.replace(
                 'fast = ["test -f src/app.py"]',
-                'fast = ["sleep 2"]',  # kitchen-allow: test-sleep fake gate must still be running
+                'fast = ["sleep 2"]',  # kitchen-allow: test-sleep (fake gate must still be running)
             ),
         )
         env = {**self.env, 'PSTACK_KITCHEN_GATE_SLOTS': '1'}
@@ -2620,7 +2620,7 @@ esac
             .read_text()
             .replace(
                 'fast = ["test ! -e FAIL"]',
-                'fast = ["sleep 5"]',  # kitchen-allow: test-sleep fake gate must still be running
+                'fast = ["sleep 5"]',  # kitchen-allow: test-sleep (fake gate must still be running)
             ),
         )
         self.commit('slow gate')
@@ -3085,7 +3085,7 @@ esac
         b2 = self.brief('002', 'slow', ['src/**', 'tests/**'])
         self.verify_block(
             b2,
-            'sleep 3; printf "%s|%s" "$PSTACK_KITCHEN_ROLE" "$PSTACK_KITCHEN_RUN" >"$OUT"',  # kitchen-allow: test-sleep fake gate must still be running
+            'sleep 3; printf "%s|%s" "$PSTACK_KITCHEN_ROLE" "$PSTACK_KITCHEN_RUN" >"$OUT"',  # kitchen-allow: test-sleep (fake gate must still be running)
         )
         self.env['OUT'] = str(Path(self.tmp.name) / 'lane.txt')
         self.dispatch(b2)
@@ -4904,7 +4904,7 @@ esac
             [
                 'bash',
                 '-c',
-                f"until [ -f {packet} ]; do sleep 0.2; done; sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}",  # kitchen-allow: test-sleep fake gate must still be running
+                f"until [ -f {packet} ]; do sleep 0.2; done; sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}",  # kitchen-allow: test-sleep (fake gate must still be running)
             ]
         )
         self.addCleanup(late.wait)
