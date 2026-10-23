@@ -1549,6 +1549,22 @@ class LibraryTests(KitchenTests):
         self.assertEqual((left['minutes'], left['gate_seconds'], left['unmeasured']), (45, 300, []))
         self.silent()
 
+    def test_the_median_gate_time_is_over_the_last_ten_passing_runs_and_unmeasured_under_three_while_the_deadline_still_reads_the_maximum(self):
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
+                                        env=self.env, capture_output=True, text=True, check=True).stdout.strip())
+        state_dir.mkdir(parents=True, exist_ok=True)
+        rows = [('app', 1000, 'pass')] * 2 + [('app', 60, 'pass')] * 5 + [('app', 90, 'pass')] * 5 + [('app', 9999, 'fail')]
+        rows += [('slow', 500, 'pass'), ('slow', 700, 'pass'), ('slow', 600, 'pass'), ('few', 40, 'pass'), ('few', 50, 'pass')]
+        (state_dir / 'timings.tsv').write_text(''.join(f'{i}\t{p}\tbehavioral\tverifier\t{r}\t{t}\t0\t0\t{t}\n' for i, (p, t, r) in enumerate(rows)))
+        inv = self.library()
+        medians = kitchen.median_timing(inv, ['app', 'slow', 'few', 'docs'], 'behavioral')
+        self.assertEqual(medians['profiles'], {'app': {'seconds': 75.0, 'runs': 10}, 'slow': {'seconds': 600, 'runs': 3}})
+        self.assertEqual(medians['unmeasured'], ['few', 'docs'])
+        gates = kitchen.timing(inv, ['app', 'slow', 'few'], 'behavioral')
+        self.assertEqual((gates['profiles'], gates['seconds']), ({'app': 90.0, 'slow': 700.0, 'few': 50.0}, 840.0))
+        self.assertEqual(kitchen.deadline(inv, ['app', 'slow', 'few'], False)['gate_seconds'], 840.0)
+        self.silent()
+
     def test_the_brief_verify_list_is_the_commands_and_a_refused_block_raises(self):
         brief = self.repo / 'brief.md'
         brief.write_text('# Brief\n\n## Verify\n\n```bash\nmake test\ntrue\n```\n')
@@ -4353,6 +4369,33 @@ esac
         self.write('tests/test_app.py', 'x = 3\n')
         self.done(b, self.commit('util'))
 
+    def write_gate_timings(self, rows):
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'], env=self.env,
+                                        capture_output=True, text=True, check=True).stdout.strip())
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / 'timings.tsv').write_text(''.join(f'{i}\t{profile}\t{stage}\tverifier\tpass\t{seconds}\t0\t0\t{seconds}\n'
+                                                     for i, (profile, stage, seconds) in enumerate(rows)))
+
+    def test_prove_lines_carry_the_gates_median_and_a_gate_of_eight_minutes_or_more_is_marked_for_the_background(self):
+        self.landing_deadline_world()
+        self.write_gate_timings([('app', 'behavioral', 9999)] * 2 + [('app', 'behavioral', 372)] * 10 + [('app', 'landing', 500)] * 10)
+        self.run_sh('verify', str(self.store), '--landing', '--every', '0')
+        block = self.prove_block(self.store / 'verdicts/landing-v1-packet.md')
+        gates = [re.sub(r'^python3 \S+kitchen\.py --repo \S+ ', 'python3 K --repo S ', re.sub(r'--base [0-9a-f]+', '--base BASE', l)) for l in block[1:]]
+        self.assertEqual(gates, [
+            'python3 K --repo S gate app behavioral --role verifier --base BASE # median 6m 12s over 10 runs',
+            '# over 8 minutes: run it in the background, wait for it to finish, then check its exit status',
+            'python3 K --repo S gate app landing --role verifier --base BASE # median 8m 20s over 10 runs'])
+
+    def test_a_gate_with_fewer_than_three_passing_runs_is_unmeasured_on_its_prove_line(self):
+        self.landing_deadline_world()
+        self.write_gate_timings([('app', 'behavioral', 372)] * 2 + [('app', 'landing', 30)] * 3)
+        self.run_sh('verify', str(self.store), '--landing', '--every', '0')
+        gates = [re.sub(r'^python3 \S+kitchen\.py --repo \S+ ', 'python3 K --repo S ', re.sub(r'--base [0-9a-f]+', '--base BASE', l))
+                 for l in self.prove_block(self.store / 'verdicts/landing-v1-packet.md')[1:]]
+        self.assertEqual(gates, ['python3 K --repo S gate app behavioral --role verifier --base BASE # unmeasured',
+                                 'python3 K --repo S gate app landing --role verifier --base BASE # median 30s over 3 runs'])
+
     def test_the_landing_deadline_counts_the_landing_gates_it_measured(self):
         self.landing_deadline_world()
         state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'], env=self.env,
@@ -5484,8 +5527,8 @@ esac
         self.assertNotIn(' landing --role verifier', (self.store / 'verdicts/001-util-v1-packet.md').read_text())
         self.run_sh('verify', str(self.store), '--timeout', '60', '--landing')
         packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
-        self.assertRegex(packet, r'gate app behavioral --role verifier --base [0-9a-f]+\n')
-        self.assertRegex(packet, r'gate app landing --role verifier --base [0-9a-f]+\n')
+        self.assertRegex(packet, r'gate app behavioral --role verifier --base [0-9a-f]+ # unmeasured\n')
+        self.assertRegex(packet, r'gate app landing --role verifier --base [0-9a-f]+ # unmeasured\n')
 
     def test_a_clean_landing_verdict_covers_a_unit_inside_its_range(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')

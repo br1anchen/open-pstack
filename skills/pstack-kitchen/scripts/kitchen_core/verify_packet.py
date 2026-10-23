@@ -332,6 +332,26 @@ def unit_sections(p, parts):
         parts.append(f'{lessons}\n\n')
 
 
+BACKGROUND_SECONDS = 8 * 60
+
+
+def duration(seconds):
+    """Whole seconds as `6m 12s`, or `45s` under a minute."""
+    seconds = round(seconds)
+    return f'{seconds // 60}m {seconds % 60}s' if seconds >= 60 else f'{seconds}s'
+
+
+def gate_lines(p, profile, stage, merge_base, tool):
+    """A gate's Prove line with its median time as a trailing comment (`unmeasured` below three passing runs), preceded by the line telling the verifier
+    to run it in the background when the median is eight minutes or more."""
+    median = kpy.call(kpy.kitchen_py.median_timing, kpy.invocation(p.store, p.root), [profile], stage)['profiles'].get(profile)
+    note = f'median {duration(median["seconds"])} over {median["runs"]} runs' if median else 'unmeasured'
+    line = f'python3 {tool} --repo {p.scratch} gate {profile} {stage} --role verifier --base {merge_base} # {note}\n'
+    if median and median['seconds'] >= BACKGROUND_SECONDS:
+        line = '# over 8 minutes: run it in the background, wait for it to finish, then check its exit status\n' + line
+    return line
+
+
 def prove_section(p, parts):
     """Adds the packet's Prove block to parts: the gates the verifier runs in the scratch worktree, then the feature map and the verification skills."""
     parts += ['## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo\'s scripts give you\n'
@@ -344,11 +364,11 @@ def prove_section(p, parts):
     forked = git.run(p.root, 'merge-base', p.base, p.head, quiet=True)
     merge_base = forked.stdout.rstrip('\n') if forked.returncode == 0 else p.base
     for profile in p.data.get('behavioral') or []:
-        parts.append(f'python3 {tool} --repo {p.scratch} gate {profile} behavioral --role verifier --base {merge_base}\n')
+        parts.append(gate_lines(p, profile, 'behavioral', merge_base, tool))
     # A landing verification also runs the touched profiles' landing commands.
     if p.risk == 'landing':
         for profile in p.data.get('landing') or []:
-            parts.append(f'python3 {tool} --repo {p.scratch} gate {profile} landing --role verifier --base {merge_base}\n')
+            parts.append(gate_lines(p, profile, 'landing', merge_base, tool))
         for plan, runnable, *_ in landing_plans(p):
             for n, command in enumerate(runnable, 1):
                 parts.append(f'# plan {plan}: Verification command {n}\n(set -e\ncd {p.scratch}\n{command}\n)\n')

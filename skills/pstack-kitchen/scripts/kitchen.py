@@ -19,6 +19,7 @@ import os
 import re
 import shlex
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -928,6 +929,20 @@ def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> 
     slowest = {p: max(r[-last:]) for p, r in runs.items() if r}
     return {'stage': stage, 'profiles': slowest, 'seconds': round(sum(slowest.values()), 1),
             'unmeasured': [p for p in profiles if p not in slowest]}
+
+
+def gate_median(root: Path, profiles: list[str], stage: str, last: int = 10, floor: int = 3) -> dict:
+    """The median of each profile's last `last` passing runs of a stage, with how many runs it is over. A profile with fewer than `floor` passing
+    runs is unmeasured: two runs say little about what a gate usually takes. gate_timing's maximum, not this, sets the verifier deadline."""
+    runs: dict[str, list[float]] = {p: [] for p in profiles}
+    path = state_dir(root) / TIMINGS
+    if path.exists():
+        for line in path.read_text().splitlines():
+            f = line.split('\t')
+            if len(f) >= 6 and f[1] in runs and f[2] == stage and f[4] == 'pass':
+                runs[f[1]].append(float(f[5]))
+    measured = {p: {'seconds': statistics.median(r[-last:]), 'runs': len(r[-last:])} for p, r in runs.items() if len(r) >= floor}
+    return {'stage': stage, 'profiles': measured, 'unmeasured': [p for p in profiles if p not in measured]}
 
 
 def _run_gate(inv: 'Invocation', root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str, commands: list, log_dir: Path,
@@ -2495,6 +2510,10 @@ def classify_text(r: dict) -> str:
 
 def timing(inv: Invocation, profiles: list[str], stage: str = 'behavioral') -> dict:
     return gate_timing(repo_root(inv.root), profiles, stage)
+
+
+def median_timing(inv: Invocation, profiles: list[str], stage: str = 'behavioral') -> dict:
+    return gate_median(repo_root(inv.root), profiles, stage)
 
 
 def timing_text(r: dict, stage: str) -> str:
