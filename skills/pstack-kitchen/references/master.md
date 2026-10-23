@@ -156,6 +156,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      routine, fallback and escalated verifier and where each came from; the
      escalated line adds `(differs from the default claude --model
      claude-opus-5-5)` when the roster names another one.
+     It also warns on `scratch setup` when the latest `[scratch].setup` run in
+     the host timings failed (`the latest setup run failed at <time>: <commands>`);
+     a later passing run clears the warning.
    - A unit is measured from its dispatch head, but never from before where
      its branch leaves trunk: a unit dispatched before a landing and then
      rebased onto the new trunk is measured from there (`verify` prints a

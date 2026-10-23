@@ -1198,6 +1198,18 @@ def setup_timing(root: Path) -> float | None:
     return last
 
 
+def last_setup_run(root: Path) -> tuple[int, bool] | None:
+    """The latest setup run, whatever its outcome: (when it ended, whether it passed), or None when none was recorded."""
+    path = state_dir(root) / TIMINGS
+    last = None
+    if path.exists():
+        for line in path.read_text().splitlines():
+            f = line.split('\t')
+            if len(f) >= 6 and f[1] == '-' and f[2] == 'setup':
+                last = (int(f[0]), f[4] == 'pass')
+    return last
+
+
 def host_load() -> tuple[float, int]:
     """One-minute load and cores; PSTACK_KITCHEN_LOAD="<load1> <cores>" overrides both (tests)."""
     raw = os.environ.get('PSTACK_KITCHEN_LOAD')
@@ -1872,7 +1884,15 @@ def doctor(
         )
         if (root / m).exists() and any((root / x).exists() for x in locks)
     ]
-    if kitchen.scratch_setup:
+    setup_run = last_setup_run(root)
+    if kitchen.scratch_setup and setup_run and not setup_run[1]:
+        when = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(setup_run[0]))
+        add(
+            'scratch setup',
+            'warn',
+            f'the latest setup run failed at {when}: {"; ".join(kitchen.scratch_setup)}',
+        )
+    elif kitchen.scratch_setup:
         add('scratch setup', 'ok', '; '.join(kitchen.scratch_setup))
     elif manifests:
         add(

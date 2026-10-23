@@ -1127,6 +1127,26 @@ class WrapTests(KitchenTests):
             self.data('timing', 'app', '--stage', 'behavioral')['seconds'], 0
         )
 
+    def test_doctor_warns_when_the_last_verifier_setup_failed(self):
+        self.scratch(['echo boom; exit 3'])
+        self.data('setup', code=2)
+        c = self.doctor_scratch()
+        self.assertEqual(c['status'], 'warn')
+        self.assertRegex(
+            c['detail'],
+            r'^the latest setup run failed at \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ: echo boom; exit 3$',
+        )
+
+    def test_doctor_does_not_warn_once_a_later_setup_run_passed(self):
+        self.scratch(['echo boom; exit 3'])
+        self.data('setup', code=2)
+        self.scratch(['true'])
+        self.data('setup')
+        self.assertEqual(
+            (self.doctor_scratch()['status'], self.doctor_scratch()['detail']),
+            ('ok', 'true'),
+        )
+
     def test_two_run_slugs_reach_setup_the_wrap_and_gate_commands(self):
         self.kitchen(fast='["printf \'%s\' \\"$PSTACK_KITCHEN_RUN\\" > gate-run"]')
         toml = self.repo / '.agents/kitchen.toml'
