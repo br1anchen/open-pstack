@@ -7,12 +7,14 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
 from pstack_core.checkin import scope_entries
 from pstack_core.store import field, header_field, pair_file, read_text, risk_of, write_text
 from pstack_core.errors import Die, EmptyScope, KitchenPyFailed
 from pstack_core.panes import agent_status
 
+from . import kpy
 from .kpy import Kitchen
 
 CLASSIFY_FAILED = 'kitchen.py classify failed; run kitchen.py validate in the repo'
@@ -47,10 +49,11 @@ def brief_escalations(brief):
 def kitchen_snapshot(store, root=None):
     """A host kitchen has no history, so a brief is classified, stepped and verified against the copy taken when it was classified (kitchen: in its
     header), the way a repo kitchen is read at the unit's commit. The copy's path, or nothing for a repo kitchen."""
-    status, found = Kitchen(store, root).soft(['snapshot', f'{store}/kitchens'])
-    if status != 0:
-        raise KitchenPyFailed('kitchen.py snapshot failed; run kitchen.py validate in the repo')
-    return found.rstrip('\n')
+    try:
+        return kpy.kitchen_py.snapshot(kpy.invocation(store, root), Path(f'{store}/kitchens'))
+    except kpy.KitchenError as e:
+        kpy.explain(e)
+        raise KitchenPyFailed('kitchen.py snapshot failed; run kitchen.py validate in the repo') from None
 
 
 def brief_kitchen(brief):

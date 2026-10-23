@@ -34,14 +34,11 @@ def review_engine(store):
 
 def validated_engine(store):
     """(ok, engine): the kitchen's [review].engine from `validate`; not ok when kitchen.py fails, which land-check says."""
-    rc, text, _ = kpy.run(repo_root(store) if has_pair(store) else '', ['--json', 'validate'])
-    if rc != 0:
+    try:
+        found = kpy.kitchen_py.validate(kpy.invocation(store) if has_pair(store) else kpy.kitchen_py.Invocation())
+    except kpy.KitchenError:
         return False, ''
-    found = parse(text)
-    if not isinstance(found, dict):
-        return False, ''
-    value = found.get('review_engine')
-    return True, value if isinstance(value, str) else ''
+    return True, found.review_engine
 
 
 def cites_engine(review, engine):
@@ -115,10 +112,10 @@ def manifest_warning(store, verified_base, current_base, head=''):
     if is_ancestor(root, current_base, verified_base) and is_ancestor(root, verified_base, head or 'HEAD'):
         return ''
     listed = git.run(root, 'diff', '--name-only', '-z', '--no-renames', verified_base, current_base, quiet=True).stdout
-    rc, text, _ = kpy.run(root, ['--json', 'manifests', '-z'], stdin=listed)
-    found = parse(text)
-    manifests = found.get('manifests') if isinstance(found, dict) else None
-    files = ', '.join(m for m in manifests if isinstance(m, str)) if isinstance(manifests, list) else ''
+    try:
+        files = ', '.join(kpy.kitchen_py.manifests(kpy.invocation(store, root), listed.split('\0')))
+    except kpy.KitchenError:
+        files = ''
     return f'warning: dependency manifests changed since the verified base: {files}\n' if files else ''
 
 

@@ -6137,14 +6137,15 @@ class CoreTests(unittest.TestCase):
         run.assert_not_called()
         self.assertEqual(json.loads((st / 'pair.json').read_text())['dispatch']['head'], '')
 
-    def test_the_review_engine_read_fails_closed_unless_validate_prints_a_json_object(self):
+    def test_the_review_engine_read_fails_closed_unless_validate_succeeds(self):
         landing = self.kitchen_core_module('landing')
-        cases = {'an engine': ((0, '{"review_engine": "codex"}', ''), (True, 'codex')), 'no engine': ((0, '{}', ''), (True, '')),
-                 'a null engine': ((0, '{"review_engine": null}', ''), (True, '')), 'output that is not JSON': ((0, 'not json', ''), (False, '')),
-                 'output that is an array': ((0, '[1]', ''), (False, '')), 'output that is null': ((0, 'null', ''), (False, '')),
-                 'a failing validate': ((1, '{"review_engine": "codex"}', ''), (False, ''))}
+        kitchen_py = landing.kpy.kitchen_py
+        found = lambda engine: kitchen_py.ValidateResult(kitchen_py.Source('repo', '.agents/kitchen.toml', ''), [], [], engine, 'commit', [], [])
+        cases = {'an engine': (found('codex'), (True, 'codex')), 'no engine': (found(''), (True, '')),
+                 'a failing validate': (kitchen_py.KitchenError('no kitchen at /repo/.agents/kitchen.toml'), (False, ''))}
         for name, (answer, want) in cases.items():
-            with mock.patch.object(landing, 'repo_root', return_value='/repo'), mock.patch.object(landing.kpy, 'run', return_value=answer):
+            effect = {'side_effect': answer} if isinstance(answer, Exception) else {'return_value': answer}
+            with mock.patch.object(landing, 'repo_root', return_value='/repo'), mock.patch.object(kitchen_py, 'validate', **effect):
                 self.assertEqual(landing.validated_engine('/st'), want, name)
 
     def test_the_modules_merged_into_their_callers_homes_are_gone_and_their_commands_still_resolve(self):

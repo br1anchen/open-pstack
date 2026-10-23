@@ -63,10 +63,12 @@ def stamp_skill_builds(ctx, store):
     update(store, mutate)
 
 
-def quiet_kitchen(store, args):
-    """`kpy "$store" ARGS 2>/dev/null`: (status, stdout without its trailing newlines)."""
-    status, out, _ = kpy.run(repo_root(store), args)
-    return status, out.rstrip('\n')
+def validated(store):
+    """What kitchen.py validate finds in the run's repo, or None when it names no valid kitchen (the reason is dropped)."""
+    try:
+        return kpy.kitchen_py.validate(kpy.invocation(store))
+    except kpy.KitchenError:
+        return None
 
 
 def init(ctx, args):
@@ -75,19 +77,18 @@ def init(ctx, args):
     sys.stdout.write(''.join(lines))
     store, orders = made.store, made.orders
     stamp_skill_builds(ctx, store)
-    status, found = quiet_kitchen(store, ['--json', 'validate'])
-    if status != 0:
+    found = validated(store)
+    if found is None:
         sys.stdout.flush()
         sys.stderr.write('kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching\n')
         return 0
     text = read_text(orders)
-    data = json.loads(found)
-    if 'kitchen.toml review.self' not in text and (data.get('self') or []):
+    if 'kitchen.toml review.self' not in text and found.review_self:
         with open(orders, 'a') as f:
-            f.write(f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {", ".join(data["self"])} (kitchen.toml review.self).\n')
+            f.write(f'16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: {", ".join(found.review_self)} (kitchen.toml review.self).\n')
     if 'kitchen.toml landing.mode' not in text:
         with open(orders, 'a') as f:
-            f.write(f'17. Landing goes as far as `{data.get("landing") or ""}` (kitchen.toml landing.mode) and never merges.\n')
+            f.write(f'17. Landing goes as far as `{found.landing}` (kitchen.toml landing.mode) and never merges.\n')
     worktree_setup(ctx, store, found)
     return 0
 
@@ -95,10 +96,10 @@ def init(ctx, args):
 def worktree_setup(ctx, store, found):
     """A run in a linked worktree (git worktree add, a jj workspace) starts without the main checkout's untracked dependencies, so its gates would run
     whatever tool the PATH has instead of the repo's pinned one. init prepares it once the way verifier scratches are prepared: the repo's
-    [scratch].setup, as the sidekick. A failed setup stops init with its log. found is validate's JSON."""
+    [scratch].setup, as the sidekick. A failed setup stops init with its log. found is validate's result."""
     require_pair(ctx, store)
     root = repo_root(store)
-    if not (json.loads(found).get('setup') or []):
+    if not found.setup:
         return
     if git.run(root, 'rev-parse', '--path-format=absolute', '--git-dir').stdout.rstrip('\n') == git.run(root, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.rstrip('\n'):
         return

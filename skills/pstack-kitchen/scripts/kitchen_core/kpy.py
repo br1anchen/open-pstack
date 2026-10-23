@@ -1,5 +1,5 @@
-"""The one way kitchen_core reaches kitchen.py: its `main(argv)` called in this process, with the output and status it would have had as
-`python3 kitchen.py --repo <repo> <args>`."""
+"""The one way kitchen_core reaches kitchen.py: the module imported by path, whose query functions take an `Invocation` and return data. `run`, its
+`main(argv)` called in this process, is left for `setup --role`, which unit 074 moves."""
 
 import contextlib
 import importlib.util
@@ -27,6 +27,22 @@ def load():
             del sys.modules[MODULE]
             raise
     return module
+
+
+kitchen_py = load()
+KitchenError = kitchen_py.KitchenError
+
+
+def invocation(store, root=None, config=None, at=None):
+    """The Invocation of kitchen.py's queries for a run: the store's repo (or `root`), a `--config` snapshot where the unit has one, and a revision."""
+    from .units import repo_root
+    return kitchen_py.Invocation(str(root) if root is not None else repo_root(store), config, at)
+
+
+def explain(error):
+    """A KitchenError as kitchen.py's command line prints it, on stderr after anything already written to stdout."""
+    sys.stdout.flush()
+    sys.stderr.write(f'kitchen: {error}\n')
 
 
 def run(repo, args, stdin=None):

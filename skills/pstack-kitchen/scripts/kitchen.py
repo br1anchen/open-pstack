@@ -36,8 +36,12 @@ LANDING_MODES = ('commit', 'branch', 'stack', 'pr')
 NAME = re.compile(r'^[a-z][a-z0-9-]*$')
 
 
-class ConfigError(Exception):
-    pass
+class KitchenError(Exception):
+    """A failure a caller reports instead of a bug: the message kitchen.py prints after `kitchen: `, and the exit status that goes with it."""
+
+    def __init__(self, message: str, code: int = 1):
+        super().__init__(message)
+        self.code = code
 
 
 # Globs match repo-relative paths. `**` crosses directories, `*` and `?` do
@@ -115,30 +119,30 @@ class Kitchen:
 def _check_keys(table: dict, where: str, allowed: set[str]) -> None:
     unknown = set(table) - allowed
     if unknown:
-        raise ConfigError(f'{where}: unknown key {", ".join(sorted(unknown))}')
+        raise KitchenError(f'{where}: unknown key {", ".join(sorted(unknown))}')
 
 
 def _strings(value, where: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(v, str) and v for v in value):
-        raise ConfigError(f'{where}: expected a list of non-empty strings')
+        raise KitchenError(f'{where}: expected a list of non-empty strings')
     return value
 
 
 def _choice(value, where: str, choices: tuple[str, ...]) -> str:
     if value not in choices:
-        raise ConfigError(f'{where}: expected one of {", ".join(choices)}, got {value!r}')
+        raise KitchenError(f'{where}: expected one of {", ".join(choices)}, got {value!r}')
     return value
 
 
 def _int(value, where: str, minimum: int = 0) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
-        raise ConfigError(f'{where}: expected an integer >= {minimum}')
+        raise KitchenError(f'{where}: expected an integer >= {minimum}')
     return value
 
 
 def _bool(value, where: str) -> bool:
     if not isinstance(value, bool):
-        raise ConfigError(f'{where}: expected true or false')
+        raise KitchenError(f'{where}: expected true or false')
     return value
 
 
@@ -147,7 +151,7 @@ def _heavy_stages(value, where: str) -> frozenset[str]:
     if isinstance(value, bool):
         return frozenset(STAGES) if value else frozenset()
     if not isinstance(value, list) or not all(isinstance(v, str) and v in STAGES for v in value):
-        raise ConfigError(f'{where}: expected true, false, or a list of stages from {", ".join(STAGES)}')
+        raise KitchenError(f'{where}: expected true, false, or a list of stages from {", ".join(STAGES)}')
     return frozenset(value)
 
 
@@ -155,30 +159,30 @@ def parse(data: dict) -> Kitchen:
     _check_keys(data, 'kitchen.toml', {'version', 'profile', 'escalate', 'policy', 'review',
                                        'verify', 'landing', 'coverage', 'resources', 'run', 'scratch', 'generated'})
     if data.get('version') != 1:
-        raise ConfigError('version: expected 1')
+        raise KitchenError('version: expected 1')
     raw_profiles = data.get('profile')
     if not isinstance(raw_profiles, dict) or not raw_profiles:
-        raise ConfigError('profile: define at least one [profile.<name>]')
+        raise KitchenError('profile: define at least one [profile.<name>]')
     profiles = {}
     for name, p in raw_profiles.items():
         where = f'profile.{name}'
         if not NAME.match(name):
-            raise ConfigError(f'{where}: name must match {NAME.pattern}')
+            raise KitchenError(f'{where}: name must match {NAME.pattern}')
         _check_keys(p, where, {'paths', *STAGES, 'features', 'tests', 'require_tests',
                                'verify', 'sample', 'heavy', 'wrap'})
         wrap = p.get('wrap')
         if wrap is not None and not isinstance(wrap, str):
-            raise ConfigError(f'{where}.wrap: expected a string ("" runs this profile unwrapped)')
+            raise KitchenError(f'{where}.wrap: expected a string ("" runs this profile unwrapped)')
         paths = _strings(p.get('paths'), f'{where}.paths')
         if not paths:
-            raise ConfigError(f'{where}.paths: list at least one glob')
+            raise KitchenError(f'{where}.paths: list at least one glob')
         sample = p.get('sample', 0.1)
         if not isinstance(sample, (int, float)) or isinstance(sample, bool) or not 0 <= sample <= 1:
-            raise ConfigError(f'{where}.sample: expected a number from 0 to 1')
+            raise KitchenError(f'{where}.sample: expected a number from 0 to 1')
         tests = _strings(p.get('tests', []), f'{where}.tests')
         require_tests = _bool(p.get('require_tests', False), f'{where}.require_tests')
         if require_tests and not tests:
-            raise ConfigError(f'{where}: require_tests needs tests globs')
+            raise KitchenError(f'{where}: require_tests needs tests globs')
         profiles[name] = Profile(
             name=name, paths=paths,
             commands={s: _strings(p.get(s, []), f'{where}.{s}') for s in STAGES},
@@ -204,20 +208,20 @@ def parse(data: dict) -> Kitchen:
     for i, r in enumerate(policy.get('forbid', [])):
         where = f'policy.forbid[{i}]'
         if not isinstance(r, dict):
-            raise ConfigError(f'{where}: expected a table')
+            raise KitchenError(f'{where}: expected a table')
         _check_keys(r, where, {'id', 'pattern', 'message', 'paths', 'source'})
         rid = r.get('id')
         if not isinstance(rid, str) or not NAME.match(rid) or rid in seen:
-            raise ConfigError(f'{where}.id: expected a unique name matching {NAME.pattern}')
+            raise KitchenError(f'{where}.id: expected a unique name matching {NAME.pattern}')
         seen.add(rid)
         if not isinstance(r.get('message'), str) or not r['message']:
-            raise ConfigError(f'{where}.message: say what to do instead')
+            raise KitchenError(f'{where}.message: say what to do instead')
         try:
             pattern = re.compile(r.get('pattern', ''))
         except re.error as e:
-            raise ConfigError(f'{where}.pattern: {e}') from None
+            raise KitchenError(f'{where}.pattern: {e}') from None
         if not r.get('pattern'):
-            raise ConfigError(f'{where}.pattern: expected a regular expression')
+            raise KitchenError(f'{where}.pattern: expected a regular expression')
         rules.append(Rule(rid, pattern, r['message'],
                           [glob_regex(g) for g in _strings(r.get('paths', ['**']), f'{where}.paths')],
                           str(r.get('source', ''))))
@@ -225,20 +229,20 @@ def parse(data: dict) -> Kitchen:
     generated = []
     raw_generated = data.get('generated', [])
     if not isinstance(raw_generated, list):
-        raise ConfigError('generated: expected an array of tables, [[generated]]')
+        raise KitchenError('generated: expected an array of tables, [[generated]]')
     for i, g in enumerate(raw_generated):
         where = f'generated[{i}]'
         if not isinstance(g, dict):
-            raise ConfigError(f'{where}: expected a table')
+            raise KitchenError(f'{where}: expected a table')
         _check_keys(g, where, {'sources', 'outputs', 'command'})
         lists = {}
         for key in ('sources', 'outputs'):
             lists[key] = _strings(g.get(key), f'{where}.{key}') if key in g else None
             if not lists[key]:
-                raise ConfigError(f'{where}.{key}: list at least one glob')
+                raise KitchenError(f'{where}.{key}: list at least one glob')
         command = g.get('command', '')
         if not isinstance(command, str):
-            raise ConfigError(f'{where}.command: expected a string')
+            raise KitchenError(f'{where}.command: expected a string')
         generated.append(Generated(tuple(lists['sources']), tuple(lists['outputs']), command,
                                    tuple(glob_regex(x) for x in lists['sources']), tuple(glob_regex(x) for x in lists['outputs'])))
 
@@ -252,7 +256,7 @@ def parse(data: dict) -> Kitchen:
     _check_keys(review, 'review', {'self', 'standards', 'max_batch_diff', 'engine', *legacy_review})
     engine = review.get('engine', '')
     if not isinstance(engine, str) or (engine and not re.fullmatch(r'[A-Za-z0-9_.-]+', engine)):
-        raise ConfigError('review.engine: expected a tool name such as "joo"')
+        raise KitchenError('review.engine: expected a tool name such as "joo"')
     rev = {
         'engine': engine,
         'self': _strings(review.get('self', []), 'review.self'),
@@ -277,7 +281,7 @@ def parse(data: dict) -> Kitchen:
     run = data.get('run', {})
     _check_keys(run, 'run', {'wrap'})
     if not isinstance(run.get('wrap', ''), str):
-        raise ConfigError('run.wrap: expected a string, such as "nix develop --command"')
+        raise KitchenError('run.wrap: expected a string, such as "nix develop --command"')
     return Kitchen(
         profiles=profiles, escalate=esc, rules=rules, review=rev, verify=ver,
         landing=_choice(landing.get('mode', 'commit'), 'landing.mode', LANDING_MODES),
@@ -294,7 +298,7 @@ DIFF_OPTS = ('--no-renames', '--no-color', '--no-ext-diff', '--src-prefix=a/', '
 def git(root: Path, *args: str, check: bool = True) -> str:
     result = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True, check=False)
     if check and result.returncode != 0:
-        raise ConfigError(f'git {" ".join(args)}: {result.stderr.strip()}')
+        raise KitchenError(f'git {" ".join(args)}: {result.stderr.strip()}')
     return result.stdout
 
 
@@ -303,7 +307,7 @@ def repo_root(start: str | None) -> Path:
         out = subprocess.run(['git', '-C', start or '.', 'rev-parse', '--show-toplevel'],
                              capture_output=True, text=True, check=True).stdout
     except subprocess.CalledProcessError:
-        raise ConfigError(f'not a git repository: {start or os.getcwd()}') from None
+        raise KitchenError(f'not a git repository: {start or os.getcwd()}') from None
     return Path(out.strip())
 
 
@@ -372,14 +376,14 @@ def host_kitchen(root: Path) -> tuple[str, Path]:
     try:
         entries = tomllib.loads(path.read_text()).get('kitchen', []) if path.exists() else []
     except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f'{path}: {e}') from None
+        raise KitchenError(f'{path}: {e}') from None
     if not isinstance(entries, list):
-        raise ConfigError(f'{path}: kitchen must be an array of tables ([[kitchen]])')
+        raise KitchenError(f'{path}: kitchen must be an array of tables ([[kitchen]])')
     here = [str(root), str(repo_main(root))]
     for i, e in enumerate(entries):
         where = f'{path}: kitchen[{i}]'
         if not isinstance(e, dict) or not isinstance(e.get('match'), str) or not isinstance(e.get('file'), str):
-            raise ConfigError(f'{where} needs match and file strings')
+            raise KitchenError(f'{where} needs match and file strings')
         rx = glob_regex(real_glob(e['match']))
         if any(rx.match(h) or rx.match(h + '/') for h in here):
             f = Path(os.path.expanduser(e['file']))
@@ -392,7 +396,7 @@ def locate(root: Path, at: str | None, config: str | None) -> Source:
         try:
             return Source('file', config, Path(config).read_text())
         except OSError:
-            raise ConfigError(f'no kitchen at {config}') from None
+            raise KitchenError(f'no kitchen at {config}') from None
     rel = config or CONFIG
     if at:
         r = subprocess.run(['git', '-C', str(root), 'show', f'{at}:{rel}'], capture_output=True, text=True, check=False)
@@ -406,7 +410,7 @@ def locate(root: Path, at: str | None, config: str | None) -> Source:
         if path.is_file():
             return Source(kind, str(path), path.read_text())
         tried.append(str(path))
-    raise ConfigError(f'no kitchen at {" or ".join(tried)}; run the pstack-kitchen-setup skill')
+    raise KitchenError(f'no kitchen at {" or ".join(tried)}; run the pstack-kitchen-setup skill')
 
 
 def load(root: Path, at: str | None, config: str | None) -> tuple[Kitchen, Source]:
@@ -414,7 +418,7 @@ def load(root: Path, at: str | None, config: str | None) -> tuple[Kitchen, Sourc
     try:
         return parse(tomllib.loads(src.text)), src
     except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f'{src.label}: {e}') from None
+        raise KitchenError(f'{src.label}: {e}') from None
 
 
 # One state directory per repository, keyed by its git common dir, so a
@@ -500,7 +504,7 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
         extra = git(root, 'ls-files', '--others', '--exclude-standard').splitlines()
     else:
         if not args.base:
-            raise ConfigError('give --base REV [--head REV], --working-tree, or --paths GLOB...')
+            raise KitchenError('give --base REV [--head REV], --working-tree, or --paths GLOB...')
         # From the merge-base: a range whose base was rewritten (a squash, a
         # rebase) still covers every change since the histories forked, not
         # only the difference between two trees.
@@ -741,17 +745,17 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
     if base:
         sha = git(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}', check=False).strip()
         if not sha:
-            raise ConfigError(f'--base {base} is not a commit')
+            raise KitchenError(f'--base {base} is not a commit')
         os.environ[BASE] = sha
     if role not in ROLES:
-        raise ConfigError(f'role must be sidekick or verifier, not {role}')
+        raise KitchenError(f'role must be sidekick or verifier, not {role}')
     if profile not in kitchen.profiles:
-        raise ConfigError(f'no profile {profile}; profiles: {", ".join(kitchen.profiles)}')
+        raise KitchenError(f'no profile {profile}; profiles: {", ".join(kitchen.profiles)}')
     p = kitchen.profiles[profile]
     commands = list(enumerate(p.commands[stage]))
     if only is not None:
         if not 0 <= only < len(commands):
-            raise ConfigError(f'--only {only}: {profile}.{stage} has {len(commands)} commands, numbered from 0')
+            raise KitchenError(f'--only {only}: {profile}.{stage} has {len(commands)} commands, numbered from 0')
         commands = [commands[only]]
     log_dir = log_dir or state_dir(root) / 'logs' / time.strftime('%Y%m%dT%H%M%S')
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -864,7 +868,7 @@ def host_load() -> tuple[float, int]:
                 raise ValueError
             return float(parts[0]), int(parts[1])
         except ValueError:
-            raise ConfigError('PSTACK_KITCHEN_LOAD: expected "<load1> <cores>", such as "22 16"') from None
+            raise KitchenError('PSTACK_KITCHEN_LOAD: expected "<load1> <cores>", such as "22 16"') from None
     try:
         return os.getloadavg()[0], os.cpu_count() or 1
     except OSError:
@@ -991,7 +995,7 @@ def brief_verify_commands(brief: Path) -> list[str]:
     if not opens:
         if '\n'.join(section).strip().strip('"`').lower() in ('', 'none'):
             return []
-        raise ConfigError(f'{brief}: the Verify section has text outside a ``` block')
+        raise KitchenError(f'{brief}: the Verify section has text outside a ``` block')
     close = next((i for i in range(opens[0] + 1, len(section)) if section[i].startswith('```')), len(section))
     block = section[opens[0] + 1:close]
     if '\n'.join(x for x in block if not x.lstrip().startswith('#')).strip().strip('"`').lower() == 'none':
@@ -1019,7 +1023,7 @@ def run_brief_verify(root: Path, kitchen: Kitchen, brief: Path, log_dir: Path | 
     if base:
         sha = git(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}', check=False).strip()
         if not sha:
-            raise ConfigError(f'--base {base} is not a commit')
+            raise KitchenError(f'--base {base} is not a commit')
         os.environ[BASE] = sha
     commands = brief_verify_commands(brief)
     log_dir = log_dir or state_dir(root) / 'logs' / time.strftime('%Y%m%dT%H%M%S')
@@ -1098,7 +1102,7 @@ def check_policy(root: Path, kitchen: Kitchen, args) -> list[dict]:
         diff = git(root, 'diff', *DIFF_OPTS, '-U0', 'HEAD')
     else:
         if not args.base:
-            raise ConfigError('give --base REV [--head REV] or --working-tree')
+            raise KitchenError('give --base REV [--head REV] or --working-tree')
         diff = git(root, 'diff', *DIFF_OPTS, '-U0', f"{args.base}...{args.head or 'HEAD'}")
     findings, path, line_no = [], None, 0
     for line in diff.splitlines():
@@ -1700,7 +1704,7 @@ def _ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
 
 def ledger_catch(store: Path, ledger: Path, run: str, ts: str, layer: str, text: str, unit: str | None) -> None:
     if unit and not unit_brief(store, unit):
-        raise ConfigError(f'no brief for unit {unit} in {store}/briefs')
+        raise KitchenError(f'no brief for unit {unit} in {store}/briefs')
     with ledger_lock(ledger):
         rows = ledger_rows(ledger)
         rows.append(dict(zip(LEDGER_HEAD, (ts, run, 'catch', layer, _cell(text, 10_000), unit or '',
@@ -1980,7 +1984,7 @@ def lessons_text(r: dict, every: bool = False) -> str:
 def norm_area(area: str) -> str:
     area = re.sub(r'^\./', '', area.strip()).rstrip('/') or '.'
     if ',' in area or area.startswith(('/', '..')):
-        raise ConfigError('an area is one repo directory, like src/lib (or . for the root)')
+        raise KitchenError('an area is one repo directory, like src/lib (or . for the root)')
     return area
 
 
@@ -1988,16 +1992,16 @@ def lessons_add(path: Path, ledger: Path, kind: str, cls: str, area: str, rule: 
                 today: str, match: str = '') -> Lesson:
     rule = ' '.join(rule.split())
     if not rule or len(rule) > 200:
-        raise ConfigError('a rule is one sentence of at most 200 characters')
+        raise KitchenError('a rule is one sentence of at most 200 characters')
     area = norm_area(area)
     if '"' in match:
-        raise ConfigError('a match has no double quotes; copy it from the candidate')
+        raise KitchenError('a match has no double quotes; copy it from the candidate')
     with ledger_lock(ledger):
         rows = ledger_rows(ledger)
         evidence = [r for r in rows if same_trouble(kind, cls, match, r) and r['area']
                     and any(covers(area, e) for e in r['area'].split(','))]
         if not evidence:
-            raise ConfigError(f'no ledger row for {kind} {cls}{" " + match if match else ""} in {area}: '
+            raise KitchenError(f'no ledger row for {kind} {cls}{" " + match if match else ""} in {area}: '
                               'a lesson needs evidence')
         lessons = read_lessons(path)
         # Ids come from the host ledger too: runs in other worktrees stage
@@ -2032,13 +2036,13 @@ def lessons_dismiss(ledger: Path, kind: str, cls: str, area: str, match: str, no
     """A candidate whose evidence shares no cause stays hidden until trouble
     newer than the dismissal comes back."""
     if not note.strip():
-        raise ConfigError('dismiss needs --note: why the evidence shares no cause')
+        raise KitchenError('dismiss needs --note: why the evidence shares no cause')
     area = norm_area(area)
     with ledger_lock(ledger):
         rows = ledger_rows(ledger)
         if not any(same_trouble(kind, cls, match, r) and r['area'] and any(covers(area, e) for e in r['area'].split(','))
                    for r in rows):
-            raise ConfigError(f'no ledger row for {kind} {cls}{" " + match if match else ""} in {area}')
+            raise KitchenError(f'no ledger row for {kind} {cls}{" " + match if match else ""} in {area}')
         rows.append(dict(zip(LEDGER_HEAD, (now, '-', 'dismiss', kind, cls, '', area, _cell(note), match))))
         write_ledger(ledger, rows)
 
@@ -2051,9 +2055,9 @@ def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str |
     lessons = read_lessons(path)
     x = next((x for x in lessons if x.id == lid), None)
     if not x:
-        raise ConfigError(f'no lesson {lid} in {path}')
+        raise KitchenError(f'no lesson {lid} in {path}')
     if status in ('promoted', 'retired') and not note:
-        raise ConfigError(f'{status} needs --note: what enforces it now (commit and check), or why it is retired')
+        raise KitchenError(f'{status} needs --note: what enforces it now (commit and check), or why it is retired')
     rule = ' '.join(rule.split()) if rule else None
     # A new version starts when a lesson becomes active or its rule changes;
     # set active again with the same rule keeps its count.
@@ -2094,7 +2098,7 @@ PROMOTE_TO['escalation'] = PROMOTE_TO['verify']
 def promotion_draft(path: Path, ledger: Path, lid: str) -> str:
     x = next((x for x in read_lessons(path) if x.id == lid), None)
     if not x:
-        raise ConfigError(f'no lesson {lid} in {path}')
+        raise KitchenError(f'no lesson {lid} in {path}')
     rows = ledger_rows(ledger)
     n = lesson_counts(rows, x)
     f = x.fields
@@ -2368,6 +2372,79 @@ def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
     return 0
 
 
+@dataclass(frozen=True)
+class Invocation:
+    """The facts every query reads the kitchen by, as the command line gave them: --repo, --config and --at."""
+    root: str | None = None
+    config: str | None = None
+    at: str | None = None
+
+
+def open_kitchen(inv: Invocation) -> tuple[Path, Kitchen, Source]:
+    """The repo's root, its kitchen and where the kitchen was read from."""
+    root = repo_root(inv.root)
+    kitchen, source = load(root, inv.at, inv.config)
+    return root, kitchen, source
+
+
+def kitchen_warnings(kitchen: Kitchen) -> list[str]:
+    """What `validate` and `doctor` say about a kitchen file that still carries keys the kitchen ignores."""
+    warnings = []
+    if kitchen.verify:
+        warnings.append(f'kitchen: warning: [verify] {", ".join(sorted(kitchen.verify))} moved to the host roster\'s '
+                        '[verifier]; remove it from kitchen.toml')
+    if kitchen.review['legacy']:
+        warnings.append(f'kitchen: warning: review.{", review.".join(kitchen.review["legacy"])} are ignored: the kitchen tunes no '
+                        'reviewer; remove them from kitchen.toml')
+    return warnings
+
+
+@dataclass(frozen=True)
+class ValidateResult:
+    """A kitchen that parsed: where it came from, what it names, and the warnings its file earns."""
+    source: Source
+    profiles: list[str]
+    review_self: list[str]
+    review_engine: str
+    landing: str
+    setup: list[str]
+    warnings: list[str]
+
+    def as_dict(self) -> dict:
+        return {'ok': True, 'source': self.source.kind, 'path': self.source.label, 'profiles': self.profiles, 'self': self.review_self,
+                'review_engine': self.review_engine or None, 'landing': self.landing, 'setup': self.setup}
+
+    def text(self) -> str:
+        return (f'ok: {len(self.profiles)} profiles ({", ".join(self.profiles)})\nsource: {self.source.kind} {self.source.label}'
+                + (f'\nreview engine: {self.review_engine} (required: each accepted unit\'s review note cites a run)' if self.review_engine else ''))
+
+
+def validate(inv: Invocation) -> ValidateResult:
+    _, kitchen, source = open_kitchen(inv)
+    return ValidateResult(source, list(kitchen.profiles), kitchen.review['self'], kitchen.review['engine'], kitchen.landing,
+                          kitchen.scratch_setup, kitchen_warnings(kitchen))
+
+
+def snapshot(inv: Invocation, dest: Path) -> str:
+    """A host kitchen has no history, so units are checked against a copy of it named by its content: the copy's path, or '' for a repo kitchen."""
+    _, _, source = open_kitchen(inv)
+    if source.kind not in ('user', 'roster'):
+        return ''
+    dest.mkdir(parents=True, exist_ok=True)
+    snap = dest / f'{hashlib.sha256(source.text.encode()).hexdigest()[:12]}.toml'
+    if not snap.exists():
+        with tempfile.NamedTemporaryFile('w', dir=dest, delete=False) as f:
+            f.write(source.text)
+        os.replace(f.name, snap)
+    return str(snap.resolve())
+
+
+def manifests(inv: Invocation, paths: list[str]) -> list[str]:
+    """The paths that match [escalate].manifests."""
+    _, kitchen, _ = open_kitchen(inv)
+    return [x for x in paths if x and matches(x, kitchen.escalate['manifests'])]
+
+
 def emit(obj, as_json: bool, text: str) -> None:
     print(json.dumps(obj, indent=2) if as_json else text)
 
@@ -2480,6 +2557,7 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument('--deadline', action='store_true', help='the default verifier deadline and its parts')
     t.add_argument('--with-setup', action='store_true', help='with --deadline: count the last recorded setup run')
     args = ap.parse_args(argv)
+    inv = Invocation(args.repo, args.config, args.at)
 
     if args.cmd == 'roster':
         return roster(args.json)
@@ -2502,9 +2580,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == 'ledger-catch':
         try:
             ledger_catch(args.store, args.ledger, args.run, args.ts, args.layer, args.text, args.unit)
-        except ConfigError as e:
+        except KitchenError as e:
             print(f'kitchen: {e}', file=sys.stderr)
-            return 1
+            return e.code
         return 0
     try:
         if args.cmd == 'statedir':
@@ -2529,7 +2607,7 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 src = locate(root, args.at, args.config)
                 used = {'source': src.kind, 'path': src.label}
-            except ConfigError:
+            except KitchenError:
                 used = {'source': None, 'path': None}
             emit({**used, 'host': {'source': kind, 'path': str(path), 'exists': path.is_file()}}, args.json,
                  (f'{used["source"]}: {used["path"]}' if used['source'] else 'no kitchen')
@@ -2538,12 +2616,9 @@ def main(argv: list[str] | None = None) -> int:
         kitchen, source = load(root, args.at, args.config)
         INVOCATION[:] = ['--repo', str(root)] + (['--config', args.config] if args.config else []) \
             + (['--at', args.at] if args.at else [])
-        if kitchen.verify and args.cmd in ('validate', 'doctor'):
-            print(f'kitchen: warning: [verify] {", ".join(sorted(kitchen.verify))} moved to the host roster\'s '
-                  '[verifier]; remove it from kitchen.toml', file=sys.stderr)
-        if kitchen.review['legacy'] and args.cmd in ('validate', 'doctor'):
-            print(f'kitchen: warning: review.{", review.".join(kitchen.review["legacy"])} are ignored: the kitchen tunes no '
-                  'reviewer; remove them from kitchen.toml', file=sys.stderr)
+        if args.cmd in ('validate', 'doctor'):
+            for warning in kitchen_warnings(kitchen):
+                print(warning, file=sys.stderr)
         if args.cmd == 'lessons':
             path, ledger = lessons_path(root, source), state_dir(root) / 'ledger.tsv'
             today = time.strftime('%Y-%m-%d', time.gmtime())
@@ -2577,22 +2652,13 @@ def main(argv: list[str] | None = None) -> int:
                 emit(r, args.json, lessons_text(r, args.all))
             return 0
         if args.cmd == 'snapshot':
-            if source.kind in ('user', 'roster'):
-                args.dir.mkdir(parents=True, exist_ok=True)
-                snap = args.dir / f'{hashlib.sha256(source.text.encode()).hexdigest()[:12]}.toml'
-                if not snap.exists():
-                    with tempfile.NamedTemporaryFile('w', dir=args.dir, delete=False) as f:
-                        f.write(source.text)
-                    os.replace(f.name, snap)
-                print(snap.resolve())
+            snap = snapshot(inv, args.dir)
+            if snap:
+                print(snap)
             return 0
         if args.cmd == 'validate':
-            emit({'ok': True, 'source': source.kind, 'path': source.label, 'profiles': list(kitchen.profiles),
-                  'self': kitchen.review['self'], 'review_engine': kitchen.review['engine'] or None,
-                  'landing': kitchen.landing, 'setup': kitchen.scratch_setup}, args.json,
-                 f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})\nsource: {source.kind} {source.label}'
-                 + (f'\nreview engine: {kitchen.review["engine"]} (required: each accepted unit\'s review note cites a run)'
-                    if kitchen.review['engine'] else ''))
+            r = validate(inv)
+            emit(r.as_dict(), args.json, r.text())
             return 0
         if args.cmd == 'setup':
             r = run_setup(root, kitchen, args.role)
@@ -2601,8 +2667,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if r['passed'] else 2
         if args.cmd == 'manifests':
             text = sys.stdin.buffer.read().decode('utf-8', 'surrogateescape')
-            paths = text.split('\0') if args.z else text.splitlines()
-            hits = [x for x in paths if x and matches(x, kitchen.escalate['manifests'])]
+            hits = manifests(inv, text.split('\0') if args.z else text.splitlines())
             emit({'manifests': hits}, args.json, '\n'.join(hits))
             return 0
         if args.cmd == 'classify':
@@ -2672,9 +2737,9 @@ def main(argv: list[str] | None = None) -> int:
                 lines += [f'       {i}' for i in x['items']]
             emit({'checks': checks}, args.json, '\n'.join(lines))
             return 3 if any(x['status'] == 'fail' for x in checks) else 0
-    except ConfigError as e:
+    except KitchenError as e:
         print(f'kitchen: {e}', file=sys.stderr)
-        return 1
+        return e.code
     return 1
 
 
