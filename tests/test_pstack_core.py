@@ -2512,6 +2512,22 @@ class CoreTests(unittest.TestCase):
         self.assertEqual((whole['Acceptance'], whole['Verify']), ('\n- a works\n- b works\n\n', '\ntrue 1\n\ntrue 2\n\n'))
         self.assertEqual(whole['Steps'], unit['Steps'])
 
+    def test_land_check_says_none_for_a_store_with_no_landing_verdict_and_finds_no_range_in_it(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import landing
+        st = self.path / 'land-st'
+        (st / 'verdicts').mkdir(parents=True)
+        said = []
+        landing.say_landing_verification(str(st), '', None, '', '', '', said.append)
+        self.assertEqual(said, [f'landing verification: none; kitchen.sh verify {st} --landing proves the stack tip with a fresh verifier\n'])
+        self.assertEqual(landing.clean_landing_ranges(str(st), '', None, '', said.append), [])
+        self.assertEqual(len(said), 1)
+
     def test_feedback_moves_a_file_into_place_or_names_the_move_it_could_not_make(self):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
         try:

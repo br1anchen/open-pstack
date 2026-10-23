@@ -230,6 +230,63 @@ def clean_verdict_for(store, seq):
     return found
 
 
+def clean_landing_ranges(store, root, verdict, landing_verdict, say):
+    """A LandingRange for each clean landing verdict whose head resolves, in the order landing_verdicts gives them. The newest verdict's own unresolvable head is said."""
+    ranges = []
+    for path in landing_verdicts(store):
+        found = verdict if path == landing_verdict else Verdict.parse(path)
+        if found.status != 'clean':
+            continue
+        base_rev, head_rev = (commit_of(root, ref) or '' for ref in found.refs())
+        if head_rev:
+            ranges.append(LandingRange(path, root, base_rev, head_rev))
+        elif path == landing_verdict:
+            say(f'land-check: note: landing verdict {path} range head does not resolve; no unit is covered by it\n')
+    return ranges
+
+
+def landing_range_covering(store, seq, brief, ranges, landing_verdict, say):
+    """The path of the first clean landing verdict whose range holds the unit, or '' with the note for a unit the newest one does not match."""
+    unit = RecordedUnit(store, brief)
+    if not unit.head:
+        return ''
+    newest = None
+    for held in ranges:
+        found = inclusion(unit, held.index)
+        newest = newest or found
+        if found.covered:
+            if found.sha:
+                say(f'covered: unit {seq} (rebased as {found.sha[:9]}) by the clean landing verdict {held.path}\n')
+            else:
+                say(f'covered: unit {seq} by the clean landing verdict {held.path}\n')
+            return held.path
+    if ranges[0].path == landing_verdict:
+        say(landing_unmatched_note(store, seq, brief, unit.head, landing_verdict, ranges[0].base, ranges[0].head, newest))
+    return ''
+
+
+def say_landing_verification(store, root, verdict, landing_verdict, verdict_base_rev, verdict_head_rev, say):
+    """The `landing verification:` lines. A landing verification is reported, not required."""
+    if landing_verdict:
+        say(manifest_warning(store, verdict_base_rev, current_landing_base(store)))
+        say(f'landing verification: {verdict.status} ({landing_verdict})\n')
+        if verdict_head_rev:
+            if is_ancestor(root, verdict_head_rev, 'HEAD'):
+                counted = git.run(root, 'rev-list', '--count', f'{verdict_head_rev}..HEAD', quiet=True).stdout.rstrip('\n')
+                behind = counted or '0'
+                try:
+                    behind_n = int(behind)
+                except ValueError:
+                    behind_n = 0
+                if behind_n != 0:
+                    say(f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, {behind} commit{"" if behind_n == 1 else "s"} behind HEAD\n')
+            else:
+                say(f"landing verdict {landing_verdict} at {verdict_head_rev[:9]}, not in HEAD's history (rebased or another branch); verify --landing "
+                    'again\n')
+    else:
+        say(f'landing verification: none; kitchen.sh verify {store} --landing proves the stack tip with a fresh verifier\n')
+
+
 def land_check(store, say=out):
     """Says what it finds line by line and returns the problem lines, none when the stack may land. A unit with no clean verdict of its own is
     covered by the newest clean landing verdict whose range holds it (head contained, or rebased by patch-id with no revert after); the newest landing
@@ -250,15 +307,7 @@ def land_check(store, say=out):
         root = repo_root(store)
         verdict = Verdict.parse(landing_verdict)
         verdict_base_rev, verdict_head_rev = (commit_of(root, ref) or '' for ref in verdict.refs())
-        for path in landing_verdicts(store):
-            found = verdict if path == landing_verdict else Verdict.parse(path)
-            if found.status != 'clean':
-                continue
-            base_rev, head_rev = (commit_of(root, ref) or '' for ref in found.refs())
-            if head_rev:
-                ranges.append(LandingRange(path, root, base_rev, head_rev))
-            elif path == landing_verdict:
-                say(f'land-check: note: landing verdict {path} range head does not resolve; no unit is covered by it\n')
+        ranges = clean_landing_ranges(store, root, verdict, landing_verdict, say)
     for review, seq, brief in accepted_units(store):
         if engine:
             met, gap = engine_met(store, brief, review, engine)
@@ -268,43 +317,11 @@ def land_check(store, say=out):
                 say(problems[-1])
         covering = clean_verdict_for(store, seq)
         if not covering and ranges:
-            unit = RecordedUnit(store, brief)
-            if unit.head:
-                newest = None
-                for held in ranges:
-                    found = inclusion(unit, held.index)
-                    newest = newest or found
-                    if found.covered:
-                        covering = held.path
-                        if found.sha:
-                            say(f'covered: unit {seq} (rebased as {found.sha[:9]}) by the clean landing verdict {held.path}\n')
-                        else:
-                            say(f'covered: unit {seq} by the clean landing verdict {held.path}\n')
-                        break
-                if not covering and ranges[0].path == landing_verdict:
-                    say(landing_unmatched_note(store, seq, brief, unit.head, landing_verdict, ranges[0].base, ranges[0].head, newest))
+            covering = landing_range_covering(store, seq, brief, ranges, landing_verdict, say)
         if not covering:
             problems.append(f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n')
             say(problems[-1])
-    # A landing verification is reported, not required.
-    if landing_verdict:
-        say(manifest_warning(store, verdict_base_rev, current_landing_base(store)))
-        say(f'landing verification: {verdict.status} ({landing_verdict})\n')
-        if verdict_head_rev:
-            if is_ancestor(root, verdict_head_rev, 'HEAD'):
-                counted = git.run(root, 'rev-list', '--count', f'{verdict_head_rev}..HEAD', quiet=True).stdout.rstrip('\n')
-                behind = counted or '0'
-                try:
-                    behind_n = int(behind)
-                except ValueError:
-                    behind_n = 0
-                if behind_n != 0:
-                    say(f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, {behind} commit{"" if behind_n == 1 else "s"} behind HEAD\n')
-            else:
-                say(f"landing verdict {landing_verdict} at {verdict_head_rev[:9]}, not in HEAD's history (rebased or another branch); verify --landing "
-                    'again\n')
-    else:
-        say(f'landing verification: none; kitchen.sh verify {store} --landing proves the stack tip with a fresh verifier\n')
+    say_landing_verification(store, root, verdict, landing_verdict, verdict_base_rev, verdict_head_rev, say)
     if problems:
         return problems
     say(f'land-check: pass (review engine: {engine or "none"})\n')
