@@ -7154,5 +7154,41 @@ class ArgvReaderTests(unittest.TestCase):
         self.assertEqual(caught.exception.message, 'unknown option 12')
 
 
+ARGV_NAMES = {'args', 'argv', 'rest', 'rest_in', 'wait_args'}
+ARGV_ROOTS = ('pstack-pair/scripts/pstack_core', 'pstack-kitchen/scripts/kitchen_core')
+ARGV_FILES = ('pstack-kitchen/scripts/variant.py', 'pstack-trio/scripts/variant.py', 'pstack-pair-guided/scripts/variant.py')
+
+
+def hand_rolled_option_reads(source):
+    """Line numbers of a loop over an argv-like name, an `args[i + 1]` index or a `rest.pop(0)` in the source."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.While) and any(isinstance(n, ast.Name) and n.id in ARGV_NAMES for n in ast.walk(node.test)):
+            found.append(node.lineno)
+        elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in ARGV_NAMES:
+            index = node.slice
+            if isinstance(index, ast.BinOp) and isinstance(index.op, ast.Add) and isinstance(index.right, ast.Constant) and index.right.value == 1:
+                found.append(node.lineno)
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'pop' and isinstance(node.func.value, ast.Name)
+              and node.func.value.id in ARGV_NAMES and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == 0):
+            found.append(node.lineno)
+    return sorted(found)
+
+
+class OptionReaderGuardTests(unittest.TestCase):
+    def test_the_guard_flags_each_hand_rolled_shape(self):
+        loop = 'def f(rest):\n    while rest:\n        rest = rest[1:]\n'
+        index = 'def f(args, i):\n    return args[i + 1]\n'
+        pop = 'def f(rest):\n    return rest.pop(0)\n'
+        self.assertEqual([hand_rolled_option_reads(src) for src in (loop, index, pop)], [[2], [2], [2]])
+        self.assertEqual(hand_rolled_option_reads('def f(rest):\n    while queue:\n        queue.pop(0)\n    return rest[0]\n'), [])
+
+    def test_no_core_or_variant_reads_its_options_by_hand(self):
+        paths = [p for r in ARGV_ROOTS for p in sorted((root / 'skills' / r).glob('**/*.py')) if p.name != 'argv.py']
+        paths += [root / 'skills' / f for f in ARGV_FILES]
+        stray = [f'{p.relative_to(root)}:{n}' for p in paths for n in hand_rolled_option_reads(p.read_text())]
+        self.assertEqual(stray, [])
+
+
 if __name__ == '__main__':
     unittest.main()
