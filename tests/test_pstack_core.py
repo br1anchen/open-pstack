@@ -51,6 +51,7 @@ from pstack_core.errors import (  # noqa: E402
     AgentNotLive,
     BadNumber,
     BadScratch,
+    BadSteer,
     DamagedStore,
     Die,
     EmptyStepLog,
@@ -7116,6 +7117,41 @@ class CoreTests(unittest.TestCase):
             with self.assertRaises(LockHeld) as caught:
                 store.update(str(st), lambda doc: doc.update(c=3))
         self.assertIn('pair.json lock held for 10s', caught.exception.message)
+        self.assertIsInstance(caught.exception.__cause__, FileExistsError)
+
+    def test_a_re_raise_inside_an_except_names_the_error_it_answers_and_says_the_same_message(
+        self,
+    ):
+        from pstack_core.commands import steer as steer_command
+
+        verify_launch = self.kitchen_core_module('verify_launch')
+        with self.assertRaises(verify_launch.BadVerifierEntry) as caught:
+            verify_launch.parse_entry('{')
+        self.assertTrue(
+            caught.exception.message.startswith('verifier entry is not JSON: ')
+        )
+        self.assertIsInstance(caught.exception.__cause__, ValueError)
+        ctx = Context(
+            'pstack-pair', '/x', '/s', 'Pair', ('sidekick',), ('plans',), 21, ''
+        )
+        steer_file = self.path / 'steer-001.md'
+        steer_file.write_text('## Direction\n')
+        with (
+            mock.patch.object(
+                steer_command, 'read_text', side_effect=PermissionError(13, 'denied')
+            ),
+            mock.patch('sys.stderr', new_callable=io.StringIO) as err,
+            self.assertRaises(BadSteer) as steer_caught,
+        ):
+            steer_command.check_steer_file(ctx, str(steer_file))
+        self.assertEqual(
+            steer_caught.exception.message, f'not a steer file: {steer_file}'
+        )
+        self.assertEqual(
+            err.getvalue(),
+            f'{ctx.prog}: cannot read {steer_file}: denied\n',
+        )
+        self.assertIsInstance(steer_caught.exception.__cause__, PermissionError)
 
     def test_the_helpers_a_mutate_reads_through_say_what_is_damaged_and_a_bug_in_a_mutate_propagates_and_writes_nothing(
         self,

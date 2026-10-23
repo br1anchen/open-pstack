@@ -468,6 +468,14 @@ class PlanApplyTests(UpdateCase):
         self.assertEqual((code, self.snapshot(), self.status()), (2, before, ''))
         self.assertIn('exit 255', err)
 
+    def test_a_merge_file_that_cannot_start_names_the_os_error_as_its_cause(self):
+        with mock.patch.object(subprocess, 'run', side_effect=OSError('no git')):
+            with self.assertRaises(pu.Stop) as caught:
+                pu.merge_files('a', 'b', 'c', 'r1', 'r2')
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn('git merge-file did not run: no git', str(caught.exception))
+        self.assertIsInstance(caught.exception.__cause__, OSError)
+
     def test_merge_file_exit_codes(self):
         missing = [str(Path(self.tmp.name) / n) for n in ('a', 'b', 'c')]
         real = subprocess.run(
