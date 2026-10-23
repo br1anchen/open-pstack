@@ -1607,6 +1607,14 @@ class CoreTests(unittest.TestCase):
         run('steer', '{st}', str(steer))
         self.assertEqual((st / 'briefs/001-x.md').read_text(), '# Brief 001-x\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- docs/x.md\n\n## Goal\n\nx\n')
 
+    def test_a_blocked_unit_whose_brief_is_gone_cannot_be_resumed_and_nothing_is_sent(self):
+        top, st, run, steer = self.busy_world('resume-nobrief', 'idle', report='blocked', effect='may write: src/b.py')
+        (st / 'briefs/001-x.md').unlink()
+        r = run('steer', '{st}', str(steer))
+        self.assertEqual((r.returncode, r.stdout), (5, ''))
+        self.assertEqual(r.stderr, f'pair.sh: sidekick s1 is idle and unit 001 has no brief at {st}/briefs/001-x.md to resume\n')
+        self.assertEqual(self.prompts(top), [])
+
     def test_a_herdr_blocked_agent_is_not_resumed_and_its_brief_stays_as_written(self):
         top, st, run, steer = self.busy_world('resume-blocked', 'blocked', report='blocked', effect='may write: src/b.py', brief=self.BRIEF_001)
         r = run('steer', '{st}', str(steer))

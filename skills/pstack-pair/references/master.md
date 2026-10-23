@@ -172,6 +172,14 @@ a running command that must not finish, pass `--interrupt`: it sends Esc,
 waits for the sidekick to settle, then sends the steer. Log one `pair.sh log` row per steer. Two steers per brief; a
 third means the brief was wrong, so `pair.sh stop` and re-brief instead.
 
+A sidekick counts as busy when herdr says `working`, or when it is `idle` or `done` and its pane still runs a command it started since the
+dispatch (the rule `wait` and `verify` use). A steer to a busy sidekick is handed over as above. A steer to a sidekick that is between turns
+depends on the dispatched unit's report: with none, the steer is delivered as a new prompt (to a sidekick still running a command it started, as
+a working steer); `blocked` or `partial`, the steer's scope effect is written into the brief's Scope and the brief is sent again as a resume
+(`resumed unit NNN: sent <brief> again after <steer>`), keeping the unit's base and setting the old report aside, so only a report written after
+the resume answers it; an `object` report, the steer answers the objection; `done` or `failed` is refused with what to do instead. A steer
+for a unit other than the dispatched one is refused. A herdr-`blocked` agent is never steered or resumed: it may sit at an approval dialog.
+
 The sidekick may object instead. `wait` then returns `report_status: object`
 with `reports/NNN-<slug>-s<k>.md`: grounding, objections with evidence and an
 alternative, and the cost of applying as written. An objection with code
@@ -198,7 +206,8 @@ The queue is how the sidekick never waits for you. At a check-in, draft the
 next unit's brief and `pair.sh queue <store> <brief>`: dispatch's checks
 apply. A `done` report leaves it queued, for every sidekick kind, until you dispatch it:
 `dispatch` rotates the sidekick first (`rotated:`), and `pair.sh next` refuses. Queue a unit only when it does not hinge on the
-running unit's review; when it does, wait for the report. One slot:
+running unit's review; when it does, wait for the report. A sidekick that is idle on a command it started since the dispatch is busy, so
+`queue` accepts it. One slot:
 `--replace` swaps it, `pair.sh queue <store> --clear` empties it, and `stop`
 clears it. `wait` returns each dispatched brief's report once, oldest first,
 so a report written while you were busy is never skipped; `running:` names
