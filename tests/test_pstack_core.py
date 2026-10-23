@@ -230,6 +230,17 @@ class CoreTests(unittest.TestCase):
         err.seek(0)
         self.assertEqual((code, err.read()), (7, 'pair.sh: x\n'))
 
+    def test_main_leaves_a_stdout_that_cannot_reconfigure_alone(self):
+        def noop(ctx, args):
+            return 0
+
+        with (
+            mock.patch.dict(cli.COMMANDS, {'noop': noop}),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            code = cli.main([*core_args(), 'noop'])
+        self.assertEqual(code, 0)
+
     def test_an_unknown_command_dies(self):
         r = self.pair_py('nope')
         self.assertEqual(
@@ -518,10 +529,7 @@ class CoreTests(unittest.TestCase):
             )
         # the trio's spawn is its own command, in its variant; the kitchen's is kitchen_core.setup's (roster kind and args, then the core's spawn)
         self.assertEqual(kitchen.commands['spawn'].__name__, 'spawn')
-        self.assertNotEqual(
-            kitchen.commands['spawn'].__code__.co_filename,
-            trio.commands['spawn'].__code__.co_filename,
-        )
+        self.assertEqual(kitchen.commands['spawn'].command, ('setup', 'spawn'))
         self.assertEqual(
             (
                 trio.commands['spawn'].__name__,

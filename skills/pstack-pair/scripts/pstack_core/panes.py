@@ -98,8 +98,11 @@ def pick_direction(pane):
         if isinstance(each, dict) and each.get('pane_id') == pane:
             rect = each.get('rect') if isinstance(each.get('rect'), dict) else {}
             width, height = rect.get('width'), rect.get('height')
-            if not all(
-                isinstance(n, int) and not isinstance(n, bool) for n in (width, height)
+            if not (
+                isinstance(width, int)
+                and not isinstance(width, bool)
+                and isinstance(height, int)
+                and not isinstance(height, bool)
             ):
                 raise PaneSizeUnreadable(
                     f'pane {pane} has a size that is not a number: {width} x {height}'

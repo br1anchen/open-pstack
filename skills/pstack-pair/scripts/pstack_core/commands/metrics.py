@@ -71,8 +71,9 @@ class Metrics:
         self.now = now
         self.first = self.last = None
         self.sk_on = self.co_on = False
-        self.sk_since = self.sk_unit = self.sk_kind = self.sk_free = None
-        self.co_since = self.co_kind = None
+        self.sk_since, self.sk_unit, self.sk_kind = 0, '', ''
+        self.sk_free: int | None = None
+        self.co_since, self.co_kind = 0, ''
         self.sk_busy = self.sk_idle = self.co_busy = self.plan_sk = self.plan_co = (
             self.consult_t
         ) = 0

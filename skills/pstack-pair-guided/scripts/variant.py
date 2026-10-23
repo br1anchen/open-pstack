@@ -78,15 +78,15 @@ def new_answer(ctx, args):
         args[2:], Spec(flags=('--force',), slots={'--force': 0}, unknown='collect')
     ).present('--force')
     pair_file(store)
-    asks = [
-        p
+    asks = {
+        p: m
         for p in glob.glob(
             os.path.join(
                 glob.escape(store), 'reports', f'{glob.escape(seq)}-*-q[0-9]*.md'
             )
         )
-        if re.fullmatch(r'\d{3}-.+-q\d+\.md', os.path.basename(p))
-    ]
+        if (m := re.fullmatch(r'(\d{3})-(.+)-q(\d+)\.md', os.path.basename(p)))
+    }
     ask = newest(asks)
     if ask is None:
         raise Die(
@@ -94,9 +94,7 @@ def new_answer(ctx, args):
         )
     if header_field(ask, 'status') != 'asking':
         raise Die(f'{ask} is not status: asking')
-    _, slug, k = re.fullmatch(
-        r'(\d{3})-(.+)-q(\d+)\.md', os.path.basename(ask)
-    ).groups()
+    _, slug, k = asks[ask].groups()
     path = f'{store}/answers/{seq}-{slug}-a{k}.md'
     if os.path.isfile(path):
         print(path)

@@ -175,7 +175,7 @@ class Row:
     note: str = ''
     data: bytes = b''
     mode: str = '100644'
-    new_skill: tuple = None
+    new_skill: tuple | None = None
 
 
 class Tree:
@@ -296,7 +296,7 @@ def build(tree, up, base, to):
             mapped_new[name] = upstream_dir
         dest = f'skills/{local}/{rel}'
         theirs = (
-            adapt(local, rel, up.blob(delta.new_sha)) if delta.status != 'D' else None
+            adapt(local, rel, up.blob(delta.new_sha)) if delta.status != 'D' else b''
         )
         ours = tree.read(dest)
         if delta.status == 'A':

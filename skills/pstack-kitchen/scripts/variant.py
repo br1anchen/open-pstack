@@ -246,10 +246,15 @@ class KitchenVariant(TrioVariant):
         )
 
 
-def _kitchen_command(module, function):
+class KitchenCommand:
     """A command of kitchen_core, loaded when it runs: the package is imported for a kitchen command that needs it and not before."""
 
-    def run(ctx, args):
+    def __init__(self, module, function):
+        self.__name__ = function
+        self.command = (module, function)
+
+    def __call__(self, ctx, args):
+        module, function = self.command
         load_kitchen_core()
         import importlib
 
@@ -257,38 +262,34 @@ def _kitchen_command(module, function):
             ctx, args
         )
 
-    run.__name__ = function
-    run.command = (module, function)
-    return run
-
 
 KitchenVariant.commands = {
     **KitchenVariant.commands,
     'new-consult': consult.new_consult,
     'consult': consult.consult,
     'advice': consult.advice,
-    'catch': _kitchen_command('ledger', 'catch'),
-    'retro': _kitchen_command('ledger', 'retro'),
-    'new-handoff': _kitchen_command('handoff', 'new_handoff'),
-    'feedback': _kitchen_command('feedback', 'feedback'),
-    'maintainer': _kitchen_command('feedback', 'maintainer'),
-    'close': _kitchen_command('master', 'close'),
-    'rotate-master': _kitchen_command('master', 'rotate_master'),
-    'take-master': _kitchen_command('master', 'take_master'),
-    'land-check': _kitchen_command('landing', 'land_check_command'),
-    'revise': _kitchen_command('landing', 'revise'),
-    'verify': _kitchen_command('verify', 'verify'),
-    'classify': _kitchen_command('classify', 'classify'),
-    'queue': _kitchen_command('dispatch', 'queue'),
-    'discuss': _kitchen_command('dispatch', 'discuss'),
-    'init': _kitchen_command('setup', 'init'),
-    'spawn': _kitchen_command('setup', 'spawn'),
-    'consultant': _kitchen_command('setup', 'consultant'),
-    'fleet': _kitchen_command('setup', 'fleet'),
-    'wait': _kitchen_command('wait', 'wait'),
-    'dispatch': _kitchen_command('dispatch', 'dispatch'),
-    'step': _kitchen_command('step', 'step'),
-    'finish': _kitchen_command('step', 'finish'),
+    'catch': KitchenCommand('ledger', 'catch'),
+    'retro': KitchenCommand('ledger', 'retro'),
+    'new-handoff': KitchenCommand('handoff', 'new_handoff'),
+    'feedback': KitchenCommand('feedback', 'feedback'),
+    'maintainer': KitchenCommand('feedback', 'maintainer'),
+    'close': KitchenCommand('master', 'close'),
+    'rotate-master': KitchenCommand('master', 'rotate_master'),
+    'take-master': KitchenCommand('master', 'take_master'),
+    'land-check': KitchenCommand('landing', 'land_check_command'),
+    'revise': KitchenCommand('landing', 'revise'),
+    'verify': KitchenCommand('verify', 'verify'),
+    'classify': KitchenCommand('classify', 'classify'),
+    'queue': KitchenCommand('dispatch', 'queue'),
+    'discuss': KitchenCommand('dispatch', 'discuss'),
+    'init': KitchenCommand('setup', 'init'),
+    'spawn': KitchenCommand('setup', 'spawn'),
+    'consultant': KitchenCommand('setup', 'consultant'),
+    'fleet': KitchenCommand('setup', 'fleet'),
+    'wait': KitchenCommand('wait', 'wait'),
+    'dispatch': KitchenCommand('dispatch', 'dispatch'),
+    'step': KitchenCommand('step', 'step'),
+    'finish': KitchenCommand('step', 'finish'),
 }
 
 VARIANT = KitchenVariant

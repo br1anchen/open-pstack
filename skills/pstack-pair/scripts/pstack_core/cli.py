@@ -1,3 +1,4 @@
+import io
 import re
 import shutil
 import sys
@@ -110,7 +111,8 @@ def build(skill_root):
 
 
 def main(argv):
-    sys.stdout.reconfigure(line_buffering=True)
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(line_buffering=True)
     prog = 'pair.sh'
     try:
         skill_root, words = parse(argv)
