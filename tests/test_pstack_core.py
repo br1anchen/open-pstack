@@ -1886,6 +1886,55 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(seen, [False, 'locked out'])
         self.assertEqual([r.split('\t')[0] for r in (st / 'steps/001-x.tsv').read_text().splitlines()], ['1'])
 
+    def test_new_note_on_the_dispatched_unit_before_its_first_step_writes_n0(self):
+        # The running unit has no step yet: new-note writes n0 over the range from the dispatch head to HEAD. A published n0 is not overwritten;
+        # a step resolves it by id, and the next note's range is the step range it always was.
+        pair = {'dispatch': {'brief': '{st}/briefs/001-x.md', 'head': '{c1}', 'generation': 1}}
+        top, st, run = self.own_world('n0', files={}, pair=pair)
+        sha = lambda rev: subprocess.run(['git', '-C', str(top / 'repo'), 'rev-parse', rev], capture_output=True, text=True).stdout.strip()
+        r = run('new-note', '{st}', '001')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, f'{st}/notes/001-x-n0.md.draft\n', ''))
+        draft = st / 'notes/001-x-n0.md.draft'
+        text = draft.read_text()
+        self.assertIn(f'# Note 001-x n0\n\nunit: 001-x\nthrough: step 0\nrange: {sha("HEAD~2")[:9]}..{sha("HEAD")[:9]}\n', text)
+        draft.write_text(text.replace('{{blocking | clear}}', 'blocking').replace('<Review', 'Review').replace('follow-up. `status: clear` with Blocking "- none" when nothing blocks.>', 'x')
+                         .replace('{{`file:line`, what is wrong, why it blocks landing, the expected behaviour; or none}}', 'src/a.py:1 wrong')
+                         .replace('{{worth doing', 'worth doing').replace('followups.md}}', 'followups.md'))
+        self.assertEqual(run('note', '{st}', str(draft)).returncode, 0)
+        r = run('new-note', '{st}', '001')
+        self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: unit 001 already has a published n0; wait for its first step\n'))
+        self.assertEqual([os.path.basename(f) for f in review.open_notes(str(st), '001-x.md')], ['001-x-n0.md'])
+        r = run('step', '{st}', '{c2}', 'fix', '--resolves', 'n0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = run('new-note', '{st}', '001')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, f'{st}/notes/001-x-n1.md.draft\n', ''))
+        self.assertIn(f'through: step 1\nrange: {sha("HEAD~2")[:9]}..{sha("HEAD~1")[:9]}\n', (st / 'notes/001-x-n1.md.draft').read_text())
+        r = run('new-note', '{st}', '001', '--through', '2')
+        self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: unit 001 has no step 2\n'))
+
+    def test_new_note_on_a_unit_that_is_not_dispatched_and_has_no_steps_is_still_refused(self):
+        pair = {'dispatch': {'brief': '{st}/briefs/002-y.md', 'head': '{c1}', 'generation': 1}}
+        top, st, run = self.own_world('n0-other', files={}, pair=pair)
+        r = run('new-note', '{st}', '001')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', 'pair.sh: unit 001 has no steps recorded\n'))
+
+    def test_a_blocking_note_after_the_report_was_delivered_warns_and_names_the_fix_brief_route(self):
+        top, st, run = self.own_world('after-report', files={'reports/001-x.md': '# R\n\nstatus: partial\nhead: {c3}\n'})
+        draft = st / 'notes/001-x-n1.md.draft'
+        text = lambda status: f'# Note 001-x n1\n\nunit: 001-x\nthrough: step 1\nrange: a..b\nstatus: {status}\n\n## Blocking\n\n- src/a.py:1 wrong\n\n## Follow-ups\n\n- none\n'
+        draft.write_text(text('blocking'))
+        r = run('note', '{st}', str(draft))
+        self.assertEqual((r.returncode, r.stdout.startswith(f'published {st}/notes/001-x-n1.md (blocking)'), r.stderr),
+                         (0, True, 'pair.sh: note: unit 001 already reported partial; the sidekick will not read this note: write a fix brief\n'))
+        # a clear note has nothing to read; a report older than the last send is not this send's report
+        draft = st / 'notes/001-x-n2.md.draft'
+        draft.write_text(text('clear'))
+        self.assertEqual(run('note', '{st}', str(draft)).stderr, '')
+        top, st, run = self.own_world('before-report', files={'reports/001-x.md': '# R\n\nstatus: done\n'}, pair={'sent': {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 9999999999}})
+        (st / 'notes/001-x-n1.md.draft').write_text(text('blocking'))
+        r = run('note', '{st}', str(st / 'notes/001-x-n1.md.draft'))
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+
     def test_notes_with_a_trailing_slash_store_still_counts_a_bare_id_resolved(self):
         # review 011 (iii): the steps file's path and the glob's differ by a slash; they are the same file.
         files = {'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}

@@ -2112,6 +2112,17 @@ esac
         self.assertEqual(self.run_sh('new-note', str(self.store), '001', '--through', '1', code=1),
                          'kitchen.sh: unit 001 is reviewed through step 1 already; wait for the next steps\n')
 
+    def test_kitchen_note_after_the_report_names_the_fix_brief_and_the_covers_verification(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        draft = self.store / 'notes/001-util-n1.md.draft'
+        draft.parent.mkdir(exist_ok=True)
+        draft.write_text('# Note 001-util n1\n\nunit: 001-util\nthrough: step 1\nstatus: blocking\n\n## Blocking\n\n- src/util.py:1, X is wrong\n\n## Follow-ups\n\n- none\n')
+        (self.store / 'reports').mkdir(exist_ok=True)
+        (self.store / 'reports/001-util.md').write_text('# R\n\nstatus: done\n')
+        out = self.run_sh('note', str(self.store), str(draft))
+        self.assertIn(f'published {draft.with_suffix("")} (blocking)\n', out)
+        self.assertIn('kitchen.sh: note: unit 001 already reported done; the sidekick will not read this note: write a fix brief and verify it with --covers 001\n', out)
+
     def test_kitchen_status_lists_the_three_roles_the_advice_column_and_saves_status_md(self):
         out = self.run_sh('status', str(self.store))
         lines = out.splitlines()

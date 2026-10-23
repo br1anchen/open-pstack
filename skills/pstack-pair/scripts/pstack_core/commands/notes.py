@@ -3,11 +3,13 @@ import os
 import re
 import sys
 
+from .. import git
 from ..argv import Spec, read
-from ..store import count, dispatched_brief, event, field, fill_template, header_field, load, peek, note_id, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest
+from ..store import count, dispatched_brief, event, field, fill_template, header_field, load, peek, note_id, text_at, pair_file, pause_notice, read_text, steer_notice, suffix_number, unit_name, write_text, new_from_template, newest
 from ..errors import Die, PairError, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL
 from ..prime import prime_steer
+from ..replies import sent_epoch
 from ..review import noted_through, open_notes, require_filled, review_base
 from ..steplog import StepLog
 
@@ -90,7 +92,22 @@ def note(ctx, args):
         print(f'published {path} ({status})')
         raise
     print(f'published {path} ({status}){delivery}')
+    if status == 'blocking':
+        warn_after_report(ctx, store, unit)
     return 0
+
+
+def warn_after_report(ctx, store, unit):
+    """A blocking note on a unit whose report the master was already given reaches no one: the sidekick has finished with the unit. Says
+    so, and the route that does reach it."""
+    report = f'{store}/reports/{unit}.md'
+    if not os.path.isfile(report):
+        return
+    sent = field(store, 'sent', 'file')
+    if sent and re.sub(r'-a[0-9]+$', '', unit_name(sent)) == unit and int(os.lstat(report).st_mtime) < sent_epoch(store):
+        return
+    route = f' and verify it with --covers {unit[:3]}' if 'verifier' in ctx.roles else ''
+    sys.stderr.write(f'{ctx.prog}: note: unit {unit[:3]} already reported {header_field(report, "status")}; the sidekick will not read this note: write a fix brief{route}\n')
 
 
 def deliver_blocking_note(ctx, store, path):
@@ -127,6 +144,10 @@ def new_note(ctx, args):
     log = StepLog(store, unit)
     recorded = len(log.rows())
     if not recorded:
+        if dispatched_brief(store) and unit_name(dispatched_brief(store)) == unit and through in ('', '0'):
+            if os.path.exists(f'{store}/notes/{unit}-n0.md'):
+                raise Die(f'unit {seq} already has a published n0; wait for its first step')
+            return new_first_note(ctx, store, unit)
         raise Die(f'unit {seq} has no steps recorded')
     done = noted_through(store, unit)
     if not through:
@@ -144,6 +165,19 @@ def new_note(ctx, args):
     path = f'{store}/notes/{unit}-n{k}.md.draft'
     write_text(path, fill_template(f'{ctx.skill_root}/references/note-template.md',
                                    {'UNIT': unit, 'K': k, 'RANGE': f'{base[:9]}..{to[:9]}'}))
+    print(path)
+    return 0
+
+
+def new_first_note(ctx, store, unit):
+    """n0: a note on the dispatched unit before its first step, over the range from the unit's base to the tree's HEAD (through: step 0). A
+    published n0 is never overwritten; the notes after it keep their step ranges."""
+    pair = load(store)
+    head = git.out(text_at(pair, 'git_root') or text_at(pair, 'cwd'), 'rev-parse', '--verify', '--quiet', 'HEAD') or ''
+    os.makedirs(f'{store}/notes', exist_ok=True)
+    path = f'{store}/notes/{unit}-n0.md.draft'
+    write_text(path, fill_template(f'{ctx.skill_root}/references/note-template.md',
+                                   {'UNIT': unit, 'K': '0', 'RANGE': f'{review_base(store, unit)[:9]}..{head[:9]}'}))
     print(path)
     return 0
 
