@@ -2118,10 +2118,10 @@ esac
         draft.parent.mkdir(exist_ok=True)
         draft.write_text('# Note 001-util n1\n\nunit: 001-util\nthrough: step 1\nstatus: blocking\n\n## Blocking\n\n- src/util.py:1, X is wrong\n\n## Follow-ups\n\n- none\n')
         (self.store / 'reports').mkdir(exist_ok=True)
-        (self.store / 'reports/001-util.md').write_text('# R\n\nstatus: done\n')
+        (self.store / 'reports/001-util.md').write_text('# R\n\nstatus: partial\n')
         out = self.run_sh('note', str(self.store), str(draft))
-        self.assertIn(f'published {draft.with_suffix("")} (blocking)\n', out)
-        self.assertIn('kitchen.sh: note: unit 001 already reported done; the sidekick will not read this note: write a fix brief and verify it with --covers 001\n', out)
+        self.assertEqual(out, f'published {draft.with_suffix("")} (blocking)\n'
+                              'kitchen.sh: note: unit 001 already reported partial; the sidekick will not read this note: write a fix brief and verify it with --covers 001\n')
 
     def test_kitchen_status_lists_the_three_roles_the_advice_column_and_saves_status_md(self):
         out = self.run_sh('status', str(self.store))

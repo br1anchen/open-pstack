@@ -9,7 +9,7 @@ from ..store import count, dispatched_brief, event, field, fill_template, header
 from ..errors import Die, PairError, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL
 from ..prime import prime_steer
-from ..replies import sent_epoch
+from ..replies import file_mtime, sent_epoch
 from ..review import noted_through, open_notes, require_filled, review_base
 from ..steplog import StepLog
 
@@ -77,9 +77,11 @@ def note(ctx, args):
     if status not in ('blocking', 'clear'):
         raise Die(f'{draft} needs status: blocking or clear')
     path = draft.removesuffix('.draft')
-    os.replace(draft, path)
     name = unit_name(path)
     unit = re.sub(r'-n[0-9]+$', '', name)
+    # judged before the note exists: an open blocking note withholds a done report, and this one would withhold the report it is about
+    reported = delivered_report(ctx, store, unit) if status == 'blocking' and os.path.isfile(f'{store}/pair.json') else None
+    os.replace(draft, path)
     k = suffix_number(name, 'n') or name
     lines = followups(path, f'{unit} n{k}')
     with open(f'{store}/followups.md', 'a', encoding='utf-8') as f:
@@ -92,22 +94,22 @@ def note(ctx, args):
         print(f'published {path} ({status})')
         raise
     print(f'published {path} ({status}){delivery}')
-    if status == 'blocking':
-        warn_after_report(ctx, store, unit)
+    if reported:
+        route = f' and verify it with --covers {unit[:3]}' if ctx.skill == 'pstack-kitchen' else ''
+        sys.stderr.write(f'{ctx.prog}: note: unit {unit[:3]} already reported {header_field(reported, "status")}; the sidekick will not read this note: write a fix brief{route}\n')
     return 0
 
 
-def warn_after_report(ctx, store, unit):
-    """A blocking note on a unit whose report the master was already given reaches no one: the sidekick has finished with the unit. Says
-    so, and the route that does reach it."""
+def delivered_report(ctx, store, unit):
+    """The unit's report when the master was already given it, else None: the file is there, ready (the pair's own check), and written since the
+    last send when that send was this unit's."""
     report = f'{store}/reports/{unit}.md'
-    if not os.path.isfile(report):
-        return
+    if not os.path.isfile(report) or not ctx.variant.report_ready(ctx, store, report).ready:
+        return None
     sent = field(store, 'sent', 'file')
-    if sent and re.sub(r'-a[0-9]+$', '', unit_name(sent)) == unit and int(os.lstat(report).st_mtime) < sent_epoch(store):
-        return
-    route = f' and verify it with --covers {unit[:3]}' if 'verifier' in ctx.roles else ''
-    sys.stderr.write(f'{ctx.prog}: note: unit {unit[:3]} already reported {header_field(report, "status")}; the sidekick will not read this note: write a fix brief{route}\n')
+    if sent and re.sub(r'-a[0-9]+$', '', unit_name(sent)) == unit and file_mtime(report) < sent_epoch(store):
+        return None
+    return report
 
 
 def deliver_blocking_note(ctx, store, path):

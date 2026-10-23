@@ -1919,21 +1919,30 @@ class CoreTests(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout, r.stderr), (1, '', 'pair.sh: unit 001 has no steps recorded\n'))
 
     def test_a_blocking_note_after_the_report_was_delivered_warns_and_names_the_fix_brief_route(self):
-        top, st, run = self.own_world('after-report', files={'reports/001-x.md': '# R\n\nstatus: partial\nhead: {c3}\n'})
-        draft = st / 'notes/001-x-n1.md.draft'
-        text = lambda status: f'# Note 001-x n1\n\nunit: 001-x\nthrough: step 1\nrange: a..b\nstatus: {status}\n\n## Blocking\n\n- src/a.py:1 wrong\n\n## Follow-ups\n\n- none\n'
-        draft.write_text(text('blocking'))
-        r = run('note', '{st}', str(draft))
-        self.assertEqual((r.returncode, r.stdout.startswith(f'published {st}/notes/001-x-n1.md (blocking)'), r.stderr),
-                         (0, True, 'pair.sh: note: unit 001 already reported partial; the sidekick will not read this note: write a fix brief\n'))
-        # a clear note has nothing to read; a report older than the last send is not this send's report
-        draft = st / 'notes/001-x-n2.md.draft'
-        draft.write_text(text('clear'))
-        self.assertEqual(run('note', '{st}', str(draft)).stderr, '')
-        top, st, run = self.own_world('before-report', files={'reports/001-x.md': '# R\n\nstatus: done\n'}, pair={'sent': {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 9999999999}})
-        (st / 'notes/001-x-n1.md.draft').write_text(text('blocking'))
-        r = run('note', '{st}', str(st / 'notes/001-x-n1.md.draft'))
+        # The report is judged before the note is published: an open blocking note withholds a done report, and the note being published would
+        # withhold the very report it is about.
+        top, st, run = self.own_world('after-report', files={'reports/001-x.md': '# R\n\nstatus: done\nhead: {c3}\n'})
+        text = lambda k, status: f'# Note 001-x n{k}\n\nunit: 001-x\nthrough: step 1\nrange: a..b\nstatus: {status}\n\n## Blocking\n\n- src/a.py:1 wrong\n\n## Follow-ups\n\n- none\n'
+        def publish(k, status):
+            (st / f'notes/001-x-n{k}.md.draft').write_text(text(k, status))
+            return run('note', '{st}', str(st / f'notes/001-x-n{k}.md.draft'))
+        r = publish(1, 'blocking')
+        self.assertEqual((r.returncode, r.stdout, r.stderr),
+                         (0, f'published {st}/notes/001-x-n1.md (blocking); sent to s1\n',
+                          'pair.sh: note: unit 001 already reported done; the sidekick will not read this note: write a fix brief\n'))
+        # a second blocking note finds the report withheld by the first: not ready is not delivered
+        r = publish(2, 'blocking')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, f'published {st}/notes/001-x-n2.md (blocking); sent to s1\n', ''))
+        # a clear note has nothing to read
+        r = publish(3, 'clear')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, f'published {st}/notes/001-x-n3.md (clear)\n', ''))
+        # a report older than the last send is not this send's report
+        top, st, run = self.own_world('before-report', files={'reports/001-x.md': '# R\n\nstatus: partial\n'}, pair={'sent': {'file': '{st}/briefs/001-x.md', 'kind': 'BRIEF', 'epoch': 9999999999}})
+        r = publish(1, 'blocking')
         self.assertEqual((r.returncode, r.stderr), (0, ''))
+        top, st, run = self.own_world('partial-report', files={'reports/001-x.md': '# R\n\nstatus: partial\n'})
+        r = publish(1, 'blocking')
+        self.assertEqual(r.stderr, 'pair.sh: note: unit 001 already reported partial; the sidekick will not read this note: write a fix brief\n')
 
     def test_notes_with_a_trailing_slash_store_still_counts_a_bare_id_resolved(self):
         # review 011 (iii): the steps file's path and the glob's differ by a slash; they are the same file.
