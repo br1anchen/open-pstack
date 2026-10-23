@@ -576,7 +576,7 @@ HINTS = {
         CONSULT,
         at(
             CONSULT,
-            'print(f"advice_status: {header_field(advice, \'status\')}")',
+            'print(f\'advice_status: {header_field(advice, "status")}\')',
             'return 3',
         ),
     ): ['advice_status: answered'],
@@ -688,13 +688,17 @@ NOT_CONTRACT = {
     ): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
     (
         SPAWN,
-        at(SPAWN, 'Prime start failed in {pane}', 'raise PrimeFailed'),
+        at(
+            SPAWN,
+            "raise PrimeFailed(\n            f'Prime start failed in {pane}",
+            'raise PrimeFailed',
+        ),
     ): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
     (
         CONSULT,
         at(
             CONSULT,
-            'is working and the consultant has nothing to answer',
+            'raise AgentBusy(\n            f\'sidekick {field(store, "sidekick", "name")} is working and the consultant has nothing to answer',
             'raise AgentBusy',
         ),
     ): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',
@@ -908,7 +912,7 @@ for k, src in sorted(fields.items()):
     )
 
 # ---- Decisions of plan 043 ----------------------------------------------------
-FINISH_REFUSAL = "raise Die(f'{unit_name(report)}: {ready.why}"
+FINISH_REFUSAL = 'f"{unit_name(report)}: {ready.why}'
 decided = [
     (
         'a damaged pair.json gives one message `pair.json is damaged: <reason>` and exit 1; an absent optional field is not damage',
