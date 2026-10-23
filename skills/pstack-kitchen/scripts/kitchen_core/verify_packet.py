@@ -154,7 +154,8 @@ def brief_without_verify(brief):
 
 
 def inputs_section(store, briefs):
-    """`## Inputs (read-only)`: each absolute path under the store that the briefs name outside their Verify section, once, in order of first mention.
+    """`## Inputs (read-only)`: each existing path under the store that the briefs name outside their Verify section, once, in order of first mention.
+    A path followed by a `<placeholder>` is cut short and left out, a trailing `:<line>` is dropped, and a glob counts when it matches a file.
     '' when they name none."""
     found = {}
     for brief in briefs:
@@ -163,7 +164,11 @@ def inputs_section(store, briefs):
         except OSError:
             continue
         for m in re.finditer(re.escape(store) + r'/[^\s`\'"()<>\[\],;]+', text):
-            found.setdefault(m.group(0).rstrip('.:'), None)
+            if text[m.end():m.end() + 1] in ('<', '>'):
+                continue
+            path = re.sub(r':\d+(:\d+)?$', '', m.group(0).rstrip('.:'))
+            if glob.glob(path):
+                found.setdefault(path, None)
     if not found:
         return ''
     return '## Inputs (read-only)\n\n' + ''.join(f'- {path}: read it; do not write it\n' for path in found) + '\n'

@@ -4550,8 +4550,13 @@ esac
     def test_a_unit_packet_lists_the_store_paths_its_brief_names_as_read_only_inputs_and_keeps_a_verify_command_apart(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         text = b.read_text().replace('```bash\nx\n```', f'```bash\ncat {self.store}/verify-only.txt\n```')
+        for name in ('feedback-triage/triage-D.tsv', 'reports/012-x.md', 'reviews/003-q.md'):
+            (self.store / name).parent.mkdir(exist_ok=True)
+            (self.store / name).write_text('x\n')
         b.write_text(text + f'\n## Notes\n\nRead {self.store}/feedback-triage/triage-D.tsv, then {self.store}/reports/012-x.md.\n'
-                     f'Again {self.store}/feedback-triage/triage-D.tsv; the store itself, {self.store}, is no input.\n')
+                     f'Again {self.store}/feedback-triage/triage-D.tsv; the store itself, {self.store}, is no input.\n'
+                     f'A placeholder {self.store}/briefs/<seq>-x.md, a line {self.store}/reports/012-x.md:12, a missing {self.store}/missing/none.md '
+                     f'and a glob {self.store}/reviews/0*.md.\n')
         self.dispatch(b)
         self.write('src/util.py', 'X = 5\n')
         self.write('tests/test_app.py', 'x = 5\n')
@@ -4564,9 +4569,27 @@ esac
                          inputs.index(f'- {self.store}/reports/012-x.md: read it; do not write it'))
         self.assertEqual(len([l for l in inputs if 'triage-D.tsv' in l]), 1)
         self.assertFalse([l for l in inputs if 'verify-only.txt' in l])
+        self.assertIn(f'- {self.store}/reviews/0*.md: read it; do not write it', inputs)
+        self.assertEqual([l for l in inputs if '/reports/012-x.md' in l], [f'- {self.store}/reports/012-x.md: read it; do not write it'])
+        self.assertFalse([l for l in inputs if '/briefs/' in l and '<seq>' in l or l == f'- {self.store}/briefs/: read it; do not write it'])
+        self.assertFalse([l for l in inputs if 'none.md' in l])
         self.assertIn(f'(absolute path)\n```bash\ncat {self.store}/verify-only.txt\n```', packet.split('not for the verifier:')[1])
 
+    def test_a_packet_whose_briefs_name_no_existing_store_path_has_no_inputs_section(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        b.write_text(b.read_text().replace(str(self.store), '/elsewhere'))
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        self.done(b, self.commit('util'))
+        self.run_sh('verify', str(self.store), '001', '--timeout', '60', '--every', '0')
+        packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        self.assertIsNone(self.inputs_of(packet))
+        self.assertNotIn('Inputs', packet)
+
     def test_a_landing_packet_lists_the_store_paths_its_covered_briefs_name(self):
+        (self.store / 'reports').mkdir(exist_ok=True)
+        (self.store / 'reports/030-y.md').write_text('x\n')
         packet = self.landing_world([('001', 'util', 'See ' + 'STORE/reports/030-y.md for the flow.', 'a1')])
         inputs = self.inputs_of(packet)
         self.assertIn(f'- {self.store}/reports/030-y.md: read it; do not write it', inputs)
