@@ -27,7 +27,7 @@ scripts = root / 'skills/pstack-pair/scripts'
 sys.path.insert(0, str(scripts))
 sys.dont_write_bytecode = True
 import run as run_module  # noqa: E402
-from pstack_core import argv, cli, exits, git, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
+from pstack_core import agents, argv, cli, exits, git, panes, permission, procinfo, providers, review, send, steplog, store, wait  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.store import Die, Exit  # noqa: E402
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
@@ -5154,6 +5154,7 @@ class CoreTests(unittest.TestCase):
             '--kind equal to the roster kind takes its fallback': run('--kind', 'claude'),
             '--kind with an explicit fallback': run('--kind', 'codex', '--fallback', 'pi'),
             '--kind with native arguments': run('--kind', 'codex', '--', '--a', '--b'),
+            'a fallback argument that starts with --': run('--kind', 'codex', '--fallback', 'pi', '--fallback-arg', '--kind', '--fallback-arg', 'x'),
             'the roster kind with a fallback of its own named': run('--fallback', 'pi'),
             'a roster with no fallback': run(topfiles=bare),
             '--tab': run('--tab', pair={**side(), 'master': {'name': 'm1', 'pane_id': 'w1:p0'}}),
@@ -5280,6 +5281,7 @@ class CoreTests(unittest.TestCase):
             '--kind equal to the roster kind takes its fallback': (0, 'started in'),
             '--kind with an explicit fallback': (0, 'sidekick s1 (codex) started in p0'),
             '--kind with native arguments': (0, 'started in'),
+            'a fallback argument that starts with --': (0, 'started in'),
             'the roster kind with a fallback of its own named': (0, 'started in'),
             'a roster with no fallback': (0, 'started in'),
             '--tab': (0, 'started in'),
@@ -5298,6 +5300,8 @@ class CoreTests(unittest.TestCase):
         }
         out = self.kitchen_cases('spawn', cases, expect)
         self.assertIn('"kind": "devin"', out['--kind equal to the roster kind takes its fallback']['files']['pair.json'])
+        recorded = json.loads(out['a fallback argument that starts with --']['files']['pair.json'])['sidekick']['fallback']
+        self.assertEqual((recorded['kind'], recorded['args']), ('pi', ['--kind', 'x']))
         self.assertIn('"kind": "codex"', out['--kind over the roster']['files']['pair.json'])
         self.assertIn('"kind": "devin"', out['a pi preflight that fails with the roster fallback']['files']['pair.json'])
 
@@ -6546,6 +6550,8 @@ class CoreTests(unittest.TestCase):
         queue = self.queue_send_cases()
         self.check_port(queue, {
             'the sidekick is blocked': (3, 'sidekick s1 is blocked; resolve that before queueing'),
+            'an unknown option': (1, 'unknown option --force'),
+            'an empty third argument': (1, 'unknown option '),
             'the sidekick is idle': (5, 'sidekick s1 is idle; dispatch instead: pair.sh dispatch <T>/st <T>/st/briefs/003-z.md'),
             'a paused store': (5, 'the store is paused (lunch): start nothing new; record where the work stands and end your turn, or run pair.sh resume <T>/st'),
             'a feature brief with no plan': (6, 'playbook feature needs an agreed plan; brief has plan: <missing>'),
@@ -7153,35 +7159,65 @@ class ArgvReaderTests(unittest.TestCase):
             argv.read(['12'], spec)
         self.assertEqual(caught.exception.message, 'unknown option 12')
 
+    def test_a_dangling_valued_flag_is_dropped_only_where_the_spec_says_so(self):
+        spec = argv.Spec(valued=('--model',), unknown='collect', dangling='drop')
+        got = argv.read(['x', '--model', 'm', '--model'], spec)
+        self.assertEqual((got.occurrences, got.leftovers), ((('--model', 'm'),), ('x',)))
+        with self.assertRaises(Die):
+            argv.read(['--model'], argv.Spec(valued=('--model',)))
 
-ARGV_NAMES = {'args', 'argv', 'rest', 'rest_in', 'wait_args'}
+    def test_the_muse_preflight_forwards_the_agents_own_flags_and_drops_a_trailing_one_with_no_value(self):
+        seen = []
+
+        def fake(timeout, command, **kw):
+            seen.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout='OK\n', stderr='')
+
+        with mock.patch.object(agents, 'with_timeout', fake):
+            for given in (['--model', 'm', '--other', 'x', '--provider', 'p'], ['--model', 'm', '--model'], ['--model', '--provider', '--provider']):
+                self.assertEqual(agents.preflight_muse(given), 0)
+        self.assertEqual([c[2:-1] for c in seen], [['--model', 'm', '--provider', 'p'], ['--model', 'm'], ['--model', '--provider']])
+
+
 ARGV_ROOTS = ('pstack-pair/scripts/pstack_core', 'pstack-kitchen/scripts/kitchen_core')
 ARGV_FILES = ('pstack-kitchen/scripts/variant.py', 'pstack-trio/scripts/variant.py', 'pstack-pair-guided/scripts/variant.py')
 
 
 def hand_rolled_option_reads(source):
-    """Line numbers of a loop over an argv-like name, an `args[i + 1]` index or a `rest.pop(0)` in the source."""
-    found = []
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.While) and any(isinstance(n, ast.Name) and n.id in ARGV_NAMES for n in ast.walk(node.test)):
-            found.append(node.lineno)
-        elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in ARGV_NAMES:
-            index = node.slice
-            if isinstance(index, ast.BinOp) and isinstance(index.op, ast.Add) and isinstance(index.right, ast.Constant) and index.right.value == 1:
-                found.append(node.lineno)
-        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'pop' and isinstance(node.func.value, ast.Name)
-              and node.func.value.id in ARGV_NAMES and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == 0):
-            found.append(node.lineno)
+    """Line numbers of each `while` loop that walks a token list by hand and names a flag in doing so: it pops index 0, reads `[i + 1]` (or
+    `[1 + i]`), or tests `len(x)` and indexes x by a variable. The names of the lists do not matter; a loop over text lines names no flag."""
+    found = set()
+    for loop in (n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.While)):
+        if not any(isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.startswith('--') for n in ast.walk(loop)):
+            continue
+        lengthed = {c.args[0].id for c in ast.walk(loop.test) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == 'len'
+                    and c.args and isinstance(c.args[0], ast.Name)}
+        for node in ast.walk(loop):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'pop'
+                    and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == 0):
+                found.add(node.lineno)
+            elif isinstance(node, ast.Subscript) and isinstance(node.slice, ast.BinOp) and isinstance(node.slice.op, ast.Add):
+                sides = (node.slice.left, node.slice.right)
+                if any(isinstance(x, ast.Constant) and x.value == 1 for x in sides) and any(isinstance(x, ast.Name) for x in sides):
+                    found.add(node.lineno)
+            elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in lengthed and isinstance(node.slice, ast.Name):
+                found.add(node.lineno)
     return sorted(found)
 
 
 class OptionReaderGuardTests(unittest.TestCase):
-    def test_the_guard_flags_each_hand_rolled_shape(self):
-        loop = 'def f(rest):\n    while rest:\n        rest = rest[1:]\n'
-        index = 'def f(args, i):\n    return args[i + 1]\n'
-        pop = 'def f(rest):\n    return rest.pop(0)\n'
-        self.assertEqual([hand_rolled_option_reads(src) for src in (loop, index, pop)], [[2], [2], [2]])
-        self.assertEqual(hand_rolled_option_reads('def f(rest):\n    while queue:\n        queue.pop(0)\n    return rest[0]\n'), [])
+    def test_the_guard_flags_each_hand_rolled_shape_whatever_the_names(self):
+        shapes = {
+            'pop': 'def f(tokens):\n    while tokens:\n        if tokens.pop(0) == "--x":\n            pass\n',
+            'index': 'def f(opts, i):\n    while i < len(opts):\n        return opts[i] == "--x" and opts[i + 1]\n',
+            'index reversed': 'def f(opts, i):\n    while opts:\n        return opts[1 + i] == "--x"\n',
+            'length': 'def f(args, i):\n    while i < len(args):\n        i += 1\n        return args[i] == "--x"\n',
+        }
+        for name, source in shapes.items():
+            self.assertEqual(hand_rolled_option_reads(source), [3] if name != 'length' else [4], name)
+        fine = ('def f(rest, queue):\n    first = rest[0]\n    value = rest.pop(0)\n    while queue:\n        queue = queue[1:]\n'
+                '    while rest:\n        rest.pop(0)\n    return [first, value, rest[1 + 1]]\n')
+        self.assertEqual(hand_rolled_option_reads(fine), [])
 
     def test_no_core_or_variant_reads_its_options_by_hand(self):
         paths = [p for r in ARGV_ROOTS for p in sorted((root / 'skills' / r).glob('**/*.py')) if p.name != 'argv.py']

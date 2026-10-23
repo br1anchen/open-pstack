@@ -33,7 +33,7 @@ class WaitResult:
 
 
 TIMING = Spec(valued=('--timeout', '--every'), flags=('--send-only',), unknown='collect')
-TIMEOUT_ONLY = Spec(valued=('--timeout', '--every'))
+TIMEOUT_ONLY = Spec(valued=('--timeout', '--every'), unknown='collect')
 
 
 def timeout_ms(parsed, default=540000):

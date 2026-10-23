@@ -144,9 +144,11 @@ def spawn(ctx, args):
     if len(args) < 1:
         raise Die('usage: kitchen.sh spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [-- agent-args...]')
     store, fb_args = args[0], []
-    opts = read(args[1:], Spec(valued=('--kind', '--fallback'), dashdash=True, unknown='collect'))
+    opts = read(args[1:], Spec(valued=('--kind', '--fallback', '--fallback-arg'), dashdash=True, unknown='collect'))
     kind, fallback = opts.last('--kind', ''), opts.last('--fallback', '')
     rest, native = list(opts.leftovers), list(opts.after_dashdash)
+    for a in opts.all('--fallback-arg'):
+        rest += ['--fallback-arg', a]
     roster = json.loads(roster_json())
     if not kind:
         kind = roster_text(roster, 'sidekick', 'kind')

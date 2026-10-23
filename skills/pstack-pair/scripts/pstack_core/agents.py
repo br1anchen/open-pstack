@@ -117,7 +117,7 @@ def tool_line(tool):
 
 
 def preflight_muse(args):
-    parsed = read(args, Spec(valued=('--model', '--provider', '--contributor-mode', '--permission-profile'), unknown='collect'))
+    parsed = read(args, Spec(valued=('--model', '--provider', '--contributor-mode', '--permission-profile'), unknown='collect', dangling='drop'))
     kept = [token for pair in parsed.occurrences for token in pair]
     r = with_timeout(timeout_s(), ['muse', 'exec', *kept, 'Reply with exactly: OK'], cwd='/tmp', stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     out = r.stdout.rstrip('\n')

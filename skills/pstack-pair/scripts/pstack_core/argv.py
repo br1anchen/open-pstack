@@ -22,6 +22,7 @@ class Spec:
     flags      flags that stand alone
     dashdash   a standalone `--` ends the options; the tokens after it are `after_dashdash`
     unknown    'refuse' ends the command on a token no flag explains; 'collect' keeps it, in order, as a leftover
+    dangling   'refuse' ends the command on a valued flag with no token after it; 'drop' skips that flag (for another program's arguments, which are not ours to refuse)
     positional a pattern; a token that matches it in full is a positional
     slots      {flag: index}: that flag counts only as the token at that index of `args`, and is an ordinary token anywhere else
     """
@@ -29,6 +30,7 @@ class Spec:
     flags: tuple = ()
     dashdash: bool = False
     unknown: str = 'refuse'
+    dangling: str = 'refuse'
     positional: str = ''
     slots: dict = field(default_factory=dict, hash=False)
 
@@ -74,6 +76,8 @@ def read(args, spec=None):
         recognised = slot is None or slot == i
         if recognised and token in spec.valued:
             if i + 1 >= len(tokens):
+                if spec.dangling == 'drop':
+                    break
                 raise ArgvError(f'{token} needs a value')
             occurrences.append((token, tokens[i + 1]))
             spans.append((token, tokens[i:i + 2]))

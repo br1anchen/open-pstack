@@ -89,7 +89,9 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     if len(args) < 2:
         raise Die(f'usage: {prog()} discuss <store> <plan-path> [--timeout MS]')
     store, plan, timeout = args[0], args[1], 540000
-    timeout = timeout_ms(argv.read(args[2:], TIMEOUT_ONLY), timeout)
+    opts = argv.read(args[2:], TIMEOUT_ONLY)
+    timeout = timeout_ms(opts, timeout)
+    opts.refuse_leftovers()
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
     plan = os.path.realpath(plan)
@@ -222,7 +224,9 @@ def consult(ctx, args):
     if len(args) < 2:
         raise Die(f'usage: {prog()} consult <store> <consult-path> [--timeout MS]')
     store, path = args[0], os.path.realpath(args[1])
-    timeout = timeout_ms(argv.read(args[2:], TIMEOUT_ONLY), 900000)
+    opts = argv.read(args[2:], TIMEOUT_ONLY)
+    timeout = timeout_ms(opts, 900000)
+    opts.refuse_leftovers()
     end_with_parent()
     if not os.path.isfile(path):
         raise Die(f'consult not found: {path}')

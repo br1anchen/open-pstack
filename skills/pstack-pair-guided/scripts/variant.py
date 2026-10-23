@@ -17,7 +17,9 @@ def answer(ctx, args):
     if len(args) < 2:
         raise Die('usage: pair.sh answer <store> <answer-path> [--timeout MS | --every MIN]')
     store, path = args[0], args[1]
-    timeout = timeout_ms(read(args[2:], TIMEOUT_ONLY))
+    opts = read(args[2:], TIMEOUT_ONLY)
+    timeout = timeout_ms(opts)
+    opts.refuse_leftovers()
     interval = tdiv(timeout, 60000)
     if not os.path.isfile(path):
         raise Die(f'answer not found: {path}')
