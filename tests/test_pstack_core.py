@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tokenize
 import zlib
 import unittest
 from pathlib import Path
@@ -8098,17 +8099,32 @@ class FunctionSizeGuardTests(unittest.TestCase):
         self.assertEqual(stray, [])
 
 
+def fstring_pieces(source):
+    """(start, end, delimiter) of every f-string piece, positions as (line, column) in characters; an implicitly concatenated string is one piece per literal."""
+    pieces, open_starts = [], []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.FSTRING_START:
+            opening = token.string.lstrip('fFrR')
+            open_starts.append((token.start, opening if opening in ('"""', "'''") else opening[:1]))
+        elif token.type == tokenize.FSTRING_END:
+            start, delimiter = open_starts.pop()
+            pieces.append((start, token.end, delimiter))
+    return pieces
+
+
 def fstring_expressions_before_3_12(source):
-    """(line, expression) of each f-string replacement field that Python 3.11 cannot parse: one with a backslash, or one that holds the string's own delimiter."""
+    """(line, expression) of each f-string replacement field that Python 3.11 cannot parse: one with a backslash, or one that holds its own piece's delimiter."""
+    lines = source.splitlines()
+    pieces = fstring_pieces(source)
     found = []
     for node in ast.walk(ast.parse(source)):
         if not isinstance(node, ast.JoinedStr):
             continue
-        text = ast.get_source_segment(source, node) or ''
-        opening = text.lstrip('fFrR')[:3]
-        delimiter = opening if opening in ('"""', "'''") else opening[:1]
         for part in node.values:
             if isinstance(part, ast.FormattedValue):
+                column = len(lines[part.value.lineno - 1].encode()[: part.value.col_offset].decode())
+                enclosing = [piece for piece in pieces if piece[0] < (part.value.lineno, column) < piece[1]]
+                delimiter = max(enclosing)[2]
                 expression = ast.get_source_segment(source, part.value) or ''
                 if '\\' in expression or delimiter in expression:
                     found.append((part.lineno, expression))
@@ -8130,6 +8146,9 @@ class PythonFloorTests(unittest.TestCase):
         self.assertEqual(found("""f'''{'a'.join(b)}'''"""), [])
         self.assertEqual(found('''f'{'a'.join(b)}\''''), ["'a'.join(b)"])
         self.assertEqual(found('f"{\'x\\n\'.strip()}"'), ["'x\\n'.strip()"])
+        self.assertEqual(found("""('a' f"{x['k']}")"""), [])
+        self.assertEqual(found("""(f'{x["k"]}' f"{y['k']}")"""), [])
+        self.assertEqual(found("""('a' f'{x['k']}')"""), ["x['k']"])
 
     @PYTHON_3_12_ONLY
     def test_no_tracked_python_file_uses_an_f_string_that_only_python_3_12_parses(self):
