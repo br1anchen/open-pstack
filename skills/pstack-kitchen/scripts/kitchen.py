@@ -916,9 +916,8 @@ def verify_deadline(root: Path, profiles: list[str], with_setup: bool) -> dict:
             'load1': round(load1, 1), 'cores': cores, 'factor': round(factor, 2), 'unmeasured': gates['unmeasured']}
 
 
-def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> dict:
-    """The slowest of each profile's last passing runs of a stage, and their sum:
-    a verifier runs the profiles one after another."""
+def passing_runs(root: Path, profiles: list[str], stage: str) -> dict[str, list[float]]:
+    """Each profile's passing runs of a stage, oldest first, in seconds."""
     runs: dict[str, list[float]] = {p: [] for p in profiles}
     path = state_dir(root) / TIMINGS
     if path.exists():
@@ -926,6 +925,13 @@ def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> 
             f = line.split('\t')
             if len(f) >= 6 and f[1] in runs and f[2] == stage and f[4] == 'pass':
                 runs[f[1]].append(float(f[5]))
+    return runs
+
+
+def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> dict:
+    """The slowest of each profile's last passing runs of a stage, and their sum:
+    a verifier runs the profiles one after another."""
+    runs = passing_runs(root, profiles, stage)
     slowest = {p: max(r[-last:]) for p, r in runs.items() if r}
     return {'stage': stage, 'profiles': slowest, 'seconds': round(sum(slowest.values()), 1),
             'unmeasured': [p for p in profiles if p not in slowest]}
@@ -934,13 +940,7 @@ def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> 
 def gate_median(root: Path, profiles: list[str], stage: str, last: int = 10, floor: int = 3) -> dict:
     """The median of each profile's last `last` passing runs of a stage, with how many runs it is over. A profile with fewer than `floor` passing
     runs is unmeasured: two runs say little about what a gate usually takes. gate_timing's maximum, not this, sets the verifier deadline."""
-    runs: dict[str, list[float]] = {p: [] for p in profiles}
-    path = state_dir(root) / TIMINGS
-    if path.exists():
-        for line in path.read_text().splitlines():
-            f = line.split('\t')
-            if len(f) >= 6 and f[1] in runs and f[2] == stage and f[4] == 'pass':
-                runs[f[1]].append(float(f[5]))
+    runs = passing_runs(root, profiles, stage)
     measured = {p: {'seconds': statistics.median(r[-last:]), 'runs': len(r[-last:])} for p, r in runs.items() if len(r) >= floor}
     return {'stage': stage, 'profiles': measured, 'unmeasured': [p for p in profiles if p not in measured]}
 
