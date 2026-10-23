@@ -12,7 +12,6 @@ from pstack_core.store import field, header_field, read_text, int_or_none, new_f
 from pstack_core.errors import Die
 from pstack_core import git
 from pstack_core.review import trunk_ref
-from pstack_core.panes import parse
 from pstack_core.variant import commit_of
 
 from . import kpy

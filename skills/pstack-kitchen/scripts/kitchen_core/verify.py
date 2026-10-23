@@ -3,8 +3,8 @@
 It is built on units.py (ranges, inclusion, verdicts), verify_state.py (the claim, the compare-and-set, the close, the cancel) and verify_wait.py (the
 wait); nothing calls back into it. A command that fails ends it with an Exit or a Die.
 
-kitchen.py is reached through kpy.run, in process. The commands verify makes (roster, snapshot, classify, timing, brief-verify --list and
-lesson-packet) read the repo's kitchen and git and print; none of them writes os.environ or reads INVOCATION: those belong to `gate` and to
+kitchen.py is reached through kpy: the queries verify makes (roster_data, snapshot, classify_change, timing, deadline, brief_verify_list and lesson_packet)
+are its functions, read the repo's kitchen and git and return data; none of them writes os.environ or reads INVOCATION: those belong to `gate` and to
 `brief-verify` without --list (kitchen.py :745, :771, :1023, :1038), which verify never runs. test_verify_kpy_calls_leave_the_environment_alone pins
 that."""
 
@@ -32,14 +32,13 @@ from pstack_core.errors import (
     translate,
 )
 from pstack_core import git
-from pstack_core.panes import TRUST_RE, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, parse, reply_at, require_herdr
+from pstack_core.panes import TRUST_RE, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, reply_at, require_herdr
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
 from pstack_core.variant import commit_of
 
 from . import kpy
-from .kpy import Kitchen
 from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
 from .landing import is_landing, latest_landing_verdict, manifest_warning
@@ -99,11 +98,10 @@ def names_path(text, path):
     return re.search(r"""(^|[^A-Za-z0-9_./-])""" + re.escape(path) + r"""(/|[\s"'`);&|]|$)""", text, flags=re.M) is not None
 
 
-def brief_commands(kit, brief, unit):
+def brief_commands(store, root, brief, unit):
     """The brief's Verify commands for a verifier's packet, each in a block of its own, run from the scratch root. A command that ends in
     `# master-only` (on its first or last line) writes the store, and one that names the main checkout or the store cannot run in the scratch; both are
     listed apart, in full, each with its reason. A Verify block the kitchen refuses is said so in the packet and warned of, not skipped."""
-    store, root = kit.store, kit.root
     try:
         commands = kpy.kitchen_py.brief_verify_list(kpy.invocation(store, root), Path(brief))
     except kpy.KitchenError as e:
@@ -143,11 +141,13 @@ def landing_covered_briefs(store, root, base, head):
     return covered
 
 
-def verifier_entry(kit, cls):
+def verifier_entry(store, cls):
     """The verifier for a class: the host roster's entry, with the sidekick marker resolved from the run (so after a failover it is the agent now
     implementing) and the master sentinel resolved to the master's own kind. One object: kind, args, fallback and where it came from."""
-    store = kit.store
-    roster = parse_entry(kit.elsewhere(['--json', 'roster'])[1])
+    try:
+        roster = kpy.kitchen_py.roster_data()[1]
+    except kpy.KitchenError:
+        roster = parse_entry('')  # a roster that does not parse gives no entry at all, which is the one error parse_entry has
     verifiers = roster.get('verifier') if isinstance(roster, dict) else None
     entry = verifiers.get(cls) if isinstance(verifiers, dict) else None
     kind = entry.get('kind') if isinstance(entry, dict) else ''
@@ -280,7 +280,7 @@ def parse_options(argv):
     return o
 
 
-def classify_landing(store, root, kit, o):
+def classify_landing(store, root, o):
     """The landing's range and class: the head, the parent the stack starts from (--parent, or the last landing's), the kitchen as it is now, and
     the diff's classification."""
     head = commit_of(root, o.land_head or 'HEAD')
@@ -314,13 +314,13 @@ def classify_landing(store, root, kit, o):
                            risk='landing', mode='unit', cls='escalated')
 
 
-def classify_units(ctx, store, kit, o, allunits):
+def classify_units(ctx, store, root, o, allunits):
     """The named units' range and class. A unit dispatched as escalated is verified as escalated, whatever its diff touches."""
     base, head = unit_range(ctx, store, allunits, o.covered, o.range_base)
     heads_in(store, head, allunits)
     escalate = tuple(f'unit {u} was dispatched as escalated' for u in allunits if header_field(brief_or_nothing(ctx, store, u), 'risk') == 'escalated')
     cfg = brief_kitchen(brief_or_nothing(ctx, store, allunits[-1]))
-    data = kpy.call(kpy.kitchen_py.classify_change, kpy.invocation(store, kit.root, cfg[1] if cfg else None, head), base=base, head=head, escalate=escalate)
+    data = kpy.call(kpy.kitchen_py.classify_change, kpy.invocation(store, root, cfg[1] if cfg else None, head), base=base, head=head, escalate=escalate)
     verify_class = data.get('verify') or {}
     return SimpleNamespace(base=base, head=head, override='', label='', cfg=cfg, data=data, risk=data.get('risk') or '',
                            mode=verify_class.get('mode') or '', cls=verify_class.get('kind') or '')
@@ -338,14 +338,14 @@ def verdict_paths(store, landing, allunits):
     return last, brief, slug, f'{store}/verdicts/{last}-{slug}-v{k}.md', f'{store}/verdicts/{last}-{slug}-v{k}-packet.md'
 
 
-def deadline_minutes(kit, data, o):
+def deadline_minutes(store, root, data, o):
     """The deadline in minutes: --timeout, else 3 x the slowest recent passing behavioral gates, plus the last recorded setup run when the repo
     declares one, scaled by the machine's load at the start (capped at 3x), and never under 45 minutes. The parts are printed. A landing also gets
     3 x the touched profiles' measured landing commands, and a fixed ten minutes for each that has no measured run."""
     if o.timeout_m is not None:
         out(f'deadline {o.timeout_m}m (--timeout)\n')
         return o.timeout_m
-    inv = kpy.invocation(kit.store, kit.root)
+    inv = kpy.invocation(store, root)
     deadline = kpy.call(kpy.kitchen_py.deadline, inv, data['behavioral'], bool(data['scratch_setup']))
     minutes = deadline['minutes']
     out(kpy.kitchen_py.deadline_text(deadline) + '\n')
@@ -361,9 +361,9 @@ def deadline_minutes(kit, data, o):
     return minutes
 
 
-def choose_verifier(kit, root, cls, o):
+def choose_verifier(store, root, cls, o):
     """(entry, kind, arguments) of the verifier: the retried entry, else --kind's pick from the class's entry and its fallback, else the entry."""
-    entry = verifier_entry(kit, cls)
+    entry = verifier_entry(store, cls)
     if o.retry_entry:
         retried = parse_entry(o.retry_entry)
         kind = retried.get('kind') if isinstance(retried, dict) else ''
@@ -505,8 +505,7 @@ def verify(ctx, args):
         raise Die('--head goes with --landing')
     if o.parent_ref and not o.landing:
         raise Die('--parent goes with --landing')
-    kit = Kitchen(store, root)
-    c = classify_landing(store, root, kit, o) if o.landing else classify_units(ctx, store, kit, o, allunits)
+    c = classify_landing(store, root, o) if o.landing else classify_units(ctx, store, root, o, allunits)
     data = c.data
     # A batch of independent units has a size cap; a fix verified with the unit it fixes does not, since splitting it would re-reject the first.
     if not o.covered and len(o.units) > 1 and is_number(data.get('diff_lines')) and is_number(data.get('max_batch_diff')) and data['diff_lines'] > data['max_batch_diff']:
@@ -520,8 +519,8 @@ def verify(ctx, args):
         warn_unreviewed(store)
         vs.handoff_due(store, last)
         return 0
-    timeout_m = deadline_minutes(kit, data, o)
-    entry, kind, args_list = choose_verifier(kit, root, c.cls, o)
+    timeout_m = deadline_minutes(store, root, data, o)
+    entry, kind, args_list = choose_verifier(store, root, c.cls, o)
     scratch_id = '000-landing-verify' if o.landing else f'{last}-{slug}-verify'
     v = SimpleNamespace(ctx=ctx, store=store, argv=argv, landing=o.landing, units=allunits, last=last, slug=slug, brief=brief, base=c.base, head=c.head,
                         cls=c.cls, risk=c.risk, data=data, verdict=verdict, packet=packet, timeout_m=timeout_m, entry=entry, kind=kind, args=args_list,
@@ -529,7 +528,7 @@ def verify(ctx, args):
                         scratch=scratch_path(ctx, store, scratch_id, c.head))
     if o.landing:
         record_landing_parent(store, o, c)
-    write_packet(ctx, kit, f'{ctx.skill_root}/scripts', store, packet, verdict, v.scratch, c.base, c.head, v.identity, 'landing' if o.landing else c.cls, timeout_m,
+    write_packet(ctx, root, f'{ctx.skill_root}/scripts', store, packet, verdict, v.scratch, c.base, c.head, v.identity, 'landing' if o.landing else c.cls, timeout_m,
                  c.risk, allunits, o.units, o.covered, o.landing, last, slug, c.cls, c.data, c.cfg)
     pane, started = launch_verifier(v)
     record_start(v, pane, started)
@@ -666,10 +665,9 @@ def section_lines(path, pattern, keep_heading):
     return found
 
 
-def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, identity, vclass, timeout_m, risk, allunits, units, covered, landing, last,
+def write_packet(ctx, root, here, store, packet, verdict, scratch, base, head, identity, vclass, timeout_m, risk, allunits, units, covered, landing, last,
                  slug, cls, data, cfg):
     """The verifier's packet, written even when a step fails midway, so what was gathered stays."""
-    root = kit.root
     parts = []
     rule = 'Write rule: you write only your verdict file and the scratch worktree you were given; work only in that worktree and write nothing else but the verdict.'
     try:
@@ -704,15 +702,12 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
                 for line in section_lines(b, r'^## (Goal|Acceptance)', True):
                     parts.append(line + '\n')
                 parts.append('\n')
-                parts.append(brief_commands(kit, b, u))
+                parts.append(brief_commands(store, root, b, u))
             ubriefs = []
             for u in allunits:
                 found = sorted(glob.glob(f'{glob.escape(store)}/briefs/{glob.escape(u)}-*.md'))
                 ubriefs += found if found else [f'{store}/briefs/{u}-*.md']
-            status, lessons = kit.elsewhere(['lesson-packet', *ubriefs])
-            if status != 0:
-                raise ToolFailed(status)
-            lessons = lessons.rstrip('\n')
+            lessons = kpy.kitchen_py.lesson_packet([Path(b) for b in ubriefs]).rstrip('\n')
             if lessons:
                 parts.append(f'{lessons}\n\n')
         if os.path.isfile(f'{store}/standing-orders.md'):

@@ -1504,6 +1504,90 @@ class LibraryTests(KitchenTests):
             kitchen.brief_verify_list(inv, brief)
         self.silent()
 
+    def run_store(self):
+        """A run store of the smallest kind that counters and the ledger read: its briefs, reports and verdicts directories and a pair.json."""
+        store = Path(self.tmp.name) / 'state/pstack/kitchen/runs/demo'
+        for sub in ('briefs', 'reports', 'verdicts', 'steers'):
+            (store / sub).mkdir(parents=True)
+        (store / 'pair.json').write_text(json.dumps({'git_root': str(self.repo)}))
+        return store
+
+    def test_the_roster_returns_the_agents_and_renders_as_the_command_prints_it(self):
+        roster = Path(self.tmp.name) / 'host-roster.toml'
+        roster.write_text('[sidekick]\nkind = "pi"\nargs = ["--model", "m"]\n[sidekick.fallback]\nkind = "devin"\n[verifier.escalated]\nkind = "claude"\n')
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        self.library()
+        path, agents = kitchen.roster_data()
+        self.assertEqual((agents['sidekick']['kind'], agents['sidekick']['args'], agents['sidekick']['fallback']['kind']), ('pi', ['--model', 'm'], 'devin'))
+        self.assertEqual(agents['verifier']['routine']['kind'], 'sidekick')
+        self.assertEqual(agents, self.data('roster'))
+        self.assertEqual(kitchen.roster_text(path, agents), self.run_kitchen('roster').rstrip('\n'))
+        self.silent()
+
+    def test_a_roster_that_does_not_parse_raises_what_the_command_prints(self):
+        roster = Path(self.tmp.name) / 'host-roster.toml'
+        roster.write_text('x = [\n')
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        self.library()
+        with self.assertRaises(kitchen.KitchenError) as caught:
+            kitchen.roster_data()
+        self.assertEqual(self.run_kitchen('roster', code=caught.exception.code), f'kitchen: {caught.exception}\n')
+        self.assertTrue(str(caught.exception).startswith(f'{roster}: '))
+        self.silent()
+
+    def test_the_fleet_returns_rows_that_render_as_the_command_prints_them(self):
+        store = self.run_store()
+        (store / 'events.tsv').write_text('x\t1767225600\tmaster\twake\t-\tdone\n')
+        runs = store.parent
+        self.library()
+        report = kitchen.fleet(runs, None)
+        self.assertEqual([r['run'] for r in report['runs']], ['demo'])
+        self.assertEqual(report['runs'][0]['wakes'], 1)
+        self.assertEqual(kitchen.fleet(runs, '2027-01-01')['runs'], [])
+        self.assertEqual(report, self.data('fleet', '--runs', str(runs)))
+        self.assertEqual(kitchen.fleet_text(report), self.run_kitchen('fleet', '--runs', str(runs)).rstrip('\n'))
+        self.silent()
+
+    def test_the_counters_and_the_state_directory_are_returned_not_printed(self):
+        store = self.run_store()
+        inv = self.library()
+        counters = kitchen.run_counters(store)
+        self.assertEqual((counters['run'], counters['done_units'], counters['verified_units']), ('demo', 0, 0))
+        self.assertEqual(json.dumps(counters), self.run_kitchen('counters', str(store)).rstrip('\n'))
+        self.assertEqual(kitchen.statedir(inv), self.run_kitchen('statedir').rstrip('\n'))
+        self.silent()
+
+    def test_the_ledger_takes_a_catch_and_a_retro_and_names_an_unknown_unit(self):
+        store = self.run_store()
+        ledger = Path(self.tmp.name) / 'ledger.tsv'
+        self.library()
+        kitchen.ledger_catch(store, ledger, 'demo', '2026-01-01T00:00:00Z', 'gate', 'lint missed it', None)
+        self.assertEqual(kitchen.ledger_retro(store, ledger, 'demo', '2026-01-02T00:00:00Z'), 0)
+        rows = [line.split('\t') for line in ledger.read_text().splitlines()]
+        self.assertEqual([(r[1], r[2], r[3], r[4]) for r in rows[1:]], [('demo', 'catch', 'gate', 'lint missed it')])
+        with self.assertRaises(kitchen.KitchenError) as caught:
+            kitchen.ledger_catch(store, ledger, 'demo', '2026-01-03T00:00:00Z', 'gate', 'x', '009')
+        self.assertEqual((str(caught.exception), caught.exception.code), (f'no brief for unit 009 in {store}/briefs', 1))
+        self.silent()
+
+    def test_the_lessons_are_returned_stamped_and_packed_without_printing(self):
+        inv = self.library()
+        overview = kitchen.lessons_overview(inv)
+        self.assertEqual(kitchen.lessons_text(overview), self.run_kitchen('lessons').rstrip('\n'))
+        brief = self.repo / 'brief.md'
+        brief.write_text('# Brief\n\n## Scope\n\nmay write:\n- src/app.py\n')
+        self.assertEqual(kitchen.lessons_stamp(inv, brief), [])
+        self.assertEqual(kitchen.lesson_packet([brief]), '')
+        self.silent()
+
+    def test_a_missing_kitchen_stops_the_lessons_with_the_message_the_command_prints(self):
+        (self.repo / '.agents/kitchen.toml').unlink()
+        inv = self.library()
+        with self.assertRaises(kitchen.KitchenError) as caught:
+            kitchen.lessons_overview(inv)
+        self.assertEqual(self.run_kitchen('lessons', code=1), f'kitchen: {caught.exception}\n')
+        self.silent()
+
     def test_a_repo_kitchen_has_no_snapshot(self):
         self.assertEqual(kitchen.snapshot(self.library(), self.repo / 'snaps'), '')
         self.assertFalse((self.repo / 'snaps').exists())

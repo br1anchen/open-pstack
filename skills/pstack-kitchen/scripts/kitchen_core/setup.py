@@ -1,11 +1,10 @@
 """init, spawn, consultant and fleet: the commands that set a kitchen run up.
 
 The pair's init and spawn are called as the core's functions.
-kitchen.py is reached through kpy.run, in process: `roster`, `validate`, `setup` and `fleet` read the repo's kitchen and print, or (setup) run the
+kitchen.py is reached through kpy: `roster`, `validate` and `fleet` are its functions, and `setup` (kpy.run, until unit 074) runs the
 repo's commands as a child process with a copy of the environment. None writes os.environ or reads INVOCATION (kitchen.py :745, :771, :1023, :1038 belong
 to `gate` and to `brief-verify` without --list). test_setup_kpy_calls_leave_the_environment_alone pins that."""
 
-import json
 import os
 import sys
 from dataclasses import replace
@@ -16,7 +15,7 @@ from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
 from pstack_core.store import field, read_text, event, json_type, listing, load, member, now, pair_file, text_at, update
 from pstack_core.commands.report import require_pair
-from pstack_core.errors import DamagedStore, Die, Exit, SetupFailed, ToolFailed
+from pstack_core.errors import DamagedStore, Die, Exit, SetupFailed
 from pstack_core import git
 from pstack_core.panes import agent_status, require_herdr
 from pstack_core.wait import end_with_parent
@@ -111,15 +110,9 @@ def worktree_setup(ctx, store, found):
     sys.stdout.write(f'worktree: prepared with [scratch].setup ({out})\n')
 
 
-def roster_json():
-    """`python3 kitchen.py --json roster`, a plain assignment: a failure ends the command with its status."""
-    status, out, err = kpy.run(None, ['--json', 'roster'])
-    if err:
-        sys.stdout.flush()
-        sys.stderr.write(err)
-    if status != 0:
-        raise ToolFailed(status)
-    return out.rstrip('\n')
+def host_roster():
+    """The host roster: which agents fill the roles, each with its arguments."""
+    return kpy.call(kpy.kitchen_py.roster_data)[1]
 
 
 def roster_text(roster, *keys):
@@ -146,7 +139,7 @@ def spawn(ctx, args):
     opts = read(args[1:], Spec(valued=('--kind', '--fallback', '--fallback-arg'), dashdash=True, unknown='collect'))
     kind, fallback = opts.last('--kind', ''), opts.last('--fallback', '')
     native = list(opts.after_dashdash)
-    roster = json.loads(roster_json())
+    roster = host_roster()
     if not kind:
         kind = roster_text(roster, 'sidekick', 'kind')
         if not kind:
@@ -176,7 +169,7 @@ def consultant(ctx, args):
         raise Die('--reason is required: the escalation that warrants the consultant')
     fallback, fb_args = '', []
     if not kind:
-        roster = json.loads(roster_json())
+        roster = host_roster()
         kind = roster_text(roster, 'consultant', 'kind')
         if not native:
             native = roster_lines(roster, 'consultant', 'args')
@@ -223,8 +216,10 @@ def record_consultant_failover(store, source, target, reason):
 
 def fleet(ctx, args):
     """Every run on the host and each skills build; read-only and repo-free."""
-    status, out, err = kpy.run(None, ['fleet', *args])
-    sys.stdout.write(out)
-    sys.stdout.flush()
-    sys.stderr.write(err)
-    return status
+    kp = kpy.kitchen_py
+    try:
+        parsed = kp.build_parser().parse_args(['fleet', *args])  # kitchen.py's own parser answers a bad option, as it does on a terminal
+    except SystemExit as stopped:
+        raise Exit(stopped.code) from None
+    sys.stdout.write(kp.fleet_text(kp.fleet(parsed.runs or kp.pstack_state() / 'kitchen/runs', parsed.since)) + '\n')
+    return 0

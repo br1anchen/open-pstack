@@ -5,7 +5,6 @@ import contextlib
 import importlib.util
 import io
 import sys
-import traceback
 from pathlib import Path
 
 from pstack_core.errors import ToolFailed
@@ -54,14 +53,14 @@ def call(query, *args, **kwargs):
     """A kitchen.py query as a plain command: a KitchenError is shown as kitchen.py prints it and ends the command with its status."""
     try:
         return query(*args, **kwargs)
-    except KitchenError as e:
+    except load().KitchenError as e:
         explain(e)
         raise ToolFailed(e.code) from None
 
 
 def run(repo, args, stdin=None):
     """`kitchen.py --repo <repo> <args>` in process: (rc, stdout, stderr). main sets the INVOCATION its child commands use itself; a
-    SystemExit (argparse's usage errors, --help) becomes the rc it carries. Only what main writes through sys.stdout and sys.stderr is
+    SystemExit (argparse's usage errors, --help) becomes the rc it carries; a bug propagates. Only what main writes through sys.stdout and sys.stderr is
     captured: a command that runs a child process (a gate) lets the child write to the real descriptors, as it does for the subprocess. stdin, text,
     is what the command reads from standard input (`manifests` reads its paths there)."""
     module = load()
@@ -76,71 +75,6 @@ def run(repo, args, stdin=None):
             rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
             if isinstance(e.code, str):
                 err.write(e.code + '\n')
-        except Exception as e:  # what the interpreter prints for an uncaught one, status 1
-            rc = 1
-            err.write(uncaught(e))
         finally:
             sys.stdin = held
     return rc, out.getvalue(), err.getvalue()
-
-
-def uncaught(error):
-    """The traceback `python3 kitchen.py` prints when main raises: the frames from the module's `sys.exit(main())` inward."""
-    summary = traceback.TracebackException.from_exception(error)
-    frames = [f for f in summary.stack]
-    start = next((i for i, f in enumerate(frames) if f.filename == str(KITCHEN_PY) and f.name == 'main'), 0)
-    source = KITCHEN_PY.read_text().splitlines()
-    line = next((n for n, text in enumerate(source, start=1) if text == '    sys.exit(main())' or text == 'sys.exit(main())'), 0)
-    text = source[line - 1] if line else 'sys.exit(main())'
-    column = text.index('main()') - 1
-    entry = traceback.FrameSummary(str(KITCHEN_PY), line, '<module>', line=text, end_lineno=line, colno=column, end_colno=column + 6)
-    summary.stack = traceback.StackSummary.from_list([entry, *frames[start:]])
-    return ''.join(summary.format())
-
-
-class Kitchen:
-    """kitchen.py against the store's repo, in process. The repo is read from pair.json at each call."""
-
-    def __init__(self, store, root=None):
-        self.store, self.fixed = store, root
-
-    @property
-    def root(self):
-        from .units import repo_root
-        return self.fixed if self.fixed is not None else repo_root(self.store)
-
-    @staticmethod
-    def show(stderr):
-        if stderr:
-            sys.stdout.flush()
-            sys.stderr.write(stderr)
-
-    def call(self, args, show=False):
-        """`kpy "$store" ARGS` as a plain command or assignment: stdout (written as it was when show is set, the command's own output). kitchen.py's
-        stderr is shown; a failure ends the command with its status."""
-        status, stdout, stderr = run(self.root, args)
-        if show:
-            sys.stdout.write(stdout)
-        self.show(stderr)
-        if status != 0:
-            raise ToolFailed(status)
-        return stdout
-
-    def soft(self, args, show=False):
-        """`kpy "$store" ARGS` where the caller tests the status: (status, stdout); stderr is shown."""
-        status, stdout, stderr = run(self.root, args)
-        if show:
-            sys.stdout.write(stdout)
-        self.show(stderr)
-        return status, stdout
-
-    def merged(self, args):
-        """`kpy "$store" ARGS 2>&1`: (status, stdout and stderr together)."""
-        status, stdout, stderr = run(self.root, args)
-        return status, stdout + stderr
-
-    def elsewhere(self, args):
-        """`python3 kitchen.py ARGS` with no --repo (the roster and the lessons are not the repo's): (status, stdout); stderr is shown."""
-        status, stdout, stderr = run(None, args)
-        self.show(stderr)
-        return status, stdout

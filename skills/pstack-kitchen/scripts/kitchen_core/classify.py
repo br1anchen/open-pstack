@@ -1,7 +1,7 @@
 """classify: stamps a brief's risk, profiles, verify mode and kitchen from its Scope.
 
-Every kitchen.py call here (`snapshot`, `--json classify` and `lessons stamp`) goes through kpy.run, in process. None of them writes os.environ or
-reads INVOCATION: those belong to `gate` and to `brief-verify` without --list. test_classify_kpy_calls_leave_the_environment_alone pins that."""
+Every kitchen.py query here (`snapshot`, `classify_change` and `lessons_stamp`) is a function of kpy.kitchen_py that returns data. None of them writes
+os.environ or reads INVOCATION: those belong to `gate` and to `brief-verify` without --list. test_classify_kpy_calls_leave_the_environment_alone pins that."""
 
 import os
 import re

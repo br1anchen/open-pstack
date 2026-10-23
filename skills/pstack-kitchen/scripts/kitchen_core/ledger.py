@@ -1,8 +1,10 @@
 """catch and retro: the run's ledger rows, and the counts a retro prints.."""
 
 import json
+import json
 import re
 import sys
+from pathlib import Path
 
 from pstack_core.store import event, read_text, now, pair_file, read, who
 from pstack_core.errors import Die, Exit, ToolFailed
@@ -19,16 +21,6 @@ HINT = '''encode a repeated class at the highest level that works (the correct s
 '''
 
 
-def relay(result):
-    """Print what a kitchen.py call wrote, as the shell script's child process wrote it, and return its status."""
-    rc, out, err = result
-    sys.stdout.write(out)
-    sys.stdout.flush()
-    sys.stderr.write(err)
-    sys.stderr.flush()
-    return rc
-
-
 def slug_of(store):
     return read(store, 'slug')
 
@@ -36,12 +28,14 @@ def slug_of(store):
 def state_ledger(store, abort=False):
     """The ledger path kitchen.py's `statedir` names, its stderr passing through. A failing `statedir` is not looked at by catch and ends the
     command with its status for abort (retro)."""
-    root = read(store, 'git_root')
-    rc, out, err = kpy.run(root, ['statedir'])
-    sys.stderr.write(err)
-    if abort and rc != 0:
-        raise ToolFailed(rc)
-    return out.rstrip('\n') + '/ledger.tsv'
+    try:
+        state = kpy.kitchen_py.statedir(kpy.kitchen_py.Invocation(read(store, 'git_root')))
+    except kpy.KitchenError as e:
+        kpy.explain(e)
+        if abort:
+            raise ToolFailed(e.code) from None
+        state = ''
+    return state + '/ledger.tsv'
 
 
 def catch(ctx, args):
@@ -55,20 +49,18 @@ def catch(ctx, args):
     if unit and not re.fullmatch(r'[0-9]{3}', unit):
         raise Die("unit is a brief's number, like 003")
     # Options first, then --, so a text that starts with - stays text.
-    argv = ['ledger-catch', '--run', slug_of(store), '--ts', now()] + (['--unit', unit] if unit else []) + ['--', store, state_ledger(store), layer, text]
-    if relay(kpy.run(None, argv)) != 0:
-        raise Exit(1)
+    try:
+        kpy.kitchen_py.ledger_catch(Path(store), Path(state_ledger(store)), slug_of(store), now(), layer, text, unit or None)
+    except kpy.KitchenError as e:
+        kpy.explain(e)
+        raise Exit(e.code) from None
     event(store, 'master', 'catch', '-', layer)
     sys.stdout.write(f'caught at {layer}: {text}\n')
     return 0
 
 
 def counters(store):
-    rc, out, err = kpy.run(None, ['counters', store])
-    sys.stderr.write(err)
-    if rc != 0:
-        raise ToolFailed(rc)
-    return json.loads(out)
+    return kpy.kitchen_py.run_counters(Path(store))
 
 
 def retro_line(store, c):
@@ -111,9 +103,7 @@ def retro(ctx, args):
     pair_file(store)
     ledger = state_ledger(store, abort=True)
     run = slug_of(store)
-    rc = relay(kpy.run(None, ['ledger-retro', store, ledger, '--run', run, '--ts', now()]))
-    if rc != 0:
-        raise ToolFailed(rc)
+    kpy.call(kpy.kitchen_py.ledger_retro, Path(store), Path(ledger), run, now())
     c = counters(store)
     out = sys.stdout
     out.write(retro_line(store, c) + '\n')
@@ -124,5 +114,8 @@ def retro(ctx, args):
         out.write(row + '\n')
     out.write(HINT)
     out.flush()
-    relay(kpy.run(read(store, 'git_root'), ['lessons']))
+    try:
+        sys.stdout.write(kpy.kitchen_py.lessons_text(kpy.kitchen_py.lessons_overview(kpy.kitchen_py.Invocation(read(store, 'git_root')))) + '\n')
+    except kpy.KitchenError as e:
+        kpy.explain(e)
     return 0

@@ -7,7 +7,7 @@ PSTACK_KITCHEN_RUN, its working directory, standard input from /dev/null and its
 writes the job's `rc` file when done. A step's job directory holds out.N (one log per run) and `out` (a link to the latest), rc, consumed, classify.json,
 profiles and base; finish's holds out, rc, consumed and logs/.
 
-kitchen.py is reached through kpy (in process) for `--json classify`; worker.py runs it as a child process, since it
+kitchen.py is reached through kpy (its classify_change function, in process); worker.py runs it as a child process, since it
 outlives this process. None of the in-process calls writes os.environ (kitchen.py :745, :771, :1023, :1038 belong to `gate` and `brief-verify`, which only
 worker.py runs)."""
 

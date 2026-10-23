@@ -1320,7 +1320,10 @@ def _entry(t: dict, source: str) -> dict:
 
 def roster_data() -> tuple[Path, dict]:
     path = roster_path()
-    data = tomllib.loads(path.read_text()) if path.exists() else {}
+    try:
+        data = tomllib.loads(path.read_text()) if path.exists() else {}
+    except tomllib.TOMLDecodeError as e:
+        raise KitchenError(f'{path}: {e}') from None
     out = {}
     for role in ('sidekick', 'consultant'):
         t = data.get(role, {})
@@ -1344,11 +1347,9 @@ def roster_data() -> tuple[Path, dict]:
 DEFAULT_ESCALATED_VERIFIER = {'kind': 'claude', 'args': ['--model', 'claude-opus-5-5'], 'fallback': None, 'source': 'default'}
 
 
-def roster(as_json: bool) -> int:
-    path, out = roster_data()
-    emit(out, as_json, f'{path}: ' + ', '.join(f'{r} {v["kind"] or "unset"}' for r, v in out.items() if 'kind' in v)
-         + f', verifier {out["verifier"]["routine"]["kind"]}/{out["verifier"]["escalated"]["kind"]}')
-    return 0
+def roster_text(path: Path, out: dict) -> str:
+    return (f'{path}: ' + ', '.join(f'{r} {v["kind"] or "unset"}' for r, v in out.items() if 'kind' in v)
+            + f', verifier {out["verifier"]["routine"]["kind"]}/{out["verifier"]["escalated"]["kind"]}')
 
 
 def describe_verifier(e: dict | None) -> str:
@@ -2310,8 +2311,8 @@ def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) 
     return [tuple(_cell(c) for c in r) for r in rows]
 
 
-def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
-    """Every kitchen run on the host and each skills build, read-only (it never runs retro)."""
+def fleet(runs_dir: Path, since: str | None) -> dict:
+    """Every kitchen run on the host and each skills build, read-only (it never runs retro): the runs, the builds and the verifier attempts."""
     rows = []
     fb = open_feedback()
     for store in sorted(p for p in runs_dir.glob('*') if p.is_dir()):
@@ -2348,6 +2349,11 @@ def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
             key = a['outcome'] if a['outcome'] in OUTCOMES else 'running' if a['outcome'] in ('prepared', 'running') else 'unknown'
             v[key] += 1
     vlist = sorted(vrows.values(), key=lambda v: (v['agent'] == 'unknown', v['agent'], v['class']))
+    return {'runs': rows, 'builds': brows, 'verifiers': vlist}
+
+
+def fleet_text(report: dict) -> str:
+    rows, brows, vlist = report['runs'], report['builds'], report['verifiers']
 
     def when(t):
         return time.strftime('%Y-%m-%d %H:%M', time.gmtime(t)) if t else '-'
@@ -2374,8 +2380,7 @@ def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
     for v in vlist:
         lines.append(f'{v["agent"][:38]:38} {v["class"]:9} {v["started"]:>5} {v["clean"]:>5} {v["reject"]:>3} {v["inconclusive"]:>5} '
                      f'{v["invalid"]:>5} {v["provider"]:>4} {v["stalled"]:>5} {v["missing"]:>4} {v["start-failed"]:>5} {v["running"]:>3} {v["unknown"]:>3}')
-    emit({'runs': rows, 'builds': brows, 'verifiers': vlist}, as_json, '\n'.join(lines))
-    return 0
+    return '\n'.join(lines)
 
 
 @dataclass(frozen=True)
@@ -2486,6 +2491,17 @@ def deadline(inv: Invocation, profiles: list[str], with_setup: bool = False) -> 
     return verify_deadline(repo_root(inv.root), profiles, with_setup)
 
 
+def statedir(inv: Invocation) -> str:
+    """The repo's kitchen state directory."""
+    return str(state_dir(repo_root(inv.root)))
+
+
+def lessons_overview(inv: Invocation) -> dict:
+    """The repo's lessons with their counters, and candidates from the ledger."""
+    root, _, source = open_kitchen(inv)
+    return lessons_report(lessons_path(root, source), state_dir(root) / 'ledger.tsv')
+
+
 def lessons_stamp(inv: Invocation, brief: Path) -> list[Lesson]:
     """Writes the active lessons for the brief's scope into its Lessons section and returns them."""
     root, _, source = open_kitchen(inv)
@@ -2502,7 +2518,8 @@ def emit(obj, as_json: bool, text: str) -> None:
     print(json.dumps(obj, indent=2) if as_json else text)
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """kitchen.py's command line: the adapter every subcommand is reached through from a terminal."""
     ap = argparse.ArgumentParser(prog='kitchen.py', description=__doc__.split('\n\n')[0])
     ap.add_argument('--repo', help='repository (default: the current directory)')
     ap.add_argument('--config', help=f'kitchen file: relative to the repo, or absolute (default {CONFIG}, '
@@ -2609,13 +2626,25 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument('--stage', choices=STAGES, default='behavioral')
     t.add_argument('--deadline', action='store_true', help='the default verifier deadline and its parts')
     t.add_argument('--with-setup', action='store_true', help='with --deadline: count the last recorded setup run')
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     inv = Invocation(args.repo, args.config, args.at)
 
     if args.cmd == 'roster':
-        return roster(args.json)
+        try:
+            path, out = roster_data()
+        except KitchenError as e:
+            print(f'kitchen: {e}', file=sys.stderr)
+            return e.code
+        emit(out, args.json, roster_text(path, out))
+        return 0
     if args.cmd == 'fleet':
-        return fleet(args.runs or pstack_state() / 'kitchen/runs', args.since, args.json)
+        report = fleet(args.runs or pstack_state() / 'kitchen/runs', args.since)
+        emit(report, args.json, fleet_text(report))
+        return 0
     if args.cmd == 'counters':
         print(json.dumps(run_counters(args.store)))
         return 0
@@ -2639,7 +2668,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         if args.cmd == 'statedir':
-            print(state_dir(repo_root(args.repo)))
+            print(statedir(inv))
             return 0
         root = repo_root(args.repo)
         if args.cmd == 'timing' and args.deadline:
@@ -2699,7 +2728,7 @@ def main(argv: list[str] | None = None) -> int:
                 emit({'id': x.id, 'status': args.status, 'path': str(path)}, args.json, f'{x.id} {args.status}: {x.rule}'
                      + lessons_commit_hint(root, path))
             else:
-                r = lessons_report(path, ledger)
+                r = lessons_overview(inv)
                 emit(r, args.json, lessons_text(r, args.all))
             return 0
         if args.cmd == 'snapshot':

@@ -5430,8 +5430,8 @@ class CoreTests(unittest.TestCase):
             '--fallback with no value': (1, 'pair.sh: --fallback needs a value'),
             'an empty roster and no --kind': (1, 'pair.sh: no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)'),
             'an empty roster and a --kind': (0, 'started in'),
-            'a roster that does not parse': (1, 'Traceback (most recent call last):'),
-            'a roster that does not parse and a --kind': (1, 'Traceback (most recent call last):'),
+            'a roster that does not parse': (1, "kitchen: <T>/home/.config/pstack/kitchen.toml: Expected ']' at the end of a table declaration"),
+            'a roster that does not parse and a --kind': (1, "kitchen: <T>/home/.config/pstack/kitchen.toml: Expected ']' at the end of a table declaration"),
             'no store argument': (1, 'pair.sh: usage: kitchen.sh spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [-- agent-arg'),
             'a store with no pair.json': (1, 'pair.sh: no pair.json in <T>/st; run: pair.sh init <slug>'),
             'outside herdr': (1, 'pair.sh: not running inside Herdr (HERDR_ENV != 1)'),
@@ -5471,7 +5471,7 @@ class CoreTests(unittest.TestCase):
             'escalations already recorded': (0, 'started in'),
             'escalations that are no array': (1, 'pair.json is damaged: escalations is string, not an array'),
             'an empty roster and no --kind': (1, 'pair.sh: no --kind and no [consultant] kind in the host roster'),
-            'a roster that does not parse': (1, 'Traceback (most recent call last):'),
+            'a roster that does not parse': (1, "kitchen: <T>/home/.config/pstack/kitchen.toml: Expected ']' at the end of a table declaration"),
             'no reason': (1, 'pair.sh: --reason is required: the escalation that warrants the consultant'),
             '--reason with no value': (1, 'pair.sh: --reason needs a value'),
             '--kind with no value': (1, 'pair.sh: --kind needs a value'),
@@ -6376,7 +6376,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(dict(os.environ), before)
 
     def test_setup_kpy_calls_leave_the_environment_alone(self):
-        """init, spawn, consultant and fleet reach kitchen.py's `--json roster`, `--json validate`, `setup --role sidekick` and `fleet` in process; none
+        """init, spawn, consultant and fleet reach kitchen.py's roster, validate and fleet functions and `setup --role sidekick` in process; none
         of them writes os.environ (the writes are in `gate` and `brief-verify`, kitchen.py :745, :771, :1023, :1038). `setup` runs the repo's commands
         as a child process with a copy of the environment."""
         kpy = self.kitchen_core_module('kpy')
@@ -6390,10 +6390,27 @@ class CoreTests(unittest.TestCase):
         before = dict(os.environ)
         with mock.patch.dict(os.environ, {'HOME': str(top), 'XDG_STATE_HOME': str(top / 'state')}):
             snapshot = dict(os.environ)
-            for repo_arg, args in ((None, ['--json', 'roster']), (str(repo), ['--json', 'validate']), (str(repo), ['setup', '--role', 'sidekick']), (None, ['fleet'])):
-                self.assertEqual(kpy.run(repo_arg, args)[0], 0, args)
-                self.assertEqual(dict(os.environ), snapshot, args)
+            kp = kpy.kitchen_py
+            for name, query in (('roster', lambda: kp.roster_data()), ('validate', lambda: kp.validate(kp.Invocation(str(repo)))),
+                                ('fleet', lambda: kp.fleet(top / 'state/pstack/kitchen/runs', None))):
+                query()
+                self.assertEqual(dict(os.environ), snapshot, name)
+            self.assertEqual(kpy.run(str(repo), ['setup', '--role', 'sidekick'])[0], 0)
+            self.assertEqual(dict(os.environ), snapshot, 'setup')
         self.assertEqual(dict(os.environ), before)
+
+    def test_a_kitchen_error_from_a_query_is_shown_as_the_command_line_prints_it_and_ends_the_command_with_its_code(self):
+        kpy = self.kitchen_core_module('kpy')
+        from pstack_core.errors import ToolFailed
+
+        def refuse(*args, **kwargs):
+            raise kpy.KitchenError('no kitchen at /repo/.agents/kitchen.toml', 3)
+        with mock.patch('sys.stdout', new_callable=io.StringIO) as out, mock.patch('sys.stderr', new_callable=io.StringIO) as err:
+            out.write('before ')
+            with self.assertRaises(ToolFailed) as caught:
+                kpy.call(refuse, 1, key=2)
+        self.assertEqual((caught.exception.code, out.getvalue(), err.getvalue()), (3, 'before ', 'kitchen: no kitchen at /repo/.agents/kitchen.toml\n'))
+        self.assertEqual(kpy.call(lambda *a, **k: (a, k), 1, key=2), ((1,), {'key': 2}))
 
     def test_verify_behaviour(self):
         cases = self.launch_cases()
