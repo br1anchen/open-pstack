@@ -2589,6 +2589,33 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(calls, [('notification', 'show', 'pstack-kitchen: feedback filed', '--body', '/fb/inbox/x.md', '--sound', 'request')])
         prompt.assert_not_called()
 
+    def test_a_gates_mode_verification_writes_its_clean_verdict_from_the_step_rows_without_starting_a_verifier(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from types import SimpleNamespace
+        from kitchen_core import verify
+        st = self.path / 'gates-st'
+        (st / 'briefs').mkdir(parents=True)
+        (st / 'verdicts').mkdir()
+        (st / 'briefs' / '001-x.md').write_text('playbook: investigation\n')
+        (st / 'pair.json').write_text('{}\n')
+        (st / 'gates.tsv').write_text('10\t001-x\tabc\tpass\tdocs\n11\t002-y\tdef\tpass\tdocs\n')
+        ctx = Context('pstack-kitchen', '/x', '/s', 'Kitchen', ('sidekick',), (), 21, '', prog='kitchen.sh')
+        c = SimpleNamespace(mode='gates', base='a' * 40, head='b' * 40, data={}, cls='routine')
+        o = SimpleNamespace(landing=False, every_m=1)
+        with mock.patch.object(verify, 'warn_unreviewed'), mock.patch.object(verify, 'launch_verifier') as launch, contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(verify.start_verification(ctx, str(st), [], o, str(self.path), ['001'], c), 0)
+        verdict = st / 'verdicts' / '001-x-v1.md'
+        self.assertEqual(said.getvalue(), f'verdict: {verdict}\nstatus: clean (gates only; mode gates)\n')
+        self.assertIn('status: clean\nunits: 001\nrange: aaaaaaaaa..bbbbbbbbb\nverifier: gates\n', verdict.read_text())
+        self.assertIn('10\t001-x\tabc\tpass\tdocs\n```\n', verdict.read_text())
+        self.assertNotIn('002-y', verdict.read_text())
+        launch.assert_not_called()
+
     def test_feedback_moves_a_file_into_place_or_names_the_move_it_could_not_make(self):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
         try:

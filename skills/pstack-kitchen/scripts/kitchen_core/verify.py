@@ -161,6 +161,39 @@ def record_landing_parent(store, o, c):
         update(store, record)
 
 
+def start_verification(ctx, store, argv, o, root, allunits, c):
+    """Everything after the units are classified: a gates-mode verdict written at once, or the verifier started with its packet, then the wait for its
+    verdict. The status of the wait is the exit code."""
+    data = c.data
+    last, brief, slug, verdict, packet = verdict_paths(store, o.landing, allunits)
+    if c.mode == 'gates':
+        gates_verdict(ctx, store, verdict, last, slug, allunits, c.base, c.head)
+        event(store, 'master', 'verify', brief, 'gates:clean')
+        wake(ctx, store, brief, 'verify:clean')
+        out(f'verdict: {verdict}\nstatus: clean (gates only; mode gates)\n')
+        warn_unreviewed(store)
+        vs.handoff_due(store, last)
+        return 0
+    timeout_m = deadline_minutes(store, root, data, o)
+    entry, kind, args_list = choose_verifier(store, root, c.cls, o)
+    scratch_id = '000-landing-verify' if o.landing else f'{last}-{slug}-verify'
+    v = SimpleNamespace(ctx=ctx, store=store, argv=argv, landing=o.landing, units=allunits, last=last, slug=slug, brief=brief, base=c.base, head=c.head,
+                        cls=c.cls, risk=c.risk, data=data, verdict=verdict, packet=packet, timeout_m=timeout_m, entry=entry, kind=kind, args=args_list,
+                        identity=verifier_identity(kind, args_list), scratch_id=scratch_id, retried=bool(o.retry_entry),
+                        scratch=scratch_path(ctx, store, scratch_id, c.head))
+    if o.landing:
+        record_landing_parent(store, o, c)
+    write_packet(packet, Packet(
+        template=f'{ctx.skill_root}/references/verdict-template.md', tool_dir=f'{ctx.skill_root}/scripts', root=root, store=store, verdict=verdict,
+        scratch=v.scratch, base=c.base, head=c.head, identity=v.identity, vclass='landing' if o.landing else c.cls, timeout_m=timeout_m, risk=c.risk,
+        units=tuple(allunits), own=tuple(o.units), covered=tuple(o.covered), landing=o.landing, last=last, slug=slug, data=c.data,
+        config=c.cfg[1] if len(c.cfg) > 1 else ''))
+    pane, started = launch_verifier(v)
+    record_start(v, pane, started)
+    deliver_packet(v)
+    return Waiter(ctx, store, o.every_m, retry=lambda again: verify(ctx, again)).run().rc
+
+
 def verify(ctx, args):
     """Start a verification of the named units or the landing and wait for its verdict; the status is the exit code."""
     require_herdr()
@@ -200,33 +233,7 @@ def verify(ctx, args):
     # A batch of independent units has a size cap; a fix verified with the unit it fixes does not, since splitting it would re-reject the first.
     if not o.covered and len(o.units) > 1 and is_number(data.get('diff_lines')) and is_number(data.get('max_batch_diff')) and data['diff_lines'] > data['max_batch_diff']:
         raise Die(f'batch of {json.dumps(data["diff_lines"])} diff lines is over review.max_batch_diff; verify each unit', 2)
-    last, brief, slug, verdict, packet = verdict_paths(store, o.landing, allunits)
-    if c.mode == 'gates':
-        gates_verdict(ctx, store, verdict, last, slug, allunits, c.base, c.head)
-        event(store, 'master', 'verify', brief, 'gates:clean')
-        wake(ctx, store, brief, 'verify:clean')
-        out(f'verdict: {verdict}\nstatus: clean (gates only; mode gates)\n')
-        warn_unreviewed(store)
-        vs.handoff_due(store, last)
-        return 0
-    timeout_m = deadline_minutes(store, root, data, o)
-    entry, kind, args_list = choose_verifier(store, root, c.cls, o)
-    scratch_id = '000-landing-verify' if o.landing else f'{last}-{slug}-verify'
-    v = SimpleNamespace(ctx=ctx, store=store, argv=argv, landing=o.landing, units=allunits, last=last, slug=slug, brief=brief, base=c.base, head=c.head,
-                        cls=c.cls, risk=c.risk, data=data, verdict=verdict, packet=packet, timeout_m=timeout_m, entry=entry, kind=kind, args=args_list,
-                        identity=verifier_identity(kind, args_list), scratch_id=scratch_id, retried=bool(o.retry_entry),
-                        scratch=scratch_path(ctx, store, scratch_id, c.head))
-    if o.landing:
-        record_landing_parent(store, o, c)
-    write_packet(packet, Packet(
-        template=f'{ctx.skill_root}/references/verdict-template.md', tool_dir=f'{ctx.skill_root}/scripts', root=root, store=store, verdict=verdict,
-        scratch=v.scratch, base=c.base, head=c.head, identity=v.identity, vclass='landing' if o.landing else c.cls, timeout_m=timeout_m, risk=c.risk,
-        units=tuple(allunits), own=tuple(o.units), covered=tuple(o.covered), landing=o.landing, last=last, slug=slug, data=c.data,
-        config=c.cfg[1] if len(c.cfg) > 1 else ''))
-    pane, started = launch_verifier(v)
-    record_start(v, pane, started)
-    deliver_packet(v)
-    return Waiter(ctx, store, o.every_m, retry=retry).run().rc
+    return start_verification(ctx, store, argv, o, root, allunits, c)
 
 
 def is_number(value):
