@@ -240,7 +240,7 @@ def checkin(ctx, store, interval=9, now=None):
     out.append(f'check-in: {base}  elapsed {"?" if elapsed is None else elapsed}m of {timebox or "?"}m\n')
     run = sidekick_activity(store, now)
     prog = progress_path(store)
-    stale = ''
+    stale, tag = False, ''
     if os.path.isfile(prog):
         text = read_text(prog)
         total = text.count('\n')
@@ -254,14 +254,14 @@ def checkin(ctx, store, interval=9, now=None):
         limit = interval
         if age_m >= limit:
             if run:
-                stale = f'  running: {run}'
+                tag = f'  running: {run}'
             else:
                 active = tree_activity(cwd, head, now)
                 if active and now - active < (limit if limit > 0 else 1) * 60:
-                    stale = f'  editing: last change {tdiv(now - active, 60)}m ago'
+                    tag = f'  editing: last change {tdiv(now - active, 60)}m ago'
                 else:
-                    stale = '  STALE'
-        out.append(f'progress: +{new} lines (last {age_m}m ago){stale}\n')
+                    stale = True
+        out.append(f'progress: +{new} lines (last {age_m}m ago){"  STALE" if stale else tag}\n')
         lines = text.split('\n')
         if lines and lines[-1] == '':
             lines.pop()
@@ -270,7 +270,7 @@ def checkin(ctx, store, interval=9, now=None):
             f.write(f'{total}\n')
     else:
         out.append('progress: none yet\n')
-    if run and 'running:' not in stale:
+    if run and 'running:' not in tag:
         out.append(f'running: {run}\n')
     touched = status_paths(cwd)
     if head:
@@ -302,4 +302,4 @@ def checkin(ctx, store, interval=9, now=None):
     if committed:
         blocking = len(open_notes(store, brief))
         out.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {blocking} blocking notes open\n')
-    return CheckIn(tuple(out), stale.endswith('STALE'), len(outside), objected, blocking, elapsed, int(timebox) if timebox else None)
+    return CheckIn(tuple(out), stale, len(outside), objected, blocking, elapsed, int(timebox) if timebox else None)

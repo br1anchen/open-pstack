@@ -7522,6 +7522,37 @@ class CheckInFactTests(DispatchedStore):
         self.assertEqual((got.stale, got.flagged), (True, True))
         self.assertFalse(self.digest(1).stale)
 
+    def test_two_objections_and_an_open_blocking_note_are_counted_and_flagged(self):
+        for name in ('001-x-s1.md', '001-x-s2.md'):
+            (self.store / 'reports' / name).write_text('status: object\n')
+        self.assertEqual(self.digest(1).objected, 2)
+        (self.store / 'notes').mkdir()
+        (self.store / 'notes/001-x-n1.md').write_text('# Note\n\nstatus: blocking\n')
+        (self.store / 'steps').mkdir()
+        (self.store / 'steps/001-x.tsv').write_text(f'1\t{self.head}\t{self.EPOCH}\t\tone\n')
+        got = self.digest(1)
+        self.assertEqual((got.open_notes, got.flagged), (1, True))
+        (self.store / 'reports/001-x-s1.md').unlink()
+        (self.store / 'reports/001-x-s2.md').unlink()
+        self.assertEqual((self.digest(1).objected, self.digest(1).flagged), (0, True), 'the open note alone flags it')
+        (self.store / 'notes/001-x-n1.md').write_text('# Note\n\nstatus: resolved\n')
+        self.assertFalse(self.digest(1).flagged)
+
+    def test_a_brief_with_no_timebox_cannot_overrun(self):
+        self.brief.write_text('playbook: investigation\nplan: none\n\n## Scope\n\nmay write:\n- f.txt\n')
+        got = self.digest(999)
+        self.assertEqual((got.timebox_min, got.overrun, got.flagged), (None, False, False))
+        self.assertEqual(got.lines[0], 'check-in: 001-x.md  elapsed 999m of ?m\n')
+
+    def test_words_in_the_progress_log_do_not_flag_the_digest(self):
+        prog = self.store / 'progress/001-x.md'
+        prog.parent.mkdir()
+        prog.write_text('- STALE copy removed\n- 1 objected earlier\n- 2 blocking notes open before\n')
+        os.utime(prog, (self.EPOCH, self.EPOCH))
+        got = self.digest(1)
+        self.assertTrue(any('STALE copy removed' in line for line in got.lines))
+        self.assertEqual((got.stale, got.objected, got.open_notes, got.flagged), (False, 0, 0, False))
+
     def test_no_dispatched_brief_gives_no_digest(self):
         self.brief.unlink()
         self.assertIsNone(self.digest(1))
