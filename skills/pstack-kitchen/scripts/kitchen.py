@@ -473,13 +473,20 @@ def tracked(root: Path, at: str | None) -> list[str]:
 # Changed files with added and removed line counts: a commit range, the
 # working tree against HEAD (untracked files count as added), or a brief's
 # Scope globs expanded against the tracked files.
-def changes(root: Path, args) -> list[tuple[str, int, int]]:
-    if args.paths:
-        files = tracked(root, args.at)
-        out, seen = [], set()
-        args.outside = []
-        args.scope_globs = []
-        for pattern in args.paths:
+@dataclass
+class Change:
+    """What a change touches: the files with their added and removed lines, and for a brief's Scope the globs it kept and the paths outside the repo."""
+    files: list[tuple[str, int, int]]
+    scope_globs: list[str] = field(default_factory=list)
+    outside: list[str] = field(default_factory=list)
+
+
+def changes(root: Path, at: str | None, paths: list[str] | None = None, working_tree: bool = False,
+            base: str | None = None, head: str | None = None) -> Change:
+    if paths:
+        files = tracked(root, at)
+        out, seen, outside, scope_globs = [], set(), [], []
+        for pattern in paths:
             # An absolute path is repo-relative when it is inside the repo;
             # outside it (the run's own store, a report) it is bookkeeping that
             # no gate covers and no rule escalates.
@@ -487,9 +494,9 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
                 try:
                     pattern = str(Path(pattern).relative_to(root))
                 except ValueError:
-                    args.outside.append(pattern)
+                    outside.append(pattern)
                     continue
-            args.scope_globs.append(pattern)
+            scope_globs.append(pattern)
             rx = glob_regex(pattern)
             # A glob for files that do not exist yet stands for one file it
             # would match, so a new directory still maps to its profile.
@@ -498,17 +505,17 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
                 if f not in seen:
                     seen.add(f)
                     out.append((f, 0, 0))
-        return out
-    if args.working_tree:
+        return Change(out, scope_globs, outside)
+    if working_tree:
         numstat = git(root, 'diff', *DIFF_OPTS, '--numstat', 'HEAD')
         extra = git(root, 'ls-files', '--others', '--exclude-standard').splitlines()
     else:
-        if not args.base:
+        if not base:
             raise KitchenError('give --base REV [--head REV], --working-tree, or --paths GLOB...')
         # From the merge-base: a range whose base was rewritten (a squash, a
         # rebase) still covers every change since the histories forked, not
         # only the difference between two trees.
-        numstat = git(root, 'diff', *DIFF_OPTS, '--numstat', f"{args.base}...{args.head or 'HEAD'}")
+        numstat = git(root, 'diff', *DIFF_OPTS, '--numstat', f"{base}...{head or 'HEAD'}")
         extra = []
     out = []
     for line in numstat.splitlines():
@@ -520,7 +527,7 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
         except OSError:
             n = 0
         out.append((path, n, 0))
-    return out
+    return Change(out)
 
 
 def generated_warnings(kitchen: Kitchen, root: Path, at: str | None, scope_globs: list[str],
@@ -1120,10 +1127,9 @@ def check_policy(root: Path, kitchen: Kitchen, args) -> list[dict]:
                                      'message': rule.message, 'source': rule.source})
             line_no += 1
     if args.working_tree:
-        changed = changes(root, argparse.Namespace(paths=None, working_tree=True, at=None))
+        changed = changes(root, None, working_tree=True).files
     else:
-        changed = changes(root, argparse.Namespace(paths=None, working_tree=False, at=None,
-                                                   base=args.base, head=args.head))
+        changed = changes(root, None, base=args.base, head=args.head).files
     paths = [c[0] for c in changed]
     for p in kitchen.profiles.values():
         if not p.require_tests or any(matches(f, p.test_res) for f in paths):
@@ -1294,7 +1300,7 @@ def history(root: Path, kitchen: Kitchen, last: int) -> list[dict]:
         if not parent:
             continue
         ns = argparse.Namespace(paths=None, working_tree=False, at=None, base=parent, head=rev)
-        r = classify(kitchen, changes(root, ns))
+        r = classify(kitchen, changes(root, None, base=parent, head=rev).files)
         findings = check_policy(root, kitchen, ns)
         rows.append({'rev': rev[:9], 'subject': git(root, 'log', '-1', '--format=%s', rev).strip(),
                      'risk': r['risk'], 'profiles': r['profiles'], 'escalate': r['escalate'],
@@ -2445,6 +2451,47 @@ def manifests(inv: Invocation, paths: list[str]) -> list[str]:
     return [x for x in paths if x and matches(x, kitchen.escalate['manifests'])]
 
 
+def classify_change(inv: Invocation, base: str | None = None, head: str | None = None, working_tree: bool = False,
+                    paths: list[str] | None = None, escalate: tuple[str, ...] = ()) -> dict:
+    """The kitchen's class for a change, from a range, the working tree or a brief's Scope globs: profiles, risk, verify settings, warnings."""
+    root, kitchen, _ = open_kitchen(inv)
+    change = changes(root, inv.at, paths, working_tree, base, head)
+    r = classify(kitchen, change.files, change.outside, list(escalate))
+    if kitchen.generated:
+        r['warnings'] = generated_warnings(kitchen, root, inv.at, change.scope_globs, change.files)
+    return r
+
+
+def classify_text(r: dict) -> str:
+    text = [f'risk: {r["risk"]}', f'profiles: {", ".join(r["profiles"]) or "none"}',
+            f'diff_lines: {r["diff_lines"]}',
+            f'verify: {r["verify"]["mode"]} by {r["verify"]["kind"]} verifier', f'sample: {r["sample"]}']
+    text += [f'escalate: {x}' for x in r['escalate']]
+    text += [f'unmapped: {x}' for x in r['unmapped']]
+    text += [f'outside the repo: {x}' for x in r['outside']]
+    text += [f'warn: {x}' for x in r.get('warnings', [])]
+    return '\n'.join(text)
+
+
+def timing(inv: Invocation, profiles: list[str], stage: str = 'behavioral') -> dict:
+    return gate_timing(repo_root(inv.root), profiles, stage)
+
+
+def timing_text(r: dict, stage: str) -> str:
+    return (f'{stage}: {r["seconds"]}s' + ''.join(f'\n  {p} {s}s' for p, s in r['profiles'].items())
+            + (f'\n  unmeasured: {", ".join(r["unmeasured"])}' if r['unmeasured'] else ''))
+
+
+def deadline(inv: Invocation, profiles: list[str], with_setup: bool = False) -> dict:
+    return verify_deadline(repo_root(inv.root), profiles, with_setup)
+
+
+def brief_verify_list(inv: Invocation, brief: Path) -> list[str]:
+    """The commands a brief's Verify block parses into, in the repo's kitchen."""
+    open_kitchen(inv)
+    return brief_verify_commands(brief)
+
+
 def emit(obj, as_json: bool, text: str) -> None:
     print(json.dumps(obj, indent=2) if as_json else text)
 
@@ -2590,14 +2637,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         root = repo_root(args.repo)
         if args.cmd == 'timing' and args.deadline:
-            r = verify_deadline(root, args.profiles, args.with_setup)
+            r = deadline(inv, args.profiles, args.with_setup)
             emit(r, args.json, deadline_text(r))
             return 0
         if args.cmd == 'timing':
-            r = gate_timing(root, args.profiles, args.stage)
-            emit(r, args.json, f'{args.stage}: {r["seconds"]}s'
-                 + ''.join(f'\n  {p} {s}s' for p, s in r['profiles'].items())
-                 + (f'\n  unmeasured: {", ".join(r["unmeasured"])}' if r['unmeasured'] else ''))
+            r = timing(inv, args.profiles, args.stage)
+            emit(r, args.json, timing_text(r, args.stage))
             return 0
         if args.cmd == 'where':
             kind, path = host_kitchen(root)
@@ -2671,20 +2716,8 @@ def main(argv: list[str] | None = None) -> int:
             emit({'manifests': hits}, args.json, '\n'.join(hits))
             return 0
         if args.cmd == 'classify':
-            if not args.paths:
-                args.paths = None
-            changed = changes(root, args)
-            r = classify(kitchen, changed, getattr(args, 'outside', []), args.escalate)
-            if kitchen.generated:
-                r['warnings'] = generated_warnings(kitchen, root, args.at, getattr(args, 'scope_globs', []), changed)
-            text = [f'risk: {r["risk"]}', f'profiles: {", ".join(r["profiles"]) or "none"}',
-                    f'diff_lines: {r["diff_lines"]}',
-                    f'verify: {r["verify"]["mode"]} by {r["verify"]["kind"]} verifier', f'sample: {r["sample"]}']
-            text += [f'escalate: {x}' for x in r['escalate']]
-            text += [f'unmapped: {x}' for x in r['unmapped']]
-            text += [f'outside the repo: {x}' for x in r['outside']]
-            text += [f'warn: {x}' for x in r.get('warnings', [])]
-            emit(r, args.json, '\n'.join(text))
+            r = classify_change(inv, args.base, args.head, args.working_tree, args.paths, args.escalate)
+            emit(r, args.json, classify_text(r))
             return 0
         if args.cmd == 'gate':
             r = run_gate(root, kitchen, args.profile, args.stage, args.log_dir, args.keep_going, args.only, args.result,
@@ -2703,7 +2736,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if r['passed'] else 2
         if args.cmd == 'brief-verify':
             if args.list:
-                cmds = brief_verify_commands(args.brief)
+                cmds = brief_verify_list(inv, args.brief)
                 emit({'commands': cmds}, args.json, '\n'.join(f'{i}: {c}' for i, c in enumerate(cmds)) or 'none')
                 return 0
             r = run_brief_verify(root, kitchen, args.brief, args.log_dir, args.result, args.role, args.base)

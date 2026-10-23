@@ -157,16 +157,14 @@ def step(ctx, args):
         os.makedirs(job, exist_ok=True)
         run = len([n for n in os.listdir(job) if re.match(r'out\.[0-9]', n)]) + 1
         point_at(ctx, f'{job}/out', f'out.{run}')
-        code, found, err = kpy.run(root, [*cfg, '--json', 'classify', '--base', base, '--head', full])
-        if err:
-            sys.stdout.flush()
-            sys.stderr.write(err)
-        if code != 0:
-            raise Exit(code)
-        text = found.rstrip('\n')
+        try:
+            found = kpy.kitchen_py.classify_change(kpy.invocation(store, root, cfg[1] if cfg else None), base=base, head=full)
+        except kpy.KitchenError as e:
+            kpy.explain(e)
+            raise Exit(e.code) from None
         with open(f'{job}/classify.json', 'w') as f:
-            f.write(text + '\n')
-        profiles = json.loads(text)['profiles']
+            f.write(json.dumps(found, indent=2) + '\n')
+        profiles = found['profiles']
         with open(f'{job}/profiles', 'w') as f:
             f.write(''.join(f'{name}\n' for name in profiles))
         with open(f'{job}/base', 'w') as f:

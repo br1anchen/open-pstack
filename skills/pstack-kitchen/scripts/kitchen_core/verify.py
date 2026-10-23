@@ -16,6 +16,7 @@ import re
 import sys
 import time
 import contextlib
+from pathlib import Path
 from types import SimpleNamespace
 
 from pstack_core.argv import Spec, read as read_options
@@ -37,6 +38,7 @@ from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
 from pstack_core.variant import commit_of
 
+from . import kpy
 from .kpy import Kitchen
 from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
@@ -102,15 +104,14 @@ def brief_commands(kit, brief, unit):
     `# master-only` (on its first or last line) writes the store, and one that names the main checkout or the store cannot run in the scratch; both are
     listed apart, in full, each with its reason. A Verify block the kitchen refuses is said so in the packet and warned of, not skipped."""
     store, root = kit.store, kit.root
-    status, listed = kit.merged(['--json', 'brief-verify', brief, '--list'])
-    if status != 0:
-        first = listed.rstrip('\n').split('\n')[0]
+    try:
+        commands = kpy.kitchen_py.brief_verify_list(kpy.invocation(store, root), Path(brief))
+    except kpy.KitchenError as e:
+        first = f'kitchen: {e}'.split('\n')[0]
         warn(f'warning: unit {unit or "?"}: brief-verify: {first}\n')
         return f'Brief commands: none (brief-verify: {first})\n\n'
     text, n, apart = '', 0, ''
-    reply = parse(listed)
-    commands = reply.get('commands') if isinstance(reply, dict) else None
-    for command in commands if isinstance(commands, list) else []:
+    for command in commands:
         parts = command.split('\n')
         first, last = parts[0], parts[-1]
         fence = fence_for(command)
@@ -308,8 +309,8 @@ def classify_landing(store, root, kit, o):
     # The stack lands under the kitchen as it is now.
     snap = kitchen_snapshot(store, root)
     cfg = ['--config', snap] if snap else []
-    classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head])
-    return SimpleNamespace(base=base, head=head, override=override, label=label, cfg=cfg, classified=classified, data=json.loads(classified),
+    data = kpy.call(kpy.kitchen_py.classify_change, kpy.invocation(store, root, snap or None, head), base=base, head=head)
+    return SimpleNamespace(base=base, head=head, override=override, label=label, cfg=cfg, data=data,
                            risk='landing', mode='unit', cls='escalated')
 
 
@@ -317,15 +318,11 @@ def classify_units(ctx, store, kit, o, allunits):
     """The named units' range and class. A unit dispatched as escalated is verified as escalated, whatever its diff touches."""
     base, head = unit_range(ctx, store, allunits, o.covered, o.range_base)
     heads_in(store, head, allunits)
-    esc = []
-    for u in allunits:
-        if header_field(brief_or_nothing(ctx, store, u), 'risk') == 'escalated':
-            esc += ['--escalate', f'unit {u} was dispatched as escalated']
+    escalate = tuple(f'unit {u} was dispatched as escalated' for u in allunits if header_field(brief_or_nothing(ctx, store, u), 'risk') == 'escalated')
     cfg = brief_kitchen(brief_or_nothing(ctx, store, allunits[-1]))
-    classified = kit.call([*cfg, '--at', head, '--json', 'classify', '--base', base, '--head', head, *esc])
-    data = json.loads(classified)
+    data = kpy.call(kpy.kitchen_py.classify_change, kpy.invocation(store, kit.root, cfg[1] if cfg else None, head), base=base, head=head, escalate=escalate)
     verify_class = data.get('verify') or {}
-    return SimpleNamespace(base=base, head=head, override='', label='', cfg=cfg, classified=classified, data=data, risk=data.get('risk') or '',
+    return SimpleNamespace(base=base, head=head, override='', label='', cfg=cfg, data=data, risk=data.get('risk') or '',
                            mode=verify_class.get('mode') or '', cls=verify_class.get('kind') or '')
 
 
@@ -348,15 +345,13 @@ def deadline_minutes(kit, data, o):
     if o.timeout_m is not None:
         out(f'deadline {o.timeout_m}m (--timeout)\n')
         return o.timeout_m
-    dlargs = ['timing', '--deadline', '--stage', 'behavioral']
-    if data['scratch_setup']:
-        dlargs.append('--with-setup')
-    dlargs += data['behavioral']
-    minutes = int(json.loads(kit.call(['--json', *dlargs])).get('minutes'))
-    kit.call(dlargs, show=True)
+    inv = kpy.invocation(kit.store, kit.root)
+    deadline = kpy.call(kpy.kitchen_py.deadline, inv, data['behavioral'], bool(data['scratch_setup']))
+    minutes = deadline['minutes']
+    out(kpy.kitchen_py.deadline_text(deadline) + '\n')
     profiles = data.get('landing') or [] if o.landing else []
     if profiles:
-        timed = json.loads(kit.call(['--json', 'timing', '--stage', 'landing', *profiles]))
+        timed = kpy.call(kpy.kitchen_py.timing, inv, profiles, 'landing')
         seconds = timed.get('seconds') or 0
         unmeasured = len(timed['unmeasured'])
         added = int((3 * seconds + 59) / 60) + 10 * unmeasured
@@ -535,7 +530,7 @@ def verify(ctx, args):
     if o.landing:
         record_landing_parent(store, o, c)
     write_packet(ctx, kit, f'{ctx.skill_root}/scripts', store, packet, verdict, v.scratch, c.base, c.head, v.identity, 'landing' if o.landing else c.cls, timeout_m,
-                 c.risk, allunits, o.units, o.covered, o.landing, last, slug, c.cls, c.classified, c.cfg)
+                 c.risk, allunits, o.units, o.covered, o.landing, last, slug, c.cls, c.data, c.cfg)
     pane, started = launch_verifier(v)
     record_start(v, pane, started)
     deliver_packet(v)
@@ -672,7 +667,7 @@ def section_lines(path, pattern, keep_heading):
 
 
 def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, identity, vclass, timeout_m, risk, allunits, units, covered, landing, last,
-                 slug, cls, classified, cfg):
+                 slug, cls, data, cfg):
     """The verifier's packet, written even when a step fails midway, so what was gathered stays."""
     root = kit.root
     parts = []
@@ -731,7 +726,6 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
         parts.append(f' PSTACK_KITCHEN_RUN={read(store, "slug")}\n')
         config = cfg[1] if len(cfg) > 1 else ''
         tool = f'{here}/kitchen.py' + (f' --config {config}' if config else '')
-        data = json.loads(classified)
         if (data.get('scratch_setup') or []):
             parts.append(f'python3 {tool} --repo {scratch} setup\n')
         forked = git.run(root, 'merge-base', base, head, quiet=True)

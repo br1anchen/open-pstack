@@ -45,6 +45,15 @@ def explain(error):
     sys.stderr.write(f'kitchen: {error}\n')
 
 
+def call(query, *args, **kwargs):
+    """A kitchen.py query as a plain command: a KitchenError is shown as kitchen.py prints it and ends the command with its status."""
+    try:
+        return query(*args, **kwargs)
+    except KitchenError as e:
+        explain(e)
+        raise ToolFailed(e.code) from None
+
+
 def run(repo, args, stdin=None):
     """`kitchen.py --repo <repo> <args>` in process: (rc, stdout, stderr). main sets the INVOCATION its child commands use itself; a
     SystemExit (argparse's usage errors, --help) becomes the rc it carries. Only what main writes through sys.stdout and sys.stderr is

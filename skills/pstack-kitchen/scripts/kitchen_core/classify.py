@@ -3,7 +3,6 @@
 Every kitchen.py call here (`snapshot`, `--json classify` and `lessons stamp`) goes through kpy.run, in process. None of them writes os.environ or
 reads INVOCATION: those belong to `gate` and to `brief-verify` without --list. test_classify_kpy_calls_leave_the_environment_alone pins that."""
 
-import json
 import os
 import re
 import sys
@@ -68,19 +67,17 @@ def classify_brief(store, brief):
     globs = scope_entries(brief, 'may')
     if not globs:
         raise EmptyScope(f"{brief} lists nothing under Scope's may write:")
-    esc = []
-    for reason in brief_escalations(brief):
-        esc += ['--escalate', reason]
     snap = kitchen_snapshot(store)
     if snap:
         set_header(brief, 'kitchen', snap)
     elif header_field(brief, 'kitchen'):
         set_header(brief, 'kitchen', 'repo')
     cfg = brief_kitchen(brief)
-    status, classified = kit.soft([*cfg, '--json', 'classify', '--paths', *globs, *esc])
-    if status != 0:
-        raise KitchenPyFailed(CLASSIFY_FAILED)
-    data = json.loads(classified)
+    try:
+        data = kpy.kitchen_py.classify_change(kpy.invocation(store, config=cfg[1] if cfg else None), paths=globs, escalate=tuple(brief_escalations(brief)))
+    except kpy.KitchenError as e:
+        kpy.explain(e)
+        raise KitchenPyFailed(CLASSIFY_FAILED) from None
     risk, verify = data.get('risk') or '', data['verify']
     profiles, escalate = data['profiles'], data['escalate']
     verify_line = f'{verify["mode"]} by {verify["kind"]} verifier'
