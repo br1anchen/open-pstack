@@ -6,6 +6,12 @@ reading `pstack-kitchen` for `pstack-pair` in every message and
 `~/.agents/skills/pstack-kitchen/scripts/kitchen.sh` for `pair.sh`. These
 differ:
 
+- **Bootstrap reads less.** `session-handoff.md` is the master's handoff to
+  its next generation: do not read it. Of pstack-pair's SKILL.md read the
+  Messages, Check-ins and steers, Task sessions of every kind, Pausing and
+  Shared rules sections, and of the runtime adapter everything except
+  Transcript scope, Bundled executable helpers and Automation and secrets,
+  which you open when session pickup, a helper or a bot needs them.
 - **`--resolves` takes another unit's note too.** `kitchen.sh step ... --resolves
   n2` closes this unit's note 2; `001-n2` closes unit 001's note 2 from a step
   on a later unit, so a fix carried by the next unit still closes the note.

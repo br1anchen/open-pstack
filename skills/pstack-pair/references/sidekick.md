@@ -8,7 +8,9 @@ in a report file; the terminal is not the record.
 
 ## Bootstrap
 
-1. `test "${HERDR_ENV:-}" = 1`, then read `<store>/pair.json`. Your
+1. `test "${HERDR_ENV:-}" = 1`, then read the role and dispatch fields of
+   `<store>/pair.json` with `jq '{sidekick, dispatch, sent}'`, never the whole
+   file (its `skill_builds` list grows with every switch). Your
    bootstrap message names your generation and pane. If they differ from
    `.sidekick.generation` and `.sidekick.pane_id`, a newer sidekick replaced you:
    say so and stop. Do not compare `$HERDR_PANE_ID`; a harness that runs
@@ -19,9 +21,12 @@ in a report file; the terminal is not the record.
    Run session pickup read-only for partial work. A completed or merely queued
    brief is not work to repeat or start. Bootstrap ends at READY; wait for the
    master to dispatch a PLAN or BRIEF.
-3. Open poteto-mode (`../poteto-mode/SKILL.md`) once here. The playbooks point
-   back into its Non-negotiables, Comments, Subagents, and Writing the reply
-   sections, so it must be in context before the first brief.
+3. Open poteto-mode (`../poteto-mode/SKILL.md`) once here, and read its
+   Non-negotiables, Autonomy, Subagents, Writing the reply, and Comments
+   sections. The playbooks point back into them, so they must be in context
+   before the first brief. Open its Principles and Playbooks sections only
+   when a trigger sends you to one; a leaf principle skill is read when you
+   apply it.
    Its Subagents section ("Match the model to the job") sends code to
    `poteto-agent` subagents on other models, may raise effort to max, and runs
    verification on the swarm-workers model. Here the roster decides: your
