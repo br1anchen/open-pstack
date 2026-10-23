@@ -5,7 +5,7 @@ import sys
 import time
 
 from ..store import event, field, read_text, header_field, member, names, newest, unit_name, update, who
-from ..errors import Die
+from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
 from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
 from ..prime import prime_steer
 from ..review import has_placeholder
@@ -41,6 +41,73 @@ def open_the_objection_round(store, epoch):
     update(store, mutate)
 
 
+def check_steer_file(ctx, steer_path):
+    """A steer file must exist, be readable, carry a Direction, have no unfilled placeholders and name a scope effect in one of the forms
+    steer-template.md describes."""
+    if not os.path.isfile(steer_path):
+        raise BadSteer(f'steer not found: {steer_path}')
+    try:
+        text = read_text(steer_path)
+    except OSError as e:
+        sys.stderr.write(f'{ctx.prog}: cannot read {steer_path}: {e.strerror}\n')
+        raise BadSteer(f'not a steer file: {steer_path}')
+    if not re.search(r'(?m)^## Direction', text):
+        raise BadSteer(f'not a steer file: {steer_path}')
+    if has_placeholder(text) or re.search(r'(?m)^(kind|scope effect): .*\|', text):
+        raise BadSteer(f'{steer_path} still has unfilled placeholders')
+    # the forms steer-template.md describes, each optionally followed by ` \u2014 <note>`
+    effect = header_field(steer_path, 'scope effect').rstrip().split(' \u2014 ')[0]
+    if not re.fullmatch(r'none|may write: \S.*|may write "[^"]+"(?: and "[^"]+")*|must not write: \S.*', effect):
+        raise BadSteer(f'{steer_path}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"')
+
+
+def steer_working(store, name, steer_path, message, interrupt):
+    """A steer for a sidekick in the middle of a turn: handed over between its tool calls, after an Esc with --interrupt. Devin parks a message sent
+    mid-turn as queued and the Enter that would deliver it cancels the running command, so its steer stays in the store for its next pair.sh
+    step, notes or progress; Prime queues it through its daemon."""
+    if interrupt:
+        # Esc cancels the running tool call so the steer is read now, not after it.
+        if not herdr_ok('agent', 'send-keys', name, 'esc'):
+            raise PromptFailed(f'herdr send-keys failed for {name}')
+        if not herdr_ok('agent', 'wait', name, '--until', 'idle', '--until', 'done', '--until', 'blocked', '--timeout', '15000'):
+            raise NotSettled(f'{who("sidekick", name)} did not settle after esc; inspect: herdr agent read {name} --source visible --lines 60')
+    event(store, 'master', 'send-steer', steer_path, 'working')
+    kind = field(store, 'sidekick', 'kind')
+    if kind == 'devin' and not interrupt:
+        leave_for_devin(store, steer_path)
+        print(f"steer {steer_path} left for {name}: it lands at the sidekick's next pair.sh step, notes, or progress, between tool calls; "
+              'the ack lands in the progress log. Use --interrupt only to cancel the running command.')
+    elif kind == 'prime-agent' and not interrupt:
+        if not prime_steer(store, message):
+            raise PromptFailed(f'Prime steer failed for {name}')
+        print(f'steered {name} with {steer_path}; Prime queues it between tool calls without cancelling the running command')
+    else:
+        if agent_prompt(name, message, stdout=DEVNULL, stderr=None).returncode != 0:
+            raise PromptFailed(f'herdr prompt failed for {name}')
+        print(f'steered {name} with {steer_path}; its harness hands it over between tool calls and the ack lands in the progress log')
+
+
+def open_objection(ctx, store, name, status, steer_path):
+    """The objection a steer answers when the sidekick is between turns: the unit's newest `-s<k>` report with status object. Without one the steer
+    is refused with what to do instead; a steer that supersedes nothing is refused too."""
+    seq = os.path.basename(steer_path)[:3]
+    slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
+    objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
+    if not objection or header_field(objection, 'status') != 'object':
+        report = f'{store}/reports/{seq}-{slug}.md'
+        unit_status = header_field(report, 'status') if os.path.isfile(report) else ''
+        if unit_status in ('blocked', 'partial'):
+            advice = f'apply its scope effect to the brief and re-dispatch it (dispatch {store} <brief> --send-only)'
+        elif unit_status == 'done':
+            # only the kitchen has verify --covers
+            advice = f'write a fix brief and verify it with --covers {seq}' if ctx.skill == 'pstack-kitchen' else 'write a fix brief'
+        else:
+            advice = 'fold the steer into the next brief instead'
+        raise NoObjectionOpen(f'{who("sidekick", name)} is {status} and no objection is open on unit {seq}; {advice}')
+    if header_field(steer_path, 'supersedes') == 'none':
+        raise BadSteer(f'{steer_path} answers {objection} but its supersedes: line says none')
+
+
 def steer(ctx, args):
     require_herdr()
     end_with_parent()
@@ -51,65 +118,15 @@ def steer(ctx, args):
     timeout = timeout_ms(opts)
     opts.refuse_leftovers()
     force, interrupt = opts.present('--force'), opts.present('--interrupt')
-    if not os.path.isfile(steer_path):
-        raise Die(f'steer not found: {steer_path}')
-    try:
-        text = read_text(steer_path)
-    except OSError as e:
-        sys.stderr.write(f'{ctx.prog}: cannot read {steer_path}: {e.strerror}\n')
-        raise Die(f'not a steer file: {steer_path}')
-    if not re.search(r'(?m)^## Direction', text):
-        raise Die(f'not a steer file: {steer_path}')
-    if has_placeholder(text) or re.search(r'(?m)^(kind|scope effect): .*\|', text):
-        raise Die(f'{steer_path} still has unfilled placeholders')
-    # the forms steer-template.md describes, each optionally followed by ` \u2014 <note>`
-    effect = header_field(steer_path, 'scope effect').rstrip().split(' \u2014 ')[0]
-    if not re.fullmatch(r'none|may write: \S.*|may write "[^"]+"(?: and "[^"]+")*|must not write: \S.*', effect):
-        raise Die(f'{steer_path}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"')
+    check_steer_file(ctx, steer_path)
     require_pair(ctx, store)
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     message = f'{ctx.skill} STEER {steer_path}'
     if status == 'working':
-        if interrupt:
-            # Esc cancels the running tool call so the steer is read now, not after it.
-            if not herdr_ok('agent', 'send-keys', name, 'esc'):
-                raise Die(f'herdr send-keys failed for {name}', 2)
-            if not herdr_ok('agent', 'wait', name, '--until', 'idle', '--until', 'done', '--until', 'blocked', '--timeout', '15000'):
-                raise Die(f'{who("sidekick", name)} did not settle after esc; inspect: herdr agent read {name} --source visible --lines 60', 3)
-        event(store, 'master', 'send-steer', steer_path, 'working')
-        kind = field(store, 'sidekick', 'kind')
-        if kind == 'devin' and not interrupt:
-            # Devin parks a mid-turn message as queued, and the Enter that would deliver it cancels the running command. The steer stays in
-            # the store; the sidekick's next step, notes, or progress prints it.
-            leave_for_devin(store, steer_path)
-            print(f"steer {steer_path} left for {name}: it lands at the sidekick's next pair.sh step, notes, or progress, between tool calls; "
-                  'the ack lands in the progress log. Use --interrupt only to cancel the running command.')
-        elif kind == 'prime-agent' and not interrupt:
-            if not prime_steer(store, message):
-                raise Die(f'Prime steer failed for {name}', 2)
-            print(f'steered {name} with {steer_path}; Prime queues it between tool calls without cancelling the running command')
-        else:
-            if agent_prompt(name, message, stdout=DEVNULL, stderr=None).returncode != 0:
-                raise Die(f'herdr prompt failed for {name}', 2)
-            print(f'steered {name} with {steer_path}; its harness hands it over between tool calls and the ack lands in the progress log')
+        steer_working(store, name, steer_path, message, interrupt)
     elif status in ('idle', 'done'):
-        seq = os.path.basename(steer_path)[:3]
-        slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
-        objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
-        if not objection or header_field(objection, 'status') != 'object':
-            report = f'{store}/reports/{seq}-{slug}.md'
-            unit_status = header_field(report, 'status') if os.path.isfile(report) else ''
-            if unit_status in ('blocked', 'partial'):
-                advice = f'apply its scope effect to the brief and re-dispatch it (dispatch {store} <brief> --send-only)'
-            elif unit_status == 'done':
-                # only the kitchen has verify --covers
-                advice = f'write a fix brief and verify it with --covers {seq}' if ctx.skill == 'pstack-kitchen' else 'write a fix brief'
-            else:
-                advice = 'fold the steer into the next brief instead'
-            raise Die(f'{who("sidekick", name)} is {status} and no objection is open on unit {seq}; {advice}', 5)
-        if header_field(steer_path, 'supersedes') == 'none':
-            raise Die(f'{steer_path} answers {objection} but its supersedes: line says none')
+        open_objection(ctx, store, name, status, steer_path)
         event(store, 'master', 'send-steer', steer_path, 'objection')
         # The reply to this steer is any report on the unit written from now.
         open_the_objection_round(store, int(time.time()))

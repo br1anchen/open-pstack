@@ -10,7 +10,7 @@ from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec, read as read_options
 from pstack_core.store import read_text, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at, update, who
 from pstack_core.numbers import env_float, env_int
-from pstack_core.errors import DamagedStore, Die, Exit
+from pstack_core.errors import DamagedStore, Die, Exit, HandoffNotReady, NextMasterNotStarted, RotateRefused
 from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
 from pstack_core.panes import (
     DEVNULL, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, pane_text, refuse_untrusted, reply_at, require_herdr,
@@ -117,42 +117,46 @@ def herdr_session(name):
     return reply_at(herdr('agent', 'get', name)[1], 'result', 'agent', 'agent_session', 'value', quiet=True) or ''
 
 
-def rotate_master(ctx, args):
-    require_herdr()
-    if not args:
-        raise Die('usage: kitchen.sh rotate-master <store> [--model MODEL]')
-    store = args[0]
-    model = read_options(args[1:], Spec(valued=('--model',))).last('--model', '')
-    pair_file(store)
+def check_handoff(ctx, store):
+    """The handoff the next master reads: written from the template, filled, with text under Goal and Next. Returns its path."""
     handoff = f'{store}/session-handoff.md'
     if not os.path.isfile(handoff):
-        raise Die(f'no handoff; write one first: kitchen.sh new-handoff {store}', 5)
+        raise HandoffNotReady(f'no handoff; write one first: kitchen.sh new-handoff {store}')
     require_filled(ctx, handoff)
     for heading in ('Goal', 'Next'):
         if not section_has_text(handoff, f'## {heading}'):
-            raise Die(f'{handoff}: the {heading} section is empty', 5)
+            raise HandoffNotReady(f'{handoff}: the {heading} section is empty')
+    return handoff
+
+
+def rotatable_master(store):
+    """(name, pane) of the master that hands over: no hand-over may be open, and it must be a live Claude."""
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')
     if read(store, 'master.previous.name'):
-        raise Die(f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first', 5)
+        raise RotateRefused(f'a hand-over is open: {name} has not taken over yet; it runs kitchen.sh take-master {store} first')
     if agent_status(name) == 'absent':
-        raise Die(f"{who('master', name)} is not live" + (f' in {pane}' if pane else '') + "; run this from the master's own session", 5)
+        raise RotateRefused(f"{who('master', name)} is not live" + (f' in {pane}' if pane else '') + "; run this from the master's own session")
     kind = agent_kind(name)
     if kind != 'claude':
-        raise Die(f'rotate-master restarts a Claude master; {name} is {kind}', 5)
-    model = model or detect_model_arg()
-    session = herdr_session(name)
+        raise RotateRefused(f'rotate-master restarts a Claude master; {name} is {kind}')
+    return name, pane
+
+
+def master_generation(store, session):
+    """The generation handing over. A rotation that never finished already recorded this session; it keeps that generation instead of skipping one."""
     gen = read(store, 'master.generation', '1')
-    # A rotation that never finished already recorded this session; it keeps that generation instead of skipping one.
     sessions = listing(peek(load(store), 'master'), 'sessions')
     if sessions and not isinstance(sessions[-1], dict):
         raise DamagedStore(f'master.sessions holds {json_type(sessions[-1])}, not an object')
     if session and sessions and session == text_at(sessions[-1], 'session'):
         gen = text_at(sessions[-1], 'generation')
-    gen_n = int(gen)
-    next_gen = gen_n + 1
-    # Herdr names are unique, so the new master holds a generation name until take-master frees the run's own.
-    temp = f"{read(store, 'slug')}-master-g{next_gen}"
+    return int(gen)
+
+
+def next_master_argv(store, temp, model):
+    """(argv, whether remote control is on) the next Claude master starts with: the master's permission, the model, the MCP opt-out and, unless
+    KITCHEN_MASTER_REMOTE_CONTROL is 0, remote control under the generation's name."""
     permission = read(store, 'master.permission_mode') or mode_of_this_shell()
     argv = list(permission_args('claude', permission))
     if model:
@@ -161,17 +165,27 @@ def rotate_master(ctx, args):
     remote = os.environ.get('KITCHEN_MASTER_REMOTE_CONTROL', '1') != '0'
     if remote:
         argv += ['--remote-control', temp]
+    return argv, remote
+
+
+def start_next_master(store, pane, temp, argv, gen_n):
+    """The next master's pane beside the old one, with its agent started; a start that fails closes the pane and leaves the old master in charge."""
     cwd = read(store, 'cwd')
     new_pane_id = new_pane(store, 'master', pane, '', cwd)
     sys.stdout.flush()
-    started = agent_start(temp, 'claude', new_pane_id, argv, stderr=DEVNULL).returncode == 0
-    if not started:
+    if agent_start(temp, 'claude', new_pane_id, argv, stderr=DEVNULL).returncode != 0:
         refuse_untrusted(new_pane_id, 'claude', cwd, True)
         herdr('pane', 'close', new_pane_id)
-        event(store, 'master', 'rotate-failed', '-', f'generation:{next_gen}')
-        raise Die(f'the next master did not start in {new_pane_id}; you stay the master (generation {gen}), so carry on and rotate at a later boundary', 2)
+        event(store, 'master', 'rotate-failed', '-', f'generation:{gen_n + 1}')
+        raise NextMasterNotStarted(f'the next master did not start in {new_pane_id}; you stay the master (generation {gen_n}), so carry on and rotate at a later boundary')
+    return new_pane_id
+
+
+def record_handover(store, handoff, gen_n, session, old, new):
+    """Keeps the handoff under sessions/ and records the hand-over in pair.json: .master.previous is the old master (name, pane), .master the new
+    one at the next generation, and the closed generation joins .master.sessions. `old` and `new` are (name, pane) pairs. Returns the copy's path."""
     os.makedirs(f'{store}/sessions', exist_ok=True)
-    copy = f'{store}/sessions/master-{gen}-handoff.md'
+    copy = f'{store}/sessions/master-{gen_n}-handoff.md'
     shutil.copyfile(handoff, copy)
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
@@ -183,14 +197,35 @@ def rotate_master(ctx, args):
             if not isinstance(each, dict):
                 raise DamagedStore(f'sessions holds {json_type(each)}, not an object')
         kept = [e for e in listed if session == '' or e.get('session') != session]
-        master['previous'] = {'name': name, 'pane_id': pane, 'session': session}
-        master['name'], master['pane_id'], master['registered_at'] = temp, new_pane_id, now
+        master['previous'] = {'name': old[0], 'pane_id': old[1], 'session': session}
+        master['name'], master['pane_id'], master['registered_at'] = new[0], new[1], now
         master['generation'] = gen_n + 1
         master['units_since_handoff'] = 0
         master['sessions'] = kept + [{'generation': gen_n, 'session': session, 'handoff': copy, 'at': now}]
 
     update(store, mutate)
-    event(store, 'master', 'handoff', '-', f'generation:{gen}')
+    return copy
+
+
+def rotate_master(ctx, args):
+    require_herdr()
+    if not args:
+        raise Die('usage: kitchen.sh rotate-master <store> [--model MODEL]')
+    store = args[0]
+    model = read_options(args[1:], Spec(valued=('--model',))).last('--model', '')
+    pair_file(store)
+    handoff = check_handoff(ctx, store)
+    name, pane = rotatable_master(store)
+    model = model or detect_model_arg()
+    session = herdr_session(name)
+    gen_n = master_generation(store, session)
+    next_gen = gen_n + 1
+    # Herdr names are unique, so the new master holds a generation name until take-master frees the run's own.
+    temp = f"{read(store, 'slug')}-master-g{next_gen}"
+    argv, remote = next_master_argv(store, temp, model)
+    new_pane_id = start_next_master(store, pane, temp, argv, gen_n)
+    copy = record_handover(store, handoff, gen_n, session, (name, pane), (temp, new_pane_id))
+    event(store, 'master', 'handoff', '-', f'generation:{gen_n}')
     event(store, 'master', 'spawn', '-', f'claude:generation:{next_gen}')
     skill = ctx.skill
     agent_prompt(temp, f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {next_gen}). '
@@ -198,7 +233,7 @@ def rotate_master(ctx, args):
              timeout_ms=30000)
     submit_typed(temp, 'take-master')
     out = sys.stdout
-    out.write(f'handoff recorded: {copy} (generation {gen}, session {session or "unknown"})\n')
+    out.write(f'handoff recorded: {copy} (generation {gen_n}, session {session or "unknown"})\n')
     out.write(f'next master: {temp} (generation {next_gen}) in {new_pane_id}{", remote control on" if remote else ""}; it closes this pane with take-master\n')
     out.write(f'next: end your turn now, with no further commands, and act on no later prompt or task notification: generation {next_gen} owns the run. '
               f'Resume this session later with: claude --resume {session or "<id>"}\n')

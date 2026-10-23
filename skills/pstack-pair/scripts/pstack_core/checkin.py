@@ -218,11 +218,81 @@ class CheckIn:
         return self.stale or self.overrun or self.outside_scope > 0 or self.objected > 0 or self.open_notes > 0
 
 
+def progress_section(store, interval, now, cwd, head, run):
+    """(lines, stale, tag) of the progress log's part of the digest: the lines added since the last check-in (at most the last 20), how long ago the
+    log was written, and whether that is STALE (older than the interval with nothing running and nothing edited in the tree) or what the sidekick is
+    doing instead. The lines are marked seen."""
+    prog = progress_path(store)
+    if not os.path.isfile(prog):
+        return ['progress: none yet\n'], False, ''
+    text = read_text(prog)
+    total = text.count('\n')
+    seen = int_or_none(read_text(f'{prog}.seen')) or 0 if os.path.isfile(f'{prog}.seen') else 0
+    if seen > total:
+        seen = 0
+    age_m = tdiv(now - file_mtime(prog), 60)
+    stale, tag = False, ''
+    if age_m >= interval:
+        if run:
+            tag = f'  running: {run}'
+        else:
+            active = tree_activity(cwd, head, now)
+            if active and now - active < (interval if interval > 0 else 1) * 60:
+                tag = f'  editing: last change {tdiv(now - active, 60)}m ago'
+            else:
+                stale = True
+    lines = [f'progress: +{total - seen} lines (last {age_m}m ago){"  STALE" if stale else tag}\n']
+    logged = text.split('\n')
+    if logged and logged[-1] == '':
+        logged.pop()
+    lines += [f'  {line}\n' for line in logged[seen:][-20:]]
+    with open(f'{prog}.seen', 'w') as f:
+        f.write(f'{total}\n')
+    return lines, stale, tag
+
+
+def touched_section(store, brief, seq, cwd, head):
+    """(lines, outside) of the files changed since dispatch: those in the tree's status or committed since the head, how many commits, and the files
+    outside the brief's Scope and the steers' scope effects (the lessons file the master commits in the shared tree is never outside)."""
+    touched = status_paths(cwd)
+    commits = 0
+    if head:
+        diff = git.out(cwd, 'diff', '--name-only', f'{head}..HEAD')
+        touched += diff.split('\n') if diff else []
+        counted = git.out(cwd, 'rev-list', '--count', f'{head}..HEAD')
+        commits = int(counted) if counted is not None and counted.isdigit() else 0
+    touched = sort_u(touched)
+    lines = [f'touched: {len(touched)} files, {commits} commits since dispatch\n']
+    lines += [f'  {f}\n' for f in touched[:30]]
+    may = [re.sub(r'/$', '/*', p) for p in [*scope_entries(brief, 'may'), *steer_scope_entries(store, seq)]]
+    outside = [f for f in touched if f != '.agents/LESSONS.md' and not any(scope_match(p, f) for p in may)]
+    if outside:
+        lines.append(f'outside scope: {len(outside)}\n')
+        lines += [f'  {f}\n' for f in outside[:30]]
+    return lines, len(outside)
+
+
+def steers_section(store, brief, seq):
+    """(lines, objected, blocking) of the steers sent, applied and objected to, and of the steps committed, reviewed through and the blocking notes open."""
+    prog = progress_path(store)
+    sent = len(glob.glob(os.path.join(glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md')))
+    objected = len(glob.glob(os.path.join(glob.escape(store), 'reports', glob.escape(seq) + '-*-s[0-9]*.md')))
+    applied = 0
+    if os.path.isfile(prog):
+        applied = sum(1 for line in read_text(prog).split('\n') if re.search(r' steer s[0-9]+ applied', line))
+    lines = [f'steers: {sent} sent, {applied} applied, {objected} objected\n']
+    committed = len(StepLog(store, brief).rows())
+    blocking = 0
+    if committed:
+        blocking = len(open_notes(store, brief))
+        lines.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {blocking} blocking notes open\n')
+    return lines, objected, blocking
+
+
 def checkin(ctx, store, interval=9, now=None) -> CheckIn | None:
     """The check-in digest for a sidekick still working at the interval, bounded so the master can poll it cheaply; None when no dispatched
     brief is on disk to report on."""
     now = int(time.time()) if now is None else now
-    out = []
     pair = load(store)
     brief = dispatched(store)
     if not brief or not os.path.isfile(brief):
@@ -239,72 +309,19 @@ def checkin(ctx, store, interval=9, now=None) -> CheckIn | None:
     timebox = m.group(0) if m else ''
     since = iso_epoch(at)
     elapsed = None if since is None else tdiv(now - since, 60)
-    out.append(f'check-in: {base}  elapsed {"?" if elapsed is None else elapsed}m of {timebox or "?"}m\n')
+    out = [f'check-in: {base}  elapsed {"?" if elapsed is None else elapsed}m of {timebox or "?"}m\n']
     run = sidekick_activity(store, now)
-    prog = progress_path(store)
-    stale, tag = False, ''
-    if os.path.isfile(prog):
-        text = read_text(prog)
-        total = text.count('\n')
-        seen = 0
-        if os.path.isfile(f'{prog}.seen'):
-            seen = int_or_none(read_text(f'{prog}.seen')) or 0
-        if seen > total:
-            seen = 0
-        new = total - seen
-        age_m = tdiv(now - file_mtime(prog), 60)
-        limit = interval
-        if age_m >= limit:
-            if run:
-                tag = f'  running: {run}'
-            else:
-                active = tree_activity(cwd, head, now)
-                if active and now - active < (limit if limit > 0 else 1) * 60:
-                    tag = f'  editing: last change {tdiv(now - active, 60)}m ago'
-                else:
-                    stale = True
-        out.append(f'progress: +{new} lines (last {age_m}m ago){"  STALE" if stale else tag}\n')
-        lines = text.split('\n')
-        if lines and lines[-1] == '':
-            lines.pop()
-        out.extend(f'  {line}\n' for line in lines[seen:][-20:])
-        with open(f'{prog}.seen', 'w') as f:
-            f.write(f'{total}\n')
-    else:
-        out.append('progress: none yet\n')
+    lines, stale, tag = progress_section(store, interval, now, cwd, head, run)
+    out += lines
     notices = []
     if run and 'running:' not in tag:
         notices.append(f'running: {run}\n')
         out.append(notices[-1])
-    touched = status_paths(cwd)
-    if head:
-        diff = git.out(cwd, 'diff', '--name-only', f'{head}..HEAD')
-        touched += diff.split('\n') if diff else []
-    touched = sort_u(touched)
-    commits = 0
-    if head:
-        counted = git.out(cwd, 'rev-list', '--count', f'{head}..HEAD')
-        commits = int(counted) if counted is not None and counted.isdigit() else 0
     if floor_note:
         notices.append(f'note: {floor_note}\n')
         out.append(notices[-1])
-    out.append(f'touched: {len(touched)} files, {commits} commits since dispatch\n')
-    out.extend(f'  {f}\n' for f in touched[:30])
-    may = [re.sub(r'/$', '/*', p) for p in [*scope_entries(brief, 'may'), *steer_scope_entries(store, seq)]]
-    # The master commits the lessons file in the shared tree (kitchen.py lessons add), whatever the brief's Scope says.
-    outside = [f for f in touched if f != '.agents/LESSONS.md' and not any(scope_match(p, f) for p in may)]
-    if outside:
-        out.append(f'outside scope: {len(outside)}\n')
-        out.extend(f'  {f}\n' for f in outside[:30])
-    sent = len(glob.glob(os.path.join(glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md')))
-    objected = len(glob.glob(os.path.join(glob.escape(store), 'reports', glob.escape(seq) + '-*-s[0-9]*.md')))
-    applied = 0
-    if os.path.isfile(prog):
-        applied = sum(1 for line in read_text(prog).split('\n') if re.search(r' steer s[0-9]+ applied', line))
-    out.append(f'steers: {sent} sent, {applied} applied, {objected} objected\n')
-    committed = len(StepLog(store, brief).rows())
-    blocking = 0
-    if committed:
-        blocking = len(open_notes(store, brief))
-        out.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {blocking} blocking notes open\n')
-    return CheckIn(tuple(out), tuple(notices), stale, len(outside), objected, blocking, elapsed, int(timebox) if timebox else None)
+    lines, outside = touched_section(store, brief, seq, cwd, head)
+    out += lines
+    lines, objected, blocking = steers_section(store, brief, seq)
+    out += lines
+    return CheckIn(tuple(out), tuple(notices), stale, outside, objected, blocking, elapsed, int(timebox) if timebox else None)

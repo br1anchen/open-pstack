@@ -107,6 +107,46 @@ class PromptFailed(PairError):
     code = 2
 
 
+class BadSteer(PairError):
+    """A steer file cannot be sent: it is missing, not a steer, unfilled, names no scope effect in a form the template describes, or answers an
+    objection while saying it supersedes nothing."""
+
+
+class NoObjectionOpen(PairError):
+    """A steer for a sidekick between turns needs an objection to answer, and the unit has none."""
+
+    code = 5
+
+
+class NotSettled(PairError):
+    """The agent did not settle after the key that should have ended its turn."""
+
+    code = 3
+
+
+class StepRefused(PairError):
+    """A step cannot be recorded on the checkout as it is: no dispatched base to measure from, a HEAD other than the commit named, or tracked
+    files edited since."""
+
+
+class HandoffNotReady(PairError):
+    """The master's handoff is missing or has an empty Goal or Next section."""
+
+    code = 5
+
+
+class RotateRefused(PairError):
+    """The master cannot hand over now: a hand-over is open, it is not live, or it is not a Claude."""
+
+    code = 5
+
+
+class NextMasterNotStarted(PairError):
+    """The next master's agent did not start; the old master stays in charge."""
+
+    code = 2
+
+
 class NoPaneId(PairError):
     """Herdr made a tab or a split and named no pane."""
 

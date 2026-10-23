@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 
 from . import argv, git
 from .commands.rotate import rotate_if_due
@@ -78,6 +79,76 @@ def deliver_plan(ctx, store, role, name, seq, plan):
         submit_typed(name, os.path.basename(plan))
 
 
+@dataclass(frozen=True)
+class PlanRound:
+    """Who a plan round reaches: the roles to send the plan now, the roles to wait on (those sent and those that had already answered), those that
+    had answered, and the sidekick when it is busy on a unit and its half is deferred."""
+    send: tuple
+    wait_on: tuple
+    answered: tuple
+    deferred: str
+
+
+def plan_round_for(store, seq, plan):
+    """The PlanRound of a plan: a role whose answer is newer than the plan file is not asked again, an idle or done role gets the plan, a role that is
+    absent or blocked ends the round, and a busy sidekick is deferred while a busy consultant ends it."""
+    send, wait_on, deferred, answered = [], [], '', []
+    for role in ('sidekick', 'consultant'):
+        name = field(store, role, 'name')
+        if plan_answer(store, role, seq, plan):
+            answered.append(role)
+            wait_on.append(role)
+            continue
+        status = agent_status(name)
+        if status in ('idle', 'done'):
+            send.append(role)
+        elif status == 'absent':
+            raise AgentNotLive(f'{who(role, name)} is not live; run: pair.sh spawn {store} --only {role} --{role} <kind>')
+        elif status == 'blocked':
+            raise AgentBlocked(f'{who(role, name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60')
+        else:
+            if role != 'sidekick':
+                raise AgentBusy(f'{who(role, name)} is {status}; wait for it before a plan round')
+            deferred = 'sidekick'
+    if deferred and 'consultant' not in send and 'consultant' not in answered:
+        raise AgentBusy(f"sidekick {field(store, 'sidekick', 'name')} is working and the consultant has nothing to answer; wait for the sidekick before a plan round")
+    return PlanRound(tuple(send), tuple(wait_on), tuple(answered), deferred)
+
+
+def send_plan(ctx, store, plan, seq, round_):
+    """Sends the plan to each role of the round that has not answered it; their answers are waited on with the roles that had."""
+    wait_on = list(round_.wait_on)
+    if 'sidekick' in round_.send:
+        require_fresh_session(store)
+    for role in round_.send:
+        name = field(store, role, 'name')
+        deliver_plan(ctx, store, role, name, seq, plan)
+        event(store, 'master', 'send-plan', plan, role)
+        sys.stdout.write(f'sent PLAN {os.path.basename(plan)} to {role} {name}\n')
+        wait_on.append(role)
+    return wait_on
+
+
+def await_answer(store, role, seq, slug, plan, timeout):
+    """(answer file, state) of a role the plan was sent to now: the wait for its agent to settle, then the file; a role that settled without a response
+    is polled for its file. An empty answer is a missing one."""
+    name = field(store, role, 'name')
+    sys.stdout.flush()
+    r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
+    status = agent_state(r.stdout, 'settled')
+    if r.returncode != 0:
+        status = agent_status(name)
+    found = plan_answer(store, role, seq, plan)
+    if not found and status != 'blocked':
+        sys.stdout.write(f'{role} settled without a response; polling for the file\n')
+        sys.stdout.flush()
+        reply = f'{store}/reports/{seq}-{slug}.md' if role == 'sidekick' else f'{store}/advice/{seq}-{slug}.md'
+        if not os.path.isfile(reply):
+            await_file(reply, timeout)
+        found = plan_answer(store, role, seq, plan)
+    return found, status
+
+
 def discuss_with_consultant(ctx, args, one_wake=False):
     """A plan round goes to the sidekick and the consultant at once; each answers in its own file and the master merges. A sidekick busy on a unit
     does not hold the round up: the consultant gets the plan now and the sidekick's half waits (exit 4, sidekick_response: deferred) until discuss
@@ -100,62 +171,22 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     require_filled(ctx, plan)
     base = os.path.basename(plan)
     seq, slug = base[:3], base[:-3][4:] if base.endswith('.md') else base[4:]
-    send, wait_on, deferred, answered = [], [], '', []
-    for role in ('sidekick', 'consultant'):
-        name = field(store, role, 'name')
-        if plan_answer(store, role, seq, plan):
-            answered.append(role)
-            wait_on.append(role)
-            continue
-        status = agent_status(name)
-        if status in ('idle', 'done'):
-            send.append(role)
-        elif status == 'absent':
-            raise AgentNotLive(f'{who(role, name)} is not live; run: pair.sh spawn {store} --only {role} --{role} <kind>')
-        elif status == 'blocked':
-            raise AgentBlocked(f'{who(role, name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60')
-        else:
-            if role != 'sidekick':
-                raise AgentBusy(f'{who(role, name)} is {status}; wait for it before a plan round')
-            deferred = 'sidekick'
-    if deferred and 'consultant' not in send and 'consultant' not in answered:
-        raise AgentBusy(f"sidekick {field(store, 'sidekick', 'name')} is working and the consultant has nothing to answer; wait for the sidekick before a plan round")
-    if 'sidekick' in send:
-        require_fresh_session(store)
-    for role in send:
-        name = field(store, role, 'name')
-        deliver_plan(ctx, store, role, name, seq, plan)
-        event(store, 'master', 'send-plan', plan, role)
-        write(f'sent PLAN {base} to {role} {name}\n')
-        wait_on.append(role)
+    round_ = plan_round_for(store, seq, plan)
+    wait_on = send_plan(ctx, store, plan, seq, round_)
     rc, woke = 0, []
     for role in ('sidekick', 'consultant'):
-        if role == deferred:
+        if role == round_.deferred:
             write('sidekick_response: deferred (it is working on a unit); run discuss again once it reports, to send it this plan\n')
             event(store, 'master', 'defer-plan', plan, 'sidekick')
             rc = 4
             continue
         if role not in wait_on:
             continue
-        name = field(store, role, 'name')
         # Only a role that had answered before this call skips the wait; one sent the plan now is waited on, however fast its answer lands.
-        found, status = '', 'answered'
-        if role in answered:
-            found = plan_answer(store, role, seq, plan)
+        if role in round_.answered:
+            found, status = plan_answer(store, role, seq, plan), 'answered'
         else:
-            sys.stdout.flush()
-            r = subprocess.run(['herdr', 'agent', 'wait', name, '--timeout', str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, **TEXT)
-            status = agent_state(r.stdout, 'settled')
-            if r.returncode != 0:
-                status = agent_status(name)
-            found = plan_answer(store, role, seq, plan)
-            if not found and status != 'blocked':
-                write(f'{role} settled without a response; polling for the file\n')
-                sys.stdout.flush()
-                reply = f'{store}/reports/{seq}-{slug}.md' if role == 'sidekick' else f'{store}/advice/{seq}-{slug}.md'
-                if not os.path.isfile(reply):
-                    await_file(reply, timeout)
-                found = plan_answer(store, role, seq, plan)
+            found, status = await_answer(store, role, seq, slug, plan, timeout)
         write(f'{role}_state: {status}\n')
         if found:
             write(f'{role}_response: {found}\n')

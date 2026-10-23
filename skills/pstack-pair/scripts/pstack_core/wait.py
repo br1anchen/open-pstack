@@ -85,6 +85,82 @@ def reply_mode(result):
     return 'steps' if not result.ready and result.steps_due else 'reply'
 
 
+def state_line(store, result, write):
+    """Writes the `state:` line of a wait that returned and returns the state: the agent's own, or for a failed wait what its stderr names (a timeout
+    reads the agent's status now, any other failure is also written to stderr)."""
+    if result.code != 0:
+        state = error_state(result.err)
+        if state == 'timeout':
+            state = agent_status(field(store, 'sidekick', 'name'))
+        else:
+            sys.stderr.write(f'{result.err}\n')
+    else:
+        state = agent_state(result.out, 'settled')
+    write(f'state: {state}\n')
+    return state
+
+
+def report_returned(ctx, store, report, state, paused, write):
+    """The outcome of a wait that has a report: the report is marked seen (and the sent entry too when the report answers it), written with its status,
+    recorded as a wake and followed by the queue note and the review delta. A blocked agent makes it exit 3."""
+    mark_seen(store, report)
+    sent = sent_file(store)
+    if sent is None:
+        # basename '---' reads the word as an option, prints its error and gives nothing to compare.
+        sys.stderr.write("basename: unrecognized option '---'\nTry 'basename --help' for more information.\n")
+    if sent is not None and os.path.basename(report)[:3] == os.path.basename(sent.rstrip('/') or sent)[:3]:
+        try:
+            stamp = str(file_mtime(report))
+        except OSError:
+            sys.stderr.write("stat: cannot read file system information for '%m': No such file or directory\n")
+            sys.stderr.write(f"stat: cannot read file system information for '{report}': No such file or directory\n")
+            stamp = ''
+        seen = f'{report}:{stamp}'
+        update(store, lambda doc: set_sent_seen(doc, seen))
+    write(f'report: {report}\n')
+    write(f'report_status: {status_of(ctx, report)}\n')
+    wake(ctx, store, report, f'report:{status_of(ctx, report)}')
+    write(queue_note(store, report))
+    write(review_delta(store, report))
+    return WaitOutcome(3 if state == 'blocked' else 0, 'report', paused=paused)
+
+
+def steps_returned(ctx, store, running, paused, write):
+    """The outcome of a wait for steps: the steps not yet reviewed, their range and what to do next, marked shown. Exit 1 when the step log is gone."""
+    rows = unreviewed_steps(ctx, store)
+    if rows is None:
+        return WaitOutcome(1, 'steps', paused=paused)
+    first = rows[0].split('\t')[0]
+    write(f'steps: {len(rows)} to review on {unit_name(running)}\n')
+    for row in rows:
+        cols = row.split('\t')
+        write(f'  {cols[0]} {(cols[1] if len(cols) > 1 else "")[:9]} {cols[2] if len(cols) > 2 else ""}\n')
+    last = rows[-1].split('\t')
+    write(f'range: {review_base(store, running)[:9]}..{(last[1] if len(last) > 1 else "")[:9]}\n')
+    write(f'next: review the range, then pair.sh new-note {store} {os.path.basename(running.rstrip("/") or running)[:3]}\n')
+    try:
+        k = json.loads(last[0])
+    except ValueError:
+        raise BadStepRow(f'the last step row does not start with a JSON step number: {last[0]!r}') from None
+    update(store, lambda doc: set_shown(doc, unit_name(running), k))
+    wake(ctx, store, running, f'steps:{first}')
+    return WaitOutcome(0, 'steps', paused=paused)
+
+
+def idle_returned(ctx, store, shown, paused, write):
+    """The outcome of a wait whose reply the master was already shown: nothing new, so it says so and the master sends the next message."""
+    sent = sent_file(store)
+    sent = '-' if sent is None else sent
+    write(f'idle: the reply to {os.path.basename(sent.rstrip("/") or sent)} was already shown ({shown}); send the next message\n')
+    wake(ctx, store, sent, 'idle')
+    # Since notify marks a report it announced, this is the normal path to a report the master already has by message: show what the
+    # report path would add. A plan response or advice carries neither.
+    if peek(load(store), 'sent').get('kind') == 'BRIEF':
+        write(queue_note(store, shown))
+        write(review_delta(store, shown))
+    return WaitOutcome(4, 'idle', paused=paused)
+
+
 def finish_wait(ctx, store, interval, result, mode=None, now=None, quiet=False, out=None):
     """The outcome of a wait that returned. Its stderr is written as it happens and its stdout goes to `out` (default: standard output) as it
     is produced, so what a failure interrupts has already been seen. A quiet caller records no wake for a check-in return; it records it itself
@@ -94,16 +170,7 @@ def finish_wait(ctx, store, interval, result, mode=None, now=None, quiet=False, 
     mode = reply_mode(result) if mode is None else mode
     clock = now_s if now is None else (lambda: now)
     name = lambda: field(store, 'sidekick', 'name')
-    if result.code != 0:
-        state = error_state(result.err)
-        if state == 'timeout':
-            state = agent_status(name())
-        else:
-            sys.stderr.write(f'{result.err}\n')
-        write(f'state: {state}\n')
-    else:
-        state = agent_state(result.out, 'settled')
-        write(f'state: {state}\n')
+    state = state_line(store, result, write)
     reason = paused_reason(store)
     paused = reason is not None
     if paused:
@@ -111,60 +178,15 @@ def finish_wait(ctx, store, interval, result, mode=None, now=None, quiet=False, 
     if not report and mode == 'any':
         report = latest_report(store) or ''
     if report:
-        mark_seen(store, report)
-        sent = sent_file(store)
-        if sent is None:
-            # basename '---' reads the word as an option, prints its error and gives nothing to compare.
-            sys.stderr.write("basename: unrecognized option '---'\nTry 'basename --help' for more information.\n")
-        if sent is not None and os.path.basename(report)[:3] == os.path.basename(sent.rstrip('/') or sent)[:3]:
-            try:
-                stamp = str(file_mtime(report))
-            except OSError:
-                sys.stderr.write("stat: cannot read file system information for '%m': No such file or directory\n")
-                sys.stderr.write(f"stat: cannot read file system information for '{report}': No such file or directory\n")
-                stamp = ''
-            seen = f'{report}:{stamp}'
-            update(store, lambda doc: set_sent_seen(doc, seen))
-        write(f'report: {report}\n')
-        write(f'report_status: {status_of(ctx, report)}\n')
-        wake(ctx, store, report, f'report:{status_of(ctx, report)}')
-        write(queue_note(store, report))
-        write(review_delta(store, report))
-        return WaitOutcome(3 if state == 'blocked' else 0, 'report', paused=paused)
+        return report_returned(ctx, store, report, state, paused, write)
     running = dispatched(store)
     if mode == 'steps':
-        rows = unreviewed_steps(ctx, store)
-        if rows is None:
-            return WaitOutcome(1, 'steps', paused=paused)
-        first = rows[0].split('\t')[0]
-        write(f'steps: {len(rows)} to review on {unit_name(running)}\n')
-        for row in rows:
-            cols = row.split('\t')
-            write(f'  {cols[0]} {(cols[1] if len(cols) > 1 else "")[:9]} {cols[2] if len(cols) > 2 else ""}\n')
-        last = rows[-1].split('\t')
-        write(f'range: {review_base(store, running)[:9]}..{(last[1] if len(last) > 1 else "")[:9]}\n')
-        write(f'next: review the range, then pair.sh new-note {store} {os.path.basename(running.rstrip("/") or running)[:3]}\n')
-        try:
-            k = json.loads(last[0])
-        except ValueError:
-            raise BadStepRow(f'the last step row does not start with a JSON step number: {last[0]!r}') from None
-        update(store, lambda doc: set_shown(doc, unit_name(running), k))
-        wake(ctx, store, running, f'steps:{first}')
-        return WaitOutcome(0, 'steps', paused=paused)
+        return steps_returned(ctx, store, running, paused, write)
     withheld = withheld_report(ctx, store)
     activity = sidekick_activity(store, clock())
     shown = seen_reply(store)
     if shown and not withheld and not activity and result.code == 0 and agent_status(name()) != 'working':
-        sent = sent_file(store)
-        sent = '-' if sent is None else sent
-        write(f'idle: the reply to {os.path.basename(sent.rstrip("/") or sent)} was already shown ({shown}); send the next message\n')
-        wake(ctx, store, sent, 'idle')
-        # Since notify marks a report it announced, this is the normal path to a report the master already has by message: show what the
-        # report path would add. A plan response or advice carries neither.
-        if peek(load(store), 'sent').get('kind') == 'BRIEF':
-            write(queue_note(store, shown))
-            write(review_delta(store, shown))
-        return WaitOutcome(4, 'idle', paused=paused)
+        return idle_returned(ctx, store, shown, paused, write)
     why, missing = '', 'report: missing\n'
     if withheld:
         write(f'report: {withheld[0]} written but not ready: {withheld[1]}\n')

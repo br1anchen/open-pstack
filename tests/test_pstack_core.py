@@ -7504,7 +7504,6 @@ class FunctionSizeGuardTests(unittest.TestCase):
         self.assertEqual(oversized_functions(long_body), [])
         self.assertEqual(oversized_functions(long_body + '    x = 1\n'), [('f', 1, f'{MAX_BODY_LINES + 1} body lines')])
 
-    @unittest.expectedFailure  # the long bodies are split in step 3 of unit 075, which removes this mark
     def test_no_core_or_variant_function_runs_over_80_body_lines_or_takes_more_than_8_parameters(self):
         paths = [p for r in ARGV_ROOTS for p in sorted((root / 'skills' / r).glob('**/*.py'))]
         paths += [root / 'skills' / f for f in ARGV_FILES]
