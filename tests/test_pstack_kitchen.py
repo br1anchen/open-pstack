@@ -565,7 +565,13 @@ class GateTests(KitchenTests):
         self.assertLess(len('/tmp/kg-4194304-abcdefgh/') + 52, 104)
 
     def test_gates_share_the_machine_slots(self):
-        self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["sleep 2"]'))
+        self.write(
+            '.agents/kitchen.toml',
+            KITCHEN.replace(
+                'fast = ["test -f src/app.py"]',
+                'fast = ["sleep 2"]',  # kitchen-allow: test-sleep fake gate must still be running
+            ),
+        )
         env = {**self.env, 'PSTACK_KITCHEN_GATE_SLOTS': '1'}
         procs = [subprocess.Popen([sys.executable, str(script), '--json', 'gate', 'app', 'fast'], cwd=self.repo,
                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
@@ -2608,8 +2614,15 @@ esac
         self.assertEqual([(r[3], r[4]) for r in rows], [('pass', 'app'), ('none', '')])
 
     def test_step_returns_while_checks_run_and_resumes(self):
-        self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
-                   .replace('fast = ["test ! -e FAIL"]', 'fast = ["sleep 5"]'))
+        self.write(
+            '.agents/kitchen.toml',
+            (self.repo / '.agents/kitchen.toml')
+            .read_text()
+            .replace(
+                'fast = ["test ! -e FAIL"]',
+                'fast = ["sleep 5"]',  # kitchen-allow: test-sleep fake gate must still be running
+            ),
+        )
         self.commit('slow gate')
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
         self.write('src/util.py', 'X = 4\n')
@@ -3070,7 +3083,10 @@ esac
         report = str(self.store / 'reports' / b.name)
         self.assertIn('verify: pass (the brief names none)', self.run_sh('finish', str(self.store), report))
         b2 = self.brief('002', 'slow', ['src/**', 'tests/**'])
-        self.verify_block(b2, 'sleep 3; printf "%s|%s" "$PSTACK_KITCHEN_ROLE" "$PSTACK_KITCHEN_RUN" >"$OUT"')
+        self.verify_block(
+            b2,
+            'sleep 3; printf "%s|%s" "$PSTACK_KITCHEN_ROLE" "$PSTACK_KITCHEN_RUN" >"$OUT"',  # kitchen-allow: test-sleep fake gate must still be running
+        )
         self.env['OUT'] = str(Path(self.tmp.name) / 'lane.txt')
         self.dispatch(b2)
         self.write('src/util.py', 'X = 5\n')
@@ -4884,7 +4900,13 @@ esac
     def test_a_verdict_arriving_during_the_grace_wins(self):
         verdict = self.store / 'verdicts/001-util-v1.md'
         packet = self.store / 'verdicts/001-util-v1-packet.md'
-        late = subprocess.Popen(['bash', '-c', f"until [ -f {packet} ]; do sleep 0.2; done; sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}"])
+        late = subprocess.Popen(
+            [
+                'bash',
+                '-c',
+                f"until [ -f {packet} ]; do sleep 0.2; done; sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}",  # kitchen-allow: test-sleep fake gate must still be running
+            ]
+        )
         self.addCleanup(late.wait)
         out = self.deadline_verify('slow', code=2)
         self.assertIn('status: reject', out)

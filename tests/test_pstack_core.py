@@ -934,7 +934,8 @@ class CoreTests(unittest.TestCase):
             for _ in range(2400):
                 if list(st.glob('steps/jobs/*/rc')):
                     break
-                time.sleep(0.05)  # kitchen-allow: test-sleep (a wait for a detached job's rc file, bounded by the 120 s of the run's subprocess timeout; a passing run leaves at once)
+                # A wait for a detached job's rc file, bounded by the 120 s of the run's subprocess timeout; a passing run leaves at once.
+                time.sleep(0.05)  # kitchen-allow: test-sleep bounded poll
             second = run()
         # The base run and the port run are two worlds, built in two temp directories at two moments, so only what that explains is rewritten:
         # <T> is the world's directory (it appears in paths); <TS> the ISO stamps the store writes (.dispatch.at, .sent.at); <EPOCH> the epoch
@@ -6252,7 +6253,8 @@ class CoreTests(unittest.TestCase):
                 for _ in range(1200):
                     if (top / 'gate.fifo').exists():
                         break
-                    time.sleep(0.05)  # kitchen-allow: test-sleep (a bounded wait, at most 60 s, for the gate to start and make its fifo; a passing run leaves at once)
+                    # A bounded wait, at most 60 s, for the gate to start and make its fifo; a passing run leaves at once.
+                    time.sleep(0.05)  # kitchen-allow: test-sleep bounded poll
                 self.assertTrue((top / 'gate.fifo').exists(), f'{name} {tag}: the gate never started')
                 shell.kill()
                 shell.wait()
@@ -6261,7 +6263,8 @@ class CoreTests(unittest.TestCase):
                 for _ in range(1200):
                     if (st / ('gates.tsv' if name == 'step' else 'events.tsv')).exists() and recorded(st):
                         break
-                    time.sleep(0.05)  # kitchen-allow: test-sleep (a bounded wait, at most 60 s, for the command that outlived its shell to record; a passing run leaves at once)
+                    # A bounded wait, at most 60 s, for the command that outlived its shell to record; a passing run leaves at once.
+                    time.sleep(0.05)  # kitchen-allow: test-sleep bounded poll
                 self.assertEqual(recorded(st), 1, f'{name} {tag}: the command did not outlive the shell that ran it')
 
     def finish_cases(self):
