@@ -18,7 +18,7 @@ import sys
 from pstack_core.store import (
     read_text, write_text, count, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update,
 )
-from pstack_core.errors import ClosedElsewhere, DamagedStore, NoVerification, PrimeFailed, ToolFailed, translate
+from pstack_core.errors import DamagedStore, NoVerification, PrimeFailed, ToolFailed, VerificationTaken, translate
 from pstack_core.commands.scratch import remove_scratch
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.panes import agent_prompt, agent_status, herdr
@@ -119,20 +119,19 @@ def my_claim(store):
     return read(store, 'verifying.closing.token').startswith(f'{hostname()}:{os.getpid()}:')
 
 
+CLOSED_ELSEWHERE = 'verification closed elsewhere\n'
+
+
 def still_my_claim(store):
     """After close_verifier: the claim must still be this closer's before anything is written."""
-    if my_claim(store):
-        return
-    sys.stdout.write('verification closed elsewhere\n')
-    raise ClosedElsewhere()
+    if not my_claim(store):
+        raise VerificationTaken()
 
 
 def verification_still_open(store, verdict):
     """A wait ends, touching nothing, when another call closed the verification it started on."""
-    if read(store, 'verifying.verdict') == verdict:
-        return
-    sys.stdout.write('verification closed elsewhere\n')
-    raise ClosedElsewhere()
+    if read(store, 'verifying.verdict') != verdict:
+        raise VerificationTaken()
 
 
 def set_member(doc, role, key, value):
@@ -161,14 +160,14 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     return 0
 
 
-def run_close(ctx, store, name, kind, pane, verdict):
+def run_close(ctx, store, name, kind, pane, verdict, err=None):
     """Runs close_verifier so that a die inside it (the Prime cleanup failing) cannot leave this process's claim behind: the claim is released and
-    the same status returned. close_verifier's own 70 is "not ours to close" (False, closed elsewhere); any other nonzero status ends the command."""
+    the same status returned. Its message goes to `err` (default: standard error). close_verifier's own 70 is "not ours to close" (False, closed elsewhere); any other nonzero status ends the command."""
     try:
         rc = close_verifier(ctx, store, name, kind, pane, verdict)
     except Exception as e:
         text, rc = translate(e, ctx.prog)
-        sys.stderr.write(text)
+        (err or sys.stderr.write)(text)
     if rc == 0:
         return True
     if rc == 70:
@@ -192,7 +191,7 @@ def verify_prompt(ctx, packet):
     return f'Load the {ctx.skill} skill from ~/.agents/skills/{ctx.skill}/SKILL.md and take the verifier role. {ctx.skill} VERIFY {packet}'
 
 
-def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind=''):
+def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind='', say=None):
     """Sends the open verification's packet once more. The name, packet, brief and kind are the verification the caller captured (a wait does);
     an empty one is read from the store."""
     name = name or read(store, 'verifier.name')
@@ -200,7 +199,7 @@ def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind=''):
     brief = brief or read(store, 'verifying.brief')
     kind = kind or read(store, 'verifier.kind')
     event(store, 'master', 'verify-redeliver', brief, kind)
-    sys.stdout.write(f'redelivered: {why}; sent it again\n')
+    (say or sys.stdout.write)(f'redelivered: {why}; sent it again\n')
     sys.stdout.flush()
     agent_prompt(name, verify_prompt(ctx, packet), wait=True, until='working', timeout_ms=30000)
     submit_typed(name, os.path.basename(packet))
@@ -217,9 +216,9 @@ def verdict_problem(verdict):
     return Verdict.parse(verdict).problem
 
 
-def handoff_due(store, unit):
+def handoff_due(store, unit, say=None):
     """Every clean unit verdict counts toward the master's next handoff; after KITCHEN_MASTER_ROTATE_UNITS (default 5) the verdict says to rotate, at
-    the threshold and at each multiple of it."""
+    the threshold and at each multiple of it. The line goes to `say` (default: standard output)."""
     if unit == 'landing':
         return
     every = max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 5), 1)
@@ -232,8 +231,8 @@ def handoff_due(store, unit):
     n = read_int(store, 'master.units_since_handoff')
     if n % every != 0:
         return
-    sys.stdout.write(f'master: {n} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, '
-                     f'kitchen.sh rotate-master {store}\n')
+    (say or sys.stdout.write)(f'master: {n} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, '
+                              f'kitchen.sh rotate-master {store}\n')
 
 
 def verify_cancel(ctx, store):
@@ -250,7 +249,11 @@ def verify_cancel(ctx, store):
     kind = read(store, 'verifier.kind')
     if not run_close(ctx, store, name, kind, read(store, 'verifier.pane_id'), verdict):
         raise NoVerification('no verification open (another call closed it)')
-    still_my_claim(store)
+    try:
+        still_my_claim(store)
+    except VerificationTaken:
+        sys.stdout.write(CLOSED_ELSEWHERE)
+        raise
     set_outcome(packet, 'cancelled')
     drop_verifying(store, verdict)
     event(store, 'master', 'verify-cancel', brief, units)

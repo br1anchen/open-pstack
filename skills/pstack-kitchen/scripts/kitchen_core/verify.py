@@ -41,8 +41,8 @@ from .kpy import Kitchen
 from . import verify_state as vs
 from .classify import brief_kitchen, kitchen_snapshot
 from .landing import is_landing, latest_landing_verdict, manifest_warning
-from .verify_wait import warn_unreviewed, Waiter
-from .units import captured, StackIndex, Verdict, brief_or_nothing, heads_in, inclusion, is_ancestor, landing_base, repo_root, unit_brief, unit_range
+from .verify_wait import warn_unreviewed, Waiter, WaiterOutcome
+from .units import StackIndex, Verdict, brief_or_nothing, heads_in, inclusion, is_ancestor, landing_base, repo_root, unit_brief, unit_range
 
 USAGE = ('usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN | --until-verdict] [--timeout MIN] [--kind KIND] | '
          'kitchen.sh verify <store> --landing [--base REV] [--parent REF|none] [--head REV] [...] | kitchen.sh verify <store> --wait '
@@ -495,7 +495,7 @@ def verify(ctx, args):
     if o.wait:
         if not read(store, 'verifying.verdict'):
             raise Die(f'no verification is open; start one with kitchen.sh verify {store} <NNN>', 5)
-        return Waiter(ctx, store, o.every_m, retry=retry).run()
+        return Waiter(ctx, store, o.every_m, retry=retry).run().rc
     if not o.landing and not o.units:
         raise Die('name at least one unit NNN, or --landing')
     if o.landing and o.units:
@@ -539,7 +539,7 @@ def verify(ctx, args):
     pane, started = launch_verifier(v)
     record_start(v, pane, started)
     deliver_packet(v)
-    return Waiter(ctx, store, o.every_m, retry=retry).run()
+    return Waiter(ctx, store, o.every_m, retry=retry).run().rc
 
 
 def pick_entry(entry, kind):
@@ -582,6 +582,18 @@ def gates_verdict(ctx, store, verdict, last, slug, allunits, base, head):
     write_text(verdict, text)
 
 
+def close_wait(ctx, store, say):
+    """The WaiterOutcome of closing the verdict nobody read. Everything the wait says on either stream goes to `say` in the order it was said; a
+    failure ends the outcome with its message after what was said, and the status of the verdict the wait had already shown."""
+    waiter = Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again), out=say, err=say)
+    try:
+        return waiter.run()
+    except Exception as e:
+        text, rc = translate(e, ctx.prog)
+        say(text)
+        return WaiterOutcome(rc, waiter.status)
+
+
 def close_unread(ctx, store):
     """A verdict written but never read closes the verification it belonged to; the new one starts after it."""
     open_verdict = read(store, 'verifying.verdict')
@@ -593,11 +605,10 @@ def close_unread(ctx, store):
         if read(store, 'verifying.verdict') != open_verdict:
             by_another = True
             break
-        closed_rc, closed = captured(ctx, lambda: Waiter(ctx, store, 0, closing=True, retry=lambda again: verify(ctx, again)).run(), merge_stderr=True)
-        closed_status = next((line[len('status: '):] for line in closed.split('\n') if line.startswith('status: ')), '')
-        if closed_status:
-            break
-        if 'verification closed elsewhere' not in closed:
+        lines = []
+        ended = close_wait(ctx, store, lines.append)
+        closed, closed_rc, closed_status = ''.join(lines).rstrip('\n'), ended.rc, ended.status
+        if closed_status or not ended.closed_elsewhere:
             break
         # Another call is closing this verdict: wait for it to finish, then go on as after a close of our own.
         if waiting_since is None:

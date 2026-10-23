@@ -4,14 +4,10 @@
 A failing git command is an empty answer and the function goes on; a git result is read for what it prints. A git stderr that is not dropped
 (quiet) stays on stderr."""
 
-import contextlib
-import fcntl
 import glob
-import io
 import os
 import re
 import sys
-import tempfile
 
 from pstack_core.store import expected_report, read_text, header_field, load, peek, read, text_at
 from pstack_core.errors import BadLandingBase, BadRevision, HeadNotCarried, NoBrief, UnitNotCheckable, translate
@@ -20,40 +16,6 @@ from pstack_core.review import range_floor, trunk_ref
 from pstack_core.steplog import StepLog
 from pstack_core.variant import commit_of
 
-
-
-def captured(ctx, call, merge_stderr=False, env=None):
-    """(status, text) of call run with its stdout captured, and its stderr too when merge_stderr, that of a child process included, in the order
-    it was written: a return ends it with the status it returns (0 for none), a failure with its translation (errors.translate) after what it
-    prints. env is set for the call and restored after it."""
-    status = 0
-    saved = dict(os.environ)
-    os.environ.update(env or {})
-    sys.stdout.flush()
-    sys.stderr.flush()
-    with tempfile.TemporaryFile() as raw:
-        fcntl.fcntl(raw.fileno(), fcntl.F_SETFL, fcntl.fcntl(raw.fileno(), fcntl.F_GETFL) | os.O_APPEND)
-        out = io.TextIOWrapper(os.fdopen(os.dup(raw.fileno()), 'wb', buffering=0), encoding='utf-8', errors='replace', write_through=True)
-        fd2 = os.dup(2) if merge_stderr else None
-        if merge_stderr:
-            os.dup2(raw.fileno(), 2)
-        try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out) if merge_stderr else contextlib.nullcontext():
-                try:
-                    status = call() or 0
-                except Exception as e:
-                    text, status = translate(e, ctx.prog)
-                    sys.stderr.write(text)
-        finally:
-            out.close()
-            if fd2 is not None:
-                os.dup2(fd2, 2)
-                os.close(fd2)
-            os.environ.clear()
-            os.environ.update(saved)
-        raw.seek(0)
-        text = raw.read().decode('utf-8', errors='replace')
-    return status, text.rstrip('\n')
 
 
 def has_pair(store):

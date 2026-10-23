@@ -2,12 +2,13 @@
 
 warn_unreviewed, the accepted units that still lack the review engine's run, is here too.
 
-Every path ends in Exit (or Die). The `closing` mode is the one the next `verify` uses to close a verdict nobody read."""
+Every path ends in a WaiterOutcome or in a failure it raises. The `closing` mode is the one the next `verify` uses to close a verdict nobody read."""
 
 import json
 import os
 import sys
 import time
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 from pstack_core.argv import Spec, read as read_options
@@ -15,7 +16,7 @@ from pstack_core.checkin import busy_command
 from pstack_core.store import (
     wake,     now_s, read_text, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv, text_at,
 )
-from pstack_core.errors import ClosedElsewhere, DamagedStore, StillVerifying, VerdictMissing
+from pstack_core.errors import DamagedStore, VerdictMissing, VerificationTaken
 from pstack_core.panes import agent_prompt, agent_status, pane_text
 from pstack_core.providers import agent_session_error, error_context, muse_session_error, prime_role_error
 from pstack_core.send import submit_typed
@@ -56,12 +57,12 @@ def verifier_provider_error(store, name, session=NOT_GIVEN):
     return line[:240]
 
 
-def verifier_trail(session, packet):
+def verifier_trail(session, packet, say):
     """What the verifier's transcript says about an attempt that ended without a clean or rejecting verdict: where it is, and whether the packet
     reached it."""
     if not session:
         return
-    sys.stdout.write(f'transcript: {session}\n')
+    say(f'transcript: {session}\n')
     if not os.path.isfile(session):
         return
     try:
@@ -69,9 +70,9 @@ def verifier_trail(session, packet):
     except OSError:
         seen = False
     if seen:
-        sys.stdout.write('packet: the verifier received it\n')
+        say('packet: the verifier received it\n')
     else:
-        sys.stdout.write('packet: never reached the verifier; this attempt says nothing about the work, so rerun it\n')
+        say('packet: never reached the verifier; this attempt says nothing about the work, so rerun it\n')
 
 
 def verifier_shown(store, state):
@@ -121,12 +122,27 @@ def delivery_note(store):
     return f' ({delivery})' if delivery else ''
 
 
+@dataclass(frozen=True)
+class WaiterOutcome:
+    """How a wait on the verification ended: the status the command ends with (4 while it still runs, 5 when another call closed it), the status
+    a verdict or a provider stop gave when the wait said one, and whether another call had closed the verification."""
+    rc: int
+    status: str = ''
+    closed_elsewhere: bool = False
+
+
 class Waiter:
-    def __init__(self, ctx, store, every_m, closing=False, retry=None):
+    """Waits on the open verification. What it prints goes to `out` and what it says on stderr to `err`, one stream's lines as they happen: a
+    closing wait gets one sink for both, so the lines of a failure stay where they were said. `status` is the status line of the verdict the wait
+    said, set before it is said."""
+
+    def __init__(self, ctx, store, every_m, closing=False, retry=None, out=None, err=None):
         self.ctx, self.store, self.closing, self.retry = ctx, store, closing, retry
+        self.say, self.err = out or sys.stdout.write, err or sys.stderr.write
         self.every_m = every_m
         self.state = ''
         self.stalled = False
+        self.status = ''
 
     def sleep(self, seconds):
         time.sleep(seconds)
@@ -142,7 +158,8 @@ class Waiter:
         KITCHEN_VERIFY_GRACE_S (default 600) to write it. The grace is part of the attempt: its state is stored before the prompt is delivered, a
         later --wait resumes the stored expiry and never prompts again, and while it runs the scratch and the pane stay. A verdict already written
         wins and a provider error takes the provider path before this runs. pi, claude and codex take the prompt whether idle, done or working; a
-        working Devin does not (Enter would cancel its command), so it is only waited on; a blocked or unknown agent gets no prompt and no grace."""
+        working Devin does not (Enter would cancel its command), so it is only waited on; a blocked or unknown agent gets no prompt and no grace.
+        Returns the outcome that ends the wait when the call's interval passes inside the grace, else None."""
         store = self.store
         vs.verification_still_open(store, verdict)
         grace_until = read_int(store, 'verifying.grace_until')
@@ -185,18 +202,29 @@ class Waiter:
             if state in ('idle', 'done', 'blocked') and verifier_provider_error(store, name, session):
                 return
             if now >= until:
-                sys.stdout.write(f'verifying: units {read(store, "verifying.units")} by {kind}, past its deadline; grace {limit - now}s left'
-                                 f'{delivery_note(store)}, verifier {verifier_shown(store, state)}\n')
-                sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
+                self.say(f'verifying: units {read(store, "verifying.units")} by {kind}, past its deadline; grace {limit - now}s left'
+                         f'{delivery_note(store)}, verifier {verifier_shown(store, state)}\n')
+                self.say(f'next: other work, then kitchen.sh verify {store} --wait\n')
                 wake(self.ctx, store, brief, 'verify:grace')
-                raise StillVerifying()
+                return WaiterOutcome(4)
             self.sleep(env_float('KITCHEN_VERIFY_GRACE_POLL_S', 5))
 
     def run(self):
+        try:
+            return self.wait()
+        except VerificationTaken:
+            self.say(vs.CLOSED_ELSEWHERE)
+            return WaiterOutcome(5, closed_elsewhere=True)
+
+    def wait(self):
         v = self.snapshot()
         self.send_unsent_packet(v)
-        state = self.poll(v)
-        provider = self.settle(v, state)
+        state, ended = self.poll(v)
+        if ended:
+            return ended
+        provider, ended = self.settle(v, state)
+        if ended:
+            return ended
         problem, status = self.record_outcome(v, provider)
         return self.report(v, state, provider, problem, status)
 
@@ -221,12 +249,13 @@ class Waiter:
         if read_flag(store, 'verifying.delivered') is False and not os.path.isfile(v.verdict):
             vs.verification_still_open(store, v.verdict)
             if agent_status(v.name) in ('idle', 'done'):
-                vs.redeliver_packet(self.ctx, store, 'the verify that started this verifier stopped before sending its packet', v.name, v.packet, v.brief, v.kind)
+                vs.redeliver_packet(self.ctx, store, 'the verify that started this verifier stopped before sending its packet', v.name, v.packet, v.brief, v.kind,
+                                    self.say)
             self.update(v.verdict, lambda doc: doc.__setitem__('delivered', True))
 
     def poll(self, v):
         """Watch the verifier until a verdict is written, the deadline passes, the agent is gone, it ends its turn on a provider error, or it sits idle
-        too long; the agent's last state. At the interval it ends the call with a progress digest (exit 4)."""
+        too long: (the agent's last state, None). At the interval it ends the call with a progress digest: (the state, the outcome with status 4)."""
         store, verdict, name = self.store, v.verdict, v.name
         state = ''
         while True:
@@ -240,11 +269,11 @@ class Waiter:
                 break
             if now >= v.until:
                 started = read_int(store, 'verifying.started')
-                sys.stdout.write(f'verifying: units {read(store, "verifying.units")} by {v.kind}, {tdiv(now - started, 60)}m of {tdiv(deadline - started, 60)}m, verifier '
-                                 f'{verifier_shown(store, state)}\n')
-                sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
+                self.say(f'verifying: units {read(store, "verifying.units")} by {v.kind}, {tdiv(now - started, 60)}m of {tdiv(deadline - started, 60)}m, verifier '
+                         f'{verifier_shown(store, state)}\n')
+                self.say(f'next: other work, then kitchen.sh verify {store} --wait\n')
                 wake(self.ctx, store, read(store, 'verifying.brief'), 'verify:progress')
-                raise StillVerifying()
+                return state, WaiterOutcome(4)
             # A verifier that ended its turn on a provider error will not write.
             idle_since = read_int(store, 'verifying.idle_since')
             if state == 'blocked':
@@ -268,11 +297,12 @@ class Waiter:
             elif idle_since is not None:
                 self.drop_idle(verdict)
             self.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
-        return state
+        return state, None
 
     def settle(self, v, state):
         """After the poll: a verifier still alive at the deadline is asked once for what it proved, a verdict just written is given a moment, and the
-        verification is closed. The provider's error when the verifier left no verdict because of it, else ''."""
+        verification is closed: (the provider's error when the verifier left no verdict because of it, else '', the outcome that ends the wait
+        when the interval passes in the grace, else None). Another call's close of the verification raises VerificationTaken."""
         store, verdict, name = self.store, v.verdict, v.name
         self.state = state
         vs.verification_still_open(store, verdict)
@@ -280,19 +310,20 @@ class Waiter:
         deadline = read_int(store, 'verifying.deadline')
         if (not written and state != 'absent' and deadline is not None and now_s() >= deadline
                 and not verifier_provider_error(store, name, v.session)):
-            self.grace(name, v.kind, verdict, v.until, v.brief, v.session)
+            ended = self.grace(name, v.kind, verdict, v.until, v.brief, v.session)
+            if ended:
+                return '', ended
             vs.verification_still_open(store, verdict)
         # A verdict just written may still be closing; give the writer a moment.
         if os.path.isfile(verdict):
             self.sleep(env_float('KITCHEN_VERDICT_SETTLE_S', 3))
         vs.verification_still_open(store, verdict)
         provider = '' if os.path.isfile(verdict) else verifier_provider_error(store, name, v.session)
-        if not vs.run_close(self.ctx, store, name, v.kind, v.pane, verdict):
-            sys.stdout.write('verification closed elsewhere\n')
-            raise ClosedElsewhere()
+        if not vs.run_close(self.ctx, store, name, v.kind, v.pane, verdict, self.err):
+            raise VerificationTaken()
         # The wait may have been long (the verifier's exit); the claim must still be ours before anything is written.
         vs.still_my_claim(store)
-        return provider
+        return provider, None
 
     def record_outcome(self, v, provider):
         """The attempt's outcome is written to its packet before .verifying goes and before any fallback starts, so fleet can tell attempts apart.
@@ -306,25 +337,27 @@ class Waiter:
             vs.set_outcome(v.packet, 'provider' if provider else 'stalled' if self.stalled else 'missing')
         vs.drop_verifying(self.store, v.verdict)
         if status not in ('clean', 'reject'):
-            verifier_trail(v.session, v.packet)
+            verifier_trail(v.session, v.packet, self.say)
         return problem, status
 
     def report(self, v, state, provider, problem, status):
-        """What the master reads and the exit code: a verdict's status and next step, or why there is none."""
+        """What the master reads and the outcome: a verdict's status and next step, or why there is none."""
         store, verdict, unit = self.store, v.verdict, v.unit
+        say = self.say
         present = os.path.isfile(verdict)
         if not present and provider:
-            sys.stdout.write(f'verdict: none\nstatus: inconclusive (the verifier hit its provider, not the work)\nprovider_error: {provider}\n')
+            self.status = 'inconclusive (the verifier hit its provider, not the work)'
+            say(f'verdict: none\nstatus: {self.status}\nprovider_error: {provider}\n')
             fallback_kind = text_at(v.fallback, 'kind')
             if not v.retried and v.fallback and fallback_kind != v.kind and v.argv:
-                sys.stdout.write(f'retry: verifying again on the fallback, {fallback_kind}\n')
+                say(f'retry: verifying again on the fallback, {fallback_kind}\n')
                 sys.stdout.flush()
                 again = [store, *v.argv, '--retry-entry', json.dumps(v.fallback, ensure_ascii=False, separators=(',', ':'))]
-                return self.retry(again)  # verifying again on the fallback, as the exec of kitchen.sh verify did
+                return WaiterOutcome(self.retry(again), self.status)  # verifying again on the fallback, as the exec of kitchen.sh verify did
             wake(self.ctx, store, v.brief, 'verify:provider')
             # A retried call carries its entry; the advice is for the master's own call.
-            sys.stdout.write(f'next: wait for the limit, or kitchen.sh verify {store} {" ".join(self.shown(v.argv))} --kind <another kind>\n')
-            return 2
+            say(f'next: wait for the limit, or kitchen.sh verify {store} {" ".join(self.shown(v.argv))} --kind <another kind>\n')
+            return WaiterOutcome(2, self.status)
         if not present and self.stalled:
             idle_limit = env_int('KITCHEN_VERIFY_IDLE_S', 600)
             wake(self.ctx, store, v.brief, 'verify:stalled')
@@ -336,27 +369,28 @@ class Waiter:
         event(store, 'master', 'verify', v.brief, status)
         if not self.closing:
             wake(self.ctx, store, v.brief, f'verify:{status.split(" ")[0]}')
-        sys.stdout.write(f'verdict: {verdict}\nstatus: {status}{f" ({problem})" if problem else ""}\n')
+        self.status = f'{status} ({problem})' if problem else status
+        say(f'verdict: {verdict}\nstatus: {self.status}\n')
         if status == 'clean':
             if v.risk == 'routine' and vs.audit_due(unit, v.sample):
-                sys.stdout.write('audit: yes; read the review-delta yourself before accepting, and kitchen.sh catch what the kitchen missed\n')
+                say('audit: yes; read the review-delta yourself before accepting, and kitchen.sh catch what the kitchen missed\n')
             else:
-                sys.stdout.write('audit: no\n')
-            warn_unreviewed(store)
-            vs.handoff_due(store, unit)
-            return 0
+                say('audit: no\n')
+            warn_unreviewed(store, say)
+            vs.handoff_due(store, unit, say)
+            return WaiterOutcome(0, self.status)
         if status == 'reject':
             for line in findings(verdict):
-                sys.stdout.write(line + '\n')
+                say(line + '\n')
             if unit == 'landing':
-                sys.stdout.write(f'next: kitchen.sh revise {store} {verdict}, then kitchen.sh verify {store} --landing again\n')
+                say(f'next: kitchen.sh revise {store} {verdict}, then kitchen.sh verify {store} --landing again\n')
             elif rejected_count(store, unit) >= 2:
-                sys.stdout.write(f'next: second rejection of {unit}; read the verdict and the unit yourself before another fix\n')
+                say(f'next: second rejection of {unit}; read the verdict and the unit yourself before another fix\n')
             else:
-                sys.stdout.write(f'next: kitchen.sh revise {store} {verdict}, then verify the fix with --covers {unit[:3]}\n')
-            return 2
-        sys.stdout.write("next: read the verdict; an inconclusive or invalid one is the master's to settle\n")
-        return 2
+                say(f'next: kitchen.sh revise {store} {verdict}, then verify the fix with --covers {unit[:3]}\n')
+            return WaiterOutcome(2, self.status)
+        say("next: read the verdict; an inconclusive or invalid one is the master's to settle\n")
+        return WaiterOutcome(2, self.status)
 
     @staticmethod
     def shown(argv):
@@ -377,13 +411,14 @@ class Waiter:
         return names(peek(load(self.store), 'verifying'), 'argv')
 
 
-def warn_unreviewed(store):
-    """A `warning: unreviewed:` line for each accepted unit whose review note lacks the run the kitchen's [review].engine requires; nothing when no
-    engine is set."""
+def warn_unreviewed(store, say=None):
+    """A `warning: unreviewed:` line for each accepted unit whose review note lacks the run the kitchen's [review].engine requires, said to `say`
+    (default: standard output); nothing when no engine is set."""
+    say = say or sys.stdout.write
     engine = review_engine(store)
     if not engine:
         return
     for review, seq, brief in accepted_units(store):
         met, gap = engine_met(store, brief, review, engine)
         if not met:
-            sys.stdout.write(f'warning: unreviewed: unit {seq} cites no {engine} run; review its range with {engine} and add "engine: {engine} <run id or artifact path>" to {review}{gap}\n')
+            say(f'warning: unreviewed: unit {seq} cites no {engine} run; review its range with {engine} and add "engine: {engine} <run id or artifact path>" to {review}{gap}\n')

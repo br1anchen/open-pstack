@@ -208,6 +208,10 @@ def py_exits(path):
                     found.append((n.args[1].value, n.lineno, static_text(n.args[0]) or '(message built at runtime)'))
                 elif isinstance(n, ast.Call) and getattr(n.func, 'id', '') in classes and classes[n.func.id][0] in range(2, 9):
                     found.append((classes[n.func.id][0], n.lineno, (static_text(n.args[0]) if n.args else '') or classes[n.func.id][1] or '(message built at runtime)'))
+                elif (isinstance(n, ast.Call) and getattr(n.func, 'id', '') == 'WaiterOutcome' and n.args and isinstance(n.args[0], ast.Constant)
+                      and n.args[0].value in range(2, 9)):
+                    ctx = [t for t in strings_in(prev) if len(t) >= 12] if isinstance(prev, ast.Expr) and isinstance(prev.value, ast.Call) else []
+                    found.append((n.args[0].value, n.lineno, ctx[-1].strip() if ctx else f'(returns {n.args[0].value} in {func_of.get(n, "module")}())'))
                 elif isinstance(n, ast.Return) and isinstance(n.value, ast.Constant) and type(n.value.value) is int and n.value.value in range(2, 9):
                     ctx = [t for t in strings_in(prev) if len(t) >= 12] if isinstance(prev, ast.Expr) and isinstance(prev.value, ast.Call) else []
                     found.append((n.value.value, n.lineno, ctx[-1].strip() if ctx else f'(returns {n.value.value} in {func_of.get(n, "module")}())'))
@@ -277,18 +281,19 @@ HINTS = {(CONSULT, at(CONSULT, "print(f\"advice_status: {header_field(advice, 's
          (CONSULT, at(CONSULT, "    print('advice: missing')\n    return 4", 'return 4')): ['advice: missing'],
          (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "vs.set_outcome(v.packet, 'start-failed')\n        raise VerifierStartFailed(why)", 'raise VerifierStartFailed(why)')): ['verifier start failed in'],
          (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "raise BadVerifierEntry(f'verifier entry is not JSON", 'raise BadVerifierEntry(f')): ['verifier entry is not JSON'],
-         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "--kind <another kind>", 'return 2')): ['status: inconclusive (the verifier hit its provider'],
-         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "then verify the fix with --covers", 'return 2')): ['verify the fix with --covers'],
-         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "an inconclusive or invalid one is the master's to settle", 'return 2')): ["an inconclusive or invalid one is the master's to settle"],
-         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "'verify:grace')", 'raise StillVerifying()')): ['past its deadline; grace'],
-         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "'verify:progress')", 'raise StillVerifying()')): ['next: other work, then kitchen.sh verify'],
-         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "if not vs.run_close(self.ctx", 'raise ClosedElsewhere()')): ['verification closed elsewhere'],
-         (f'{KITCHEN}/verify_state.py', at(f'{KITCHEN}/verify_state.py', "def still_my_claim", 'raise ClosedElsewhere()')): ['verification closed elsewhere'],
-         (f'{KITCHEN}/verify_state.py', at(f'{KITCHEN}/verify_state.py', "def verification_still_open", 'raise ClosedElsewhere()')): ['verification closed elsewhere']}
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "--kind <another kind>", 'WaiterOutcome(2')): ['status: inconclusive (the verifier hit its provider'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "then verify the fix with --covers", 'WaiterOutcome(2')): ['verify the fix with --covers'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "an inconclusive or invalid one is the master's to settle", 'WaiterOutcome(2')): ["an inconclusive or invalid one is the master's to settle"],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "'verify:grace')", 'WaiterOutcome(4)')): ['past its deadline; grace'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "'verify:progress')", 'WaiterOutcome(4)')): ['next: other work, then kitchen.sh verify'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "if not vs.run_close(self.ctx", 'raise VerificationTaken()')): ['verification closed elsewhere'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "except VerificationTaken:", 'WaiterOutcome(5')): ['verification closed elsewhere'],
+         (f'{KITCHEN}/verify_state.py', at(f'{KITCHEN}/verify_state.py', "def still_my_claim", 'raise VerificationTaken()')): ['verification closed elsewhere'],
+         (f'{KITCHEN}/verify_state.py', at(f'{KITCHEN}/verify_state.py', "def verification_still_open", 'raise VerificationTaken()')): ['verification closed elsewhere']}
 # behaviours no caller depends on (standing order 27): path:line -> why
 NOT_CONTRACT = {
     (f'{PAIR}/commands/metrics.py', at(f'{PAIR}/commands/metrics.py', "cannot read {log}: ", 'return 2')): 'the events log that init creates is unreadable; no caller sends it',
-    (f'{PAIR}/commands/scratch.py', at(f'{PAIR}/commands/scratch.py', "raise Die('jj workspace add failed', 2)", 'raise Die')): 'jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
+    (f'{PAIR}/commands/scratch.py', at(f'{PAIR}/commands/scratch.py', "raise ScratchNotMade('jj workspace add failed')", 'raise ScratchNotMade')): 'jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure',
     (f'{PAIR}/commands/notes.py', at(f'{PAIR}/commands/notes.py', "Prime delivery failed for", 'raise PromptFailed')): 'the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind',
     (SPAWN, at(SPAWN, "Prime start failed in {pane}", 'raise PrimeFailed')): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
     (CONSULT, at(CONSULT, "is working and the consultant has nothing to answer", 'raise AgentBusy')): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',

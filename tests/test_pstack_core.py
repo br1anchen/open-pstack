@@ -31,7 +31,7 @@ from pstack_core import agents, argv, cli, exits, git, panes, permission, procin
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
     BadNumber, BadScratch, DamagedStore, Die, EmptyStepLog, Exit, FileFailed, LockHeld, MissingStore, NoBrief, NotInHerdr, PairError, PairJsonGone, Paused, PlanNotAgreed,
-    StepLogUnreadable, ToolFailed, UnitNotCheckable, Unfilled, refuse_as, translate,
+    StepLogUnreadable, ToolFailed, UnitNotCheckable, Unfilled, VerificationTaken, refuse_as, translate,
 )
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
 
@@ -4333,16 +4333,25 @@ class CoreTests(unittest.TestCase):
     def test_my_claim_and_still_my_claim_say_whether_this_shell_holds_the_close(self):
         """A claim is this shell's when its token names this host and this shell's pid; still_my_claim ends the command with exit 5 otherwise."""
         pid = 4242
-        cases = {'a claim of this process': (f'testhost:{pid}:9', ['mine', 'rc=0']), 'a claim of another process': (f'testhost:{pid + 1}:9', ['notmine', 'verification closed elsewhere', 'rc=5']),
-                 'a claim of another host': (f'other:{pid}:9', ['notmine', 'verification closed elsewhere', 'rc=5']),
-                 'a claim of this host with a longer pid': (f'testhost:{pid}0:9', ['notmine', 'verification closed elsewhere', 'rc=5']),
-                 'no claim': ('', ['notmine', 'verification closed elsewhere', 'rc=5'])}
+        cases = {'a claim of this process': (f'testhost:{pid}:9', ['mine', 'rc=0']), 'a claim of another process': (f'testhost:{pid + 1}:9', ['notmine', 'rc=5']),
+                 'a claim of another host': (f'other:{pid}:9', ['notmine', 'rc=5']),
+                 'a claim of this host with a longer pid': (f'testhost:{pid}0:9', ['notmine', 'rc=5']),
+                 'no claim': ('', ['notmine', 'rc=5'])}
         for n, (name, (token, want)) in enumerate(cases.items()):
             st = self.claim_store(f'my{n}', {'verdict': 'v', **({'closing': {'token': token}} if token else {})})
             code = ('print("mine" if vs.my_claim(store) else "notmine")\ntry:\n    vs.still_my_claim(store)\n    print("rc=0")\n'
                     'except (Exit, PairError) as e:\n    print("rc=%d" % e.code)')
             prc, got, perr = self.kitchen_py(st, code, pid=pid)
             self.assertEqual(got.splitlines(), want, (name, perr))
+
+    def test_a_wait_whose_verification_another_call_closed_says_so_to_its_sink_and_ends_with_5(self):
+        verify_wait = self.kitchen_core_module('verify_wait')
+        ctx = Context('pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 21, '', 'kitchen.sh')
+        said = []
+        waiter = verify_wait.Waiter(ctx, '/st', 0, out=said.append)
+        with mock.patch.object(verify_wait.Waiter, 'wait', side_effect=VerificationTaken()):
+            self.assertEqual(waiter.run(), verify_wait.WaiterOutcome(5, closed_elsewhere=True))
+        self.assertEqual(said, ['verification closed elsewhere\n'])
 
     def test_audit_due_follows_the_crc32_of_the_unit_and_the_sample_rate(self):
         vs = self.kitchen_core_module('verify_state')
@@ -6155,21 +6164,40 @@ class CoreTests(unittest.TestCase):
         (st / 'pair.json').write_text(json.dumps({'verifying': {}}))
         self.assertEqual(verify_wait.delivery_note(str(st)), '')
 
-    def test_a_merged_capture_holds_the_stderr_of_a_child_process_in_the_order_it_was_written_and_a_plain_one_does_not(self):
-        units = self.kitchen_core_module('units')
+    def test_closing_a_verification_keeps_what_the_wait_said_on_either_stream_in_the_order_it_said_it_and_ends_a_failure_after_it(self):
+        verify = self.kitchen_core_module('verify')
+        ctx = Context('pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 21, '', 'kitchen.sh')
 
-        def writes_around_a_child():
-            sys.stderr.write('before\n')
-            sys.stderr.flush()
-            subprocess.run([sys.executable, '-c', 'import sys; sys.stderr.write("child says\\n")'], check=False)
-            sys.stderr.write('after\n')
+        class Said:
+            def __init__(self, *args, out, err, **kwargs):
+                self.status = 'clean'
+                self.out, self.err = out, err
 
-        ctx = Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, '')
-        self.assertEqual(units.captured(ctx, writes_around_a_child, merge_stderr=True), (0, 'before\nchild says\nafter'))
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            self.assertEqual(units.captured(ctx, writes_around_a_child), (0, ''))
-        self.assertEqual(err.getvalue(), 'before\nafter\n')
+            def run(self):
+                self.out('verdict: v\n')
+                self.err('scratch said so\n')
+                self.out('status: clean\n')
+                if fail:
+                    raise ToolFailed(3, 'then it failed')
+                return verify.WaiterOutcome(0, 'clean')
+
+        for fail, want in ((False, (verify.WaiterOutcome(0, 'clean'), ['verdict: v\n', 'scratch said so\n', 'status: clean\n'])),
+                           (True, (verify.WaiterOutcome(3, 'clean'), ['verdict: v\n', 'scratch said so\n', 'status: clean\n', 'kitchen.sh: then it failed\n']))):
+            lines = []
+            with mock.patch.object(verify, 'Waiter', Said):
+                self.assertEqual((verify.close_wait(ctx, '/st', lines.append), lines), want, fail)
+
+    def test_run_close_says_the_refusal_of_the_scratch_removal_to_the_sink_it_is_given(self):
+        verify_state = self.kitchen_core_module('verify_state')
+        world = self.path / 'world-sink'
+        world.mkdir()
+        ctx = Context('pstack-kitchen', str(root / 'skills/pstack-kitchen'), str(self.path / 'state'), 'Kitchen', ('sidekick',), (), 21, '', 'kitchen.sh')
+        said = []
+        with mock.patch.object(verify_state, 'close_verifier', side_effect=lambda *a: verify_state.remove_scratch(ctx, str(world), '001-x-verify')), \
+                mock.patch.object(verify_state, 'my_claim', return_value=False):
+            with self.assertRaises(ToolFailed) as ended:
+                verify_state.run_close(ctx, str(world), 'v1', 'claude', 'p3', 'v', said.append)
+        self.assertEqual((ended.exception.code, said), (1, [f'kitchen.sh: no pair.json in {world}; run: pair.sh init <slug>\n']))
 
     def test_removing_the_scratch_of_a_store_with_no_pair_json_raises_the_core_refusal_in_process(self):
         verify_state = self.kitchen_core_module('verify_state')
@@ -6250,9 +6278,9 @@ class CoreTests(unittest.TestCase):
                                             r'range: [0-9a-f]{9}\.\.[0-9a-f]{9}\nnext: review the range, then pair.sh new-note <T>/st 001\n\Z', label)
             self.assertEqual((got['rc'], got['stderr']), (2, message), label)
 
-    def test_each_caller_of_captured_receives_the_status_its_command_returns_as_it_did_when_a_closure_raised_it(self):
+    def test_the_quiet_wait_ends_with_the_status_its_outcome_carries_and_releases_its_claim(self):
         ctx = Context('pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 21, '')
-        kitchen_wait, kitchen_dispatch = self.kitchen_core_module('wait'), self.kitchen_core_module('dispatch')
+        kitchen_wait = self.kitchen_core_module('wait')
         for code in (0, 1, 2, 4):
             outcome = wait.WaitOutcome(code, 'missing')
 
@@ -6264,37 +6292,6 @@ class CoreTests(unittest.TestCase):
                     mock.patch.object(kitchen_wait, 'release') as release, mock.patch('sys.stdout', new_callable=io.StringIO) as out:
                 self.assertEqual(kitchen_wait.quiet_wait(ctx, '/st', []), code, ('wait', code))
             self.assertEqual((out.getvalue(), release.call_count), ('state: \n', 1), ('wait', code))
-
-    def test_captured_gives_the_status_and_stdout_of_a_call_and_leaves_the_environment_as_it_found_it(self):
-        units = self.kitchen_core_module('units')
-        out = io.StringIO()
-
-        def ends_in_die():
-            print('before')
-            raise Die('refused', 5)
-
-        def sets_env():
-            print(os.environ['KITCHEN_CAPTURED_PROBE'])
-
-        def exits_quietly():
-            raise Exit(4, 'said\n')
-
-        def writes_to_both():
-            print('o')
-            sys.stderr.write('e\n')
-
-        def ends_in_a_domain_failure():
-            print('before')
-            raise PairError('refused')
-
-        ctx = Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, '')
-        with contextlib.redirect_stderr(out):
-            results = [units.captured(ctx, lambda: print('hello\n')), units.captured(ctx, ends_in_die), units.captured(ctx, exits_quietly),
-                       units.captured(ctx, sets_env, env={'KITCHEN_CAPTURED_PROBE': 'on'}),
-                       units.captured(ctx, writes_to_both, merge_stderr=True), units.captured(ctx, ends_in_a_domain_failure), units.captured(ctx, lambda: 3)]
-        self.assertEqual(results, [(0, 'hello'), (5, 'before'), (4, ''), (0, 'on'), (0, 'o\ne'), (1, 'before'), (3, '')])
-        self.assertEqual(out.getvalue(), 'pair.sh: refused\nsaid\npair.sh: refused\n')
-        self.assertNotIn('KITCHEN_CAPTURED_PROBE', os.environ)
 
     def test_step_kpy_call_leaves_the_environment_alone(self):
         """step reaches kitchen.py's `--json classify --base --head` in process (the gates, the policy check and brief-verify run in the detached scripts, as

@@ -284,14 +284,8 @@ class CloseHeld(PairError):
     code = 5
 
 
-class StillVerifying(PairError):
-    """The verification is still running; the call ended with its progress."""
-
-    code = 4
-
-
-class ClosedElsewhere(PairError):
-    """Another call closed the verification this one waited on."""
+class VerificationTaken(PairError):
+    """Another call closed the verification this one worked on, so this one touches nothing more."""
 
     code = 5
 
