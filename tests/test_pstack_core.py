@@ -4374,6 +4374,28 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(self.mask_token(err).replace(str(st), '<S>'), 'kitchen.sh: scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review\n')
         self.assertNotIn('closing', (st / 'pair.json').read_text())
 
+    def test_a_failing_scratch_removal_shows_its_error_in_the_failure_text_of_closing_an_unread_verdict(self):
+        """close_unread's one sink holds the lines the wait said before the removal failed, then the removal's own message, exactly."""
+        verdict = self.path / 'unread-v1.md'
+        verdict.write_text('status: clean\nunits: 001\n')
+        st = self.claim_store('unread', {'verdict': str(verdict), 'units': '001', 'scratch': '001-x-verify'}, {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}})
+        code = ('from unittest import mock\nfrom pstack_core.errors import MissingStore\n'
+                'with mock.patch.object(vs, "close_verifier", side_effect=MissingStore("/w")):\n'
+                '    try:\n        verify.close_unread(ctx, store)\n    except (Exit, PairError) as e:\n        print("rc=%d" % e.code)\n')
+        rc, out, err = self.kitchen_py(st, code, env={'KITCHEN_VERDICT_SETTLE_S': '0'}, prog='kitchen.sh')
+        self.assertEqual((out, err), ('rc=1\n', f'closing the unread verdict {verdict} failed:\nkitchen.sh: no pair.json in /w; run: pair.sh init <slug>\n'))
+
+    def test_a_bug_in_the_scratch_removal_propagates_and_the_close_claim_is_released(self):
+        verdict = '/v/001-x-v1.md'
+        st = self.claim_store('buggy', {'verdict': verdict, 'units': '001', 'scratch': '001-x-verify'}, {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}})
+        code = ('from unittest import mock\n'
+                'with mock.patch.object(vs, "agent_prompt"), mock.patch.object(vs, "agent_status", return_value="absent"), mock.patch.object(vs, "herdr"), \\\n'
+                '        mock.patch.object(vs, "remove_scratch", side_effect=TypeError("bug")):\n'
+                '    try:\n        vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\n    except TypeError as e:\n        print("raised", e)\n')
+        rc, out, err = self.kitchen_py(st, code, pid=os.getpid(), prog='kitchen.sh')
+        self.assertEqual((rc, out), (0, 'raised bug\n'), err)
+        self.assertNotIn('closing', json.loads((st / 'pair.json').read_text())['verifying'])
+
     def test_a_claim_made_with_hostname_unset_names_the_machines_host(self):
         st = self.claim_store('nohostname', {'verdict': '/v/001-x-v1.md', 'units': '001'})
         self.assertEqual(self.kitchen_py(st, 'print(vs.claim_close(store, "/v/001-x-v1.md"))', env={'HOSTNAME': None}, pid=os.getpid())[1], 'True\n')

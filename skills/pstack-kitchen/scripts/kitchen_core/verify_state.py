@@ -141,7 +141,7 @@ def set_member(doc, role, key, value):
 
 def close_verifier(ctx, store, name, kind, pane, verdict):
     """Stops the open verification's verifier, closes its pane and removes its scratch, unless `.verifying` no longer names the verification with
-    verdict or another call claimed it. Returns 70 then, else the status of the scratch removal."""
+    verdict or another call claimed it. Returns 70 then, else 0; a failure is raised."""
     if not claim_close(store, verdict):
         return 70
     scratch = read(store, 'verifying.scratch')
@@ -161,20 +161,23 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
 
 
 def run_close(ctx, store, name, kind, pane, verdict, err=None):
-    """Runs close_verifier so that a die inside it (the Prime cleanup failing) cannot leave this process's claim behind: the claim is released and
-    the same status returned. Its message goes to `err` (default: standard error). close_verifier's own 70 is "not ours to close" (False, closed elsewhere); any other nonzero status ends the command."""
+    """Runs close_verifier so that a failure inside it (the Prime cleanup, the scratch removal) cannot leave this process's claim behind: a failure
+    the command ends with is said to `err` (default: standard error) and ends with its status, a bug propagates, and either way the claim this
+    process holds is given back. close_verifier's own 70 is "not ours to close" (False, closed elsewhere); any other nonzero status ends the command."""
+    closed = False
     try:
-        rc = close_verifier(ctx, store, name, kind, pane, verdict)
-    except Exception as e:
-        text, rc = translate(e, ctx.prog)
-        (err or sys.stderr.write)(text)
-    if rc == 0:
-        return True
-    if rc == 70:
-        return False
-    if my_claim(store):
-        release_close(store, verdict, read(store, 'verifying.closing.token'))
-    raise ToolFailed(rc)
+        try:
+            rc = close_verifier(ctx, store, name, kind, pane, verdict)
+        except Exception as e:
+            text, rc = translate(e, ctx.prog)
+            (err or sys.stderr.write)(text)
+        if rc in (0, 70):
+            closed = True
+            return rc == 0
+        raise ToolFailed(rc)
+    finally:
+        if not closed and my_claim(store):
+            release_close(store, verdict, read(store, 'verifying.closing.token'))
 
 
 def set_outcome(packet, value):
