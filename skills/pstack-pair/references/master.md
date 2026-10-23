@@ -245,6 +245,9 @@ standing orders authorize you to answer that class of prompt, answer with
 add a `gates.md` entry, and end your turn so the human can answer in the
 sidekick pane.
 
+A dialog's preview or side pane shows what the command will touch, not its
+result: read the result only after the dialog is answered.
+
 ## Waits and the shell timeout
 
 Your host caps one shell call. Keep `--every` under that cap (the default is

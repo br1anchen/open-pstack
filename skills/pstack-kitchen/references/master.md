@@ -332,8 +332,9 @@ On `pstack-kitchen MASTER <store>`: you are that next generation. Run
 `kitchen.sh take-master <store>` first: it waits briefly for the old master
 to end its turn, closes its pane (and the background waits it left
 running), and gives you back the run's master name. Then read
-`session-handoff.md`, `standing-orders.md` and `pair.json` (the dispatch,
-queue and verifying fields), then the files the handoff points at, and
+`session-handoff.md`, `standing-orders.md` and `pair.json` (the dispatch
+and verifying fields), then `kitchen.sh status` (its `queued:` line shows
+`<store>/queue`), then the files the handoff points at, and
 continue from its Next section; run `wait` or `verify --wait` on open
 dispatches and verifications. Do not re-run `init` or `spawn`; the roles
 are live.
