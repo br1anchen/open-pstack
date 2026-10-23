@@ -603,6 +603,29 @@ class FreshSessionTests(unittest.TestCase):
                 self.assertLess(ready, calls.index(f'BRIEF {queued}'))
                 self.assertLess(calls.index('agent prompt demo-sidekick /exit'), ready)
 
+    def test_rotate_points_no_mcp_json_at_the_current_build(self):
+        run, state, brief, store, fake, first = self.world('pstack-pair', 'pair')
+        report = store / 'reports' / first.name
+        report.write_text('status: done\nhead: abc123\n')
+        (fake / 'agents/demo-sidekick').write_text('idle claude\n')
+        run('finish', str(store), str(report))
+        old = '/nix/store/gone-skills/pstack-pair/references/no-mcp.json'
+        doc = state()
+        doc['sidekick']['start_args'] = ['--model', 'm', '--mcp-config', old]
+        (store / 'pair.json').write_text(json.dumps(doc))
+        run('rotate', str(store))
+        start = [
+            line
+            for line in (fake / 'calls.log').read_text().splitlines()
+            if line.startswith('agent start demo-sidekick')
+        ][-1]
+        current = str(skills / 'pstack-pair/scripts/../references/no-mcp.json')
+        self.assertNotIn(old, start)
+        self.assertTrue(start.endswith(f'--model m --mcp-config {current}'), start)
+        self.assertEqual(
+            state()['sidekick']['start_args'], ['--model', 'm', '--mcp-config', current]
+        )
+
     def test_a_partial_report_keeps_the_session_for_every_variant(self):
         for skill, state_dir in self.VARIANTS:
             with self.subTest(skill):

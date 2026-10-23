@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 
+from ..agents import current_no_mcp
 from ..argv import Spec, read
 from ..checkin import sidekick_busy
 from ..errors import Die, RotationFailed, translate
@@ -74,7 +75,7 @@ def rotate(ctx, args):
             f'{who("sidekick", name)} is {status}; wait for its report and turn to end before rotating',
             5,
         )
-    start_args = names(sidekick, 'start_args')
+    start_args = current_no_mcp(names(sidekick, 'start_args'))
     event(
         store,
         'master',

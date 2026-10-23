@@ -16,6 +16,7 @@ from .prime import with_timeout
 from .store import TEXT
 
 PAIR_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+NO_MCP_JSON = f'{PAIR_DIR}/../references/no-mcp.json'
 
 
 def permission_args(kind, mode):
@@ -92,13 +93,20 @@ def codex_mcp_names(cwd):
     ]
 
 
+def current_no_mcp(args):
+    """`args` with any recorded no-mcp.json path, which names the build that first spawned the agent, pointed at this build's file."""
+    return [
+        NO_MCP_JSON if arg.endswith('/references/no-mcp.json') else arg for arg in args
+    ]
+
+
 def mcp_args(kind, cwd=None):
     """The arguments that keep an agent's MCP servers off."""
     if kind == 'claude':
         return [
             '--strict-mcp-config',
             '--mcp-config',
-            f'{PAIR_DIR}/../references/no-mcp.json',
+            NO_MCP_JSON,
         ]
     if kind == 'codex':
         return [
