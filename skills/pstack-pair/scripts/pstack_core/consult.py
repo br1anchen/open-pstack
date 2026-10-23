@@ -247,6 +247,32 @@ def new_consult(ctx, args):
     return 0
 
 
+def stamp_send_state(store, path):
+    """Writes the one header line the script owns into the consult file: the sidekick's state and the head at send time, so the consultant knows
+    how live the tree it reads is. A file with a placeholder left in it is refused after the write. Returns (the store's cwd, the sidekick's state)."""
+    sidekick_state = agent_status(field(store, 'sidekick', 'name'))
+    cwd = read(store, 'cwd')
+    state_line = f"sidekick state at send: {sidekick_state} at {git.out(cwd, 'rev-parse', '--short', 'HEAD') or '?'}"
+    text = re.sub(r'^sidekick state at send:.*', lambda _: state_line, read_text(path), flags=re.M)
+    write_text(path, text)
+    if '{{' in text or re.search(r'^kind: .*\|', text, re.M):
+        raise Die(f'{path} still has unfilled placeholders')
+    return cwd, sidekick_state
+
+
+def require_consultant_idle(store):
+    """The consultant's name, once it is live and idle or done; a consult to one that is absent, blocked or working is refused with its own exit code."""
+    name = field(store, 'consultant', 'name')
+    status = agent_status(name)
+    if status == 'absent':
+        raise Die(f'{who("consultant", name)} is not live; run: pair.sh spawn {store} --only consultant --consultant <kind>', 2)
+    if status == 'blocked':
+        raise Die(f'{who("consultant", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
+    if status not in ('idle', 'done'):
+        raise Die(f'{who("consultant", name)} is {status}; wait for its current advice first', 5)
+    return name
+
+
 def consult(ctx, args):
     """A consult reaches the consultant at any time, the sidekick working or not. The header records the sidekick's state and HEAD at send; the
     consultant reads committed work at that head, or a scratch snapshot, never a tree that moves under it."""
@@ -268,22 +294,8 @@ def consult(ctx, args):
         raise Die(f'{path}: the file name must be NNN-<slug>-c<k>.md, as new-consult makes it')
     seq, slug, k = named.groups()
     kind = header_field(path, 'kind')
-    sidekick_state = agent_status(field(store, 'sidekick', 'name'))
-    cwd = read(store, 'cwd')
-    # The one header line the script owns: the sidekick's state and the head at send time, so the consultant knows how live the tree it reads is.
-    state_line = f"sidekick state at send: {sidekick_state} at {git.out(cwd, 'rev-parse', '--short', 'HEAD') or '?'}"
-    text = re.sub(r'^sidekick state at send:.*', lambda _: state_line, read_text(path), flags=re.M)
-    write_text(path, text)
-    if '{{' in text or re.search(r'^kind: .*\|', text, re.M):
-        raise Die(f'{path} still has unfilled placeholders')
-    name = field(store, 'consultant', 'name')
-    status = agent_status(name)
-    if status == 'absent':
-        raise Die(f'{who("consultant", name)} is not live; run: pair.sh spawn {store} --only consultant --consultant <kind>', 2)
-    if status == 'blocked':
-        raise Die(f'{who("consultant", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60', 3)
-    if status not in ('idle', 'done'):
-        raise Die(f'{who("consultant", name)} is {status}; wait for its current advice first', 5)
+    cwd, sidekick_state = stamp_send_state(store, path)
+    name = require_consultant_idle(store)
     head = git.out(cwd, 'rev-parse', 'HEAD') or ''
     update(store, lambda doc: doc.update(consult={'file': path, 'at': now(), 'head': head, 'sidekick_state': sidekick_state}))
     event(store, 'master', 'send-consult', path, kind)

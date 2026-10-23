@@ -7397,6 +7397,29 @@ class CoreTests(unittest.TestCase):
             'advice with none on file': (4, 'no advice found'),
         }, 'pstack-trio')
 
+    def test_a_consult_is_stamped_with_the_sidekick_state_and_sent_only_to_an_idle_consultant(self):
+        from pstack_core import consult
+        st = self.path / 'stamp-st'
+        st.mkdir()
+        (st / 'pair.json').write_text(json.dumps({'cwd': str(self.path), 'sidekick': {'name': 's1'}, 'consultant': {'name': 'c1'}}) + '\n')
+        draft = st / 'c.md'
+        draft.write_text('kind: finding\nsidekick state at send: x\n\n## Question\nq\n')
+        with mock.patch.object(consult, 'agent_status', return_value='working'):
+            self.assertEqual(consult.stamp_send_state(str(st), str(draft)), (str(self.path), 'working'))
+        self.assertEqual(draft.read_text(), 'kind: finding\nsidekick state at send: working at ?\n\n## Question\nq\n')
+        draft.write_text('kind: finding|design\nsidekick state at send: x\n')
+        with mock.patch.object(consult, 'agent_status', return_value='idle'), self.assertRaises(Die) as refused:
+            consult.stamp_send_state(str(st), str(draft))
+        self.assertEqual(refused.exception.message, f'{draft} still has unfilled placeholders')
+        for status, code in (('idle', None), ('done', None), ('absent', 2), ('blocked', 3), ('working', 5)):
+            with mock.patch.object(consult, 'agent_status', return_value=status):
+                if code is None:
+                    self.assertEqual(consult.require_consultant_idle(str(st)), 'c1')
+                else:
+                    with self.assertRaises(Die) as refused:
+                        consult.require_consultant_idle(str(st))
+                    self.assertEqual(refused.exception.code, code)
+
     def test_a_trio_plan_round_and_the_consult_commands_run_with_no_jq(self):
         """The consultant's commands are Python: with a jq on PATH that fails, pair.sh discuss, new-consult, consult and advice still end as they do with one."""
         no_jq = dict(topfiles={'nojq/jq': ('#!/bin/sh\necho "jq was started" >&2\nexit 127\n', 0o755)}, envfill={'PATH': '{T}/nojq:' + self.env['PATH']})
