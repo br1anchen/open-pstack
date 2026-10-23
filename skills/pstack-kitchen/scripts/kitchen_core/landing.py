@@ -356,6 +356,28 @@ def lines(texts, name):
     return '\n' + '\n'.join(body) + '\n\n'
 
 
+def fix_brief_fills(verdict, store, briefs, olds, landing):
+    """The section bodies of a fix brief by section name: for a landing verdict every unit's Scope, Acceptance, Verify and Forbidden merged, for a
+    unit's own verdict the last brief's sections as they stand."""
+    steps = '\n1. One commit per finding in the verdict: the change, and the check that shows the finding is gone.\n\n'
+    if landing:
+        return {
+            'Goal': f'\nFix every finding in the landing verdict {verdict}, so a fresh `kitchen.sh verify {store} --landing` of the stack passes.\n\n',
+            'Steps': steps,
+            'Context': f'\n- verdict: {verdict}\n' + ''.join(f'- unit brief: {b}\n' for b in briefs) + '\n',
+            'Scope': scope(olds), 'Acceptance': lines(olds, 'Acceptance'), 'Forbidden': lines(olds, 'Forbidden'),
+            'Verify': '\n' + ''.join(section(t, 'Verify').strip('\n') + '\n\n' for t in olds),
+        }
+    fills = {
+        'Goal': f'\nFix every finding in the verifier\'s verdict {verdict}, so a fresh verification of the same acceptance passes.\n\n',
+        'Steps': steps,
+        'Context': f'\n- verdict: {verdict}\n- original brief: {briefs[0]}\n\n',
+    }
+    for name in ('Scope', 'Acceptance', 'Verify', 'Forbidden'):
+        fills[name] = section(olds[-1], name)
+    return fills
+
+
 def revise(ctx, args):
     """The fix brief for a rejected verdict: a unit's own, or for a landing verdict one that carries every unit's Scope, Acceptance, Verify and
     Forbidden."""
@@ -389,22 +411,7 @@ def revise(ctx, args):
     for key in ('timebox', 'commit'):
         new = re.sub(rf'^{key}: .*$', f'{key}: {header(last, key)}', new, count=1, flags=re.M)
     new = re.sub(r'^plan: .*$', f'plan: {"none" if landing else header(last, "plan")}', new, count=1, flags=re.M)
-    if landing:
-        fills = {
-            'Goal': f'\nFix every finding in the landing verdict {verdict}, so a fresh `kitchen.sh verify {store} --landing` of the stack passes.\n\n',
-            'Steps': '\n1. One commit per finding in the verdict: the change, and the check that shows the finding is gone.\n\n',
-            'Context': f'\n- verdict: {verdict}\n' + ''.join(f'- unit brief: {b}\n' for b in briefs) + '\n',
-            'Scope': scope(olds), 'Acceptance': lines(olds, 'Acceptance'), 'Forbidden': lines(olds, 'Forbidden'),
-            'Verify': '\n' + ''.join(section(t, 'Verify').strip('\n') + '\n\n' for t in olds),
-        }
-    else:
-        fills = {
-            'Goal': f'\nFix every finding in the verifier\'s verdict {verdict}, so a fresh verification of the same acceptance passes.\n\n',
-            'Steps': '\n1. One commit per finding in the verdict: the change, and the check that shows the finding is gone.\n\n',
-            'Context': f'\n- verdict: {verdict}\n- original brief: {briefs[0]}\n\n',
-        }
-        for name in ('Scope', 'Acceptance', 'Verify', 'Forbidden'):
-            fills[name] = section(last, name)
+    fills = fix_brief_fills(verdict, store, briefs, olds, landing)
     for name, body in fills.items():
         new = re.sub(rf'(^## {name}\n)(.*?)(?=^## |\Z)', lambda m, b=body: m.group(1) + b, new, count=1, flags=re.M | re.S)
     with open(path, 'w') as f:

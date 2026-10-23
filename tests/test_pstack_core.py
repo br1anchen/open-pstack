@@ -2493,6 +2493,25 @@ class CoreTests(unittest.TestCase):
                                  {'a held lock': (1, 'the feedback inbox is locked')})
         self.assertRegex(out['a held lock']['stderr'], r'the feedback inbox is locked \(<T>/state/pstack/feedback/\.lock\)')
 
+    def test_a_fix_brief_takes_the_last_briefs_sections_or_the_union_of_every_units_for_a_landing_verdict(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import landing
+        first = '## Scope\n\nmay write:\n- src/a.py\n\n## Acceptance\n\n- a works\n\n## Verify\n\ntrue 1\n\n## Forbidden\n\n- x\n'
+        last = '## Scope\n\nmay write:\n- src/a.py\n- docs/**\n\n## Acceptance\n\n- b works\n\n## Verify\n\ntrue 2\n\n## Forbidden\n\n- y\n'
+        unit = landing.fix_brief_fills('v.md', '/st', ['/st/briefs/002-b.md'], [first, last], False)
+        self.assertEqual(unit['Context'], '\n- verdict: v.md\n- original brief: /st/briefs/002-b.md\n\n')
+        self.assertEqual((unit['Scope'], unit['Verify']), ('\nmay write:\n- src/a.py\n- docs/**\n\n', '\ntrue 2\n\n'))
+        whole = landing.fix_brief_fills('v.md', '/st', ['/st/briefs/001-a.md', '/st/briefs/002-b.md'], [first, last], True)
+        self.assertEqual(whole['Context'], '\n- verdict: v.md\n- unit brief: /st/briefs/001-a.md\n- unit brief: /st/briefs/002-b.md\n\n')
+        self.assertEqual(whole['Scope'], '\nmay write:\n- src/a.py\n- docs/**\n\nmust not write:\n- none\n\n')
+        self.assertEqual((whole['Acceptance'], whole['Verify']), ('\n- a works\n- b works\n\n', '\ntrue 1\n\ntrue 2\n\n'))
+        self.assertEqual(whole['Steps'], unit['Steps'])
+
     def test_feedback_moves_a_file_into_place_or_names_the_move_it_could_not_make(self):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
         try:
