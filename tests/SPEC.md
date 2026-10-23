@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at 76fa4d3 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 03f82e0 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -356,10 +356,10 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 
 ## Store files and fields
 
-- `pair.json` written by master via `pair.sh`: agent names, pane ids, cwd, git root, the sidekick's fallback and failovers, pane placement (split or tab) — skills/pstack-pair/SKILL.md:58 — test_pstack_pair.PairScriptTests.test_trio (+105)
+- `pair.json` written by master via `pair.sh`: agent names, pane ids, cwd, git root, the sidekick's fallback and failovers, pane placement (split or tab) — skills/pstack-pair/SKILL.md:58 — test_pstack_pair.PairScriptTests.test_trio (+106)
 - `standing-orders.md` written by master: numbered constraints pasted by path into every brief — skills/pstack-pair/SKILL.md:59 — test_pstack_pair.PairScriptTests.test_trio (+8)
 - `plans/NNN-<slug>.md` written by master: one plan round, from [the plan template](references/plan-template.md) — skills/pstack-pair/SKILL.md:60 — test_pstack_pair.PairScriptTests.test_trio (+25)
-- `briefs/NNN-<slug>.md` written by master: one unit, from [the brief template](references/brief-template.md) — skills/pstack-pair/SKILL.md:61 — test_pstack_pair.PairScriptTests.test_trio (+60)
+- `briefs/NNN-<slug>.md` written by master: one unit, from [the brief template](references/brief-template.md) — skills/pstack-pair/SKILL.md:61 — test_pstack_pair.PairScriptTests.test_trio (+59)
 - `progress/NNN-<slug>.md` written by sidekick via `pair.sh progress`: one timestamped line per completed step or change of approach; a check-in shows only the lines the master has  — skills/pstack-pair/SKILL.md:62 — test_pstack_pair.PairScriptTests.test_trio (+14)
 - `steers/NNN-<slug>-s<k>.md` written by master: mid-brief direction k for unit NNN, from [the steer template](references/steer-template.md); `supersedes:` nam — skills/pstack-pair/SKILL.md:63 — test_pstack_pair.PairScriptTests.test_trio (+17)
 - `reports/NNN-<slug>-s<k>.md` written by sidekick: objection to steer k, from [the steer response template](references/steer-response-template.md) — skills/pstack-pair/SKILL.md:64 — test_pstack_pair.PairScriptTests.test_trio (+76)
