@@ -14,7 +14,7 @@ from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
 from pstack_core.store import field, read_text, event, json_type, listing, load, member, now, pair_file, text_at, update
 from pstack_core.commands.report import require_pair
-from pstack_core.errors import DamagedStore, Die, Exit, ToolFailed
+from pstack_core.errors import DamagedStore, Die, Exit, SetupFailed, ToolFailed
 from pstack_core import git
 from pstack_core.panes import agent_status, require_herdr
 from pstack_core.wait import end_with_parent
@@ -68,12 +68,7 @@ def quiet_kitchen(store, args):
 
 
 def init(ctx, args):
-    def run_core_init():
-        code = core_init.run(ctx, list(args))
-        if code:
-            raise ToolFailed(code)
-
-    code, out = captured(ctx, run_core_init)
+    code, out = captured(ctx, lambda: core_init.run(ctx, list(args)))
     if code:
         raise Exit(code)
     sys.stdout.write(out + '\n')
@@ -111,7 +106,7 @@ def worktree_setup(ctx, store, found):
     out = (out + err).rstrip('\n')
     event(store, 'master', 'setup', '-', 'pass' if status == 0 else 'fail')
     if status != 0:
-        raise Die(f'this run is in a linked worktree and its [scratch].setup failed:\n{out}', 2)
+        raise SetupFailed(f'this run is in a linked worktree and its [scratch].setup failed:\n{out}')
     sys.stdout.write(f'worktree: prepared with [scratch].setup ({out})\n')
 
 
@@ -122,7 +117,7 @@ def roster_json():
         sys.stdout.flush()
         sys.stderr.write(err)
     if status != 0:
-        raise Exit(status)
+        raise ToolFailed(status)
     return out.rstrip('\n')
 
 

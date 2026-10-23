@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 from pstack_core.store import expected_report, read_text, header_field, load, peek, read, text_at
-from pstack_core.errors import Die, NoBrief, translate
+from pstack_core.errors import BadLandingBase, BadRevision, HeadNotCarried, NoBrief, UnitNotCheckable, translate
 from pstack_core import git
 from pstack_core.review import range_floor, trunk_ref
 from pstack_core.steplog import StepLog
@@ -24,8 +24,8 @@ from pstack_core.variant import commit_of
 
 def captured(ctx, call, merge_stderr=False, env=None):
     """(status, text) of call run with its stdout captured, and its stderr too when merge_stderr, that of a child process included, in the order
-    it was written: a return ends it with 0, a failure with its translation (errors.translate) after what it prints. env is set for the call and
-    restored after it."""
+    it was written: a return ends it with the status it returns (0 for none), a failure with its translation (errors.translate) after what it
+    prints. env is set for the call and restored after it."""
     status = 0
     saved = dict(os.environ)
     os.environ.update(env or {})
@@ -40,7 +40,7 @@ def captured(ctx, call, merge_stderr=False, env=None):
         try:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out) if merge_stderr else contextlib.nullcontext():
                 try:
-                    call()
+                    status = call() or 0
                 except Exception as e:
                     text, status = translate(e, ctx.prog)
                     sys.stderr.write(text)
@@ -247,9 +247,9 @@ def heads_in(store, head, units):
         if found.kind == 'rebased':
             sys.stderr.write(f"note: unit {unit}'s head is not in {head[:9]}; its commits match by patch-id (rebased as {found.sha[:9]})\n")
         elif found.reason == 'reverted':
-            raise Die(f"unit {unit}'s commits match by patch-id but {found.by[:9]} reverts them in the checked-out head {head[:9]} (unit {last})", 2)
+            raise HeadNotCarried(f"unit {unit}'s commits match by patch-id but {found.by[:9]} reverts them in the checked-out head {head[:9]} (unit {last})")
         else:
-            raise Die(f"unit {unit}'s head {uhead[:9]} is not in the checked-out head {head[:9]} (unit {last}); name the unit that carries all the others last", 2)
+            raise HeadNotCarried(f"unit {unit}'s head {uhead[:9]} is not in the checked-out head {head[:9]} (unit {last}); name the unit that carries all the others last")
 
 
 class Verdict:
@@ -313,18 +313,18 @@ def landing_base(store, root, head, parent_override='', parent_label='', range_b
             sys.stdout.write(f'landing base: recorded parent {label} ({found[:9]})\n')
             return found
         if parent_override:
-            raise Die(f'--parent {label} ({parent[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts')
+            raise BadLandingBase(f'--parent {label} ({parent[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts')
         sys.stdout.write(f'landing base: recorded parent {label} ({parent[:9]}) is no longer an ancestor of {head[:9]}; using the trunk merge-base\n')
     trunk = trunk_ref(root) or ''
     if not trunk:
-        raise Die("cannot tell this repo's trunk; pass --base <trunk ref or commit>")
+        raise BadLandingBase("cannot tell this repo's trunk; pass --base <trunk ref or commit>")
     merged = git.run(root, 'merge-base', trunk, head)
     base = merged.stdout.rstrip('\n')
     if merged.returncode != 0:
-        raise Die(f'no merge-base between {trunk} and HEAD; pass --base')
+        raise BadLandingBase(f'no merge-base between {trunk} and HEAD; pass --base')
     name = trunk.removeprefix('refs/')
     if base == head:
-        raise Die(f'HEAD is already on {name}, so the landing range is empty; pass --base <where the stack starts>')
+        raise BadLandingBase(f'HEAD is already on {name}, so the landing range is empty; pass --base <where the stack starts>')
     sys.stdout.write(f'landing base: merge-base of {name} and HEAD ({base[:9]})\n')
     return base
 
@@ -347,13 +347,13 @@ def unit_range(ctx, store, units, covered=(), range_base=''):
     brief = brief_or_nothing(ctx, store, first)
     base = dispatch_head(store, brief)
     if not base:
-        raise Die(f'unit {first} was never dispatched')
+        raise UnitNotCheckable(f'unit {first} was never dispatched')
     for unit in units:
         if unit in covered:
             continue
         report = expected_report(store, brief_or_nothing(ctx, store, unit))
         if not os.path.isfile(report):
-            raise Die(f'unit {unit} has no report')
+            raise UnitNotCheckable(f'unit {unit} has no report')
         status = header_field(report, 'status')
         if status == 'done':
             continue
@@ -361,25 +361,25 @@ def unit_range(ctx, store, units, covered=(), range_base=''):
             sys.stdout.flush()
             sys.stderr.write(f"note: unit {unit}'s report is {status}; checking the head it names\n")
         elif status == '':
-            raise Die(f"unit {unit}'s report has no status:")
+            raise UnitNotCheckable(f"unit {unit}'s report has no status:")
         else:
-            raise Die(f"unit {unit}'s report is {status}, not done, partial, blocked, or failed")
+            raise UnitNotCheckable(f"unit {unit}'s report is {status}, not done, partial, blocked, or failed")
     report = expected_report(store, brief_or_nothing(ctx, store, last))
     if not os.path.exists(report):
         sys.stdout.flush()
         sys.stderr.write(f'{ctx.prog}: cannot read {report}: No such file or directory\n')
     head = header_field(report, 'head')
     if not head:
-        raise Die(f"unit {last}'s report has no head:")
+        raise UnitNotCheckable(f"unit {last}'s report has no head:")
     root = repo_root(store)
     resolved = commit_of(root, head)
     if resolved is None:
-        raise Die(f"unit {last}'s head is not a commit")
+        raise UnitNotCheckable(f"unit {last}'s head is not a commit")
     head = resolved
     if range_base:
         base = commit_of(root, range_base)
         if base is None:
-            raise Die(f'--base {range_base} is not a commit')
+            raise BadRevision(f'--base {range_base} is not a commit')
     else:
         base, note = range_floor(root, base, head)
         if note:

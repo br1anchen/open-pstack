@@ -26,7 +26,10 @@ from pstack_core.store import (
     update, whole_number,
 )
 from pstack_core.commands.report import require_pair
-from pstack_core.errors import DamagedStore, Die, Exit, PairError, ToolFailed, translate
+from pstack_core.errors import (
+    BadRevision, BadVerifierEntry, CloseHeld, DamagedStore, Die, PairError, PrimeFailed, ToolFailed, UnknownVerifierKind, VerifierStartFailed,
+    translate,
+)
 from pstack_core import git
 from pstack_core.panes import TRUST_RE, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, parse, reply_at, require_herdr
 from pstack_core.permission import mode_of_this_shell
@@ -166,7 +169,7 @@ def parse_entry(text):
     try:
         return json.loads(text)
     except ValueError as e:
-        raise Die(f'verifier entry is not JSON: {e}', 2)
+        raise BadVerifierEntry(f'verifier entry is not JSON: {e}')
 
 
 def verifier_identity(kind, args):
@@ -281,21 +284,21 @@ def classify_landing(store, root, kit, o):
     the diff's classification."""
     head = commit_of(root, o.land_head or 'HEAD')
     if head is None:
-        raise Die(f'--head {o.land_head} is not a commit')
+        raise BadRevision(f'--head {o.land_head} is not a commit')
     override = label = ''
     if o.parent_ref == 'none':
         label = 'none'
     if o.parent_ref and o.parent_ref != 'none':
         override = commit_of(root, o.parent_ref)
         if override is None:
-            raise Die(f'--parent {o.parent_ref} is not a commit')
+            raise BadRevision(f'--parent {o.parent_ref} is not a commit')
         label = o.parent_ref
         if not (override != head and is_ancestor(root, override, head)):
-            raise Die(f'--parent {o.parent_ref} ({override[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts')
+            raise BadRevision(f'--parent {o.parent_ref} ({override[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts')
     if o.range_base:
         base = commit_of(root, o.range_base)
         if base is None:
-            raise Die(f'--base {o.range_base} is not a commit')
+            raise BadRevision(f'--base {o.range_base} is not a commit')
     else:
         base = landing_base(store, root, head, override, label, o.range_base)
     # A rebase since the last landing verdict may have moved a dependency manifest.
@@ -378,7 +381,7 @@ def choose_verifier(kit, root, cls, o):
         picked = entry
     args_list = verifier_args(kind, picked, root)
     if not kind or not isinstance(kind, str):
-        raise Die(f'cannot tell which agent kind verifies ({cls})')
+        raise UnknownVerifierKind(f'cannot tell which agent kind verifies ({cls})')
     return entry, kind, args_list
 
 
@@ -422,9 +425,9 @@ def launch_verifier(v):
         herdr('pane', 'close', pane)
         removed = vs.remove_scratch(v.ctx, store, v.scratch_id)
         if removed:
-            raise Exit(removed)
+            raise ToolFailed(removed)
         vs.set_outcome(v.packet, 'start-failed')
-        raise Die(why, 5)
+        raise VerifierStartFailed(why)
     return pane, started
 
 
@@ -453,9 +456,9 @@ def record_start(v, pane, started):
         if not started:
             vs.set_outcome(v.packet, 'start-failed')
             record_prime_session(store, 'verifier')
-            raise Die(f'Prime verifier start failed in {pane}; its pane and scratch stay for inspection (verify-wait can resume cleanup once its session is reported)', 5)
+            raise PrimeFailed(f'Prime verifier start failed in {pane}; its pane and scratch stay for inspection (verify-wait can resume cleanup once its session is reported)')
         if not record_prime_session(store, 'verifier'):
-            raise Die('Prime verifier did not report its session; its pane and scratch stay for inspection', 5)
+            raise PrimeFailed('Prime verifier did not report its session; its pane and scratch stay for inspection')
     event(store, 'master', 'send-verify', v.brief, f'{v.kind}:{v.units_label}')
     record_verifier_session(store, v.name)
     out(f'verifier {v.name} ({v.identity}) in {pane} on {v.base[:9]}..{v.head[:9]}\n')
@@ -476,7 +479,7 @@ def deliver_packet(v):
 
 
 def verify(ctx, args):
-    """Start a verification of the named units or the landing and wait for its verdict; every end is an Exit or a Die."""
+    """Start a verification of the named units or the landing and wait for its verdict; the status is the exit code."""
     require_herdr()
     if len(args) < 2:
         raise Die(USAGE)
@@ -490,12 +493,11 @@ def verify(ctx, args):
     if o.cancel:
         if o.wait or o.units or o.landing:
             raise Die('--cancel takes no units, --landing or --wait')
-        vs.verify_cancel(ctx, store)
-        raise Exit(0)
+        return vs.verify_cancel(ctx, store)
     if o.wait:
         if not read(store, 'verifying.verdict'):
             raise Die(f'no verification is open; start one with kitchen.sh verify {store} <NNN>', 5)
-        Waiter(ctx, store, o.every_m, retry=retry).run()
+        return Waiter(ctx, store, o.every_m, retry=retry).run()
     if not o.landing and not o.units:
         raise Die('name at least one unit NNN, or --landing')
     if o.landing and o.units:
@@ -524,7 +526,7 @@ def verify(ctx, args):
         out(f'verdict: {verdict}\nstatus: clean (gates only; mode gates)\n')
         warn_unreviewed(store)
         vs.handoff_due(store, last)
-        raise Exit(0)
+        return 0
     timeout_m = deadline_minutes(kit, data, o)
     entry, kind, args_list = choose_verifier(kit, root, c.cls, o)
     scratch_id = '000-landing-verify' if o.landing else f'{last}-{slug}-verify'
@@ -539,7 +541,7 @@ def verify(ctx, args):
     pane, started = launch_verifier(v)
     record_start(v, pane, started)
     deliver_packet(v)
-    Waiter(ctx, store, o.every_m, retry=retry).run()
+    return Waiter(ctx, store, o.every_m, retry=retry).run()
 
 
 def pick_entry(entry, kind):
@@ -613,7 +615,7 @@ def close_unread(ctx, store):
             out(f'closing {open_verdict}: another call is closing it; waiting for it\n')
         limit = env_int('KITCHEN_VERIFY_CLOSE_WAIT_S', 120)
         if not int(time.time()) - waiting_since < limit:
-            raise Die(f'another call has held the close of {open_verdict} for {limit}s; kitchen.sh verify {store} --wait', 5)
+            raise CloseHeld(f'another call has held the close of {open_verdict} for {limit}s; kitchen.sh verify {store} --wait')
         time.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
     if by_another:
         closed_status = 'closed by another call'
@@ -621,12 +623,12 @@ def close_unread(ctx, store):
         closed_rc = 0 if header_field(open_verdict, 'status') == 'clean' else 2
     elif not closed_status:
         warn(f'closing the unread verdict {open_verdict} failed:\n{closed}\n')
-        raise Exit(closed_rc if closed_rc > 0 else 5)
+        raise ToolFailed(closed_rc if closed_rc > 0 else 5)
     out(f'closed: {open_verdict} ({closed_status})\n{closed}\n')
     # A verdict that is not clean is the master's to act on before another verification starts.
     if closed_rc != 0:
         wake(ctx, store, closed_brief, f'verify:{closed_status.split(" ")[0]}')
-        raise Exit(closed_rc)
+        raise ToolFailed(closed_rc)
 
 
 def section_lines(path, pattern, keep_heading):
@@ -696,7 +698,7 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
                 ubriefs += found if found else [f'{store}/briefs/{u}-*.md']
             status, lessons = kit.elsewhere(['lesson-packet', *ubriefs])
             if status != 0:
-                raise Exit(status)
+                raise ToolFailed(status)
             lessons = lessons.rstrip('\n')
             if lessons:
                 parts.append(f'{lessons}\n\n')
@@ -728,9 +730,3 @@ def write_packet(ctx, kit, here, store, packet, verdict, scratch, base, head, id
         parts.append('verification skill: ' + ''.join(s + ' ' for s in skills) + '\n')
     finally:
         write_text(packet, ''.join(parts))
-
-
-def verify_command(ctx, args):
-    """kitchen.sh verify <store> ...: every path of `verify` ends in an Exit or a Die."""
-    verify(ctx, args)
-    return 0

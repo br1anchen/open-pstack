@@ -5,7 +5,7 @@ import re
 import sys
 
 from pstack_core.store import event, read_text, now, pair_file, read, who
-from pstack_core.errors import Die, Exit
+from pstack_core.errors import Die, Exit, ToolFailed
 
 from . import kpy
 
@@ -40,7 +40,7 @@ def state_ledger(store, abort=False):
     rc, out, err = kpy.run(root, ['statedir'])
     sys.stderr.write(err)
     if abort and rc != 0:
-        raise Exit(rc)
+        raise ToolFailed(rc)
     return out.rstrip('\n') + '/ledger.tsv'
 
 
@@ -67,7 +67,7 @@ def counters(store):
     rc, out, err = kpy.run(None, ['counters', store])
     sys.stderr.write(err)
     if rc != 0:
-        raise Exit(rc)
+        raise ToolFailed(rc)
     return json.loads(out)
 
 
@@ -113,7 +113,7 @@ def retro(ctx, args):
     run = slug_of(store)
     rc = relay(kpy.run(None, ['ledger-retro', store, ledger, '--run', run, '--ts', now()]))
     if rc != 0:
-        raise Exit(rc)
+        raise ToolFailed(rc)
     c = counters(store)
     out = sys.stdout
     out.write(retro_line(store, c) + '\n')

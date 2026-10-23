@@ -5,7 +5,7 @@ import re
 from pstack_core.argv import Spec, read
 from pstack_core.panes import require_herdr
 from pstack_core.store import fill_template, header_field, newest, pair_file, read_text, write_text
-from pstack_core.errors import Die, MissingStore, refuse_as
+from pstack_core.errors import Die, MissingStore, PlanNotAgreed, refuse_as
 from pstack_core.gates import require_not_paused
 from pstack_core.send import send_and_wait
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
@@ -113,12 +113,12 @@ class GuidedVariant(Variant):
             return
         if scale == 'medium':
             if approval not in ('posted', 'human'):
-                raise Die(f"medium plan needs approval: posted or human in {review} (found '{approval or 'missing'}')", 6)
+                raise PlanNotAgreed(f"medium plan needs approval: posted or human in {review} (found '{approval or 'missing'}')")
         elif scale == 'large':
             if approval != 'human':
-                raise Die(f"large plan needs approval: human in {review} (found '{approval or 'missing'}'); post the direction summary and wait for the human", 6)
+                raise PlanNotAgreed(f"large plan needs approval: human in {review} (found '{approval or 'missing'}'); post the direction summary and wait for the human")
         else:
-            raise Die(f"plan {plan} has scale '{scale or 'missing'}'; set small, medium, or large", 6)
+            raise PlanNotAgreed(f"plan {plan} has scale '{scale or 'missing'}'; set small, medium, or large")
 
 
 VARIANT = GuidedVariant

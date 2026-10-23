@@ -15,7 +15,7 @@ from pstack_core.checkin import busy_command
 from pstack_core.store import (
     wake,     now_s, read_text, env_float, env_int, event, header_field, json_type, load, names, peek, read, read_flag, read_int, tdiv, text_at,
 )
-from pstack_core.errors import DamagedStore, Die, Exit
+from pstack_core.errors import ClosedElsewhere, DamagedStore, StillVerifying, VerdictMissing
 from pstack_core.panes import agent_prompt, agent_status, pane_text
 from pstack_core.providers import agent_session_error, error_context, muse_session_error, prime_role_error
 from pstack_core.send import submit_typed
@@ -189,7 +189,7 @@ class Waiter:
                                  f'{delivery_note(store)}, verifier {verifier_shown(store, state)}\n')
                 sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
                 wake(self.ctx, store, brief, 'verify:grace')
-                raise Exit(4)
+                raise StillVerifying()
             self.sleep(env_float('KITCHEN_VERIFY_GRACE_POLL_S', 5))
 
     def run(self):
@@ -198,7 +198,7 @@ class Waiter:
         state = self.poll(v)
         provider = self.settle(v, state)
         problem, status = self.record_outcome(v, provider)
-        self.report(v, state, provider, problem, status)
+        return self.report(v, state, provider, problem, status)
 
     def snapshot(self):
         """The verification this wait took, read once: after another call closes it and starts the next, these still describe the one this wait owns."""
@@ -244,7 +244,7 @@ class Waiter:
                                  f'{verifier_shown(store, state)}\n')
                 sys.stdout.write(f'next: other work, then kitchen.sh verify {store} --wait\n')
                 wake(self.ctx, store, read(store, 'verifying.brief'), 'verify:progress')
-                raise Exit(4)
+                raise StillVerifying()
             # A verifier that ended its turn on a provider error will not write.
             idle_since = read_int(store, 'verifying.idle_since')
             if state == 'blocked':
@@ -289,7 +289,7 @@ class Waiter:
         provider = '' if os.path.isfile(verdict) else verifier_provider_error(store, name, v.session)
         if not vs.run_close(self.ctx, store, name, v.kind, v.pane, verdict):
             sys.stdout.write('verification closed elsewhere\n')
-            raise Exit(5)
+            raise ClosedElsewhere()
         # The wait may have been long (the verifier's exit); the claim must still be ours before anything is written.
         vs.still_my_claim(store)
         return provider
@@ -320,19 +320,19 @@ class Waiter:
                 sys.stdout.write(f'retry: verifying again on the fallback, {fallback_kind}\n')
                 sys.stdout.flush()
                 again = [store, *v.argv, '--retry-entry', json.dumps(v.fallback, ensure_ascii=False, separators=(',', ':'))]
-                self.retry(again)  # verifying again on the fallback, as the exec of kitchen.sh verify did; it never returns
+                return self.retry(again)  # verifying again on the fallback, as the exec of kitchen.sh verify did
             wake(self.ctx, store, v.brief, 'verify:provider')
             # A retried call carries its entry; the advice is for the master's own call.
             sys.stdout.write(f'next: wait for the limit, or kitchen.sh verify {store} {" ".join(self.shown(v.argv))} --kind <another kind>\n')
-            raise Exit(2)
+            return 2
         if not present and self.stalled:
             idle_limit = env_int('KITCHEN_VERIFY_IDLE_S', 600)
             wake(self.ctx, store, v.brief, 'verify:stalled')
-            raise Die(f'no verdict at {verdict}: the verifier sat idle {idle_limit // 60}m with nothing running; rerun: '
-                      f'kitchen.sh verify {store} {" ".join(self.shown(v.argv))}', 4)
+            raise VerdictMissing(f'no verdict at {verdict}: the verifier sat idle {idle_limit // 60}m with nothing running; rerun: '
+                                 f'kitchen.sh verify {store} {" ".join(self.shown(v.argv))}')
         if not present:
             wake(self.ctx, store, v.brief, 'verify:missing')
-            raise Die(f'no verdict at {verdict} (verifier {state or "gone"}); read the packet and verify by hand, or rerun', 4)
+            raise VerdictMissing(f'no verdict at {verdict} (verifier {state or "gone"}); read the packet and verify by hand, or rerun')
         event(store, 'master', 'verify', v.brief, status)
         if not self.closing:
             wake(self.ctx, store, v.brief, f'verify:{status.split(" ")[0]}')
@@ -344,7 +344,7 @@ class Waiter:
                 sys.stdout.write('audit: no\n')
             warn_unreviewed(store)
             vs.handoff_due(store, unit)
-            raise Exit(0)
+            return 0
         if status == 'reject':
             for line in findings(verdict):
                 sys.stdout.write(line + '\n')
@@ -354,9 +354,9 @@ class Waiter:
                 sys.stdout.write(f'next: second rejection of {unit}; read the verdict and the unit yourself before another fix\n')
             else:
                 sys.stdout.write(f'next: kitchen.sh revise {store} {verdict}, then verify the fix with --covers {unit[:3]}\n')
-            raise Exit(2)
+            return 2
         sys.stdout.write("next: read the verdict; an inconclusive or invalid one is the master's to settle\n")
-        raise Exit(2)
+        return 2
 
     @staticmethod
     def shown(argv):

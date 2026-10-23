@@ -184,7 +184,10 @@ def error_classes():
                 if call.args:
                     return static_text(call.args[-1])
         return ''
-    return {name: (code_of(name), template_of(name)) for name in classes if name not in ('Die', 'Exit', 'ToolFailed', 'RotationFailed')}
+    def said_of(name):
+        """What a line names when the class builds no text of its own: its docstring's first sentence."""
+        return (ast.get_docstring(classes[name]) or name).split('. ')[0].replace('\n', ' ').rstrip('.')
+    return {name: (code_of(name), template_of(name) or said_of(name)) for name in classes if name not in ('Die', 'Exit', 'ToolFailed', 'RotationFailed')}
 
 def py_exits(path):
     """Die(msg, N), a domain exception whose class carries a code in 2..8, and `return N` (N in 2..8) of a Python file, found by parsing the calls whole,
@@ -271,8 +274,16 @@ HINTS = {(WAIT, at(WAIT, "write(f'{SUPERSEDED}\\n')", 'return 4')): ['superseded
          (CONSULT, at(CONSULT, "print(f\"advice_status: {header_field(advice, 'status')}\")", 'return 3')): ['advice_status: answered'],
          (CONSULT, at(CONSULT, "if status == 'blocked':\n        print('advice: missing')", 'return 3')): ['advice: missing'],
          (CONSULT, at(CONSULT, "    print('advice: missing')\n    return 4", 'return 4')): ['advice: missing'],
-         (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "vs.set_outcome(v.packet, 'start-failed')\n        raise Die(why, 5)", 'raise Die(why, 5)')): ['verifier start failed in'],
-         (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "raise Die(f'verifier entry is not JSON", 'raise Die(f')): ['verifier entry is not JSON']}
+         (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "vs.set_outcome(v.packet, 'start-failed')\n        raise VerifierStartFailed(why)", 'raise VerifierStartFailed(why)')): ['verifier start failed in'],
+         (f'{KITCHEN}/verify.py', at(f'{KITCHEN}/verify.py', "raise BadVerifierEntry(f'verifier entry is not JSON", 'raise BadVerifierEntry(f')): ['verifier entry is not JSON'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "--kind <another kind>", 'return 2')): ['status: inconclusive (the verifier hit its provider'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "then verify the fix with --covers", 'return 2')): ['verify the fix with --covers'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "an inconclusive or invalid one is the master's to settle", 'return 2')): ["an inconclusive or invalid one is the master's to settle"],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "'verify:grace')", 'raise StillVerifying()')): ['past its deadline; grace'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "'verify:progress')", 'raise StillVerifying()')): ['next: other work, then kitchen.sh verify'],
+         (f'{KITCHEN}/verify_wait.py', at(f'{KITCHEN}/verify_wait.py', "if not vs.run_close(self.ctx", 'raise ClosedElsewhere()')): ['verification closed elsewhere'],
+         (f'{KITCHEN}/verify_state.py', at(f'{KITCHEN}/verify_state.py', "def still_my_claim", 'raise ClosedElsewhere()')): ['verification closed elsewhere'],
+         (f'{KITCHEN}/verify_state.py', at(f'{KITCHEN}/verify_state.py', "def verification_still_open", 'raise ClosedElsewhere()')): ['verification closed elsewhere']}
 # behaviours no caller depends on (standing order 27): path:line -> why
 NOT_CONTRACT = {
     (f'{PAIR}/commands/metrics.py', at(f'{PAIR}/commands/metrics.py', "cannot read {log}: ", 'return 2')): 'the events log that init creates is unreadable; no caller sends it',

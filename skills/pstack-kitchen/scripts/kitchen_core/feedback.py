@@ -11,7 +11,7 @@ import time
 from pstack_core.argv import Spec, read
 from pstack_core.checkin import iso_epoch
 from pstack_core.store import read_text, write_text, field, event, header_field, json_type, listing, load, pair_file, text_at
-from pstack_core.errors import DamagedStore, Die, Exit, FileFailed
+from pstack_core.errors import DamagedStore, Die, EmptyFeedbackReport, FeedbackLocked, FileFailed
 from pstack_core.panes import agent_prompt, herdr, reply_at, require_herdr
 from pstack_core.replies import file_mtime
 
@@ -75,7 +75,7 @@ def fb_lock(fb, tries=LOCK_TRIES, delay=LOCK_DELAY, sleep=time.sleep):
             continue
         attempts += 1
         if attempts >= tries:
-            raise Die(f'the feedback inbox is locked ({lock})')
+            raise FeedbackLocked(f'the feedback inbox is locked ({lock})')
         sleep(delay)
 
 
@@ -187,7 +187,7 @@ def inbox():
         gaps = sum(1 for line in lines if line.startswith('### '))
         if gaps == 0:
             # a report with no gap ends the listing with status 1
-            raise Exit(1)
+            raise EmptyFeedbackReport()
         rows.append((secs, [header_field(f, 'id'), run, repo, build, str(gaps), age_text((now - secs) // 60)]))
     if not rows:
         sys.stdout.write('feedback inbox: empty\n')

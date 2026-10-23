@@ -7,7 +7,7 @@ from pstack_core.consult import advice, advice_is_stop, consult, discuss_with_co
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, stop_role
 from pstack_core.store import field, header_field, pair_file, whole_number, who
-from pstack_core.errors import Die
+from pstack_core.errors import Die, MasterKindUnknown, NoDiverseKinds, PlanNotAgreed
 from pstack_core.panes import agent_kind, agent_status, require_herdr
 from pstack_core.spawn import record_fallback, set_placement, spawn_consultant, spawn_sidekick
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
@@ -60,10 +60,10 @@ def discuss(ctx, args):
 def require_diverse_kinds(master, sidekick, consultant):
     """The trio needs at least two distinct agent kinds, so the consultant is a second perspective and not the master's echo."""
     if not master:
-        raise Die("cannot read the master's agent kind from herdr; run pair.sh init first", 2)
+        raise MasterKindUnknown("cannot read the master's agent kind from herdr; run pair.sh init first")
     if master == sidekick == consultant:
-        raise Die(f'all three agents would be {master}; pstack-trio needs at least two distinct kinds (master {master}, sidekick {sidekick}, '
-                  f'consultant {consultant}). Restart with a different --sidekick or --consultant kind, or use pstack-pair', 8)
+        raise NoDiverseKinds(f'all three agents would be {master}; pstack-trio needs at least two distinct kinds (master {master}, sidekick {sidekick}, '
+                             f'consultant {consultant}). Restart with a different --sidekick or --consultant kind, or use pstack-pair')
 
 
 VALUED = {'--sidekick': 'sidekick', '--consultant': 'consultant', '--fallback': 'fallback', '--only': 'only', '--permission': 'permission',
@@ -168,7 +168,7 @@ class TrioVariant(Variant):
     def plan_gate_extra(self, ctx, store, plan, review, seq):
         """A plan the consultant took part in also needs its advice on file."""
         if not any(not advice_is_stop(f) for f in glob.glob(os.path.join(glob.escape(store), 'advice', f'{glob.escape(seq)}-*.md'))):
-            raise Die(f'plan {plan} has no consultant advice under advice/{seq}-*; run pair.sh discuss so both agents respond', 6)
+            raise PlanNotAgreed(f'plan {plan} has no consultant advice under advice/{seq}-*; run pair.sh discuss so both agents respond')
 
 
 VARIANT = TrioVariant

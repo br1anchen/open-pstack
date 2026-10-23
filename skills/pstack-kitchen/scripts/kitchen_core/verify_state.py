@@ -19,7 +19,7 @@ import sys
 from pstack_core.store import (
     TEXT, exit_code, read_text, write_text, count, env_int, event, header_field, int_or_none, json_type, member, peek, read, read_int, update,
 )
-from pstack_core.errors import DamagedStore, Die, Exit, translate
+from pstack_core.errors import ClosedElsewhere, DamagedStore, NoVerification, PrimeFailed, ToolFailed, translate
 from pstack_core.exits import exit_command, stop_prime_role
 from pstack_core.panes import agent_prompt, agent_status, herdr
 from pstack_core.send import submit_typed
@@ -124,7 +124,7 @@ def still_my_claim(store):
     if my_claim(store):
         return
     sys.stdout.write('verification closed elsewhere\n')
-    raise Exit(5)
+    raise ClosedElsewhere()
 
 
 def verification_still_open(store, verdict):
@@ -132,7 +132,7 @@ def verification_still_open(store, verdict):
     if read(store, 'verifying.verdict') == verdict:
         return
     sys.stdout.write('verification closed elsewhere\n')
-    raise Exit(5)
+    raise ClosedElsewhere()
 
 
 def set_member(doc, role, key, value):
@@ -148,7 +148,7 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
     scratch = read(store, 'verifying.scratch')
     if kind == 'prime-agent':
         if not stop_prime_role(store, 'verifier'):
-            raise Die('Prime verifier cleanup failed; its pane and scratch stay for inspection', 5)
+            raise PrimeFailed('Prime verifier cleanup failed; its pane and scratch stay for inspection')
     else:
         agent_prompt(name, exit_command(kind))
         gone = int(time.time()) + env_int('KITCHEN_VERIFIER_EXIT_S', 15)
@@ -194,7 +194,7 @@ def run_close(ctx, store, name, kind, pane, verdict):
         return False
     if my_claim(store):
         release_close(store, verdict, read(store, 'verifying.closing.token'))
-    raise Exit(rc)
+    raise ToolFailed(rc)
 
 
 def set_outcome(packet, value):
@@ -259,16 +259,16 @@ def verify_cancel(ctx, store):
     """Cancels the open verification that has no verdict yet: its verifier and pane stop, its scratch goes, and `.verifying` is cleared."""
     verdict = read(store, 'verifying.verdict')
     if not verdict:
-        raise Die('no verification open', 5)
+        raise NoVerification('no verification open')
     if os.path.isfile(verdict) and header_field(verdict, 'status'):
-        raise Die(f'the verdict is written ({verdict}); kitchen.sh verify {store} --wait reads it', 5)
+        raise NoVerification(f'the verdict is written ({verdict}); kitchen.sh verify {store} --wait reads it')
     units = read(store, 'verifying.units')
     brief = read(store, 'verifying.brief')
     packet = read(store, 'verifying.packet')
     name = read(store, 'verifier.name')
     kind = read(store, 'verifier.kind')
     if not run_close(ctx, store, name, kind, read(store, 'verifier.pane_id'), verdict):
-        raise Die('no verification open (another call closed it)', 5)
+        raise NoVerification('no verification open (another call closed it)')
     still_my_claim(store)
     set_outcome(packet, 'cancelled')
     drop_verifying(store, verdict)

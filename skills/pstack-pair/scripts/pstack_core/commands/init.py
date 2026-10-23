@@ -8,7 +8,7 @@ import time
 from .. import git
 from ..argv import Spec, read
 from ..store import _dumps, event, member, update
-from ..errors import Die, Exit, FileFailed, NotWritten
+from ..errors import Die, Exit, FileFailed, PathFailed
 from ..panes import herdr, require_herdr
 from ..permission import logical_cwd
 
@@ -45,7 +45,7 @@ def write_new(path, text):
         with open(path, 'w', encoding='utf-8') as f:
             f.write(text)
     except OSError as e:
-        raise NotWritten(path, e) from None
+        raise PathFailed(path, e) from None
 
 
 def re_register(store, pane, workspace, tab, now):

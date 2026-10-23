@@ -31,7 +31,7 @@ from pstack_core import agents, argv, cli, exits, git, panes, permission, procin
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
     BadNumber, DamagedStore, Die, EmptyStepLog, Exit, FileFailed, LockHeld, MissingStore, NoBrief, NotInHerdr, PairError, PairJsonGone, Paused, PlanNotAgreed,
-    StepLogUnreadable, ToolFailed, Unfilled, refuse_as, translate,
+    StepLogUnreadable, ToolFailed, UnitNotCheckable, Unfilled, refuse_as, translate,
 )
 from pstack_core.variant import Variant, load_skill_variant  # noqa: E402
 
@@ -3143,7 +3143,7 @@ class CoreTests(unittest.TestCase):
         units = self.kitchen_core_module('units')
         err = io.StringIO()
         with mock.patch.object(units, 'brief_or_nothing', return_value='/b/001-x.md'), mock.patch.object(units, 'dispatch_head', return_value='abc'), \
-                mock.patch.object(units, 'expected_report', return_value=gone), contextlib.redirect_stderr(err), self.assertRaises(Die) as caught:
+                mock.patch.object(units, 'expected_report', return_value=gone), contextlib.redirect_stderr(err), self.assertRaises(UnitNotCheckable) as caught:
             units.unit_range(Context('pstack-pair', '/x', '/s', 'Pair', (), (), 21, ''), '/st', ['001'], covered=['001'])
         self.assertEqual((err.getvalue(), caught.exception.message), (f'pair.sh: cannot read {gone}: No such file or directory\n', "unit 001's report has no head:"))
         # a step row whose first column is not a JSON number
@@ -4326,7 +4326,7 @@ class CoreTests(unittest.TestCase):
         for n, (name, (token, want)) in enumerate(cases.items()):
             st = self.claim_store(f'my{n}', {'verdict': 'v', **({'closing': {'token': token}} if token else {})})
             code = ('print("mine" if vs.my_claim(store) else "notmine")\ntry:\n    vs.still_my_claim(store)\n    print("rc=0")\n'
-                    'except Exit as e:\n    print("rc=%d" % e.code)')
+                    'except (Exit, PairError) as e:\n    print("rc=%d" % e.code)')
             prc, got, perr = self.kitchen_py(st, code, pid=pid)
             self.assertEqual(got.splitlines(), want, (name, perr))
 
@@ -4345,7 +4345,7 @@ class CoreTests(unittest.TestCase):
         verifying = {'verdict': '/v/001-x-v1.md', 'units': '001', 'scratch': 'bad id', 'brief': '001-x', 'packet': '/nonexistent/p.md'}
         extra = {'verifier': {'name': 'v1', 'pane_id': 'p3', 'kind': 'claude'}, 'git_root': str(self.path)}
         st = self.claim_store('rcpy', verifying, extra)
-        rc, out, err = self.kitchen_py(st, 'try:\n    vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\nexcept Exit as e:\n    print("rc=%d" % e.code)\n',
+        rc, out, err = self.kitchen_py(st, 'try:\n    vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\nexcept (Exit, PairError) as e:\n    print("rc=%d" % e.code)\n',
                                        pid=os.getpid())
         self.assertEqual(out, 'rc=1\n')
         self.assertEqual(self.mask_token(err).replace(str(st), '<S>'), 'kitchen.sh: scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review\n')
@@ -6168,7 +6168,7 @@ class CoreTests(unittest.TestCase):
         world.mkdir()
         ctx = Context('pstack-kitchen', str(root / 'skills/pstack-kitchen'), str(self.path / 'state'), 'Kitchen', ('sidekick',), (), 21, '')
         status, text = units.captured(ctx, lambda: verify_state.remove_scratch(ctx, str(world), '001-x-verify'), merge_stderr=True)
-        self.assertEqual(status, 0)
+        self.assertEqual(status, 1)
         self.assertIn('no pair.json in', text)
 
     def test_translate_turns_a_failure_into_stderr_text_and_an_exit_code(self):
@@ -6206,6 +6206,10 @@ class CoreTests(unittest.TestCase):
         def exits_quietly():
             raise Exit(4, 'said\n')
 
+        def writes_to_both():
+            print('o')
+            sys.stderr.write('e\n')
+
         def ends_in_a_domain_failure():
             print('before')
             raise PairError('refused')
@@ -6214,8 +6218,8 @@ class CoreTests(unittest.TestCase):
         with contextlib.redirect_stderr(out):
             results = [units.captured(ctx, lambda: print('hello\n')), units.captured(ctx, ends_in_die), units.captured(ctx, exits_quietly),
                        units.captured(ctx, sets_env, env={'KITCHEN_CAPTURED_PROBE': 'on'}),
-                       units.captured(ctx, lambda: print('o') or sys.stderr.write('e\n'), merge_stderr=True), units.captured(ctx, ends_in_a_domain_failure)]
-        self.assertEqual(results, [(0, 'hello'), (5, 'before'), (4, ''), (0, 'on'), (0, 'o\ne'), (1, 'before')])
+                       units.captured(ctx, writes_to_both, merge_stderr=True), units.captured(ctx, ends_in_a_domain_failure), units.captured(ctx, lambda: 3)]
+        self.assertEqual(results, [(0, 'hello'), (5, 'before'), (4, ''), (0, 'on'), (0, 'o\ne'), (1, 'before'), (3, '')])
         self.assertEqual(out.getvalue(), 'pair.sh: refused\nsaid\npair.sh: refused\n')
         self.assertNotIn('KITCHEN_CAPTURED_PROBE', os.environ)
 
@@ -7345,6 +7349,82 @@ class OptionReaderGuardTests(unittest.TestCase):
         paths += [root / 'skills' / f for f in ARGV_FILES]
         stray = [f'{p.relative_to(root)}:{n}' for p in paths for n in hand_rolled_option_reads(p.read_text())]
         self.assertEqual(stray, [])
+
+
+ENDS_ITSELF = ('Die', 'Exit', 'refuse_as')
+
+# Functions that are not a registered command and still end it themselves, with the reason each may: the dispatcher, a command's argument reduction, and
+# the subcommands a command hands its own arguments to.
+BOUNDARIES = {
+    ('pstack-pair/scripts/pstack_core/cli.py', 'parse'): 'reads the skill root before any variant is known',
+    ('pstack-pair/scripts/pstack_core/cli.py', 'main'): 'the dispatcher: herdr missing and an unknown command end the process before a command runs',
+    ('pstack-pair/scripts/pstack_core/commands/report.py', 'require_pair'): 'the check that gives a store with no pair.json the status 2 its commands pin',
+    ('pstack-pair/scripts/pstack_core/consult.py', 'discuss_with_consultant'): 'the plan round that the trio and the kitchen discuss commands run with their own arguments',
+    ('pstack-kitchen/scripts/kitchen_core/verify.py', 'parse_options'): 'reduces the verify command\'s own words to its options',
+    ('pstack-kitchen/scripts/kitchen_core/feedback.py', 'close'): 'the feedback command\'s --close, which reads its own arguments',
+    ('pstack-kitchen/scripts/kitchen_core/feedback.py', 'file_report'): 'the feedback command\'s filing, which reads its own arguments',
+}
+
+
+def registered_commands():
+    """(file under skills, function name) of every command the cli can run: the core's table and each variant's, resolved from the tables themselves.
+    The kitchen loads its commands on demand, so its wrappers name the module and function they run."""
+    found = set()
+    commands = [*cli.COMMANDS.values()]
+    for skill in ('pstack-pair-guided', 'pstack-trio', 'pstack-kitchen'):
+        commands += load_skill_variant(root / 'skills', skill).commands.values()
+    for command in commands:
+        module, name = getattr(command, 'command', (None, command.__name__))
+        path = (f'pstack-kitchen/scripts/kitchen_core/{module}.py' if module else os.path.relpath(inspect.getsourcefile(command), root / 'skills'))
+        found.add((path, name))
+    return found
+
+
+def raises_that_end_a_command(source):
+    """(outermost function, line) of each `raise Die(...)`, `raise Exit(...)` or `raise refuse_as(...)`. A function defined inside another belongs to it;
+    a method is named for its class."""
+    found = []
+
+    def visit(node, owner):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                visit(child, child.name + '.')
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                visit(child, owner if '.' not in owner and owner else (owner or '') + child.name)
+            else:
+                if (isinstance(child, ast.Raise) and isinstance(child.exc, ast.Call) and isinstance(child.exc.func, ast.Name)
+                        and child.exc.func.id in ENDS_ITSELF):
+                    found.append((owner, child.lineno))
+                visit(child, owner)
+    visit(ast.parse(source), '')
+    return found
+
+
+class EndsItselfGuardTests(unittest.TestCase):
+    def test_the_guard_flags_a_helper_that_raises_die_or_exit_and_passes_a_command(self):
+        source = ('from x import Die, Exit, refuse_as\n\ndef command(ctx, args):\n    def inner():\n        raise Exit(2)\n    raise Die("usage")\n\n'
+                  'def helper(store):\n    raise Die("no")\n\nclass K:\n    def method(self):\n        raise refuse_as(1, 2, 3)\n\ndef quiet():\n    raise ValueError("x")\n')
+        self.assertEqual(raises_that_end_a_command(source), [('command', 5), ('command', 6), ('helper', 9), ('K.method', 13)])
+
+    def test_only_a_command_or_a_named_boundary_ends_itself_with_die_or_exit(self):
+        commands = registered_commands()
+        self.assertIn(('pstack-pair/scripts/pstack_core/commands/notes.py', 'new_brief'), commands)
+        self.assertIn(('pstack-kitchen/scripts/kitchen_core/step.py', 'step'), commands)
+        self.assertIn(('pstack-pair-guided/scripts/variant.py', 'answer'), commands)
+        paths = [p for r in ARGV_ROOTS for p in sorted((root / 'skills' / r).glob('**/*.py')) if p.name != 'errors.py']
+        paths += [root / 'skills' / f for f in ARGV_FILES]
+        stray, used = [], set()
+        for path in paths:
+            rel = str(path.relative_to(root / 'skills'))
+            for function, line in raises_that_end_a_command(path.read_text()):
+                if (rel, function) in commands:
+                    continue
+                if (rel, function) in BOUNDARIES:
+                    used.add((rel, function))
+                    continue
+                stray.append(f'{rel}:{line} in {function}')
+        self.assertEqual(stray, [])
+        self.assertEqual(sorted(set(BOUNDARIES) - used), [], 'a boundary that no longer ends itself leaves the list')
 
 
 if __name__ == '__main__':

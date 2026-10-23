@@ -16,7 +16,7 @@ import time
 from pstack_core import wait as core_wait
 from pstack_core.argv import Spec, read
 from pstack_core.store import wake, env_float, env_int, field, int_or_none, read_text, whole_number
-from pstack_core.errors import Die, ToolFailed
+from pstack_core.errors import BadNumber, Die, PathFailed
 from pstack_core.wait import default_signals
 
 from .units import captured
@@ -34,10 +34,10 @@ def quiet_now():
         try:
             text = read_text(clock)
         except OSError as e:
-            raise Die(f'{clock}: {os.strerror(e.errno)}', 1)
+            raise PathFailed(clock, e) from None
         now = int_or_none(text)
         if now is None:
-            raise Die(f'{clock} must hold a whole number of seconds', 1)
+            raise BadNumber(f'{clock} must hold a whole number of seconds')
         return now
     return int(time.time())
 
@@ -73,24 +73,14 @@ def inner_wait(ctx, store, args, claim, unowned):
     """The core's wait for args, owned by this process and quiet: (status, stdout)."""
     owner = str(os.getpid())
 
-    def run():
-        code = core_wait.wait(ctx, [store, *args])
-        if code:
-            raise ToolFailed(code)
-
-    return captured(ctx, run, env={'PAIR_WAIT_OWNER': owner, 'PAIR_WAIT_CLAIM': str(claim), 'PAIR_WAIT_UNOWNED': str(unowned), 'PAIR_QUIET_WAIT': '1'})
+    return captured(ctx, lambda: core_wait.wait(ctx, [store, *args]), env={'PAIR_WAIT_OWNER': owner, 'PAIR_WAIT_CLAIM': str(claim), 'PAIR_WAIT_UNOWNED': str(unowned), 'PAIR_QUIET_WAIT': '1'})
 
 
 def release(ctx, store):
     """The wait claim given back; whatever the release prints or fails with is dropped."""
     owner = str(os.getpid())
 
-    def run():
-        code = core_wait.wait(ctx, [store, '--release'])
-        if code:
-            raise ToolFailed(code)
-
-    captured(ctx, run, merge_stderr=True, env={'PAIR_WAIT_OWNER': owner})
+    captured(ctx, lambda: core_wait.wait(ctx, [store, '--release']), merge_stderr=True, env={'PAIR_WAIT_OWNER': owner})
 
 
 def quiet_wait(ctx, store, rest):

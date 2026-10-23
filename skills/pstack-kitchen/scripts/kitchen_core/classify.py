@@ -10,7 +10,7 @@ import sys
 
 from pstack_core.checkin import scope_entries
 from pstack_core.store import field, header_field, pair_file, read_text, risk_of, write_text
-from pstack_core.errors import Die
+from pstack_core.errors import Die, EmptyScope, KitchenPyFailed
 from pstack_core.panes import agent_status
 
 from .kpy import Kitchen
@@ -49,7 +49,7 @@ def kitchen_snapshot(store, root=None):
     header), the way a repo kitchen is read at the unit's commit. The copy's path, or nothing for a repo kitchen."""
     status, found = Kitchen(store, root).soft(['snapshot', f'{store}/kitchens'])
     if status != 0:
-        raise Die('kitchen.py snapshot failed; run kitchen.py validate in the repo')
+        raise KitchenPyFailed('kitchen.py snapshot failed; run kitchen.py validate in the repo')
     return found.rstrip('\n')
 
 
@@ -64,7 +64,7 @@ def classify_brief(store, brief):
     kit = Kitchen(store)
     globs = scope_entries(brief, 'may')
     if not globs:
-        raise Die(f"{brief} lists nothing under Scope's may write:")
+        raise EmptyScope(f"{brief} lists nothing under Scope's may write:")
     esc = []
     for reason in brief_escalations(brief):
         esc += ['--escalate', reason]
@@ -76,7 +76,7 @@ def classify_brief(store, brief):
     cfg = brief_kitchen(brief)
     status, classified = kit.soft([*cfg, '--json', 'classify', '--paths', *globs, *esc])
     if status != 0:
-        raise Die(CLASSIFY_FAILED)
+        raise KitchenPyFailed(CLASSIFY_FAILED)
     data = json.loads(classified)
     risk, verify = data.get('risk') or '', data['verify']
     profiles, escalate = data['profiles'], data['escalate']
@@ -89,7 +89,7 @@ def classify_brief(store, brief):
     sys.stdout.write(f'risk: {risk}\n')
     status, _ = kit.soft([*cfg, 'lessons', 'stamp', brief], show=True)
     if status != 0:
-        raise Die('kitchen.py lessons stamp failed; run kitchen.py lessons in the repo')
+        raise KitchenPyFailed('kitchen.py lessons stamp failed; run kitchen.py lessons in the repo')
     lines = [f'profiles: {", ".join(profiles)}', f'verify: {verify_line}', *(f'escalate: {reason}' for reason in escalate)]
     lines += [f'warn: {warning}' for warning in data.get('warnings') or []]
     if data.get('bookkeeping'):

@@ -16,7 +16,7 @@ from pstack_core.consult import discuss_with_consultant
 from pstack_core.panes import agent_status
 from pstack_core.store import field, pair_file, risk_of, whole_number
 from pstack_core.commands.report import require_pair
-from pstack_core.errors import Die, Exit, MissingStore, ToolFailed, translate
+from pstack_core.errors import Die, Exit, MissingStore, translate
 from pstack_core.wait import default_signals
 
 from .classify import classify_brief
@@ -32,20 +32,12 @@ SWALLOWED = ('check-in:', 'progress:', 'touched:', '  ', 'steers:', 'steps:', 'r
 
 def land_check_quietly(ctx, store):
     """land-check's verdict without the command's usage and pair.json checks; its stdout is dropped."""
-    def run():
-        code = land_check(store)
-        if code:
-            raise ToolFailed(code)
-    return captured(ctx, run)[0]
+    return captured(ctx, lambda: land_check(store))[0]
 
 
 def core_dispatch(ctx, args):
     """The core's dispatch with PAIR_QUIET_WAIT=1: (status, stdout)."""
-    def run():
-        code = send.dispatch(ctx, list(args))
-        if code:
-            raise ToolFailed(code)
-    return captured(ctx, run, env={'PAIR_QUIET_WAIT': '1'})
+    return captured(ctx, lambda: send.dispatch(ctx, list(args)), env={'PAIR_QUIET_WAIT': '1'})
 
 
 NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}

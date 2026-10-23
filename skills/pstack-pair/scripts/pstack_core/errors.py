@@ -190,8 +190,8 @@ class BadStepRow(PairError):
     code = 2
 
 
-class NotWritten(PairError):
-    """A file the command creates cannot be written: `<path>: <the system's reason>`."""
+class PathFailed(PairError):
+    """A path cannot be used: `<path>: <the system's reason>`."""
 
     def __init__(self, path, error):
         super().__init__(f'{path}: {error.strerror}')
@@ -199,6 +199,104 @@ class NotWritten(PairError):
 
 class NoBrief(PairError):
     """No brief carries the unit's number."""
+
+
+class MasterKindUnknown(PairError):
+    """Herdr does not say which agent kind the master is."""
+
+    code = 2
+
+
+class NoDiverseKinds(PairError):
+    """All three agents of a trio would be of one kind."""
+
+    code = 8
+
+
+class KitchenPyFailed(PairError):
+    """kitchen.py, which classifies and stamps a brief, ended with a failure."""
+
+
+class EmptyScope(PairError):
+    """A brief lists nothing it may write."""
+
+
+class SetupFailed(PairError):
+    """The run's [scratch].setup failed in a linked worktree."""
+
+    code = 2
+
+
+class HeadNotCarried(PairError):
+    """A verification's head does not carry a unit's commits."""
+
+    code = 2
+
+
+class BadLandingBase(PairError):
+    """No base for the landing range can be named."""
+
+
+class UnitNotCheckable(PairError):
+    """A unit has no dispatch, report, status or head the range can start from."""
+
+
+class BadRevision(PairError):
+    """A revision named on the command line is not a commit, or not an ancestor where it must be."""
+
+
+class BadVerifierEntry(PairError):
+    """The verifier entry a retry carries is not JSON."""
+
+    code = 2
+
+
+class UnknownVerifierKind(PairError):
+    """The roster does not say which agent kind verifies."""
+
+
+class VerifierStartFailed(PairError):
+    """The verifier's agent did not start."""
+
+    code = 5
+
+
+class CloseHeld(PairError):
+    """Another call held the close of a verdict past the wait."""
+
+    code = 5
+
+
+class StillVerifying(PairError):
+    """The verification is still running; the call ended with its progress."""
+
+    code = 4
+
+
+class ClosedElsewhere(PairError):
+    """Another call closed the verification this one waited on."""
+
+    code = 5
+
+
+class NoVerification(PairError):
+    """No verification is open to cancel."""
+
+    code = 5
+
+
+class VerdictMissing(PairError):
+    """The verifier left no verdict."""
+
+    code = 4
+
+
+class FeedbackLocked(PairError):
+    """The feedback inbox stayed locked."""
+
+
+class EmptyFeedbackReport(PairError):
+    """A report in the feedback inbox names no gap, which ends the listing."""
 
 
 class FileFailed(PairError):
