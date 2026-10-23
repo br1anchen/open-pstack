@@ -8,7 +8,7 @@ import time
 from ..argv import Spec, read
 from ..checkin import sidekick_busy
 from ..store import event, field, load, names, pair_file, peek, read_flag, text_at, expected_report, who
-from ..numbers import env_float
+from ..numbers import env_float, env_int
 from ..errors import Die, RotationFailed, translate
 from ..exits import end_agent, exit_deadline, stop_prime_role
 from ..gates import require_not_paused, check_scope
@@ -78,7 +78,23 @@ def rotate_if_due(ctx, store, what):
             said.write(text)
     if code:
         raise RotationFailed(code, f'rotating the sidekick before this {what} failed:\n{said.getvalue().rstrip(chr(10))}')
+    require_idle_session(store, what)
     sys.stdout.write(f"rotated: the {field(store, 'sidekick', 'kind')} sidekick starts this {what} in a fresh session\n")
+
+
+def require_idle_session(store, what):
+    """The fresh session has logged READY while its first turn may still run, and send refuses a working sidekick. Waits up to
+    PAIR_ROTATE_READY_S (60) for it to be idle or done; a session that is blocked on a dialog or gone is not waited for. Anything else sends nothing."""
+    name = field(store, 'sidekick', 'name')
+    state = agent_status(name)
+    if state not in ('idle', 'done', 'blocked', 'absent'):
+        subprocess.run(['herdr', 'agent', 'wait', name, '--until', 'idle', '--until', 'done', '--timeout', str(env_int('PAIR_ROTATE_READY_S', 60) * 1000)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        state = agent_status(name)
+    if state not in ('idle', 'done'):
+        why = {'blocked': 'blocked, probably on an approval dialog', 'absent': 'gone'}.get(state, state)
+        raise RotationFailed(5, f'the fresh {field(store, "sidekick", "kind")} sidekick {name} is {why} after the rotation; nothing was sent for this {what}. '
+                                f'Inspect it, then dispatch again')
 
 
 def queue(ctx, args):

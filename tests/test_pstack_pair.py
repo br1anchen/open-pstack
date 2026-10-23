@@ -166,6 +166,48 @@ esac
         self.assertIn('devin has not exited; inspect demo-sidekick before retrying rotate', out)
         self.assertEqual(self.send_keys(), [])
 
+    def fresh_session_state(self, state, settles):
+        """The rotated sidekick is `state` once its bootstrap has run; with `settles` its next herdr wait ends in idle."""
+        settle = self.fake / 'settle'
+        settle.write_text('#!/bin/sh\nprintf "idle devin\\n" >"$FAKE/agents/demo-sidekick"\n')
+        settle.chmod(0o755)
+        hook = self.fake / 'hook'
+        hook.write_text(f'''#!/usr/bin/env bash
+case "$2" in
+Load*)
+  printf 'status: done\\n' >'{self.store}/reports/000-ready.md'
+  printf '%s devin\\n' {state} >"$FAKE/agents/$1"
+  {'mkdir -p "$FAKE/once"; cp "$FAKE/settle" "$FAKE/once/wait"' if settles else ':'}
+  ;;
+esac
+''')
+
+    def dispatch_after_rotation(self, state, settles, code):
+        self.env['PAIR_ROTATE_READY_S'] = '1'
+        _, queued = self.complete_task()
+        self.fresh_session_state(state, settles)
+        before = len((self.fake / 'calls.log').read_text().splitlines())
+        out = self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=code)
+        sent = [l for l in (self.fake / 'calls.log').read_text().splitlines()[before:]
+                if l.startswith('agent prompt demo-sidekick') and ' BRIEF ' in l]
+        return out, sent
+
+    def test_dispatch_sends_the_brief_once_the_rotated_session_goes_idle(self):
+        out, sent = self.dispatch_after_rotation('working', True, 4)
+        self.assertIn('rotated: the devin sidekick starts this brief in a fresh session', out)
+        self.assertEqual(len(sent), 1)
+
+    def test_dispatch_sends_nothing_when_the_rotated_session_stays_working(self):
+        out, sent = self.dispatch_after_rotation('working', False, 5)
+        self.assertIn('the fresh devin sidekick demo-sidekick is working after the rotation; nothing was sent for this brief', out)
+        self.assertNotIn('rotated:', out)
+        self.assertEqual(sent, [])
+
+    def test_dispatch_sends_nothing_when_the_rotated_session_is_blocked(self):
+        out, sent = self.dispatch_after_rotation('blocked', False, 5)
+        self.assertIn('sidekick demo-sidekick is blocked, probably on an approval dialog after the rotation', out)
+        self.assertEqual(sent, [])
+
     def test_partial_task_keeps_session_and_queue(self):
         _, queued = self.complete_task(status='partial')
         self.run_command('rotate', str(self.store), code=5)
