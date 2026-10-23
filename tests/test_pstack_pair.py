@@ -549,6 +549,31 @@ class FreshSessionTests(unittest.TestCase):
         run('dispatch', str(store), str(first), '--timeout', '1', code=4)
         return run, state, brief, store, fake, first
 
+    def pending_bootstrap(self, ready):
+        """A pair whose live sidekick still has a pending bootstrap, its first brief answered with a partial report; with `ready` its READY is there."""
+        run, state, brief, store, fake, first = self.world('pstack-pair', 'pair')
+        (store / 'reports' / first.name).write_text('status: partial\nhead: abc123\n')
+        doc = state()
+        doc['sidekick']['bootstrap_pending'] = True
+        (store / 'pair.json').write_text(json.dumps(doc))
+        (fake / 'agents/demo-sidekick').write_text('idle claude\n')
+        if not ready:
+            (store / 'reports/000-ready.md').unlink()
+        return run, state, brief, store
+
+    def test_a_late_ready_clears_a_pending_bootstrap_at_dispatch(self):
+        run, state, brief, store = self.pending_bootstrap(ready=True)
+        run('dispatch', str(store), str(brief('002-next.md')), '--timeout', '1', code=4)
+        self.assertFalse(state()['sidekick']['bootstrap_pending'])
+        events = (store / 'events.tsv').read_text()
+        self.assertEqual(events.count('\tsidekick\tspawn\t-\tclaude:ready'), 2)
+
+    def test_a_pending_bootstrap_without_ready_still_holds_dispatch(self):
+        run, state, brief, store = self.pending_bootstrap(ready=False)
+        out = run('dispatch', str(store), str(brief('002-next.md')), code=5)
+        self.assertIn('successful bootstrap', out)
+        self.assertTrue(state()['sidekick']['bootstrap_pending'])
+
     def test_a_claude_sidekick_starts_the_next_brief_in_a_fresh_session(self):
         for skill, state_dir in self.VARIANTS:
             with self.subTest(skill):

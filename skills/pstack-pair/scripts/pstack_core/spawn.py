@@ -42,12 +42,15 @@ from .store import (
     field,
     listing,
     load,
+    mark_ready,
     member,
     names,
     pair_file,
     peek,
+    settle_ready,
     text_at,
     update,
+    update_role,
     who,
 )
 from .wait import end_with_parent
@@ -61,19 +64,6 @@ FRESH_SESSION_FLAGS = (
     '--session-id',
     '--fork',
 )
-
-
-def update_role(store, role, changes):
-    """json_update of .[role] keys, in order, creating the role's entry when it is null."""
-
-    def mutate(doc):
-        member(doc, role).update(changes)
-
-    update(store, mutate)
-
-
-def mark_ready(store, role):
-    update_role(store, role, {'rotation_required': False, 'bootstrap_pending': False})
 
 
 def stderr_of(text):
@@ -171,9 +161,8 @@ def report_live(store, role, name, status, ready):
         if not os.path.isfile(f'{store}/{ready}'):
             stderr_of(f'{role} bootstrap still pending: {ready} is missing\n')
             return 4
-        mark_ready(store, role)
         print(f'ready: {store}/{ready}')
-        event(store, role, 'spawn', '-', f'{field(store, role, "kind")}:ready')
+        settle_ready(store, role)
     pane = field(store, role, 'pane_id')
     print(
         f'{who(role, name)} already live ({status})' + (f' in {pane}' if pane else '')

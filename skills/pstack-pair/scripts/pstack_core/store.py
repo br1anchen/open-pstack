@@ -490,3 +490,22 @@ class Context:
 
             self._variant = load_variant(self)
         return self._variant
+
+
+def update_role(store, role, changes):
+    """json_update of .[role] keys, in order, creating the role's entry when it is null."""
+
+    def mutate(doc):
+        member(doc, role).update(changes)
+
+    update(store, mutate)
+
+
+def mark_ready(store, role):
+    update_role(store, role, {'rotation_required': False, 'bootstrap_pending': False})
+
+
+def settle_ready(store, role):
+    """A role's bootstrap is over: its flags are cleared and the spawn event says it was ready."""
+    mark_ready(store, role)
+    event(store, role, 'spawn', '-', f'{field(store, role, "kind")}:ready')

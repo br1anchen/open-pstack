@@ -43,6 +43,7 @@ from .store import (
     member,
     names,
     peek,
+    settle_ready,
     text_at,
     update,
     who,
@@ -89,6 +90,16 @@ def record_sent(store, file, kind, now=None):
 def require_fresh_session(store):
     sidekick = peek(load(store), 'sidekick')
     kind = text_at(sidekick, 'kind')
+    # A bootstrap that finished after its spawn returned (a dialog held it) wrote READY with nothing to clear the flag. spawn moves an older
+    # READY aside, so one present belongs to the live generation.
+    if (
+        sidekick.get('bootstrap_pending') is True
+        and sidekick.get('rotation_required') is not True
+        and os.path.isfile(f'{store}/reports/000-ready.md')
+        and agent_status(text_at(sidekick, 'name')) != 'absent'
+    ):
+        settle_ready(store, 'sidekick')
+        return
     if (
         sidekick.get('rotation_required') is True
         or sidekick.get('bootstrap_pending') is True
