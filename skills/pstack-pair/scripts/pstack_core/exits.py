@@ -1,11 +1,12 @@
 """Ending an agent: the command that makes each kind exit, and the cleanup of a Prime role's daemon session and pane (stop_prime_role).
 The deadlines are 15 s and 1 s; PAIR_EXIT_DEADLINE_S and PAIR_EXIT_POLL_S let a test shorten them."""
+import re
 import sys
 import time
 
 from .store import member, update
 from .numbers import env_float, env_int
-from .panes import agent_prompt, agent_status, dig, herdr, parse
+from .panes import MERGED, agent_prompt, agent_status, dig, herdr, pane_text, parse
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
 
@@ -22,6 +23,40 @@ def exit_deadline():
 def exit_poll():
     """The pause between checks that an agent has gone: 1 s (PAIR_EXIT_POLL_S)."""
     time.sleep(env_float('PAIR_EXIT_POLL_S', 1))
+
+
+TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
+
+# Claude's dialog when background work is running at exit, by the text it shows and the keys that stop the tasks and exit. Any other pane
+# gets no keys.
+EXIT_DIALOGS = (('exit and stop tasks', ('enter',)), ('move to background and exit', ('1', 'enter')))
+
+
+def answer_exit_dialog(name):
+    """Reads the pane and answers Claude's background-work exit dialog with the option that stops the tasks; True when a dialog was showing."""
+    screen = pane_text(name).lower()
+    for text, keys in EXIT_DIALOGS:
+        if text in screen:
+            for key in keys:
+                herdr('agent', 'send-keys', name, key)
+            return True
+    return False
+
+
+def end_agent(name, kind, deadline):
+    """Sends the kind's exit command and waits until the agent is absent or the epoch second `deadline` passes, answering Claude's exit dialog
+    meanwhile. (error, gone): error is the text of an exit command herdr refused ('' for one it took or whose agent was already gone), and an
+    agent that was refused is not waited on."""
+    r = agent_prompt(name, exit_command(kind), stderr=MERGED)
+    err = r.stdout.rstrip('\n')
+    if r.returncode != 0 and not TOLERATED.search(err):
+        return err, False
+    while agent_status(name) != 'absent':
+        if int(time.time()) >= deadline:
+            return '', False
+        answer_exit_dialog(name)
+        exit_poll()
+    return '', True
 
 
 def shell_owns_foreground(pane):

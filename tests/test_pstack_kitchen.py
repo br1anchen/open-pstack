@@ -3581,6 +3581,28 @@ esac
         self.assertIn('close\tsidekick:pi', (self.store / 'events.tsv').read_text().replace('\t-\t', '\t'))
         self.assertEqual(self.run_sh('close', str(self.store)), '')
 
+    def close_with_dialog(self, text, keys):
+        (self.fake / 'exit-dialog').mkdir(exist_ok=True)
+        (self.fake / 'exit-dialog/demo-sidekick').write_text(text)
+        self.assertIn('closed sidekick demo-sidekick', self.run_sh('close', str(self.store)))
+        self.assertEqual([l.rsplit(' ', 1)[1] for l in self.pane_calls('agent send-keys demo-sidekick')], keys)
+        self.assertTrue(self.state()['sidekick']['closed'])
+
+    def test_close_gets_through_claudes_exit_dialog_by_stopping_the_tasks(self):
+        self.close_with_dialog('Background work is running\n 1. Exit and stop tasks\n 2. Move to background\n 3. Stay\n', ['enter'])
+
+    def test_close_gets_through_the_older_move_to_background_and_exit_dialog(self):
+        self.close_with_dialog('Move to background and exit?\n', ['1', 'enter'])
+
+    def test_close_sends_no_keys_to_a_pane_that_shows_no_exit_dialog(self):
+        (self.fake / 'exit-stuck').mkdir()
+        (self.fake / 'exit-stuck/demo-sidekick').touch()
+        self.env['PAIR_EXIT_DEADLINE_S'] = '0'
+        out = self.run_sh('close', str(self.store), code=5)
+        self.assertIn('sidekick demo-sidekick did not exit', out)
+        self.assertEqual(self.pane_calls('agent send-keys demo-sidekick'), [])
+        self.assertFalse(self.state()['sidekick']['closed'])
+
     def test_a_role_restarted_after_close_is_closed_again_by_the_next_close(self):
         """`closed` belongs to the run of the agent that was closed: a start records a live agent, so the next close ends it and closes its pane."""
         self.run_sh('close', str(self.store))

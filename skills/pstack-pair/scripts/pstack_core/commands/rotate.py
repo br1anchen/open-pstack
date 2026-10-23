@@ -1,7 +1,6 @@
 import contextlib
 import io
 import os
-import re
 import subprocess
 import sys
 import time
@@ -11,17 +10,14 @@ from ..checkin import sidekick_busy
 from ..store import event, field, load, names, pair_file, peek, read_flag, text_at, expected_report, who
 from ..numbers import env_float
 from ..errors import Die, RotationFailed, translate
-from ..exits import exit_command, exit_deadline, exit_poll, stop_prime_role
+from ..exits import end_agent, exit_deadline, stop_prime_role
 from ..gates import require_not_paused, check_scope
-from ..panes import MERGED, agent_prompt, agent_status, herdr, require_herdr
+from ..panes import agent_status, herdr, require_herdr
 from ..spawn import SpawnRequest, spawn_role, record_failover
 from ..wait import end_with_parent
 from ..replies import queued_brief
 from ..review import require_filled
 from ..send import store_relative
-
-
-TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
 
 
 def rotate(ctx, args):
@@ -46,15 +42,11 @@ def rotate(ctx, args):
             if not stop_prime_role(store, 'sidekick'):
                 raise Die('Prime session cleanup failed; no new session was started', 5)
         else:
-            r = agent_prompt(name, exit_command(kind), stderr=MERGED)
-            err = r.stdout.rstrip('\n')
-            if r.returncode != 0 and not TOLERATED.search(err):
-                raise Die(f'{kind} exit failed: {err}', 2)
-            deadline = exit_deadline()
-            while agent_status(name) != 'absent':
-                if int(time.time()) >= deadline:
-                    raise Die(f'{kind} has not exited; inspect {name} before retrying rotate', 5)
-                exit_poll()
+            error, gone = end_agent(name, kind, exit_deadline())
+            if error:
+                raise Die(f'{kind} exit failed: {error}', 2)
+            if not gone:
+                raise Die(f'{kind} has not exited; inspect {name} before retrying rotate', 5)
     elif status == 'absent':
         if kind == 'prime-agent' and not stop_prime_role(store, 'sidekick'):
             raise Die('Prime session cleanup failed; no new session was started', 5)
@@ -161,12 +153,8 @@ def failover(ctx, args):
         if not stop_prime_role(store, 'sidekick'):
             raise Die('Prime session cleanup failed; no fallback was started', 5)
     elif status != 'absent':
-        agent_prompt(name, exit_command(kind))
-        deadline = exit_deadline()
-        while agent_status(name) != 'absent':
-            if int(time.time()) >= deadline:
-                raise Die(f'{kind} sidekick has not exited; close it by hand, then rerun failover', 5)
-            exit_poll()
+        if not end_agent(name, kind, exit_deadline())[1]:
+            raise Die(f'{kind} sidekick has not exited; close it by hand, then rerun failover', 5)
     record_failover(store, kind, fallback, reason)
     rc = spawn_role(ctx, store, 'sidekick', SpawnRequest(fallback, anchor=field(store, 'master', 'pane_id'), pane=field(store, 'sidekick', 'pane_id'),
                                                           args=tuple(names(recorded, 'args'))))

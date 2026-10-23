@@ -137,6 +137,35 @@ esac
         self.run_command('finish', str(self.store), str(report))
         self.assertFalse(self.state()['sidekick']['rotation_required'])
 
+    def exit_dialog(self, text):
+        (self.fake / 'exit-dialog').mkdir(exist_ok=True)
+        (self.fake / 'exit-dialog/demo-sidekick').write_text(text)
+
+    def send_keys(self):
+        return [l for l in (self.fake / 'calls.log').read_text().splitlines() if l.startswith('agent send-keys demo-sidekick')]
+
+    def rotate_through_dialog(self, text, keys):
+        self.complete_task()
+        self.exit_dialog(text)
+        self.run_command('rotate', str(self.store))
+        self.assertEqual([l.rsplit(' ', 1)[1] for l in self.send_keys()], keys)
+        self.assertEqual(self.state()['sidekick']['generation'], 2)
+
+    def test_rotate_gets_through_claudes_exit_dialog_by_stopping_the_tasks(self):
+        self.rotate_through_dialog('Background work is running\n 1. Exit and stop tasks\n 2. Move to background\n 3. Stay\n', ['enter'])
+
+    def test_rotate_gets_through_the_older_move_to_background_and_exit_dialog(self):
+        self.rotate_through_dialog('Move to background and exit?\n', ['1', 'enter'])
+
+    def test_rotate_sends_no_keys_to_a_pane_that_shows_no_exit_dialog(self):
+        self.complete_task()
+        self.env['PAIR_EXIT_DEADLINE_S'] = '0'
+        (self.fake / 'exit-stuck').mkdir()
+        (self.fake / 'exit-stuck/demo-sidekick').touch()
+        out = self.run_command('rotate', str(self.store), code=5)
+        self.assertIn('devin has not exited; inspect demo-sidekick before retrying rotate', out)
+        self.assertEqual(self.send_keys(), [])
+
     def test_partial_task_keeps_session_and_queue(self):
         _, queued = self.complete_task(status='partial')
         self.run_command('rotate', str(self.store), code=5)

@@ -11,9 +11,9 @@ from pstack_core.argv import Spec, read as read_options
 from pstack_core.store import read_text, event, field, json_type, listing, load, member, pair_file, peek, read, read_flag, text_at, update, who
 from pstack_core.numbers import env_float, env_int
 from pstack_core.errors import DamagedStore, Die, Exit, HandoffNotReady, NextMasterNotStarted, RotateRefused
-from pstack_core.exits import exit_command, exit_deadline, exit_poll, stop_prime_role
+from pstack_core.exits import end_agent, exit_deadline, stop_prime_role
 from pstack_core.panes import (
-    DEVNULL, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, pane_text, refuse_untrusted, reply_at, require_herdr,
+    DEVNULL, agent_kind, agent_prompt, agent_start, agent_status, herdr, new_pane, refuse_untrusted, reply_at, require_herdr,
 )
 from pstack_core import procinfo
 from pstack_core.permission import caller_pid, mode_of_this_shell
@@ -38,13 +38,7 @@ def close_role(store, role):
         if not stop_prime_role(store, role):
             return False
     if agent_status(name) != 'absent':
-        agent_prompt(name, exit_command(kind))
-        deadline = exit_deadline()
-        while agent_status(name) != 'absent' and int(time.time()) < deadline:
-            if 'move to background and exit' in pane_text(name).lower():
-                herdr('agent', 'send-keys', name, '1')
-                herdr('agent', 'send-keys', name, 'enter')
-            exit_poll()
+        end_agent(name, kind, exit_deadline())
     if agent_status(name) != 'absent':
         sys.stderr.write(f'{role} {name} did not exit; its pane {pane} stays open\n')
         return False
