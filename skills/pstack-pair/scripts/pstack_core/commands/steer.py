@@ -11,7 +11,7 @@ from ..panes import agent_prompt, agent_status, DEVNULL, herdr_ok, require_herdr
 from ..prime import prime_steer
 from ..review import has_placeholder
 from ..replies import file_mtime, sent_epoch
-from ..send import prompt_sidekick, record_dispatch
+from ..send import prompt_sidekick, prune_pending, record_dispatch
 from ..argv import Spec, read
 from ..wait import TIMING, end_with_parent, print_outcome, timeout_ms, wait_for
 from .report import require_pair
@@ -95,10 +95,10 @@ def dispatched_unit(store):
     return unit_name(brief) if brief else ''
 
 
-def unit_report_status(store, report):
-    """The status of the unit's report, or '' when it has none since the last send: a report older than .sent.epoch answers an earlier send (the rule
-    replies.fresh_reply applies), so after a resume the stale blocked report no longer counts."""
-    if not os.path.isfile(report) or file_mtime(report) < sent_epoch(store):
+def unit_report_status(store, report, current):
+    """The status of the unit's report. For the dispatched unit a report older than .sent.epoch answers an earlier send (the rule replies.fresh_reply
+    applies) and does not count, so after a resume the stale blocked report reads as none; an earlier unit's report is read as it stands."""
+    if not os.path.isfile(report) or (current and file_mtime(report) < sent_epoch(store)):
         return ''
     return header_field(report, 'status')
 
@@ -112,8 +112,8 @@ def settled_route(ctx, store, name, status, steer_path):
     slug = re.sub(r'-s[0-9]+$', '', re.sub(r'^[0-9]{3}-', '', unit_name(steer_path)))
     objection = newest(glob.glob(os.path.join(glob.escape(store), 'reports', f'{glob.escape(seq)}-{glob.escape(slug)}-s[0-9]*.md')))
     if not objection or header_field(objection, 'status') != 'object':
-        unit_status = unit_report_status(store, f'{store}/reports/{seq}-{slug}.md')
         current = dispatched_unit(store) == f'{seq}-{slug}'
+        unit_status = unit_report_status(store, f'{store}/reports/{seq}-{slug}.md', current)
         if current and not unit_status:
             return 'deliver'
         if current and unit_status in ('blocked', 'partial'):
@@ -172,6 +172,7 @@ def resume_unit(store, name, steer_path, timeout, ctx):
         raise NoObjectionOpen(f'{who("sidekick", name)} is idle and unit {seq} has no brief at {brief} to resume')
     apply_scope_effects(store, seq, brief)
     event(store, 'master', 'send-steer', steer_path, 'resume')
+    prune_pending(store)
     record_dispatch(store, brief)
     prompt_sidekick(name, f'{ctx.skill} BRIEF {brief} resume after STEER {steer_path}')
     print(f'resumed unit {seq}: sent {brief} again after {steer_path}')

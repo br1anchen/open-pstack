@@ -173,12 +173,13 @@ waits for the sidekick to settle, then sends the steer. Log one `pair.sh log` ro
 third means the brief was wrong, so `pair.sh stop` and re-brief instead.
 
 A sidekick counts as busy when herdr says `working`, or when it is `idle` or `done` and its pane still runs a command it started since the
-dispatch (the rule `wait` and `verify` use). A steer to a busy sidekick is handed over as above. A steer to a sidekick that is between turns
-depends on the dispatched unit's report: with none, the steer is delivered as a new prompt (to a sidekick still running a command it started, as
-a working steer); `blocked` or `partial`, the steer's scope effect is written into the brief's Scope and the brief is sent again as a resume
-(`resumed unit NNN: sent <brief> again after <steer>`), keeping the unit's base and setting the old report aside, so only a report written after
-the resume answers it; an `object` report, the steer answers the objection; `done` or `failed` is refused with what to do instead. A steer
-for a unit other than the dispatched one is refused. A herdr-`blocked` agent is never steered or resumed: it may sit at an approval dialog.
+dispatch (the rule `wait` and `verify` use). A steer to a `working` sidekick is handed over as above. For an `idle` or `done` one the unit's
+report decides first, even while a command runs in its pane. With no report since the last send, the steer is delivered as a new prompt (as a
+working steer when a command is running). A `blocked` or `partial` report: the steer's scope effect is written into the brief's Scope and the
+brief is sent again as a resume (`resumed unit NNN: sent <brief> again after <steer>`), keeping the unit's base and setting the old report
+aside, so only a report written after the resume answers it. An `object` report: the steer answers the objection. A `done` or `failed` report
+is refused with what to do instead. A steer for a unit other than the dispatched one reads that unit's report as it stands and never resumes
+it. A herdr-`blocked` agent is never steered or resumed: it may sit at an approval dialog.
 
 The sidekick may object instead. `wait` then returns `report_status: object`
 with `reports/NNN-<slug>-s<k>.md`: grounding, objections with evidence and an

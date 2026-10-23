@@ -1389,19 +1389,25 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(self.prompts(top), [])
 
     def test_a_steer_for_a_unit_that_is_not_the_dispatched_one_is_refused_with_or_without_a_dispatch(self):
-        # review n2, n4: between briefs or before any dispatch, an unreported unit is not the sidekick's to steer, and a stale blocked report keeps its old advice
-        fold = 'fold the steer into the next brief instead'
-        for label, dispatch, report in (('between', True, None), ('none', False, None), ('blocked-between', True, 'blocked'), ('partial-none', False, 'partial')):
+        # review n2, n4, n5: between briefs or before any dispatch, an unreported unit is not the sidekick's to steer, and an earlier unit's report is read as it
+        # stands (its mtime is older than the later dispatch's .sent.epoch, which is not a reason to ignore it)
+        apply_it = 'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)'
+        for label, dispatch, report, advice in (('between', True, None, 'fold the steer into the next brief instead'),
+                                                ('none', False, None, 'fold the steer into the next brief instead'),
+                                                ('blocked-between', True, 'blocked', apply_it), ('partial-none', False, 'partial', apply_it),
+                                                ('done-between', True, 'done', 'write a fix brief'), ('failed-between', True, 'failed', 'fold the steer into the next brief instead')):
             top, st, run, steer = self.busy_world('nd-' + label, 'idle', report=report)
             pair = json.loads((st / 'pair.json').read_text())
             pair.pop('dispatch')
+            pair['sent']['epoch'] = 2000
             if dispatch:
                 pair['dispatch'] = {'brief': f'{st}/briefs/002-y.md', 'at': '2026-01-01T00:00:00Z', 'generation': 1}
             (st / 'pair.json').write_text(json.dumps(pair))
+            if report:
+                os.utime(st / 'reports/001-x.md', (1000, 1000))
             r = run('steer', '{st}', str(steer))
-            advice = f'apply its scope effect to the brief and re-dispatch it (dispatch {st} <brief> --send-only)' if report else fold
             self.assertEqual((r.returncode, r.stdout), (5, ''), label)
-            self.assertEqual(r.stderr, f'pair.sh: sidekick s1 is idle and no objection is open on unit 001; {advice}\n', label)
+            self.assertEqual(r.stderr, f'pair.sh: sidekick s1 is idle and no objection is open on unit 001; {advice.format(st=st)}\n', label)
             self.assertEqual(self.prompts(top), [], label)
 
     def test_after_a_resume_the_old_report_no_longer_counts_so_the_next_steer_is_delivered_not_resumed(self):
@@ -1409,7 +1415,7 @@ class CoreTests(unittest.TestCase):
         top, st, run, steer = self.busy_world('resume-then-steer', 'idle', report='blocked', effect='may write: src/b.py', brief=self.BRIEF_001)
         os.utime(st / 'reports/001-x.md', (1000, 1000))
         first = run('steer', '{st}', str(steer))
-        self.assertIn('resumed unit 001', first.stdout)
+        self.assertEqual(first.stdout, self.resumed_out(st, st / 'steers/001-x-s1.md'))
         second = st / 'steers/001-x-s2.md'
         second.write_text((self.STEER_001 % 'none').replace('{st}', str(st)).replace('Steer 001-s1', 'Steer 001-s2'))
         r = run('steer', '{st}', str(second))
@@ -1593,7 +1599,12 @@ class CoreTests(unittest.TestCase):
         steer.parent.mkdir(exist_ok=True)
         steer.write_text('# Steer 001-s2: x\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n')
         r = run('steer', '{st}', str(steer))
-        self.assertIn('resumed unit 001', r.stdout)
+        self.assertEqual(r.stdout, self.resumed_out(st, steer))
+
+    def resumed_out(self, st, steer):
+        """The whole output of a resume: its line, then the wait that follows, which shows the old report as already seen and not as the answer."""
+        return (f'resumed unit 001: sent {st}/briefs/001-x.md again after {steer}\nstate: idle\n'
+                f'idle: the reply to 001-x.md was already shown ({st}/reports/001-x.md); send the next message\n')
 
     BRIEF_001 = '# Brief 001-x\n\n## Scope\n\nmay write:\n- src/a.py\n\nmust not write:\n- docs/**\n\n## Goal\n\nx\n'
 
@@ -1610,7 +1621,7 @@ class CoreTests(unittest.TestCase):
             old = st / 'reports/001-x.md'
             os.utime(old, (1000, 1000))
             r = run('steer', '{st}', str(steer))
-            self.assertIn(f'resumed unit 001: sent {st}/briefs/001-x.md again after {steer}', r.stdout, (label, r.stderr))
+            self.assertEqual(r.stdout, self.resumed_out(st, steer), (label, r.stderr))
             brief = (st / 'briefs/001-x.md').read_text().split('\n')
             start = brief.index(heading)
             self.assertIn(entry, brief[start:start + 4], label)
@@ -1620,6 +1631,7 @@ class CoreTests(unittest.TestCase):
             self.assertTrue(prompts[0].startswith(f'agent prompt s1 pstack-pair BRIEF {st}/briefs/001-x.md resume after STEER {steer}'), prompts)
             after = json.loads((st / 'pair.json').read_text())
             self.assertEqual(after['heads'], {'001-x': 'c1base'}, label)
+            self.assertEqual(after['pending'], [], label)
             self.assertEqual(after['dispatch']['brief'], f'{st}/briefs/001-x.md', label)
             # the stale report is retired twice over: .sent.seen names it as already shown, and fresh_reply counts only reports written since .sent.epoch
             self.assertEqual(after['sent']['seen'], f'{old}:1000', label)
