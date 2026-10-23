@@ -6659,6 +6659,25 @@ class CoreTests(unittest.TestCase):
             self.assertFalse(os.path.exists(path))
             self.assertEqual(json.loads((st / 'pair.json').read_text())['scratch'], [])
 
+    def test_a_scratch_made_without_a_commit_carries_the_tracked_diff_and_each_untracked_file(self):
+        from pstack_core.commands import scratch
+        ctx = Context('pstack-pair', '/x', '/s', 'Pair', ('sidekick',), (), 21, '')
+        repo, st = self.path / 'live-repo', self.path / 'live-st'
+        (repo / 'sub').mkdir(parents=True)
+        st.mkdir()
+        env = {**self.env, **self.GIT}
+        (repo / 'tracked.txt').write_text('one\n')
+        for args in (('init', '-q', '-b', 'main'), ('add', 'tracked.txt'), ('commit', '-q', '-m', 'one')):
+            subprocess.run(['git', '-C', str(repo), *args], env=env, check=True, capture_output=True)
+        (repo / 'tracked.txt').write_text('two\n')
+        (repo / 'sub' / 'new.txt').write_text('fresh\n')
+        (st / 'pair.json').write_text(json.dumps({'git_root': str(repo)}) + '\n')
+        with mock.patch.dict(os.environ, env):
+            path = scratch.make_scratch(ctx, str(st), '001-x')
+            self.assertEqual((Path(path) / 'tracked.txt').read_text(), 'two\n')
+            self.assertEqual((Path(path) / 'sub' / 'new.txt').read_text(), 'fresh\n')
+            scratch.remove_scratch(ctx, str(st), '001-x')
+
     def test_spawn_options_read_the_words_after_the_store_with_the_last_of_a_repeated_option_winning(self):
         from pstack_core.spawn import SpawnOptions, spawn_options
         self.assertEqual(spawn_options([]), SpawnOptions())

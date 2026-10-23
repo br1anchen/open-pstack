@@ -67,6 +67,22 @@ def remove_scratch(ctx, store, ident):
     return path
 
 
+def copy_live_changes(cwd, path):
+    """Brings the uncommitted work of `cwd` into the new git worktree at `path`: the tracked diff applied to the index, then each untracked file copied.
+    A diff that does not apply is said on stderr and leaves the worktree at HEAD."""
+    diff = git.run(cwd, 'diff', 'HEAD', '--binary', binary=True).stdout
+    if diff:
+        if git.run(path, 'apply', '--index', '-', stdin=diff, stdout=None, quiet=True, binary=True).returncode != 0:
+            sys.stderr.write('live diff did not apply cleanly; scratch is at HEAD only\n')
+            git.ok(path, 'checkout', '--', '.')
+    untracked = git.run(cwd, 'ls-files', '--others', '--exclude-standard', '-z', binary=True).stdout
+    for raw in untracked.split(b'\0'):
+        if raw:
+            f = os.fsdecode(raw)
+            os.makedirs(f'{path}/{parent_dir(f)}', exist_ok=True)
+            shutil.copy2(f'{cwd}/{f}', f'{path}/{f}')
+
+
 def make_scratch(ctx, store, ident, *, at=''):
     """The path of the scratch worktree `ident`, made at the commit `at` (HEAD with the live diff when empty) unless it is there already. A
     live diff that does not apply is said on stderr and leaves the scratch at HEAD."""
@@ -92,17 +108,7 @@ def make_scratch(ctx, store, ident, *, at=''):
     elif git.run(cwd, 'worktree', 'add', '--detach', path, at or 'HEAD', stdout=git.DEVNULL).returncode != 0:
         raise ScratchNotMade('git worktree add failed')
     if not at and not jj:
-        diff = git.run(cwd, 'diff', 'HEAD', '--binary', binary=True).stdout
-        if diff:
-            if git.run(path, 'apply', '--index', '-', stdin=diff, stdout=None, quiet=True, binary=True).returncode != 0:
-                sys.stderr.write('live diff did not apply cleanly; scratch is at HEAD only\n')
-                git.ok(path, 'checkout', '--', '.')
-        untracked = git.run(cwd, 'ls-files', '--others', '--exclude-standard', '-z', binary=True).stdout
-        for raw in untracked.split(b'\0'):
-            if raw:
-                f = os.fsdecode(raw)
-                os.makedirs(f'{path}/{parent_dir(f)}', exist_ok=True)
-                shutil.copy2(f'{cwd}/{f}', f'{path}/{f}')
+        copy_live_changes(cwd, path)
     update(store, lambda doc: doc.update(scratch=sorted({*names(doc, 'scratch'), ident})))
     return path
 
