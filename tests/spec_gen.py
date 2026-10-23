@@ -694,7 +694,7 @@ NOT_CONTRACT = {
         SPAWN,
         at(
             SPAWN,
-            "raise PrimeFailed(\n            f'Prime start failed in {pane}",
+            'if start_failed:',
             'raise PrimeFailed',
         ),
     ): 'the Prime daemon failing after its preflight passed; exit 5 like every spawn refusal, the pane stays for the human',
@@ -702,7 +702,7 @@ NOT_CONTRACT = {
         CONSULT,
         at(
             CONSULT,
-            'raise AgentBusy(\n            f\'sidekick {field(store, "sidekick", "name")} is working and the consultant has nothing to answer',
+            "if deferred and 'consultant' not in send and 'consultant' not in answered:",
             'raise AgentBusy',
         ),
     ): 'unreachable: the loop above leaves the consultant sent the plan or answered, or ends the round on its state, so a working sidekick never meets a consultant with nothing to do',

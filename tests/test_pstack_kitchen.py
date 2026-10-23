@@ -5173,7 +5173,7 @@ esac
         b2 = self.brief('002', 'slow', ['src/**', 'tests/**'])
         self.verify_block(
             b2,
-            'sleep 3; printf "%s|%s" "$PSTACK_KITCHEN_ROLE" "$PSTACK_KITCHEN_RUN" >"$OUT"',  # kitchen-allow: test-sleep (fake gate must still be running)
+            'sleep 3; printf "%s|%s" "$PSTACK_KITCHEN_ROLE" "$PSTACK_KITCHEN_RUN" >"$OUT"',  # kitchen-allow: test-sleep (a Verify command that must outlast the gates)
         )
         self.env['OUT'] = str(Path(self.tmp.name) / 'lane.txt')
         self.dispatch(b2)
@@ -8110,7 +8110,7 @@ esac
             [
                 'bash',
                 '-c',
-                f"until [ -f {packet} ]; do sleep 0.2; done; sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}",  # kitchen-allow: test-sleep (fake gate must still be running)
+                f"until [ -f {packet} ]; do sleep 0.2; done; sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}",  # kitchen-allow: test-sleep (the verdict is written after the packet appears)
             ]
         )
         self.addCleanup(late.wait)
