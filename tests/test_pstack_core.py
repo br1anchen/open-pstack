@@ -18051,6 +18051,14 @@ class OSErrorReasonTests(unittest.TestCase):
         self.assertEqual(errors.reason(OSError('disk gone')), 'disk gone')
 
 
+class TextModeTests(unittest.TestCase):
+    def test_text_mode_is_what_subprocess_takes_for_utf8_output(self):
+        self.assertEqual(
+            dict(store.TEXT),
+            {'text': True, 'encoding': 'utf-8', 'errors': 'replace'},
+        )
+
+
 class LoadModuleTests(unittest.TestCase):
     def test_a_path_that_does_not_load_raises_an_import_error_naming_it(self):
         with tempfile.TemporaryDirectory() as tmp:

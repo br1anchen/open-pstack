@@ -5,12 +5,20 @@ import re
 import time
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from typing import Literal, TypedDict
 
 from .errors import BadSlug, DamagedStore, LockHeld, MissingStore
 from .numbers import env_float, env_int
 
+
 # What subprocess.run takes to give str output: UTF-8, a byte that is not UTF-8 shown as U+FFFD.
-TEXT = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'}
+class TextMode(TypedDict):
+    text: Literal[True]
+    encoding: str
+    errors: str
+
+
+TEXT: TextMode = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'}
 
 
 def newest_first(paths):
