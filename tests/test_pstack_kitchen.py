@@ -3803,8 +3803,13 @@ esac
         state['heads']['002-u2'] = stray
         path.write_text(json.dumps(state))
         out = self.run_sh('verify', str(self.store), '003', '--covers', '001,002', code=1)
-        self.assertIn('units 001 and 002 have no common order: pass --base REV', out)
+        self.assertEqual(out, 'kitchen.sh: units 001 and 002 have no common order: pass --base REV\n')
         self.assertNotIn('verifying', self.state())
+
+    def test_covers_names_a_missing_brief_once(self):
+        self.three_units()
+        out = self.run_sh('verify', str(self.store), '003', '--covers', '001,099', code=1)
+        self.assertEqual(out.count('no brief for unit 099'), 1, out)
 
     def covers_packet(self):
         packet = (self.store / 'verdicts/003-u3-v1-packet.md').read_text()

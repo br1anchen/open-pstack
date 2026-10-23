@@ -3962,6 +3962,25 @@ class CoreTests(unittest.TestCase):
             r = run('log', str(store), 'p')
             self.assertEqual((r.returncode, r.stderr), (1, 'pair.sh: usage: pair.sh log <store> <phase> <decision> <why> <evidence> <result>\n'), skill)
 
+    def test_the_oldest_base_is_the_head_every_other_descends_from_in_any_order(self):
+        import itertools
+        units = self.kitchen_core_module('units')
+        below = {'a': set(), 'b': {'a'}, 'c': {'a'}, 'd': {'a', 'b'}, 'a2': set()}
+        heads = {'001': 'd', '002': 'a', '003': 'c', '004': 'b', '005': 'a2', '006': 'a'}
+        ancestor = lambda root, older, newer: older == newer or older in below[newer]
+        def oldest(names):
+            with mock.patch.object(units, 'dispatch_head', side_effect=lambda store, brief: heads[brief]), \
+                    mock.patch.object(units, 'is_ancestor', side_effect=ancestor), mock.patch.object(units, 'repo_root', return_value='/r'):
+                return units.oldest_base('/st', {n: n for n in names})
+        for order in itertools.permutations(['001', '003', '002']):
+            self.assertEqual(oldest(order), ('a', '002'), order)
+        for order in itertools.permutations(['001', '004', '002', '006']):
+            self.assertEqual(oldest(order)[0], 'a', order)
+        for order in itertools.permutations(['001', '003', '004']):
+            with self.assertRaises(UnitNotCheckable) as caught:
+                oldest(order)
+            self.assertRegex(caught.exception.message, r'^units 00[134] and 00[134] have no common order: pass --base REV$')
+
     def kitchen_core_module(self, name):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
         try:
@@ -6901,7 +6920,7 @@ class CoreTests(unittest.TestCase):
                         '016-onstack': f'status: done\nhead: {stacks["plain"][1]}\n', '017-nohead': 'status: done\n', '018-badhead': 'status: done\nhead: nothere\n',
                         '019-done': f'status: done\nhead: {shas["u1"]}\n'}.items():
             report(n, '# R\n\n' + text)
-            heads['heads'][n] = shas['base']
+            heads['heads'][n] = shas['u1'] if n == '019-done' else shas['base']
         (st / 'pair.json').write_text(json.dumps(heads, indent=2) + '\n')
         return st, repo, shas, stacks
 
@@ -6923,6 +6942,7 @@ class CoreTests(unittest.TestCase):
                  (['011', '001'], ['011'], '', (base, u2, '')),
                  (['016'], [], '', (trunk, plain, f"note: unit 016's recorded base {base[:9]} is behind where its branch leaves remotes/origin/main; measuring from {trunk[:9]}\n")),
                  (['016', '001'], [], '', (base, u2, '')),
+                 (['019', '016'], [], '', (trunk, plain, f"note: unit 016's recorded base {base[:9]} is behind where its branch leaves remotes/origin/main; measuring from {trunk[:9]}\n")),
                  (['001', '016'], [], '', (trunk, plain, f"note: unit 001's recorded base {base[:9]} is behind where its branch leaves remotes/origin/main; measuring from {trunk[:9]}\n")),
                  (['016'], [], base, (base, plain, '')), (['001'], [], trunk, (trunk, u2, '')), (['001'], [], 'nothere', '--base nothere is not a commit\n'),
                  (['005'], [], '', 'unit 005 was never dispatched\n'), (['009', '001'], [], '', (base, u2, '')),

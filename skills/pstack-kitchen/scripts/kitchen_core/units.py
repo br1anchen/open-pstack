@@ -301,23 +301,33 @@ def brief_or_nothing(ctx, store, nnn):
         return ''
 
 
-def oldest_base(ctx, store, units):
-    """The oldest dispatch head among the units by git ancestry, whatever order they are named in. A unit never dispatched ends the command when it
-    is the first; later ones without a recorded base are left out. Two heads neither of which is an ancestor of the other have no order."""
-    oldest, owner = '', ''
-    for unit in units:
-        base = dispatch_head(store, brief_or_nothing(ctx, store, unit))
-        if not base:
-            if not owner and unit == units[0]:
-                raise UnitNotCheckable(f'unit {unit} was never dispatched')
-            continue
-        if not owner:
-            oldest, owner = base, unit
-        elif is_ancestor(repo_root(store), base, oldest):
-            oldest, owner = base, unit
-        elif not is_ancestor(repo_root(store), oldest, base):
+def quiet_brief(store, nnn):
+    """The unit's brief, or '' when there is none."""
+    try:
+        return unit_brief(store, nnn)
+    except NoBrief:
+        return ''
+
+
+def oldest_base(store, briefs):
+    """(dispatch head, unit) of the oldest unit by git ancestry, whatever order the units are named in: the head that is an ancestor of every other
+    named head. A unit never dispatched ends the command when it is the first; later ones without a recorded base are left out. When no head is an
+    ancestor of all the others, the first one the chosen head is not an ancestor of ends the command."""
+    heads = [(unit, dispatch_head(store, brief)) for unit, brief in briefs.items()]
+    if not heads[0][1]:
+        raise UnitNotCheckable(f'unit {heads[0][0]} was never dispatched')
+    heads = [(unit, base) for unit, base in heads if base]
+    owner, oldest = heads[0]
+    if len(heads) == 1:
+        return oldest, owner
+    root = repo_root(store)
+    for unit, base in heads[1:]:
+        if base != oldest and is_ancestor(root, base, oldest):
+            owner, oldest = unit, base
+    for unit, base in heads:
+        if not is_ancestor(root, oldest, base):
             raise UnitNotCheckable(f'units {owner} and {unit} have no common order: pass --base REV')
-    return oldest
+    return oldest, owner
 
 
 def unit_range(ctx, store, units, covered=(), range_base=''):
@@ -326,9 +336,8 @@ def unit_range(ctx, store, units, covered=(), range_base=''):
     fix unit carries it. A partial, blocked or failed unit can still be checked at the head its report names (a note says it is not done). The
     base moves up to where the unit's branch leaves trunk when trunk has replaced the recorded one (a note says so), unless range_base is given."""
     first, last = units[0], units[-1]
-    base = oldest_base(ctx, store, units) if not range_base else ''
-    if range_base and not dispatch_head(store, brief_or_nothing(ctx, store, first)):
-        raise UnitNotCheckable(f'unit {first} was never dispatched')
+    brief_or_nothing(ctx, store, first)
+    base, owner = oldest_base(store, {u: quiet_brief(store, u) for u in ([first] if range_base else units)})
     for unit in units:
         if unit in covered:
             continue
@@ -365,5 +374,5 @@ def unit_range(ctx, store, units, covered=(), range_base=''):
         base, note = range_floor(root, base, head)
         if note:
             sys.stdout.flush()
-            sys.stderr.write(f"note: unit {first}'s {note}\n")
+            sys.stderr.write(f"note: unit {owner}'s {note}\n")
     return base, head
