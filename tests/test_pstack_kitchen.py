@@ -1,6 +1,8 @@
 """kitchen.py against a throwaway repo: the kitchen.toml schema, classify,
 gate, policy, and doctor, end to end through the command line."""
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -16,6 +18,7 @@ import unittest
 from pathlib import Path
 
 import tomllib
+from unittest import mock
 
 # git and the scripts report resolved paths; on macOS the temp dir is under
 # /var, a link to /private/var, so tests work in the resolved one.
@@ -1393,6 +1396,94 @@ class PolicyRuleTests(unittest.TestCase):
             self.assertTrue(pattern.search(line), line)
         for line in spared:
             self.assertIsNone(pattern.search(line), line)
+
+
+class LibraryTests(KitchenTests):
+    """The queries as functions of an Invocation: each returns data, prints nothing, and raises KitchenError where the command line exits nonzero."""
+
+    def library(self):
+        """The library under the test repo's environment, with the output it writes caught: the function returns data and writes none."""
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.dict(os.environ, self.env, clear=True))
+        self.out, self.err = io.StringIO(), io.StringIO()
+        stack.enter_context(contextlib.redirect_stdout(self.out))
+        stack.enter_context(contextlib.redirect_stderr(self.err))
+        self.addCleanup(stack.close)
+        return kitchen.Invocation(str(self.repo))
+
+    def silent(self):
+        self.assertEqual((self.out.getvalue(), self.err.getvalue()), ('', ''))
+
+    def test_classify_returns_the_range_the_command_prints(self):
+        head = self.change({'src/app.py': 'def main():\n    return 2\n'})
+        want = self.data('classify', '--base', self.base, '--head', head)
+        inv = self.library()
+        got = kitchen.classify_change(inv, base=self.base, head=head)
+        self.assertEqual((got, got['profiles'], got['risk']), (want, ['app'], 'routine'))
+        scoped = kitchen.classify_change(inv, paths=['src/**', '/elsewhere/report.md'], escalate=('a plan',))
+        self.assertEqual((scoped['profiles'], scoped['outside'], scoped['escalate'], scoped['risk']), (['app'], ['/elsewhere/report.md'], ['a plan'], 'escalated'))
+        self.silent()
+
+    def test_classify_without_a_range_is_a_kitchen_error(self):
+        inv = self.library()
+        with self.assertRaises(kitchen.KitchenError) as caught:
+            kitchen.classify_change(inv)
+        self.assertEqual((str(caught.exception), caught.exception.code), ('give --base REV [--head REV], --working-tree, or --paths GLOB...', 1))
+
+    def test_validate_returns_the_facts_and_a_bad_kitchen_raises_what_the_command_prints(self):
+        inv = self.library()
+        found = kitchen.validate(inv)
+        self.assertEqual((found.profiles, found.source.kind, found.review_engine, found.landing, found.setup, found.warnings),
+                         (['app', 'docs', 'contracts'], 'repo', '', 'commit', [], []))
+        self.assertEqual(found.as_dict(), self.data('validate'))
+        self.assertEqual(found.text(), self.run_kitchen('validate').rstrip('\n'))
+        self.write('.agents/kitchen.toml', KITCHEN.replace('fast =', 'fsat =', 1))
+        with self.assertRaises(kitchen.KitchenError) as caught:
+            kitchen.validate(inv)
+        printed = self.run_kitchen('validate', code=caught.exception.code)
+        self.assertEqual(printed, f'kitchen: {caught.exception}\n')
+        self.silent()
+
+    def test_validate_returns_the_warnings_of_a_kitchen_file_that_keeps_ignored_keys(self):
+        self.write('.agents/kitchen.toml', KITCHEN + '\n[review]\nengine = "joo"\nroutine = "codex"\n')
+        found = kitchen.validate(self.library())
+        self.assertEqual(found.review_engine, 'joo')
+        self.assertEqual([w.split(':')[0] for w in found.warnings], ['kitchen'])
+        self.assertIn('review.routine are ignored', found.warnings[0])
+        self.silent()
+
+    def test_manifests_takes_paths_as_an_argument(self):
+        inv = self.library()
+        self.assertEqual(kitchen.manifests(inv, ['src/app.py', 'requirements.txt', '', 'sub/requirements.txt']), ['requirements.txt'])
+        self.silent()
+
+    def test_timing_and_the_deadline_return_their_parts(self):
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
+                                        env=self.env, capture_output=True, text=True, check=True).stdout.strip())
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / 'timings.tsv').write_text('2\tapp\tbehavioral\tverifier\tpass\t300\t5\t1200\t1500\n')
+        inv = self.library()
+        gates = kitchen.timing(inv, ['app', 'docs'], 'behavioral')
+        self.assertEqual((gates['seconds'], gates['unmeasured']), (300, ['docs']))
+        self.assertEqual(kitchen.timing_text(gates, 'behavioral'), 'behavioral: 300.0s\n  app 300.0s\n  unmeasured: docs')
+        left = kitchen.deadline(inv, ['app'], False)
+        self.assertEqual((left['minutes'], left['gate_seconds'], left['unmeasured']), (45, 300, []))
+        self.silent()
+
+    def test_the_brief_verify_list_is_the_commands_and_a_refused_block_raises(self):
+        brief = self.repo / 'brief.md'
+        brief.write_text('# Brief\n\n## Verify\n\n```bash\nmake test\ntrue\n```\n')
+        inv = self.library()
+        self.assertEqual(kitchen.brief_verify_list(inv, brief), ['make test', 'true'])
+        brief.write_text('# Brief\n\n## Verify\n\nrun it by hand\n')
+        with self.assertRaises(kitchen.KitchenError):
+            kitchen.brief_verify_list(inv, brief)
+        self.silent()
+
+    def test_a_repo_kitchen_has_no_snapshot(self):
+        self.assertEqual(kitchen.snapshot(self.library(), self.repo / 'snaps'), '')
+        self.assertFalse((self.repo / 'snaps').exists())
+        self.silent()
 
 
 class FleetTests(unittest.TestCase):
