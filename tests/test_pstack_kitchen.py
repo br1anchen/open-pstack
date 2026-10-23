@@ -2458,10 +2458,10 @@ esac
         self.write('src/util.py', 'X = 2\n')
         self.write('tests/test_app.py', 'x = 2\n')
         sha = self.commit('step 1')
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'util two'))
         note = self.store / 'notes/001-util-n1.md'
         note.parent.mkdir(exist_ok=True)
         note.write_text('# N\n\nstatus: blocking\n')
-        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'util two'))
         job = next((self.store / 'steps/jobs').iterdir())
         (job / 'sentinel').write_text('x')
         steps_events = lambda: [l for l in (self.store / 'events.tsv').read_text().splitlines() if '\tstep\t' in l]
@@ -2505,15 +2505,15 @@ esac
         # review 011 (i): record A, record B, then A again with --resolves n1 while A is not HEAD and the tree is dirty.
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
-        note = self.store / 'notes/001-util-n1.md'
-        note.parent.mkdir(exist_ok=True)
-        note.write_text('# N\n\nstatus: blocking\n')
         shas = []
         for n in (2, 3):
             self.write('src/util.py', f'X = {n}\n')
             self.write('tests/test_app.py', f'x = {n}\n')
             shas.append(self.commit(f'step {n}'))
             self.assertIn('gates: pass', self.run_sh('step', str(self.store), shas[-1], f'step {n}'))
+        note = self.store / 'notes/001-util-n1.md'
+        note.parent.mkdir(exist_ok=True)
+        note.write_text('# N\n\nstatus: blocking\n')
         self.write('src/util.py', 'X = 99\n')
         out = self.run_sh('step', str(self.store), shas[0], 'again', '--resolves', 'n1')
         self.assertIn(f'step {shas[0][:9]}: already recorded', out)

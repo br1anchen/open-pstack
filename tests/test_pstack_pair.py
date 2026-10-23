@@ -551,9 +551,9 @@ class ReadinessTests(unittest.TestCase):
     def test_a_withheld_report_does_not_hide_reviewable_steps(self):
         c1 = self.commit('one')
         self.step(c1)
-        self.note(1)
         c2 = self.commit('two')
         self.step(c2)
+        self.note(1)
         self.write_report(c2)
         out = self.wait(0)
         self.assertIn('steps: 1 to review on 001-first', out)

@@ -6,20 +6,37 @@ import time
 
 from .. import git
 from ..argv import Spec, read
-from ..store import event, load, pair_file, text_at, pause_notice, paused_reason, progress_path, steer_notice, unit_name
-from ..errors import Die
+from ..store import acquire_lock, event, load, note_id, pair_file, text_at, pause_notice, paused_reason, progress_path, steer_notice, unit_name
+from ..errors import Die, open_notes_refusal
 from ..replies import dispatched
+from ..review import open_notes
 from ..steplog import StepLog
+
+
+RESOLVES = re.compile(r'((?:[0-9]{3}-)?n[0-9]+(,(?:[0-9]{3}-)?n[0-9]+)*)?')
+
+
+def unresolved_notes(store, brief, resolves):
+    """(id, file) of the blocking notes on the unit that are open and that `resolves` (a comma list of note ids) does not name."""
+    named = set(resolves.split(','))
+    seq = unit_name(brief)[:3]
+    return [(note_id(f), f) for f in open_notes(store, brief) if note_id(f) not in named and f'{seq}-{note_id(f)}' not in named]
+
+
+def resolves_arg(args):
+    """The --resolves value among the arguments after the summary, as written."""
+    return read(args, Spec(valued=('--resolves',))).last('--resolves', '')
 
 
 def step(ctx, args, now=None):
     """The sidekick records a committed step and goes straight on; the master's wait picks it up for review. --resolves names the
-    notes the step fixes."""
+    notes the step fixes. A commit this unit recorded already only gains the notes it now resolves; the check for it and the append
+    are one critical section under the store lock, so two calls for one commit leave one row."""
     if len(args) < 3:
         raise Die(f'usage: {ctx.prog} step <store> <sha> <summary> [--resolves n1,n2 | 001-n1]')
     store, sha, summary = args[:3]
-    resolves = read(args[3:], Spec(valued=('--resolves',))).last('--resolves', '')
-    if not re.fullmatch(r'((?:[0-9]{3}-)?n[0-9]+(,(?:[0-9]{3}-)?n[0-9]+)*)?', resolves):
+    resolves = resolves_arg(args[3:])
+    if not RESOLVES.fullmatch(resolves):
         raise Die('--resolves takes note ids like n2,n3, or 001-n2 for another unit\'s note')
     pair_file(store)
     brief = dispatched(store)
@@ -42,14 +59,24 @@ def step(ctx, args, now=None):
     os.makedirs(f'{store}/steps', exist_ok=True)
     os.makedirs(f'{store}/progress', exist_ok=True)
     log = StepLog(store, brief)
-    if log.add_resolves(full, resolves):
-        # this unit already recorded this commit: it only gains the notes it now resolves, and nothing else is written
+    stamp = time.time() if now is None else now
+    lock = acquire_lock(store)
+    try:
+        if log.add_resolves(full, resolves):
+            k = None
+        else:
+            k = log.next_number()
+            left = unresolved_notes(store, brief, resolves)
+            if left:
+                raise open_notes_refusal(ctx.prog, left)
+            log.append(k, full, int(stamp), resolves, summary)
+    finally:
+        os.rmdir(lock)
+    if k is None:
+        # this unit already recorded this commit: it only gained the notes it now resolves, and nothing else is written
         sys.stdout.write(f'step {full[:9]}: already recorded\n')
         sys.stdout.write(steer_notice(ctx, store))
         return 0
-    k = log.next_number()
-    stamp = time.time() if now is None else now
-    log.append(k, full, int(stamp), resolves, summary)
     with open(progress_path(store), 'a', encoding='utf-8') as f:
         f.write(f'{time.strftime("%H:%M", time.localtime(stamp))} step {k} {full[:9]}: {summary}\n')
     event(store, 'sidekick', 'step', brief, f'{k}:{full[:9]}')

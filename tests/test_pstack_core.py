@@ -1822,15 +1822,69 @@ class CoreTests(unittest.TestCase):
         open_for = lambda unit: [os.path.basename(f) for f in review.open_notes(str(st), f'{unit}.md')]
         self.assertEqual((open_for('001-x'), open_for('002-y')), (['001-x-n1.md'], ['002-y-n1.md']))
         r = run('step', '{st}', '{c3}', 'fixes', '--resolves', '001-n1')
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual((open_for('001-x'), open_for('002-y')), ([], ['002-y-n1.md']))
+        self.assertEqual((r.returncode, r.stderr), (5, f'pair.sh: step: blocking note n1 is open ({st}/notes/002-y-n1.md); fix it and record the fix with --resolves n1\n'))
         r = run('step', '{st}', '{c2}', 'own', '--resolves', 'n1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((open_for('001-x'), open_for('002-y')), (['001-x-n1.md'], []))
+        r = run('step', '{st}', '{c3}', 'fixes', '--resolves', '001-n1')
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual((open_for('001-x'), open_for('002-y')), ([], []))
         for bad, text in (('001-n9', 'no published note n9 on unit 001'), ('009-n1', 'no published note n1 on unit 009'), ('1-n1', '--resolves takes note ids')):
             r = run('step', '{st}', '{c1}', 'x', '--resolves', bad)
             self.assertEqual(r.returncode, 1, bad)
             self.assertIn(text, r.stderr, bad)
+
+    def test_step_refuses_while_a_blocking_note_it_does_not_resolve_is_open(self):
+        # Unit 001 has two open blocking notes. A step naming neither, or only n1, is refused with exit 5 and one line per note still open;
+        # nothing is recorded. A step naming both goes through. A commit already recorded may still gain one note at a time.
+        files = {'notes/001-x-n1.md': '# N\n\nstatus: blocking\n', 'notes/001-x-n2.md': '# N\n\nstatus: blocking\n', 'notes/001-x-n3.md': '# N\n\nstatus: clear\n'}
+        top, st, run = self.own_world('open-notes', files=files)
+        line = lambda k: f'pair.sh: step: blocking note n{k} is open ({st}/notes/001-x-n{k}.md); fix it and record the fix with --resolves n{k}\n'
+        r = run('step', '{st}', '{c1}', 'one')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (5, '', line(1) + line(2)))
+        r = run('step', '{st}', '{c1}', 'one', '--resolves', 'n1')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (5, '', line(2)))
+        self.assertFalse((st / 'steps/001-x.tsv').exists())
+        r = run('step', '{st}', '{c1}', 'one', '--resolves', 'n1,n2')
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        self.assertIn(f'step 1 recorded at {r.stdout.split()[4]}', r.stdout)
+        self.assertEqual(review.open_notes(str(st), '001-x.md'), [])
+
+    def test_step_on_a_recorded_commit_only_gains_the_notes_it_names_whatever_is_still_open(self):
+        top, st, run = self.own_world('resolution-only', files={})
+        self.assertEqual(run('step', '{st}', '{c1}', 'one').returncode, 0)
+        for k in (1, 2):
+            (st / f'notes/001-x-n{k}.md').write_text('# N\n\nstatus: blocking\n')
+        r = run('step', '{st}', '{c1}', 'again', '--resolves', 'n1')
+        self.assertEqual((r.returncode, r.stdout.endswith(': already recorded\n'), r.stderr), (0, True, ''))
+        self.assertEqual([os.path.basename(f) for f in review.open_notes(str(st), '001-x.md')], ['001-x-n2.md'])
+        self.assertEqual(len((st / 'steps/001-x.tsv').read_text().splitlines()), 1)
+
+    def test_two_calls_for_one_commit_leave_one_row(self):
+        # A second step call for the same commit arrives while the first is between its recorded-check and its append: the call that holds the store
+        # lock is the only one that records. The wrapper plays the second caller at that point; the lock keeps it out (PAIR_LOCK_TRIES=1), so it
+        # sees the lock held, as a concurrent call does, and goes on after the first has appended.
+        from pstack_core.commands import step as step_command
+        top, st, run = self.own_world('race', files={})
+        sha = subprocess.run(['git', '-C', str(top / 'repo'), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+        ctx = self.ctx()
+        seen, original = [], step_command.StepLog.add_resolves
+
+        def checked(log, *args):
+            found = original(log, *args)
+            if not seen:
+                seen.append(found)
+                try:
+                    step_command.step(ctx, [str(st), sha, 'second'])
+                except LockHeld:
+                    seen.append('locked out')
+            return found
+
+        with mock.patch.object(step_command.StepLog, 'add_resolves', checked), mock.patch.dict(os.environ, {'PAIR_LOCK_TRIES': '1'}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            step_command.step(ctx, [str(st), sha, 'first'])
+        self.assertEqual(seen, [False, 'locked out'])
+        self.assertEqual([r.split('\t')[0] for r in (st / 'steps/001-x.tsv').read_text().splitlines()], ['1'])
 
     def test_notes_with_a_trailing_slash_store_still_counts_a_bare_id_resolved(self):
         # review 011 (iii): the steps file's path and the glob's differ by a slash; they are the same file.
@@ -5825,6 +5879,7 @@ class CoreTests(unittest.TestCase):
             'a heads that is a string': step('{k1}', 'x', pair={'heads': 'x'}),
             'a step on the unit base, so an empty range': step('{k1}', 'x', pair={'heads': {'002-y': '{k1}'}}),
             'a step that resolves a note': step('{k1}', 'fix', '--resolves', 'n1', files={'notes/002-y-n1.md': '# N\n\nstatus: blocking\n'}),
+            'a step that leaves a blocking note open': step('{k1}', 'fix', '--resolves', 'n2', files={'notes/002-y-n1.md': '# N\n\nstatus: blocking\n', 'notes/002-y-n2.md': '# N\n\nstatus: blocking\n'}),
             'a brief stamped with a kitchen snapshot': step('{k1}', 'x', topfiles={'snap.toml': (self.LAUNCH_TOML, 0o644)},
                                                           files={'briefs/002-y.md': self.launch_brief('002', 'y', 'kitchen: {T}/snap.toml\n')}),
             'a base behind where the branch leaves trunk': step('{k1}', 'x', pair={'heads': {'002-y': '{u0}'}}),
@@ -5853,6 +5908,7 @@ class CoreTests(unittest.TestCase):
             'a heads that is a string': (1, 'pair.json is damaged: heads is string, not an object'),
             'a step on the unit base, so an empty range': (0, 'gates: pass (contracts)'),
             'a step that resolves a note': recorded,
+            'a step that leaves a blocking note open': (5, 'pair.sh: step: blocking note n1 is open (<T>/st/notes/002-y-n1.md); fix it and record the fix with --resolves n1'),
             'a brief stamped with a kitchen snapshot': recorded,
             'a base behind where the branch leaves trunk': recorded,
             'two arguments': (1, 'usage: kitchen.sh step <store> <sha> <summary>'),
@@ -5863,6 +5919,7 @@ class CoreTests(unittest.TestCase):
         # the second of two failing steps counts the failures in a row; a step whose gates run on leaves a job directory with its log and a link to it
         self.assertIn('2 failed checks in a row; write the report as blocked', out['a step whose gate fails twice in a row']['second'][1])
         self.assertTrue(any(name.endswith('/out.1') for name in out['a first step']['files']))
+        self.assertFalse(any('steps/jobs' in name for name in out['a step that leaves a blocking note open']['files']), 'the refusal comes before any gate starts')
         self.assertIn('gates: pass', out['a first step']['stdout'])
         self.assertEqual(out['a step whose gate fails']['events'][-1].split('\t')[:2], ['sidekick', 'gate-fail'])
         self.assertEqual(out['a gate that passed after a rerun under load']['events'][-2].split('\t')[:2], ['sidekick', 'gate-flaky'])

@@ -26,7 +26,7 @@ from pstack_core.panes import require_herdr
 from pstack_core.commands import report as core_report, step as core_step
 from pstack_core.store import event, expected_report, field, header_field, pair_file, read, read_text, unit_name
 from pstack_core.numbers import env_float, env_int, exit_code, int_or_none
-from pstack_core.errors import Die, Exit, StepRefused, ToolFailed
+from pstack_core.errors import Die, Exit, StepRefused, ToolFailed, open_notes_refusal
 from pstack_core.replies import file_mtime
 from pstack_core.review import range_floor
 from pstack_core.steplog import StepLog
@@ -252,6 +252,9 @@ def step(ctx, args):
     # into the row it has). It is looked up first, so an earlier commit can be re-recorded whatever HEAD and the tree are now.
     if log.has(full):
         return core_step.step(ctx, args)
+    left = core_step.unresolved_notes(store, brief, core_step.resolves_arg(args[3:]))
+    if left:
+        raise open_notes_refusal(ctx.prog, left)
     check_checkout(root, sha, full)
     base = step_base(store, root, unit, log, sha, full)
     job = f'{store}/steps/jobs/{unit}-{full[:12]}'

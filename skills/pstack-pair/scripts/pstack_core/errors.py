@@ -379,6 +379,11 @@ def translate(exc, prog):
     raise exc
 
 
+def open_notes_refusal(prog, notes):
+    """The Exit (status 5) that refuses a step while blocking notes, given as (id, file), are open: one line each, naming the fix."""
+    return Exit(5, ''.join(f'{prog}: step: blocking note {k} is open ({f}); fix it and record the fix with --resolves {k}\n' for k, f in notes))
+
+
 def refuse_as(exc, prog, code):
     """The Exit that ends a command with code and exc's text, for a command whose pinned code for this failure is not the class's."""
     return Exit(code, translate(exc, prog)[0])
