@@ -7408,6 +7408,8 @@ BOUNDARIES = {
     ('pstack-pair/scripts/pstack_core/cli.py', 'main'): 'the dispatcher: herdr missing and an unknown command end the process before a command runs',
     ('pstack-pair/scripts/pstack_core/commands/report.py', 'require_pair'): 'the check that gives a store with no pair.json the status 2 its commands pin',
     ('pstack-pair/scripts/pstack_core/consult.py', 'discuss_with_consultant'): 'the plan round that the trio and the kitchen discuss commands run with their own arguments',
+    ('pstack-pair/scripts/pstack_core/commands/init.py', 'init_request'): 'the init command\'s own checks and arguments, which the kitchen\'s init reads too',
+    ('pstack-pair/scripts/pstack_core/commands/init.py', 'init_store'): 'the init command\'s refusal of a pane herdr does not know, whoever registers the master',
     ('pstack-pair/scripts/pstack_core/send.py', 'dispatch_request'): 'the dispatch command\'s own checks, which the kitchen\'s dispatch runs before it sends',
     ('pstack-pair/scripts/pstack_core/send.py', 'dispatch_brief'): 'the dispatch command\'s refusal of a store with no pair.json, whoever sends the brief',
     ('pstack-pair/scripts/pstack_core/wait.py', 'wait_target'): 'the wait command\'s own arguments, which the kitchen\'s wait reads too',
