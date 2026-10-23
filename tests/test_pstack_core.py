@@ -6678,6 +6678,27 @@ class CoreTests(unittest.TestCase):
             self.assertEqual((Path(path) / 'sub' / 'new.txt').read_text(), 'fresh\n')
             scratch.remove_scratch(ctx, str(st), '001-x')
 
+    def test_a_status_row_names_the_newest_report_review_and_advice_of_its_unit_and_asks_count_the_unanswered(self):
+        from pstack_core.commands.status import unanswered_asks, unit_row
+        st = self.path / 'row-st'
+        for d in ('briefs', 'reports', 'reviews', 'advice', 'answers'):
+            (st / d).mkdir(parents=True)
+        brief = st / 'briefs' / '002-build.md'
+        brief.write_text('x\n')
+        self.assertEqual(unit_row(str(st), str(brief), False), '| 002 | brief | build | none | none |\n')
+        self.assertEqual(unit_row(str(st), str(brief), True), '| 002 | brief | build | none | none | none |\n')
+        (st / 'reports' / '002-build.md').write_text('status: done\n')
+        (st / 'reviews' / '002-build.md').write_text('verdict: accepted\n')
+        (st / 'advice' / '002-build-c1.md').write_text('status: answered\n')
+        (st / 'advice' / '002-build-c2.md').write_text('status: answered\n')
+        self.assertEqual(unit_row(str(st), str(brief), False), '| 002 | brief | build | done | accepted |\n')
+        self.assertEqual(unit_row(str(st), str(brief), True), '| 002 | brief | build | done | answered (c2) | accepted |\n')
+        (st / 'reports' / '002-build-q1.md').write_text('x\n')
+        (st / 'reports' / '002-build-q2.md').write_text('x\n')
+        self.assertEqual(unanswered_asks(str(st)), 2)
+        (st / 'answers' / '002-build-a1.md').write_text('x\n')
+        self.assertEqual(unanswered_asks(str(st)), 1)
+
     def test_spawn_options_read_the_words_after_the_store_with_the_last_of_a_repeated_option_winning(self):
         from pstack_core.spawn import SpawnOptions, spawn_options
         self.assertEqual(spawn_options([]), SpawnOptions())
