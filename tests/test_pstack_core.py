@@ -1582,18 +1582,21 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(text.count('could not release wait.pid'), 1 if fail_release and not fail_claim else 0, text)
             self.assertEqual(tokens, [None] if fail_claim else [str(os.getpid())])
 
-    def test_a_store_with_no_pair_json_gets_its_line_once_from_dispatch_and_from_finish(self):
+    def test_dispatch_to_a_store_with_no_pair_json_says_so_once_after_the_scope_warnings(self):
         top, st, run = self.own_world('onceline', files={})
-        line = f'pair.sh: no pair.json in {st}/nope; run: pair.sh init <slug>\n'
         brief = top / 'outside.md'
         brief.write_text('# Brief 001: x\n\nplaybook: docs\nplan: none\n\n## Scope\n\nmay write:\n- src/**\n')
         r = run('dispatch', '{st}/nope', str(brief), '--timeout', '0')
         self.assertEqual((r.returncode, r.stdout), (2, ''))
-        self.assertEqual(r.stderr, 'warning: Scope entry "src/**" matches no file or directory in ; is it relative to a neighbouring entry?\n' + line)
+        self.assertEqual(r.stderr, 'warning: Scope entry "src/**" matches no file or directory in ; is it relative to a neighbouring entry?\n'
+                                   f'pair.sh: no pair.json in {st}/nope; run: pair.sh init <slug>\n')
+
+    def test_finish_of_a_done_report_in_a_store_with_no_pair_json_says_so_once(self):
+        top, st, run = self.own_world('oncefinish', files={})
         report = top / 'done.md'
         report.write_text('# R\n\nstatus: done\nhead: abc\n')
         r = run('finish', '{st}/nope', str(report))
-        self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', line))
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (2, '', f'pair.sh: no pair.json in {st}/nope; run: pair.sh init <slug>\n'))
 
     def test_wait_release_checks_its_store(self):
         top, st, run = self.own_world('rl')
