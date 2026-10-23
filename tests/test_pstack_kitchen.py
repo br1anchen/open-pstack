@@ -1565,6 +1565,16 @@ class LibraryTests(KitchenTests):
         self.assertEqual(kitchen.deadline(inv, ['app', 'slow', 'few'], False)['gate_seconds'], 840.0)
         self.silent()
 
+    def test_the_passing_runs_of_a_stage_are_oldest_first_and_skip_failures_other_stages_and_other_profiles(self):
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
+                                        env=self.env, capture_output=True, text=True, check=True).stdout.strip())
+        state_dir.mkdir(parents=True, exist_ok=True)
+        rows = [('app', 'behavioral', 'pass', 30), ('app', 'behavioral', 'fail', 99), ('app', 'landing', 'pass', 77),
+                ('docs', 'behavioral', 'pass', 5), ('app', 'behavioral', 'pass', 20)]
+        (state_dir / 'timings.tsv').write_text(''.join(f'{i}\t{p}\t{st}\tverifier\t{r}\t{t}\n' for i, (p, st, r, t) in enumerate(rows)))
+        self.assertEqual(kitchen.passing_runs(Path(self.library().root), ['app', 'none'], 'behavioral'), {'app': [30.0, 20.0], 'none': []})
+        self.silent()
+
     def test_the_brief_verify_list_is_the_commands_and_a_refused_block_raises(self):
         brief = self.repo / 'brief.md'
         brief.write_text('# Brief\n\n## Verify\n\n```bash\nmake test\ntrue\n```\n')
