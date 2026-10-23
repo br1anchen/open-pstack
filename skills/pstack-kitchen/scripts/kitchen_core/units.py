@@ -304,7 +304,6 @@ def brief_or_nothing(ctx, store, nnn):
 def oldest_base(ctx, store, units):
     """The oldest dispatch head among the units by git ancestry, whatever order they are named in. A unit never dispatched ends the command when it
     is the first; later ones without a recorded base are left out. Two heads neither of which is an ancestor of the other have no order."""
-    root = repo_root(store)
     oldest, owner = '', ''
     for unit in units:
         base = dispatch_head(store, brief_or_nothing(ctx, store, unit))
@@ -312,9 +311,11 @@ def oldest_base(ctx, store, units):
             if not owner and unit == units[0]:
                 raise UnitNotCheckable(f'unit {unit} was never dispatched')
             continue
-        if not owner or is_ancestor(root, base, oldest):
+        if not owner:
             oldest, owner = base, unit
-        elif not is_ancestor(root, oldest, base):
+        elif is_ancestor(repo_root(store), base, oldest):
+            oldest, owner = base, unit
+        elif not is_ancestor(repo_root(store), oldest, base):
             raise UnitNotCheckable(f'units {owner} and {unit} have no common order: pass --base REV')
     return oldest
 
