@@ -1,108 +1,109 @@
 import os
 import re
+import statistics
 import sys
 import time
+from dataclasses import dataclass
 
 from ..store import Die, prog, read_text
 
-NUMBER = re.compile(r'[ \t\n]*[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?')
+WHOLE_NUMBER = re.compile(r'[0-9]+', re.ASCII)
+WORDS = re.compile(r'[a-z]+', re.ASCII | re.IGNORECASE)
+LEADING_NUMBER = re.compile(r'[0-9]*', re.ASCII)
+PAUSED_UNIT = re.compile(r'-[sq][0-9]+$')
 
 
-def num(value):
-    """awk's number of a value: None is 0, a string is its leading decimal number or 0."""
-    if value is None:
-        return 0.0
-    if isinstance(value, float):
-        return value
-    m = NUMBER.match(value)
-    return float(m.group(0)) if m else 0.0
+@dataclass(frozen=True)
+class Event:
+    """One events.tsv row. `time` is None when the row's time column is not a whole number."""
+    time: int | None
+    actor: str
+    kind: str
+    unit: str
+    detail: str
 
 
-def looks_numeric(value):
-    """Whether a field, awk -v value or uninitialised variable compares as a number."""
-    if value is None or isinstance(value, float):
-        return True
-    m = NUMBER.match(value)
-    return m is not None and value[m.end():].strip(' \t\n') == ''
+def parse_event(row):
+    """The only place a malformed row is decided: missing columns read as empty, an unusable time becomes None."""
+    columns = row.split('\t')
+    time_, actor, kind, unit, detail = (columns + [''] * 6)[1:6]
+    return Event(int(time_) if WHOLE_NUMBER.fullmatch(time_) else None, actor, kind, unit, detail)
 
 
-def text(value):
-    if value is None:
-        return ''
-    if isinstance(value, float):
-        return str(int(value)) if value == int(value) else '%.6g' % value
-    return value
+def parse_events(lines):
+    return [parse_event(row) for row in lines]
 
 
-def compare(a, b):
-    """awk's comparison of two values: numeric when both look numeric, else as strings."""
-    if looks_numeric(a) and looks_numeric(b):
-        x, y = num(a), num(b)
-    else:
-        x, y = text(a), text(b)
-    return (x > y) - (x < y)
+def minutes(seconds):
+    return f'{round(seconds / 60)}m'
 
 
-def m(seconds):
-    return '%.0fm' % (seconds / 60)
-
-
-def median(values, n):
-    """Insertion sort, then the lower-middle element: a[int((n + 1) / 2)]."""
-    a = sorted(values[:n])
-    return a[int((n + 1) / 2) - 1] if n else 0.0
-
-
-def ascii_lower(s):
-    return s.translate({c: c + 32 for c in range(ord('A'), ord('Z') + 1)})
+def median(values):
+    return statistics.median_low(values) if values else 0
 
 
 class Metrics:
-    """The awk program of cmd_metrics, line for line. Fields are strings, computed values floats, unset ones None."""
+    """Busy, idle and latency figures folded from events, in whole seconds."""
 
     def __init__(self, now):
         self.now = now
-        self.first = self.last = None
+        self.first = self.last = 0
+        self.seen = False
         self.sk_on = self.co_on = False
         self.sk_since = self.sk_unit = self.sk_kind = self.sk_free = None
         self.co_since = self.co_kind = None
-        self.sk_busy = self.sk_idle = self.co_busy = self.plan_sk = self.plan_co = self.consult_t = 0.0
-        self.sk_gaps = self.pickups = self.taken = self.nb = self.np = self.nc = 0
-        self.nfail = self.nsteps = self.nnotes = self.nblock = self.nsl = self.nr = self.wakes = self.checkins = 0
-        self.fails = ''
-        self.bl = ''
+        self.sk_busy = self.sk_idle = self.co_busy = self.plan_sk = self.plan_co = self.consult_t = 0
+        self.sk_gaps = self.pickups = self.taken = self.nsteps = self.nnotes = self.nblock = self.wakes = self.checkins = 0
+        self.failovers = []
+        self.briefs = []
+        self.brief_secs, self.stall_secs, self.review_secs = [], [], []
+        self.plans = self.consults = 0
         self.review_from = None
-        self.bd, self.sl, self.rl = [], [], []
-        self.queued, self.st, self.noted, self.verdicts = set(), {}, {}, {}
+        self.queued, self.steps, self.noted, self.verdicts = set(), {}, {}, {}
+        self.handlers = {
+            'send-brief': self.on_send_brief, 'send-answer': self.on_send_brief, 'send-plan': self.on_send_plan,
+            'send-consult': self.on_send_consult, 'send-steer': self.on_send_steer, 'queue': self.on_queue,
+            'failover': self.on_failover, 'step': self.on_step, 'note': self.on_note, 'report': self.on_report,
+            'advice': self.on_advice, 'wake': self.on_wake, 'log': self.on_log,
+        }
 
-    def sk_start(self, t, u, kind):
+    def record(self, e):
+        if e.time is not None:
+            if not self.seen:
+                self.first, self.seen = e.time, True
+            self.last = e.time
+        handler = self.handlers.get(e.kind)
+        if handler:
+            handler(e)
+
+    def sk_start(self, t, unit, kind):
         if self.sk_on:
             self.sk_close(t, ' (stopped)')
-        elif text(self.sk_free) != '':
-            self.sk_idle += num(t) - num(self.sk_free)
+        elif self.sk_free is not None:
+            self.sk_idle += t - self.sk_free
             self.sk_gaps += 1
-            if compare(t, self.sk_free) == 0:
+            if t == self.sk_free:
                 self.pickups += 1
-        self.sk_on, self.sk_since, self.sk_unit, self.sk_kind = True, t, u, kind
+        self.sk_on, self.sk_since, self.sk_unit, self.sk_kind = True, t, unit, kind
 
     def sk_close(self, t, note):
         self.sk_on = False
-        self.sk_busy += num(t) - num(self.sk_since)
+        spent = t - self.sk_since
+        self.sk_busy += spent
         self.sk_free = t
         if self.sk_kind == 'brief':
-            self.nb += 1
-            self.bd.append(num(t) - num(self.sk_since))
-            self.bl += '  %s %s%s\n' % (self.sk_unit, m(num(t) - num(self.sk_since)), note)
+            self.brief_secs.append(spent)
+            self.briefs.append(f'  {self.sk_unit} {minutes(spent)}{note}\n')
             if note == '':
                 self.review_from = t
         else:
-            self.np += 1
-            self.plan_sk += num(t) - num(self.sk_since)
+            self.plans += 1
+            self.plan_sk += spent
 
-    def sk_end(self, t, u):
+    def sk_end(self, t, unit):
         """Only a report for the unit the sidekick holds ends it."""
-        if self.sk_on and u[:3] == self.sk_unit[:3]:
-            self.sk_close(t, ' (paused)' if re.search(r'-[sq][0-9]+$', u) else '')
+        if self.sk_on and unit[:3] == self.sk_unit[:3]:
+            self.sk_close(t, ' (paused)' if PAUSED_UNIT.search(unit) else '')
 
     def co_start(self, t, kind):
         if not self.co_on:
@@ -112,110 +113,126 @@ class Metrics:
         if not self.co_on:
             return
         self.co_on = False
-        self.co_busy += num(t) - num(self.co_since)
+        spent = t - self.co_since
+        self.co_busy += spent
         if self.co_kind == 'plan':
-            self.plan_co += num(t) - num(self.co_since)
+            self.plan_co += spent
         else:
-            self.nc += 1
-            self.consult_t += num(t) - num(self.co_since)
+            self.consults += 1
+            self.consult_t += spent
 
-    def record(self, fields):
-        t, actor, ev, u, d = (fields + [''] * 6)[1:6]
-        if not self.first:
-            self.first = t
-        self.last = t
-        if ev in ('send-brief', 'send-answer'):
-            self.sk_start(t, u, 'brief')
-            if d == 'queued':
-                self.taken += 1
-        elif ev == 'send-plan' and d != 'consultant':
-            self.sk_start(t, u, 'plan')
-        elif ev == 'send-plan' and d == 'consultant':
-            self.co_start(t, 'plan')
-        elif ev == 'send-consult':
-            self.co_start(t, 'consult')
-        elif ev == 'send-steer' and d == 'objection':
-            self.sk_start(t, u, 'brief')
-        elif ev == 'queue' and u != '-':
-            self.queued.add(u)
-        elif ev == 'failover':
-            self.nfail += 1
-            self.fails += ', ' + d
-        elif ev == 'step':
-            self.nsteps += 1
-            parts = d.split(':') if d else []
-            self.st[u + '\x1c' + (parts[0] if parts else '')] = t
-        elif ev == 'note':
-            self.nnotes += 1
-            parts = d.split(':') if d else []
-            k1 = parts[0] if parts else None
-            if len(parts) > 1 and parts[1] == 'blocking':
-                self.nblock += 1
-            i = num(self.noted.get(u)) + 1
-            # The bash never returns on a note id that is not a number (it compares i <= "a" as strings); skip the pairing there.
-            while looks_numeric(k1) and compare(i, k1) <= 0:
-                if u + '\x1c' + text(i) in self.st:
-                    self.nsl += 1
-                    self.sl.append(num(t) - num(self.st[u + '\x1c' + text(i)]))
-                i += 1
-            self.noted[u] = k1
-        elif actor == 'sidekick' and ev == 'report':
-            self.sk_end(t, u)
-        elif actor == 'consultant' and ev == 'advice':
-            self.co_end(t)
-        elif ev == 'wake':
-            self.wakes += 1
-            if d == 'checkin':
-                self.checkins += 1
-            if d.startswith('report:') or d.startswith('sidekick:'):
-                self.sk_end(t, u)
-            if d.startswith('advice:') or d.startswith('consultant:'):
-                self.co_end(t)
-        elif ev == 'log' and (d.startswith('review:') or d.startswith('plan:')):
-            for w in re.split(r'[^a-z]+', ascii_lower(d)):
-                v = w[:-2] if w.endswith('ed') else w
-                if v in ('accept', 'reject'):
-                    self.verdicts[v] = self.verdicts.get(v, 0) + 1
-                    break
-                if w in ('agreed', 'revise'):
-                    self.verdicts[w] = self.verdicts.get(w, 0) + 1
-                    break
-            if d.startswith('review:') and text(self.review_from) != '':
-                self.nr += 1
-                self.rl.append(num(t) - num(self.review_from))
-                self.review_from = ''
+    def on_send_brief(self, e):
+        if e.time is not None:
+            self.sk_start(e.time, e.unit, 'brief')
+        if e.detail == 'queued':
+            self.taken += 1
+
+    def on_send_plan(self, e):
+        if e.time is None:
+            return
+        if e.detail == 'consultant':
+            self.co_start(e.time, 'plan')
+        else:
+            self.sk_start(e.time, e.unit, 'plan')
+
+    def on_send_consult(self, e):
+        if e.time is not None:
+            self.co_start(e.time, 'consult')
+
+    def on_send_steer(self, e):
+        if e.time is not None and e.detail == 'objection':
+            self.sk_start(e.time, e.unit, 'brief')
+
+    def on_queue(self, e):
+        if e.unit != '-':
+            self.queued.add(e.unit)
+
+    def on_failover(self, e):
+        self.failovers.append(e.detail)
+
+    def on_step(self, e):
+        self.nsteps += 1
+        if e.time is not None:
+            self.steps[e.unit, e.detail.split(':')[0]] = e.time
+
+    def on_note(self, e):
+        self.nnotes += 1
+        id_, _, flag = e.detail.partition(':')
+        if flag.split(':')[0] == 'blocking':
+            self.nblock += 1
+        if e.time is None:
+            return
+        done = self.noted.get(e.unit, 0)
+        if WHOLE_NUMBER.fullmatch(id_):
+            for n in range(done + 1, int(id_) + 1):
+                if (e.unit, str(n)) in self.steps:
+                    self.stall_secs.append(e.time - self.steps[e.unit, str(n)])
+        self.noted[e.unit] = int(LEADING_NUMBER.match(id_).group(0) or 0)
+
+    def on_report(self, e):
+        if e.actor == 'sidekick' and e.time is not None:
+            self.sk_end(e.time, e.unit)
+
+    def on_advice(self, e):
+        if e.actor == 'consultant' and e.time is not None:
+            self.co_end(e.time)
+
+    def on_wake(self, e):
+        self.wakes += 1
+        if e.detail == 'checkin':
+            self.checkins += 1
+        if e.time is None:
+            return
+        if e.detail.startswith(('report:', 'sidekick:')):
+            self.sk_end(e.time, e.unit)
+        if e.detail.startswith(('advice:', 'consultant:')):
+            self.co_end(e.time)
+
+    def on_log(self, e):
+        if not e.detail.startswith(('review:', 'plan:')):
+            return
+        for word in WORDS.findall(e.detail.lower()):
+            stem = word[:-2] if word.endswith('ed') else word
+            if stem in ('accept', 'reject'):
+                self.verdicts[stem] = self.verdicts.get(stem, 0) + 1
+                break
+            if word in ('agreed', 'revise'):
+                self.verdicts[word] = self.verdicts.get(word, 0) + 1
+                break
+        if e.detail.startswith('review:') and self.review_from is not None and e.time is not None:
+            self.review_secs.append(e.time - self.review_from)
+            self.review_from = None
 
     def report(self):
-        live = (self.sk_on or self.co_on) and compare(self.now, self.last) >= 0
+        live = (self.sk_on or self.co_on) and self.now >= self.last
         end = self.now if live else self.last
-        running = ''
+        sk_busy, running = self.sk_busy, ''
         if self.sk_on:
-            running = 'running: %s for %s\n' % (self.sk_unit, m(num(end) - num(self.sk_since)))
-            self.sk_busy += num(end) - num(self.sk_since)
-        wall = num(end) - num(self.first)
-        out = ['wall: %s from first event to %s\n' % (m(wall), 'now' if (self.sk_on or self.co_on) else 'last')]
+            running = f'running: {self.sk_unit} for {minutes(end - self.sk_since)}\n'
+            sk_busy += end - self.sk_since
+        wall = end - self.first
         pct = lambda busy: int(100 * busy / wall) if wall else 0
-        out.append('sidekick: busy %s (%d%% of wall), idle %s across %d gaps; %d briefs (median %s), %d plan responses (%s)\n'
-                   % (m(self.sk_busy), pct(self.sk_busy), m(self.sk_idle), self.sk_gaps, self.nb, m(median(self.bd, self.nb)),
-                      self.np, m(self.plan_sk)))
-        q = len(self.queued)
-        if q or self.taken:
-            out.append('queue: %d briefs queued, %d taken by the sidekick; %d started the moment a report landed\n'
-                       % (q, self.taken, self.pickups))
-        if self.co_busy or self.nc or self.co_on:
-            out.append('consultant: busy %s (%d%% of wall); %d consults (%s), plan advice %s\n'
-                       % (m(self.co_busy), pct(self.co_busy), self.nc, m(self.consult_t), m(self.plan_co)))
-        out.append('master: %d wakes, %d of them check-ins; review latency median %s over %d reviews\n'
-                   % (self.wakes, self.checkins, m(median(self.rl, self.nr)), self.nr))
-        if self.nfail:
-            out.append('failovers: %d (%s)\n' % (self.nfail, self.fails[2:]))
+        out = [f'wall: {minutes(wall)} from first event to {"now" if self.sk_on or self.co_on else "last"}\n',
+               f'sidekick: busy {minutes(sk_busy)} ({pct(sk_busy)}% of wall), idle {minutes(self.sk_idle)} across {self.sk_gaps} gaps; '
+               f'{len(self.brief_secs)} briefs (median {minutes(median(self.brief_secs))}), '
+               f'{self.plans} plan responses ({minutes(self.plan_sk)})\n']
+        if self.queued or self.taken:
+            out.append(f'queue: {len(self.queued)} briefs queued, {self.taken} taken by the sidekick; '
+                       f'{self.pickups} started the moment a report landed\n')
+        if self.co_busy or self.consults or self.co_on:
+            out.append(f'consultant: busy {minutes(self.co_busy)} ({pct(self.co_busy)}% of wall); '
+                       f'{self.consults} consults ({minutes(self.consult_t)}), plan advice {minutes(self.plan_co)}\n')
+        out.append(f'master: {self.wakes} wakes, {self.checkins} of them check-ins; '
+                   f'review latency median {minutes(median(self.review_secs))} over {len(self.review_secs)} reviews\n')
+        if self.failovers:
+            out.append(f'failovers: {len(self.failovers)} ({", ".join(self.failovers)})\n')
         if self.nsteps:
-            out.append('steps: %d committed, %d notes (%d blocking); step to note median %s\n'
-                       % (self.nsteps, self.nnotes, self.nblock, m(median(self.sl, self.nsl))))
-        v = ''.join(' %s %d' % (name, self.verdicts[name]) for name in ('agreed', 'accept', 'revise', 'reject') if name in self.verdicts)
-        out.append('verdicts:%s\n' % (v or ' none'))
-        if self.nb or running:
-            out.append('briefs:\n%s%s' % (self.bl, '  ' + running if running else ''))
+            out.append(f'steps: {self.nsteps} committed, {self.nnotes} notes ({self.nblock} blocking); '
+                       f'step to note median {minutes(median(self.stall_secs))}\n')
+        verdicts = ''.join(f' {name} {self.verdicts[name]}' for name in ('agreed', 'accept', 'revise', 'reject') if name in self.verdicts)
+        out.append(f'verdicts:{verdicts or " none"}\n')
+        if self.brief_secs or running:
+            out.append(f'briefs:\n{"".join(self.briefs)}{"  " + running if running else ""}')
         return ''.join(out)
 
 
@@ -226,7 +243,8 @@ def run(ctx, args):
     log = f'{store}/events.tsv'
     if not (os.path.exists(log) and os.stat(log).st_size > 0):
         raise Die(f'no events.tsv in {store}; it is written from the first command on')
-    metrics = Metrics(os.environ.get('PAIR_METRICS_NOW') or str(int(time.time())))
+    now = os.environ.get('PAIR_METRICS_NOW') or ''
+    metrics = Metrics(int(now) if WHOLE_NUMBER.fullmatch(now) else int(time.time()))
     # A directory in place of the log is skipped with a warning and counts nothing; a log that cannot be read ends with exit 2.
     if os.path.isdir(log):
         sys.stderr.write(f'{prog()}: warning: {log} is a directory: skipped\n')
@@ -242,7 +260,7 @@ def run(ctx, args):
     # event() writes no header; a store from an older build may start with one, and that line is skipped.
     if records and records[0].startswith('ts\t'):
         records = records[1:]
-    for row in records:
-        metrics.record(row.split('\t'))
+    for event in parse_events(records):
+        metrics.record(event)
     sys.stdout.write(metrics.report())
     return 0
