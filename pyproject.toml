@@ -20,3 +20,11 @@ quote-style = "single"
 
 [tool.ruff.lint]
 select = ["F", "B", "PLE", "E9", "I"]
+
+[tool.ty.environment]
+python-version = "3.11"
+extra-paths = [
+    "skills/pstack-pair/scripts",
+    "skills/pstack-kitchen/scripts",
+    "tests",
+]
