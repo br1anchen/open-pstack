@@ -2670,6 +2670,37 @@ esac
         self.assertNotIn('check-in:', out)
         self.assertEqual(checkins(), before)
 
+    def test_a_quiet_wait_announces_an_open_note_once_across_waits_and_a_replacement_note_again(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        self.write('src/util.py', 'X = 2\n')
+        c1 = self.commit('one')
+        steps = self.store / 'steps/001-util.tsv'
+        steps.parent.mkdir(exist_ok=True)
+        steps.write_text(f'1\t{c1}\t1\t\tone\n')
+        notes = self.store / 'notes'
+        notes.mkdir(exist_ok=True)
+        (notes / '001-util-n1.md').write_text('# N\n\nstatus: blocking\n')
+        self.env['KITCHEN_QUIET_MAX_S'] = '0'
+        first = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertIn('steps: 1 committed, reviewed through 1, 1 blocking notes open\n', first)
+        self.assertNotIn('quiet:', first)
+        # a second, separate wait finds n1 announced: nothing is flagged
+        second = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertIn('quiet: 0m with nothing flagged', second)
+        self.assertEqual(json.loads((self.store / 'pair.json').read_text())['announced_notes'], ['001-util-n1.md'])
+        # n1 is resolved and n2 opens: the open count is still 1, and the new note is announced
+        steps.write_text(f'1\t{c1}\t1\tn1\tone\n')
+        (notes / '001-util-n2.md').write_text('# N\n\nstatus: blocking\n')
+        third = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertIn('steps: 1 committed, reviewed through 2, 1 blocking notes open\n', third)
+        self.assertNotIn('quiet:', third)
+        self.assertEqual(json.loads((self.store / 'pair.json').read_text())['announced_notes'], ['001-util-n2.md'])
+        # every other flag still wakes: a write outside Scope is announced again on each wait
+        self.write('elsewhere.txt', 'x\n')
+        for _ in range(2):
+            self.assertIn('outside scope: 1', self.run_sh('wait', str(self.store), '--timeout', '1', code=4))
+
     def wakes(self):
         rows = (self.store / 'events.tsv').read_text().splitlines()[1:]
         return [r.split('\t')[5] for r in rows if r.split('\t')[2:4] == ['master', 'wake']]

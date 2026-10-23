@@ -8012,8 +8012,13 @@ class CheckInFactTests(DispatchedStore):
         self.assertEqual((got.open_notes, got.flagged), (1, True))
         (self.store / 'reports/001-x-s1.md').unlink()
         (self.store / 'reports/001-x-s2.md').unlink()
-        self.assertEqual((self.digest(1).objected, self.digest(1).flagged), (0, True), 'the open note alone flags it')
+        got = self.digest(1)
+        self.assertEqual((got.objected, got.open_notes, got.flagged), (0, 1, False), 'the digest above announced the open note; it flags nothing again')
         (self.store / 'notes/001-x-n1.md').write_text('# Note\n\nstatus: resolved\n')
+        (self.store / 'notes/001-x-n2.md').write_text('# Note\n\nstatus: blocking\n')
+        got = self.digest(1)
+        self.assertEqual((got.open_notes, got.flagged), (1, True), 'a replacement note is a new announcement though the count is unchanged')
+        (self.store / 'notes/001-x-n2.md').write_text('# Note\n\nstatus: resolved\n')
         self.assertFalse(self.digest(1).flagged)
 
     def test_a_brief_with_no_timebox_cannot_overrun(self):

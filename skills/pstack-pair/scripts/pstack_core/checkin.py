@@ -11,7 +11,7 @@ from . import git, procinfo
 from .replies import dispatched, file_mtime
 from .review import noted_through, open_notes, range_floor
 from .steplog import StepLog
-from .store import header_field, load, peek, progress_path, read_text, text_at
+from .store import header_field, load, names, peek, progress_path, read_text, text_at, update
 from .numbers import int_or_none, tdiv
 
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
@@ -230,6 +230,7 @@ class CheckIn:
     outside_scope: int
     objected: int
     open_notes: int
+    fresh_notes: int
     elapsed_min: int | None
     timebox_min: int | None
 
@@ -239,9 +240,9 @@ class CheckIn:
 
     @property
     def flagged(self):
-        """Whether the digest carries something the master must see: a stale log, a write outside Scope, an objection, an open blocking note
-        or a timebox overrun."""
-        return self.stale or self.overrun or self.outside_scope > 0 or self.objected > 0 or self.open_notes > 0
+        """Whether the digest carries something the master must see: a stale log, a write outside Scope, an objection, a blocking note not
+        announced by an earlier digest or a timebox overrun."""
+        return self.stale or self.overrun or self.outside_scope > 0 or self.objected > 0 or self.fresh_notes > 0
 
 
 def progress_section(store, interval, now, cwd, head, run):
@@ -299,7 +300,8 @@ def touched_section(store, brief, seq, cwd, head):
 
 
 def steers_section(store, brief, seq):
-    """(lines, objected, blocking) of the steers sent, applied and objected to, and of the steps committed, reviewed through and the blocking notes open."""
+    """(lines, objected, blocking) of the steers sent, applied and objected to, and of the steps committed, reviewed through and the blocking
+    notes open (their files)."""
     prog = progress_path(store)
     sent = len(glob.glob(os.path.join(glob.escape(store), 'steers', glob.escape(seq) + '-*-s[0-9]*.md')))
     objected = len(glob.glob(os.path.join(glob.escape(store), 'reports', glob.escape(seq) + '-*-s[0-9]*.md')))
@@ -308,11 +310,21 @@ def steers_section(store, brief, seq):
         applied = sum(1 for line in read_text(prog).split('\n') if re.search(r' steer s[0-9]+ applied', line))
     lines = [f'steers: {sent} sent, {applied} applied, {objected} objected\n']
     committed = len(StepLog(store, brief).rows())
-    blocking = 0
+    blocking = []
     if committed:
-        blocking = len(open_notes(store, brief))
-        lines.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {blocking} blocking notes open\n')
+        blocking = open_notes(store, brief)
+        lines.append(f'steps: {committed} committed, reviewed through {noted_through(store, brief)}, {len(blocking)} blocking notes open\n')
     return lines, objected, blocking
+
+
+def announce_notes(store, open_names):
+    """How many of the open blocking notes (file names) no earlier digest announced. The store keeps the names announced and still open
+    (pair.json .announced_notes), so separate waits share them and a note that is resolved leaves the list."""
+    announced = names(load(store), 'announced_notes')
+    fresh = [n for n in open_names if n not in announced]
+    if sorted(open_names) != sorted(announced):
+        update(store, lambda doc: doc.__setitem__('announced_notes', sorted(open_names)))
+    return len(fresh)
 
 
 def checkin(ctx, store, interval=9, now=None) -> CheckIn | None:
@@ -350,4 +362,5 @@ def checkin(ctx, store, interval=9, now=None) -> CheckIn | None:
     out += lines
     lines, objected, blocking = steers_section(store, brief, seq)
     out += lines
-    return CheckIn(tuple(out), tuple(notices), stale, outside, objected, blocking, elapsed, int(timebox) if timebox else None)
+    fresh = announce_notes(store, [os.path.basename(f) for f in blocking])
+    return CheckIn(tuple(out), tuple(notices), stale, outside, objected, len(blocking), fresh, elapsed, int(timebox) if timebox else None)
