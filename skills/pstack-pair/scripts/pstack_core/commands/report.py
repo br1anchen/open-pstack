@@ -43,7 +43,6 @@ def notify(ctx, args):
     status = agent_status(master)
     owner = read_wait_owner(store)
     if status in ('idle', 'done') and word == 'REPORT' and procinfo.alive(owner):
-        # A wait that owns the store returns this report to the master itself; prompting an idle master as well wakes it twice.
         print(f'master {master} is {status}; the wait that owns the store returns {file}')
     elif status in ('idle', 'done'):
         code = agent_prompt(master, f'{ctx.skill} {word} {file}', stdout=DEVNULL, stderr=None).returncode

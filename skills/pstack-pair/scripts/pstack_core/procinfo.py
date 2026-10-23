@@ -48,7 +48,7 @@ def read(pid, root):
 
 
 def alive(pid):
-    """True when `pid` (a number, or the text of one) is a running process. Anything that is not a pid above 1 is not alive."""
+    """True when `pid` (a number, or the text of one) is a running process. Pids 1 and below are never alive: kill(0) and kill(-1) signal whole groups."""
     try:
         number = int(pid)
     except (TypeError, ValueError):
@@ -57,9 +57,9 @@ def alive(pid):
         return False
     try:
         os.kill(number, 0)
-    except ProcessLookupError:
+    except (ProcessLookupError, OverflowError):
         return False
-    except (OSError, OverflowError):
+    except PermissionError:
         return True
     return True
 

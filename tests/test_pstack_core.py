@@ -617,6 +617,11 @@ class CoreTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         return top
 
+    def test_procinfo_alive_is_true_only_for_a_running_process(self):
+        self.assertTrue(procinfo.alive(str(os.getpid())))
+        for pid in ('99999999', '10' * 30, '0', '1', '-1', 'x', '', None):
+            self.assertFalse(procinfo.alive(pid), pid)
+
     def test_procinfo_reads_the_full_command_line_the_parent_the_user_and_the_seconds_running(self):
         long_args = ['/opt/a-long-agent-name/bin/agent', '--ask-for-approval', 'never', '--note', 'two words']
         top = self.tree({7: dict(ppid=3, comm='agent (x) y', argv=long_args, uid=1234, elapsed=321)})
@@ -902,8 +907,7 @@ class CoreTests(unittest.TestCase):
             (fake / rel).write_text(text)
         (st / 'events.tsv').write_text('2026-01-01T00:00:00Z\t1\tmaster\tinit\t-\tbefore\n')
         if spec.get('live_wait', bool(spec.get('args')) and spec['args'][0] in ('finish', 'notify')):
-            # a wait that owns the store and is running (this test process): notify leaves the report for it and prompts nobody
-            (st / 'wait.pid').write_text(f'{os.getpid()}\n')
+                (st / 'wait.pid').write_text(f'{os.getpid()}\n')
         return top, st, env, fill
 
     def script_run(self, label, skills, skill, spec):
@@ -1971,7 +1975,6 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(run('notes', str(st) + '/').stdout, 'notes: none open; go on with the next step\n')
 
     def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
-        # The running wait returns the report itself: notify neither prompts the master nor marks the report seen.
         top, st, run = self.own_world('nl')
         (st / 'wait.pid').write_text(f'{os.getpid()}\n')
         before = (st / 'pair.json').read_text()

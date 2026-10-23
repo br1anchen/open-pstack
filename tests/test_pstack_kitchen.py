@@ -3606,7 +3606,6 @@ esac
         self.assertEqual(self.pane_calls('agent send-keys demo-sidekick'), [])
 
     def restart(self, how):
-        """Starts the closed roles again: `spawn`, the consultant, or a rotation of the sidekick."""
         if how == 'spawn':
             self.run_sh('spawn', str(self.store))
         elif how == 'consultant':
@@ -3618,7 +3617,6 @@ esac
             self.run_sh('rotate', str(self.store))
 
     def test_a_role_restarted_after_close_is_closed_again_by_the_next_close(self):
-        """`closed` belongs to the run of the agent that was closed: a start records a live agent, so the next close ends it and closes its pane."""
         for how, roles in (('spawn', ['sidekick']), ('consultant', ['consultant']), ('rotate', ['sidekick'])):
             with self.subTest(how):
                 self.run_sh('close', str(self.store))

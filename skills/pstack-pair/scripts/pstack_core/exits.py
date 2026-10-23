@@ -27,20 +27,18 @@ def exit_poll():
 
 TOLERATED = re.compile('agent_prompt_stalled|agent_not_found|not_found')
 
-# Claude's dialog when background work is running at exit, by the text it shows and the keys that stop the tasks and exit. Any other pane
-# gets no keys.
+# Claude's dialog when background work is running at exit, by the text it shows and the keys that stop the tasks and exit.
 EXIT_DIALOGS = (('exit and stop tasks', ('enter',)), ('move to background and exit', ('1', 'enter')))
 
 
 def answer_exit_dialog(name):
-    """Reads the pane and answers Claude's background-work exit dialog with the option that stops the tasks; True when a dialog was showing."""
+    """Reads the pane and answers Claude's background-work exit dialog with the option that stops the tasks."""
     screen = pane_text(name).lower()
     for text, keys in EXIT_DIALOGS:
         if text in screen:
             for key in keys:
                 herdr('agent', 'send-keys', name, key)
-            return True
-    return False
+            return
 
 
 def end_agent(name, kind, deadline):

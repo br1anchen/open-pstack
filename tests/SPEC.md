@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at eb1165d by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at f1779b0 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -203,7 +203,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): (returns 2 in run()) — skills/pstack-pair/scripts/pstack_core/commands/metrics.py:279 — not a caller contract: the events log that init creates is unreadable; no caller sends it
 - exit 2 (herdr or gate failure): Prime delivery failed for … — skills/pstack-pair/scripts/pstack_core/commands/notes.py:130 — not a caller contract: the Prime daemon refusing a delivery; a caller reads the exit code 2, which the herdr prompt failure case shows for every other kind
 - exit 2 (herdr or gate failure): herdr prompt failed for … — skills/pstack-pair/scripts/pstack_core/commands/notes.py:132 — test_pstack_core.CoreTests.test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line (+3)
-- exit 2 (herdr or gate failure): … has no valid status: line (one of …) — skills/pstack-pair/scripts/pstack_core/commands/report.py:80 — test_pstack_core.CoreTests.test_finish_refuses_a_report_with_no_valid_status_line
+- exit 2 (herdr or gate failure): … has no valid status: line (one of …) — skills/pstack-pair/scripts/pstack_core/commands/report.py:79 — test_pstack_core.CoreTests.test_finish_refuses_a_report_with_no_valid_status_line
 - exit 2 (herdr or gate failure): … exit failed: … — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:47 — test_pstack_core.CoreTests.test_rotate_refuses_and_reports_what_a_caller_reads
 - exit 2 (herdr or gate failure): jj workspace add failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:91 — not a caller contract: jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure
 - exit 2 (herdr or gate failure): git worktree add failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:93 — test_pstack_kitchen.KitchenScriptTests.test_a_parent_is_not_recorded_when_the_scratch_worktree_cannot_be_made
@@ -265,7 +265,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 5 (wrong state): no verification open (another call closed it) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:253 — test_pstack_core.CoreTests.test_verify_cancel_behaviour
 - exit 5 (wrong state): (returns 5 in run()) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:216 — test_pstack_core.CoreTests.test_a_wait_whose_verification_another_call_closed_says_so_to_its_sink_and_ends_with_5 (+10)
 - exit 5 (wrong state): Another call closed the verification this one worked on, so this one touches nothing more — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:321 — test_pstack_core.CoreTests.test_a_wait_whose_verification_another_call_closed_says_so_to_its_sink_and_ends_with_5 (+10)
-- exit 5 (wrong state): a … sidekick leaves the queue for the master to dispatch after a fresh session — skills/pstack-pair/scripts/pstack_core/commands/report.py:67 — test_pstack_pair.PairScriptTests.test_trio (+3)
+- exit 5 (wrong state): a … sidekick leaves the queue for the master to dispatch after a fresh session — skills/pstack-pair/scripts/pstack_core/commands/report.py:66 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - exit 5 (wrong state): rotation requires a completed task; partial or blocked work keeps its session — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:35 — test_pstack_core.CoreTests.test_rotate_refuses_and_reports_what_a_caller_reads
 - exit 5 (wrong state): no recorded startup arguments; exit the idle sidekick and spawn it with its original model — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:37 — test_pstack_core.CoreTests.test_rotate_refuses_and_reports_what_a_caller_reads
 - exit 5 (wrong state): Prime session cleanup failed; no new session was started — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:43 — test_pstack_core.CoreTests.test_rotate_refuses_and_reports_what_a_caller_reads
@@ -305,8 +305,8 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 7 (steer, consult or ask cap): unit … already has two fresh steers; stop the unit and re-brief, or pass --force — skills/pstack-pair/scripts/pstack_core/commands/notes.py:225 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - exit 7 (steer, consult or ask cap): blocking review notes are still open on …:
 …
-Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstack_core/commands/report.py:93 — test_pstack_pair.PairScriptTests.test_trio (+2)
-- exit 7 (steer, consult or ask cap): …: …; rewrite the report at the unit's last commit (head:), then finish again — skills/pstack-pair/scripts/pstack_core/commands/report.py:95 — test_pstack_core.CoreTests.test_report_next_and_finish_say_what_is_missing (+1)
+Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstack_core/commands/report.py:92 — test_pstack_pair.PairScriptTests.test_trio (+2)
+- exit 7 (steer, consult or ask cap): …: …; rewrite the report at the unit's last commit (head:), then finish again — skills/pstack-pair/scripts/pstack_core/commands/report.py:94 — test_pstack_core.CoreTests.test_report_next_and_finish_say_what_is_missing (+1)
 - exit 7 (steer, consult or ask cap): unit … already had its glance; send a finding consult, or pass --force — skills/pstack-pair/scripts/pstack_core/consult.py:235 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - exit 7 (steer, consult or ask cap): unit … already has three consults; take the question to a plan round, or pass --force — skills/pstack-pair/scripts/pstack_core/consult.py:237 — test_pstack_pair.PairScriptTests.test_trio (+1)
 - exit 8 (kinds not diverse): all three agents would be …; pstack-trio needs at least two distinct kinds (master …, si — skills/pstack-trio/scripts/variant.py:66 — test_pstack_pair.PairScriptTests.test_trio
@@ -337,7 +337,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `provider_error:` (read by skills/pstack-pair/references/master.md:265) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:348 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_the_wait_itself (+6)
 - `editing:` (read by skills/pstack-kitchen/references/master.md:73) — skills/pstack-pair/scripts/pstack_core/checkin.py:268 — test_pstack_pair.PairScriptTests.test_trio (+6)
 - `written but not ready` (read by skills/pstack-kitchen/references/master.md:77) — skills/pstack-pair/scripts/pstack_core/wait.py:192 — test_pstack_core.CoreTests.test_the_quiet_wait_behaviour (+5)
-- `closed:` (read by skills/pstack-kitchen/references/master.md:83) — skills/pstack-kitchen/scripts/kitchen_core/feedback.py:216 — test_pstack_core.CoreTests.test_verify_behaviour (+6)
+- `closed:` (read by skills/pstack-kitchen/references/master.md:83) — skills/pstack-kitchen/scripts/kitchen_core/feedback.py:216 — test_pstack_core.CoreTests.test_verify_behaviour (+5)
 - `cancelled:` (read by skills/pstack-kitchen/references/master.md:83) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:262 — test_pstack_core.CoreTests.test_verify_cancel_behaviour (+4)
 - `audit:` (read by skills/pstack-kitchen/SKILL.md:143) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:374 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_verdicts (+2)
 - `covered:` (read by skills/pstack-kitchen/references/master.md:88) — skills/pstack-kitchen/scripts/kitchen_core/landing.py:247 — test_pstack_core.CoreTests.test_land_check_behaviour (+15)
@@ -442,7 +442,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - delivery (dispatch, queue send, steer) protects TERM, INT and HUP until the message is in; detached gate and Verify jobs take their own session and outlive the caller — plan 043 (e); skills/pstack-pair/scripts/pstack_core/send.py:132 — test_pstack_pair.PiSidekickTests.test_a_timeout_cannot_cut_a_delivery_short (delivery); test_pstack_core.CoreTests.test_step_and_finish_outlive_the_shell_that_ran_them (detached jobs)
 - `--timeout` and `--every` take integers (ms or minutes as each help line says); zero is the documented immediate or none, a negative or non-integer value is a usage error exit 1 — plan 043 (f) — decided, U5
 - the verify job key and the audit sample draw use zlib.crc32; an old-format completed job neither counts as done nor collides with the new key — plan 043 (g), consultant objection 3 — decided, U5
-- `finish` refuses a report that is not ready (open blocking note, head not a commit) with exit 7 and names why — skills/pstack-pair/scripts/pstack_core/commands/report.py:95 — test_pstack_core.CoreTests.test_report_next_and_finish_say_what_is_missing (+1)
+- `finish` refuses a report that is not ready (open blocking note, head not a commit) with exit 7 and names why — skills/pstack-pair/scripts/pstack_core/commands/report.py:94 — test_pstack_core.CoreTests.test_report_next_and_finish_say_what_is_missing (+1)
 - a known limit of the revert scan: land-check and verify call a unit reverted when a later stack commit has the same no-context patch-id as the inverse of the unit's patch, even if no real revert happened (an identical one-line deletion elsewhere in the file); the answer fails closed — skills/pstack-kitchen/scripts/kitchen_core/units.py:rebased_in — test_pstack_kitchen.KitchenScriptTests.test_an_unrelated_identical_one_line_deletion_is_called_reverted_by_the_u0_scan
 - a close claim held by a live process of another user (kill -0 fails with EPERM) reads as a dead owner's and is taken over; a pid reused by another process holds the claim while that process lives — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:alive — test_pstack_core.CoreTests.test_claim_close_takes_a_claim_only_from_a_holder_that_is_gone
 - `--every`, `--timeout` and `--max` words are whole numbers (digits only, in the unit each help line gives); a sign, a fraction, a name or an expression ends the command with status 1 and `<flag> must be a whole number of <unit>` — skills/pstack-pair/scripts/pstack_core/numbers.py:whole_number — test_pstack_core.CoreTests.test_whole_numbers_and_seconds_are_read_as_digits_and_nothing_else
