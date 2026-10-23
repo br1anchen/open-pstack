@@ -96,7 +96,7 @@ def repeated_rows(ledger):
         if number == 1:
             continue
         fields = line.split('\t')
-        field = lambda n: fields[n - 1] if n <= len(fields) else ''
+        field = lambda n, fields=fields: fields[n - 1] if n <= len(fields) else ''
         if re.fullmatch(r'lesson|lesson-added|dismiss', field(3)):
             continue
         key = (field(3), field(4))

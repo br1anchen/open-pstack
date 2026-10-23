@@ -199,7 +199,7 @@ def apply_scope_effects(store, seq, brief):
     unless that list already holds it. A heading the Scope section lacks is added at its end, and a brief with no Scope section gets one."""
     lines = read_text(brief).split('\n')
     for heading, paths in zip(
-        ('may write:', 'must not write:'), live_steer_effects(store, seq)
+        ('may write:', 'must not write:'), live_steer_effects(store, seq), strict=True
     ):
         for path in paths:
             entry = f'- {path}'

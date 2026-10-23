@@ -3556,14 +3556,14 @@ class CoreTests(unittest.TestCase):
             self.addCleanup(err.close)
             tokens = []
 
-            def claim(store, token):
+            def claim(store, token, fail_claim=fail_claim):
                 if fail_claim:
                     raise LockHeld('x')
 
             def release(store, token):
                 raise LockHeld('x')
 
-            def reply(ctx_, store, name, timeout, now=None, token=None):
+            def reply(ctx_, store, name, timeout, now=None, token=None, tokens=tokens):
                 tokens.append(token)
                 return wait.WaitResult(0, 'idle', '', '/s/reports/001-x.md')
 
@@ -7706,7 +7706,9 @@ class CoreTests(unittest.TestCase):
                 mock.patch.object(
                     send_module,
                     'submit_typed',
-                    side_effect=lambda name, marker: markers.append(marker) or 0,
+                    side_effect=lambda name, marker, markers=markers: (
+                        markers.append(marker) or 0
+                    ),
                 ),
             ):
                 send_module.prompt_sidekick(
@@ -8829,7 +8831,7 @@ class CoreTests(unittest.TestCase):
         }
         for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio'):
             script = str(root / 'skills' / skill / 'scripts/pair.sh')
-            run = lambda *a: subprocess.run(
+            run = lambda *a, script=script: subprocess.run(
                 [script, *a],
                 env=env,
                 capture_output=True,
@@ -10107,7 +10109,7 @@ class CoreTests(unittest.TestCase):
         warning = 'warning: dependency manifests changed since the verified base: requirements.txt\n'
         # a warning when the manifest differs between the two commits, in either order; none for a code-only change, an empty side, or the same commit
         expected = ['', warning, warning, '', warning, '', '', '', '', warning]
-        for (verified, current, head), want in zip(calls, expected):
+        for (verified, current, head), want in zip(calls, expected, strict=True):
             self.assertEqual(
                 landing.manifest_warning(str(st), verified, current, head or ''),
                 want,
@@ -14697,7 +14699,7 @@ class CoreTests(unittest.TestCase):
             top, st, env, fill = self.script_world(f'qwcompat-{label}', spec)
             os.mkfifo(top / 'claimed')
             args = [fill(a) for a in spec['args']]
-            run = lambda skills, env, **kw: subprocess.Popen(
+            run = lambda skills, env, args=args, top=top, **kw: subprocess.Popen(
                 [str(skills / 'pstack-kitchen/scripts/kitchen.sh'), *args],
                 cwd=top / 'repo',
                 env=env,
@@ -15750,7 +15752,7 @@ class CoreTests(unittest.TestCase):
         for code in (0, 1, 2, 4):
             outcome = wait.WaitOutcome(code, 'missing')
 
-            def waited(ctx_, store, *, timeout, owner, quiet, out):
+            def waited(ctx_, store, *, timeout, owner, quiet, out, outcome=outcome):
                 out('state: \n')
                 return outcome
 
@@ -17783,7 +17785,7 @@ class ShellCallSiteTests(unittest.TestCase):
                 tree = ast.parse(path.read_text(), str(path))
                 rel = str(path.relative_to(root / 'skills'))
 
-                def visit(node, function):
+                def visit(node, function, rel=rel):
                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         function = node.name
                     if isinstance(node, ast.Call):

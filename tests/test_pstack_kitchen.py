@@ -7490,14 +7490,16 @@ esac
             )
             text = re.sub(
                 r'(## Goal\n\n)x',
-                lambda m: m.group(1) + goal.replace('STORE', str(self.store)),
+                lambda m, goal=goal: (
+                    m.group(1) + goal.replace('STORE', str(self.store))
+                ),
                 b.read_text(),
                 count=1,
             )
             b.write_text(
                 re.sub(
                     r'(## Acceptance\n\n)[^\n]*',
-                    lambda m: m.group(1) + acceptance,
+                    lambda m, acceptance=acceptance: m.group(1) + acceptance,
                     text,
                     count=1,
                 )
@@ -10169,7 +10171,8 @@ esac
         )
         lines = path.read_text().splitlines()
         return lines[0].split('\t'), [
-            dict(zip(lines[0].split('\t'), ln.split('\t'))) for ln in lines[1:]
+            dict(zip(lines[0].split('\t'), ln.split('\t'), strict=True))
+            for ln in lines[1:]
         ]
 
     def test_the_ledger_says_where_and_what(self):

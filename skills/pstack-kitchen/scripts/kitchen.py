@@ -2534,7 +2534,7 @@ def ledger_rows(ledger: Path) -> list[dict[str, str]]:
     except OSError:
         return []
     return [
-        dict(zip(LEDGER_HEAD, ln.split('\t') + [''] * len(LEDGER_HEAD)))
+        dict(zip(LEDGER_HEAD, ln.split('\t') + [''] * len(LEDGER_HEAD), strict=False))
         for ln in lines[1:]
         if ln
     ]
@@ -2576,7 +2576,7 @@ def _ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
         if r['run'] == run and r['kind'] == 'catch'
     ]
     new += lesson_rows(store, run, ts, new + catches)
-    write_ledger(ledger, rows + [dict(zip(LEDGER_HEAD, r)) for r in new])
+    write_ledger(ledger, rows + [dict(zip(LEDGER_HEAD, r, strict=True)) for r in new])
     return len(new)
 
 
@@ -2608,6 +2608,7 @@ def ledger_catch(
                         _cell(text),
                         '',
                     ),
+                    strict=True,
                 )
             )
         )
@@ -2653,7 +2654,10 @@ def ledger_backfill(ledger: Path, runs: Path) -> dict[str, int]:
                 continue  # retro has written this run since
             when = {(r['kind'], r['detail']): r['ts'] for r in mine}
             first = min(r['ts'] for r in mine)
-            new = [dict(zip(LEDGER_HEAD, r)) for r in retro_rows(store, run, '')]
+            new = [
+                dict(zip(LEDGER_HEAD, r, strict=True))
+                for r in retro_rows(store, run, '')
+            ]
             for r in new:
                 r['ts'] = when.get((r['kind'], r['detail']), first)
             gone = {id(m) for m in mine}
@@ -3101,6 +3105,7 @@ def lessons_add(
                         _cell(rule),
                         match,
                     ),
+                    strict=True,
                 )
             )
         )
@@ -3143,6 +3148,7 @@ def lessons_dismiss(
                 zip(
                     LEDGER_HEAD,
                     (now, '-', 'dismiss', kind, cls, '', area, _cell(note), match),
+                    strict=True,
                 )
             )
         )
@@ -3378,6 +3384,7 @@ def brief_lessons(brief: Path) -> list[dict[str, str]]:
                             'rule',
                         ),
                         m.groups(),
+                        strict=True,
                     )
                 )
             )
@@ -3502,7 +3509,7 @@ def lesson_rows(
             if x['id'] not in {y['id'] for y in by_unit.setdefault(b.name[:3], [])}:
                 by_unit[b.name[:3]].append(x)
     rows = []
-    seen = [dict(zip(LEDGER_HEAD, t)) for t in trouble]
+    seen = [dict(zip(LEDGER_HEAD, t, strict=True)) for t in trouble]
     for unit, lessons in sorted(by_unit.items()):
         mine = [v for v in verdicts if unit in v[2]]
         # A gates-only verdict proves only what gates check: no one read the
