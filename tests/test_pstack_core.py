@@ -10650,7 +10650,9 @@ class CoreTests(unittest.TestCase):
         st = self.claim_store('rcpy', verifying, extra)
         rc, out, err = self.kitchen_py(
             st,
-            'try:\n    vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\nexcept (Exit, PairError) as e:\n    print("rc=%d" % e.code)\n',
+            'from unittest import mock\n'
+            'with mock.patch.object(vs, "end_agent", return_value=("", True)):\n'
+            '    try:\n        vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\n    except (Exit, PairError) as e:\n        print("rc=%d" % e.code)\n',
             pid=os.getpid(),
             prog='kitchen.sh',
         )
@@ -10699,7 +10701,7 @@ class CoreTests(unittest.TestCase):
         )
         code = (
             'from unittest import mock\n'
-            'with mock.patch.object(vs, "agent_prompt"), mock.patch.object(vs, "agent_status", return_value="absent"), mock.patch.object(vs, "herdr"), \\\n'
+            'with mock.patch.object(vs, "end_agent", return_value=("", True)), mock.patch.object(vs, "herdr"), \\\n'
             '        mock.patch.object(vs, "remove_scratch", side_effect=TypeError("bug")):\n'
             '    try:\n        vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\n    except TypeError as e:\n        print("raised", e)\n'
         )
