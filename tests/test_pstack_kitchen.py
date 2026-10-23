@@ -2574,14 +2574,11 @@ esac
         self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
 
     def test_a_note_published_while_gates_run_refuses_the_rerun_and_the_resolving_rerun_reuses_the_job(self):
-        self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
-                   .replace('fast = ["test ! -e FAIL"]', 'fast = ["sleep 5"]'))
-        self.commit('slow gate')
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
         self.write('src/util.py', 'X = 4\n')
         self.write('tests/test_app.py', 'x = 4\n')
         sha = self.commit('step')
-        self.env['KITCHEN_STEP_SLICE_S'] = '1'
+        self.env['KITCHEN_STEP_SLICE_S'] = '0'
         self.assertIn('gates: still running', self.run_sh('step', str(self.store), sha, 'slow', code=4))
         note = self.store / 'notes/001-util-n1.md'
         note.parent.mkdir(exist_ok=True)
