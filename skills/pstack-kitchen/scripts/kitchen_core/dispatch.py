@@ -19,14 +19,9 @@ from pstack_core.errors import Die, MissingStore, translate
 from pstack_core.wait import default_signals
 
 from .classify import classify_brief
-from .landing import is_landing, land_check
-from .units import captured, has_pair
+from .landing import is_landing, land_check_problems
+from .units import has_pair
 from .wait import block, log_checkin_wake, quiet_wait, refused
-
-
-def land_check_quietly(ctx, store):
-    """land-check's verdict without the command's usage and pair.json checks; its stdout is dropped."""
-    return captured(ctx, lambda: land_check(store))[0]
 
 
 NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}
@@ -48,7 +43,7 @@ def dispatch(ctx, args):
     if not os.path.isfile(brief):
         raise Die(f'brief not found: {brief}')
     if is_landing(brief):
-        if land_check_quietly(ctx, store) != 0:
+        if land_check_problems(store):
             raise Die(f'landing refused: kitchen.sh land-check {store} fails', 2)
     else:
         require_pair(ctx, store)

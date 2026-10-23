@@ -106,21 +106,20 @@ def engine_met(store, brief, review, engine):
 
 
 def manifest_warning(store, verified_base, current_base, head=''):
-    """When the stack was rebased off the base a landing was verified on, the dependency manifests (kitchen.toml escalate.manifests, matched by
-    kitchen.py) that differ between that base and the current one. A verified base above the current one and in the head's history (a --base inside
-    the stack) is the stack's own lower commits, not a moved trunk: no warning."""
+    """The warning line, or '' for none. When the stack was rebased off the base a landing was verified on, the dependency manifests
+    (kitchen.toml escalate.manifests, matched by kitchen.py) that differ between that base and the current one. A verified base above the current
+    one and in the head's history (a --base inside the stack) is the stack's own lower commits, not a moved trunk: no warning."""
     if not verified_base or not current_base or verified_base == current_base:
-        return
+        return ''
     root = repo_root(store)
     if is_ancestor(root, current_base, verified_base) and is_ancestor(root, verified_base, head or 'HEAD'):
-        return
+        return ''
     listed = git.run(root, 'diff', '--name-only', '-z', '--no-renames', verified_base, current_base, quiet=True).stdout
     rc, text, _ = kpy.run(root, ['--json', 'manifests', '-z'], stdin=listed)
     found = parse(text)
     manifests = found.get('manifests') if isinstance(found, dict) else None
     files = ', '.join(m for m in manifests if isinstance(m, str)) if isinstance(manifests, list) else ''
-    if files:
-        out(f'warning: dependency manifests changed since the verified base: {files}\n')
+    return f'warning: dependency manifests changed since the verified base: {files}\n' if files else ''
 
 
 def landing_field(store, key):
@@ -148,22 +147,22 @@ def current_landing_base(store):
 
 
 def landing_unmatched_note(store, seq, brief, uhead, landing_verdict, base, head, found):
-    """Why a unit outside a clean landing verdict's range could not be matched by patch-id, as one land-check note."""
+    """Why a unit outside a clean landing verdict's range could not be matched by patch-id, as one land-check note line."""
     root = repo_root(store)
     ubase = dispatch_head(store, brief)
     if base and is_ancestor(root, uhead, base):
-        out(f'land-check: note: unit {seq} landed before the base of landing verdict {landing_verdict}; verify it on its own\n')
+        note = f'unit {seq} landed before the base of landing verdict {landing_verdict}; verify it on its own'
     elif found.reason == 'merge':
-        out(f"land-check: note: unit {seq}'s range holds a merge commit, so patch-ids do not cover it; verify --landing covers it\n")
+        note = f"unit {seq}'s range holds a merge commit, so patch-ids do not cover it; verify --landing covers it"
     elif found.reason == 'reverted':
-        out(f"land-check: note: unit {seq}'s commits match by patch-id but {found.by[:9]} reverts them\n")
+        note = f"unit {seq}'s commits match by patch-id but {found.by[:9]} reverts them"
     elif not base:
-        out(f'land-check: note: landing verdict {landing_verdict} has no base that resolves; unit {seq} cannot be matched by patch-id; verify --landing '
-            'covers it\n')
+        note = (f'landing verdict {landing_verdict} has no base that resolves; unit {seq} cannot be matched by patch-id; verify --landing covers it')
     elif ubase and is_ancestor(root, head, ubase):
-        out(f'land-check: note: unit {seq} is newer than landing verdict {landing_verdict}; verify --landing again\n')
+        note = f'unit {seq} is newer than landing verdict {landing_verdict}; verify --landing again'
     else:
-        out(f"land-check: note: unit {seq}'s head is not in the stack and its commits do not match by patch-id (squashed?); verify --landing covers it\n")
+        note = f"unit {seq}'s head is not in the stack and its commits do not match by patch-id (squashed?); verify --landing covers it"
+    return f'land-check: note: {note}\n'
 
 
 def latest_landing_verdict(store):
@@ -209,15 +208,16 @@ def clean_verdict_for(store, seq):
     return found
 
 
-def land_check(store):
-    """Prints one line per problem; returns 1 when there is any. A unit with no clean verdict of its own is covered by the latest landing verdict
-    when that one is clean and its range's head contains the unit's head. A kitchen that names a review engine requires each accepted unit's review
-    note to cite a run of it: `engine: <name> <run id or artifact path>`."""
-    problems = 0
+def land_check(store, say=out):
+    """Says what it finds line by line and returns the problem lines, none when the stack may land. A unit with no clean verdict of its own is
+    covered by the latest landing verdict when that one is clean and its range's head contains the unit's head. A kitchen that names a review
+    engine requires each accepted unit's review note to cite a run of it: `engine: <name> <run id or artifact path>`."""
+    problems = []
     ok, engine = validated_engine(store)
     if not ok:
-        out('kitchen: validate fails (kitchen.py validate shows why)\n')
-        return 1
+        problem = 'kitchen: validate fails (kitchen.py validate shows why)\n'
+        say(problem)
+        return [problem]
     root = ''
     landing_verdict = latest_landing_verdict(store)
     landing_head = landing_base = verdict_base_rev = verdict_head_rev = ''
@@ -231,15 +231,15 @@ def land_check(store):
     if landing_verdict and verdict.status == 'clean':
         landing_head, landing_base = verdict_head_rev, verdict_base_rev
         if not landing_head:
-            out(f'land-check: note: landing verdict {landing_verdict} range head does not resolve; no unit is covered by it\n')
+            say(f'land-check: note: landing verdict {landing_verdict} range head does not resolve; no unit is covered by it\n')
     index = None
     for review, seq, brief in accepted_units(store):
         if engine:
             met, gap = engine_met(store, brief, review, engine)
             if not met:
-                out(f'unreviewed: unit {seq} cites no {engine} run; review its range with {engine} and add "engine: {engine} <run id or artifact path>" '
-                    f'to {review}{gap}\n')
-                problems += 1
+                problems.append(f'unreviewed: unit {seq} cites no {engine} run; review its range with {engine} and add "engine: {engine} <run id or artifact path>" '
+                                f'to {review}{gap}\n')
+                say(problems[-1])
         covering = clean_verdict_for(store, seq)
         if not covering and landing_head:
             unit = RecordedUnit(store, brief)
@@ -250,18 +250,18 @@ def land_check(store):
                 if found.covered:
                     covering = landing_verdict
                     if found.sha:
-                        out(f'covered: unit {seq} (rebased as {found.sha[:9]}) by the clean landing verdict {landing_verdict}\n')
+                        say(f'covered: unit {seq} (rebased as {found.sha[:9]}) by the clean landing verdict {landing_verdict}\n')
                     else:
-                        out(f'covered: unit {seq} by the clean landing verdict {landing_verdict}\n')
+                        say(f'covered: unit {seq} by the clean landing verdict {landing_verdict}\n')
                 else:
-                    landing_unmatched_note(store, seq, brief, unit.head, landing_verdict, landing_base, landing_head, found)
+                    say(landing_unmatched_note(store, seq, brief, unit.head, landing_verdict, landing_base, landing_head, found))
         if not covering:
-            out(f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n')
-            problems += 1
+            problems.append(f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n')
+            say(problems[-1])
     # A landing verification is reported, not required.
     if landing_verdict:
-        manifest_warning(store, verdict_base_rev, current_landing_base(store))
-        out(f'landing verification: {verdict.status} ({landing_verdict})\n')
+        say(manifest_warning(store, verdict_base_rev, current_landing_base(store)))
+        say(f'landing verification: {verdict.status} ({landing_verdict})\n')
         if verdict_head_rev:
             if is_ancestor(root, verdict_head_rev, 'HEAD'):
                 counted = git.run(root, 'rev-list', '--count', f'{verdict_head_rev}..HEAD', quiet=True).stdout.rstrip('\n')
@@ -271,23 +271,28 @@ def land_check(store):
                 except ValueError:
                     behind_n = 0
                 if behind_n != 0:
-                    out(f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, {behind} commit{"" if behind_n == 1 else "s"} behind HEAD\n')
+                    say(f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, {behind} commit{"" if behind_n == 1 else "s"} behind HEAD\n')
             else:
-                out(f"landing verdict {landing_verdict} at {verdict_head_rev[:9]}, not in HEAD's history (rebased or another branch); verify --landing "
+                say(f"landing verdict {landing_verdict} at {verdict_head_rev[:9]}, not in HEAD's history (rebased or another branch); verify --landing "
                     'again\n')
     else:
-        out(f'landing verification: none; kitchen.sh verify {store} --landing proves the stack tip with a fresh verifier\n')
+        say(f'landing verification: none; kitchen.sh verify {store} --landing proves the stack tip with a fresh verifier\n')
     if problems:
-        return 1
-    out(f'land-check: pass (review engine: {engine or "none"})\n')
-    return 0
+        return problems
+    say(f'land-check: pass (review engine: {engine or "none"})\n')
+    return problems
+
+
+def land_check_problems(store):
+    """land_check's problem lines with nothing said."""
+    return land_check(store, lambda text: None)
 
 
 def land_check_command(ctx, args):
     if len(args) != 1:
         raise Die('usage: kitchen.sh land-check <store>')
     pair_file(args[0])
-    return 0 if land_check(args[0]) == 0 else 2
+    return 2 if land_check(args[0]) else 0
 
 
 def section(text, name):

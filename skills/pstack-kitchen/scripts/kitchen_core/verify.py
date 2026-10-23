@@ -304,7 +304,7 @@ def classify_landing(store, root, kit, o):
     # A rebase since the last landing verdict may have moved a dependency manifest.
     prior = latest_landing_verdict(store)
     if prior:
-        manifest_warning(store, commit_of(root, Verdict.parse(prior).refs()[0]) or '', base, head)
+        sys.stdout.write(manifest_warning(store, commit_of(root, Verdict.parse(prior).refs()[0]) or '', base, head))
     # The stack lands under the kitchen as it is now.
     snap = kitchen_snapshot(store, root)
     cfg = ['--config', snap] if snap else []

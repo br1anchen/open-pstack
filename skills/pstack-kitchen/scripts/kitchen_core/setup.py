@@ -20,7 +20,7 @@ from pstack_core.panes import agent_status, require_herdr
 from pstack_core.wait import end_with_parent
 
 from . import kpy
-from .units import captured, has_pair, repo_root
+from .units import has_pair, repo_root
 
 
 def last_build_path(builds):
@@ -68,12 +68,10 @@ def quiet_kitchen(store, args):
 
 
 def init(ctx, args):
-    code, out = captured(ctx, lambda: core_init.run(ctx, list(args)))
-    if code:
-        raise Exit(code)
-    sys.stdout.write(out + '\n')
-    orders = '\n'.join(line[len('standing orders: '):] for line in out.split('\n') if line.startswith('standing orders: '))
-    store = os.path.dirname(orders)
+    lines = []
+    made = core_init.init_store(ctx, core_init.init_request(ctx, list(args)), lines.append)
+    sys.stdout.write(''.join(lines))
+    store, orders = made.store, made.orders
     stamp_skill_builds(ctx, store)
     status, found = quiet_kitchen(store, ['--json', 'validate'])
     if status != 0:

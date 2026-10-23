@@ -4139,10 +4139,7 @@ class CoreTests(unittest.TestCase):
         # a warning when the manifest differs between the two commits, in either order; none for a code-only change, an empty side, or the same commit
         expected = ['', warning, warning, '', warning, '', '', '', '', warning]
         for (verified, current, head), want in zip(calls, expected):
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                landing.manifest_warning(str(st), verified, current, head or '')
-            self.assertEqual(buf.getvalue(), want, (verified[:9], current[:9], head))
+            self.assertEqual(landing.manifest_warning(str(st), verified, current, head or ''), want, (verified[:9], current[:9], head))
 
     def test_dispatch_of_a_landing_brief_goes_through_the_python_land_check(self):
         """cmd_dispatch's bash called land_check; it calls the Python land-check now. A landing brief with a unit that has no clean verdict is refused
@@ -4153,6 +4150,15 @@ class CoreTests(unittest.TestCase):
         out = self.kitchen_cases('landdisp', {'a landing brief with an unverified unit': spec},
                                 {'a landing brief with an unverified unit': (2, 'landing refused: kitchen.sh land-check')})
         self.assertIn('landing refused', out['a landing brief with an unverified unit']['stderr'])
+
+    def test_land_check_hands_back_its_problem_lines_and_says_each_line_it_finds(self):
+        landing = self.kitchen_core_module('landing')
+        said = []
+        line = 'kitchen: validate fails (kitchen.py validate shows why)\n'
+        with mock.patch.object(landing, 'validated_engine', return_value=(False, '')):
+            self.assertEqual(landing.land_check('/st', said.append), [line])
+            self.assertEqual(landing.land_check_problems('/st'), [line])
+        self.assertEqual(said, [line])
 
     def test_revise_behaviour(self):
         def brief(n, scope, extra=''):
@@ -6233,8 +6239,6 @@ class CoreTests(unittest.TestCase):
                     mock.patch.object(kitchen_wait, 'release') as release, mock.patch('sys.stdout', new_callable=io.StringIO) as out:
                 self.assertEqual(kitchen_wait.quiet_wait(ctx, '/st', []), code, ('wait', code))
             self.assertEqual((out.getvalue(), release.call_count), ('state: \n', 1), ('wait', code))
-            with mock.patch.object(kitchen_dispatch, 'land_check', return_value=code):
-                self.assertEqual(kitchen_dispatch.land_check_quietly(ctx, '/st'), code, ('land-check', code))
 
     def test_captured_gives_the_status_and_stdout_of_a_call_and_leaves_the_environment_as_it_found_it(self):
         units = self.kitchen_core_module('units')
