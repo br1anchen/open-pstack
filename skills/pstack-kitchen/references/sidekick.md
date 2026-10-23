@@ -9,6 +9,11 @@ differ:
 - **`--resolves` takes another unit's note too.** `kitchen.sh step ... --resolves
   n2` closes this unit's note 2; `001-n2` closes unit 001's note 2 from a step
   on a later unit, so a fix carried by the next unit still closes the note.
+- **A step with an open blocking note is refused.** `kitchen.sh step` exits 5 before any
+  gate starts while an open blocking note on the unit is not named in `--resolves`, with a
+  `step: blocking note <id> is open (<path>)` line per note. Fix it, then record the fix
+  with `--resolves <id>`; a gate job already running for that sha is reused, not started
+  again. A note can reach you before your first step (`n0`); `notes` lists it like any other.
 - **Steps go through the gates.** After each step's commit, run
   `kitchen.sh step <store> <sha> "<summary>"` with the commit you just made:
   the sha must be HEAD and the tracked files clean (an untracked file does not

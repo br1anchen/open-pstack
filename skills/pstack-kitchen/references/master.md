@@ -31,6 +31,7 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    one line) and run `kitchen.sh classify <store> <brief>`. Classify keeps a
    reason you wrote after the class (`risk: escalated (contract change)`) while
    the class is unchanged and rewrites the line only when the class changes.
+   `risk: escalated: contract change` reads as `escalated` too.
    A failed step's `gate-fail` event names the log of that run
    (`steps/jobs/<unit>-<sha>/out.<n>`); each run keeps its own.
    A `warn: Scope covers ...` line means the Scope reaches a generated file's

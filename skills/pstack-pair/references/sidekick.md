@@ -79,6 +79,10 @@ and the decision stays with the master.
    holds prints `step <short>: already recorded` and only merges `--resolves`;
    `n2` is this unit's note; `001-n2`
    closes unit 001's note 2 from a step on another unit), then take the next step.
+   `step` refuses (exit 5) while an open blocking note it does not name in
+   `--resolves` exists, one `step: blocking note <id> is open (<path>)` line per note;
+   fix the note and record that fix with `--resolves`. A note may come before your first
+   step (`n0`): `notes` lists it like any other.
    Follow-ups are the master's list, not yours. A brief without Steps ends in
    one commit when it says `commit: yes`. The report's `head:` names the last
    commit, and the master reviews only what its notes have not covered. In a

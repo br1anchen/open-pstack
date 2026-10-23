@@ -88,7 +88,13 @@ is yours alone.
    run `pair.sh new-note <store> <NNN>`, fill Blocking and Follow-ups, publish
    it with `pair.sh note <store> <draft>`, and wait again. A blocking note is
    delivered to a working sidekick at once (`pstack-pair NOTE <path>`; a Devin
-   gets it at its next `pair.sh step`, `progress` or `notes`); never hold a note for the end. Exit
+   gets it at its next `pair.sh step`, `progress` or `notes`); never hold a note for the end. A
+   note on the running unit may come before its first step: `new-note` then writes `n0`
+   (`through: step 0`, over the range from the unit's base to HEAD) and never overwrites a
+   published one. A quiet wait announces each open blocking note once: the store keeps the
+   names it has shown, so the next wait does not return on the same note, and a new note
+   wakes it again. A blocking note published after the unit's report was delivered reaches no
+   sidekick: `note` says so, and the route is a fix brief. Exit
    4 without a digest means the sidekick settled without a report; see
    Recovery. A steer and a blocking note are the only messages that may reach a
    working sidekick; a second brief never does, it waits in the queue.
