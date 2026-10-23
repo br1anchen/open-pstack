@@ -4437,7 +4437,7 @@ esac
         (self.store / 'reviews/900-demo.md').write_text('verdict: agreed\n')
         for seq, slug, goal, acceptance in units:
             b = self.brief(seq, slug, ['src/**', 'tests/**'], plan=str(plan))
-            text = re.sub(r'(## Goal\n\n)x', rf'\g<1>{goal}', b.read_text(), count=1)
+            text = re.sub(r'(## Goal\n\n)x', lambda m: m.group(1) + goal.replace('STORE', str(self.store)), b.read_text(), count=1)
             b.write_text(re.sub(r'(## Acceptance\n\n)[^\n]*', lambda m: m.group(1) + acceptance, text, count=1))
             self.dispatch(b)
             self.write(f'src/mod{seq}.py', f'X = {seq}\n')
@@ -4525,6 +4525,37 @@ esac
         packet = self.landing_world([('001', 'util', 'g1', 'Acceptance one holds.')], verified=('001',))
         self.assertIn('Verified on their own: 001-util.\nFolded into this landing, with no verdict of their own: none.\n', packet)
         self.assertFalse([l for l in packet.split('\n') if l.startswith('## Acceptance: ')])
+
+    def inputs_of(self, packet):
+        """The lines of a packet's `## Inputs (read-only)` section, or None when it has none."""
+        if '## Inputs (read-only)\n\n' not in packet:
+            return None
+        return packet.split('## Inputs (read-only)\n\n')[1].split('\n\n')[0].split('\n')
+
+    def test_a_unit_packet_lists_the_store_paths_its_brief_names_as_read_only_inputs_and_keeps_a_verify_command_apart(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        text = b.read_text().replace('```bash\nx\n```', f'```bash\ncat {self.store}/verify-only.txt\n```')
+        b.write_text(text + f'\n## Notes\n\nRead {self.store}/feedback-triage/triage-D.tsv, then {self.store}/reports/012-x.md.\n'
+                     f'Again {self.store}/feedback-triage/triage-D.tsv; the store itself, {self.store}, is no input.\n')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        self.done(b, self.commit('util'))
+        self.run_sh('verify', str(self.store), '001', '--timeout', '60', '--every', '0')
+        packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        inputs = self.inputs_of(packet)
+        self.assertIn(f'- {self.store}/feedback-triage/triage-D.tsv: read it; do not write it', inputs)
+        self.assertEqual(inputs.index(f'- {self.store}/feedback-triage/triage-D.tsv: read it; do not write it') + 1,
+                         inputs.index(f'- {self.store}/reports/012-x.md: read it; do not write it'))
+        self.assertEqual(len([l for l in inputs if 'triage-D.tsv' in l]), 1)
+        self.assertFalse([l for l in inputs if 'verify-only.txt' in l])
+        self.assertIn(f'(absolute path)\n```bash\ncat {self.store}/verify-only.txt\n```', packet.split('not for the verifier:')[1])
+
+    def test_a_landing_packet_lists_the_store_paths_its_covered_briefs_name(self):
+        packet = self.landing_world([('001', 'util', 'See ' + 'STORE/reports/030-y.md for the flow.', 'a1')])
+        inputs = self.inputs_of(packet)
+        self.assertIn(f'- {self.store}/reports/030-y.md: read it; do not write it', inputs)
+        self.assertIn(f'- {self.store}/plans/900-demo.md: read it; do not write it', inputs)
 
     def test_the_landing_packet_runs_setup_first_when_declared(self):
         self.declare_setup()

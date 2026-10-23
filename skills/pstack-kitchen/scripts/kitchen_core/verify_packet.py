@@ -142,6 +142,33 @@ def plan_sections(p):
     return text
 
 
+def brief_without_verify(brief):
+    """The brief's text outside its `## Verify` section: the commands there are partitioned, not read."""
+    kept, skip = [], False
+    for line in read_text(brief).split('\n'):
+        if line.startswith('## '):
+            skip = line.strip() == '## Verify'
+        if not skip:
+            kept.append(line)
+    return '\n'.join(kept)
+
+
+def inputs_section(store, briefs):
+    """`## Inputs (read-only)`: each absolute path under the store that the briefs name outside their Verify section, once, in order of first mention.
+    '' when they name none."""
+    found = {}
+    for brief in briefs:
+        try:
+            text = brief_without_verify(brief)
+        except OSError:
+            continue
+        for m in re.finditer(re.escape(store) + r'/[^\s`\'"()<>\[\],;]+', text):
+            found.setdefault(m.group(0).rstrip('.:'), None)
+    if not found:
+        return ''
+    return '## Inputs (read-only)\n\n' + ''.join(f'- {path}: read it; do not write it\n' for path in found) + '\n'
+
+
 def landing_covered_briefs(store, root, base, head):
     """The done unit briefs a landing range holds: those whose head is in base..head, or whose commits were rebased into it."""
     covered, index = [], StackIndex.build(root, base, head)
@@ -239,6 +266,7 @@ def landing_sections(p, parts):
         parts.append(f'## Acceptance: unit {names[b]} (plan {header_field(b, "plan") or "none"})\n\n'
                      + '\n'.join(section_lines(b, r'^## Acceptance', False)).strip('\n') + '\n\n')
     parts.append(plan_sections(p))
+    parts.append(inputs_section(p.store, stacked))
 
 
 CONTEXT_RULE = 'These are decisions a review accepted; do not judge them again. Judge only the named units\' Acceptance.'
@@ -289,6 +317,7 @@ def unit_sections(p, parts):
         parts.append(brief_commands(p.store, p.root, b, u))
     if p.covered:
         parts.append(context_section(p))
+    parts.append(inputs_section(p.store, [unit_brief(p.store, u) for u in p.units]))
     briefs = []
     for u in p.units:
         found = sorted(glob.glob(f'{glob.escape(p.store)}/briefs/{glob.escape(u)}-*.md'))
