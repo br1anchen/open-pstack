@@ -62,7 +62,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `dispatch` in a short `timeout`: when you need the call back at once, pass
    `--send-only`, which returns as soon as the brief is delivered, then wait.
    A due rotation runs before the send, so `--send-only` can take up to a
-   minute plus the READY wait.
+   minute plus the READY wait and the fresh session's first turn (`PAIR_ROTATE_READY_S`); a fresh
+   session that stays working, turns blocked or vanishes fails the rotation and sends nothing.
    Delivery itself ignores TERM, so a killed dispatch never leaves a brief
    recorded but unsent. A sidekick of any kind whose last unit is done is
    rotated by `dispatch` or `discuss` itself (`rotated:` in its output), so
@@ -271,7 +272,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    whether to close the run's panes, in the turn land-check passes, with the retro and the feedback: a finished run's sidekick, consultant
    and verifier hold about a gigabyte of memory for as long as they stay
    open. On yes, `kitchen.sh close <store>` ends them and closes their
-   panes; your own pane stays.
+   panes; your own pane stays. A role started again after an earlier close
+   (`spawn`, `consultant`, a rotation) is live again, so the next `close` ends it;
+   a Claude that asks what to do with its background work is answered with
+   "Exit and stop tasks".
 
    Gaps in the kitchen itself (a command, message, default or document of
    pstack-kitchen that cost the run time or a wake) are not repo classes.

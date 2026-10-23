@@ -177,6 +177,8 @@ report as `partial` with what is verified and what is next, and end the turn.
 - Leave panes, tabs, and workspaces as you found them.
 - Progress lines are for the master's check-in: one line each, no output
   pasted. Evidence goes in the report.
+- Stop your background shells before `finish`. A Claude that exits with background work running meets a dialog; rotate and close
+  answer it with "Exit and stop tasks", so anything still running is lost.
 
 For `kind = "prime-agent"`, read [the Prime adapter](prime-sidekick.md).
 The master rotates completed briefs; partial or blocked work keeps its session.

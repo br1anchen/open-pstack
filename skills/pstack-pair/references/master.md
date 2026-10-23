@@ -69,7 +69,8 @@ is yours alone.
    entry that matches nothing. Put a path that contains a comma in backquotes.
 6. **Dispatch and check in.** `pair.sh dispatch <store> <brief> [--every MIN]` (a brief path may be relative to the store: `briefs/NNN-x.md`; `queue` takes the same)
    (`--send-only` returns once the brief is delivered, after a due rotation,
-   which takes up to a minute plus the READY wait; never wrap dispatch in
+   which takes up to a minute plus the READY wait and then the fresh session's
+   first turn (`PAIR_ROTATE_READY_S`, 60 s); never wrap dispatch in
    a short `timeout`).
    Exit 0 prints the report path. Exit 3 means blocked: read the pane with
    `herdr agent read <name> --source visible --lines 60`, then follow the
@@ -204,7 +205,11 @@ Every kind starts a fresh session per completed brief. For Devin or Pi, follow [
 For Prime, follow [the Prime adapter](prime-sidekick.md).
 After its `done` report and settled turn, write the handoff and dispatch the next task:
 `dispatch` and `discuss` run the rotation and print `rotated:` first, so check the new READY
-report in the store. `pair.sh rotate` stays as a command to run by hand. Keep partial work in
+report in the store. They send only once the fresh session is idle or done: a session that is still
+working after `PAIR_ROTATE_READY_S`, blocked on a dialog, or gone fails the rotation (exit 5) and nothing is sent; inspect it and
+dispatch again. `rotate`, `failover` and `close` end Claude through one helper that answers its
+"Background work is running" exit dialog with "Exit and stop tasks" (the unit is committed by then), read from the pane;
+a pane that shows no such dialog gets no keys. `pair.sh rotate` stays as a command to run by hand. Keep partial work in
 its session. Storage cleanup requires a coordinated pause and recovery handoff.
 
 ## Queueing
@@ -251,7 +256,9 @@ steer's wait count as waits. A newer one takes the store: the older prints `supe
 newer wait owns this store; this one ends` and exits 4 at its next poll, marking
 nothing seen. A `REPORT` message that reaches you while no wait owns the store
 is marked seen, so your next wait does not return the same report a second
-time; one that arrives under a running wait is returned by that wait.
+time. One that arrives under a running wait (wait.pid names a live process) is returned by that wait, and `notify`
+prompts nobody: it prints `master <name> is idle; the wait that owns the store returns <path>`. A wait.pid left by a
+killed wait does not count; the master is prompted as before. ADVICE is always prompted.
 
 ## Recovery
 

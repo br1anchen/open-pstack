@@ -1970,7 +1970,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(review.open_notes(str(st) + '/', '002-y.md'), [])
         self.assertEqual(run('notes', str(st) + '/').stdout, 'notes: none open; go on with the next step\n')
 
-    def test_notify_leaves_the_report_to_a_live_wait_that_owns_the_store(self):
+    def test_notify_marks_nothing_while_a_live_wait_owns_the_store(self):
         # The running wait returns the report itself: notify neither prompts the master nor marks the report seen.
         top, st, run = self.own_world('nl')
         (st / 'wait.pid').write_text(f'{os.getpid()}\n')

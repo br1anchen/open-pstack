@@ -54,6 +54,8 @@ differ:
   name it in `head:`, and run `finish` again. If they cannot pass, report
   `blocked` with the output. Exit 4 means they are still running, as with
   `step`: run the same `finish` again at once.
+- **Before `finish`,** stop the background shells you started. Rotation and `close` end a Claude with
+  "Exit and stop tasks", so anything still running at the end of the unit is stopped.
 - **After a verifier's rejection,** the fix brief's Context names the
   verdict. Fix each finding with the check that shows it gone; the next
   verification repeats the same acceptance.
