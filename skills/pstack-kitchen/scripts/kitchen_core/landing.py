@@ -2,6 +2,7 @@
 
 A failing read inside land-check is an empty answer and the check goes on."""
 
+import functools
 import glob
 import os
 import re
@@ -520,9 +521,14 @@ def land_check_command(ctx, args):
     return 2 if land_check(args[0]) else 0
 
 
+@functools.cache
+def playbooks():
+    """playbooks.py, loaded once: its brief-section readers skip a `## ` line inside a code fence."""
+    return kpy.kitchen_py.playbooks_module()
+
+
 def section(text, name):
-    m = re.search(rf'^## {name}\n(.*?)(?=^## |\Z)', text, re.M | re.S)
-    return m.group(1) if m else ''
+    return playbooks().brief_section(text, name)
 
 
 def header(text, key):
@@ -644,13 +650,7 @@ def revise(ctx, args):
     )
     fills = fix_brief_fills(verdict, store, briefs, olds, landing)
     for name, body in fills.items():
-        new = re.sub(
-            rf'(^## {name}\n)(.*?)(?=^## |\Z)',
-            lambda m, b=body: m.group(1) + b,
-            new,
-            count=1,
-            flags=re.M | re.S,
-        )
+        new = playbooks().replace_brief_section(new, name, body)
     with open(path, 'w') as f:
         f.write(new)
     out(f'{path}\n')

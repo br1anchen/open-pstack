@@ -994,6 +994,48 @@ def ids(result, role):
     return [e['id'] for e in result['roles'][role]]
 
 
+class FenceAwareSectionTests(unittest.TestCase):
+    BRIEF = (
+        '## Goal\n\ng\n\n'
+        '## Notes\n\n```md\n## Acceptance\n\n- fake\n```\n\n'
+        '~~~~\n## Acceptance\n~~~~\n\n'
+        '## Acceptance\n\n- real\n\n## Verify\n\nv\n'
+    )
+
+    def test_a_heading_inside_a_fence_does_not_start_or_end_a_section(self):
+        self.assertEqual(
+            playbooks.brief_section(self.BRIEF, 'Acceptance'), '\n- real\n\n'
+        )
+        notes = playbooks.brief_section(self.BRIEF, 'Notes')
+        self.assertIn('- fake', notes)
+        self.assertIn('~~~~\n## Acceptance\n~~~~', notes)
+
+    def test_a_shorter_or_other_marker_does_not_close_a_fence(self):
+        text = '## A\n\n````\n```\n## B\n````\n\n## B\n\nb\n'
+        self.assertEqual(playbooks.brief_section(text, 'B'), '\nb\n')
+        self.assertIn('## B', playbooks.brief_section(text, 'A'))
+
+    def test_the_last_section_runs_to_the_end_and_a_missing_one_is_empty(self):
+        self.assertEqual(playbooks.brief_section(self.BRIEF, 'Verify'), '\nv\n')
+        self.assertEqual(playbooks.brief_section(self.BRIEF, 'Scope'), '')
+
+    def test_section_lines_skip_the_fenced_heading(self):
+        lines = self.BRIEF.split('\n')
+        found = playbooks.section_lines(lines, r'^## (Goal|Acceptance)', True)
+        self.assertEqual(
+            found, ['## Goal', '', 'g', '', '## Acceptance', '', '- real', '']
+        )
+
+    def test_replacing_a_section_leaves_a_fenced_heading_alone(self):
+        out = playbooks.replace_brief_section(self.BRIEF, 'Acceptance', '\n- new\n\n')
+        self.assertIn('## Acceptance\n\n- fake', out)
+        self.assertIn('## Acceptance\n\n- new\n\n## Verify', out)
+        self.assertNotIn('- real', out)
+        self.assertEqual(
+            playbooks.replace_brief_section(self.BRIEF, 'Scope', 'x'), self.BRIEF
+        )
+
+
 class RenderRoleTests(unittest.TestCase):
     """What a role is handed: authority, the whole inventory, then texts within the target."""
 

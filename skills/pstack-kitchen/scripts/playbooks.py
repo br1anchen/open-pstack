@@ -81,6 +81,58 @@ def fence_close(stripped: str, opener: str) -> bool:
     return bool(m) and m.group(1)[0] == opener[0] and len(m.group(1)) >= len(opener)
 
 
+def section_headings(lines: list[str]) -> list[int]:
+    """The index of each line that starts a `## ` section outside a code fence."""
+    found, fence = [], ''
+    for i, line in enumerate(lines):
+        opened = FENCE.match(line.lstrip())
+        if opened and not fence:
+            fence = opened.group(1)
+        elif opened and fence_close(line.strip(), fence):
+            fence = ''
+        elif not fence and line.startswith('## '):
+            found.append(i)
+    return found
+
+
+def section_lines(
+    lines: list[str], pattern: str, keep_heading: bool = False
+) -> list[str]:
+    """The lines under each `## ` heading matching `pattern`, up to the next heading outside a code fence; the headings are kept with `keep_heading`."""
+    starts = set(section_headings(lines))
+    found, show = [], False
+    for i, line in enumerate(lines):
+        if i in starts:
+            show = bool(re.match(pattern, line))
+            if show and keep_heading:
+                found.append(line)
+        elif show:
+            found.append(line)
+    return found
+
+
+def brief_section(text: str, name: str) -> str:
+    """The body of the first `## <name>` section of a brief, or '' when it has none; a `## ` line inside a code fence does not end it."""
+    lines = text.split('\n')
+    starts = section_headings(lines)
+    for n, i in enumerate(starts):
+        if lines[i] == f'## {name}':
+            end = starts[n + 1] if n + 1 < len(starts) else len(lines)
+            return '\n'.join(lines[i + 1 : end]) + ('\n' if end < len(lines) else '')
+    return ''
+
+
+def replace_brief_section(text: str, name: str, body: str) -> str:
+    """`text` with the body of its first `## <name>` section replaced by `body`; unchanged when it has no such section."""
+    lines = text.split('\n')
+    starts = section_headings(lines)
+    for n, i in enumerate(starts):
+        if lines[i] == f'## {name}':
+            tail = lines[starts[n + 1] :] if n + 1 < len(starts) else []
+            return '\n'.join(lines[: i + 1]) + '\n' + body + '\n'.join(tail)
+    return text
+
+
 def starts_block(line: str) -> bool:
     return bool(
         HEADING.match(line) or LIST_MARK.match(line) or FENCE.match(line.lstrip())

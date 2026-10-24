@@ -11,7 +11,7 @@ from pstack_core import git
 from pstack_core.store import expected_report, header_field, read, read_text, write_text
 
 from . import kpy
-from .landing import clean_verdict_for, is_landing
+from .landing import clean_verdict_for, is_landing, playbooks
 from .units import RecordedUnit, StackIndex, inclusion, unit_brief
 
 
@@ -226,24 +226,13 @@ def tail_lines(text, count):
 
 def section_lines(path, pattern, keep_heading):
     """The lines under the brief's `## Goal` and `## Acceptance` headings, headings included with keep_heading, else the Goal section without its heading."""
-    found, show = [], False
     try:
         lines = read_text(path).split('\n')
     except OSError:
-        return found
+        return []
     if lines and lines[-1] == '':
         lines.pop()
-    for line in lines:
-        if re.match(pattern, line):
-            show = True
-            if keep_heading:
-                found.append(line)
-            continue
-        if line.startswith('## '):
-            show = False
-        if show:
-            found.append(line)
-    return found
+    return playbooks().section_lines(lines, pattern, keep_heading)
 
 
 @dataclass(frozen=True)

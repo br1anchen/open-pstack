@@ -11284,6 +11284,41 @@ esac
         ).read_text()
         self.assertIn('- src/** — scope\n- docs/** — scope\n', text)
 
+    FENCED_NOTES = (
+        '## Notes\n\n```md\n## Acceptance\n\n- FAKE acceptance\n\n'
+        '## Verify\n\n```bash\nFAKE verify\n```\n```\n\n'
+    )
+
+    def brief_with_fenced_headings(self, seq, slug):
+        b = self.brief(
+            seq, slug, ['src/**', 'tests/**'], acceptance=['- REAL acceptance']
+        )
+        b.write_text(
+            b.read_text().replace('## Scope', self.FENCED_NOTES + '## Scope', 1)
+        )
+        return b
+
+    def test_a_fenced_heading_in_a_brief_does_not_reach_the_packet(self):
+        b = self.brief_with_fenced_headings('001', 'util')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('clean')
+        self.run_sh('verify', str(self.store), '001')
+        packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        self.assertIn('- REAL acceptance', packet)
+        self.assertNotIn('FAKE acceptance', packet)
+
+    def test_a_fenced_heading_in_a_brief_does_not_reach_the_fix_brief(self):
+        self.brief_with_fenced_headings('001', 'util')
+        verdict = self.rejected('001-util-v1', '001')
+        text = Path(
+            self.run_sh('revise', str(self.store), str(verdict)).strip()
+        ).read_text()
+        self.assertIn('- REAL acceptance', text)
+        self.assertNotIn('FAKE', text)
+
     def test_revise_reads_the_last_unit_number_whatever_surrounds_it(self):
         self.brief('001', 'util', ['src/**'])
         verdict = self.rejected('001-util-v1', '(001)')
