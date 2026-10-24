@@ -51,7 +51,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    - **Escalated:** start the consultant with
      `kitchen.sh consultant <store> --reason "<the first escalate line>"`,
      then a plan round as in the trio: `kitchen.sh new-plan`, set
-     `risk: escalated`, `kitchen.sh discuss`. Consults work as in
+     `risk: escalated`, `kitchen.sh discuss`. A plan carries `contract: 2`
+     in its header and a `playbook: <name>` line (and optionally `with: <id>`)
+     under each Steps block; `discuss` refuses a block without a mapped
+     playbook and writes each block's consultant and master parts into the
+     plan. Consults work as in
      [the trio master](../../pstack-trio/references/master.md), with
      `kitchen.sh` for `pair.sh`.
 5. **Dispatch and wait.** `kitchen.sh dispatch <store> <brief>`, then
