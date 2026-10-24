@@ -7111,12 +7111,37 @@ esac
             r'warn: Acceptance reads empty: its heading at line \d+ sits inside the code fence opened at line \d+',
         )
         self.assertIn('warn: Verify reads empty', out)
+        lines = text.split('\n')
+        last = max(i for i, x in enumerate(lines) if x == '## Acceptance')
+        stray = max(i for i in range(lines.index('## Scope')) if lines[i] == '```')
+        self.assertIn(f'its heading at line {last + 1} ', out)
+        self.assertIn(f'fence opened at line {stray + 1};', out)
         b.write_text(
             text.replace('```bash', '````bash').replace('```\n```', '```\n````')
         )
         self.assertNotIn(
             'reads empty', self.run_sh('classify', str(self.store), str(b))
         )
+
+    def test_classify_names_the_fence_holding_the_last_heading_not_an_earlier_block(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        notes = (
+            '## Notes\n\n```bash\necho balanced\n```\n'
+            '```md\n## Acceptance\n\n- FAKE\n\n'
+            '## Verify\n\n```bash\nFAKE\n```\n```\n\n'
+        )
+        text = b.read_text().replace('## Scope', notes + '## Scope', 1)
+        b.write_text(text)
+        lines = text.split('\n')
+        out = self.run_sh('classify', str(self.store), str(b))
+        notes_at = lines.index('## Notes')
+        stray = max(
+            i for i in range(notes_at, lines.index('## Scope')) if lines[i] == '```'
+        )
+        self.assertIn(f'fence opened at line {stray + 1};', out)
+        self.assertNotIn(f'fence opened at line {notes_at + 3};', out)
 
     def test_dispatch_refuses_a_playbook_part_that_leaves_a_fence_open_end_to_end(self):
         self.use_overlays()

@@ -212,19 +212,41 @@ def composition_lines(composition):
     return lines
 
 
+def fence_opening(lines, at):
+    """The index of the line that opens the closed code fence containing line `at`, or None when no fence does."""
+    pb = playbooks()
+    i = 0
+    while i < len(lines):
+        opened = pb.FENCE.match(lines[i].lstrip())
+        close = opened and next(
+            (
+                j
+                for j in range(i + 1, len(lines))
+                if pb.fence_close(lines[j].lstrip(), opened.group(1))
+            ),
+            None,
+        )
+        if close is None:
+            i += 1
+        elif i <= at <= close:
+            return i
+        else:
+            i = close + 1
+    return None
+
+
 def swallowed_headings(text):
-    """A `warn:` line for each of Acceptance and Verify that reads empty because its heading sits inside a code fence, naming the heading's line and the line the fence opens on."""
+    """A `warn:` line for each of Acceptance and Verify that reads empty because the heading the reader takes (the last one) sits inside a code fence, naming the heading's line and the line the fence opens on."""
     lines = text.split('\n')
-    inside, _ = playbooks().scan_fences(lines)
     found = []
     for name in ('Acceptance', 'Verify'):
-        at = next((i for i, x in enumerate(lines) if x == f'## {name}'), None)
+        at = next(
+            (i for i in reversed(range(len(lines))) if lines[i] == f'## {name}'), None
+        )
         if at is None or section(text, name).strip():
             continue
-        if at in inside:
-            opener = at
-            while opener - 1 in inside:
-                opener -= 1
+        opener = fence_opening(lines, at)
+        if opener is not None:
             found.append(
                 f'warn: {name} reads empty: its heading at line {at + 1} sits inside the code fence opened at line {opener + 1}; close or remove that fence'
             )

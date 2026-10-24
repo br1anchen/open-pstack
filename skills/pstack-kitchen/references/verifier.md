@@ -45,7 +45,7 @@ work?", and then your pane closes.
    Acceptance line by line, citing evidence of the kind these parts name. A
    landing packet opens it with the `[landing].mode` cap and ends it with the
    parts of `opening-a-pr` and `shipping`; prove only what the mode allows.
-   A unit with no stored composition shows `playbook: <label> (not mapped)`.
+   A unit with no stored composition shows `playbook: <label> (not mapped)`; in a landing packet a covered unit with no composition is skipped, and a unit with no playbook label shows nothing.
    A check against the base (running the old code to compare) runs in a second
    scratch of its own (`kitchen.sh scratch <store> <id> --at <base>`), never in
    the one the gates use.
