@@ -4342,6 +4342,111 @@ esac
         self.assertIn('escalate: the brief says risk: escalated', out)
         self.assertIn('risk: escalated\n', b.read_text())
 
+    def use_overlays(self):
+        """The playbook fixture's overlays and the docs they point into, committed to the throwaway repo."""
+        shutil.copytree(
+            root / 'tests/fixtures/playbooks/repo/.agents/playbooks',
+            self.repo / '.agents/playbooks',
+        )
+        for name in ('CODING_STANDARDS.md', 'docs/DOMAIN.md'):
+            self.write(
+                name, (root / 'tests/fixtures/playbooks/repo' / name).read_text()
+            )
+        self.write('engine/lib.rs', 'fn main() {}\n')
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(
+            toml.read_text().replace(
+                'paths = ["src/**", "tests/**"]',
+                'paths = ["src/**", "tests/**", "engine/**"]',
+            )
+        )
+        self.commit('overlays')
+
+    def header(self, brief, *lines):
+        """Adds header lines after the brief's `playbook:` line."""
+        text = brief.read_text()
+        out = []
+        for line in text.split('\n'):
+            out.append(line)
+            if line.startswith('playbook:'):
+                out += lines
+        brief.write_text('\n'.join(out))
+
+    def composition(self, n='001'):
+        return json.loads((self.store / 'compositions' / f'{n}.json').read_text())
+
+    def test_classify_stamps_the_composition_and_prints_the_playbooks(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('playbooks: bug-fix + rust-engine\n', out)
+        stamp = self.composition()
+        self.assertEqual((stamp['version'], stamp['workflow']), (1, 'bug-fix'))
+        self.assertEqual(
+            [o['id'] for o in stamp['overlays']['selected']], ['rust-engine']
+        )
+        self.assertEqual(
+            sorted(stamp['roles']), ['consultant', 'master', 'sidekick', 'verifier']
+        )
+        entry = next(e for e in stamp['roles']['sidekick'] if e['id'] == 'error-model')
+        self.assertIn('Return a typed error', entry['text'])
+
+    def test_classify_prints_the_masters_parts_one_per_line(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.header(b, 'with: daily-coaching')
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('playbooks: bug-fix + daily-coaching + rust-engine\n', out)
+        self.assertIn('master: session-shape ### Session shape', out)
+        for part in self.composition()['roles']['master']:
+            self.assertIn(f'master: {part["id"]} ', out)
+
+    def test_classify_prints_what_a_without_excluded(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.header(b, 'without: rust-engine — a docs-only edit')
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('playbooks: bug-fix\n', out)
+        self.assertIn('excluded: rust-engine (without: a docs-only edit)\n', out)
+
+    def test_classify_twice_writes_the_stamp_once(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.run_sh('classify', str(self.store), str(b))
+        path = self.store / 'compositions/001.json'
+        first = (path.read_bytes(), path.stat().st_ino)
+        self.run_sh('classify', str(self.store), str(b))
+        self.assertEqual((path.read_bytes(), path.stat().st_ino), first)
+
+    def test_classify_stamps_a_different_composition_when_with_changes(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.run_sh('classify', str(self.store), str(b))
+        before = (self.store / 'compositions/001.json').read_bytes()
+        self.header(b, 'with: daily-coaching')
+        self.run_sh('classify', str(self.store), str(b))
+        after = self.composition()
+        self.assertNotEqual((self.store / 'compositions/001.json').read_bytes(), before)
+        self.assertEqual(
+            [o['id'] for o in after['overlays']['selected']],
+            ['daily-coaching', 'rust-engine'],
+        )
+        self.assertEqual(after['with'], ['daily-coaching'])
+
+    def test_an_unmapped_playbook_refuses_classify_and_lists_the_mapped_names(self):
+        b = self.brief('001', 'util', ['src/util.py'], playbook='old-label')
+        out = self.run_sh('classify', str(self.store), str(b), code=1)
+        self.assertIn("playbook 'old-label' is not mapped; mapped: ", out)
+        self.assertIn('bug-fix', out)
+        self.assertFalse((self.store / 'compositions/001.json').exists())
+
+    def test_a_without_with_no_reason_refuses_classify(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.header(b, 'without: rust-engine')
+        out = self.run_sh('classify', str(self.store), str(b), code=1)
+        self.assertIn('without: rust-engine needs a reason', out)
+
     def test_a_unit_dispatched_as_escalated_is_verified_by_the_escalated_class(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

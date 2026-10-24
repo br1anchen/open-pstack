@@ -3,6 +3,7 @@
 Every kitchen.py query here (`snapshot`, `classify_change` and `lessons_stamp`) is a function of kpy.kitchen_py that returns data. None of them writes
 os.environ or builds a child's command line (`child_args`, `child_env`): those belong to `gate` and to `brief-verify` without --list. test_classify_kpy_calls_leave_the_environment_alone pins that."""
 
+import json
 import os
 import re
 import sys
@@ -107,6 +108,91 @@ def acceptance_warnings(text, gates):
     return list(warned.values())
 
 
+def header_values(brief, key):
+    """Every `key: value` line in the brief's header (above its first `## ` section), in order."""
+    out = []
+    for line in read_text(brief).split('\n'):
+        if line.startswith('## '):
+            break
+        if line.startswith(f'{key}:'):
+            out.append(line[len(key) + 1 :].strip())
+    return out
+
+
+def overlay_directives(brief):
+    """The brief's `with:` ids and its `without:` (id, reason) pairs; the reason follows an em dash or `--`."""
+    with_ids = tuple(
+        i.strip()
+        for v in header_values(brief, 'with')
+        for i in v.split(',')
+        if i.strip()
+    )
+    without = []
+    for v in header_values(brief, 'without'):
+        parts = re.split(r'\s+(?:—|--)\s+', v, maxsplit=1)
+        oid, reason = parts[0], parts[1] if len(parts) > 1 else ''
+        without.append((oid.strip(), reason.strip()))
+    return with_ids, tuple(without)
+
+
+def compose_playbooks(store, brief, globs, config):
+    """The brief's composition from kitchen.py, or None when the brief names no playbook. An unmapped `playbook:` or a bad overlay directive refuses the classify here; no other reader re-selects."""
+    workflow = header_field(brief, 'playbook').strip()
+    if workflow in ('', 'none'):
+        return None
+    with_ids, without = overlay_directives(brief)
+    try:
+        return kpy.kitchen_py.compose(
+            kpy.invocation(store, config=config),
+            workflow,
+            globs,
+            with_ids=with_ids,
+            without=without,
+        ) | {'with': list(with_ids), 'without': [list(w) for w in without]}
+    except kpy.KitchenError as e:
+        kpy.explain(e)
+        raise KitchenPyFailed(
+            'kitchen.py compose failed; fix the brief header (playbook:, with:, without:)'
+        ) from None
+
+
+COMPOSITION_VERSION = 1
+
+
+def stamp_composition(store, brief, composition):
+    """Writes `<store>/compositions/<NNN>.json` for the brief and returns whether the bytes changed. Later readers use this file and never select again."""
+    number = re.match(r'\d+', os.path.basename(brief))
+    name = number.group(0) if number else os.path.splitext(os.path.basename(brief))[0]
+    path = Path(store) / 'compositions' / f'{name}.json'
+    text = (
+        json.dumps(
+            {'version': COMPOSITION_VERSION, **composition}, indent=2, sort_keys=True
+        )
+        + '\n'
+    )
+    if path.is_file() and read_text(path) == text:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f'.{path.name}.tmp')
+    write_text(tmp, text)
+    os.replace(tmp, path)
+    return True
+
+
+def composition_lines(composition):
+    """The classify output for a composition: the workflow and overlays, each exclusion, then the master's parts."""
+    ids = [o['id'] for o in composition['overlays']['selected']]
+    lines = [f'playbooks: {" + ".join([composition["workflow"], *ids])}']
+    lines += [
+        f'excluded: {o["id"]} ({o["reason"]})'
+        for o in composition['overlays']['excluded']
+    ]
+    for part in composition['roles']['master']:
+        first = next((x.strip() for x in part['text'].split('\n') if x.strip()), '')
+        lines.append(f'master: {part["id"]} {first[:100]}')
+    return lines
+
+
 def classify_brief(store, brief):
     """Stamps risk, profiles, verify and kitchen on the brief and prints the summary."""
     globs = scope_entries(brief, 'may')
@@ -118,6 +204,7 @@ def classify_brief(store, brief):
     elif header_field(brief, 'kitchen'):
         set_header(brief, 'kitchen', 'repo')
     cfg = brief_kitchen(brief)
+    composition = compose_playbooks(store, brief, globs, cfg[1] if cfg else None)
     try:
         data = kpy.kitchen_py.classify_change(
             kpy.invocation(store, config=cfg[1] if cfg else None),
@@ -162,6 +249,11 @@ def classify_brief(store, brief):
             'bookkeeping: the Scope is outside the repo; gates only, nothing to escalate'
         )
     sys.stdout.write(''.join(f'{line}\n' for line in lines))
+    if composition:
+        stamp_composition(store, brief, composition)
+        sys.stdout.write(
+            ''.join(f'{line}\n' for line in composition_lines(composition))
+        )
     first_reason = escalate[0] if escalate else ''
     if (
         risk == 'escalated'
