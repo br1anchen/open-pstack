@@ -11317,6 +11317,17 @@ class CoreTests(unittest.TestCase):
                     'verdicts/001-x-v3-packet.md': 'status: reject\n',
                 }
             ),
+            'a rejection after a malformed earlier reject': world(
+                files={
+                    'verdicts/001-x-v1.md': '# Verdict\n\nstatus: reject\nunits: 001\n',
+                    'verdicts/001-x-v2.md': V('reject'),
+                    'verdicts/001-x-v2-packet.md': '# Packet\n\nverifier-outcome: running\n',
+                },
+                verifying={
+                    'verdict': '{st}/verdicts/001-x-v2.md',
+                    'packet': '{st}/verdicts/001-x-v2-packet.md',
+                },
+            ),
             'a rejected landing verdict': world(
                 files=verdict(V('reject', units='landing'), 'verdicts/landing-v1.md'),
                 verifying={
@@ -11390,6 +11401,10 @@ class CoreTests(unittest.TestCase):
             ),
             'a rejected verdict': (2, 'next: kitchen.sh revise'),
             'a second rejection of the unit': (2, 'next: second rejection of 001-x'),
+            'a rejection after a malformed earlier reject': (
+                2,
+                'next: kitchen.sh revise',
+            ),
             'a rejected landing verdict': (2, '--landing again'),
             'a rejected verdict with many findings': (2, '20. finding 20'),
             'an inconclusive verdict': (
