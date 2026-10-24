@@ -1226,6 +1226,52 @@ class ReadinessTests(unittest.TestCase):
     def test_the_lessons_file_the_master_commits_is_never_outside_scope(self):
         self.assertEqual(self.outside('.agents/LESSONS.md', 'other.txt'), ['other.txt'])
 
+    def switch_to_a_sibling_branch_after_dispatch(self):
+        """Dispatch at the tip of b1, then work on b2, a sibling forked from the same parent whose own commit predates the dispatch."""
+        self.git('switch', '-q', '-c', 'b1')
+        self.commit_at('one.txt', '2025-12-31T23:00:00Z')
+        dispatch_head = self.git('rev-parse', 'HEAD')
+        self.git('switch', '-q', '-c', 'b2', 'HEAD~1')
+        self.commit_at('two.txt', '2025-12-31T23:30:00Z')
+        pair = self.store / 'pair.json'
+        doc = json.loads(pair.read_text())
+        doc['dispatch'].update({'head': dispatch_head, 'at': '2026-01-01T00:00:00Z'})
+        pair.write_text(json.dumps(doc))
+        self.git('switch', '-q', 'b1')
+        self.git('switch', '-q', 'b2')
+
+    def commit_at(self, name, when):
+        (self.cwd / name).parent.mkdir(parents=True, exist_ok=True)
+        (self.cwd / name).write_text(name)
+        self.git('add', name)
+        subprocess.run(
+            ['git', 'commit', '-q', '-m', name],
+            cwd=self.cwd,
+            env={**self.env, 'GIT_COMMITTER_DATE': when},
+            check=True,
+            capture_output=True,
+        )
+
+    def test_a_branch_switch_after_dispatch_counts_only_the_commits_made_since(self):
+        self.scoped_brief('001-first', 'src/**')
+        self.switch_to_a_sibling_branch_after_dispatch()
+        self.commit_at('src/x.py', '2026-01-01T00:01:00Z')
+        out = self.wait(4)
+        self.assertNotIn('outside scope:', out)
+        self.assertIn(
+            "touched: 1 files, 1 commits since dispatch (HEAD left the dispatch head's history; counting commits made since dispatch)\n  src/x.py",
+            out,
+        )
+
+    def test_a_file_committed_since_a_branch_switch_is_still_outside_scope(self):
+        self.scoped_brief('001-first', 'src/**')
+        self.switch_to_a_sibling_branch_after_dispatch()
+        self.commit_at('other.txt', '2026-01-01T00:01:00Z')
+        out = self.wait(4)
+        self.assertIn('outside scope: 1\n  other.txt', out)
+        self.assertNotIn('one.txt', out)
+        self.assertNotIn('two.txt', out)
+
     def steer(self, k, kind, effect, supersedes='none'):
         f = self.store / f'steers/001-first-s{k}.md'
         f.parent.mkdir(exist_ok=True)

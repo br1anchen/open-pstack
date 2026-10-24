@@ -359,18 +359,40 @@ def progress_section(store, interval, now, cwd, head, run):
     return lines, stale, tag
 
 
-def touched_section(store, brief, seq, cwd, head):
+def commits_since(cwd, head, since):
+    """(files, count) of the non-merge commits of head..HEAD committed at or after the epoch since."""
+    log = git.out(
+        cwd, 'log', '--no-merges', '--format=%x00%ct', '--name-only', f'{head}..HEAD'
+    )
+    files, count = [], 0
+    for record in (log or '').split('\0')[1:]:
+        stamp, _, names_ = record.partition('\n')
+        if since is None or int(stamp) >= since:
+            count += 1
+            files += [n for n in names_.split('\n') if n]
+    return files, count
+
+
+def touched_section(store, brief, seq, cwd, head, since=None):
     """(lines, outside) of the files changed since dispatch: those in the tree's status or committed since the head, how many commits, and the files
-    outside the brief's Scope and the steers' scope effects (the lessons file the master commits in the shared tree is never outside)."""
+    outside the brief's Scope and the steers' scope effects (the lessons file the master commits in the shared tree is never outside). When HEAD
+    is not a descendant of the head (the sidekick switched branch or rebased), only the commits made since the dispatch epoch count."""
     touched = status_paths(cwd)
     commits = 0
-    if head:
+    moved = ''
+    if head and not git.ok(cwd, 'merge-base', '--is-ancestor', head, 'HEAD'):
+        files, commits = commits_since(cwd, head, since)
+        touched += files
+        moved = " (HEAD left the dispatch head's history; counting commits made since dispatch)"
+    elif head:
         diff = git.out(cwd, 'diff', '--name-only', f'{head}..HEAD')
         touched += diff.split('\n') if diff else []
         counted = git.out(cwd, 'rev-list', '--count', f'{head}..HEAD')
         commits = int(counted) if counted is not None and counted.isdigit() else 0
     touched = sort_u(touched)
-    lines = [f'touched: {len(touched)} files, {commits} commits since dispatch\n']
+    lines = [
+        f'touched: {len(touched)} files, {commits} commits since dispatch{moved}\n'
+    ]
     lines += [f'  {f}\n' for f in touched[:30]]
     may = [
         re.sub(r'/$', '/*', p)
@@ -472,7 +494,7 @@ def checkin(ctx, store, interval=9, now=None) -> CheckIn | None:
     if floor_note:
         notices.append(f'note: {floor_note}\n')
         out.append(notices[-1])
-    lines, outside = touched_section(store, brief, seq, cwd, head)
+    lines, outside = touched_section(store, brief, seq, cwd, head, since)
     out += lines
     lines, objected, blocking = steers_section(store, brief, seq)
     out += lines

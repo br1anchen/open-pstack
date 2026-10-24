@@ -134,6 +134,8 @@ not continuously, and corrects direction, not keystrokes.
   minutes by default) when the sidekick is still working, with a digest:
   elapsed against the timebox, the progress lines not yet seen, files touched
   and which fall outside Scope, commits since dispatch, and steer counts.
+  When the sidekick switched branch or rebased, so HEAD no longer descends from
+  the dispatch head, only the commits made since dispatch count as touched.
   That digest is all the master reads between reports; it reads the pane only
   when the digest marks the log `STALE`.
 - A steer is a mid-brief correction from the master: `pair.sh new-steer`,
