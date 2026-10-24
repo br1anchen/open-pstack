@@ -144,6 +144,21 @@ def brief_section(text: str, name: str) -> str:
     return ''
 
 
+def drop_brief_section(text: str, name: str) -> str:
+    """`text` without its `## <name>` sections, each cut leaving one newline in place of the section and the blank lines before it; a `## ` line inside a code fence neither starts nor ends one."""
+    lines = text.split('\n')
+    starts = section_headings(lines)
+    pieces: list[str] = []
+    pos = 0
+    for n, i in enumerate(starts):
+        if lines[i] == f'## {name}':
+            pieces.append('\n'.join(lines[pos:i]).rstrip('\n'))
+            pos = starts[n + 1] if n + 1 < len(starts) else len(lines)
+    if not pieces:
+        return text
+    return '\n'.join([*pieces, '\n'.join(lines[pos:])])
+
+
 def replace_brief_section(text: str, name: str, body: str) -> str:
     """`text` with the body of its first `## <name>` section replaced by `body`; unchanged when it has no such section."""
     lines = text.split('\n')

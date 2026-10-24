@@ -7074,6 +7074,65 @@ esac
         brief.write_text(self.FENCED_PART + 'real text\n')
         self.assertTrue(section_has_text(str(brief), '## Handoff'))
 
+    def test_stamping_lessons_leaves_a_playbook_part_holding_a_fenced_lessons_heading_intact(
+        self,
+    ):
+        self.write(
+            '.agents/LESSONS.md',
+            '# Kitchen lessons\n\n'
+            '## L001: Every write to the store clears the cache.\n\nstatus: active\nkind: reject\nclass: verify\n'
+            'layer: verify\narea: src\nevidence:\n- 2026-10-01 run-a 001: stale cache\n\n',
+        )
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        part = '````md\n## Lessons\n\n- L099 FAKE\n\n## Other\n````\n'
+        b.write_text(
+            b.read_text().replace('## Scope', f'## Notes\n\n{part}\n## Scope', 1)
+        )
+        self.dispatch(b)
+        self.dispatch(b)
+        text = b.read_text()
+        self.assertIn(part, text)
+        self.assertEqual(text.count('\n## Lessons\n'), 2)
+        real = text.rsplit('\n## Lessons\n', 1)[1]
+        self.assertIn('- L001 (', real)
+        self.assertNotIn('FAKE', real)
+
+    def test_classify_warns_when_a_nested_fence_swallows_acceptance_and_verify(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        nested = (
+            '## Notes\n\n```md\n## Acceptance\n\n- FAKE\n\n'
+            '## Verify\n\n```bash\nFAKE\n```\n```\n\n'
+        )
+        text = b.read_text().replace('## Scope', nested + '## Scope', 1)
+        b.write_text(text)
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertRegex(
+            out,
+            r'warn: Acceptance reads empty: its heading at line \d+ sits inside the code fence opened at line \d+',
+        )
+        self.assertIn('warn: Verify reads empty', out)
+        b.write_text(
+            text.replace('```bash', '````bash').replace('```\n```', '```\n````')
+        )
+        self.assertNotIn(
+            'reads empty', self.run_sh('classify', str(self.store), str(b))
+        )
+
+    def test_dispatch_refuses_a_playbook_part_that_leaves_a_fence_open_end_to_end(self):
+        self.use_overlays()
+        toml = self.repo / '.agents/playbooks/rust-engine.toml'
+        toml.write_text(
+            toml.read_text().replace(
+                'Check error paths', '```bash\\nnever closed. Check error paths', 1
+            )
+        )
+        self.commit('open fence')
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        out = self.dispatch(b, code=2, timeout=60)
+        self.assertIn(
+            'playbook part error-model (verifier) leaves a code fence open', out
+        )
+
     def test_dispatch_refuses_a_playbook_part_that_leaves_a_fence_open(self):
         self.kitchen_variant().load_kitchen_core()
         from kitchen_core.playbook_delivery import OpenFence, refuse_open_fences

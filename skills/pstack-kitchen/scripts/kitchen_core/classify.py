@@ -23,7 +23,7 @@ from pstack_core.store import (
 )
 
 from . import kpy
-from .landing import section
+from .landing import playbooks, section
 
 ACCEPTANCE_COMMAND = re.compile(r'`((?:git|python3|test|grep|awk|uv|bash) [^`\n]+)`')
 
@@ -212,6 +212,25 @@ def composition_lines(composition):
     return lines
 
 
+def swallowed_headings(text):
+    """A `warn:` line for each of Acceptance and Verify that reads empty because its heading sits inside a code fence, naming the heading's line and the line the fence opens on."""
+    lines = text.split('\n')
+    inside, _ = playbooks().scan_fences(lines)
+    found = []
+    for name in ('Acceptance', 'Verify'):
+        at = next((i for i, x in enumerate(lines) if x == f'## {name}'), None)
+        if at is None or section(text, name).strip():
+            continue
+        if at in inside:
+            opener = at
+            while opener - 1 in inside:
+                opener -= 1
+            found.append(
+                f'warn: {name} reads empty: its heading at line {at + 1} sits inside the code fence opened at line {opener + 1}; close or remove that fence'
+            )
+    return found
+
+
 def classify_brief(store, brief):
     """Stamps risk, profiles, verify and kitchen on the brief and prints the summary."""
     globs = scope_entries(brief, 'may')
@@ -242,6 +261,8 @@ def classify_brief(store, brief):
     set_header(brief, 'profiles', ', '.join(profiles) or 'none')
     set_header(brief, 'verify', verify_line)
     sys.stdout.write(f'risk: {risk}\n')
+    for line in swallowed_headings(read_text(brief)):
+        sys.stdout.write(f'{line}\n')
     try:
         picked = kpy.kitchen_py.lessons_stamp(
             kpy.invocation(store, config=cfg[1] if cfg else None), Path(brief)

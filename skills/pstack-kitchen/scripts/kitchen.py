@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
+import functools
 import hashlib
 import importlib.util
 import json
@@ -3472,12 +3473,7 @@ def stamp_lessons(brief: Path, path: Path) -> list[Lesson]:
         and overlaps(x.fields.get('area', ''), dirs)
     ][:BRIEF_LESSONS]
     before = brief.read_text()
-    text = (
-        re.sub(r'\n*^## Lessons\n(?:(?!## ).*\n?)*', '\n', before, flags=re.M).rstrip(
-            '\n'
-        )
-        + '\n'
-    )
+    text = playbooks_module().drop_brief_section(before, 'Lessons').rstrip('\n') + '\n'
     if picked:
         text += (
             '\n## Lessons\n\nTrouble this area met in earlier runs (kitchen.py lessons). Follow each; the\n'
@@ -3958,6 +3954,7 @@ def playbook_target_tokens(inv: Invocation) -> int:
     return open_kitchen(inv)[1].playbook_target_tokens
 
 
+@functools.cache
 def playbooks_module():
     """playbooks.py, loaded by path: it sits beside this file and is not a package."""
     spec = importlib.util.spec_from_file_location(
