@@ -1,6 +1,8 @@
 """run.py fails a test that outlives its timeout and kills what the test started."""
 
+import ctypes
 import os
+import select
 import signal
 import sys
 import tempfile
@@ -40,6 +42,18 @@ def gone(pid):
         return True
 
 
+def pidfd_open(pid):
+    # os.pidfd_open is missing from some Python builds on kernels that have it.
+    if hasattr(os, 'pidfd_open'):
+        return os.pidfd_open(pid)
+    SYS_pidfd_open = 434  # the same number on every Linux architecture
+    fd = ctypes.CDLL(None, use_errno=True).syscall(SYS_pidfd_open, pid, 0)
+    if fd < 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
+    return fd
+
+
 def kill_quietly(pid):
     try:
         os.kill(pid, signal.SIGKILL)
@@ -71,6 +85,16 @@ class RunOneTests(unittest.TestCase):
         )
         pid = int(self.pidfile.read_text())
         self.addCleanup(kill_quietly, pid)
+        # The kernel ends the killed child asynchronously, so wait for its exit
+        # on a pidfd; 30 s is generous for a loaded gate and costs nothing when
+        # the child is already gone.
+        try:
+            fd = pidfd_open(pid)
+        except ProcessLookupError:
+            fd = None
+        if fd is not None:
+            self.addCleanup(os.close, fd)
+            select.select([fd], [], [], 30)
         self.assertTrue(gone(pid))
 
     def test_a_test_inside_its_timeout_passes(self):
