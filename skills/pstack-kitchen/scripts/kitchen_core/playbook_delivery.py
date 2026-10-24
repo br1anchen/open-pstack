@@ -2,8 +2,9 @@
 
 import json
 import os
+import sys
 
-from pstack_core.errors import Die, PairError
+from pstack_core.errors import Die, Exit, PairError
 from pstack_core.store import read_text, write_text
 
 from . import kpy
@@ -11,6 +12,13 @@ from .classify import brief_kitchen, composition_path, unit_number
 from .landing import playbooks
 
 BEFORE = ('## Report', '## Lessons')
+PLAN_SECTION = '## Playbook (plan blocks)'
+PLAN_BEFORE = (
+    '## Verification',
+    '## Risks',
+    '## Open questions',
+    '## Disagreements resolved',
+)
 ROLES = ('master', 'sidekick', 'consultant', 'verifier')
 
 
@@ -22,11 +30,11 @@ def read_composition(store, unit):
     return json.loads(read_text(path))
 
 
-def put_section(text, section):
-    """The brief text with its `## Playbook:` section replaced by `section` (removed when empty). A new section goes before `## Report`, so the sidekick reads its parts before the report instructions, else before `## Lessons`, else at the end."""
+def put_section(text, section, prefix='## Playbook:', before=BEFORE):
+    """The brief text with its `## Playbook:` section replaced by `section` (removed when empty). A new section goes before `## Report`, so the sidekick reads its parts before the report instructions, else before `## Lessons`, else at the end. A plan names its own heading `prefix` and the headings `before` which a new section goes."""
     lines = text.split('\n')
     starts = playbooks().section_headings(lines)
-    own = next((i for i in starts if lines[i].startswith('## Playbook:')), None)
+    own = next((i for i in starts if lines[i].startswith(prefix)), None)
     body = section.rstrip('\n').split('\n') + [''] if section else []
     if own is not None:
         end = next((i for i in starts if i > own), len(lines))
@@ -34,7 +42,7 @@ def put_section(text, section):
         return '\n'.join(lines[:own] + (body if tail else body[:-1]) + tail)
     if not section:
         return text
-    for title in BEFORE:
+    for title in before:
         at = next((i for i in starts if lines[i] == title), None)
         if at is not None:
             return '\n'.join(lines[:at] + body + lines[at:])
@@ -64,10 +72,10 @@ class OpenFence(PairError):
     code = 2
 
 
-def refuse_open_fences(composition):
-    """Dies when a part delivered to the sidekick or the verifier leaves a code fence open: it would hide the brief's sections after it."""
+def refuse_open_fences(composition, roles=('sidekick', 'verifier')):
+    """Dies when a part delivered to one of `roles` leaves a code fence open: it would hide the sections after it."""
     pb = playbooks()
-    for role in ('sidekick', 'verifier'):
+    for role in roles:
         for part in composition['roles'].get(role) or []:
             if pb.scan_fences(part['text'].split('\n'))[1] is not None:
                 raise OpenFence(
@@ -93,6 +101,68 @@ def deliver(store, brief):
         pb.estimate_tokens(section),
         len(pending),
     )
+
+
+def plan_context(store):
+    """The overlays and source roots a plan's `with:` ids resolve against: the kitchen's own when the store has a run, else none."""
+    pb = playbooks()
+    if not os.path.isfile(f'{store}/pair.json'):
+        return [], pb.default_roots()
+    return kpy.call(kpy.kitchen_py.kitchen_overlays, kpy.invocation(store))
+
+
+def render_plan_blocks(blocks, compositions):
+    """The `## Playbook (plan blocks)` section: per block the consultant's and then the master's parts, each part once with the roles it is for, its text whole."""
+    pb = playbooks()
+    lines = [
+        PLAN_SECTION,
+        '',
+        "Written by `kitchen.sh discuss` from each Steps block's `playbook:` and `with:`; edit those lines, not this section.",
+        '',
+    ]
+    for block, composition in zip(blocks, compositions, strict=True):
+        ids = [o['id'] for o in composition['overlays']['selected']]
+        lines += [f'### Block {block.number}: {" + ".join([block.playbook, *ids])}', '']
+        shown: dict[tuple[str, str], list] = {}
+        for role in ('consultant', 'master'):
+            for part in composition['roles'].get(role) or []:
+                entry = shown.setdefault((part['id'], part['text']), [[], part])
+                entry[0].append(role)
+        if not shown:
+            lines += ['No consultant or master parts.', '']
+        for roles, part in shown.values():
+            lines += [
+                f'#### {part["id"]} ({", ".join(roles)})',
+                '',
+                pb.demote_headings(part['text']).strip(),
+                '',
+            ]
+    return '\n'.join(lines)
+
+
+def deliver_plan_blocks(store, plan):
+    """Puts the consultant's and master's parts of a contract-2 plan's blocks into the plan, writing only when the bytes change. Returns (blocks, tokens), or None for a plan without `contract: 2` (a warning, no section). Dies with status 2, a line per problem, for a block that names no playbook or an unmapped one."""
+    pb = playbooks()
+    text = read_text(plan)
+    if not pb.plan_contract(text):
+        sys.stdout.write('warn: plan has no contract: 2; no playbook section\n')
+        return None
+    blocks = pb.plan_blocks(text)
+    data = pb.load_map(pb.MAP_PATH)
+    if problems := pb.plan_problems(blocks, sorted(data['playbook'])):
+        raise Exit(2, ''.join(f'kitchen.sh: {plan}: {p}\n' for p in problems))
+    overlays, roots = plan_context(store)
+    compositions = []
+    for block in blocks:
+        try:
+            composition = pb.compose_plan(data, overlays, roots, block)
+        except pb.PlaybookError as e:
+            raise Die(f'{plan}: {e}', 2) from None
+        refuse_open_fences(composition, ('consultant', 'master'))
+        compositions.append(composition)
+    section = render_plan_blocks(blocks, compositions) if blocks else ''
+    write_if_changed(plan, put_section(text, section, PLAN_SECTION, PLAN_BEFORE))
+    return len(blocks), pb.estimate_tokens(section)
 
 
 def provenance(part):

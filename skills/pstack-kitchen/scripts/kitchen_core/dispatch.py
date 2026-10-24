@@ -22,7 +22,7 @@ from pstack_core.wait import default_signals
 
 from .classify import classify_brief
 from .landing import is_landing, land_check_problems
-from .playbook_delivery import deliver
+from .playbook_delivery import deliver, deliver_plan_blocks
 from .units import has_pair
 from .wait import block, log_checkin_wake, quiet_wait, refused
 
@@ -153,6 +153,11 @@ def discuss(ctx, args):
         raise Die(
             f'an escalated plan goes to the consultant too; start it: kitchen.sh consultant {store} --reason TEXT',
             5,
+        )
+    delivered = deliver_plan_blocks(store, plan)
+    if delivered:
+        sys.stdout.write(
+            f'playbook: {delivered[0]} plan blocks, ~{delivered[1]} tokens\n'
         )
     if not os.path.isfile(f'{store}/pair.json'):
         return send.discuss(ctx, list(args))

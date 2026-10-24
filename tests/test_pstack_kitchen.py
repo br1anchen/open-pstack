@@ -10147,6 +10147,93 @@ esac
         ]
         self.assertEqual([r[5] for r in rows], ['sidekick:agree,consultant:agree'])
 
+    def contract_plan(self, *blocks, contract='contract: 2\n'):
+        plan = self.consultant_plan('escalated')
+        steps = ''.join(f'{b}\n' for b in blocks)
+        plan.write_text(
+            f'# Plan 001: api\n\n{contract}risk: escalated\n\n## Goal\n\ng\n\n'
+            f'## Steps\n\n{steps}\n## Verification\n\nv\n'
+        )
+        return plan
+
+    def plan_prompts(self):
+        return (
+            (self.fake / 'calls.log').read_text().count('agent prompt demo-consultant')
+        )
+
+    def test_discuss_writes_each_blocks_consultant_and_master_parts_into_the_plan(
+        self,
+    ):
+        plan = self.contract_plan(
+            '1. First.\n   playbook: feature', '2. Second.\n   playbook: bug-fix'
+        )
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        self.assertRegex(out, r'playbook: 2 plan blocks, ~\d+ tokens')
+        text = plan.read_text()
+        self.assertEqual(text.count('## Playbook (plan blocks)'), 1)
+        self.assertLess(text.index('## Steps'), text.index('## Playbook (plan blocks)'))
+        self.assertLess(
+            text.index('## Playbook (plan blocks)'), text.index('## Verification')
+        )
+        self.assertIn('### Block 1: feature\n', text)
+        self.assertIn('### Block 2: bug-fix\n', text)
+        self.assertIn('#### feature.step-7 (consultant, master)\n', text)
+        self.assertEqual(text.count('#### feature.step-7 '), 1)
+        self.assertIn('#### feature.step-8 (master)\n', text)
+        self.assertNotIn('feature.step-1 (', text.split('### Block 2')[1])
+        self.assertIn('consultant_status: agree', out)
+
+    def test_an_unchanged_discuss_does_not_ask_an_answered_consultant_again(self):
+        plan = self.contract_plan('1. First.\n   playbook: feature')
+        self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        written = plan.read_bytes()
+        mtime = plan.stat().st_mtime_ns
+        self.assertEqual(self.plan_prompts(), 1)
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        self.assertEqual(plan.read_bytes(), written)
+        self.assertEqual(plan.stat().st_mtime_ns, mtime)
+        self.assertEqual(self.plan_prompts(), 1)
+        self.assertNotIn('sent PLAN', out)
+        self.assertIn('consultant_state: answered', out)
+
+    def test_discuss_asks_again_when_a_block_changed(self):
+        plan = self.contract_plan('1. First.\n   playbook: feature')
+        self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        plan.write_text(
+            plan.read_text().replace('playbook: feature', 'playbook: bug-fix')
+        )
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        self.assertIn('sent PLAN 001-api.md to consultant', out)
+        self.assertIn('### Block 1: bug-fix\n', plan.read_text())
+        self.assertEqual(self.plan_prompts(), 2)
+
+    def test_discuss_refuses_a_block_with_no_playbook_before_anything_is_sent(self):
+        plan = self.contract_plan('1. First.\n   playbook: feature', '2. Second.')
+        before = plan.read_bytes()
+        out = self.run_sh('discuss', str(self.store), str(plan), code=2)
+        self.assertEqual(out.count('Steps block'), 1)
+        self.assertIn('Steps block 2 names no playbook:', out)
+        self.assertEqual(plan.read_bytes(), before)
+        self.assertEqual(self.plan_prompts(), 0)
+
+    def test_discuss_refuses_an_unmapped_playbook_with_a_line_per_block(self):
+        plan = self.contract_plan(
+            '1. First.\n   playbook: old-label', '2. Second.\n   playbook: other'
+        )
+        out = self.run_sh('discuss', str(self.store), str(plan), code=2)
+        self.assertIn("Steps block 1: playbook 'old-label' is not mapped", out)
+        self.assertIn("Steps block 2: playbook 'other' is not mapped", out)
+        self.assertIn('mapped: ', out)
+        self.assertEqual(self.plan_prompts(), 0)
+
+    def test_discuss_warns_about_a_plan_without_a_contract_and_sends_it_as_before(self):
+        plan = self.contract_plan('1. First.\n   playbook: feature', contract='')
+        before = plan.read_bytes()
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        self.assertIn('warn: plan has no contract: 2; no playbook section', out)
+        self.assertIn('sent PLAN 001-api.md to consultant', out)
+        self.assertEqual(plan.read_bytes(), before)
+
     def test_a_plan_dropped_by_an_idle_recipient_is_sent_once_more(self):
         plan = self.consultant_plan('escalated')
         (self.fake / 'prompt-drop').touch()

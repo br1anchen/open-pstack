@@ -951,18 +951,25 @@ class PlanBlock:
     with_ids: tuple[str, ...]
 
 
-def plan_blocks(text: str) -> list[PlanBlock]:
-    """The Steps blocks of a plan that carries `contract: 2` in its header, read outside code fences; [] for a plan without that line."""
+def plan_contract(text: str) -> bool:
+    """Whether the plan's header (the lines before its first section, outside a code fence) carries `contract: 2`."""
     lines = text.split('\n')
     inside, _ = scan_fences(lines)
     starts = section_headings(lines)
-    header = lines[: starts[0] if starts else len(lines)]
-    if not any(
+    return any(
         (m := CONTRACT.fullmatch(x)) and m.group(1) == '2'
-        for i, x in enumerate(header)
+        for i, x in enumerate(lines[: starts[0] if starts else len(lines)])
         if i not in inside
-    ):
+    )
+
+
+def plan_blocks(text: str) -> list[PlanBlock]:
+    """The Steps blocks of a plan that carries `contract: 2` in its header, read outside code fences; [] for a plan without that line."""
+    if not plan_contract(text):
         return []
+    lines = text.split('\n')
+    inside, _ = scan_fences(lines)
+    starts = section_headings(lines)
     steps = next((i for i in starts if lines[i] == '## Steps'), None)
     if steps is None:
         return []
