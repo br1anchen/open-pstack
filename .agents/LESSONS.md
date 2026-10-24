@@ -156,13 +156,14 @@ evidence:
 
 ## L010: Before the report, run each Acceptance line as written and paste its output; a line that holds only in spirit, or a check that over-matches, goes to the master as a question.
 
-status: active
+status: promoted
 kind: reject
 class: verify
 layer: verify
 area: skills/pstack-kitchen
 since: 2026-10-23
 active: 2026-10-24T05:56:14Z
+note: a27c399 kitchen.sh classify warns when an Acceptance command is not in Verify
 
 evidence:
 
