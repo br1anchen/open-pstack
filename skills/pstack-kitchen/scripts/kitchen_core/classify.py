@@ -82,6 +82,15 @@ def normal_form(command):
     return ' '.join(command.replace('git diff --exit-code', 'git diff').split())
 
 
+def runs_in(command, verify):
+    """Whether `command` occurs in `verify` whole, with a command boundary on each side."""
+    return bool(
+        re.search(
+            r'(?<![^\s(;|&"\'])' + re.escape(command) + r'(?![^\s);|&"\'])', verify
+        )
+    )
+
+
 def acceptance_warnings(text, gates):
     """One warning per backquoted command in Acceptance that neither Verify nor a gate runs, so `finish` would not rerun it."""
     verify = normal_form(section(text, 'Verify'))
@@ -89,7 +98,7 @@ def acceptance_warnings(text, gates):
     warned = {}
     for command in ACCEPTANCE_COMMAND.findall(section(text, 'Acceptance')):
         normal = normal_form(command)
-        if normal in covered or normal in verify:
+        if normal in covered or runs_in(normal, verify):
             continue
         warned.setdefault(
             normal,

@@ -4281,6 +4281,32 @@ esac
         )
         self.assertEqual(len(twice), 1)
 
+    def test_an_acceptance_command_counts_as_run_only_at_a_command_boundary(self):
+        seqs = iter(f'{n:03d}' for n in range(1, 100))
+
+        def warns(command, verify):
+            return self.acceptance_warns([f'- `{command}`'], verify, next(seqs))
+
+        self.assertEqual(len(warns('test -f a', ['test -f ab'])), 1)
+        self.assertEqual(len(warns('test -f a', ['pretest -f a'])), 1)
+        self.assertEqual(len(warns('bash a.sh', ['bash a.sh.bak'])), 1)
+        for verify in (
+            'test -f a',
+            'test -f a && echo ok',
+            'test -f a; true',
+            'test -f a | cat',
+            'true && test -f a',
+            'true;test -f a&',
+            'true|test -f a|cat',
+            'test -z "$(test -f a)"',
+            "echo 'test -f a'",
+            'echo "test -f a"',
+            '(test -f a)',
+        ):
+            with self.subTest(verify=verify):
+                self.assertEqual(warns('test -f a', [verify]), [])
+        self.assertEqual(warns('test -f a', ['test -f b', 'test -f a']), [])
+
     def test_dispatch_and_queue_print_the_acceptance_warning(self):
         acc = ['- `bash check.sh`']
         out = self.dispatch(
