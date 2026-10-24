@@ -39,6 +39,13 @@ differ:
   notification: an idle turn there is a stalled kitchen. The same holds for
   any long command (a bench, a sweep): wait on it in the foreground, never by
   ending your turn on a Monitor or background shell.
+- **The brief's `## Playbook:` section is your part of the composed playbook.**
+  Dispatch writes it into the brief, before `## Report`, from the unit's stamped
+  composition: your role's authority, an inventory of every part you own, then
+  each part's text. A part that did not fit the token target is listed under
+  `Pending reads`: run its `kitchen.sh playbook-part <store> <NNN> sidekick
+  <part-id>` (it prints the stored text and where it came from, never the live
+  source) and read it before you act on that part.
 - **Policy rules are the repo's.** A forbid finding names what to use
   instead; use it. Opting a line out (`kitchen-allow: <id>` with the reason)
   is for a case the rule did not foresee, and the master reads every one.
