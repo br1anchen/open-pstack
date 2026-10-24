@@ -21,6 +21,9 @@ from pstack_core.store import (
 )
 
 from . import kpy
+from .landing import section
+
+ACCEPTANCE_COMMAND = re.compile(r'`((?:git|python3|test|grep|awk|uv|bash) [^`\n]+)`')
 
 CLASSIFY_FAILED = 'kitchen.py classify failed; run kitchen.py validate in the repo'
 
@@ -75,6 +78,26 @@ def brief_kitchen(brief):
     return [] if snap in ('', 'repo') else ['--config', snap]
 
 
+def normal_form(command):
+    return ' '.join(command.replace('git diff --exit-code', 'git diff').split())
+
+
+def acceptance_warnings(text, gates):
+    """One warning per backquoted command in Acceptance that neither Verify nor a gate runs, so `finish` would not rerun it."""
+    verify = normal_form(section(text, 'Verify'))
+    covered = {normal_form(g) for g in gates}
+    warned = {}
+    for command in ACCEPTANCE_COMMAND.findall(section(text, 'Acceptance')):
+        normal = normal_form(command)
+        if normal in covered or normal in verify:
+            continue
+        warned.setdefault(
+            normal,
+            f'Acceptance runs {command}, which Verify does not; add it to Verify (wrap a "prints nothing" check as test -z "$(...)")',
+        )
+    return list(warned.values())
+
+
 def classify_brief(store, brief):
     """Stamps risk, profiles, verify and kitchen on the brief and prints the summary."""
     globs = scope_entries(brief, 'may')
@@ -121,6 +144,10 @@ def classify_brief(store, brief):
         *(f'escalate: {reason}' for reason in escalate),
     ]
     lines += [f'warn: {warning}' for warning in data.get('warnings') or []]
+    lines += [
+        f'warn: {warning}'
+        for warning in acceptance_warnings(read_text(brief), data.get('gates') or [])
+    ]
     if data.get('bookkeeping'):
         lines.append(
             'bookkeeping: the Scope is outside the repo; gates only, nothing to escalate'

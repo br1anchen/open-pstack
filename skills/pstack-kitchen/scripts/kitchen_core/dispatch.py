@@ -107,8 +107,12 @@ def queue(ctx, args):
         and os.path.isfile(args[1])
         and not is_landing(args[1])
     ):
-        with contextlib.redirect_stdout(io.StringIO()):
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
             classify_brief(args[0], args[1])
+        for line in captured.getvalue().splitlines(keepends=True):
+            if line.startswith('warn: '):
+                sys.stdout.write(line)
     return core_queue(ctx, args)
 
 

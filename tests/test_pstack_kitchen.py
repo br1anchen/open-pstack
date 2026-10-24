@@ -3433,7 +3433,16 @@ esac
     def state(self):
         return json.loads((self.store / 'pair.json').read_text())
 
-    def brief(self, seq, slug, scope, playbook='feature', plan='none'):
+    def brief(
+        self,
+        seq,
+        slug,
+        scope,
+        playbook='feature',
+        plan='none',
+        acceptance=None,
+        verify=None,
+    ):
         path = self.store / 'briefs' / f'{seq}-{slug}.md'
         text = (skill / 'references/brief-template.md').read_text()
         text = (
@@ -3457,6 +3466,22 @@ esac
             '- {{one repo-relative path or glob per line, in full (never relative to the line above); `quote` a path that contains a comma; a note may follow after " — ". The kitchen classifies the unit from these lines.}}',
             '\n'.join(f'- {g} — scope' for g in scope),
         )
+        if acceptance is not None:
+            text = re.sub(
+                r'(## Acceptance\n\n).*?(\n## )',
+                lambda m: m[1] + '\n'.join(acceptance) + '\n' + m[2],
+                text,
+                count=1,
+                flags=re.DOTALL,
+            )
+        if verify is not None:
+            text = re.sub(
+                r'(## Verify\n\n```bash\n).*?(\n```)',
+                lambda m: m[1] + '\n'.join(verify) + m[2],
+                text,
+                count=1,
+                flags=re.DOTALL,
+            )
         text = re.sub(r'\{\{[^}]*\}\}', 'x', text, flags=re.DOTALL)
         path.write_text(text)
         return path
@@ -4198,6 +4223,82 @@ esac
         self.assertNotIn('warn:', covered)
         out = self.dispatch(self.brief('004', 'disp', ['src/util.py']))
         self.assertIn('warn: Scope covers src/util.py', out)
+
+    ACCEPTANCE_071 = [
+        '- `git grep -n -E "PAIR_WAIT_|PAIR_QUIET_WAIT|quiet_flagged|has_checkin|SWALLOWED|FLAGGED|unowned:" -- skills`',
+        '- `git grep -n "captured(" -- skills/pstack-kitchen/scripts/kitchen_core/wait.py skills/pstack-kitchen/scripts/kitchen_core/dispatch.py`',
+        '- `python3 tests/spec_gen.py`',
+    ]
+
+    def acceptance_warns(self, acceptance, verify, seq='001'):
+        brief = self.brief(
+            seq, 'acc', ['src/util.py'], acceptance=acceptance, verify=verify
+        )
+        out = self.run_sh('classify', str(self.store), str(brief))
+        return [l for l in out.splitlines() if l.startswith('warn: Acceptance')]
+
+    def test_classify_warns_on_an_acceptance_command_verify_does_not_run(self):
+        warned = self.acceptance_warns(
+            self.ACCEPTANCE_071, ['python3 tests/run.py -k core']
+        )
+        self.assertEqual(len(warned), 3)
+        self.assertEqual(
+            warned[0],
+            'warn: Acceptance runs git grep -n -E "PAIR_WAIT_|PAIR_QUIET_WAIT|quiet_flagged|has_checkin|SWALLOWED|FLAGGED|unowned:" -- skills, '
+            'which Verify does not; add it to Verify (wrap a "prints nothing" check as test -z "$(...)")',
+        )
+        self.assertIn('git grep -n "captured("', warned[1])
+        self.assertIn('python3 tests/spec_gen.py,', warned[2])
+        fixed = [
+            'test -z "$(git grep -n -E "PAIR_WAIT_|PAIR_QUIET_WAIT|quiet_flagged|has_checkin|SWALLOWED|FLAGGED|unowned:" -- skills)"',
+            'test -z "$(git grep -n "captured(" -- skills/pstack-kitchen/scripts/kitchen_core/wait.py skills/pstack-kitchen/scripts/kitchen_core/dispatch.py)"',
+            'python3 tests/spec_gen.py --check',
+        ]
+        self.assertEqual(
+            self.acceptance_warns(self.ACCEPTANCE_071, fixed, seq='002'), []
+        )
+
+    def test_acceptance_commands_count_as_run_by_verify_or_a_gate(self):
+        diff = ['- `git diff --exit-code -- src`']
+        self.assertEqual(self.acceptance_warns(diff, ['git diff -- src']), [])
+        self.assertEqual(
+            self.acceptance_warns(
+                ['- `git diff -- src`'], ['git diff --exit-code -- src'], '002'
+            ),
+            [],
+        )
+        self.assertEqual(
+            self.acceptance_warns(['- `test ! -e FAIL`'], ['none'], '003'), []
+        )
+        self.assertEqual(
+            self.acceptance_warns(
+                ['- `checkin` and `CheckIn` and `gitx a`'], ['none'], '004'
+            ),
+            [],
+        )
+        twice = self.acceptance_warns(
+            ['- `bash a.sh`', '- again `bash  a.sh`'], ['none'], '005'
+        )
+        self.assertEqual(len(twice), 1)
+
+    def test_dispatch_and_queue_print_the_acceptance_warning(self):
+        acc = ['- `bash check.sh`']
+        out = self.dispatch(
+            self.brief('001', 'first', ['src/**'], acceptance=acc, verify=['none'])
+        )
+        self.assertIn('warn: Acceptance runs bash check.sh, which Verify does not', out)
+        self.generate_pair()
+        queued = self.brief(
+            '002',
+            'next',
+            ['src/util.py'],
+            acceptance=['- `bash q.sh`'],
+            verify=['none'],
+        )
+        (self.fake / 'agents/demo-sidekick').write_text('working claude\n')
+        out = self.run_sh('queue', str(self.store), str(queued))
+        self.assertIn('warn: Scope covers src/util.py', out)
+        self.assertIn('warn: Acceptance runs bash q.sh, which Verify does not', out)
 
     def test_an_escalated_plan_or_header_keeps_a_routine_scope_escalated(self):
         plan = self.store / 'plans/001-util.md'
