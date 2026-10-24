@@ -49,6 +49,29 @@ class TokenAuditTests(unittest.TestCase):
             },
         )
 
+    def test_a_session_that_starts_before_the_span_and_runs_into_it_is_not_counted(
+        self,
+    ):
+        result = audit()
+        self.assertIn('hhhhhhhh', {s['session'][:8] for s in result['ambiguous']})
+        self.assertEqual(result['roles']['sidekick']['sessions'], 1)
+
+    def test_the_final_usage_of_a_message_wins_over_a_partial_first_record(self):
+        # msg_2 is two records: output_tokens 5, then 30
+        self.assertEqual(audit()['roles']['sidekick']['billed']['output_tokens'], 210)
+
+    def test_a_skill_the_skill_tool_injects_and_a_document_cat_through_bash_are_loads(
+        self,
+    ):
+        documents = audit()['roles']['master']['documents']
+        self.assertEqual(documents['pstack-kitchen/SKILL.md']['chars'], 1013)
+        self.assertEqual(
+            documents['pstack-kitchen/references/master.md'],
+            {'loads': 1, 'chars': 400, 'tokens': 100, 'truncated': 0},
+        )
+        # injected 253 tokens x 2 later messages + cat 100 x 1
+        self.assertEqual(audit()['roles']['master']['exposure_tokens'], 606)
+
     def test_a_verifier_whose_prompt_names_no_role_is_assigned_by_its_session_id(self):
         verifier = audit()['roles']['verifier']
         self.assertEqual(verifier['sessions'], 1)
@@ -59,8 +82,9 @@ class TokenAuditTests(unittest.TestCase):
         self.assertEqual(
             {a['session'][:8]: a['reason'] for a in result['ambiguous']},
             {
-                'dddddddd': 'outside the store span',
+                'dddddddd': 'first record outside the store span',
                 'eeeeeeee': 'prompt names no store',
+                'hhhhhhhh': 'first record outside the store span',
             },
         )
         self.assertEqual(sum(r['sessions'] for r in result['roles'].values()), 3)

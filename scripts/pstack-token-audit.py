@@ -40,6 +40,9 @@ PLAYBOOK = re.compile(r'^(poteto-mode/playbooks/[^/]+\.md|pstack-tdd/SKILL\.md)$
 ROLE_PROMPT = re.compile(r'\btake the (master|sidekick|consultant|verifier) role\b')
 ROLE_PROMPT_LOOSE = re.compile(r'\bas (?:the )?(master|sidekick|consultant|verifier)\b')
 STORE_NAMED = re.compile(r'/runs/([\w.-]+)')
+BASH_READ = re.compile(
+    r'\b(?:cat|sed|head|tail|less|bat|nl)\b[^|;&\n]*?/skills/([^/\s]+)/(\S+?\.md)\b'
+)
 TRUNCATED = ('<persisted-output>', 'Output too large')
 
 
@@ -117,12 +120,24 @@ def block_text(content):
     return '\n'.join(b.get('text', '') for b in content if isinstance(b, dict))
 
 
+def document_read(block):
+    """(tool, `skill/relative.md`) for a tool_use block that reads a skill document, else None."""
+    tool, args = block.get('name'), block.get('input') or {}
+    if tool == 'Read':
+        found = SKILL_DOC.search(args.get('file_path', ''))
+    elif tool == 'Bash':
+        found = BASH_READ.search(args.get('command', ''))
+    elif tool == 'Skill':
+        return tool, f'{args.get("skill", "").rsplit(":", 1)[-1]}/SKILL.md'
+    else:
+        return None
+    return (tool, f'{found.group(1)}/{found.group(2)}') if found else None
+
+
 def read_session(path):
     session = Session(path)
-    reads = {}  # tool_use id -> file path of a Read
+    documents = {}  # tool_use id -> (tool, document) that call reads
     for line in path.read_text().splitlines():
-        if not line.strip():
-            continue
         try:
             record = json.loads(line)
         except json.JSONDecodeError:  # the line a live session is still writing
@@ -138,25 +153,31 @@ def read_session(path):
         message = record['message']
         content = message.get('content')
         if kind == 'assistant':
-            session.usage.setdefault(message['id'], message.get('usage') or {})
+            merged = session.usage.setdefault(message['id'], {})
+            for key, value in (message.get('usage') or {}).items():
+                if isinstance(value, int):
+                    merged[key] = max(merged.get(key, 0), value)
             for block in content if isinstance(content, list) else []:
-                if block.get('type') == 'tool_use' and block.get('name') == 'Read':
-                    reads[block['id']] = block['input'].get('file_path', '')
+                if block.get('type') == 'tool_use' and (read := document_read(block)):
+                    documents[block['id']] = read
         elif isinstance(content, str):
-            session.prompt = session.prompt or content
+            if not record.get('isMeta'):
+                session.prompt = session.prompt or content
         else:
+            delivered = []  # (document, text) pairs this record brings into the context
+            if read := documents.get(record.get('sourceToolUseID')):
+                delivered.append(
+                    (read[1], block_text(content))
+                )  # a Skill's injected text
             for block in content:
-                doc = SKILL_DOC.search(reads.get(block.get('tool_use_id'), ''))
-                if block.get('type') == 'tool_result' and doc:
-                    text = block_text(block.get('content', ''))
-                    session.loads.append(
-                        Load(
-                            f'{doc.group(1)}/{doc.group(2)}',
-                            len(text),
-                            any(m in text for m in TRUNCATED),
-                            len(session.usage),
-                        )
-                    )
+                read = documents.get(block.get('tool_use_id'))
+                if block.get('type') == 'tool_result' and read and read[0] != 'Skill':
+                    delivered.append((read[1], block_text(block.get('content', ''))))
+            for name, text in delivered:
+                truncated = any(m in text for m in TRUNCATED)
+                session.loads.append(
+                    Load(name, len(text), truncated, len(session.usage))
+                )
     for load in session.loads:
         load.after = len(session.usage) - load.after
     return session
@@ -172,6 +193,13 @@ def candidate_dirs(store, projects):
             or any(directory.name.startswith(p) for p in prefixes)
         ):
             yield from sorted(directory.glob('*.jsonl'))
+
+
+def in_store_tree(store, session):
+    """Whether the session ran in the store's repo or in a verifier scratch worktree for its slug."""
+    if f'/pstack-scratch/runs-{store.slug}-' in session.cwd:
+        return True
+    return any(session.cwd == r or session.cwd.startswith(f'{r}/') for r in store.roots)
 
 
 def prompt_role(prompt):
@@ -200,8 +228,8 @@ def classify(store, session):
     named = names_store(store, session.prompt)
     if not named and names_other_store(store, session.prompt):
         return 'other', ''
-    if session.first > store.end or session.last < store.start:
-        return 'ambiguous', 'outside the store span'
+    if not store.start <= session.first <= store.end:
+        return 'ambiguous', 'first record outside the store span'
     role = prompt_role(session.prompt)
     if not named:
         return 'ambiguous', 'prompt names no store'
@@ -247,6 +275,8 @@ def audit(store_path, projects):
     assigned, ambiguous, other = [], [], 0
     for path in candidate_dirs(store, projects):
         session = read_session(path)
+        if not in_store_tree(store, session):
+            continue
         role, how = classify(store, session)
         if role == 'other':
             other += 1
