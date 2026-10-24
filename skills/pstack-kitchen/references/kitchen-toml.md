@@ -104,7 +104,8 @@ An overlay adds a repo's own standards to the playbook a brief names. It is a
 `<kitchen-file-stem>.playbooks/` beside the host kitchen file for a host
 kitchen, so each host kitchen has overlays of its own. A `<id>.md` beside it is
 narrative and is never read. The example is `rust-engine` from
-`tests/fixtures/playbooks/repo/.agents/playbooks/`:
+`tests/fixtures/playbooks/repo/.agents/playbooks/`, cut to its first part and
+with a `kitchen` text that stands on its own:
 
 ```toml
 schema = 1
@@ -121,8 +122,11 @@ source = { root = "repo", path = "CODING_STANDARDS.md" }
 select = "heading:Rust (Engine)/Errors"
 owners = ["sidekick", "verifier"]
 reviewed = "6b7c36b4f3ca"
-kitchen = { verifier = "Check error paths against this; it is the evidence standard, not new Acceptance." }
+kitchen = { verifier = "Check that every error path in the diff follows the repo's Rust error model. This is the evidence standard for the verdict, not new Acceptance." }
 ```
+
+Here the sidekick receives the selected section of `CODING_STANDARDS.md`
+as written, and the verifier receives the `kitchen` text in its place.
 
 | Key | Meaning |
 | --- | --- |
@@ -130,16 +134,16 @@ kitchen = { verifier = "Check error paths against this; it is the evidence stand
 | `id` | required, equal to the file name without `.toml` |
 | `title` | required, not empty |
 | `kind` | required: `domain`, `language`, `area` or `workflow` |
-| `applies` | globs; the overlay is selected when one matches a file in the brief's Scope. Default `[]` (selected only by `with:`) |
+| `applies` | list of globs; the overlay is selected when one matches a file in the brief's Scope. Default `[]` (selected only by `with:`) |
 | `tags` | strings, for the index. Default `[]` |
 | `combines` | workflow ids the overlay may combine with; each must be a workflow the map defines. Default `[]`, which means every workflow |
 | `[[part]]` | the texts it contributes, in order |
 | `.id` | required, not empty, unique in the overlay |
-| `.source` | required: `{ root, path }` with `root` one of `repo`, `skills` or `host` (`host` is the overlay directory of a host kitchen) |
-| `.select` | which section of the source, by exactly one match: `heading:A/B` (a heading path, ending at the last words), or `<kind>:<arg>` with kind `preamble`, `intro`, `lead`, `step`, `section`, `tail` or `after` (for example `step:3`), or `reply` with no argument. A selector that matches nothing or several is an error |
-| `.owners` | required, non-empty: the roles that receive the part |
-| `.reviewed` | the digest of the selected text; a source that changed since makes `validate` report a digest mismatch |
-| `.kitchen` | optional table of one extra text per role, each of them an owner |
+| `.source` | required: `{ root, path }`. `root` is `repo` (the repo root), `skills` (the skills directory) or `host` (the overlay directory of a host kitchen; a repo kitchen has no `host` root and reports `unknown source root`). `path` is relative, with no `..` and no backslash, and a symlink must resolve inside its root |
+| `.select` | required: which section of the source, by exactly one match. `heading:A/B` matches the heading whose path of headings ends in `A/B` (`heading:Errors` alone matches any heading with that title). The other kinds are `preamble:N`, `intro:N`, `lead:<Word>`, `step:N` or `step:<Section>/N`, `section:<Heading>`, `tail:N`, `after:<Lead>/N` and `reply` (no argument; every other kind needs one). A selector that matches nothing or several is an error |
+| `.owners` | required, non-empty, from `master`, `sidekick`, `consultant`, `verifier` and `kitchen`. The roles that receive the part; `compose` delivers to the four agent roles only |
+| `.reviewed` | required in practice: the first 12 hex characters of the sha256 of the selected text, normalised (trailing spaces cut, blank runs folded to one, ends trimmed). A missing or stale value is a digest mismatch, and the message prints the current value to copy; `kitchen.py playbooks index` lists the recorded values |
+| `.kitchen` | optional table keyed by agent role (`master`, `sidekick`, `consultant` or `verifier`), each key also an owner and each text not empty. For a role named there, the text replaces the selected source text in what that role receives; every other owner receives the source text |
 
 Any other key in an overlay or a part is an error.
 
@@ -151,16 +155,25 @@ names. Two optional header lines follow `playbook:` in the brief:
   reason, and a missing reason is an error.
 
 Naming an unknown id, naming the same id in `with:` and `without:`, or naming
-with `with:` an overlay that cannot be read or whose `combines` leaves out the
-brief's workflow is an error, and `classify` refuses the brief. An overlay
-selected by path that cannot be read or does not combine with the workflow is
-left out and reported, not an error. `classify` resolves the selection once
-and stamps it in `<store>/compositions/<NNN>.json`.
+with `with:` an overlay whose TOML cannot be read, whose `applies` is not a
+list of strings, or whose `combines` leaves out the brief's workflow is an
+error, and `classify` refuses the brief. An overlay selected by path is left
+out and reported, not an error, in two cases only: its TOML cannot be read or
+its `applies` is not a list of strings (reported `unusable`), or its `combines`
+leaves out the brief's workflow (reported `inapplicable`). Any other problem in
+a selected overlay (a stale `reviewed`, a bad selector, kind or owner, an
+unknown key, an unreadable source) makes `classify` refuse the brief, however
+the overlay was selected. Part ids share one namespace with the workflow's own
+parts and the other selected overlays: the same id with the same definition
+merges into one part that keeps every origin, and the same id with a different
+definition is an error. `classify` resolves the selection once and stamps it in
+`<store>/compositions/<NNN>.json`.
 
-`kitchen.py validate` and `doctor` report every structural problem of every
-overlay (schema, id, kind, lists, unknown keys, owners, combines, sources,
-selectors and digests), and `kitchen.py playbooks index` lists the overlays
-with their parts, owners, sources and digests.
+`kitchen.py validate`, `kitchen.py playbooks validate` and `doctor` report every
+structural problem of every overlay (schema, id, kind, lists, unknown keys,
+owners, combines, sources, selectors and digests); `doctor` also warns when an
+`applies` glob matches no tracked file. `kitchen.py playbooks index` lists the
+overlays with their parts, owners, sources and digests.
 
 ## Lanes
 
