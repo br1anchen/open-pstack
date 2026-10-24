@@ -36,6 +36,16 @@ work?", and then your pane closes.
    lines name which units have a clean verdict of their own. For each folded
    unit it carries a `## Acceptance: unit ...` section: prove every line of it
    at this tip, and answer each in the verdict's `Folded Acceptance` section.
+   A `## Playbook (what to prove)` section follows the Acceptance it serves
+   (each unit's, and for a landing the stack's, after the folded Acceptance).
+   It holds the verifier parts of the unit's stamped playbook composition,
+   whole and in order, each with its provenance line; a part that repeats for
+   another unit in the packet says `(also unit NNN)` instead. It is the
+   evidence standard for the Acceptance above and adds no criteria: answer
+   Acceptance line by line, citing evidence of the kind these parts name. A
+   landing packet opens it with the `[landing].mode` cap and ends it with the
+   parts of `opening-a-pr` and `shipping`; prove only what the mode allows.
+   A unit with no stored composition shows `playbook: <label> (not mapped)`.
    A check against the base (running the old code to compare) runs in a second
    scratch of its own (`kitchen.sh scratch <store> <id> --at <base>`), never in
    the one the gates use.
