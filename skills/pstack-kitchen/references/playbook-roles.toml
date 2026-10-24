@@ -30,6 +30,7 @@ reviewed = "537cb8336044"
 sidekick = "Reproduce it yourself on the matching surface via the repo's verification skill, even when a debug or instrumentation protocol says to ask the user to reproduce. If the control surface cannot reach the target, say why, specifically, in the report under Questions with status blocked, after driving it as far as it goes; the master asks the human. If it won't reproduce directly, synthesize the trigger, tighten conditions, or instrument until it fires."
 verifier = "Reproduce the original failure yourself on the matching surface at the unit's parent, then show it gone at the unit's head. A surface you cannot drive is reported inconclusive in the verdict with the specific reason; you never ask the human."
 
+# The verifier is not an owner: a hypothesis hunt leaves it nothing to check; it checks the mechanism at step 3.
 [[playbook.bug-fix.part]]
 id = "bug-fix.step-2"
 select = "step:2"
@@ -60,6 +61,9 @@ id = "bug-fix.step-5"
 select = "step:5"
 owners = ["sidekick", "verifier"]
 reviewed = "842691b3d4d5"
+
+[playbook.bug-fix.part.kitchen]
+verifier = "Check from the unit's commit range that the failing repro or test lands before the fix in history; where it does not, say so as a finding. Do not restage or edit commits."
 
 [[playbook.bug-fix.part]]
 id = "bug-fix.step-6"
@@ -133,6 +137,9 @@ id = "feature.step-6"
 select = "step:6"
 owners = ["sidekick"]
 reviewed = "66eb9034e61c"
+
+[playbook.feature.part.kitchen]
+sidekick = "Commit small, ordered units as new commits, each recorded with kitchen.sh step and green before the next. Never rebase or amend commits already recorded as steps unless the brief says so. Use the **sequence-verifiable-units** principle skill, building, verifying, and committing each small unit before the next."
 
 [[playbook.feature.part]]
 id = "feature.step-7"
@@ -236,7 +243,7 @@ reviewed = "89b976c07ae6"
 
 [playbook.refactoring.part.kitchen]
 master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
-sidekick = "Commit the structural slices as small ordered steps (a subtraction commit, then the reshape, then any follow-on cleanup), each recorded with kitchen.sh step and green before the next. Open a PR only when the brief says so."
+sidekick = "Order the structural slices as a subtraction commit, then the reshape, then any follow-on cleanup, shaped with the **sequence-verifiable-units** principle skill. Commit small, ordered units as new commits, each recorded with kitchen.sh step and green before the next. Never rebase or amend commits already recorded as steps unless the brief says so. Open a PR only when the brief says so."
 
 [[playbook.refactoring.part]]
 id = "refactoring.reply"
@@ -267,13 +274,13 @@ reviewed = "69ff13b77895"
 [[playbook.pstack-tdd.part]]
 id = "pstack-tdd.workflow-1"
 select = "step:Workflow/1"
-owners = ["sidekick", "verifier"]
+owners = ["sidekick"]
 reviewed = "b8774b3c4b46"
 
 [[playbook.pstack-tdd.part]]
 id = "pstack-tdd.workflow-2"
 select = "step:Workflow/2"
-owners = ["sidekick", "verifier"]
+owners = ["sidekick"]
 reviewed = "6b2d0cf14fe9"
 
 [[playbook.pstack-tdd.part]]
@@ -282,17 +289,26 @@ select = "step:Workflow/3"
 owners = ["sidekick", "verifier"]
 reviewed = "cc251f226eb9"
 
+[playbook.pstack-tdd.part.kitchen]
+verifier = "Check the report and the commit order show a failing test written before the fix, encoding the intended behavior rather than the implementation. Do not write or edit tests or code."
+
 [[playbook.pstack-tdd.part]]
 id = "pstack-tdd.workflow-4"
 select = "step:Workflow/4"
 owners = ["sidekick", "verifier"]
 reviewed = "5dc3ae576544"
 
+[playbook.pstack-tdd.part.kitchen]
+verifier = "Rerun the regression test at the commit before the fix when the report names one, and confirm it fails for the intended reason. Do not edit code."
+
 [[playbook.pstack-tdd.part]]
 id = "pstack-tdd.workflow-5"
 select = "step:Workflow/5"
 owners = ["sidekick", "verifier"]
 reviewed = "80e2c3321d8f"
+
+[playbook.pstack-tdd.part.kitchen]
+verifier = "Check that the production change is the smallest that satisfies the intended behavior and preserves nearby contracts. Do not edit code."
 
 [[playbook.pstack-tdd.part]]
 id = "pstack-tdd.workflow-6"
@@ -306,11 +322,17 @@ select = "section:If a Failing Test Is Impractical"
 owners = ["sidekick", "verifier"]
 reviewed = "02237f985035"
 
+[playbook.pstack-tdd.part.kitchen]
+verifier = "Where the report says a failing test was impractical, check that the closest executable regression check it names was run and shows the behavior. Do not edit code."
+
 [[playbook.pstack-tdd.part]]
 id = "pstack-tdd.guardrails"
 select = "section:Guardrails"
 owners = ["sidekick", "verifier"]
 reviewed = "e9929c044d90"
+
+[playbook.pstack-tdd.part.kitchen]
+verifier = "Check the diff against these guardrails: tests changed only for a genuinely changed expectation, no weakened assertions, a focused regression test. A violation is a finding. Do not edit code."
 
 [[playbook.pstack-tdd.part]]
 id = "pstack-tdd.final-response"
@@ -375,11 +397,12 @@ consultant = "No PR, no babysit, no `architect` unless the investigation precede
 [[playbook.investigation.part]]
 id = "investigation.reply"
 select = "reply"
-owners = ["sidekick", "verifier"]
+owners = ["sidekick", "consultant", "verifier"]
 reviewed = "7a2fa63e2c56"
 
 [playbook.investigation.part.kitchen]
 sidekick = "In the report, under Ran and the sections the template names: the investigation output. For \"are we sure?\" answers, include your real judgment with reasons, and push back if the premise is wrong. Every claim carries its command output or a file pointer."
+consultant = "In the advice: the investigation output. For \"are we sure?\" answers, include your real judgment with reasons, and push back if the premise is wrong."
 verifier = "The evidence standard for the brief's Acceptance, not new criteria: every claim in the investigation cites a file, command output or document it can be checked against. A verdict line cites the command output that shows it."
 
 [playbook.perf-issue]
@@ -723,7 +746,6 @@ owners = ["master", "sidekick"]
 reviewed = "8238a53fc2e9"
 
 [playbook.pause-safely.part.kitchen]
-master = "Make the work durable. Commit uncommitted edits as one clear `wip:` commit on the current branch so nothing is lost. If the tree is broken, say so in the commit body in one line."
 sidekick = "Make the work durable. Commit what is verified, as steps recorded with kitchen.sh step, and say under Deviations what is uncommitted or unverified."
 
 [[playbook.pause-safely.part]]
@@ -756,7 +778,7 @@ owners = ["master"]
 reviewed = "6839c93953d2"
 
 [playbook.opening-a-pr.part.kitchen]
-master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+master = "Invoked at the end of every other playbook. Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
 
 [[playbook.opening-a-pr.part]]
 id = "opening-a-pr.worktree"
@@ -774,6 +796,10 @@ select = "lead:Commits"
 owners = ["master", "sidekick"]
 reviewed = "e6a46862f31c"
 
+[playbook.opening-a-pr.part.kitchen]
+master = "Commit liberally, as small ordered commits that each tell the story and are landable. Commit small, ordered units as new commits, each recorded with kitchen.sh step and green before the next. Never rebase or amend commits already recorded as steps unless the brief says so. Commit bodies don't restate the subject."
+sidekick = "Commit liberally, as small ordered commits that each tell the story and are landable. Commit small, ordered units as new commits, each recorded with kitchen.sh step and green before the next. Never rebase or amend commits already recorded as steps unless the brief says so. Commit bodies don't restate the subject."
+
 [[playbook.opening-a-pr.part]]
 id = "opening-a-pr.prs"
 select = "lead:PRs"
@@ -781,7 +807,7 @@ owners = ["master"]
 reviewed = "9a4d7f564f09"
 
 [playbook.opening-a-pr.part.kitchen]
-master = "Run the **deslop** skill over the diff before commit and the **no-comments** skill before review. Write every PR title, description, and commit body with the **technical-writing** skill (every layer except Diataxis, and apply the STE vocabulary rules: one word per action, keep articles, a plain verb over `-ing` where one works), then apply the **unslop** skill."
+master = "Run the **no-comments** skill over the diff before review. Write every PR title, description, and commit body with the **technical-writing** skill (every layer except Diataxis, and apply the STE vocabulary rules: one word per action, keep articles, a plain verb over `-ing` where one works), then apply the **unslop** skill."
 
 [[playbook.opening-a-pr.part]]
 id = "opening-a-pr.titles"
@@ -807,17 +833,11 @@ select = "lead:Forge"
 owners = ["master"]
 reviewed = "7a494de77b46"
 
-[playbook.opening-a-pr.part.kitchen]
-master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
-
 [[playbook.opening-a-pr.part]]
 id = "opening-a-pr.built-in"
 select = "lead:Built-in PR tool"
 owners = ["master"]
 reviewed = "f2b7704e7503"
-
-[playbook.opening-a-pr.part.kitchen]
-master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
 
 [[playbook.opening-a-pr.part]]
 id = "opening-a-pr.stacks"
@@ -825,17 +845,11 @@ select = "lead:Size and stacks"
 owners = ["master"]
 reviewed = "7d528790b7d1"
 
-[playbook.opening-a-pr.part.kitchen]
-master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
-
 [[playbook.opening-a-pr.part]]
 id = "opening-a-pr.readiness"
 select = "lead:Readiness"
 owners = ["master"]
 reviewed = "1013f994677b"
-
-[playbook.opening-a-pr.part.kitchen]
-master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
 
 [[playbook.opening-a-pr.part]]
 id = "opening-a-pr.babysit"

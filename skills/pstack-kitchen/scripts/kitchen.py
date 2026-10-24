@@ -3943,24 +3943,27 @@ def playbooks_command(args) -> int:
     roots = pb.default_roots()
     if args.skills:
         roots['skills'] = args.skills
+    unusable, data, changed = None, {}, []
     try:
         data = pb.load_map(path)
-        if args.playbooks_cmd == 'validate':
-            problems = pb.validate_map(data, roots)
-            if problems:
-                print('\n'.join(f'kitchen: {p}' for p in problems), file=sys.stderr)
-                return 1
-            parts = sum(len(e.get('part', [])) for e in data['playbook'].values())
-            emit(
-                {'playbooks': len(data['playbook']), 'parts': parts},
-                args.json,
-                f'playbooks: {len(data["playbook"])} playbooks, {parts} parts, ok',
-            )
-            return 0
-        changed = pb.review(data, args.name, roots)
+        if args.playbooks_cmd == 'review':
+            changed = pb.review(data, args.name, roots)
     except (OSError, ValueError, pb.PlaybookError) as e:
-        print(f'kitchen: {e}', file=sys.stderr)
-        return 2
+        unusable = e
+    if unusable:
+        raise KitchenError(f'playbooks map or name not usable: {unusable}', 2)
+    if args.playbooks_cmd == 'validate':
+        problems = pb.validate_map(data, roots)
+        if problems:
+            print('\n'.join(f'kitchen: {p}' for p in problems), file=sys.stderr)
+            return 1
+        parts = sum(len(e.get('part', [])) for e in data['playbook'].values())
+        emit(
+            {'playbooks': len(data['playbook']), 'parts': parts},
+            args.json,
+            f'playbooks: {len(data["playbook"])} playbooks, {parts} parts, ok',
+        )
+        return 0
     commit = pb.last_map_commit(path)
     emit(
         {'playbook': args.name, 'map_commit': commit, 'changed': changed},
@@ -4275,7 +4278,11 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(lesson_packet(args.briefs))
         return 0
     if args.cmd == 'playbooks':
-        return playbooks_command(args)
+        try:
+            return playbooks_command(args)
+        except KitchenError as e:
+            print(f'kitchen: {e}', file=sys.stderr)
+            return e.code
     if args.cmd == 'ledger-backfill':
         n = ledger_backfill(args.ledger, args.runs or pstack_state() / 'kitchen/runs')
         print(

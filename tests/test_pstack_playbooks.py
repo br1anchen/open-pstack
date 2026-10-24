@@ -481,7 +481,7 @@ class ShippedMapTests(unittest.TestCase):
 
     def test_a_no_pr_landing_mode_and_the_ask_the_human_replacement_survive(self):
         by_id = parts(shipped())
-        for pid in ('bug-fix.step-6', 'shipping.step-4', 'opening-a-pr.forge'):
+        for pid in ('bug-fix.step-6', 'shipping.step-4', 'opening-a-pr.intro-1'):
             self.assertIn('[landing].mode', by_id[pid]['kitchen']['master'], pid)
         self.assertIn('never merges', by_id['shipping.step-4']['kitchen']['master'])
         ask = by_id['bug-fix.step-1']['kitchen']
@@ -498,6 +498,58 @@ class ShippedMapTests(unittest.TestCase):
             part['reviewed'], playbooks.digest(pick(playbooks.parse(source), 'step:1'))
         )
         self.assertIn('ask the user', source)
+
+
+class ShippedMapRoleTests(unittest.TestCase):
+    def test_a_verifier_that_owns_an_instruction_to_edit_gets_a_check_only_text(self):
+        by_id = parts(shipped())
+        for pid in (
+            'pstack-tdd.workflow-3',
+            'pstack-tdd.workflow-4',
+            'pstack-tdd.workflow-5',
+            'pstack-tdd.impractical',
+            'pstack-tdd.guardrails',
+            'bug-fix.step-5',
+        ):
+            text = by_id[pid]['kitchen']['verifier']
+            self.assertRegex(text, r'Do not (write|edit|restage)', pid)
+
+    def test_commit_advice_never_rewrites_a_recorded_step(self):
+        by_id = parts(shipped())
+        for pid, role in (
+            ('feature.step-6', 'sidekick'),
+            ('refactoring.step-8', 'sidekick'),
+            ('opening-a-pr.commits', 'sidekick'),
+            ('opening-a-pr.commits', 'master'),
+        ):
+            self.assertIn(
+                'Never rebase or amend commits already recorded as steps',
+                by_id[pid]['kitchen'][role],
+                f'{pid} {role}',
+            )
+
+    def test_opening_a_pr_says_the_landing_cap_once_and_keeps_the_forge_rules(self):
+        by_id = parts(shipped())
+        capped = [
+            pid
+            for pid, part in by_id.items()
+            if pid.startswith('opening-a-pr.')
+            and '[landing].mode' in part.get('kitchen', {}).get('master', '')
+        ]
+        self.assertEqual(capped, ['opening-a-pr.intro-1'])
+        for pid in ('forge', 'built-in', 'stacks', 'readiness'):
+            self.assertNotIn('kitchen', by_id[f'opening-a-pr.{pid}'], pid)
+
+    def test_no_kitchen_text_names_a_skill_that_is_not_installed(self):
+        installed = {p.parent.name for p in (root / 'skills').glob('*/SKILL.md')}
+        for pid, part in parts(shipped()).items():
+            for role, text in part.get('kitchen', {}).items():
+                self.assertNotIn('deslop', text, f'{pid} {role}')
+        self.assertTrue({'no-comments', 'unslop', 'technical-writing'} <= installed)
+
+    def test_every_owner_of_the_investigation_reply_has_text_for_it(self):
+        reply = parts(shipped())['investigation.reply']
+        self.assertEqual(set(reply['owners']), set(reply['kitchen']))
 
 
 KITCHEN = root / 'skills/pstack-kitchen/scripts/kitchen.py'
@@ -559,7 +611,10 @@ class PlaybooksCommandTests(unittest.TestCase):
     def test_review_of_a_playbook_the_map_lacks_is_an_error(self):
         done = kitchen('review', 'nope')
         self.assertEqual(done.returncode, 2)
-        self.assertIn("no playbook 'nope' in the map", done.stderr)
+        self.assertIn(
+            "kitchen: playbooks map or name not usable: no playbook 'nope' in the map",
+            done.stderr,
+        )
 
     def test_review_json_lists_the_changed_parts(self):
         done = subprocess.run(
