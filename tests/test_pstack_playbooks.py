@@ -9,6 +9,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 
 root = Path(__file__).resolve().parents[1]
 fixtures = root / 'tests/fixtures/playbooks'
@@ -18,6 +19,12 @@ spec = importlib.util.spec_from_file_location(
 assert spec and spec.loader
 playbooks = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(playbooks)
+
+
+def playbooks_loader():
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def load(name):
@@ -1178,6 +1185,127 @@ class ComposeQueryTests(OverlayRepo):
     def test_errors_are_kitchen_errors(self):
         with self.assertRaises(self.kitchen_py.KitchenError):
             self.compose(['engine/**'], with_ids=('ghost',))
+
+
+class HostOverlayTests(unittest.TestCase):
+    """A host kitchen's overlays sit in `<kitchen-file-stem>.playbooks/` beside its file."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.config = self.tmp / 'config'
+        (self.config / 'kitchens').mkdir(parents=True)
+        self.env = {
+            **os.environ,
+            'XDG_STATE_HOME': str(self.tmp / 'state'),
+            'PSTACK_KITCHEN_ROSTER': str(self.config / 'kitchen.toml'),
+            'GIT_AUTHOR_NAME': 't',
+            'GIT_AUTHOR_EMAIL': 't@t',
+            'GIT_COMMITTER_NAME': 't',
+            'GIT_COMMITTER_EMAIL': 't@t',
+        }
+        self.entries = ''
+
+    def repo(self, name, kitchen_file=None, own_kitchen=False):
+        path = self.tmp / name
+        shutil.copytree(FIXTURE_REPO, path)
+        shutil.rmtree(path / '.agents')
+        (path / '.agents').mkdir()
+        if own_kitchen:
+            (path / '.agents/kitchen.toml').write_text(
+                'version = 1\n\n[profile.all]\npaths = ["**"]\nfast = ["true"]\n'
+            )
+        for args in (['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'init']):
+            subprocess.run(['git', *args], cwd=path, env=self.env, check=True)
+        if kitchen_file:
+            self.entries += f'[[kitchen]]\nmatch = "{path}"\nfile = "{kitchen_file}"\n'
+            (self.config / 'kitchen.toml').write_text(self.entries)
+            (self.config / 'kitchens' / kitchen_file).write_text(
+                'version = 1\n\n[profile.all]\npaths = ["**"]\nfast = ["true"]\n'
+            )
+        return path
+
+    def host_overlay(self, kitchen_file, stem):
+        directory = self.config / 'kitchens' / f'{Path(kitchen_file).stem}.playbooks'
+        directory.mkdir()
+        shutil.copy(
+            FIXTURE_REPO / '.agents/playbooks/daily-coaching.toml',
+            directory / f'{stem}.toml',
+        )
+        data = (
+            (directory / f'{stem}.toml')
+            .read_text()
+            .replace('id = "daily-coaching"', f'id = "{stem}"')
+        )
+        (directory / f'{stem}.toml').write_text(data)
+
+    def index(self, repo):
+        done = subprocess.run(
+            [sys.executable, str(KITCHEN), '--json', 'playbooks', 'index'],
+            cwd=repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return [o['id'] for o in json.loads(done.stdout)['overlays']]
+
+    def test_two_host_kitchens_each_see_only_their_own_overlays(self):
+        a = self.repo('a', 'a.toml')
+        b = self.repo('b', 'b.toml')
+        self.host_overlay('a.toml', 'alpha')
+        self.host_overlay('b.toml', 'beta')
+        self.assertEqual(self.index(a), ['alpha'])
+        self.assertEqual(self.index(b), ['beta'])
+
+    def test_a_repo_kitchen_never_reads_host_overlays(self):
+        repo = self.repo('r', 'h.toml', own_kitchen=True)
+        self.host_overlay('h.toml', 'alpha')
+        self.assertEqual(self.index(repo), [])
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(KITCHEN),
+                '--repo',
+                str(repo),
+                '--json',
+                'playbooks',
+                'index',
+            ],
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(json.loads(done.stdout), {'overlays': []})
+
+
+class UnusableMapTests(OverlayRepo):
+    """A missing map is a validation problem, and only when overlays exist."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(KITCHEN.parent))
+        import kitchen
+
+        cls.kitchen_py = kitchen
+
+    def broken_map(self):
+        module = playbooks_loader()
+        module.MAP_PATH = self.repo / 'no-such-map.toml'
+        return mock.patch.object(self.kitchen_py, 'playbooks_module', lambda: module)
+
+    def test_validate_reports_the_map_when_overlays_exist(self):
+        inv = self.kitchen_py.Invocation(str(self.repo))
+        with self.broken_map(), self.assertRaises(self.kitchen_py.KitchenError) as e:
+            self.kitchen_py.validate(inv)
+        self.assertIn('playbook map unusable', str(e.exception))
+
+    def test_validate_does_not_read_the_map_without_overlays(self):
+        shutil.rmtree(self.repo / '.agents/playbooks')
+        inv = self.kitchen_py.Invocation(str(self.repo))
+        with self.broken_map():
+            self.assertTrue(self.kitchen_py.validate(inv).profiles)
 
 
 if __name__ == '__main__':

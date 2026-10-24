@@ -1784,11 +1784,9 @@ def doctor(
         empty,
     )
     pb = playbooks_module()
-    overlays, roots, workflows = kitchen_overlays(inv)
+    overlays, roots = kitchen_overlays(inv)
     if overlays:
-        problems = [
-            p for o in overlays for p in pb.overlay_problems(o, roots, workflows)
-        ]
+        problems = overlay_problems_of(pb, overlays, roots)
         dead = [
             f'{o.stem}: applies {g} matches no tracked file'
             for o in overlays
@@ -3960,10 +3958,12 @@ def playbooks_module():
 
 def overlay_dir(root: Path, source: Source) -> Path:
     """Where the kitchen's playbook overlays live: `.agents/playbooks` in the
-    repo for a repo kitchen, else `playbooks/` beside the host kitchen file."""
+    repo for a repo kitchen, else `<kitchen-file-stem>.playbooks/` beside the
+    host kitchen file, so each host kitchen has overlays of its own."""
     if source.kind == 'repo':
         return root / '.agents/playbooks'
-    return host_kitchen(root)[1].parent / 'playbooks'
+    file = host_kitchen(root)[1]
+    return file.parent / f'{file.stem}.playbooks'
 
 
 def overlay_roots(root: Path, directory: Path, source: Source) -> dict[str, Path]:
@@ -3974,20 +3974,30 @@ def overlay_roots(root: Path, directory: Path, source: Source) -> dict[str, Path
 
 
 def playbook_workflows(pb) -> list[str]:
-    return sorted(pb.load_map(pb.MAP_PATH)['playbook'])
+    """The workflow names the shipped map defines; PlaybookError when it cannot be read."""
+    try:
+        return sorted(pb.load_map(pb.MAP_PATH)['playbook'])
+    except (OSError, ValueError, KeyError) as e:
+        raise pb.PlaybookError(f'playbook map unusable: {e}') from None
 
 
-def kitchen_overlays(inv: 'Invocation') -> tuple[list, dict[str, Path], list[str]]:
-    """The kitchen's overlays, the roots their sources resolve against, and the
-    workflow names the shipped map defines."""
+def kitchen_overlays(inv: 'Invocation') -> tuple[list, dict[str, Path]]:
+    """The kitchen's overlays and the roots their sources resolve against."""
     pb = playbooks_module()
     root, _, source = open_kitchen(inv)
     directory = overlay_dir(root, source)
-    return (
-        pb.load_overlays(directory),
-        overlay_roots(root, directory, source),
-        playbook_workflows(pb),
-    )
+    return pb.load_overlays(directory), overlay_roots(root, directory, source)
+
+
+def overlay_problems_of(pb, overlays: list, roots: dict[str, Path]) -> list[str]:
+    """Every problem in `overlays`; the map is read only when there are any."""
+    if not overlays:
+        return []
+    try:
+        workflows = playbook_workflows(pb)
+    except pb.PlaybookError as e:
+        return [str(e)]
+    return [p for o in overlays for p in pb.overlay_problems(o, roots, workflows)]
 
 
 def compose(
@@ -4003,7 +4013,7 @@ def compose(
     incompatible overlay, a `without:` with no reason or conflicting parts."""
     pb = playbooks_module()
     root, _, _ = open_kitchen(inv)
-    overlays, roots, _ = kitchen_overlays(inv)
+    overlays, roots = kitchen_overlays(inv)
     files = [path for path, _, _ in changes(root, inv.at, paths).files]
     try:
         return pb.compose(
@@ -4016,41 +4026,33 @@ def compose(
             tuple(with_ids),
             tuple(without),
         )
-    except (pb.PlaybookError, OSError) as e:
+    except (pb.PlaybookError, OSError, ValueError, KeyError) as e:
         raise KitchenError(str(e)) from None
 
 
 def overlay_problem_lines(inv: 'Invocation') -> list[str]:
-    pb = playbooks_module()
-    overlays, roots, workflows = kitchen_overlays(inv)
-    return [p for o in overlays for p in pb.overlay_problems(o, roots, workflows)]
+    overlays, roots = kitchen_overlays(inv)
+    return overlay_problems_of(playbooks_module(), overlays, roots)
 
 
 def playbooks_overlays(args, pb, roots: dict[str, Path]):
-    """The overlays of the repo `--repo` names (taken as the repo root, not
-    searched upward), else of the checkout; its roots; an empty list when it
-    has none."""
-    if args.repo:
-        root = Path(args.repo).resolve()
-        directory, host = root / '.agents/playbooks', None
-        if not directory.is_dir():
-            try:
-                directory = host_kitchen(root)[1].parent / 'playbooks'
-                host = directory
-            except KitchenError:
-                pass
-    else:
-        root = repo_root(None)
-        directory, host = root / '.agents/playbooks', None
-        try:
-            _, _, source = open_kitchen(Invocation(None, args.config, None))
-        except KitchenError:
-            pass
-        else:
-            directory = overlay_dir(root, source)
-            host = None if source.kind == 'repo' else directory
-    found = {'repo': root, **roots, **({'host': host} if host else {})}
-    return pb.load_overlays(directory), found
+    """The overlays and source roots of the repo's kitchen, found as `validate`
+    finds it. A `--repo` directory that has its own `.agents/playbooks` is read
+    as it stands (a fixture inside another checkout); otherwise the kitchen
+    decides, and a repo kitchen never reads host overlays."""
+    own = Path(args.repo).resolve() / '.agents/playbooks' if args.repo else None
+    if own and own.is_dir():
+        return pb.load_overlays(own), {'repo': own.parents[1], **roots}
+    try:
+        root, _, source = open_kitchen(Invocation(args.repo, args.config, None))
+    except KitchenError:
+        root = repo_root(args.repo)
+        return pb.load_overlays(root / '.agents/playbooks'), {'repo': root, **roots}
+    directory = overlay_dir(root, source)
+    return pb.load_overlays(directory), {
+        **overlay_roots(root, directory, source),
+        **roots,
+    }
 
 
 def overlay_index_text(index: list[dict]) -> str:
@@ -4099,11 +4101,7 @@ def playbooks_command(args) -> int:
             print('\n'.join(f'kitchen: {p}' for p in problems), file=sys.stderr)
             return 1
         overlays, found = playbooks_overlays(args, pb, roots)
-        problems = [
-            p
-            for o in overlays
-            for p in pb.overlay_problems(o, found, sorted(data['playbook']))
-        ]
+        problems = overlay_problems_of(pb, overlays, found)
         if problems:
             print('\n'.join(f'kitchen: {p}' for p in problems), file=sys.stderr)
             return 1
