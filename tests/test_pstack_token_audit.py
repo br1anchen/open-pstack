@@ -17,6 +17,7 @@ def run_audit(*extra, projects=fixtures / 'projects', store=fixtures / 'store'):
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     ).stdout
 
 
