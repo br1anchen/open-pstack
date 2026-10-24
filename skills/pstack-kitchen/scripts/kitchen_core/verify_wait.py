@@ -549,7 +549,7 @@ class Waiter:
             else:
                 say('audit: no\n')
             warn_unreviewed(store, say)
-            vs.handoff_due(store, unit, say)
+            vs.handoff_due(store, say)
             return WaiterOutcome(0, self.status)
         if status == 'reject':
             for line in findings(verdict):

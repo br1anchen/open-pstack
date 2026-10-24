@@ -11859,30 +11859,25 @@ class CoreTests(unittest.TestCase):
         n = 0
         for name, (master, count) in counts.items():
             for setting, step in (*every.items(), (None, 5)):
-                for unit in ('001-x', 'landing'):
-                    env = (
-                        {}
-                        if setting is None
-                        else {'KITCHEN_MASTER_ROTATE_UNITS': setting}
-                    )
-                    n += 1
-                    store = self.claim_store(
-                        f'ho{n}', {'verdict': 'v'}, {'master': master}
-                    )
-                    rc, out, err = self.kitchen_py(
-                        store,
-                        f'vs.handoff_due(store, {unit!r})\nprint("rc=0")',
-                        env=env,
-                    )
-                    said = note(count, store) if count >= step else ''
-                    self.assertEqual(
-                        (rc, out, err), (0, said + 'rc=0\n', ''), (name, setting, unit)
-                    )
-                    self.assertEqual(
-                        json.loads((store / 'pair.json').read_text())['master'],
-                        {'units_since_handoff': count},
-                        (name, setting, unit),
-                    )
+                env = (
+                    {} if setting is None else {'KITCHEN_MASTER_ROTATE_UNITS': setting}
+                )
+                n += 1
+                store = self.claim_store(f'ho{n}', {'verdict': 'v'}, {'master': master})
+                rc, out, err = self.kitchen_py(
+                    store,
+                    'vs.handoff_due(store)\nprint("rc=0")',
+                    env=env,
+                )
+                said = note(count, store) if count >= step else ''
+                self.assertEqual(
+                    (rc, out, err), (0, said + 'rc=0\n', ''), (name, setting)
+                )
+                self.assertEqual(
+                    json.loads((store / 'pair.json').read_text())['master'],
+                    {'units_since_handoff': count},
+                    (name, setting),
+                )
         for name, master, word in (
             (
                 'a master that is a string',
@@ -11905,7 +11900,7 @@ class CoreTests(unittest.TestCase):
             )
             before = (store / 'pair.json').read_text()
             rc, out, err = self.kitchen_py(
-                store, 'vs.handoff_due(store, "001-x")\nprint("rc=0")'
+                store, 'vs.handoff_due(store)\nprint("rc=0")'
             )
             self.assertEqual((rc, out), (1, ''), name)
             self.assertIn(word, err, name)
@@ -11920,7 +11915,7 @@ class CoreTests(unittest.TestCase):
         before = (store / 'pair.json').read_text()
         rc, out, err = self.kitchen_py(
             store,
-            'vs.handoff_due(store, "001-x")\nprint("rc=0")',
+            'vs.handoff_due(store)\nprint("rc=0")',
             env={'KITCHEN_MASTER_ROTATE_UNITS': 'x'},
         )
         self.assertEqual((rc, out), (1, ''))

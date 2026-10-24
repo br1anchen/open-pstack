@@ -251,7 +251,7 @@ def verdict_problem(verdict):
     return Verdict.parse(verdict).problem
 
 
-def handoff_due(store, unit, say=None):
+def handoff_due(store, say=None):
     """Every clean verdict, a landing verdict included, counts toward the master's next handoff; once the count reaches KITCHEN_MASTER_ROTATE_UNITS
     (default 5) each clean verdict says to rotate, until rotate-master resets the count. The line goes to `say` (default: standard output)."""
     every = max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 5), 1)
