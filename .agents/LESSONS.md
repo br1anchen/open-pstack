@@ -122,12 +122,13 @@ evidence:
 
 ## L009: Before the report, run each Acceptance line as written and paste its output; a line that holds only in spirit, or a check that over-matches, goes to the master as a question.
 
-status: proposed
+status: active
 kind: reject
 class: verify
 layer: verify
 area: skills/pstack-pair
 since: 2026-10-23
+active: 2026-10-24T05:56:14Z
 evidence:
 - 2026-10-16 python-port 003: Acceptance "stdout, stderr, exit codes and store files stay unchanged" fails on one error path (Evidence E5, E6).
 - 2026-10-16 python-port-2 008 009: Unit 009 Acceptance "Every line or path mask in the step and wait A/B tests has a comment giving its reason" does not hold. Behaviour is fine; this is the one failing line. Unexplained masks (Evidenc…
@@ -137,12 +138,13 @@ evidence:
 
 ## L010: Before the report, run each Acceptance line as written and paste its output; a line that holds only in spirit, or a check that over-matches, goes to the master as a question.
 
-status: proposed
+status: active
 kind: reject
 class: verify
 layer: verify
 area: skills/pstack-kitchen
 since: 2026-10-23
+active: 2026-10-24T05:56:14Z
 evidence:
 - 2026-10-16 python-port-2 008 009: Unit 009 Acceptance "Every line or path mask in the step and wait A/B tests has a comment giving its reason" does not hold. Behaviour is fine; this is the one failing line. Unexplained masks (Evidenc…
 - 2026-10-17 python-port-3 008: The "working Devin never shown the text" stop parity case is nondeterministic and fails the unit's own behavioral gate. `test_stop_matches_the_bash_at_the_phase_3_base_when_a_working_devin_is_never_s…
