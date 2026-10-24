@@ -17,7 +17,7 @@ from pstack_core.consult import discuss_with_consultant
 from pstack_core.errors import Die, MissingStore, translate
 from pstack_core.numbers import whole_number
 from pstack_core.panes import agent_status
-from pstack_core.store import field, pair_file, risk_of
+from pstack_core.store import field, get, pair_file, risk_of
 from pstack_core.wait import default_signals
 
 from .classify import classify_brief
@@ -27,6 +27,15 @@ from .wait import block, log_checkin_wake, quiet_wait, refused
 
 NUMBER_FLAGS = {'--timeout': 'milliseconds', '--every': 'minutes', '--max': 'minutes'}
 DISPATCH_SPEC = Spec(valued=tuple(NUMBER_FLAGS), unknown='collect')
+
+
+def remind_landed(store):
+    """Advisory only: once a clean landing verdict has been seen, every dispatch and discuss says to rotate until rotate-master clears it."""
+    if get(store, 'master.landed_since_handoff') is True:
+        sys.stdout.write(
+            f'master: a landing was verified since your last handoff; rotate before the next issue: kitchen.sh new-handoff {store}, fill it, '
+            f'kitchen.sh rotate-master {store}\n'
+        )
 
 
 def dispatch(ctx, args):
@@ -51,6 +60,7 @@ def dispatch(ctx, args):
     else:
         require_pair(ctx, store)
         classify_brief(store, brief)
+        remind_landed(store)
     # a landing brief that land-check passed on a store with no pair.json goes on to the core dispatch, which refuses it
     if has_pair(store):
         rotate_if_due(ctx, store, 'brief')
@@ -140,6 +150,7 @@ def discuss(ctx, args):
     if not os.path.isfile(f'{store}/pair.json'):
         return send.discuss(ctx, list(args))
     rotate_if_due(ctx, store, 'plan')
+    remind_landed(store)
     if escalated:
         return discuss_with_consultant(ctx, args, one_wake=True)
     return send.discuss(ctx, list(args))

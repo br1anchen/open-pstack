@@ -2422,7 +2422,7 @@ consult, advice. These differ or are new:
   rotate-master <store> [--model M]         record the filled handoff and this master's session, and start the
                                             next generation in a pane beside this one (MCP-free, remote control
                                             on, same permission mode and model); nudged by verify after
-                                            KITCHEN_MASTER_ROTATE_UNITS (5) verified units or landings
+                                            KITCHEN_MASTER_ROTATE_UNITS (5) verified units and at every clean landing verdict
   take-master <store>                       the new master's first command: close the old master's pane and
                                             take back the run's master name
   close <store> [--force]                   end a finished run's sidekick, consultant and verifier and close

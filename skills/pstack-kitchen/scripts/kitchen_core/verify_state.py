@@ -251,23 +251,30 @@ def verdict_problem(verdict):
     return Verdict.parse(verdict).problem
 
 
-def handoff_due(store, say=None):
+def handoff_due(store, say=None, landing=False):
     """Every clean verdict, a landing verdict included, counts toward the master's next handoff; once the count reaches KITCHEN_MASTER_ROTATE_UNITS
-    (default 5) each clean verdict says to rotate, until rotate-master resets the count. The line goes to `say` (default: standard output)."""
+    (default 5) each clean verdict says to rotate, until rotate-master resets the count. A clean landing verdict is a boundary on its own: it marks
+    `master.landed_since_handoff` (cleared by rotate-master, read by dispatch and discuss) and always says to rotate. The line goes to `say` (default: standard output)."""
     every = max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 5), 1)
 
     def bump(doc):
         master = member(doc, 'master')
         master['units_since_handoff'] = count(master, 'units_since_handoff') + 1
+        if landing:
+            master['landed_since_handoff'] = True
 
     update(store, bump)
     n = read_int(store, 'master.units_since_handoff')
-    if n < every:
-        return
-    (say or sys.stdout.write)(
-        f'master: {n} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, '
-        f'kitchen.sh rotate-master {store}\n'
+    handoff = (
+        f'kitchen.sh new-handoff {store}, fill it, kitchen.sh rotate-master {store}'
     )
+    if landing:
+        line = f'master: a clean landing verdict ends an issue; rotate at this boundary ({n} units verified since your last handoff): {handoff}\n'
+    elif n >= every:
+        line = f'master: {n} units verified since your last handoff; rotate at this boundary: {handoff}\n'
+    else:
+        return
+    (say or sys.stdout.write)(line)
 
 
 def verify_cancel(ctx, store):

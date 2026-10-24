@@ -272,7 +272,7 @@ def start_verification(ctx, store, argv, o, root, allunits, c):
         wake(ctx, store, brief, 'verify:clean')
         out(f'verdict: {verdict}\nstatus: clean (gates only; mode gates)\n')
         warn_unreviewed(store)
-        vs.handoff_due(store)
+        vs.handoff_due(store, landing=o.landing)
         return 0
     timeout_m = deadline_minutes(store, root, data, o)
     entry, kind, args_list = choose_verifier(store, root, c.cls, o)

@@ -6351,10 +6351,61 @@ esac
         self.assertNotIn('since your last handoff', out)
         out = self.run_sh('verify', str(self.store), '--landing')
         self.assertIn('status: clean', out)
-        self.assertIn('master: 2 units verified since your last handoff', out)
+        self.assertIn(
+            'rotate at this boundary (2 units verified since your last handoff)', out
+        )
         self.assertEqual(self.state()['master']['units_since_handoff'], 2)
         out = self.run_sh('verify', str(self.store), '--landing')
-        self.assertIn('master: 3 units verified since your last handoff', out)
+        self.assertIn(
+            'rotate at this boundary (3 units verified since your last handoff)', out
+        )
+
+    def landed(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        self.three_units()
+        unit = self.run_sh('verify', str(self.store), '001')
+        landing = self.run_sh('verify', str(self.store), '--landing')
+        return unit, landing
+
+    def test_a_clean_landing_verdict_says_to_rotate_below_the_unit_threshold(self):
+        unit, landing = self.landed()
+        self.assertNotIn('rotate', unit)
+        self.assertIn('status: clean', landing)
+        self.assertIn(
+            'master: a clean landing verdict ends an issue; rotate at this boundary (2 units verified since your last handoff): kitchen.sh new-handoff',
+            landing,
+        )
+        self.assertEqual(self.state()['master']['units_since_handoff'], 2)
+
+    def test_dispatch_after_a_landing_repeats_the_rotation_advice_and_still_sends(self):
+        reminder = 'master: a landing was verified since your last handoff; rotate before the next issue: kitchen.sh new-handoff'
+        b = self.brief('004', 'u4', ['docs/**'])
+        self.assertNotIn(reminder, self.dispatch(b))
+        self.landed()
+        b = self.brief('005', 'u5', ['docs/**'])
+        out = self.dispatch(b)
+        self.assertEqual(out.count(reminder), 1)
+        self.assertIn('report: missing', out)
+        self.assertEqual(self.state()['dispatch']['brief'], str(b))
+
+    def test_discuss_after_a_landing_repeats_the_rotation_advice_and_still_sends(self):
+        reminder = 'master: a landing was verified since your last handoff; rotate before the next issue: kitchen.sh new-handoff'
+        self.landed()
+        plan = self.consultant_plan('routine')
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        self.assertEqual(out.count(reminder), 1)
+        self.assertIn('report_status: agree', out)
+
+    def test_rotate_master_clears_the_landing_rotation_advice(self):
+        self.landed()
+        self.assertTrue(self.state()['master']['landed_since_handoff'])
+        self.run_sh('new-handoff', str(self.store))
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        self.assertFalse(self.state()['master']['landed_since_handoff'])
+        b = self.brief('005', 'u5', ['docs/**'])
+        self.assertNotIn('a landing was verified', self.dispatch(b))
 
     def test_a_gates_mode_unit_counts_toward_the_handoff_nudge(self):
         self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'

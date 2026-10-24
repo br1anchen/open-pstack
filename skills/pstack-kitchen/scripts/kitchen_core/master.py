@@ -280,7 +280,7 @@ def record_handover(store, handoff, gen_n, session, old, new):
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
     def mutate(doc):
-        # the hand-over: .master.previous, .master.name, .master.pane_id, .master.registered_at, .master.generation, .master.units_since_handoff, .master.sessions
+        # the hand-over: .master.previous, .master.name, .master.pane_id, .master.registered_at, .master.generation, .master.units_since_handoff, .master.landed_since_handoff, .master.sessions
         master = member(doc, 'master')
         listed = listing(master, 'sessions')
         for each in listed:
@@ -291,6 +291,7 @@ def record_handover(store, handoff, gen_n, session, old, new):
         master['name'], master['pane_id'], master['registered_at'] = new[0], new[1], now
         master['generation'] = gen_n + 1
         master['units_since_handoff'] = 0
+        master['landed_since_handoff'] = False
         master['sessions'] = kept + [
             {'generation': gen_n, 'session': session, 'handoff': copy, 'at': now}
         ]
