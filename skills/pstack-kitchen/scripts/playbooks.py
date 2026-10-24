@@ -936,6 +936,86 @@ def compose(
     }
 
 
+CONTRACT = re.compile(r'contract:[ \t]*(\S+)')
+BLOCK_START = re.compile(r'(\d{1,9})[.)][ \t]')
+BLOCK_PLAYBOOK = re.compile(r'[ \t]*(?:[-*][ \t]+)?playbook:[ \t]*(.*?)[ \t]*$')
+BLOCK_WITH = re.compile(r'[ \t]*(?:[-*][ \t]+)?with:[ \t]*(.*?)[ \t]*$')
+
+
+@dataclass(frozen=True)
+class PlanBlock:
+    """One numbered block of a plan's Steps: the playbook it runs ('' when it names none) and the overlays it asks for."""
+
+    number: int
+    playbook: str
+    with_ids: tuple[str, ...]
+
+
+def plan_blocks(text: str) -> list[PlanBlock]:
+    """The Steps blocks of a plan that carries `contract: 2` in its header, read outside code fences; [] for a plan without that line."""
+    lines = text.split('\n')
+    inside, _ = scan_fences(lines)
+    starts = section_headings(lines)
+    header = lines[: starts[0] if starts else len(lines)]
+    if not any(
+        (m := CONTRACT.fullmatch(x)) and m.group(1) == '2'
+        for i, x in enumerate(header)
+        if i not in inside
+    ):
+        return []
+    steps = next((i for i in starts if lines[i] == '## Steps'), None)
+    if steps is None:
+        return []
+    end = next((i for i in starts if i > steps), len(lines))
+    found: list[list] = []
+    for i in range(steps + 1, end):
+        if i in inside:
+            continue
+        line = lines[i]
+        if m := BLOCK_START.match(line):
+            found.append([int(m.group(1)), '', []])
+        elif found and (m := BLOCK_PLAYBOOK.fullmatch(line)):
+            found[-1][1] = found[-1][1] or m.group(1)
+        elif found and (m := BLOCK_WITH.fullmatch(line)):
+            found[-1][2] += [x.strip() for x in m.group(1).split(',') if x.strip()]
+    return [PlanBlock(n, name, tuple(ids)) for n, name, ids in found]
+
+
+def plan_problems(blocks: list[PlanBlock], mapped: list[str]) -> list[str]:
+    """One line per contract-2 problem: a Steps block that names no playbook, or one the map lacks."""
+    problems = []
+    for b in blocks:
+        if not b.playbook:
+            problems.append(
+                f'Steps block {b.number} names no playbook: (contract: 2); mapped: {", ".join(sorted(mapped))}'
+            )
+        elif b.playbook not in mapped:
+            problems.append(
+                f'Steps block {b.number}: playbook {b.playbook!r} is not mapped; mapped: {", ".join(sorted(mapped))}'
+            )
+    return problems
+
+
+def compose_plan(
+    data: dict, overlays: list[Overlay], roots: dict[str, Path], block: PlanBlock
+) -> dict:
+    """The composition of a plan block: its workflow and the overlays its `with:` names, and nothing selected by path (a plan has no Scope yet). The validation is compose's."""
+    if not block.playbook:
+        raise PlaybookError(f'Steps block {block.number} names no playbook:')
+    try:
+        return compose(
+            data,
+            overlays,
+            roots,
+            block.playbook,
+            [],
+            lambda glob, path: False,
+            block.with_ids,
+        )
+    except PlaybookError as e:
+        raise PlaybookError(f'Steps block {block.number}: {e}') from None
+
+
 ROLE_AUTHORITY = {
     'master': 'You own judgment and the human, never the working tree.',
     'sidekick': 'You own the working tree.',

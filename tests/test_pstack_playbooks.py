@@ -1369,6 +1369,108 @@ class ComposeTests(unittest.TestCase):
         )
 
 
+PLAN = (
+    '# Plan 001: x\n\nround: 1\ncontract: 2\nrisk: routine\n\n## Design\n\n'
+    '1. not a block\n\n## Steps\n\n'
+    '1. First slice.\n   playbook: feature\n   with: daily-coaching, rust-engine\n'
+    '   - commit one\n\n'
+    '```md\n2. fenced\nplaybook: nope\n```\n\n'
+    '2. Second slice.\n   playbook: bug-fix\n\n## Verification\n\n3. no\n'
+)
+
+
+class PlanContractTests(unittest.TestCase):
+    def blocks(self, text=PLAN):
+        return playbooks.plan_blocks(text)
+
+    def test_two_blocks_each_give_their_number_playbook_and_overlays(self):
+        self.assertEqual(
+            self.blocks(),
+            [
+                playbooks.PlanBlock(1, 'feature', ('daily-coaching', 'rust-engine')),
+                playbooks.PlanBlock(2, 'bug-fix', ()),
+            ],
+        )
+
+    def test_a_plan_without_a_contract_has_no_blocks_and_no_problem(self):
+        text = PLAN.replace('contract: 2\n', '')
+        self.assertEqual(self.blocks(text), [])
+        self.assertEqual(self.blocks('# Plan\n\n## Steps\n\n1. a\n'), [])
+
+    def test_a_contract_line_in_the_body_is_not_the_header(self):
+        text = PLAN.replace('contract: 2\n', '').replace(
+            '## Design\n', '## Design\n\ncontract: 2\n'
+        )
+        self.assertEqual(self.blocks(text), [])
+
+    def test_a_block_without_a_playbook_is_a_problem_naming_the_block(self):
+        text = PLAN.replace('   playbook: bug-fix\n', '')
+        blocks = self.blocks(text)
+        self.assertEqual(blocks[1].playbook, '')
+        problems = playbooks.plan_problems(blocks, ['bug-fix', 'feature'])
+        self.assertEqual(len(problems), 1)
+        self.assertIn('Steps block 2 names no playbook:', problems[0])
+        with self.assertRaisesRegex(
+            playbooks.PlaybookError, 'Steps block 2 names no playbook'
+        ):
+            playbooks.compose_plan(
+                playbooks.load_map(playbooks.MAP_PATH),
+                fixture_overlays(),
+                overlay_roots(),
+                blocks[1],
+            )
+
+    def test_an_unmapped_playbook_lists_the_mapped_ones(self):
+        blocks = self.blocks(PLAN.replace('playbook: bug-fix', 'playbook: old-label'))
+        mapped = sorted(playbooks.load_map(playbooks.MAP_PATH)['playbook'])
+        (problem,) = playbooks.plan_problems(blocks, mapped)
+        self.assertIn("Steps block 2: playbook 'old-label' is not mapped", problem)
+        self.assertIn('bug-fix', problem)
+        with self.assertRaises(playbooks.PlaybookError) as raised:
+            playbooks.compose_plan(
+                playbooks.load_map(playbooks.MAP_PATH),
+                fixture_overlays(),
+                overlay_roots(),
+                blocks[1],
+            )
+        self.assertIn('Steps block 2: playbook', str(raised.exception))
+        self.assertIn('mapped: ', str(raised.exception))
+
+    def test_a_block_composes_its_workflow_and_with_overlays_without_a_scope(self):
+        first, second = self.blocks()
+        data = playbooks.load_map(playbooks.MAP_PATH)
+        one = playbooks.compose_plan(data, fixture_overlays(), overlay_roots(), first)
+        self.assertEqual(
+            [o['id'] for o in one['overlays']['selected']],
+            ['daily-coaching', 'rust-engine'],
+        )
+        self.assertEqual(one['workflow'], 'feature')
+        two = playbooks.compose_plan(data, fixture_overlays(), overlay_roots(), second)
+        self.assertEqual(two['overlays']['selected'], [])
+
+    def test_an_overlay_is_never_selected_by_path_in_a_plan(self):
+        (rust,) = [o for o in fixture_overlays() if o.stem == 'rust-engine']
+        self.assertTrue(rust.data['applies'])
+        block = playbooks.PlanBlock(1, 'bug-fix', ())
+        result = playbooks.compose_plan(
+            playbooks.load_map(playbooks.MAP_PATH),
+            fixture_overlays(),
+            overlay_roots(),
+            block,
+        )
+        self.assertEqual(result['overlays']['selected'], [])
+
+    def test_a_with_overlay_that_does_not_combine_is_an_error_naming_the_block(self):
+        block = playbooks.PlanBlock(3, 'investigation', ('rust-engine',))
+        with self.assertRaisesRegex(playbooks.PlaybookError, 'Steps block 3: with:'):
+            playbooks.compose_plan(
+                playbooks.load_map(playbooks.MAP_PATH),
+                fixture_overlays(),
+                overlay_roots(),
+                block,
+            )
+
+
 class ComposeQueryTests(OverlayRepo):
     """kitchen.compose reads the Scope against the repo's tracked files, new ones included."""
 

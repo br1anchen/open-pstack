@@ -2,6 +2,7 @@
 
 round: {{1, or the previous round plus one}}
 supersedes: {{none, or the previous plan path}}
+contract: 2
 store: {{STORE}}
 risk: {{routine | escalated, from kitchen.sh classify on a brief with the planned Scope; escalated goes to the consultant too. A reason may follow the class, as in `escalated: contract X changes`}}
 
@@ -33,9 +34,15 @@ row per option; the chosen one marked.}}
 Under each, its commit-sized steps (twenty to forty-five minutes): the files,
 the commit, the check. Each block names the files it touches, the
 playbook it runs, and the check that proves it, so the sequence proves itself
-per principle-sequence-verifiable-units.}}
+per principle-sequence-verifiable-units. With `contract: 2` in the header,
+each block carries a `playbook: <name>` line (a name `kitchen.sh classify`
+maps) and may carry `with: <id>, <id>` for repo overlays; `discuss` refuses
+the plan otherwise and writes each block's parts for the consultant and the
+master into a `## Playbook (plan blocks)` section.}}
 
-1.
+1. {{Slice.}}
+   playbook: {{feature | bug-fix | refactoring | ...}}
+   with: {{optional overlay ids}}
 
 ## Verification
 
