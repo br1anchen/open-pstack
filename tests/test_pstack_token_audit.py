@@ -13,8 +13,10 @@ script = root / 'scripts/pstack-token-audit.py'
 
 
 spec = importlib.util.spec_from_file_location('pstack_token_audit', script)
+if spec is None or spec.loader is None:
+    raise ImportError(f'cannot load {script}')
 module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = module
+sys.modules['pstack_token_audit'] = module
 spec.loader.exec_module(module)
 parent = next(fixtures.glob('projects/-work-repo/jjjjjjjj-*.jsonl'))
 
