@@ -4481,7 +4481,10 @@ esac
         self.assertNotIn('elsewhere', out)
 
     def test_an_unfilled_playbook_header_gets_the_placeholder_message(self):
-        b = self.brief('001', 'util', ['src/util.py'], playbook='{{PLAYBOOK}}')
+        b = self.brief('001', 'util', ['src/util.py'], playbook='bug-fix')
+        b.write_text(
+            b.read_text().replace('playbook: bug-fix', 'playbook: {{PLAYBOOK}}')
+        )
         out = self.run_sh('classify', str(self.store), str(b), code=1)
         self.assertIn('still has unfilled placeholders', out)
         self.assertNotIn('is not mapped', out)
