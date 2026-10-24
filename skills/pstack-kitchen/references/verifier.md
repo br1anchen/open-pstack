@@ -58,9 +58,12 @@ work?", and then your pane closes.
    the median of the gate's last 10 passing runs, or in `# unmeasured` when
    fewer than 3 passing runs are on record; a line before it, `# over 8
    minutes: run it in the background, wait for it to finish, then check its
-   exit status`, marks a gate whose median is 8 minutes or more. Run anything that can outlast your harness's
-   foreground limit (a sweep, a long suite) in the background and wait on its
-   process or log. Never count a script your harness killed as passing
+   exit status`, marks a gate whose median is 8 minutes or more. Run each as its own plain
+   command. A probe with several steps goes in a script file in the scratch, run
+   by path, not in an inline `bash -c '...'`: a harness permission check cannot
+   read inside one that deletes files, so it asks a human nobody is watching and
+   is denied. Run anything that can outlast your harness's foreground limit (a
+   sweep, a long suite) in the background and wait on its process or log. Never count a script your harness killed as passing
    evidence: say in an inconclusive verdict what was interrupted and what that
    leaves unproved. The packet's `deadline:` line is your time. When it
    passes, the host asks you once to write the verdict as `inconclusive`
