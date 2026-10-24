@@ -8579,6 +8579,62 @@ esac
         self.assertIn('002-next.md', stack)
         self.assertNotIn('001-util.md', stack)
 
+    def landed_units(self, *workflows):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        for n, workflow in enumerate(workflows, 1):
+            b = self.brief(f'00{n}', f'u{n}', ['src/**', 'tests/**'])
+            self.dispatch(b)
+            self.write(f'src/mod{n}.py', f'X = {n}\n')
+            self.write(f'tests/test_mod{n}.py', f'x = {n}\n')
+            self.done(b, self.commit(f'u{n}'))
+            if workflow:
+                self.stamp(
+                    f'00{n}', workflow, (f'{workflow}.prove', f'Prove {workflow}.')
+                )
+            else:
+                (self.store / f'compositions/00{n}.json').unlink(missing_ok=True)
+        self.run_sh('verify', str(self.store), '--timeout', '60', '--landing')
+        return self.packet_text('landing-v1')
+
+    def landing_playbook(self, packet):
+        return packet.split('## Playbook (what to prove)')[1].split('\n## ')[0]
+
+    def test_a_landing_packet_lists_each_distinct_compositions_verifier_parts_once(
+        self,
+    ):
+        section = self.landing_playbook(
+            self.landed_units('bug-fix', 'feature', 'bug-fix')
+        )
+        self.assertEqual(section.count('Prove bug-fix.'), 1)
+        self.assertEqual(section.count('Prove feature.'), 1)
+        self.assertIn('unit 001: bug-fix', section)
+        self.assertIn('unit 002: feature', section)
+        self.assertNotIn('unit 003:', section)
+        self.assertIn(
+            '### shipping.step-1\n\nProve the unit the way a user would', section
+        )
+
+    def test_a_landing_under_mode_commit_says_what_the_mode_allows_before_any_part(
+        self,
+    ):
+        section = self.landing_playbook(self.landed_units('bug-fix'))
+        cap = '[landing].mode is commit: the kitchen never merges; prove only what this mode allows.'
+        self.assertIn(cap, section)
+        self.assertLess(section.index(cap), section.index('### bug-fix.prove'))
+        self.assertLess(section.index(cap), section.index('### shipping.step-1'))
+
+    def test_a_landing_with_no_compositions_holds_only_the_landing_workflow_parts(
+        self,
+    ):
+        section = self.landing_playbook(self.landed_units(None, None))
+        self.assertNotIn('unit 001:', section)
+        ids = re.findall(r'(?m)^### (\S+)', section)
+        self.assertTrue(
+            ids and all(i.startswith(('opening-a-pr.', 'shipping.')) for i in ids), ids
+        )
+        self.assertIn('shipping.step-1', ids)
+
     def test_a_landing_packet_holds_each_covered_briefs_goal(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)

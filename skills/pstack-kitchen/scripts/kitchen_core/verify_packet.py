@@ -239,6 +239,8 @@ def section_lines(path, pattern, keep_heading):
 
 
 PLAYBOOK_HEADING = '## Playbook (what to prove)'
+LANDING_CAP = '[landing].mode is {mode}: the kitchen never merges; prove only what this mode allows.'
+LANDING_WORKFLOWS = ('opening-a-pr', 'shipping')
 EVIDENCE_STANDARD = (
     'The evidence standard for the Acceptance above; it adds no criteria. '
     'Answer Acceptance line by line, citing evidence of the kind these parts name.'
@@ -283,6 +285,40 @@ def unit_playbook_section(store, brief, unit, shown):
         f'unit {unit}: {composition_name(composition)}\n\n'
         + parts_text(parts, shown, f'unit {unit}')
     )
+
+
+def landing_workflow_parts(workflow):
+    """The verifier parts of a workflow mapped in playbook-roles.toml, composed with no overlays."""
+    pb = playbooks()
+    return verifier_parts(
+        pb.compose(
+            pb.load_map(pb.MAP_PATH),
+            [],
+            pb.default_roots(),
+            workflow,
+            [],
+            lambda glob, path: False,
+        )
+    )
+
+
+def landing_playbook_section(p, stacked):
+    """The landing packet's `## Playbook (what to prove)` section: the verifier parts of each distinct composition among the stack's covered units, then those of opening-a-pr and shipping, under the cap `[landing].mode` sets."""
+    mode = kpy.call(kpy.kitchen_py.validate, kpy.invocation(p.store, p.root)).landing
+    text = f'{PLAYBOOK_HEADING}\n\n{LANDING_CAP.format(mode=mode)}\n\n{EVIDENCE_STANDARD}\n\n'
+    shown, names = {}, set()
+    for brief in stacked:
+        unit = os.path.basename(brief)[:3]
+        composition = read_composition(p.store, unit)
+        if composition is None or composition_name(composition) in names:
+            continue
+        names.add(composition_name(composition))
+        text += f'unit {unit}: {composition_name(composition)}\n\n' + parts_text(
+            verifier_parts(composition), shown, f'unit {unit}'
+        )
+    for workflow in LANDING_WORKFLOWS:
+        text += parts_text(landing_workflow_parts(workflow), shown, workflow)
+    return text
 
 
 @dataclass(frozen=True)
@@ -353,6 +389,7 @@ def landing_sections(p, parts):
             + '\n'.join(section_lines(b, r'^## Acceptance', False)).strip('\n')
             + '\n\n'
         )
+    parts.append(landing_playbook_section(p, stacked))
     parts.append(plan_sections(p))
     parts.append(inputs_section(p.store, stacked))
 
