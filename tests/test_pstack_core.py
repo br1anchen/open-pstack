@@ -1452,6 +1452,25 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(checkin.busy_command('p1', 0, 700, env), 'bash for 8m')
         self.assertEqual(checkin.busy_command('p3', 0, 2200, env), '')
 
+    def test_a_check_in_reads_the_environment_only_of_processes_started_since_the_dispatch(
+        self,
+    ):
+        from pstack_core import checkin
+
+        here = ['HERDR_PANE_ID=p1', 'HERDR_SOCKET_PATH=/s']
+        base = dict(ppid=1, argv=['x'])
+        self.tree(
+            {
+                10: dict(base, comm='old', elapsed=2000, environ=here),
+                11: dict(base, comm='young', elapsed=300, environ=here),
+            }
+        )
+        env = {'HERDR_SOCKET_PATH': '/s'}
+        with mock.patch.object(procinfo, 'environ', wraps=procinfo.environ) as read:
+            line = checkin.busy_command('p1', 1000, 2200, env)
+        self.assertEqual(line, 'young for 5m')
+        self.assertEqual([call.args[0] for call in read.call_args_list], [11])
+
     def process_tree_fixture(self, rows, **env):
         """The fake herdr and ps with a pane p1 whose agent is pid 100 and these ps rows (pid, ppid, etime, comm); the environment for the test."""
         fake = self.path / 'fake'

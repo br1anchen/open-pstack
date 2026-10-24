@@ -95,12 +95,14 @@ def iso_epoch(stamp):
     return None if epoch == -1 else epoch
 
 
-def proc_candidates(pane, root, env):
+def proc_candidates(pane, root, env, since, now):
     """(command, seconds running) of each process of this user carrying the pane's HERDR_PANE_ID, and the herdr socket when the caller
-    has one: the pane's work as /proc shows it."""
+    has one, started since the dispatch: the pane's work as /proc shows it."""
     sock = env.get('HERDR_SOCKET_PATH', '')
     found = []
     for proc in procinfo.of_user(os.getuid(), root):
+        if not now - proc.elapsed > since:
+            continue
         lines = procinfo.environ(proc.pid, root)
         if lines is None or f'HERDR_PANE_ID={pane}' not in lines:
             continue
@@ -141,7 +143,7 @@ def busy_command(pane, since, now, env=None):
     if knob == '1' or not os.path.isdir(root):
         found = tree_candidates(pane) if knob != '0' else []
     else:
-        found = proc_candidates(pane, root, env)
+        found = proc_candidates(pane, root, env, since, now)
     best, best_et, shell, shell_et = '', -1, '', -1
     for comm, et in found:
         if not now - et > since:
