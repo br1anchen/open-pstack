@@ -5789,7 +5789,9 @@ esac
         (self.fake / 'start-fail').touch()
         out = self.run_sh('rotate-master', str(self.store), code=2)
         log = self.store / 'sessions/master-g2-start-failed.log'
-        pane = re.search(r'did not start in (p\d+);', out).group(1)
+        found = re.search(r'did not start in (p\d+);', out)
+        assert found, out
+        pane = found.group(1)
         self.assertIn(
             f'the next master did not start in {pane}; its pane stays open and the log is {log}; '
             'you stay the master (generation 1), so carry on and rotate at a later boundary',
