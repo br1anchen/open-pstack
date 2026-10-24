@@ -182,6 +182,29 @@ class TokenAuditTests(unittest.TestCase):
         run_audit()
         self.assertEqual({p.name: p.read_bytes() for p in store.iterdir()}, before)
 
+    def test_a_path_that_is_not_a_store_is_named_and_the_others_are_still_audited(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    '--projects',
+                    str(fixtures / 'projects'),
+                    '--json',
+                    tmp,
+                    str(fixtures / 'store'),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(
+            done.stderr,
+            f'pstack-token-audit: {tmp}: not a kitchen store (no pair.json)\n',
+        )
+        self.assertEqual(len(json.loads(done.stdout)), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

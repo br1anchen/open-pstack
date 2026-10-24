@@ -358,12 +358,23 @@ def main(argv=None):
         '--json', action='store_true', help='print the same data as JSON'
     )
     args = parser.parse_args(argv)
-    results = [audit(store, args.projects) for store in args.stores]
+    stores = []
+    status = 0
+    for store in args.stores:
+        if (store / 'pair.json').is_file():
+            stores.append(store)
+        else:
+            print(
+                f'pstack-token-audit: {store}: not a kitchen store (no pair.json)',
+                file=sys.stderr,
+            )
+            status = 2
+    results = [audit(store, args.projects) for store in stores]
     if args.json:
         print(json.dumps(results, indent=2))
-    else:
+    elif results:
         print('\n\n'.join(render(r) for r in results))
-    return 0
+    return status
 
 
 if __name__ == '__main__':
