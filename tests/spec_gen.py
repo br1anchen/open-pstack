@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 """Generate tests/SPEC.md from the code, the docs and the tests (U0 of plan 043)."""
 
+import argparse
 import ast
 import glob
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    '--check',
+    action='store_true',
+    help="build SPEC.md's text without writing it; exit 1 on a missing line or a stale file",
+)
+cli = parser.parse_args()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
@@ -1096,5 +1106,32 @@ body = [
     *dec_out,
     '',
 ]
-open('tests/SPEC.md', 'w').write('\n'.join(body))
+text = '\n'.join(body)
 print('\n'.join(summary))
+if not cli.check:
+    open('tests/SPEC.md', 'w').write(text)
+    sys.exit(0)
+
+# every state-'missing' line ends in this marker, whichever section built it
+missing_lines = [l for l in text.splitlines() if l.endswith(' — missing')]
+for l in missing_lines:
+    print(f'missing: {l}')
+
+
+def without_sha(spec):
+    return re.sub(r'Generated at [0-9a-f]+', 'Generated at <sha>', spec)
+
+
+try:
+    on_disk = open('tests/SPEC.md').read()
+except FileNotFoundError:
+    on_disk = None
+stale = on_disk is None or without_sha(on_disk) != without_sha(text)
+if stale:
+    print(
+        'stale: tests/SPEC.md differs from what spec_gen.py generates; '
+        'regenerate with python3 tests/spec_gen.py'
+    )
+if missing_lines or stale:
+    sys.exit(1)
+print('ok: tests/SPEC.md is current, 0 missing')
