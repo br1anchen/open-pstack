@@ -10,18 +10,18 @@ work?", and then your pane closes.
 1. Read the packet. It names the verdict file to write, the template, the
    scratch worktree at the unit's head, the range, each unit's Goal and
    Acceptance, the run's standing orders, the changed files, the commands to
-   run, and the feature map. Work only in the scratch worktree. Write nothing else but the verdict;
-   the packet's `Write rule:` line says so again. Never set `GIT_DIR`,
-   `GIT_WORK_TREE` or `GIT_INDEX_FILE`: every child, including the repo's own
-   fixtures, inherits them and writes into the main repo. When git does not
-   see the scratch as a work tree, stop and write an inconclusive verdict
-   saying so. The packet's `Brief commands` are
+   run, and the feature map. Work only in the scratch worktree. Write nothing
+   else but the verdict; the packet's `Write rule:` line says so again. Never
+   set `GIT_DIR`, `GIT_WORK_TREE` or `GIT_INDEX_FILE`: every child, including
+   the repo's own fixtures, inherits them and writes into the main repo. When
+   git does not see the scratch as a work tree, stop and write an inconclusive
+   verdict saying so. The packet's `Brief commands` are
    the unit's Verify commands, each in a block of its own: run each in a fresh
    shell from the scratch root. `Brief commands: none (brief-verify: ...)` means
    the brief's Verify block could not be read; say so in the verdict. The blocks
-   under `not for the verifier:` hold master-only commands and commands that name
-   the main checkout or the store (by absolute path, `~/` or `$HOME/`), each with
-   its reason; you run neither kind.
+   under `not for the verifier:` hold master-only commands and commands that
+   name the main checkout or the store (by absolute path, `~/` or `$HOME/`),
+   each with its reason; you run neither kind.
    Under `Inputs (read-only)` the packet lists the existing store paths the
    briefs name (a report, a triage table, a plan): read them, never write them.
    A landing packet also cites each plan's Verification under `Plan
@@ -58,19 +58,20 @@ work?", and then your pane closes.
    the median of the gate's last 10 passing runs, or in `# unmeasured` when
    fewer than 3 passing runs are on record; a line before it, `# over 8
    minutes: run it in the background, wait for it to finish, then check its
-   exit status`, marks a gate whose median is 8 minutes or more. Run each as its own plain
-   command. A probe with several steps goes in a script file in the scratch, run
-   by path, not in an inline `bash -c '...'`: a harness permission check cannot
-   read inside one that deletes files, so it asks a human nobody is watching and
-   is denied. Run anything that can outlast your harness's foreground limit (a
-   sweep, a long suite) in the background and wait on its process or log. Never count a script your harness killed as passing
-   evidence: say in an inconclusive verdict what was interrupted and what that
-   leaves unproved. The packet's `deadline:` line is your time. When it
-   passes, the host asks you once to write the verdict as `inconclusive`
-   with what you proved (and its evidence) and what you never reached; write
-   it complete in one write (a temporary name in the same directory, then
-   rename it into place), after stopping every process you started. Keep your
-   evidence as you go so that verdict is not written from memory.
+   exit status`, marks a gate whose median is 8 minutes or more. Run each as its
+   own plain command. A probe with several steps goes in a script file in the
+   scratch, run by path, not in an inline `bash -c '...'`: a harness permission
+   check cannot read inside one that deletes files, so it asks a human nobody is
+   watching and is denied. Run anything that can outlast your harness's
+   foreground limit (a sweep, a long suite) in the background and wait on its
+   process or log. Never count a script your harness killed as passing evidence:
+   say in an inconclusive verdict what was interrupted and what that leaves
+   unproved. The packet's `deadline:` line is your time. When it passes, the
+   host asks you once to write the verdict as `inconclusive` with what you
+   proved (and its evidence) and what you never reached; write it complete in
+   one write (a temporary name in the same directory, then rename it into
+   place), after stopping every process you started. Keep your evidence as you
+   go so that verdict is not written from memory.
 4. Prove each Acceptance line the commands do not reach, the way a user
    would: through the repo's verification skill and the feature-map files the
    packet lists (launch, doctor, drive, capture evidence, clean up), or the
