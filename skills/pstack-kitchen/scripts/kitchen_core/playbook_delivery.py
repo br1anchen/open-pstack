@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from pstack_core.errors import Die, Exit, PairError
+from pstack_core.errors import Die, PairError
 from pstack_core.store import read_text, write_text
 
 from . import kpy
@@ -69,6 +69,12 @@ def target_tokens(store, brief):
 
 
 class OpenFence(PairError):
+    code = 2
+
+
+class PlanRefused(PairError):
+    """A contract-2 plan with a block that cannot be composed; the message is one line per problem."""
+
     code = 2
 
 
@@ -141,7 +147,7 @@ def render_plan_blocks(blocks, compositions):
 
 
 def deliver_plan_blocks(store, plan):
-    """Puts the consultant's and master's parts of a contract-2 plan's blocks into the plan, writing only when the bytes change. Returns (blocks, tokens), or None for a plan without `contract: 2` (a warning, no section). Dies with status 2, a line per problem, for a block that names no playbook or an unmapped one."""
+    """Puts the consultant's and master's parts of a contract-2 plan's blocks into the plan, writing only when the bytes change. Returns (blocks, tokens), or None for a plan without `contract: 2` (a warning, no section). Raises PlanRefused (status 2), a line per problem, for a block that names no playbook or an unmapped one."""
     pb = playbooks()
     text = read_text(plan)
     if not pb.plan_contract(text):
@@ -150,14 +156,14 @@ def deliver_plan_blocks(store, plan):
     blocks = pb.plan_blocks(text)
     data = pb.load_map(pb.MAP_PATH)
     if problems := pb.plan_problems(blocks, sorted(data['playbook'])):
-        raise Exit(2, ''.join(f'kitchen.sh: {plan}: {p}\n' for p in problems))
+        raise PlanRefused('\n'.join(f'{plan}: {p}' for p in problems))
     overlays, roots = plan_context(store)
     compositions = []
     for block in blocks:
         try:
             composition = pb.compose_plan(data, overlays, roots, block)
         except pb.PlaybookError as e:
-            raise Die(f'{plan}: {e}', 2) from None
+            raise PlanRefused(f'{plan}: {e}') from None
         refuse_open_fences(composition, ('consultant', 'master'))
         compositions.append(composition)
     section = render_plan_blocks(blocks, compositions) if blocks else ''
