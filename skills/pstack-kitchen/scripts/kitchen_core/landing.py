@@ -288,7 +288,7 @@ def accepted_units(store):
 
 
 def clean_verdict_for(store, seq):
-    """The last clean, non-packet verdict whose units: line names the unit."""
+    """The last well-formed clean, non-packet verdict whose units: line names the unit."""
     found = ''
     pattern = re.compile(rf'^units:(.* )?{seq}( |$)')
     for f in sorted(glob.glob(f'{glob.escape(store)}/verdicts/*-v[0-9]*.md')):
@@ -298,8 +298,10 @@ def clean_verdict_for(store, seq):
             named = any(pattern.search(line) for line in read_text(f).split('\n'))
         except OSError:
             named = False
-        if named and header_field(f, 'status') == 'clean':
-            found = f
+        if named:
+            parsed = Verdict.parse(f)
+            if parsed.status == 'clean' and not parsed.problem:
+                found = f
     return found
 
 
@@ -308,7 +310,7 @@ def clean_landing_ranges(store, root, verdict, landing_verdict, say):
     ranges = []
     for path in landing_verdicts(store):
         found = verdict if path == landing_verdict else Verdict.parse(path)
-        if found.status != 'clean':
+        if found.status != 'clean' or found.problem:
             continue
         base_rev, head_rev = (commit_of(root, ref) or '' for ref in found.refs())
         if head_rev:
@@ -345,9 +347,10 @@ def fix_covers(store):
         if not verdicts or bool(own) == bool(listed):
             continue
         verdict = verdicts[0]
-        if header_field(verdict, 'status') != 'reject':
+        rejected = Verdict.parse(verdict)
+        if rejected.status != 'reject' or rejected.problem:
             continue
-        units = header_field(verdict, 'units')
+        units = rejected.units
         if own:
             carried = [os.path.basename(own[0])[:3]]
             carried = [u for u in carried if u in re.findall(r'[0-9]{3}', units)]
@@ -417,7 +420,12 @@ def say_landing_verification(
     """The `landing verification:` lines. A landing verification is reported, not required."""
     if landing_verdict:
         say(manifest_warning(store, verdict_base_rev, current_landing_base(store)))
-        say(f'landing verification: {verdict.status} ({landing_verdict})\n')
+        if verdict.problem:
+            say(
+                f'landing verification: invalid ({verdict.problem}) ({landing_verdict})\n'
+            )
+        else:
+            say(f'landing verification: {verdict.status} ({landing_verdict})\n')
         if verdict_head_rev:
             if is_ancestor(root, verdict_head_rev, 'HEAD'):
                 counted = git.run(
@@ -590,6 +598,9 @@ def revise(ctx, args):
         raise Die(f'verdict not found: {verdict}')
     if header_field(verdict, 'status') != 'reject':
         raise Die('only a rejected verdict needs a fix brief')
+    problem = Verdict.parse(verdict).problem
+    if problem:
+        raise Die(f'verdict is invalid ({problem}); read it before a fix brief')
     units = header_field(verdict, 'units')
     landing = units.startswith('landing')
     if landing:

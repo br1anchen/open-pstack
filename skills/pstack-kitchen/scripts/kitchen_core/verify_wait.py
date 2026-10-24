@@ -47,6 +47,7 @@ from pstack_core.store import (
 
 from . import verify_state as vs
 from .landing import accepted_units, engine_met, review_engine
+from .units import Verdict
 
 NOT_GIVEN = object()
 
@@ -128,21 +129,17 @@ def findings(verdict):
 
 
 def rejected_count(store, unit):
-    """How many of the unit's verdicts (not their packets) say `status: reject`."""
+    """How many of the unit's well-formed verdicts (not their packets) say `status: reject`."""
     import glob
 
     n = 0
     for path in sorted(
         glob.glob(f'{glob.escape(store)}/verdicts/{glob.escape(unit)}-v[0-9]*.md')
     ):
-        try:
-            hit = any(
-                line.startswith('status: reject')
-                for line in read_text(path).split('\n')
-            )
-        except OSError:
+        if 'packet' in path:
             continue
-        if hit and 'packet' not in path:
+        found = Verdict.parse(path)
+        if found.status == 'reject' and not found.problem:
             n += 1
     return n
 

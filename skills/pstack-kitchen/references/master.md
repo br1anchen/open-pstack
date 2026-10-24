@@ -203,6 +203,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    where it leaves trunk (origin's default branch, else main or master), the
    base `verify --landing` prints, so a rebase never pulls trunk's commits
    into it.
+   A malformed verdict (no command output under Evidence, or a status other
+   than clean, reject or inconclusive) covers nothing in land-check, and
+   `revise` refuses it; read it before a fix brief.
    A squash or rebase step touches no profile, so before the landing brief,
    `kitchen.sh verify <store> --landing` gives the stack tip a fresh verifier
    of the escalated class: every behavioral gate the stack touches, and each touched

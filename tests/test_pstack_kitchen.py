@@ -7830,7 +7830,7 @@ esac
         landing = self.store / 'verdicts/landing-v1.md'
         landing.parent.mkdir(exist_ok=True)
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {landed[:9]}..{head[:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {landed[:9]}..{head[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         out = self.run_sh('land-check', str(self.store), code=2)
         self.assertNotIn('covered: unit 001', out)
@@ -7934,7 +7934,7 @@ esac
         for seq, status in [(seq, 'clean') for seq in verified] + list(statuses):
             (self.store / 'verdicts').mkdir(exist_ok=True)
             (self.store / f'verdicts/{seq}-v1.md').write_text(
-                f'# Verdict\n\nstatus: {status}\nunits: {seq}\n'
+                f'# Verdict\n\nstatus: {status}\nunits: {seq}\n\n## Evidence\n\n```\n$ true\n```\n'
             )
         self.run_sh(
             'verify', str(self.store), '--timeout', '60', '--landing', '--every', '0'
@@ -9492,14 +9492,14 @@ esac
         landing.parent.mkdir(exist_ok=True)
         for status, tip in (('inconclusive', head), ('clean', init)):
             landing.write_text(
-                f'# Verdict\n\nstatus: {status}\nunits: landing\nrange: {init}..{tip}\n'
+                f'# Verdict\n\nstatus: {status}\nunits: landing\nrange: {init}..{tip}\n\n## Evidence\n\n```\n$ true\n```\n'
             )
             self.assertIn(
                 'unverified: unit 001',
                 self.run_sh('land-check', str(self.store), code=2),
             )
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{head[:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{head[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         out = self.run_sh('land-check', str(self.store))
         self.assertIn(f'covered: unit 001 by the clean landing verdict {landing}', out)
@@ -9540,6 +9540,48 @@ esac
         out = self.run_sh('land-check', str(self.store))
         self.assertIn('covered: unit 001 by its verified fix, unit 002\n', out)
         self.assertIn('land-check: pass', out)
+
+    def malformed_verdict(self, name, status, units):
+        path = self.store / f'verdicts/{name}.md'
+        path.write_text(f'# Verdict\n\nstatus: {status}\nunits: {units}\n')
+        return path
+
+    def test_a_malformed_clean_verdict_covers_no_unit_in_land_check(self):
+        self.fix_world()
+        self.malformed_verdict('001-util-v1', 'clean', '001')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn('unverified: unit 001', out)
+
+    def test_revise_refuses_a_malformed_reject_verdict_and_writes_no_brief(self):
+        self.fix_world()
+        verdict = self.malformed_verdict('001-util-v1', 'reject', '001')
+        before = sorted(p.name for p in (self.store / 'briefs').iterdir())
+        out = self.run_sh('revise', str(self.store), str(verdict), code=1)
+        self.assertIn(
+            'verdict is invalid (no command output under Evidence); read it before a fix brief',
+            out,
+        )
+        self.assertEqual(
+            before, sorted(p.name for p in (self.store / 'briefs').iterdir())
+        )
+
+    def test_a_malformed_landing_verdict_is_reported_invalid_and_gives_no_range(self):
+        self.fix_world()
+        self.malformed_verdict('landing-v1', 'clean', 'landing')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertRegex(
+            out,
+            r'landing verification: invalid \(no command output under Evidence\) \(.*landing-v1\.md\)',
+        )
+        self.assertIn('unverified: unit 001', out)
+
+    def test_a_malformed_reject_verdict_makes_no_fix_cover_its_unit(self):
+        self.fix_world()
+        _, fix = self.reject_and_fix('001')
+        self.verdict_file('002-util-fix-v1', 'clean', '002')
+        self.malformed_verdict('001-util-v1', 'reject', '001')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn('unverified: unit 001', out)
 
     def test_a_fix_with_no_clean_verdict_covers_nothing(self):
         self.fix_world()
@@ -9670,7 +9712,7 @@ esac
     ):
         init, head, landing = self.landing_range_world()
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{head[:9]} from the packet\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{head[:9]} from the packet\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         out = self.run_sh('land-check', str(self.store))
         self.assertIn(f'covered: unit 001 by the clean landing verdict {landing}', out)
@@ -9703,7 +9745,7 @@ esac
         landing = self.store / 'verdicts/landing-v1.md'
         landing.parent.mkdir(exist_ok=True)
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         return landing, tip
 
@@ -9734,7 +9776,7 @@ esac
         landing = self.store / 'verdicts/landing-v1.md'
         landing.parent.mkdir(exist_ok=True)
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         return landing
 
@@ -9754,7 +9796,7 @@ esac
         landing = self.store / f'verdicts/landing-v{k}.md'
         landing.parent.mkdir(exist_ok=True)
         landing.write_text(
-            f'# Verdict\n\nstatus: {status}\nunits: landing\nrange: {base[:9]}..{tip[:9]}\n'
+            f'# Verdict\n\nstatus: {status}\nunits: landing\nrange: {base[:9]}..{tip[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         return landing
 
@@ -10122,7 +10164,7 @@ esac
         landing = self.store / 'verdicts/landing-v1.md'
         landing.parent.mkdir(exist_ok=True)
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {base_text or init[:9]}..{h1[:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {base_text or init[:9]}..{h1[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         b2 = self.brief('002', 'next', ['src/**', 'tests/**'])
         self.dispatch(b2)
@@ -10176,7 +10218,7 @@ esac
         landing = self.store / 'verdicts/landing-v1.md'
         landing.parent.mkdir(exist_ok=True)
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {trunk[:9]}..{tip[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         out = self.run_sh('land-check', str(self.store), code=2)
         self.assertIn(
@@ -10220,7 +10262,7 @@ esac
     def test_an_older_landing_verdict_says_how_many_commits_behind_head_it_is(self):
         init, head, landing = self.landing_range_world()
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{head[:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{head[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         self.assertNotIn(
             'commits behind HEAD', self.run_sh('land-check', str(self.store))
@@ -10277,7 +10319,7 @@ esac
         )
         landing = self.store / 'verdicts/landing-v1.md'
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{side[:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{side[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         out = self.run_sh('land-check', str(self.store), code=0)
         self.assertIn(
@@ -10498,7 +10540,7 @@ esac
         landing = self.store / 'verdicts/landing-v1.md'
         landing.parent.mkdir(exist_ok=True)
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{heads[-1][:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{heads[-1][:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         self.git('checkout', '-q', '-b', 'rebased', init)
         self.write(trunk_file, 'pytest==9\n')
@@ -10531,11 +10573,11 @@ esac
                 f'# Verify landing\n\nrange: {verified_base}..{verified_tip}\n'
             )
             landing.write_text(
-                '# Verdict\n\nstatus: clean\nunits: landing\nrange: copied wrongly\n'
+                '# Verdict\n\nstatus: clean\nunits: landing\nrange: copied wrongly\n\n## Evidence\n\n```\n$ true\n```\n'
             )
         else:
             landing.write_text(
-                f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {verified_base[:9]}..{verified_tip[:9]}\n'
+                f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {verified_base[:9]}..{verified_tip[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
             )
         self.git('checkout', '-q', '-b', 'rebased', init)
         self.git('update-ref', 'refs/remotes/origin/main', init)
@@ -10596,7 +10638,7 @@ esac
         landing = self.store / 'verdicts/landing-v1.md'
         landing.parent.mkdir(exist_ok=True)
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {lower[:9]}..{upper[:9]}\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {lower[:9]}..{upper[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         # The two units' own commits are not on this branch, so land-check refuses them; only the warning is under test.
         out = self.run_sh('land-check', str(self.store), code=2)
@@ -10623,7 +10665,7 @@ esac
     ):
         init, head, landing = self.landing_range_world()
         landing.write_text(
-            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..deadbeef0\n'
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..deadbeef0\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         out = self.run_sh('land-check', str(self.store), code=2)
         self.assertIn(
@@ -10652,7 +10694,7 @@ esac
         verdict = self.store / f'verdicts/{name}.md'
         verdict.parent.mkdir(exist_ok=True)
         verdict.write_text(
-            f'# Verdict\n\nstatus: reject\nunits: {units}\n\n## Findings\n\n1. flaky\n'
+            f'# Verdict\n\nstatus: reject\nunits: {units}\n\n## Findings\n\n1. flaky\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         return verdict
 

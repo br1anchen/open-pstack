@@ -4698,10 +4698,10 @@ class CoreTests(unittest.TestCase):
         return {
             'reports/001-x.md': '# Report\n\nstatus: done\nhead: {c2}\n',
             'reports/002-y.md': '# Report\n\nstatus: partial\nhead: {c3}\n',
-            'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n',
+            'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n\n## Evidence\n\n```\n$ true\n```\n',
             'verdicts/002-y-v1.md': '# V\n\nstatus: reject\nunits: 002\n\n## Findings\n\n1. it broke\n',
             'verdicts/002-y-v1-packet.md': '# P\n\nverifier-outcome: reject\n',
-            'verdicts/002-y-v2.md': '# V\n\nstatus: clean\nunits: 002\n',
+            'verdicts/002-y-v2.md': '# V\n\nstatus: clean\nunits: 002\n\n## Evidence\n\n```\n$ true\n```\n',
             'steers/001-x-s1.md': '# Steer\n\nkind: scope\n\n## Direction\n\nstay in src\n',
             'steers/002-y-s1.md': '# Steer\n\nkind: redirect\n\n## Direction\n\ndo it again\n',
             'reviews/001-x.md': '# R\n\nverdict: accept\n',
@@ -9704,11 +9704,13 @@ class CoreTests(unittest.TestCase):
 
     @staticmethod
     def lc_verdict(rng, status='clean', units='landing'):
-        return f'# V\n\nstatus: {status}\nunits: {units}\nrange: {rng}\n'
+        return f'# V\n\nstatus: {status}\nunits: {units}\nrange: {rng}\n\n## Evidence\n\n```\n$ true\n```\n'
 
     def test_land_check_behaviour(self):
         world, verdict = self.land_world, self.lc_verdict
-        clean = {'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n'}
+        clean = {
+            'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n\n## Evidence\n\n```\n$ true\n```\n'
+        }
         landing = lambda rng, **kw: {'verdicts/landing-v1.md': verdict(rng, **kw)}
         stack = [
             ('git', 'checkout', '-q', '-b', 'stack', '{c1}'),
@@ -11100,7 +11102,9 @@ class CoreTests(unittest.TestCase):
         cases = {
             'a verification with no verdict is cancelled': world(),
             'a verdict already written': world(
-                files={'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n'}
+                files={
+                    'verdicts/001-x-v1.md': '# V\n\nstatus: clean\nunits: 001\n\n## Evidence\n\n```\n$ true\n```\n'
+                }
             ),
             'nothing open': world(pair={'verifying': None}),
             'a claim held by a live call': world(
