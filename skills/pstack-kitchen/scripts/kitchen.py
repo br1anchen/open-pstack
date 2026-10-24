@@ -3990,6 +3990,36 @@ def kitchen_overlays(inv: 'Invocation') -> tuple[list, dict[str, Path], list[str
     )
 
 
+def compose(
+    inv: 'Invocation',
+    workflow: str,
+    paths: list[str],
+    with_ids: tuple[str, ...] = (),
+    without: tuple[tuple[str, str], ...] = (),
+) -> dict:
+    """The playbook for a brief: its pstack workflow plus the repo overlays its
+    Scope selects or it names, with each role's text and where each part came
+    from. Raises KitchenError for an unmapped workflow, an unknown or
+    incompatible overlay, a `without:` with no reason or conflicting parts."""
+    pb = playbooks_module()
+    root, _, _ = open_kitchen(inv)
+    overlays, roots, _ = kitchen_overlays(inv)
+    files = [path for path, _, _ in changes(root, inv.at, paths).files]
+    try:
+        return pb.compose(
+            pb.load_map(pb.MAP_PATH),
+            overlays,
+            roots,
+            workflow,
+            files,
+            lambda glob, path: bool(glob_regex(glob).match(path)),
+            tuple(with_ids),
+            tuple(without),
+        )
+    except (pb.PlaybookError, OSError) as e:
+        raise KitchenError(str(e)) from None
+
+
 def overlay_problem_lines(inv: 'Invocation') -> list[str]:
     pb = playbooks_module()
     overlays, roots, workflows = kitchen_overlays(inv)

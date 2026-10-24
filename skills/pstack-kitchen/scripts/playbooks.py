@@ -640,6 +640,199 @@ def overlay_index(overlays: list[Overlay]) -> list[dict]:
     return out
 
 
+def applies_of(overlay: Overlay) -> list[str]:
+    if overlay.error or not string_list(overlay.data.get('applies', [])):
+        raise PlaybookError(
+            f'overlay {overlay.stem} is unusable (run kitchen.py validate): '
+            f'{overlay.error or "applies must be a list of strings"}'
+        )
+    return list(overlay.data.get('applies', []))
+
+
+def select_overlays(
+    overlays: list[Overlay],
+    workflow: str,
+    files: list[str],
+    match,
+    with_ids: tuple[str, ...] = (),
+    without: tuple[tuple[str, str], ...] = (),
+) -> tuple[list[tuple[Overlay, str]], list[dict]]:
+    """The overlays a brief gets, in id order with why each is in, and those
+    left out with why. `match(glob, path)` is the kitchen's path matching.
+
+    An overlay is in when its `applies` matches a scope file or the brief names
+    it with `with:`; `without:` (reason required) removes that overlay alone.
+    A named overlay whose `combines` excludes the workflow is an error; one
+    selected by path is reported inapplicable and skipped."""
+    by_id = {o.stem: o for o in overlays}
+    dropped = {}
+    for oid, reason in without:
+        if not reason.strip():
+            raise PlaybookError(f'without: {oid} needs a reason')
+        dropped[oid] = reason.strip()
+    for oid in (*with_ids, *dropped):
+        if oid not in by_id:
+            raise PlaybookError(f'no overlay {oid!r} in the repo playbooks')
+    clash = sorted(set(with_ids) & set(dropped))
+    if clash:
+        raise PlaybookError(f'with: and without: both name {", ".join(clash)}')
+    selected: list[tuple[Overlay, str]] = []
+    excluded: list[dict] = []
+    for o in sorted(overlays, key=lambda x: x.stem):
+        globs = applies_of(o)
+        hit = next(
+            (f'{g} matches {f}' for g in globs for f in files if match(g, f)), ''
+        )
+        if o.stem in dropped:
+            excluded.append({'id': o.stem, 'reason': f'without: {dropped[o.stem]}'})
+            continue
+        explicit = o.stem in with_ids
+        if not explicit and not hit:
+            continue
+        combines = o.data.get('combines', [])
+        if combines and workflow not in combines:
+            if explicit:
+                raise PlaybookError(
+                    f'with: {o.stem} combines only with {", ".join(combines)}, '
+                    f'not {workflow}'
+                )
+            excluded.append(
+                {
+                    'id': o.stem,
+                    'reason': f'inapplicable: combines only with {", ".join(combines)}, not {workflow}',
+                }
+            )
+            continue
+        selected.append((o, 'with:' if explicit else f'applies {hit}'))
+    return selected, excluded
+
+
+@dataclass
+class Item:
+    """A part as composition sees it: where it points and who it came from."""
+
+    pid: str
+    root: str
+    path: str
+    file: Path
+    select: str
+    owners: tuple[str, ...]
+    kitchen: tuple[tuple[str, str], ...]
+    reviewed: str
+    origins: list[str]
+
+    def definition(self) -> tuple:
+        return (
+            self.root,
+            self.path,
+            self.select,
+            self.owners,
+            self.kitchen,
+            self.reviewed,
+        )
+
+
+def item_of(roots: dict[str, Path], part: dict, source: dict, origin: str) -> Item:
+    root, path = str(source.get('root')), str(source.get('path'))
+    kitchen = part.get('kitchen') or {}
+    return Item(
+        str(part['id']),
+        root,
+        path,
+        resolve_source(roots, root, path),
+        canonical(str(part['select'])),
+        tuple(part['owners']),
+        tuple(sorted((r, str(t)) for r, t in kitchen.items())),
+        str(part.get('reviewed', '')),
+        [origin],
+    )
+
+
+def compose(
+    data: dict,
+    overlays: list[Overlay],
+    roots: dict[str, Path],
+    workflow: str,
+    files: list[str],
+    match,
+    with_ids: tuple[str, ...] = (),
+    without: tuple[tuple[str, str], ...] = (),
+) -> dict:
+    """The playbook a brief gets: the mapped pstack workflow, then the selected
+    overlays in id order, as an ordered list of parts per role with the text
+    each role is given (its kitchen text, else the selected source) and where
+    every part came from. A union with no overrides: two selections of the same
+    text collapse into one part that keeps every origin, and one part id with
+    two definitions is an error."""
+    entry = data.get('playbook', {}).get(workflow)
+    if entry is None:
+        raise PlaybookError(
+            f'playbook {workflow!r} is not mapped; mapped: {", ".join(sorted(data.get("playbook", {})))}'
+        )
+    chosen, excluded = select_overlays(
+        overlays, workflow, files, match, with_ids, without
+    )
+    workflows = sorted(data['playbook'])
+    for o, _ in chosen:
+        if problems := overlay_problems(o, roots, workflows):
+            raise PlaybookError('; '.join(problems))
+    items: dict[str, Item] = {}
+    sources = [(f'workflow:{workflow}', entry['source'], entry.get('part', []))]
+    sources += [(f'overlay:{o.stem}', None, o.data.get('part', [])) for o, _ in chosen]
+    for origin, entry_source, parts in sources:
+        for part in parts:
+            item = item_of(roots, part, entry_source or part['source'], origin)
+            old = items.get(item.pid)
+            if old is None:
+                items[item.pid] = item
+            elif old.definition() != item.definition():
+                raise PlaybookError(
+                    f'part id {item.pid} is defined differently by '
+                    f'{old.origins[0]} and {origin}'
+                )
+            elif origin not in old.origins:
+                old.origins.append(origin)
+    docs: dict[Path, Doc] = {}
+    roles: dict[str, list[dict]] = {role: [] for role in AGENT_ROLES}
+    seen: dict[str, dict[tuple, dict]] = {role: {} for role in AGENT_ROLES}
+    for item in items.values():
+        doc = docs.setdefault(item.file, parse(item.file.read_text()))
+        source_text = text_of(doc, select(doc, item.select))
+        texts = dict(item.kitchen)
+        origins = [{'part': item.pid, 'by': o} for o in item.origins]
+        for role in AGENT_ROLES:
+            if role not in item.owners:
+                continue
+            text = texts.get(role) or source_text
+            same = seen[role].get((item.file, item.select, text))
+            if same:
+                same['from'] += [x for x in origins if x not in same['from']]
+                continue
+            seen[role][(item.file, item.select, text)] = entry_out = {
+                'id': item.pid,
+                'text': text,
+                'source': {
+                    'root': item.root,
+                    'path': item.path,
+                    'select': item.select,
+                    'digest': digest(source_text),
+                },
+                'from': list(origins),
+            }
+            roles[role].append(entry_out)
+    return {
+        'workflow': workflow,
+        'overlays': {
+            'selected': [
+                {'id': o.stem, 'why': why, 'kind': o.data.get('kind')}
+                for o, why in chosen
+            ],
+            'excluded': excluded,
+        },
+        'roles': roles,
+    }
+
+
 MAP_PATH = Path(__file__).resolve().parents[1] / 'references/playbook-roles.toml'
 
 

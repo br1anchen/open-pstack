@@ -1,3 +1,4 @@
+import fnmatch
 import importlib.util
 import json
 import os
@@ -869,8 +870,8 @@ class OverlayCommandTests(unittest.TestCase):
         )
 
 
-class OverlayKitchenTests(unittest.TestCase):
-    """validate and doctor against a throwaway repo that carries the fixture overlays."""
+class OverlayRepo(unittest.TestCase):
+    """A throwaway git repo that carries the fixture overlays."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -902,6 +903,10 @@ class OverlayKitchenTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+
+class OverlayKitchenTests(OverlayRepo):
+    """validate and doctor against that repo."""
 
     def test_validate_passes_with_sound_overlays(self):
         done = self.kitchen('validate')
@@ -935,6 +940,244 @@ class OverlayKitchenTests(unittest.TestCase):
         check = self.doctor_check()
         self.assertEqual(check['status'], 'fail')
         self.assertIn('overlay bad-schema: schema must be 1', check['items'])
+
+
+def fixture_overlays(*extra):
+    return [*playbooks.load_overlays(FIXTURE_REPO / '.agents/playbooks'), *extra]
+
+
+def clone(stem, **changes):
+    (rust,) = [o for o in fixture_overlays() if o.stem == 'rust-engine']
+    data = json.loads(json.dumps(rust.data))
+    data['id'] = stem
+    data.update(changes)
+    return playbooks.Overlay(stem, data)
+
+
+def glob_match(glob, path):
+    return fnmatch.fnmatch(path, glob)
+
+
+def compose(workflow='bug-fix', files=('engine/src/lib.rs',), overlays=None, **kw):
+    return playbooks.compose(
+        playbooks.load_map(playbooks.MAP_PATH),
+        fixture_overlays() if overlays is None else overlays,
+        overlay_roots(),
+        workflow,
+        list(files),
+        glob_match,
+        **kw,
+    )
+
+
+def ids(result, role):
+    return [e['id'] for e in result['roles'][role]]
+
+
+class ComposeTests(unittest.TestCase):
+    def test_an_overlay_whose_applies_matches_the_scope_is_selected_by_path(self):
+        r = compose()
+        self.assertEqual(
+            r['overlays']['selected'],
+            [
+                {
+                    'id': 'rust-engine',
+                    'why': 'applies engine/** matches engine/src/lib.rs',
+                    'kind': 'language',
+                }
+            ],
+        )
+        self.assertEqual(r['overlays']['excluded'], [])
+
+    def test_the_workflow_parts_come_first_then_overlay_parts_in_id_order(self):
+        r = compose(with_ids=('daily-coaching',))
+        sidekick = ids(r, 'sidekick')
+        mapped = [i for i in sidekick if i.startswith('bug-fix.')]
+        self.assertEqual(sidekick[: len(mapped)], mapped)
+        self.assertEqual(
+            sidekick[len(mapped) :],
+            ['session-shape', 'tone', 'error-model', 'testing'],
+        )
+        self.assertEqual(
+            [o['id'] for o in r['overlays']['selected']],
+            ['daily-coaching', 'rust-engine'],
+        )
+
+    def test_with_adds_an_overlay_no_path_matches(self):
+        r = compose(files=('docs/readme.md',), with_ids=('daily-coaching',))
+        self.assertEqual(
+            r['overlays']['selected'],
+            [{'id': 'daily-coaching', 'why': 'with:', 'kind': 'domain'}],
+        )
+
+    def test_an_overlay_with_empty_applies_never_matches_by_path(self):
+        r = compose(files=('anything/at/all.rs',))
+        self.assertEqual(r['overlays']['selected'], [])
+
+    def test_each_role_gets_only_the_parts_it_owns_with_its_own_text(self):
+        r = compose()
+        self.assertIn('error-model', ids(r, 'verifier'))
+        self.assertNotIn('error-model', ids(r, 'master'))
+        verifier = next(e for e in r['roles']['verifier'] if e['id'] == 'error-model')
+        sidekick = next(e for e in r['roles']['sidekick'] if e['id'] == 'error-model')
+        self.assertTrue(verifier['text'].startswith('Check error paths against this'))
+        self.assertIn('Return a typed error', sidekick['text'])
+        self.assertEqual(
+            sidekick['source'],
+            {
+                'root': 'repo',
+                'path': 'CODING_STANDARDS.md',
+                'select': 'heading:Rust (Engine)/Errors',
+                'digest': '6b7c36b4f3ca',
+            },
+        )
+        self.assertEqual(
+            sidekick['from'], [{'part': 'error-model', 'by': 'overlay:rust-engine'}]
+        )
+
+    def test_without_with_a_reason_drops_only_that_overlay(self):
+        r = compose(
+            with_ids=('daily-coaching',),
+            without=(('rust-engine', 'this change is a doc edit'),),
+        )
+        self.assertEqual(
+            [o['id'] for o in r['overlays']['selected']], ['daily-coaching']
+        )
+        self.assertEqual(
+            r['overlays']['excluded'],
+            [{'id': 'rust-engine', 'reason': 'without: this change is a doc edit'}],
+        )
+        self.assertNotIn('error-model', ids(r, 'sidekick'))
+
+    def test_without_needs_a_reason(self):
+        for reason in ('', '   '):
+            with self.assertRaisesRegex(
+                playbooks.PlaybookError, 'without: rust-engine needs a reason'
+            ):
+                compose(without=(('rust-engine', reason),))
+
+    def test_naming_an_overlay_the_repo_lacks_is_an_error(self):
+        with self.assertRaisesRegex(playbooks.PlaybookError, "no overlay 'ghost'"):
+            compose(with_ids=('ghost',))
+        with self.assertRaisesRegex(playbooks.PlaybookError, "no overlay 'ghost'"):
+            compose(without=(('ghost', 'why'),))
+
+    def test_with_and_without_of_one_overlay_is_an_error(self):
+        with self.assertRaisesRegex(playbooks.PlaybookError, 'both name rust-engine'):
+            compose(with_ids=('rust-engine',), without=(('rust-engine', 'no'),))
+
+    def test_an_explicit_overlay_whose_combines_excludes_the_workflow_is_an_error(self):
+        with self.assertRaisesRegex(
+            playbooks.PlaybookError,
+            'with: rust-engine combines only with bug-fix, feature, refactoring, not investigation',
+        ):
+            compose('investigation', with_ids=('rust-engine',))
+
+    def test_an_automatic_overlay_that_does_not_combine_is_reported_and_skipped(self):
+        r = compose('investigation')
+        self.assertEqual(r['overlays']['selected'], [])
+        self.assertEqual(
+            r['overlays']['excluded'],
+            [
+                {
+                    'id': 'rust-engine',
+                    'reason': 'inapplicable: combines only with bug-fix, feature, refactoring, not investigation',
+                }
+            ],
+        )
+        self.assertNotIn('error-model', ids(r, 'sidekick'))
+
+    def test_an_empty_combines_fits_any_workflow(self):
+        r = compose('investigation', with_ids=('daily-coaching',))
+        self.assertEqual(
+            [o['id'] for o in r['overlays']['selected']], ['daily-coaching']
+        )
+
+    def test_one_selection_from_two_overlays_is_one_part_with_both_origins(self):
+        twin = clone('rust-twin')
+        r = compose(overlays=fixture_overlays(twin))
+        self.assertEqual(ids(r, 'sidekick').count('error-model'), 1)
+        entry = next(e for e in r['roles']['sidekick'] if e['id'] == 'error-model')
+        self.assertEqual(
+            [x['by'] for x in entry['from']],
+            ['overlay:rust-engine', 'overlay:rust-twin'],
+        )
+
+    def test_the_same_text_under_two_part_ids_is_one_part_with_both_provenances(self):
+        twin = clone('rust-twin')
+        twin.data['part'][0]['id'] = 'errors-again'
+        r = compose(overlays=fixture_overlays(twin))
+        entry = next(e for e in r['roles']['sidekick'] if e['id'] == 'error-model')
+        self.assertEqual(ids(r, 'sidekick').count('errors-again'), 0)
+        self.assertEqual(
+            entry['from'],
+            [
+                {'part': 'error-model', 'by': 'overlay:rust-engine'},
+                {'part': 'errors-again', 'by': 'overlay:rust-twin'},
+            ],
+        )
+
+    def test_one_part_id_with_two_definitions_is_an_error(self):
+        other = clone('rust-twin')
+        other.data['part'][0]['select'] = 'heading:Rust (Engine)/Testing'
+        other.data['part'][0]['reviewed'] = '37cba2f76bee'
+        with self.assertRaisesRegex(
+            playbooks.PlaybookError,
+            'part id error-model is defined differently by overlay:rust-engine and overlay:rust-twin',
+        ):
+            compose(overlays=fixture_overlays(other))
+
+    def test_a_workflow_the_map_lacks_is_an_error_listing_the_mapped_ones(self):
+        with self.assertRaises(playbooks.PlaybookError) as raised:
+            compose('some-old-label')
+        message = str(raised.exception)
+        self.assertIn("playbook 'some-old-label' is not mapped; mapped: ", message)
+        self.assertIn('bug-fix', message)
+        self.assertIn('shipping', message)
+
+    def test_a_selected_overlay_with_a_stale_digest_fails_composition(self):
+        stale = clone('rust-engine')
+        stale.data['part'][0]['reviewed'] = '000000000000'
+        with self.assertRaisesRegex(playbooks.PlaybookError, 'digest mismatch'):
+            compose(overlays=[stale])
+
+    def test_an_unselected_overlay_is_not_read(self):
+        stale = clone('rust-engine', applies=['elsewhere/**'])
+        stale.data['part'][0]['reviewed'] = '000000000000'
+        self.assertEqual(compose(overlays=[stale])['overlays']['selected'], [])
+
+    def test_the_result_is_plain_data_that_survives_json(self):
+        r = compose(with_ids=('daily-coaching',))
+        self.assertEqual(json.loads(json.dumps(r)), r)
+        self.assertEqual(
+            sorted(r['roles']), ['consultant', 'master', 'sidekick', 'verifier']
+        )
+
+
+class ComposeQueryTests(OverlayRepo):
+    """kitchen.compose reads the Scope against the repo's tracked files, new ones included."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(KITCHEN.parent))
+        import kitchen
+
+        cls.kitchen_py = kitchen
+
+    def compose(self, paths, **kw):
+        inv = self.kitchen_py.Invocation(str(self.repo))
+        return self.kitchen_py.compose(inv, 'bug-fix', paths, **kw)
+
+    def test_a_scoped_file_that_does_not_exist_yet_still_selects_an_overlay(self):
+        r = self.compose(['engine/new/**'])
+        self.assertEqual([o['id'] for o in r['overlays']['selected']], ['rust-engine'])
+
+    def test_a_scope_outside_every_applies_selects_nothing(self):
+        self.assertEqual(self.compose(['docs/**'])['overlays']['selected'], [])
+
+    def test_errors_are_kitchen_errors(self):
+        with self.assertRaises(self.kitchen_py.KitchenError):
+            self.compose(['engine/**'], with_ids=('ghost',))
 
 
 if __name__ == '__main__':
