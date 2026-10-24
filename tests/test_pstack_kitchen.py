@@ -3916,6 +3916,81 @@ esac
         self.assertEqual((live / 'src/util.py').read_text(), 'X = 99\n')
         self.run_sh('scratch', str(self.store), '002-x-live', '--remove')
 
+    def colocate(self):
+        self.write('src/util.py', 'X = 5\n')
+        head = self.commit('base')
+        subprocess.run(
+            ['jj', 'git', 'init', '--colocate'],
+            cwd=self.repo,
+            env=self.env,
+            check=True,
+            capture_output=True,
+        )
+        return head
+
+    def jj_listing(self):
+        return subprocess.run(
+            ['jj', 'workspace', 'list'],
+            cwd=self.repo,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+
+    @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
+    def test_a_jj_scratch_is_a_git_work_tree_at_the_commit(self):
+        head = self.colocate()
+        config = self.git('config', '--list')
+        index = (self.repo / '.git/index').read_bytes()
+        path = Path(self.scratch_stdout('001-x-verify', '--at', head).splitlines()[-1])
+
+        def git_in(*args):
+            return subprocess.run(
+                ['git', *args],
+                cwd=path,
+                env=self.env,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+        self.assertEqual(
+            Path(git_in('rev-parse', '--show-toplevel')).resolve(), path.resolve()
+        )
+        self.assertEqual(git_in('rev-parse', 'HEAD'), head)
+        self.assertEqual(git_in('status', '--porcelain'), '')
+        self.assertEqual((path / 'src/util.py').read_text(), 'X = 5\n')
+        self.assertIn('scratch-001-x-verify', self.jj_listing())
+        self.assertIn(str(path), self.git('worktree', 'list'))
+        self.assertEqual(self.git('rev-parse', 'HEAD'), head)
+        self.assertEqual(self.git('config', '--list'), config)
+        self.assertEqual((self.repo / '.git/index').read_bytes(), index)
+        self.assertEqual(
+            self.run_sh('scratch', str(self.store), '001-x-verify', '--remove'),
+            f'removed {path}\n',
+        )
+        self.assertFalse(path.exists())
+        self.assertNotIn('pstack-scratch', self.git('worktree', 'list'))
+        self.assertNotIn('scratch-', self.jj_listing())
+
+    @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
+    def test_a_failed_jj_scratch_leaves_no_git_worktree(self):
+        self.colocate()
+        stubs = Path(self.tmp.name) / 'stubs'
+        stubs.mkdir()
+        real = shutil.which('jj')
+        jj = stubs / 'jj'
+        jj.write_text(
+            f'#!/bin/sh\ncase "$*" in *"workspace add"*) exit 1 ;; esac\nexec {real} "$@"\n'
+        )
+        jj.chmod(0o755)
+        self.env['PATH'] = f'{stubs}:{self.env["PATH"]}'
+        out = self.run_sh('scratch', str(self.store), '001-x-verify', code=2)
+        self.assertIn('jj workspace add failed', out)
+        self.assertNotIn('pstack-scratch', self.git('worktree', 'list'))
+        self.assertNotIn('scratch-', self.jj_listing())
+
     def test_kitchen_scratch_made_for_a_store_with_a_trailing_slash_or_a_relative_name_is_the_one_removed(
         self,
     ):

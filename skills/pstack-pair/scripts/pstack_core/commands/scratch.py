@@ -30,6 +30,13 @@ def remove_tree(path):
         shutil.rmtree(path, ignore_errors=True)
 
 
+def drop_worktree(cwd, path):
+    """Unregisters the git worktree at `path` and deletes the directory, which is removed by hand when git does not know it."""
+    if not git.ok(cwd, 'worktree', 'remove', '--force', path):
+        remove_tree(path)
+    git.ok(cwd, 'worktree', 'prune')
+
+
 def locate(store, ident):
     """(cwd, link, path) of the scratch `ident` for a store: the repository the store works in, the link under the store and the worktree it names.
     The store must exist, the id must look like NNN-<slug> and the store's cwd must be a git root."""
@@ -58,11 +65,7 @@ def remove_scratch(ctx, store, ident):
     cwd, link, path = locate(store, ident)
     if os.path.isdir(f'{cwd}/.jj'):
         run_quiet('jj', '-R', cwd, 'workspace', 'forget', f'scratch-{ident}')
-        remove_tree(path)
-    else:
-        if not git.ok(cwd, 'worktree', 'remove', '--force', path):
-            remove_tree(path)
-        git.ok(cwd, 'worktree', 'prune')
+    drop_worktree(cwd, path)
     if os.path.islink(link):
         os.unlink(link)
     try:
@@ -110,6 +113,51 @@ def copy_live_changes(cwd, path):
             shutil.copy2(f'{cwd}/{f}', f'{path}/{f}')
 
 
+def add_jj_scratch(cwd, ident, path, at):
+    """A jj workspace that is also a linked git worktree at the same commit. A jj workspace alone has no .git, and git finds only the
+    git directory under .git/, so every git, flake and gate command there fails. The worktree is added first with no checkout, its .git
+    link set aside while jj fills the empty directory, then put back and its index read from HEAD."""
+    commit = at or git.out(cwd, 'rev-parse', 'HEAD') or 'HEAD'
+    if not git.ok(cwd, 'worktree', 'add', '--no-checkout', '--detach', path, commit):
+        raise ScratchNotMade('git worktree add failed')
+    link = f'{path}.gitlink'
+    os.replace(f'{path}/.git', link)
+    added = subprocess.run(
+        [
+            'jj',
+            '-R',
+            cwd,
+            'workspace',
+            'add',
+            '--name',
+            f'scratch-{ident}',
+            *(['-r', at] if at else []),
+            path,
+        ],
+        stdout=subprocess.DEVNULL,
+        check=False,
+    )
+    if added.returncode != 0:
+        os.unlink(link)
+        drop_worktree(cwd, path)
+        raise ScratchNotMade('jj workspace add failed')
+    os.replace(link, f'{path}/.git')
+    ignore = f'{path}/.jj/.gitignore'
+    if not os.path.exists(ignore):
+        with open(ignore, 'w') as f:
+            f.write('/*\n')
+    top = git.out(path, 'rev-parse', '--show-toplevel')
+    failure = None
+    if not git.ok(path, 'reset', '-q'):
+        failure = f'git reset in {path} failed'
+    elif top is None or os.path.realpath(top) != os.path.realpath(path):
+        failure = f'scratch {path} is not a git work tree'
+    if failure:
+        run_quiet('jj', '-R', cwd, 'workspace', 'forget', f'scratch-{ident}')
+        drop_worktree(cwd, path)
+        raise ScratchNotMade(failure)
+
+
 def make_scratch(ctx, store, ident, *, at=''):
     """The path of the scratch worktree `ident`, made at the commit `at` (HEAD with the live diff when empty) unless it is there already. A
     live diff that does not apply is said on stderr and leaves the scratch at HEAD."""
@@ -139,23 +187,7 @@ def make_scratch(ctx, store, ident, *, at=''):
         raise BadScratch(f'not a commit: {at}')
     jj = os.path.isdir(f'{cwd}/.jj')
     if jj:
-        added = subprocess.run(
-            [
-                'jj',
-                '-R',
-                cwd,
-                'workspace',
-                'add',
-                '--name',
-                f'scratch-{ident}',
-                *(['-r', at] if at else []),
-                path,
-            ],
-            stdout=subprocess.DEVNULL,
-            check=False,
-        )
-        if added.returncode != 0:
-            raise ScratchNotMade('jj workspace add failed')
+        add_jj_scratch(cwd, ident, path, at)
     elif (
         git.run(
             cwd, 'worktree', 'add', '--detach', path, at or 'HEAD', stdout=git.DEVNULL

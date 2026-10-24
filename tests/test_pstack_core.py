@@ -182,6 +182,65 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(log.read_text(), 'jq .\n')
         log.unlink()
 
+    @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
+    def test_a_jj_scratch_that_git_does_not_see_as_its_work_tree_is_refused_and_removed(
+        self,
+    ):
+        from pstack_core import git as pgit
+        from pstack_core.commands import scratch
+        from pstack_core.errors import ScratchNotMade
+
+        env = {
+            **self.env,
+            'GIT_AUTHOR_NAME': 't',
+            'GIT_AUTHOR_EMAIL': 't@t',
+            'GIT_COMMITTER_NAME': 't',
+            'GIT_COMMITTER_EMAIL': 't@t',
+        }
+        repo = self.path / 'repo'
+        repo.mkdir()
+        for cmd in (
+            ['git', 'init', '-q'],
+            ['git', 'commit', '-q', '--allow-empty', '-m', 'base'],
+            ['jj', 'git', 'init', '--colocate'],
+        ):
+            subprocess.run(cmd, cwd=repo, env=env, check=True, capture_output=True)
+        real = pgit.out
+
+        def elsewhere(root, *args):
+            return (
+                '/elsewhere'
+                if 'rev-parse' in args and '--show-toplevel' in args
+                else real(root, *args)
+            )
+
+        path = str(self.path / 'scratch-wt')
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(pgit, 'out', elsewhere),
+            self.assertRaises(ScratchNotMade) as caught,
+        ):
+            scratch.add_jj_scratch(str(repo), '001-x', path, '')
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn(f'scratch {path} is not a git work tree', str(caught.exception))
+        self.assertFalse(os.path.exists(path))
+        listed = subprocess.run(
+            ['git', 'worktree', 'list'],
+            cwd=repo,
+            env=env,
+            capture_output=True,
+            text=True,
+        ).stdout
+        self.assertEqual(len(listed.splitlines()), 1)
+        jj_list = subprocess.run(
+            ['jj', 'workspace', 'list'],
+            cwd=repo,
+            env=env,
+            capture_output=True,
+            text=True,
+        ).stdout
+        self.assertNotIn('scratch-001-x', jj_list)
+
     def test_every_test_process_of_run_py_finds_the_failing_jq_first(self):
         with tempfile.TemporaryDirectory() as directory:
             env = run_module.tripwire_env(directory)

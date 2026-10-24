@@ -11,7 +11,11 @@ work?", and then your pane closes.
    scratch worktree at the unit's head, the range, each unit's Goal and
    Acceptance, the run's standing orders, the changed files, the commands to
    run, and the feature map. Work only in the scratch worktree. Write nothing else but the verdict;
-   the packet's `Write rule:` line says so again. Its `Brief commands` are
+   the packet's `Write rule:` line says so again. Never set `GIT_DIR`,
+   `GIT_WORK_TREE` or `GIT_INDEX_FILE`: every child, including the repo's own
+   fixtures, inherits them and writes into the main repo. When git does not
+   see the scratch as a work tree, stop and write an inconclusive verdict
+   saying so. The packet's `Brief commands` are
    the unit's Verify commands, each in a block of its own: run each in a fresh
    shell from the scratch root. `Brief commands: none (brief-verify: ...)` means
    the brief's Verify block could not be read; say so in the verdict. The blocks
