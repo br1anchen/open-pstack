@@ -1527,5 +1527,42 @@ class UnusableMapTests(OverlayRepo):
             self.assertTrue(self.kitchen_py.validate(inv).profiles)
 
 
+class FixtureRepoScriptTests(unittest.TestCase):
+    script = root / 'scripts/kitchen-fixture-repo.sh'
+
+    def test_the_fixture_copied_into_its_own_repo_lists_its_overlays(self):
+        made = subprocess.run(
+            ['bash', str(self.script), str(FIXTURE_REPO)],
+            timeout=60,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(made.returncode, 0, made.stderr)
+        repo = made.stdout.strip()
+        self.addCleanup(shutil.rmtree, repo, True)
+        done = subprocess.run(
+            [sys.executable, str(KITCHEN), '--repo', repo, '--json']
+            + ['playbooks', 'index'],
+            timeout=60,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        overlays = {o['id']: o for o in json.loads(done.stdout)['overlays']}
+        self.assertEqual(sorted(overlays), ['daily-coaching', 'rust-engine'])
+        for overlay in overlays.values():
+            self.assertTrue(overlay['parts'])
+
+    def test_a_missing_directory_exits_1_with_a_message(self):
+        done = subprocess.run(
+            ['bash', str(self.script), str(root / 'no-such-dir')],
+            timeout=60,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('not a directory', done.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()
