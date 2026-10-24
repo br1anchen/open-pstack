@@ -22,8 +22,10 @@ spec.loader.exec_module(playbooks)
 
 
 def playbooks_loader():
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    fresh = importlib.util.spec_from_file_location('playbooks', spec.origin)
+    assert fresh and fresh.loader
+    module = importlib.util.module_from_spec(fresh)
+    fresh.loader.exec_module(module)
     return module
 
 
