@@ -1,3 +1,4 @@
+import functools
 import importlib.util
 import os
 import sys
@@ -45,6 +46,19 @@ def load_kitchen_core():
     return module
 
 
+@functools.cache
+def playbooks():
+    """playbooks.py, loaded once by path: its section readers skip a `## ` line inside a code fence."""
+    spec = importlib.util.spec_from_file_location(
+        'playbooks', Path(__file__).with_name('playbooks.py')
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError('cannot load playbooks.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def verify_block(ctx, brief):
     """The lines of the brief's Verify section, each ending in a newline."""
     try:
@@ -54,15 +68,9 @@ def verify_block(ctx, brief):
         return ''
     if records[-1] == '':
         records.pop()
-    out, show = [], False
-    for line in records:
-        if line.startswith('## Verify'):
-            show = True
-        elif line.startswith('## '):
-            show = False
-        elif show:
-            out.append(line + '\n')
-    return ''.join(out)
+    return ''.join(
+        line + '\n' for line in playbooks().section_lines(records, r'^## Verify')
+    )
 
 
 def verify_job(ctx, store, brief, head):

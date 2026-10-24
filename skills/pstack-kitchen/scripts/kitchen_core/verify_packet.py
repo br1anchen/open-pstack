@@ -169,9 +169,11 @@ def plan_sections(p):
 
 def brief_without_verify(brief):
     """The brief's text outside its `## Verify` section: the commands there are partitioned, not read."""
+    lines = read_text(brief).split('\n')
+    headings = set(playbooks().section_headings(lines))
     kept, skip = [], False
-    for line in read_text(brief).split('\n'):
-        if line.startswith('## '):
+    for i, line in enumerate(lines):
+        if i in headings:
             skip = line.strip() == '## Verify'
         if not skip:
             kept.append(line)

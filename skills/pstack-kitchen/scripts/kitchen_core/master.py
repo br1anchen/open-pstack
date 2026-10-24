@@ -53,6 +53,7 @@ from pstack_core.store import (
     who,
 )
 
+from .landing import playbooks
 from .verify_wait import warn_unreviewed
 
 
@@ -136,12 +137,11 @@ def section_has_text(path, heading):
     lines = read_text(path).split('\n')
     if lines and lines[-1] == '':
         lines.pop()
-    for line in lines:
-        if line == heading:
-            inside = True
+    headings = set(playbooks().section_headings(lines))
+    for i, line in enumerate(lines):
+        if i in headings:
+            inside = line == heading
             continue
-        if line.startswith('## '):
-            inside = False
         if inside and line.split():
             found = True
     return found

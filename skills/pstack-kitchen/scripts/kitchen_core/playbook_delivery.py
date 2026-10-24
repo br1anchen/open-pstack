@@ -2,13 +2,13 @@
 
 import json
 import os
-import re
 
-from pstack_core.errors import Die
+from pstack_core.errors import Die, PairError
 from pstack_core.store import read_text, write_text
 
 from . import kpy
 from .classify import brief_kitchen, composition_path, unit_number
+from .landing import playbooks
 
 BEFORE = ('## Report', '## Lessons')
 ROLES = ('master', 'sidekick', 'consultant', 'verifier')
@@ -22,24 +22,10 @@ def read_composition(store, unit):
     return json.loads(read_text(path))
 
 
-def headings(lines):
-    """The index of each line that starts a `## ` section outside a code fence."""
-    found, fence = [], ''
-    for i, line in enumerate(lines):
-        mark = re.match(r'\s*(`{3,}|~{3,})', line)
-        if mark and not fence:
-            fence = mark.group(1)
-        elif mark and mark.group(1)[0] == fence[0] and len(mark.group(1)) >= len(fence):
-            fence = ''
-        elif not fence and line.startswith('## '):
-            found.append(i)
-    return found
-
-
 def put_section(text, section):
     """The brief text with its `## Playbook:` section replaced by `section` (removed when empty). A new section goes before `## Report`, so the sidekick reads its parts before the report instructions, else before `## Lessons`, else at the end."""
     lines = text.split('\n')
-    starts = headings(lines)
+    starts = playbooks().section_headings(lines)
     own = next((i for i in starts if lines[i].startswith('## Playbook:')), None)
     body = section.rstrip('\n').split('\n') + [''] if section else []
     if own is not None:
@@ -74,6 +60,21 @@ def target_tokens(store, brief):
     )
 
 
+class OpenFence(PairError):
+    code = 2
+
+
+def refuse_open_fences(composition):
+    """Dies when a part delivered to the sidekick or the verifier leaves a code fence open: it would hide the brief's sections after it."""
+    pb = playbooks()
+    for role in ('sidekick', 'verifier'):
+        for part in composition['roles'].get(role) or []:
+            if pb.scan_fences(part['text'].split('\n'))[1] is not None:
+                raise OpenFence(
+                    f'playbook part {part["id"]} ({role}) leaves a code fence open; close it in the part or its kitchen text'
+                )
+
+
 def deliver(store, brief):
     """Puts the sidekick's rendering of the unit's composition into the brief; returns (parts, tokens, pending) or None when the unit has no composition."""
     unit = unit_number(brief)
@@ -81,7 +82,8 @@ def deliver(store, brief):
     if composition is None:
         write_if_changed(brief, put_section(read_text(brief), ''))
         return None
-    pb = kpy.kitchen_py.playbooks_module()
+    pb = playbooks()
+    refuse_open_fences(composition)
     section, pending = pb.render_role(
         composition, 'sidekick', target_tokens(store, brief), store=store, unit=unit
     )

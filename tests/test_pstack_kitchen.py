@@ -15,6 +15,7 @@ import tempfile
 import textwrap
 import time
 import tomllib
+import types
 import unittest
 import zlib
 from pathlib import Path
@@ -7037,6 +7038,55 @@ esac
     def packet_text(self, name):
         return (self.store / f'verdicts/{name}-packet.md').read_text()
 
+    FENCED_PART = (
+        '# Brief\n\n## Playbook: bug-fix (your parts)\n\n````md\n'
+        '## Verify\n\nFAKE verify\n\n## Handoff\n\nFAKE text\n````\n\n'
+        '## Verify\n\nreal verify\n\n## Handoff\n\n'
+    )
+
+    def test_the_verify_block_finish_reruns_skips_a_fenced_heading(self):
+        brief = self.store / 'briefs/001-x.md'
+        brief.write_text(self.FENCED_PART)
+        block = self.kitchen_variant().verify_block(
+            types.SimpleNamespace(prog='kitchen.sh'), str(brief)
+        )
+        self.assertEqual(block, '\nreal verify\n\n')
+
+    def test_the_packet_reads_the_store_paths_outside_the_verify_section_fence_aware(
+        self,
+    ):
+        self.kitchen_variant().load_kitchen_core()
+        from kitchen_core.verify_packet import brief_without_verify
+
+        brief = self.store / 'briefs/001-x.md'
+        brief.write_text(self.FENCED_PART)
+        text = brief_without_verify(str(brief))
+        self.assertIn('FAKE verify', text)
+        self.assertNotIn('real verify', text)
+
+    def test_the_handoff_check_reads_a_section_fence_aware(self):
+        self.kitchen_variant().load_kitchen_core()
+        from kitchen_core.master import section_has_text
+
+        brief = self.store / 'briefs/001-x.md'
+        brief.write_text(self.FENCED_PART)
+        self.assertFalse(section_has_text(str(brief), '## Handoff'))
+        brief.write_text(self.FENCED_PART + 'real text\n')
+        self.assertTrue(section_has_text(str(brief), '## Handoff'))
+
+    def test_dispatch_refuses_a_playbook_part_that_leaves_a_fence_open(self):
+        self.kitchen_variant().load_kitchen_core()
+        from kitchen_core.playbook_delivery import OpenFence, refuse_open_fences
+
+        part = {'id': 'bug-fix.prove', 'text': 'Prove.\n```bash\nnever closed'}
+        composition = {'roles': {'sidekick': [part], 'verifier': []}}
+        with self.assertRaisesRegex(
+            OpenFence, 'bug-fix.prove .*leaves a code fence open'
+        ):
+            refuse_open_fences(composition)
+        part['text'] = 'Prove.\n```bash\nclosed\n```'
+        refuse_open_fences(composition)
+
     def test_a_unit_packet_carries_its_verifier_parts_whole_after_its_acceptance(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'], acceptance=['- it adds'])
         self.dispatch(b)
@@ -10325,6 +10375,37 @@ esac
             'unverified: unit 001', self.run_sh('land-check', str(self.store), code=2)
         )
 
+    def test_a_fenced_context_heading_does_not_make_a_brief_cover_a_unit(self):
+        self.fix_world()
+        _, fix = self.reject_and_fix('001')
+        self.verdict_file('002-util-fix-v1', 'clean', '002')
+        original = fix.read_text()
+        links = re.findall(r'(?m)^- (?:verdict|original brief): .*\n', original)
+        stripped = re.sub(r'(?m)^- (?:verdict|original brief): .*\n', '', original)
+        fenced = '## Notes\n\n```md\n## Context\n\n' + ''.join(links) + '```\n\n'
+        fix.write_text(stripped.replace('## Context', fenced + '## Context', 1))
+        self.assertIn(
+            'unverified: unit 001', self.run_sh('land-check', str(self.store), code=2)
+        )
+        fix.write_text(original)
+        self.assertIn('covered: unit 001', self.run_sh('land-check', str(self.store)))
+
+    def test_a_fenced_scope_heading_stays_out_of_a_landing_fix_brief(self):
+        a = self.brief('001', 'util', ['src/**'])
+        a.write_text(
+            a.read_text().replace(
+                '## Scope',
+                '## Notes\n\n```md\n## Scope\n\n- FAKE/**\n```\n\n## Scope',
+                1,
+            )
+        )
+        verdict = self.rejected('landing-v3', 'landing (001)')
+        text = Path(
+            self.run_sh('revise', str(self.store), str(verdict)).strip()
+        ).read_text()
+        self.assertIn('- src/** — scope', text)
+        self.assertNotIn('FAKE', text)
+
     def fix_chain(self, links):
         """Unit 001 rejected, its fix rejected in turn, and so on for `links` fixes; only the last fix has a clean verdict."""
         self.fix_world()
@@ -11397,8 +11478,8 @@ esac
         self.assertIn('- src/** — scope\n- docs/** — scope\n', text)
 
     FENCED_NOTES = (
-        '## Notes\n\n```md\n## Acceptance\n\n- FAKE acceptance\n\n'
-        '## Verify\n\n```bash\nFAKE verify\n```\n```\n\n'
+        '## Notes\n\n````md\n## Acceptance\n\n- FAKE acceptance\n\n'
+        '## Verify\n\n```bash\nFAKE verify\n```\n````\n\n'
     )
 
     def brief_with_fenced_headings(self, seq, slug):

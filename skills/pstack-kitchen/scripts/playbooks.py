@@ -27,6 +27,7 @@ from pathlib import Path, PurePosixPath
 HEADING = re.compile(r'(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$')
 LIST_MARK = re.compile(r'(?:[-*+]|\d{1,9}[.)])[ \t]+\S')
 FENCE = re.compile(r'(`{3,}|~{3,})')
+CLOSING_FENCE = re.compile(r'(`{3,}|~{3,})[ \t]*$')
 LEAD = re.compile(r'\*\*([^*]+?)\.\*\*')
 REPLY = re.compile(r'\*\*Reply:\*\*')
 LEAD_WORDS = 4
@@ -77,22 +78,43 @@ class Doc:
 
 
 def fence_close(stripped: str, opener: str) -> bool:
-    m = FENCE.match(stripped)
+    """Whether `stripped` closes a fence opened by `opener`: the same character, at least as long, and nothing after it but spaces."""
+    m = CLOSING_FENCE.match(stripped)
     return bool(m) and m.group(1)[0] == opener[0] and len(m.group(1)) >= len(opener)
+
+
+def scan_fences(lines: list[str]) -> tuple[set[int], int | None]:
+    """The indexes of the lines inside a fenced block, fences included, and the index of the first fence that never closes (None when every fence closes). A fence that never closes is not a fence: the lines after it count as ordinary text."""
+    inside: set[int] = set()
+    unclosed = None
+    i = 0
+    while i < len(lines):
+        opened = FENCE.match(lines[i].lstrip())
+        if opened:
+            close = next(
+                (
+                    j
+                    for j in range(i + 1, len(lines))
+                    if fence_close(lines[j].lstrip(), opened.group(1))
+                ),
+                None,
+            )
+            if close is not None:
+                inside.update(range(i, close + 1))
+                i = close + 1
+                continue
+            if unclosed is None:
+                unclosed = i
+        i += 1
+    return inside, unclosed
 
 
 def section_headings(lines: list[str]) -> list[int]:
     """The index of each line that starts a `## ` section outside a code fence."""
-    found, fence = [], ''
-    for i, line in enumerate(lines):
-        opened = FENCE.match(line.lstrip())
-        if opened and not fence:
-            fence = opened.group(1)
-        elif opened and fence_close(line.strip(), fence):
-            fence = ''
-        elif not fence and line.startswith('## '):
-            found.append(i)
-    return found
+    inside, _ = scan_fences(lines)
+    return [
+        i for i, line in enumerate(lines) if line.startswith('## ') and i not in inside
+    ]
 
 
 def section_lines(
@@ -920,18 +942,14 @@ def demote_headings(text: str) -> str:
     """Pushes the headings of a part's text below the brief's own `##` sections,
     so a heading cannot end the section it sits in; lines inside a code fence are
     left alone."""
-    out, fence = [], ''
-    for line in text.split('\n'):
-        opened = FENCE.match(line.lstrip())
-        if opened and not fence:
-            fence = opened.group(1)
-        elif opened and fence_close(line.strip(), fence):
-            fence = ''
-        elif not fence and (m := HEADING.match(line)):
+    lines = text.split('\n')
+    inside, _ = scan_fences(lines)
+    for i, line in enumerate(lines):
+        m = None if i in inside else HEADING.match(line)
+        if m:
             pushed = min(6, max(len(m.group(1)), 3) + 1)
-            line = '#' * pushed + line[len(m.group(1)) :]
-        out.append(line)
-    return '\n'.join(out)
+            lines[i] = '#' * pushed + line[len(m.group(1)) :]
+    return '\n'.join(lines)
 
 
 def render_role(

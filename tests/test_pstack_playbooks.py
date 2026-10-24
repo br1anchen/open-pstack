@@ -1036,6 +1036,79 @@ class FenceAwareSectionTests(unittest.TestCase):
         )
 
 
+class FenceRuleTests(unittest.TestCase):
+    def test_a_closing_fence_must_match_the_opener_with_nothing_after_it(self):
+        text = '## Goal\n```md\n```bash\n## Acceptance\nfake\n```\n```\n## Acceptance\nreal'
+        self.assertEqual(playbooks.brief_section(text, 'Acceptance'), 'real')
+        self.assertTrue(playbooks.fence_close('```  ', '```'))
+        self.assertTrue(playbooks.fence_close('````', '```'))
+        self.assertFalse(playbooks.fence_close('```bash', '```'))
+        self.assertFalse(playbooks.fence_close('~~~', '```'))
+        self.assertFalse(playbooks.fence_close('``', '```'))
+
+    def test_a_fence_that_never_closes_hides_no_section(self):
+        text = '## Goal\n\n```md\nstray\n\n## Acceptance\n\nreal\n\n## Verify\n\nv\n'
+        self.assertEqual(playbooks.scan_fences(text.split('\n')), (set(), 2))
+        self.assertEqual(playbooks.brief_section(text, 'Acceptance'), '\nreal\n\n')
+        self.assertEqual(playbooks.brief_section(text, 'Verify'), '\nv\n')
+        lines = text.split('\n')
+        self.assertEqual(
+            playbooks.section_lines(lines, r'^## Acceptance', False)[:2], ['', 'real']
+        )
+
+    def test_a_closed_fence_reports_no_unclosed_one(self):
+        lines = '```\na\n```\n~~~~\nb\n~~~~'.split('\n')
+        inside, unclosed = playbooks.scan_fences(lines)
+        self.assertEqual((inside, unclosed), (set(range(6)), None))
+
+    def test_demoting_headings_treats_an_unclosed_fence_as_text(self):
+        self.assertEqual(playbooks.demote_headings('```\n# H\n'), '```\n#### H\n')
+        self.assertEqual(
+            playbooks.demote_headings('```\n# H\n```\n# I'), '```\n# H\n```\n#### I'
+        )
+
+
+class FencedReaderTests(unittest.TestCase):
+    """Each place the kitchen reads a brief's section skips a `## ` line a Playbook part carried into a fence."""
+
+    BRIEF = (
+        '# Brief\n\nplaybook: bug-fix\n\n'
+        '## Playbook: bug-fix (your parts)\n\n````md\n'
+        '## Goal\n\nFAKE goal\n\n'
+        '## Verify\n\n```bash\nFAKE verify\n```\n\n'
+        '## Lessons\n\n- L099 (reject verify, layer verify, in src): FAKE lesson\n'
+        '````\n\n'
+        '## Goal\n\nreal goal\n\n'
+        '## Verify\n\n```bash\ntrue\n```\n\n'
+        '## Lessons\n\n- L001 (reject verify, layer verify, in src): real lesson\n\n'
+        '## Report\n\nr\n'
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(KITCHEN.parent))
+        import kitchen
+
+        cls.kitchen_py = kitchen
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.brief = Path(self.dir.name) / '001-x.md'
+        self.brief.write_text(self.BRIEF)
+
+    def test_the_verify_commands_are_the_real_sections(self):
+        self.assertEqual(self.kitchen_py.brief_verify_commands(self.brief), ['true'])
+
+    def test_the_lessons_are_the_real_sections(self):
+        self.assertEqual(
+            [l['id'] for l in self.kitchen_py.brief_lessons(self.brief)], ['L001']
+        )
+
+    def test_a_section_text_is_the_real_sections(self):
+        self.assertEqual(self.kitchen_py._section(self.brief, 'goal'), 'real goal')
+
+
 class RenderRoleTests(unittest.TestCase):
     """What a role is handed: authority, the whole inventory, then texts within the target."""
 

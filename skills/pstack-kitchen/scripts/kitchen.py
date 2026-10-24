@@ -1466,13 +1466,12 @@ def brief_verify_commands(brief: Path) -> list[str]:
     is one command; blank and comment lines are skipped. A block of `none`, or
     no Verify section, has none; text outside a fenced block is refused."""
     lines = brief.read_text().splitlines()
+    headings = playbooks_module().section_headings(lines)
     try:
-        start = next(i for i, x in enumerate(lines) if x.strip() == '## Verify') + 1
+        start = next(i for i in headings if lines[i].strip() == '## Verify') + 1
     except StopIteration:
         return []
-    end = next(
-        (i for i in range(start, len(lines)) if lines[i].startswith('## ')), len(lines)
-    )
+    end = next((i for i in headings if i >= start), len(lines))
     section = lines[start:end]
     opens = [i for i, x in enumerate(section) if x.startswith('```')]
     if not opens:
@@ -2436,8 +2435,9 @@ def _section(path: Path, title: str) -> str:
     except OSError:
         return ''
     on = False
-    for line in lines:
-        if line.startswith('## '):
+    headings = set(playbooks_module().section_headings(lines))
+    for i, line in enumerate(lines):
+        if i in headings:
             on = line[3:].strip().lower() == title
             continue
         text = re.sub(r'^\s*(?:\d+[.)]|[-*])\s+', '', line).strip()
@@ -3430,9 +3430,10 @@ def brief_lessons(brief: Path) -> list[dict[str, str]]:
         lines = brief.read_text().splitlines()
     except OSError:
         return []
+    headings = set(playbooks_module().section_headings(lines))
     out, on = [], False
-    for line in lines:
-        if line.startswith('## '):
+    for i, line in enumerate(lines):
+        if i in headings:
             on = line[3:].strip() == 'Lessons'
             continue
         m = LESSON_LINE.match(line) if on else None
