@@ -12,6 +12,7 @@ from pstack_core.store import expected_report, header_field, read, read_text, wr
 
 from . import kpy
 from .landing import clean_verdict_for, is_landing, playbooks
+from .playbook_delivery import provenance, read_composition
 from .units import RecordedUnit, StackIndex, inclusion, unit_brief
 
 
@@ -235,6 +236,53 @@ def section_lines(path, pattern, keep_heading):
     return playbooks().section_lines(lines, pattern, keep_heading)
 
 
+PLAYBOOK_HEADING = '## Playbook (what to prove)'
+EVIDENCE_STANDARD = (
+    'The evidence standard for the Acceptance above; it adds no criteria. '
+    'Answer Acceptance line by line, citing evidence of the kind these parts name.'
+)
+
+
+def composition_name(composition):
+    ids = [o['id'] for o in composition['overlays']['selected']]
+    return ' + '.join([composition['workflow'], *ids])
+
+
+def verifier_parts(composition):
+    return composition['roles'].get('verifier') or []
+
+
+def parts_text(parts, shown, owner):
+    """Each part whole under its id with its provenance line; a part already shown for another unit in this packet is named, not repeated."""
+    text = ''
+    for part in parts:
+        if part['id'] in shown:
+            text += f'### {part["id"]} (also {shown[part["id"]]})\n\n'
+            continue
+        shown[part['id']] = owner
+        body = playbooks().demote_headings(part['text']).strip()
+        text += f'### {part["id"]}\n\n{body}\n\n{provenance(part)}\n\n'
+    return text
+
+
+def unit_playbook_section(store, brief, unit, shown):
+    """The unit's `## Playbook (what to prove)` section: its verifier parts whole, or for a unit with no stored composition its mapped label ('' when it has none)."""
+    composition = read_composition(store, unit)
+    if composition is None:
+        label = header_field(brief, 'playbook').strip()
+        if not label or label.startswith('{{'):
+            return ''
+        return f'{PLAYBOOK_HEADING}\n\nplaybook: {label} (not mapped)\n\n'
+    parts = verifier_parts(composition)
+    if not parts:
+        return ''
+    return (
+        f'{PLAYBOOK_HEADING}\n\n{EVIDENCE_STANDARD}\n\n'
+        f'unit {unit}: {composition_name(composition)}\n\n'
+        + parts_text(parts, shown, f'unit {unit}')
+    )
+
+
 @dataclass(frozen=True)
 class Packet:
     """What the verifier's packet says: where the repo and the kitchen's scripts are, the range, the units, and the verifier it is for. `units` are all
@@ -356,6 +404,7 @@ def unit_sections(p, parts):
         parts.append(
             f"Unit {' '.join(p.own)} fixes unit {' '.join(p.covered)}: prove every unit's Acceptance at this one head.\n\n"
         )
+    shown = {}
     for u in p.units:
         b = unit_brief(p.store, u)
         parts.append(f'## Unit {u}\n\nbrief: {b}\n\n')
@@ -363,6 +412,7 @@ def unit_sections(p, parts):
             line + '\n' for line in section_lines(b, r'^## (Goal|Acceptance)', True)
         ]
         parts.append('\n')
+        parts.append(unit_playbook_section(p.store, b, u, shown))
         parts.append(brief_commands(p.store, p.root, b, u))
     if p.covered:
         parts.append(context_section(p))

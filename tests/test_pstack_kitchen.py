@@ -6996,6 +6996,118 @@ esac
         tabs = self.pane_calls('tab create')
         self.assertEqual([l.endswith(self.ROLE_ENV) for l in tabs], [True], tabs)
 
+    def stamp(self, unit, workflow, *parts, overlays=()):
+        """Writes a stored composition for a unit whose verifier owns `parts` as (id, text) pairs."""
+        verifier = [
+            {
+                'id': pid,
+                'text': text,
+                'source': {
+                    'root': 'skills',
+                    'path': f'poteto-mode/playbooks/{workflow}.md',
+                    'select': 'step:1',
+                    'digest': 'd' * 12,
+                },
+                'from': [{'part': pid, 'by': f'workflow:{workflow}'}],
+            }
+            for pid, text in parts
+        ]
+        path = self.store / 'compositions' / f'{unit}.json'
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    'workflow': workflow,
+                    'overlays': {
+                        'selected': [
+                            {'id': o, 'why': '', 'kind': 'domain'} for o in overlays
+                        ],
+                        'excluded': [],
+                    },
+                    'roles': {
+                        'master': [],
+                        'sidekick': [],
+                        'consultant': [],
+                        'verifier': verifier,
+                    },
+                }
+            )
+        )
+
+    def packet_text(self, name):
+        return (self.store / f'verdicts/{name}-packet.md').read_text()
+
+    def test_a_unit_packet_carries_its_verifier_parts_whole_after_its_acceptance(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], acceptance=['- it adds'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        self.done(b, self.commit('util'))
+        long = 'Prove the fix.\n\n' + '\n'.join(f'- line {i}' for i in range(300))
+        self.stamp(
+            '001',
+            'bug-fix',
+            ('bug-fix.prove', long),
+            ('bug-fix.repro', '## Heading\nR'),
+        )
+        self.run_sh('verify', str(self.store), '001')
+        packet = self.packet_text('001-util-v1')
+        section = packet.split('## Playbook (what to prove)')[1].split('\n## ')[0]
+        self.assertLess(
+            packet.index('- it adds'), packet.index('## Playbook (what to prove)')
+        )
+        self.assertIn('adds no criteria', section)
+        self.assertIn('unit 001: bug-fix', section)
+        self.assertIn(long, section)
+        self.assertIn(
+            '### bug-fix.repro\n\n### Heading\nR'.replace('### H', '#### H'), section
+        )
+        self.assertIn(
+            'from workflow:bug-fix, skills:poteto-mode/playbooks/bug-fix.md step:1 '
+            + 'd' * 12,
+            section,
+        )
+        self.assertEqual(packet.count('## Playbook (what to prove)'), 1)
+
+    def test_a_batch_packet_gives_each_unit_its_own_workflow_parts(self):
+        self.three_units()
+        self.stamp('001', 'bug-fix', ('bug-fix.prove', 'Prove the fix.'))
+        self.stamp('002', 'feature', ('feature.prove', 'Prove the feature.'))
+        self.run_sh('verify', str(self.store), '001', '002')
+        packet = self.packet_text('002-u2-v1')
+        one, two = packet.split('## Unit 002')
+        self.assertIn('unit 001: bug-fix\n\n### bug-fix.prove', one)
+        self.assertNotIn('feature.prove', one)
+        self.assertIn('unit 002: feature\n\n### feature.prove', two)
+
+    def test_a_covers_packet_shows_a_shared_part_once(self):
+        self.three_units()
+        shared = ('feature.prove', 'Prove the feature.')
+        self.stamp('001', 'feature', shared)
+        self.stamp('002', 'feature', shared, ('feature.extra', 'Extra.'))
+        self.stamp('003', 'bug-fix', ('bug-fix.prove', 'Fix.'))
+        self.run_sh('verify', str(self.store), '003', '--covers', '001,002')
+        packet = self.packet_text('003-u3-v1')
+        self.assertEqual(packet.count('Prove the feature.'), 1)
+        self.assertIn('### feature.prove (also unit 001)', packet)
+        self.assertIn('### feature.extra\n\nExtra.', packet)
+
+    def test_an_old_brief_with_a_label_and_no_composition_still_verifies(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        b.write_text(b.read_text().replace('playbook: feature', 'playbook: fix', 1))
+        (self.store / 'compositions/001.json').unlink(missing_ok=True)
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        self.done(b, self.commit('util'))
+        self.assertFalse((self.store / 'compositions/001.json').exists())
+        out = self.run_sh('verify', str(self.store), '001')
+        self.assertIn('status: clean', out)
+        self.assertIn(
+            '## Playbook (what to prove)\n\nplaybook: fix (not mapped)\n\n',
+            self.packet_text('001-util-v1'),
+        )
+
     def test_a_fix_is_verified_with_the_unit_it_fixes(self):
         first = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(first)
