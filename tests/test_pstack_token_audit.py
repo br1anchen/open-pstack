@@ -1,6 +1,8 @@
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -109,6 +111,43 @@ class TokenAuditTests(unittest.TestCase):
         self.assertIn('playbooks loaded (est. tokens = chars/4): 300', text)
         self.assertIn(
             'exposure (estimate): ~2800 token-messages = 35.5% of input', text
+        )
+
+    def test_a_line_a_live_session_is_still_writing_is_skipped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            projects = Path(directory) / 'projects'
+            shutil.copytree(fixtures / 'projects', projects)
+            live = next(projects.glob('*/aaaaaaaa-*.jsonl'))
+            with live.open('a') as f:
+                f.write('{"type": "assistant", "message": {"id": "msg_7", "usa')
+            result = json.loads(run_audit('--json', projects=projects))[0]
+        self.assertEqual(result['roles']['sidekick'], audit()['roles']['sidekick'])
+
+    def test_a_verifier_scratch_outside_the_repo_path_is_found_by_the_store_slug(self):
+        with tempfile.TemporaryDirectory() as directory:
+            projects = Path(directory) / 'projects'
+            shutil.copytree(fixtures / 'projects', projects)
+            [verifier] = projects.glob('*scratch*/cccccccc-*.jsonl')
+            elsewhere = (
+                projects / '-other-git-pstack-scratch-runs-fixture-1-002-x-verify'
+            )
+            elsewhere.mkdir()
+            record = json.loads(verifier.read_text().splitlines()[0])
+            record['message']['content'] = (
+                'take the verifier role. pstack-kitchen VERIFY /state/pstack/kitchen/runs/fixture-1/verdicts/002-x-v1'
+            )
+            (elsewhere / 'gggggggg-0000-4000-8000-000000000007.jsonl').write_text(
+                json.dumps(record) + '\n'
+            )
+            result = json.loads(run_audit('--json', projects=projects))[0]
+        self.assertEqual(result['roles']['verifier']['sessions'], 2)
+        self.assertIn(
+            {
+                'session': 'gggggggg-0000-4000-8000-000000000007',
+                'role': 'verifier',
+                'how': 'prompt',
+            },
+            result['sessions'],
         )
 
     def test_the_audit_writes_nothing_in_the_store(self):

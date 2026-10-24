@@ -123,7 +123,10 @@ def read_session(path):
     for line in path.read_text().splitlines():
         if not line.strip():
             continue
-        record = json.loads(line)
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:  # the line a live session is still writing
+            continue
         kind = record.get('type')
         if kind not in ('user', 'assistant'):
             continue
@@ -160,9 +163,14 @@ def read_session(path):
 
 
 def candidate_dirs(store, projects):
+    """Project dirs of the store's repo, and of verifier scratch worktrees named for its slug."""
     prefixes = [encode_cwd(root) for root in store.roots]
+    scratch = f'pstack-scratch-runs-{encode_cwd(store.slug)}-'
     for directory in sorted(Path(projects).iterdir()):
-        if directory.is_dir() and any(directory.name.startswith(p) for p in prefixes):
+        if directory.is_dir() and (
+            scratch in directory.name
+            or any(directory.name.startswith(p) for p in prefixes)
+        ):
             yield from sorted(directory.glob('*.jsonl'))
 
 
