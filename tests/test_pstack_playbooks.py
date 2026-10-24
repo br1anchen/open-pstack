@@ -983,6 +983,84 @@ def ids(result, role):
     return [e['id'] for e in result['roles'][role]]
 
 
+class RenderRoleTests(unittest.TestCase):
+    """What a role is handed: authority, the whole inventory, then texts within the target."""
+
+    def composition(self, **texts):
+        parts = [
+            {'id': pid, 'text': text, 'source': {}, 'from': []}
+            for pid, text in texts.items()
+        ]
+        return {
+            'workflow': 'feature',
+            'overlays': {'selected': [{'id': 'coach', 'why': '', 'kind': 'domain'}]},
+            'roles': {'sidekick': parts, 'master': [], 'verifier': parts},
+        }
+
+    def test_under_the_target_every_text_is_inline_in_composition_order(self):
+        comp = self.composition(zeta='Zeta line.\nmore', alpha='Alpha line.')
+        text, pending = playbooks.render_role(comp, 'sidekick', 1500)
+        self.assertEqual(pending, [])
+        self.assertNotIn('Pending reads', text)
+        self.assertTrue(
+            text.startswith('## Playbook: feature + coach (your parts)\n\nYou own')
+        )
+        self.assertLess(text.index('### zeta'), text.index('### alpha'))
+        self.assertIn('- zeta: Zeta line.\n- alpha: Alpha line.\n', text)
+        self.assertIn('Zeta line.\nmore', text)
+
+    def test_a_small_target_lists_later_parts_as_pending_reads_with_a_whole_inventory(
+        self,
+    ):
+        comp = self.composition(
+            first='intro\n' + 'a' * 100,
+            second='intro\n' + 'b' * 100,
+            third='intro\n' + 'c' * 100,
+        )
+        none_fit = playbooks.render_role(comp, 'sidekick', 0)[0]
+        head = len(none_fit.split('\nPending reads')[0])
+        text, pending = playbooks.render_role(
+            comp, 'sidekick', (head + 150) // 4, store='/s', unit='010'
+        )
+        self.assertEqual(pending, ['second', 'third'])
+        self.assertIn('### first', text)
+        self.assertNotIn('### second', text)
+        self.assertNotIn('b' * 100, text)
+        for pid in ('first', 'second', 'third'):
+            self.assertIn(f'- {pid}: ', text)
+        self.assertIn(
+            '- second: kitchen.sh playbook-part /s 010 sidekick second\n', text
+        )
+        self.assertIn('- third: kitchen.sh playbook-part /s 010 sidekick third\n', text)
+
+    def test_a_part_after_an_overflow_stays_pending_even_when_it_is_small(self):
+        comp = self.composition(big='x' * 4000, tiny='ok')
+        _, pending = playbooks.render_role(comp, 'sidekick', 100)
+        self.assertEqual(pending, ['big', 'tiny'])
+
+    def test_a_verifiers_parts_are_always_whole(self):
+        comp = self.composition(proof='p' * 4000)
+        text, pending = playbooks.render_role(comp, 'verifier', 10)
+        self.assertEqual(pending, [])
+        self.assertIn('p' * 4000, text)
+
+    def test_a_role_with_no_parts_gets_no_section(self):
+        self.assertEqual(
+            playbooks.render_role(self.composition(a='A'), 'master', 1500), ('', [])
+        )
+
+    def test_headings_in_a_part_never_start_a_brief_section(self):
+        comp = self.composition(a='## Verify\nbody\n```sh\n## kept\n```\n# Top')
+        text, _ = playbooks.render_role(comp, 'sidekick', 1500)
+        self.assertEqual(
+            [x for x in text.split('\n') if x.startswith('## ')],
+            ['## Playbook: feature + coach (your parts)'],
+        )
+        self.assertIn('#### Verify', text)
+        self.assertIn('#### kept', text)
+        self.assertIn('#### Top', text)
+
+
 class ComposeTests(unittest.TestCase):
     def test_an_overlay_whose_applies_matches_the_scope_is_selected_by_path(self):
         r = compose()

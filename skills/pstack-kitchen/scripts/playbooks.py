@@ -847,6 +847,72 @@ def compose(
     }
 
 
+ROLE_AUTHORITY = {
+    'master': 'You own judgment and the human, never the working tree.',
+    'sidekick': 'You own the working tree.',
+    'consultant': 'You join a kitchen because a unit escalated: `pair.json` `.escalations` says why.',
+    'verifier': 'You prove that finished work does what its brief accepted, at one commit, on the real surface.',
+}
+INVENTORY_LINE = 100
+
+
+def estimate_tokens(text: str) -> int:
+    return len(text) // 4
+
+
+def first_line(text: str) -> str:
+    return next((x.strip() for x in text.split('\n') if x.strip()), '')[:INVENTORY_LINE]
+
+
+def demote_headings(text: str) -> str:
+    """Pushes the headings of a part's text below the brief's own `##` sections, so
+    no line of a part can end the section it sits in."""
+
+    def push(m: re.Match) -> str:
+        return '#' * min(6, max(len(m.group(1)), 3) + 1) + m.group(0)[len(m.group(1)) :]
+
+    return re.sub(r'^(#{1,6})(?=[ \t])', push, text, flags=re.M)
+
+
+def render_role(
+    composition: dict,
+    role: str,
+    target_tokens: int,
+    store: str = '<store>',
+    unit: str = '<NNN>',
+) -> tuple[str, list[str]]:
+    """The `## Playbook:` section a role is given and the ids of the parts that went
+    to Pending reads: its authority, the inventory of every part it owns, then each
+    part's text in composition order while the running estimate stays within
+    `target_tokens`. A part that does not fit, and every later one, is a named
+    pending read; nothing is dropped. A verifier's parts are always whole. A role
+    with no parts gets ('', [])."""
+    parts = composition['roles'].get(role) or []
+    if not parts:
+        return '', []
+    ids = [o['id'] for o in composition['overlays']['selected']]
+    head = ' + '.join([composition['workflow'], *ids])
+    lines = [f'## Playbook: {head} (your parts)', '', ROLE_AUTHORITY[role], '']
+    lines += ['Your parts:', *(f'- {p["id"]}: {first_line(p["text"])}' for p in parts)]
+    section = '\n'.join(lines) + '\n'
+    pending: list[str] = []
+    for part in parts:
+        block = f'\n### {part["id"]}\n\n{demote_headings(part["text"]).strip()}\n'
+        if not pending and (
+            role == 'verifier' or estimate_tokens(section + block) <= target_tokens
+        ):
+            section += block
+        else:
+            pending.append(part['id'])
+    if pending:
+        section += '\nPending reads (load each before acting on that part):\n'
+        section += ''.join(
+            f'- {pid}: kitchen.sh playbook-part {store} {unit} {role} {pid}\n'
+            for pid in pending
+        )
+    return section, pending
+
+
 MAP_PATH = Path(__file__).resolve().parents[1] / 'references/playbook-roles.toml'
 
 
