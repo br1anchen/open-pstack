@@ -43,6 +43,7 @@ STORE_NAMED = re.compile(r'/runs/([\w.-]+)')
 BASH_READ = re.compile(
     r'\b(?:cat|sed|head|tail|less|bat|nl)\b[^|;&\n]*?/skills/([^/\s]+)/(\S+?\.md)\b'
 )
+SUBAGENT_TOOLS = ('Agent', 'Task')
 TRUNCATED = ('<persisted-output>', 'Output too large')
 
 
@@ -82,6 +83,15 @@ class Session:
     last: float = 0.0
     usage: dict[str, dict] = field(default_factory=dict)
     loads: list[Load] = field(default_factory=list)
+    calls: list[str] = field(default_factory=list)  # ids of Agent/Task tool_use calls
+    answers: dict[str, int] = field(default_factory=dict)  # message id -> text chars
+    result_chars: int = 0  # chars of every tool_result delivered in the session
+
+
+@dataclass
+class Child:
+    session: Session
+    meta: dict | None  # None when the meta file is missing or unreadable
 
 
 def read_store(path):
@@ -157,9 +167,16 @@ def read_session(path):
             for key, value in (message.get('usage') or {}).items():
                 if isinstance(value, int):
                     merged[key] = max(merged.get(key, 0), value)
+            answer = session.answers.setdefault(message['id'], 0)
             for block in content if isinstance(content, list) else []:
-                if block.get('type') == 'tool_use' and (read := document_read(block)):
-                    documents[block['id']] = read
+                if block.get('type') == 'text':
+                    answer += len(block.get('text', ''))
+                elif block.get('type') == 'tool_use':
+                    if block.get('name') in SUBAGENT_TOOLS:
+                        session.calls.append(block['id'])
+                    elif read := document_read(block):
+                        documents[block['id']] = read
+            session.answers[message['id']] = answer
         elif isinstance(content, str):
             if not record.get('isMeta'):
                 session.prompt = session.prompt or content
@@ -170,6 +187,8 @@ def read_session(path):
                     (read[1], block_text(content))
                 )  # a Skill's injected text
             for block in content:
+                if block.get('type') == 'tool_result':
+                    session.result_chars += len(block_text(block.get('content', '')))
                 read = documents.get(block.get('tool_use_id'))
                 if block.get('type') == 'tool_result' and read and read[0] != 'Skill':
                     delivered.append((read[1], block_text(block.get('content', ''))))
@@ -181,6 +200,35 @@ def read_session(path):
     for load in session.loads:
         load.after = len(session.usage) - load.after
     return session
+
+
+def read_children(session_path):
+    """The subagents Claude Code wrote beside a session, each with its meta (or None)."""
+    children = []
+    for path in sorted(
+        (session_path.with_suffix('') / 'subagents').glob('agent-*.jsonl')
+    ):
+        try:
+            meta = json.loads(path.with_suffix('.meta.json').read_text())
+        except (OSError, json.JSONDecodeError):
+            meta = None
+        children.append(
+            Child(read_session(path), meta if isinstance(meta, dict) else None)
+        )
+    return children
+
+
+def child_parts(child):
+    """A child's bootstrap (billed), prompt, results and answer (estimated, chars/4) tokens."""
+    session = child.session
+    first = next(iter(session.usage.values()), {})
+    last = next(reversed(session.answers.values()), 0)
+    return {
+        'bootstrap': sum(first.get(k, 0) for k in INPUT_KEYS),
+        'prompt': len(session.prompt) // 4,
+        'results': session.result_chars // 4,
+        'answer': last // 4,
+    }
 
 
 def candidate_dirs(store, projects):

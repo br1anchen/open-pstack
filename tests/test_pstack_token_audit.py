@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -9,6 +10,13 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 fixtures = root / 'tests/fixtures/token-audit'
 script = root / 'scripts/pstack-token-audit.py'
+
+
+spec = importlib.util.spec_from_file_location('pstack_token_audit', script)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+parent = next(fixtures.glob('projects/-work-repo/jjjjjjjj-*.jsonl'))
 
 
 def run_audit(*extra, projects=fixtures / 'projects', store=fixtures / 'store'):
@@ -46,6 +54,7 @@ class TokenAuditTests(unittest.TestCase):
             {
                 'aaaaaaaa': ('sidekick', 'prompt'),
                 'bbbbbbbb': ('master', 'prompt'),
+                'jjjjjjjj': ('master', 'prompt'),
                 'cccccccc': ('verifier', 'id'),
             },
         )
@@ -88,7 +97,7 @@ class TokenAuditTests(unittest.TestCase):
                 'hhhhhhhh': 'first record outside the store span',
             },
         )
-        self.assertEqual(sum(r['sessions'] for r in result['roles'].values()), 3)
+        self.assertEqual(sum(r['sessions'] for r in result['roles'].values()), 4)
         self.assertEqual(result['other_stores'], 1)
 
     def test_documents_are_counted_by_file_and_playbooks_on_their_own(self):
@@ -121,6 +130,43 @@ class TokenAuditTests(unittest.TestCase):
         # poteto SKILL.md 100 tokens x 5 messages, kitchen SKILL.md 200 x 5, feature.md 300 x 3,
         # report-template.md 150 x 2, poteto SKILL.md again 100 x 1
         self.assertEqual(audit()['roles']['sidekick']['exposure_tokens'], 2800)
+
+    def test_children_are_read_beside_their_session_with_their_meta(self):
+        calls = module.read_session(parent).calls
+        self.assertEqual(calls, ['toolu_a1', 'toolu_a2'])
+        children = module.read_children(parent)
+        self.assertEqual(
+            [(c.meta['agentType'], c.meta['toolUseId']) for c in children],
+            [('Explore', 'toolu_a1'), ('general-purpose', 'toolu_zz')],
+        )
+        self.assertEqual(module.read_children(parent.parent / 'aaaaaaaa-x.jsonl'), [])
+
+    def test_a_child_with_a_missing_or_unreadable_meta_has_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            copy = Path(directory) / parent.name
+            shutil.copy(parent, copy)
+            shutil.copytree(parent.with_suffix(''), copy.with_suffix(''))
+            subagents = copy.with_suffix('') / 'subagents'
+            (subagents / 'agent-a1b2c3.meta.json').unlink()
+            (subagents / 'agent-d4e5f6.meta.json').write_text('{"agentType": ')
+            children = module.read_children(copy)
+        self.assertEqual([c.meta for c in children], [None, None])
+
+    def test_a_child_is_split_into_bootstrap_prompt_results_and_answer(self):
+        explore, other = module.read_children(parent)
+        self.assertEqual(
+            module.child_parts(explore),
+            # first message 5 + 900 + 0; prompt 80 chars; results 120 + 40 chars;
+            # answer is the last message's 60 + 40 text chars
+            {'bootstrap': 905, 'prompt': 20, 'results': 40, 'answer': 25},
+        )
+        self.assertEqual(
+            module.child_parts(other),
+            # prompt is 45 chars
+            {'bootstrap': 503, 'prompt': 11, 'results': 0, 'answer': 5},
+        )
+        self.assertEqual(len(explore.session.usage), 3)
+        self.assertEqual(explore.session.usage['msg_c3']['output_tokens'], 60)
 
     def test_roles_whose_kind_is_not_claude_are_unmeasured(self):
         result = audit()
