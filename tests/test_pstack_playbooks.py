@@ -1677,5 +1677,36 @@ class DelegationDocsTests(unittest.TestCase):
             self.assertIn('../SKILL.md#delegation', text, role)
 
 
+class OverlayDocExampleTests(unittest.TestCase):
+    def test_the_documented_example_validates_and_composes_as_the_doc_says(self):
+        doc = (root / 'skills/pstack-kitchen/references/kitchen-toml.md').read_text()
+        section = doc.split('## Playbook overlays', 1)[1].split('\n## ', 1)[0]
+        example = section.split('```toml\n', 1)[1].split('```', 1)[0]
+        data = tomllib.loads(example)
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / 'repo'
+            shutil.copytree(FIXTURE_REPO, repo)
+            directory = repo / '.agents/playbooks'
+            (directory / f'{data["id"]}.toml').write_text(example)
+            overlays = playbooks.load_overlays(directory)
+            roots = overlay_roots(repo=repo)
+            (overlay,) = [o for o in overlays if o.stem == data['id']]
+            self.assertEqual(playbooks.overlay_problems(overlay, roots, WORKFLOWS), [])
+            result = playbooks.compose(
+                playbooks.load_map(playbooks.MAP_PATH),
+                overlays,
+                roots,
+                data['combines'][0],
+                ['engine/src/lib.rs'],
+                glob_match,
+            )
+        for part in data['part']:
+            for role, text in part['kitchen'].items():
+                got = [
+                    e['text'] for e in result['roles'][role] if e['id'] == part['id']
+                ]
+                self.assertEqual(got, [text], role)
+
+
 if __name__ == '__main__':
     unittest.main()
