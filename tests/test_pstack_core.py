@@ -5,7 +5,6 @@ import calendar
 import contextlib
 import errno
 import functools
-import importlib.util
 import inspect
 import io
 import json
@@ -14658,12 +14657,10 @@ class CoreTests(unittest.TestCase):
         }
 
     def test_write_rc_shows_the_rc_file_only_whole(self):
-        spec = importlib.util.spec_from_file_location(
-            'kitchen_worker',
+        worker = load_module(
             root / 'skills/pstack-kitchen/scripts/kitchen_core/worker.py',
+            'kitchen_worker',
         )
-        worker = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(worker)
         job = Path(tempfile.mkdtemp(dir=self.path))
         seen = []
         real_open = open
