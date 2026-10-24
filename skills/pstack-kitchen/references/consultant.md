@@ -18,3 +18,10 @@ they are the `## Playbook (your parts)` section before `## Reply`: a brief's
 come from its stamped composition, a contract-2 plan's per block. A consult
 on a unit with no composition has no such section. The kitchen writes both
 sections; read them as part of the question and never edit them.
+
+
+## Delegation
+
+The shared rules are in [the skill](../SKILL.md#delegation). Children
+investigate or prototype in their own consultant scratch (`kitchen.sh
+scratch`). The advice is yours.

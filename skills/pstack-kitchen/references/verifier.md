@@ -125,6 +125,13 @@ work?", and then your pane closes.
    your pane, and removes the scratch worktree; leave both to it, and stop
    anything you launched before you end.
 
+## Delegation
+
+The shared rules are in [the skill](../SKILL.md#delegation). Children run
+independent read or probe tasks in separate scratch and resources (no shared
+browser, port or emulator). They never edit code and never decide. You check
+their evidence yourself and write the only verdict.
+
 ## Boundaries
 
 - You review behaviour, not code style; Judge of Owls and the master read

@@ -114,6 +114,26 @@ Sidekick: [references/sidekick.md](references/sidekick.md).
 Consultant: [references/consultant.md](references/consultant.md).
 Verifier: [references/verifier.md](references/verifier.md).
 
+## Delegation
+
+Every role may hand bounded tasks to subagents when its host has a subagent
+tool. Delegation is available, never required. A role's reference says what
+its children may do beyond these shared rules.
+
+- Each task names the role, the unit head or scratch path, the scope, the
+  exact question, an output bound, a deadline, and the write and command
+  limits.
+- No child writes the store, runs a state-changing kitchen command (any
+  `kitchen.sh` command other than `status`, `notes`, `playbook-part` and
+  reads of the store), talks to the human or another role, publishes, or
+  delegates further.
+- The parent collects or stops its children before it reports, times out,
+  rotates or removes scratch.
+- A child runs on the role's own roster model and effort when the host can
+  select them, otherwise on the host's parent setting; say which in the
+  report or advice.
+- Never start another agent CLI to get around the host.
+
 ## A unit's path
 
 1. **Classify.** The brief's may-write Scope maps to profiles and a risk

@@ -1666,5 +1666,16 @@ class FixtureRepoScriptTests(unittest.TestCase):
         self.assertIn('not a directory', done.stderr)
 
 
+class DelegationDocsTests(unittest.TestCase):
+    def test_delegation_sections_exist_once_and_roles_link_to_the_shared_rules(self):
+        kitchen = root / 'skills/pstack-kitchen'
+        skill = (kitchen / 'SKILL.md').read_text().splitlines()
+        self.assertEqual(skill.count('## Delegation'), 1)
+        for role in ('master', 'sidekick', 'consultant', 'verifier'):
+            text = (kitchen / 'references' / f'{role}.md').read_text()
+            self.assertEqual(text.splitlines().count('## Delegation'), 1, role)
+            self.assertIn('../SKILL.md#delegation', text, role)
+
+
 if __name__ == '__main__':
     unittest.main()

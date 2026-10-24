@@ -377,7 +377,10 @@ continue from its Next section; run `wait` or `verify --wait` on open
 dispatches and verifications. Do not re-run `init` or `spawn`; the roles
 are live.
 
-## Delegated reads
+## Delegation
+
+The shared rules are in [the skill](../SKILL.md#delegation). Your children read
+and advise; scope, review and the human stay with you.
 
 What you read stays in your context for the rest of the session, and the
 reads that fill it are diffs and files for review: `git show`, `git diff`,

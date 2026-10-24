@@ -82,3 +82,10 @@ differ:
 - **`step` and `finish` are `scripts/kitchen_core/step.py`.** The gates and the Verify commands they start run in a detached worker of their own (`scripts/kitchen_core/worker.py`), so a
   command that returns at `KITCHEN_STEP_SLICE_S` ("still running", exit 4) leaves them going, and the same command run again picks them up. The logs are
   under `steps/jobs/` in the store: `out.N` for each run of a step's gates, `out` for the latest.
+
+## Delegation
+
+The shared rules are in [the skill](../SKILL.md#delegation). Children may
+implement disjoint scoped edits, each assigned explicit files (or an isolated
+worktree), and you integrate them one at a time. Commits, `step`, `finish`
+and the report stay with you.
