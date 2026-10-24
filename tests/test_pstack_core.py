@@ -5421,6 +5421,21 @@ class CoreTests(unittest.TestCase):
             r'the feedback inbox is locked \(<T>/state/pstack/feedback/\.lock\)',
         )
 
+    def test_verified_fix_walks_a_fix_cycle_once_and_finds_the_clean_fix_past_it(self):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import landing
+
+        covers = {'001': ['002'], '002': ['003', '005'], '003': ['001', '004']}
+        with mock.patch.object(
+            landing, 'clean_verdict_for', lambda store, seq: seq in {'004', '005'}
+        ):
+            self.assertEqual(landing.verified_fix('/st', '001', covers), '004')
+
     def test_a_fix_brief_takes_the_last_briefs_sections_or_the_union_of_every_units_for_a_landing_verdict(
         self,
     ):
