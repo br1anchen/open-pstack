@@ -5,6 +5,7 @@ import calendar
 import contextlib
 import errno
 import functools
+import importlib.util
 import inspect
 import io
 import json
@@ -14655,6 +14656,34 @@ class CoreTests(unittest.TestCase):
                 env={'HERDR_ENV': '0', 'KITCHEN_STEP_SLICE_S': '60'}
             ),
         }
+
+    def test_write_rc_shows_the_rc_file_only_whole(self):
+        spec = importlib.util.spec_from_file_location(
+            'kitchen_worker',
+            root / 'skills/pstack-kitchen/scripts/kitchen_core/worker.py',
+        )
+        worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(worker)
+        job = Path(tempfile.mkdtemp(dir=self.path))
+        seen = []
+        real_open = open
+
+        def watching_open(*args, **kwargs):
+            handle = real_open(*args, **kwargs)
+            write = handle.write
+
+            def checked_write(text):
+                seen.append((text, (job / 'rc').exists()))
+                return write(text)
+
+            handle.write = checked_write
+            return handle
+
+        with mock.patch.object(worker, 'open', watching_open, create=True):
+            worker.write_rc(str(job), 0)
+        self.assertEqual(seen, [('0\n', False)])
+        self.assertEqual((job / 'rc').read_text(), '0\n')
+        self.assertFalse((job / 'rc.tmp').exists())
 
     def test_finish_behaviour(self):
         cases = self.finish_cases()

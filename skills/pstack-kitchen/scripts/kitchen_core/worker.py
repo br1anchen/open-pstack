@@ -32,8 +32,9 @@ def kitchen(py, repo, config, *args):
 
 
 def write_rc(job, rc):
-    with open(f'{job}/rc', 'w') as f:
+    with open(f'{job}/rc.tmp', 'w') as f:
         f.write(f'{rc}\n')
+    os.replace(f'{job}/rc.tmp', f'{job}/rc')
 
 
 def step(repo, py, job, base, head, config=''):

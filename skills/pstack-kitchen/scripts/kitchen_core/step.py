@@ -190,7 +190,7 @@ def start_gates(ctx, store, root, brief, job, base, full):
         return
     cfg = brief_kitchen(brief)
     # every run of the gates has its own log (out.1, out.2, ...), and `out` points at the latest: a path an event named keeps its run's text
-    for leftover in ('rc', 'consumed', 'classify.json', 'profiles', 'base'):
+    for leftover in ('rc', 'rc.tmp', 'consumed', 'classify.json', 'profiles', 'base'):
         remove_path(f'{job}/{leftover}')
     os.makedirs(job, exist_ok=True)
     run = len([n for n in os.listdir(job) if re.match(r'out\.[0-9]', n)]) + 1
