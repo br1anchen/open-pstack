@@ -588,6 +588,7 @@ def kitchen(*args):
         [sys.executable, str(KITCHEN), 'playbooks', *args],
         capture_output=True,
         text=True,
+        timeout=60,
     )
 
 
@@ -681,6 +682,7 @@ class PlaybooksCommandTests(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            timeout=60,
         )
         data = json.loads(done.stdout)
         self.assertEqual([c['id'] for c in data['changed']], ['bug-fix.step-4'])
@@ -826,7 +828,9 @@ class OverlayRepo(unittest.TestCase):
             'GIT_COMMITTER_EMAIL': 't@t',
         }
         for args in (['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'init']):
-            subprocess.run(['git', *args], cwd=self.repo, env=self.env, check=True)
+            subprocess.run(
+                ['git', *args], cwd=self.repo, env=self.env, check=True, timeout=60
+            )
 
     def kitchen(self, *args):
         return subprocess.run(
@@ -835,6 +839,7 @@ class OverlayRepo(unittest.TestCase):
             env=self.env,
             capture_output=True,
             text=True,
+            timeout=60,
         )
 
 
@@ -861,7 +866,9 @@ class OverlayKitchenTests(OverlayRepo):
     def test_doctor_warns_on_an_applies_glob_that_matches_no_tracked_file(self):
         self.assertEqual(self.doctor_check()['status'], 'ok')
         (self.repo / 'engine/lib.rs').unlink()
-        subprocess.run(['git', 'add', '-A'], cwd=self.repo, env=self.env, check=True)
+        subprocess.run(
+            ['git', 'add', '-A'], cwd=self.repo, env=self.env, check=True, timeout=60
+        )
         check = self.doctor_check()
         self.assertEqual(check['status'], 'warn')
         self.assertEqual(
@@ -1303,7 +1310,9 @@ class HostOverlayTests(unittest.TestCase):
                 'version = 1\n\n[profile.all]\npaths = ["**"]\nfast = ["true"]\n'
             )
         for args in (['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'init']):
-            subprocess.run(['git', *args], cwd=path, env=self.env, check=True)
+            subprocess.run(
+                ['git', *args], cwd=path, env=self.env, check=True, timeout=60
+            )
         if kitchen_file:
             self.entries += f'[[kitchen]]\nmatch = "{path}"\nfile = "{kitchen_file}"\n'
             (self.config / 'kitchen.toml').write_text(self.entries)
@@ -1370,6 +1379,7 @@ class HostOverlayTests(unittest.TestCase):
             env=self.env,
             capture_output=True,
             text=True,
+            timeout=60,
         )
         self.assertEqual(json.loads(done.stdout), {'overlays': []})
 
