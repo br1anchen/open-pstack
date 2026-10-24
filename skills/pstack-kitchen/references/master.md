@@ -329,8 +329,8 @@ place of the history:
   first call is about 52k tokens; one with them, about 117k), and with
   Remote Control on so the human can follow it from claude.ai or a phone:
   `claude --strict-mcp-config --mcp-config ~/.agents/skills/pstack-pair/references/no-mcp.json --remote-control <slug>-master`.
-- At the `KITCHEN_MASTER_ROTATE_UNITS`-th (5) clean unit verdict and at each multiple of it (a gates-mode unit counts too),
-  `verify` prints `master: N units verified since your last handoff`. At
+- From the `KITCHEN_MASTER_ROTATE_UNITS`-th (5) clean verdict on (a gates-mode unit and a landing verdict count too),
+  every clean verdict's `verify` prints `master: N units verified since your last handoff`. At
   that boundary, with no dispatch you must answer this turn:
   `kitchen.sh new-handoff <store>` writes `session-handoff.md` from
   [the template](handoff-template.md) with every unit's state filled in.

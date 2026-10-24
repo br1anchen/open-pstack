@@ -11825,8 +11825,8 @@ class CoreTests(unittest.TestCase):
             'take the verifier role. pstack-kitchen VERIFY /s/verdicts/001-x-v1-packet.md',
             got,
         )
-        # a verified unit counts toward the master's handoff, a landing verification does not; the master hears of it every ROTATE_UNITS units (5 unless
-        # the variable is a positive number), every unit when it is 0, and a count that is not a whole number ends the command
+        # a verified unit and a landing verification both count toward the master's handoff; from the ROTATE_UNITS-th (5 unless the variable is a
+        # positive number) every clean verdict says so, each one when it is 0, and a count that is not a whole number ends the command
         note = lambda count, store: (
             f'master: {count} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, kitchen.sh rotate-master {store}\n'
         )
@@ -11844,33 +11844,30 @@ class CoreTests(unittest.TestCase):
         n = 0
         for name, (master, count) in counts.items():
             for setting, step in (*every.items(), (None, 5)):
-                env = (
-                    {} if setting is None else {'KITCHEN_MASTER_ROTATE_UNITS': setting}
-                )
-                n += 1
-                store = self.claim_store(f'ho{n}', {'verdict': 'v'}, {'master': master})
-                rc, out, err = self.kitchen_py(
-                    store, 'vs.handoff_due(store, "001-x")\nprint("rc=0")', env=env
-                )
-                said = note(count, store) if (step == 1 or count % step == 0) else ''
-                self.assertEqual(
-                    (rc, out, err), (0, said + 'rc=0\n', ''), (name, setting)
-                )
-                self.assertEqual(
-                    json.loads((store / 'pair.json').read_text())['master'],
-                    {'units_since_handoff': count},
-                    (name, setting),
-                )
-            store = self.claim_store(f'hol{n}', {'verdict': 'v'}, {'master': master})
-            before = (store / 'pair.json').read_text()
-            self.assertEqual(
-                self.kitchen_py(
-                    store, 'vs.handoff_due(store, "landing")\nprint("rc=0")'
-                )[:2],
-                (0, 'rc=0\n'),
-                name,
-            )
-            self.assertEqual((store / 'pair.json').read_text(), before, name)
+                for unit in ('001-x', 'landing'):
+                    env = (
+                        {}
+                        if setting is None
+                        else {'KITCHEN_MASTER_ROTATE_UNITS': setting}
+                    )
+                    n += 1
+                    store = self.claim_store(
+                        f'ho{n}', {'verdict': 'v'}, {'master': master}
+                    )
+                    rc, out, err = self.kitchen_py(
+                        store,
+                        f'vs.handoff_due(store, {unit!r})\nprint("rc=0")',
+                        env=env,
+                    )
+                    said = note(count, store) if count >= step else ''
+                    self.assertEqual(
+                        (rc, out, err), (0, said + 'rc=0\n', ''), (name, setting, unit)
+                    )
+                    self.assertEqual(
+                        json.loads((store / 'pair.json').read_text())['master'],
+                        {'units_since_handoff': count},
+                        (name, setting, unit),
+                    )
         for name, master, word in (
             (
                 'a master that is a string',
@@ -11897,6 +11894,7 @@ class CoreTests(unittest.TestCase):
             )
             self.assertEqual((rc, out), (1, ''), name)
             self.assertIn(word, err, name)
+            self.assertEqual((store / 'pair.json').read_text(), before, name)
 
     def test_a_bad_rotate_units_setting_leaves_pair_json_unchanged(self):
         """KITCHEN_MASTER_ROTATE_UNITS is read before the verified-units count is bumped: a word there ends the command with status 1 naming the

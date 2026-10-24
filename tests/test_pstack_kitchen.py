@@ -6195,9 +6195,9 @@ esac
             out,
         )
         self.assertEqual(self.state()['master']['units_since_handoff'], 2)
-        # Once at the threshold and at each multiple of it, not in between.
+        # Every clean verdict from the threshold on, until rotate-master resets the count.
         out = self.run_sh('verify', str(self.store), '003')
-        self.assertNotIn('since your last handoff', out)
+        self.assertIn('master: 3 units verified since your last handoff', out)
         b = self.brief('004', 'u4', ['src/**', 'tests/**'])
         self.dispatch(b)
         self.write('src/util.py', 'X = 44\n')
@@ -6205,6 +6205,20 @@ esac
         self.done(b, self.commit('u4'))
         out = self.run_sh('verify', str(self.store), '004')
         self.assertIn('master: 4 units verified since your last handoff', out)
+
+    def test_a_clean_landing_verdict_counts_toward_the_handoff_nudge(self):
+        self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        self.three_units()
+        out = self.run_sh('verify', str(self.store), '001')
+        self.assertNotIn('since your last handoff', out)
+        out = self.run_sh('verify', str(self.store), '--landing')
+        self.assertIn('status: clean', out)
+        self.assertIn('master: 2 units verified since your last handoff', out)
+        self.assertEqual(self.state()['master']['units_since_handoff'], 2)
+        out = self.run_sh('verify', str(self.store), '--landing')
+        self.assertIn('master: 3 units verified since your last handoff', out)
 
     def test_a_gates_mode_unit_counts_toward_the_handoff_nudge(self):
         self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'

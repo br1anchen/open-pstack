@@ -252,10 +252,8 @@ def verdict_problem(verdict):
 
 
 def handoff_due(store, unit, say=None):
-    """Every clean unit verdict counts toward the master's next handoff; after KITCHEN_MASTER_ROTATE_UNITS (default 5) the verdict says to rotate, at
-    the threshold and at each multiple of it. The line goes to `say` (default: standard output)."""
-    if unit == 'landing':
-        return
+    """Every clean verdict, a landing verdict included, counts toward the master's next handoff; once the count reaches KITCHEN_MASTER_ROTATE_UNITS
+    (default 5) each clean verdict says to rotate, until rotate-master resets the count. The line goes to `say` (default: standard output)."""
     every = max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 5), 1)
 
     def bump(doc):
@@ -264,7 +262,7 @@ def handoff_due(store, unit, say=None):
 
     update(store, bump)
     n = read_int(store, 'master.units_since_handoff')
-    if n % every != 0:
+    if n < every:
         return
     (say or sys.stdout.write)(
         f'master: {n} units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff {store}, fill it, '
