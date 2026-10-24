@@ -7158,6 +7158,26 @@ esac
             'playbook part error-model (verifier) leaves a code fence open', out
         )
 
+    def test_put_section_twice_gives_the_bytes_of_once_in_every_placement(self):
+        self.kitchen_variant().load_kitchen_core()
+        from kitchen_core.playbook_delivery import (
+            PLAN_BEFORE,
+            PLAN_SECTION,
+            put_section,
+        )
+
+        section = f'{PLAN_SECTION}\n\nbody\n'
+        texts = {
+            'before a heading': '# P\n\n## Steps\n\n1. a\n\n## Verification\n\nv\n',
+            'at the end': '# P\n\n## Steps\n\n1. a\n',
+            'existing at the end': f'# P\n\n## Steps\n\n1. a\n\n{PLAN_SECTION}\n\nold\n',
+            'existing before a heading': f'# P\n\n{PLAN_SECTION}\n\nold\n\n## Risks\n\nr\n',
+        }
+        for name, text in texts.items():
+            once = put_section(text, section, PLAN_SECTION, PLAN_BEFORE)
+            twice = put_section(once, section, PLAN_SECTION, PLAN_BEFORE)
+            self.assertEqual(twice, once, name)
+
     def test_dispatch_refuses_a_playbook_part_that_leaves_a_fence_open(self):
         self.kitchen_variant().load_kitchen_core()
         from kitchen_core.playbook_delivery import OpenFence, refuse_open_fences
@@ -10195,6 +10215,22 @@ esac
         self.assertEqual(self.plan_prompts(), 1)
         self.assertNotIn('sent PLAN', out)
         self.assertIn('consultant_state: answered', out)
+
+    def test_an_unchanged_discuss_of_a_plan_with_no_later_heading_keeps_its_bytes(
+        self,
+    ):
+        plan = self.contract_plan('1. First.\n   playbook: feature')
+        plan.write_text(
+            plan.read_text().split('## Verification')[0].rstrip('\n') + '\n'
+        )
+        self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        written = plan.read_bytes()
+        mtime = plan.stat().st_mtime_ns
+        self.assertTrue(written.endswith(b'\n'))
+        self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        self.assertEqual(plan.read_bytes(), written)
+        self.assertEqual(plan.stat().st_mtime_ns, mtime)
+        self.assertEqual(self.plan_prompts(), 1)
 
     def test_discuss_asks_again_when_a_block_changed(self):
         plan = self.contract_plan('1. First.\n   playbook: feature')

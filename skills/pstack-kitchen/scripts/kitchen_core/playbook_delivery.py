@@ -39,7 +39,7 @@ def put_section(text, section, prefix='## Playbook:', before=BEFORE):
     if own is not None:
         end = next((i for i in starts if i > own), len(lines))
         tail = lines[end:]
-        return '\n'.join(lines[:own] + (body if tail else body[:-1]) + tail)
+        return '\n'.join(lines[:own] + body + tail)
     if not section:
         return text
     for title in before:
