@@ -55,6 +55,7 @@ COMMANDS = {
 # The commands a variant may replace whole. Only these names, and a name the core lacks, ask the variant, so every other command is the core's.
 OVERRIDABLE = (
     'answer',
+    'consult',
     'discuss',
     'dispatch',
     'finish',

@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at 40a79c4 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at dbcdeee by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -190,9 +190,9 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): landing refused: kitchen.sh land-check … fails — skills/pstack-kitchen/scripts/kitchen_core/dispatch.py:60 — test_pstack_core.CoreTests.test_dispatch_of_a_landing_brief_goes_through_the_python_land_check (+1)
 - exit 2 (herdr or gate failure): …: risk: must start with routine or escalated, as kitchen.sh classify prints it — skills/pstack-kitchen/scripts/kitchen_core/dispatch.py:143 — test_pstack_core.CoreTests.test_discuss_behaviour
 - exit 2 (herdr or gate failure): the next master did not start in …; its pane stays open and the log is …; you stay the m — skills/pstack-kitchen/scripts/kitchen_core/master.py:268 — test_pstack_core.CoreTests.test_rotate_master_behaviour (+1)
-- exit 2 (herdr or gate failure): playbook-part: unit … has no stored composition — skills/pstack-kitchen/scripts/kitchen_core/playbook_delivery.py:189 — test_pstack_kitchen.KitchenScriptTests.test_playbook_part_refuses_an_unknown_unit_role_or_part_with_one_line
-- exit 2 (herdr or gate failure): playbook-part: unknown role … (…) — skills/pstack-kitchen/scripts/kitchen_core/playbook_delivery.py:191 — test_pstack_kitchen.KitchenScriptTests.test_playbook_part_refuses_an_unknown_unit_role_or_part_with_one_line
-- exit 2 (herdr or gate failure): playbook-part: … has no part … in unit … (parts: …) — skills/pstack-kitchen/scripts/kitchen_core/playbook_delivery.py:196 — test_pstack_kitchen.KitchenScriptTests.test_playbook_part_refuses_an_unknown_unit_role_or_part_with_one_line
+- exit 2 (herdr or gate failure): playbook-part: unit … has no stored composition — skills/pstack-kitchen/scripts/kitchen_core/playbook_delivery.py:212 — test_pstack_kitchen.KitchenScriptTests.test_playbook_part_refuses_an_unknown_unit_role_or_part_with_one_line
+- exit 2 (herdr or gate failure): playbook-part: unknown role … (…) — skills/pstack-kitchen/scripts/kitchen_core/playbook_delivery.py:214 — test_pstack_kitchen.KitchenScriptTests.test_playbook_part_refuses_an_unknown_unit_role_or_part_with_one_line
+- exit 2 (herdr or gate failure): playbook-part: … has no part … in unit … (parts: …) — skills/pstack-kitchen/scripts/kitchen_core/playbook_delivery.py:219 — test_pstack_kitchen.KitchenScriptTests.test_playbook_part_refuses_an_unknown_unit_role_or_part_with_one_line
 - exit 2 (herdr or gate failure): this run is in a linked worktree and its [scratch].setup failed:
 … — skills/pstack-kitchen/scripts/kitchen_core/setup.py:138 — test_pstack_core.CoreTests.test_init_behaviour
 - exit 2 (herdr or gate failure): consultant … failed its preflight and the roster names no other fallback: … — skills/pstack-kitchen/scripts/kitchen_core/setup.py:248 — test_pstack_core.CoreTests.test_consultant_behaviour
@@ -230,7 +230,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): sidekick … is not live; run: pair.sh spawn … --kind <kind> — skills/pstack-pair/scripts/pstack_core/send.py:183 — test_pstack_core.CoreTests.test_discuss_behaviour (+2)
 - exit 2 (herdr or gate failure): agent start failed in …; inspect: herdr pane read … --source visible — skills/pstack-pair/scripts/pstack_core/spawn.py:204 — test_pstack_core.CoreTests.test_failover_refuses_and_reports_what_a_caller_reads
 - exit 2 (herdr or gate failure): no fallback recorded for a failed …; pass --fallback KIND or fix the agent — skills/pstack-pair/scripts/pstack_core/spawn.py:392 — test_pstack_core.CoreTests.test_spawn_reports_the_failure_a_caller_branches_on
-- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:97 — test_pstack_pair.PairScriptTests.test_trio (+288)
+- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:97 — test_pstack_pair.PairScriptTests.test_trio (+293)
 - exit 2 (herdr or gate failure): the last step row does not start with a JSON step number: … — skills/pstack-pair/scripts/pstack_core/wait.py:203 — test_pstack_core.CoreTests.test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words (+1)
 - exit 2 (herdr or gate failure): cannot read the master's agent kind from herdr; run pair.sh init first — skills/pstack-trio/scripts/variant.py:81 — test_pstack_core.CoreTests.test_trio_spawn_and_discuss_report_the_state_they_stop_on
 - exit 3 (agent blocked): sidekick … is …; resolve that before queueing — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:225 — test_pstack_core.CoreTests.test_queue_accepts_a_sidekick_idle_on_a_background_command_and_refuses_a_blocked_or_quiet_one (+2)

@@ -10234,6 +10234,140 @@ esac
         self.assertIn('sent PLAN 001-api.md to consultant', out)
         self.assertEqual(plan.read_bytes(), before)
 
+    def consult_file(self, unit_args):
+        """A filled design consult on unit 001, as new-consult makes it."""
+        consult = Path(
+            self.run_sh(
+                'new-consult', str(self.store), '001', '--kind', 'design', *unit_args
+            ).strip()
+        )
+        consult.write_text(
+            re.sub(r'\{\{[^}]*\}\}', 'x', consult.read_text(), flags=re.DOTALL)
+        )
+        return consult
+
+    def send_consult(self, consult):
+        return self.run_sh(
+            'consult', str(self.store), str(consult), '--timeout', '1', code=4
+        )
+
+    def stamp_consultant(self, unit, workflow, *parts, overlays=()):
+        """Writes a stored composition whose consultant owns `parts` as (id, text) pairs."""
+        owned = [
+            {
+                'id': pid,
+                'text': text,
+                'source': {'root': 'skills', 'path': 'x.md', 'select': 'step:1'},
+                'from': [{'part': pid, 'by': f'workflow:{workflow}'}],
+            }
+            for pid, text in parts
+        ]
+        path = self.store / 'compositions' / f'{unit}.json'
+        path.parent.mkdir(exist_ok=True)
+        selected = [{'id': o, 'why': '', 'kind': 'domain'} for o in overlays]
+        path.write_text(
+            json.dumps(
+                {
+                    'workflow': workflow,
+                    'overlays': {'selected': selected, 'excluded': []},
+                    'roles': {
+                        'master': [],
+                        'sidekick': [],
+                        'consultant': owned,
+                        'verifier': [],
+                    },
+                }
+            )
+        )
+
+    @staticmethod
+    def without_send_state(text):
+        return re.sub(r'^sidekick state at send:.*\n', '', text, flags=re.M)
+
+    def test_a_consult_on_a_brief_with_a_composition_gets_the_consultants_parts(self):
+        self.consultant_plan('escalated')
+        self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.stamp_consultant(
+            '001',
+            'feature',
+            ('feature.step-7', 'Consult on the design.\n## Odd heading'),
+            overlays=('daily-coaching',),
+        )
+        consult = self.consult_file([])
+        before = consult.read_text()
+        self.send_consult(consult)
+        text = consult.read_text()
+        self.assertEqual(text.count('## Playbook (your parts)'), 1)
+        self.assertLess(
+            text.index('## Constraints'), text.index('## Playbook (your parts)')
+        )
+        self.assertLess(text.index('## Playbook (your parts)'), text.index('## Reply'))
+        self.assertIn('feature + daily-coaching, from', text)
+        self.assertIn('#### feature.step-7\n', text)
+        self.assertIn('Consult on the design.', text)
+        self.assertNotIn('\n## Odd heading', text)
+        self.assertNotEqual(
+            self.without_send_state(text), self.without_send_state(before)
+        )
+        self.send_consult(consult)
+        self.assertEqual(consult.read_text(), text)
+
+    def test_a_consult_on_a_brief_without_a_composition_is_sent_as_before(self):
+        self.consultant_plan('escalated')
+        self.brief('001', 'util', ['src/**', 'tests/**'])
+        consult = self.consult_file([])
+        before = consult.read_text()
+        self.send_consult(consult)
+        self.assertEqual(
+            self.without_send_state(consult.read_text()),
+            self.without_send_state(before),
+        )
+
+    def test_a_consult_whose_composition_was_removed_loses_its_stale_section(self):
+        self.consultant_plan('escalated')
+        self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.stamp_consultant('001', 'feature', ('feature.step-7', 'Design.'))
+        consult = self.consult_file([])
+        self.send_consult(consult)
+        self.assertIn('## Playbook (your parts)', consult.read_text())
+        (self.store / 'compositions/001.json').unlink()
+        self.send_consult(consult)
+        self.assertNotIn('## Playbook', consult.read_text())
+
+    def test_a_consult_on_a_contract_2_plan_gets_the_consultants_parts_per_block(self):
+        plan = self.contract_plan(
+            '1. First.\n   playbook: feature', '2. Second.\n   playbook: bug-fix'
+        )
+        self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        consult = self.consult_file([])
+        self.send_consult(consult)
+        text = consult.read_text()
+        self.assertIn(f'unit: {plan}', text)
+        self.assertEqual(text.count('## Playbook (your parts)'), 1)
+        self.assertIn('### Block 1: feature\n', text)
+        self.assertIn('#### feature.step-7\n', text)
+        self.assertNotIn('feature.step-8', text)
+        self.assertIn('No consultant parts.', text)
+        self.assertLess(text.index('## Playbook (your parts)'), text.index('## Reply'))
+
+    def test_a_consult_on_a_plan_without_a_contract_is_sent_as_before(self):
+        plan = self.contract_plan('1. First.\n   playbook: feature', contract='')
+        consult = self.consult_file([])
+        before = consult.read_text()
+        self.send_consult(consult)
+        self.assertIn(f'unit: {plan}', before)
+        self.assertEqual(
+            self.without_send_state(consult.read_text()),
+            self.without_send_state(before),
+        )
+
+    def test_a_consult_on_a_plan_with_an_unmapped_block_is_refused(self):
+        plan = self.contract_plan('1. First.\n   playbook: old-label')
+        consult = self.consult_file([])
+        out = self.run_sh('consult', str(self.store), str(consult), code=2)
+        self.assertIn(f"{plan}: Steps block 1: playbook 'old-label' is not mapped", out)
+        self.assertNotIn('CONSULT', (self.fake / 'calls.log').read_text())
+
     def test_a_plan_dropped_by_an_idle_recipient_is_sent_once_more(self):
         plan = self.consultant_plan('escalated')
         (self.fake / 'prompt-drop').touch()

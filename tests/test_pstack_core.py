@@ -635,6 +635,7 @@ class CoreTests(unittest.TestCase):
             '',
         )
         ctx._variant = Exploding()
+        self.assertIn('consult', cli.OVERRIDABLE)
         for name in cli.COMMANDS:
             if name not in cli.OVERRIDABLE:
                 self.assertIs(cli.resolve(ctx, name), cli.COMMANDS[name], name)
@@ -648,6 +649,7 @@ class CoreTests(unittest.TestCase):
             {
                 'commands': {
                     'answer': 'mine',
+                    'consult': 'kitchen',
                     'status': 'not asked',
                     'permission': 'not asked',
                 }
@@ -656,10 +658,11 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(
             (
                 cli.resolve(ctx, 'answer'),
+                cli.resolve(ctx, 'consult'),
                 cli.resolve(ctx, 'status'),
                 cli.resolve(ctx, 'permission'),
             ),
-            ('mine', cli.COMMANDS['status'], cli.COMMANDS['permission']),
+            ('mine', 'kitchen', cli.COMMANDS['status'], cli.COMMANDS['permission']),
         )
 
     def test_a_name_the_core_lacks_asks_the_variant(self):

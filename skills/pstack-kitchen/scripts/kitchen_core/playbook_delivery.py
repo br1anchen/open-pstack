@@ -117,42 +117,54 @@ def plan_context(store):
     return kpy.call(kpy.kitchen_py.kitchen_overlays, kpy.invocation(store))
 
 
-def render_plan_blocks(blocks, compositions):
-    """The `## Playbook (plan blocks)` section: per block the consultant's and then the master's parts, each part once with the roles it is for, its text whole."""
-    pb = playbooks()
+def part_lines(shown, labelled=True):
+    """The `####` entries of parts given as (roles, part) pairs, each titled with the roles it is for unless `labelled` is off."""
+    lines = []
+    for roles, part in shown:
+        title = part['id'] + (f' ({", ".join(roles)})' if labelled else '')
+        lines += [
+            f'#### {title}',
+            '',
+            playbooks().demote_headings(part['text']).strip(),
+            '',
+        ]
+    return lines
+
+
+def shared_parts(composition, roles):
+    """The parts of `roles` in order, each once with the roles that are given it: a part with the same id and text for two roles is one entry."""
+    shown: dict[tuple[str, str], list] = {}
+    for role in roles:
+        for part in composition['roles'].get(role) or []:
+            entry = shown.setdefault((part['id'], part['text']), [[], part])
+            entry[0].append(role)
+    return [tuple(entry) for entry in shown.values()]
+
+
+def render_plan_blocks(
+    blocks, compositions, roles=('consultant', 'master'), heading=PLAN_SECTION
+):
+    """A `heading` section for a plan: per block the parts of `roles`, each part once with the roles it is for, its text whole."""
+    names = ' and '.join(roles)
     lines = [
-        PLAN_SECTION,
+        heading,
         '',
-        "Written by `kitchen.sh discuss` from each Steps block's `playbook:` and `with:`; edit those lines, not this section.",
+        "Written by `kitchen.sh` from each Steps block's `playbook:` and `with:`; edit those lines, not this section.",
         '',
     ]
     for block, composition in zip(blocks, compositions, strict=True):
         ids = [o['id'] for o in composition['overlays']['selected']]
         lines += [f'### Block {block.number}: {" + ".join([block.playbook, *ids])}', '']
-        shown: dict[tuple[str, str], list] = {}
-        for role in ('consultant', 'master'):
-            for part in composition['roles'].get(role) or []:
-                entry = shown.setdefault((part['id'], part['text']), [[], part])
-                entry[0].append(role)
-        if not shown:
-            lines += ['No consultant or master parts.', '']
-        for roles, part in shown.values():
-            lines += [
-                f'#### {part["id"]} ({", ".join(roles)})',
-                '',
-                pb.demote_headings(part['text']).strip(),
-                '',
-            ]
+        shown = shared_parts(composition, roles)
+        lines += (
+            part_lines(shown, len(roles) > 1) if shown else [f'No {names} parts.', '']
+        )
     return '\n'.join(lines)
 
 
-def deliver_plan_blocks(store, plan):
-    """Puts the consultant's and master's parts of a contract-2 plan's blocks into the plan, writing only when the bytes change. Returns (blocks, tokens), or None for a plan without `contract: 2` (a warning, no section). Raises PlanRefused (status 2), a line per problem, for a block that names no playbook or an unmapped one."""
+def plan_compositions(store, plan, text):
+    """The blocks of a contract-2 plan and the composition of each. Raises PlanRefused (status 2), a line per problem, for a block that names no playbook or an unmapped one, or that does not compose."""
     pb = playbooks()
-    text = read_text(plan)
-    if not pb.plan_contract(text):
-        sys.stdout.write('warn: plan has no contract: 2; no playbook section\n')
-        return None
     blocks = pb.plan_blocks(text)
     data = pb.load_map(pb.MAP_PATH)
     if problems := pb.plan_problems(blocks, sorted(data['playbook'])):
@@ -166,6 +178,17 @@ def deliver_plan_blocks(store, plan):
             raise PlanRefused(f'{plan}: {e}') from None
         refuse_open_fences(composition, ('consultant', 'master'))
         compositions.append(composition)
+    return blocks, compositions
+
+
+def deliver_plan_blocks(store, plan):
+    """Puts the consultant's and master's parts of a contract-2 plan's blocks into the plan, writing only when the bytes change. Returns (blocks, tokens), or None for a plan without `contract: 2` (a warning, no section)."""
+    pb = playbooks()
+    text = read_text(plan)
+    if not pb.plan_contract(text):
+        sys.stdout.write('warn: plan has no contract: 2; no playbook section\n')
+        return None
+    blocks, compositions = plan_compositions(store, plan, text)
     section = render_plan_blocks(blocks, compositions) if blocks else ''
     write_if_changed(plan, put_section(text, section, PLAN_SECTION, PLAN_BEFORE))
     return len(blocks), pb.estimate_tokens(section)

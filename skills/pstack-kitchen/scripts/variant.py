@@ -277,7 +277,7 @@ class KitchenCommand:
 KitchenVariant.commands = {
     **KitchenVariant.commands,
     'new-consult': consult.new_consult,
-    'consult': consult.consult,
+    'consult': KitchenCommand('consult_delivery', 'consult'),
     'advice': consult.advice,
     'catch': KitchenCommand('ledger', 'catch'),
     'retro': KitchenCommand('ledger', 'retro'),
