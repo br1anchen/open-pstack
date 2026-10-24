@@ -4036,18 +4036,10 @@ def overlay_problem_lines(inv: 'Invocation') -> list[str]:
 
 
 def playbooks_overlays(args, pb, roots: dict[str, Path]):
-    """The overlays and source roots of the repo's kitchen, found as `validate`
-    finds it. A `--repo` directory that has its own `.agents/playbooks` is read
-    as it stands (a fixture inside another checkout); otherwise the kitchen
-    decides, and a repo kitchen never reads host overlays."""
-    own = Path(args.repo).resolve() / '.agents/playbooks' if args.repo else None
-    if own and own.is_dir():
-        return pb.load_overlays(own), {'repo': own.parents[1], **roots}
-    try:
-        root, _, source = open_kitchen(Invocation(args.repo, args.config, None))
-    except KitchenError:
-        root = repo_root(args.repo)
-        return pb.load_overlays(root / '.agents/playbooks'), {'repo': root, **roots}
+    """The overlays and source roots of the repo's kitchen, found as `validate`,
+    `doctor` and `compose` find them: `overlay_dir` decides, and a repo kitchen
+    never reads host overlays."""
+    root, _, source = open_kitchen(Invocation(args.repo, args.config, None))
     directory = overlay_dir(root, source)
     return pb.load_overlays(directory), {
         **overlay_roots(root, directory, source),

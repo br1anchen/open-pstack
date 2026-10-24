@@ -10,8 +10,9 @@ import sys
 from pathlib import Path
 
 from pstack_core.checkin import scope_entries
-from pstack_core.errors import Die, EmptyScope, KitchenPyFailed
+from pstack_core.errors import Die, EmptyScope, KitchenPyFailed, Unfilled
 from pstack_core.panes import agent_status
+from pstack_core.review import placeholder_line
 from pstack_core.store import (
     field,
     header_field,
@@ -140,6 +141,11 @@ def compose_playbooks(store, brief, globs, config):
     workflow = header_field(brief, 'playbook').strip()
     if workflow in ('', 'none'):
         return None
+    text = read_text(brief)
+    if (n := placeholder_line(text)) is not None:
+        raise Unfilled(
+            f'{brief} still has unfilled placeholders: line {n}: {text.split(chr(10))[n - 1].strip()}'
+        )
     with_ids, without = overlay_directives(brief)
     try:
         return kpy.kitchen_py.compose(
@@ -189,6 +195,7 @@ def composition_lines(composition):
     ]
     for part in composition['roles']['master']:
         first = next((x.strip() for x in part['text'].split('\n') if x.strip()), '')
+        first = first.lstrip('#').strip()
         lines.append(f'master: {part["id"]} {first[:100]}')
     return lines
 

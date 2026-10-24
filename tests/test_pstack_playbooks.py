@@ -806,81 +806,6 @@ class OverlayProblemTests(unittest.TestCase):
         self.assertEqual(problems, ["overlay daily-coaching: unknown key 'apply'"])
 
 
-class OverlayCommandTests(unittest.TestCase):
-    def test_index_lists_both_fixture_overlays_with_their_parts(self):
-        done = subprocess.run(
-            [
-                sys.executable,
-                str(KITCHEN),
-                '--repo',
-                str(FIXTURE_REPO),
-                'playbooks',
-                'index',
-            ],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual((done.returncode, done.stderr), (0, ''))
-        self.assertIn('rust-engine (language): Rust engine', done.stdout)
-        self.assertIn('daily-coaching (domain): Daily coaching', done.stdout)
-        self.assertIn('part error-model [sidekick, verifier]', done.stdout)
-
-    def test_index_json_is_the_derived_list(self):
-        done = subprocess.run(
-            [
-                sys.executable,
-                str(KITCHEN),
-                '--json',
-                '--repo',
-                str(FIXTURE_REPO),
-                'playbooks',
-                'index',
-            ],
-            capture_output=True,
-            text=True,
-        )
-        ids = [o['id'] for o in json.loads(done.stdout)['overlays']]
-        self.assertEqual(ids, ['daily-coaching', 'rust-engine'])
-
-    def test_validate_counts_the_overlays_of_a_repo(self):
-        done = subprocess.run(
-            [
-                sys.executable,
-                str(KITCHEN),
-                '--repo',
-                str(FIXTURE_REPO),
-                'playbooks',
-                'validate',
-            ],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual((done.returncode, done.stderr), (0, ''))
-        self.assertIn('2 overlays, ok', done.stdout)
-
-    def test_validate_fails_naming_each_bad_overlay(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            shutil.copytree(FIXTURE_REPO, repo, dirs_exist_ok=True)
-            shutil.copy(BAD / 'digest-mismatch.toml', repo / '.agents/playbooks')
-            done = subprocess.run(
-                [
-                    sys.executable,
-                    str(KITCHEN),
-                    '--repo',
-                    str(repo),
-                    'playbooks',
-                    'validate',
-                ],
-                capture_output=True,
-                text=True,
-            )
-        self.assertEqual(done.returncode, 1)
-        self.assertIn(
-            'kitchen: overlay digest-mismatch: part p: digest mismatch', done.stderr
-        )
-
-
 class OverlayRepo(unittest.TestCase):
     """A throwaway git repo that carries the fixture overlays."""
 
@@ -891,9 +816,6 @@ class OverlayRepo(unittest.TestCase):
         shutil.copytree(FIXTURE_REPO, self.repo)
         (self.repo / 'engine').mkdir()
         (self.repo / 'engine/lib.rs').write_text('fn main() {}\n')
-        (self.repo / '.agents/kitchen.toml').write_text(
-            'version = 1\n\n[profile.all]\npaths = ["**"]\nfast = ["true"]\n'
-        )
         self.env = {
             **os.environ,
             'XDG_STATE_HOME': str(Path(tmp.name) / 'state'),
@@ -951,6 +873,82 @@ class OverlayKitchenTests(OverlayRepo):
         check = self.doctor_check()
         self.assertEqual(check['status'], 'fail')
         self.assertIn('overlay bad-schema: schema must be 1', check['items'])
+
+
+class OverlayCommandTests(OverlayRepo):
+    def test_index_lists_both_fixture_overlays_with_their_parts(self):
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(KITCHEN),
+                '--repo',
+                str(self.repo),
+                'playbooks',
+                'index',
+            ],
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual((done.returncode, done.stderr), (0, ''))
+        self.assertIn('rust-engine (language): Rust engine', done.stdout)
+        self.assertIn('daily-coaching (domain): Daily coaching', done.stdout)
+        self.assertIn('part error-model [sidekick, verifier]', done.stdout)
+
+    def test_index_json_is_the_derived_list(self):
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(KITCHEN),
+                '--json',
+                '--repo',
+                str(self.repo),
+                'playbooks',
+                'index',
+            ],
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        ids = [o['id'] for o in json.loads(done.stdout)['overlays']]
+        self.assertEqual(ids, ['daily-coaching', 'rust-engine'])
+
+    def test_validate_counts_the_overlays_of_a_repo(self):
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(KITCHEN),
+                '--repo',
+                str(self.repo),
+                'playbooks',
+                'validate',
+            ],
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual((done.returncode, done.stderr), (0, ''))
+        self.assertIn('2 overlays, ok', done.stdout)
+
+    def test_validate_fails_naming_each_bad_overlay(self):
+        shutil.copy(BAD / 'digest-mismatch.toml', self.repo / '.agents/playbooks')
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(KITCHEN),
+                '--repo',
+                str(self.repo),
+                'playbooks',
+                'validate',
+            ],
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(done.returncode, 1)
+        self.assertIn(
+            'kitchen: overlay digest-mismatch: part p: digest mismatch', done.stderr
+        )
 
 
 def fixture_overlays(*extra):
@@ -1244,9 +1242,9 @@ class HostOverlayTests(unittest.TestCase):
         )
         (directory / f'{stem}.toml').write_text(data)
 
-    def index(self, repo):
+    def index(self, repo, *flags):
         done = subprocess.run(
-            [sys.executable, str(KITCHEN), '--json', 'playbooks', 'index'],
+            [sys.executable, str(KITCHEN), '--json', *flags, 'playbooks', 'index'],
             cwd=repo,
             env=self.env,
             capture_output=True,
@@ -1262,6 +1260,13 @@ class HostOverlayTests(unittest.TestCase):
         self.host_overlay('b.toml', 'beta')
         self.assertEqual(self.index(a), ['alpha'])
         self.assertEqual(self.index(b), ['beta'])
+
+    def test_a_host_kitchen_ignores_overlays_lying_in_the_repo(self):
+        repo = self.repo('r', 'h.toml')
+        shutil.copytree(FIXTURE_REPO / '.agents/playbooks', repo / '.agents/playbooks')
+        self.host_overlay('h.toml', 'alpha')
+        self.assertEqual(self.index(repo), ['alpha'])
+        self.assertEqual(self.index(self.tmp, '--repo', str(repo)), ['alpha'])
 
     def test_a_repo_kitchen_never_reads_host_overlays(self):
         repo = self.repo('r', 'h.toml', own_kitchen=True)

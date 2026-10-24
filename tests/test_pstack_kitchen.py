@@ -4397,7 +4397,7 @@ esac
         self.header(b, 'with: daily-coaching')
         out = self.run_sh('classify', str(self.store), str(b))
         self.assertIn('playbooks: bug-fix + daily-coaching + rust-engine\n', out)
-        self.assertIn('master: session-shape ### Session shape', out)
+        self.assertIn('master: session-shape Session shape', out)
         for part in self.composition()['roles']['master']:
             self.assertIn(f'master: {part["id"]} ', out)
 
@@ -4439,6 +4439,52 @@ esac
         self.assertIn("playbook 'old-label' is not mapped; mapped: ", out)
         self.assertIn('bug-fix', out)
         self.assertFalse((self.store / 'compositions/001.json').exists())
+
+    def overlay_file(self, stem, text):
+        (self.repo / '.agents/playbooks' / f'{stem}.toml').write_text(text)
+
+    def test_a_broken_overlay_the_brief_excludes_leaves_classify_working(self):
+        self.use_overlays()
+        self.overlay_file('broken', 'applies = [\n')
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.header(b, 'without: broken — not mine')
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('excluded: broken (without: not mine)\n', out)
+        self.assertIn('playbooks: bug-fix + rust-engine\n', out)
+
+    def test_an_unreadable_overlay_nobody_names_is_left_out_as_unusable(self):
+        self.use_overlays()
+        self.overlay_file('broken', 'applies = [\n')
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('excluded: broken (unusable: ', out)
+        self.assertIn('playbooks: bug-fix + rust-engine\n', out)
+
+    def test_an_unreadable_overlay_the_brief_names_refuses_classify(self):
+        self.use_overlays()
+        self.overlay_file('broken', 'applies = [\n')
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.header(b, 'with: broken')
+        out = self.run_sh('classify', str(self.store), str(b), code=1)
+        self.assertIn('overlay broken is unusable', out)
+
+    def test_an_overlay_whose_applies_does_not_match_is_never_validated(self):
+        self.use_overlays()
+        self.overlay_file(
+            'elsewhere',
+            'schema = 1\nid = "elsewhere"\napplies = ["nowhere/**"]\n\n'
+            '[[part]]\nid = "p"\nsource = { root = "repo", path = "gone.md" }\n',
+        )
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('playbooks: bug-fix + rust-engine\n', out)
+        self.assertNotIn('elsewhere', out)
+
+    def test_an_unfilled_playbook_header_gets_the_placeholder_message(self):
+        b = self.brief('001', 'util', ['src/util.py'], playbook='{{PLAYBOOK}}')
+        out = self.run_sh('classify', str(self.store), str(b), code=1)
+        self.assertIn('still has unfilled placeholders', out)
+        self.assertNotIn('is not mapped', out)
 
     def test_a_without_with_no_reason_refuses_classify(self):
         self.use_overlays()

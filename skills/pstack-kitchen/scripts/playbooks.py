@@ -640,13 +640,13 @@ def overlay_index(overlays: list[Overlay]) -> list[dict]:
     return out
 
 
-def applies_of(overlay: Overlay) -> list[str]:
-    if overlay.error or not string_list(overlay.data.get('applies', [])):
-        raise PlaybookError(
-            f'overlay {overlay.stem} is unusable (run kitchen.py validate): '
-            f'{overlay.error or "applies must be a list of strings"}'
-        )
-    return list(overlay.data.get('applies', []))
+def applies_problem(overlay: Overlay) -> str:
+    """Why an overlay's `applies` cannot be read, or ''."""
+    if overlay.error:
+        return overlay.error
+    if not string_list(overlay.data.get('applies', [])):
+        return 'applies must be a list of strings'
+    return ''
 
 
 def select_overlays(
@@ -661,7 +661,9 @@ def select_overlays(
     left out with why. `match(glob, path)` is the kitchen's path matching.
 
     An overlay is in when its `applies` matches a scope file or the brief names
-    it with `with:`; `without:` (reason required) removes that overlay alone.
+    it with `with:`; `without:` (reason required) removes that overlay alone,
+    before anything else is read. An overlay that cannot be read fails the
+    selection only when `with:` names it; otherwise it is left out as unusable.
     A named overlay whose `combines` excludes the workflow is an error; one
     selected by path is reported inapplicable and skipped."""
     by_id = {o.stem: o for o in overlays}
@@ -679,14 +681,26 @@ def select_overlays(
     selected: list[tuple[Overlay, str]] = []
     excluded: list[dict] = []
     for o in sorted(overlays, key=lambda x: x.stem):
-        globs = applies_of(o)
-        hit = next(
-            (f'{g} matches {f}' for g in globs for f in files if match(g, f)), ''
-        )
         if o.stem in dropped:
             excluded.append({'id': o.stem, 'reason': f'without: {dropped[o.stem]}'})
             continue
         explicit = o.stem in with_ids
+        if problem := applies_problem(o):
+            if explicit:
+                raise PlaybookError(
+                    f'overlay {o.stem} is unusable (run kitchen.py validate): {problem}'
+                )
+            excluded.append({'id': o.stem, 'reason': f'unusable: {problem}'})
+            continue
+        hit = next(
+            (
+                f'{g} matches {f}'
+                for g in o.data.get('applies', [])
+                for f in files
+                if match(g, f)
+            ),
+            '',
+        )
         if not explicit and not hit:
             continue
         combines = o.data.get('combines', [])
