@@ -22,7 +22,9 @@ spec.loader.exec_module(playbooks)
 
 
 def playbooks_loader():
-    fresh = importlib.util.spec_from_file_location('playbooks', spec.origin)
+    fresh = importlib.util.spec_from_file_location(
+        'playbooks', root / 'skills/pstack-kitchen/scripts/playbooks.py'
+    )
     assert fresh and fresh.loader
     module = importlib.util.module_from_spec(fresh)
     fresh.loader.exec_module(module)
