@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -672,6 +673,268 @@ class PlaybooksCommandTests(unittest.TestCase):
         data = json.loads(done.stdout)
         self.assertEqual([c['id'] for c in data['changed']], ['bug-fix.step-4'])
         self.assertEqual(data['playbook'], 'bug-fix')
+
+
+FIXTURE_REPO = fixtures / 'repo'
+BAD = fixtures / 'bad'
+WORKFLOWS = sorted(playbooks.load_map(playbooks.MAP_PATH)['playbook'])
+
+
+def overlay_roots(**extra):
+    return {
+        'repo': FIXTURE_REPO,
+        'skills': playbooks.default_roots()['skills'],
+        **extra,
+    }
+
+
+def bad_problems(name):
+    (overlay,) = [o for o in playbooks.load_overlays(BAD) if o.stem == name]
+    return playbooks.overlay_problems(overlay, overlay_roots(), WORKFLOWS)
+
+
+class OverlayLoadingTests(unittest.TestCase):
+    def test_the_fixture_overlays_load_and_are_sound(self):
+        overlays = playbooks.load_overlays(FIXTURE_REPO / '.agents/playbooks')
+        self.assertEqual([o.stem for o in overlays], ['daily-coaching', 'rust-engine'])
+        for o in overlays:
+            self.assertEqual(
+                playbooks.overlay_problems(o, overlay_roots(), WORKFLOWS), [], o.stem
+            )
+
+    def test_a_narrative_file_beside_an_overlay_is_ignored(self):
+        directory = FIXTURE_REPO / '.agents/playbooks'
+        self.assertTrue((directory / 'rust-engine.md').is_file())
+        names = [o.stem for o in playbooks.load_overlays(directory)]
+        self.assertEqual(names.count('rust-engine'), 1)
+
+    def test_a_missing_directory_has_no_overlays(self):
+        self.assertEqual(playbooks.load_overlays(fixtures / 'nowhere'), [])
+
+    def test_a_file_that_is_not_toml_is_reported_not_raised(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'broken.toml').write_text('id = = 1\n')
+            (overlay,) = playbooks.load_overlays(Path(tmp))
+            problems = playbooks.overlay_problems(overlay, overlay_roots(), WORKFLOWS)
+        self.assertEqual(len(problems), 1)
+        self.assertTrue(problems[0].startswith('overlay broken: '))
+
+    def test_the_index_is_sorted_and_lists_parts_with_owners_source_and_digest(self):
+        index = playbooks.overlay_index(
+            playbooks.load_overlays(FIXTURE_REPO / '.agents/playbooks')
+        )
+        self.assertEqual([o['id'] for o in index], ['daily-coaching', 'rust-engine'])
+        rust = index[1]
+        self.assertEqual(rust['applies'], ['engine/**'])
+        self.assertEqual(rust['combines'], ['bug-fix', 'feature', 'refactoring'])
+        self.assertEqual(
+            rust['parts'][0],
+            {
+                'id': 'error-model',
+                'owners': ['sidekick', 'verifier'],
+                'source': {'root': 'repo', 'path': 'CODING_STANDARDS.md'},
+                'select': 'heading:Rust (Engine)/Errors',
+                'digest': '6b7c36b4f3ca',
+            },
+        )
+        self.assertEqual(index[0]['applies'], [])
+
+
+class OverlayProblemTests(unittest.TestCase):
+    def assertOneProblem(self, name, fragment):
+        problems = bad_problems(name)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn(fragment, problems[0])
+
+    def test_a_wrong_schema(self):
+        self.assertOneProblem('bad-schema', 'schema must be 1')
+
+    def test_an_id_that_is_not_the_file_stem(self):
+        self.assertOneProblem('id-mismatch', "id 'other-id' must equal the file name")
+
+    def test_a_duplicate_part_id(self):
+        self.assertOneProblem('duplicate-part', 'duplicate part id error-model')
+
+    def test_an_unknown_owner(self):
+        self.assertOneProblem('unknown-owner', "unknown owner 'janitor'")
+
+    def test_a_combines_name_the_map_does_not_define(self):
+        self.assertOneProblem('unknown-combines', "names 'cooking'")
+
+    def test_an_escaping_source_path(self):
+        self.assertOneProblem('escaping-source', 'must be relative inside repo')
+
+    def test_a_missing_source_file(self):
+        self.assertOneProblem('broken-source', 'repo:NOPE.md is not a file')
+
+    def test_a_heading_two_sections_share(self):
+        self.assertOneProblem('ambiguous-heading', 'ambiguous, 2 parts match')
+
+    def test_a_digest_that_no_longer_matches(self):
+        self.assertOneProblem('digest-mismatch', 'digest mismatch')
+
+    def test_a_kind_outside_the_four(self):
+        self.assertOneProblem('bad-kind', 'kind must be one of')
+
+    def test_a_host_source_without_a_host_directory_is_a_broken_source(self):
+        (overlay,) = playbooks.load_overlays(FIXTURE_REPO / '.agents/playbooks')[:1]
+        data = json.loads(json.dumps(overlay.data))
+        data['part'][0]['source']['root'] = 'host'
+        problems = playbooks.overlay_problems(
+            playbooks.Overlay(overlay.stem, data), overlay_roots(), WORKFLOWS
+        )
+        self.assertTrue(any('unknown source root' in p for p in problems), problems)
+
+    def test_an_unknown_key_is_a_problem(self):
+        (overlay,) = playbooks.load_overlays(FIXTURE_REPO / '.agents/playbooks')[:1]
+        data = {**overlay.data, 'apply': ['x']}
+        problems = playbooks.overlay_problems(
+            playbooks.Overlay(overlay.stem, data), overlay_roots(), WORKFLOWS
+        )
+        self.assertEqual(problems, ["overlay daily-coaching: unknown key 'apply'"])
+
+
+class OverlayCommandTests(unittest.TestCase):
+    def test_index_lists_both_fixture_overlays_with_their_parts(self):
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(KITCHEN),
+                '--repo',
+                str(FIXTURE_REPO),
+                'playbooks',
+                'index',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual((done.returncode, done.stderr), (0, ''))
+        self.assertIn('rust-engine (language): Rust engine', done.stdout)
+        self.assertIn('daily-coaching (domain): Daily coaching', done.stdout)
+        self.assertIn('part error-model [sidekick, verifier]', done.stdout)
+
+    def test_index_json_is_the_derived_list(self):
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(KITCHEN),
+                '--json',
+                '--repo',
+                str(FIXTURE_REPO),
+                'playbooks',
+                'index',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        ids = [o['id'] for o in json.loads(done.stdout)['overlays']]
+        self.assertEqual(ids, ['daily-coaching', 'rust-engine'])
+
+    def test_validate_counts_the_overlays_of_a_repo(self):
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(KITCHEN),
+                '--repo',
+                str(FIXTURE_REPO),
+                'playbooks',
+                'validate',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual((done.returncode, done.stderr), (0, ''))
+        self.assertIn('2 overlays, ok', done.stdout)
+
+    def test_validate_fails_naming_each_bad_overlay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            shutil.copytree(FIXTURE_REPO, repo, dirs_exist_ok=True)
+            shutil.copy(BAD / 'digest-mismatch.toml', repo / '.agents/playbooks')
+            done = subprocess.run(
+                [
+                    sys.executable,
+                    str(KITCHEN),
+                    '--repo',
+                    str(repo),
+                    'playbooks',
+                    'validate',
+                ],
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(done.returncode, 1)
+        self.assertIn(
+            'kitchen: overlay digest-mismatch: part p: digest mismatch', done.stderr
+        )
+
+
+class OverlayKitchenTests(unittest.TestCase):
+    """validate and doctor against a throwaway repo that carries the fixture overlays."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.repo = Path(tmp.name) / 'repo'
+        shutil.copytree(FIXTURE_REPO, self.repo)
+        (self.repo / 'engine').mkdir()
+        (self.repo / 'engine/lib.rs').write_text('fn main() {}\n')
+        (self.repo / '.agents/kitchen.toml').write_text(
+            'version = 1\n\n[profile.all]\npaths = ["**"]\nfast = ["true"]\n'
+        )
+        self.env = {
+            **os.environ,
+            'XDG_STATE_HOME': str(Path(tmp.name) / 'state'),
+            'PSTACK_KITCHEN_ROSTER': str(Path(tmp.name) / 'no-roster.toml'),
+            'GIT_AUTHOR_NAME': 't',
+            'GIT_AUTHOR_EMAIL': 't@t',
+            'GIT_COMMITTER_NAME': 't',
+            'GIT_COMMITTER_EMAIL': 't@t',
+        }
+        for args in (['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'init']):
+            subprocess.run(['git', *args], cwd=self.repo, env=self.env, check=True)
+
+    def kitchen(self, *args):
+        return subprocess.run(
+            [sys.executable, str(KITCHEN.parent / 'kitchen.py'), *args],
+            cwd=self.repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_validate_passes_with_sound_overlays(self):
+        done = self.kitchen('validate')
+        self.assertEqual((done.returncode, done.stderr), (0, ''))
+
+    def test_validate_reports_an_overlay_problem_with_the_kitchen(self):
+        shutil.copy(BAD / 'bad-schema.toml', self.repo / '.agents/playbooks')
+        done = self.kitchen('validate')
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('kitchen: overlay bad-schema: schema must be 1', done.stderr)
+
+    def doctor_check(self):
+        done = self.kitchen('--json', 'doctor')
+        (check,) = [
+            c for c in json.loads(done.stdout)['checks'] if c['check'] == 'playbooks'
+        ]
+        return check
+
+    def test_doctor_warns_on_an_applies_glob_that_matches_no_tracked_file(self):
+        self.assertEqual(self.doctor_check()['status'], 'ok')
+        (self.repo / 'engine/lib.rs').unlink()
+        subprocess.run(['git', 'add', '-A'], cwd=self.repo, env=self.env, check=True)
+        check = self.doctor_check()
+        self.assertEqual(check['status'], 'warn')
+        self.assertEqual(
+            check['items'], ['rust-engine: applies engine/** matches no tracked file']
+        )
+
+    def test_doctor_fails_on_an_overlay_problem(self):
+        shutil.copy(BAD / 'bad-schema.toml', self.repo / '.agents/playbooks')
+        check = self.doctor_check()
+        self.assertEqual(check['status'], 'fail')
+        self.assertIn('overlay bad-schema: schema must be 1', check['items'])
 
 
 if __name__ == '__main__':

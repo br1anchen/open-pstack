@@ -509,6 +509,137 @@ def validate_map(data: dict, roots: dict[str, Path] | None = None) -> list[str]:
     return out
 
 
+OVERLAY_KINDS = ('domain', 'language', 'area', 'workflow')
+OVERLAY_ROOTS = ('repo', 'skills', 'host')
+OVERLAY_KEYS = {'schema', 'id', 'title', 'kind', 'applies', 'tags', 'combines', 'part'}
+OVERLAY_PART_KEYS = {'id', 'source', 'select', 'owners', 'reviewed', 'kitchen'}
+
+
+@dataclass(frozen=True)
+class Overlay:
+    """One `<id>.toml` of a repo's playbooks directory; `error` is why it did not parse."""
+
+    stem: str
+    data: dict
+    error: str = ''
+
+
+def load_overlays(directory: Path) -> list[Overlay]:
+    """The overlays in `directory`, sorted by file name; none when it is absent.
+    A `<id>.md` beside an overlay is narrative and is never read."""
+    import tomllib
+
+    if not directory.is_dir():
+        return []
+    out = []
+    for path in sorted(directory.glob('*.toml')):
+        try:
+            with path.open('rb') as f:
+                out.append(Overlay(path.stem, tomllib.load(f)))
+        except (OSError, ValueError) as e:
+            out.append(Overlay(path.stem, {}, str(e)))
+    return out
+
+
+def string_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(x, str) for x in value)
+
+
+def overlay_problems(
+    overlay: Overlay, roots: dict[str, Path], workflows: set[str] | list[str]
+) -> list[str]:
+    """Every structural problem in one overlay: schema, id, kind, lists, unknown
+    keys, owners, combines, sources, selectors and digests."""
+    name = f'overlay {overlay.stem}'
+    if overlay.error:
+        return [f'{name}: {overlay.error}']
+    data = overlay.data
+    out = [f'{name}: unknown key {k!r}' for k in sorted(set(data) - OVERLAY_KEYS)]
+    if data.get('schema') != 1:
+        out.append(f'{name}: schema must be 1')
+    if data.get('id') != overlay.stem:
+        out.append(f'{name}: id {data.get("id")!r} must equal the file name')
+    if not str(data.get('title', '')).strip():
+        out.append(f'{name}: title is required')
+    if data.get('kind') not in OVERLAY_KINDS:
+        out.append(f'{name}: kind must be one of {", ".join(OVERLAY_KINDS)}')
+    for key in ('applies', 'tags', 'combines'):
+        if not string_list(data.get(key, [])):
+            out.append(f'{name}: {key} must be a list of strings')
+    if string_list(data.get('combines', [])):
+        out += [
+            f'{name}: combines names {w!r}, which the map does not define'
+            for w in data.get('combines', [])
+            if w not in workflows
+        ]
+    parts = data.get('part', [])
+    if not isinstance(parts, list) or not all(isinstance(x, dict) for x in parts):
+        return out + [f'{name}: part must be an array of tables ([[part]])']
+    docs: dict[str, Doc | str] = {}
+    ids: set[str] = set()
+    for part in parts:
+        pid = part.get('id')
+        if not isinstance(pid, str) or not pid.strip():
+            out.append(f'{name}: a part has no id')
+        elif pid in ids:
+            out.append(f'{name}: duplicate part id {pid}')
+        ids.add(str(pid))
+        out += [
+            f'{name}: part {pid}: unknown key {k!r}'
+            for k in sorted(set(part) - OVERLAY_PART_KEYS)
+        ]
+        source = part.get('source')
+        if not isinstance(source, dict) or source.get('root') not in OVERLAY_ROOTS:
+            out.append(
+                f'{name}: part {pid}: source root must be one of repo, skills, host'
+            )
+            continue
+        key = f'{source.get("root")}:{source.get("path")}'
+        if key not in docs:
+            try:
+                docs[key] = load_doc(roots, source)
+            except (PlaybookError, OSError, UnicodeDecodeError) as e:
+                docs[key] = str(e)
+        doc = docs[key]
+        if isinstance(doc, str):
+            out.append(f'{name}: part {pid}: {doc}')
+        else:
+            out += part_problems(name, doc, part)
+    return out
+
+
+def overlay_index(overlays: list[Overlay]) -> list[dict]:
+    """The derived listing: id, kind, applies, combines and the parts with
+    their owners, source and digest, sorted by id. Not a second catalog."""
+    out = []
+    for o in sorted(overlays, key=lambda x: x.stem):
+        if o.error:
+            out.append({'id': o.stem, 'error': o.error})
+            continue
+        d = o.data
+        out.append(
+            {
+                'id': o.stem,
+                'title': d.get('title'),
+                'kind': d.get('kind'),
+                'applies': list(d.get('applies', [])),
+                'tags': list(d.get('tags', [])),
+                'combines': list(d.get('combines', [])),
+                'parts': [
+                    {
+                        'id': p.get('id'),
+                        'owners': list(p.get('owners', [])),
+                        'source': dict(p.get('source') or {}),
+                        'select': p.get('select'),
+                        'digest': p.get('reviewed'),
+                    }
+                    for p in d.get('part', [])
+                ],
+            }
+        )
+    return out
+
+
 MAP_PATH = Path(__file__).resolve().parents[1] / 'references/playbook-roles.toml'
 
 

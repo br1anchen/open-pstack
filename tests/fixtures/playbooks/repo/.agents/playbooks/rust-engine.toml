@@ -1,0 +1,22 @@
+schema = 1
+id = "rust-engine"
+title = "Rust engine"
+kind = "language"
+applies = ["engine/**"]
+tags = ["rust"]
+combines = ["bug-fix", "feature", "refactoring"]
+
+[[part]]
+id = "error-model"
+source = { root = "repo", path = "CODING_STANDARDS.md" }
+select = "heading:Rust (Engine)/Errors"
+owners = ["sidekick", "verifier"]
+reviewed = "6b7c36b4f3ca"
+kitchen = { verifier = "Check error paths against this; it is the evidence standard, not new Acceptance." }
+
+[[part]]
+id = "testing"
+source = { root = "repo", path = "CODING_STANDARDS.md" }
+select = "heading:Rust (Engine)/Testing"
+owners = ["sidekick"]
+reviewed = "37cba2f76bee"

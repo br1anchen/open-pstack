@@ -1,0 +1,21 @@
+schema = 1
+id = "daily-coaching"
+title = "Daily coaching"
+kind = "domain"
+applies = []
+tags = ["coaching"]
+combines = []
+
+[[part]]
+id = "session-shape"
+source = { root = "repo", path = "docs/DOMAIN.md" }
+select = "heading:Daily coaching/Session shape"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "fb4dd6e01936"
+
+[[part]]
+id = "tone"
+source = { root = "repo", path = "docs/DOMAIN.md" }
+select = "heading:Daily coaching/Tone"
+owners = ["sidekick", "consultant"]
+reviewed = "84d1438d0f6f"

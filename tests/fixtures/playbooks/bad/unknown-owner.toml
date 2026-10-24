@@ -1,0 +1,14 @@
+schema = 1
+id = "unknown-owner"
+title = "Bad"
+kind = "area"
+applies = ["x/**"]
+tags = []
+combines = []
+
+[[part]]
+id = "p"
+source = { root = "repo", path = "CODING_STANDARDS.md" }
+select = "heading:Rust (Engine)/Errors"
+owners = ["janitor"]
+reviewed = "6b7c36b4f3ca"

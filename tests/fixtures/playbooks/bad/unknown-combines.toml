@@ -1,0 +1,14 @@
+schema = 1
+id = "unknown-combines"
+title = "Bad"
+kind = "area"
+applies = ["x/**"]
+tags = []
+combines = ["cooking"]
+
+[[part]]
+id = "error-model"
+source = { root = "repo", path = "CODING_STANDARDS.md" }
+select = "heading:Rust (Engine)/Errors"
+owners = ["sidekick"]
+reviewed = "6b7c36b4f3ca"

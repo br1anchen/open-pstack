@@ -1,0 +1,14 @@
+schema = 1
+id = "escaping-source"
+title = "Bad"
+kind = "area"
+applies = ["x/**"]
+tags = []
+combines = []
+
+[[part]]
+id = "p"
+source = { root = "repo", path = "../outside.md" }
+select = "heading:X"
+owners = ["sidekick"]
+reviewed = "000000000000"

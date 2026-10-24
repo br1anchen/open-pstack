@@ -1,0 +1,14 @@
+schema = 1
+id = "ambiguous-heading"
+title = "Bad"
+kind = "area"
+applies = ["x/**"]
+tags = []
+combines = []
+
+[[part]]
+id = "p"
+source = { root = "repo", path = "CODING_STANDARDS.md" }
+select = "heading:Errors"
+owners = ["sidekick"]
+reviewed = "000000000000"

@@ -1783,6 +1783,25 @@ def doctor(
         else f'{len(kitchen.profiles)} profiles match files',
         empty,
     )
+    pb = playbooks_module()
+    overlays, roots, workflows = kitchen_overlays(inv)
+    if overlays:
+        problems = [
+            p for o in overlays for p in pb.overlay_problems(o, roots, workflows)
+        ]
+        dead = [
+            f'{o.stem}: applies {g} matches no tracked file'
+            for o in overlays
+            if not o.error and pb.string_list(o.data.get('applies', []))
+            for g in o.data.get('applies', [])
+            if not any(glob_regex(g).match(f) for f in files)
+        ]
+        add(
+            'playbooks',
+            'fail' if problems else 'warn' if dead else 'ok',
+            f'{len(overlays)} overlays: {len(problems)} problems, {len(dead)} unmatched globs',
+            problems + dead,
+        )
     # Each command's program must exist where it runs: on PATH or in the repo,
     # or, for a wrapped profile, inside its wrap, asked once per wrap.
     missing, inside = [], {}
@@ -3816,6 +3835,8 @@ class ValidateResult:
 
 def validate(inv: Invocation) -> ValidateResult:
     _, kitchen, source = open_kitchen(inv)
+    if problems := overlay_problem_lines(inv):
+        raise KitchenError('\nkitchen: '.join(problems))
     return ValidateResult(
         source,
         list(kitchen.profiles),
@@ -3937,12 +3958,102 @@ def playbooks_module():
     return module
 
 
+def overlay_dir(root: Path, source: Source) -> Path:
+    """Where the kitchen's playbook overlays live: `.agents/playbooks` in the
+    repo for a repo kitchen, else `playbooks/` beside the host kitchen file."""
+    if source.kind == 'repo':
+        return root / '.agents/playbooks'
+    return host_kitchen(root)[1].parent / 'playbooks'
+
+
+def overlay_roots(root: Path, directory: Path, source: Source) -> dict[str, Path]:
+    roots = {'repo': root, **playbooks_module().default_roots()}
+    if source.kind != 'repo':
+        roots['host'] = directory
+    return roots
+
+
+def playbook_workflows(pb) -> list[str]:
+    return sorted(pb.load_map(pb.MAP_PATH)['playbook'])
+
+
+def kitchen_overlays(inv: 'Invocation') -> tuple[list, dict[str, Path], list[str]]:
+    """The kitchen's overlays, the roots their sources resolve against, and the
+    workflow names the shipped map defines."""
+    pb = playbooks_module()
+    root, _, source = open_kitchen(inv)
+    directory = overlay_dir(root, source)
+    return (
+        pb.load_overlays(directory),
+        overlay_roots(root, directory, source),
+        playbook_workflows(pb),
+    )
+
+
+def overlay_problem_lines(inv: 'Invocation') -> list[str]:
+    pb = playbooks_module()
+    overlays, roots, workflows = kitchen_overlays(inv)
+    return [p for o in overlays for p in pb.overlay_problems(o, roots, workflows)]
+
+
+def playbooks_overlays(args, pb, roots: dict[str, Path]):
+    """The overlays of the repo `--repo` names (taken as the repo root, not
+    searched upward), else of the checkout; its roots; an empty list when it
+    has none."""
+    if args.repo:
+        root = Path(args.repo).resolve()
+        directory, host = root / '.agents/playbooks', None
+        if not directory.is_dir():
+            try:
+                directory = host_kitchen(root)[1].parent / 'playbooks'
+                host = directory
+            except KitchenError:
+                pass
+    else:
+        root = repo_root(None)
+        directory, host = root / '.agents/playbooks', None
+        try:
+            _, _, source = open_kitchen(Invocation(None, args.config, None))
+        except KitchenError:
+            pass
+        else:
+            directory = overlay_dir(root, source)
+            host = None if source.kind == 'repo' else directory
+    found = {'repo': root, **roots, **({'host': host} if host else {})}
+    return pb.load_overlays(directory), found
+
+
+def overlay_index_text(index: list[dict]) -> str:
+    if not index:
+        return 'no playbook overlays'
+    lines = []
+    for o in index:
+        if 'error' in o:
+            lines.append(f'{o["id"]}: unreadable: {o["error"]}')
+            continue
+        lines.append(f'{o["id"]} ({o["kind"]}): {o["title"]}')
+        lines.append(f'  applies: {", ".join(o["applies"]) or "none"}')
+        lines.append(f'  combines: {", ".join(o["combines"]) or "any"}')
+        for p in o['parts']:
+            src = p['source']
+            lines.append(
+                f'  part {p["id"]} [{", ".join(p["owners"])}] '
+                f'{src.get("root")}:{src.get("path")} {p["select"]} {p["digest"]}'
+            )
+    return '\n'.join(lines)
+
+
 def playbooks_command(args) -> int:
     pb = playbooks_module()
     path = args.map or pb.MAP_PATH
     roots = pb.default_roots()
     if args.skills:
         roots['skills'] = args.skills
+    if args.playbooks_cmd == 'index':
+        overlays, _ = playbooks_overlays(args, pb, roots)
+        index = pb.overlay_index(overlays)
+        emit({'overlays': index}, args.json, overlay_index_text(index))
+        return 0
     unusable, data, changed = None, {}, []
     try:
         data = pb.load_map(path)
@@ -3957,11 +4068,25 @@ def playbooks_command(args) -> int:
         if problems:
             print('\n'.join(f'kitchen: {p}' for p in problems), file=sys.stderr)
             return 1
+        overlays, found = playbooks_overlays(args, pb, roots)
+        problems = [
+            p
+            for o in overlays
+            for p in pb.overlay_problems(o, found, sorted(data['playbook']))
+        ]
+        if problems:
+            print('\n'.join(f'kitchen: {p}' for p in problems), file=sys.stderr)
+            return 1
         parts = sum(len(e.get('part', [])) for e in data['playbook'].values())
+        more = f', {len(overlays)} overlays' if overlays else ''
         emit(
-            {'playbooks': len(data['playbook']), 'parts': parts},
+            {
+                'playbooks': len(data['playbook']),
+                'parts': parts,
+                'overlays': len(overlays),
+            },
             args.json,
-            f'playbooks: {len(data["playbook"])} playbooks, {parts} parts, ok',
+            f'playbooks: {len(data["playbook"])} playbooks, {parts} parts{more}, ok',
         )
         return 0
     commit = pb.last_map_commit(path)
@@ -4229,6 +4354,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pbsub = pbs.add_subparsers(dest='playbooks_cmd', required=True)
     pbsub.add_parser('validate', help='check the map against the playbooks it maps')
+    pbsub.add_parser(
+        'index', help="the repo's playbook overlays, derived from their files"
+    )
     pbr = pbsub.add_parser(
         'review', help='the parts of one playbook that changed since they were reviewed'
     )
