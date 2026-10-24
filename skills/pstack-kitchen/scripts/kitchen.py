@@ -775,6 +775,14 @@ def classify(
         'features': sorted({f for p in profiles for f in p.features}),
         'behavioral': [p.name for p in profiles if p.commands['behavioral']],
         'landing': [p.name for p in profiles if p.commands['landing']],
+        'gates': list(
+            dict.fromkeys(
+                c
+                for p in profiles
+                for stage in ('fast', 'behavioral')
+                for c in p.commands[stage]
+            )
+        ),
         'max_batch_diff': kitchen.review['max_batch_diff'],
         'files': files,
         'outside': outside or [],

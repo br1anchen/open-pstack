@@ -314,6 +314,15 @@ class ClassifyTests(KitchenTests):
             self.run_kitchen('classify', '--paths', 'src/**'),
         )
 
+    def test_classify_returns_the_touched_profiles_gate_commands(self):
+        self.assertEqual(
+            self.data('classify', '--paths', 'src/**')['gates'],
+            ['test -f src/app.py', 'true'],
+        )
+        self.assertEqual(
+            self.data('classify', '--paths', 'docs/**')['gates'], ['test -d docs']
+        )
+
     def test_a_scope_with_the_outputs_or_without_the_source_does_not_warn(self):
         self.with_generated()
         self.assertEqual(
