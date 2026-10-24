@@ -4568,6 +4568,48 @@ esac
             f'kitchen.sh playbook-part {self.store} 001 sidekick ', b.read_text()
         )
 
+    def test_playbook_part_prints_the_stored_text_after_the_source_changes(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.run_sh('classify', str(self.store), str(b), timeout=60)
+        entry = next(
+            e
+            for e in self.composition()['roles']['sidekick']
+            if e['id'] == 'error-model'
+        )
+        (self.repo / 'CODING_STANDARDS.md').unlink()
+        shutil.rmtree(self.repo / '.agents/playbooks')
+        out = self.run_sh(
+            'playbook-part',
+            str(self.store),
+            '001',
+            'sidekick',
+            'error-model',
+            timeout=60,
+        )
+        self.assertIn(entry['text'].rstrip('\n') + '\n\n', out)
+        src = entry['source']
+        self.assertIn(
+            f'from overlay:rust-engine, {src["root"]}:{src["path"]} {src["select"]} {src["digest"]}\n',
+            out,
+        )
+
+    def test_playbook_part_refuses_an_unknown_unit_role_or_part_with_one_line(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.run_sh('classify', str(self.store), str(b), timeout=60)
+        for args, message in (
+            (('009', 'sidekick', 'error-model'), 'unit 009 has no stored composition'),
+            (('001', 'cook', 'error-model'), 'unknown role cook'),
+            (('001', 'sidekick', 'nope'), 'sidekick has no part nope in unit 001'),
+        ):
+            with self.subTest(args=args):
+                out = self.run_sh(
+                    'playbook-part', str(self.store), *args, code=2, timeout=60
+                )
+                self.assertIn(message, out)
+                self.assertEqual(len(out.strip().split('\n')), 1)
+
     def test_a_brief_without_a_composition_dispatches_byte_identical(self):
         b = self.brief('001', 'util', ['src/util.py'], playbook='none')
         self.run_sh('classify', str(self.store), str(b), timeout=60)

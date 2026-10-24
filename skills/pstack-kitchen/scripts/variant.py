@@ -92,6 +92,9 @@ consult, advice. These differ or are new:
                                             start the consultant for an escalated unit (roster kind by default)
   classify <store> <brief-path>             map the brief's may-write Scope to profiles and a risk class and
                                             stamp risk:, profiles:, verify: into its header
+  playbook-part <store> <NNN> <role> <part-id>
+                                            print one stored part of the unit's playbook composition and where
+                                            it came from (a Pending read in the brief's Playbook section)
   discuss <store> <plan-path>               a routine plan goes to the sidekick; risk: escalated to both
   dispatch <store> <brief-path> [...] [--max MIN] [--send-only]
                                             classify, then the pair's dispatch; escalated units need an agreed
@@ -280,6 +283,7 @@ KitchenVariant.commands = {
     'revise': KitchenCommand('landing', 'revise'),
     'verify': KitchenCommand('verify', 'verify'),
     'classify': KitchenCommand('classify', 'classify'),
+    'playbook-part': KitchenCommand('playbook_delivery', 'playbook_part'),
     'queue': KitchenCommand('dispatch', 'queue'),
     'discuss': KitchenCommand('dispatch', 'discuss'),
     'init': KitchenCommand('setup', 'init'),

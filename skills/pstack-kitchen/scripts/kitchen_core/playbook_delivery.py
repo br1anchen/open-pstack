@@ -5,6 +5,7 @@ import os
 import re
 from pathlib import Path
 
+from pstack_core.errors import Die
 from pstack_core.store import read_text, write_text
 
 from . import kpy
@@ -82,3 +83,35 @@ def deliver(store, brief):
         pb.estimate_tokens(section),
         len(pending),
     )
+
+
+def provenance(part):
+    src = part['source']
+    origins = ', '.join(dict.fromkeys(x['by'] for x in part.get('from') or []))
+    return (
+        f'from {origins}, {src["root"]}:{src["path"]} {src["select"]} {src["digest"]}'
+    )
+
+
+def playbook_part(ctx, args):
+    """kitchen.sh playbook-part <store> <NNN> <role> <part-id>: the stored effective text of one part and where it came from."""
+    if len(args) != 4:
+        raise Die('usage: kitchen.sh playbook-part <store> <NNN> <role> <part-id>')
+    store, unit, role, part_id = args
+    composition = read_composition(store, unit)
+    if composition is None:
+        raise Die(f'playbook-part: unit {unit} has no stored composition', 2)
+    if role not in ROLES:
+        raise Die(f'playbook-part: unknown role {role} ({", ".join(ROLES)})', 2)
+    parts = composition['roles'].get(role) or []
+    part = next((p for p in parts if p['id'] == part_id), None)
+    if part is None:
+        have = ', '.join(p['id'] for p in parts) or 'none'
+        raise Die(
+            f'playbook-part: {role} has no part {part_id} in unit {unit} (parts: {have})',
+            2,
+        )
+    print(part['text'].rstrip('\n'))
+    print()
+    print(provenance(part))
+    return 0
