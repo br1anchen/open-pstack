@@ -163,7 +163,10 @@ Read a digest for direction only, in this order:
    work the sidekick started since the dispatch (a harness Monitor, a background
    shell) even when Herdr says the agent is done; on Linux a wait does not end
    on such a settle, and a dev server left running keeps it open until the
-   interval digest shows it. Elsewhere that signal is absent.
+   interval digest shows it. Where there is no /proc (macOS) the check reads
+   the process tree below the agent herdr names in the pane; a process detached
+   into its own session is missed. `PAIR_PROC_TREE` overrides the choice: `1`
+   always reads the tree, `0` never does.
 
 Steer when the answer to "if the sidekick finishes as it is going, would my
 review say revise?" is yes and one sentence now saves a unit later. Do not
