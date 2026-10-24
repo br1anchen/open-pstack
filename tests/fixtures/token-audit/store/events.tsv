@@ -1,0 +1,4 @@
+2026-10-24T17:32:13Z	1792863133	master	init	-	pstack-kitchen
+2026-10-24T17:32:56Z	1792863176	sidekick	spawn	-	claude:ready
+2026-10-24T17:46:40Z	1792864000	master	send-brief	001-sample	
+2026-10-24T18:20:00Z	1792866000	sidekick	report	001-sample	

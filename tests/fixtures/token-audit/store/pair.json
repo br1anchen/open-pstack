@@ -1,0 +1,25 @@
+{
+  "slug": "fixture-1",
+  "store": "/state/pstack/kitchen/runs/fixture-1",
+  "cwd": "/work/repo",
+  "git_root": "/work/repo",
+  "master": {
+    "name": "fixture-1-master"
+  },
+  "sidekick": {
+    "name": "fixture-1-sidekick",
+    "kind": "claude"
+  },
+  "consultant": {
+    "name": "fixture-1-consultant",
+    "kind": "codex"
+  },
+  "verifier": {
+    "kind": "claude"
+  },
+  "verifying": {
+    "unit": "001-sample",
+    "scratch": "001-sample-verify",
+    "session": "/home/user/.claude/projects/-work-repo--git-pstack-scratch-runs-fixture-1-001-sample-verify/cccccccc-0000-4000-8000-000000000003.jsonl"
+  }
+}

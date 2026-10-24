@@ -1,0 +1,2 @@
+{"type": "user", "sessionId": "eeeeeeee-0000-4000-8000-000000000005", "cwd": "/work/repo", "timestamp": "2026-10-24T17:55:07.000Z", "message": {"role": "user", "content": "fix the typo in the readme"}}
+{"type": "assistant", "sessionId": "eeeeeeee-0000-4000-8000-000000000005", "cwd": "/work/repo", "timestamp": "2026-10-24T17:55:14.000Z", "message": {"id": "msg_a1", "role": "assistant", "usage": {"input_tokens": 1, "cache_creation_input_tokens": 1, "cache_read_input_tokens": 1, "output_tokens": 1}, "content": [{"type": "text", "text": "ok"}]}}

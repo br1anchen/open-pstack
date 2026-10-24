@@ -36,6 +36,7 @@ SUITES = [
     'test_pstack_kitchen',
     'test_pstack_pair',
     'test_pstack_sync',
+    'test_pstack_token_audit',
     'test_pstack_upstream',
     'test_spec_gen',
     'test_run',
