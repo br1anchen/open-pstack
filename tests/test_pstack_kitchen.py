@@ -10318,6 +10318,7 @@ esac
 
     @staticmethod
     def without_send_state(text):
+        """Drop the `sidekick state at send:` line the core consult stamps at every send, so a before/after comparison shows only what the kitchen added."""
         return re.sub(r'^sidekick state at send:.*\n', '', text, flags=re.M)
 
     def test_a_consult_on_a_brief_with_a_composition_gets_the_consultants_parts(self):
