@@ -358,3 +358,111 @@ def resolve_source(roots: dict[str, Path], root: str, path: str) -> Path:
     if not full.is_file():
         raise PlaybookError(f'source {root}:{path} is not a file')
     return full
+
+
+OWNERS = ('master', 'sidekick', 'consultant', 'verifier', 'kitchen')
+AGENT_ROLES = ('master', 'sidekick', 'consultant', 'verifier')
+
+
+def load_doc(roots: dict[str, Path], source: object) -> Doc:
+    if not isinstance(source, dict):
+        raise PlaybookError('source must be { root = ..., path = ... }')
+    path = resolve_source(roots, str(source.get('root')), str(source.get('path')))
+    return parse(path.read_text())
+
+
+def part_problems(name: str, doc: Doc, part: dict) -> list[str]:
+    pid = part.get('id') or '(no id)'
+    where = f'{name}: part {pid}'
+    out = []
+    owners = part.get('owners')
+    if not isinstance(owners, list) or not owners:
+        out.append(f'{where}: owners must be a non-empty list')
+        owners = []
+    out += [f'{where}: unknown owner {o!r}' for o in owners if o not in OWNERS]
+    kitchen = part.get('kitchen', {})
+    for role, text in kitchen.items():
+        if role not in AGENT_ROLES:
+            out.append(f'{where}: kitchen text for {role!r}, which is not a role')
+        elif role not in owners:
+            out.append(f'{where}: kitchen text for {role}, which is not an owner')
+        if not str(text).strip():
+            out.append(f'{where}: empty kitchen text for {role}')
+    try:
+        found = select(doc, str(part.get('select')))
+    except PlaybookError as e:
+        return out + [f'{where}: {e}']
+    expected = part.get('reviewed')
+    current = digest(text_of(doc, found))
+    if expected != current:
+        out.append(
+            f'{where}: digest mismatch ({part["select"]}): reviewed {expected}, current {current}'
+        )
+    return out
+
+
+def lines_of(ranges: list[tuple[int, int]]) -> set[int]:
+    return {i for s, e in ranges for i in range(s, e)}
+
+
+def playbook_problems(name: str, doc: Doc, entry: dict) -> list[str]:
+    out: list[str] = []
+    parts = entry.get('part', [])
+    excludes = entry.get('exclude', [])
+    claims: list[tuple[str, set[int]]] = []
+    seen: set[str] = set()
+    for part in parts:
+        out += part_problems(name, doc, part)
+    for label, item in [(f'part {p.get("id")}', p) for p in parts] + [
+        (f'exclude {e.get("select")}', e) for e in excludes
+    ]:
+        selector = str(item.get('select'))
+        if canonical(selector) in seen:
+            out.append(f'{name}: duplicate selector {selector}')
+        seen.add(canonical(selector))
+        if label.startswith('exclude') and not str(item.get('reason', '')).strip():
+            out.append(f'{name}: {label} has no reason')
+        try:
+            claims.append((label, lines_of(select(doc, selector))))
+        except PlaybookError as e:
+            if label.startswith('exclude'):
+                out.append(f'{name}: {label}: {e}')
+    for k, (a, mine) in enumerate(claims):
+        for b, theirs in claims[k + 1 :]:
+            if mine & theirs:
+                out.append(f'{name}: overlapping selections: {a} and {b}')
+    covered = set().union(*(lines for _, lines in claims)) if claims else set()
+    for atom in doc.atoms:
+        if lines_of([(atom.start, atom.end)]) <= covered:
+            continue
+        if atom.kind:
+            out.append(
+                f'{name}: unsupported shape at line {atom.start + 1}: {atom.kind}'
+            )
+        else:
+            out.append(
+                f'{name}: {atom.selector} (line {atom.start + 1}) is neither selected nor excluded'
+            )
+    return out
+
+
+def validate_map(data: dict, roots: dict[str, Path] | None = None) -> list[str]:
+    """Every problem in a playbook-roles map; an empty list means it is sound."""
+    roots = roots or default_roots()
+    out: list[str] = []
+    ids: set[str] = set()
+    for name, entry in sorted(data.get('playbook', {}).items()):
+        try:
+            doc = load_doc(roots, entry.get('source'))
+        except PlaybookError as e:
+            out.append(f'{name}: {e}')
+            continue
+        for part in entry.get('part', []):
+            pid = part.get('id')
+            if not pid:
+                out.append(f'{name}: a part has no id')
+            elif pid in ids:
+                out.append(f'{name}: duplicate part id {pid}')
+            ids.add(str(pid))
+        out += playbook_problems(name, doc, entry)
+    return out

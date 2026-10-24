@@ -189,5 +189,159 @@ class SourceTests(unittest.TestCase):
         )
 
 
+SOURCE = """### Small
+
+**You own it. Do it well.** Go.
+
+1. First.
+2. Second.
+
+A tail paragraph.
+
+**Reply:** what happened.
+"""
+
+
+class MapTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.roots = {'skills': Path(tmp.name)}
+        (self.roots['skills'] / 'small.md').write_text(SOURCE)
+        self.doc = playbooks.parse(SOURCE)
+
+    def part(self, pid, selector, **extra):
+        reviewed = playbooks.digest(pick(self.doc, selector))
+        return {
+            'id': pid,
+            'select': selector,
+            'owners': ['sidekick'],
+            'reviewed': reviewed,
+            **extra,
+        }
+
+    def sound_parts(self, without=()):
+        selectors = {
+            'small.intro': 'intro:1',
+            'small.step-1': 'step:1',
+            'small.step-2': 'step:2',
+            'small.tail': 'tail:1',
+            'small.reply': 'reply',
+        }
+        return [
+            self.part(pid, selector)
+            for pid, selector in selectors.items()
+            if pid not in without
+        ]
+
+    def problems(self, parts=None, **entry):
+        entry = {
+            'source': {'root': 'skills', 'path': 'small.md'},
+            'part': self.sound_parts() if parts is None else parts,
+            **entry,
+        }
+        return playbooks.validate_map({'playbook': {'small': entry}}, self.roots)
+
+    def test_a_map_that_covers_its_source_has_no_problems(self):
+        self.assertEqual(self.problems(), [])
+
+    def test_an_unknown_owner_is_a_problem(self):
+        parts = self.sound_parts()
+        parts[0]['owners'] = ['sidekick', 'chef']
+        self.assertEqual(
+            self.problems(parts), ["small: part small.intro: unknown owner 'chef'"]
+        )
+
+    def test_kitchen_text_needs_an_agent_role_that_owns_the_part(self):
+        parts = self.sound_parts()
+        parts[0]['kitchen'] = {'verifier': 'x', 'kitchen': 'y'}
+        self.assertEqual(
+            self.problems(parts),
+            [
+                'small: part small.intro: kitchen text for verifier, which is not an owner',
+                "small: part small.intro: kitchen text for 'kitchen', which is not a role",
+            ],
+        )
+
+    def test_an_unknown_source_root_or_a_missing_file_is_a_problem(self):
+        for source, text in (
+            ({'root': 'host', 'path': 'small.md'}, "unknown source root 'host'"),
+            ({'root': 'skills', 'path': 'gone.md'}, 'is not a file'),
+            ({'root': 'skills', 'path': '../small.md'}, 'must be relative'),
+        ):
+            problems = self.problems(source=source)
+            self.assertEqual(len(problems), 1, source)
+            self.assertIn(text, problems[0])
+
+    def test_a_repeated_part_id_is_a_problem(self):
+        parts = self.sound_parts()
+        parts[1]['id'] = 'small.intro'
+        self.assertEqual(self.problems(parts), ['small: duplicate part id small.intro'])
+
+    def test_a_selector_used_twice_is_a_problem(self):
+        parts = self.sound_parts() + [self.part('small.again', 'step:01')]
+        problems = self.problems(parts)
+        self.assertIn('small: duplicate selector step:01', problems)
+
+    def test_overlapping_selections_are_a_problem(self):
+        parts = self.sound_parts() + [self.part('small.all', 'heading:Small')]
+        problems = self.problems(parts)
+        self.assertTrue(
+            any(
+                p.startswith('small: overlapping selections: part small.intro')
+                for p in problems
+            )
+        )
+
+    def test_a_block_neither_selected_nor_excluded_is_a_problem(self):
+        parts = self.sound_parts(without=['small.tail'])
+        self.assertEqual(
+            self.problems(parts),
+            ['small: tail:1 (line 8) is neither selected nor excluded'],
+        )
+
+    def test_an_exclusion_with_a_reason_covers_a_block(self):
+        parts = self.sound_parts(without=['small.tail'])
+        self.assertEqual(
+            self.problems(parts, exclude=[{'select': 'tail:1', 'reason': 'prose'}]), []
+        )
+
+    def test_an_exclusion_needs_a_reason(self):
+        parts = self.sound_parts(without=['small.tail'])
+        self.assertEqual(
+            self.problems(parts, exclude=[{'select': 'tail:1'}]),
+            ['small: exclude tail:1 has no reason'],
+        )
+
+    def test_a_shape_no_selector_addresses_is_a_problem(self):
+        source = SOURCE.replace(
+            'A tail paragraph.', 'A tail paragraph.\n\n1. Again.\n2. Another.'
+        )
+        (self.roots['skills'] / 'small.md').write_text(source)
+        self.doc = playbooks.parse(source)
+        self.assertEqual(
+            self.problems(self.sound_parts()),
+            ['small: unsupported shape at line 10: second list'],
+        )
+
+    def test_a_changed_word_in_the_source_is_a_digest_mismatch(self):
+        (self.roots['skills'] / 'small.md').write_text(
+            SOURCE.replace('Second', 'Third')
+        )
+        problems = self.problems()
+        self.assertEqual(len(problems), 1)
+        self.assertRegex(
+            problems[0],
+            r'small: part small.step-2: digest mismatch \(step:2\): reviewed \w{12}, current \w{12}',
+        )
+
+    def test_a_selector_that_matches_nothing_is_a_problem(self):
+        parts = self.sound_parts()
+        parts[0]['select'] = 'step:7'
+        self.assertIn(
+            'small: part small.intro: step:7: no such part', self.problems(parts)
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
