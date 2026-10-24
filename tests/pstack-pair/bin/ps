@@ -1,0 +1,4 @@
+#!/bin/sh
+# The process table a test sets: $FAKE/ps holds the lines ps would print for
+# `-A -o pid=,ppid=,etime=,comm=`. A test never reads the host's processes.
+cat "$FAKE/ps" 2>/dev/null

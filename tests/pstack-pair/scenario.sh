@@ -12,7 +12,7 @@ trio) skill=pstack-trio prefix=pstack-trio ;;
 esac
 # Resolved, as the scripts see it (macOS keeps temp dirs under the /var link).
 T="$(cd "$(mktemp -d)" && pwd -P)"
-export PAIR_SETTLE_HOLD=1 PAIR_SUBMIT_CHECK_S=0 PAIR_BUSY_POLL=0.2 PAIR_SETTLE_POLL_S=0.05 PAIR_FILE_POLL_MS=50 PAIR_STOP_POLL_S=0.05 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_SOCKET_PATH="$T/herdr.sock" HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
+export PAIR_PROC_TREE=0 PAIR_SETTLE_HOLD=1 PAIR_SUBMIT_CHECK_S=0 PAIR_BUSY_POLL=0.2 PAIR_SETTLE_POLL_S=0.05 PAIR_FILE_POLL_MS=50 PAIR_STOP_POLL_S=0.05 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_SOCKET_PATH="$T/herdr.sock" HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
 unset CLAUDE_CODE_SESSION_ID
 unset PSTACK_KITCHEN_ROLE PSTACK_KITCHEN_RUN
 mkdir -p "$FAKE" "$T/repo" "$T/home"

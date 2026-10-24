@@ -214,32 +214,41 @@ class CoreTests(unittest.TestCase):
                 else real(root, *args)
             )
 
-        path = str(self.path / 'scratch-wt')
-        with (
-            mock.patch.dict(os.environ, env),
-            mock.patch.object(pgit, 'out', elsewhere),
-            self.assertRaises(ScratchNotMade) as caught,
+        real_ok = pgit.ok
+
+        def reset_fails(root, *args, **kw):
+            return False if args[:1] == ('reset',) else real_ok(root, *args, **kw)
+
+        for patched, fake, message in (
+            ('out', elsewhere, 'scratch {path} is not a git work tree'),
+            ('ok', reset_fails, 'git reset in {path} failed'),
         ):
-            scratch.add_jj_scratch(str(repo), '001-x', path, '')
-        self.assertEqual(caught.exception.code, 2)
-        self.assertIn(f'scratch {path} is not a git work tree', str(caught.exception))
-        self.assertFalse(os.path.exists(path))
-        listed = subprocess.run(
-            ['git', 'worktree', 'list'],
-            cwd=repo,
-            env=env,
-            capture_output=True,
-            text=True,
-        ).stdout
-        self.assertEqual(len(listed.splitlines()), 1)
-        jj_list = subprocess.run(
-            ['jj', 'workspace', 'list'],
-            cwd=repo,
-            env=env,
-            capture_output=True,
-            text=True,
-        ).stdout
-        self.assertNotIn('scratch-001-x', jj_list)
+            path = str(self.path / 'scratch-wt')
+            with (
+                mock.patch.dict(os.environ, env),
+                mock.patch.object(pgit, patched, fake),
+                self.assertRaises(ScratchNotMade) as caught,
+            ):
+                scratch.add_jj_scratch(str(repo), '001-x', path, '')
+            self.assertEqual(caught.exception.code, 2)
+            self.assertIn(message.format(path=path), str(caught.exception))
+            self.assertFalse(os.path.exists(path))
+            listed = subprocess.run(
+                ['git', 'worktree', 'list'],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertEqual(len(listed.splitlines()), 1)
+            jj_list = subprocess.run(
+                ['jj', 'workspace', 'list'],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertNotIn('scratch-001-x', jj_list)
 
     def test_every_test_process_of_run_py_finds_the_failing_jq_first(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1442,6 +1451,79 @@ class CoreTests(unittest.TestCase):
         )
         self.assertEqual(checkin.busy_command('p1', 0, 700, env), 'bash for 8m')
         self.assertEqual(checkin.busy_command('p3', 0, 2200, env), '')
+
+    def process_tree_fixture(self, rows, **env):
+        """The fake herdr and ps with a pane p1 whose agent is pid 100 and these ps rows (pid, ppid, etime, comm); the environment for the test."""
+        fake = self.path / 'fake'
+        (fake / 'panes').mkdir(parents=True)
+        (fake / 'panes/p1').write_text('')
+        (fake / 'process-info').write_text(
+            '{"result":{"process_info":{"foreground_processes":[{"pid":100}]}}}\n'
+        )
+        (fake / 'ps').write_text(''.join('%6d %6d %s %s\n' % row for row in rows))
+        patcher = mock.patch.dict(
+            os.environ, {'FAKE': str(fake), 'PATH': self.env['PATH'], **env}
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_without_proc_background_work_is_read_from_the_agents_process_tree(self):
+        from pstack_core import checkin
+
+        me, parent = os.getpid(), os.getppid()
+        self.process_tree_fixture(
+            [
+                (100, 1, '45:00', '/usr/bin/claude'),
+                (101, 100, '25:00', '-bash'),
+                (102, 101, '05:00', '/usr/bin/pytest'),
+                (103, 100, '1-02:00:00', 'old'),
+                (104, 1, '29:50', 'stray'),
+                (105, 100, '29:10', 'caffeinate'),
+                (me, 101, '28:20', 'check'),
+                (parent, 100, '26:40', 'parent-shell'),
+                (me + 100000, me, '29:00', 'ps-child'),
+            ],
+            PAIR_PROC_TREE='1',
+        )
+        self.assertEqual(checkin.busy_command('p1', 8200, 10000), 'pytest for 5m')
+        self.assertEqual(checkin.busy_command('p1', 100000, 200000), 'old for 1560m')
+        self.assertEqual(
+            checkin.busy_command('p1', 8200, 10000, {'PAIR_PROC_TREE': '1'}),
+            'pytest for 5m',
+        )
+
+    def test_a_shell_alone_is_named_from_the_process_tree_only_when_no_command_runs(
+        self,
+    ):
+        from pstack_core import checkin
+
+        self.process_tree_fixture(
+            [(100, 1, '45:00', 'claude'), (101, 100, '25:00', 'zsh')],
+            PAIR_PROC_TREE='1',
+        )
+        self.assertEqual(checkin.busy_command('p1', 8200, 10000), 'zsh for 25m')
+        self.assertEqual(
+            checkin.busy_command('p1', 8200, 10000, {'PAIR_PROC_TREE': '1'}),
+            'zsh for 25m',
+        )
+        self.assertEqual(checkin.busy_command('p1', 9000, 10000), '')
+
+    def test_the_process_tree_is_used_without_proc_and_never_when_the_knob_is_zero(
+        self,
+    ):
+        from pstack_core import checkin
+
+        rows = [(100, 1, '45:00', 'claude'), (101, 100, '05:00', 'pytest')]
+        self.process_tree_fixture(rows, PAIR_PROC_ROOT=str(self.path / 'no-such-proc'))
+        self.assertEqual(checkin.busy_command('p1', 8200, 10000), 'pytest for 5m')
+        zero = {'PAIR_PROC_TREE': '0'}
+        self.assertEqual(checkin.busy_command('p1', 8200, 10000, zero), '')
+        (self.path / 'empty-proc').mkdir()
+        with mock.patch.dict(
+            os.environ, {'PAIR_PROC_ROOT': str(self.path / 'empty-proc')}
+        ):
+            self.assertEqual(checkin.busy_command('p1', 8200, 10000), '')
+        self.assertEqual(checkin.busy_command('', 8200, 10000), '')
 
     def test_an_agent_is_busy_when_herdr_says_working_or_its_pane_runs_a_command_it_started_since_the_dispatch(
         self,

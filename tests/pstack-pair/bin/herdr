@@ -172,6 +172,8 @@ case "$1 $2" in
 "pane get") [ -f "$FAKE/panes/$3" ] || exit 1; printf '{"result":{}}\n' ;;
 "pane process-info")
 	[ -f "$FAKE/panes/$4" ] || exit 1
+	# $FAKE/process-info, when present, is the whole reply.
+	[ ! -e "$FAKE/process-info" ] || { cat "$FAKE/process-info"; exit 0; }
 	pgid=100; [ ! -e "$FAKE/prime-client-stays" ] || pgid=200
 	printf '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":%s}}}\n' "$pgid" ;;
 "pane close")

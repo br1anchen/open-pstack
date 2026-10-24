@@ -1,4 +1,5 @@
 import os
+import subprocess
 from dataclasses import dataclass
 
 
@@ -98,3 +99,60 @@ def environ(pid, root):
         return _text(f'{root}/{pid}/environ').replace('\0', '\n').split('\n')
     except OSError:
         return None
+
+
+def etime_seconds(text):
+    """Seconds in a ps elapsed time, [[dd-]hh:]mm:ss, or None when it is not one."""
+    days, _, clock = text.rpartition('-')
+    try:
+        seconds = 0
+        for part in clock.split(':'):
+            seconds = seconds * 60 + int(part)
+        return int(days or 0) * 86400 + seconds
+    except ValueError:
+        return None
+
+
+def from_ps():
+    """Every process `ps` lists, for a host without /proc: ps shows no environments, so the uid and argv stay empty, and comm is the
+    program's base name. A line ps spells in no known way is left out."""
+    try:
+        listed = subprocess.run(
+            ['ps', '-A', '-o', 'pid=,ppid=,etime=,comm='],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        ).stdout
+    except OSError:
+        return []
+    found = []
+    for line in listed.splitlines():
+        fields = line.split(None, 3)
+        if len(fields) < 4 or not (fields[0] + fields[1]).isdigit():
+            continue
+        elapsed = etime_seconds(fields[2])
+        if elapsed is not None:
+            comm = fields[3].rsplit('/', 1)[-1]
+            found.append(Proc(int(fields[0]), int(fields[1]), -1, comm, (), elapsed))
+    return found
+
+
+def descendants(procs, roots, skip):
+    """The pids that descend from one of `roots` without passing through `skip` or its own descendants: the roots themselves and the pids
+    in `skip` are left out."""
+    children = {}
+    for proc in procs:
+        children.setdefault(proc.ppid, []).append(proc.pid)
+
+    def below(pids):
+        found = set()
+        todo = list(pids)
+        while todo:
+            for kid in children.get(todo.pop(), []):
+                if kid not in found:
+                    found.add(kid)
+                    todo.append(kid)
+        return found
+
+    return below(roots) - below(skip) - set(skip) - set(roots)

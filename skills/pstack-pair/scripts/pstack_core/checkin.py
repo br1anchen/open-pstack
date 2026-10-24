@@ -8,7 +8,7 @@ import re
 import time
 from dataclasses import dataclass
 
-from . import git, procinfo
+from . import git, panes, procinfo
 from .numbers import int_or_none, tdiv
 from .replies import dispatched, file_mtime
 from .review import noted_through, open_notes, range_floor
@@ -95,27 +95,58 @@ def iso_epoch(stamp):
     return None if epoch == -1 else epoch
 
 
-def busy_command(pane, since, now, env=None):
-    """The longest-running process carrying the pane's HERDR_PANE_ID that started since the dispatch, preferring a
-    command over the shell that runs it, as "<command> for Nm"; or ''. Linux only."""
-    env = os.environ if env is None else env
-    root = procinfo.proc_root()
-    if not pane or not os.path.isdir(root):
-        return ''
+def proc_candidates(pane, root, env):
+    """(command, seconds running) of each process of this user carrying the pane's HERDR_PANE_ID, and the herdr socket when the caller
+    has one: the pane's work as /proc shows it."""
     sock = env.get('HERDR_SOCKET_PATH', '')
-    best, best_et, shell, shell_et = '', -1, '', -1
+    found = []
     for proc in procinfo.of_user(os.getuid(), root):
-        et, comm = proc.elapsed, proc.comm
-        if not now - et > since:
-            continue
         lines = procinfo.environ(proc.pid, root)
-        if lines is None:
-            continue
-        if f'HERDR_PANE_ID={pane}' not in lines:
+        if lines is None or f'HERDR_PANE_ID={pane}' not in lines:
             continue
         if sock and f'HERDR_SOCKET_PATH={sock}' not in lines:
             continue
-        if comm in SHELLS:
+        found.append((proc.comm, proc.elapsed))
+    return found
+
+
+def tree_candidates(pane):
+    """(command, seconds running) of each process below the agents herdr names in the pane's foreground, caffeinate (which Claude
+    restarts every few minutes) and the check itself left out: the pane's work on a host whose ps shows no environments. A process
+    detached into its own session is reparented and missed."""
+    code, info = panes.herdr('pane', 'process-info', '--pane', pane)
+    listed = panes.dig(
+        panes.parse(info), 'result', 'process_info', 'foreground_processes'
+    )
+    if code != 0 or not isinstance(listed, list):
+        return []
+    roots = {p.get('pid') for p in listed if isinstance(p, dict)}
+    procs = procinfo.from_ps()
+    skip = {os.getpid(), os.getppid()}
+    mine = procinfo.descendants(procs, roots, skip)
+    return [
+        (p.comm, p.elapsed) for p in procs if p.pid in mine and p.comm != 'caffeinate'
+    ]
+
+
+def busy_command(pane, since, now, env=None):
+    """The longest-running process of the pane that started since the dispatch, preferring a command over the shell that runs it, as
+    "<command> for Nm"; or ''. The pane's processes are read from /proc, or, where there is none (macOS) or PAIR_PROC_TREE=1 says so,
+    from the agent's process tree; PAIR_PROC_TREE=0 never reads the tree."""
+    env = os.environ if env is None else env
+    root = procinfo.proc_root()
+    knob = env.get('PAIR_PROC_TREE', '')
+    if not pane:
+        return ''
+    if knob == '1' or not os.path.isdir(root):
+        found = tree_candidates(pane) if knob != '0' else []
+    else:
+        found = proc_candidates(pane, root, env)
+    best, best_et, shell, shell_et = '', -1, '', -1
+    for comm, et in found:
+        if not now - et > since:
+            continue
+        if comm.lstrip('-') in SHELLS:
             if et > shell_et:
                 shell_et, shell = et, comm
         elif et > best_et:

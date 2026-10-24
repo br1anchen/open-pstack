@@ -113,6 +113,12 @@ def copy_live_changes(cwd, path):
             shutil.copy2(f'{cwd}/{f}', f'{path}/{f}')
 
 
+def refuse_scratch(cwd, ident, path):
+    """Takes back a jj scratch that was made but is not usable: forgets its workspace and drops its worktree."""
+    run_quiet('jj', '-R', cwd, 'workspace', 'forget', f'scratch-{ident}')
+    drop_worktree(cwd, path)
+
+
 def add_jj_scratch(cwd, ident, path, at):
     """A jj workspace that is also a linked git worktree at the same commit. A jj workspace alone has no .git, and git finds only the
     git directory under .git/, so every git, flake and gate command there fails. The worktree is added first with no checkout, its .git
@@ -147,15 +153,12 @@ def add_jj_scratch(cwd, ident, path, at):
         with open(ignore, 'w') as f:
             f.write('/*\n')
     top = git.out(path, 'rev-parse', '--show-toplevel')
-    failure = None
     if not git.ok(path, 'reset', '-q'):
-        failure = f'git reset in {path} failed'
-    elif top is None or os.path.realpath(top) != os.path.realpath(path):
-        failure = f'scratch {path} is not a git work tree'
-    if failure:
-        run_quiet('jj', '-R', cwd, 'workspace', 'forget', f'scratch-{ident}')
-        drop_worktree(cwd, path)
-        raise ScratchNotMade(failure)
+        refuse_scratch(cwd, ident, path)
+        raise ScratchNotMade(f'git reset in {path} failed')
+    if top is None or os.path.realpath(top) != os.path.realpath(path):
+        refuse_scratch(cwd, ident, path)
+        raise ScratchNotMade(f'scratch {path} is not a git work tree')
 
 
 def make_scratch(ctx, store, ident, *, at=''):
