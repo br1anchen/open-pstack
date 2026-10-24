@@ -85,19 +85,22 @@ def alive(pid):
     return True
 
 
+def claim_gone(token):
+    """Whether the process a claim token names is gone on this host. A token from another host is never gone, whatever its pid."""
+    host, _, rest = token.partition(':')
+    if host != hostname():
+        return False
+    return not alive(rest.partition(':')[0])
+
+
 def claim_close(store, verdict):
     """Claims the close of the verification with verdict: one atomic update of pair.json that succeeds for the first caller only. The claim names
     this host and process; a claim whose process is gone on this host is taken over, one from another host is never touched, a live one is
     respected. False when the verification is gone or another call holds the claim."""
-    here = hostname()
-    token = f'{here}:{os.getpid()}:{random.randrange(32768)}'
+    token = f'{hostname()}:{os.getpid()}:{random.randrange(32768)}'
     current = read(store, 'verifying.closing.token')
-    if current:
-        host = current.partition(':')[0]
-        rest = current.partition(':')[2] if ':' in current else current
-        pid = rest.partition(':')[0]
-        if not (host == here and not alive(pid)):
-            return False
+    if current and not claim_gone(current):
+        return False
 
     def apply(verifying):
         if (alt_token(verifying.get('closing')) or '') == current:

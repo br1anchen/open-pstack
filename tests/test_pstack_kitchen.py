@@ -7108,6 +7108,52 @@ esac
         self.assertNotIn('status: clean', out)
         self.assertEqual(self.state()['verifying']['verdict'], first['verdict'])
 
+    def swap_closing(self, closing):
+        """Replaces the open verification's close claim (removes it for None) in one rename, so a waiting call never reads a half-written store."""
+        state = self.state()
+        if closing is None:
+            del state['verifying']['closing']
+        else:
+            state['verifying']['closing'] = closing
+        swap = self.store / 'pair.json.swap'
+        swap.write_text(json.dumps(state))
+        os.replace(swap, self.store / 'pair.json')
+
+    def lose_a_close_to_a_call_that_ends(self, end):
+        """A losing `verify --wait` with a very long close wait, whose winner's claim is changed by `end` once the loser is waiting. Returns the
+        verdict it lost and its output, after checking that it exited 5 without the long wait's message and left the verification open."""
+        first = self.open_slow_verification()
+        self.written_verdict(first, 'clean')
+        self.env['KITCHEN_VERIFY_CLOSE_WAIT_S'] = '100000'
+        rc, out, _ = self.lose_a_wait(end)
+        self.assertEqual(rc, 5, out)
+        self.assertNotIn('held the close', out)
+        self.assertEqual(self.state()['verifying']['verdict'], first['verdict'])
+        return first['verdict'], out
+
+    def test_a_verify_wait_that_loses_a_close_to_a_dead_process_stops_waiting(self):
+        def die():
+            gone = subprocess.Popen(['true'])
+            gone.wait()
+            self.swap_closing({'token': f'claimhost:{gone.pid}:dead'})
+
+        verdict, out = self.lose_a_close_to_a_call_that_ends(die)
+        self.assertIn(
+            f'the call closing {verdict} ended without closing it; kitchen.sh verify {self.store} --wait',
+            out,
+        )
+
+    def test_a_verify_wait_that_loses_a_close_whose_claim_is_released_stops_waiting(
+        self,
+    ):
+        verdict, out = self.lose_a_close_to_a_call_that_ends(
+            lambda: self.swap_closing(None)
+        )
+        self.assertIn(
+            f'the call closing {verdict} ended without closing it; kitchen.sh verify {self.store} --wait',
+            out,
+        )
+
     def test_verify_that_finds_its_unread_verdict_closed_by_another_call_waits_once_and_prints_its_own_line(
         self,
     ):

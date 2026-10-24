@@ -303,7 +303,7 @@ class Waiter:
         return WaiterOutcome(rc, self.status)
 
     def await_close(self, v):
-        """Waits while `.verifying` still names the attempt this wait took, for KITCHEN_VERIFY_CLOSE_WAIT_S (120 by default) at most."""
+        """Waits while `.verifying` still names the attempt this wait took, for KITCHEN_VERIFY_CLOSE_WAIT_S (120 by default) at most. A closing call that is gone (its claim released, or held by a dead process on this host) ends the wait at once."""
         store = self.store
         since = None
         while read(store, 'verifying.verdict') == v.verdict:
@@ -313,6 +313,13 @@ class Waiter:
                     f'closing {v.verdict}: another call is closing it; waiting for it\n'
                 )
                 sys.stdout.flush()
+            token = read(store, 'verifying.closing.token')
+            # Read the verdict after the token: a close that finished between the two reads leaves no token and no verification.
+            gone = not token or vs.claim_gone(token)
+            if gone and read(store, 'verifying.verdict') == v.verdict:
+                raise CloseHeld(
+                    f'the call closing {v.verdict} ended without closing it; kitchen.sh verify {store} --wait'
+                )
             limit = env_int('KITCHEN_VERIFY_CLOSE_WAIT_S', 120)
             if not now_s() - since < limit:
                 raise CloseHeld(
