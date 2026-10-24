@@ -52,11 +52,46 @@ class SelectorTests(unittest.TestCase):
         )
         self.assertTrue(pick(doc, 'intro:1').startswith('Invoked at the end'))
 
-    def test_a_lead_keeps_its_list_and_the_paragraph_that_follows_it(self):
-        descriptions = pick(load('opening-a-pr.md'), 'lead:Descriptions')
+    def test_a_lead_keeps_its_list_but_not_the_paragraphs_after_it(self):
+        doc = load('opening-a-pr.md')
+        descriptions = pick(doc, 'lead:Descriptions')
         self.assertIn('- `## Why`', descriptions)
-        self.assertIn('- `## Verification`', descriptions)
-        self.assertTrue(descriptions.endswith('go in a linked artifact, not the body.'))
+        self.assertTrue(descriptions.rstrip().endswith('metric tables.'))
+        self.assertTrue(
+            pick(doc, 'after:Descriptions/1').startswith('After the sections')
+        )
+        babysit = pick(doc, 'lead:Babysit')
+        self.assertNotIn('A subagent that opens a PR', babysit)
+        self.assertTrue(
+            pick(doc, 'after:Babysit/1').startswith('A subagent that opens a PR')
+        )
+
+    def test_a_fence_after_a_lead_is_its_own_part(self):
+        doc = playbooks.parse('### T\n\n**Lead.** Text.\n\n```\ncode\n```\n\nMore.\n')
+        self.assertEqual(pick(doc, 'lead:Lead'), '**Lead.** Text.')
+        self.assertEqual(pick(doc, 'after:Lead/1'), '```\ncode\n```')
+        self.assertEqual(pick(doc, 'after:Lead/2'), 'More.')
+
+    def test_a_reply_under_a_heading_is_its_own_part(self):
+        doc = load('reply-in-section.md')
+        self.assertEqual(pick(doc, 'reply'), '**Reply:** the closing reply.')
+        section = pick(doc, 'section:Last')
+        self.assertIn('Closing text.', section)
+        self.assertNotIn('Reply', section)
+
+    def test_a_block_after_a_reply_inside_a_section_is_unsupported(self):
+        doc = playbooks.parse('### T\n\n#### S\n\n**Reply:** r.\n\nStray.\n')
+        self.assertEqual(
+            [(a.selector, a.kind) for a in doc.atoms if a.kind],
+            [('block after the reply', 'after reply')],
+        )
+
+    def test_blocks_before_the_title_are_preamble_parts(self):
+        doc = load('pstack-tdd.md')
+        self.assertTrue(
+            pick(doc, 'preamble:1').startswith('Read [the runtime adapter]')
+        )
+        self.assertTrue(pick(doc, 'intro:1').startswith('When fixing a bug'))
 
     def test_a_single_sentence_bold_opening_is_an_intro_not_a_lead(self):
         names = {a.selector for a in load('bug-fix.md').atoms}
@@ -178,6 +213,20 @@ class SourceTests(unittest.TestCase):
             self.resolve('doc.md', root='host')
         with self.assertRaisesRegex(playbooks.PlaybookError, 'not a file'):
             self.resolve('nope.md')
+
+    def test_the_skills_root_admits_a_skill_directory_that_is_a_link(self):
+        installed = self.base / 'installed'
+        (installed).mkdir()
+        store = self.base / 'store/skill'
+        store.mkdir(parents=True)
+        (store / 'doc.md').write_text('# Doc\n')
+        (installed / 'skill').symlink_to(store)
+        roots = {'skills': installed, 'repo': installed}
+        self.assertEqual(
+            playbooks.resolve_source(roots, 'skills', 'skill/doc.md'), store / 'doc.md'
+        )
+        with self.assertRaises(playbooks.PlaybookError):
+            playbooks.resolve_source(roots, 'repo', 'skill/doc.md')
 
     def test_the_skills_root_is_the_directory_holding_this_skill(self):
         skills = playbooks.default_roots()['skills']

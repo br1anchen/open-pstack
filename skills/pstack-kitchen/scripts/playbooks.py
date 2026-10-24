@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """Parse a pstack playbook's Markdown into addressable parts.
 
-A document is a title (frontmatter, any preamble and the first heading line),
-then blocks. The blocks before the first step, lead-in or section are the
-intro; a numbered list at the top level gives the steps; a paragraph that
-opens with a bold one-to-four word lead-in such as `**Worktree.**` starts a
-lead, which keeps the blocks that follow it up to the next lead; blocks after
-the steps are the tail; `**Reply:**` starts the reply; a heading starts a
-section that runs to the next heading of the same or a higher level.
+A document is a title (frontmatter and the first heading line), then blocks.
+Blocks before the title are `preamble:N`. After it, the blocks before the first
+step, lead-in or section are the intro; a numbered list at the top level gives
+the steps; a paragraph that opens with a bold one-to-four word lead-in such as
+`**Worktree.**` starts a lead, which keeps only the lists directly after it;
+blocks after the steps are the tail; any other block after a lead is
+`after:<Lead>/N`; `**Reply:**` starts the reply, wherever it sits; a heading
+starts a section that runs to the next heading of the same or a higher level.
 
-Selectors address the parts: `intro:N`, `lead:<Word>`, `step:N`,
-`step:<Section>/N`, `section:<Heading>`, `tail:N`, `reply` and
-`heading:<path>` (a hierarchical heading path). Numbers inside a step's own
+Selectors address the parts: `preamble:N`, `intro:N`, `lead:<Word>`, `step:N`,
+`step:<Section>/N`, `section:<Heading>`, `tail:N`, `after:<Lead>/N`, `reply`
+and `heading:<path>` (a hierarchical heading path). Numbers inside a step's own
 nested lists and fences are part of that step, not steps of their own.
 
 Stdlib only, and independent of kitchen_core.
 """
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -28,7 +30,8 @@ FENCE = re.compile(r'(`{3,}|~{3,})')
 LEAD = re.compile(r'\*\*([^*]+?)\.\*\*')
 REPLY = re.compile(r'\*\*Reply:\*\*')
 LEAD_WORDS = 4
-KINDS = ('intro', 'lead', 'step', 'section', 'tail', 'reply')
+KINDS = ('preamble', 'intro', 'lead', 'step', 'section', 'tail', 'after', 'reply')
+LISTS = ('numbered', 'bullets')
 
 
 class PlaybookError(Exception):
@@ -208,37 +211,65 @@ def heading_tree(lines: list[str], blocks: list[Block]) -> list[Heading]:
     return out
 
 
+def is_reply(lines: list[str], b: Block) -> bool:
+    return b.kind == 'paragraph' and bool(REPLY.match(lines[b.start]))
+
+
 def section_atoms(
     lines: list[str], blocks: list[Block], at: int, end: int
 ) -> tuple[list[Atom], list[tuple[str, int, int]]]:
     """The atoms of the section whose heading block is `blocks[at]`: one per
     step when it holds nothing but a numbered list (then the whole section is
-    also addressable, as an alias), else the section whole."""
+    also addressable, as an alias), else the section whole. A reply line in
+    the section is its own atom, and must close the section."""
     head = blocks[at]
     inner = [b for b in blocks[at + 1 :] if b.start < end]
     end = trimmed(lines, head.start, end)
+    out: list[Atom] = []
+    cut = next((k for k, b in enumerate(inner) if is_reply(lines, b)), None)
+    if cut is not None:
+        reply, after = inner[cut], inner[cut + 1 :]
+        reply_end = reply.end
+        while after and after[0].kind in LISTS:
+            reply_end, after = after[0].end, after[1:]
+        out.append(Atom('reply', reply.start, reply_end))
+        if after:
+            out.append(
+                Atom('block after the reply', after[0].start, end, 'after reply')
+            )
+        inner, end = inner[:cut], trimmed(lines, head.start, reply.start)
     if len(inner) == 1 and inner[0].kind == 'numbered':
         steps = [
             Atom(f'step:{head.text}/{k}', s, e)
             for k, (s, e) in enumerate(inner[0].items, 1)
         ]
-        return steps, [(f'section:{head.text}', head.start, end)]
-    return [Atom(f'section:{head.text}', head.start, end)], []
+        return steps + out, [(f'section:{head.text}', head.start, end)]
+    return [Atom(f'section:{head.text}', head.start, end)] + out, []
 
 
 def build_atoms(
     lines: list[str], blocks: list[Block]
 ) -> tuple[list[Atom], list[tuple[str, int, int]], int]:
+    """The atoms of a document. Blocks before the title heading are
+    `preamble:N`; after it, `intro`, `step`, `tail`, leads and the reply. A
+    lead keeps only the lists that directly follow it; any other block after a
+    lead or the reply is `after:<Word>/N` (`Reply` for the reply)."""
     atoms: list[Atom] = []
     aliases: list[tuple[str, int, int]] = []
     first = next((k for k, b in enumerate(blocks) if b.kind == 'heading'), None)
-    title_end = blocks[first].end if first is not None else frontmatter_end(lines)
-    k = first + 1 if first is not None else 0
-    steps_seen, intro, tail = False, 0, 0
-    current: int | None = None  # the lead or reply that absorbs the next blocks
+    if first is None:
+        title_end, k = frontmatter_end(lines), 0
+    else:
+        title_end, k = blocks[first].end, first + 1
+        pre = [b for b in blocks[:first] if b.start >= frontmatter_end(lines)]
+        atoms.extend(
+            Atom(f'preamble:{n}', b.start, b.end) for n, b in enumerate(pre, 1)
+        )
+    steps_seen, intro, tail, after = False, 0, 0, 0
+    anchor: str | None = None  # the lead or reply the next blocks follow
+    absorb = False  # a list right after the anchor belongs to it
     while k < len(blocks):
         b = blocks[k]
-        first_line = lines[b.start]
         if b.kind == 'heading':
             end = len(lines)
             for later in blocks[k + 1 :]:
@@ -250,24 +281,25 @@ def build_atoms(
             aliases.extend(alias)
             while k + 1 < len(blocks) and blocks[k + 1].start < end:
                 k += 1
-            current = None
-        elif b.kind == 'numbered' and current is None:
-            if steps_seen:
-                atoms.append(Atom('numbered list', b.start, b.end, 'second list'))
-            else:
-                steps_seen = True
-                atoms.extend(
-                    Atom(f'step:{n}', s, e) for n, (s, e) in enumerate(b.items, 1)
-                )
-        elif b.kind == 'paragraph' and REPLY.match(first_line):
+            anchor, absorb = None, False
+        elif absorb and b.kind in LISTS:
+            old = atoms[-1]
+            atoms[-1] = Atom(old.selector, old.start, b.end)
+        elif is_reply(lines, b):
             atoms.append(Atom('reply', b.start, b.end))
-            current = len(atoms) - 1
-        elif b.kind == 'paragraph' and (name := lead_name(first_line)):
+            anchor, absorb, after = 'Reply', True, 0
+        elif b.kind == 'paragraph' and (name := lead_name(lines[b.start])):
             atoms.append(Atom(f'lead:{name}', b.start, b.end))
-            current = len(atoms) - 1
-        elif current is not None:
-            old = atoms[current]
-            atoms[current] = Atom(old.selector, old.start, b.end)
+            anchor, absorb, after = name, True, 0
+        elif b.kind == 'numbered' and anchor is None and not steps_seen:
+            steps_seen = True
+            atoms.extend(Atom(f'step:{n}', s, e) for n, (s, e) in enumerate(b.items, 1))
+        elif b.kind == 'numbered' and anchor is None:
+            atoms.append(Atom('numbered list', b.start, b.end, 'second list'))
+        elif anchor is not None:
+            after += 1
+            absorb = False
+            atoms.append(Atom(f'after:{anchor}/{after}', b.start, b.end))
         elif steps_seen:
             tail += 1
             atoms.append(Atom(f'tail:{tail}', b.start, b.end))
@@ -295,10 +327,10 @@ def canonical(selector: str) -> str:
     """`step:03` is `step:3`; anything else is taken as written."""
     kind, _, arg = selector.partition(':')
     head, slash, number = arg.rpartition('/')
-    if kind in ('intro', 'tail', 'step') and not slash and arg.isdigit():
+    if kind in ('preamble', 'intro', 'tail', 'step') and not slash and arg.isdigit():
         return f'{kind}:{int(arg)}'
-    if kind == 'step' and slash and number.isdigit():
-        return f'step:{head}/{int(number)}'
+    if kind in ('step', 'after') and slash and number.isdigit():
+        return f'{kind}:{head}/{int(number)}'
     return selector
 
 
@@ -341,19 +373,25 @@ def digest(text: str) -> str:
 
 def default_roots() -> dict[str, Path]:
     """`skills` is the directory holding this skill, in the checkout or in an
-    installed copy."""
-    return {'skills': Path(__file__).resolve().parents[2]}
+    installed copy; the link to this skill's own directory is not followed."""
+    return {'skills': Path(os.path.abspath(__file__)).parents[2]}
 
 
 def resolve_source(roots: dict[str, Path], root: str, path: str) -> Path:
+    """A source file under a named root. Symlinks are resolved and must stay in
+    the root; the `skills` root also admits the target of a skill directory's
+    own link, which is how an installed copy is laid out."""
     if root not in roots:
         raise PlaybookError(f'unknown source root {root!r}')
     pure = PurePosixPath(path)
     if not path or pure.is_absolute() or '\\' in path or '..' in pure.parts:
         raise PlaybookError(f'source path {path!r} must be relative inside {root}')
-    base = roots[root].resolve()
+    base = roots[root]
+    inside = [base.resolve()]
+    if root == 'skills':
+        inside.append((base / pure.parts[0]).resolve())
     full = (base / path).resolve()
-    if not full.is_relative_to(base):
+    if not any(full.is_relative_to(i) for i in inside):
         raise PlaybookError(f'source path {path!r} leaves the {root} root')
     if not full.is_file():
         raise PlaybookError(f'source {root}:{path} is not a file')
