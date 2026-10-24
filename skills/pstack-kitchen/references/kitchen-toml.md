@@ -143,7 +143,7 @@ as written, and the verifier receives the `kitchen` text in its place.
 | `.select` | required: which section of the source, by exactly one match. `heading:A/B` matches the heading whose path of headings ends in `A/B` (`heading:Errors` alone matches any heading with that title). The other kinds are `preamble:N`, `intro:N`, `lead:<Word>`, `step:N` or `step:<Section>/N`, `section:<Heading>`, `tail:N`, `after:<Lead>/N` and `reply` (no argument; every other kind needs one). A selector that matches nothing or several is an error |
 | `.owners` | required, non-empty, from `master`, `sidekick`, `consultant`, `verifier` and `kitchen`. The roles that receive the part; `compose` delivers to the four agent roles only |
 | `.reviewed` | required in practice: the first 12 hex characters of the sha256 of the selected text, normalised (trailing spaces cut, blank runs folded to one, ends trimmed). A missing or stale value is a digest mismatch, and the message prints the current value to copy; `kitchen.py playbooks index` lists the recorded values |
-| `.kitchen` | optional table keyed by agent role (`master`, `sidekick`, `consultant` or `verifier`), each key also an owner and each text not empty. For a role named there, the text replaces the selected source text in what that role receives; every other owner receives the source text |
+| `.kitchen` | optional table keyed by agent role (`master`, `sidekick`, `consultant` or `verifier`), each key also an owner and each text not empty. For a role named there, the text replaces the selected source text in what that role receives; every other agent-role owner receives the source text (an owner `kitchen` receives nothing) |
 
 Any other key in an overlay or a part is an error.
 
@@ -157,10 +157,10 @@ names. Two optional header lines follow `playbook:` in the brief:
 Naming an unknown id, naming the same id in `with:` and `without:`, or naming
 with `with:` an overlay whose TOML cannot be read, whose `applies` is not a
 list of strings, or whose `combines` leaves out the brief's workflow is an
-error, and `classify` refuses the brief. An overlay selected by path is left
-out and reported, not an error, in two cases only: its TOML cannot be read or
-its `applies` is not a list of strings (reported `unusable`), or its `combines`
-leaves out the brief's workflow (reported `inapplicable`). Any other problem in
+error, and `classify` refuses the brief. Without `with:`, such an overlay is
+left out and reported `unusable` on every brief, matched by path or not. An
+overlay selected by path whose `combines` leaves out the brief's workflow is
+left out and reported `inapplicable`, not an error. Any other problem in
 a selected overlay (a stale `reviewed`, a bad selector, kind or owner, an
 unknown key, an unreadable source) makes `classify` refuse the brief, however
 the overlay was selected. Part ids share one namespace with the workflow's own
