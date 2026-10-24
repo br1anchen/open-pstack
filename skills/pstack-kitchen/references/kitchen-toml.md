@@ -97,6 +97,71 @@ silently doing nothing.
 | `[scratch].setup` | `[]` | commands that prepare a bare worktree, run in order by `kitchen.py setup` (first in every verifier packet when set, and once by `kitchen.sh init` as the sidekick when the run's checkout is a linked worktree), inside `[run].wrap`, from the repo root, as the verifier. They run inside the wrap, so do not repeat it: with `wrap = "nix develop --impure --command"` the line is `bun install --frozen-lockfile`. `doctor` warns when a root lockfile suggests the repo needs one |
 | `[run].wrap` | `""` | a prefix the gates run inside, such as `nix develop --impure --command`, entered once per gate |
 
+## Playbook overlays
+
+An overlay adds a repo's own standards to the playbook a brief names. It is a
+`<id>.toml` file in `.agents/playbooks/` for a repo kitchen, or in
+`<kitchen-file-stem>.playbooks/` beside the host kitchen file for a host
+kitchen, so each host kitchen has overlays of its own. A `<id>.md` beside it is
+narrative and is never read. The example is `rust-engine` from
+`tests/fixtures/playbooks/repo/.agents/playbooks/`:
+
+```toml
+schema = 1
+id = "rust-engine"
+title = "Rust engine"
+kind = "language"
+applies = ["engine/**"]
+tags = ["rust"]
+combines = ["bug-fix", "feature", "refactoring"]
+
+[[part]]
+id = "error-model"
+source = { root = "repo", path = "CODING_STANDARDS.md" }
+select = "heading:Rust (Engine)/Errors"
+owners = ["sidekick", "verifier"]
+reviewed = "6b7c36b4f3ca"
+kitchen = { verifier = "Check error paths against this; it is the evidence standard, not new Acceptance." }
+```
+
+| Key | Meaning |
+| --- | --- |
+| `schema` | required, `1` |
+| `id` | required, equal to the file name without `.toml` |
+| `title` | required, not empty |
+| `kind` | required: `domain`, `language`, `area` or `workflow` |
+| `applies` | globs; the overlay is selected when one matches a file in the brief's Scope. Default `[]` (selected only by `with:`) |
+| `tags` | strings, for the index. Default `[]` |
+| `combines` | workflow ids the overlay may combine with; each must be a workflow the map defines. Default `[]`, which means every workflow |
+| `[[part]]` | the texts it contributes, in order |
+| `.id` | required, not empty, unique in the overlay |
+| `.source` | required: `{ root, path }` with `root` one of `repo`, `skills` or `host` (`host` is the overlay directory of a host kitchen) |
+| `.select` | which section of the source, by exactly one match: `heading:A/B` (a heading path, ending at the last words), or `<kind>:<arg>` with kind `preamble`, `intro`, `lead`, `step`, `section`, `tail` or `after` (for example `step:3`), or `reply` with no argument. A selector that matches nothing or several is an error |
+| `.owners` | required, non-empty: the roles that receive the part |
+| `.reviewed` | the digest of the selected text; a source that changed since makes `validate` report a digest mismatch |
+| `.kitchen` | optional table of one extra text per role, each of them an owner |
+
+Any other key in an overlay or a part is an error.
+
+A brief gets the overlays whose `applies` matches its Scope, plus those it
+names. Two optional header lines follow `playbook:` in the brief:
+
+- `with: <id>, <id>` adds the named overlays whatever their `applies`.
+- `without: <id> — <reason>` removes that overlay alone; `--` also separates the
+  reason, and a missing reason is an error.
+
+Naming an unknown id, naming the same id in `with:` and `without:`, or naming
+with `with:` an overlay that cannot be read or whose `combines` leaves out the
+brief's workflow is an error, and `classify` refuses the brief. An overlay
+selected by path that cannot be read or does not combine with the workflow is
+left out and reported, not an error. `classify` resolves the selection once
+and stamps it in `<store>/compositions/<NNN>.json`.
+
+`kitchen.py validate` and `doctor` report every structural problem of every
+overlay (schema, id, kind, lists, unknown keys, owners, combines, sources,
+selectors and digests), and `kitchen.py playbooks index` lists the overlays
+with their parts, owners, sources and digests.
+
 ## Lanes
 
 Every command the kitchen runs for a role sees two variables: `PSTACK_KITCHEN_ROLE`

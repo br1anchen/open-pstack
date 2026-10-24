@@ -1,6 +1,6 @@
 # Brief {{SEQ}}: {{SLUG}}
 
-playbook: {{one of: investigation | bug-fix | feature | refactoring | prototype | runtime-forensics | trace-forensics | perf-issue | pstack-tdd | session-pickup | pause-safely | opening-a-pr | shipping}}
+playbook: {{one of: investigation | bug-fix | feature | refactoring | prototype | runtime-forensics | trace-forensics | perf-issue | pstack-tdd | session-pickup | pause-safely | opening-a-pr | shipping; optional `with: <id>, <id>` and `without: <id> — <reason>` header lines may follow, see kitchen-toml.md}}
 timebox: {{minutes}}
 commit: {{yes, one commit per step, each recorded with kitchen.sh step | no, and why}}
 plan: {{path of the agreed plan under {{STORE}}/plans/; required when risk is escalated, else none}}

@@ -32,6 +32,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    reason you wrote after the class (`risk: escalated (contract change)`) while
    the class is unchanged and rewrites the line only when the class changes.
    `risk: escalated: contract change` reads as `escalated` too.
+   Classify also resolves the brief's playbook and overlays once and stamps them
+   in `<store>/compositions/<NNN>.json`.
    A failed step's `gate-fail` event names the log of that run
    (`steps/jobs/<unit>-<sha>/out.<n>`); each run keeps its own.
    A `warn: Scope covers ...` line means the Scope reaches a generated file's
