@@ -3448,7 +3448,7 @@ esac
             if r.split('\t')[2:4] == ['master', 'wake']
         ]
 
-    def run_sh(self, *args, code=0, timeout=None):
+    def run_sh(self, *args, code=0, timeout=120):
         before = self.wake_rows()
         result = subprocess.run(
             [str(self.script), *args],
@@ -3525,7 +3525,7 @@ esac
         path.write_text(text)
         return path
 
-    def dispatch(self, brief, code=4, timeout=None):
+    def dispatch(self, brief, code=4, timeout=120):
         return self.run_sh(
             'dispatch',
             str(self.store),

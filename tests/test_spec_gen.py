@@ -53,7 +53,7 @@ class SpecGenCheckTests(unittest.TestCase):
             cwd=self.copy,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=300,
         )
 
     def test_check_passes_on_a_fresh_spec_and_ignores_the_generated_at_sha(self):

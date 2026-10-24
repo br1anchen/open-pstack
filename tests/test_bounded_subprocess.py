@@ -13,6 +13,15 @@ WAITS = {'communicate', 'wait'}
 MARK = '# bounded:'
 
 
+def aliased_import(node):
+    """An import that would hide subprocess calls from this check."""
+    if isinstance(node, ast.ImportFrom):
+        return node.module == 'subprocess'
+    if isinstance(node, ast.Import):
+        return any(a.name == 'subprocess' and a.asname for a in node.names)
+    return False
+
+
 def subprocess_function(call):
     """The name of the `subprocess` function a call invokes, or None."""
     func = call.func
@@ -25,8 +34,38 @@ def subprocess_function(call):
     return None
 
 
-def has_timeout(call):
-    return any(keyword.arg == 'timeout' for keyword in call.keywords)
+def none_defaults(function):
+    """The parameters of a function that default to None."""
+    args = function.args
+    positional = [*args.posonlyargs, *args.args]
+    pairs = list(
+        zip(
+            positional[len(positional) - len(args.defaults) :],
+            args.defaults,
+            strict=True,
+        )
+    )
+    pairs += [
+        (arg, d) for arg, d in zip(args.kwonlyargs, args.kw_defaults, strict=True) if d
+    ]
+    return {
+        arg.arg
+        for arg, default in pairs
+        if isinstance(default, ast.Constant) and default.value is None
+    }
+
+
+def has_timeout(call, scope):
+    """Whether the call names a timeout that is not None, nor a parameter of its function that defaults to None."""
+    unset = none_defaults(scope) if hasattr(scope, 'args') else set()
+    for keyword in call.keywords:
+        if keyword.arg != 'timeout':
+            continue
+        value = keyword.value
+        if isinstance(value, ast.Constant) and value.value is None:
+            return False
+        return not (isinstance(value, ast.Name) and value.id in unset)
+    return False
 
 
 def marked_lines(source):
@@ -74,7 +113,7 @@ def waits_with_timeout(scope, name, after):
             and node.func.attr in WAITS
             and isinstance(node.func.value, ast.Name)
             and node.func.value.id == name
-            and has_timeout(node)
+            and has_timeout(node, scope)
             and node.lineno >= after
         ):
             return True
@@ -88,12 +127,19 @@ def unbounded_calls(source):
     scopes = enclosing_scopes(tree)
     found = []
     for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and aliased_import(node):
+            found.append((node.lineno, 'subprocess imported under another name'))
         if not isinstance(node, ast.Call):
             continue
         function = subprocess_function(node)
         if function in RUNNERS:
-            if not has_timeout(node):
-                found.append((node.lineno, f'subprocess.{function} without timeout='))
+            if not has_timeout(node, scopes[node]):
+                found.append(
+                    (
+                        node.lineno,
+                        f'subprocess.{function} without a timeout that is set',
+                    )
+                )
         elif function == 'Popen':
             span = range(node.lineno, (node.end_lineno or node.lineno) + 1)
             if any(line in marks for line in span):
@@ -117,7 +163,25 @@ class BoundedSubprocessTests(unittest.TestCase):
     def test_a_run_without_a_timeout_is_reported_with_its_line(self):
         self.assertEqual(
             self.fixture('bare_run.py'),
-            [(5, 'subprocess.run without timeout=')],
+            [(5, 'subprocess.run without a timeout that is set')],
+        )
+
+    def test_a_run_with_a_literal_none_timeout_is_reported(self):
+        self.assertEqual(
+            [line for line, _ in self.fixture('run_with_none_timeout.py')], [5]
+        )
+
+    def test_a_run_whose_timeout_is_a_parameter_defaulting_to_none_is_reported(self):
+        self.assertEqual(
+            [line for line, _ in self.fixture('run_with_none_default.py')], [5]
+        )
+
+    def test_a_run_whose_timeout_parameter_defaults_to_a_number_is_bounded(self):
+        self.assertEqual(self.fixture('run_with_number_default.py'), [])
+
+    def test_an_import_that_renames_subprocess_is_reported(self):
+        self.assertEqual(
+            [line for line, _ in self.fixture('aliased_import.py')], [1, 2]
         )
 
     def test_a_run_with_a_timeout_is_bounded(self):

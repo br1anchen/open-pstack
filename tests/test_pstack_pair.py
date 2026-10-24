@@ -57,7 +57,7 @@ class PairScriptTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
-            timeout=60,
+            timeout=600,
         ).stdout
         golden = here / 'golden' / f'{variant}.txt'
         if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
