@@ -1,0 +1,922 @@
+schema = 1
+
+[playbook.bug-fix]
+source = { root = "skills", path = "poteto-mode/playbooks/bug-fix.md" }
+
+[[playbook.bug-fix.part]]
+id = "bug-fix.intro-1"
+select = "intro:1"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "244bab33ef86"
+
+[playbook.bug-fix.part.kitchen]
+master = "You own the plan and the review. Hand the investigation and the fix to the sidekick through the brief, and stay in the lead: plan, review, verify."
+sidekick = "You own the investigation and the fix inside the brief's Scope. The master plans and reviews, and the verifier proves. You may delegate to a subagent on your roster model, within your role's limits."
+verifier = "You own the proof, not the fix. Prove the brief's Acceptance on the real surface at the unit's head. You may delegate to a subagent on your roster model, within your role's limits, for independent reads and probes only."
+
+[[playbook.bug-fix.part]]
+id = "bug-fix.intro-2"
+select = "intro:2"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "6a4d6e5f2d16"
+
+[[playbook.bug-fix.part]]
+id = "bug-fix.step-1"
+select = "step:1"
+owners = ["sidekick", "verifier"]
+reviewed = "537cb8336044"
+
+[playbook.bug-fix.part.kitchen]
+sidekick = "Reproduce it yourself on the matching surface via the repo's verification skill, even when a debug or instrumentation protocol says to ask the user to reproduce. If the control surface cannot reach the target, say why, specifically, in the report under Questions with status blocked, after driving it as far as it goes; the master asks the human. If it won't reproduce directly, synthesize the trigger, tighten conditions, or instrument until it fires."
+verifier = "Reproduce the original failure yourself on the matching surface at the unit's parent, then show it gone at the unit's head. A surface you cannot drive is reported inconclusive in the verdict with the specific reason; you never ask the human."
+
+[[playbook.bug-fix.part]]
+id = "bug-fix.step-2"
+select = "step:2"
+owners = ["sidekick"]
+reviewed = "a4a2ec7e7d6c"
+
+[playbook.bug-fix.part.kitchen]
+sidekick = "Binary-search the cause. Form the candidate hypotheses, then rule them out until one survives. Seed them with `how` over the affected subsystem and the **why** skill for regression history. Each pass, take the split that cuts the most remaining problem space, get runtime evidence, eliminate. When program state is unclear, add instrumentation or logging and read it as the code runs. Don't guess. Keep a long or stubborn hunt going inside your session and record each change of approach with a progress line. Confirm the surviving *mechanism* with runtime evidence before the step-3 architect fan-out."
+
+[[playbook.bug-fix.part]]
+id = "bug-fix.step-3"
+select = "step:3"
+owners = ["sidekick", "verifier"]
+reviewed = "254702d1f198"
+
+[playbook.bug-fix.part.kitchen]
+sidekick = "Plan the fix. If it crosses a function boundary, `architect` first. You implement the fix inside the brief's Scope with a specific scope in mind; you may delegate to a subagent on your roster model, within your role's limits, for disjoint scoped edits that you integrate serially."
+verifier = "The fix is the sidekick's. Check the diff against the mechanism the evidence supports; a change the evidence does not justify is a finding."
+
+[[playbook.bug-fix.part]]
+id = "bug-fix.step-4"
+select = "step:4"
+owners = ["sidekick", "verifier"]
+reviewed = "2bda1ead9cea"
+
+[[playbook.bug-fix.part]]
+id = "bug-fix.step-5"
+select = "step:5"
+owners = ["sidekick", "verifier"]
+reviewed = "842691b3d4d5"
+
+[[playbook.bug-fix.part]]
+id = "bug-fix.step-6"
+select = "step:6"
+owners = ["master", "sidekick"]
+reviewed = "500c69edcf1b"
+
+[playbook.bug-fix.part.kitchen]
+master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+sidekick = "Open a PR only when the brief says so; otherwise the last commit recorded with kitchen.sh step is the deliverable."
+
+[[playbook.bug-fix.part]]
+id = "bug-fix.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "2b41ae474b55"
+
+[playbook.bug-fix.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: what was broken, the root cause, the fix, and how you verified it. Paste the failing-then-passing repro output verbatim. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the failing-then-passing repro output, verbatim. A verdict line cites the command output that shows it."
+
+[playbook.feature]
+source = { root = "skills", path = "poteto-mode/playbooks/feature.md" }
+
+[[playbook.feature.part]]
+id = "feature.intro-1"
+select = "intro:1"
+owners = ["master", "sidekick"]
+reviewed = "a3d8b8ddc1d9"
+
+[playbook.feature.part.kitchen]
+master = "You own the design. Plan, review, verify. The sidekick implements under your brief. Stay in the lead."
+sidekick = "You own the implementation inside the brief's Scope; the master owns the design and the review. You may delegate to a subagent on your roster model, within your role's limits."
+
+[[playbook.feature.part]]
+id = "feature.step-1"
+select = "step:1"
+owners = ["master", "sidekick"]
+reviewed = "8918f20d52fc"
+
+[[playbook.feature.part]]
+id = "feature.step-2"
+select = "step:2"
+owners = ["master", "sidekick"]
+reviewed = "af77b1a3517b"
+
+[[playbook.feature.part]]
+id = "feature.step-3"
+select = "step:3"
+owners = ["master", "sidekick"]
+reviewed = "353baa29538a"
+
+[[playbook.feature.part]]
+id = "feature.step-4"
+select = "step:4"
+owners = ["master", "sidekick"]
+reviewed = "0c3f4fb562ce"
+
+[playbook.feature.part.kitchen]
+master = "Hand code-writing to the sidekick through the brief, with a specific scope: file paths, the named data shape and its organizing structure per **principle-model-the-domain**, and success criteria."
+sidekick = "Implement with a specific scope: file paths, the named data shape and its organizing structure per **principle-model-the-domain** (a state machine over scattered booleans, a table or registry over branching, a typed model over repeated shape assumptions), chosen before you write logic, and the brief's success criteria. You may delegate to a subagent on your roster model, within your role's limits, for disjoint scoped edits that you integrate serially. When the implementation admits multiple valid shapes (error handling, abstraction layer, test structure), compare them with the **arena** skill. Comments per **Comments**. Surgical edits; re-ground against the source for upstream-derived files. Port shared-primitive improvements to all consumers and verify each. Commit liberally."
+
+[[playbook.feature.part]]
+id = "feature.step-5"
+select = "step:5"
+owners = ["sidekick", "verifier"]
+reviewed = "763ff5742085"
+
+[[playbook.feature.part]]
+id = "feature.step-6"
+select = "step:6"
+owners = ["sidekick"]
+reviewed = "66eb9034e61c"
+
+[[playbook.feature.part]]
+id = "feature.step-7"
+select = "step:7"
+owners = ["master", "consultant"]
+reviewed = "656671dcb730"
+
+[[playbook.feature.part]]
+id = "feature.step-8"
+select = "step:8"
+owners = ["master"]
+reviewed = "dac759481293"
+
+[playbook.feature.part.kitchen]
+master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+
+[[playbook.feature.part]]
+id = "feature.tail-1"
+select = "tail:1"
+owners = ["master"]
+reviewed = "251a83f61201"
+
+[playbook.feature.part.kitchen]
+master = "Code-coupled work (one feature, one migration) goes to the sidekick as one unit with the checkpoint inline. Parallel units are for slices that produce independent artifacts. Rewrite the checkpoint at phase boundaries, and dispatch a fresh brief rather than chaining steers."
+
+[[playbook.feature.part]]
+id = "feature.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "a4759e2087fa"
+
+[playbook.feature.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: what you built, what you chose and why, the throughput checkpoint, and open decisions. Tables for design alternatives. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the built behavior shown on the matching surface, with the output. A verdict line cites the command output that shows it."
+
+[playbook.refactoring]
+source = { root = "skills", path = "poteto-mode/playbooks/refactoring.md" }
+
+[[playbook.refactoring.part]]
+id = "refactoring.intro-1"
+select = "intro:1"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "5ef4b4794590"
+
+[[playbook.refactoring.part]]
+id = "refactoring.intro-2"
+select = "intro:2"
+owners = ["master", "sidekick"]
+reviewed = "41c853402087"
+
+[[playbook.refactoring.part]]
+id = "refactoring.step-1"
+select = "step:1"
+owners = ["sidekick", "verifier"]
+reviewed = "0bd4c790f0cb"
+
+[[playbook.refactoring.part]]
+id = "refactoring.step-2"
+select = "step:2"
+owners = ["sidekick"]
+reviewed = "3a277379ab55"
+
+[[playbook.refactoring.part]]
+id = "refactoring.step-3"
+select = "step:3"
+owners = ["sidekick", "consultant"]
+reviewed = "c7028ea3f850"
+
+[[playbook.refactoring.part]]
+id = "refactoring.step-4"
+select = "step:4"
+owners = ["sidekick"]
+reviewed = "a29054a15241"
+
+[[playbook.refactoring.part]]
+id = "refactoring.step-5"
+select = "step:5"
+owners = ["sidekick"]
+reviewed = "c3c741a1db06"
+
+[playbook.refactoring.part.kitchen]
+sidekick = "Move in small behavior-preserving steps, each keeping the pin green. For API reshapes, migrate every caller and delete the old API in the same wave (**principle-migrate-callers-then-delete-legacy-apis**). No compatibility shims, no parallel old-and-new paths. Spot-check every rename against the actual files. Renames silently miss usages in strings, prose, and back-references. You may delegate to a subagent on your roster model, within your role's limits, for the mechanical edits, with a specific scope: file paths, the names being moved, the behavior to hold."
+
+[[playbook.refactoring.part]]
+id = "refactoring.step-6"
+select = "step:6"
+owners = ["sidekick", "verifier"]
+reviewed = "ccfc5284a5dd"
+
+[[playbook.refactoring.part]]
+id = "refactoring.step-7"
+select = "step:7"
+owners = ["sidekick", "master"]
+reviewed = "2a185fb1d49a"
+
+[[playbook.refactoring.part]]
+id = "refactoring.step-8"
+select = "step:8"
+owners = ["sidekick", "master"]
+reviewed = "89b976c07ae6"
+
+[playbook.refactoring.part.kitchen]
+master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+sidekick = "Commit the structural slices as small ordered steps (a subtraction commit, then the reshape, then any follow-on cleanup), each recorded with kitchen.sh step and green before the next. Open a PR only when the brief says so."
+
+[[playbook.refactoring.part]]
+id = "refactoring.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "6d4ad0769714"
+
+[playbook.refactoring.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: the structure that changed, the pin you held it against, the equivalence proof, the reader-load delta, what shipped and what got reverted. No new behavior. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the pin and the equivalence proof run at the unit's head, with output. A verdict line cites the command output that shows it."
+
+[playbook.pstack-tdd]
+source = { root = "skills", path = "pstack-tdd/SKILL.md" }
+exclude = [{ select = "preamble:1", reason = "The runtime-adapter pointer; the roles load the adapter when they enter the kitchen." }]
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.intro-1"
+select = "intro:1"
+owners = ["sidekick", "verifier"]
+reviewed = "b031961a3ec9"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.intro-2"
+select = "intro:2"
+owners = ["sidekick"]
+reviewed = "69ff13b77895"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.workflow-1"
+select = "step:Workflow/1"
+owners = ["sidekick", "verifier"]
+reviewed = "b8774b3c4b46"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.workflow-2"
+select = "step:Workflow/2"
+owners = ["sidekick", "verifier"]
+reviewed = "6b2d0cf14fe9"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.workflow-3"
+select = "step:Workflow/3"
+owners = ["sidekick", "verifier"]
+reviewed = "cc251f226eb9"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.workflow-4"
+select = "step:Workflow/4"
+owners = ["sidekick", "verifier"]
+reviewed = "5dc3ae576544"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.workflow-5"
+select = "step:Workflow/5"
+owners = ["sidekick", "verifier"]
+reviewed = "80e2c3321d8f"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.workflow-6"
+select = "step:Workflow/6"
+owners = ["sidekick", "verifier"]
+reviewed = "f0f8804a76f2"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.impractical"
+select = "section:If a Failing Test Is Impractical"
+owners = ["sidekick", "verifier"]
+reviewed = "02237f985035"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.guardrails"
+select = "section:Guardrails"
+owners = ["sidekick", "verifier"]
+reviewed = "e9929c044d90"
+
+[[playbook.pstack-tdd.part]]
+id = "pstack-tdd.final-response"
+select = "section:Final Response"
+owners = ["sidekick", "verifier"]
+reviewed = "c57329a1c2e0"
+
+[playbook.pstack-tdd.part.kitchen]
+sidekick = "Report the evidence, not just the outcome, in the report under Ran: name the failing-before test or executable check and the failure it produced; name the passing-after test run and any nearby validation; if failing-before evidence could not be demonstrated, state why and describe the closest regression check used instead."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the failing-before check and its failure, and the passing-after run, shown with output; where failing-before evidence was impractical, the closest regression check and why. A verdict line cites the command output that shows it."
+
+[playbook.investigation]
+source = { root = "skills", path = "poteto-mode/playbooks/investigation.md" }
+
+[[playbook.investigation.part]]
+id = "investigation.intro-1"
+select = "intro:1"
+owners = ["master", "sidekick", "consultant"]
+reviewed = "c220e494d044"
+
+[[playbook.investigation.part]]
+id = "investigation.intro-2"
+select = "intro:2"
+owners = ["master", "sidekick", "consultant"]
+reviewed = "3d89f5304bf5"
+
+[[playbook.investigation.part]]
+id = "investigation.step-1"
+select = "step:1"
+owners = ["sidekick", "consultant"]
+reviewed = "5c0d2420adf9"
+
+[[playbook.investigation.part]]
+id = "investigation.step-2"
+select = "step:2"
+owners = ["sidekick", "consultant"]
+reviewed = "e2ba33981273"
+
+[[playbook.investigation.part]]
+id = "investigation.step-3"
+select = "step:3"
+owners = ["sidekick", "consultant"]
+reviewed = "9640cc349052"
+
+[[playbook.investigation.part]]
+id = "investigation.step-4"
+select = "step:4"
+owners = ["sidekick", "consultant"]
+reviewed = "5fb83e54952b"
+
+[[playbook.investigation.part]]
+id = "investigation.tail-1"
+select = "tail:1"
+owners = ["master", "sidekick", "consultant"]
+reviewed = "585938b3639c"
+
+[playbook.investigation.part.kitchen]
+master = "No PR, no babysit, no `architect` unless the investigation precedes a code change. If it does, re-route to Bug fix or Feature through a new brief."
+sidekick = "No PR, no babysit, no `architect` unless the investigation precedes a code change. If it does, say so in the report and stop; the master re-routes to Bug fix or Feature."
+consultant = "No PR, no babysit, no `architect` unless the investigation precedes a code change. If it does, say so in the advice; the master re-routes."
+
+[[playbook.investigation.part]]
+id = "investigation.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "7a2fa63e2c56"
+
+[playbook.investigation.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: the investigation output. For \"are we sure?\" answers, include your real judgment with reasons, and push back if the premise is wrong. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: every claim in the investigation cites a file, command output or document it can be checked against. A verdict line cites the command output that shows it."
+
+[playbook.perf-issue]
+source = { root = "skills", path = "poteto-mode/playbooks/perf-issue.md" }
+
+[[playbook.perf-issue.part]]
+id = "perf-issue.intro-1"
+select = "intro:1"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "787b971099a2"
+
+[[playbook.perf-issue.part]]
+id = "perf-issue.step-1"
+select = "step:1"
+owners = ["sidekick", "verifier"]
+reviewed = "0946f68c2b90"
+
+[[playbook.perf-issue.part]]
+id = "perf-issue.step-2"
+select = "step:2"
+owners = ["sidekick", "consultant"]
+reviewed = "36e1ed6f8c2d"
+
+[[playbook.perf-issue.part]]
+id = "perf-issue.step-3"
+select = "step:3"
+owners = ["sidekick", "verifier"]
+reviewed = "27c12aaea5e1"
+
+[playbook.perf-issue.part.kitchen]
+sidekick = "Plan the fix from the trace. If it crosses a function boundary, `architect` first. Implement it inside the brief's Scope; you may delegate to a subagent on your roster model, within your role's limits, for disjoint scoped edits that you integrate serially. Review the diff. Capture a post-fix trace. Apply the **sequence-verifiable-units** principle skill, verifying each attempt before trying the next."
+verifier = "The fix is the sidekick's. Capture your own post-fix trace on the same surface and compare it with the baseline; vet each number with the **benchmark-checklist** skill."
+
+[[playbook.perf-issue.part]]
+id = "perf-issue.step-4"
+select = "step:4"
+owners = ["sidekick", "verifier"]
+reviewed = "8c515783fb03"
+
+[[playbook.perf-issue.part]]
+id = "perf-issue.step-5"
+select = "step:5"
+owners = ["sidekick", "master"]
+reviewed = "0d803ba42eee"
+
+[playbook.perf-issue.part.kitchen]
+master = "Cite the measurement in the review note and in any PR the landing mode allows."
+sidekick = "Cite the measurement in the report. The PR description comes from a landing brief, when one asks for it."
+
+[[playbook.perf-issue.part]]
+id = "perf-issue.step-6"
+select = "step:6"
+owners = ["master"]
+reviewed = "500c69edcf1b"
+
+[playbook.perf-issue.part.kitchen]
+master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+
+[[playbook.perf-issue.part]]
+id = "perf-issue.tail-1"
+select = "tail:1"
+owners = ["master"]
+reviewed = "304a38717714"
+
+[[playbook.perf-issue.part]]
+id = "perf-issue.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "14384f07dcbc"
+
+[playbook.perf-issue.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: the baseline number, the post-fix number, the delta, and the artifact path. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the baseline and post-fix numbers from the same surface, with the artifact paths. A verdict line cites the command output that shows it."
+
+[playbook.prototype]
+source = { root = "skills", path = "poteto-mode/playbooks/prototype.md" }
+
+[[playbook.prototype.part]]
+id = "prototype.intro-1"
+select = "intro:1"
+owners = ["master", "consultant"]
+reviewed = "7640d5bb79fe"
+
+[[playbook.prototype.part]]
+id = "prototype.intro-2"
+select = "intro:2"
+owners = ["consultant", "sidekick"]
+reviewed = "c6fbc696f5bc"
+
+[[playbook.prototype.part]]
+id = "prototype.step-1"
+select = "step:1"
+owners = ["master", "consultant"]
+reviewed = "5eaeb556357a"
+
+[[playbook.prototype.part]]
+id = "prototype.step-2"
+select = "step:2"
+owners = ["master", "consultant"]
+reviewed = "c007869a7f1a"
+
+[playbook.prototype.part.kitchen]
+consultant = "Gather references when the design space is open. Search for prior art, summarize a moodboard of themes, palettes, and layouts, and list the candidate directions in the advice for the master to put to the human before building. Skip when the direction is set."
+
+[[playbook.prototype.part]]
+id = "prototype.step-3"
+select = "step:3"
+owners = ["consultant", "sidekick"]
+reviewed = "01ff27bd96ba"
+
+[[playbook.prototype.part]]
+id = "prototype.step-4"
+select = "step:4"
+owners = ["consultant", "sidekick"]
+reviewed = "96dbb3e4e4d5"
+
+[[playbook.prototype.part]]
+id = "prototype.step-5"
+select = "step:5"
+owners = ["consultant", "verifier"]
+reviewed = "c483c6e9d10e"
+
+[[playbook.prototype.part]]
+id = "prototype.step-6"
+select = "step:6"
+owners = ["master", "consultant"]
+reviewed = "0d5b7b605abb"
+
+[[playbook.prototype.part]]
+id = "prototype.reply"
+select = "reply"
+owners = ["sidekick", "consultant", "verifier"]
+reviewed = "11261aa4fc20"
+
+[playbook.prototype.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: the variants explored, the evidence, tradeoffs, your recommendation, and the scratch path. Say plainly that the prototype is throwaway. Every claim carries its command output or a file pointer."
+consultant = "In the advice: the variants explored, the evidence (screenshots for a visual decision, the observed output or timing for a behavioral one), tradeoffs, your recommendation, and the scratch path. Say plainly that the prototype is throwaway."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the variants and the evidence for each, observed on the matching surface. A verdict line cites the command output that shows it."
+
+[playbook.runtime-forensics]
+source = { root = "skills", path = "poteto-mode/playbooks/runtime-forensics.md" }
+
+[[playbook.runtime-forensics.part]]
+id = "runtime-forensics.intro-1"
+select = "intro:1"
+owners = ["sidekick", "consultant", "verifier"]
+reviewed = "9b195764b5a3"
+
+[[playbook.runtime-forensics.part]]
+id = "runtime-forensics.step-1"
+select = "step:1"
+owners = ["sidekick", "consultant"]
+reviewed = "2e80c5d8b760"
+
+[[playbook.runtime-forensics.part]]
+id = "runtime-forensics.step-2"
+select = "step:2"
+owners = ["sidekick", "consultant"]
+reviewed = "9da527ae7429"
+
+[playbook.runtime-forensics.part.kitchen]
+sidekick = "Reduce the artifact to the smoking gun: the function on the hot path, the retainer chain from the leaked object to a GC root, the loop firing without input. Parse large artifacts in a subagent (the **guard-the-context-window** principle skill): delegate to a subagent on your roster model, within your role's limits. Keep the reduced finding in your own context."
+consultant = "Reduce the artifact to the smoking gun: the function on the hot path, the retainer chain from the leaked object to a GC root, the loop firing without input. Parse large artifacts in a subagent (the **guard-the-context-window** principle skill): delegate to a subagent on your roster model, within your role's limits. Keep the reduced finding in your own context."
+
+[[playbook.runtime-forensics.part]]
+id = "runtime-forensics.step-3"
+select = "step:3"
+owners = ["sidekick", "consultant"]
+reviewed = "0009caff2c8e"
+
+[[playbook.runtime-forensics.part]]
+id = "runtime-forensics.step-4"
+select = "step:4"
+owners = ["sidekick", "consultant"]
+reviewed = "aa7f5377d706"
+
+[[playbook.runtime-forensics.part]]
+id = "runtime-forensics.step-5"
+select = "step:5"
+owners = ["sidekick", "consultant"]
+reviewed = "f9acb149a569"
+
+[[playbook.runtime-forensics.part]]
+id = "runtime-forensics.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "c654f3c3ba6b"
+
+[playbook.runtime-forensics.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: the signal captured, the reduced finding, how you proved the mechanism, the source location, and artifact paths. No fix unless asked; the master routes to Bug fix or Perf once the cause is known. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the captured signal and the mechanism proof, with artifact paths. A verdict line cites the command output that shows it."
+
+[playbook.trace-forensics]
+source = { root = "skills", path = "poteto-mode/playbooks/trace-forensics.md" }
+
+[[playbook.trace-forensics.part]]
+id = "trace-forensics.intro-1"
+select = "intro:1"
+owners = ["sidekick", "consultant", "verifier"]
+reviewed = "8890abbe9b8f"
+
+[[playbook.trace-forensics.part]]
+id = "trace-forensics.intro-2"
+select = "intro:2"
+owners = ["sidekick", "consultant"]
+reviewed = "42e712d9cd51"
+
+[[playbook.trace-forensics.part]]
+id = "trace-forensics.step-1"
+select = "step:1"
+owners = ["sidekick", "consultant"]
+reviewed = "707bd25b7423"
+
+[playbook.trace-forensics.part.kitchen]
+sidekick = "Identify the format and load it with the right tool. Parse large artifacts in a subagent (the **principle-guard-the-context-window** skill): delegate to a subagent on your roster model, within your role's limits. Keep the reduced finding in your own context."
+consultant = "Identify the format and load it with the right tool. Parse large artifacts in a subagent (the **principle-guard-the-context-window** skill): delegate to a subagent on your roster model, within your role's limits. Keep the reduced finding in your own context."
+
+[[playbook.trace-forensics.part]]
+id = "trace-forensics.step-2"
+select = "step:2"
+owners = ["sidekick", "consultant"]
+reviewed = "54eb46bc911f"
+
+[[playbook.trace-forensics.part]]
+id = "trace-forensics.step-3"
+select = "step:3"
+owners = ["sidekick", "consultant"]
+reviewed = "cc5a2bbf69b3"
+
+[[playbook.trace-forensics.part]]
+id = "trace-forensics.step-4"
+select = "step:4"
+owners = ["sidekick", "consultant"]
+reviewed = "0b2f6cfaa721"
+
+[[playbook.trace-forensics.part]]
+id = "trace-forensics.step-5"
+select = "step:5"
+owners = ["sidekick", "consultant"]
+reviewed = "43ab161a520a"
+
+[[playbook.trace-forensics.part]]
+id = "trace-forensics.step-6"
+select = "step:6"
+owners = ["sidekick", "consultant"]
+reviewed = "ca8bc4b43f2c"
+
+[playbook.trace-forensics.part.kitchen]
+sidekick = "Hand back a cited diagnosis in the report, no fix unless asked; the master routes to Bug fix or Perf issue once the cause is known. Throughput checkpoint stays one line: `throughput checkpoint: n/a, read-only forensics`."
+consultant = "Hand back a cited diagnosis in the advice, no fix unless asked; the master routes to Bug fix or Perf issue once the cause is known. Throughput checkpoint stays one line: `throughput checkpoint: n/a, read-only forensics`."
+
+[[playbook.trace-forensics.part]]
+id = "trace-forensics.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "b189dcb65ab4"
+
+[playbook.trace-forensics.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: the artifact and format, the reduced finding, the source location, the artifact paths, and whether a paired capture confirmed it. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the artifact, the reduced finding and its source location, with the query output that shows them. A verdict line cites the command output that shows it."
+
+[playbook.session-pickup]
+source = { root = "skills", path = "poteto-mode/playbooks/session-pickup.md" }
+
+[[playbook.session-pickup.part]]
+id = "session-pickup.intro-1"
+select = "intro:1"
+owners = ["master", "sidekick", "consultant"]
+reviewed = "1a635722d21d"
+
+[[playbook.session-pickup.part]]
+id = "session-pickup.step-1"
+select = "step:1"
+owners = ["master", "sidekick", "consultant"]
+reviewed = "ea6ad083ee35"
+
+[playbook.session-pickup.part.kitchen]
+master = "Locate the prior trail: the store's reports, steps, notes and handoff, a local transcript under the active workspace (your host names where; do not scan other workspaces' history), a cloud-agent URL, or a pushed branch. Read the metadata overview and last messages first, then scan back for the decision points. Parse a long transcript in a subagent and keep the reduced timeline in your own context: delegate to a subagent on your roster model, within your role's limits."
+sidekick = "Locate the prior trail: the dispatched brief, its report and step log in the store, a local transcript under the active workspace (your host names where; do not scan other workspaces' history), or a pushed branch. Read the metadata overview and last messages first, then scan back for the decision points. Parse a long transcript in a subagent and keep the reduced timeline in your own context: delegate to a subagent on your roster model, within your role's limits."
+consultant = "Locate the prior trail: the consult, the advice and the store files it names, a local transcript under the active workspace (your host names where; do not scan other workspaces' history). Read the metadata overview and last messages first, then scan back for the decision points. Parse a long transcript in a subagent and keep the reduced timeline in your own context: delegate to a subagent on your roster model, within your role's limits."
+
+[[playbook.session-pickup.part]]
+id = "session-pickup.step-2"
+select = "step:2"
+owners = ["master", "sidekick", "consultant"]
+reviewed = "17842bc31c29"
+
+[[playbook.session-pickup.part]]
+id = "session-pickup.step-3"
+select = "step:3"
+owners = ["master", "sidekick", "consultant"]
+reviewed = "4654c1d9002c"
+
+[[playbook.session-pickup.part]]
+id = "session-pickup.step-4"
+select = "step:4"
+owners = ["master"]
+reviewed = "73918964aa43"
+
+[[playbook.session-pickup.part]]
+id = "session-pickup.step-5"
+select = "step:5"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "6d69f4a55d03"
+
+[[playbook.session-pickup.part]]
+id = "session-pickup.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "647411aa5a52"
+
+[playbook.session-pickup.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: where the prior agent stopped, what you inherited versus redid (ideally nothing redone), the resume point, and the outcome. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the inherited claims checked against the original goal on the real artifact. A verdict line cites the command output that shows it."
+
+[playbook.pause-safely]
+source = { root = "skills", path = "poteto-mode/playbooks/pause-safely.md" }
+
+[[playbook.pause-safely.part]]
+id = "pause-safely.intro-1"
+select = "intro:1"
+owners = ["master", "sidekick"]
+reviewed = "54b188c48545"
+
+[[playbook.pause-safely.part]]
+id = "pause-safely.step-1"
+select = "step:1"
+owners = ["master", "sidekick"]
+reviewed = "35b81d94e1ba"
+
+[[playbook.pause-safely.part]]
+id = "pause-safely.step-2"
+select = "step:2"
+owners = ["master", "sidekick"]
+reviewed = "00b70b445ed5"
+
+[[playbook.pause-safely.part]]
+id = "pause-safely.step-3"
+select = "step:3"
+owners = ["master", "sidekick"]
+reviewed = "8238a53fc2e9"
+
+[playbook.pause-safely.part.kitchen]
+master = "Make the work durable. Commit uncommitted edits as one clear `wip:` commit on the current branch so nothing is lost. If the tree is broken, say so in the commit body in one line."
+sidekick = "Make the work durable. Commit what is verified, as steps recorded with kitchen.sh step, and say under Deviations what is uncommitted or unverified."
+
+[[playbook.pause-safely.part]]
+id = "pause-safely.step-4"
+select = "step:4"
+owners = ["master", "sidekick"]
+reviewed = "a358a88c58e4"
+
+[playbook.pause-safely.part.kitchen]
+master = "Write the resume note off-context: intent, what you were doing, progress and what is verified, current state, next steps, key files, and gotchas. Put it in the session handoff (kitchen.sh new-handoff). If a show-me-your-work trail exists, point at it instead of duplicating it."
+sidekick = "Write the resume note into the report, as status `partial`: where you stopped and the next step under Deviations, with intent, progress, what is verified, current state, key files and gotchas. If a show-me-your-work trail exists, point at it instead of duplicating it."
+
+[[playbook.pause-safely.part]]
+id = "pause-safely.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "ce571f2c30aa"
+
+[playbook.pause-safely.part.kitchen]
+sidekick = "A pause is not a final report. In the report: where you are in the loop, what is on disk versus still in your head (paths, no diff dumps), the commits you made and whether the tree is clean, and the first action on resume."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the stop is clean: the tree state and the last recorded step match what the report says. A verdict line cites the command output that shows it."
+
+[playbook.opening-a-pr]
+source = { root = "skills", path = "poteto-mode/playbooks/opening-a-pr.md" }
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.intro-1"
+select = "intro:1"
+owners = ["master"]
+reviewed = "6839c93953d2"
+
+[playbook.opening-a-pr.part.kitchen]
+master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.worktree"
+select = "lead:Worktree"
+owners = ["master", "sidekick"]
+reviewed = "49969656b7a9"
+
+[playbook.opening-a-pr.part.kitchen]
+master = "Work in the checkout the brief names. Do not create or switch branches or worktrees unless the brief or the standing orders say so."
+sidekick = "Work in the checkout the brief names. Do not create or switch branches or worktrees unless the brief or the standing orders say so."
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.commits"
+select = "lead:Commits"
+owners = ["master", "sidekick"]
+reviewed = "e6a46862f31c"
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.prs"
+select = "lead:PRs"
+owners = ["master"]
+reviewed = "9a4d7f564f09"
+
+[playbook.opening-a-pr.part.kitchen]
+master = "Run the **deslop** skill over the diff before commit and the **no-comments** skill before review. Write every PR title, description, and commit body with the **technical-writing** skill (every layer except Diataxis, and apply the STE vocabulary rules: one word per action, keep articles, a plain verb over `-ing` where one works), then apply the **unslop** skill."
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.titles"
+select = "lead:Titles"
+owners = ["master", "sidekick"]
+reviewed = "e4af859f2cc5"
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.descriptions"
+select = "lead:Descriptions"
+owners = ["master"]
+reviewed = "5226a83111d8"
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.descriptions-after"
+select = "after:Descriptions/1"
+owners = ["master"]
+reviewed = "f9a45d2c0152"
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.forge"
+select = "lead:Forge"
+owners = ["master"]
+reviewed = "7a494de77b46"
+
+[playbook.opening-a-pr.part.kitchen]
+master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.built-in"
+select = "lead:Built-in PR tool"
+owners = ["master"]
+reviewed = "f2b7704e7503"
+
+[playbook.opening-a-pr.part.kitchen]
+master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.stacks"
+select = "lead:Size and stacks"
+owners = ["master"]
+reviewed = "7d528790b7d1"
+
+[playbook.opening-a-pr.part.kitchen]
+master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.readiness"
+select = "lead:Readiness"
+owners = ["master"]
+reviewed = "1013f994677b"
+
+[playbook.opening-a-pr.part.kitchen]
+master = "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.babysit"
+select = "lead:Babysit"
+owners = ["master"]
+reviewed = "ad5bd02e1fe3"
+
+[playbook.opening-a-pr.part.kitchen]
+master = "Opening a PR does not start a babysit. Post the URL and keep building. Finish the phase or stack first; run a separate babysit pass only when the human asks for one after the whole stack exists."
+
+[[playbook.opening-a-pr.part]]
+id = "opening-a-pr.babysit-after"
+select = "after:Babysit/1"
+owners = ["master"]
+reviewed = "a60ae6c65955"
+
+[playbook.opening-a-pr.part.kitchen]
+master = "A sidekick that opens a PR runs the review skills the standing orders name, posts the URL in its report, and returns to the master without babysitting."
+
+[playbook.shipping]
+source = { root = "skills", path = "poteto-mode/playbooks/shipping.md" }
+
+[[playbook.shipping.part]]
+id = "shipping.intro-1"
+select = "intro:1"
+owners = ["master"]
+reviewed = "31d54f59b532"
+
+[[playbook.shipping.part]]
+id = "shipping.step-1"
+select = "step:1"
+owners = ["master", "verifier"]
+reviewed = "761770e00861"
+
+[playbook.shipping.part.kitchen]
+master = "Verify each unit independently before it lands. Resolve the forge (`gh` by default; `origin pr` when `command -v origin` succeeds and Origin resolves the repository; never require Graphite). The kitchen's fresh verifier proves each unit the way a user would, parent against head, and writes `PASS`, `PASS+NOTES` or `FAIL` as its verdict. Only a verdict from an agent that did not write the code counts. Green CI and an approving bot review are not verdicts."
+verifier = "Prove the unit the way a user would on the matching surface, parent against head, with the repo's verification skill, and write `PASS`, `PASS+NOTES` or `FAIL` as the verdict. You did not write the code, which is why your verdict counts. Green CI and an approving bot review are not verdicts."
+
+[[playbook.shipping.part]]
+id = "shipping.step-2"
+select = "step:2"
+owners = ["master"]
+reviewed = "e8f58f671300"
+
+[[playbook.shipping.part]]
+id = "shipping.step-3"
+select = "step:3"
+owners = ["master"]
+reviewed = "c07086656c83"
+
+[[playbook.shipping.part]]
+id = "shipping.step-4"
+select = "step:4"
+owners = ["master"]
+reviewed = "2c4ebbfa1974"
+
+[playbook.shipping.part.kitchen]
+master = "Landing goes as far as the kitchen's [landing].mode, and the master stops before merge: the kitchen never merges, retargets or force-pushes a stack. Read back the state of anything you opened (`origin pr view <pr>` or `gh pr view <pr>`) before you refer to it."
+
+[[playbook.shipping.part]]
+id = "shipping.step-5"
+select = "step:5"
+owners = ["master"]
+reviewed = "e56ecca73563"
+
+[playbook.shipping.part.kitchen]
+master = "Leave the stack alone once it is at the landing mode. The master does not merge, retarget, move or watch a landing queue for the human; it reports the stack's state and stops."
+
+[[playbook.shipping.part]]
+id = "shipping.step-6"
+select = "step:6"
+owners = ["master"]
+reviewed = "6e6dad15e369"
+
+[[playbook.shipping.part]]
+id = "shipping.reply"
+select = "reply"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "af588d2d5535"
+
+[playbook.shipping.part.kitchen]
+master = "The verified run and its ceiling, each unit's verdict and who produced it, how far landing went under [landing].mode, and what the next gap needs."
+sidekick = "In the report, under Ran and the sections the template names: the commits and gates behind each unit, and the head the report covers. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: the verdict for each unit, with who produced it and the evidence. A verdict line cites the command output that shows it."

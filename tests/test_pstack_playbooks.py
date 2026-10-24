@@ -1,5 +1,6 @@
 import importlib.util
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -390,6 +391,109 @@ class MapTests(unittest.TestCase):
         self.assertIn(
             'small: part small.intro: step:7: no such part', self.problems(parts)
         )
+
+
+MAP = root / 'skills/pstack-kitchen/references/playbook-roles.toml'
+DELEGATION = "delegate to a subagent on your roster model, within your role's limits"
+EXPECTED = {
+    'bug-fix',
+    'feature',
+    'refactoring',
+    'pstack-tdd',
+    'investigation',
+    'perf-issue',
+    'prototype',
+    'runtime-forensics',
+    'trace-forensics',
+    'session-pickup',
+    'pause-safely',
+    'opening-a-pr',
+    'shipping',
+}
+
+
+def shipped():
+    with MAP.open('rb') as f:
+        return tomllib.load(f)
+
+
+def parts(data):
+    return {
+        part['id']: part
+        for entry in data['playbook'].values()
+        for part in entry['part']
+    }
+
+
+class ShippedMapTests(unittest.TestCase):
+    def test_the_shipped_map_validates_against_the_real_sources(self):
+        self.assertEqual(playbooks.validate_map(shipped()), [])
+
+    def test_the_map_covers_the_thirteen_playbooks_kitchen_briefs_use(self):
+        self.assertEqual(set(shipped()['playbook']), EXPECTED)
+
+    def test_every_reply_is_owned_by_the_sidekick_and_the_verifier_with_kitchen_text(
+        self,
+    ):
+        replies = [
+            p
+            for p in parts(shipped()).values()
+            if p['select'] in ('reply', 'section:Final Response')
+        ]
+        self.assertEqual(len(replies), len(EXPECTED - {'opening-a-pr'}))
+        for part in replies:
+            self.assertTrue({'sidekick', 'verifier'} <= set(part['owners']), part['id'])
+            self.assertTrue(
+                {'sidekick', 'verifier'} <= set(part['kitchen']), part['id']
+            )
+
+    def test_bug_fix_overrides_where_upstream_conflicts_with_a_role(self):
+        by_id = parts(shipped())
+        for pid in ('intro-1', 'step-1', 'step-3'):
+            kitchen = by_id[f'bug-fix.{pid}']['kitchen']
+            self.assertTrue({'sidekick', 'verifier'} <= set(kitchen), pid)
+        self.assertIn(
+            'implement the fix', by_id['bug-fix.step-3']['kitchen']['sidekick']
+        )
+
+    def test_no_kitchen_text_names_a_model_slug_or_a_cursor_command(self):
+        for pid, part in parts(shipped()).items():
+            for role, text in part.get('kitchen', {}).items():
+                for banned in (
+                    'grok-',
+                    '/loop',
+                    '/deslop',
+                    '/no-comments',
+                    'Cursor',
+                    '/unslop',
+                ):
+                    self.assertNotIn(banned, text, f'{pid} {role}')
+
+    def test_delegation_always_carries_the_roster_model_and_role_limits(self):
+        for pid, part in parts(shipped()).items():
+            for role, text in part.get('kitchen', {}).items():
+                if 'subagent' in text:
+                    self.assertIn(DELEGATION, text, f'{pid} {role}')
+
+    def test_a_no_pr_landing_mode_and_the_ask_the_human_replacement_survive(self):
+        by_id = parts(shipped())
+        for pid in ('bug-fix.step-6', 'shipping.step-4', 'opening-a-pr.forge'):
+            self.assertIn('[landing].mode', by_id[pid]['kitchen']['master'], pid)
+        self.assertIn('never merges', by_id['shipping.step-4']['kitchen']['master'])
+        ask = by_id['bug-fix.step-1']['kitchen']
+        self.assertIn('Questions', ask['sidekick'])
+        self.assertIn('the master asks the human', ask['sidekick'])
+        self.assertIn('you never ask the human', ask['verifier'])
+
+    def test_a_part_the_kitchen_rewrites_is_pinned_to_the_upstream_text_it_replaces(
+        self,
+    ):
+        part = parts(shipped())['bug-fix.step-1']
+        source = (root / 'skills/poteto-mode/playbooks/bug-fix.md').read_text()
+        self.assertEqual(
+            part['reviewed'], playbooks.digest(pick(playbooks.parse(source), 'step:1'))
+        )
+        self.assertIn('ask the user', source)
 
 
 if __name__ == '__main__':
