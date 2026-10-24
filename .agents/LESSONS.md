@@ -174,12 +174,13 @@ evidence:
 
 ## L011: A gate that fails under load and passes on rerun hides a race: write polled files via temp+rename, wait on a pidfd or fifo before checking a process; never accept the rerun.
 
-status: proposed
+status: active
 kind: gate-flaky
 class: pstack
 layer: gate
 area: skills
 since: 2026-10-24
+active: 2026-10-24T09:30:12Z
 
 evidence:
 
