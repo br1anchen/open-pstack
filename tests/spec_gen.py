@@ -60,10 +60,11 @@ for path in sorted(glob.glob('tests/test_pstack_*.py')):
     mod = os.path.basename(path)[:-3]
     src = open(path).read()
     tree = ast.parse(src)
+    src_lines = src.splitlines(keepends=True)
     for cls in [n for n in tree.body if isinstance(n, ast.ClassDef)]:
         for fn in cls.body:
             if isinstance(fn, ast.FunctionDef) and fn.name.startswith('test_'):
-                seg = ast.get_source_segment(src, fn) or ''
+                seg = ''.join(src_lines[fn.lineno - 1 : fn.end_lineno])
                 asserts = []
                 strings = []
                 for n in ast.walk(fn):
