@@ -174,10 +174,10 @@ def new_pane(store, role, anchor, direction, cwd, env=()):
     return pane
 
 
-def refuse_untrusted(pane, kind, directory, close=False):
+def refuse_untrusted(pane, kind, directory, close=False, then=None):
     """A dialog asking to trust the working folder (Claude, Codex) blocks an agent at startup. Trusting a repo is the human's decision, never the
     script's: decline it, which returns the pane to its shell, and stop with what to do. Claude's dialog defaults to "No, exit", so an Enter
-    would quit."""
+    would quit. `then` is the advice after the refusal; by default, trust the folder and rerun the spawn."""
     code, out = herdr('pane', 'read', pane, '--source', 'visible', '--lines', '40')
     if not TRUST_RE.search(re.sub(r'[\n\t ]+', ' ', out)):
         return
@@ -186,8 +186,11 @@ def refuse_untrusted(pane, kind, directory, close=False):
     if close:
         herdr('pane', 'close', pane)
     raise TrustPrompt(
-        f'{kind} asks whether to trust {directory}, and that decision is yours: open {kind} there once and trust the folder (or pick another '
-        'kind), then rerun the spawn'
+        f'{kind} asks whether to trust {directory}, and that decision is yours: '
+        + (
+            then
+            or f'open {kind} there once and trust the folder (or pick another kind), then rerun the spawn'
+        )
     )
 
 

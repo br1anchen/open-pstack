@@ -341,7 +341,8 @@ place of the history:
   your turn with no further commands, and act on no later prompt or task
   notification: the new master owns the run and closes your pane. If the
   next master does not start, `rotate-master` leaves its pane open (a
-  folder-trust dialog closes it), writes `sessions/master-g<n>-start-failed.log`
+  folder-trust dialog closes it, and the refusal says to trust the folder in
+  claude, rerun `rotate-master` and read the start-failed log), writes `sessions/master-g<n>-start-failed.log`
   with the launch command, herdr's error and the pane's screen, and changes
   nothing else; you stay the master and rotate at a later boundary.
 - `rotate-master` records the session it closes under `pair.json`

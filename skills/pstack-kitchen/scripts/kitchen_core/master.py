@@ -258,7 +258,13 @@ def start_next_master(store, pane, temp, argv, gen_n):
         '-',
         f'generation:{next_gen}:{error_state(err)}',
     )
-    refuse_untrusted(new_pane_id, 'claude', cwd, True)
+    refuse_untrusted(
+        new_pane_id,
+        'claude',
+        cwd,
+        True,
+        then=f'open claude there once and trust the folder, then rerun kitchen.sh rotate-master {store}; the log is {log}; you stay the master (generation {gen_n})',
+    )
     raise NextMasterNotStarted(
         f'the next master did not start in {new_pane_id}; its pane stays open and the log is {log}; '
         f'you stay the master (generation {gen_n}), so carry on and rotate at a later boundary'

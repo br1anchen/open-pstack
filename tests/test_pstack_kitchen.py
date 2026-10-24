@@ -5889,8 +5889,15 @@ esac
         self.filled_handoff()
         (self.fake / 'trust-dialog').touch()
         out = self.run_sh('rotate-master', str(self.store), code=5)
-        self.assertIn('asks whether to trust', out)
         log = self.store / 'sessions/master-g2-start-failed.log'
+        self.assertIn(
+            f'claude asks whether to trust {self.state()["cwd"]}, and that decision is yours: '
+            f'open claude there once and trust the folder, then rerun kitchen.sh rotate-master {self.store}; '
+            f'the log is {log}; you stay the master (generation 1)',
+            out,
+        )
+        self.assertNotIn('rerun the spawn', out)
+        self.assertNotIn('pick another kind', out)
         self.assertIn('agent_not_ready', log.read_text())
         self.assertIn(
             '\tmaster\trotate-failed\t-\tgeneration:2:agent_not_ready',
