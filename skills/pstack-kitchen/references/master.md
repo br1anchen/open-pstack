@@ -37,6 +37,12 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    A `warn: Scope covers ...` line means the Scope reaches a generated file's
    source but not its outputs: add them to may write before dispatch, or say
    in the brief why not.
+   A `warn: Acceptance runs <command>, which Verify does not` line names a
+   backquoted command in Acceptance (one starting with git, python3, test,
+   grep, awk, uv or bash) that neither Verify nor a touched profile's fast or
+   behavioral gate runs, so `finish` would not rerun it: add it to Verify, a
+   "prints nothing" check as `test -z "$(...)"`, or say in the brief why not;
+   `queue` prints it too.
    - **Routine:** no plan round. The brief is the plan, so make it precise:
      Steps of fifteen to thirty minutes that name the files and functions,
      Acceptance a script or command can check. The sidekick may run a cheaper
