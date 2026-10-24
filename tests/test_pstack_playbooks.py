@@ -233,6 +233,13 @@ class SourceTests(unittest.TestCase):
         with self.assertRaises(playbooks.PlaybookError):
             playbooks.resolve_source(roots, 'repo', 'skill/doc.md')
 
+    def test_the_skills_root_rejects_a_top_level_file_link_that_escapes_it(self):
+        skills = self.base / 'skills'
+        skills.mkdir()
+        (skills / 'leak.md').symlink_to(self.base / 'outside.md')
+        with self.assertRaisesRegex(playbooks.PlaybookError, 'leaves the skills root'):
+            playbooks.resolve_source({'skills': skills}, 'skills', 'leak.md')
+
     def test_the_skills_root_is_the_directory_holding_this_skill(self):
         skills = playbooks.default_roots()['skills']
         self.assertTrue((skills / 'pstack-kitchen/scripts/playbooks.py').is_file())
@@ -295,6 +302,14 @@ class MapTests(unittest.TestCase):
             **entry,
         }
         return playbooks.validate_map({'playbook': {'small': entry}}, self.roots)
+
+    def test_a_kitchen_value_that_is_not_a_table_is_a_problem_not_a_crash(self):
+        parts = self.sound_parts()
+        parts[0]['kitchen'] = 'text'
+        self.assertEqual(
+            self.problems(parts),
+            ['small: part small.intro: kitchen must be a table of role texts'],
+        )
 
     def test_a_map_that_covers_its_source_has_no_problems(self):
         self.assertEqual(self.problems(), [])
@@ -602,6 +617,29 @@ class PlaybooksCommandTests(unittest.TestCase):
         expected = playbooks.digest(pick(load('bug-fix.md'), 'step:4'))
         self.assertIn(f'expected {expected}', done.stdout)
         self.assertRegex(done.stdout, r'current  \w{12}')
+
+    def test_review_names_the_commit_that_last_changed_the_map(self):
+        done = kitchen('--skills', str(self.edited_skills()), 'review', 'bug-fix')
+        commit = playbooks.last_map_commit(playbooks.MAP_PATH)
+        self.assertIn(
+            f'the map was last changed in {commit or "no commit"}', done.stdout
+        )
+
+    def test_the_commits_text_has_no_repeated_sentence_and_the_master_does_not_step(
+        self,
+    ):
+        parts = {
+            p['id']: p
+            for p in playbooks.load_map(playbooks.MAP_PATH)['playbook']['opening-a-pr'][
+                'part'
+            ]
+        }
+        texts = parts['opening-a-pr.commits']['kitchen']
+        for role, text in texts.items():
+            sentences = [x.strip() for x in text.split('. ') if x.strip()]
+            self.assertEqual(len(sentences), len(set(sentences)), role)
+        self.assertNotIn('kitchen.sh step', texts['master'])
+        self.assertIn('kitchen.sh step', texts['sidekick'])
 
     def test_review_of_an_unchanged_playbook_says_so(self):
         done = kitchen('review', 'bug-fix')

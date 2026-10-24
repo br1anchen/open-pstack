@@ -797,8 +797,8 @@ owners = ["master", "sidekick"]
 reviewed = "e6a46862f31c"
 
 [playbook.opening-a-pr.part.kitchen]
-master = "Commit liberally, as small ordered commits that each tell the story and are landable. Commit small, ordered units as new commits, each recorded with kitchen.sh step and green before the next. Never rebase or amend commits already recorded as steps unless the brief says so. Commit bodies don't restate the subject."
-sidekick = "Commit liberally, as small ordered commits that each tell the story and are landable. Commit small, ordered units as new commits, each recorded with kitchen.sh step and green before the next. Never rebase or amend commits already recorded as steps unless the brief says so. Commit bodies don't restate the subject."
+master = "Commit liberally, as small ordered commits that each tell the story and are landable. Never rebase or amend commits already recorded as steps unless the brief says so. Commit bodies don't restate the subject."
+sidekick = "Commit liberally, as small ordered commits that each tell the story and are landable. Record each commit with kitchen.sh step, green before the next. Never rebase or amend commits already recorded as steps unless the brief says so. Commit bodies don't restate the subject."
 
 [[playbook.opening-a-pr.part]]
 id = "opening-a-pr.prs"

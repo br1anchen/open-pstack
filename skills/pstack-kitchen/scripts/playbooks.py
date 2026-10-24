@@ -380,7 +380,7 @@ def default_roots() -> dict[str, Path]:
 def resolve_source(roots: dict[str, Path], root: str, path: str) -> Path:
     """A source file under a named root. Symlinks are resolved and must stay in
     the root; the `skills` root also admits the target of a skill directory's
-    own link, which is how an installed copy is laid out."""
+    own link (a directory), which is how an installed copy is laid out."""
     if root not in roots:
         raise PlaybookError(f'unknown source root {root!r}')
     pure = PurePosixPath(path)
@@ -388,7 +388,7 @@ def resolve_source(roots: dict[str, Path], root: str, path: str) -> Path:
         raise PlaybookError(f'source path {path!r} must be relative inside {root}')
     base = roots[root]
     inside = [base.resolve()]
-    if root == 'skills':
+    if root == 'skills' and len(pure.parts) > 1 and (base / pure.parts[0]).is_dir():
         inside.append((base / pure.parts[0]).resolve())
     full = (base / path).resolve()
     if not any(full.is_relative_to(i) for i in inside):
@@ -419,6 +419,9 @@ def part_problems(name: str, doc: Doc, part: dict) -> list[str]:
         owners = []
     out += [f'{where}: unknown owner {o!r}' for o in owners if o not in OWNERS]
     kitchen = part.get('kitchen', {})
+    if not isinstance(kitchen, dict):
+        out.append(f'{where}: kitchen must be a table of role texts')
+        kitchen = {}
     for role, text in kitchen.items():
         if role not in AGENT_ROLES:
             out.append(f'{where}: kitchen text for {role!r}, which is not a role')
