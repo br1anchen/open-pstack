@@ -165,11 +165,23 @@ def compose_playbooks(store, brief, globs, config):
 COMPOSITION_VERSION = 1
 
 
+def unit_number(brief):
+    number = re.match(r'\d+', os.path.basename(brief))
+    return number.group(0) if number else os.path.splitext(os.path.basename(brief))[0]
+
+
+def composition_path(store, unit):
+    return Path(store) / 'compositions' / f'{unit}.json'
+
+
+def unstamp_composition(store, brief):
+    """Removes a stamp an earlier classify left for a brief that no longer composes a playbook."""
+    composition_path(store, unit_number(brief)).unlink(missing_ok=True)
+
+
 def stamp_composition(store, brief, composition):
     """Writes `<store>/compositions/<NNN>.json` for the brief and returns whether the bytes changed. Later readers use this file and never select again."""
-    number = re.match(r'\d+', os.path.basename(brief))
-    name = number.group(0) if number else os.path.splitext(os.path.basename(brief))[0]
-    path = Path(store) / 'compositions' / f'{name}.json'
+    path = composition_path(store, unit_number(brief))
     text = (
         json.dumps(
             {'version': COMPOSITION_VERSION, **composition}, indent=2, sort_keys=True
@@ -256,6 +268,8 @@ def classify_brief(store, brief):
             'bookkeeping: the Scope is outside the repo; gates only, nothing to escalate'
         )
     sys.stdout.write(''.join(f'{line}\n' for line in lines))
+    if not composition:
+        unstamp_composition(store, brief)
     if composition:
         stamp_composition(store, brief, composition)
         sys.stdout.write(

@@ -3,26 +3,15 @@
 import json
 import os
 import re
-from pathlib import Path
 
 from pstack_core.errors import Die
 from pstack_core.store import read_text, write_text
 
 from . import kpy
-from .classify import brief_kitchen
+from .classify import brief_kitchen, composition_path, unit_number
 
-SECTION = re.compile(r'^## Playbook:.*\n(?:(?!## ).*\n?)*', re.M)
-LESSONS = re.compile(r'^## Lessons', re.M)
+BEFORE = ('## Report', '## Lessons')
 ROLES = ('master', 'sidekick', 'consultant', 'verifier')
-
-
-def unit_number(brief):
-    number = re.match(r'\d+', os.path.basename(brief))
-    return number.group(0) if number else os.path.splitext(os.path.basename(brief))[0]
-
-
-def composition_path(store, unit):
-    return Path(store) / 'compositions' / f'{unit}.json'
 
 
 def read_composition(store, unit):
@@ -33,18 +22,36 @@ def read_composition(store, unit):
     return json.loads(read_text(path))
 
 
+def headings(lines):
+    """The index of each line that starts a `## ` section outside a code fence."""
+    found, fence = [], ''
+    for i, line in enumerate(lines):
+        mark = re.match(r'\s*(`{3,}|~{3,})', line)
+        if mark and not fence:
+            fence = mark.group(1)
+        elif mark and mark.group(1)[0] == fence[0] and len(mark.group(1)) >= len(fence):
+            fence = ''
+        elif not fence and line.startswith('## '):
+            found.append(i)
+    return found
+
+
 def put_section(text, section):
-    """The brief text with its `## Playbook:` section replaced by `section` (removed when empty). A new section goes before `## Lessons`, which stays last for the lessons stamp, else at the end."""
-    found = SECTION.search(text)
-    if found:
-        tail = text[found.end() :]
-        body = section + '\n' if section and tail else section
-        return text[: found.start()] + body + tail
+    """The brief text with its `## Playbook:` section replaced by `section` (removed when empty). A new section goes before `## Report`, so the sidekick reads its parts before the report instructions, else before `## Lessons`, else at the end."""
+    lines = text.split('\n')
+    starts = headings(lines)
+    own = next((i for i in starts if lines[i].startswith('## Playbook:')), None)
+    body = section.rstrip('\n').split('\n') + [''] if section else []
+    if own is not None:
+        end = next((i for i in starts if i > own), len(lines))
+        tail = lines[end:]
+        return '\n'.join(lines[:own] + (body if tail else body[:-1]) + tail)
     if not section:
         return text
-    lessons = LESSONS.search(text)
-    if lessons:
-        return text[: lessons.start()] + section + '\n' + text[lessons.start() :]
+    for title in BEFORE:
+        at = next((i for i in starts if lines[i] == title), None)
+        if at is not None:
+            return '\n'.join(lines[:at] + body + lines[at:])
     return text.rstrip('\n') + '\n\n' + section
 
 
@@ -72,6 +79,7 @@ def deliver(store, brief):
     unit = unit_number(brief)
     composition = read_composition(store, unit)
     if composition is None:
+        write_if_changed(brief, put_section(read_text(brief), ''))
         return None
     pb = kpy.kitchen_py.playbooks_module()
     section, pending = pb.render_role(

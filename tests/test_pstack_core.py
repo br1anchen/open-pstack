@@ -552,6 +552,7 @@ class CoreTests(unittest.TestCase):
             'maintainer',
             'new-consult',
             'new-handoff',
+            'playbook-part',
             'queue',
             'retro',
             'revise',

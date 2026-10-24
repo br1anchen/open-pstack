@@ -1053,15 +1053,17 @@ class RenderRoleTests(unittest.TestCase):
             playbooks.render_role(self.composition(a='A'), 'master', 1500), ('', [])
         )
 
-    def test_headings_in_a_part_never_start_a_brief_section(self):
+    def test_headings_in_a_part_never_start_a_brief_section_and_fences_stay_whole(
+        self,
+    ):
         comp = self.composition(a='## Verify\nbody\n```sh\n## kept\n```\n# Top')
         text, _ = playbooks.render_role(comp, 'sidekick', 1500)
         self.assertEqual(
-            [x for x in text.split('\n') if x.startswith('## ')],
+            [x for x in text.split('\n') if x.startswith('## ') and x != '## kept'],
             ['## Playbook: feature + coach (your parts)'],
         )
         self.assertIn('#### Verify', text)
-        self.assertIn('#### kept', text)
+        self.assertIn('\n## kept\n', text)
         self.assertIn('#### Top', text)
 
 

@@ -865,13 +865,21 @@ def first_line(text: str) -> str:
 
 
 def demote_headings(text: str) -> str:
-    """Pushes the headings of a part's text below the brief's own `##` sections, so
-    no line of a part can end the section it sits in."""
-
-    def push(m: re.Match) -> str:
-        return '#' * min(6, max(len(m.group(1)), 3) + 1) + m.group(0)[len(m.group(1)) :]
-
-    return re.sub(r'^(#{1,6})(?=[ \t])', push, text, flags=re.M)
+    """Pushes the headings of a part's text below the brief's own `##` sections,
+    so a heading cannot end the section it sits in; lines inside a code fence are
+    left alone."""
+    out, fence = [], ''
+    for line in text.split('\n'):
+        opened = FENCE.match(line.lstrip())
+        if opened and not fence:
+            fence = opened.group(1)
+        elif opened and fence_close(line.strip(), fence):
+            fence = ''
+        elif not fence and (m := HEADING.match(line)):
+            pushed = min(6, max(len(m.group(1)), 3) + 1)
+            line = '#' * pushed + line[len(m.group(1)) :]
+        out.append(line)
+    return '\n'.join(out)
 
 
 def render_role(

@@ -4600,8 +4600,11 @@ esac
         self.run_sh('classify', str(self.store), str(b), timeout=60)
         for args, message in (
             (('009', 'sidekick', 'error-model'), 'unit 009 has no stored composition'),
-            (('001', 'cook', 'error-model'), 'unknown role cook'),
-            (('001', 'sidekick', 'nope'), 'sidekick has no part nope in unit 001'),
+            (('001', 'cook', 'error-model'), 'playbook-part: unknown role cook'),
+            (
+                ('001', 'sidekick', 'nope'),
+                'playbook-part: sidekick has no part nope in unit 001',
+            ),
         ):
             with self.subTest(args=args):
                 out = self.run_sh(
@@ -4609,6 +4612,40 @@ esac
                 )
                 self.assertIn(message, out)
                 self.assertEqual(len(out.strip().split('\n')), 1)
+
+    def test_the_section_goes_before_the_report_and_survives_a_redispatch(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.dispatch(b, timeout=60)
+        text = b.read_text()
+        self.assertLess(text.index('## Playbook:'), text.index('\n## Report'))
+        self.dispatch(b, timeout=60)
+        self.assertEqual(b.read_text(), text)
+
+    def test_a_fenced_heading_in_the_section_does_not_end_it(self):
+        self.kitchen_variant().load_kitchen_core()
+        from kitchen_core.playbook_delivery import put_section
+
+        old = (
+            '# B\n\n## Playbook: a\n\n```sh\n## kept\n```\nold tail\n\n## Report\n\nR\n'
+        )
+        new = '## Playbook: b\n\nnew\n'
+        self.assertEqual(
+            put_section(old, new), '# B\n\n## Playbook: b\n\nnew\n\n## Report\n\nR\n'
+        )
+        self.assertEqual(put_section(put_section(old, new), new), put_section(old, new))
+        self.assertEqual(put_section(old, ''), '# B\n\n## Report\n\nR\n')
+
+    def test_reclassify_without_a_playbook_drops_the_stamp_and_the_section(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.dispatch(b, timeout=60)
+        self.assertIn('## Playbook:', b.read_text())
+        b.write_text(b.read_text().replace('playbook: bug-fix', 'playbook: none'))
+        out = self.dispatch(b, timeout=60)
+        self.assertFalse((self.store / 'compositions/001.json').exists())
+        self.assertNotIn('## Playbook:', b.read_text())
+        self.assertNotIn('playbook: ', out.replace('playbook: none', ''))
 
     def test_a_brief_without_a_composition_dispatches_byte_identical(self):
         b = self.brief('001', 'util', ['src/util.py'], playbook='none')
