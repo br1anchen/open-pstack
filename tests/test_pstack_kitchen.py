@@ -5784,6 +5784,43 @@ esac
         self.assertNotIn('sessions', state)
         self.assertFalse((self.store / 'sessions/master-1-handoff.md').exists())
 
+    def test_a_next_master_that_fails_to_start_leaves_its_pane_and_a_log(self):
+        self.filled_handoff()
+        (self.fake / 'start-fail').touch()
+        out = self.run_sh('rotate-master', str(self.store), code=2)
+        log = self.store / 'sessions/master-g2-start-failed.log'
+        pane = re.search(r'did not start in (p\d+);', out).group(1)
+        self.assertIn(
+            f'the next master did not start in {pane}; its pane stays open and the log is {log}; '
+            'you stay the master (generation 1), so carry on and rotate at a later boundary',
+            out,
+        )
+        text = log.read_text()
+        self.assertIn('--permission-mode', text)
+        self.assertIn('start_failed', text)
+        self.assertRegex(text, r'(?s)pane screen.*\S')
+        self.assertNotIn(f'pane close {pane}', (self.fake / 'calls.log').read_text())
+        self.assertIn(
+            '\tmaster\trotate-failed\t-\tgeneration:2:start_failed',
+            (self.store / 'events.tsv').read_text(),
+        )
+        self.assertEqual(self.state()['master']['name'], 'demo-master')
+
+    def test_a_next_master_blocked_by_a_trust_dialog_still_closes_its_pane_and_logs(
+        self,
+    ):
+        self.filled_handoff()
+        (self.fake / 'trust-dialog').touch()
+        out = self.run_sh('rotate-master', str(self.store), code=5)
+        self.assertIn('asks whether to trust', out)
+        log = self.store / 'sessions/master-g2-start-failed.log'
+        self.assertIn('agent_not_ready', log.read_text())
+        self.assertIn(
+            '\tmaster\trotate-failed\t-\tgeneration:2:agent_not_ready',
+            (self.store / 'events.tsv').read_text(),
+        )
+        self.assertIn('pane close', (self.fake / 'calls.log').read_text())
+
     def test_rotating_again_after_an_abandoned_rotation_keeps_the_generation(self):
         self.filled_handoff()
         # The in-place restart recorded the session, then never started generation 2.

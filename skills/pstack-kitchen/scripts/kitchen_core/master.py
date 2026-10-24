@@ -2,6 +2,7 @@
 
 import os
 import re
+import shlex
 import shutil
 import sys
 import time
@@ -21,11 +22,11 @@ from pstack_core.errors import (
 from pstack_core.exits import end_agent, exit_deadline, stop_prime_role
 from pstack_core.numbers import env_float, env_int
 from pstack_core.panes import (
-    DEVNULL,
     agent_kind,
     agent_prompt,
     agent_start,
     agent_status,
+    error_state,
     herdr,
     new_pane,
     refuse_untrusted,
@@ -222,19 +223,46 @@ def next_master_argv(store, temp, model):
     return argv, remote
 
 
+def write_start_failure_log(store, next_gen, argv, err, pane):
+    """sessions/master-g<n>-start-failed.log: the launch command, herdr's error and the pane's screen, which a closed pane or a read that fails
+    says in place of raising. Returns its path."""
+    code, screen = herdr('pane', 'read', pane, '--source', 'visible', '--lines', '80')
+    screen = (
+        screen if code == 0 else f'(the pane could not be read: herdr exit {code})\n'
+    )
+    os.makedirs(f'{store}/sessions', exist_ok=True)
+    path = f'{store}/sessions/master-g{next_gen}-start-failed.log'
+    with open(path, 'w') as f:
+        f.write(
+            f'## launch\n\n{shlex.join(argv)}\n\n## herdr\n\n{err}\n\n## pane screen\n\n{screen}'
+        )
+    return path
+
+
 def start_next_master(store, pane, temp, argv, gen_n):
-    """The next master's pane beside the old one, with its agent started; a start that fails closes the pane and leaves the old master in charge."""
+    """The next master's pane beside the old one, with its agent started. A start that fails leaves the old master in charge and the new pane open,
+    with sessions/master-g<n>-start-failed.log saying why; a folder-trust dialog closes the pane."""
     cwd = read(store, 'cwd')
     new_pane_id = new_pane(store, 'master', pane, '', cwd)
     sys.stdout.flush()
-    if agent_start(temp, 'claude', new_pane_id, argv, stderr=DEVNULL).returncode != 0:
-        refuse_untrusted(new_pane_id, 'claude', cwd, True)
-        herdr('pane', 'close', new_pane_id)
-        event(store, 'master', 'rotate-failed', '-', f'generation:{gen_n + 1}')
-        raise NextMasterNotStarted(
-            f'the next master did not start in {new_pane_id}; you stay the master (generation {gen_n}), so carry on and rotate at a later boundary'
-        )
-    return new_pane_id
+    started = agent_start(temp, 'claude', new_pane_id, argv)
+    if started.returncode == 0:
+        return new_pane_id
+    err = started.stderr or ''
+    next_gen = gen_n + 1
+    log = write_start_failure_log(store, next_gen, argv, err, new_pane_id)
+    event(
+        store,
+        'master',
+        'rotate-failed',
+        '-',
+        f'generation:{next_gen}:{error_state(err)}',
+    )
+    refuse_untrusted(new_pane_id, 'claude', cwd, True)
+    raise NextMasterNotStarted(
+        f'the next master did not start in {new_pane_id}; its pane stays open and the log is {log}; '
+        f'you stay the master (generation {gen_n}), so carry on and rotate at a later boundary'
+    )
 
 
 def record_handover(store, handoff, gen_n, session, old, new):

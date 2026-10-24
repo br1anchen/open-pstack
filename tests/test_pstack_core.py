@@ -6290,7 +6290,7 @@ class CoreTests(unittest.TestCase):
                 ),
                 'the next master does not start': (
                     2,
-                    'pair.sh: the next master did not start in p1; you stay the master (generation 1), so carry on and rotate at a later boundary',
+                    'pair.sh: the next master did not start in p1; its pane stays open and the log is <T>/st/sessions/master-g2-start-failed.log; you stay the master (generation 1), so carry on and rotate at a later boundary',
                 ),
                 'the next master asks for folder trust': (5, 'asks whether to trust'),
                 'a hand-over already open': (
