@@ -887,6 +887,7 @@ class OverlayCommandTests(OverlayRepo):
                 'index',
             ],
             env=self.env,
+            timeout=60,
             capture_output=True,
             text=True,
         )
@@ -907,6 +908,7 @@ class OverlayCommandTests(OverlayRepo):
                 'index',
             ],
             env=self.env,
+            timeout=60,
             capture_output=True,
             text=True,
         )
@@ -924,6 +926,7 @@ class OverlayCommandTests(OverlayRepo):
                 'validate',
             ],
             env=self.env,
+            timeout=60,
             capture_output=True,
             text=True,
         )
@@ -942,6 +945,7 @@ class OverlayCommandTests(OverlayRepo):
                 'validate',
             ],
             env=self.env,
+            timeout=60,
             capture_output=True,
             text=True,
         )
@@ -1325,6 +1329,7 @@ class HostOverlayTests(unittest.TestCase):
             [sys.executable, str(KITCHEN), '--json', *flags, 'playbooks', 'index'],
             cwd=repo,
             env=self.env,
+            timeout=60,
             capture_output=True,
             text=True,
         )

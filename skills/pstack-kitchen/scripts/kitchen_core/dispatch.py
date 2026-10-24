@@ -22,6 +22,7 @@ from pstack_core.wait import default_signals
 
 from .classify import classify_brief
 from .landing import is_landing, land_check_problems
+from .playbook_delivery import deliver
 from .units import has_pair
 from .wait import block, log_checkin_wake, quiet_wait, refused
 
@@ -60,6 +61,12 @@ def dispatch(ctx, args):
     else:
         require_pair(ctx, store)
         classify_brief(store, brief)
+        delivered = deliver(store, brief)
+        if delivered:
+            parts, tokens, pending = delivered
+            sys.stdout.write(
+                f'playbook: {parts} parts, ~{tokens} tokens, {pending} pending\n'
+            )
         remind_landed(store)
     # a landing brief that land-check passed on a store with no pair.json goes on to the core dispatch, which refuses it
     if has_pair(store):

@@ -117,6 +117,7 @@ class Kitchen:
     wrap: str
     scratch_setup: list[str] = field(default_factory=list)
     generated: list[Generated] = field(default_factory=list)
+    playbook_target_tokens: int = 1500
 
 
 def _check_keys(table: dict, where: str, allowed: set[str]) -> None:
@@ -181,6 +182,7 @@ def parse(data: dict) -> Kitchen:
             'run',
             'scratch',
             'generated',
+            'playbooks',
         },
     )
     if data.get('version') != 1:
@@ -370,6 +372,8 @@ def parse(data: dict) -> Kitchen:
     _check_keys(scratch, 'scratch', {'setup'})
     run = data.get('run', {})
     _check_keys(run, 'run', {'wrap'})
+    playbooks = data.get('playbooks', {})
+    _check_keys(playbooks, 'playbooks', {'target_tokens'})
     if not isinstance(run.get('wrap', ''), str):
         raise KitchenError(
             'run.wrap: expected a string, such as "nix develop --command"'
@@ -391,6 +395,9 @@ def parse(data: dict) -> Kitchen:
         wrap=run.get('wrap', ''),
         scratch_setup=_strings(scratch.get('setup', []), 'scratch.setup'),
         generated=generated,
+        playbook_target_tokens=_int(
+            playbooks.get('target_tokens', 1500), 'playbooks.target_tokens', 1
+        ),
     )
 
 
@@ -3943,6 +3950,11 @@ def brief_verify_list(inv: Invocation, brief: Path) -> list[str]:
     """The commands a brief's Verify block parses into, in the repo's kitchen."""
     open_kitchen(inv)
     return brief_verify_commands(brief)
+
+
+def playbook_target_tokens(inv: Invocation) -> int:
+    """The token target `[playbooks].target_tokens` sets for the sections dispatch delivers."""
+    return open_kitchen(inv)[1].playbook_target_tokens
 
 
 def playbooks_module():

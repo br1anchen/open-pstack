@@ -154,6 +154,7 @@ class KitchenTests(unittest.TestCase):
             [sys.executable, str(script), *args],
             cwd=self.repo,
             env=self.env,
+            timeout=60,
             capture_output=True,
             text=True,
             check=False,
@@ -230,6 +231,28 @@ class SchemaTests(KitchenTests):
             + '\n[[policy.forbid]]\nid = "no-print"\npattern = "x"\nmessage = "m"\n',
         )
         self.assertIn('policy.forbid[1].id', self.run_kitchen('validate', code=1))
+
+    def test_validate_rejects_a_playbooks_target_that_is_not_a_positive_integer(self):
+        for value in ('0', '-5', '"big"', '1.5', 'true'):
+            with self.subTest(value=value):
+                self.write(
+                    '.agents/kitchen.toml',
+                    KITCHEN + f'\n[playbooks]\ntarget_tokens = {value}\n',
+                )
+                self.assertIn(
+                    'playbooks.target_tokens: expected an integer >= 1',
+                    self.run_kitchen('validate', code=1),
+                )
+        self.write('.agents/kitchen.toml', KITCHEN + '\n[playbooks]\ntarget = 5\n')
+        self.assertIn(
+            'playbooks: unknown key target', self.run_kitchen('validate', code=1)
+        )
+
+    def test_the_playbooks_target_defaults_to_1500_and_reads_the_table(self):
+        base = tomllib.loads(KITCHEN)
+        self.assertEqual(kitchen.parse(base).playbook_target_tokens, 1500)
+        base['playbooks'] = {'target_tokens': 400}
+        self.assertEqual(kitchen.parse(base).playbook_target_tokens, 400)
 
     def test_heavy_takes_true_false_or_a_list_of_stages(self):
         for value, stages in [
@@ -3486,9 +3509,15 @@ esac
         path.write_text(text)
         return path
 
-    def dispatch(self, brief, code=4):
+    def dispatch(self, brief, code=4, timeout=None):
         return self.run_sh(
-            'dispatch', str(self.store), str(brief), '--timeout', '1', code=code
+            'dispatch',
+            str(self.store),
+            str(brief),
+            '--timeout',
+            '1',
+            code=code,
+            timeout=timeout,
         )
 
     def done(self, brief, head):
@@ -4448,7 +4477,7 @@ esac
         self.overlay_file('broken', 'applies = [\n')
         b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
         self.header(b, 'without: broken — not mine')
-        out = self.run_sh('classify', str(self.store), str(b))
+        out = self.run_sh('classify', str(self.store), str(b), timeout=60)
         self.assertIn('excluded: broken (without: not mine)\n', out)
         self.assertIn('playbooks: bug-fix + rust-engine\n', out)
 
@@ -4456,7 +4485,7 @@ esac
         self.use_overlays()
         self.overlay_file('broken', 'applies = [\n')
         b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
-        out = self.run_sh('classify', str(self.store), str(b))
+        out = self.run_sh('classify', str(self.store), str(b), timeout=60)
         self.assertIn('excluded: broken (unusable: ', out)
         self.assertIn('playbooks: bug-fix + rust-engine\n', out)
 
@@ -4465,7 +4494,7 @@ esac
         self.overlay_file('broken', 'applies = [\n')
         b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
         self.header(b, 'with: broken')
-        out = self.run_sh('classify', str(self.store), str(b), code=1)
+        out = self.run_sh('classify', str(self.store), str(b), code=1, timeout=60)
         self.assertIn('overlay broken is unusable', out)
 
     def test_an_overlay_whose_applies_does_not_match_is_never_validated(self):
@@ -4476,7 +4505,7 @@ esac
             '[[part]]\nid = "p"\nsource = { root = "repo", path = "gone.md" }\n',
         )
         b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
-        out = self.run_sh('classify', str(self.store), str(b))
+        out = self.run_sh('classify', str(self.store), str(b), timeout=60)
         self.assertIn('playbooks: bug-fix + rust-engine\n', out)
         self.assertNotIn('elsewhere', out)
 
@@ -4485,9 +4514,68 @@ esac
         b.write_text(
             b.read_text().replace('playbook: bug-fix', 'playbook: {{PLAYBOOK}}')
         )
-        out = self.run_sh('classify', str(self.store), str(b), code=1)
+        out = self.run_sh('classify', str(self.store), str(b), code=1, timeout=60)
         self.assertIn('still has unfilled placeholders', out)
         self.assertNotIn('is not mapped', out)
+
+    def test_dispatch_writes_the_sidekicks_playbook_section_and_says_so(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        out = self.dispatch(b, timeout=60)
+        text = b.read_text()
+        self.assertEqual(
+            text.count('## Playbook: bug-fix + rust-engine (your parts)'), 1
+        )
+        sidekick = self.composition()['roles']['sidekick']
+        for part in sidekick:
+            self.assertIn(f'- {part["id"]}: ', text)
+        self.assertRegex(
+            out, rf'playbook: {len(sidekick)} parts, ~\d+ tokens, 0 pending\n'
+        )
+
+    def test_dispatching_twice_leaves_one_section_and_the_same_bytes(self):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.dispatch(b, timeout=60)
+        first = b.read_bytes()
+        self.dispatch(b, timeout=60)
+        self.assertEqual(b.read_bytes(), first)
+        self.assertEqual(b.read_text().count('## Playbook:'), 1)
+
+    def test_a_changed_composition_replaces_the_section(
+        self,
+    ):
+        self.use_overlays()
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        self.dispatch(b, timeout=60)
+        self.header(b, 'without: rust-engine — docs only')
+        self.dispatch(b, timeout=60)
+        text = b.read_text()
+        self.assertEqual(text.count('## Playbook:'), 1)
+        self.assertIn('## Playbook: bug-fix (your parts)', text)
+        self.assertNotIn('rust-engine', text.split('## Playbook:')[1].split('\n')[0])
+
+    def test_a_small_target_turns_later_parts_into_pending_reads(self):
+        self.use_overlays()
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + '\n[playbooks]\ntarget_tokens = 1\n')
+        self.commit('target')
+        b = self.brief('001', 'engine', ['engine/**'], playbook='bug-fix')
+        out = self.dispatch(b, timeout=60)
+        count = len(self.composition()['roles']['sidekick'])
+        self.assertRegex(out, rf'playbook: {count} parts, ~\d+ tokens, {count} pending')
+        self.assertIn(
+            f'kitchen.sh playbook-part {self.store} 001 sidekick ', b.read_text()
+        )
+
+    def test_a_brief_without_a_composition_dispatches_byte_identical(self):
+        b = self.brief('001', 'util', ['src/util.py'], playbook='none')
+        self.run_sh('classify', str(self.store), str(b), timeout=60)
+        before = b.read_bytes()
+        out = self.dispatch(b, timeout=60)
+        self.assertEqual(b.read_bytes(), before)
+        self.assertNotIn('playbook:', out)
+        self.assertFalse((self.store / 'compositions').exists())
 
     def test_a_without_with_no_reason_refuses_classify(self):
         self.use_overlays()
