@@ -14,6 +14,7 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -3925,6 +3926,68 @@ def brief_verify_list(inv: Invocation, brief: Path) -> list[str]:
     return brief_verify_commands(brief)
 
 
+def playbooks_module():
+    """playbooks.py, loaded by path: it sits beside this file and is not a package."""
+    spec = importlib.util.spec_from_file_location(
+        'playbooks', Path(__file__).with_name('playbooks.py')
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def playbooks_command(args) -> int:
+    pb = playbooks_module()
+    path = args.map or pb.MAP_PATH
+    roots = pb.default_roots()
+    if args.skills:
+        roots['skills'] = args.skills
+    try:
+        data = pb.load_map(path)
+        if args.playbooks_cmd == 'validate':
+            problems = pb.validate_map(data, roots)
+            if problems:
+                print('\n'.join(f'kitchen: {p}' for p in problems), file=sys.stderr)
+                return 1
+            parts = sum(len(e.get('part', [])) for e in data['playbook'].values())
+            emit(
+                {'playbooks': len(data['playbook']), 'parts': parts},
+                args.json,
+                f'playbooks: {len(data["playbook"])} playbooks, {parts} parts, ok',
+            )
+            return 0
+        changed = pb.review(data, args.name, roots)
+    except (OSError, ValueError, pb.PlaybookError) as e:
+        print(f'kitchen: {e}', file=sys.stderr)
+        return 2
+    commit = pb.last_map_commit(path)
+    emit(
+        {'playbook': args.name, 'map_commit': commit, 'changed': changed},
+        args.json,
+        playbooks_review_text(args.name, commit, changed),
+    )
+    return 0
+
+
+def playbooks_review_text(name: str, commit: str | None, changed: list[dict]) -> str:
+    if not changed:
+        return f'{name}: every part still matches its reviewed digest'
+    lines = [
+        f'{name}: {len(changed)} changed part(s); the map was last changed in '
+        f'{commit or "no commit"}; `git show {commit or "<commit>"}:<source>` '
+        'shows the reviewed text'
+    ]
+    for c in changed:
+        lines += ['', f'{c["id"]} ({c["select"]})', f'  expected {c["expected"]}']
+        if 'error' in c:
+            lines.append(f'  unresolved: {c["error"]}')
+        else:
+            lines += [f'  current  {c["current"]}', '  current text:']
+            lines += [f'    {line}' for line in c['text'].split('\n')]
+    return '\n'.join(lines)
+
+
 def emit(obj, as_json: bool, text: str) -> None:
     print(json.dumps(obj, indent=2) if as_json else text)
 
@@ -4154,6 +4217,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lp.add_argument('briefs', type=Path, nargs='+')
     sub.add_parser('statedir', help="this repo's kitchen state directory")
+    pbs = sub.add_parser(
+        'playbooks', help='the map of pstack playbook parts to kitchen roles'
+    )
+    pbs.add_argument('--map', type=Path, help='the map file (default: the shipped map)')
+    pbs.add_argument(
+        '--skills', type=Path, help='the skills directory its sources resolve against'
+    )
+    pbsub = pbs.add_subparsers(dest='playbooks_cmd', required=True)
+    pbsub.add_parser('validate', help='check the map against the playbooks it maps')
+    pbr = pbsub.add_parser(
+        'review', help='the parts of one playbook that changed since they were reviewed'
+    )
+    pbr.add_argument('name')
     t = sub.add_parser(
         'timing',
         help="the slowest recent passing run of each profile's stage, and their sum",
@@ -4198,6 +4274,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == 'lesson-packet':
         sys.stdout.write(lesson_packet(args.briefs))
         return 0
+    if args.cmd == 'playbooks':
+        return playbooks_command(args)
     if args.cmd == 'ledger-backfill':
         n = ledger_backfill(args.ledger, args.runs or pstack_state() / 'kitchen/runs')
         print(

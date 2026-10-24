@@ -1,4 +1,8 @@
 import importlib.util
+import json
+import shutil
+import subprocess
+import sys
 import tempfile
 import tomllib
 import unittest
@@ -494,6 +498,87 @@ class ShippedMapTests(unittest.TestCase):
             part['reviewed'], playbooks.digest(pick(playbooks.parse(source), 'step:1'))
         )
         self.assertIn('ask the user', source)
+
+
+KITCHEN = root / 'skills/pstack-kitchen/scripts/kitchen.py'
+
+
+def kitchen(*args):
+    return subprocess.run(
+        [sys.executable, str(KITCHEN), 'playbooks', *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+class PlaybooksCommandTests(unittest.TestCase):
+    def edited_skills(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        skills = Path(tmp.name)
+        for source in ('poteto-mode/playbooks', 'pstack-tdd'):
+            shutil.copytree(root / 'skills' / source, skills / source)
+        bug_fix = skills / 'poteto-mode/playbooks/bug-fix.md'
+        bug_fix.write_text(
+            bug_fix.read_text().replace(
+                'Verify on the same surface.', 'Verify on the same device.'
+            )
+        )
+        return skills
+
+    def test_validate_passes_on_the_shipped_map(self):
+        done = kitchen('validate')
+        self.assertEqual((done.returncode, done.stderr), (0, ''))
+        self.assertIn('13 playbooks', done.stdout)
+
+    def test_validate_fails_naming_the_part_when_a_source_word_changes(self):
+        done = kitchen('--skills', str(self.edited_skills()), 'validate')
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(done.stdout, '')
+        lines = done.stderr.splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertIn(
+            'kitchen: bug-fix: part bug-fix.step-4: digest mismatch (step:4)', lines[0]
+        )
+
+    def test_review_names_the_changed_part_its_digests_and_its_current_text(self):
+        done = kitchen('--skills', str(self.edited_skills()), 'review', 'bug-fix')
+        self.assertEqual((done.returncode, done.stderr), (0, ''))
+        self.assertIn('1 changed part(s)', done.stdout)
+        self.assertIn('bug-fix.step-4 (step:4)', done.stdout)
+        self.assertIn('Verify on the same device.', done.stdout)
+        expected = playbooks.digest(pick(load('bug-fix.md'), 'step:4'))
+        self.assertIn(f'expected {expected}', done.stdout)
+        self.assertRegex(done.stdout, r'current  \w{12}')
+
+    def test_review_of_an_unchanged_playbook_says_so(self):
+        done = kitchen('review', 'bug-fix')
+        self.assertEqual(done.returncode, 0)
+        self.assertIn('every part still matches', done.stdout)
+
+    def test_review_of_a_playbook_the_map_lacks_is_an_error(self):
+        done = kitchen('review', 'nope')
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("no playbook 'nope' in the map", done.stderr)
+
+    def test_review_json_lists_the_changed_parts(self):
+        done = subprocess.run(
+            [
+                sys.executable,
+                str(KITCHEN),
+                '--json',
+                'playbooks',
+                '--skills',
+                str(self.edited_skills()),
+                'review',
+                'bug-fix',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        data = json.loads(done.stdout)
+        self.assertEqual([c['id'] for c in data['changed']], ['bug-fix.step-4'])
+        self.assertEqual(data['playbook'], 'bug-fix')
 
 
 if __name__ == '__main__':

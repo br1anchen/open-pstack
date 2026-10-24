@@ -504,3 +504,54 @@ def validate_map(data: dict, roots: dict[str, Path] | None = None) -> list[str]:
             ids.add(str(pid))
         out += playbook_problems(name, doc, entry)
     return out
+
+
+MAP_PATH = Path(__file__).resolve().parents[1] / 'references/playbook-roles.toml'
+
+
+def load_map(path: Path) -> dict:
+    import tomllib
+
+    with path.open('rb') as f:
+        return tomllib.load(f)
+
+
+def last_map_commit(path: Path) -> str | None:
+    """The last commit that changed the map file, or None outside git."""
+    import subprocess
+
+    done = subprocess.run(
+        ['git', 'log', '-1', '--format=%h', '--', path.name],
+        cwd=path.parent,
+        capture_output=True,
+        text=True,
+    )
+    return done.stdout.strip() or None if done.returncode == 0 else None
+
+
+def review(data: dict, name: str, roots: dict[str, Path]) -> list[dict]:
+    """The parts of playbook `name` whose source no longer matches the digest
+    they were reviewed at: expected and current digest and the current text,
+    or the error that stops the part resolving."""
+    entry = data.get('playbook', {}).get(name)
+    if entry is None:
+        raise PlaybookError(f'no playbook {name!r} in the map')
+    doc = load_doc(roots, entry.get('source'))
+    changed = []
+    for part in entry.get('part', []):
+        found = {'id': part['id'], 'select': part['select']}
+        try:
+            text = text_of(doc, select(doc, part['select']))
+        except PlaybookError as e:
+            changed.append({**found, 'expected': part['reviewed'], 'error': str(e)})
+            continue
+        if digest(text) != part['reviewed']:
+            changed.append(
+                {
+                    **found,
+                    'expected': part['reviewed'],
+                    'current': digest(text),
+                    'text': text,
+                }
+            )
+    return changed

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check the vendored suite's discovery, inventory, links, and runtime entrypoints."""
 
+import importlib.util
 import json
 import re
 import sys
@@ -85,6 +86,19 @@ for path in skills.rglob('*.md'):
             assert unquote(fragment).lower() in anchors(linked.read_text()), (
                 f'{path}: no heading for {target}'
             )
+kitchen_scripts = skills / 'pstack-kitchen/scripts'
+if (kitchen_scripts / 'playbooks.py').is_file():
+    spec = importlib.util.spec_from_file_location(
+        'playbooks', kitchen_scripts / 'playbooks.py'
+    )
+    assert spec and spec.loader
+    playbooks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(playbooks)
+    problems = playbooks.validate_map(
+        playbooks.load_map(skills / 'pstack-kitchen/references/playbook-roles.toml'),
+        {'skills': skills},
+    )
+    assert not problems, 'playbook-roles.toml: ' + '; '.join(problems)
 print(
     f'{len(actual)} skills checked; all {len(manifest["previous_install"])} previous skills covered'
 )
