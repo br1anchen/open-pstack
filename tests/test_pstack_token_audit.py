@@ -157,6 +157,7 @@ class TokenAuditTests(unittest.TestCase):
             )
             elsewhere.mkdir()
             record = json.loads(verifier.read_text().splitlines()[0])
+            record['cwd'] = '/other/pstack-scratch/runs-fixture-1/002-x-verify'
             record['message']['content'] = (
                 'take the verifier role. pstack-kitchen VERIFY /state/pstack/kitchen/runs/fixture-1/verdicts/002-x-v1'
             )

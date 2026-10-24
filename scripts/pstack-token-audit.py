@@ -197,7 +197,7 @@ def candidate_dirs(store, projects):
 
 def in_store_tree(store, session):
     """Whether the session ran in the store's repo or in a verifier scratch worktree for its slug."""
-    if f'/pstack-scratch/runs-{store.slug}-' in session.cwd:
+    if f'/pstack-scratch/runs-{store.slug}/' in session.cwd:
         return True
     return any(session.cwd == r or session.cwd.startswith(f'{r}/') for r in store.roots)
 
