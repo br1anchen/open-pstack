@@ -17,12 +17,17 @@ def git(cwd, *args):
         cwd=cwd,
         check=True,
         capture_output=True,
+        timeout=60,
     )
 
 
 def copy_tracked_files(dest):
     listing = subprocess.run(
-        ['git', 'ls-files', '-z'], cwd=REPO, capture_output=True, check=True
+        ['git', 'ls-files', '-z'],
+        cwd=REPO,
+        capture_output=True,
+        check=True,
+        timeout=60,
     ).stdout
     for name in listing.decode().split('\0'):
         source = REPO / name
@@ -48,6 +53,7 @@ class SpecGenCheckTests(unittest.TestCase):
             cwd=self.copy,
             capture_output=True,
             text=True,
+            timeout=60,
         )
 
     def test_check_passes_on_a_fresh_spec_and_ignores_the_generated_at_sha(self):

@@ -76,6 +76,7 @@ class WorktreeAuditTests(unittest.TestCase):
                     check=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    timeout=60,
                 )
 
             git('init', '-b', 'main')
@@ -110,6 +111,7 @@ class WorktreeAuditTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             )
             self.assertIn('review-no-transcripts', result.stdout)
             self.assertIn(str(worktree), result.stdout)
@@ -126,6 +128,7 @@ class WorktreeAuditTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             )
             self.assertIn('verify-recent-chat', recent.stdout)
 

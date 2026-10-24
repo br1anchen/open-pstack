@@ -102,6 +102,7 @@ def git(cwd, *args):
             cwd=cwd,
             check=True,
             capture_output=True,
+            timeout=60,
         )
         .stdout.decode()
         .strip()
@@ -264,6 +265,7 @@ class AuditTests(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            timeout=60,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
@@ -481,7 +483,9 @@ class PlanApplyTests(UpdateCase):
     def test_merge_file_exit_codes(self):
         missing = [str(Path(self.tmp.name) / n) for n in ('a', 'b', 'c')]
         real = subprocess.run(
-            ['git', 'merge-file', '-p', *missing], capture_output=True
+            ['git', 'merge-file', '-p', *missing],
+            capture_output=True,
+            timeout=60,
         ).returncode
         self.assertNotIn(real, range(0, 128))
         with self.assertRaises(pu.Stop) as caught:
@@ -703,7 +707,10 @@ class CheckPstackTests(unittest.TestCase):
 
     def check(self):
         return subprocess.run(
-            ['python3', str(CHECK), str(self.root)], capture_output=True, text=True
+            ['python3', str(CHECK), str(self.root)],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
     def assertFails(self, needle):
@@ -792,6 +799,7 @@ class RealCheckoutTests(unittest.TestCase):
                 ['git', 'cat-file', '-e', f'{rev}^{{commit}}'],
                 cwd=root,
                 capture_output=True,
+                timeout=60,
             ).returncode:
                 self.skipTest(f'{root} has no commit {rev}')
         with tempfile.TemporaryDirectory() as tmp:
@@ -800,8 +808,11 @@ class RealCheckoutTests(unittest.TestCase):
                 cwd=repo,
                 capture_output=True,
                 check=True,
+                timeout=60,
             )
-            subprocess.run(['tar', '-x', '-C', tmp], input=archive.stdout, check=True)
+            subprocess.run(
+                ['tar', '-x', '-C', tmp], input=archive.stdout, check=True, timeout=60
+            )
             return pu.audit(pu.Tree(tmp), pu.Upstream(checkout), pinned)
 
     def test_real_checkout_audit_names_every_customization(self):

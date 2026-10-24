@@ -57,6 +57,7 @@ class PairScriptTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         ).stdout
         golden = here / 'golden' / f'{variant}.txt'
         if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
@@ -129,6 +130,7 @@ esac
             env=self.env,
             capture_output=True,
             text=True,
+            timeout=60,
         )
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         return result.stdout + result.stderr
@@ -517,6 +519,7 @@ class FreshSessionTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=60,
             )
             self.assertEqual(r.returncode, code, r.stdout + r.stderr)
             return r.stdout + r.stderr
@@ -696,6 +699,7 @@ class RangeFloorTests(unittest.TestCase):
             check=True,
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout.strip()
 
     def commit(self, name):
@@ -853,6 +857,7 @@ class ReadinessTests(unittest.TestCase):
             check=True,
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout.strip()
 
     def commit(self, message):
@@ -869,6 +874,7 @@ class ReadinessTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         self.assertEqual(r.returncode, code, r.stdout + r.stderr)
         return r.stdout + r.stderr
@@ -1029,7 +1035,7 @@ class ReadinessTests(unittest.TestCase):
         self.quiet_log()
         (self.cwd / 'f.txt').write_text('changed')
         pane = json.loads((self.store / 'pair.json').read_text())['sidekick']['pane_id']
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # bounded: killed by addCleanup
             ['sleep', '30'], cwd=self.cwd, env={**self.env, 'HERDR_PANE_ID': pane}
         )
         self.addCleanup(lambda: (proc.kill(), proc.wait()))
@@ -1132,7 +1138,7 @@ class ReadinessTests(unittest.TestCase):
         ) - timedelta(seconds=2)
         state['dispatch']['at'] = at.strftime('%Y-%m-%dT%H:%M:%SZ')
         path.write_text(json.dumps(state))
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # bounded: killed by addCleanup
             ['sleep', seconds],
             cwd=self.cwd,
             env={**self.env, 'HERDR_PANE_ID': state['sidekick']['pane_id']},
@@ -1250,6 +1256,7 @@ class ReadinessTests(unittest.TestCase):
             env={**self.env, 'GIT_COMMITTER_DATE': when},
             check=True,
             capture_output=True,
+            timeout=60,
         )
 
     def test_a_branch_switch_after_dispatch_counts_only_the_commits_made_since(self):
@@ -1456,6 +1463,7 @@ esac
             env=self.env,
             capture_output=True,
             text=True,
+            timeout=60,
         )
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         return result.stdout + result.stderr
@@ -2513,6 +2521,7 @@ class EntryScriptTests(unittest.TestCase):
                     capture_output=True,
                     text=True,
                     check=False,
+                    timeout=60,
                 ).returncode,
                 0,
                 key,

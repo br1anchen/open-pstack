@@ -174,6 +174,7 @@ class CoreTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         self.assertEqual(
             (r.returncode, r.stdout, r.stderr), (127, '', 'jq was started\n')
@@ -204,7 +205,9 @@ class CoreTests(unittest.TestCase):
             ['git', 'commit', '-q', '--allow-empty', '-m', 'base'],
             ['jj', 'git', 'init', '--colocate'],
         ):
-            subprocess.run(cmd, cwd=repo, env=env, check=True, capture_output=True)
+            subprocess.run(
+                cmd, cwd=repo, env=env, check=True, capture_output=True, timeout=60
+            )
         real = pgit.out
 
         def elsewhere(root, *args):
@@ -239,6 +242,7 @@ class CoreTests(unittest.TestCase):
                 env=env,
                 capture_output=True,
                 text=True,
+                timeout=60,
             ).stdout
             self.assertEqual(len(listed.splitlines()), 1)
             jj_list = subprocess.run(
@@ -247,6 +251,7 @@ class CoreTests(unittest.TestCase):
                 env=env,
                 capture_output=True,
                 text=True,
+                timeout=60,
             ).stdout
             self.assertNotIn('scratch-001-x', jj_list)
 
@@ -260,6 +265,7 @@ class CoreTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=60,
             )
         self.assertEqual(
             (r.returncode, r.stdout, r.stderr), (127, '', 'jq was started\n')
@@ -3937,6 +3943,7 @@ class CoreTests(unittest.TestCase):
             ['git', '-C', str(top / 'repo'), 'rev-parse', 'HEAD'],
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout.strip()
         ctx = self.ctx()
         seen, original = [], step_command.StepLog.add_resolves
@@ -3981,6 +3988,7 @@ class CoreTests(unittest.TestCase):
             ['git', '-C', str(top / 'repo'), 'rev-parse', rev],
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout.strip()
         r = run('new-note', '{st}', '001')
         self.assertEqual(
@@ -5530,6 +5538,7 @@ class CoreTests(unittest.TestCase):
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=60,
             ).stdout.strip()
 
         git_('init', '-q', '-b', 'main')
@@ -9361,6 +9370,7 @@ class CoreTests(unittest.TestCase):
                 text=True,
                 check=True,
                 **kw,
+                timeout=60,
             ).stdout
         )
         commits = git('rev-list', '--all').split()
@@ -9372,6 +9382,7 @@ class CoreTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.split(' ')[0]
             self.assertEqual(units.patch_id(str(repo), c), want, c)
         self.assertTrue(any(units.patch_id(str(repo), c) for c in commits))
@@ -9406,6 +9417,7 @@ class CoreTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         ).stdout.split()
         self.assertEqual(index.commits, listed)
         self.assertEqual(index.position, {c: n for n, c in enumerate(listed)})
@@ -9572,6 +9584,7 @@ class CoreTests(unittest.TestCase):
                 ['git', '-C', str(repo), 'checkout', '-q', label],
                 check=True,
                 env={**self.env, **self.GIT},
+                timeout=60,
             )
             got = []
             for names in self.HEADS_IN_LISTS:
@@ -10255,6 +10268,7 @@ class CoreTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         ).stdout.strip()
 
         def commit(msg, **files):
@@ -10555,10 +10569,10 @@ class CoreTests(unittest.TestCase):
 
     def spawn_live_and_dead_pids(self):
         """A pid that is alive until the test ends, and one that is gone."""
-        live = subprocess.Popen(['sleep', '600'])
+        live = subprocess.Popen(['sleep', '600'])  # bounded: killed by addCleanup
         self.addCleanup(live.wait)
         self.addCleanup(live.kill)
-        dead = subprocess.Popen(['true'])
+        dead = subprocess.Popen(['true'])  # bounded: true exits at once
         dead.wait()
         return live.pid, dead.pid
 
@@ -11087,7 +11101,7 @@ class CoreTests(unittest.TestCase):
     def live_and_dead_token_hosts():
         """The host a claim token names (HOSTNAME from the environment, else localhost), a pid that is alive for the whole test and one that is gone."""
         host = os.environ.get('HOSTNAME') or socket.gethostname()
-        dead = subprocess.Popen(['true'])
+        dead = subprocess.Popen(['true'])  # bounded: true exits at once
         dead.wait()
         return host, os.getpid(), dead.pid
 
@@ -11933,7 +11947,11 @@ class CoreTests(unittest.TestCase):
         files = sorted(str(p) for p in (root / 'skills').rglob('*.py'))
         code = 'import ast, sys\nfor f in sys.argv[1:]:\n    ast.parse(open(f, encoding="utf-8").read(), f)\n'
         r = subprocess.run(
-            [python, '-c', code, *files], capture_output=True, text=True, check=False
+            [python, '-c', code, *files],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
         )
         self.assertEqual((r.returncode, r.stderr), (0, ''))
 
@@ -12259,6 +12277,7 @@ class CoreTests(unittest.TestCase):
                 env=env,
                 check=True,
                 capture_output=True,
+                timeout=60,
             )
         brief = top / 'brief.md'
         brief.write_text(self.launch_brief('001', 'x'))
@@ -12456,6 +12475,7 @@ class CoreTests(unittest.TestCase):
             check=True,
             capture_output=True,
             env={**self.env, **self.GIT},
+            timeout=60,
         )
         (st / 'pair.json').write_text(json.dumps({'git_root': str(repo)}) + '\n')
         code = (
@@ -14466,7 +14486,7 @@ class CoreTests(unittest.TestCase):
 
     def end_with_parent_process(self, code, **popen):
         pre = f'import os, signal, sys\nsys.path.insert(0, {str(scripts)!r})\nfrom pstack_core.wait import end_with_parent\n'
-        return subprocess.Popen(
+        return subprocess.Popen(  # bounded: every caller communicates with timeout=30
             [sys.executable, '-I', '-c', pre + code],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -14566,7 +14586,7 @@ class CoreTests(unittest.TestCase):
             }
             for tag, skills in (('port', root / 'skills'),):
                 top, st, env, fill = self.script_world(f'orphan{name}-{tag}', spec)
-                shell = subprocess.Popen(
+                shell = subprocess.Popen(  # bounded: its process group is killed by addCleanup
                     [
                         'sh',
                         '-c',
@@ -15047,14 +15067,16 @@ class CoreTests(unittest.TestCase):
             top, st, env, fill = self.script_world(f'qwcompat-{label}', spec)
             os.mkfifo(top / 'claimed')
             args = [fill(a) for a in spec['args']]
-            run = lambda skills, env, args=args, top=top, **kw: subprocess.Popen(
-                [str(skills / 'pstack-kitchen/scripts/kitchen.sh'), *args],
-                cwd=top / 'repo',
-                env=env,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                **kw,
+            run = lambda skills, env, args=args, top=top, **kw: (
+                subprocess.Popen(  # bounded: killed by addCleanup
+                    [str(skills / 'pstack-kitchen/scripts/kitchen.sh'), *args],
+                    cwd=top / 'repo',
+                    env=env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    **kw,
+                )
             )
             first = run(older, env)
             self.addCleanup(first.kill)
@@ -15455,6 +15477,7 @@ class CoreTests(unittest.TestCase):
                 env=env,
                 check=True,
                 capture_output=True,
+                timeout=60,
             )
         brief = top / 'brief.md'
         brief.write_text(self.launch_brief('001', 'x'))
@@ -15667,6 +15690,7 @@ class CoreTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
             self.assertEqual(bash, str(want))
             self.assertEqual(numbers.exit_code(-number), want)
@@ -15860,6 +15884,7 @@ class CoreTests(unittest.TestCase):
                 env=env,
                 check=True,
                 capture_output=True,
+                timeout=60,
             )
         (st / 'pair.json').write_text(json.dumps({'git_root': str(repo)}) + '\n')
         head = subprocess.run(
@@ -15868,6 +15893,7 @@ class CoreTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         ).stdout.strip()
         with mock.patch.dict(os.environ, env):
             path = scratch.make_scratch(ctx, str(st), '001-x', at=head)
@@ -15916,6 +15942,7 @@ class CoreTests(unittest.TestCase):
                 env=env,
                 check=True,
                 capture_output=True,
+                timeout=60,
             )
         (repo / 'tracked.txt').write_text('two\n')
         (repo / 'sub' / 'new.txt').write_text('fresh\n')
@@ -16144,6 +16171,7 @@ class CoreTests(unittest.TestCase):
                     env=env,
                     check=True,
                     capture_output=True,
+                    timeout=60,
                 )
             shas.append(
                 subprocess.run(
@@ -16152,6 +16180,7 @@ class CoreTests(unittest.TestCase):
                     check=True,
                     capture_output=True,
                     text=True,
+                    timeout=60,
                 ).stdout.strip()
             )
         before = dict(os.environ)
@@ -16188,6 +16217,7 @@ class CoreTests(unittest.TestCase):
                 env=env,
                 check=True,
                 capture_output=True,
+                timeout=60,
             )
         before = dict(os.environ)
         with mock.patch.dict(
@@ -16554,6 +16584,7 @@ class CoreTests(unittest.TestCase):
             ['git', '-C', str(repo), 'checkout', '-q', 'main'],
             check=True,
             env={**self.env, **self.GIT},
+            timeout=60,
         )
         plain = stacks['plain'][1]
         base, trunk, u1, u2 = shas['base'], shas['trunk'], shas['u1'], shas['u2']
@@ -16666,6 +16697,7 @@ class CoreTests(unittest.TestCase):
             env={**self.env, **self.GIT},
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout.strip()
         git('checkout', '-q', 'plain')
         tip, trunk = stacks['plain'][1], shas['trunk']
@@ -17973,6 +18005,7 @@ class GuidedCommandTests(unittest.TestCase):
             capture_output=True,
             text=True,
             env=env,
+            timeout=60,
         )
 
     def test_new_direction_fills_the_template_and_a_second_call_prints_the_same_path(
@@ -19242,7 +19275,12 @@ class DispatchedStore(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(
-            ['git', *args], cwd=self.cwd, capture_output=True, text=True, check=True
+            ['git', *args],
+            cwd=self.cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
         ).stdout
 
 

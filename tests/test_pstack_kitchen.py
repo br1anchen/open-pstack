@@ -137,6 +137,7 @@ class KitchenTests(unittest.TestCase):
             check=True,
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout.strip()
 
     def write(self, path, text):
@@ -475,6 +476,7 @@ class ClassifyTests(KitchenTests):
             subprocess.run(
                 ['git', 'clone', '-q', '--bare', str(self.repo), str(git_dir)],
                 check=True,
+                timeout=60,
             )
             wt = parent / f'{name[0]}-main'
             subprocess.run(
@@ -489,6 +491,7 @@ class ClassifyTests(KitchenTests):
                     str(wt),
                 ],
                 check=True,
+                timeout=60,
             )
             dirs.append(self.run_kitchen('--repo', str(wt), 'statedir').strip())
             self.assertEqual(
@@ -802,6 +805,7 @@ class GateTests(KitchenTests):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         return [
@@ -828,6 +832,7 @@ class GateTests(KitchenTests):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -917,7 +922,7 @@ class GateTests(KitchenTests):
         )
         env = {**self.env, 'PSTACK_KITCHEN_GATE_SLOTS': '1'}
         procs = [
-            subprocess.Popen(
+            subprocess.Popen(  # bounded: communicate(timeout=60) below
                 [sys.executable, str(script), '--json', 'gate', 'app', 'fast'],
                 cwd=self.repo,
                 env=env,
@@ -1097,6 +1102,7 @@ class WrapTests(KitchenTests):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         (row,) = [
@@ -1145,6 +1151,7 @@ class WrapTests(KitchenTests):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         rows = [
@@ -1264,6 +1271,7 @@ class WrapTests(KitchenTests):
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         return {x['check']: x for x in json.loads(r.stdout)['checks']}['scratch setup']
 
@@ -1404,6 +1412,7 @@ class HostKitchenTests(KitchenTests):
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         self.stdout = result.stdout
         return result.stdout + result.stderr
@@ -2773,6 +2782,7 @@ class LibraryTests(KitchenTests):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -2802,6 +2812,7 @@ class LibraryTests(KitchenTests):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -2853,6 +2864,7 @@ class LibraryTests(KitchenTests):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -3071,6 +3083,7 @@ class FleetTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
         out = json.loads(r.stdout)
         return {x['run']: x for x in out['runs']}, {
@@ -3204,6 +3217,7 @@ class FleetTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
         return {
             (v['agent'], v['class']): v for v in json.loads(r.stdout)['verifiers']
@@ -3269,6 +3283,7 @@ class FleetTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
         self.assertIn(
             'reported outcomes on different workloads, not model accuracy', r.stdout
@@ -3410,6 +3425,7 @@ esac
             check=True,
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout.strip()
 
     def write(self, path, text):
@@ -3710,7 +3726,11 @@ esac
         block = module.verify_block(BARE_CTX, str(b))
         old_key = (
             subprocess.run(
-                ['cksum'], input=block.encode(), capture_output=True, check=True
+                ['cksum'],
+                input=block.encode(),
+                capture_output=True,
+                check=True,
+                timeout=60,
             )
             .stdout.split()[0]
             .decode()
@@ -3948,6 +3968,7 @@ esac
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r.stdout
@@ -3988,6 +4009,7 @@ esac
             env=self.env,
             check=True,
             capture_output=True,
+            timeout=60,
         )
         return head
 
@@ -3999,6 +4021,7 @@ esac
             check=True,
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout
 
     @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
@@ -4016,6 +4039,7 @@ esac
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=60,
             ).stdout.strip()
 
         self.assertEqual(
@@ -4071,6 +4095,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=60,
             )
             self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
             path = made.stdout.splitlines()[-1]
@@ -4089,6 +4114,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=60,
             )
             self.assertEqual(
                 (gone.returncode, gone.stdout), (0, f'removed {path}\n'), spelling
@@ -4162,6 +4188,7 @@ esac
                 env=self.env,
                 capture_output=True,
                 text=True,
+                timeout=60,
             )
 
         r = init('wt')
@@ -4809,6 +4836,7 @@ esac
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         self.assertEqual((r.returncode, r.stderr), (0, ''))
         return (job / 'rc').read_text()
@@ -4854,6 +4882,7 @@ esac
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         self.assertEqual(
             (r.returncode, r.stdout, r.stderr),
@@ -4877,6 +4906,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=60,
             )
             self.assertEqual(
                 (
@@ -5135,6 +5165,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=60,
             )
             if r.returncode == 0:
                 return r.stdout + r.stderr
@@ -5654,6 +5685,7 @@ esac
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         return r.returncode, r.stdout, r.stderr
 
@@ -7050,6 +7082,7 @@ esac
                     capture_output=True,
                     text=True,
                     check=True,
+                    timeout=60,
                 ).stdout
             )['lessons']
         }
@@ -7431,7 +7464,7 @@ esac
         os.mkfifo(held)
         os.mkfifo(go)
         self.on_nth_get(1, f'echo held >{held}\ncat {go} >/dev/null')
-        waiter = subprocess.Popen(
+        waiter = subprocess.Popen(  # bounded: killed by addCleanup
             [str(self.script), 'verify', str(self.store), '--wait', '--every', '1'],
             cwd=self.repo,
             env=self.env,
@@ -7441,7 +7474,7 @@ esac
         )
         self.addCleanup(waiter.kill)
         self.assertEqual(held.read_text().strip(), 'held')
-        nxt = subprocess.Popen(
+        nxt = subprocess.Popen(  # bounded: killed by addCleanup
             [
                 str(self.script),
                 'verify',
@@ -7508,7 +7541,7 @@ esac
         editing the store, and returns (status, output, the herdr calls the loser made after it began to wait). The loser waits on a store
         change, so no timing is involved."""
         self.hold_close_claim()
-        call = subprocess.Popen(
+        call = subprocess.Popen(  # bounded: killed by addCleanup
             [str(self.script), *args],
             cwd=self.repo,
             env=self.env,
@@ -7522,7 +7555,7 @@ esac
         self.assertIn('another call is closing it; waiting for it', waiting)
         before = (self.fake / 'calls.log').read_text()
         finish()
-        rest, _ = call.communicate()
+        rest, _ = call.communicate(timeout=60)
         calls = (self.fake / 'calls.log').read_text()
         return call.returncode, waiting + rest, calls[len(before) :]
 
@@ -7662,7 +7695,7 @@ esac
 
     def test_a_verify_wait_that_loses_a_close_to_a_dead_process_stops_waiting(self):
         def die():
-            gone = subprocess.Popen(['true'])
+            gone = subprocess.Popen(['true'])  # bounded: true exits at once
             gone.wait()
             self.swap_closing({'token': f'claimhost:{gone.pid}:dead'})
 
@@ -7771,7 +7804,7 @@ esac
         which took over only a claim older than two minutes."""
         self.env.update({'KITCHEN_VERIFIER_EXIT_S': '1', 'HOSTNAME': 'claimhost'})
         first = self.open_slow_verification()
-        gone = subprocess.Popen(['true'])
+        gone = subprocess.Popen(['true'])  # bounded: true exits at once
         gone.wait()
         self.set_close_claim(f'claimhost:{gone.pid}:dead')
         self.assertIn(
@@ -7795,7 +7828,7 @@ esac
         wait = [str(self.script), 'verify', str(self.store), '--wait', '--every', '1']
 
         def start():
-            return subprocess.Popen(
+            return subprocess.Popen(  # bounded: killed by addCleanup
                 wait,
                 cwd=self.repo,
                 env=self.env,
@@ -7968,6 +8001,7 @@ esac
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
         attempts = json.loads(fleet.stdout)['verifiers']
         self.assertEqual(sum(v['running'] for v in attempts), 0)
@@ -8249,6 +8283,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -8320,6 +8355,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -8551,7 +8587,9 @@ esac
             )[0]
             block = re.sub(r'\(set -e\ncd \S+\n', f'(set -e\ncd {scratch}\n', block)
             runs.append(
-                subprocess.run(['bash', '-c', block], capture_output=True, text=True)
+                subprocess.run(
+                    ['bash', '-c', block], capture_output=True, text=True, timeout=60
+                )
             )
         self.assertEqual((runs[0].returncode, runs[0].stdout), (0, 'fenced\n'))
         self.assertEqual((runs[1].returncode, runs[1].stdout), (1, ''))
@@ -9015,7 +9053,7 @@ esac
         (self.fake / 'agents' / verifier['name']).write_text('idle pi\n')
         out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', code=4)
         self.assertRegex(out, r'verifier idle\n')
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # bounded: killed by addCleanup
             ['sleep', '30'],
             cwd=self.repo,
             env={**self.env, 'HERDR_PANE_ID': verifier['pane_id']},
@@ -9071,14 +9109,14 @@ esac
     def test_a_verdict_arriving_during_the_grace_wins(self):
         verdict = self.store / 'verdicts/001-util-v1.md'
         packet = self.store / 'verdicts/001-util-v1-packet.md'
-        late = subprocess.Popen(
+        late = subprocess.Popen(  # bounded: killed by addCleanup
             [
                 'bash',
                 '-c',
                 f"until [ -f {packet} ]; do sleep 0.2; done; sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}",  # kitchen-allow: test-sleep (the verdict is written after the packet appears)
             ]
         )
-        self.addCleanup(late.wait)
+        self.addCleanup(lambda: (late.kill(), late.wait(timeout=60)))
         out = self.deadline_verify('slow', code=2)
         self.assertIn('status: reject', out)
 
@@ -9259,7 +9297,7 @@ esac
     def test_simultaneous_filings_get_distinct_ids(self):
         f = self.gap_file()
         procs = [
-            subprocess.Popen(
+            subprocess.Popen(  # bounded: communicate(timeout=60) below
                 [str(self.script), 'feedback', str(self.store), str(f)],
                 cwd=self.repo,
                 env=self.env,
@@ -9269,7 +9307,7 @@ esac
             )
             for _ in range(4)
         ]
-        outs = [p.communicate()[0] for p in procs]
+        outs = [p.communicate(timeout=60)[0] for p in procs]
         self.assertEqual([p.returncode for p in procs], [0] * 4, outs)
         ids = sorted(p.stem for p in (self.feedback_dir() / 'inbox').glob('*.md'))
         self.assertEqual(len(ids), 4)
@@ -9553,6 +9591,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         (state_dir / 'timings.tsv').write_text(
@@ -9579,6 +9618,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         (state_dir / 'timings.tsv').write_text(
@@ -9857,7 +9897,7 @@ esac
         self.assertIn('STALE', out)
         self.assertNotIn('"error"', out)
         pane = self.state()['sidekick']['pane_id']
-        test = subprocess.Popen(
+        test = subprocess.Popen(  # bounded: killed by addCleanup
             ['sleep', '30'], cwd=self.repo, env={**self.env, 'HERDR_PANE_ID': pane}
         )
         self.addCleanup(lambda: (test.kill(), test.wait()))
@@ -11300,6 +11340,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout
         )
         self.assertEqual(counters['verified_units'], 3)
@@ -11421,6 +11462,7 @@ esac
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             ).stdout.strip()
         )
         (state / 'ledger.tsv').write_text(
