@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Move sections of a repo's Markdown documents into new modules from a reviewed migration file.
 
-This module holds the migration file's model and loader (`Migration`, `load`), the reader over the
-original bytes of a source (`lines_of`, `sections`, `find`), the cuts a migration makes (`cuts`) and
-their rendering (`render`). Everything but `load` and the two `git` readers (`read_base`,
-`base_files_at`) is a pure function over bytes and typed data; nothing here writes a file.
+This module holds the migration file's model and loader, the reader over a source's original bytes, the cuts a
+migration makes and their rendering. Everything but `load` and the git readers is a pure function over bytes and
+typed data; nothing here writes a file.
 
-A migration reads every input from its recorded base commit, never from the working tree, so a
-preview, an apply and a second apply all reconstruct the same outputs from the same inputs.
+A migration reads every input from its recorded base commit, never from the working tree, so a preview, an apply and
+a second apply all reconstruct the same outputs from the same inputs.
 
 Stdlib only, and independent of kitchen_core. Headings and fences come from playbooks.py.
 """
@@ -15,6 +14,7 @@ Stdlib only, and independent of kitchen_core. Headings and fences come from play
 import functools
 import hashlib
 import importlib.util
+import os
 import re
 import subprocess
 import tomllib
@@ -41,6 +41,15 @@ SHA256 = re.compile(r'[0-9a-f]{64}')
 SETEXT = re.compile(r'(=+|-+)[ \t]*')
 THEMATIC = re.compile(r'(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})')
 GIT_TIMEOUT_S = 60
+REPO_ENV = (
+    'GIT_DIR',
+    'GIT_WORK_TREE',
+    'GIT_INDEX_FILE',
+    'GIT_COMMON_DIR',
+    'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_NAMESPACE',
+)
 
 
 class ContextError(Exception):
@@ -105,10 +114,16 @@ def check_path(path: object, where: str) -> str:
     if not isinstance(path, str) or not path:
         raise ContextError(f'{where}: a path must be a non-empty string')
     parts = path.split('/')
-    if path.startswith('/') or '\\' in path or any(p in ('', '.', '..') for p in parts):
-        raise ContextError(
-            f'{where}: {path!r} must be a repo-relative path with no `..`, no leading `/` and no backslash'
-        )
+    if path.startswith('/'):
+        raise ContextError(f'{where}: {path!r} must not start with `/`')
+    if '\\' in path:
+        raise ContextError(f'{where}: {path!r} must not contain a backslash')
+    if '..' in parts:
+        raise ContextError(f'{where}: {path!r} must not contain a `..` part')
+    if '.' in parts:
+        raise ContextError(f'{where}: {path!r} must not contain a `.` part')
+    if '' in parts:
+        raise ContextError(f'{where}: {path!r} must not have an empty path part')
     return path
 
 
@@ -160,7 +175,8 @@ def parse_migration(text: str) -> Migration:
         allowed = TABLE_KEYS[name]
         for n, table in enumerate(tables[name], 1):
             check_keys(table, allowed, f'[[{name}]] {n}', f'[[{name}]] {n}')
-    if data.get('schema') != SCHEMA or isinstance(data.get('schema'), bool):
+    schema = data.get('schema')
+    if not isinstance(schema, int) or isinstance(schema, bool) or schema != SCHEMA:
         raise ContextError(f'`schema` must be {SCHEMA}')
     migration_id = string(data, 'id', 'root')
     if not ID.fullmatch(migration_id):
@@ -253,6 +269,11 @@ def check_writes(m: Migration) -> None:
             f'writes: {path!r} is not a source, destination or rewrite target of any move or rewrite'
         )
     names = [f.path for f in m.files]
+    for r in m.rewrites:
+        if r.path not in names:
+            raise ContextError(
+                f'[[rewrite]]: target {r.path!r} has no [[file]] entry; every existing file a migration changes needs one'
+            )
     for path in names:
         if names.count(path) > 1:
             raise ContextError(f'[[file]]: {path!r} is listed twice')
@@ -268,9 +289,11 @@ def load(path: Path) -> Migration:
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
+    env = {k: v for k, v in os.environ.items() if k not in REPO_ENV}
     try:
         return subprocess.run(
             ['git', '-C', str(repo), *args],
+            env=env,
             capture_output=True,
             timeout=GIT_TIMEOUT_S,
             check=False,
@@ -293,9 +316,9 @@ def read_base(repo: Path, migration: Migration) -> dict[str, bytes]:
     commit = resolve_base(repo, migration)
     found: dict[str, bytes] = {}
     for entry in migration.files:
-        done = git(repo, 'show', f'{commit}:{entry.path}')
+        done = git(repo, 'cat-file', 'blob', f'{commit}:{entry.path}')
         if done.returncode:
-            raise ContextError(f'{entry.path}: not present at base {migration.base!r}')
+            raise ContextError(f'{entry.path}: not a file at base {migration.base!r}')
         digest = hashlib.sha256(done.stdout).hexdigest()
         if digest != entry.sha256:
             raise ContextError(

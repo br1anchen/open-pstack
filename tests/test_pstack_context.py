@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 root = Path(__file__).resolve().parents[1]
 scripts = root / 'skills/pstack-kitchen/scripts'
@@ -252,10 +253,37 @@ class LoaderTests(unittest.TestCase):
         )
 
     def test_a_path_must_stay_inside_the_repo(self):
-        for bad in ('../evil.md', '/abs.md', 'a\\\\b.md', 'a//b.md', './a.md', ''):
+        cases = {
+            '../evil.md': 'must not contain a `..` part',
+            'a/../b.md': 'must not contain a `..` part',
+            '/abs.md': 'must not start with `/`',
+            'a\\\\b.md': 'must not contain a backslash',
+            'a//b.md': 'must not have an empty path part',
+            'a/': 'must not have an empty path part',
+            './a.md': 'must not contain a `.` part',
+            '': 'a path must be a non-empty string',
+        }
+        for bad, fragment in cases.items():
             with self.subTest(path=bad):
                 text = edit(SAMPLE, 'to = "docs/standards/rust.md"', f'to = "{bad}"')
-                refused(self, text, 'path')
+                refused(self, text, fragment)
+
+    def test_a_schema_that_is_not_the_integer_one_is_refused(self):
+        for bad in ('1.0', 'true', '"1"'):
+            with self.subTest(schema=bad):
+                refused(
+                    self,
+                    edit(SAMPLE, 'schema = 1', f'schema = {bad}'),
+                    '`schema` must be 1',
+                )
+
+    def test_a_rewrite_target_without_a_file_entry_is_refused_at_load(self):
+        text = edit(
+            SAMPLE,
+            'path = ".agents/kitchen.toml"\nsha256',
+            'path = "other.toml"\nsha256',
+        )
+        refused(self, text, "target '.agents/kitchen.toml' has no [[file]] entry")
 
     def test_a_sha256_must_be_64_lowercase_hex_digits(self):
         refused(self, edit(SAMPLE, '0' * 63 + '1', 'ABC'), '64 lowercase hex digits')
@@ -291,11 +319,15 @@ class BaseTests(unittest.TestCase):
     def test_a_path_missing_at_the_base_is_refused(self):
         repo, text = fixture_repo(self)
         m = context.parse_migration(
-            text.replace('path = ".agents/kitchen.toml"\nsha', 'path = "gone.md"\nsha')
+            edit(
+                text,
+                '[[move]]',
+                f'[[file]]\npath = "gone.md"\nsha256 = "{"0" * 64}"\n\n[[move]]',
+            )
         )
         with self.assertRaises(context.ContextError) as caught:
             context.read_base(repo, m)
-        self.assertIn('gone.md: not present at base', str(caught.exception))
+        self.assertIn('gone.md: not a file at base', str(caught.exception))
 
     def test_a_sha256_mismatch_names_the_path(self):
         repo, text = fixture_repo(self)
@@ -309,6 +341,33 @@ class BaseTests(unittest.TestCase):
         repo, text = fixture_repo(self)
         (repo / 'STANDARDS.md').write_bytes(b'# changed\n')
         found = context.read_base(repo, context.parse_migration(text))
+        self.assertEqual(found['STANDARDS.md'], STANDARDS)
+
+    def test_a_directory_at_the_base_is_not_a_file(self):
+        repo, text = fixture_repo(self)
+        m = context.parse_migration(
+            edit(
+                text,
+                '[[move]]',
+                f'[[file]]\npath = ".agents"\nsha256 = "{"0" * 64}"\n\n[[move]]',
+            )
+        )
+        with self.assertRaises(context.ContextError) as caught:
+            context.read_base(repo, m)
+        self.assertIn('.agents: not a file at base', str(caught.exception))
+
+    def test_an_inherited_git_environment_does_not_redirect_the_reads(self):
+        repo, text = fixture_repo(self)
+        other = repo.parent / 'other'
+        other.mkdir()
+        git(other, 'init', '-q')
+        env = {
+            'GIT_DIR': str(other / '.git'),
+            'GIT_WORK_TREE': str(other),
+            'GIT_INDEX_FILE': str(other / 'index'),
+        }
+        with mock.patch.dict(os.environ, env):
+            found = context.read_base(repo, context.parse_migration(text))
         self.assertEqual(found['STANDARDS.md'], STANDARDS)
 
     def test_destinations_at_the_base_are_reported(self):
