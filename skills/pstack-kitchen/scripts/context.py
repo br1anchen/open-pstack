@@ -15,6 +15,7 @@ import functools
 import hashlib
 import importlib.util
 import os
+import posixpath
 import re
 import subprocess
 import tomllib
@@ -499,6 +500,27 @@ def plain(raw: str) -> str:
     return ''.join(out).strip()
 
 
+def slug(text: str, seen: dict[str, int]) -> str:
+    """GitHub's anchor for a heading: the rendered text lowercased, characters other than letters, digits, spaces,
+    `-` and `_` dropped, spaces to `-`, then a document-scoped `-1`, `-2` suffix for a repeat. `seen` carries the
+    anchors the document has already used."""
+    base = ''.join(c for c in plain(text).lower() if c.isalnum() or c in ' -_').replace(
+        ' ', '-'
+    )
+    result = base
+    while result in seen:
+        seen[base] = seen.get(base, 0) + 1
+        result = f'{base}-{seen[base]}'
+    seen[result] = 0
+    return result
+
+
+def anchors(found: list[Section]) -> dict[int, str]:
+    """Each heading's anchor in its document, by the heading's line index."""
+    seen: dict[str, int] = {}
+    return {s.start: slug(s.raw, seen) for s in found}
+
+
 # ---- cuts ------------------------------------------------------------------
 
 
@@ -562,3 +584,157 @@ def cuts(
                 )
         out.append(Cut(mv, a, parent))
     return out
+
+
+# ---- render ----------------------------------------------------------------
+
+
+def shift_line(line: bytes, by: int) -> bytes:
+    """A heading line with `by` fewer `#` markers."""
+    level = len(line) - len(line.lstrip(b'#'))
+    return b'#' * (level - by) + line[level:]
+
+
+def relative(from_path: str, to_path: str) -> str:
+    return posixpath.relpath(to_path, posixpath.dirname(from_path) or '.')
+
+
+def pointer(from_path: str, dest: str, anchor: str) -> bytes:
+    return f'Moved to [{dest}]({relative(from_path, dest)}#{anchor}).\n'.encode()
+
+
+def read_first(m: Migration, mv: Move, present: Collection[str]) -> bytes:
+    """The `Read first:` line of a destination whose move names prerequisites."""
+    destinations = {x.to for x in m.moves}
+    links = []
+    for path in mv.requires:
+        if path not in destinations and path not in present:
+            raise ContextError(
+                f'{mv.to}: requires {path!r}, which is neither a destination of this migration nor a file at base'
+            )
+        links.append(f'[{path}]({relative(mv.to, path)})')
+    return f'Read first: {", ".join(links)}.\n'.encode()
+
+
+def check_requires(m: Migration) -> None:
+    """Refuses a `requires` cycle among the migration's own destinations."""
+    graph = {mv.to: mv.requires for mv in m.moves}
+    state: dict[str, int] = {}
+
+    def visit(node: str, trail: list[str]) -> None:
+        if state.get(node) == 2 or node not in graph:
+            return
+        if state.get(node) == 1:
+            ring = ' -> '.join([*trail[trail.index(node) :], node])
+            raise ContextError(f'requires form a cycle: {ring}')
+        state[node] = 1
+        for nxt in graph[node]:
+            visit(nxt, [*trail, node])
+        state[node] = 2
+
+    for node in graph:
+        visit(node, [])
+
+
+def with_newline(line: bytes) -> bytes:
+    return line if line.endswith(b'\n') else line + b'\n'
+
+
+def render(
+    migration: Migration,
+    base_files: dict[str, bytes],
+    present: Collection[str] = (),
+) -> dict[str, bytes]:
+    """The bytes of every file the moves write: each destination, and each source as an index. `present` is the
+    paths at base among the destinations and the `requires` of the moves: a destination there is refused, a
+    `requires` there is accepted. Pure: nothing is read or written."""
+    check_requires(migration)
+    sources = {mv.source for mv in migration.moves}
+    readings = {p: read(d, p) for p, d in base_files.items() if p in sources}
+    made = cuts(migration, {p: r.sections for p, r in readings.items()}, present)
+    outputs: dict[str, bytes] = {}
+    landed: dict[
+        tuple[str, int], tuple[str, str]
+    ] = {}  # (source, heading line) -> (destination, anchor)
+    built: set[int] = set()
+
+    def build(i: int) -> None:
+        if i in built:
+            return
+        kids = {made[j].section.start: j for j, c in enumerate(made) if c.parent == i}
+        for j in kids.values():
+            build(j)
+        cut = made[i]
+        reading = readings[cut.move.source]
+        sec = cut.section
+        by = sec.level - 1
+        headings = {s.start for s in reading.sections}
+        out: list[bytes] = []
+        origin: list[
+            int | None
+        ] = []  # the source line of each output line; None when generated
+        line = sec.start
+        while line < sec.end:
+            if line in kids:
+                kid = made[kids[line]]
+                anchor = landed[(kid.move.source, line)][1]
+                out += [
+                    shift_line(with_newline(reading.lines[line]), by),
+                    b'\n',
+                    pointer(cut.move.to, kid.move.to, anchor),
+                    b'\n',
+                ]
+                origin += [None] * 4
+                line = kid.section.end
+                continue
+            out.append(
+                shift_line(reading.lines[line], by)
+                if line in headings
+                else reading.lines[line]
+            )
+            origin.append(line)
+            if line == sec.start and cut.move.requires:
+                out[-1] = with_newline(out[-1])
+                extra = [b'\n', read_first(migration, cut.move, present)]
+                if line + 1 < sec.end and reading.lines[line + 1].strip():
+                    extra.append(b'\n')
+                out += extra
+                origin += [None] * len(extra)
+            line += 1
+        data = b''.join(out)
+        rendered = read(data, cut.move.to)
+        slugs = anchors(rendered.sections)
+        for s in rendered.sections:
+            if (src := origin[s.start]) is not None:
+                landed[(cut.move.source, src)] = (cut.move.to, slugs[s.start])
+        outputs[cut.move.to] = data
+        built.add(i)
+
+    for i in range(len(made)):
+        build(i)
+
+    for path, reading in readings.items():
+        tops = sorted(
+            (c.section.start, c.section.end)
+            for c in made
+            if c.move.source == path and c.parent is None
+        )
+        out: list[bytes] = []
+        line = 0
+        for start, end in tops:
+            out += reading.lines[line:start]
+            for s in reading.sections:
+                if start <= s.start < end:
+                    dest, anchor = landed[(path, s.start)]
+                    out += [
+                        with_newline(reading.lines[s.start]),
+                        b'\n',
+                        pointer(path, dest, anchor),
+                        b'\n',
+                    ]
+            line = end
+        out += reading.lines[line:]
+        if tops and tops[-1][1] == len(reading.lines) and out[-1:] == [b'\n']:
+            out.pop()
+        outputs[path] = b''.join(out)
+    return outputs

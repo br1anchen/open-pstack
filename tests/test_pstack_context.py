@@ -567,5 +567,199 @@ class CutTests(unittest.TestCase):
         self.assertIn('overlap without nesting', str(caught.exception))
 
 
+class SlugTests(unittest.TestCase):
+    def test_plain_renders_inline_markup_to_its_text(self):
+        cases = {
+            '`kitchen.toml` rules': 'kitchen.toml rules',
+            'The [spec](docs/spec.md) and ![img](a.png)': 'The spec and img',
+            'A **strong** and *soft* and _under_ word': 'A strong and soft and under word',
+            'Use <b>bold</b> tags': 'Use bold tags',
+            'Ref [link][1]': 'Ref link',
+            'snake_case word': 'snake_case word',
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(context.plain(raw), expected)
+
+    def test_slug_follows_githubs_rule(self):
+        cases = {
+            'Typed evidence': 'typed-evidence',
+            'Rust (Engine)': 'rust-engine',
+            'Rust Coach: the engine!': 'rust-coach-the-engine',
+            '`kitchen.toml` rules': 'kitchentoml-rules',
+            'snake_case-name': 'snake_case-name',
+            'Ünïcode Ünder': 'ünïcode-ünder',
+            'A  B': 'a--b',
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(context.slug(raw, {}), expected)
+
+    def test_a_repeat_takes_a_document_scoped_suffix(self):
+        seen = {}
+        got = [
+            context.slug(t, seen)
+            for t in ['Notes', 'Other', 'Notes', 'Notes', 'Notes-1']
+        ]
+        self.assertEqual(got, ['notes', 'other', 'notes-1', 'notes-2', 'notes-1-1'])
+
+    def test_anchors_are_by_heading_line_with_suffixes(self):
+        found = context.sections(STANDARDS)
+        got = context.anchors(found)
+        by_path = {s.path: got[s.start] for s in found}
+        self.assertEqual(by_path[NOTES], 'notes-1')
+        self.assertEqual(by_path[(*TYPED, 'Notes')], 'notes')
+
+
+def expected(path):
+    return (fixtures / 'expected' / path).read_bytes()
+
+
+def render_sample(migration=None, present=()):
+    return context.render(
+        migration or sample_migration(), {'STANDARDS.md': STANDARDS}, present
+    )
+
+
+class RenderTests(unittest.TestCase):
+    def test_the_fixture_renders_to_the_expected_bytes(self):
+        out = render_sample()
+        self.assertEqual(
+            set(out),
+            {
+                'STANDARDS.md',
+                'docs/standards/typed-evidence.md',
+                'docs/standards/rust.md',
+                'docs/standards/testing-notes.md',
+            },
+        )
+        for path, data in out.items():
+            with self.subTest(path=path):
+                self.assertEqual(data.decode(), expected(path).decode())
+
+    def test_frontmatter_and_unmoved_text_stay_byte_for_byte(self):
+        index = render_sample()['STANDARDS.md']
+        self.assertTrue(
+            index.startswith(STANDARDS[: STANDARDS.index(b'## Typed evidence')])
+        )
+        for kept in (
+            b'Tests are deterministic.\n',
+            b'First example.\n',
+            b'Keep it short.\n',
+        ):
+            self.assertIn(kept, index)
+
+    def test_a_destination_opens_at_level_one_and_fenced_lines_are_untouched(self):
+        typed = render_sample()['docs/standards/typed-evidence.md']
+        self.assertTrue(typed.startswith(b'# Typed evidence\n'))
+        self.assertIn(b'\n## Notes\n', typed)
+        self.assertIn(
+            b'```text\n# fenced lookalike\n## also not a heading\n```\n', typed
+        )
+        rust = render_sample()['docs/standards/rust.md']
+        self.assertTrue(rust.startswith(b'# Rust (Engine)\n'))
+        self.assertIn(b'\n## Rust notes\n', rust)
+
+    def test_a_nested_section_leaves_a_stub_in_its_parent(self):
+        typed = render_sample()['docs/standards/typed-evidence.md']
+        self.assertIn(
+            b'## Rust (Engine)\n\nMoved to [docs/standards/rust.md](rust.md#rust-engine).\n\n',
+            typed,
+        )
+        self.assertNotIn(b'Parse at the boundary', typed)
+        self.assertNotIn(b'Rust notes', typed)
+
+    def test_every_heading_of_moved_text_stays_in_the_index_with_its_anchor(self):
+        index = render_sample()['STANDARDS.md']
+        pointers = [
+            b'### Rust (Engine)\n\nMoved to [docs/standards/rust.md](docs/standards/rust.md#rust-engine).\n\n',
+            b'#### Rust notes\n\nMoved to [docs/standards/rust.md](docs/standards/rust.md#rust-notes).\n\n',
+            b'### Notes\n\nMoved to [docs/standards/typed-evidence.md](docs/standards/typed-evidence.md#notes).\n\n',
+        ]
+        for pointer in pointers:
+            self.assertIn(pointer, index)
+        old = context.anchors(context.sections(STANDARDS))
+        new = context.anchors(context.sections(index))
+        self.assertEqual(sorted(old.values()), sorted(new.values()))
+
+    def test_a_duplicate_heading_takes_its_anchor_from_the_destination(self):
+        index = render_sample()['STANDARDS.md']
+        self.assertIn(
+            b'### Notes\n\nMoved to [docs/standards/testing-notes.md](docs/standards/testing-notes.md#notes).\n',
+            index,
+        )
+        self.assertEqual(
+            context.anchors(context.sections(STANDARDS))[
+                next(s.start for s in context.sections(STANDARDS) if s.path == NOTES)
+            ],
+            'notes-1',
+        )
+
+    def test_an_occurrence_moves_the_second_of_two_equal_paths(self):
+        m = migration_of(move((*NOTES[:2], 'Examples'), 'docs/second.md', occurrence=2))
+        out = context.render(m, {'STANDARDS.md': STANDARDS})
+        self.assertEqual(
+            out['docs/second.md'],
+            b'# Examples\n\nSecond example.\n\n',
+        )
+        self.assertIn(b'First example.\n', out['STANDARDS.md'])
+        self.assertNotIn(b'Second example.', out['STANDARDS.md'])
+
+    def test_requires_render_relative_to_the_destination(self):
+        m = migration_of(
+            move(TYPED, 'a/b/typed.md'),
+            move(NOTES, 'docs/notes.md', requires=['a/b/typed.md', 'README.md']),
+        )
+        out = context.render(m, {'STANDARDS.md': STANDARDS}, present={'README.md'})
+        self.assertTrue(
+            out['docs/notes.md'].startswith(
+                b'# Notes\n\nRead first: [a/b/typed.md](../a/b/typed.md), [README.md](../README.md).\n\nNotes on testing.\n'
+            )
+        )
+
+    def test_a_requires_cycle_is_refused(self):
+        m = migration_of(
+            move(TYPED, 'a.md', requires=['b.md']),
+            move(NOTES, 'b.md', requires=['a.md']),
+        )
+        with self.assertRaises(context.ContextError) as caught:
+            context.render(m, {'STANDARDS.md': STANDARDS})
+        self.assertIn(
+            'requires form a cycle: a.md -> b.md -> a.md', str(caught.exception)
+        )
+
+    def test_a_requires_of_itself_is_refused(self):
+        m = migration_of(move(TYPED, 'a.md', requires=['a.md']))
+        with self.assertRaises(context.ContextError) as caught:
+            context.render(m, {'STANDARDS.md': STANDARDS})
+        self.assertIn('cycle', str(caught.exception))
+
+    def test_a_requires_that_is_not_a_destination_or_a_base_file_is_refused(self):
+        m = migration_of(move(TYPED, 'a.md', requires=['nowhere.md']))
+        with self.assertRaises(context.ContextError) as caught:
+            context.render(m, {'STANDARDS.md': STANDARDS})
+        self.assertIn("requires 'nowhere.md'", str(caught.exception))
+
+    def test_a_destination_that_exists_at_the_base_is_refused_by_render(self):
+        m = migration_of(move(RUST, 'docs/there.md'))
+        with self.assertRaises(context.ContextError) as caught:
+            context.render(m, {'STANDARDS.md': STANDARDS}, present={'docs/there.md'})
+        self.assertIn('already exists at base', str(caught.exception))
+
+    def test_a_final_line_without_a_newline_keeps_that_state_in_the_destination(self):
+        data = b'# Top\n\n## Last\ntext'
+        m = migration_of(move(('Top', 'Last'), 'last.md'))
+        out = context.render(m, {'STANDARDS.md': data})
+        self.assertEqual(out['last.md'], b'# Last\ntext')
+        self.assertEqual(
+            out['STANDARDS.md'],
+            b'# Top\n\n## Last\n\nMoved to [last.md](last.md#last).\n',
+        )
+
+    def test_rendering_reads_the_given_bytes_only(self):
+        again = render_sample()
+        self.assertEqual(render_sample(), again)
+
+
 if __name__ == '__main__':
     unittest.main()
