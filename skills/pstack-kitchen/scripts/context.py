@@ -314,3 +314,228 @@ def base_files_at(
     return frozenset(
         p for p in paths if git(repo, 'cat-file', '-e', f'{commit}:{p}').returncode == 0
     )
+
+
+# ---- the reader ------------------------------------------------------------
+
+
+def lines_of(data: bytes) -> list[bytes]:
+    """The lines of `data`, each keeping its line ending; the last has none when the data does not end in one."""
+    parts = data.split(b'\n')
+    lines = [p + b'\n' for p in parts[:-1]]
+    if parts[-1]:
+        lines.append(parts[-1])
+    return lines
+
+
+def decode(lines: list[bytes], where: str) -> list[str]:
+    """The lines as text without their endings."""
+    try:
+        return [line.removesuffix(b'\n').decode() for line in lines]
+    except UnicodeDecodeError as e:
+        raise ContextError(f'{where}: not valid UTF-8: {e}') from e
+
+
+@dataclass(frozen=True)
+class Section:
+    """A heading and the lines it owns: from its line up to the next heading of the same or a higher level (untrimmed)."""
+
+    level: int
+    raw: str  # the heading text as written, without its `#` markers
+    plain: str  # the text with inline markup rendered away
+    path: tuple[str, ...]  # `raw` of every ancestor and of this heading
+    start: int  # the heading's line index
+    end: int  # exclusive
+
+
+@dataclass(frozen=True)
+class Reading:
+    lines: list[bytes]
+    sections: list[Section]
+    body_start: int  # lines before this index are frontmatter
+    fenced: frozenset[int]
+
+
+def setext_line(text: list[str], i: int, fenced: frozenset[int], start: int) -> bool:
+    """Whether line `i` is the underline of a setext heading."""
+    pb = playbooks_module()
+    line = text[i]
+    if i - 1 < start or i in fenced or i - 1 in fenced or not SETEXT.fullmatch(line):
+        return False
+    prev = text[i - 1]
+    if (
+        not prev.strip()
+        or pb.HEADING.match(prev)
+        or pb.LIST_MARK.match(prev)
+        or prev[0] in ' \t>|'
+        or THEMATIC.fullmatch(prev)
+    ):
+        return False
+    return True
+
+
+def headings_of(
+    text: list[str], fenced: frozenset[int], start: int
+) -> list[tuple[int, int, str]]:
+    """Every ATX heading outside fences and frontmatter as (line index, level, raw text)."""
+    pb = playbooks_module()
+    found = []
+    for i in range(start, len(text)):
+        m = None if i in fenced else pb.HEADING.match(text[i])
+        if m:
+            found.append((i, len(m.group(1)), m.group(2)))
+    return found
+
+
+def read(data: bytes, where: str) -> Reading:
+    """The headings of a source, from its original bytes. Refuses what schema 1 cannot cut safely: a `\\r` byte, an
+    unclosed fence, a setext heading."""
+    pb = playbooks_module()
+    if b'\r' in data:
+        raise ContextError(
+            f'{where}: contains a carriage return; schema 1 takes LF files only'
+        )
+    lines = lines_of(data)
+    text = decode(lines, where)
+    start = pb.frontmatter_end(text)
+    inside, unclosed = pb.scan_fences(text[start:])
+    if unclosed is not None:
+        raise ContextError(
+            f'{where}: the fence opened at line {start + unclosed + 1} never closes'
+        )
+    fenced = frozenset(start + i for i in inside)
+    for i in range(start, len(text)):
+        if setext_line(text, i, fenced, start):
+            raise ContextError(
+                f'{where}: line {i} is a setext heading; schema 1 reads `#` headings only'
+            )
+    found = headings_of(text, fenced, start)
+    out: list[Section] = []
+    stack: list[tuple[int, str]] = []
+    for k, (i, level, raw) in enumerate(found):
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        stack.append((level, raw))
+        end = next((j for j, lv, _ in found[k + 1 :] if lv <= level), len(text))
+        out.append(Section(level, raw, plain(raw), tuple(t for _, t in stack), i, end))
+    return Reading(lines, out, start, fenced)
+
+
+def sections(data: bytes, where: str = 'source') -> list[Section]:
+    return read(data, where).sections
+
+
+def find(
+    found: list[Section], ancestry: tuple[str, ...], occurrence: int | None
+) -> Section:
+    """The section whose full path equals `ancestry`; `occurrence` (1-based, document order) picks among several."""
+    named = ' > '.join(ancestry)
+    same = [s for s in found if s.path == ancestry]
+    if not same:
+        raise ContextError(f'no heading with ancestry {named}')
+    if occurrence is None:
+        if len(same) > 1:
+            where = ', '.join(str(s.start + 1) for s in same)
+            raise ContextError(
+                f'{len(same)} headings share the ancestry {named} (lines {where}); add `occurrence`'
+            )
+        return same[0]
+    if occurrence > len(same):
+        raise ContextError(
+            f'occurrence {occurrence} is out of range: {len(same)} heading(s) have the ancestry {named}'
+        )
+    return same[occurrence - 1]
+
+
+# ---- slugs -----------------------------------------------------------------
+
+CODE_SPAN = re.compile(r'(`+)(.+?)\1')
+IMAGE = re.compile(r'!\[([^\]]*)\]\([^)]*\)')
+LINK = re.compile(r'\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])')
+STRONG = re.compile(r'(\*\*|__)(.+?)\1')
+EMPHASIS = re.compile(r'\*(.+?)\*|(?<!\w)_(.+?)_(?!\w)')
+HTML_TAG = re.compile(r'</?[A-Za-z][^>]*>')
+
+
+def render_inline(piece: str) -> str:
+    piece = IMAGE.sub(r'\1', piece)
+    piece = LINK.sub(r'\1', piece)
+    piece = HTML_TAG.sub('', piece)
+    piece = STRONG.sub(r'\2', piece)
+    return EMPHASIS.sub(lambda m: m.group(1) or m.group(2), piece)
+
+
+def plain(raw: str) -> str:
+    """A heading's text with code spans, links, images, emphasis and HTML tags rendered to their text."""
+    out, at = [], 0
+    for m in CODE_SPAN.finditer(raw):
+        out.append(render_inline(raw[at : m.start()]))
+        out.append(m.group(2))
+        at = m.end()
+    out.append(render_inline(raw[at:]))
+    return ''.join(out).strip()
+
+
+# ---- cuts ------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Cut:
+    move: Move
+    section: Section
+    parent: (
+        int | None
+    )  # the index of the tightest cut that contains this one, in the same source
+
+
+def contains(outer: Section, inner: Section) -> bool:
+    return outer.start <= inner.start and inner.end <= outer.end
+
+
+def cuts(
+    migration: Migration,
+    found: dict[str, list[Section]],
+    existing: Collection[str] = (),
+) -> list[Cut]:
+    """The cut each move makes, in the migration's order. Refuses a move whose source or a rewrite whose target has
+    no `[[file]]`, a section moved twice, a destination named twice, a destination that is a source or exists at the
+    base (`existing`), and any overlap that is not nesting."""
+    declared = {f.path for f in migration.files}
+    for rewrite in migration.rewrites:
+        if rewrite.path not in declared:
+            raise ContextError(f'rewrite target {rewrite.path!r} has no [[file]] entry')
+    sources = {mv.source for mv in migration.moves}
+    destinations: set[str] = set()
+    picked: list[tuple[Move, Section]] = []
+    for mv in migration.moves:
+        if mv.source not in declared:
+            raise ContextError(f'move source {mv.source!r} has no [[file]] entry')
+        if mv.to in destinations:
+            raise ContextError(f'destination {mv.to!r} is named by two moves')
+        destinations.add(mv.to)
+        if mv.to in sources:
+            raise ContextError(f'destination {mv.to!r} is also a move source')
+        if mv.to in existing:
+            raise ContextError(
+                f'destination {mv.to!r} already exists at base {migration.base!r}'
+            )
+        picked.append((mv, find(found[mv.source], mv.ancestry, mv.occurrence)))
+    out: list[Cut] = []
+    for i, (mv, a) in enumerate(picked):
+        parent = None
+        for j, (other, b) in enumerate(picked):
+            if i == j or other.source != mv.source:
+                continue
+            if (a.start, a.end) == (b.start, b.end):
+                raise ContextError(
+                    f'the section {" > ".join(a.path)} of {mv.source} is moved twice'
+                )
+            if contains(b, a):
+                if parent is None or picked[parent][1].start < b.start:
+                    parent = j
+            elif not contains(a, b) and a.start < b.end and b.start < a.end:
+                raise ContextError(
+                    f'moves of {" > ".join(a.path)} and {" > ".join(b.path)} overlap without nesting'
+                )
+        out.append(Cut(mv, a, parent))
+    return out

@@ -318,5 +318,195 @@ class BaseTests(unittest.TestCase):
         self.assertEqual(context.base_files_at(repo, m, names), {'STANDARDS.md'})
 
 
+def sample_migration():
+    return context.load(fixtures / 'sample.toml')
+
+
+def migration_of(*moves, files=('STANDARDS.md',), rewrites=()):
+    writes = {m.source for m in moves} | {m.to for m in moves}
+    writes |= {r.path for r in rewrites}
+    return context.Migration(
+        1,
+        't',
+        'base',
+        tuple(sorted(writes)),
+        tuple(context.FileEntry(f, '0' * 64) for f in files),
+        tuple(moves),
+        tuple(rewrites),
+        (),
+    )
+
+
+def move(ancestry, to, occurrence=None, requires=(), source='STANDARDS.md'):
+    return context.Move(source, tuple(ancestry), occurrence, to, tuple(requires))
+
+
+TYPED = ('Coding standards', 'Typed evidence')
+RUST = (*TYPED, 'Rust (Engine)')
+NOTES = ('Coding standards', 'Testing', 'Notes')
+
+
+def refused_read(test, data, fragment):
+    with test.assertRaises(context.ContextError) as caught:
+        context.read(data, 'doc.md')
+    test.assertIn(fragment, str(caught.exception))
+
+
+class ReaderTests(unittest.TestCase):
+    def test_lines_keep_their_endings(self):
+        self.assertEqual(context.lines_of(b'a\nb'), [b'a\n', b'b'])
+        self.assertEqual(context.lines_of(b'a\n\nb\n'), [b'a\n', b'\n', b'b\n'])
+        self.assertEqual(context.lines_of(b''), [])
+        self.assertEqual(b''.join(context.lines_of(STANDARDS)), STANDARDS)
+
+    def test_a_carriage_return_is_refused(self):
+        refused_read(self, b'# A\r\n\r\ntext\r\n', 'carriage return')
+
+    def test_an_unclosed_fence_is_refused_and_named(self):
+        refused_read(
+            self, b'# A\n\n```\ntext\n\n## B\n', 'fence opened at line 3 never closes'
+        )
+
+    def test_a_fence_that_closes_is_not_unclosed(self):
+        found = context.sections(b'# A\n\n```\n## B\n```\n\n## C\n')
+        self.assertEqual([s.raw for s in found], ['A', 'C'])
+
+    def test_a_setext_heading_is_refused(self):
+        refused_read(self, b'Title\n=====\n\n## B\n', 'line 1 is a setext heading')
+        refused_read(self, b'# A\n\nSub title\n---\n', 'line 3 is a setext heading')
+
+    def test_lines_that_only_look_like_setext_underlines_are_not_refused(self):
+        fine = [
+            b'# A\n\ntext\n\n---\n\nmore\n',
+            b'# A\n\n| a | b |\n|---|---|\n| 1 | 2 |\n',
+            b'# A\n\n- item\n---\n',
+            b'# A\n\n```\ntext\n---\n```\n',
+            b'---\nname: x\n---\n# A\n',
+        ]
+        for data in fine:
+            with self.subTest(data=data):
+                context.read(data, 'doc.md')
+
+    def test_a_fenced_lookalike_and_frontmatter_comment_are_not_headings(self):
+        found = context.sections(STANDARDS)
+        raws = [s.raw for s in found]
+        self.assertNotIn('fenced lookalike', raws)
+        self.assertNotIn('also not a heading', raws)
+        self.assertNotIn('a comment, not a heading', raws)
+        self.assertEqual(
+            raws[:4],
+            ['Coding standards', 'Typed evidence', 'Rust (Engine)', 'Rust notes'],
+        )
+
+    def test_a_section_runs_to_the_next_heading_of_the_same_or_higher_level_untrimmed(
+        self,
+    ):
+        text = context.decode(context.lines_of(STANDARDS), 'STANDARDS.md')
+        found = {s.path: s for s in context.sections(STANDARDS)}
+        typed = found[TYPED]
+        self.assertEqual(text[typed.start], '## Typed evidence')
+        self.assertEqual(text[typed.end], '## Testing')
+        self.assertEqual(text[typed.end - 1], '')
+        rust = found[RUST]
+        self.assertEqual(text[rust.end], '### Notes')
+        self.assertEqual((rust.level, rust.plain), (3, 'Rust (Engine)'))
+        top = found[('Coding standards',)]
+        self.assertEqual(top.end, len(text))
+
+    def test_a_path_names_every_ancestor(self):
+        found = context.sections(b'# A\n\n### C\n\n## B\n\n#### D\n')
+        self.assertEqual(
+            [s.path for s in found], [('A',), ('A', 'C'), ('A', 'B'), ('A', 'B', 'D')]
+        )
+
+    def test_frontmatter_stays_outside_every_section(self):
+        found = context.sections(STANDARDS)
+        self.assertEqual(found[0].start, 4)
+
+    def test_find_picks_a_unique_ancestry(self):
+        found = context.sections(STANDARDS)
+        self.assertEqual(context.find(found, RUST, None).raw, 'Rust (Engine)')
+
+    def test_find_refuses_an_ambiguous_ancestry_without_an_occurrence(self):
+        found = context.sections(STANDARDS)
+        with self.assertRaises(context.ContextError) as caught:
+            context.find(found, (*NOTES[:2], 'Examples'), None)
+        self.assertIn('2 headings share the ancestry', str(caught.exception))
+        self.assertIn('add `occurrence`', str(caught.exception))
+
+    def test_find_takes_an_occurrence_in_document_order(self):
+        found = context.sections(STANDARDS)
+        ancestry = (*NOTES[:2], 'Examples')
+        first = context.find(found, ancestry, 1)
+        second = context.find(found, ancestry, 2)
+        self.assertLess(first.start, second.start)
+
+    def test_find_refuses_an_occurrence_out_of_range_and_a_missing_heading(self):
+        found = context.sections(STANDARDS)
+        for ancestry, occurrence, fragment in [
+            ((*NOTES[:2], 'Examples'), 3, 'occurrence 3 is out of range'),
+            (RUST, 2, 'occurrence 2 is out of range'),
+            (('Coding standards', 'Nowhere'), None, 'no heading with ancestry'),
+        ]:
+            with self.subTest(ancestry=ancestry, occurrence=occurrence):
+                with self.assertRaises(context.ContextError) as caught:
+                    context.find(found, ancestry, occurrence)
+                self.assertIn(fragment, str(caught.exception))
+
+
+class CutTests(unittest.TestCase):
+    def cut(self, *moves, existing=(), files=('STANDARDS.md',), rewrites=()):
+        m = migration_of(*moves, files=files, rewrites=rewrites)
+        found = {'STANDARDS.md': context.sections(STANDARDS)}
+        return context.cuts(m, found, existing)
+
+    def refused(self, fragment, *moves, **kw):
+        with self.assertRaises(context.ContextError) as caught:
+            self.cut(*moves, **kw)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_a_nested_move_names_its_parent(self):
+        cuts = self.cut(move(RUST, 'r.md'), move(TYPED, 't.md'), move(NOTES, 'n.md'))
+        self.assertEqual([c.parent for c in cuts], [1, None, None])
+        self.assertEqual(
+            [c.section.raw for c in cuts], ['Rust (Engine)', 'Typed evidence', 'Notes']
+        )
+
+    def test_the_tightest_container_is_the_parent(self):
+        deep = (*RUST, 'Rust notes')
+        cuts = self.cut(move(deep, 'd.md'), move(RUST, 'r.md'), move(TYPED, 't.md'))
+        self.assertEqual([c.parent for c in cuts], [1, 2, None])
+
+    def test_moves_of_one_section_twice_are_refused(self):
+        self.refused('is moved twice', move(RUST, 'a.md'), move(RUST, 'b.md'))
+
+    def test_a_destination_named_twice_is_refused(self):
+        self.refused('named by two moves', move(RUST, 'a.md'), move(NOTES, 'a.md'))
+
+    def test_a_destination_that_is_a_source_is_refused(self):
+        self.refused('is also a move source', move(RUST, 'STANDARDS.md'))
+
+    def test_a_destination_that_exists_at_the_base_is_refused(self):
+        self.refused('already exists at base', move(RUST, 'a.md'), existing={'a.md'})
+
+    def test_a_move_whose_source_has_no_file_entry_is_refused(self):
+        self.refused('has no [[file]] entry', move(RUST, 'a.md'), files=())
+
+    def test_a_rewrite_target_without_a_file_entry_is_refused(self):
+        rewrite = context.Rewrite('other.toml', 'a', 'b')
+        self.refused('rewrite target', move(RUST, 'a.md'), rewrites=(rewrite,))
+
+    def test_a_missing_heading_is_refused(self):
+        self.refused('no heading with ancestry', move(('Nope',), 'a.md'))
+
+    def test_sections_that_overlap_without_nesting_are_refused(self):
+        a = context.Section(2, 'A', 'A', ('A',), 0, 5)
+        b = context.Section(2, 'B', 'B', ('B',), 3, 8)
+        m = migration_of(move(('A',), 'a.md'), move(('B',), 'b.md'))
+        with self.assertRaises(context.ContextError) as caught:
+            context.cuts(m, {'STANDARDS.md': [a, b]})
+        self.assertIn('overlap without nesting', str(caught.exception))
+
+
 if __name__ == '__main__':
     unittest.main()
