@@ -5,7 +5,7 @@
 
 Reads Claude Code transcripts (`<projects>/<cwd with / and . turned into ->/<session>.jsonl`)
 of the sessions that worked for the named kitchen stores, and prints per role three
-measures that are not added together:
+measures that are not added together, and a fourth, kept apart the same way:
 
 - billed: the provider-reported usage, each assistant message once (Claude Code writes
   one record per content block, all with the same message id and usage);
@@ -13,6 +13,12 @@ measures that are not added together:
   by file, with chars/4 as an estimate of tokens;
 - exposure: an estimate of the context those documents occupied, each load counted over
   the assistant messages that followed it (a repeated load is its own load).
+
+- subagents: the Claude Code subagents a role's sessions started
+  (`<session>/subagents/agent-<id>.jsonl`, linked to the parent's `Agent` or `Task`
+  call by the `toolUseId` in their meta file), counted apart from the parent: their own
+  billed usage, and their bootstrap (billed), prompt, results and answer. A call whose
+  transcript is missing is reported as missing, never estimated.
 
 A session is assigned to a role by `verifying.session` in pair.json (`id`, the open
 verifier only) or by the role its first prompt names (`prompt`). pi and Codex panes leave
@@ -35,6 +41,7 @@ USAGE_KEYS = (
     'output_tokens',
 )
 INPUT_KEYS = USAGE_KEYS[:3]
+PART_KEYS = ('bootstrap', 'prompt', 'results', 'answer')
 SKILL_DOC = re.compile(r'/skills/([^/]+)/(.+\.md)$')
 PLAYBOOK = re.compile(r'^(poteto-mode/playbooks/[^/]+\.md|pstack-tdd/SKILL\.md)$')
 ROLE_PROMPT = re.compile(r'\btake the (master|sidekick|consultant|verifier) role\b')
@@ -295,10 +302,44 @@ def blank_role():
         'playbooks': {},
         'exposure_tokens': 0,
         'truncated_loads': 0,
+        'children': {
+            'count': 0,
+            'linked': 0,
+            'unlinked': 0,
+            'missing': [],
+            'messages': 0,
+            'billed': dict.fromkeys(USAGE_KEYS, 0),
+            'by_type': {},
+            'parts': dict.fromkeys(PART_KEYS, 0),
+        },
     }
 
 
-def add_session(entry, session):
+def add_children(entry, session, children):
+    block = entry['children']
+    calls = set(session.calls)
+    answered = set()
+    for child in children:
+        block['count'] += 1
+        call = (child.meta or {}).get('toolUseId')
+        if call in calls:
+            block['linked'] += 1
+            answered.add(call)
+        else:
+            block['unlinked'] += 1
+        kind = (child.meta or {}).get('agentType') or 'unknown'
+        block['by_type'][kind] = block['by_type'].get(kind, 0) + 1
+        block['messages'] += len(child.session.usage)
+        for usage in child.session.usage.values():
+            for key in USAGE_KEYS:
+                block['billed'][key] += usage.get(key, 0)
+        for key, value in child_parts(child).items():
+            block['parts'][key] += value
+    block['missing'].extend(c for c in session.calls if c not in answered)
+
+
+def add_session(entry, session, children=()):
+    add_children(entry, session, children)
     entry['sessions'] += 1
     entry['messages'] += len(session.usage)
     for usage in session.usage.values():
@@ -332,7 +373,9 @@ def audit(store_path, projects):
             ambiguous.append({'session': path.stem, 'reason': how})
         else:
             assigned.append({'session': path.stem, 'role': role, 'how': how})
-            add_session(roles.setdefault(role, blank_role()), session)
+            add_session(
+                roles.setdefault(role, blank_role()), session, read_children(path)
+            )
     unmeasured = [
         {'role': r, 'kind': k} for r, k in store.kinds.items() if k != 'claude'
     ]
@@ -376,6 +419,25 @@ def render_role(role, entry):
         f'  exposure (estimate): ~{entry["exposure_tokens"]} token-messages = {share} of input '
         f'(input + cache creation + cache read); truncated loads: {entry["truncated_loads"]}'
     )
+    lines.extend(render_children(entry['children']))
+    return lines
+
+
+def render_children(block):
+    if not block['count'] and not block['missing']:
+        return ['  subagents: none']
+    billed, parts = block['billed'], block['parts']
+    lines = [
+        f'  subagents: {block["count"]} ({block["linked"]} linked, {block["unlinked"]} unlinked), '
+        f'{len(block["missing"])} missing transcripts',
+        '    billed (provider usage): '
+        f'input {billed["input_tokens"]}, cache creation {billed["cache_creation_input_tokens"]}, '
+        f'cache read {billed["cache_read_input_tokens"]}, output {billed["output_tokens"]}',
+        f'    parts: bootstrap {parts["bootstrap"]} (billed), prompt ~{parts["prompt"]}, '
+        f'results ~{parts["results"]}, answer ~{parts["answer"]} (est. tokens = chars/4)',
+    ]
+    if block['missing']:
+        lines.append(f'    missing: {", ".join(block["missing"])}')
     return lines
 
 

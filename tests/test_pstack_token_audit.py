@@ -170,6 +170,75 @@ class TokenAuditTests(unittest.TestCase):
         self.assertEqual(len(explore.session.usage), 3)
         self.assertEqual(explore.session.usage['msg_c3']['output_tokens'], 60)
 
+    def test_a_roles_children_are_counted_apart_from_its_own_billed(self):
+        master = audit()['roles']['master']
+        self.assertEqual(
+            master['children'],
+            {
+                'count': 2,
+                'linked': 1,
+                'unlinked': 1,
+                'missing': ['toolu_a2'],
+                'messages': 4,
+                'billed': {
+                    'input_tokens': 12,
+                    'cache_creation_input_tokens': 1460,
+                    'cache_read_input_tokens': 1840,
+                    'output_tokens': 135,
+                },
+                'by_type': {'Explore': 1, 'general-purpose': 1},
+                'parts': {
+                    'bootstrap': 1408,
+                    'prompt': 31,
+                    'results': 40,
+                    'answer': 30,
+                },
+            },
+        )
+        # the master's own messages only: m1 to m3, then j1 and j2
+        self.assertEqual(master['messages'], 5)
+        self.assertEqual(
+            master['billed'],
+            {
+                'input_tokens': 19,
+                'cache_creation_input_tokens': 1050,
+                'cache_read_input_tokens': 1400,
+                'output_tokens': 120,
+            },
+        )
+
+    def test_a_subagent_call_without_a_transcript_is_missing_and_adds_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            projects = Path(directory) / 'projects'
+            shutil.copytree(fixtures / 'projects', projects)
+            [children] = projects.glob('*/jjjjjjjj-*/subagents')
+            for path in children.glob('agent-a1b2c3.*'):
+                path.unlink()
+            block = json.loads(run_audit('--json', projects=projects))[0]['roles'][
+                'master'
+            ]['children']
+        self.assertEqual(block['missing'], ['toolu_a1', 'toolu_a2'])
+        self.assertEqual(
+            (block['count'], block['linked'], block['unlinked'], block['messages']),
+            (1, 0, 1, 1),
+        )
+        self.assertEqual(block['parts']['bootstrap'], 503)
+
+    def test_the_table_prints_subagents_after_each_role_and_none_without(self):
+        lines = run_audit().splitlines()
+        at = lines.index('  subagents: 2 (1 linked, 1 unlinked), 1 missing transcripts')
+        self.assertEqual(
+            lines[at + 1 : at + 4],
+            [
+                '    billed (provider usage): input 12, cache creation 1460, '
+                'cache read 1840, output 135',
+                '    parts: bootstrap 1408 (billed), prompt ~31, results ~40, '
+                'answer ~30 (est. tokens = chars/4)',
+                '    missing: toolu_a2',
+            ],
+        )
+        self.assertEqual(lines.count('  subagents: none'), 2)
+
     def test_roles_whose_kind_is_not_claude_are_unmeasured(self):
         result = audit()
         self.assertEqual(
