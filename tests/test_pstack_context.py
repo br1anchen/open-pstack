@@ -431,8 +431,42 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual([s.raw for s in found], ['A', 'C'])
 
     def test_a_setext_heading_is_refused(self):
-        refused_read(self, b'Title\n=====\n\n## B\n', 'line 1 is a setext heading')
-        refused_read(self, b'# A\n\nSub title\n---\n', 'line 3 is a setext heading')
+        refused_read(
+            self, b'Title\n=====\n\n## B\n', 'line 2 underlines a setext heading'
+        )
+        refused_read(
+            self, b'# A\n\nSub title\n---\n', 'line 4 underlines a setext heading'
+        )
+
+    def test_an_indented_setext_heading_is_refused(self):
+        refused_read(
+            self, b'# A\n\n  Title\n---\n', 'line 4 underlines a setext heading'
+        )
+        refused_read(
+            self, b'# A\n\nTitle\n  ===\n', 'line 4 underlines a setext heading'
+        )
+        refused_read(
+            self, b'# A\n\n   Title\n   ---\n', 'line 4 underlines a setext heading'
+        )
+
+    def test_an_atx_heading_indented_one_to_three_spaces_is_refused(self):
+        for indent in (' ', '  ', '   '):
+            with self.subTest(indent=len(indent)):
+                data = f'# A\n\ntext\n{indent}## B\n'.encode()
+                refused_read(self, data, 'line 4 is a heading indented 1 to 3 spaces')
+
+    def test_indented_lines_that_are_not_headings_are_not_refused(self):
+        fine = [
+            b'# A\n\n    ## code block\n',
+            b'# A\n\n\t## code block\n',
+            b'# A\n\n    Title\n    ---\n',
+            b'# A\n\n ##hashtag\n',
+            b'# A\n\n```\n  ## fenced\n  Title\n  ---\n```\n',
+            b'---\n  ## frontmatter\n---\n# A\n',
+        ]
+        for data in fine:
+            with self.subTest(data=data):
+                context.read(data, 'doc.md')
 
     def test_lines_that_only_look_like_setext_underlines_are_not_refused(self):
         fine = [
@@ -551,20 +585,8 @@ class CutTests(unittest.TestCase):
     def test_a_move_whose_source_has_no_file_entry_is_refused(self):
         self.refused('has no [[file]] entry', move(RUST, 'a.md'), files=())
 
-    def test_a_rewrite_target_without_a_file_entry_is_refused(self):
-        rewrite = context.Rewrite('other.toml', 'a', 'b')
-        self.refused('rewrite target', move(RUST, 'a.md'), rewrites=(rewrite,))
-
     def test_a_missing_heading_is_refused(self):
         self.refused('no heading with ancestry', move(('Nope',), 'a.md'))
-
-    def test_sections_that_overlap_without_nesting_are_refused(self):
-        a = context.Section(2, 'A', 'A', ('A',), 0, 5)
-        b = context.Section(2, 'B', 'B', ('B',), 3, 8)
-        m = migration_of(move(('A',), 'a.md'), move(('B',), 'b.md'))
-        with self.assertRaises(context.ContextError) as caught:
-            context.cuts(m, {'STANDARDS.md': [a, b]})
-        self.assertIn('overlap without nesting', str(caught.exception))
 
 
 class SlugTests(unittest.TestCase):

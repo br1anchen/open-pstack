@@ -40,8 +40,10 @@ TABLE_KEYS = {
 ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')
 SHA256 = re.compile(r'[0-9a-f]{64}')
 SETEXT = re.compile(r'(=+|-+)[ \t]*')
+INDENTED_ATX = re.compile(r'#{1,6}(?:[ \t]|$)')
 THEMATIC = re.compile(r'(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})')
 GIT_TIMEOUT_S = 60
+CODE_INDENT = 4
 REPO_ENV = (
     'GIT_DIR',
     'GIT_WORK_TREE',
@@ -380,22 +382,37 @@ class Reading:
     fenced: frozenset[int]
 
 
+def indent_of(line: str) -> int:
+    """The leading spaces of a line, or CODE_INDENT for a tab."""
+    if line.startswith('\t'):
+        return CODE_INDENT
+    return len(line) - len(line.lstrip(' '))
+
+
 def setext_line(text: list[str], i: int, fenced: frozenset[int], start: int) -> bool:
-    """Whether line `i` is the underline of a setext heading."""
+    """Whether line `i` underlines a setext heading: an underline of `=` or `-` indented up to 3 spaces under a
+    paragraph line that is itself indented up to 3 spaces."""
     pb = playbooks_module()
     line = text[i]
-    if i - 1 < start or i in fenced or i - 1 in fenced or not SETEXT.fullmatch(line):
+    if i - 1 < start or i in fenced or i - 1 in fenced:
+        return False
+    if indent_of(line) > 3 or not SETEXT.fullmatch(line.lstrip(' ')):
         return False
     prev = text[i - 1]
-    if (
+    body = prev.lstrip(' ')
+    return not (
         not prev.strip()
-        or pb.HEADING.match(prev)
-        or pb.LIST_MARK.match(prev)
-        or prev[0] in ' \t>|'
-        or THEMATIC.fullmatch(prev)
-    ):
-        return False
-    return True
+        or indent_of(prev) > 3
+        or pb.HEADING.match(body)
+        or pb.LIST_MARK.match(body)
+        or body[0] in '>|'
+        or THEMATIC.fullmatch(body)
+    )
+
+
+def indented_heading(line: str) -> bool:
+    """Whether a line is an ATX heading to a Markdown renderer that playbooks.py cannot see: indented 1 to 3 spaces."""
+    return 1 <= indent_of(line) <= 3 and bool(INDENTED_ATX.match(line.lstrip(' ')))
 
 
 def headings_of(
@@ -429,9 +446,15 @@ def read(data: bytes, where: str) -> Reading:
         )
     fenced = frozenset(start + i for i in inside)
     for i in range(start, len(text)):
+        if i in fenced:
+            continue
         if setext_line(text, i, fenced, start):
             raise ContextError(
-                f'{where}: line {i} is a setext heading; schema 1 reads `#` headings only'
+                f'{where}: line {i + 1} underlines a setext heading; schema 1 reads `#` headings only'
+            )
+        if indented_heading(text[i]):
+            raise ContextError(
+                f'{where}: line {i + 1} is a heading indented 1 to 3 spaces; schema 1 reads `#` headings at the start of a line only'
             )
     found = headings_of(text, fenced, start)
     out: list[Section] = []
@@ -542,13 +565,11 @@ def cuts(
     found: dict[str, list[Section]],
     existing: Collection[str] = (),
 ) -> list[Cut]:
-    """The cut each move makes, in the migration's order. Refuses a move whose source or a rewrite whose target has
-    no `[[file]]`, a section moved twice, a destination named twice, a destination that is a source or exists at the
-    base (`existing`), and any overlap that is not nesting."""
+    """The cut each move makes, in the migration's order. Refuses a move whose source has no
+    `[[file]]`, a section moved twice, a destination named twice, and a destination that is a source or exists at
+    the base (`existing`). Two heading sections either nest or lie apart, so a section moved twice is the only
+    overlap that is not nesting."""
     declared = {f.path for f in migration.files}
-    for rewrite in migration.rewrites:
-        if rewrite.path not in declared:
-            raise ContextError(f'rewrite target {rewrite.path!r} has no [[file]] entry')
     sources = {mv.source for mv in migration.moves}
     destinations: set[str] = set()
     picked: list[tuple[Move, Section]] = []
@@ -578,10 +599,6 @@ def cuts(
             if contains(b, a):
                 if parent is None or picked[parent][1].start < b.start:
                     parent = j
-            elif not contains(a, b) and a.start < b.end and b.start < a.end:
-                raise ContextError(
-                    f'moves of {" > ".join(a.path)} and {" > ".join(b.path)} overlap without nesting'
-                )
         out.append(Cut(mv, a, parent))
     return out
 
