@@ -894,5 +894,153 @@ class PreviewTests(unittest.TestCase):
         )
 
 
+GUIDE = 'docs/guide.md'
+REF_FILES = {
+    GUIDE,
+    'docs/other.md',
+    'docs/my file.md',
+    'docs/a(1).md',
+    'img/a.png',
+    'ignored.md',
+}
+
+
+def guide_refs():
+    data = (fixtures / 'refs' / GUIDE).read_bytes()
+    return context.references(GUIDE, data)
+
+
+class ReferenceTests(unittest.TestCase):
+    def test_the_guide_fixture_gives_every_recognized_form_and_nothing_else(self):
+        got = [(r.line, r.kind, r.target, r.fragment) for r in guide_refs()]
+        self.assertEqual(
+            got,
+            [
+                (7, 'inline', 'other.md', ''),
+                (7, 'inline', 'other.md', 'part'),
+                (7, 'inline', '', 'top'),
+                (8, 'image', '../img/a.png', ''),
+                (8, 'inline', 'my file.md', ''),
+                (8, 'inline', 'a(1).md', 'x'),
+                (11, 'definition', 'other.md', 'part'),
+                (12, 'definition', 'my file.md', ''),
+                (18, 'inline', 'other.md', 'live'),
+                (25, 'image', '../img/a.png', ''),
+                (25, 'inline', 'other.md', 'nest'),
+            ],
+        )
+
+    def test_a_reference_carries_its_raw_text_and_the_columns_of_its_target(self):
+        lines = (fixtures / 'refs' / GUIDE).read_text().split('\n')
+        for r in guide_refs():
+            with self.subTest(line=r.line, raw=r.raw):
+                text = lines[r.line - 1]
+                self.assertIn(r.raw, text)
+                written = text[r.start : r.end]
+                self.assertEqual(
+                    written, r.target + ('#' + r.fragment if r.fragment else '')
+                )
+
+    def test_a_title_and_angle_brackets_are_not_part_of_the_target(self):
+        got = {r.raw: r.target for r in guide_refs()}
+        self.assertEqual(got['![alt](../img/a.png "title")'], '../img/a.png')
+        self.assertEqual(got['[ref2]: <my file.md> "Title"'], 'my file.md')
+
+    def test_urls_footnotes_code_spans_fences_frontmatter_and_escapes_are_skipped(self):
+        raws = ' '.join(r.raw for r in guide_refs())
+        for skipped in (
+            'example.com',
+            'mailto',
+            'cdn/x.md',
+            '[^1]',
+            '[code](other.md)',
+            '[code2]',
+            'fenced',
+            'ref3',
+            'ignored.md',
+            '[not](other.md)',
+            '[empty]()',
+        ):
+            self.assertNotIn(skipped, raws)
+
+    def test_a_fence_that_never_closes_is_ordinary_text(self):
+        got = context.references('a.md', b'```\n[x](y.md)\n')
+        self.assertEqual([r.target for r in got], ['y.md'])
+
+    def test_toml_and_text_give_exact_tracked_path_strings(self):
+        files = {'docs/guide.md', 'STANDARDS.md'}
+        toml = (
+            b'[review]\nstandards = ["STANDARDS.md#typed-evidence", "xSTANDARDS.md", '
+            b'"docs/guide.md"]\n# see STANDARDS.md.\nmissing = "docs/none.md#a"\n'
+        )
+        got = context.references('.agents/kitchen.toml', toml, files)
+        self.assertEqual(
+            [(r.line, r.kind, r.target, r.fragment, r.raw) for r in got],
+            [
+                (
+                    2,
+                    'text',
+                    'STANDARDS.md',
+                    'typed-evidence',
+                    'STANDARDS.md#typed-evidence',
+                ),
+                (2, 'text', 'docs/guide.md', '', 'docs/guide.md'),
+                (3, 'text', 'STANDARDS.md', '', 'STANDARDS.md'),
+            ],
+        )
+        notes = context.references(
+            'notes.txt', b'read docs/guide.md#top first\n', files
+        )
+        self.assertEqual([r.raw for r in notes], ['docs/guide.md#top'])
+        self.assertEqual(context.references('notes.txt', b'docs/guide.md\n'), [])
+
+    def test_bytes_that_are_not_utf8_make_no_references(self):
+        self.assertEqual(context.references('a.md', b'[x](y.md) \xff'), [])
+
+    def test_markdown_targets_resolve_from_the_referring_files_directory(self):
+        got = {
+            (r.line, r.raw[:12]): context.resolve(r, REF_FILES) for r in guide_refs()
+        }
+        self.assertEqual(got[(7, '[text](other')], ('docs/other.md', ''))
+        self.assertEqual(got[(7, '[with fragme')], ('docs/other.md', 'part'))
+        self.assertEqual(got[(7, '[bare](#top)')], (GUIDE, 'top'))
+        self.assertEqual(got[(8, '![alt](../im')], ('img/a.png', ''))
+        self.assertEqual(got[(8, '[a b](<my fi')], ('docs/my file.md', ''))
+        self.assertEqual(got[(8, '[parens](a(1')], ('docs/a(1).md', 'x'))
+
+    def test_toml_and_text_targets_resolve_from_the_repo_root(self):
+        files = {'docs/guide.md'}
+        [ref] = context.references(
+            '.agents/kitchen.toml', b'a = "docs/guide.md#Top"\n', files
+        )
+        self.assertEqual(context.resolve(ref, files), ('docs/guide.md', 'top'))
+
+    def test_a_root_relative_link_percent_escapes_and_queries_resolve(self):
+        def ref(target, fragment=''):
+            return context.Ref('docs/guide.md', 1, 0, 0, 'inline', target, fragment, '')
+
+        files = {'docs/other.md', 'docs/my file.md', 'top.md'}
+        self.assertEqual(context.resolve(ref('/top.md'), files), ('top.md', ''))
+        self.assertEqual(
+            context.resolve(ref('my%20file.md'), files), ('docs/my file.md', '')
+        )
+        self.assertEqual(
+            context.resolve(ref('other.md?plain=1', 'A%20b'), files),
+            ('docs/other.md', 'a b'),
+        )
+
+    def test_a_target_that_names_no_tracked_file_or_leaves_the_repo_resolves_to_none(
+        self,
+    ):
+        def ref(target):
+            return context.Ref('docs/guide.md', 1, 0, 0, 'inline', target, '', '')
+
+        files = {'docs/other.md', 'x.md'}
+        for target in ('missing.md', '../../x.md', '../..', 'other.md/', '.'):
+            with self.subTest(target=target):
+                self.assertIsNone(context.resolve(ref(target), files))
+        self.assertEqual(context.resolve(ref('../x.md'), files), ('x.md', ''))
+
+
 if __name__ == '__main__':
     unittest.main()

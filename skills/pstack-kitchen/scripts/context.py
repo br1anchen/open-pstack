@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Move sections of a repo's Markdown documents into new modules from a reviewed migration file.
 
-This module holds the migration file's model and loader, the reader over a source's original bytes, the cuts a
-migration makes and their rendering. Everything but `load` and the git readers is a pure function over bytes and
-typed data; nothing here writes a file.
+This module holds the migration file's model and loader, the reader over a source's original bytes, the references a
+file makes to others, the cuts a migration makes and their rendering. Everything but `load` and the git readers is a
+pure function over bytes and typed data; nothing here writes a file.
 
 A migration reads every input from its recorded base commit, never from the working tree, so a preview, an apply and
 a second apply all reconstruct the same outputs from the same inputs.
@@ -24,6 +24,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
+from urllib.parse import unquote
 
 SCHEMA = 1
 ROOT_KEYS = ('schema', 'id', 'base', 'writes')
@@ -543,6 +544,218 @@ def anchors(found: list[Section]) -> dict[int, str]:
     """Each heading's anchor in its document, by the heading's line index."""
     seen: dict[str, int] = {}
     return {s.start: slug(s.raw, seen) for s in found}
+
+
+# ---- references ------------------------------------------------------------
+
+SCHEME = re.compile(r'(?:[A-Za-z][A-Za-z0-9+.-]*:|//)')
+DEFINITION = re.compile(r' {0,3}\[((?:[^\]\\]|\\.)+)\]:[ \t]*(<[^>\n]*>|\S+)')
+CODE_RUN = re.compile(r'(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)')
+TOKEN = re.compile(r"""[^\s"'`()<>\[\]{},=;|*]+""")
+MARKDOWN = ('.md', '.markdown')
+SCANNED = (*MARKDOWN, '.toml', '.txt')
+MIGRATIONS = '.agents/migrations/'
+
+
+@dataclass(frozen=True)
+class Ref:
+    """A reference to a file, or to a section of one, found in a file's bytes."""
+
+    path: str  # the file that holds the reference
+    line: int  # 1-based
+    start: int  # the target's columns in the line (characters, end exclusive)
+    end: int
+    kind: (
+        str  # inline, image, definition, or text (a path string in TOML or plain text)
+    )
+    target: str  # the path as written, query included; empty for a bare `#fragment`
+    fragment: str  # as written, without the `#`
+    raw: str  # the whole construct as written
+
+
+def split_target(written: str) -> tuple[str, str]:
+    target, _, fragment = written.partition('#')
+    return target, fragment
+
+
+def destination_at(line: str, i: int) -> tuple[int, int, bool, int] | None:
+    """The link destination that starts at `line[i]`, just after a `(`: its start, its end, whether it is written in
+    angle brackets, and the index of the closing `)`. None when the parenthesis never closes the link."""
+    n = len(line)
+    while i < n and line[i] in ' \t':
+        i += 1
+    if i >= n:
+        return None
+    if line[i] == '<':
+        stop = line.find('>', i + 1)
+        if stop < 0:
+            return None
+        start, bracketed, j = i + 1, True, stop + 1
+    else:
+        depth, j = 0, i
+        while j < n:
+            c = line[j]
+            if c == '\\' and j + 1 < n:
+                j += 2
+                continue
+            if c in ' \t':
+                break
+            if c == '(':
+                depth += 1
+            elif c == ')':
+                if depth == 0:
+                    break
+                depth -= 1
+            j += 1
+        start, stop, bracketed = i, j, False
+    k = j
+    while k < n and line[k] in ' \t':
+        k += 1
+    if k < n and line[k] != ')' and k > j and line[k] in '"\'(':
+        end = line.find(')' if line[k] == '(' else line[k], k + 1)
+        if end < 0:
+            return None
+        k = end + 1
+        while k < n and line[k] in ' \t':
+            k += 1
+    if k >= n or line[k] != ')':
+        return None
+    return start, stop, bracketed, k
+
+
+def opener_of(line: str, close: int) -> int | None:
+    """The `[` that matches the `]` at `close`, skipping nested brackets."""
+    depth = 0
+    for i in range(close - 1, -1, -1):
+        if line[i] in '[]' and (i == 0 or line[i - 1] != '\\'):
+            if line[i] == ']':
+                depth += 1
+            elif depth == 0:
+                return i
+            else:
+                depth -= 1
+    return None
+
+
+def markdown_refs(path: str, lines: list[str]) -> list[Ref]:
+    start = playbooks_module().frontmatter_end(lines)
+    inside, _ = playbooks_module().scan_fences(lines[start:])
+    fenced = {start + i for i in inside}
+    found: list[Ref] = []
+    for i in range(start, len(lines)):
+        if i in fenced:
+            continue
+        line = lines[i]
+        masked = CODE_RUN.sub(lambda m: ' ' * len(m.group()), line)
+        defined = DEFINITION.match(masked)
+        if defined and not defined.group(1).startswith('^'):
+            written = defined.group(2)
+            at = defined.start(2)
+            if written.startswith('<'):
+                written, at = written[1:-1], at + 1
+            target, fragment = split_target(written)
+            if (target or fragment) and not SCHEME.match(target):
+                found.append(
+                    Ref(
+                        path,
+                        i + 1,
+                        at,
+                        at + len(written),
+                        'definition',
+                        target,
+                        fragment,
+                        line.strip(),
+                    )
+                )
+            continue
+        for m in re.finditer(r'\]\(', masked):
+            close = m.start()
+            if masked[close - 1 : close] == '\\':
+                continue
+            opener = opener_of(masked, close)
+            dest = destination_at(masked, m.end())
+            if opener is None or dest is None:
+                continue
+            at, stop, _, paren = dest
+            written = line[at:stop]
+            target, fragment = split_target(written)
+            if not (target or fragment) or SCHEME.match(target):
+                continue
+            image = opener > 0 and masked[opener - 1] == '!'
+            first = opener - 1 if image else opener
+            found.append(
+                Ref(
+                    path,
+                    i + 1,
+                    at,
+                    stop,
+                    'image' if image else 'inline',
+                    target,
+                    fragment,
+                    line[first : paren + 1],
+                )
+            )
+    return found
+
+
+def text_refs(path: str, lines: list[str], files: Collection[str]) -> list[Ref]:
+    found: list[Ref] = []
+    for i, line in enumerate(lines):
+        for m in TOKEN.finditer(line):
+            token = m.group().rstrip('.,:;!?')
+            target, fragment = split_target(token)
+            if target in files:
+                found.append(
+                    Ref(
+                        path,
+                        i + 1,
+                        m.start(),
+                        m.start() + len(token),
+                        'text',
+                        target,
+                        fragment,
+                        token,
+                    )
+                )
+    return found
+
+
+def references(path: str, data: bytes, files: Collection[str] = ()) -> list[Ref]:
+    """Every reference `data` makes, in order. Markdown (`.md`, `.markdown`): inline links and images, reference
+    definitions and bare `#fragment` targets, outside fences, frontmatter and code spans; a URL with a scheme is not
+    a local reference. Any other file: each `path` or `path#anchor` string that exactly names a file of `files`. A
+    file that is not UTF-8 makes none."""
+    try:
+        lines = data.decode().split('\n')
+    except UnicodeDecodeError:
+        return []
+    if path.endswith(MARKDOWN):
+        return markdown_refs(path, lines)
+    return text_refs(path, lines, files)
+
+
+def target_path(ref: Ref) -> str | None:
+    """The repo path a reference names: relative to the referring file's directory in Markdown (`/` starts at the
+    repo root), to the repo root in TOML and text. None when it leaves the repo or names a directory (a trailing `/`)."""
+    written = unquote(ref.target.partition('?')[0])
+    if not written:
+        return ref.path
+    if written.endswith('/'):
+        return None
+    base = ''
+    if ref.kind != 'text' and not written.startswith('/'):
+        base = posixpath.dirname(ref.path)
+    found = posixpath.normpath(posixpath.join(base, written.lstrip('/')))
+    return None if found == '.' or found.startswith('..') else found
+
+
+def resolve(ref: Ref, files: Collection[str]) -> tuple[str, str] | None:
+    """The file a reference names and the anchor in it (lowercased, empty for the file itself); None when no such
+    file is among `files`."""
+    found = target_path(ref)
+    if found is None or found not in files:
+        return None
+    return found, unquote(ref.fragment).lower()
 
 
 # ---- cuts ------------------------------------------------------------------
