@@ -4077,6 +4077,49 @@ def overlay_index_text(index: list[dict]) -> str:
     return '\n'.join(lines)
 
 
+@functools.cache
+def context_module():
+    """context.py, loaded by path: it sits beside this file and is not a package."""
+    spec = importlib.util.spec_from_file_location(
+        'context', Path(__file__).with_name('context.py')
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def context_preview_text(writes: list[dict]) -> str:
+    """Each planned write's diff, in `writes` order; a file the migration leaves alone is named."""
+    return ''.join(w['diff'] or f'unchanged: {w["path"]}\n' for w in writes).rstrip(
+        '\n'
+    )
+
+
+def context_command(args) -> int:
+    """`context preview`: the diff of every file a migration would write. Writes nothing."""
+    cx = context_module()
+    repo = repo_root(args.repo)
+    try:
+        migration = cx.load(args.migration)
+        planned = cx.plan(repo, migration)
+    except cx.ContextError as e:
+        raise KitchenError(str(e), 2) from e
+    writes = [
+        {
+            'path': w.path,
+            'before_sha256': hashlib.sha256(w.before).hexdigest()
+            if w.before is not None
+            else None,
+            'after_sha256': hashlib.sha256(w.after).hexdigest(),
+            'diff': cx.unified_diff(w),
+        }
+        for w in planned
+    ]
+    emit({'writes': writes}, args.json, context_preview_text(writes))
+    return 0
+
+
 def playbooks_command(args) -> int:
     pb = playbooks_module()
     path = args.map or pb.MAP_PATH
@@ -4391,6 +4434,25 @@ def build_parser() -> argparse.ArgumentParser:
         'review', help='the parts of one playbook that changed since they were reviewed'
     )
     pbr.add_argument('name')
+    cx = sub.add_parser(
+        'context', help="move sections of a repo's Markdown into new modules"
+    )
+    cxsub = cx.add_subparsers(dest='context_cmd', required=True)
+    cxp = cxsub.add_parser(
+        'preview', help='the diff of every file a migration would write; writes nothing'
+    )
+    cxp.add_argument('migration', type=Path, help='the migration file (TOML)')
+    cxp.add_argument(
+        '--repo',
+        default=argparse.SUPPRESS,
+        help='repository (default: the current directory)',
+    )
+    cxp.add_argument(
+        '--json',
+        action='store_true',
+        default=argparse.SUPPRESS,
+        help='machine-readable output',
+    )
     t = sub.add_parser(
         'timing',
         help="the slowest recent passing run of each profile's stage, and their sum",
@@ -4438,6 +4500,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == 'playbooks':
         try:
             return playbooks_command(args)
+        except KitchenError as e:
+            print(f'kitchen: {e}', file=sys.stderr)
+            return e.code
+    if args.cmd == 'context':
+        try:
+            return context_command(args)
         except KitchenError as e:
             print(f'kitchen: {e}', file=sys.stderr)
             return e.code

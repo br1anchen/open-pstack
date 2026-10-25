@@ -1,8 +1,10 @@
 import hashlib
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -781,6 +783,115 @@ class RenderTests(unittest.TestCase):
     def test_rendering_reads_the_given_bytes_only(self):
         again = render_sample()
         self.assertEqual(render_sample(), again)
+
+
+KITCHEN = scripts / 'kitchen.py'
+
+
+def preview(repo, migration_text, *extra, cwd=None):
+    migration = Path(repo).parent / 'migration.toml'
+    migration.write_text(migration_text)
+    return subprocess.run(
+        [sys.executable, str(KITCHEN), 'context', 'preview', str(migration), *extra],
+        cwd=cwd or repo,
+        env=GIT_ENV,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+
+class PreviewTests(unittest.TestCase):
+    def test_it_prints_a_diff_for_every_planned_write_and_writes_nothing(self):
+        repo, text = fixture_repo(self)
+        done = preview(repo, text)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        for header in (
+            '--- a/STANDARDS.md\n+++ b/STANDARDS.md\n',
+            '--- /dev/null\n+++ b/docs/standards/typed-evidence.md\n',
+            '--- /dev/null\n+++ b/docs/standards/rust.md\n',
+            '--- /dev/null\n+++ b/docs/standards/testing-notes.md\n',
+        ):
+            self.assertIn(header, done.stdout)
+        self.assertIn('unchanged: .agents/kitchen.toml', done.stdout)
+        self.assertIn(
+            '+Read first: [docs/standards/typed-evidence.md](typed-evidence.md).',
+            done.stdout,
+        )
+        self.assertIn('-Parse at the boundary.', done.stdout)
+        self.assertEqual(git(repo, 'status', '--porcelain'), '')
+
+    def test_the_diff_lists_the_writes_in_the_order_of_writes(self):
+        repo, text = fixture_repo(self)
+        done = preview(repo, text, '--json')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        writes = json.loads(done.stdout)['writes']
+        m = context.parse_migration(text)
+        self.assertEqual([w['path'] for w in writes], list(m.writes))
+
+    def test_json_gives_the_hashes_and_the_diff(self):
+        repo, text = fixture_repo(self)
+        writes = {
+            w['path']: w
+            for w in json.loads(preview(repo, text, '--json').stdout)['writes']
+        }
+        index = writes['STANDARDS.md']
+        self.assertEqual(index['before_sha256'], sha(STANDARDS))
+        self.assertEqual(index['after_sha256'], sha(expected('STANDARDS.md')))
+        self.assertEqual(index['diff'].splitlines()[0], '--- a/STANDARDS.md')
+        new = writes['docs/standards/rust.md']
+        self.assertIsNone(new['before_sha256'])
+        self.assertEqual(new['after_sha256'], sha(expected('docs/standards/rust.md')))
+        same = writes['.agents/kitchen.toml']
+        self.assertEqual(
+            (same['before_sha256'], same['diff']), (same['after_sha256'], '')
+        )
+
+    def test_it_reads_the_base_commit_not_the_working_tree(self):
+        repo, text = fixture_repo(self)
+        first = preview(repo, text).stdout
+        (repo / 'STANDARDS.md').write_text('# edited after the base\n')
+        (repo / 'docs').mkdir()
+        self.assertEqual(preview(repo, text).stdout, first)
+        self.assertEqual(
+            sorted(p.name for p in repo.iterdir() if p.name != '.git'),
+            ['.agents', 'STANDARDS.md', 'docs'],
+        )
+        self.assertEqual(list((repo / 'docs').iterdir()), [])
+
+    def test_repo_can_follow_the_subcommand(self):
+        repo, text = fixture_repo(self)
+        done = preview(repo, text, '--repo', str(repo), cwd=repo.parent)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('+++ b/docs/standards/rust.md', done.stdout)
+
+    def test_an_invalid_migration_exits_two_with_its_message(self):
+        repo, text = fixture_repo(self)
+        done = preview(repo, edit(text, 'schema = 1', 'schema = 2'))
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stdout, '')
+        self.assertIn('kitchen: `schema` must be 1', done.stderr)
+
+    def test_a_stale_sha256_exits_two_and_names_the_path(self):
+        repo, text = fixture_repo(self)
+        done = preview(repo, text.replace(sha(STANDARDS), '1' * 64))
+        self.assertEqual(done.returncode, 2)
+        self.assertIn('STANDARDS.md: sha256', done.stderr)
+
+    def test_a_destination_that_exists_at_the_base_exits_two(self):
+        repo, text = fixture_repo(self)
+        (repo / 'docs/standards').mkdir(parents=True)
+        (repo / 'docs/standards/rust.md').write_text('# mine\n')
+        git(repo, 'add', '-A')
+        git(repo, 'commit', '-q', '-m', 'add rust.md')
+        base = git(repo, 'rev-parse', 'HEAD')
+        old = git(repo, 'rev-parse', 'HEAD~1')
+        done = preview(repo, text.replace(old, base))
+        self.assertEqual(done.returncode, 2)
+        self.assertIn(
+            "destination 'docs/standards/rust.md' already exists at base", done.stderr
+        )
 
 
 if __name__ == '__main__':

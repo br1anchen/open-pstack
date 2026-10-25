@@ -11,6 +11,7 @@ a second apply all reconstruct the same outputs from the same inputs.
 Stdlib only, and independent of kitchen_core. Headings and fences come from playbooks.py.
 """
 
+import difflib
 import functools
 import hashlib
 import importlib.util
@@ -755,3 +756,47 @@ def render(
             out.pop()
         outputs[path] = b''.join(out)
     return outputs
+
+
+# ---- preview ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Write:
+    """One planned write: the file at base (None for a new file) and what the migration leaves there."""
+
+    path: str
+    before: bytes | None
+    after: bytes
+
+
+def plan(repo: Path, migration: Migration) -> list[Write]:
+    """Every file in `writes`, in order, as the migration would leave it. Reads the base commit only."""
+    base = read_base(repo, migration)
+    named = {mv.to for mv in migration.moves}
+    named |= {p for mv in migration.moves for p in mv.requires}
+    after = render(migration, base, base_files_at(repo, migration, named))
+    return [
+        Write(path, base.get(path), after.get(path, base.get(path, b'')))
+        for path in migration.writes
+    ]
+
+
+def unified_diff(write: Write) -> str:
+    """The unified diff of one planned write, as `git diff` names its sides; empty when nothing changes."""
+    if write.before == write.after:
+        return ''
+    before = write.before.decode().splitlines(keepends=True) if write.before else []
+    after = write.after.decode().splitlines(keepends=True)
+    lines = difflib.unified_diff(
+        before,
+        after,
+        '/dev/null' if write.before is None else f'a/{write.path}',
+        f'b/{write.path}',
+    )
+    out = []
+    for line in lines:
+        out.append(
+            line if line.endswith('\n') else f'{line}\n\\ No newline at end of file\n'
+        )
+    return ''.join(out)
