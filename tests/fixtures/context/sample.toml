@@ -1,0 +1,44 @@
+schema = 1
+id = "standards-split"
+base = "0123456789abcdef0123456789abcdef01234567"
+writes = [
+  "STANDARDS.md",
+  "docs/standards/typed-evidence.md",
+  "docs/standards/rust.md",
+  "docs/standards/testing-notes.md",
+  ".agents/kitchen.toml",
+]
+
+[[file]]
+path = "STANDARDS.md"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000001"
+
+[[file]]
+path = ".agents/kitchen.toml"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000002"
+
+[[move]]
+source = "STANDARDS.md"
+ancestry = ["Coding standards", "Typed evidence"]
+to = "docs/standards/typed-evidence.md"
+
+[[move]]
+source = "STANDARDS.md"
+ancestry = ["Coding standards", "Typed evidence", "Rust (Engine)"]
+to = "docs/standards/rust.md"
+requires = ["docs/standards/typed-evidence.md"]
+
+[[move]]
+source = "STANDARDS.md"
+ancestry = ["Coding standards", "Testing", "Notes"]
+to = "docs/standards/testing-notes.md"
+
+[[rewrite]]
+path = ".agents/kitchen.toml"
+from = "STANDARDS.md#typed-evidence"
+to = "docs/standards/typed-evidence.md#typed-evidence"
+
+[[keep]]
+path = "docs/adr/0007-standards.md"
+ref = "STANDARDS.md#typed-evidence"
+reason = "ADRs are historical records"

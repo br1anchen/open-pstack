@@ -33,6 +33,7 @@ from pathlib import Path
 here = Path(__file__).resolve().parent
 SUITES = [
     'test_bounded_subprocess',
+    'test_pstack_context',
     'test_pstack_core',
     'test_pstack_kitchen',
     'test_pstack_pair',
