@@ -2298,7 +2298,7 @@ class ConsumerTests(unittest.TestCase):
             ('twice', 'heading:Examples'),
         )
         m = without_rewrites(sample_migration())
-        proof = self.prove_with(m, BASE, {OVERLAY: text})
+        proof = self.prove_with(m, BASE | {OVERLAY: text}, {OVERLAY: text})
         verdicts = {c.what: c.ok for c in proof.consumers}
         self.assertEqual(verdicts, {'part style': True, 'part rust': False})
         self.assertEqual(
@@ -2373,7 +2373,7 @@ class OverlayReferenceTests(unittest.TestCase):
         out = context.render(m, base, (), {*FILES, *base})
         return proved_with(m, base, out, {OVERLAY: overlay})
 
-    def test_a_string_naming_a_heading_that_resolved_at_base_and_is_gone_fails(self):
+    def test_a_string_new_in_the_overlay_that_names_no_heading_fails(self):
         text = overlay_text(('a', 'heading:Style')) + b'note = "STANDARDS.md#style"\n'
         base = BASE | {OVERLAY: text}
         proof = self.prove_with(base, text)
@@ -2386,6 +2386,50 @@ class OverlayReferenceTests(unittest.TestCase):
         self.assertIn(
             'STANDARDS.md#removed resolves to nothing', proof.findings[0].message
         )
+
+    def test_a_string_the_migration_moved_lands_on_the_pointer_and_fails(self):
+        text = (
+            overlay_text(('a', 'heading:Style'))
+            + b'note = "STANDARDS.md#typed-evidence"\n'
+        )
+        proof = self.prove_with(BASE | {OVERLAY: text}, text)
+        self.assertEqual(
+            [(f.path, f.kind) for f in proof.findings], [(OVERLAY, 'consumer')]
+        )
+        self.assertIn(
+            'STANDARDS.md#typed-evidence lands on the pointer STANDARDS.md keeps'
+            ' for a section that moved to docs/standards/typed-evidence.md',
+            proof.findings[0].message,
+        )
+        self.assertEqual(proof.pre_existing, [])
+
+    def test_a_select_that_matched_once_at_base_and_matches_none_or_several_after_fails(
+        self,
+    ):
+        text = overlay_text(('a', 'heading:Style'))
+        base = BASE | {OVERLAY: text}
+        m = without_rewrites(sample_migration())
+        for to, why in (
+            ('heading:Nowhere', 'heading:Nowhere: no such part'),
+            ('heading:Examples', 'heading:Examples: ambiguous, 2 parts match'),
+        ):
+            rewrite = context.Rewrite(OVERLAY, 'heading:Style', to, 1)
+            done = dataclasses.replace(
+                m,
+                rewrites=(rewrite,),
+                writes=(*m.writes, OVERLAY),
+                files=(*m.files, context.FileEntry(OVERLAY, '0' * 64)),
+            )
+            with self.subTest(to=to):
+                out = context.render(m, base, (), {*FILES, *base}) | {
+                    OVERLAY: text.replace(rewrite.from_.encode(), to.encode())
+                }
+                proof = proved_with(done, base, out, {OVERLAY: text})
+                self.assertEqual(
+                    [(f.path, f.kind) for f in proof.findings], [(OVERLAY, 'consumer')]
+                )
+                self.assertIn(why, proof.findings[0].message)
+                self.assertEqual(proof.pre_existing, [])
 
     def test_a_string_broken_at_base_is_pre_existing_and_not_counted(self):
         text = overlay_text(('a', 'heading:Style')) + b'note = "STANDARDS.md#gone"\n'
@@ -2497,6 +2541,19 @@ class OverlayCheckTests(unittest.TestCase):
         done = check_run(repo, mig)
         self.assertEqual(done.returncode, 1, done.stdout)
         self.assertIn(f'{OVERLAY}: consumer: part a: ', done.stdout)
+
+    def test_an_overlay_string_on_a_moved_heading_exits_1_naming_the_overlay(self):
+        text = (
+            overlay_text(('a', 'heading:Style'))
+            + b'note = "STANDARDS.md#typed-evidence"\n'
+        )
+        repo, mig = applied_repo(self, {OVERLAY: text})
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 1, done.stdout)
+        self.assertIn(
+            f'{OVERLAY}:12: consumer: line 12: STANDARDS.md#typed-evidence lands on the pointer',
+            done.stdout,
+        )
 
     def test_an_overlay_reference_broken_at_base_exits_0_and_is_printed(self):
         text = overlay_text(('a', 'heading:Style')) + b'note = "STANDARDS.md#gone"\n'

@@ -2311,7 +2311,10 @@ def consumer_proof(
     heading by its old anchor lands on the index pointer. An overlay part with a repo-root source that is a migrated
     file resolves with the playbooks' `select` on the output: selected in a destination or a staying section it
     holds, selected on a heading an index or a parent only points from, or on none or several, it fails. Each part
-    that holds prints the digest its selection has now beside the one it was reviewed at."""
+    that holds prints the digest its selection has now beside the one it was reviewed at. Every `path` or `path#anchor`
+    string of kitchen.toml or an overlay is judged the same way. What resolved at base and no longer does fails, as
+    does a string that is new in the working tree and names nothing. What was already broken at base, or a part
+    whose selection at base (by the part's id) matched no single part, is listed, not failed."""
     pb = playbooks_module()
     found: list[Finding] = []
     seen: list[Consumer] = []
@@ -2370,6 +2373,13 @@ def consumer_proof(
             except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
                 fail(path, 0, 'overlay', '', f'cannot read it: {e}')
                 continue
+            try:
+                base_data = tomllib.loads((base.data.get(path) or b'').decode())
+            except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+                base_data = {}
+            base_parts = {
+                x.get('id'): x for x in base_data.get('part', []) if isinstance(x, dict)
+            }
             for part in data.get('part', []):
                 source = part.get('source')
                 target = source.get('path') if isinstance(source, dict) else None
@@ -2381,10 +2391,14 @@ def consumer_proof(
                     continue
                 what = f'part {part.get("id")}'
                 selector = str(part.get('select'))
-                if target in base.data:
+                was = base_parts.get(part.get('id'), {}).get('source')
+                was_target = was.get('path') if isinstance(was, dict) else None
+                if was_target in base.data:
+                    was_select = str(base_parts[part.get('id')].get('select'))
                     try:
                         pb.select(
-                            pb.parse((base.data[target] or b'').decode()), selector
+                            pb.parse((base.data[was_target] or b'').decode()),
+                            was_select,
                         )
                     except pb.PlaybookError:
                         broken.append(
@@ -2392,7 +2406,7 @@ def consumer_proof(
                                 path,
                                 0,
                                 'link',
-                                f'{target} {selector} (broken at base)',
+                                f'{was_target} {was_select} (broken at base)',
                             )
                         )
                         continue
