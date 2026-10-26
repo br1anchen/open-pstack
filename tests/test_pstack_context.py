@@ -3223,6 +3223,31 @@ class ApplySymlinkTests(unittest.TestCase):
         self.assertEqual(list((repo / 'docs').glob('standards')), [])
 
 
+class WorkingBytesTests(unittest.TestCase):
+    def test_a_file_that_cannot_be_read_is_a_context_error_naming_it(self):
+        repo, _ = fixture_migration(self)
+        (repo / 'unreadable.md').mkdir()
+        with self.assertRaises(context.ContextError) as caught:
+            context.working_bytes(repo, 'unreadable.md')
+        self.assertIn('unreadable.md: cannot be read', str(caught.exception))
+
+    def test_an_absent_file_is_none(self):
+        repo, _ = fixture_migration(self)
+        self.assertIsNone(context.working_bytes(repo, 'absent.md'))
+
+
+class ApplyFailedCheckTests(unittest.TestCase):
+    def test_a_failed_post_write_check_carries_every_path_written(self):
+        repo, mig = fixture_migration(self)
+        with mock.patch.object(context, 'check', return_value=failing_proof()):
+            with self.assertRaises(context.ApplyRefused) as caught:
+                context.apply(repo, mig)
+        self.assertIn('written, and the tree does not prove', str(caught.exception))
+        self.assertEqual(caught.exception.written, tuple(sample_migration().writes))
+        for path in sample_migration().writes:
+            self.assertEqual((repo / path).read_bytes(), expected(path))
+
+
 class ApplyConsumerTests(unittest.TestCase):
     def overlay_in_tree(self, selector):
         repo, mig = fixture_migration(self)
@@ -3296,12 +3321,13 @@ class ApplyRecoveryTests(unittest.TestCase):
     def test_an_existing_file_keeps_its_mode_and_a_new_one_gets_the_umask_default(self):
         repo, mig = fixture_migration(self)
         (repo / 'STANDARDS.md').chmod(0o755)
+        toml_mode = (repo / '.agents/kitchen.toml').stat().st_mode & 0o777
         done = apply_run(repo, mig, umask=0o027)
         self.assertEqual(done.returncode, 0, done.stderr)
         mode = lambda p: (repo / p).stat().st_mode & 0o777  # noqa: E731
         self.assertEqual(mode('STANDARDS.md'), 0o755)
         self.assertEqual(mode('docs/standards/rust.md'), 0o640)
-        self.assertEqual(mode('.agents/kitchen.toml'), 0o644)
+        self.assertEqual(mode('.agents/kitchen.toml'), toml_mode)
 
     def test_no_temp_file_is_left_beside_the_written_ones(self):
         repo, mig = fixture_migration(self)
@@ -3351,8 +3377,10 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(done.stdout.count('wrote: '), 5)
         checked = kitchen_run(repo, 'check', str(mig))
         self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        applied = tree_of(repo)
         again = kitchen_run(repo, 'apply', str(mig))
         self.assertEqual((again.returncode, again.stdout), (0, 'no change\n'))
+        self.assertEqual(tree_of(repo), applied)
         valid = subprocess.run(
             [sys.executable, str(KITCHEN), '--repo', str(repo), 'validate'],
             env=GIT_ENV,
@@ -3371,6 +3399,7 @@ class ApplyExactStopTests(unittest.TestCase):
         done = apply_run(repo, mig, env={'KITCHEN_CONTEXT_STOP_AFTER': str(total)})
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.count('wrote: '), total)
+        self.assertEqual(counts(repo, mig), {'pre': 0, 'post': total, 'foreign': 0})
 
 
 if __name__ == '__main__':
