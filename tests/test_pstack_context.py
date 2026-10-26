@@ -927,15 +927,46 @@ class ReferenceTests(unittest.TestCase):
                 (18, 'inline', 'other.md', 'live'),
                 (25, 'image', '../img/a.png', ''),
                 (25, 'inline', 'other.md', 'nest'),
+                (28, 'inline', 'other.md', 'wrapped'),
+                (30, 'image', '../img/a.png', ''),
+                (31, 'inline', 'other.md', 'outer'),
             ],
         )
+
+    def test_link_text_wrapped_over_lines_reports_the_target_line_and_the_whole_raw(
+        self,
+    ):
+        got = {
+            r.fragment: r for r in guide_refs() if r.fragment in ('wrapped', 'outer')
+        }
+        self.assertEqual(
+            got['wrapped'].raw, '[text wraps over\ntwo lines](other.md#wrapped)'
+        )
+        self.assertEqual(
+            got['outer'].raw,
+            '[with an ![inner\nimage](../img/a.png) inside\nthe text](other.md#outer)',
+        )
+        [inner] = [r for r in guide_refs() if r.kind == 'image' and r.line == 30]
+        self.assertEqual(inner.raw, '![inner\nimage](../img/a.png)')
+        lines = (fixtures / 'refs' / GUIDE).read_text().split('\n')
+        for r in (got['wrapped'], got['outer'], inner):
+            written = lines[r.line - 1][r.start : r.end]
+            self.assertEqual(
+                written, r.target + ('#' + r.fragment if r.fragment else '')
+            )
+
+    def test_a_close_with_no_opener_in_its_paragraph_is_not_a_link(self):
+        raws = ' '.join(r.raw for r in guide_refs())
+        self.assertNotIn('orphan', raws)
+        self.assertNotIn('#gap', raws)
 
     def test_a_reference_carries_its_raw_text_and_the_columns_of_its_target(self):
         lines = (fixtures / 'refs' / GUIDE).read_text().split('\n')
         for r in guide_refs():
             with self.subTest(line=r.line, raw=r.raw):
                 text = lines[r.line - 1]
-                self.assertIn(r.raw, text)
+                held = r.raw.count('\n')
+                self.assertIn(r.raw, '\n'.join(lines[r.line - 1 - held : r.line]))
                 written = text[r.start : r.end]
                 self.assertEqual(
                     written, r.target + ('#' + r.fragment if r.fragment else '')

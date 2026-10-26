@@ -23,3 +23,15 @@ URL [web](https://example.com/x.md) and [mail](mailto:a@b.c) and [proto](//cdn/x
 ```
 
 Nested [![badge](../img/a.png)](other.md#nest). Escaped \[not](other.md) and [empty]().
+
+A link whose [text wraps over
+two lines](other.md#wrapped) ends here.
+Wrapped [with an ![inner
+image](../img/a.png) inside
+the text](other.md#outer) too.
+
+Orphan close](other.md#orphan) has no opener.
+
+An [opener apart
+
+from its](other.md#gap) close.

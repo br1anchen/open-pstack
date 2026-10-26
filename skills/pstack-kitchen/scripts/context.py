@@ -637,16 +637,34 @@ def opener_of(line: str, close: int) -> int | None:
     return None
 
 
+def paragraph_before(
+    masked: list[str], fenced: set[int], first: int, i: int
+) -> list[str]:
+    """The masked lines of the paragraph that line `i` continues: back to a blank line, a fence, a heading or the
+    start of the body."""
+    pb = playbooks_module()
+    j = i
+    while (
+        j > first
+        and (before := masked[j - 1]).strip()
+        and j - 1 not in fenced
+        and not pb.HEADING.match(before)
+    ):
+        j -= 1
+    return masked[j:i]
+
+
 def markdown_refs(path: str, lines: list[str]) -> list[Ref]:
     start = playbooks_module().frontmatter_end(lines)
     inside, _ = playbooks_module().scan_fences(lines[start:])
     fenced = {start + i for i in inside}
+    masked_lines = [CODE_RUN.sub(lambda m: ' ' * len(m.group()), x) for x in lines]
     found: list[Ref] = []
     for i in range(start, len(lines)):
         if i in fenced:
             continue
         line = lines[i]
-        masked = CODE_RUN.sub(lambda m: ' ' * len(m.group()), line)
+        masked = masked_lines[i]
         defined = DEFINITION.match(masked)
         if defined and not defined.group(1).startswith('^'):
             written = defined.group(2)
@@ -668,21 +686,35 @@ def markdown_refs(path: str, lines: list[str]) -> list[Ref]:
                     )
                 )
             continue
+        before = paragraph_before(masked_lines, fenced, start, i)
         for m in re.finditer(r'\]\(', masked):
             close = m.start()
             if masked[close - 1 : close] == '\\':
                 continue
-            opener = opener_of(masked, close)
             dest = destination_at(masked, m.end())
-            if opener is None or dest is None:
+            if dest is None:
                 continue
             at, stop, _, paren = dest
             written = line[at:stop]
             target, fragment = split_target(written)
             if not (target or fragment) or SCHEME.match(target):
                 continue
-            image = opener > 0 and masked[opener - 1] == '!'
-            first = opener - 1 if image else opener
+            opener = opener_of(masked, close)
+            if opener is not None:
+                image = opener > 0 and masked[opener - 1] == '!'
+                first = opener - 1 if image else opener
+                raw = line[first : paren + 1]
+            else:
+                # the link text opened on an earlier line of this paragraph
+                held = len('\n'.join(before)) + 1 if before else 0
+                text = '\n'.join([*before, masked[:close]])
+                opener = opener_of(text, len(text)) if before else None
+                if opener is None:
+                    continue
+                image = opener > 0 and text[opener - 1] == '!'
+                first = opener - 1 if image else opener
+                whole = '\n'.join([*lines[i - len(before) : i], line])
+                raw = whole[first : held + paren + 1]
             found.append(
                 Ref(
                     path,
@@ -692,7 +724,7 @@ def markdown_refs(path: str, lines: list[str]) -> list[Ref]:
                     'image' if image else 'inline',
                     target,
                     fragment,
-                    line[first : paren + 1],
+                    raw,
                 )
             )
     return found
