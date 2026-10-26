@@ -11,6 +11,7 @@ a second apply all reconstruct the same outputs from the same inputs.
 Stdlib only, and independent of kitchen_core. Headings and fences come from playbooks.py.
 """
 
+import dataclasses
 import difflib
 import functools
 import hashlib
@@ -2557,6 +2558,46 @@ def consumer_paths(repo: Path) -> list[str]:
     if folder.is_dir():
         found += [f'{OVERLAYS}{p.name}' for p in sorted(folder.glob('*.toml'))]
     return found
+
+
+def index_local(ref: Ref) -> bool:
+    """Whether a reference names a section of the file it is written in. Among the unresolved ones that is a source's
+    own staying text pointing at a heading it moved: the tool cannot rewrite it, because a rewrite target may not be a
+    move source, and the index keeps the heading, so it still resolves."""
+    return target_path(ref) == ref.path
+
+
+STATES = ('pre', 'post', 'foreign')
+
+
+def states(repo: Path, migration: Migration) -> list[tuple[str, str]]:
+    """Where each planned file stands in the working tree, in `writes` order: `post` when it equals the migration's
+    output, `pre` when it equals the base (or is absent where the base has none), `foreign` otherwise."""
+    found = []
+    for w in plan(repo, migration):
+        now = working_bytes(repo, w.path)
+        state = 'post' if now == w.after else 'pre' if now == w.before else 'foreign'
+        found.append((w.path, state))
+    return found
+
+
+def origin_data(o: Origin) -> dict:
+    return {'origin': type(o).__name__.lower(), **dataclasses.asdict(o)}
+
+
+def proof_data(proof: Proof) -> dict:
+    """The proof as plain data: the origin of every output line, the blocks, the findings, the references broken at
+    base and the consumers."""
+    return {
+        'ok': proof.ok,
+        'blocks': [dataclasses.asdict(b) for b in proof.blocks],
+        'findings': [dataclasses.asdict(f) for f in proof.findings],
+        'pre_existing': [dataclasses.asdict(f) for f in proof.pre_existing],
+        'consumers': [dataclasses.asdict(x) for x in proof.consumers],
+        'origins': {
+            p: [origin_data(o) for o in os_] for p, os_ in proof.origins.items()
+        },
+    }
 
 
 def check(repo: Path, migration_path: Path) -> Proof:

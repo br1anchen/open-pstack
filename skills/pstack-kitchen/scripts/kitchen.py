@@ -4094,7 +4094,10 @@ def context_preview_text(writes: list[dict], unresolved: list[dict]) -> str:
     each reference to a moved section that nothing covers."""
     diffs = ''.join(w['diff'] or f'unchanged: {w["path"]}\n' for w in writes)
     lines = ''.join(
-        f'unresolved: {u["path"]}:{u["line"]}: {" ".join(u["raw"].split())}\n'
+        f'index-local: {u["path"]}:{u["line"]}: {" ".join(u["raw"].split())} '
+        '(the tool cannot rewrite a move source)\n'
+        if u.get('index-local')
+        else f'unresolved: {u["path"]}:{u["line"]}: {" ".join(u["raw"].split())}\n'
         for u in unresolved
     )
     return (diffs + lines).rstrip('\n')
@@ -4150,11 +4153,82 @@ def context_inventory(args) -> int:
     return 0
 
 
+def context_check_text(repo: Path, migration, proof) -> str:
+    """`context check`'s text: a line per block, each finding, each consumer, the references broken at base and the
+    tree each part was proven against."""
+    out = []
+    for b in proof.blocks:
+        first = next((f for f in proof.findings if f.path == b.dest), None)
+        verdict = 'ok' if first is None else f'{first.kind}: {first.message}'
+        out.append(
+            f'{b.source}:{b.start}-{b.end} -> {b.dest} ({b.lines} lines): {verdict}'
+        )
+    for f in proof.findings:
+        out.append(
+            f'{f.path}:{f.line}: {f.kind}: {f.message}'
+            if f.line
+            else f'{f.path}: {f.kind}: {f.message}'
+        )
+    for c in proof.consumers:
+        out.append(
+            f'consumer {c.path} {c.what}: {c.target + ": " if c.target else ""}'
+            + (
+                'ok' + (f'; {c.detail}' if c.detail else '')
+                if c.ok
+                else f'failed: {c.detail}'
+            )
+        )
+    out += [f'pre-existing: {f.path}:{f.line}: {f.message}' for f in proof.pre_existing]
+    base = cx_base(repo, migration)
+    out += [
+        'proven against: the planned files, the kitchen.toml and the overlays as they are on disk;'
+        f' every other file as at base {base}',
+        'ok' if proof.ok else f'failed: {len(proof.findings)} findings',
+    ]
+    return '\n'.join(out)
+
+
+def cx_base(repo: Path, migration) -> str:
+    return context_module().resolve_base(repo, migration)[:12]
+
+
+def context_check(args) -> int:
+    """`context check`: prove the working tree against the migration's base. First says where each planned file
+    stands; a tree with a file still at its pre-image is half applied or not applied, so it stops there, before
+    line accounting. A file at neither image is what the line accounting is for, so it goes on and names the line.
+    Exit 1 on any failure. Writes nothing."""
+    cx = context_module()
+    repo = repo_root(args.repo)
+    try:
+        migration = cx.load(args.migration)
+        where = cx.states(repo, migration)
+        n = {s: sum(1 for _, x in where if x == s) for s in cx.STATES}
+        summary = (
+            f'{n["pre"]} of {len(where)} planned files at pre-image, '
+            f'{n["post"]} at post-image, {n["foreign"]} foreign'
+        )
+        listed = '\n'.join(f'{s}: {p}' for p, s in where if s != 'post')
+        states = [{'path': p, 'state': s} for p, s in where]
+        if n['pre']:
+            emit({'ok': False, 'states': states}, args.json, f'{summary}\n{listed}')
+            return 1
+        proof = cx.check(repo, args.migration)
+    except cx.ContextError as e:
+        raise KitchenError(str(e), 2) from e
+    text = context_check_text(repo, migration, proof)
+    if n['foreign']:
+        text = f'{summary}\n{listed}\n{text}'
+    emit({**cx.proof_data(proof), 'states': states}, args.json, text)
+    return 0 if proof.ok else 1
+
+
 def context_command(args) -> int:
     """`context preview`: the diff of every file a migration would write, and the references to a moved section
     that nothing covers; exit 1 when there are any. Writes nothing."""
     if args.context_cmd == 'inventory':
         return context_inventory(args)
+    if args.context_cmd == 'check':
+        return context_check(args)
     cx = context_module()
     repo = repo_root(args.repo)
     try:
@@ -4180,6 +4254,7 @@ def context_command(args) -> int:
             'line': r.line,
             'raw': r.raw,
             'target': cx.target_of(r),
+            **({'index-local': True} if cx.index_local(r) else {}),
         }
         for r in open_refs
     ]
@@ -4188,7 +4263,7 @@ def context_command(args) -> int:
         args.json,
         context_preview_text(writes, unresolved),
     )
-    return 1 if unresolved else 0
+    return 1 if any(not u.get('index-local') for u in unresolved) else 0
 
 
 def playbooks_command(args) -> int:
@@ -4519,6 +4594,22 @@ def build_parser() -> argparse.ArgumentParser:
         help='repository (default: the current directory)',
     )
     cxp.add_argument(
+        '--json',
+        action='store_true',
+        default=argparse.SUPPRESS,
+        help='machine-readable output',
+    )
+    cxc = cxsub.add_parser(
+        'check',
+        help="prove the working tree against the migration's base; writes nothing",
+    )
+    cxc.add_argument('migration', type=Path, help='the migration file (TOML)')
+    cxc.add_argument(
+        '--repo',
+        default=argparse.SUPPRESS,
+        help='repository (default: the current directory)',
+    )
+    cxc.add_argument(
         '--json',
         action='store_true',
         default=argparse.SUPPRESS,

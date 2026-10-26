@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2210,31 +2211,32 @@ def proved_with(m, base, outputs, consumers):
         return context.prove(base, m, outputs, FILES, consumers)
 
 
-class CheckTests(unittest.TestCase):
-    def applied_repo(self):
-        repo, text = fixture_repo(self)
-        mig = repo / 'migration.toml'
-        mig.write_text(text)
-        m = context.parse_migration(text)
-        for path, data in context.render(
-            m,
-            context.read_base(repo, m),
-            context.base_files_at(repo, m, {x.to for x in m.moves}),
-            context.repo_files(repo, m),
-        ).items():
-            (repo / path).parent.mkdir(parents=True, exist_ok=True)
-            (repo / path).write_bytes(data)
-        return repo, mig
+def applied_repo(test):
+    repo, text = fixture_repo(test)
+    mig = repo / 'migration.toml'
+    mig.write_text(text)
+    m = context.parse_migration(text)
+    for path, data in context.render(
+        m,
+        context.read_base(repo, m),
+        context.base_files_at(repo, m, {x.to for x in m.moves}),
+        context.repo_files(repo, m),
+    ).items():
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo / path).write_bytes(data)
+    return repo, mig
 
+
+class CheckTests(unittest.TestCase):
     def test_a_tree_holding_the_rendered_outputs_checks_clean(self):
-        repo, mig = self.applied_repo()
+        repo, mig = applied_repo(self)
         proof = context.check(repo, mig)
         self.assertTrue(proof.ok, proof.findings)
 
     def test_an_overlay_edited_in_the_working_tree_after_the_apply_is_read_from_there(
         self,
     ):
-        repo, mig = self.applied_repo()
+        repo, mig = applied_repo(self)
         (repo / '.agents/playbooks').mkdir()
         overlay = repo / OVERLAY
         overlay.write_bytes(overlay_text(('a', 'heading:Typed evidence')))
@@ -2251,12 +2253,250 @@ class CheckTests(unittest.TestCase):
         self.assertEqual([c.ok for c in proof.consumers if c.path == OVERLAY], [True])
 
     def test_a_deleted_line_of_a_destination_fails_naming_it(self):
-        repo, mig = self.applied_repo()
+        repo, mig = applied_repo(self)
         dest = repo / 'docs/standards/testing-notes.md'
         dest.write_bytes(dest.read_bytes().replace(b'Notes on testing.\n', b''))
         proof = context.check(repo, mig)
         self.assertFalse(proof.ok)
         self.assertEqual(proof.findings[0].path, 'docs/standards/testing-notes.md')
+
+
+def check_run(repo, mig, *extra):
+    return subprocess.run(
+        [sys.executable, str(KITCHEN), 'context', 'check', str(mig), *extra],
+        cwd=repo,
+        env=GIT_ENV,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+
+def stable(text):
+    return re.sub(r'base [0-9a-f]{12}', 'base BASE', text)
+
+
+class CheckCommandTests(unittest.TestCase):
+    def test_the_text_has_a_line_per_block_the_consumers_and_the_trees(self):
+        repo, mig = applied_repo(self)
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(
+            stable(done.stdout),
+            'STANDARDS.md:9-29 -> docs/standards/typed-evidence.md (18 lines): ok\n'
+            'STANDARDS.md:18-25 -> docs/standards/rust.md (12 lines): ok\n'
+            'STANDARDS.md:42-45 -> docs/standards/testing-notes.md (4 lines): ok\n'
+            'consumer .agents/kitchen.toml line 2: docs/standards/typed-evidence.md#typed-evidence: ok\n'
+            'proven against: the planned files, the kitchen.toml and the overlays as they are on disk;'
+            ' every other file as at base BASE\n'
+            'ok\n',
+        )
+
+    def test_json_is_the_proof(self):
+        repo, mig = applied_repo(self)
+        done = check_run(repo, mig, '--json')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        data = json.loads(done.stdout)
+        self.assertEqual(data['ok'], True)
+        self.assertEqual(data['findings'], [])
+        self.assertEqual(data['pre_existing'], [])
+        self.assertEqual(
+            data['blocks'][0],
+            {
+                'source': 'STANDARDS.md',
+                'start': 9,
+                'end': 29,
+                'dest': TYPED_MD,
+                'lines': 18,
+            },
+        )
+        self.assertEqual(
+            data['consumers'],
+            [
+                {
+                    'path': '.agents/kitchen.toml',
+                    'what': 'line 2',
+                    'target': 'docs/standards/typed-evidence.md#typed-evidence',
+                    'ok': True,
+                    'detail': '',
+                }
+            ],
+        )
+        self.assertEqual(
+            data['origins'][TYPED_MD][:2],
+            [
+                {
+                    'origin': 'original',
+                    'source': 'STANDARDS.md',
+                    'line': 9,
+                    'edit': 'shift',
+                },
+                {
+                    'origin': 'original',
+                    'source': 'STANDARDS.md',
+                    'line': 10,
+                    'edit': 'none',
+                },
+            ],
+        )
+        self.assertEqual(
+            data['origins'][TYPED_MD][9],
+            {
+                'origin': 'generated',
+                'kind': 'nested-heading',
+                'source': 'STANDARDS.md',
+                'line': 18,
+            },
+        )
+        self.assertEqual({s['state'] for s in data['states']}, {'post'})
+        self.assertEqual(
+            {p: len(o) for p, o in data['origins'].items()}['STANDARDS.md'],
+            len(context.lines_of((repo / 'STANDARDS.md').read_bytes())),
+        )
+
+    def test_a_tree_with_a_file_at_its_pre_image_prints_the_summary_and_stops(self):
+        repo, mig = applied_repo(self)
+        (repo / 'docs/standards/testing-notes.md').unlink()
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(
+            done.stdout,
+            '1 of 5 planned files at pre-image, 4 at post-image, 0 foreign\n'
+            'pre: docs/standards/testing-notes.md\n',
+        )
+        data = json.loads(check_run(repo, mig, '--json').stdout)
+        self.assertEqual(data['ok'], False)
+        self.assertEqual(
+            [s['state'] for s in data['states']],
+            ['post', 'post', 'post', 'pre', 'post'],
+        )
+
+    def test_a_tree_nothing_was_applied_to_is_all_pre_image(self):
+        repo, text = fixture_repo(self)
+        mig = repo / 'migration.toml'
+        mig.write_text(text)
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertTrue(
+            done.stdout.startswith(
+                '5 of 5 planned files at pre-image, 0 at post-image, 0 foreign\n'
+            )
+        )
+
+    def test_a_deleted_line_of_a_destination_exits_one_naming_path_and_line(self):
+        repo, mig = applied_repo(self)
+        dest = repo / 'docs/standards/testing-notes.md'
+        dest.write_bytes(dest.read_bytes().replace(b'Notes on testing.\n', b''))
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        lines = done.stdout.splitlines()
+        self.assertEqual(
+            lines[0], '0 of 5 planned files at pre-image, 4 at post-image, 1 foreign'
+        )
+        self.assertEqual(lines[1], 'foreign: docs/standards/testing-notes.md')
+        self.assertIn(
+            'docs/standards/testing-notes.md:3: dropped: missing before this line: STANDARDS.md:44',
+            lines,
+        )
+        self.assertIn(
+            'STANDARDS.md:42-45 -> docs/standards/testing-notes.md (3 lines): dropped: missing before this line: STANDARDS.md:44',
+            lines,
+        )
+
+
+def small_repo(test, files, migration):
+    """A git repository of `files` and a migration for it: `migration` with `{base}` and each `{sha:path}` filled."""
+    tmp = tempfile.TemporaryDirectory()
+    test.addCleanup(tmp.cleanup)
+    repo = Path(tmp.name) / 'repo'
+    repo.mkdir()
+    for path, data in files.items():
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo / path).write_bytes(data)
+    git(repo, 'init', '-q')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-q', '-m', 'base')
+    text = migration.replace('{base}', git(repo, 'rev-parse', 'HEAD'))
+    for path, data in files.items():
+        text = text.replace(f'{{sha:{path}}}', sha(data))
+    mig = repo.parent / 'migration.toml'
+    mig.write_text(text)
+    return repo, mig
+
+
+TOC = b'# A\n\nSee [b](#b) and [c](#c).\n\n## B\n\ntext\n\n## C\n\nmore\n'
+TOC_MIGRATION = """schema = 1
+id = "toc"
+base = "{base}"
+writes = ["STANDARDS.md", "b.md"]
+
+[[file]]
+path = "STANDARDS.md"
+sha256 = "{sha:STANDARDS.md}"
+
+[[move]]
+source = "STANDARDS.md"
+ancestry = ["A", "B"]
+to = "b.md"
+"""
+
+
+class IndexLocalTests(unittest.TestCase):
+    def preview_toc(self, *extra):
+        repo, mig = small_repo(self, {'STANDARDS.md': TOC}, TOC_MIGRATION)
+        return subprocess.run(
+            [sys.executable, str(KITCHEN), 'context', 'preview', str(mig), *extra],
+            cwd=repo,
+            env=GIT_ENV,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+
+    def test_a_staying_reference_to_a_section_the_same_file_moved_does_not_fail_preview(
+        self,
+    ):
+        done = self.preview_toc()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn(
+            'index-local: STANDARDS.md:3: [b](#b) (the tool cannot rewrite a move source)',
+            done.stdout.splitlines(),
+        )
+        self.assertNotIn('unresolved:', done.stdout)
+
+    def test_json_marks_it_and_keeps_the_other_keys(self):
+        done = self.preview_toc('--json')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(
+            json.loads(done.stdout)['unresolved'],
+            [
+                {
+                    'path': 'STANDARDS.md',
+                    'line': 3,
+                    'raw': '[b](#b)',
+                    'target': 'STANDARDS.md#b',
+                    'index-local': True,
+                }
+            ],
+        )
+
+    def test_a_reference_from_another_file_still_counts(self):
+        files = {'STANDARDS.md': TOC, 'other.md': b'See [b](STANDARDS.md#b).\n'}
+        repo, mig = small_repo(self, files, TOC_MIGRATION)
+        done = subprocess.run(
+            [sys.executable, str(KITCHEN), 'context', 'preview', str(mig)],
+            cwd=repo,
+            env=GIT_ENV,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('unresolved: other.md:1: [b](STANDARDS.md#b)', done.stdout)
+        self.assertIn('index-local: STANDARDS.md:3', done.stdout)
 
 
 if __name__ == '__main__':
