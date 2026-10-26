@@ -4153,12 +4153,35 @@ def context_inventory(args) -> int:
     return 0
 
 
+def cx_in_block(proof, b, f) -> bool:
+    """Whether a finding falls inside a block's range: on its destination, or on its source, at a line the block
+    carries from the base or next to one. A finding on a line no block text stands behind belongs to the nearest
+    origin before it, else the one after; a finding on a whole file belongs to every block of that file."""
+    cx = context_module()
+    if f.path not in (b.source, b.dest):
+        return False
+    if f.line == 0:
+        found = re.match(re.escape(f.path) + r':(\d+) ', f.message)
+        if f.path == b.source and found:
+            return b.start <= int(found.group(1)) <= b.end
+        return f.path == b.dest
+    origins = proof.origins.get(f.path, [])
+    here = min(f.line - 1, len(origins) - 1)
+    for k in [*range(here, -1, -1), *range(here + 1, len(origins))]:
+        o = origins[k]
+        if isinstance(o, cx.Original | cx.Copied) or (
+            isinstance(o, cx.Generated) and o.source
+        ):
+            return o.source == b.source and b.start <= o.line <= b.end
+    return f.path == b.dest
+
+
 def context_check_text(repo: Path, migration, proof) -> str:
     """`context check`'s text: a line per block, each finding, each consumer, the references broken at base and the
     tree each part was proven against."""
     out = []
     for b in proof.blocks:
-        first = next((f for f in proof.findings if f.path == b.dest), None)
+        first = next((f for f in proof.findings if cx_in_block(proof, b, f)), None)
         verdict = 'ok' if first is None else f'{first.kind}: {first.message}'
         out.append(
             f'{b.source}:{b.start}-{b.end} -> {b.dest} ({b.lines} lines): {verdict}'
@@ -4207,7 +4230,10 @@ def context_check(args) -> int:
             f'{n["pre"]} of {len(where)} planned files at pre-image, '
             f'{n["post"]} at post-image, {n["foreign"]} foreign'
         )
-        listed = '\n'.join(f'{s}: {p}' for p, s in where if s != 'post')
+        note = '' if n['pre'] else ' (proven below)'
+        listed = '\n'.join(
+            f'{s}: {p}{note if s == "foreign" else ""}' for p, s in where if s != 'post'
+        )
         states = [{'path': p, 'state': s} for p, s in where]
         if n['pre']:
             emit({'ok': False, 'states': states}, args.json, f'{summary}\n{listed}')

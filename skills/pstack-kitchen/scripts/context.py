@@ -2577,8 +2577,6 @@ def prove(
     base_tree = Tree(dict(base_files), {*files, *base_files})
     judged = {p: d for p, d in (consumers or {}).items() if p not in migration.writes}
     out_tree = Tree({**base_files, **judged, **outputs}, tracked)
-    if found:  # the anchors and links are read off the origin table, which a failed walk leaves incomplete
-        return Proof(origins, blocks, found)
     more, broken, moved = link_proof(
         base_tree,
         out_tree,
@@ -2590,6 +2588,8 @@ def prove(
     )
     named = [p for p in (consumers or {}) if p in migration.writes or p in judged]
     held, seen, gone = consumer_proof(base_tree, out_tree, named, origins, moved)
+    if found:  # the origin table a failed walk leaves is incomplete: its links and consumer findings are not trusted, the consumers' results are shown
+        return Proof(origins, blocks, found, [], seen)
     return Proof(origins, blocks, more + held, broken + gone, seen)
 
 

@@ -2546,6 +2546,70 @@ class CheckCommandTests(unittest.TestCase):
             'ok\n',
         )
 
+    def test_an_overlay_part_prints_the_digest_it_was_reviewed_at_and_now(self):
+        repo, mig = applied_repo(self, {OVERLAY: overlay_text(('a', 'heading:Style'))})
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(
+            stable(done.stdout),
+            'STANDARDS.md:9-29 -> docs/standards/typed-evidence.md (18 lines): ok\n'
+            'STANDARDS.md:18-25 -> docs/standards/rust.md (12 lines): ok\n'
+            'STANDARDS.md:42-45 -> docs/standards/testing-notes.md (4 lines): ok\n'
+            'consumer .agents/kitchen.toml line 2: docs/standards/typed-evidence.md#typed-evidence: ok\n'
+            'consumer .agents/playbooks/standards.toml part a: STANDARDS.md heading:Style: ok;'
+            ' reviewed 000000000000, now bb7acbb14173\n'
+            'proven against: the planned files, the kitchen.toml and the overlays as they are on disk;'
+            ' every other file as at base BASE\n'
+            'ok\n',
+        )
+
+    def test_a_duplicated_line_still_prints_every_consumer(self):
+        repo, mig = applied_repo(self, {OVERLAY: overlay_text(('a', 'heading:Style'))})
+        index = repo / 'STANDARDS.md'
+        lines = index.read_bytes().split(b'\n')
+        lines.insert(3, lines[3])
+        index.write_bytes(b'\n'.join(lines))
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(
+            stable(done.stdout),
+            '0 of 5 planned files at pre-image, 4 at post-image, 1 foreign\n'
+            'foreign: STANDARDS.md (proven below)\n'
+            'STANDARDS.md:9-29 -> docs/standards/typed-evidence.md (18 lines): ok\n'
+            'STANDARDS.md:18-25 -> docs/standards/rust.md (12 lines): ok\n'
+            'STANDARDS.md:42-45 -> docs/standards/testing-notes.md (4 lines): ok\n'
+            'STANDARDS.md:5: duplicated: repeats STANDARDS.md:4\n'
+            'consumer .agents/kitchen.toml line 2: docs/standards/typed-evidence.md#typed-evidence: ok\n'
+            'consumer .agents/playbooks/standards.toml part a: STANDARDS.md heading:Style: ok;'
+            ' reviewed 000000000000, now bb7acbb14173\n'
+            'proven against: the planned files, the kitchen.toml and the overlays as they are on disk;'
+            ' every other file as at base BASE\n'
+            'failed: 1 findings\n',
+        )
+
+    def test_a_stray_line_in_the_index_shows_on_the_block_it_sits_beside(self):
+        repo, mig = applied_repo(self)
+        index = repo / 'STANDARDS.md'
+        lines = index.read_bytes().split(b'\n')
+        lines.insert(38, b'stray line')
+        index.write_bytes(b'\n'.join(lines))
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(
+            stable(done.stdout),
+            '0 of 5 planned files at pre-image, 4 at post-image, 1 foreign\n'
+            'foreign: STANDARDS.md (proven below)\n'
+            'STANDARDS.md:9-29 -> docs/standards/typed-evidence.md (18 lines): ok\n'
+            'STANDARDS.md:18-25 -> docs/standards/rust.md (12 lines): ok\n'
+            'STANDARDS.md:42-45 -> docs/standards/testing-notes.md (4 lines):'
+            ' unexplained: expected the pointer for STANDARDS.md:42 to docs/standards/testing-notes.md\n'
+            'STANDARDS.md:39: unexplained: expected the pointer for STANDARDS.md:42 to docs/standards/testing-notes.md\n'
+            'consumer .agents/kitchen.toml line 2: docs/standards/typed-evidence.md#typed-evidence: ok\n'
+            'proven against: the planned files, the kitchen.toml and the overlays as they are on disk;'
+            ' every other file as at base BASE\n'
+            'failed: 1 findings\n',
+        )
+
     def test_json_is_the_proof(self):
         repo, mig = applied_repo(self)
         done = check_run(repo, mig, '--json')
@@ -2647,7 +2711,9 @@ class CheckCommandTests(unittest.TestCase):
         self.assertEqual(
             lines[0], '0 of 5 planned files at pre-image, 4 at post-image, 1 foreign'
         )
-        self.assertEqual(lines[1], 'foreign: docs/standards/testing-notes.md')
+        self.assertEqual(
+            lines[1], 'foreign: docs/standards/testing-notes.md (proven below)'
+        )
         self.assertIn(
             'docs/standards/testing-notes.md:3: dropped: missing before this line: STANDARDS.md:44',
             lines,
