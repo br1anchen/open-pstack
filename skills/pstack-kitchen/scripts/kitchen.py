@@ -3878,10 +3878,12 @@ def classify_change(
     paths: list[str] | None = None,
     escalate: tuple[str, ...] = (),
 ) -> dict:
-    """The kitchen's class for a change, from a range, the working tree or a brief's Scope globs: profiles, risk, verify settings, warnings."""
+    """The kitchen's class for a change, from a range, the working tree or a brief's Scope globs: profiles, risk, verify settings, the review
+    engine, warnings."""
     root, kitchen, _ = open_kitchen(inv)
     change = changes(root, inv.at, paths, working_tree, base, head)
     r = classify(kitchen, change.files, change.outside, list(escalate))
+    r['review_engine'] = kitchen.review['engine']
     if kitchen.generated:
         r['warnings'] = generated_warnings(
             kitchen, root, inv.at, change.scope_globs, change.files

@@ -140,6 +140,16 @@ def unit_adds_no_lines(store, brief):
     return ok and modified <= counted
 
 
+def unit_engine(brief, engine):
+    """The engine a unit's review note must cite: the one classify stamped on its brief (`review-engine:`, `none` for none), so an engine named
+    after the unit was dispatched does not reach back to it. A brief never stamped (classified before the stamp existed, or still holding the
+    template's `set by kitchen.sh classify` text) is held to the kitchen's engine now."""
+    stamped = header_field(brief, 'review-engine')
+    if not stamped or ' ' in stamped:
+        return engine
+    return '' if stamped == 'none' else stamped
+
+
 def engine_met(store, brief, review, engine):
     """(met, gap): the review cites a run of the engine, or says `engine: skipped (deletion-only, proof: ...)` over a range that only deletes."""
     if cites_engine(review, engine):
@@ -455,8 +465,8 @@ def say_landing_verification(
 def land_check(store, say=out):
     """Says what it finds line by line and returns the problem lines, none when the stack may land. A unit with no clean verdict of its own is
     covered by the newest clean landing verdict whose range holds it (head contained, or rebased by patch-id with no revert after); the newest landing
-    verdict still decides the `landing verification:` line, the manifest warning and the note for a unit nothing holds. A kitchen that names a review
-    engine requires each accepted unit's review note to cite a run of it: `engine: <name> <run id or artifact path>`."""
+    verdict still decides the `landing verification:` line, the manifest warning and the note for a unit nothing holds. Each accepted unit's review note
+    cites a run of the engine its brief was classified under (`unit_engine`): `engine: <name> <run id or artifact path>`."""
     problems = []
     ok, engine = validated_engine(store)
     if not ok:
@@ -477,11 +487,12 @@ def land_check(store, say=out):
         ranges = clean_landing_ranges(store, root, verdict, landing_verdict, say)
     fixes = fix_covers(store)
     for review, seq, brief in accepted_units(store):
-        if engine:
-            met, gap = engine_met(store, brief, review, engine)
+        required = unit_engine(brief, engine)
+        if required:
+            met, gap = engine_met(store, brief, review, required)
             if not met:
                 problems.append(
-                    f'unreviewed: unit {seq} cites no {engine} run; review its range with {engine} and add "engine: {engine} <run id or artifact path>" '
+                    f'unreviewed: unit {seq} cites no {required} run; review its range with {required} and add "engine: {required} <run id or artifact path>" '
                     f'to {review}{gap}\n'
                 )
                 say(problems[-1])

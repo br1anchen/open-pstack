@@ -6304,6 +6304,7 @@ esac
         self.env['HERDR_PANE_ID'] = new_pane
         toml = self.repo / '.agents/kitchen.toml'
         toml.write_text(toml.read_text() + 'engine = "joo"\n')
+        self.run_sh('classify', str(self.store), str(b))
         out = self.run_sh('take-master', str(self.store))
         self.assertIn(
             'warning: unreviewed: unit 001 cites no joo run; review its range with joo',
@@ -6440,6 +6441,8 @@ esac
         )
         toml = self.repo / '.agents/kitchen.toml'
         toml.write_text(toml.read_text() + 'engine = "joo"\n')
+        self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('\nreview-engine: joo\n', b.read_text())
         for note in (
             'verdict: accept\n',
             'verdict: accept\nengine: joo\n',
@@ -6455,6 +6458,48 @@ esac
         self.assertIn(
             'land-check: pass (review engine: joo)',
             self.run_sh('land-check', str(self.store)),
+        )
+
+    def test_a_review_engine_named_after_dispatch_does_not_reach_back_to_the_unit(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.assertIn('\nreview-engine: none\n', b.read_text())
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        self.run_sh('verify', str(self.store), '001')
+        review = self.store / 'reviews/001-util.md'
+        review.write_text('verdict: accept\n')
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + 'engine = "joo"\n')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn('land-check: pass (review engine: joo)', out)
+        self.assertNotIn('unreviewed', out)
+        # A brief classified before classify stamped the engine is held to the kitchen's engine now.
+        stamped = b.read_text()
+        for unstamped in (
+            stamped.replace('review-engine: none\n', ''),
+            stamped.replace(
+                'review-engine: none\n',
+                'review-engine: set by kitchen.sh classify at dispatch\n',
+            ),
+        ):
+            b.write_text(unstamped)
+            self.assertIn(
+                'unreviewed: unit 001 cites no joo run',
+                self.run_sh('land-check', str(self.store), code=2),
+            )
+        b.write_text(stamped.replace('review-engine: none\n', ''))
+        # A stamped engine holds after the kitchen drops it.
+        b.write_text(
+            b.read_text().replace('plan: none\n', 'plan: none\nreview-engine: joo\n')
+        )
+        toml.write_text(toml.read_text().replace('engine = "joo"\n', ''))
+        self.assertIn(
+            'unreviewed: unit 001 cites no joo run',
+            self.run_sh('land-check', str(self.store), code=2),
         )
 
     def test_a_deletion_only_unit_may_skip_the_required_engine_with_proof(self):
@@ -6664,6 +6709,7 @@ esac
         self.assertNotIn('unreviewed', out)
         toml = self.repo / '.agents/kitchen.toml'
         toml.write_text(toml.read_text() + 'engine = "joo"\n')
+        self.run_sh('classify', str(self.store), str(self.store / 'briefs/001-u1.md'))
         out = self.run_sh('verify', str(self.store), '003')
         self.assertIn(
             f'warning: unreviewed: unit 001 cites no joo run; review its range with joo and add "engine: joo <run id or artifact path>" to {review}',

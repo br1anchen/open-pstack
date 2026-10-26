@@ -1,4 +1,4 @@
-"""classify: stamps a brief's risk, profiles, verify mode and kitchen from its Scope.
+"""classify: stamps a brief's risk, profiles, verify mode, review engine and kitchen from its Scope.
 
 Every kitchen.py query here (`snapshot`, `classify_change` and `lessons_stamp`) is a function of kpy.kitchen_py that returns data. None of them writes
 os.environ or builds a child's command line (`child_args`, `child_env`): those belong to `gate` and to `brief-verify` without --list. test_classify_kpy_calls_leave_the_environment_alone pins that."""
@@ -254,7 +254,7 @@ def swallowed_headings(text):
 
 
 def classify_brief(store, brief):
-    """Stamps risk, profiles, verify and kitchen on the brief and prints the summary."""
+    """Stamps risk, profiles, verify, review-engine and kitchen on the brief and prints the summary."""
     globs = scope_entries(brief, 'may')
     if not globs:
         raise EmptyScope(f"{brief} lists nothing under Scope's may write:")
@@ -282,6 +282,7 @@ def classify_brief(store, brief):
         set_header(brief, 'risk', risk)
     set_header(brief, 'profiles', ', '.join(profiles) or 'none')
     set_header(brief, 'verify', verify_line)
+    set_header(brief, 'review-engine', data.get('review_engine') or 'none')
     sys.stdout.write(f'risk: {risk}\n')
     for line in swallowed_headings(read_text(brief)):
         sys.stdout.write(f'{line}\n')

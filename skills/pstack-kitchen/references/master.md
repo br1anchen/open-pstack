@@ -183,7 +183,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      (`kitchen.py validate` prints `review engine:`), the owner requires that
      engine on every unit: run it on the unit's range and add
      `engine: <name> <run id or artifact path>` under the review note's
-     `head:` line, or land-check refuses the unit. A unit whose range only deletes (read from `git diff --name-status -z` and `--numstat -z`,
+     `head:` line, or land-check refuses the unit. The engine a unit needs is
+     the one classify stamped on its brief at dispatch (`review-engine:`): an
+     engine named after a unit was dispatched does not reach back to it, and a
+     brief with no stamp (classified by an older build) needs the engine set now. A unit whose range only deletes (read from `git diff --name-status -z` and `--numstat -z`,
      NUL-separated so no path is quoted: every path deleted, or modified by
      removing lines only; a created, renamed or mode-changed file, a modified
      binary or a failing git command refuses) may instead say

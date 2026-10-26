@@ -160,7 +160,8 @@ its children may do beyond these shared rules.
    tool it runs itself. The kitchen runs no reviewer and reads no tool's
    output, but when `[review].engine` names one, the owner requires it: the
    master runs it on every unit and its review note cites the run; blocking findings become notes or a fix brief, follow-ups go to
-   `followups.md`.
+   `followups.md`. A unit answers to the engine classify stamped on its brief
+   (`review-engine:`), so an engine named mid-run starts with the next dispatch.
 5. **Accept.** The master's review note is short when the verdict is clean;
    a sampled unit (`audit: yes`) gets a full read.
 6. **Land.** `kitchen.sh land-check` passes only when every unit with an

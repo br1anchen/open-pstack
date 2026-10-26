@@ -7,6 +7,7 @@ plan: {{path of the agreed plan under {{STORE}}/plans/; required when risk is es
 risk: set by kitchen.sh classify at dispatch; an escalated plan, or `escalated` written here, keeps it escalated
 profiles: set by kitchen.sh classify at dispatch
 verify: set by kitchen.sh classify at dispatch
+review-engine: set by kitchen.sh classify at dispatch
 standing: {{STORE}}/standing-orders.md
 report: {{STORE}}/reports/{{SEQ}}-{{SLUG}}.md
 

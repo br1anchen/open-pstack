@@ -46,7 +46,7 @@ from pstack_core.store import (
 )
 
 from . import verify_state as vs
-from .landing import accepted_units, engine_met, review_engine
+from .landing import accepted_units, engine_met, review_engine, unit_engine
 from .units import Verdict
 
 NOT_GIVEN = object()
@@ -596,15 +596,16 @@ class Waiter:
 
 
 def warn_unreviewed(store, say=None):
-    """A `warning: unreviewed:` line for each accepted unit whose review note lacks the run the kitchen's [review].engine requires, said to `say`
-    (default: standard output); nothing when no engine is set."""
+    """A `warning: unreviewed:` line for each accepted unit whose review note lacks a run of the engine its brief was classified under
+    (`unit_engine`), said to `say` (default: standard output)."""
     say = say or sys.stdout.write
     engine = review_engine(store)
-    if not engine:
-        return
     for review, seq, brief in accepted_units(store):
-        met, gap = engine_met(store, brief, review, engine)
+        required = unit_engine(brief, engine)
+        if not required:
+            continue
+        met, gap = engine_met(store, brief, review, required)
         if not met:
             say(
-                f'warning: unreviewed: unit {seq} cites no {engine} run; review its range with {engine} and add "engine: {engine} <run id or artifact path>" to {review}{gap}\n'
+                f'warning: unreviewed: unit {seq} cites no {required} run; review its range with {required} and add "engine: {required} <run id or artifact path>" to {review}{gap}\n'
             )
