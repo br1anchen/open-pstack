@@ -2831,3 +2831,55 @@ class ApplyRecoveryTests(unittest.TestCase):
         self.assertEqual(
             set(tree_of(repo)) - before, set(sample_migration().writes) - before
         )
+
+
+def kitchen_run(repo, *args):
+    return subprocess.run(
+        [sys.executable, str(KITCHEN), 'context', *args],
+        cwd=repo,
+        env=GIT_ENV,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+
+class EndToEndTests(unittest.TestCase):
+    def test_preview_apply_check_apply_and_validate_on_a_git_repo(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name) / 'repo'
+        shutil.copytree(fixtures / 'repo', repo)
+        toml = repo / '.agents/kitchen.toml'
+        toml.write_text(
+            'version = 1\n[profile.docs]\npaths = ["**/*.md"]\n' + toml.read_text()
+        )
+        git(repo, 'init', '-q')
+        git(repo, 'add', '-A')
+        git(repo, 'commit', '-q', '-m', 'fixture')
+        text = SAMPLE.replace(PLACEHOLDER_BASE, git(repo, 'rev-parse', 'HEAD'))
+        for path, placeholder in PLACEHOLDER_SHA.items():
+            text = text.replace(placeholder, sha((repo / path).read_bytes()))
+        mig = Path(tmp.name) / 'migration.toml'
+        mig.write_text(text)
+        before = tree_of(repo)
+        seen = kitchen_run(repo, 'preview', str(mig))
+        self.assertEqual(seen.returncode, 0, seen.stderr)
+        self.assertEqual(tree_of(repo), before)
+        done = kitchen_run(repo, 'apply', str(mig))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.count('wrote: '), 5)
+        checked = kitchen_run(repo, 'check', str(mig))
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        again = kitchen_run(repo, 'apply', str(mig))
+        self.assertEqual((again.returncode, again.stdout), (0, 'no change\n'))
+        valid = subprocess.run(
+            [sys.executable, str(KITCHEN), '--repo', str(repo), 'validate'],
+            env=GIT_ENV,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
