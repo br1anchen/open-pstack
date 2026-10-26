@@ -1276,9 +1276,9 @@ class InventoryTests(unittest.TestCase):
             done.stdout, pinned('inventory.json', git(repo, 'rev-parse', 'HEAD'))
         )
 
-    def test_inventory_writes_nothing(self):
+    def test_inventory_and_draft_write_nothing(self):
         repo, _ = fixture_repo(self)
-        for extra in ((), ('--json',)):
+        for extra in ((), ('--json',), ('--draft', 'STANDARDS.md')):
             with self.subTest(extra=extra):
                 self.assertEqual(inventory(repo, *extra).returncode, 0)
                 self.assertEqual(git(repo, 'status', '--porcelain'), '')
@@ -1418,6 +1418,76 @@ class InventoryTests(unittest.TestCase):
         }
         inv = inventory_of(files)
         self.assertEqual(inv.documents[0].inbound, ())
+
+
+class DraftTests(unittest.TestCase):
+    def test_the_draft_of_the_fixture_standards_is_pinned(self):
+        repo, _ = fixture_repo(self)
+        done = inventory(repo, '--draft', 'STANDARDS.md')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        want = pinned('draft.toml', git(repo, 'rev-parse', 'HEAD')).replace(
+            'SHA256', sha(STANDARDS)
+        )
+        self.assertEqual(done.stdout, want)
+
+    def test_a_block_for_each_top_level_section_with_occurrence_for_a_repeat(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo)
+        (repo / 'docs').mkdir()
+        (repo / 'docs/My Guide.md').write_text(
+            '# Intro\n\ntext\n\n# Rules\n\n## Sub\n\n# Intro\n\nagain\n'
+        )
+        git(repo, 'init', '-q')
+        git(repo, 'add', '-A')
+        git(repo, 'commit', '-q', '-m', 'x')
+        text = context.draft(repo, 'docs/My Guide.md')
+        self.assertIn('id = "My-Guide"', text)
+        self.assertEqual(text.count('# [[move]]'), 3)
+        self.assertIn('# ancestry = ["Intro"]\n# occurrence = 1\n# to = "TODO"\n', text)
+        self.assertIn('# ancestry = ["Rules"]\n# to = "TODO"\n', text)
+        self.assertIn('# ancestry = ["Intro"]\n# occurrence = 2\n# to = "TODO"\n', text)
+        self.assertNotIn('Sub', text)
+
+    def test_the_draft_loads_once_a_move_is_uncommented_and_filled_in(self):
+        repo, _ = fixture_repo(self)
+        text = context.draft(repo, 'STANDARDS.md')
+        lines = text.splitlines()
+        lines = [x.removeprefix('# ') if x.startswith('# ') else x for x in lines]
+        filled = '\n'.join(lines).replace('to = "TODO"', 'to = "docs/standards/all.md"')
+        filled = filled.replace(
+            '  "STANDARDS.md",\n', '  "STANDARDS.md",\n  "docs/standards/all.md",\n'
+        )
+        m = context.parse_migration(filled)
+        self.assertEqual(m.base, git(repo, 'rev-parse', 'HEAD'))
+        self.assertEqual(m.files[0].sha256, sha(STANDARDS))
+        self.assertEqual(m.moves[0].ancestry, ('Coding standards',))
+        self.assertEqual(m.moves[0].to, 'docs/standards/all.md')
+        self.assertEqual(m.writes, ('STANDARDS.md', 'docs/standards/all.md'))
+        context.plan(repo, m)
+
+    def test_the_draft_alone_is_a_migration_with_nothing_to_write_but_its_source(self):
+        repo, _ = fixture_repo(self)
+        with self.assertRaises(context.ContextError) as caught:
+            context.parse_migration(context.draft(repo, 'STANDARDS.md'))
+        self.assertIn(
+            'is not a source, destination or rewrite target', str(caught.exception)
+        )
+
+    def test_a_missing_file_a_heading_less_file_and_an_escape_exit_two(self):
+        repo, _ = fixture_repo(self)
+        (repo / 'plain.md').write_text('no headings\n')
+        git(repo, 'add', '-A')
+        git(repo, 'commit', '-q', '-m', 'plain')
+        for path, why in (
+            ('nope.md', 'not a file at HEAD'),
+            ('plain.md', 'has no headings'),
+            ('../x.md', 'must not contain a `..` part'),
+        ):
+            with self.subTest(path):
+                done = inventory(repo, '--draft', path)
+                self.assertEqual(done.returncode, 2)
+                self.assertEqual(done.stdout, '')
+                self.assertIn(why, done.stderr)
 
 
 GUIDE = 'docs/guide.md'

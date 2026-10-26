@@ -4134,13 +4134,17 @@ def inventory_text(data: dict) -> str:
 
 
 def context_inventory(args) -> int:
-    """`context inventory`: the repo's documents, their inbound references and the scanner's coverage. Writes
-    nothing."""
+    """`context inventory`: the repo's documents, their inbound references and the scanner's coverage, or with
+    `--draft PATH` a migration skeleton for that file. Writes nothing."""
     cx = context_module()
     repo = repo_root(args.repo)
     try:
-        data = cx.inventory_data(cx.inventory(repo))
-        emit(data, args.json, inventory_text(data))
+        if args.draft:
+            text = cx.draft(repo, args.draft)
+            emit({'draft': text}, args.json, text.rstrip('\n'))
+        else:
+            data = cx.inventory_data(cx.inventory(repo))
+            emit(data, args.json, inventory_text(data))
     except cx.ContextError as e:
         raise KitchenError(str(e), 2) from e
     return 0
@@ -4523,6 +4527,11 @@ def build_parser() -> argparse.ArgumentParser:
     cxi = cxsub.add_parser(
         'inventory',
         help="the repo's Markdown documents, their inbound references and the scanner's coverage; writes nothing",
+    )
+    cxi.add_argument(
+        '--draft',
+        metavar='PATH',
+        help='print a migration skeleton for this Markdown file instead',
     )
     cxi.add_argument(
         '--repo',

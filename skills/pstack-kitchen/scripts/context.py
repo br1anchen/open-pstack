@@ -15,6 +15,7 @@ import difflib
 import functools
 import hashlib
 import importlib.util
+import json
 import os
 import posixpath
 import re
@@ -1646,6 +1647,56 @@ def inventory(repo: Path) -> Inventory:
     """The inventory of the repo's tracked files at HEAD. Reads git only; writes nothing."""
     commit = head_commit(repo)
     return inventory_of(commit, read_scanned(repo, commit, tracked(repo, commit)))
+
+
+def json_string(text: str) -> str:
+    """`text` as a TOML basic string."""
+    return json.dumps(text, ensure_ascii=False)
+
+
+def draft_id(path: str) -> str:
+    stem = posixpath.splitext(posixpath.basename(path))[0]
+    name = re.sub(r'[^A-Za-z0-9._-]', '-', stem).lstrip('._-')
+    return name or 'migration'
+
+
+def draft(repo: Path, path: str) -> str:
+    """A schema-1 migration skeleton for the Markdown file `path` at HEAD: the root keys, its `[[file]]`, and one
+    commented `[[move]]` for each top-level section. Prints text only; the writer fills `to` and `writes`."""
+    check_path(path, 'draft')
+    commit = head_commit(repo)
+    data = read_blobs(repo, commit, [path]).get(path)
+    if data is None:
+        raise ContextError(f'{path}: not a file at HEAD')
+    found = sections(data, path)
+    if not found:
+        raise ContextError(f'{path}: has no headings to move')
+    level = min(s.level for s in found)
+    out = [
+        'schema = 1',
+        f'id = {json_string(draft_id(path))}',
+        f'base = "{commit}"',
+        f'writes = [\n  {json_string(path)},\n]',
+        '',
+        '[[file]]',
+        f'path = {json_string(path)}',
+        f'sha256 = "{hashlib.sha256(data).hexdigest()}"',
+    ]
+    for s in found:
+        if s.level != level:
+            continue
+        same = [t for t in found if t.path == s.path]
+        block = [
+            '',
+            '# [[move]]',
+            f'# source = {json_string(path)}',
+            f'# ancestry = [{", ".join(json_string(x) for x in s.path)}]',
+        ]
+        if len(same) > 1:
+            block.append(f'# occurrence = {same.index(s) + 1}')
+        block.append('# to = "TODO"')
+        out += block
+    return '\n'.join(out) + '\n'
 
 
 # ---- preview ---------------------------------------------------------------

@@ -1,0 +1,15 @@
+schema = 1
+id = "STANDARDS"
+base = "COMMIT"
+writes = [
+  "STANDARDS.md",
+]
+
+[[file]]
+path = "STANDARDS.md"
+sha256 = "SHA256"
+
+# [[move]]
+# source = "STANDARDS.md"
+# ancestry = ["Coding standards"]
+# to = "TODO"
