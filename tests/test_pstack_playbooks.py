@@ -1708,19 +1708,22 @@ class OverlayDocExampleTests(unittest.TestCase):
                 self.assertEqual(got, [text], role)
 
 
-class OwnOverlayDraftTests(unittest.TestCase):
-    drafts = root / '.agents/playbooks/drafts'
+class OwnOverlayTests(unittest.TestCase):
+    def test_the_overlay_is_active_and_sound(self):
+        overlays = playbooks.load_overlays(root / '.agents/playbooks')
+        (overlay,) = [o for o in overlays if o.stem == 'pstack-code']
+        problems = playbooks.overlay_problems(
+            overlay, overlay_roots(repo=root), WORKFLOWS
+        )
+        self.assertEqual(problems, [])
 
-    def test_the_draft_is_not_read_as_an_overlay(self):
-        stems = [o.stem for o in playbooks.load_overlays(root / '.agents/playbooks')]
-        self.assertNotIn('pstack-code', stems)
-
-    def test_the_draft_is_sound(self):
-        (overlay,) = [
-            o for o in playbooks.load_overlays(self.drafts) if o.stem == 'pstack-code'
-        ]
-        roots = {'repo': root, 'skills': playbooks.default_roots()['skills']}
-        self.assertEqual(playbooks.overlay_problems(overlay, roots, WORKFLOWS), [])
+    def test_a_draft_is_not_read_as_an_overlay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            drafts = Path(tmp) / '.agents/playbooks/drafts'
+            drafts.mkdir(parents=True)
+            shutil.copy(root / '.agents/playbooks/pstack-code.toml', drafts / 'x.toml')
+            found = playbooks.load_overlays(Path(tmp) / '.agents/playbooks')
+        self.assertEqual(found, [])
 
 
 if __name__ == '__main__':
