@@ -3203,9 +3203,8 @@ class ApplyTests(unittest.TestCase):
         done = apply_run(repo, mig)
         self.assertEqual(done.returncode, 1)
         self.assertIn('foreign: STANDARDS.md', done.stderr)
-        self.assertIn(
-            'restore each foreign file to its base or output state', done.stderr
-        )
+        self.assertIn('restore each foreign file to its base state', done.stderr)
+        self.assertNotIn('fresh apply', done.stderr)
         self.assertIn('git checkout <base> -- <path>', done.stderr)
         self.assertNotIn('to the current commit', done.stderr)
         self.assertIn('inventory --draft', done.stderr)

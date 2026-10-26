@@ -110,7 +110,7 @@ Every output line is exactly one of: an original line in its place, changed only
 
 `check` and `apply`'s own proof read the planned files, `kitchen.toml` and the overlays as they are on disk, and every other file as at base. So editing an overlay, then running `check` again, is the intended sequence.
 
-A planned file edited by hand is foreign: `apply` refuses and `check` reports the line it cannot account for. Restore each foreign file to its base or output state first (for example `git checkout <base> -- <path>`, or a fresh apply). Only if the repo moved on after the migration was written, update `base` and each `[[file]]` sha256, or redraft with `inventory --draft`.
+A planned file edited by hand is foreign: `apply` refuses and `check` reports the line it cannot account for. Restore each foreign file to its base state (for example `git checkout <base> -- <path>`) and apply again, or to its output state. Only if the repo moved on after the migration was written, update `base` and each `[[file]]` sha256, or redraft with `inventory --draft`.
 
 ### Consumers
 

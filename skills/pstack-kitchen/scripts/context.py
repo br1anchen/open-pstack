@@ -2780,9 +2780,9 @@ def index_local(ref: Ref) -> bool:
 
 STATES = ('pre', 'post', 'foreign')
 FOREIGN_FIX = (
-    'restore each foreign file to its base or output state (for example `git checkout <base> -- <path>` or a fresh'
-    ' apply); only if the repo moved on after the migration was written, update `base` and each `[[file]]` sha256'
-    ' or redraft with `inventory --draft`'
+    'restore each foreign file to its base state (for example `git checkout <base> -- <path>`) and apply again, or'
+    ' to its output state; only if the repo moved on after the migration was written, update `base` and each'
+    ' `[[file]]` sha256 or redraft with `inventory --draft`'
 )
 
 
