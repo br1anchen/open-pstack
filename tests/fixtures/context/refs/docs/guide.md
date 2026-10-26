@@ -35,3 +35,13 @@ Orphan close](other.md#orphan) has no opener.
 An [opener apart
 
 from its](other.md#gap) close.
+
+A [target on](
+other.md#next-line) the next line.
+
+> [quoted]: other.md#quoted
+
+[split]:
+  other.md#split
+
+Escaped [hash](other.md\#escaped) resolves.

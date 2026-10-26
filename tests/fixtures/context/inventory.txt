@@ -9,13 +9,15 @@ docs/guide.md: 38 bytes, ~9 tokens
   sections (level 2): Moved ~7
   inbound from STANDARDS.md: L11 docs/guide.md#moved, L50 docs/guide.md, L51 docs/guide.md#moved, L52 docs/guide.md
 coverage:
-  syntaxes: Markdown inline links and images; Markdown reference definitions; Markdown link text wrapped over lines; `path` and `path#anchor` strings in TOML and plain text
+  syntaxes: Markdown inline links and images; Markdown reference definitions, in blockquotes too, and with the target on the next line; Markdown link text and destinations wrapped over lines; Markdown backslash escapes in a target; `path` and `path#anchor` strings in TOML and plain text
   files: tracked .md .markdown .toml .txt at HEAD (4 scanned)
   broken (pre-existing): 0
   not seen:
     globs
     generated paths
     external links
+    frontmatter
+    tracked files other than Markdown, TOML and text (YAML, JSON, scripts)
     references inside HTML comments and 4-space indented code (scanned as text, may be false positives)
     reference-style uses whose `[text]` and `[label]` wrap across lines (not seen)
     reference definitions with the title on the next line

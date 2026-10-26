@@ -111,8 +111,9 @@
   "coverage": {
     "syntaxes": [
       "Markdown inline links and images",
-      "Markdown reference definitions",
-      "Markdown link text wrapped over lines",
+      "Markdown reference definitions, in blockquotes too, and with the target on the next line",
+      "Markdown link text and destinations wrapped over lines",
+      "Markdown backslash escapes in a target",
       "`path` and `path#anchor` strings in TOML and plain text"
     ],
     "file_types": [
@@ -130,6 +131,8 @@
       "globs",
       "generated paths",
       "external links",
+      "frontmatter",
+      "tracked files other than Markdown, TOML and text (YAML, JSON, scripts)",
       "references inside HTML comments and 4-space indented code (scanned as text, may be false positives)",
       "reference-style uses whose `[text]` and `[label]` wrap across lines (not seen)",
       "reference definitions with the title on the next line",

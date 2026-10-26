@@ -861,6 +861,47 @@ class RebaseTests(unittest.TestCase):
         typed = render_sample()['docs/standards/typed-evidence.md']
         self.assertIn(b'Back to [the rule](#typed-evidence).', typed)
 
+    def test_a_wrapped_link_to_a_staying_section_is_rebased_on_its_target_line(self):
+        data = b'# A\n\n## B\n\nsee [the\nrule](\n#c) and [e](docs/guide.md\\#c)\n\n## C\n\ntext\n'
+        m, base, out = small(data, move(('A', 'B'), 'docs/b.md'))
+        self.assertEqual(
+            out['docs/b.md'],
+            b'# B\n\nsee [the\nrule](\n../STANDARDS.md#c) and [e](guide.md#c)\n\n',
+        )
+        self.assertTrue(proved(m, base, out).ok)
+
+    def test_an_escaped_target_that_still_resolves_is_left_byte_for_byte(self):
+        data = b'# A\n\n## B\n\n[e](b.md\\#b)\n'
+        m = migration_of(move(('A', 'B'), 'b.md'))
+        out = context.render(m, {'STANDARDS.md': data}, (), {'STANDARDS.md', 'b.md'})
+        self.assertIn(b'[e](b.md\\#b)', out['b.md'])
+
+    def test_a_blockquoted_definition_used_on_both_sides_is_copied(self):
+        data = b'# A\n\nsee [l].\n\n> [l]: docs/guide.md\n\n## B\n\nalso [l].\n'
+        m, base, out = small(data, move(('A', 'B'), 'docs/b.md'))
+        self.assertEqual(out['docs/b.md'], b'# B\n\nalso [l].\n\n> [l]: guide.md\n')
+        self.assertIn(b'> [l]: docs/guide.md\n', out['STANDARDS.md'])
+        self.assertTrue(proved(m, base, out).ok)
+
+    def test_a_definition_with_its_target_on_the_next_line_moves_only_with_its_text(
+        self,
+    ):
+        inside = b'# A\n\n## B\n\nsee [l].\n\n[l]:\n  docs/guide.md\n'
+        m, base, out = small(inside, move(('A', 'B'), 'docs/b.md'))
+        self.assertEqual(out['docs/b.md'], b'# B\n\nsee [l].\n\n[l]:\n  guide.md\n')
+        self.assertTrue(proved(m, base, out).ok)
+        for data in (
+            b'# A\n\nsee [l].\n\n[l]:\n  docs/guide.md\n\n## B\n\nalso [l].\n',
+            b'# A\n\nsee [l].\n\n## B\n\nalso [l].\n\n[l]:\n  docs/guide.md\n\n## C\n',
+        ):
+            with self.subTest(data=data):
+                with self.assertRaises(context.ContextError) as caught:
+                    small(data, move(('A', 'B'), 'docs/b.md'))
+                self.assertIn(
+                    '[l] has its target on the next line', str(caught.exception)
+                )
+                self.assertIn('STANDARDS.md:', str(caught.exception))
+
     def test_a_suffixed_anchor_goes_through_the_map_not_the_text(self):
         data = b'# Top\n\n## Notes\n\nfirst\n\n## Notes\n\nsee [the first](#notes) and [this](#notes-1)\n'
         m = migration_of(move(('Top', 'Notes'), 'sub/b.md', occurrence=2))
@@ -1324,6 +1365,20 @@ class UnresolvedTests(unittest.TestCase):
             [('STANDARDS.md', 48, '[typed](#typed-evidence)')],
         )
 
+    def test_a_wrapped_reference_to_a_moved_section_is_unresolved_on_its_target_line(
+        self,
+    ):
+        base = {
+            'STANDARDS.md': b'# A\n\n## B\n\nx\n',
+            'docs/other.md': b'See [the\nrule](\n../STANDARDS.md#b) and\n[q]:\n  ../STANDARDS.md#b\n',
+        }
+        m = migration_of(move(('A', 'B'), 'docs/b.md'))
+        got = context.unresolved(m, base, set(base))
+        self.assertEqual(
+            [(r.path, r.line, r.kind) for r in got],
+            [('docs/other.md', 3, 'inline'), ('docs/other.md', 5, 'definition')],
+        )
+
     def test_files_are_read_through_git_at_the_base_not_the_working_tree(self):
         repo, text = fixture_repo(self)
         (repo / 'docs/adr/0007-standards.md').write_text('# ADR\n')
@@ -1574,6 +1629,8 @@ class InventoryTests(unittest.TestCase):
             'globs',
             'generated paths',
             'external links',
+            'frontmatter',
+            'YAML, JSON, scripts',
             'HTML comments',
             'wrap across lines',
             'next line',
@@ -1582,8 +1639,9 @@ class InventoryTests(unittest.TestCase):
             self.assertTrue(any(needle in x for x in cov['limits']), needle)
         for needle in (
             'inline links and images',
-            'reference definitions',
-            'wrapped over lines',
+            'reference definitions, in blockquotes too, and with the target on the next line',
+            'link text and destinations wrapped over lines',
+            'backslash escapes',
             'TOML and plain text',
         ):
             self.assertTrue(any(needle in x for x in cov['syntaxes']), needle)
@@ -1743,8 +1801,30 @@ class ReferenceTests(unittest.TestCase):
                 (28, 'inline', 'other.md', 'wrapped'),
                 (30, 'image', '../img/a.png', ''),
                 (31, 'inline', 'other.md', 'outer'),
+                (40, 'inline', 'other.md', 'next-line'),
+                (42, 'definition', 'other.md', 'quoted'),
+                (45, 'definition', 'other.md', 'split'),
+                (47, 'inline', 'other.md\\', 'escaped'),
             ],
         )
+
+    def test_a_destination_or_definition_target_on_the_next_line_is_found_there(self):
+        got = {r.fragment: r for r in guide_refs()}
+        self.assertEqual(got['next-line'].raw, '[target on](\nother.md#next-line)')
+        self.assertEqual(got['split'].raw, '[split]:\n  other.md#split')
+        self.assertEqual(got['quoted'].raw, '> [quoted]: other.md#quoted')
+        self.assertEqual(
+            [(r.line, r.start, r.end) for r in (got['next-line'], got['split'])],
+            [(40, 0, 18), (45, 2, 16)],
+        )
+        self.assertEqual(
+            context.references('a.md', b'[x]:\n\ny.md\n[a](\n\ny.md)\n'), []
+        )
+
+    def test_a_blockquoted_definition_with_its_target_on_the_next_line_is_found(self):
+        [ref] = context.references('a.md', b'> [x]:\n>   y.md#a\n')
+        self.assertEqual((ref.line, ref.start, ref.end), (2, 4, 10))
+        self.assertEqual(context.resolve(ref, {'y.md'}), ('y.md', 'a'))
 
     def test_link_text_wrapped_over_lines_reports_the_target_line_and_the_whole_raw(
         self,
@@ -1851,6 +1931,8 @@ class ReferenceTests(unittest.TestCase):
         self.assertEqual(got[(8, '![alt](../im')], ('img/a.png', ''))
         self.assertEqual(got[(8, '[a b](<my fi')], ('docs/my file.md', ''))
         self.assertEqual(got[(8, '[parens](a(1')], ('docs/a(1).md', 'x'))
+        self.assertEqual(got[(47, '[hash](other')], ('docs/other.md', 'escaped'))
+        self.assertEqual(got[(42, '> [quoted]: ')], ('docs/other.md', 'quoted'))
 
     def test_toml_and_text_targets_resolve_from_the_repo_root(self):
         files = {'docs/guide.md'}

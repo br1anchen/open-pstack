@@ -571,7 +571,11 @@ def anchors(found: list[Section]) -> dict[int, str]:
 # ---- references ------------------------------------------------------------
 
 SCHEME = re.compile(r'(?:[A-Za-z][A-Za-z0-9+.-]*:|//)')
-DEFINITION = re.compile(r' {0,3}\[((?:[^\]\\]|\\.)+)\]:[ \t]*(<[^>\n]*>|\S+)')
+QUOTED = r'(?: {0,3}> ?)*'  # blockquote markers before a definition
+DEFINITION = re.compile(QUOTED + r' {0,3}\[((?:[^\]\\]|\\.)+)\]:[ \t]*(<[^>\n]*>|\S+)')
+OPEN_DEFINITION = re.compile(QUOTED + r' {0,3}\[((?:[^\]\\]|\\.)+)\]:[ \t]*$')
+NEXT_TARGET = re.compile(QUOTED + r'[ \t]*(<[^>\n]*>|\S+)')
+ESCAPE = re.compile(r'\\([!-/:-@\[-`{-~])')
 CODE_RUN = re.compile(r'(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)')
 TOKEN = re.compile(r"""[^\s"'`()<>\[\]{},=;|*]+""")
 MARKDOWN = ('.md', '.markdown')
@@ -602,15 +606,16 @@ def split_target(written: str) -> tuple[str, str]:
 
 def destination_at(line: str, i: int) -> tuple[int, int, bool, int] | None:
     """The link destination that starts at `line[i]`, just after a `(`: its start, its end, whether it is written in
-    angle brackets, and the index of the closing `)`. None when the parenthesis never closes the link."""
+    angle brackets, and the index of the closing `)`. None when the parenthesis never closes the link. `line` may
+    hold the rest of a paragraph: a line ending counts as space and never sits inside a destination."""
     n = len(line)
-    while i < n and line[i] in ' \t':
+    while i < n and line[i] in ' \t\n':
         i += 1
     if i >= n:
         return None
     if line[i] == '<':
         stop = line.find('>', i + 1)
-        if stop < 0:
+        if stop < 0 or '\n' in line[i:stop]:
             return None
         start, bracketed, j = i + 1, True, stop + 1
     else:
@@ -620,7 +625,7 @@ def destination_at(line: str, i: int) -> tuple[int, int, bool, int] | None:
             if c == '\\' and j + 1 < n:
                 j += 2
                 continue
-            if c in ' \t':
+            if c in ' \t\n':
                 break
             if c == '(':
                 depth += 1
@@ -631,14 +636,14 @@ def destination_at(line: str, i: int) -> tuple[int, int, bool, int] | None:
             j += 1
         start, stop, bracketed = i, j, False
     k = j
-    while k < n and line[k] in ' \t':
+    while k < n and line[k] in ' \t\n':
         k += 1
     if k < n and line[k] != ')' and k > j and line[k] in '"\'(':
         end = line.find(')' if line[k] == '(' else line[k], k + 1)
         if end < 0:
             return None
         k = end + 1
-        while k < n and line[k] in ' \t':
+        while k < n and line[k] in ' \t\n':
             k += 1
     if k >= n or line[k] != ')':
         return None
@@ -676,6 +681,31 @@ def paragraph_before(
     return masked[j:i]
 
 
+def paragraph_after(masked: list[str], fenced: set[int], i: int) -> list[str]:
+    """The masked lines that continue line `i`'s paragraph: up to a blank line, a fence or a heading."""
+    pb = playbooks_module()
+    j = i + 1
+    while (
+        j < len(masked)
+        and masked[j].strip()
+        and j not in fenced
+        and not pb.HEADING.match(masked[j])
+    ):
+        j += 1
+    return masked[i + 1 : j]
+
+
+def definition_ref(path: str, n: int, written: str, at: int, raw: str) -> Ref | None:
+    """The reference a definition makes, its target `written` at column `at` of 0-based line `n`; None for a URL or
+    an empty target."""
+    if written.startswith('<'):
+        written, at = written[1:-1], at + 1
+    target, fragment = split_target(written)
+    if not (target or fragment) or SCHEME.match(target):
+        return None
+    return Ref(path, n + 1, at, at + len(written), 'definition', target, fragment, raw)
+
+
 def markdown_refs(path: str, lines: list[str]) -> list[Ref]:
     start = playbooks_module().frontmatter_end(lines)
     inside, _ = playbooks_module().scan_fences(lines[start:])
@@ -689,43 +719,54 @@ def markdown_refs(path: str, lines: list[str]) -> list[Ref]:
         masked = masked_lines[i]
         defined = DEFINITION.match(masked)
         if defined and not defined.group(1).startswith('^'):
-            written = defined.group(2)
-            at = defined.start(2)
-            if written.startswith('<'):
-                written, at = written[1:-1], at + 1
-            target, fragment = split_target(written)
-            if (target or fragment) and not SCHEME.match(target):
-                found.append(
-                    Ref(
-                        path,
-                        i + 1,
-                        at,
-                        at + len(written),
-                        'definition',
-                        target,
-                        fragment,
-                        line.strip(),
-                    )
-                )
+            ref = definition_ref(
+                path, i, defined.group(2), defined.start(2), line.strip()
+            )
+            if ref is not None:
+                found.append(ref)
             continue
+        opened = OPEN_DEFINITION.match(masked)
+        if opened and not opened.group(1).startswith('^'):
+            # the target is on the next line of the paragraph
+            following = paragraph_after(masked_lines, fenced, i)
+            if following and (target := NEXT_TARGET.match(following[0])):
+                raw = '\n'.join(lines[i : i + 2]).strip()
+                ref = definition_ref(path, i + 1, target.group(1), target.start(1), raw)
+                if ref is not None:
+                    found.append(ref)
+                continue
         before = paragraph_before(masked_lines, fenced, start, i)
+        after: list[str] | None = None
         for m in re.finditer(r'\]\(', masked):
             close = m.start()
             if masked[close - 1 : close] == '\\':
                 continue
-            dest = destination_at(masked, m.end())
+            ahead = masked
+            dest = destination_at(ahead, m.end())
             if dest is None:
-                continue
+                # the destination, or its closing parenthesis, is on a later line of this paragraph
+                if after is None:
+                    after = paragraph_after(masked_lines, fenced, i)
+                ahead = '\n'.join([masked, *after])
+                dest = destination_at(ahead, m.end()) if after else None
+                if dest is None:
+                    continue
             at, stop, _, paren = dest
-            written = line[at:stop]
+            row, col = i, at
+            while col > len(lines[row]):
+                col -= len(lines[row]) + 1
+                row += 1
+            written = lines[row][col : col + stop - at]
             target, fragment = split_target(written)
             if not (target or fragment) or SCHEME.match(target):
                 continue
+            spans = ahead.count('\n')
+            text_after = '\n'.join(lines[i : i + 1 + spans])
             opener = opener_of(masked, close)
             if opener is not None:
                 image = opener > 0 and masked[opener - 1] == '!'
                 first = opener - 1 if image else opener
-                raw = line[first : paren + 1]
+                raw = text_after[first : paren + 1]
             else:
                 # the link text opened on an earlier line of this paragraph
                 held = len('\n'.join(before)) + 1 if before else 0
@@ -735,14 +776,14 @@ def markdown_refs(path: str, lines: list[str]) -> list[Ref]:
                     continue
                 image = opener > 0 and text[opener - 1] == '!'
                 first = opener - 1 if image else opener
-                whole = '\n'.join([*lines[i - len(before) : i], line])
+                whole = '\n'.join([*lines[i - len(before) : i], text_after])
                 raw = whole[first : held + paren + 1]
             found.append(
                 Ref(
                     path,
-                    i + 1,
-                    at,
-                    stop,
+                    row + 1,
+                    col,
+                    col + stop - at,
                     'image' if image else 'inline',
                     target,
                     fragment,
@@ -788,10 +829,18 @@ def references(path: str, data: bytes, files: Collection[str] = ()) -> list[Ref]
     return text_refs(path, lines, files)
 
 
+def named(ref: Ref) -> tuple[str, str]:
+    """The target and fragment a reference names: as written, less Markdown's backslash escapes (`x.md\\#a` names
+    `x.md` and `a`)."""
+    if ref.kind == 'text':
+        return ref.target, ref.fragment
+    return split_target(ESCAPE.sub(r'\1', written_target(ref)))
+
+
 def target_path(ref: Ref) -> str | None:
     """The repo path a reference names: relative to the referring file's directory in Markdown (`/` starts at the
     repo root), to the repo root in TOML and text. None when it leaves the repo or names a directory (a trailing `/`)."""
-    written = unquote(ref.target.partition('?')[0])
+    written = unquote(named(ref)[0].partition('?')[0])
     if not written:
         return ref.path
     if written.endswith('/'):
@@ -809,12 +858,12 @@ def resolve(ref: Ref, files: Collection[str]) -> tuple[str, str] | None:
     found = target_path(ref)
     if found is None or found not in files:
         return None
-    return found, unquote(ref.fragment).lower()
+    return found, unquote(named(ref)[1]).lower()
 
 
 def target_of(ref: Ref) -> str:
     """The `path#anchor` a reference names, as `resolve` reads it but for a file that need not exist."""
-    return f'{target_path(ref)}#{unquote(ref.fragment).lower()}'.removesuffix('#')
+    return f'{target_path(ref)}#{unquote(named(ref)[1]).lower()}'.removesuffix('#')
 
 
 # ---- cuts ------------------------------------------------------------------
@@ -1012,10 +1061,11 @@ def rebased_target(
     if found is None:
         return None
     path, anchor = found
-    written = ref.target.partition('?')[0]
-    query = ref.target[len(written) :]
+    target, fragment = named(ref)
+    written = target.partition('?')[0]
+    query = target[len(written) :]
     absolute = written.startswith('/')
-    if ref.fragment and (path, anchor) in amap:
+    if fragment and (path, anchor) in amap:
         new_path, new_anchor = amap[(path, anchor)]
         if new_path == dest and not query:
             made = f'#{new_anchor}'
@@ -1023,16 +1073,19 @@ def rebased_target(
             to = f'/{new_path}' if absolute else relative(dest, new_path)
             made = f'{to}{query}#{new_anchor}'
     else:
-        if path in anchored and ref.fragment and anchor not in anchored[path]:
+        if path in anchored and fragment and anchor not in anchored[path]:
             return None
         if absolute:
             return None
         to = relative(dest, path)
         if '%' in written:
             to = quote(to, safe='/')
-        made = f'{to}{query}' + (f'#{ref.fragment}' if ref.fragment else '')
-    written_now = ref.target + (f'#{ref.fragment}' if ref.fragment else '')
-    return None if made == written_now else made
+        made = f'{to}{query}' + (f'#{fragment}' if fragment else '')
+    return (
+        None
+        if made in (written_target(ref), f'{target}#{fragment}'.removesuffix('#'))
+        else made
+    )
 
 
 def patched_line(line: bytes, edits: list[tuple[int, int, str]]) -> bytes:
@@ -1058,6 +1111,20 @@ def definition_lines(reading: Reading) -> dict[str, int]:
         m = DEFINITION.match(masked)
         if m and not m.group(1).startswith('^'):
             found.setdefault(label_of(m.group(1)), n)
+    return found
+
+
+def split_definition_lines(reading: Reading) -> dict[str, int]:
+    """The reference definitions of a source whose target is on the line after the label, by normalized label to the
+    label's line index; the first of a label wins."""
+    found: dict[str, int] = {}
+    for ref in markdown_refs(
+        '', [line.decode(errors='replace').removesuffix('\n') for line in reading.lines]
+    ):
+        if ref.kind == 'definition' and '\n' in ref.raw:
+            m = OPEN_DEFINITION.match(ref.raw.partition('\n')[0])
+            if m:
+                found.setdefault(label_of(m.group(1)), ref.line - 2)
     return found
 
 
@@ -1091,9 +1158,15 @@ def definition_patches(
     patches: Patches,
 ) -> None:
     """Reference definitions (C6 c). One used only by moved text moves with it, one used by moved text and by
-    staying text stays and is copied to the end of each destination that uses it, one used by nothing stays."""
+    staying text stays and is copied to the end of each destination that uses it, one used by nothing stays. A
+    definition whose target is on its next line moves only with its own text: copying or dropping it is refused."""
     defined = definition_lines(reading)
-    if not defined:
+    split = {
+        label: n
+        for label, n in split_definition_lines(reading).items()
+        if label not in defined
+    }
+    if not defined and not split:
         return
     owners: dict[int, list[int]] = {}
     for i in mine:
@@ -1104,17 +1177,24 @@ def definition_patches(
     kept = {
         s.start for i in top for s in reading.sections if contains(made[i].section, s)
     }
-    where = {n: label for label, n in defined.items()}
-    wanted: dict[str, set[int]] = {label: set() for label in defined}
+    where = {n: label for label, n in (defined | split).items()}
+    wanted: dict[str, set[int]] = {label: set() for label in defined | split}
     staying: set[str] = set()
     for n in range(reading.body_start, len(reading.lines)):
         if n in reading.fenced or n in where:
             continue
         masked = CODE_RUN.sub(lambda m: ' ' * len(m.group()), reading.lines[n].decode())
-        for label in used_labels(masked, defined):
+        for label in used_labels(masked, wanted):
             wanted[label].update(owners.get(n, []))
             if n not in inside or n in kept:
                 staying.add(label)
+    for label, n in split.items():
+        home = set(owners.get(n, []))
+        if wanted[label] - home or (home and label in staying):
+            raise ContextError(
+                f'{path}:{n + 1}: the definition [{label}] has its target on the next line and is used on both '
+                'sides of a move; write it on one line first'
+            )
     for label, n in defined.items():
         home = set(owners.get(n, []))
         if home and label in staying:
@@ -2846,14 +2926,17 @@ CANDIDATE_TOKENS = 2000
 CANDIDATE_REFERRERS = 2
 SYNTAXES = (
     'Markdown inline links and images',
-    'Markdown reference definitions',
-    'Markdown link text wrapped over lines',
+    'Markdown reference definitions, in blockquotes too, and with the target on the next line',
+    'Markdown link text and destinations wrapped over lines',
+    'Markdown backslash escapes in a target',
     '`path` and `path#anchor` strings in TOML and plain text',
 )
 LIMITS = (
     'globs',
     'generated paths',
     'external links',
+    'frontmatter',
+    'tracked files other than Markdown, TOML and text (YAML, JSON, scripts)',
     'references inside HTML comments and 4-space indented code (scanned as text, may be false positives)',
     'reference-style uses whose `[text]` and `[label]` wrap across lines (not seen)',
     'reference definitions with the title on the next line',
@@ -2921,7 +3004,7 @@ def is_broken(
         return False
     if found not in files:
         return not any(f.startswith(found + '/') for f in files)
-    anchor = unquote(ref.fragment).lower()
+    anchor = unquote(named(ref)[1]).lower()
     known = heads.get(found)
     return bool(anchor) and known is not None and anchor not in known
 

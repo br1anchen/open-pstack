@@ -102,7 +102,7 @@ Only `apply` writes, and it never commits. Exit codes are as `kitchen.py` prints
 - The source keeps every heading line of moved text, in order, each followed by `Moved to [<path>](<link>#<anchor>).` So every old anchor still resolves.
 - A nested move leaves its heading and a pointer in the parent's destination.
 - A destination with `requires` gets `Read first: [<path>](<link>).` under its heading.
-- A reference link in moved text is rebased to resolve from the destination, through the heading-to-heading anchor map (`anchor_map`, `rebased_target`). Reference definitions used only by moved text move with it; those also used by staying text are copied to the destination (`definition_patches`).
+- A reference link in moved text is rebased to resolve from the destination, through the heading-to-heading anchor map (`anchor_map`, `rebased_target`). Reference definitions used only by moved text move with it; those also used by staying text are copied to the destination (`definition_patches`). A definition whose target is on the line after its label moves only with its own text; a migration that would copy it, or split it from text that uses it, is refused until it is written on one line.
 
 ### What `check` proves
 
@@ -118,7 +118,7 @@ A planned file edited by hand is foreign: `apply` refuses and `check` reports th
 
 ### Inventory coverage
 
-`inventory` scans tracked Markdown, TOML and text files at HEAD. It recognizes Markdown inline links and images, reference definitions, bare `#fragment` targets, and `path` or `path#anchor` strings in TOML and text (`references`). It lists broken references already present and what it cannot see (globs, generated paths, external links). The `candidate` flag (three or more top-level sections, over 2000 tokens, references from two or more files) is advice.
+`inventory` scans tracked Markdown, TOML and text files at HEAD. It recognizes Markdown inline links and images, reference definitions (in blockquotes too), bare `#fragment` targets, and `path` or `path#anchor` strings in TOML and text (`references`); link text, a destination or a definition's target may sit on the next line of the paragraph, and a target's backslash escapes are removed before it resolves. It lists broken references already present and what it cannot see (globs, generated paths, external links, frontmatter, and tracked files of other types). The `candidate` flag (three or more top-level sections, over 2000 tokens, references from two or more files) is advice.
 
 ## Known limits
 
