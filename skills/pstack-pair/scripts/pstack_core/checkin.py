@@ -100,10 +100,10 @@ def proc_candidates(pane, root, env, since, now):
     has one, started since the dispatch: the pane's work as /proc shows it."""
     sock = env.get('HERDR_SOCKET_PATH', '')
     found = []
-    for proc in procinfo.of_user(os.getuid(), root):
-        if not now - proc.elapsed > since:
-            continue
-        lines = procinfo.environ(proc.pid, root)
+    recent = [p for p in procinfo.of_user(os.getuid(), root) if now - p.elapsed > since]
+    environs = procinfo.environs(recent, root)
+    for proc in recent:
+        lines = environs.get(proc.pid)
         if lines is None or f'HERDR_PANE_ID={pane}' not in lines:
             continue
         if sock and f'HERDR_SOCKET_PATH={sock}' not in lines:

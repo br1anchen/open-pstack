@@ -1451,6 +1451,13 @@ class CoreTests(unittest.TestCase):
             files = {p.pid for p in procinfo.of_user(os.getuid(), '/proc')}
             self.assertLessEqual({os.getpid(), probe.pid}, files)
 
+    def test_procinfo_environs_ps_reads_a_probes_environment_in_one_listing(self):
+        probe = self.probe()
+        procs = procinfo.of_user_ps(os.getuid())
+        listed = procinfo.environs_ps(procs)
+        self.assertIn('PSTACK_PS_PROBE=1', listed[probe.pid])
+        self.assertEqual(listed[probe.pid], procinfo.environ_ps(probe.pid))
+
     def test_procinfo_ps_gives_none_for_a_process_that_is_not_there(self):
         gone = subprocess.Popen(
             [sys.executable, '-c', 'pass']

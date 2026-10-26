@@ -184,6 +184,30 @@ def environ_ps(pid):
     return text[len(command) :].split(' ')[1:]
 
 
+def environs_ps(procs):
+    """`environ_ps` for every proc in one `ps eww -A` listing: {pid: environment lines}, a pid whose line does not start with its command or
+    shows no environment left out. {} when ps cannot run."""
+    shown = _ps('eww', '-A', '-o', 'pid=,command=')
+    if shown is None:
+        return {}
+    commands = {p.pid: p.args for p in procs}
+    found = {}
+    for line in shown.splitlines():
+        pid, _, text = line.strip().partition(' ')
+        command = commands.get(int(pid)) if pid.isdigit() else None
+        if command is not None and text.startswith(command) and text != command:
+            found[int(pid)] = text[len(command) :].split(' ')[1:]
+    return found
+
+
+def environs(procs, root):
+    """{pid: environment lines} for each of `procs` whose environment can be read, through one ps listing on a ps host."""
+    if ps_host(root):
+        return environs_ps(procs)
+    read_all = ((p.pid, environ(p.pid, root)) for p in procs)
+    return {pid: lines for pid, lines in read_all if lines is not None}
+
+
 def of_user(uid, root):
     """Every process the user runs, as read now; a process that is gone before it is read is left out."""
     if ps_host(root):
