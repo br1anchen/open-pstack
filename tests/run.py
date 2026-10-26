@@ -57,9 +57,14 @@ def write_tripwire_jq(directory):
 
 
 def tripwire_env(directory):
-    """The environment of a test process: os.environ with a directory holding the failing jq first on PATH."""
+    """The environment of a test process: os.environ with a directory holding the failing jq first on PATH, and TMPDIR
+    spelled the way the code under test resolves it (macOS keeps `/var` as a link to `/private/var`)."""
     write_tripwire_jq(directory)
-    return {**os.environ, 'PATH': f'{directory}:{os.environ.get("PATH", "")}'}
+    return {
+        **os.environ,
+        'PATH': f'{directory}:{os.environ.get("PATH", "")}',
+        'TMPDIR': os.path.realpath(tempfile.gettempdir()),
+    }
 
 
 def test_ids(suites):
