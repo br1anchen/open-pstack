@@ -3438,16 +3438,15 @@ class ApplyExactStopTests(unittest.TestCase):
 
 class ReferencePageTests(unittest.TestCase):
     PAGE = root / 'skills/pstack-kitchen/references/context-migration.md'
+    TOML_BLOCK = re.compile(r'^```toml\n(.*?)^```$', re.S | re.M)
 
     def test_the_page_holds_one_toml_block_equal_to_the_sample(self):
-        blocks = re.findall(r'^```toml\n(.*?)^```$', self.PAGE.read_text(), re.S | re.M)
+        blocks = self.TOML_BLOCK.findall(self.PAGE.read_text())
         self.assertEqual(len(blocks), 1)
         self.assertEqual(blocks[0].encode(), (fixtures / 'sample.toml').read_bytes())
 
     def test_the_page_sample_loads(self):
-        block = re.search(
-            r'^```toml\n(.*?)^```$', self.PAGE.read_text(), re.S | re.M
-        ).group(1)
+        (block,) = self.TOML_BLOCK.findall(self.PAGE.read_text())
         m = context.parse_migration(block)
         self.assertEqual((m.schema, m.id), (1, 'standards-split'))
 
@@ -3459,9 +3458,9 @@ class ReferencePageTests(unittest.TestCase):
             timeout=60,
             check=True,
         )
-        listed = set(re.search(r'\{([a-z,-]+)\}', done.stdout).group(1).split(','))
+        (choices,) = re.findall(r'\{([a-z,-]+)\}', done.stdout)
         named = set(re.findall(r'kitchen\.py context ([a-z-]+)', self.PAGE.read_text()))
-        self.assertEqual(named, listed)
+        self.assertEqual(named, set(choices.split(',')))
 
 
 if __name__ == '__main__':
