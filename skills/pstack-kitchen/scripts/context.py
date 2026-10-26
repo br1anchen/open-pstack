@@ -1646,6 +1646,7 @@ def walk(
     origins: list[Origin] = []
     absent: list[Slot] = []
     lost: list[Slot] = []
+    taken: list[Slot] = []  # lost slots a later line has matched as reordered
     i = k = 0
     while k < len(slots) and i < len(lines):
         slot = slots[k]
@@ -1674,8 +1675,12 @@ def walk(
         kind, why = 'unexplained', f'expected {slot.label}'
         if again is not None:
             kind, why = 'reordered', f'{again.label} was expected earlier'
-        elif k and slots[k - 1].match(i, lines[i]):
-            kind, why = 'duplicated', f'repeats {slots[k - 1].label}'
+            lost.remove(again)
+            taken.append(again)
+        elif repeat := next(
+            (s for s in [*slots[k - 1 : k], *taken] if s.match(i, lines[i])), None
+        ):
+            kind, why = 'duplicated', f'repeats {repeat.label}'
         found.append(Finding(path, i + 1, kind, why))
         origins.append(Generated(kind))
         if (
@@ -1693,6 +1698,8 @@ def walk(
         found.append(
             Finding(path, i + 1, 'reordered', f'{again.label} was expected earlier')
         )
+        lost.remove(again)
+        taken.append(again)
         origins.append(Generated('reordered'))
         i += 1
     if k < len(slots):
@@ -1909,19 +1916,30 @@ def tail_origins(
     held: Collection[int] = (),
 ) -> list[Origin]:
     """The lines of a destination after its last own line: a blank when the text before is not blank, then the
-    reference definitions copied from the source."""
+    reference definitions copied from the source. The blank is accepted only when a copied definition follows it."""
     defined = definition_lines(reading)
-    origins: list[Origin] = []
-    for i in range(at, len(lines)):
-        line = lines[i]
-        if i == at and line == b'\n' and at and lines[at - 1].strip():
-            origins.append(Generated('tail-blank'))
-            continue
+
+    def copied_from(line: bytes) -> int | None:
         masked = CODE_RUN.sub(
             lambda m: ' ' * len(m.group()), line.decode(errors='replace')
         )
         m = DEFINITION.match(masked)
-        n = defined.get(label_of(m.group(1))) if m else None
+        return defined.get(label_of(m.group(1))) if m else None
+
+    origins: list[Origin] = []
+    for i in range(at, len(lines)):
+        line = lines[i]
+        if (
+            i == at
+            and line == b'\n'
+            and at
+            and lines[at - 1].strip()
+            and i + 1 < len(lines)
+            and copied_from(lines[i + 1]) is not None
+        ):
+            origins.append(Generated('tail-blank'))
+            continue
+        n = copied_from(line)
         edit = (
             None
             if n is None
@@ -2203,14 +2221,14 @@ def link_proof(
         for a, b in zip(was, now, strict=True):
             want = expected(a, mode)
             if want is None:
-                broken.append(
-                    Finding(
-                        source,
-                        n + 1,
-                        'link',
-                        f'{" ".join(a.raw.split())} (broken at base)',
-                    )
+                gone = Finding(
+                    source,
+                    n + 1,
+                    'link',
+                    f'{" ".join(a.raw.split())} (broken at base)',
                 )
+                if gone not in broken:
+                    broken.append(gone)
                 continue
             got = out.resolved(b)
             if mode == 'rewrite' and not want[1]:

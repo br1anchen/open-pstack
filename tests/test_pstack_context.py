@@ -2192,6 +2192,44 @@ class ProveTests(unittest.TestCase):
         out['b.md'] += b'\n'
         self.assertFalse(proved(m, base, out).ok)
 
+    def test_an_extra_trailing_blank_with_no_definition_after_it_fails(self):
+        data = b'# A\n\n## B\n\ntext\n'
+        m, base, out = small(data, move(('A', 'B'), 'b.md'))
+        self.assertTrue(proved(m, base, out).ok)
+        out['b.md'] += b'\n'
+        proof = proved(m, base, out)
+        self.assertFalse(proof.ok)
+        self.assertEqual(
+            [(f.path, f.line, f.kind) for f in proof.findings],
+            [('b.md', 4, 'unexplained')],
+        )
+
+    def test_a_line_matched_as_reordered_is_reported_duplicated_the_second_time(self):
+        data = b'# A\n\n## B\n\nl1\nl2\nl3\n'
+        m, base, out = small(data, move(('A', 'B'), 'b.md'))
+        self.assertEqual(out['b.md'], b'# B\n\nl1\nl2\nl3\n')
+        out['b.md'] = b'# B\n\nl2\nl1\nl1\nl3\n'
+        proof = proved(m, base, out)
+        self.assertEqual(
+            [(f.kind, f.line) for f in proof.findings if f.path == 'b.md'],
+            [('dropped', 3), ('reordered', 4), ('duplicated', 5)],
+        )
+
+    def test_a_base_broken_definition_that_is_also_copied_is_listed_once(self):
+        data = b'# A\n\n## B\n\nsee [x][x] ok\n\n## C\n\nother [x]\n\n[x]: missing.md\n'
+        m, base, out = small(data, move(('A', 'B'), 'b.md'))
+        self.assertIn(b'[x]: missing.md', out['b.md'])
+        proof = proved(m, base, out)
+        self.assertTrue(proof.ok, proof.findings)
+        self.assertEqual(
+            [
+                (f.line, f.message)
+                for f in proof.pre_existing
+                if f.path == 'STANDARDS.md'
+            ],
+            [(11, '[x]: missing.md (broken at base)')],
+        )
+
     def test_a_blank_after_the_read_first_line_is_generated_when_text_follows(self):
         data = b'# A\n\n## B\ntext\n\n## C\n\nother\n'
         m = migration_of(
