@@ -85,7 +85,7 @@ silently doing nothing.
 | `.command` | `""` | how to regenerate them; shown in the warning |
 | `[review]` | | |
 | `.self` | `[]` | skills the sidekick runs on its diff before reporting done |
-| `.standards` | `[]` | doc sections (`path#anchor`) the review holds the diff to; a [context migration](context-migration.md) rewrites these references, as it does a policy `.source`, or fails `check` on one it leaves behind |
+| `.standards` | `[]` | doc sections (`path#anchor`) the review holds the diff to; `context check` fails a `.standards` or policy `.source` reference whose anchor a [context migration](context-migration.md) moves, unless a `[[rewrite]]` entry rewrites it; a migration rewrites only the references its `[[rewrite]]` entries list, an anchorless `.source` (a whole file) is not caught ([known limits](context-migration.md#known-limits)), and only the repo's own `.agents/kitchen.toml` is read, never a host kitchen |
 | `.max_batch_diff` | `800` | a batch over this many diff lines verifies per unit instead |
 | `.engine` | unset | a review tool the owner requires on every unit, such as `"joo"`. The kitchen does not run it; the master does, and land-check refuses an accepted unit whose review note has no `engine: <name> <run id or artifact path>` line. `doctor` checks that `<name>-dev` or `<name>` is on PATH |
 | `.routine`, `.escalated`, `.landing` | unset | tuned a reviewer the kitchen no longer runs; still parsed, ignored, and `validate` and `doctor` warn while the file sets them |
