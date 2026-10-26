@@ -1339,8 +1339,8 @@ def doc(*headings, pad=PAD):
     return ''.join(f'## {h}\n\n{pad}\n\n' for h in headings).encode()
 
 
-def inventory_of(files):
-    return context.inventory_of('c' * 40, {p: d for p, d in files.items()})
+def inventory_of(files, also=()):
+    return context.inventory_of('c' * 40, dict(files), [*files, *also])
 
 
 def documents(files):
@@ -1510,6 +1510,21 @@ class InventoryTests(unittest.TestCase):
         )
         b = {d.path: d for d in inv.documents}['b.md']
         self.assertEqual([(i.path, len(i.refs)) for i in b.inbound], [('a.md', 1)])
+
+    def test_a_link_to_a_tracked_file_the_scanner_does_not_read_is_not_broken(self):
+        repo, _ = fixture_repo(
+            self,
+            {
+                'img.png': b'\x89PNG\n',
+                'scripts/run.py': b'print(1)\n',
+                'guide.md': b'# Guide\n\n![i](img.png) [r](scripts/run.py)\n',
+            },
+        )
+        done = inventory(repo, '--json')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(
+            json.loads(done.stdout)['coverage']['broken'], {'count': 0, 'refs': []}
+        )
 
     def test_the_coverage_block_names_what_is_recognized_and_what_is_not_seen(self):
         data = context.inventory_data(inventory_of({'a.md': b'# A\n'}))

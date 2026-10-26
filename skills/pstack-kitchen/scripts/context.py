@@ -2915,9 +2915,12 @@ def top_sections(data: bytes, where: str) -> tuple[int | None, tuple[Heading, ..
     )
 
 
-def inventory_of(commit: str, base_files: dict[str, bytes]) -> Inventory:
-    """The inventory of a repo from its files at a commit: `base_files` holds every file the scanner reads. Pure."""
-    files = frozenset(base_files)
+def inventory_of(
+    commit: str, base_files: dict[str, bytes], paths: Collection[str]
+) -> Inventory:
+    """The inventory of a repo from its files at a commit: `base_files` holds every file the scanner reads and
+    `paths` every file the repo tracks, which a reference may resolve to. Pure."""
+    files = frozenset(paths) | base_files.keys()
     docs = {p: d for p, d in base_files.items() if p.endswith(MARKDOWN)}
     heads = {p: doc_anchors(p, d) for p, d in docs.items()}
     inbound: dict[str, dict[str, list[Ref]]] = {}
@@ -3012,7 +3015,8 @@ def tracked(repo: Path, commit: str) -> frozenset[str]:
 def inventory(repo: Path) -> Inventory:
     """The inventory of the repo's tracked files at HEAD. Reads git only; writes nothing."""
     commit = head_commit(repo)
-    return inventory_of(commit, read_scanned(repo, commit, tracked(repo, commit)))
+    paths = tracked(repo, commit)
+    return inventory_of(commit, read_scanned(repo, commit, paths), paths)
 
 
 def json_string(text: str) -> str:
