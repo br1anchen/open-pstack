@@ -79,13 +79,13 @@ All four take `--repo` (default: the current directory) and `--json`. The base i
 | Command | Writes | Prints |
 | --- | --- | --- |
 | `context inventory [--draft PATH]` | nothing | documents, sections, inbound references and coverage; or the skeleton |
-| `context preview <migration>` | nothing | the diff of each planned file, then `unresolved:` and `index-local:` lines |
+| `context preview <migration>` | nothing | the diff of each planned file, then `unresolved:`, `unused keep:` and `index-local:` lines |
 | `context apply <migration>` | the planned files | `wrote: <path>` per file, `index-local: N`, or `no change` |
 | `context check <migration>` | nothing | a line per block, findings, consumers, `proven against:`, then `ok` or `failed: N findings` |
 
-Under `--json` a command that ends with an error (a migration, base or source that cannot be used, exit 2, or a refused or stopped `apply`, exit 1) prints one object on stdout and nothing on stderr: `{"ok": false, "exit": <code>, "error": "<message>"}`, the message as the text mode prints it after `kitchen: `, with the same exit code. A `preview` with unresolved references and a `check` with findings, or run before `apply`, exit 1 and print their normal JSON instead: `preview` has no `ok`, `check` has `ok` false, and neither has `exit` or `error`. A refused or stopped `apply` adds `written`, the files it wrote before it ended. `check --json` has `walked`, false when the line accounting failed; each consumer that would be `ok` then has `ok` null, not judged, as the text says `not judged (line accounting failed)`.
+Under `--json` any command that ends with an error prints one object on stdout and nothing on stderr: `{"ok": false, "exit": <code>, "error": "<message>"}`, the message as the text mode prints it after `kitchen: `, with the same exit code. The cases are a migration, base or source that cannot be used (exit 2), a bad `KITCHEN_CONTEXT_STOP_AFTER` (exit 2), a `--repo` that is not a git repository (exit 1), and a refused or stopped `apply` (exit 1). A `preview` with unresolved references or an unused keep and a `check` with findings, or run before `apply`, exit 1 and print their normal JSON instead: `preview` has no `ok` and carries `unresolved` and `unused_keeps`, `check` has `ok` false, and neither has `exit` or `error`. A refused or stopped `apply` adds `written`, the files it wrote before it ended. `check --json` has `walked`, false when the line accounting failed; each consumer that would be `ok` then has `ok` null, not judged, as the text says `not judged (line accounting failed)`.
 
-Only `apply` writes, and it never commits. Exit codes are as `kitchen.py` prints them: 0 done; 1 findings (`check`), unresolved references (`preview`), or a refusal or a stop (`apply`); 2 a migration, base or source that cannot be used.
+Only `apply` writes, and it never commits. Exit codes are as `kitchen.py` prints them: 0 done; 1 findings (`check`), unresolved references or an unused keep (`preview`), or a refusal or a stop (`apply`); 2 a migration, base or source that cannot be used.
 
 `KITCHEN_CONTEXT_STOP_AFTER=N` ends an `apply` after N writes. It exists for tests of the interrupted-apply path; owners do not use it.
 
@@ -94,7 +94,7 @@ Only `apply` writes, and it never commits. Exit codes are as `kitchen.py` prints
 - A source with an unclosed fence, a carriage return, a setext heading, or a heading indented 1 to 3 spaces (`read`). Schema 1 reads LF files with `#` headings at the start of a line.
 - A move whose source has no `[[file]]`, a section moved twice, a destination named twice, a destination that is also a source, or a destination that exists at base (`cuts`).
 - A base that does not resolve, a file missing at base, a sha256 mismatch (`resolve_base`, `read_base`).
-- `apply` with a planned file at neither its base nor its output state, a planned path under a symbolic link, an unresolved reference, or a plan that does not prove (`apply`). Nothing is written in each case.
+- `apply` with a planned file at neither its base nor its output state, a planned path under a symbolic link, an unresolved reference, an unused keep, or a plan that does not prove (`apply`). Nothing is written in each case.
 
 ### What it renders
 
