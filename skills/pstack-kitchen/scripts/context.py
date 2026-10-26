@@ -2322,7 +2322,8 @@ def consumer_proof(
         seen.append(Consumer(path, what, target, False, why))
 
     for path in sorted(consumers):
-        if path == KITCHEN_TOML:
+        overlay = path.startswith(OVERLAYS) and path.endswith('.toml')
+        if path == KITCHEN_TOML or overlay:
             at_base = {
                 written_target(r): base.resolved(r) is not None
                 for refs in base.refs(path).values()
@@ -2361,9 +2362,9 @@ def consumer_proof(
                             target,
                             f'{target} lands on the pointer {now[0]} keeps for a section that moved to {moved[now][0]}',
                         )
-                    else:
+                    elif not overlay:
                         seen.append(Consumer(path, what, target, True, ''))
-        elif path.startswith(OVERLAYS) and path.endswith('.toml'):
+        if overlay:
             try:
                 data = tomllib.loads((out.data.get(path) or b'').decode())
             except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
@@ -2380,6 +2381,21 @@ def consumer_proof(
                     continue
                 what = f'part {part.get("id")}'
                 selector = str(part.get('select'))
+                if target in base.data:
+                    try:
+                        pb.select(
+                            pb.parse((base.data[target] or b'').decode()), selector
+                        )
+                    except pb.PlaybookError:
+                        broken.append(
+                            Finding(
+                                path,
+                                0,
+                                'link',
+                                f'{target} {selector} (broken at base)',
+                            )
+                        )
+                        continue
                 try:
                     doc = pb.parse((out.data.get(target) or b'').decode())
                     (start, end) = pb.select(doc, selector)[0]

@@ -73,12 +73,16 @@ def edit(text, old, new):
     return text.replace(old, new, 1)
 
 
-def fixture_repo(test):
-    """A git repository holding the fixture repo, and the sample migration pinned to its commit."""
+def fixture_repo(test, extra=None):
+    """A git repository holding the fixture repo, and the sample migration pinned to its commit. `extra` maps paths to
+    bytes written over the fixture before the commit."""
     tmp = tempfile.TemporaryDirectory()
     test.addCleanup(tmp.cleanup)
     repo = Path(tmp.name) / 'repo'
     shutil.copytree(fixtures / 'repo', repo)
+    for path, data in (extra or {}).items():
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo / path).write_bytes(data)
     git(repo, 'init', '-q')
     git(repo, 'add', '-A')
     git(repo, 'commit', '-q', '-m', 'fixture')
@@ -2296,18 +2300,14 @@ class ConsumerTests(unittest.TestCase):
         m = without_rewrites(sample_migration())
         proof = self.prove_with(m, BASE, {OVERLAY: text})
         verdicts = {c.what: c.ok for c in proof.consumers}
+        self.assertEqual(verdicts, {'part style': True, 'part rust': False})
         self.assertEqual(
-            verdicts,
-            {
-                'part style': True,
-                'part rust': False,
-                'part none': False,
-                'part twice': False,
-            },
+            [f.message for f in proof.pre_existing],
+            [
+                'STANDARDS.md heading:Nowhere (broken at base)',
+                'STANDARDS.md heading:Examples (broken at base)',
+            ],
         )
-        why = {c.what: c.detail for c in proof.consumers}
-        self.assertIn('no such part', why['part none'])
-        self.assertIn('ambiguous, 2 parts match', why['part twice'])
 
     def test_a_part_whose_source_is_not_migrated_or_not_in_the_repo_root_is_skipped(
         self,
@@ -2365,6 +2365,54 @@ class ConsumerReferenceTests(unittest.TestCase):
         self.assertEqual([c.ok for c in seen], [True])
 
 
+class OverlayReferenceTests(unittest.TestCase):
+    """An overlay reference is judged through `prove` as a kitchen.toml one is, against what it resolved to at base."""
+
+    def prove_with(self, base, overlay):
+        m = without_rewrites(sample_migration())
+        out = context.render(m, base, (), {*FILES, *base})
+        return proved_with(m, base, out, {OVERLAY: overlay})
+
+    def test_a_string_naming_a_heading_that_resolved_at_base_and_is_gone_fails(self):
+        text = overlay_text(('a', 'heading:Style')) + b'note = "STANDARDS.md#style"\n'
+        base = BASE | {OVERLAY: text}
+        proof = self.prove_with(base, text)
+        self.assertEqual(proof.findings, [])
+        gone = text.replace(b'STANDARDS.md#style', b'STANDARDS.md#removed')
+        proof = self.prove_with(base, gone)
+        self.assertEqual(
+            [(f.path, f.kind) for f in proof.findings], [(OVERLAY, 'consumer')]
+        )
+        self.assertIn(
+            'STANDARDS.md#removed resolves to nothing', proof.findings[0].message
+        )
+
+    def test_a_string_broken_at_base_is_pre_existing_and_not_counted(self):
+        text = overlay_text(('a', 'heading:Style')) + b'note = "STANDARDS.md#gone"\n'
+        proof = self.prove_with(BASE | {OVERLAY: text}, text)
+        self.assertEqual(proof.findings, [])
+        self.assertEqual(
+            [(f.path, f.message) for f in proof.pre_existing],
+            [(OVERLAY, 'STANDARDS.md#gone (broken at base)')],
+        )
+
+    def test_a_part_whose_select_fails_at_base_is_pre_existing(self):
+        text = overlay_text(('a', 'heading:Nowhere'))
+        proof = self.prove_with(BASE | {OVERLAY: text}, text)
+        self.assertEqual(proof.findings, [])
+        self.assertEqual(proof.consumers, [])
+        self.assertEqual(
+            [f.message for f in proof.pre_existing],
+            ['STANDARDS.md heading:Nowhere (broken at base)'],
+        )
+
+    def test_a_part_that_selected_at_base_and_lands_on_a_pointer_fails(self):
+        text = overlay_text(('a', 'heading:Typed evidence'))
+        proof = self.prove_with(BASE | {OVERLAY: text}, text)
+        self.assertEqual([f.kind for f in proof.findings], ['consumer'])
+        self.assertEqual(proof.pre_existing, [])
+
+
 def proved_with(m, base, outputs, consumers):
     with contextlib.ExitStack() as stack:
         for name in ('assemble', 'rebase', 'rewritten', 'render', 'anchor_map'):
@@ -2372,8 +2420,8 @@ def proved_with(m, base, outputs, consumers):
         return context.prove(with_files(base), m, outputs, FILES, consumers)
 
 
-def applied_repo(test):
-    repo, text = fixture_repo(test)
+def applied_repo(test, extra=None):
+    repo, text = fixture_repo(test, extra)
     mig = repo / 'migration.toml'
     mig.write_text(text)
     m = context.parse_migration(text)
@@ -2437,6 +2485,49 @@ def check_run(repo, mig, *extra):
 def stable(text):
     """Mask the temp repo's base sha, which differs on every run."""
     return re.sub(r'base [0-9a-f]{12}', 'base BASE', text)
+
+
+class OverlayCheckTests(unittest.TestCase):
+    """The same judgments through `context check`, with the consumer committed at base."""
+
+    def test_an_overlay_reference_the_migration_breaks_exits_1_naming_the_overlay(self):
+        repo, mig = applied_repo(
+            self, {OVERLAY: overlay_text(('a', 'heading:Typed evidence'))}
+        )
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 1, done.stdout)
+        self.assertIn(f'{OVERLAY}: consumer: part a: ', done.stdout)
+
+    def test_an_overlay_reference_broken_at_base_exits_0_and_is_printed(self):
+        text = overlay_text(('a', 'heading:Style')) + b'note = "STANDARDS.md#gone"\n'
+        repo, mig = applied_repo(self, {OVERLAY: text})
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(
+            f'pre-existing: {OVERLAY}:12: STANDARDS.md#gone (broken at base)',
+            done.stdout,
+        )
+
+    def test_an_overlay_part_whose_select_fails_at_base_is_pre_existing(self):
+        repo, mig = applied_repo(
+            self, {OVERLAY: overlay_text(('a', 'heading:Nowhere'))}
+        )
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(
+            f'pre-existing: {OVERLAY}:0: STANDARDS.md heading:Nowhere (broken at base)',
+            done.stdout,
+        )
+
+    def test_a_kitchen_toml_reference_broken_at_base_exits_0_and_is_printed(self):
+        text = KITCHEN_TOML + b'other = "STANDARDS.md#gone"\n'
+        repo, mig = applied_repo(self, {'.agents/kitchen.toml': text})
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertRegex(
+            done.stdout,
+            r'pre-existing: \.agents/kitchen\.toml:\d+: STANDARDS\.md#gone \(broken at base\)',
+        )
 
 
 class CheckCommandTests(unittest.TestCase):
