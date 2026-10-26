@@ -194,13 +194,14 @@ evidence:
 
 ## L012: Check every Optional a stdlib call returns (re.match, spec_from_file_location, spec.loader) for None before use, and run uv check --frozen before kitchen.sh step.
 
-status: proposed
+status: active
 kind: gate-fail
 class: pstack
 match: fast uv check --frozen
 layer: gate
-area: skills/pstack-kitchen
+area: skills
 since: 2026-10-26
+active: 2026-10-26T22:54:02Z
 
 evidence:
 
