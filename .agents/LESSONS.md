@@ -191,3 +191,20 @@ evidence:
 - 2026-10-24 python-port-4 025: 025-units-and-landing
 - 2026-10-24 python-port-4 039: 039-take-upstream-0-15-29
 - 2026-10-24 python-port-4 067: 067-clean-u2-io
+
+## L012: Check every Optional a stdlib call returns (re.match, spec_from_file_location, spec.loader) for None before use, and run uv check --frozen before kitchen.sh step.
+
+status: proposed
+kind: gate-fail
+class: pstack
+match: fast uv check --frozen
+layer: gate
+area: skills/pstack-kitchen
+since: 2026-10-26
+
+evidence:
+
+- 2026-10-24 python-port-4 100: error[unresolved-attribute]: Attribute `group` is not defined on `None` in union `Match[str] | None`
+- 2026-10-24 port-cleanup 001: error[unresolved-attribute]: Attribute `exec_module` is not defined on `None` in union `Loader | None`
+- 2026-10-26 feedback-1114 009: error[unresolved-attribute]: Attribute `exec_module` is not defined on `None` in union `Loader | None`
+- 2026-10-26 feedback-1114 009: error[unresolved-attribute]: Attribute `origin` is not defined on `None` in union `ModuleSpec | None`
