@@ -127,6 +127,19 @@ PROBE_SIGIGN = (
 )
 
 
+def unlink_directory_reason():
+    """What the OS says when a directory is unlinked: Linux says `Is a directory`, macOS `Operation not permitted`."""
+    with tempfile.TemporaryDirectory() as directory:
+        try:
+            os.unlink(directory)
+        except OSError as e:
+            return e.strerror
+    raise AssertionError('unlinking a directory worked')
+
+
+UNLINK_DIRECTORY = unlink_directory_reason()
+
+
 def event_log(*calls, dedupe='1'):
     """The rows (without their stamp) that store.event writes for (epoch, 'actor event unit detail') calls made at those epoch seconds."""
     with tempfile.TemporaryDirectory() as directory:
@@ -5823,7 +5836,7 @@ class CoreTests(unittest.TestCase):
             stop_command.clear_queue(str(store))
         self.assertEqual(
             translate(stuck.exception, 'pair.sh'),
-            (f'pair.sh: cannot remove {store}/queue: Is a directory\n', 1),
+            (f'pair.sh: cannot remove {store}/queue: {UNLINK_DIRECTORY}\n', 1),
         )
         (store / 'queue').rmdir()
         skills = self.path / 'skill-root'
@@ -6074,7 +6087,7 @@ class CoreTests(unittest.TestCase):
                 'off with none': (0, 'maintainer: none'),
                 'off whose rm fails': (
                     1,
-                    '/state/pstack/feedback/maintainer.json: Is a directory',
+                    f'/state/pstack/feedback/maintainer.json: {UNLINK_DIRECTORY}',
                 ),
                 'status with none': (0, 'maintainer: none'),
                 'status live': (0, 'maintainer: mt on p7 since'),
@@ -6149,7 +6162,7 @@ class CoreTests(unittest.TestCase):
             (out['off whose rm fails']['rc'], out['off whose rm fails']['stderr']),
             (
                 1,
-                'pair.sh: cannot remove <T>/state/pstack/feedback/maintainer.json: Is a directory\n',
+                f'pair.sh: cannot remove <T>/state/pstack/feedback/maintainer.json: {UNLINK_DIRECTORY}\n',
             ),
         )
         self.assertIn(
