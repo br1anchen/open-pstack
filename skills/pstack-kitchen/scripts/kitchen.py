@@ -1397,7 +1397,7 @@ def _run_commands(
     root: Path,
     waited: float,
     env: dict[str, str],
-    retry: bool = True,
+    retry: bool,
 ) -> dict:
     results = []
     for i, cmd in commands:
