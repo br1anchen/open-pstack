@@ -1428,7 +1428,11 @@ def unresolved(
     a moved section and that no `[[rewrite]]` or `[[keep]]` covers. A rewrite covers the references its `from` span
     holds; a keep covers the references of its file whose written target is its `ref`. Ordered by path and line."""
     mine = {f.path: base_files[f.path] for f in migration.files if f.path in base_files}
-    amap = anchor_map(migration, mine, render(migration, mine, (), files))
+    named = {mv.to for mv in migration.moves} | {
+        p for mv in migration.moves for p in mv.requires
+    }
+    present = [p for p in files if p in named]
+    amap = anchor_map(migration, mine, render(migration, mine, present, files))
     made = cuts(
         migration,
         {p: read(d, p).sections for p, d in mine.items() if p in sources(migration)},

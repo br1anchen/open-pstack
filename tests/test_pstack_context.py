@@ -1269,6 +1269,20 @@ class UnresolvedTests(unittest.TestCase):
         covered = json.loads(preview(repo, text, '--json').stdout)
         self.assertEqual(covered['unresolved'], [])
 
+    def test_a_requires_naming_a_base_file_does_not_fail_preview(self):
+        repo, text = fixture_repo(self, {'README.md': b'# Readme\n'})
+        text = edit(
+            text,
+            'requires = ["docs/standards/typed-evidence.md"]',
+            'requires = ["docs/standards/typed-evidence.md", "README.md"]',
+        )
+        done = preview(repo, text)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn(
+            'Read first: [docs/standards/typed-evidence.md](typed-evidence.md), [README.md](../../README.md).',
+            done.stdout,
+        )
+
     def test_a_reference_inside_the_moved_text_is_not_unresolved(self):
         repo, text = fixture_repo(self)
         done = preview(repo, without(text, 'rewrite', 'keep'))
