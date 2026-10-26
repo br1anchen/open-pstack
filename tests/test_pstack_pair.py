@@ -2075,10 +2075,10 @@ esac
         self.spawn_pi()
         brief = self.store / 'briefs/001-first.md'
         brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
-        # the fake herdr's `agent prompt` runs this hook first, from inside the delivery; herdr's parent (field 4 of /proc/<pid>/stat) is the dispatch
+        # the fake herdr's `agent prompt` runs this hook first, from inside the delivery; herdr's parent (ps's ppid of it) is the dispatch
         (self.fake / 'once').mkdir()
         hook = self.fake / 'once/prompt'
-        hook.write_text('#!/bin/sh\nkill -TERM "$(cut -d" " -f4 /proc/$PPID/stat)"\n')
+        hook.write_text('#!/bin/sh\nkill -TERM "$(ps -o ppid= -p $PPID | tr -d " ")"\n')
         hook.chmod(0o755)
         proc = subprocess.run(
             [str(self.script), 'dispatch', str(self.store), str(brief), '--send-only'],
