@@ -639,9 +639,12 @@ def expected(path):
     return (fixtures / 'expected' / path).read_bytes()
 
 
+FILES = {'STANDARDS.md', 'docs/guide.md', '.agents/kitchen.toml'}
+
+
 def render_sample(migration=None, present=()):
     return context.render(
-        migration or sample_migration(), {'STANDARDS.md': STANDARDS}, present
+        migration or sample_migration(), {'STANDARDS.md': STANDARDS}, present, FILES
     )
 
 
@@ -700,7 +703,7 @@ class RenderTests(unittest.TestCase):
         for kept in (
             b'Tests are deterministic.\n',
             b'First example.\n',
-            b'Keep it short.\n',
+            b'Keep it short. The [shared note][shared] applies.\n',
         ):
             self.assertIn(kept, index)
 
@@ -816,6 +819,98 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(render_sample(), again)
 
 
+class RebaseTests(unittest.TestCase):
+    def test_a_link_to_a_file_outside_the_move_is_relative_to_the_destination(self):
+        typed = render_sample()['docs/standards/typed-evidence.md']
+        self.assertIn(b'[guide](../guide.md#moved)', typed)
+
+    def test_a_fragment_to_a_staying_section_names_the_source_from_the_destination(
+        self,
+    ):
+        typed = render_sample()['docs/standards/typed-evidence.md']
+        self.assertIn(b'[style rules](../../STANDARDS.md#style)', typed)
+
+    def test_a_fragment_between_two_moved_sections_goes_to_the_new_anchor(self):
+        rust = render_sample()['docs/standards/rust.md']
+        self.assertIn(b'[Notes](typed-evidence.md#notes)', rust)
+        self.assertIn(b'[typed evidence](typed-evidence.md#typed-evidence)', rust)
+
+    def test_a_fragment_within_one_destination_stays_a_bare_fragment(self):
+        typed = render_sample()['docs/standards/typed-evidence.md']
+        self.assertIn(b'Back to [the rule](#typed-evidence).', typed)
+
+    def test_a_suffixed_anchor_goes_through_the_map_not_the_text(self):
+        data = b'# Top\n\n## Notes\n\nfirst\n\n## Notes\n\nsee [the first](#notes) and [this](#notes-1)\n'
+        m = migration_of(move(('Top', 'Notes'), 'sub/b.md', occurrence=2))
+        out = context.render(m, {'STANDARDS.md': data})
+        self.assertIn(
+            b'see [the first](../STANDARDS.md#notes) and [this](#notes)',
+            out['sub/b.md'],
+        )
+
+    def test_a_definition_used_only_by_moved_text_moves_with_it(self):
+        out = render_sample()
+        self.assertIn(b'[moved-only]: ../guide.md\n', out['docs/standards/rust.md'])
+        self.assertNotIn(b'[moved-only]', out['STANDARDS.md'])
+
+    def test_a_definition_used_by_moved_and_staying_text_stays_and_is_copied(self):
+        out = render_sample()
+        self.assertIn(b'[shared]: docs/guide.md#moved "Shared"\n', out['STANDARDS.md'])
+        for dest in ('rust', 'typed-evidence'):
+            self.assertIn(
+                b'[shared]: ../guide.md#moved "Shared"\n',
+                out[f'docs/standards/{dest}.md'],
+            )
+
+    def test_a_definition_used_by_nothing_stays(self):
+        out = render_sample()
+        self.assertIn(b'[unused]: docs/guide.md\n', out['STANDARDS.md'])
+        for dest in ('rust', 'typed-evidence', 'testing-notes'):
+            self.assertNotIn(b'[unused]', out[f'docs/standards/{dest}.md'])
+
+    def test_a_definition_inside_moved_text_used_by_staying_text_is_refused(self):
+        data = b'# Top\n\n## Moved\n\n[x]: a.md\n\n## Stays\n\nsee [x]\n'
+        m = migration_of(move(('Top', 'Moved'), 'b.md'))
+        with self.assertRaises(context.ContextError) as caught:
+            context.render(m, {'STANDARDS.md': data}, (), {'a.md'})
+        self.assertIn('STANDARDS.md:5', str(caught.exception))
+        self.assertIn('[x]', str(caught.exception))
+
+    def test_a_reference_that_does_not_resolve_is_left_byte_for_byte(self):
+        data = (
+            b'# Top\n\n## Moved\n\n[gone](nope.md) [nowhere](#missing) '
+            b'[away](https://example.com/a) [up](../../out.md) [dir](docs/)\n'
+        )
+        m = migration_of(move(('Top', 'Moved'), 'sub/b.md'))
+        out = context.render(m, {'STANDARDS.md': data}, (), {'docs/x.md'})
+        self.assertEqual(
+            out['sub/b.md'].split(b'\n\n', 1)[1], data.split(b'\n\n', 2)[2]
+        )
+
+    def test_a_link_whose_text_wraps_is_rebased_on_the_target_line(self):
+        data = b'# Top\n\n## Moved\n\nsee [the\nguide](docs/guide.md)\n'
+        m = migration_of(move(('Top', 'Moved'), 'sub/b.md'))
+        out = context.render(m, {'STANDARDS.md': data}, (), {'docs/guide.md'})
+        self.assertIn(b'see [the\nguide](../docs/guide.md)\n', out['sub/b.md'])
+
+    def test_a_reference_in_a_moved_heading_is_rebased_for_its_destination(self):
+        data = b'# Top\n\n## See [g](docs/guide.md)\n\ntext\n'
+        m = migration_of(move(('Top', 'See [g](docs/guide.md)'), 'sub/b.md'))
+        out = context.render(m, {'STANDARDS.md': data}, (), {'docs/guide.md'})
+        self.assertTrue(out['sub/b.md'].startswith(b'# See [g](../docs/guide.md)\n'))
+        self.assertIn(b'## See [g](docs/guide.md)\n', out['STANDARDS.md'])
+
+    def test_only_the_target_bytes_change(self):
+        out = render_sample()['docs/standards/rust.md']
+        self.assertIn(b'[only here][moved-only]', out)
+
+    def test_plan_resolves_against_the_files_at_the_base(self):
+        repo, text = fixture_repo(self)
+        writes = context.plan(repo, context.parse_migration(text))
+        typed = next(w for w in writes if w.path == 'docs/standards/typed-evidence.md')
+        self.assertIn(b'[guide](../guide.md#moved)', typed.after)
+
+
 KITCHEN = scripts / 'kitchen.py'
 
 
@@ -883,13 +978,13 @@ class PreviewTests(unittest.TestCase):
         repo, text = fixture_repo(self)
         first = preview(repo, text).stdout
         (repo / 'STANDARDS.md').write_text('# edited after the base\n')
-        (repo / 'docs').mkdir()
+        (repo / 'docs').mkdir(exist_ok=True)
         self.assertEqual(preview(repo, text).stdout, first)
         self.assertEqual(
             sorted(p.name for p in repo.iterdir() if p.name != '.git'),
             ['.agents', 'STANDARDS.md', 'docs'],
         )
-        self.assertEqual(list((repo / 'docs').iterdir()), [])
+        self.assertEqual([p.name for p in (repo / 'docs').iterdir()], ['guide.md'])
 
     def test_repo_can_follow_the_subcommand(self):
         repo, text = fixture_repo(self)

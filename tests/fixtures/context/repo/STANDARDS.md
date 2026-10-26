@@ -8,7 +8,7 @@ Read these before you write code.
 
 ## Typed evidence
 
-Every claim carries its evidence.
+Every claim carries its evidence. See the [guide](docs/guide.md#moved) and the [style rules](#style) and [the shared note][shared].
 
 ```text
 # fenced lookalike
@@ -17,7 +17,7 @@ Every claim carries its evidence.
 
 ### Rust (Engine)
 
-Parse at the boundary.
+Parse at the boundary. Evidence rules are in [Notes](#notes) of [typed evidence](#typed-evidence); see [only here][moved-only] and [the shared note][shared].
 
 #### Rust notes
 
@@ -25,7 +25,7 @@ Notes on Rust.
 
 ### Notes
 
-Notes on evidence.
+Notes on evidence. Back to [the rule](#typed-evidence).
 
 ## Testing
 
@@ -45,4 +45,8 @@ Notes on testing.
 
 ## Style
 
-Keep it short.
+Keep it short. The [shared note][shared] applies.
+
+[moved-only]: docs/guide.md
+[shared]: docs/guide.md#moved "Shared"
+[unused]: docs/guide.md

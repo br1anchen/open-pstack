@@ -40,4 +40,7 @@ Moved to [docs/standards/testing-notes.md](docs/standards/testing-notes.md#notes
 
 ## Style
 
-Keep it short.
+Keep it short. The [shared note][shared] applies.
+
+[shared]: docs/guide.md#moved "Shared"
+[unused]: docs/guide.md

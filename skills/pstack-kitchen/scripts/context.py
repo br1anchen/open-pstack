@@ -20,11 +20,11 @@ import posixpath
 import re
 import subprocess
 import tomllib
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 SCHEMA = 1
 ROOT_KEYS = ('schema', 'id', 'base', 'writes')
@@ -332,6 +332,15 @@ def read_base(repo: Path, migration: Migration) -> dict[str, bytes]:
             )
         found[entry.path] = done.stdout
     return found
+
+
+def repo_files(repo: Path, migration: Migration) -> frozenset[str]:
+    """Every file of the repo at the migration's base commit."""
+    commit = resolve_base(repo, migration)
+    done = git(repo, 'ls-tree', '-r', '--name-only', '-z', commit)
+    if done.returncode:
+        raise ContextError(f'cannot list the files at base {migration.base!r}')
+    return frozenset(p for p in done.stdout.decode(errors='replace').split('\0') if p)
 
 
 def base_files_at(
@@ -947,18 +956,201 @@ def with_newline(line: bytes) -> bytes:
     return line if line.endswith(b'\n') else line + b'\n'
 
 
-def render(
+@dataclass
+class Patches:
+    """What step two of `render` changes in the text the cuts copy: the lines whose reference targets are rebased,
+    the definitions appended to a destination, and the definition lines that leave an index."""
+
+    lines: dict[tuple[int, int], bytes]  # (cut index, source line) -> the rebased line
+    tail: dict[
+        int, list[bytes]
+    ]  # cut index -> definition lines for the end of its destination
+    drop: dict[str, set[int]]  # source -> definition lines that moved out of the index
+
+
+def own_lines(made: list[Cut], i: int) -> list[int]:
+    """The source lines cut `i` copies as its own: its section, less what a nested cut takes, but with the nested
+    cut's heading line (the parent keeps it as a stub)."""
+    sec = made[i].section
+    inner = [k.section for k in made if k.parent == i]
+    return [
+        n
+        for n in range(sec.start, sec.end)
+        if not any(k.start < n < k.end for k in inner)
+    ]
+
+
+def rebased_target(
+    ref: Ref,
+    dest: str,
+    known: Collection[str],
+    amap: dict[tuple[str, str], tuple[str, str]],
+    anchored: dict[str, set[str]],
+) -> str | None:
+    """What a reference in text moved to `dest` should say in place of its target, or None to leave it byte for
+    byte: when it does not resolve, or already says it. A fragment to a moved section goes through `amap`; a path
+    is rewritten from the destination's directory."""
+    found = resolve(ref, known)
+    if found is None:
+        return None
+    path, anchor = found
+    written = ref.target.partition('?')[0]
+    query = ref.target[len(written) :]
+    absolute = written.startswith('/')
+    if ref.fragment and (path, anchor) in amap:
+        new_path, new_anchor = amap[(path, anchor)]
+        if new_path == dest and not query:
+            made = f'#{new_anchor}'
+        else:
+            to = f'/{new_path}' if absolute else relative(dest, new_path)
+            made = f'{to}{query}#{new_anchor}'
+    else:
+        if path in anchored and ref.fragment and anchor not in anchored[path]:
+            return None
+        if absolute:
+            return None
+        to = relative(dest, path)
+        if '%' in written:
+            to = quote(to, safe='/')
+        made = f'{to}{query}' + (f'#{ref.fragment}' if ref.fragment else '')
+    written_now = ref.target + (f'#{ref.fragment}' if ref.fragment else '')
+    return None if made == written_now else made
+
+
+def patched_line(line: bytes, edits: list[tuple[int, int, str]]) -> bytes:
+    """`line` with each (start, end, text) edit applied, columns counted in characters."""
+    ending = b'\n' if line.endswith(b'\n') else b''
+    text = line.removesuffix(b'\n').decode()
+    for start, end, made in sorted(edits, reverse=True):
+        text = text[:start] + made + text[end:]
+    return text.encode() + ending
+
+
+def label_of(text: str) -> str:
+    return ' '.join(text.split()).lower()
+
+
+def definition_lines(reading: Reading) -> dict[str, int]:
+    """The reference definitions of a source, by normalized label to the line index; the first of a label wins."""
+    found: dict[str, int] = {}
+    for n in range(reading.body_start, len(reading.lines)):
+        if n in reading.fenced:
+            continue
+        masked = CODE_RUN.sub(lambda m: ' ' * len(m.group()), reading.lines[n].decode())
+        m = DEFINITION.match(masked)
+        if m and not m.group(1).startswith('^'):
+            found.setdefault(label_of(m.group(1)), n)
+    return found
+
+
+BRACKETS = re.compile(r'\[((?:[^\[\]\\]|\\.)*)\]')
+
+
+def used_labels(line: str, defined: Collection[str]) -> set[str]:
+    """The defined labels a line's reference-style links and images use: `[text][label]`, `[label][]` and `[label]`."""
+    used: set[str] = set()
+    at = 0
+    while m := BRACKETS.search(line, at):
+        at = m.end()
+        following = line[m.end() : m.end() + 1]
+        if following == '(':
+            continue
+        label = m.group(1)
+        if following == '[' and (second := BRACKETS.match(line, m.end())):
+            at = second.end()
+            label = second.group(1) or label
+        if (found := label_of(label)) in defined:
+            used.add(found)
+    return used
+
+
+def definition_patches(
+    reading: Reading,
+    path: str,
+    made: list[Cut],
+    mine: list[int],
+    fix: Callable[[int, int, bytes], bytes],
+    patches: Patches,
+) -> None:
+    """Reference definitions (C6 c). One used only by moved text moves with it, one used by moved text and by
+    staying text stays and is copied to the end of each destination that uses it, one used by nothing stays."""
+    defined = definition_lines(reading)
+    if not defined:
+        return
+    owners: dict[int, list[int]] = {}
+    for i in mine:
+        for n in own_lines(made, i):
+            owners.setdefault(n, []).append(i)
+    top = [i for i in mine if made[i].parent is None]
+    inside = {n for i in top for n in range(made[i].section.start, made[i].section.end)}
+    kept = {
+        s.start for i in top for s in reading.sections if contains(made[i].section, s)
+    }
+    where = {n: label for label, n in defined.items()}
+    wanted: dict[str, set[int]] = {label: set() for label in defined}
+    staying: set[str] = set()
+    for n in range(reading.body_start, len(reading.lines)):
+        if n in reading.fenced or n in where:
+            continue
+        masked = CODE_RUN.sub(lambda m: ' ' * len(m.group()), reading.lines[n].decode())
+        for label in used_labels(masked, defined):
+            wanted[label].update(owners.get(n, []))
+            if n not in inside or n in kept:
+                staying.add(label)
+    for label, n in defined.items():
+        home = set(owners.get(n, []))
+        if home and label in staying:
+            raise ContextError(
+                f'{path}:{n + 1}: the definition [{label}] is inside moved text and used by staying text'
+            )
+        for i in sorted(wanted[label] - home):
+            patches.tail.setdefault(i, []).append(
+                fix(i, n, with_newline(reading.lines[n]))
+            )
+        if not home and wanted[label] and label not in staying:
+            patches.drop.setdefault(path, set()).add(n)
+
+
+def rebase(
+    readings: dict[str, Reading],
+    made: list[Cut],
+    known: Collection[str],
+    amap: dict[tuple[str, str], tuple[str, str]],
+) -> Patches:
+    """The edits that make the text each cut copies resolve from its destination."""
+    anchored = {p: set(anchors(r.sections).values()) for p, r in readings.items()}
+    patches = Patches({}, {}, {})
+    for path, reading in readings.items():
+        refs: dict[int, list[Ref]] = {}
+        for ref in references(path, b''.join(reading.lines), known):
+            refs.setdefault(ref.line - 1, []).append(ref)
+        mine = [i for i, c in enumerate(made) if c.move.source == path]
+
+        def fix(i: int, n: int, line: bytes, refs=refs) -> bytes:
+            edits = []
+            for ref in refs.get(n, []):
+                new = rebased_target(ref, made[i].move.to, known, amap, anchored)
+                if new is not None:
+                    edits.append((ref.start, ref.end, new))
+            return patched_line(line, edits) if edits else line
+
+        for i in mine:
+            for n in own_lines(made, i):
+                line = reading.lines[n]
+                if (fixed := fix(i, n, line)) != line:
+                    patches.lines[(i, n)] = fixed
+        definition_patches(reading, path, made, mine, fix, patches)
+    return patches
+
+
+def assemble(
     migration: Migration,
-    base_files: dict[str, bytes],
-    present: Collection[str] = (),
+    readings: dict[str, Reading],
+    made: list[Cut],
+    patches: Patches,
+    present: Collection[str],
 ) -> dict[str, bytes]:
-    """The bytes of every file the moves write: each destination, and each source as an index. `present` is the
-    paths at base among the destinations and the `requires` of the moves: a destination there is refused, a
-    `requires` there is accepted. Pure: nothing is read or written."""
-    check_requires(migration)
-    sources = {mv.source for mv in migration.moves}
-    readings = {p: read(d, p) for p, d in base_files.items() if p in sources}
-    made = cuts(migration, {p: r.sections for p, r in readings.items()}, present)
+    """The destinations and the indexes the cuts make, with `patches` applied to the text the cuts copy."""
     outputs: dict[str, bytes] = {}
     landed: dict[
         tuple[str, int], tuple[str, str]
@@ -976,6 +1168,10 @@ def render(
         sec = cut.section
         by = sec.level - 1
         headings = {s.start for s in reading.sections}
+
+        def copied(n: int) -> bytes:
+            return patches.lines.get((i, n), reading.lines[n])
+
         out: list[bytes] = []
         origin: list[
             int | None
@@ -986,7 +1182,7 @@ def render(
                 kid = made[kids[line]]
                 anchor = landed[(kid.move.source, line)][1]
                 out += [
-                    shift_line(with_newline(reading.lines[line]), by),
+                    shift_line(with_newline(copied(line)), by),
                     b'\n',
                     pointer(cut.move.to, kid.move.to, anchor),
                     b'\n',
@@ -995,9 +1191,7 @@ def render(
                 line = kid.section.end
                 continue
             out.append(
-                shift_line(reading.lines[line], by)
-                if line in headings
-                else reading.lines[line]
+                shift_line(copied(line), by) if line in headings else copied(line)
             )
             origin.append(line)
             if line == sec.start and cut.move.requires:
@@ -1014,6 +1208,11 @@ def render(
         for s in rendered.sections:
             if (src := origin[s.start]) is not None:
                 landed[(cut.move.source, src)] = (cut.move.to, slugs[s.start])
+        if tail := patches.tail.get(i):
+            data = with_newline(data)
+            if data.splitlines()[-1].strip():
+                data += b'\n'
+            data += b''.join(tail)
         outputs[cut.move.to] = data
         built.add(i)
 
@@ -1021,6 +1220,7 @@ def render(
         build(i)
 
     for path, reading in readings.items():
+        dropped = patches.drop.get(path, set())
         tops = sorted(
             (c.section.start, c.section.end)
             for c in made
@@ -1029,7 +1229,11 @@ def render(
         out: list[bytes] = []
         line = 0
         for start, end in tops:
-            out += reading.lines[line:start]
+            out += [
+                x
+                for n, x in enumerate(reading.lines[line:start], line)
+                if n not in dropped
+            ]
             for s in reading.sections:
                 if start <= s.start < end:
                     dest, anchor = landed[(path, s.start)]
@@ -1040,11 +1244,33 @@ def render(
                         b'\n',
                     ]
             line = end
-        out += reading.lines[line:]
+        out += [x for n, x in enumerate(reading.lines[line:], line) if n not in dropped]
         if tops and tops[-1][1] == len(reading.lines) and out[-1:] == [b'\n']:
             out.pop()
         outputs[path] = b''.join(out)
     return outputs
+
+
+def render(
+    migration: Migration,
+    base_files: dict[str, bytes],
+    present: Collection[str] = (),
+    files: Collection[str] = (),
+) -> dict[str, bytes]:
+    """The bytes of every file the moves write: each destination, and each source as an index. `present` is the
+    paths at base among the destinations and the `requires` of the moves: a destination there is refused, a
+    `requires` there is accepted. `files` is every file of the repo at base: a reference resolves only to one of
+    them, to a file the migration reads, or to a destination, and one that does not is left as written. Pure:
+    nothing is read or written."""
+    check_requires(migration)
+    sources = {mv.source for mv in migration.moves}
+    readings = {p: read(d, p) for p, d in base_files.items() if p in sources}
+    made = cuts(migration, {p: r.sections for p, r in readings.items()}, present)
+    first = assemble(migration, readings, made, Patches({}, {}, {}), present)
+    amap = anchor_map(migration, base_files, first)
+    known = {*files, *base_files, *present, *first}
+    patches = rebase(readings, made, known, amap)
+    return assemble(migration, readings, made, patches, present)
 
 
 # ---- preview ---------------------------------------------------------------
@@ -1064,7 +1290,12 @@ def plan(repo: Path, migration: Migration) -> list[Write]:
     base = read_base(repo, migration)
     named = {mv.to for mv in migration.moves}
     named |= {p for mv in migration.moves for p in mv.requires}
-    after = render(migration, base, base_files_at(repo, migration, named))
+    after = render(
+        migration,
+        base,
+        base_files_at(repo, migration, named),
+        repo_files(repo, migration),
+    )
     return [
         Write(path, base.get(path), after.get(path, base.get(path, b'')))
         for path in migration.writes
