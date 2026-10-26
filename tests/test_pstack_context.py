@@ -2859,6 +2859,21 @@ class CheckCommandTests(unittest.TestCase):
             'failed: 1 findings\n',
         )
 
+    def test_json_says_whether_the_walk_judged_the_consumers(self):
+        repo, mig = applied_repo(self, {OVERLAY: overlay_text(('a', 'heading:Style'))})
+        clean = json.loads(check_run(repo, mig, '--json').stdout)
+        self.assertIs(clean['walked'], True)
+        self.assertTrue(clean['consumers'])
+        self.assertTrue(all(c['ok'] is True for c in clean['consumers']))
+        index = repo / 'STANDARDS.md'
+        lines = index.read_bytes().split(b'\n')
+        lines.insert(3, lines[3])
+        index.write_bytes(b'\n'.join(lines))
+        edited = json.loads(check_run(repo, mig, '--json').stdout)
+        self.assertIs(edited['walked'], False)
+        self.assertTrue(edited['consumers'])
+        self.assertTrue(all(c['ok'] is None for c in edited['consumers']))
+
     def test_a_broken_link_after_a_clean_walk_prints_the_consumers_judged(self):
         repo, mig = applied_repo(self, {OVERLAY: overlay_text(('a', 'heading:Style'))})
         rust = repo / 'docs/standards/rust.md'

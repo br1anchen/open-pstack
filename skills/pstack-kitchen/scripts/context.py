@@ -2799,13 +2799,18 @@ def origin_data(o: Origin) -> dict:
 
 def proof_data(proof: Proof) -> dict:
     """The proof as plain data: the origin of every output line, the blocks, the findings, the references broken at
-    base and the consumers."""
+    base and the consumers. `walked` is false when the line accounting failed: a consumer that would be `ok` then
+    has `ok` null, not judged, as the text says."""
     return {
         'ok': proof.ok,
+        'walked': proof.walked,
         'blocks': [dataclasses.asdict(b) for b in proof.blocks],
         'findings': [dataclasses.asdict(f) for f in proof.findings],
         'pre_existing': [dataclasses.asdict(f) for f in proof.pre_existing],
-        'consumers': [dataclasses.asdict(x) for x in proof.consumers],
+        'consumers': [
+            {**dataclasses.asdict(x), 'ok': None if x.ok and not proof.walked else x.ok}
+            for x in proof.consumers
+        ],
         'origins': {
             p: [origin_data(o) for o in os_] for p, os_ in proof.origins.items()
         },
