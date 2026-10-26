@@ -3222,6 +3222,24 @@ class ApplyTests(unittest.TestCase):
         self.assertIn(ADR_LINE.strip(), done.stderr)
         self.assertEqual(tree_of(repo), before)
 
+    def test_a_keep_that_covers_no_reference_refuses_and_changes_nothing(self):
+        repo, mig = fixture_migration(
+            self,
+            lambda t: (
+                t + '\n[[keep]]\npath = "docs/adr/0007-standards.md"\n'
+                'ref = "STANDARDS.md#typed-evidence"\nreason = "stale"\n'
+            ),
+        )
+        before = tree_of(repo)
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(
+            done.stderr,
+            'kitchen: unused keep: docs/adr/0007-standards.md STANDARDS.md#typed-evidence\n'
+            'remove or fix each keep, then apply again\n',
+        )
+        self.assertEqual(tree_of(repo), before)
+
     def test_a_path_outside_writes_is_untouched(self):
         repo, mig = fixture_migration(self)
         before = tree_of(repo)
