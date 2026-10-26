@@ -1,3 +1,4 @@
+import contextlib
 import dataclasses
 import hashlib
 import importlib.util
@@ -1772,6 +1773,227 @@ class ReferenceTests(unittest.TestCase):
             with self.subTest(target=target):
                 self.assertIsNone(context.resolve(ref(target), files))
         self.assertEqual(context.resolve(ref('../x.md'), files), ('x.md', ''))
+
+
+TYPED_MD = 'docs/standards/typed-evidence.md'
+RUST_MD = 'docs/standards/rust.md'
+
+
+def boom(*args, **kwargs):
+    raise AssertionError('prove called a writer')
+
+
+def proved(m, base, outputs):
+    """`prove` with every writer unavailable: it may use the readers only."""
+    with contextlib.ExitStack() as stack:
+        for name in ('assemble', 'rebase', 'rewritten', 'render', 'anchor_map'):
+            stack.enter_context(mock.patch.object(context, name, boom))
+        return context.prove(base, m, outputs)
+
+
+def small(data, *moves, files=FILES):
+    """Render a one-file migration with the real writers, then return (migration, base, outputs)."""
+    m = migration_of(*moves)
+    base = {'STANDARDS.md': data}
+    return m, base, context.render(m, base, (), files)
+
+
+def kinds(proof, path):
+    return [(f.kind, f.line) for f in proof.findings if f.path == path]
+
+
+class ProveTests(unittest.TestCase):
+    def sample(self):
+        m = sample_migration()
+        return m, BASE, render_sample(m)
+
+    def test_the_fixture_outputs_are_proved_without_the_writers(self):
+        m, base, out = self.sample()
+        proof = proved(m, base, out)
+        self.assertEqual(proof.findings, [])
+        self.assertTrue(proof.ok)
+        self.assertEqual(
+            [(b.source, b.start, b.end, b.dest, b.lines) for b in proof.blocks],
+            [
+                ('STANDARDS.md', 9, 29, TYPED_MD, 18),
+                ('STANDARDS.md', 18, 25, RUST_MD, 12),
+                ('STANDARDS.md', 42, 45, 'docs/standards/testing-notes.md', 4),
+            ],
+        )
+
+    def test_every_output_line_has_one_origin(self):
+        m, base, out = self.sample()
+        proof = proved(m, base, out)
+        for path, data in out.items():
+            with self.subTest(path=path):
+                self.assertEqual(len(proof.origins[path]), len(context.lines_of(data)))
+
+    def test_the_origins_name_each_edit(self):
+        m, base, out = self.sample()
+        got = proved(m, base, out).origins
+        typed = got[TYPED_MD]
+        O, G = context.Original, context.Generated
+        self.assertEqual(typed[0], O('STANDARDS.md', 9, 'shift'))
+        self.assertEqual(typed[1], O('STANDARDS.md', 10, 'none'))
+        self.assertEqual(typed[2], O('STANDARDS.md', 11, 'target'))
+        self.assertEqual(typed[9], G('nested-heading', 'STANDARDS.md', 18))
+        self.assertEqual(typed[11], G('pointer', 'STANDARDS.md', 18))
+        self.assertEqual(typed[-1], context.Copied('STANDARDS.md', 51))
+        self.assertEqual(typed[-2], O('STANDARDS.md', 29, 'none'))
+        rust = got[RUST_MD]
+        self.assertEqual(
+            [x.kind for x in rust[1:3]], ['read-first-blank', 'read-first']
+        )
+        index = got['STANDARDS.md']
+        self.assertIn(G('kept-heading', 'STANDARDS.md', 9), index)
+        self.assertIn(G('pointer', 'STANDARDS.md', 9), index)
+        self.assertEqual(index[0], O('STANDARDS.md', 1, 'none'))
+
+    def test_a_dropped_block_fails_naming_the_path_and_line(self):
+        m, base, out = self.sample()
+        gone = b'Notes on evidence. Back to [the rule](#typed-evidence).\n\n'
+        out[TYPED_MD] = out[TYPED_MD].replace(gone, b'')
+        proof = proved(m, base, out)
+        self.assertFalse(proof.ok)
+        self.assertEqual(
+            [k for k, _ in kinds(proof, TYPED_MD)], ['unexplained', 'dropped']
+        )
+        self.assertEqual(kinds(proof, TYPED_MD)[0][1], 16)
+
+    def test_a_reordered_block_fails(self):
+        m, base, out = self.sample()
+        a = b'Notes on evidence. Back to [the rule](#typed-evidence).\n'
+        b = b'Moved to [docs/standards/rust.md](rust.md#rust-engine).\n'
+        out[TYPED_MD] = out[TYPED_MD].replace(a, b'@@').replace(b, a).replace(b'@@', b)
+        proof = proved(m, base, out)
+        self.assertFalse(proof.ok)
+        self.assertTrue(all(f.path == TYPED_MD for f in proof.findings))
+        self.assertEqual(kinds(proof, TYPED_MD)[0], ('dropped', 12))
+
+    def test_a_duplicated_line_fails(self):
+        m, base, out = self.sample()
+        out[RUST_MD] = out[RUST_MD].replace(
+            b'Notes on Rust.\n', b'Notes on Rust.\nNotes on Rust.\n'
+        )
+        proof = proved(m, base, out)
+        self.assertEqual(kinds(proof, RUST_MD)[0][0], 'duplicated')
+
+    def test_an_unexplained_line_fails(self):
+        m, base, out = self.sample()
+        out['STANDARDS.md'] = out['STANDARDS.md'].replace(
+            b'Keep it short.', b'Keep it short. And long.'
+        )
+        proof = proved(m, base, out)
+        self.assertEqual(kinds(proof, 'STANDARDS.md'), [('unexplained', 43)])
+
+    def test_a_pointer_to_the_wrong_destination_fails(self):
+        m, base, out = self.sample()
+        out['STANDARDS.md'] = out['STANDARDS.md'].replace(
+            b'(docs/standards/rust.md#rust-engine)',
+            b'(docs/standards/typed-evidence.md#rust-engine)',
+            1,
+        )
+        proof = proved(m, base, out)
+        self.assertFalse(proof.ok)
+
+    def test_a_wrong_heading_level_fails(self):
+        m, base, out = self.sample()
+        out[TYPED_MD] = out[TYPED_MD].replace(
+            b'# Typed evidence', b'## Typed evidence', 1
+        )
+        self.assertFalse(proved(m, base, out).ok)
+
+    def test_a_definition_that_left_the_index_and_is_copied_nowhere_fails(self):
+        m, base, out = self.sample()
+        out[RUST_MD] = out[RUST_MD].replace(b'[moved-only]: ../guide.md\n', b'')
+        proof = proved(m, base, out)
+        self.assertEqual(
+            [
+                (f.path, f.kind)
+                for f in proof.findings
+                if 'moved-only' in f.message or f.kind == 'dropped'
+            ][:1],
+            [('STANDARDS.md', 'dropped')],
+        )
+
+    def test_a_copied_definition_the_destination_never_uses_fails(self):
+        m, base, out = self.sample()
+        out['docs/standards/testing-notes.md'] += (
+            b'\n[shared]: ../guide.md#moved "Shared"\n'
+        )
+        proof = proved(m, base, out)
+        self.assertTrue(any('never uses' in f.message for f in proof.findings))
+
+    def test_an_absent_output_fails(self):
+        m, base, out = self.sample()
+        out[RUST_MD] = None
+        proof = proved(m, base, out)
+        self.assertEqual(kinds(proof, RUST_MD), [('absent', 0)])
+
+    def test_a_rewrite_target_must_equal_its_base_with_the_rewrite_applied(self):
+        m, base, out = self.sample()
+        out['.agents/kitchen.toml'] = KITCHEN_TOML
+        proof = proved(m, base, out)
+        self.assertEqual(kinds(proof, '.agents/kitchen.toml')[0][0], 'unexplained')
+
+    def test_a_rewrite_target_lines_are_originals(self):
+        m, base, out = self.sample()
+        origins = proved(m, base, out).origins['.agents/kitchen.toml']
+        self.assertEqual(
+            {o.edit for o in origins if isinstance(o, context.Original)},
+            {'none', 'target'},
+        )
+
+    def test_an_index_that_ends_at_the_moved_section_may_omit_its_last_blank(self):
+        data = b'# A\n\n## B\n\ntext\n'
+        m, base, out = small(data, move(('A', 'B'), 'b.md'))
+        self.assertTrue(out['STANDARDS.md'].endswith(b'#b).\n'))
+        self.assertTrue(proved(m, base, out).ok)
+        out['STANDARDS.md'] += b'\n'
+        self.assertTrue(proved(m, base, out).ok)
+
+    def test_the_last_line_of_a_slice_may_gain_a_newline_before_a_copied_definition(
+        self,
+    ):
+        data = b'# A\n\n[l]: docs/guide.md\n\nsee [l].\n\n## B\n\nuses [l]'
+        m, base, out = small(data, move(('A', 'B'), 'docs/standards/b.md'))
+        self.assertTrue(
+            out['docs/standards/b.md'].endswith(b'uses [l]\n\n[l]: ../guide.md\n')
+        )
+        proof = proved(m, base, out)
+        self.assertTrue(proof.ok, proof.findings)
+        edits = [
+            o.edit
+            for o in proof.origins['docs/standards/b.md']
+            if isinstance(o, context.Original)
+        ]
+        self.assertEqual(edits[-1], 'newline')
+        self.assertIn(
+            context.Copied('STANDARDS.md', 3), proof.origins['docs/standards/b.md']
+        )
+
+    def test_a_newline_added_where_nothing_follows_fails(self):
+        data = b'# A\n\n## B\n\ntext'
+        m, base, out = small(data, move(('A', 'B'), 'b.md'))
+        out['b.md'] += b'\n'
+        self.assertFalse(proved(m, base, out).ok)
+
+    def test_a_blank_after_the_read_first_line_is_generated_when_text_follows(self):
+        data = b'# A\n\n## B\ntext\n\n## C\n\nother\n'
+        m = migration_of(
+            move(('A', 'C'), 'c.md'), move(('A', 'B'), 'b.md', requires=['c.md'])
+        )
+        base = {'STANDARDS.md': data}
+        out = context.render(m, base, (), FILES)
+        self.assertEqual(out['b.md'], b'# B\n\nRead first: [c.md](c.md).\n\ntext\n\n')
+        proof = proved(m, base, out)
+        self.assertTrue(proof.ok, proof.findings)
+        self.assertEqual(
+            [o.kind for o in proof.origins['b.md'] if isinstance(o, context.Generated)],
+            ['read-first-blank', 'read-first', 'read-first-blank'],
+        )
+        out['b.md'] = out['b.md'].replace(b'.\n\ntext', b'.\ntext')
+        self.assertFalse(proved(m, base, out).ok)
 
 
 if __name__ == '__main__':

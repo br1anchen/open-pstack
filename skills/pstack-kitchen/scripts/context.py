@@ -1464,6 +1464,697 @@ def plan_unresolved(repo: Path, migration: Migration) -> list[Ref]:
     return unresolved(migration, read_scanned(repo, commit, files, declared), files)
 
 
+# ---- proof -----------------------------------------------------------------
+#
+# `prove` accounts for every line of every planned output against the migration's base, without asking the writers
+# (`assemble`, `rebase`, `rewritten`, `render`, `anchor_map`) what they wrote. It uses the readers only: `read`,
+# `cuts`, `find`, `anchors`, `references`, `resolve`, `lines_of`. The walk follows the section line ranges the reader
+# gives at base, in cut order; it never finds an output line by searching for its content, except to say what went
+# wrong once a line has already failed.
+
+
+@dataclass(frozen=True)
+class Original:
+    """An output line that is a source line (1-based) in its place. `edit` is `none`, or the edits it carries joined
+    by `+` in this order: `shift` (a heading's `#` count moved by its cut), `target` (a reference's target changed),
+    `newline` (a final newline added where the source line had none)."""
+
+    source: str
+    line: int
+    edit: str
+
+
+@dataclass(frozen=True)
+class Generated:
+    """An output line no source line stands behind: `read-first`, `read-first-blank`, `pointer`, `kept-heading` (a
+    heading line an index keeps), `nested-heading` (a nested move's heading in its parent), `stub-blank` and
+    `tail-blank`. `source` and `line` name the source heading it stands for, when it stands for one."""
+
+    kind: str
+    source: str = ''
+    line: int = 0
+
+
+@dataclass(frozen=True)
+class Copied:
+    """A reference definition appended to a destination, copied from the source line (1-based)."""
+
+    source: str
+    line: int
+
+
+Origin = Original | Generated | Copied
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One thing `prove` could not account for. `line` is the output line, 1-based; 0 when the finding is about the
+    whole file."""
+
+    path: str
+    line: int
+    kind: str  # absent, dropped, reordered, duplicated, unexplained, rewrite
+    message: str
+
+
+@dataclass(frozen=True)
+class Block:
+    """One cut: its lines of the source at base (1-based, inclusive) and the destination it became."""
+
+    source: str
+    start: int
+    end: int
+    dest: str
+    lines: int  # the destination's line count, 0 when it is absent
+
+
+@dataclass
+class Proof:
+    origins: dict[str, list[Origin]]  # every planned output, one origin per line
+    blocks: list[Block]
+    findings: list[Finding]
+
+    @property
+    def ok(self) -> bool:
+        return not self.findings
+
+
+EDITS = ('shift', 'target', 'newline')
+
+
+def ref_spans(path: str, data: bytes) -> dict[int, list[tuple[int, int]]]:
+    """The target columns of every reference `data` makes, by 0-based line."""
+    found: dict[int, list[tuple[int, int]]] = {}
+    for ref in references(path, data):
+        found.setdefault(ref.line - 1, []).append((ref.start, ref.end))
+    return found
+
+
+def skeleton(body: bytes, spans: list[tuple[int, int]]) -> str | None:
+    """A line without its reference targets, a NUL where each was; None when it is not UTF-8."""
+    try:
+        text = body.decode()
+    except UnicodeDecodeError:
+        return None
+    pieces, at = [], 0
+    for a, b in sorted(spans):
+        pieces.append(text[at:a])
+        at = b
+    pieces.append(text[at:])
+    return '\0'.join(pieces)
+
+
+def line_edit(
+    base: bytes,
+    out: bytes,
+    by: int,
+    base_spans: list[tuple[int, int]],
+    out_spans: list[tuple[int, int]],
+    newline_ok: bool,
+) -> str | None:
+    """How `out` differs from the source line `base` once its heading is shifted by `by`: `none` or the edits
+    joined by `+`; None when it differs in any other way."""
+    edits: list[str] = []
+    ends = base.endswith(b'\n'), out.endswith(b'\n')
+    if ends[0] != ends[1]:
+        if not (newline_ok and ends[1]):
+            return None
+        edits.append('newline')
+    want = base.removesuffix(b'\n')
+    got = out.removesuffix(b'\n')
+    if by and want.startswith(b'#'):
+        want = shift_line(want, by)
+        edits.append('shift')
+    if want != got:
+        a = skeleton(base.removesuffix(b'\n'), base_spans)
+        b = skeleton(got, out_spans)
+        if a is None or b is None:
+            return None
+        if by and a.startswith('#'):
+            a = shift_line(a.encode(), by).decode()
+        if a != b:
+            return None
+        edits.append('target')
+    return '+'.join(e for e in EDITS if e in edits) or 'none'
+
+
+@dataclass
+class Slot:
+    """What the walk expects at the next output line: `match` returns the line's origin or None."""
+
+    label: str
+    match: Callable[[int, bytes], Origin | None]
+    optional: bool = False
+    original: int | None = None  # the source line this slot accounts for (0-based)
+
+
+def exact(label: str, want: bytes, origin: Origin, optional: bool = False) -> Slot:
+    return Slot(label, lambda i, line: origin if line == want else None, optional)
+
+
+def walk(
+    path: str, lines: list[bytes], slots: list[Slot], found: list[Finding]
+) -> tuple[list[Origin], int, bool, list[Slot]]:
+    """Match `lines` against `slots` in order. Returns the origins, the index of the first output line no slot
+    claimed, whether every slot was consumed, and the optional slots that were absent. A line that fails is reported
+    as dropped (a later slot takes it), reordered (a dropped slot takes it), duplicated (the slot just taken takes it
+    again) or unexplained; the search that tells them apart runs only after a failure."""
+    origins: list[Origin] = []
+    absent: list[Slot] = []
+    lost: list[Slot] = []
+    i = k = 0
+    while k < len(slots) and i < len(lines):
+        slot = slots[k]
+        got = slot.match(i, lines[i])
+        if got is not None:
+            origins.append(got)
+            i += 1
+            k += 1
+            continue
+        if slot.optional:
+            absent.append(slot)
+            k += 1
+            continue
+        ahead = next(
+            (j for j in range(k + 1, len(slots)) if slots[j].match(i, lines[i])), None
+        )
+        if ahead is not None:
+            names = ', '.join(s.label for s in slots[k:ahead] if not s.optional)
+            found.append(
+                Finding(path, i + 1, 'dropped', f'missing before this line: {names}')
+            )
+            lost += [s for s in slots[k:ahead] if not s.optional]
+            k = ahead
+            continue
+        again = next((s for s in lost if s.match(i, lines[i])), None)
+        kind, why = 'unexplained', f'expected {slot.label}'
+        if again is not None:
+            kind, why = 'reordered', f'{again.label} was expected earlier'
+        elif k and slots[k - 1].match(i, lines[i]):
+            kind, why = 'duplicated', f'repeats {slots[k - 1].label}'
+        found.append(Finding(path, i + 1, kind, why))
+        origins.append(Generated(kind))
+        if (
+            kind == 'unexplained'
+            and i + 1 < len(lines)
+            and slots[k + 1 :]
+            and slots[k + 1].match(i + 1, lines[i + 1])
+        ):
+            k += 1  # the line stands where the slot's own line should be
+        i += 1
+    if k < len(slots):
+        rest = [s for s in slots[k:] if not s.optional]
+        absent += [s for s in slots[k:] if s.optional]
+        if rest:
+            names = ', '.join(s.label for s in rest)
+            found.append(
+                Finding(path, len(lines) + 1, 'dropped', f'missing at the end: {names}')
+            )
+    return origins, i, k >= len(slots), absent
+
+
+POINTER = re.compile(rb'Moved to \[([^\]]+)\]\(([^)#]*)#([^)]*)\)\.\n')
+
+
+def original_slot(
+    source: str,
+    n: int,
+    base: bytes,
+    by: int,
+    base_spans: dict[int, list[tuple[int, int]]],
+    out_spans: dict[int, list[tuple[int, int]]],
+    newline_ok: bool,
+    optional: bool = False,
+) -> Slot:
+    def match(i: int, line: bytes) -> Origin | None:
+        edit = line_edit(
+            base, line, by, base_spans.get(n, []), out_spans.get(i, []), newline_ok
+        )
+        return None if edit is None else Original(source, n + 1, edit)
+
+    return Slot(f'{source}:{n + 1}', match, optional, n)
+
+
+def pointer_slot(source: str, n: int, from_path: str, dest: str) -> Slot:
+    def match(i: int, line: bytes) -> Origin | None:
+        m = POINTER.fullmatch(line)
+        if (
+            m
+            and m.group(1) == dest.encode()
+            and m.group(2) == relative(from_path, dest).encode()
+        ):
+            return Generated('pointer', source, n + 1)
+        return None
+
+    return Slot(f'the pointer for {source}:{n + 1} to {dest}', match)
+
+
+def blank_slot(kind: str = 'stub-blank', optional: bool = False) -> Slot:
+    return exact(f'a blank line ({kind})', b'\n', Generated(kind), optional)
+
+
+def owner(made: list[Cut], source: str, n: int) -> Cut:
+    """The innermost cut of `source` that holds line `n`."""
+    return max(
+        (
+            c
+            for c in made
+            if c.move.source == source and c.section.start <= n < c.section.end
+        ),
+        key=lambda c: c.section.start,
+    )
+
+
+def destination_slots(
+    migration: Migration,
+    made: list[Cut],
+    readings: dict[str, Reading],
+    i: int,
+    base_spans: dict[int, list[tuple[int, int]]],
+    out_spans: dict[int, list[tuple[int, int]]],
+) -> list[Slot]:
+    """What cut `i`'s destination holds, in order: its own lines, a `Read first:` block after the heading when the
+    move names prerequisites, and for each nested cut a heading, a pointer and the blanks around them."""
+    cut = made[i]
+    source = cut.move.source
+    reading = readings[source]
+    sec = cut.section
+    by = sec.level - 1
+    headings = {s.start for s in reading.sections}
+    kids = {made[j].section.start: j for j, c in enumerate(made) if c.parent == i}
+    own = [
+        n
+        for n in range(sec.start, sec.end)
+        if n in kids or not any(k < n < made[j].section.end for k, j in kids.items())
+    ]
+    last = max((n for n in own if n not in kids), default=sec.start)
+    slots: list[Slot] = []
+    n = sec.start
+    while n < sec.end:
+        if n in kids:
+            kid = made[kids[n]]
+
+            def nested(i: int, line: bytes, n: int = n) -> Origin | None:
+                edit = line_edit(
+                    reading.lines[n],
+                    line,
+                    by,
+                    base_spans.get(n, []),
+                    out_spans.get(i, []),
+                    True,
+                )
+                return (
+                    None if edit is None else Generated('nested-heading', source, n + 1)
+                )
+
+            slots += [
+                Slot(
+                    f'the heading of the nested move {kid.move.to} ({source}:{n + 1})',
+                    nested,
+                ),
+                blank_slot(),
+                pointer_slot(source, n, cut.move.to, kid.move.to),
+                blank_slot(),
+            ]
+            n = kid.section.end
+            continue
+        first = n == sec.start and bool(cut.move.requires)
+        slots.append(
+            original_slot(
+                source,
+                n,
+                reading.lines[n],
+                by if n in headings else 0,
+                base_spans,
+                out_spans,
+                first or n == last,
+            )
+        )
+        if first:
+            links = ', '.join(
+                f'[{p}]({relative(cut.move.to, p)})' for p in cut.move.requires
+            )
+            slots += [
+                blank_slot('read-first-blank'),
+                exact(
+                    'the Read first line',
+                    f'Read first: {links}.\n'.encode(),
+                    Generated('read-first'),
+                ),
+            ]
+            if n + 1 < sec.end and reading.lines[n + 1].strip():
+                slots.append(blank_slot('read-first-blank'))
+        n += 1
+    return slots
+
+
+def index_slots(
+    source: str,
+    reading: Reading,
+    made: list[Cut],
+    base_spans: dict[int, list[tuple[int, int]]],
+    out_spans: dict[int, list[tuple[int, int]]],
+) -> list[Slot]:
+    """What a source holds once its moved sections are cut out: every line outside them, and for each heading in
+    them the heading line, a pointer to where it went and the blanks around them. A definition line may be absent."""
+    tops = sorted(
+        (c for c in made if c.move.source == source and c.parent is None),
+        key=lambda c: c.section.start,
+    )
+    definitions = set(definition_lines(reading).values())
+    slots: list[Slot] = []
+
+    def outside(a: int, b: int) -> None:
+        for n in range(a, b):
+            slots.append(
+                original_slot(
+                    source,
+                    n,
+                    reading.lines[n],
+                    0,
+                    base_spans,
+                    out_spans,
+                    False,
+                    n in definitions,
+                )
+            )
+
+    at = 0
+    for top in tops:
+        outside(at, top.section.start)
+        for s in reading.sections:
+            if top.section.start <= s.start < top.section.end:
+                kept = with_newline(reading.lines[s.start])
+                slots += [
+                    exact(
+                        f'the heading of {source}:{s.start + 1} kept in the index',
+                        kept,
+                        Generated('kept-heading', source, s.start + 1),
+                    ),
+                    blank_slot(),
+                    pointer_slot(
+                        source, s.start, source, owner(made, source, s.start).move.to
+                    ),
+                    blank_slot(),
+                ]
+        at = top.section.end
+    outside(at, len(reading.lines))
+    if tops and at == len(reading.lines):
+        slots[-1].optional = True
+    return slots
+
+
+def tail_origins(
+    path: str,
+    lines: list[bytes],
+    at: int,
+    source: str,
+    reading: Reading,
+    base_spans: dict[int, list[tuple[int, int]]],
+    out_spans: dict[int, list[tuple[int, int]]],
+    found: list[Finding],
+) -> list[Origin]:
+    """The lines of a destination after its last own line: a blank when the text before is not blank, then the
+    reference definitions copied from the source."""
+    defined = definition_lines(reading)
+    origins: list[Origin] = []
+    for i in range(at, len(lines)):
+        line = lines[i]
+        if i == at and line == b'\n' and at and lines[at - 1].strip():
+            origins.append(Generated('tail-blank'))
+            continue
+        masked = CODE_RUN.sub(
+            lambda m: ' ' * len(m.group()), line.decode(errors='replace')
+        )
+        m = DEFINITION.match(masked)
+        n = defined.get(label_of(m.group(1))) if m else None
+        edit = (
+            None
+            if n is None
+            else line_edit(
+                reading.lines[n],
+                line,
+                0,
+                base_spans.get(n, []),
+                out_spans.get(i, []),
+                True,
+            )
+        )
+        if n is None or edit is None:
+            found.append(
+                Finding(
+                    path,
+                    i + 1,
+                    'unexplained',
+                    'a line after the destination text that is no copied definition',
+                )
+            )
+            origins.append(Generated('unexplained'))
+        else:
+            origins.append(Copied(source, n + 1))
+    return origins
+
+
+def unused_copies(
+    lines: list[bytes], origins: list[Origin], reading: Reading
+) -> list[tuple[int, str]]:
+    """The copied definitions of a destination whose label no other line of it uses: (line index, label)."""
+    defined = definition_lines(reading)
+    used: set[str] = set()
+    for line in lines:
+        masked = CODE_RUN.sub(
+            lambda m: ' ' * len(m.group()), line.decode(errors='replace')
+        )
+        if not DEFINITION.match(masked):
+            used |= used_labels(masked, defined)
+    out = []
+    for i, o in enumerate(origins):
+        if isinstance(o, Copied):
+            label = next(k for k, n in defined.items() if n == o.line - 1)
+            if label not in used:
+                out.append((i, label))
+    return out
+
+
+def unaccounted(
+    source: str,
+    reading: Reading,
+    paths: list[str],
+    origins: dict[str, list[Origin]],
+    gone: set[int],
+) -> list[Finding]:
+    """C6's second count: every line of `source` is an Original exactly once across its index and destinations,
+    but for a definition line that left the index."""
+    seen: dict[int, int] = {}
+    for path in paths:
+        for o in origins.get(path, []):
+            if isinstance(o, Original) and o.source == source:
+                seen[o.line - 1] = seen.get(o.line - 1, 0) + 1
+    found = []
+    for n in range(len(reading.lines)):
+        count = seen.get(n, 0)
+        if count == 0 and n not in gone:
+            found.append(
+                Finding(source, 0, 'dropped', f'{source}:{n + 1} appears in no output')
+            )
+        elif count > 1:
+            found.append(
+                Finding(
+                    source, 0, 'duplicated', f'{source}:{n + 1} appears {count} times'
+                )
+            )
+    return found
+
+
+def rewrite_origins(
+    path: str,
+    base: bytes,
+    out: bytes,
+    migration: Migration,
+    found: list[Finding],
+) -> list[Origin]:
+    """A rewrite target is its base bytes with each `from` replaced by its `to`, each `from` occurring `count`
+    times, and nothing else."""
+    want = base
+    for r in migration.rewrites:
+        if r.path != path:
+            continue
+        count = want.count(r.from_.encode())
+        if count != r.count:
+            found.append(
+                Finding(
+                    path,
+                    0,
+                    'rewrite',
+                    f'`from` {r.from_!r} occurs {count} times in the base; the migration says {r.count}',
+                )
+            )
+            return []
+        want = want.replace(r.from_.encode(), r.to.encode())
+    origins: list[Origin] = []
+    have, expect = lines_of(out), lines_of(want)
+    original = lines_of(base)
+    for i, line in enumerate(have):
+        if i < len(expect) and line == expect[i]:
+            same = i < len(original) and line == original[i]
+            origins.append(Original(path, i + 1, 'none' if same else 'target'))
+            continue
+        found.append(
+            Finding(
+                path,
+                i + 1,
+                'unexplained',
+                "differs from the base with the migration's rewrites applied",
+            )
+        )
+        return origins
+    if len(have) < len(expect):
+        found.append(
+            Finding(
+                path,
+                len(have) + 1,
+                'dropped',
+                'the file ends before the rewritten base does',
+            )
+        )
+    return origins
+
+
+def prove(
+    base_files: dict[str, bytes],
+    migration: Migration,
+    outputs: dict[str, bytes | None],
+) -> Proof:
+    """Account for every line of every planned output (None for one that is absent) against the base. Pure."""
+    sources = sorted({mv.source for mv in migration.moves})
+    for path in sources:
+        if path not in base_files:
+            raise ContextError(f'{path}: not among the base files')
+    readings = {p: read(base_files[p], p) for p in sources}
+    made = cuts(migration, {p: r.sections for p, r in readings.items()})
+    base_spans = {p: ref_spans(p, base_files[p]) for p in sources}
+    found: list[Finding] = []
+    origins: dict[str, list[Origin]] = {}
+    copied: dict[str, set[int]] = {p: set() for p in sources}
+    dropped: dict[str, set[int]] = {p: set() for p in sources}
+    clean: dict[str, bool] = {}
+
+    def lines_for(path: str) -> list[bytes] | None:
+        data = outputs.get(path)
+        if data is None:
+            found.append(Finding(path, 0, 'absent', 'the planned file is absent'))
+            return None
+        return lines_of(data)
+
+    for i, cut in enumerate(made):
+        path = cut.move.to
+        lines = lines_for(path)
+        if lines is None:
+            continue
+        source = cut.move.source
+        spans = ref_spans(path, b''.join(lines))
+        before = len(found)
+        slots = destination_slots(
+            migration, made, readings, i, base_spans[source], spans
+        )
+        got, at, done, _ = walk(path, lines, slots, found)
+        if done:
+            got += tail_origins(
+                path,
+                lines,
+                at,
+                source,
+                readings[source],
+                base_spans[source],
+                spans,
+                found,
+            )
+        else:
+            got += [Generated('unexplained')] * (len(lines) - at)
+        origins[path] = got
+        if (
+            got
+            and isinstance(got[-1], Original)
+            and 'newline' in got[-1].edit.split('+')
+        ):
+            found.append(
+                Finding(
+                    path,
+                    len(lines),
+                    'unexplained',
+                    'ends in a newline the source line lacks, with nothing after it',
+                )
+            )
+        copied[source] |= {o.line - 1 for o in got if isinstance(o, Copied)}
+        if any(isinstance(o, Copied) for o in got):
+            unused = unused_copies(lines, got, readings[source])
+            found += [
+                Finding(
+                    path,
+                    n + 1,
+                    'unexplained',
+                    f'copies the definition [{label}], which the text never uses',
+                )
+                for n, label in unused
+            ]
+        clean[path] = len(found) == before
+    for source in sources:
+        lines = lines_for(source)
+        if lines is None:
+            continue
+        spans = ref_spans(source, b''.join(lines))
+        before = len(found)
+        slots = index_slots(source, readings[source], made, base_spans[source], spans)
+        got, at, done, gone = walk(source, lines, slots, found)
+        if done and at < len(lines):
+            found.append(
+                Finding(
+                    source, at + 1, 'unexplained', 'a line after the end of the source'
+                )
+            )
+        origins[source] = got + [Generated('unexplained')] * (len(lines) - at)
+        for slot in gone:
+            if slot.original is not None:
+                dropped[source].add(slot.original)
+        clean[source] = len(found) == before
+    for source, lost in dropped.items():
+        for n in sorted(lost):
+            if n not in copied[source]:
+                found.append(
+                    Finding(
+                        source,
+                        0,
+                        'dropped',
+                        f'{source}:{n + 1} left the index and no destination copies it',
+                    )
+                )
+    for path in sorted({r.path for r in migration.rewrites}):
+        out = outputs.get(path)
+        if out is None:
+            found.append(Finding(path, 0, 'absent', 'the planned file is absent'))
+        elif path in base_files:
+            origins[path] = rewrite_origins(
+                path, base_files[path], out, migration, found
+            )
+    for source in sources:
+        paths = [source, *(c.move.to for c in made if c.move.source == source)]
+        if all(clean.get(p) for p in paths):
+            found += unaccounted(
+                source, readings[source], paths, origins, dropped[source]
+            )
+    blocks = [
+        Block(
+            c.move.source,
+            c.section.start + 1,
+            c.section.end,
+            c.move.to,
+            len(lines_of(outputs.get(c.move.to) or b'')),
+        )
+        for c in made
+    ]
+    return Proof(origins, blocks, found)
+
+
 # ---- inventory -------------------------------------------------------------
 
 CANDIDATE_SECTIONS = 3
