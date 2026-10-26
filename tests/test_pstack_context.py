@@ -2676,7 +2676,7 @@ class CheckCommandTests(unittest.TestCase):
             'ok\n',
         )
 
-    def test_a_duplicated_line_still_prints_every_consumer(self):
+    def test_a_duplicated_line_prints_every_consumer_as_not_judged(self):
         repo, mig = applied_repo(self, {OVERLAY: overlay_text(('a', 'heading:Style'))})
         index = repo / 'STANDARDS.md'
         lines = index.read_bytes().split(b'\n')
@@ -2692,9 +2692,8 @@ class CheckCommandTests(unittest.TestCase):
             'STANDARDS.md:18-25 -> docs/standards/rust.md (12 lines): ok\n'
             'STANDARDS.md:42-45 -> docs/standards/testing-notes.md (4 lines): ok\n'
             'STANDARDS.md:5: duplicated: repeats STANDARDS.md:4\n'
-            'consumer .agents/kitchen.toml line 2: docs/standards/typed-evidence.md#typed-evidence: ok\n'
-            'consumer .agents/playbooks/standards.toml part a: STANDARDS.md heading:Style: ok;'
-            ' reviewed 000000000000, now bb7acbb14173\n'
+            'consumer .agents/kitchen.toml: not judged (line accounting failed)\n'
+            'consumer .agents/playbooks/standards.toml: not judged (line accounting failed)\n'
             'proven against: the planned files, the kitchen.toml and the overlays as they are on disk;'
             ' every other file as at base BASE\n'
             'failed: 1 findings\n',
@@ -2717,11 +2716,26 @@ class CheckCommandTests(unittest.TestCase):
             'STANDARDS.md:42-45 -> docs/standards/testing-notes.md (4 lines):'
             ' unexplained: expected the pointer for STANDARDS.md:42 to docs/standards/testing-notes.md\n'
             'STANDARDS.md:39: unexplained: expected the pointer for STANDARDS.md:42 to docs/standards/testing-notes.md\n'
-            'consumer .agents/kitchen.toml line 2: docs/standards/typed-evidence.md#typed-evidence: ok\n'
+            'consumer .agents/kitchen.toml: not judged (line accounting failed)\n'
             'proven against: the planned files, the kitchen.toml and the overlays as they are on disk;'
             ' every other file as at base BASE\n'
             'failed: 1 findings\n',
         )
+
+    def test_an_absent_index_shows_on_every_block_of_it(self):
+        repo, mig = applied_repo(self)
+        (repo / 'STANDARDS.md').unlink()
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        for block in (
+            '9-29 -> docs/standards/typed-evidence.md (18',
+            '18-25 -> docs/standards/rust.md (12',
+            '42-45 -> docs/standards/testing-notes.md (4',
+        ):
+            self.assertRegex(
+                stable(done.stdout),
+                rf'STANDARDS\.md:{re.escape(block)} lines\): absent: the planned file is absent\n',
+            )
 
     def test_json_is_the_proof(self):
         repo, mig = applied_repo(self)

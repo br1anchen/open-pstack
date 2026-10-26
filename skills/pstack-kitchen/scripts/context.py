@@ -2338,8 +2338,11 @@ def consumer_proof(
     holds, selected on a heading an index or a parent only points from, or on none or several, it fails. Each part
     that holds prints the digest its selection has now beside the one it was reviewed at. Every `path` or `path#anchor`
     string of kitchen.toml or an overlay is judged the same way. What resolved at base and no longer does fails, as
-    does a string that is new in the working tree and names nothing. What was already broken at base, or a part
-    whose selection at base (by the part's id) matched no single part, is listed, not failed."""
+    does a string that is new in the working tree and names nothing ("resolves to nothing"). What was already broken
+    at base is listed, not failed: a string that did not resolve at base, or a part whose base copy (found by its id,
+    or by its position among the id-less parts; a repeated id keeps none and is a finding) has the same source and
+    select and matched no single part there. A part with no base copy, or whose source or select changed, is judged
+    on the output tree."""
     pb = playbooks_module()
     found: list[Finding] = []
     seen: list[Consumer] = []
@@ -2631,8 +2634,8 @@ def prove(
     )
     named = [p for p in (consumers or {}) if p in migration.writes or p in judged]
     held, seen, gone = consumer_proof(base_tree, out_tree, named, origins, moved)
-    if found:  # the origin table a failed walk leaves is incomplete: its links and consumer findings are not trusted, the consumers' results are shown
-        return Proof(origins, blocks, found, [], seen)
+    if found:  # the origin table a failed walk leaves is incomplete: its links are not trusted and the consumers it judged are shown as not judged; their findings count
+        return Proof(origins, blocks, found + held, [], seen)
     return Proof(origins, blocks, more + held, broken + gone, seen)
 
 

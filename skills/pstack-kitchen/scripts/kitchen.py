@@ -4164,7 +4164,7 @@ def cx_in_block(proof, b, f) -> bool:
         found = re.match(re.escape(f.path) + r':(\d+) ', f.message)
         if f.path == b.source and found:
             return b.start <= int(found.group(1)) <= b.end
-        return f.path == b.dest
+        return True
     origins = proof.origins.get(f.path, [])
     here = min(f.line - 1, len(origins) - 1)
     for k in [*range(here, -1, -1), *range(here + 1, len(origins))]:
@@ -4192,7 +4192,14 @@ def context_check_text(repo: Path, migration, proof) -> str:
             if f.line
             else f'{f.path}: {f.kind}: {f.message}'
         )
+    accounted = all(f.kind == 'consumer' for f in proof.findings)
+    unjudged = set()
     for c in proof.consumers:
+        if c.ok and not accounted:
+            if c.path not in unjudged:
+                unjudged.add(c.path)
+                out.append(f'consumer {c.path}: not judged (line accounting failed)')
+            continue
         out.append(
             f'consumer {c.path} {c.what}: {c.target + ": " if c.target else ""}'
             + (
