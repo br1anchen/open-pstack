@@ -2003,7 +2003,7 @@ class ProveTests(unittest.TestCase):
             [('docs/guide.md', 5)],
         )
 
-    def test_a_bare_path_rewrite_expects_its_to_path(self):
+    def test_a_bare_path_rewrite_is_accepted(self):
         data = b'# A\n\n## B\n\ntext\n'
         conf = b'path = "STANDARDS.md"\n'
         m = migration_of(
@@ -2021,6 +2021,27 @@ class ProveTests(unittest.TestCase):
             proof = context.prove(with_files(base), m, out, files)
         self.assertEqual(proof.findings, [])
         self.assertEqual([f for f in proof.pre_existing if f.path == 'conf.toml'], [])
+
+    def test_chained_bare_path_rewrites_on_one_file_pass(self):
+        data = b'# A\n\n## B\n\ntext\n'
+        m = migration_of(
+            move(('A', 'B'), 'docs/b.md'),
+            files=('STANDARDS.md', 'conf.toml'),
+            rewrites=(
+                context.Rewrite('conf.toml', 'STANDARDS.md', 'docs/b.md'),
+                context.Rewrite('conf.toml', 'docs/b.md', 'docs/c.md'),
+            ),
+        )
+        base = {
+            'STANDARDS.md': data,
+            'conf.toml': b'path = "STANDARDS.md"\n',
+            'docs/c.md': b'# C\n',
+        }
+        files = {*FILES, 'conf.toml', 'docs/c.md'}
+        out = context.render(m, base, (), files)
+        self.assertEqual(out['conf.toml'], b'path = "docs/c.md"\n')
+        proof = context.prove(with_files(base), m, out, files)
+        self.assertEqual(proof.findings, [])
 
     def test_a_copied_definition_the_destination_never_uses_fails(self):
         m, base, out = self.sample()

@@ -2179,22 +2179,12 @@ def link_proof(
             landed[key] = (dest, anchor)
             moved[(o.source, old[key])] = (dest, anchor)
 
-    def bare_rewrite(ref: Ref) -> tuple[str, str] | None:
-        """Where a rewrite of a bare path sends a reference: its `to` path, as the rewritten text reads there."""
-        for r in migration.rewrites:
-            if r.path == ref.path and '#' not in r.to and r.from_ in ref.target:
-                now = dataclasses.replace(
-                    ref, target=ref.target.replace(r.from_, r.to), fragment=''
-                )
-                return resolve(now, {*out.files, *migration.writes})
-        return None
-
     def expected(ref: Ref, mode: str) -> tuple[str, str] | None:
         here = base.resolved(ref)
         if here is None:
             return None
         if mode == 'rewrite' and not here[1]:
-            return bare_rewrite(ref) or here
+            return here  # the file a rewrite names without a heading is the author's to choose
         return moved.get(here, here) if mode != 'stay' and here[1] else here
 
     def pair(path: str, j: int, source: str, n: int, mode: str) -> None:
@@ -2223,7 +2213,7 @@ def link_proof(
                 )
                 continue
             got = out.resolved(b)
-            if mode == 'rewrite' and not want[1] and bare_rewrite(a) is None:
+            if mode == 'rewrite' and not want[1]:
                 want = got if got is not None else want
             if got != want:
                 found.append(
