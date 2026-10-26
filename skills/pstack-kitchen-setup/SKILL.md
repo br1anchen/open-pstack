@@ -41,6 +41,23 @@ the repo's.
   lesson's evidence commit before it passes on HEAD. A repo with a
   `formal-<property>` skill also runs `maintain-formal-verification-skill`
   here, so the model still describes the code the profiles gate.
+- Context: `kitchen.py context inventory` is read-only and may run in any
+  maintain pass. Split only a document of independently owned rules for
+  different readers; index a coherent or small document in place. Never split
+  ADRs, and never migrate tracked team docs from a host kitchen. A migration
+  runs when the owner asks for it or accepts the concrete candidate in the
+  session; an owner who approved that exact migration is not asked again. The
+  sequence, the migration file and the four commands are in
+  [context-migration.md](../pstack-kitchen/references/context-migration.md).
+- Overlays: write `.agents/playbooks/<id>.toml` for a repo standard a
+  non-Claude role must see (a verifier's evidence standard, say), not for text
+  every role already reads. Put a draft in `.agents/playbooks/drafts/`; the
+  owner activates it by moving it up. Neither `validate`, `doctor` nor
+  `context check` reads a draft, so a draft needs a test of its own. Each
+  part's `reviewed` digest is copied by hand from the `current` value in
+  `validate`'s `digest mismatch` message; no command writes it. `doctor` warns
+  on an `applies` glob that matches nothing. The format is
+  [kitchen-toml.md's Playbook overlays](../pstack-kitchen/references/kitchen-toml.md#playbook-overlays).
 
 ## 1. Read the repo, not the human
 
