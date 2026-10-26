@@ -883,7 +883,7 @@ def anchor_map(
                 f'{cut.move.to}: holds {len(landed)} headings, but {len(shown)} come from {cut.move.source}'
             )
         tops = {k.start for k in kids}
-        for s, there in zip(shown, landed):
+        for s, there in zip(shown, landed, strict=True):
             if s.start in tops:
                 continue
             mapped[(cut.move.source, old[cut.move.source][s.start])] = (
