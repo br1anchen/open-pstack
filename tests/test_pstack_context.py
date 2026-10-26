@@ -2435,6 +2435,7 @@ def check_run(repo, mig, *extra):
 
 
 def stable(text):
+    """Mask the temp repo's base sha, which differs on every run."""
     return re.sub(r'base [0-9a-f]{12}', 'base BASE', text)
 
 
