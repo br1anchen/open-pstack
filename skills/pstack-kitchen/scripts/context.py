@@ -849,6 +849,50 @@ def cuts(
     return out
 
 
+# ---- anchor map ------------------------------------------------------------
+
+
+def anchor_map(
+    migration: Migration,
+    base_files: dict[str, bytes],
+    outputs: dict[str, bytes],
+) -> dict[tuple[str, str], tuple[str, str]]:
+    """Where each moved heading's anchor went: (old path, old anchor) to (new path, new anchor), for the moved
+    heading and every heading under it. The old anchor is the heading's in its source at the base and the new one its
+    anchor in the destination `outputs` holds, each with its own document's duplicate suffix. A heading inside a
+    nested move points at the inner destination, though the outer destination keeps its heading line too."""
+    sources = {mv.source for mv in migration.moves}
+    readings = {p: read(d, p) for p, d in base_files.items() if p in sources}
+    made = cuts(migration, {p: r.sections for p, r in readings.items()})
+    old = {p: anchors(r.sections) for p, r in readings.items()}
+    new = {
+        c.move.to: anchors(read(outputs[c.move.to], c.move.to).sections) for c in made
+    }
+    mapped: dict[tuple[str, str], tuple[str, str]] = {}
+    for i, cut in enumerate(made):
+        kids = [k.section for k in made if k.parent == i]
+        shown = [
+            s
+            for s in readings[cut.move.source].sections
+            if contains(cut.section, s)
+            and not any(contains(k, s) and k.start != s.start for k in kids)
+        ]
+        landed = read(outputs[cut.move.to], cut.move.to).sections
+        if len(shown) != len(landed):
+            raise ContextError(
+                f'{cut.move.to}: holds {len(landed)} headings, but {len(shown)} come from {cut.move.source}'
+            )
+        tops = {k.start for k in kids}
+        for s, there in zip(shown, landed):
+            if s.start in tops:
+                continue
+            mapped[(cut.move.source, old[cut.move.source][s.start])] = (
+                cut.move.to,
+                new[cut.move.to][there.start],
+            )
+    return mapped
+
+
 # ---- render ----------------------------------------------------------------
 
 

@@ -661,6 +661,37 @@ class RenderTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(data.decode(), expected(path).decode())
 
+    def test_the_anchor_map_follows_each_moved_heading_to_its_new_home(self):
+        m = sample_migration()
+        got = context.anchor_map(m, {'STANDARDS.md': STANDARDS}, render_sample(m))
+        typed, rust = 'docs/standards/typed-evidence.md', 'docs/standards/rust.md'
+        self.assertEqual(
+            got,
+            {
+                ('STANDARDS.md', 'typed-evidence'): (typed, 'typed-evidence'),
+                ('STANDARDS.md', 'rust-engine'): (rust, 'rust-engine'),
+                ('STANDARDS.md', 'rust-notes'): (rust, 'rust-notes'),
+                ('STANDARDS.md', 'notes'): (typed, 'notes'),
+                # the suffix is document-scoped: the second Notes of the source is the only one in its destination
+                ('STANDARDS.md', 'notes-1'): (
+                    'docs/standards/testing-notes.md',
+                    'notes',
+                ),
+            },
+        )
+
+    def test_the_anchor_map_leaves_unmoved_headings_out(self):
+        m = sample_migration()
+        got = context.anchor_map(m, {'STANDARDS.md': STANDARDS}, render_sample(m))
+        for anchor in (
+            'coding-standards',
+            'testing',
+            'examples',
+            'examples-1',
+            'style',
+        ):
+            self.assertNotIn(('STANDARDS.md', anchor), got)
+
     def test_frontmatter_and_unmoved_text_stay_byte_for_byte(self):
         index = render_sample()['STANDARDS.md']
         self.assertTrue(
