@@ -5,7 +5,7 @@
 ## The owner's sequence
 
 1. `kitchen.py context inventory` lists the repo's Markdown documents, their sections, who references them and what the scanner cannot see. It reads git and writes nothing.
-2. `kitchen.py context inventory --draft <file>` prints a migration skeleton for one document: the root keys, its `[[file]]` entry and one commented `[[move]]` per top-level section (`context.draft`). It prints text; redirect it yourself.
+2. `kitchen.py context inventory --draft <file>` prints a migration skeleton for one document: the root keys, its `[[file]]` entry and one commented `[[move]]` per top-level section (`context.draft`). It writes to stdout; redirect it yourself.
 3. Write `.agents/migrations/<id>.toml` from the skeleton: fill in `to` and `writes`, add `[[rewrite]]` and `[[keep]]` entries.
 4. `kitchen.py context preview <migration>` prints the diff of every file the migration would write, and a line for each reference to a moved section that nothing covers. The owner approves this diff.
 5. `kitchen.py context apply <migration>` writes the files.
