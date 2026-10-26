@@ -9380,7 +9380,7 @@ esac
         sleeper.parent.mkdir()
         sleeper.symlink_to(sys.executable)
         proc = subprocess.Popen(  # bounded: killed by addCleanup
-            [str(sleeper), '-c', 'import time; time.sleep(30)'],
+            [str(sleeper), '-c', 'import signal; signal.pause()'],
             cwd=self.repo,
             env={**self.env, 'HERDR_PANE_ID': verifier['pane_id']},
         )

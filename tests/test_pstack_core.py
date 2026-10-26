@@ -1405,7 +1405,7 @@ class CoreTests(unittest.TestCase):
             [
                 str(link),
                 '-c',
-                'import time; print("up", flush=True); time.sleep(60)',
+                'import signal; print("up", flush=True); signal.pause()',
             ],
             env={**os.environ, 'PSTACK_PS_PROBE': '1'},
             stdout=subprocess.PIPE,
