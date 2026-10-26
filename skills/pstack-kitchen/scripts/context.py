@@ -336,11 +336,7 @@ def read_base(repo: Path, migration: Migration) -> dict[str, bytes]:
 
 def repo_files(repo: Path, migration: Migration) -> frozenset[str]:
     """Every file of the repo at the migration's base commit."""
-    commit = resolve_base(repo, migration)
-    done = git(repo, 'ls-tree', '-r', '--name-only', '-z', commit)
-    if done.returncode:
-        raise ContextError(f'cannot list the files at base {migration.base!r}')
-    return frozenset(p for p in done.stdout.decode(errors='replace').split('\0') if p)
+    return tracked(repo, resolve_base(repo, migration))
 
 
 def base_files_at(
@@ -1341,6 +1337,8 @@ def read_blobs(repo: Path, commit: str, paths: Collection[str]) -> dict[str, byt
     """The bytes of each of `paths` at `commit`, in one `git cat-file --batch`; anything that is not a blob is left out."""
     env = {k: v for k, v in os.environ.items() if k not in REPO_ENV}
     names = sorted(paths)
+    if bad := next((n for n in names if '\n' in n), None):
+        raise ContextError(f'{bad!r}: a path must not contain a newline')
     request = ''.join(f'{commit}:{p}\n' for p in names).encode()
     try:
         done = subprocess.run(
@@ -1450,6 +1448,204 @@ def plan_unresolved(repo: Path, migration: Migration) -> list[Ref]:
     files = repo_files(repo, migration)
     declared = [f.path for f in migration.files]
     return unresolved(migration, read_scanned(repo, commit, files, declared), files)
+
+
+# ---- inventory -------------------------------------------------------------
+
+CANDIDATE_SECTIONS = 3
+CANDIDATE_TOKENS = 2000
+CANDIDATE_REFERRERS = 2
+SYNTAXES = (
+    'Markdown inline links and images',
+    'Markdown reference definitions',
+    'Markdown link text wrapped over lines',
+    '`path` and `path#anchor` strings in TOML and plain text',
+)
+LIMITS = (
+    'globs',
+    'generated paths',
+    'external links',
+    'references inside HTML comments and 4-space indented code (scanned as text, may be false positives)',
+    'reference-style uses whose `[text]` and `[label]` wrap across lines (not seen)',
+    'reference definitions with the title on the next line',
+    'an empty `#` fragment (dropped on rebase)',
+)
+
+
+def tokens_of(text: str) -> int:
+    return len(text) // 4
+
+
+@dataclass(frozen=True)
+class Heading:
+    """A top-level section of a document and its estimated tokens."""
+
+    raw: str
+    tokens: int
+
+
+@dataclass(frozen=True)
+class Inbound:
+    """The references one file makes to a document other than itself."""
+
+    path: str
+    refs: tuple[Ref, ...]
+
+
+@dataclass(frozen=True)
+class Document:
+    path: str
+    bytes: int
+    tokens: int
+    level: int | None  # the shallowest heading level present
+    sections: tuple[Heading, ...]  # the headings of that level
+    inbound: tuple[Inbound, ...]
+    candidate: bool
+    error: str | None  # why the headings could not be read, when they could not
+
+
+@dataclass(frozen=True)
+class Inventory:
+    commit: str
+    documents: tuple[Document, ...]
+    scanned: int  # files the scanner read
+    broken: tuple[Ref, ...]  # recognized references that name no file or anchor
+
+
+def doc_anchors(path: str, data: bytes) -> frozenset[str] | None:
+    """The anchors of a Markdown document, or None when it cannot be read as one."""
+    try:
+        return frozenset(anchors(sections(data, path)).values())
+    except ContextError:
+        return None
+
+
+def is_broken(
+    ref: Ref, files: Collection[str], heads: dict[str, frozenset[str] | None]
+) -> bool:
+    """A recognized reference to a file the repo lacks (a directory is not lacking), or to an anchor its Markdown
+    target lacks."""
+    found = target_path(ref)
+    if found is None:
+        return False
+    if found not in files:
+        return not any(f.startswith(found + '/') for f in files)
+    anchor = unquote(ref.fragment).lower()
+    known = heads.get(found)
+    return bool(anchor) and known is not None and anchor not in known
+
+
+def top_sections(data: bytes, where: str) -> tuple[int | None, tuple[Heading, ...]]:
+    reading = read(data, where)
+    if not reading.sections:
+        return None, ()
+    level = min(s.level for s in reading.sections)
+    text = decode(reading.lines, where)
+    return level, tuple(
+        Heading(s.raw, tokens_of('\n'.join(text[s.start : s.end])))
+        for s in reading.sections
+        if s.level == level
+    )
+
+
+def inventory_of(commit: str, base_files: dict[str, bytes]) -> Inventory:
+    """The inventory of a repo from its files at a commit: `base_files` holds every file the scanner reads. Pure."""
+    files = frozenset(base_files)
+    docs = {p: d for p, d in base_files.items() if p.endswith(MARKDOWN)}
+    heads = {p: doc_anchors(p, d) for p, d in docs.items()}
+    inbound: dict[str, dict[str, list[Ref]]] = {}
+    broken: list[Ref] = []
+    for path in sorted(base_files):
+        if not scanned(path):
+            continue
+        for ref in references(path, base_files[path], files):
+            if is_broken(ref, files, heads):
+                broken.append(ref)
+                continue
+            hit = target_path(ref)
+            if hit in docs and hit != path:
+                inbound.setdefault(hit, {}).setdefault(path, []).append(ref)
+    found = []
+    for path, data in sorted(docs.items()):
+        text = data.decode(errors='replace')
+        try:
+            level, tops = top_sections(data, path)
+            error = None
+        except ContextError as e:
+            level, tops, error = None, (), str(e)
+        refs = inbound.get(path, {})
+        by_section = {f for f, rs in refs.items() if any(r.fragment for r in rs)}
+        found.append(
+            Document(
+                path,
+                len(data),
+                tokens_of(text),
+                level,
+                tops,
+                tuple(Inbound(f, tuple(rs)) for f, rs in sorted(refs.items())),
+                len(tops) >= CANDIDATE_SECTIONS
+                and tokens_of(text) > CANDIDATE_TOKENS
+                and len(by_section) >= CANDIDATE_REFERRERS,
+                error,
+            )
+        )
+    return Inventory(commit, tuple(found), len(base_files), tuple(broken))
+
+
+def inventory_data(inv: Inventory) -> dict:
+    """The inventory as plain data: what `inventory --json` prints and what its text is rendered from."""
+
+    def ref(r: Ref) -> dict:
+        return {'path': r.path, 'line': r.line, 'raw': r.raw, 'target': target_of(r)}
+
+    return {
+        'commit': inv.commit,
+        'documents': [
+            {
+                'path': d.path,
+                'bytes': d.bytes,
+                'tokens': d.tokens,
+                'level': d.level,
+                'sections': [
+                    {'heading': h.raw, 'tokens': h.tokens} for h in d.sections
+                ],
+                'inbound': [
+                    {'from': i.path, 'refs': [ref(r) for r in i.refs]}
+                    for i in d.inbound
+                ],
+                'candidate': d.candidate,
+                'error': d.error,
+            }
+            for d in inv.documents
+        ],
+        'coverage': {
+            'syntaxes': list(SYNTAXES),
+            'file_types': list(SCANNED),
+            'scanned': inv.scanned,
+            'broken': {'count': len(inv.broken), 'refs': [ref(r) for r in inv.broken]},
+            'limits': list(LIMITS),
+        },
+    }
+
+
+def head_commit(repo: Path) -> str:
+    done = git(repo, 'rev-parse', '--verify', 'HEAD^{commit}')
+    if done.returncode:
+        raise ContextError(f'{repo} has no commit at HEAD')
+    return done.stdout.decode().strip()
+
+
+def tracked(repo: Path, commit: str) -> frozenset[str]:
+    done = git(repo, 'ls-tree', '-r', '--name-only', '-z', commit)
+    if done.returncode:
+        raise ContextError(f'cannot list the files at {commit}')
+    return frozenset(p for p in done.stdout.decode(errors='replace').split('\0') if p)
+
+
+def inventory(repo: Path) -> Inventory:
+    """The inventory of the repo's tracked files at HEAD. Reads git only; writes nothing."""
+    commit = head_commit(repo)
+    return inventory_of(commit, read_scanned(repo, commit, tracked(repo, commit)))
 
 
 # ---- preview ---------------------------------------------------------------

@@ -1,0 +1,131 @@
+{
+  "commit": "COMMIT",
+  "documents": [
+    {
+      "path": "STANDARDS.md",
+      "bytes": 873,
+      "tokens": 218,
+      "level": 1,
+      "sections": [
+        {
+          "heading": "Coding standards",
+          "tokens": 205
+        }
+      ],
+      "inbound": [
+        {
+          "from": ".agents/kitchen.toml",
+          "refs": [
+            {
+              "path": ".agents/kitchen.toml",
+              "line": 2,
+              "raw": "STANDARDS.md#typed-evidence",
+              "target": "STANDARDS.md#typed-evidence"
+            }
+          ]
+        },
+        {
+          "from": "docs/adr/0007-standards.md",
+          "refs": [
+            {
+              "path": "docs/adr/0007-standards.md",
+              "line": 3,
+              "raw": "[typed evidence](../../STANDARDS.md#typed-evidence)",
+              "target": "STANDARDS.md#typed-evidence"
+            }
+          ]
+        }
+      ],
+      "candidate": false,
+      "error": null
+    },
+    {
+      "path": "docs/adr/0007-standards.md",
+      "bytes": 97,
+      "tokens": 24,
+      "level": 1,
+      "sections": [
+        {
+          "heading": "ADR 0007: Standards",
+          "tokens": 24
+        }
+      ],
+      "inbound": [],
+      "candidate": false,
+      "error": null
+    },
+    {
+      "path": "docs/guide.md",
+      "bytes": 38,
+      "tokens": 9,
+      "level": 1,
+      "sections": [
+        {
+          "heading": "Guide",
+          "tokens": 9
+        }
+      ],
+      "inbound": [
+        {
+          "from": "STANDARDS.md",
+          "refs": [
+            {
+              "path": "STANDARDS.md",
+              "line": 11,
+              "raw": "[guide](docs/guide.md#moved)",
+              "target": "docs/guide.md#moved"
+            },
+            {
+              "path": "STANDARDS.md",
+              "line": 50,
+              "raw": "[moved-only]: docs/guide.md",
+              "target": "docs/guide.md"
+            },
+            {
+              "path": "STANDARDS.md",
+              "line": 51,
+              "raw": "[shared]: docs/guide.md#moved \"Shared\"",
+              "target": "docs/guide.md#moved"
+            },
+            {
+              "path": "STANDARDS.md",
+              "line": 52,
+              "raw": "[unused]: docs/guide.md",
+              "target": "docs/guide.md"
+            }
+          ]
+        }
+      ],
+      "candidate": false,
+      "error": null
+    }
+  ],
+  "coverage": {
+    "syntaxes": [
+      "Markdown inline links and images",
+      "Markdown reference definitions",
+      "Markdown link text wrapped over lines",
+      "`path` and `path#anchor` strings in TOML and plain text"
+    ],
+    "file_types": [
+      ".md",
+      ".markdown",
+      ".toml",
+      ".txt"
+    ],
+    "scanned": 4,
+    "broken": {
+      "count": 0,
+      "refs": []
+    },
+    "limits": [
+      "globs",
+      "generated paths",
+      "external links",
+      "references inside HTML comments and 4-space indented code (scanned as text, may be false positives)",
+      "reference-style uses whose `[text]` and `[label]` wrap across lines (not seen)",
+      "reference definitions with the title on the next line",
+      "an empty `#` fragment (dropped on rebase)"
+    ]
+  }
+}

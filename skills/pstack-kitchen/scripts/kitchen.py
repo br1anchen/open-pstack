@@ -4100,9 +4100,57 @@ def context_preview_text(writes: list[dict], unresolved: list[dict]) -> str:
     return (diffs + lines).rstrip('\n')
 
 
+def inventory_text(data: dict) -> str:
+    """The inventory's text: each document with its sections and inbound references, then the coverage block."""
+    docs = data['documents']
+    out = [f'inventory at {data["commit"][:12]}: {len(docs)} documents']
+    for d in docs:
+        out.append(f'{d["path"]}: {d["bytes"]} bytes, ~{d["tokens"]} tokens')
+        if d['error']:
+            out.append(f'  unreadable: {d["error"]}')
+        if d['sections']:
+            shown = ', '.join(f'{s["heading"]} ~{s["tokens"]}' for s in d['sections'])
+            out.append(f'  sections (level {d["level"]}): {shown}')
+        for i in d['inbound']:
+            shown = ', '.join(f'L{r["line"]} {r["target"]}' for r in i['refs'])
+            out.append(f'  inbound from {i["from"]}: {shown}')
+        if d['candidate']:
+            out.append(
+                '  candidate: yes (advisory: three or more top-level sections, over 2000 tokens, '
+                'section references from two or more files)'
+            )
+    cov = data['coverage']
+    out += [
+        'coverage:',
+        f'  syntaxes: {"; ".join(cov["syntaxes"])}',
+        f'  files: tracked {" ".join(cov["file_types"])} at HEAD ({cov["scanned"]} scanned)',
+        f'  broken (pre-existing): {cov["broken"]["count"]}',
+    ]
+    for r in cov['broken']['refs']:
+        out.append(f'    {r["path"]}:{r["line"]}: {" ".join(r["raw"].split())}')
+    out.append('  not seen:')
+    out += [f'    {x}' for x in cov['limits']]
+    return '\n'.join(out)
+
+
+def context_inventory(args) -> int:
+    """`context inventory`: the repo's documents, their inbound references and the scanner's coverage. Writes
+    nothing."""
+    cx = context_module()
+    repo = repo_root(args.repo)
+    try:
+        data = cx.inventory_data(cx.inventory(repo))
+        emit(data, args.json, inventory_text(data))
+    except cx.ContextError as e:
+        raise KitchenError(str(e), 2) from e
+    return 0
+
+
 def context_command(args) -> int:
     """`context preview`: the diff of every file a migration would write, and the references to a moved section
     that nothing covers; exit 1 when there are any. Writes nothing."""
+    if args.context_cmd == 'inventory':
+        return context_inventory(args)
     cx = context_module()
     repo = repo_root(args.repo)
     try:
@@ -4467,6 +4515,21 @@ def build_parser() -> argparse.ArgumentParser:
         help='repository (default: the current directory)',
     )
     cxp.add_argument(
+        '--json',
+        action='store_true',
+        default=argparse.SUPPRESS,
+        help='machine-readable output',
+    )
+    cxi = cxsub.add_parser(
+        'inventory',
+        help="the repo's Markdown documents, their inbound references and the scanner's coverage; writes nothing",
+    )
+    cxi.add_argument(
+        '--repo',
+        default=argparse.SUPPRESS,
+        help='repository (default: the current directory)',
+    )
+    cxi.add_argument(
         '--json',
         action='store_true',
         default=argparse.SUPPRESS,

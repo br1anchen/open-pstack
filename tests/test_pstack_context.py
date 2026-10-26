@@ -1214,6 +1214,212 @@ class UnresolvedTests(unittest.TestCase):
         )
 
 
+def inventory(repo, *extra):
+    return subprocess.run(
+        [sys.executable, str(KITCHEN), 'context', 'inventory', *extra],
+        cwd=repo,
+        env=GIT_ENV,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+
+def pinned(name, commit):
+    return (
+        (fixtures / name)
+        .read_text()
+        .replace('COMMIT12', commit[:12])
+        .replace('COMMIT', commit)
+    )
+
+
+PAD = 'word ' * 2100
+
+
+def doc(*headings, pad=PAD):
+    return ''.join(f'## {h}\n\n{pad}\n\n' for h in headings).encode()
+
+
+def inventory_of(files):
+    return context.inventory_of('c' * 40, {p: d for p, d in files.items()})
+
+
+def documents(files):
+    return {d.path: d for d in inventory_of(files).documents}
+
+
+def candidate_files(**over):
+    files = {
+        'big.md': doc('One', 'Two', 'Three'),
+        'a.md': b'[one](big.md#one)\n',
+        'b.md': b'[two](big.md#two)\n',
+    }
+    return files | over
+
+
+class InventoryTests(unittest.TestCase):
+    def test_the_fixture_repo_text_is_pinned(self):
+        repo, _ = fixture_repo(self)
+        done = inventory(repo)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(
+            done.stdout, pinned('inventory.txt', git(repo, 'rev-parse', 'HEAD'))
+        )
+
+    def test_the_fixture_repo_json_is_pinned(self):
+        repo, _ = fixture_repo(self)
+        done = inventory(repo, '--json')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(
+            done.stdout, pinned('inventory.json', git(repo, 'rev-parse', 'HEAD'))
+        )
+
+    def test_inventory_writes_nothing(self):
+        repo, _ = fixture_repo(self)
+        for extra in ((), ('--json',)):
+            with self.subTest(extra=extra):
+                self.assertEqual(inventory(repo, *extra).returncode, 0)
+                self.assertEqual(git(repo, 'status', '--porcelain'), '')
+        self.assertEqual(
+            sorted(p.name for p in repo.iterdir() if p.name != '.git'),
+            ['.agents', 'STANDARDS.md', 'docs'],
+        )
+
+    def test_it_reads_head_not_the_working_tree(self):
+        repo, _ = fixture_repo(self)
+        first = inventory(repo).stdout
+        (repo / 'STANDARDS.md').write_text('# edited\n')
+        (repo / 'docs/untracked.md').write_text('[x](../STANDARDS.md#a)\n')
+        self.assertEqual(inventory(repo).stdout, first)
+
+    def test_repo_can_follow_the_subcommand(self):
+        repo, _ = fixture_repo(self)
+        done = inventory(repo.parent, '--repo', str(repo))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('STANDARDS.md: 873 bytes', done.stdout)
+
+    def test_a_directory_without_commits_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            git(tmp, 'init', '-q')
+            done = inventory(tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn('has no commit at HEAD', done.stderr)
+
+    def test_the_top_level_is_the_shallowest_heading_level_present(self):
+        got = documents({'x.md': b'### Deep\n\ntext\n\n## Mid\n\n### Under\n\nmore\n'})
+        x = got['x.md']
+        self.assertEqual(x.level, 2)
+        self.assertEqual([h.raw for h in x.sections], ['Mid'])
+        self.assertEqual(x.sections[0].tokens, len('## Mid\n\n### Under\n\nmore') // 4)
+        self.assertEqual(
+            x.tokens, len('### Deep\n\ntext\n\n## Mid\n\n### Under\n\nmore\n') // 4
+        )
+
+    def test_a_document_that_cannot_be_read_is_listed_with_its_reason(self):
+        got = documents({'x.md': b'Title\n=====\n', 'y.md': b'# Fine\n'})
+        self.assertIn('setext heading', got['x.md'].error)
+        self.assertEqual(got['x.md'].sections, ())
+        self.assertFalse(got['x.md'].candidate)
+        self.assertIsNone(got['y.md'].error)
+
+    def test_inbound_references_group_by_referring_file_and_skip_the_file_itself(self):
+        got = documents(
+            {
+                'a.md': b'# A\n\n[self](#a) [b](b.md#top)\n[again](b.md)\n',
+                'b.md': b'# Top\n',
+                'c.toml': b'see = "b.md#top"\n',
+            }
+        )
+        self.assertEqual(got['a.md'].inbound, ())
+        self.assertEqual(
+            [
+                (i.path, [(r.line, r.fragment) for r in i.refs])
+                for i in got['b.md'].inbound
+            ],
+            [('a.md', [(3, 'top'), (4, '')]), ('c.toml', [(1, 'top')])],
+        )
+
+    def test_a_candidate_has_three_sections_over_2000_tokens_and_two_referring_files(
+        self,
+    ):
+        self.assertTrue(documents(candidate_files())['big.md'].candidate)
+
+    def test_each_condition_of_the_candidate_flag_can_fail_alone(self):
+        cases = {
+            'two sections': candidate_files(**{'big.md': doc('One', 'Two')}),
+            'small': candidate_files(**{'big.md': doc('One', 'Two', 'Three', pad='w')}),
+            'one referrer': candidate_files(**{'b.md': b'nothing\n'}),
+            'same file twice': candidate_files(
+                **{'a.md': b'[1](big.md#one)\n[2](big.md#two)\n', 'b.md': b'x\n'}
+            ),
+            'no anchors': candidate_files(
+                **{'a.md': b'[f](big.md)\n', 'b.md': b'[f](big.md)\n'}
+            ),
+            'self references only': candidate_files(
+                **{
+                    'big.md': doc('One', 'Two', 'Three') + b'[a](#one) [b](#two)\n',
+                    'a.md': b'x\n',
+                    'b.md': b'x\n',
+                }
+            ),
+        }
+        for name, files in cases.items():
+            with self.subTest(name):
+                self.assertFalse(documents(files)['big.md'].candidate)
+
+    def test_a_reference_to_nothing_is_broken_and_is_not_inbound(self):
+        files = {
+            'a.md': b'# A\n\n[gone](gone.md) [bad](b.md#nope) [ok](b.md#top) [dir](docs/) [dir2](docs)\n',
+            'b.md': b'# Top\n',
+            'docs/x.txt': b'text\n',
+            'cfg.toml': b'p = "b.md#also-missing"\n',
+        }
+        inv = inventory_of(files)
+        self.assertEqual(
+            [(r.path, r.line, r.raw) for r in inv.broken],
+            [
+                ('a.md', 3, '[gone](gone.md)'),
+                ('a.md', 3, '[bad](b.md#nope)'),
+                ('cfg.toml', 1, 'b.md#also-missing'),
+            ],
+        )
+        b = {d.path: d for d in inv.documents}['b.md']
+        self.assertEqual([(i.path, len(i.refs)) for i in b.inbound], [('a.md', 1)])
+
+    def test_the_coverage_block_names_what_is_recognized_and_what_is_not_seen(self):
+        data = context.inventory_data(inventory_of({'a.md': b'# A\n'}))
+        cov = data['coverage']
+        self.assertEqual(cov['file_types'], ['.md', '.markdown', '.toml', '.txt'])
+        self.assertEqual(cov['broken'], {'count': 0, 'refs': []})
+        for needle in (
+            'globs',
+            'generated paths',
+            'external links',
+            'HTML comments',
+            'wrap across lines',
+            'next line',
+            'empty `#` fragment',
+        ):
+            self.assertTrue(any(needle in x for x in cov['limits']), needle)
+        for needle in (
+            'inline links and images',
+            'reference definitions',
+            'wrapped over lines',
+            'TOML and plain text',
+        ):
+            self.assertTrue(any(needle in x for x in cov['syntaxes']), needle)
+
+    def test_migration_files_are_not_scanned(self):
+        files = {
+            'a.md': b'# A\n',
+            '.agents/migrations/m.toml': b'from = "a.md#a"\n',
+        }
+        inv = inventory_of(files)
+        self.assertEqual(inv.documents[0].inbound, ())
+
+
 GUIDE = 'docs/guide.md'
 REF_FILES = {
     GUIDE,
