@@ -3436,5 +3436,33 @@ class ApplyExactStopTests(unittest.TestCase):
         self.assertEqual(counts(repo, mig), {'pre': 0, 'post': total, 'foreign': 0})
 
 
+class ReferencePageTests(unittest.TestCase):
+    PAGE = root / 'skills/pstack-kitchen/references/context-migration.md'
+
+    def test_the_page_holds_one_toml_block_equal_to_the_sample(self):
+        blocks = re.findall(r'^```toml\n(.*?)^```$', self.PAGE.read_text(), re.S | re.M)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0].encode(), (fixtures / 'sample.toml').read_bytes())
+
+    def test_the_page_sample_loads(self):
+        block = re.search(
+            r'^```toml\n(.*?)^```$', self.PAGE.read_text(), re.S | re.M
+        ).group(1)
+        m = context.parse_migration(block)
+        self.assertEqual((m.schema, m.id), (1, 'standards-split'))
+
+    def test_the_page_names_each_context_subcommand_and_no_other(self):
+        done = subprocess.run(
+            [sys.executable, str(scripts / 'kitchen.py'), 'context', '--help'],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        listed = set(re.search(r'\{([a-z,-]+)\}', done.stdout).group(1).split(','))
+        named = set(re.findall(r'kitchen\.py context ([a-z-]+)', self.PAGE.read_text()))
+        self.assertEqual(named, listed)
+
+
 if __name__ == '__main__':
     unittest.main()
