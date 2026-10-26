@@ -9,6 +9,7 @@ import sys
 import time
 from dataclasses import dataclass, replace
 
+from . import procinfo
 from .argv import Spec, read
 from .checkin import CheckIn, checkin, sidekick_activity
 from .errors import BadStepRow, Die, MissingStore, PairError, refuse_as
@@ -464,14 +465,17 @@ def default_signals():
 
 def end_with_parent():
     """Restore default handling of INT, TERM and HUP (an ignored signal stays ignored) so a wait killed by a signal ends without a traceback, and
-    set PR_SET_PDEATHSIG so a background wait ends when its parent does."""
+    make a background wait end when its parent does: PR_SET_PDEATHSIG on Linux, a kqueue watch of the parent on macOS."""
     default_signals()
+    if sys.platform == 'darwin':
+        procinfo.end_when_parent_exits()
+        return
     try:
         import ctypes
 
         ctypes.CDLL(None).prctl(PR_SET_PDEATHSIG, int(signal.SIGTERM))
     except (OSError, AttributeError):
-        # best effort: a host with no Linux prctl (macOS libc) keeps the wait, which then ends at its own timeout
+        # best effort: a host with no Linux prctl keeps the wait, which then ends at its own timeout
         pass
 
 
