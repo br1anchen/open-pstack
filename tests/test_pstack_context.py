@@ -924,7 +924,12 @@ class RewriteTests(unittest.TestCase):
     def rewrite_sample(self, **changes):
         m = sample_migration()
         r = m.rewrites[0]
-        fields = {'path': r.path, 'from_': r.from_, 'to': r.to} | changes
+        fields = {
+            'path': r.path,
+            'from_': r.from_,
+            'to': r.to,
+            'count': r.count,
+        } | changes
         return dataclasses.replace(m, rewrites=(context.Rewrite(**fields),))
 
     def refused(self, m, base, fragment):
@@ -953,6 +958,50 @@ class RewriteTests(unittest.TestCase):
             BASE | {'.agents/kitchen.toml': twice},
             ".agents/kitchen.toml: `from` 'STANDARDS.md#typed-evidence' occurs 2 times",
         )
+
+    def test_a_count_of_two_rewrites_both_occurrences(self):
+        twice = KITCHEN_TOML + b'again = "STANDARDS.md#typed-evidence"\n'
+        out = context.render(
+            self.rewrite_sample(count=2),
+            BASE | {'.agents/kitchen.toml': twice},
+            (),
+            FILES,
+        )
+        self.assertEqual(
+            out['.agents/kitchen.toml'].count(
+                b'"docs/standards/typed-evidence.md#typed-evidence"'
+            ),
+            2,
+        )
+        self.assertNotIn(b'"STANDARDS.md#typed-evidence"', out['.agents/kitchen.toml'])
+
+    def test_a_count_of_two_with_one_occurrence_is_refused_with_the_count(self):
+        self.refused(
+            self.rewrite_sample(count=2),
+            BASE,
+            'occurs 1 times; it must occur exactly 2',
+        )
+
+    def test_a_count_below_one_is_refused_at_load(self):
+        for bad in ('0', '-1', 'true', '"2"'):
+            with self.subTest(count=bad):
+                refused(
+                    self,
+                    edit(
+                        SAMPLE,
+                        'to = "docs/standards/typed-evidence.md#typed-evidence"',
+                        f'to = "docs/standards/typed-evidence.md#typed-evidence"\ncount = {bad}',
+                    ),
+                    '[[rewrite]] 1: `count` must be a whole number from 1',
+                )
+
+    def test_a_count_is_read_from_a_rewrite(self):
+        text = edit(
+            SAMPLE,
+            'to = "docs/standards/typed-evidence.md#typed-evidence"',
+            'to = "docs/standards/typed-evidence.md#typed-evidence"\ncount = 2',
+        )
+        self.assertEqual(context.parse_migration(text).rewrites[0].count, 2)
 
     def test_a_from_that_never_occurs_is_refused_with_the_file_and_the_count(self):
         self.refused(

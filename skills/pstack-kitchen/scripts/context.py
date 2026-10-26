@@ -32,7 +32,7 @@ ROOT_KEYS = ('schema', 'id', 'base', 'writes')
 TABLES = ('file', 'move', 'rewrite', 'keep')
 FILE_KEYS = ('path', 'sha256')
 MOVE_KEYS = ('source', 'ancestry', 'occurrence', 'to', 'requires')
-REWRITE_KEYS = ('path', 'from', 'to')
+REWRITE_KEYS = ('path', 'from', 'to', 'count')
 KEEP_KEYS = ('path', 'ref', 'reason')
 TABLE_KEYS = {
     'file': FILE_KEYS,
@@ -94,6 +94,7 @@ class Rewrite:
     path: str
     from_: str
     to: str
+    count: int = 1  # how many times `from` occurs in the file; all are replaced
 
 
 @dataclass(frozen=True)
@@ -147,6 +148,13 @@ def strings(table: dict, key: str, where: str, optional: bool = False) -> list[s
     if not isinstance(value, list) or not all(isinstance(v, str) and v for v in value):
         raise ContextError(f'{where}: `{key}` must be a list of non-empty strings')
     return value
+
+
+def rewrite_count(table: dict, where: str) -> int:
+    count = table.get('count', 1)
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        raise ContextError(f'{where}: `count` must be a whole number from 1')
+    return count
 
 
 def entries(data: dict, name: str) -> list[dict]:
@@ -228,6 +236,7 @@ def parse_migration(text: str) -> Migration:
             check_path(t.get('path'), f'[[rewrite]] {n}'),
             string(t, 'from', f'[[rewrite]] {n}'),
             string(t, 'to', f'[[rewrite]] {n}'),
+            rewrite_count(t, f'[[rewrite]] {n}'),
         )
         for n, t in enumerate(tables['rewrite'], 1)
     ]
@@ -1283,9 +1292,10 @@ def rewritten(
     outputs: dict[str, bytes],
     known: Collection[str],
 ) -> dict[str, bytes]:
-    """Each `[[rewrite]]` target's base bytes with `from` replaced by `to`. `from` must occur exactly once in the
-    file as the earlier rewrites left it; `to` must name a file the repo, the migration or its outputs hold, and the
-    section of it that `to` names must exist in the output."""
+    """Each `[[rewrite]]` target's base bytes with `from` replaced by `to`. `from` must occur exactly `count` times
+    (once by default) in the file as the earlier rewrites left it, and all of them are replaced;
+    `to` must name a file the repo, the migration or its outputs hold, and the section of it that `to` names must
+    exist in the output."""
     moved = {mv.source for mv in migration.moves} | {mv.to for mv in migration.moves}
     done: dict[str, bytes] = {}
     for r in migration.rewrites:
@@ -1297,9 +1307,9 @@ def rewritten(
             raise ContextError(f'{r.path}: rewrite target is not among the base files')
         data = done.get(r.path, base_files[r.path])
         count = data.count(r.from_.encode())
-        if count != 1:
+        if count != r.count:
             raise ContextError(
-                f'{r.path}: `from` {r.from_!r} occurs {count} times; it must occur exactly once'
+                f'{r.path}: `from` {r.from_!r} occurs {count} times; it must occur exactly {r.count}'
             )
         target, fragment = split_target(r.to)
         ref = Ref(
@@ -1392,12 +1402,15 @@ def line_offsets(text: str) -> list[int]:
 
 
 def rewrite_spans(migration: Migration, path: str, text: str) -> list[tuple[int, int]]:
-    """Where in `text` each `[[rewrite]]` of `path` changes it: the span of its `from`, when it occurs exactly once."""
+    """Where in `text` each `[[rewrite]]` of `path` changes it: the span of each occurrence of its `from`, when it
+    occurs exactly `count` times."""
     spans = []
     for r in migration.rewrites:
-        if r.path == path and text.count(r.from_) == 1:
-            at = text.index(r.from_)
-            spans.append((at, at + len(r.from_)))
+        if r.path == path and text.count(r.from_) == r.count:
+            at = -1
+            for _ in range(r.count):
+                at = text.index(r.from_, at + 1)
+                spans.append((at, at + len(r.from_)))
     return spans
 
 
