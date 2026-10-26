@@ -2295,11 +2295,12 @@ OVERLAYS = '.agents/playbooks/'
 
 
 def consumer_proof(
+    base: Tree,
     out: Tree,
     consumers: Collection[str],
     origins: dict[str, list[Origin]],
     moved: dict[tuple[str, str], tuple[str, str]],
-) -> tuple[list[Finding], list[Consumer]]:
+) -> tuple[list[Finding], list[Consumer], list[Finding]]:
     """C10: what the repo's own configuration names must still be the content. A kitchen.toml reference to a moved
     heading by its old anchor lands on the index pointer. An overlay part with a repo-root source that is a migrated
     file resolves with the playbooks' `select` on the output: selected in a destination or a staying section it
@@ -2308,6 +2309,7 @@ def consumer_proof(
     pb = playbooks_module()
     found: list[Finding] = []
     seen: list[Consumer] = []
+    broken: list[Finding] = []
 
     def fail(path: str, line: int, what: str, target: str, why: str) -> None:
         found.append(Finding(path, line, 'consumer', f'{what}: {why}'))
@@ -2315,22 +2317,46 @@ def consumer_proof(
 
     for path in sorted(consumers):
         if path == KITCHEN_TOML:
+            at_base = {
+                written_target(r): base.resolved(r) is not None
+                for refs in base.refs(path).values()
+                for r in refs
+            }
             for n, refs in sorted(out.refs(path).items()):
                 for ref in refs:
-                    hit = resolve(ref, out.files)
-                    if hit is None or hit[0] not in origins:
-                        continue
+                    now = out.resolved(ref)
                     what = f'line {n + 1}'
-                    if hit in moved:
+                    target = written_target(ref)
+                    if now is None:
+                        if at_base.get(target) is False:
+                            broken.append(
+                                Finding(
+                                    path, n + 1, 'link', f'{target} (broken at base)'
+                                )
+                            )
+                        else:
+                            fail(
+                                path,
+                                n + 1,
+                                what,
+                                target,
+                                f'{target} no longer resolves'
+                                if at_base.get(target)
+                                else f'{target} resolves to nothing',
+                            )
+                        continue
+                    if now[0] not in origins:
+                        continue
+                    if now in moved:
                         fail(
                             path,
                             n + 1,
                             what,
-                            written_target(ref),
-                            f'{written_target(ref)} lands on the pointer {hit[0]} keeps for a section that moved to {moved[hit][0]}',
+                            target,
+                            f'{target} lands on the pointer {now[0]} keeps for a section that moved to {moved[now][0]}',
                         )
                     else:
-                        seen.append(Consumer(path, what, written_target(ref), True, ''))
+                        seen.append(Consumer(path, what, target, True, ''))
         elif path.startswith(OVERLAYS) and path.endswith('.toml'):
             try:
                 data = tomllib.loads((out.data.get(path) or b'').decode())
@@ -2374,7 +2400,7 @@ def consumer_proof(
                         f'reviewed {part.get("reviewed")}, now {now}',
                     )
                 )
-    return found, seen
+    return found, seen, broken
 
 
 def prove(
@@ -2539,8 +2565,8 @@ def prove(
         {*migration.writes, *judged},
     )
     named = [p for p in (consumers or {}) if p in migration.writes or p in judged]
-    held, seen = consumer_proof(out_tree, named, origins, moved)
-    return Proof(origins, blocks, more + held, broken, seen)
+    held, seen, gone = consumer_proof(base_tree, out_tree, named, origins, moved)
+    return Proof(origins, blocks, more + held, broken + gone, seen)
 
 
 def working_bytes(repo: Path, path: str) -> bytes | None:
@@ -2549,6 +2575,8 @@ def working_bytes(repo: Path, path: str) -> bytes | None:
         return (repo / path).read_bytes()
     except FileNotFoundError:
         return None
+    except OSError as e:
+        raise ContextError(f'{path}: cannot be read: {e}') from e
 
 
 def consumer_paths(repo: Path) -> list[str]:

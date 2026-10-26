@@ -2152,6 +2152,10 @@ class ConsumerTests(unittest.TestCase):
         proof = self.prove_with(m, BASE | {OVERLAY: text}, {OVERLAY: text})
         self.assertEqual([f.kind for f in proof.findings], ['consumer', 'consumer'])
         self.assertIn('part a', proof.findings[0].message)
+        self.assertIn('part b', proof.findings[1].message)
+        self.assertIn(
+            'only points to where its section moved', proof.findings[1].message
+        )
 
         rewrite = context.Rewrite(
             OVERLAY, 'STANDARDS.md', 'docs/standards/typed-evidence.md', 2
@@ -2202,6 +2206,51 @@ class ConsumerTests(unittest.TestCase):
         self.assertEqual(proof.consumers, [])
         skills = text.replace(b'root = "repo"', b'root = "skills"')
         self.assertEqual(self.prove_with(m, BASE, {OVERLAY: skills}).consumers, [])
+
+
+class ConsumerReferenceTests(unittest.TestCase):
+    """A kitchen.toml reference is judged against what it resolved to at base."""
+
+    def trees(self, base_guide, out_guide):
+        toml = b'source = "docs/guide.md#moved"\n'
+        files = {'docs/guide.md', '.agents/kitchen.toml'}
+        base = context.Tree(
+            {'docs/guide.md': base_guide, '.agents/kitchen.toml': toml}, files
+        )
+        out = context.Tree(
+            {'docs/guide.md': out_guide, '.agents/kitchen.toml': toml}, files
+        )
+        return base, out
+
+    def judge(self, base_guide, out_guide):
+        base, out = self.trees(base_guide, out_guide)
+        return context.consumer_proof(
+            base, out, ['.agents/kitchen.toml'], {'docs/guide.md': []}, {}
+        )
+
+    def test_a_reference_that_resolved_at_base_and_no_longer_does_fails(self):
+        found, seen, broken = self.judge(b'# Moved\n', b'# Elsewhere\n')
+        self.assertEqual(
+            [(f.path, f.line, f.kind) for f in found],
+            [('.agents/kitchen.toml', 1, 'consumer')],
+        )
+        self.assertIn('docs/guide.md#moved no longer resolves', found[0].message)
+        self.assertEqual(broken, [])
+        self.assertEqual([c.ok for c in seen], [False])
+
+    def test_a_reference_broken_at_base_is_listed_not_failed(self):
+        found, seen, broken = self.judge(b'# Other\n', b'# Other\n')
+        self.assertEqual(found, [])
+        self.assertEqual(seen, [])
+        self.assertEqual(
+            [(f.path, f.line, f.message) for f in broken],
+            [('.agents/kitchen.toml', 1, 'docs/guide.md#moved (broken at base)')],
+        )
+
+    def test_a_reference_that_still_resolves_holds(self):
+        found, seen, broken = self.judge(b'# Moved\n', b'# Moved\n')
+        self.assertEqual((found, broken), ([], []))
+        self.assertEqual([c.ok for c in seen], [True])
 
 
 def proved_with(m, base, outputs, consumers):
