@@ -416,6 +416,13 @@ bookkeeping: `classify` keeps it routine and gates-only, and it escalates
 nothing. Prefer `--covers` over a brief that rewrites a report to say a later
 unit met its acceptance.
 
+Work superseded elsewhere (rebuilt on another branch, dropped in a rebase)
+needs no command of its own. `kitchen.sh stop <store>` empties the queue even
+when the sidekick is gone, a review note with `verdict: reject` saying what
+superseded the unit keeps it out of land-check, and `pair.json` `.dispatch`
+is replaced by the next dispatch; until then it only labels wake rows and the
+handoff's `dispatched:` line. Log the decision with `kitchen.sh log`.
+
 ## Escalation mid-unit
 
 A unit classified routine can turn out to need a design decision. When a
