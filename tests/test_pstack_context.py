@@ -3079,6 +3079,32 @@ class ApplyTests(unittest.TestCase):
                 self.assertIn('KITCHEN_CONTEXT_STOP_AFTER', done.stderr)
 
 
+class ApplyConsumerTests(unittest.TestCase):
+    def overlay_in_tree(self, selector):
+        repo, mig = fixture_migration(self)
+        (repo / OVERLAY).parent.mkdir(parents=True, exist_ok=True)
+        (repo / OVERLAY).write_bytes(overlay_text(('a', selector)))
+        return repo, mig
+
+    def test_an_uncommitted_overlay_that_breaks_the_proof_refuses_before_any_write(
+        self,
+    ):
+        repo, mig = self.overlay_in_tree('heading:Typed evidence')
+        before = tree_of(repo)
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('nothing written', done.stderr)
+        self.assertIn(OVERLAY, done.stderr)
+        self.assertEqual(tree_of(repo), before)
+
+    def test_an_uncommitted_overlay_that_proves_lets_apply_write_and_check_pass(self):
+        repo, mig = self.overlay_in_tree('heading:Style')
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        checked = check_run(repo, mig)
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+
 def failing_proof():
     return context.Proof({}, [], [context.Finding('x.md', 1, 'dropped', 'gone')])
 

@@ -3058,21 +3058,17 @@ class ApplyResult:
 
 
 def proof_at_base(repo: Path, migration: Migration, planned: list[Write]) -> Proof:
-    """`prove` over the outputs the migration plans, in memory: the files and the kitchen.toml and overlays as they
-    are at the base commit."""
+    """`prove` over the outputs the migration plans, in memory: the files as they are at the base commit, the kitchen.toml and overlays as they
+    are in the working tree, as `check` reads them."""
     commit = resolve_base(repo, migration)
     files = repo_files(repo, migration)
     declared = [f.path for f in migration.files]
     base = read_scanned(repo, commit, files, declared) | read_base(repo, migration)
-    consumers = read_blobs(
-        repo,
-        commit,
-        [
-            p
-            for p in files
-            if p == KITCHEN_TOML or p.startswith(OVERLAYS) and p.endswith('.toml')
-        ],
-    )
+    consumers = {
+        p: data
+        for p in consumer_paths(repo)
+        if (data := working_bytes(repo, p)) is not None
+    }
     return prove(base, migration, {w.path: w.after for w in planned}, files, consumers)
 
 
