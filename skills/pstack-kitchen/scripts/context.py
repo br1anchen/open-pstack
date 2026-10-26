@@ -2300,21 +2300,25 @@ KITCHEN_TOML = '.agents/kitchen.toml'
 OVERLAYS = '.agents/playbooks/'
 
 
-def keyed_parts(data: dict) -> tuple[dict[tuple, dict], list[object]]:
-    """An overlay's parts by (id) or, with no id, by position among the id-less ones; the ids that repeat are
-    returned apart and keep no part."""
+def keyed_parts(data: dict) -> tuple[dict[tuple, dict], list[str], list[object]]:
+    """An overlay's parts by (id) or, with no id, by position among the id-less ones; the ids that repeat and the
+    ids that are not strings are returned apart and keep no part."""
     keyed: dict[tuple, dict] = {}
-    repeated: list[object] = []
+    repeated: list[str] = []
+    invalid: list[object] = []
     anon = 0
     for part in data.get('part', []):
         if not isinstance(part, dict):
             continue
         pid = part.get('id')
         if pid is None:
-            key = ('', anon)
+            key: tuple = ('', anon)
             anon += 1
-        else:
+        elif isinstance(pid, str):
             key = (pid,)
+        else:
+            invalid.append(pid)
+            continue
         if key in keyed:
             if pid not in repeated:
                 repeated.append(pid)
@@ -2322,7 +2326,7 @@ def keyed_parts(data: dict) -> tuple[dict[tuple, dict], list[object]]:
             keyed[key] = part
     for pid in repeated:
         del keyed[(pid,)]
-    return keyed, repeated
+    return keyed, repeated, invalid
 
 
 def consumer_proof(
@@ -2405,10 +2409,22 @@ def consumer_proof(
                 base_data = tomllib.loads((base.data.get(path) or b'').decode())
             except (tomllib.TOMLDecodeError, UnicodeDecodeError):
                 base_data = {}
-            base_parts, _ = keyed_parts(base_data)
-            keyed, repeated = keyed_parts(data)
+            base_parts, base_repeated, _ = keyed_parts(base_data)
+            keyed, repeated, invalid = keyed_parts(data)
+            for pid in invalid:
+                fail(path, 0, 'part', '', f'part id must be a string, not {pid!r}')
             for pid in repeated:
-                fail(path, 0, f'part {pid}', '', 'duplicate part id')
+                if pid in base_repeated:
+                    broken.append(
+                        Finding(
+                            path,
+                            0,
+                            'link',
+                            f'part {pid}: duplicate part id (broken at base)',
+                        )
+                    )
+                else:
+                    fail(path, 0, f'part {pid}', '', 'duplicate part id')
             for key, part in keyed.items():
                 source = part.get('source')
                 target = source.get('path') if isinstance(source, dict) else None

@@ -2506,11 +2506,32 @@ class OverlayPartMatchTests(unittest.TestCase):
 
     def test_a_duplicate_part_id_is_a_finding(self):
         text = overlay_text(('a', 'heading:Style'), ('a', 'heading:Nowhere'))
-        proof = self.prove_with(text, text)
+        proof = self.prove_with(overlay_text(('a', 'heading:Style')), text)
         self.assertEqual(
             [(f.path, f.kind, f.message) for f in proof.findings],
             [(OVERLAY, 'consumer', 'part a: duplicate part id')],
         )
+
+    def test_a_duplicate_part_id_already_at_base_is_pre_existing(self):
+        text = overlay_text(('a', 'heading:Style'), ('a', 'heading:Nowhere'))
+        proof = self.prove_with(text, text)
+        self.assertEqual(proof.findings, [])
+        self.assertEqual(
+            [f.message for f in proof.pre_existing],
+            ['part a: duplicate part id (broken at base)'],
+        )
+
+    def test_a_part_id_that_is_not_a_string_is_a_finding(self):
+        for value in ('["a"]', '{ x = 1 }', '3'):
+            text = overlay_text(('a', 'heading:Style')).replace(
+                b'id = "a"', f'id = {value}'.encode()
+            )
+            with self.subTest(id=value):
+                proof = self.prove_with(overlay_text(('a', 'heading:Style')), text)
+                self.assertEqual(
+                    [(f.kind, f.message.split(',')[0]) for f in proof.findings],
+                    [('consumer', 'part: part id must be a string')],
+                )
 
 
 def proved_with(m, base, outputs, consumers):
