@@ -1654,6 +1654,28 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(checkin.busy_command('p1', 8200, 10000), '')
         self.assertEqual(checkin.busy_command('', 8200, 10000), '')
 
+    def test_a_ps_host_adds_the_process_tree_to_the_processes_whose_environment_ps_shows(
+        self,
+    ):
+        from pstack_core import checkin
+
+        rows = [(100, 1, '45:00', 'claude'), (101, 100, '05:00', 'sleep')]
+        self.process_tree_fixture(rows)
+        with (
+            mock.patch.object(procinfo, 'ps_host', return_value=True),
+            mock.patch.object(checkin, 'proc_candidates', side_effect=lambda *a: []),
+        ):
+            self.assertEqual(checkin.busy_command('p1', 8200, 10000), 'sleep for 5m')
+            zero = {'PAIR_PROC_TREE': '0'}
+            self.assertEqual(checkin.busy_command('p1', 8200, 10000, zero), '')
+        (self.path / 'proc').mkdir()
+        with (
+            mock.patch.dict(os.environ, {'PAIR_PROC_ROOT': str(self.path / 'proc')}),
+            mock.patch.object(checkin, 'tree_candidates') as tree,
+        ):
+            self.assertEqual(checkin.busy_command('p1', 8200, 10000), '')
+        tree.assert_not_called()
+
     def test_an_agent_is_busy_when_herdr_says_working_or_its_pane_runs_a_command_it_started_since_the_dispatch(
         self,
     ):
