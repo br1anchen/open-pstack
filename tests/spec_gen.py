@@ -902,7 +902,7 @@ for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio', 'pstack-kitche
         )
 fields = {}
 for l in git_grep(
-    r"[.'\"](sidekick|master|consultant|verifier|dispatch|sent|verifying|escalations|scratch|pending|heads|skill_builds)(\.[a-z_]+)?\b",
+    r"[.'\"](sidekick|master|consultant|verifier|dispatch|sent|verifying|escalations|scratch|pending|heads|skill_builds)(\.[a-z_]+)?",
     'skills/pstack-pair/scripts/pstack_core',
     'skills/pstack-kitchen/scripts/kitchen_core',
 ):
