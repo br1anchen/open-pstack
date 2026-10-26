@@ -1708,5 +1708,20 @@ class OverlayDocExampleTests(unittest.TestCase):
                 self.assertEqual(got, [text], role)
 
 
+class OwnOverlayDraftTests(unittest.TestCase):
+    drafts = root / '.agents/playbooks/drafts'
+
+    def test_the_draft_is_not_read_as_an_overlay(self):
+        stems = [o.stem for o in playbooks.load_overlays(root / '.agents/playbooks')]
+        self.assertNotIn('pstack-code', stems)
+
+    def test_the_draft_is_sound(self):
+        (overlay,) = [
+            o for o in playbooks.load_overlays(self.drafts) if o.stem == 'pstack-code'
+        ]
+        roots = {'repo': root, 'skills': playbooks.default_roots()['skills']}
+        self.assertEqual(playbooks.overlay_problems(overlay, roots, WORKFLOWS), [])
+
+
 if __name__ == '__main__':
     unittest.main()

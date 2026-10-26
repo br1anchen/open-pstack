@@ -1,0 +1,21 @@
+schema = 1
+id = "pstack-code"
+title = "open-pstack code"
+kind = "area"
+applies = ["skills/*/scripts/**", "scripts/**", "tests/**"]
+combines = ["feature", "bug-fix", "refactoring", "pstack-tdd"]
+
+[[part]]
+id = "testing"
+source = { root = "repo", path = "AGENTS.md" }
+select = "heading:Testing Guidelines"
+owners = ["sidekick", "verifier"]
+reviewed = "4590c7a47a8c"
+kitchen = { verifier = "Check the unit's tests against this: deterministic, with no sleep and no elapsed-time assert; hermetic of PSTACK_KITCHEN_*, KITCHEN_* and PAIR_*; a timeout on every subprocess; each source change in the same commit as the test that pins it; every tests/SPEC.md line naming its test. This is the evidence standard for the verdict, not new Acceptance." }
+
+[[part]]
+id = "style"
+source = { root = "repo", path = "AGENTS.md" }
+select = "heading:Style"
+owners = ["sidekick"]
+reviewed = "9989a9702ca1"
