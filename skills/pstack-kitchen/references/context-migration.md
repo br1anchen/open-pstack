@@ -70,7 +70,7 @@ reason = "ADRs are historical records"
 - **`[[file]]`** (`FILE_KEYS`: `path`, `sha256`). One per existing file the migration reads or changes: every move source and rewrite target. The file is read with `git cat-file` at `base` and refused when its sha256 differs (`read_base`).
 - **`[[move]]`** (`MOVE_KEYS`: `source`, `ancestry`, `occurrence`, `to`, `requires`). `ancestry` is the heading's full path and must equal it exactly. `occurrence` is 1-based and needed only when several headings share that ancestry; an ambiguous ancestry without it, or one out of range, is refused (`find`). `requires` lists files the destination needs read first; each must be a destination of this migration or a file at base, and a cycle is refused (`check_requires`). A move whose section nests inside another move's section becomes a nested move: the parent keeps its heading and a pointer.
 - **`[[rewrite]]`** (`REWRITE_KEYS`: `path`, `from`, `to`, `count`). Replaces `from` with `to` in a file the migration does not cut. `from` must occur exactly `count` times (default 1); `to` must name an existing file or a destination, and its section must exist in the output (`rewritten`).
-- **`[[keep]]`** (`KEEP_KEYS`: `path`, `ref`, `reason`). Names a reference left pointing at the index on purpose. It covers the references in `path` whose written target equals `ref`; they are listed, never failed (`unresolved`). A keep whose `ref` is the written target of no reference in its `path` (a target copied from `--json` instead of the text as written) is reported by `preview` as `unused keep: <path> <ref>` and makes it exit 1 (`unused_keeps`). Use it for records that must not change, such as ADRs.
+- **`[[keep]]`** (`KEEP_KEYS`: `path`, `ref`, `reason`). Names a reference left pointing at the index on purpose. It covers the references in `path` whose written target equals `ref`; they are listed, never failed (`unresolved`). A keep whose `ref` is the written target of no reference in its `path` (a target copied from `--json` instead of the text as written) is reported by `preview` as `unused keep: <path> <ref>` and makes it exit 1 (`unused_keeps`); `apply` refuses it too, before any write. Use it for records that must not change, such as ADRs.
 
 ## Commands
 
@@ -82,6 +82,8 @@ All four take `--repo` (default: the current directory) and `--json`. The base i
 | `context preview <migration>` | nothing | the diff of each planned file, then `unresolved:` and `index-local:` lines |
 | `context apply <migration>` | the planned files | `wrote: <path>` per file, `index-local: N`, or `no change` |
 | `context check <migration>` | nothing | a line per block, findings, consumers, `proven against:`, then `ok` or `failed: N findings` |
+
+Under `--json` a command that fails prints one object on stdout and nothing on stderr: `{"ok": false, "exit": <code>, "error": "<message>"}`, the message as the text mode prints it after `kitchen: `, with the same exit code. A refused or stopped `apply` adds `written`, the files it wrote before it ended. `check --json` has `walked`, false when the line accounting failed; each consumer that would be `ok` then has `ok` null, not judged, as the text says `not judged (line accounting failed)`.
 
 Only `apply` writes, and it never commits. Exit codes are as `kitchen.py` prints them: 0 done; 1 findings (`check`), unresolved references (`preview`), or a refusal or a stop (`apply`); 2 a migration, base or source that cannot be used.
 
@@ -108,7 +110,7 @@ Every output line is exactly one of: an original line in its place, changed only
 
 `check` and `apply`'s own proof read the planned files, `kitchen.toml` and the overlays as they are on disk, and every other file as at base. So editing an overlay, then running `check` again, is the intended sequence.
 
-A planned file edited by hand is foreign: `apply` refuses and `check` reports the line it cannot account for. Restore the file, change the migration, and apply again. If the repo moved on after the migration was written, update `base` and each `[[file]]` sha256, or redraft.
+A planned file edited by hand is foreign: `apply` refuses and `check` reports the line it cannot account for. Restore each foreign file to its base or output state first (for example `git checkout <base> -- <path>`, or a fresh apply). Only if the repo moved on after the migration was written, update `base` and each `[[file]]` sha256, or redraft with `inventory --draft`.
 
 ### Consumers
 
@@ -122,8 +124,6 @@ A planned file edited by hand is foreign: `apply` refuses and `check` reports th
 
 Current behavior, not promises.
 
-- A `KitchenError` under `--json` prints text on stderr, not JSON.
-- `check --json` has no `walked` field; only the text output says `not judged (line accounting failed)`.
 - A `kitchen.toml` `source` that names a migrated file with no anchor passes `check` though the file is now an index.
 - A reference in a source's own staying text to a section it moved is listed as `index-local:` and does not fail `preview` or `apply`: the tool cannot rewrite a move source, and the index still resolves it.
 - `check` with any planned file still at its base state stops before line accounting and exits 1.
