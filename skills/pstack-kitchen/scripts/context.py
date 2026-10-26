@@ -1536,16 +1536,26 @@ def is_broken(
     return bool(anchor) and known is not None and anchor not in known
 
 
+def top_level(found: list[Section]) -> list[Section]:
+    """The sections an author reads as the document's top level: the shallowest level's headings, or, while that
+    level holds a single heading (a title) and a deeper level exists, the headings one level below it."""
+    level = min(s.level for s in found)
+    while sum(s.level == level for s in found) == 1:
+        deeper = [s.level for s in found if s.level > level]
+        if not deeper:
+            break
+        level = min(deeper)
+    return [s for s in found if s.level == level]
+
+
 def top_sections(data: bytes, where: str) -> tuple[int | None, tuple[Heading, ...]]:
     reading = read(data, where)
     if not reading.sections:
         return None, ()
-    level = min(s.level for s in reading.sections)
+    top = top_level(reading.sections)
     text = decode(reading.lines, where)
-    return level, tuple(
-        Heading(s.raw, tokens_of('\n'.join(text[s.start : s.end])))
-        for s in reading.sections
-        if s.level == level
+    return top[0].level, tuple(
+        Heading(s.raw, tokens_of('\n'.join(text[s.start : s.end]))) for s in top
     )
 
 
@@ -1671,7 +1681,6 @@ def draft(repo: Path, path: str) -> str:
     found = sections(data, path)
     if not found:
         raise ContextError(f'{path}: has no headings to move')
-    level = min(s.level for s in found)
     out = [
         'schema = 1',
         f'id = {json_string(draft_id(path))}',
@@ -1682,9 +1691,7 @@ def draft(repo: Path, path: str) -> str:
         f'path = {json_string(path)}',
         f'sha256 = "{hashlib.sha256(data).hexdigest()}"',
     ]
-    for s in found:
-        if s.level != level:
-            continue
+    for s in top_level(found):
         same = [t for t in found if t.path == s.path]
         block = [
             '',

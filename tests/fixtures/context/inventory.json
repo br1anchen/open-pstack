@@ -5,11 +5,19 @@
       "path": "STANDARDS.md",
       "bytes": 873,
       "tokens": 218,
-      "level": 1,
+      "level": 2,
       "sections": [
         {
-          "heading": "Coding standards",
-          "tokens": 205
+          "heading": "Typed evidence",
+          "tokens": 121
+        },
+        {
+          "heading": "Testing",
+          "tokens": 32
+        },
+        {
+          "heading": "Style",
+          "tokens": 37
         }
       ],
       "inbound": [
@@ -58,11 +66,11 @@
       "path": "docs/guide.md",
       "bytes": 38,
       "tokens": 9,
-      "level": 1,
+      "level": 2,
       "sections": [
         {
-          "heading": "Guide",
-          "tokens": 9
+          "heading": "Moved",
+          "tokens": 7
         }
       ],
       "inbound": [

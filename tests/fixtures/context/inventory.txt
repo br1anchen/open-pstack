@@ -1,12 +1,12 @@
 inventory at COMMIT12: 3 documents
 STANDARDS.md: 873 bytes, ~218 tokens
-  sections (level 1): Coding standards ~205
+  sections (level 2): Typed evidence ~121, Testing ~32, Style ~37
   inbound from .agents/kitchen.toml: L2 STANDARDS.md#typed-evidence
   inbound from docs/adr/0007-standards.md: L3 STANDARDS.md#typed-evidence
 docs/adr/0007-standards.md: 97 bytes, ~24 tokens
   sections (level 1): ADR 0007: Standards ~24
 docs/guide.md: 38 bytes, ~9 tokens
-  sections (level 1): Guide ~9
+  sections (level 2): Moved ~7
   inbound from STANDARDS.md: L11 docs/guide.md#moved, L50 docs/guide.md, L51 docs/guide.md#moved, L52 docs/guide.md
 coverage:
   syntaxes: Markdown inline links and images; Markdown reference definitions; Markdown link text wrapped over lines; `path` and `path#anchor` strings in TOML and plain text

@@ -11,5 +11,15 @@ sha256 = "SHA256"
 
 # [[move]]
 # source = "STANDARDS.md"
-# ancestry = ["Coding standards"]
+# ancestry = ["Coding standards", "Typed evidence"]
+# to = "TODO"
+
+# [[move]]
+# source = "STANDARDS.md"
+# ancestry = ["Coding standards", "Testing"]
+# to = "TODO"
+
+# [[move]]
+# source = "STANDARDS.md"
+# ancestry = ["Coding standards", "Style"]
 # to = "TODO"

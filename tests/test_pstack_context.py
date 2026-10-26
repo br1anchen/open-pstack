@@ -1308,14 +1308,40 @@ class InventoryTests(unittest.TestCase):
         self.assertIn('has no commit at HEAD', done.stderr)
 
     def test_the_top_level_is_the_shallowest_heading_level_present(self):
-        got = documents({'x.md': b'### Deep\n\ntext\n\n## Mid\n\n### Under\n\nmore\n'})
+        got = documents({'x.md': b'### Deep\n\ntext\n\n## Mid\n\n## Mid2\n\nmore\n'})
         x = got['x.md']
         self.assertEqual(x.level, 2)
-        self.assertEqual([h.raw for h in x.sections], ['Mid'])
-        self.assertEqual(x.sections[0].tokens, len('## Mid\n\n### Under\n\nmore') // 4)
+        self.assertEqual([h.raw for h in x.sections], ['Mid', 'Mid2'])
+        self.assertEqual(x.sections[0].tokens, len('## Mid') // 4)
         self.assertEqual(
-            x.tokens, len('### Deep\n\ntext\n\n## Mid\n\n### Under\n\nmore\n') // 4
+            x.tokens, len('### Deep\n\ntext\n\n## Mid\n\n## Mid2\n\nmore\n') // 4
         )
+
+    def test_a_lone_title_hands_the_top_level_to_the_headings_below_it(self):
+        got = documents({'x.md': b'# Title\n\n## A\n\ntext\n\n## B\n\n### C\n\nmore\n'})
+        x = got['x.md']
+        self.assertEqual(x.level, 2)
+        self.assertEqual([h.raw for h in x.sections], ['A', 'B'])
+        self.assertEqual(x.sections[1].tokens, len('## B\n\n### C\n\nmore') // 4)
+
+    def test_a_chain_of_lone_headings_descends_until_a_level_has_several(self):
+        got = documents({'x.md': b'# T\n\n## S\n\n### A\n\n### B\n'})
+        self.assertEqual(got['x.md'].level, 3)
+        self.assertEqual([h.raw for h in got['x.md'].sections], ['A', 'B'])
+
+    def test_a_lone_heading_with_nothing_below_it_stays_the_top_level(self):
+        got = documents({'x.md': b'# Only\n\ntext\n'})
+        self.assertEqual(got['x.md'].level, 1)
+        self.assertEqual([h.raw for h in got['x.md'].sections], ['Only'])
+
+    def test_a_titled_document_is_a_candidate_by_its_sections_below_the_title(self):
+        titled = b'# Title\n\n' + doc('One', 'Two', 'Three')
+        got = documents(candidate_files(**{'big.md': titled}))
+        self.assertEqual(got['big.md'].level, 2)
+        self.assertEqual(
+            [h.raw for h in got['big.md'].sections], ['One', 'Two', 'Three']
+        )
+        self.assertTrue(got['big.md'].candidate)
 
     def test_a_document_that_cannot_be_read_is_listed_with_its_reason(self):
         got = documents({'x.md': b'Title\n=====\n', 'y.md': b'# Fine\n'})
@@ -1453,16 +1479,46 @@ class DraftTests(unittest.TestCase):
         text = context.draft(repo, 'STANDARDS.md')
         lines = text.splitlines()
         lines = [x.removeprefix('# ') if x.startswith('# ') else x for x in lines]
-        filled = '\n'.join(lines).replace('to = "TODO"', 'to = "docs/standards/all.md"')
+        filled = '\n'.join(lines)
+        for name in ('a', 'b', 'c'):
+            filled = filled.replace(
+                'to = "TODO"', f'to = "docs/standards/{name}.md"', 1
+            )
         filled = filled.replace(
-            '  "STANDARDS.md",\n', '  "STANDARDS.md",\n  "docs/standards/all.md",\n'
+            '  "STANDARDS.md",\n',
+            '  "STANDARDS.md",\n  "docs/standards/a.md",\n  "docs/standards/b.md",\n  "docs/standards/c.md",\n',
         )
         m = context.parse_migration(filled)
         self.assertEqual(m.base, git(repo, 'rev-parse', 'HEAD'))
         self.assertEqual(m.files[0].sha256, sha(STANDARDS))
-        self.assertEqual(m.moves[0].ancestry, ('Coding standards',))
-        self.assertEqual(m.moves[0].to, 'docs/standards/all.md')
-        self.assertEqual(m.writes, ('STANDARDS.md', 'docs/standards/all.md'))
+        self.assertEqual(m.moves[0].ancestry, ('Coding standards', 'Typed evidence'))
+        self.assertEqual(m.moves[0].to, 'docs/standards/a.md')
+        self.assertEqual(len(m.moves), 3)
+        context.plan(repo, m)
+
+    def test_a_titled_document_drafts_one_move_per_section_below_the_title(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo)
+        (repo / 'big.md').write_bytes(b'# Title\n\n' + doc('One', 'Two', 'Three'))
+        git(repo, 'init', '-q')
+        git(repo, 'add', '-A')
+        git(repo, 'commit', '-q', '-m', 'x')
+        text = context.draft(repo, 'big.md')
+        self.assertEqual(text.count('# [[move]]'), 3)
+        for name in ('One', 'Two', 'Three'):
+            self.assertIn(f'# ancestry = ["Title", "{name}"]\n', text)
+        lines = [
+            x.removeprefix('# ') if x.startswith('# ') else x for x in text.splitlines()
+        ]
+        filled = '\n'.join(lines)
+        for name in ('One', 'Two', 'Three'):
+            filled = filled.replace('to = "TODO"', f'to = "docs/{name}.md"', 1)
+        filled = filled.replace(
+            '  "big.md",\n',
+            '  "big.md",\n  "docs/One.md",\n  "docs/Two.md",\n  "docs/Three.md",\n',
+        )
+        m = context.parse_migration(filled)
+        self.assertEqual(len(m.moves), 3)
         context.plan(repo, m)
 
     def test_the_draft_alone_is_a_migration_with_nothing_to_write_but_its_source(self):
