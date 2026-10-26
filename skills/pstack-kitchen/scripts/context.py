@@ -232,15 +232,19 @@ def parse_migration(text: str) -> Migration:
                 ),
             )
         )
-    rewrites = [
-        Rewrite(
-            check_path(t.get('path'), f'[[rewrite]] {n}'),
-            string(t, 'from', f'[[rewrite]] {n}'),
-            string(t, 'to', f'[[rewrite]] {n}'),
-            rewrite_count(t, f'[[rewrite]] {n}'),
+    rewrites = []
+    for n, t in enumerate(tables['rewrite'], 1):
+        where = f'[[rewrite]] {n}'
+        r = Rewrite(
+            check_path(t.get('path'), where),
+            string(t, 'from', where),
+            string(t, 'to', where),
+            rewrite_count(t, where),
         )
-        for n, t in enumerate(tables['rewrite'], 1)
-    ]
+        for key, text in (('from', r.from_), ('to', r.to)):
+            if '\n' in text:
+                raise ContextError(f'{where}: `{key}` must not contain a newline')
+        rewrites.append(r)
     keeps = [
         Keep(
             check_path(t.get('path'), f'[[keep]] {n}'),
@@ -1410,7 +1414,7 @@ def rewrite_spans(migration: Migration, path: str, text: str) -> list[tuple[int,
         if r.path == path and text.count(r.from_) == r.count:
             at = -1
             for _ in range(r.count):
-                at = text.index(r.from_, at + 1)
+                at = text.index(r.from_, at + len(r.from_) if at >= 0 else 0)
                 spans.append((at, at + len(r.from_)))
     return spans
 
@@ -2173,12 +2177,22 @@ def link_proof(
             landed[key] = (dest, anchor)
             moved[(o.source, old[key])] = (dest, anchor)
 
+    def bare_rewrite(ref: Ref) -> tuple[str, str] | None:
+        """Where a rewrite of a bare path sends a reference: its `to` path, as the rewritten text reads there."""
+        for r in migration.rewrites:
+            if r.path == ref.path and '#' not in r.to and r.from_ in ref.target:
+                now = dataclasses.replace(
+                    ref, target=ref.target.replace(r.from_, r.to), fragment=''
+                )
+                return resolve(now, {*out.files, *migration.writes})
+        return None
+
     def expected(ref: Ref, mode: str) -> tuple[str, str] | None:
         here = base.resolved(ref)
         if here is None:
             return None
         if mode == 'rewrite' and not here[1]:
-            return here  # the file a rewrite names without a heading is the author's to choose
+            return bare_rewrite(ref) or here
         return moved.get(here, here) if mode != 'stay' and here[1] else here
 
     def pair(path: str, j: int, source: str, n: int, mode: str) -> None:
@@ -2207,7 +2221,7 @@ def link_proof(
                 )
                 continue
             got = out.resolved(b)
-            if mode == 'rewrite' and not want[1]:
+            if mode == 'rewrite' and not want[1] and bare_rewrite(a) is None:
                 want = got if got is not None else want
             if got != want:
                 found.append(
@@ -2419,6 +2433,14 @@ def prove(
     for path in sources:
         if path not in base_files:
             raise ContextError(f'{path}: not among the base files')
+    for path in sorted({r.path for r in migration.rewrites}):
+        if path not in base_files:
+            raise ContextError(f'{path}: rewrite target is not among the base files')
+    for path in sorted(files):
+        if scanned(path) and path not in base_files:
+            raise ContextError(
+                f'{path}: a scanned file of the repo has no bytes among the base files'
+            )
     readings = {p: read(base_files[p], p) for p in sources}
     made = cuts(migration, {p: r.sections for p, r in readings.items()})
     base_spans = {p: ref_spans(p, base_files[p]) for p in sources}
@@ -2523,15 +2545,9 @@ def prove(
         out = outputs.get(path)
         if out is None:
             found.append(Finding(path, 0, 'absent', 'the planned file is absent'))
-        elif path in base_files:
+        else:
             origins[path] = rewrite_origins(
                 path, base_files[path], out, migration, found
-            )
-        else:
-            found.append(
-                Finding(
-                    path, 0, 'rewrite', 'the rewrite target is not among the base files'
-                )
             )
     for source in sources:
         paths = [source, *(c.move.to for c in made if c.move.source == source)]

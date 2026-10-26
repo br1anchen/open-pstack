@@ -1012,6 +1012,27 @@ class RewriteTests(unittest.TestCase):
             ".agents/kitchen.toml: `from` 'STANDARDS.md#nowhere' occurs 0 times",
         )
 
+    def test_a_newline_in_a_from_or_a_to_is_refused_at_load(self):
+        for key, old in (
+            ('from', 'from = "STANDARDS.md#typed-evidence"'),
+            ('to', 'to = "docs/standards/typed-evidence.md#typed-evidence"'),
+        ):
+            with self.subTest(key):
+                refused(
+                    self,
+                    edit(SAMPLE, old, old[:-1] + '\\nx"'),
+                    f'[[rewrite]] 1: `{key}` must not contain a newline',
+                )
+
+    def test_the_spans_of_a_from_that_overlaps_itself_do_not_overlap(self):
+        m = migration_of(
+            move(RUST, 'docs/rust.md'),
+            rewrites=(context.Rewrite('STANDARDS.md', 'aa', 'b', 2),),
+        )
+        self.assertEqual(
+            context.rewrite_spans(m, 'STANDARDS.md', 'aaaa'), [(0, 2), (2, 4)]
+        )
+
     def test_a_to_that_resolves_to_nothing_is_refused_naming_it(self):
         self.refused(
             self.rewrite_sample(to='docs/standards/missing.md#x'),
@@ -1784,8 +1805,18 @@ def boom(*args, **kwargs):
     raise AssertionError('prove called a writer')
 
 
+def with_files(base):
+    """`base` plus the bytes of each scanned file of FILES it lacks, from the fixture repo: `prove` reads them all."""
+    return {
+        p: (fixtures / 'repo' / p).read_bytes()
+        for p in FILES
+        if p.endswith(context.SCANNED) and (fixtures / 'repo' / p).is_file()
+    } | base
+
+
 def proved(m, base, outputs):
     """`prove` with every writer unavailable: it may use the readers only."""
+    base = with_files(base)
     with contextlib.ExitStack() as stack:
         for name in ('assemble', 'rebase', 'rewritten', 'render', 'anchor_map'):
             stack.enter_context(mock.patch.object(context, name, boom))
@@ -1870,6 +1901,7 @@ class ProveTests(unittest.TestCase):
         self.assertTrue(all(f.path == RUST_MD for f in proof.findings))
         self.assertEqual(kinds(proof, RUST_MD)[0], ('dropped', 5))
         self.assertIn(('reordered', 7), kinds(proof, RUST_MD))
+        self.assertIn(('reordered', 9), kinds(proof, RUST_MD))
 
     def test_a_duplicated_line_fails(self):
         m, base, out = self.sample()
@@ -1934,6 +1966,61 @@ class ProveTests(unittest.TestCase):
             [(f.path, f.kind) for f in proved(m, base, out).findings],
             [('docs/b.md', 'duplicated')],
         )
+        self.assertEqual(kinds(proved(m, base, out), 'docs/b.md'), [('duplicated', 7)])
+
+    def test_a_scanned_file_of_the_repo_without_bytes_is_refused(self):
+        m, base, out = self.sample()
+        with self.assertRaises(context.ContextError) as caught:
+            context.prove(BASE, m, out, FILES)
+        self.assertIn(
+            'docs/adr/0007-standards.md: a scanned file of the repo has no bytes',
+            str(caught.exception),
+        )
+
+    def test_a_rewrite_target_without_bytes_is_refused(self):
+        m, base, out = self.sample()
+        base = {
+            k: v for k, v in with_files(BASE).items() if k != '.agents/kitchen.toml'
+        }
+        with self.assertRaises(context.ContextError) as caught:
+            context.prove(base, m, out, FILES)
+        self.assertIn(
+            '.agents/kitchen.toml: rewrite target is not among the base files',
+            str(caught.exception),
+        )
+
+    def test_a_broken_reference_in_a_file_the_migration_does_not_write_is_listed_with_its_line(
+        self,
+    ):
+        m, base, out = self.sample()
+        base = base | {
+            'docs/guide.md': b'# Guide\n\n## Moved\n\nSee [x](../STANDARDS.md#nowhere).\n'
+        }
+        proof = proved(m, base, out)
+        self.assertTrue(proof.ok, proof.findings)
+        self.assertEqual(
+            [(f.path, f.line) for f in proof.pre_existing if f.path == 'docs/guide.md'],
+            [('docs/guide.md', 5)],
+        )
+
+    def test_a_bare_path_rewrite_expects_its_to_path(self):
+        data = b'# A\n\n## B\n\ntext\n'
+        conf = b'path = "STANDARDS.md"\n'
+        m = migration_of(
+            move(('A', 'B'), 'docs/b.md'),
+            files=('STANDARDS.md', 'conf.toml'),
+            rewrites=(context.Rewrite('conf.toml', 'STANDARDS.md', 'docs/b.md'),),
+        )
+        base = {'STANDARDS.md': data, 'conf.toml': conf}
+        files = {*FILES, 'conf.toml'}
+        out = context.render(m, base, (), files)
+        self.assertEqual(out['conf.toml'], b'path = "docs/b.md"\n')
+        with contextlib.ExitStack() as stack:
+            for name in ('assemble', 'rebase', 'rewritten', 'render', 'anchor_map'):
+                stack.enter_context(mock.patch.object(context, name, boom))
+            proof = context.prove(with_files(base), m, out, files)
+        self.assertEqual(proof.findings, [])
+        self.assertEqual([f for f in proof.pre_existing if f.path == 'conf.toml'], [])
 
     def test_a_copied_definition_the_destination_never_uses_fails(self):
         m, base, out = self.sample()
@@ -2024,7 +2111,11 @@ class ProveTests(unittest.TestCase):
         proof = proved(m, base, out)
         self.assertTrue(proof.ok, proof.findings)
         self.assertEqual(
-            [(f.path, f.line, f.message) for f in proof.pre_existing],
+            [
+                (f.path, f.line, f.message)
+                for f in proof.pre_existing
+                if f.path == 'STANDARDS.md'
+            ],
             [('STANDARDS.md', 5, '[gone](missing.md) (broken at base)')],
         )
 
@@ -2257,7 +2348,7 @@ def proved_with(m, base, outputs, consumers):
     with contextlib.ExitStack() as stack:
         for name in ('assemble', 'rebase', 'rewritten', 'render', 'anchor_map'):
             stack.enter_context(mock.patch.object(context, name, boom))
-        return context.prove(base, m, outputs, FILES, consumers)
+        return context.prove(with_files(base), m, outputs, FILES, consumers)
 
 
 def applied_repo(test):
