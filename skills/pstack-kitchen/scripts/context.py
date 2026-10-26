@@ -2300,6 +2300,31 @@ KITCHEN_TOML = '.agents/kitchen.toml'
 OVERLAYS = '.agents/playbooks/'
 
 
+def keyed_parts(data: dict) -> tuple[dict[tuple, dict], list[object]]:
+    """An overlay's parts by (id) or, with no id, by position among the id-less ones; the ids that repeat are
+    returned apart and keep no part."""
+    keyed: dict[tuple, dict] = {}
+    repeated: list[object] = []
+    anon = 0
+    for part in data.get('part', []):
+        if not isinstance(part, dict):
+            continue
+        pid = part.get('id')
+        if pid is None:
+            key = ('', anon)
+            anon += 1
+        else:
+            key = (pid,)
+        if key in keyed:
+            if pid not in repeated:
+                repeated.append(pid)
+        else:
+            keyed[key] = part
+    for pid in repeated:
+        del keyed[(pid,)]
+    return keyed, repeated
+
+
 def consumer_proof(
     base: Tree,
     out: Tree,
@@ -2377,10 +2402,11 @@ def consumer_proof(
                 base_data = tomllib.loads((base.data.get(path) or b'').decode())
             except (tomllib.TOMLDecodeError, UnicodeDecodeError):
                 base_data = {}
-            base_parts = {
-                x.get('id'): x for x in base_data.get('part', []) if isinstance(x, dict)
-            }
-            for part in data.get('part', []):
+            base_parts, _ = keyed_parts(base_data)
+            keyed, repeated = keyed_parts(data)
+            for pid in repeated:
+                fail(path, 0, f'part {pid}', '', 'duplicate part id')
+            for key, part in keyed.items():
                 source = part.get('source')
                 target = source.get('path') if isinstance(source, dict) else None
                 if (
@@ -2391,22 +2417,25 @@ def consumer_proof(
                     continue
                 what = f'part {part.get("id")}'
                 selector = str(part.get('select'))
-                was = base_parts.get(part.get('id'), {}).get('source')
-                was_target = was.get('path') if isinstance(was, dict) else None
-                if was_target in base.data:
-                    was_select = str(base_parts[part.get('id')].get('select'))
+                was = base_parts.get(key)
+                was_source = was.get('source') if was else None
+                was_target = (
+                    was_source.get('path') if isinstance(was_source, dict) else None
+                )
+                was_select = str(was.get('select')) if was else None
+                if (
+                    was_target == target
+                    and was_select == selector
+                    and target in base.data
+                ):
                     try:
                         pb.select(
-                            pb.parse((base.data[was_target] or b'').decode()),
-                            was_select,
+                            pb.parse((base.data[target] or b'').decode()), selector
                         )
                     except pb.PlaybookError:
                         broken.append(
                             Finding(
-                                path,
-                                0,
-                                'link',
-                                f'{was_target} {was_select} (broken at base)',
+                                path, 0, 'link', f'{target} {selector} (broken at base)'
                             )
                         )
                         continue

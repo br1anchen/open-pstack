@@ -2457,6 +2457,62 @@ class OverlayReferenceTests(unittest.TestCase):
         self.assertEqual(proof.pre_existing, [])
 
 
+class OverlayPartMatchTests(unittest.TestCase):
+    """A part is pre-existing only while its base copy, found by id or position, names the same source and select."""
+
+    def prove_with(self, base_text, text):
+        m = without_rewrites(sample_migration())
+        base = BASE | {OVERLAY: base_text}
+        out = context.render(m, base, (), {*FILES, *base})
+        return proved_with(m, base, out, {OVERLAY: text})
+
+    def test_a_part_broken_at_base_and_repointed_to_a_stub_fails(self):
+        base = overlay_text(('a', 'heading:Nowhere'))
+        proof = self.prove_with(base, overlay_text(('a', 'heading:Typed evidence')))
+        self.assertEqual([f.kind for f in proof.findings], ['consumer'])
+        self.assertEqual(proof.pre_existing, [])
+
+    def test_a_part_broken_at_base_and_repointed_to_a_destination_holds(self):
+        base = overlay_text(('a', 'heading:Nowhere'))
+        text = overlay_text(
+            ('a', 'heading:Typed evidence'), source='docs/standards/typed-evidence.md'
+        )
+        proof = self.prove_with(base, text)
+        self.assertEqual(proof.findings, [])
+        self.assertEqual(proof.pre_existing, [])
+        self.assertEqual([(c.what, c.ok) for c in proof.consumers], [('part a', True)])
+
+    def test_parts_without_an_id_are_matched_to_their_own_base_copies(self):
+        def anon(*selects):
+            return b''.join(
+                b'\n[[part]]\nsource = { root = "repo", path = "STANDARDS.md" }\n'
+                b'select = "' + s.encode() + b'"\nowners = ["sidekick"]\n'
+                for s in selects
+            )
+
+        head = overlay_text()
+        base = head + anon('heading:Nowhere', 'heading:Style')
+        proof = self.prove_with(base, base)
+        self.assertEqual(proof.findings, [])
+        self.assertEqual(
+            [f.message for f in proof.pre_existing],
+            ['STANDARDS.md heading:Nowhere (broken at base)'],
+        )
+        self.assertEqual([c.ok for c in proof.consumers], [True])
+        swapped = head + anon('heading:Style', 'heading:Typed evidence')
+        proof = self.prove_with(base, swapped)
+        self.assertEqual([f.kind for f in proof.findings], ['consumer'])
+        self.assertEqual(proof.pre_existing, [])
+
+    def test_a_duplicate_part_id_is_a_finding(self):
+        text = overlay_text(('a', 'heading:Style'), ('a', 'heading:Nowhere'))
+        proof = self.prove_with(text, text)
+        self.assertEqual(
+            [(f.path, f.kind, f.message) for f in proof.findings],
+            [(OVERLAY, 'consumer', 'part a: duplicate part id')],
+        )
+
+
 def proved_with(m, base, outputs, consumers):
     with contextlib.ExitStack() as stack:
         for name in ('assemble', 'rebase', 'rewritten', 'render', 'anchor_map'):
