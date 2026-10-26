@@ -61,6 +61,7 @@ source = "AGENTS.md#security"
 
 [review]
 standards = ["AGENTS.md#style", "AGENTS.md#testing-guidelines"]
+engine = "joo"
 
 [landing]
 mode = "commit"
