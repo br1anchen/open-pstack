@@ -2875,6 +2875,20 @@ class CheckCommandTests(unittest.TestCase):
         self.assertTrue(edited['consumers'])
         self.assertTrue(all(c['ok'] is None for c in edited['consumers']))
 
+    def test_a_foreign_file_the_walk_accepts_exits_zero_with_no_fix_line(self):
+        repo, mig = applied_repo(self)
+        rust = repo / 'docs/standards/rust.md'
+        rust.write_bytes(
+            rust.read_bytes().replace(
+                b'](typed-evidence.md#notes)', b'](./typed-evidence.md#notes)'
+            )
+        )
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn('1 foreign\n', done.stdout)
+        self.assertNotIn('fix:', done.stdout)
+        self.assertTrue(done.stdout.endswith('ok\n'))
+
     def test_a_broken_link_after_a_clean_walk_prints_the_consumers_judged(self):
         repo, mig = applied_repo(self, {OVERLAY: overlay_text(('a', 'heading:Style'))})
         rust = repo / 'docs/standards/rust.md'
@@ -3206,6 +3220,7 @@ class ApplyTests(unittest.TestCase):
         self.assertIn('restore each foreign file to its base state', done.stderr)
         self.assertNotIn('fresh apply', done.stderr)
         self.assertIn('git checkout <base> -- <path>', done.stderr)
+        self.assertIn('delete one the migration creates', done.stderr)
         self.assertNotIn('to the current commit', done.stderr)
         self.assertIn('inventory --draft', done.stderr)
         self.assertEqual(tree_of(repo), before)

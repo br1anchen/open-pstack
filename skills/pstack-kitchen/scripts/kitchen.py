@@ -4247,10 +4247,10 @@ def context_check(args) -> int:
         listed = '\n'.join(
             f'{s}: {p}{note if s == "foreign" else ""}' for p, s in where if s != 'post'
         )
-        if n['foreign']:
-            listed += f'\nfix: {cx.FOREIGN_FIX}'
+        fix = f'\nfix: {cx.FOREIGN_FIX}' if n['foreign'] else ''
         states = [{'path': p, 'state': s} for p, s in where]
         if n['pre']:
+            listed += fix
             emit({'ok': False, 'states': states}, args.json, f'{summary}\n{listed}')
             return 1
         proof = cx.check(repo, args.migration)
@@ -4259,7 +4259,7 @@ def context_check(args) -> int:
         raise KitchenError(str(e), 2) from e
     text = context_check_text(base, proof)
     if n['foreign']:
-        text = f'{summary}\n{listed}\n{text}'
+        text = f'{summary}\n{listed}{"" if proof.ok else fix}\n{text}'
     emit({**cx.proof_data(proof), 'states': states}, args.json, text)
     return 0 if proof.ok else 1
 
@@ -4789,7 +4789,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return context_command(args)
         except KitchenError as e:
-            if getattr(args, 'json', False):
+            if args.json:
                 emit(context_failure(e.code, str(e)), True, '')
             else:
                 print(f'kitchen: {e}', file=sys.stderr)
