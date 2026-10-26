@@ -3245,10 +3245,10 @@ def apply(
             )
             + '\nrewrite or keep each, then apply again'
         )
-    idle = plan_unused_keeps(repo, migration)
-    if idle:
+    unused = plan_unused_keeps(repo, migration)
+    if unused:
         raise ApplyRefused(
-            '\n'.join(f'unused keep: {k.path} {k.ref}' for k in idle)
+            '\n'.join(f'unused keep: {k.path} {k.ref}' for k in unused)
             + '\nremove or fix each keep, then apply again'
         )
     where = [(w, state_of(repo, w)) for w in planned]
