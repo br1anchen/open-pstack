@@ -11,6 +11,7 @@ import json
 import os
 import re
 import select
+import shlex
 import shutil
 import signal
 import socket
@@ -118,6 +119,12 @@ LEGACY_HEADER = 'ts\tepoch\tactor\tevent\tunit\tdetail'
 def mask(text):
     """events.tsv without its ts and epoch columns."""
     return [row.split('\t', 2)[2] for row in text.splitlines()]
+
+
+PROBE_SIGIGN = (
+    'import signal; ign = signal.SIG_IGN; got = signal.getsignal; '
+    'print("SigIgn: %016x" % ((got(signal.SIGINT) == ign) * 2 + (got(signal.SIGQUIT) == ign) * 4))'
+)
 
 
 def event_log(*calls, dedupe='1'):
@@ -1391,10 +1398,10 @@ class CoreTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             text=True,
         )
-        self.addCleanup(
-            lambda: (proc.kill(), proc.wait(timeout=30), proc.stdout.close())
-        )
-        self.assertEqual(proc.stdout.readline(), 'up\n')
+        stdout = proc.stdout
+        assert stdout is not None
+        self.addCleanup(lambda: (proc.kill(), proc.wait(timeout=30), stdout.close()))
+        self.assertEqual(stdout.readline(), 'up\n')
         return proc
 
     def test_procinfo_ps_reads_this_process_as_the_kernel_facts_say(self):
@@ -14515,15 +14522,16 @@ class CoreTests(unittest.TestCase):
         )
 
     def test_the_detached_gate_and_verify_runs_ignore_sigint_and_sigquit(self):
-        """A detached gate or Verify job starts with SIGINT and SIGQUIT ignored (SigIgn 0x6), read from /proc by the gate's own command and the brief's
-        Verify command."""
+        """A detached gate or Verify job starts with SIGINT and SIGQUIT ignored (SigIgn 0x6), read by the gate's own command and the brief's Verify
+        command: a Python that finds both dispositions inherited as ignored, which reads the same on Linux and macOS (macOS has no /proc)."""
+        probe = shlex.quote(sys.executable) + ' -c ' + shlex.quote(PROBE_SIGIGN)
         gate = self.LAUNCH_TOML.replace(
             '[profile.app]\npaths = ["src/**", "tests/**"]\nfast = ["true"]',
-            '[profile.app]\npaths = ["src/**", "tests/**"]\nfast = ["grep SigIgn /proc/self/status >../sigign"]',
+            f'[profile.app]\npaths = ["src/**", "tests/**"]\nfast = [{json.dumps(probe + " >../sigign")}]',
         )
         verify = self.launch_brief('002', 'y').replace(
             '```bash\ntrue\n```',
-            '```bash\ngrep SigIgn /proc/self/status >../sigign\n```',
+            f'```bash\n{probe} >../sigign\n```',
         )
         specs = {
             'step': self.step_world(
