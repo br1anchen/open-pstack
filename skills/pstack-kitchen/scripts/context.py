@@ -20,7 +20,9 @@ import json
 import os
 import posixpath
 import re
+import shutil
 import subprocess
+import tempfile
 import tomllib
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
@@ -2614,15 +2616,16 @@ def index_local(ref: Ref) -> bool:
 STATES = ('pre', 'post', 'foreign')
 
 
+def state_of(repo: Path, w: 'Write') -> str:
+    """Where one planned file stands in the working tree: `post` when it equals the migration's output, `pre` when it
+    equals the base (or is absent where the base has none), `foreign` otherwise."""
+    now = working_bytes(repo, w.path)
+    return 'post' if now == w.after else 'pre' if now == w.before else 'foreign'
+
+
 def states(repo: Path, migration: Migration) -> list[tuple[str, str]]:
-    """Where each planned file stands in the working tree, in `writes` order: `post` when it equals the migration's
-    output, `pre` when it equals the base (or is absent where the base has none), `foreign` otherwise."""
-    found = []
-    for w in plan(repo, migration):
-        now = working_bytes(repo, w.path)
-        state = 'post' if now == w.after else 'pre' if now == w.before else 'foreign'
-        found.append((w.path, state))
-    return found
+    """Where each planned file stands in the working tree, in `writes` order."""
+    return [(w.path, state_of(repo, w)) for w in plan(repo, migration)]
 
 
 def origin_data(o: Origin) -> dict:
@@ -2963,3 +2966,118 @@ def unified_diff(write: Write) -> str:
             line if line.endswith('\n') else f'{line}\n\\ No newline at end of file\n'
         )
     return ''.join(out)
+
+
+# ---- apply -----------------------------------------------------------------
+
+
+class ApplyRefused(ContextError):
+    """`apply` declined or stopped: the tree holds what it had written so far, and the message says why."""
+
+
+@dataclass(frozen=True)
+class ApplyResult:
+    written: tuple[
+        str, ...
+    ]  # the paths this run wrote, in order; empty for `no change`
+    index_local: tuple[
+        Ref, ...
+    ]  # references the tool leaves to the index, as preview lists them
+
+
+def proof_at_base(repo: Path, migration: Migration, planned: list[Write]) -> Proof:
+    """`prove` over the outputs the migration plans, in memory: the files and the kitchen.toml and overlays as they
+    are at the base commit."""
+    commit = resolve_base(repo, migration)
+    files = repo_files(repo, migration)
+    declared = [f.path for f in migration.files]
+    base = read_scanned(repo, commit, files, declared) | read_base(repo, migration)
+    consumers = read_blobs(
+        repo,
+        commit,
+        [
+            p
+            for p in files
+            if p == KITCHEN_TOML or p.startswith(OVERLAYS) and p.endswith('.toml')
+        ],
+    )
+    return prove(base, migration, {w.path: w.after for w in planned}, files, consumers)
+
+
+def refusal(proof: Proof) -> str:
+    return '\n'.join(
+        f'{f.path}:{f.line}: {f.kind}: {f.message}'
+        if f.line
+        else f'{f.path}: {f.kind}: {f.message}'
+        for f in proof.findings
+    )
+
+
+def write_file(repo: Path, w: Write) -> None:
+    """Write one planned file beside itself and move it into place; an existing file keeps its mode, a new one gets
+    the umask default."""
+    target = repo / w.path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(dir=target.parent, prefix=f'.{target.name}.')
+    try:
+        with os.fdopen(fd, 'wb') as out:
+            out.write(w.after)
+        if w.before is None:
+            mask = os.umask(0)
+            os.umask(mask)
+            os.chmod(temp, 0o666 & ~mask)
+        else:
+            shutil.copymode(target, temp)
+        os.replace(temp, target)
+    except BaseException:
+        Path(temp).unlink(missing_ok=True)
+        raise
+
+
+def apply(
+    repo: Path, migration_path: Path, stop_after: int | None = None
+) -> ApplyResult:
+    """Write a migration's planned files: only after `prove` passes on them in memory, only the ones still at their
+    pre-image, and nothing when any planned file is neither image. Completes a partial apply; a second run finds
+    every file at its post-image and changes nothing. `stop_after` ends the run after that many writes made."""
+    migration = load(migration_path)
+    planned = plan(repo, migration)
+    open_refs = plan_unresolved(repo, migration)
+    local = tuple(r for r in open_refs if index_local(r))
+    loose = [r for r in open_refs if not index_local(r)]
+    if loose:
+        raise ApplyRefused(
+            '\n'.join(
+                f'unresolved: {r.path}:{r.line}: {" ".join(r.raw.split())}'
+                for r in loose
+            )
+            + '\nrewrite or keep each, then apply again'
+        )
+    where = [(w, state_of(repo, w)) for w in planned]
+    foreign = [w.path for w, state in where if state == 'foreign']
+    if foreign:
+        raise ApplyRefused(
+            '\n'.join(
+                f'foreign: {p}: at neither the base nor the output' for p in foreign
+            )
+            + '\nnothing written; update `base` and each `[[file]]` sha256 to the current commit,'
+            ' or redraft with `inventory --draft`'
+        )
+    todo = [w for w, state in where if state == 'pre']
+    if not todo:
+        return ApplyResult((), local)
+    proof = proof_at_base(repo, migration, planned)
+    if not proof.ok:
+        raise ApplyRefused(
+            f'{refusal(proof)}\nnothing written: the plan does not prove'
+        )
+    written: list[str] = []
+    for w in todo:
+        if stop_after is not None and len(written) >= stop_after:
+            raise ApplyRefused(f'stopped after {len(written)} writes')
+        write_file(repo, w)
+        written.append(w.path)
+    proof = check(repo, migration_path)
+    if not proof.ok:
+        raise ApplyRefused(f'{refusal(proof)}\nwritten, and the tree does not prove')
+    return ApplyResult(tuple(written), local)

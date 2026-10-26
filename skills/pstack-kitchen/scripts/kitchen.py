@@ -4222,6 +4222,39 @@ def context_check(args) -> int:
     return 0 if proof.ok else 1
 
 
+def context_apply(args) -> int:
+    """`context apply`: write the planned files that are still at their pre-image, only after the plan proves in
+    memory; `KITCHEN_CONTEXT_STOP_AFTER=N` ends the run after N writes. Exit 1 on a refusal or a stop."""
+    cx = context_module()
+    repo = repo_root(args.repo)
+    stop = os.environ.get('KITCHEN_CONTEXT_STOP_AFTER')
+    if stop is not None and not (stop.isdecimal() and int(stop) > 0):
+        raise KitchenError(
+            f'KITCHEN_CONTEXT_STOP_AFTER={stop!r} must be a positive whole number', 2
+        )
+    try:
+        done = cx.apply(repo, args.migration, int(stop) if stop is not None else None)
+    except cx.ApplyRefused as e:
+        raise KitchenError(str(e), 1) from e
+    except cx.ContextError as e:
+        raise KitchenError(str(e), 2) from e
+    lines = [f'wrote: {p}' for p in done.written]
+    if done.index_local:
+        lines.append(f'index-local: {len(done.index_local)}')
+    if not done.written:
+        lines.append('no change')
+    emit(
+        {
+            'written': list(done.written),
+            'index_local': len(done.index_local),
+            'changed': bool(done.written),
+        },
+        args.json,
+        '\n'.join(lines),
+    )
+    return 0
+
+
 def context_command(args) -> int:
     """`context preview`: the diff of every file a migration would write, and the references to a moved section
     that nothing covers; exit 1 when there are any. Writes nothing."""
@@ -4229,6 +4262,8 @@ def context_command(args) -> int:
         return context_inventory(args)
     if args.context_cmd == 'check':
         return context_check(args)
+    if args.context_cmd == 'apply':
+        return context_apply(args)
     cx = context_module()
     repo = repo_root(args.repo)
     try:
@@ -4610,6 +4645,22 @@ def build_parser() -> argparse.ArgumentParser:
         help='repository (default: the current directory)',
     )
     cxc.add_argument(
+        '--json',
+        action='store_true',
+        default=argparse.SUPPRESS,
+        help='machine-readable output',
+    )
+    cxa = cxsub.add_parser(
+        'apply',
+        help='write the planned files after the plan proves in memory; completes a partial apply',
+    )
+    cxa.add_argument('migration', type=Path, help='the migration file (TOML)')
+    cxa.add_argument(
+        '--repo',
+        default=argparse.SUPPRESS,
+        help='repository (default: the current directory)',
+    )
+    cxa.add_argument(
         '--json',
         action='store_true',
         default=argparse.SUPPRESS,

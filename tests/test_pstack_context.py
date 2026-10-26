@@ -2641,3 +2641,121 @@ class IndexLocalTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def apply_run(repo, mig, *extra, env=None):
+    return subprocess.run(
+        [sys.executable, str(KITCHEN), 'context', 'apply', str(mig), *extra],
+        cwd=repo,
+        env=GIT_ENV | (env or {}),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+
+def tree_of(repo):
+    """Every file of the working tree outside .git, by path, with its bytes."""
+    return {
+        str(p.relative_to(repo)): p.read_bytes()
+        for p in sorted(repo.rglob('*'))
+        if p.is_file() and '.git' not in p.relative_to(repo).parts
+    }
+
+
+def fixture_migration(test, text=None):
+    repo, sample = fixture_repo(test)
+    mig = repo.parent / 'migration.toml'
+    mig.write_text(sample if text is None else text(sample))
+    return repo, mig
+
+
+class ApplyTests(unittest.TestCase):
+    def test_it_writes_every_planned_file_and_check_then_passes(self):
+        repo, mig = fixture_migration(self)
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(
+            done.stdout.splitlines(),
+            [f'wrote: {p}' for p in sample_migration().writes],
+        )
+        for path in sample_migration().writes:
+            self.assertEqual((repo / path).read_bytes(), expected(path))
+        checked = check_run(repo, mig)
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+    def test_a_second_run_says_no_change_and_touches_no_file(self):
+        repo, mig = fixture_migration(self)
+        self.assertEqual(apply_run(repo, mig).returncode, 0)
+        stamps = {p: (repo / p).stat().st_mtime_ns for p in sample_migration().writes}
+        done = apply_run(repo, mig)
+        self.assertEqual((done.returncode, done.stdout), (0, 'no change\n'))
+        self.assertEqual(
+            stamps,
+            {p: (repo / p).stat().st_mtime_ns for p in sample_migration().writes},
+        )
+
+    def test_a_hand_edited_source_refuses_naming_it_and_changes_nothing(self):
+        repo, mig = fixture_migration(self)
+        with (repo / 'STANDARDS.md').open('a') as f:
+            f.write('by hand\n')
+        before = tree_of(repo)
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('foreign: STANDARDS.md', done.stderr)
+        self.assertIn('inventory --draft', done.stderr)
+        self.assertEqual(tree_of(repo), before)
+
+    def test_a_destination_created_by_hand_refuses_naming_it_and_changes_nothing(self):
+        repo, mig = fixture_migration(self)
+        (repo / 'docs/standards').mkdir(parents=True)
+        (repo / 'docs/standards/rust.md').write_text('mine\n')
+        before = tree_of(repo)
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('foreign: docs/standards/rust.md', done.stderr)
+        self.assertEqual(tree_of(repo), before)
+
+    def test_an_unresolved_reference_refuses_and_changes_nothing(self):
+        repo, mig = fixture_migration(self, lambda t: without(t, 'rewrite', 'keep'))
+        before = tree_of(repo)
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn(KITCHEN_LINE.strip(), done.stderr)
+        self.assertIn(ADR_LINE.strip(), done.stderr)
+        self.assertEqual(tree_of(repo), before)
+
+    def test_a_path_outside_writes_is_untouched(self):
+        repo, mig = fixture_migration(self)
+        before = tree_of(repo)
+        self.assertEqual(apply_run(repo, mig).returncode, 0)
+        after = tree_of(repo)
+        writes = set(sample_migration().writes)
+        for path, data in before.items():
+            if path not in writes:
+                self.assertEqual(after[path], data, path)
+        self.assertEqual(set(after) - set(before) - writes, set())
+
+    def test_a_plan_that_does_not_prove_writes_nothing(self):
+        repo, mig = fixture_migration(self)
+        with mock.patch.object(context, 'prove', return_value=failing_proof()):
+            with self.assertRaises(context.ApplyRefused) as caught:
+                context.apply(repo, mig)
+        self.assertIn('nothing written', str(caught.exception))
+        self.assertEqual(
+            [p for p in sample_migration().writes if (repo / p).exists()],
+            ['STANDARDS.md', '.agents/kitchen.toml'],
+        )
+
+    def test_a_stop_after_that_is_not_a_positive_whole_number_exits_two(self):
+        repo, mig = fixture_migration(self)
+        for bad in ('0', '-1', 'x', ''):
+            with self.subTest(bad):
+                done = apply_run(repo, mig, env={'KITCHEN_CONTEXT_STOP_AFTER': bad})
+                self.assertEqual(done.returncode, 2)
+                self.assertIn('KITCHEN_CONTEXT_STOP_AFTER', done.stderr)
+
+
+def failing_proof():
+    return context.Proof({}, [], [context.Finding('x.md', 1, 'dropped', 'gone')])
