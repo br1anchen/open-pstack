@@ -1788,7 +1788,7 @@ def proved(m, base, outputs):
     with contextlib.ExitStack() as stack:
         for name in ('assemble', 'rebase', 'rewritten', 'render', 'anchor_map'):
             stack.enter_context(mock.patch.object(context, name, boom))
-        return context.prove(base, m, outputs)
+        return context.prove(base, m, outputs, FILES)
 
 
 def small(data, *moves, files=FILES):
@@ -1862,13 +1862,13 @@ class ProveTests(unittest.TestCase):
 
     def test_a_reordered_block_fails(self):
         m, base, out = self.sample()
-        a = b'Notes on evidence. Back to [the rule](#typed-evidence).\n'
-        b = b'Moved to [docs/standards/rust.md](rust.md#rust-engine).\n'
-        out[TYPED_MD] = out[TYPED_MD].replace(a, b'@@').replace(b, a).replace(b'@@', b)
+        lines = out[RUST_MD].split(b'\n')
+        lines[4], lines[8] = lines[8], lines[4]
+        out[RUST_MD] = b'\n'.join(lines)
         proof = proved(m, base, out)
-        self.assertFalse(proof.ok)
-        self.assertTrue(all(f.path == TYPED_MD for f in proof.findings))
-        self.assertEqual(kinds(proof, TYPED_MD)[0], ('dropped', 12))
+        self.assertTrue(all(f.path == RUST_MD for f in proof.findings))
+        self.assertEqual(kinds(proof, RUST_MD)[0], ('dropped', 5))
+        self.assertIn(('reordered', 7), kinds(proof, RUST_MD))
 
     def test_a_duplicated_line_fails(self):
         m, base, out = self.sample()
@@ -1876,7 +1876,7 @@ class ProveTests(unittest.TestCase):
             b'Notes on Rust.\n', b'Notes on Rust.\nNotes on Rust.\n'
         )
         proof = proved(m, base, out)
-        self.assertEqual(kinds(proof, RUST_MD)[0][0], 'duplicated')
+        self.assertEqual(kinds(proof, RUST_MD)[0], ('duplicated', 10))
 
     def test_an_unexplained_line_fails(self):
         m, base, out = self.sample()
@@ -1908,12 +1908,30 @@ class ProveTests(unittest.TestCase):
         out[RUST_MD] = out[RUST_MD].replace(b'[moved-only]: ../guide.md\n', b'')
         proof = proved(m, base, out)
         self.assertEqual(
+            [(f.path, f.kind, f.message) for f in proof.findings],
             [
-                (f.path, f.kind)
-                for f in proof.findings
-                if 'moved-only' in f.message or f.kind == 'dropped'
-            ][:1],
-            [('STANDARDS.md', 'dropped')],
+                (
+                    'STANDARDS.md',
+                    'dropped',
+                    'STANDARDS.md:50 left the index and no destination copies it',
+                )
+            ],
+        )
+
+    def test_a_definition_copied_twice_into_one_destination_fails(self):
+        m, base, out = self.sample()
+        out[RUST_MD] += b'[shared]: ../guide.md#moved "Shared"\n'
+        proof = proved(m, base, out)
+        self.assertEqual(kinds(proof, RUST_MD), [('duplicated', 13)])
+
+    def test_a_definition_the_slice_already_holds_is_not_copied_again(self):
+        data = b'# A\n\n## B\n\nsee [l].\n\n[l]: docs/guide.md\n'
+        m, base, out = small(data, move(('A', 'B'), 'docs/b.md'))
+        self.assertTrue(proved(m, base, out).ok)
+        out['docs/b.md'] += b'\n[l]: docs/guide.md\n'
+        self.assertEqual(
+            [(f.path, f.kind) for f in proved(m, base, out).findings],
+            [('docs/b.md', 'duplicated')],
         )
 
     def test_a_copied_definition_the_destination_never_uses_fails(self):
@@ -1929,6 +1947,85 @@ class ProveTests(unittest.TestCase):
         out[RUST_MD] = None
         proof = proved(m, base, out)
         self.assertEqual(kinds(proof, RUST_MD), [('absent', 0)])
+
+    def test_a_link_rebased_to_the_wrong_one_of_two_same_named_headings_fails(self):
+        m, base, out = self.sample()
+        out[RUST_MD] = out[RUST_MD].replace(
+            b'typed-evidence.md#notes', b'testing-notes.md#notes'
+        )
+        proof = proved(m, base, out)
+        self.assertEqual(
+            [(f.path, f.kind) for f in proof.findings], [(RUST_MD, 'link')]
+        )
+        self.assertIn(
+            'is expected to land on docs/standards/typed-evidence.md#notes',
+            proof.findings[0].message,
+        )
+
+    def test_a_link_to_a_heading_that_is_not_there_fails(self):
+        m, base, out = self.sample()
+        out[RUST_MD] = out[RUST_MD].replace(
+            b'typed-evidence.md#notes', b'typed-evidence.md#nowhere'
+        )
+        proof = proved(m, base, out)
+        self.assertEqual(
+            [(f.path, f.kind) for f in proof.findings], [(RUST_MD, 'link')]
+        )
+
+    def test_a_fragment_between_two_moved_sections_passes(self):
+        m, base, out = self.sample()
+        self.assertIn(b'[Notes](typed-evidence.md#notes)', out[RUST_MD])
+        self.assertTrue(proved(m, base, out).ok)
+
+    def test_a_pointer_to_the_wrong_heading_of_the_right_file_fails(self):
+        m, base, out = self.sample()
+        out['STANDARDS.md'] = out['STANDARDS.md'].replace(
+            b'rust.md#rust-engine', b'rust.md#rust-notes', 1
+        )
+        proof = proved(m, base, out)
+        self.assertEqual([f.kind for f in proof.findings], ['link'])
+        self.assertIn('points at #rust-notes', proof.findings[0].message)
+
+    def test_a_kept_reference_in_a_file_the_migration_does_not_write_still_resolves(
+        self,
+    ):
+        m, base, out = self.sample()
+        base = base | {
+            'docs/adr/0007-standards.md': (
+                fixtures / 'repo/docs/adr/0007-standards.md'
+            ).read_bytes(),
+            'docs/guide.md': (fixtures / 'repo/docs/guide.md').read_bytes(),
+        }
+        proof = proved(m, base, out)
+        self.assertTrue(proof.ok, proof.findings)
+
+    def test_headings_that_collide_only_through_a_code_span_keep_their_own_links(self):
+        data = (
+            b'# A\n\n## `x` y\n\nbody1\n\n## x y\n\nbody2 see [1](#x-y) and [2](#x-y-1)\n\n'
+            b'## Z\n\nstay see [first](#x-y)\n'
+        )
+        m, base, out = small(
+            data, move(('A', '`x` y'), 'p.md'), move(('A', 'x y'), 'q.md')
+        )
+        self.assertEqual(
+            out['q.md'], b'# x y\n\nbody2 see [1](p.md#x-y) and [2](#x-y)\n\n'
+        )
+        self.assertTrue(proved(m, base, out).ok)
+        out['q.md'] = out['q.md'].replace(b'(p.md#x-y)', b'(#x-y)')
+        proof = proved(m, base, out)
+        self.assertEqual([(f.path, f.kind) for f in proof.findings], [('q.md', 'link')])
+
+    def test_a_reference_broken_at_base_is_listed_and_not_counted(self):
+        data = (
+            b'# A\n\n## B\n\nsee [gone](missing.md) and [there](docs/guide.md#moved)\n'
+        )
+        m, base, out = small(data, move(('A', 'B'), 'docs/b.md'))
+        proof = proved(m, base, out)
+        self.assertTrue(proof.ok, proof.findings)
+        self.assertEqual(
+            [(f.path, f.line, f.message) for f in proof.pre_existing],
+            [('STANDARDS.md', 5, '[gone](missing.md) (broken at base)')],
+        )
 
     def test_a_rewrite_target_must_equal_its_base_with_the_rewrite_applied(self):
         m, base, out = self.sample()

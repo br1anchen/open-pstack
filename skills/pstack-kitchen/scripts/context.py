@@ -22,7 +22,7 @@ import re
 import subprocess
 import tomllib
 from collections.abc import Callable, Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
 from urllib.parse import quote, unquote
@@ -1533,6 +1533,9 @@ class Proof:
     origins: dict[str, list[Origin]]  # every planned output, one origin per line
     blocks: list[Block]
     findings: list[Finding]
+    pre_existing: list[Finding] = field(
+        default_factory=list
+    )  # references already broken at base: listed, not counted
 
     @property
     def ok(self) -> bool:
@@ -1661,6 +1664,15 @@ def walk(
             and slots[k + 1].match(i + 1, lines[i + 1])
         ):
             k += 1  # the line stands where the slot's own line should be
+        i += 1
+    while k >= len(slots) and i < len(lines) and lost:
+        again = next((s for s in lost if s.match(i, lines[i])), None)
+        if again is None:
+            break
+        found.append(
+            Finding(path, i + 1, 'reordered', f'{again.label} was expected earlier')
+        )
+        origins.append(Generated('reordered'))
         i += 1
     if k < len(slots):
         rest = [s for s in slots[k:] if not s.optional]
@@ -1873,6 +1885,7 @@ def tail_origins(
     base_spans: dict[int, list[tuple[int, int]]],
     out_spans: dict[int, list[tuple[int, int]]],
     found: list[Finding],
+    held: Collection[int] = (),
 ) -> list[Origin]:
     """The lines of a destination after its last own line: a blank when the text before is not blank, then the
     reference definitions copied from the source."""
@@ -1910,6 +1923,18 @@ def tail_origins(
                 )
             )
             origins.append(Generated('unexplained'))
+        elif n in held or any(
+            isinstance(o, Copied) and o.line == n + 1 for o in origins
+        ):
+            found.append(
+                Finding(
+                    path,
+                    i + 1,
+                    'duplicated',
+                    f'the definition at {source}:{n + 1} is already in this destination',
+                )
+            )
+            origins.append(Generated('duplicated'))
         else:
             origins.append(Copied(source, n + 1))
     return origins
@@ -2020,12 +2045,240 @@ def rewrite_origins(
     return origins
 
 
+class Tree:
+    """One side of a migration, base or output: the bytes of each file, the references each makes and the heading
+    anchors of each Markdown file, read when first asked for."""
+
+    def __init__(self, data: dict[str, bytes | None], files: Collection[str]):
+        self.data = data
+        self.files = frozenset(files)
+        self.refs_cache: dict[str, dict[int, list[Ref]]] = {}
+        self.anchor_cache: dict[str, dict[int, str] | None] = {}
+
+    def refs(self, path: str) -> dict[int, list[Ref]]:
+        """The references of a file by 0-based line."""
+        if path not in self.refs_cache:
+            found: dict[int, list[Ref]] = {}
+            data = self.data.get(path)
+            if data is not None and scanned(path):
+                for ref in references(path, data, self.files):
+                    found.setdefault(ref.line - 1, []).append(ref)
+            self.refs_cache[path] = found
+        return self.refs_cache[path]
+
+    def heading_anchors(self, path: str) -> dict[int, str] | None:
+        """The anchor of each heading of a Markdown file by line index; None for a file that is not Markdown, is
+        absent or cannot be read."""
+        if path not in self.anchor_cache:
+            data = self.data.get(path)
+            found = None
+            if data is not None and path.endswith(MARKDOWN):
+                try:
+                    found = anchors(read(data, path).sections)
+                except ContextError:
+                    found = None
+            self.anchor_cache[path] = found
+        return self.anchor_cache[path]
+
+    def resolved(self, ref: Ref) -> tuple[str, str] | None:
+        """What a reference names: its file and anchor, when both exist here."""
+        found = resolve(ref, self.files)
+        if found is None:
+            return None
+        known = self.heading_anchors(found[0])
+        if found[1] and known is not None and found[1] not in set(known.values()):
+            return None
+        return found
+
+
+def heading_text(reading: Reading, n: int) -> str:
+    return next((s.plain for s in reading.sections if s.start == n), '')
+
+
+def link_proof(
+    base: Tree,
+    out: Tree,
+    migration: Migration,
+    readings: dict[str, Reading],
+    made: list[Cut],
+    origins: dict[str, list[Origin]],
+    writes: Collection[str],
+) -> tuple[list[Finding], list[Finding]]:
+    """C8's anchors and the references, by (path, anchor): every heading of a source keeps its anchor in its index,
+    every moved heading lands on a heading of its destination, every pointer names that heading, and a reference
+    that resolved at base resolves after to the heading the walk mapped it to (the same place, for text that stays).
+    Heading text appears in messages only. Returns the findings and the references already broken at base."""
+    found: list[Finding] = []
+    broken: list[Finding] = []
+    old: dict[tuple[str, int], str] = {}
+    for source, reading in readings.items():
+        table = base.heading_anchors(source) or {}
+        for s in reading.sections:
+            old[(source, s.start)] = table.get(s.start, '')
+    landed: dict[tuple[str, int], tuple[str, str]] = {}
+    moved: dict[tuple[str, str], tuple[str, str]] = {}
+    for source, reading in readings.items():
+        index = out.heading_anchors(source) or {}
+        for j, o in enumerate(origins.get(source, [])):
+            kept = isinstance(o, Original) or (
+                isinstance(o, Generated) and o.kind == 'kept-heading'
+            )
+            if not kept or o.source != source or (source, o.line - 1) not in old:
+                continue
+            n = o.line - 1
+            if index.get(j) != old[(source, n)]:
+                found.append(
+                    Finding(
+                        source,
+                        j + 1,
+                        'anchor',
+                        f'the heading {heading_text(reading, n)!r} (#{old[(source, n)]}) is #{index.get(j)} in the index',
+                    )
+                )
+    for cut in made:
+        dest = cut.move.to
+        table = out.heading_anchors(dest)
+        for j, o in enumerate(origins.get(dest, [])):
+            if not (isinstance(o, Original) and o.source == cut.move.source):
+                continue
+            key = (o.source, o.line - 1)
+            if key not in old:
+                continue
+            anchor = None if table is None else table.get(j)
+            if anchor is None:
+                found.append(
+                    Finding(
+                        dest,
+                        j + 1,
+                        'anchor',
+                        f'the heading {heading_text(readings[o.source], o.line - 1)!r} of {o.source}:{o.line} is no heading here',
+                    )
+                )
+                continue
+            landed[key] = (dest, anchor)
+            moved[(o.source, old[key])] = (dest, anchor)
+
+    def expected(ref: Ref, mode: str) -> tuple[str, str] | None:
+        here = base.resolved(ref)
+        if here is None:
+            return None
+        return moved.get(here, here) if mode == 'moved' and here[1] else here
+
+    def pair(path: str, j: int, source: str, n: int, mode: str) -> None:
+        was = base.refs(source).get(n, [])
+        now = out.refs(path).get(j, [])
+        if len(was) != len(now):
+            found.append(
+                Finding(
+                    path,
+                    j + 1,
+                    'link',
+                    f'holds {len(now)} references; {source}:{n + 1} holds {len(was)}',
+                )
+            )
+            return
+        for a, b in zip(was, now, strict=True):
+            want = expected(a, mode)
+            if want is None:
+                broken.append(
+                    Finding(
+                        source,
+                        n + 1,
+                        'link',
+                        f'{" ".join(a.raw.split())} (broken at base)',
+                    )
+                )
+                continue
+            got = out.resolved(b)
+            if got != want:
+                found.append(
+                    Finding(
+                        path,
+                        j + 1,
+                        'link',
+                        f'{" ".join(b.raw.split())} resolves to {got and "#".join(x for x in got if x)}; '
+                        f'{" ".join(a.raw.split())} at {source}:{n + 1} is expected to land on {"#".join(x for x in want if x)}',
+                    )
+                )
+
+    for path in sorted(origins):
+        lines = lines_of(out.data[path] or b'')
+        for j, o in enumerate(origins[path]):
+            moved_text = path in {c.move.to for c in made}
+            if isinstance(o, Original):
+                rewritten = 'target' in o.edit.split('+')
+                mode = 'moved' if moved_text or rewritten else 'stay'
+                pair(path, j, o.source, o.line - 1, mode)
+            elif isinstance(o, Copied):
+                pair(path, j, o.source, o.line - 1, 'moved')
+            elif isinstance(o, Generated) and o.kind == 'nested-heading':
+                pair(path, j, o.source, o.line - 1, 'moved')
+            elif isinstance(o, Generated) and o.kind == 'kept-heading':
+                pair(path, j, o.source, o.line - 1, 'stay')
+            elif isinstance(o, Generated) and o.kind == 'pointer':
+                m = POINTER.fullmatch(lines[j])
+                want = landed.get((o.source, o.line - 1))
+                if m is None or want is None:
+                    found.append(
+                        Finding(
+                            path,
+                            j + 1,
+                            'link',
+                            f'a pointer for {o.source}:{o.line}, whose heading landed nowhere',
+                        )
+                    )
+                elif m.group(3).decode() != want[1]:
+                    found.append(
+                        Finding(
+                            path,
+                            j + 1,
+                            'link',
+                            f'points at #{m.group(3).decode()}; {o.source}:{o.line} is #{want[1]} in {want[0]}',
+                        )
+                    )
+            elif isinstance(o, Generated) and o.kind == 'read-first':
+                for ref in out.refs(path).get(j, []):
+                    if out.resolved(ref) is None:
+                        found.append(
+                            Finding(
+                                path, j + 1, 'link', f'{ref.raw} resolves to no file'
+                            )
+                        )
+    for path in sorted(base.data):
+        if path in writes or not scanned(path):
+            continue
+        for n, refs in sorted(base.refs(path).items()):
+            for ref in refs:
+                if base.resolved(ref) is None:
+                    broken.append(
+                        Finding(
+                            path,
+                            n + 1,
+                            'link',
+                            f'{" ".join(ref.raw.split())} (broken at base)',
+                        )
+                    )
+                elif out.resolved(ref) != base.resolved(ref):
+                    found.append(
+                        Finding(
+                            path,
+                            n + 1,
+                            'link',
+                            f'{" ".join(ref.raw.split())} no longer resolves',
+                        )
+                    )
+    return found, broken
+
+
 def prove(
     base_files: dict[str, bytes],
     migration: Migration,
     outputs: dict[str, bytes | None],
+    files: Collection[str] = (),
 ) -> Proof:
-    """Account for every line of every planned output (None for one that is absent) against the base. Pure."""
+    """Account for every line of every planned output (None for one that is absent) against the base: lines, then
+    anchors and references. `files` is every path of the repo at base; the paths of `base_files` and `outputs` are
+    always in it. Pure."""
     sources = sorted({mv.source for mv in migration.moves})
     for path in sources:
         if path not in base_files:
@@ -2068,10 +2321,12 @@ def prove(
                 base_spans[source],
                 spans,
                 found,
+                {o.line - 1 for o in got if isinstance(o, Original)},
             )
         else:
             got += [Generated('unexplained')] * (len(lines) - at)
         origins[path] = got
+        # render adds a final newline only where text follows; D2 would also allow one at the end, this refuses it
         if (
             got
             and isinstance(got[-1], Original)
@@ -2136,6 +2391,12 @@ def prove(
             origins[path] = rewrite_origins(
                 path, base_files[path], out, migration, found
             )
+        else:
+            found.append(
+                Finding(
+                    path, 0, 'rewrite', 'the rewrite target is not among the base files'
+                )
+            )
     for source in sources:
         paths = [source, *(c.move.to for c in made if c.move.source == source)]
         if all(clean.get(p) for p in paths):
@@ -2152,7 +2413,15 @@ def prove(
         )
         for c in made
     ]
-    return Proof(origins, blocks, found)
+    tracked = {*files, *base_files, *(p for p, d in outputs.items() if d is not None)}
+    base_tree = Tree(dict(base_files), {*files, *base_files})
+    out_tree = Tree({**base_files, **outputs}, tracked)
+    if found:  # the anchors and links are read off the origin table, which a failed walk leaves incomplete
+        return Proof(origins, blocks, found)
+    more, broken = link_proof(
+        base_tree, out_tree, migration, readings, made, origins, set(migration.writes)
+    )
+    return Proof(origins, blocks, more, broken)
 
 
 # ---- inventory -------------------------------------------------------------
