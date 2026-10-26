@@ -2093,5 +2093,171 @@ class ProveTests(unittest.TestCase):
         self.assertFalse(proved(m, base, out).ok)
 
 
+OVERLAY = '.agents/playbooks/standards.toml'
+
+
+def overlay_text(*parts, source='STANDARDS.md'):
+    head = 'schema = 1\nid = "standards"\ntitle = "Standards"\nkind = "language"\n'
+    body = ''.join(
+        f'\n[[part]]\nid = "{pid}"\nsource = {{ root = "repo", path = "{source}" }}\n'
+        f'select = "{selector}"\nowners = ["sidekick"]\nreviewed = "{"0" * 12}"\n'
+        for pid, selector in parts
+    )
+    return (head + body).encode()
+
+
+def without_rewrites(m):
+    return dataclasses.replace(
+        m,
+        rewrites=(),
+        writes=tuple(w for w in m.writes if w != '.agents/kitchen.toml'),
+    )
+
+
+class ConsumerTests(unittest.TestCase):
+    def prove_with(self, m, base, consumers):
+        out = context.render(m, base, (), {*FILES, *base})
+        return proved_with(m, base, out, consumers)
+
+    def test_a_kitchen_source_landing_on_an_index_pointer_fails(self):
+        m = without_rewrites(sample_migration())
+        proof = self.prove_with(m, BASE, {'.agents/kitchen.toml': KITCHEN_TOML})
+        self.assertEqual(
+            [(f.path, f.line, f.kind) for f in proof.findings],
+            [('.agents/kitchen.toml', 2, 'consumer')],
+        )
+        self.assertIn(
+            'lands on the pointer STANDARDS.md keeps', proof.findings[0].message
+        )
+
+    def test_the_same_source_passes_when_the_migration_rewrites_it(self):
+        m = sample_migration()
+        proof = self.prove_with(m, BASE, {'.agents/kitchen.toml': KITCHEN_TOML})
+        self.assertTrue(proof.ok, proof.findings)
+        self.assertEqual(
+            [(c.path, c.what, c.ok) for c in proof.consumers],
+            [('.agents/kitchen.toml', 'line 2', True)],
+        )
+
+    def test_an_overlay_with_two_parts_from_one_source_fails_until_it_is_rewritten(
+        self,
+    ):
+        parts = (
+            ('a', 'heading:Typed evidence'),
+            ('b', 'heading:Typed evidence/Notes'),
+        )
+        text = overlay_text(*parts)
+        m = without_rewrites(sample_migration())
+        proof = self.prove_with(m, BASE | {OVERLAY: text}, {OVERLAY: text})
+        self.assertEqual([f.kind for f in proof.findings], ['consumer', 'consumer'])
+        self.assertIn('part a', proof.findings[0].message)
+
+        rewrite = context.Rewrite(
+            OVERLAY, 'STANDARDS.md', 'docs/standards/typed-evidence.md', 2
+        )
+        base = BASE | {OVERLAY: text}
+        done = dataclasses.replace(
+            m,
+            rewrites=(rewrite,),
+            writes=(*m.writes, OVERLAY),
+            files=(*m.files, context.FileEntry(OVERLAY, '0' * 64)),
+        )
+        proof = self.prove_with(done, base, {OVERLAY: text})
+        self.assertTrue(proof.ok, proof.findings)
+        self.assertEqual([c.ok for c in proof.consumers], [True, True])
+        self.assertRegex(
+            proof.consumers[0].detail, r'^reviewed 0{12}, now [0-9a-f]{12}$'
+        )
+
+    def test_an_overlay_part_on_a_staying_section_holds_and_a_nested_stub_fails(self):
+        text = overlay_text(
+            ('style', 'heading:Style'),
+            ('rust', 'heading:Rust (Engine)'),
+            ('none', 'heading:Nowhere'),
+            ('twice', 'heading:Examples'),
+        )
+        m = without_rewrites(sample_migration())
+        proof = self.prove_with(m, BASE, {OVERLAY: text})
+        verdicts = {c.what: c.ok for c in proof.consumers}
+        self.assertEqual(
+            verdicts,
+            {
+                'part style': True,
+                'part rust': False,
+                'part none': False,
+                'part twice': False,
+            },
+        )
+        why = {c.what: c.detail for c in proof.consumers}
+        self.assertIn('no such part', why['part none'])
+        self.assertIn('ambiguous, 2 parts match', why['part twice'])
+
+    def test_a_part_whose_source_is_not_migrated_or_not_in_the_repo_root_is_skipped(
+        self,
+    ):
+        text = overlay_text(('a', 'heading:Typed evidence'), source='docs/guide.md')
+        m = without_rewrites(sample_migration())
+        proof = self.prove_with(m, BASE, {OVERLAY: text})
+        self.assertEqual(proof.consumers, [])
+        skills = text.replace(b'root = "repo"', b'root = "skills"')
+        self.assertEqual(self.prove_with(m, BASE, {OVERLAY: skills}).consumers, [])
+
+
+def proved_with(m, base, outputs, consumers):
+    with contextlib.ExitStack() as stack:
+        for name in ('assemble', 'rebase', 'rewritten', 'render', 'anchor_map'):
+            stack.enter_context(mock.patch.object(context, name, boom))
+        return context.prove(base, m, outputs, FILES, consumers)
+
+
+class CheckTests(unittest.TestCase):
+    def applied_repo(self):
+        repo, text = fixture_repo(self)
+        mig = repo / 'migration.toml'
+        mig.write_text(text)
+        m = context.parse_migration(text)
+        for path, data in context.render(
+            m,
+            context.read_base(repo, m),
+            context.base_files_at(repo, m, {x.to for x in m.moves}),
+            context.repo_files(repo, m),
+        ).items():
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_bytes(data)
+        return repo, mig
+
+    def test_a_tree_holding_the_rendered_outputs_checks_clean(self):
+        repo, mig = self.applied_repo()
+        proof = context.check(repo, mig)
+        self.assertTrue(proof.ok, proof.findings)
+
+    def test_an_overlay_edited_in_the_working_tree_after_the_apply_is_read_from_there(
+        self,
+    ):
+        repo, mig = self.applied_repo()
+        (repo / '.agents/playbooks').mkdir()
+        overlay = repo / OVERLAY
+        overlay.write_bytes(overlay_text(('a', 'heading:Typed evidence')))
+        proof = context.check(repo, mig)
+        self.assertEqual([f.kind for f in proof.findings], ['consumer'])
+        overlay.write_bytes(
+            overlay_text(
+                ('a', 'heading:Typed evidence'),
+                source='docs/standards/typed-evidence.md',
+            )
+        )
+        proof = context.check(repo, mig)
+        self.assertTrue(proof.ok, proof.findings)
+        self.assertEqual([c.ok for c in proof.consumers if c.path == OVERLAY], [True])
+
+    def test_a_deleted_line_of_a_destination_fails_naming_it(self):
+        repo, mig = self.applied_repo()
+        dest = repo / 'docs/standards/testing-notes.md'
+        dest.write_bytes(dest.read_bytes().replace(b'Notes on testing.\n', b''))
+        proof = context.check(repo, mig)
+        self.assertFalse(proof.ok)
+        self.assertEqual(proof.findings[0].path, 'docs/standards/testing-notes.md')
+
+
 if __name__ == '__main__':
     unittest.main()

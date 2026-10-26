@@ -1528,6 +1528,19 @@ class Block:
     lines: int  # the destination's line count, 0 when it is absent
 
 
+@dataclass(frozen=True)
+class Consumer:
+    """A file outside the move that names a migrated one: a kitchen.toml reference or an overlay part. `ok` is
+    whether what it names is still the content; `detail` is the failure or, for an overlay part, the `reviewed`
+    digest it had and the one its selection has now."""
+
+    path: str
+    what: str
+    target: str
+    ok: bool
+    detail: str
+
+
 @dataclass
 class Proof:
     origins: dict[str, list[Origin]]  # every planned output, one origin per line
@@ -1536,6 +1549,7 @@ class Proof:
     pre_existing: list[Finding] = field(
         default_factory=list
     )  # references already broken at base: listed, not counted
+    consumers: list[Consumer] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -2102,8 +2116,8 @@ def link_proof(
     readings: dict[str, Reading],
     made: list[Cut],
     origins: dict[str, list[Origin]],
-    writes: Collection[str],
-) -> tuple[list[Finding], list[Finding]]:
+    skip: Collection[str],
+) -> tuple[list[Finding], list[Finding], dict[tuple[str, str], tuple[str, str]]]:
     """C8's anchors and the references, by (path, anchor): every heading of a source keeps its anchor in its index,
     every moved heading lands on a heading of its destination, every pointer names that heading, and a reference
     that resolved at base resolves after to the heading the walk mapped it to (the same place, for text that stays).
@@ -2162,7 +2176,9 @@ def link_proof(
         here = base.resolved(ref)
         if here is None:
             return None
-        return moved.get(here, here) if mode == 'moved' and here[1] else here
+        if mode == 'rewrite' and not here[1]:
+            return here  # the file a rewrite names without a heading is the author's to choose
+        return moved.get(here, here) if mode != 'stay' and here[1] else here
 
     def pair(path: str, j: int, source: str, n: int, mode: str) -> None:
         was = base.refs(source).get(n, [])
@@ -2190,6 +2206,8 @@ def link_proof(
                 )
                 continue
             got = out.resolved(b)
+            if mode == 'rewrite' and not want[1]:
+                want = got if got is not None else want
             if got != want:
                 found.append(
                     Finding(
@@ -2207,7 +2225,7 @@ def link_proof(
             moved_text = path in {c.move.to for c in made}
             if isinstance(o, Original):
                 rewritten = 'target' in o.edit.split('+')
-                mode = 'moved' if moved_text or rewritten else 'stay'
+                mode = 'moved' if moved_text else 'rewrite' if rewritten else 'stay'
                 pair(path, j, o.source, o.line - 1, mode)
             elif isinstance(o, Copied):
                 pair(path, j, o.source, o.line - 1, 'moved')
@@ -2245,7 +2263,7 @@ def link_proof(
                             )
                         )
     for path in sorted(base.data):
-        if path in writes or not scanned(path):
+        if path in skip or not scanned(path):
             continue
         for n, refs in sorted(base.refs(path).items()):
             for ref in refs:
@@ -2267,7 +2285,95 @@ def link_proof(
                             f'{" ".join(ref.raw.split())} no longer resolves',
                         )
                     )
-    return found, broken
+    return found, broken, moved
+
+
+STUBS = ('kept-heading', 'nested-heading')
+KITCHEN_TOML = '.agents/kitchen.toml'
+OVERLAYS = '.agents/playbooks/'
+
+
+def consumer_proof(
+    out: Tree,
+    consumers: Collection[str],
+    origins: dict[str, list[Origin]],
+    moved: dict[tuple[str, str], tuple[str, str]],
+) -> tuple[list[Finding], list[Consumer]]:
+    """C10: what the repo's own configuration names must still be the content. A kitchen.toml reference to a moved
+    heading by its old anchor lands on the index pointer. An overlay part with a repo-root source that is a migrated
+    file resolves with the playbooks' `select` on the output: selected in a destination or a staying section it
+    holds, selected on a heading an index or a parent only points from, or on none or several, it fails. Each part
+    that holds prints the digest its selection has now beside the one it was reviewed at."""
+    pb = playbooks_module()
+    found: list[Finding] = []
+    seen: list[Consumer] = []
+
+    def fail(path: str, line: int, what: str, target: str, why: str) -> None:
+        found.append(Finding(path, line, 'consumer', f'{what}: {why}'))
+        seen.append(Consumer(path, what, target, False, why))
+
+    for path in sorted(consumers):
+        if path == KITCHEN_TOML:
+            for n, refs in sorted(out.refs(path).items()):
+                for ref in refs:
+                    hit = resolve(ref, out.files)
+                    if hit is None or hit[0] not in origins:
+                        continue
+                    what = f'line {n + 1}'
+                    if hit in moved:
+                        fail(
+                            path,
+                            n + 1,
+                            what,
+                            written_target(ref),
+                            f'{written_target(ref)} lands on the pointer {hit[0]} keeps for a section that moved to {moved[hit][0]}',
+                        )
+                    else:
+                        seen.append(Consumer(path, what, written_target(ref), True, ''))
+        elif path.startswith(OVERLAYS) and path.endswith('.toml'):
+            try:
+                data = tomllib.loads((out.data.get(path) or b'').decode())
+            except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+                fail(path, 0, 'overlay', '', f'cannot read it: {e}')
+                continue
+            for part in data.get('part', []):
+                source = part.get('source')
+                target = source.get('path') if isinstance(source, dict) else None
+                if (
+                    not isinstance(source, dict)
+                    or source.get('root') != 'repo'
+                    or target not in origins
+                ):
+                    continue
+                what = f'part {part.get("id")}'
+                selector = str(part.get('select'))
+                try:
+                    doc = pb.parse((out.data.get(target) or b'').decode())
+                    (start, end) = pb.select(doc, selector)[0]
+                except pb.PlaybookError as e:
+                    fail(path, 0, what, f'{target} {selector}', str(e))
+                    continue
+                at = origins[target][start] if start < len(origins[target]) else None
+                if isinstance(at, Generated) and at.kind in STUBS:
+                    fail(
+                        path,
+                        0,
+                        what,
+                        f'{target} {selector}',
+                        f'{selector} selects a heading of {target} that only points to where its section moved',
+                    )
+                    continue
+                now = pb.digest(pb.text_of(doc, [(start, end)]))
+                seen.append(
+                    Consumer(
+                        path,
+                        what,
+                        f'{target} {selector}',
+                        True,
+                        f'reviewed {part.get("reviewed")}, now {now}',
+                    )
+                )
+    return found, seen
 
 
 def prove(
@@ -2275,10 +2381,13 @@ def prove(
     migration: Migration,
     outputs: dict[str, bytes | None],
     files: Collection[str] = (),
+    consumers: dict[str, bytes] | None = None,
 ) -> Proof:
     """Account for every line of every planned output (None for one that is absent) against the base: lines, then
-    anchors and references. `files` is every path of the repo at base; the paths of `base_files` and `outputs` are
-    always in it. Pure."""
+    anchors and references, then C10's consumers. `files` is every path of the repo at base; the paths of
+    `base_files` and `outputs` are always in it. `consumers` holds the bytes of the kitchen.toml and overlays to
+    judge (the working tree's for `check`, the base's for apply's proof in memory); a consumer the migration writes
+    is judged as the output. Pure."""
     sources = sorted({mv.source for mv in migration.moves})
     for path in sources:
         if path not in base_files:
@@ -2415,13 +2524,56 @@ def prove(
     ]
     tracked = {*files, *base_files, *(p for p, d in outputs.items() if d is not None)}
     base_tree = Tree(dict(base_files), {*files, *base_files})
-    out_tree = Tree({**base_files, **outputs}, tracked)
+    judged = {p: d for p, d in (consumers or {}).items() if p not in migration.writes}
+    out_tree = Tree({**base_files, **judged, **outputs}, tracked)
     if found:  # the anchors and links are read off the origin table, which a failed walk leaves incomplete
         return Proof(origins, blocks, found)
-    more, broken = link_proof(
-        base_tree, out_tree, migration, readings, made, origins, set(migration.writes)
+    more, broken, moved = link_proof(
+        base_tree,
+        out_tree,
+        migration,
+        readings,
+        made,
+        origins,
+        {*migration.writes, *judged},
     )
-    return Proof(origins, blocks, more, broken)
+    named = [p for p in (consumers or {}) if p in migration.writes or p in judged]
+    held, seen = consumer_proof(out_tree, named, origins, moved)
+    return Proof(origins, blocks, more + held, broken, seen)
+
+
+def working_bytes(repo: Path, path: str) -> bytes | None:
+    """The bytes of a file in the working tree, None when it is absent."""
+    try:
+        return (repo / path).read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def consumer_paths(repo: Path) -> list[str]:
+    """The repo's kitchen.toml and overlays that exist in the working tree."""
+    found = [KITCHEN_TOML] if (repo / KITCHEN_TOML).is_file() else []
+    folder = repo / OVERLAYS
+    if folder.is_dir():
+        found += [f'{OVERLAYS}{p.name}' for p in sorted(folder.glob('*.toml'))]
+    return found
+
+
+def check(repo: Path, migration_path: Path) -> Proof:
+    """`prove` over the working tree: each planned path as it is on disk, the kitchen.toml and overlays as they are
+    on disk, every other file as it was at the migration's base. Reads; writes nothing."""
+    migration = load(migration_path)
+    commit = resolve_base(repo, migration)
+    files = repo_files(repo, migration)
+    declared = [f.path for f in migration.files]
+    base = read_scanned(repo, commit, files, declared) | read_base(repo, migration)
+    outputs = {p: working_bytes(repo, p) for p in migration.writes}
+    consumers = {
+        p: data
+        for p in consumer_paths(repo)
+        if (data := working_bytes(repo, p)) is not None
+    }
+    return prove(base, migration, outputs, files, consumers)
 
 
 # ---- inventory -------------------------------------------------------------
