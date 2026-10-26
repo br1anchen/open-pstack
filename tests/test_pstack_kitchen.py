@@ -5318,6 +5318,10 @@ esac
         (self.fake / 'report-after').write_text(
             f'3 {self.store / "reports" / b.name} partial\n'
         )
+        # The clock stands still, so the report on the third poll ends the wait however slow the host is, never --max.
+        clock = self.fake / 'now'
+        clock.write_text('1000\n')
+        self.env['KITCHEN_QUIET_CLOCK'] = str(clock)
         before = self.wakes()
         self.assertIn(
             'report_status: partial',
