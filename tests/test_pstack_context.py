@@ -3458,7 +3458,7 @@ class ReferencePageTests(unittest.TestCase):
             timeout=60,
             check=True,
         )
-        (choices,) = re.findall(r'\{([a-z,-]+)\}', done.stdout)
+        (choices,) = set(re.findall(r'\{([a-z,-]+)\}', done.stdout))
         named = set(re.findall(r'kitchen\.py context ([a-z-]+)', self.PAGE.read_text()))
         self.assertEqual(named, set(choices.split(',')))
 
