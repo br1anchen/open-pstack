@@ -2765,6 +2765,24 @@ class CheckCommandTests(unittest.TestCase):
             'failed: 1 findings\n',
         )
 
+    def test_a_broken_link_after_a_clean_walk_prints_the_consumers_judged(self):
+        repo, mig = applied_repo(self, {OVERLAY: overlay_text(('a', 'heading:Style'))})
+        rust = repo / 'docs/standards/rust.md'
+        rust.write_bytes(
+            rust.read_bytes().replace(
+                b'typed-evidence.md#notes', b'typed-evidence.md#nowhere'
+            )
+        )
+        done = check_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn(': link: ', done.stdout)
+        self.assertNotIn('not judged', done.stdout)
+        self.assertIn(
+            'consumer .agents/kitchen.toml line 2: docs/standards/typed-evidence.md#typed-evidence: ok',
+            done.stdout,
+        )
+        self.assertIn('consumer .agents/playbooks/standards.toml part a:', done.stdout)
+
     def test_a_stray_line_in_the_index_shows_on_the_block_it_sits_beside(self):
         repo, mig = applied_repo(self)
         index = repo / 'STANDARDS.md'

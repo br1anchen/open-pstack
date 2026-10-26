@@ -4192,10 +4192,9 @@ def context_check_text(base: str, proof) -> str:
             if f.line
             else f'{f.path}: {f.kind}: {f.message}'
         )
-    accounted = all(f.kind == 'consumer' for f in proof.findings)
     unjudged = set()
     for c in proof.consumers:
-        if c.ok and not accounted:
+        if c.ok and not proof.walked:
             if c.path not in unjudged:
                 unjudged.add(c.path)
                 out.append(f'consumer {c.path}: not judged (line accounting failed)')

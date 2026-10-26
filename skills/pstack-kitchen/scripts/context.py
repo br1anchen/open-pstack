@@ -1557,6 +1557,7 @@ class Proof:
         default_factory=list
     )  # references already broken at base: listed, not counted
     consumers: list[Consumer] = field(default_factory=list)
+    walked: bool = True  # False when the line walk recorded a finding: the origin table is incomplete
 
     @property
     def ok(self) -> bool:
@@ -2710,7 +2711,7 @@ def prove(
     named = [p for p in (consumers or {}) if p in migration.writes or p in judged]
     held, seen, gone = consumer_proof(base_tree, out_tree, named, origins, moved)
     if found:  # the origin table a failed walk leaves is incomplete: its links are not trusted and the consumers it judged are shown as not judged; their findings count
-        return Proof(origins, blocks, found + held, [], seen)
+        return Proof(origins, blocks, found + held, [], seen, walked=False)
     return Proof(origins, blocks, more + held, broken + gone, seen)
 
 
