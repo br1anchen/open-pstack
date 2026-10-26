@@ -2664,11 +2664,12 @@ if __name__ == '__main__':
     unittest.main()
 
 
-def apply_run(repo, mig, *extra, env=None):
+def apply_run(repo, mig, *extra, env=None, umask=None):
     return subprocess.run(
         [sys.executable, str(KITCHEN), 'context', 'apply', str(mig), *extra],
         cwd=repo,
         env=GIT_ENV | (env or {}),
+        preexec_fn=None if umask is None else (lambda: os.umask(umask)),
         capture_output=True,
         text=True,
         check=False,
@@ -2780,3 +2781,53 @@ class ApplyTests(unittest.TestCase):
 
 def failing_proof():
     return context.Proof({}, [], [context.Finding('x.md', 1, 'dropped', 'gone')])
+
+
+STOP = {'KITCHEN_CONTEXT_STOP_AFTER': '1'}
+
+
+def counts(repo, mig):
+    found = [s for _, s in context.states(repo, context.load(mig))]
+    return {s: found.count(s) for s in context.STATES}
+
+
+class ApplyRecoveryTests(unittest.TestCase):
+    def test_a_stop_leaves_every_file_at_an_image_and_each_rerun_goes_on(self):
+        repo, mig = fixture_migration(self)
+        total = len(sample_migration().writes)
+        first = apply_run(repo, mig, env=STOP)
+        self.assertEqual(first.returncode, 1)
+        self.assertIn('stopped after 1 writes', first.stderr)
+        self.assertEqual(counts(repo, mig), {'pre': total - 1, 'post': 1, 'foreign': 0})
+        half = check_run(repo, mig)
+        self.assertEqual(half.returncode, 1)
+        self.assertIn(
+            f'{total - 1} of {total} planned files at pre-image, 1 at post-image, 0 foreign',
+            half.stdout,
+        )
+        second = apply_run(repo, mig, env=STOP)
+        self.assertEqual(second.returncode, 1)
+        self.assertEqual(counts(repo, mig), {'pre': total - 2, 'post': 2, 'foreign': 0})
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.count('wrote: '), total - 2)
+        checked = check_run(repo, mig)
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+    def test_an_existing_file_keeps_its_mode_and_a_new_one_gets_the_umask_default(self):
+        repo, mig = fixture_migration(self)
+        (repo / 'STANDARDS.md').chmod(0o755)
+        done = apply_run(repo, mig, umask=0o027)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        mode = lambda p: (repo / p).stat().st_mode & 0o777  # noqa: E731
+        self.assertEqual(mode('STANDARDS.md'), 0o755)
+        self.assertEqual(mode('docs/standards/rust.md'), 0o640)
+        self.assertEqual(mode('.agents/kitchen.toml'), 0o644)
+
+    def test_no_temp_file_is_left_beside_the_written_ones(self):
+        repo, mig = fixture_migration(self)
+        before = set(tree_of(repo))
+        self.assertEqual(apply_run(repo, mig).returncode, 0)
+        self.assertEqual(
+            set(tree_of(repo)) - before, set(sample_migration().writes) - before
+        )
