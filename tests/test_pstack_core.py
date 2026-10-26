@@ -1375,6 +1375,79 @@ class CoreTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         return top
 
+    def probe(self):
+        """A process named `sleep` that holds PSTACK_PS_PROBE in its environment: a link to this interpreter, since macOS hides the
+        environment of its own system programs. Returned once it has started."""
+        link = self.path / 'probe' / 'sleep'
+        link.parent.mkdir()
+        link.symlink_to(sys.executable)
+        proc = subprocess.Popen(  # bounded: killed by addCleanup
+            [
+                str(link),
+                '-c',
+                'import time; print("up", flush=True); time.sleep(60)',
+            ],
+            env={**os.environ, 'PSTACK_PS_PROBE': '1'},
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(
+            lambda: (proc.kill(), proc.wait(timeout=30), proc.stdout.close())
+        )
+        self.assertEqual(proc.stdout.readline(), 'up\n')
+        return proc
+
+    def test_procinfo_ps_reads_this_process_as_the_kernel_facts_say(self):
+        me = procinfo.read_ps(os.getpid())
+        self.assertEqual(
+            (me.pid, me.ppid, me.uid, me.comm, me.args),
+            (
+                os.getpid(),
+                os.getppid(),
+                os.getuid(),
+                os.path.basename(sys.orig_argv[0])[:15],
+                ' '.join(sys.orig_argv),
+            ),
+        )
+        self.assertLess(me.elapsed, 600)
+        if os.path.isdir('/proc'):
+            files = procinfo.read(os.getpid(), '/proc')
+            self.assertEqual(
+                (me.pid, me.ppid, me.uid, me.comm, me.args),
+                (files.pid, files.ppid, files.uid, files.comm, files.args),
+            )
+            self.assertLessEqual(abs(me.elapsed - files.elapsed), 2)
+
+    def test_procinfo_ps_lists_the_users_processes_and_reads_a_probes_environment(self):
+        probe = self.probe()
+        mine = {p.pid: p for p in procinfo.of_user_ps(os.getuid())}
+        self.assertIn(os.getpid(), mine)
+        self.assertEqual(mine[probe.pid].comm, 'sleep')
+        self.assertEqual(mine[probe.pid].ppid, os.getpid())
+        self.assertTrue(all(p.uid == os.getuid() for p in mine.values()))
+        self.assertIn('PSTACK_PS_PROBE=1', procinfo.environ_ps(probe.pid))
+        if os.path.isdir('/proc'):
+            self.assertIn('PSTACK_PS_PROBE=1', procinfo.environ(probe.pid, '/proc'))
+            files = {p.pid for p in procinfo.of_user(os.getuid(), '/proc')}
+            self.assertLessEqual({os.getpid(), probe.pid}, files)
+
+    def test_procinfo_ps_gives_none_for_a_process_that_is_not_there(self):
+        gone = subprocess.Popen(
+            [sys.executable, '-c', 'pass']
+        )  # bounded: exits at once
+        gone.wait(timeout=60)
+        self.assertIsNone(procinfo.read_ps(gone.pid))
+        self.assertIsNone(procinfo.environ_ps(gone.pid))
+
+    def test_procinfo_reads_through_ps_only_on_macos_with_the_default_root(self):
+        self.assertEqual(procinfo.ps_host('/proc'), sys.platform == 'darwin')
+        self.assertFalse(procinfo.ps_host(str(self.path / 'tree')))
+        self.assertTrue(procinfo.readable(str(self.path)))
+        self.assertEqual(
+            procinfo.readable('/proc'),
+            os.path.isdir('/proc') or sys.platform == 'darwin',
+        )
+
     def test_procinfo_alive_is_true_only_for_a_running_process(self):
         self.assertTrue(procinfo.alive(str(os.getpid())))
         for pid in ('99999999', '10' * 30, '0', '1', '-1', 'x', '', None):

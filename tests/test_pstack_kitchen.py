@@ -9375,8 +9375,12 @@ esac
         (self.fake / 'agents' / verifier['name']).write_text('idle pi\n')
         out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', code=4)
         self.assertRegex(out, r'verifier idle\n')
+        # a link to this interpreter named sleep: macOS hides the environment of its own sleep
+        sleeper = self.repo.parent / 'bin' / 'sleep'
+        sleeper.parent.mkdir()
+        sleeper.symlink_to(sys.executable)
         proc = subprocess.Popen(  # bounded: killed by addCleanup
-            ['sleep', '30'],
+            [str(sleeper), '-c', 'import time; time.sleep(30)'],
             cwd=self.repo,
             env={**self.env, 'HERDR_PANE_ID': verifier['pane_id']},
         )

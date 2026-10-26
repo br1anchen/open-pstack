@@ -1,4 +1,12 @@
 #!/bin/sh
 # The process table a test sets: $FAKE/ps holds the lines ps would print for
-# `-A -o pid=,ppid=,etime=,comm=`. A test never reads the host's processes.
-cat "$FAKE/ps" 2>/dev/null
+# `-A -o pid=,ppid=,etime=,comm=`. Any other call reaches the host's ps, which
+# is how procinfo reads processes on a host without /proc.
+if [ "$*" = '-A -o pid=,ppid=,etime=,comm=' ]; then
+    cat "$FAKE/ps" 2>/dev/null
+    exit 0
+fi
+here=$(cd "$(dirname "$0")" && pwd)
+PATH=$(printf %s "$PATH" | tr ':' '\n' | grep -vxF "$here" | paste -sd: -)
+export PATH
+exec ps "$@"

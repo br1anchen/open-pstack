@@ -133,14 +133,14 @@ def tree_candidates(pane):
 
 def busy_command(pane, since, now, env=None):
     """The longest-running process of the pane that started since the dispatch, preferring a command over the shell that runs it, as
-    "<command> for Nm"; or ''. The pane's processes are read from /proc, or, where there is none (macOS) or PAIR_PROC_TREE=1 says so,
+    "<command> for Nm"; or ''. The pane's processes are read through procinfo (/proc, or ps on macOS), or, where neither exists or PAIR_PROC_TREE=1 says so,
     from the agent's process tree; PAIR_PROC_TREE=0 never reads the tree."""
     env = os.environ if env is None else env
     root = procinfo.proc_root()
     knob = env.get('PAIR_PROC_TREE', '')
     if not pane:
         return ''
-    if knob == '1' or not os.path.isdir(root):
+    if knob == '1' or not procinfo.readable(root):
         found = tree_candidates(pane) if knob != '0' else []
     else:
         found = proc_candidates(pane, root, env, since, now)

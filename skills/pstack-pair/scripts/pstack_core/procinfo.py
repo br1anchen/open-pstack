@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 
 
@@ -19,10 +20,46 @@ class Proc:
         return ' '.join(self.argv)
 
 
+PS_TIMEOUT_S = 10
+DEFAULT_ROOT = '/proc'
+
+
 def proc_root():
     """Where processes are read from: /proc, or the tree PAIR_PROC_ROOT names (tests build one). The one reader of the variable: a caller asks
     once and passes the answer on."""
-    return os.environ.get('PAIR_PROC_ROOT') or '/proc'
+    return os.environ.get('PAIR_PROC_ROOT') or DEFAULT_ROOT
+
+
+def ps_host(root):
+    """Whether processes at `root` are read through `ps`: macOS has no /proc, so the default root means ps there. A tree PAIR_PROC_ROOT
+    names is always read as files."""
+    return sys.platform == 'darwin' and root == DEFAULT_ROOT
+
+
+def readable(root):
+    """Whether there are processes to read at `root`: a /proc tree, or ps."""
+    return os.path.isdir(root) or ps_host(root)
+
+
+def _ps(*args):
+    """What `ps` prints for `args` as text, or None when it cannot run, times out or fails."""
+    try:
+        done = subprocess.run(
+            ['ps', *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+            timeout=PS_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def _comm(path):
+    """The kernel's name for a program from the path ps shows: its base name, cut at 15 characters."""
+    return path.rsplit('/', 1)[-1][:15]
 
 
 def _text(path):
@@ -32,6 +69,8 @@ def _text(path):
 
 def read(pid, root):
     """The process with this pid, or None when it is not there or vanishes while it is read."""
+    if ps_host(root):
+        return read_ps(pid)
     base = f'{root}/{pid}'
     try:
         stat = _text(f'{base}/stat')
@@ -83,8 +122,71 @@ def alive(pid):
     return True
 
 
+def read_ps(pid):
+    """`read` through ps: the same fields, argv as ps shows the command line (split at single spaces, which `args` joins back)."""
+    row = _ps('-ww', '-o', 'ppid=,uid=,etime=,comm=', '-p', str(pid))
+    args = _ps('-ww', '-o', 'args=', '-p', str(pid))
+    if not row or args is None:
+        return None
+    fields = row.strip().split(None, 3)
+    if len(fields) < 4 or not (fields[0] + fields[1]).isdigit():
+        return None
+    elapsed = etime_seconds(fields[2])
+    if elapsed is None:
+        return None
+    text = args.rstrip('\n')
+    return Proc(
+        pid,
+        int(fields[0]),
+        int(fields[1]),
+        _comm(fields[3]),
+        tuple(text.split(' ')) if text else (),
+        elapsed,
+    )
+
+
+def of_user_ps(uid):
+    """`of_user` through ps: two listings merged by pid, so a process that starts or ends between them is left out."""
+    rows = _ps('-A', '-ww', '-o', 'pid=,ppid=,uid=,etime=,comm=')
+    args = _ps('-A', '-ww', '-o', 'pid=,args=')
+    if rows is None or args is None:
+        return []
+    argv = {}
+    for line in args.splitlines():
+        pid, _, text = line.strip().partition(' ')
+        if pid.isdigit():
+            argv[int(pid)] = tuple(text.split(' ')) if text else ()
+    found = []
+    for line in rows.splitlines():
+        fields = line.split(None, 4)
+        if len(fields) < 5 or not (fields[0] + fields[1] + fields[2]).isdigit():
+            continue
+        pid, elapsed = int(fields[0]), etime_seconds(fields[3])
+        if int(fields[2]) == uid and elapsed is not None and pid in argv:
+            found.append(
+                Proc(pid, int(fields[1]), uid, _comm(fields[4]), argv[pid], elapsed)
+            )
+    return found
+
+
+def environ_ps(pid):
+    """`environ` through ps: `ps eww` prints the command line and then the environment, space separated, so a value holding a space
+    splits into more than one entry. None when ps shows no environment (a restricted system program, another user's process)."""
+    shown = _ps('eww', '-o', 'command=', '-p', str(pid))
+    args = _ps('-ww', '-o', 'args=', '-p', str(pid))
+    if shown is None or args is None:
+        return None
+    command = args.rstrip('\n')
+    text = shown.rstrip('\n')
+    if not text.startswith(command) or text == command:
+        return None
+    return text[len(command) :].split(' ')[1:]
+
+
 def of_user(uid, root):
     """Every process the user runs, as read now; a process that is gone before it is read is left out."""
+    if ps_host(root):
+        return of_user_ps(uid)
     try:
         names = os.listdir(root)
     except OSError:
@@ -95,6 +197,8 @@ def of_user(uid, root):
 
 def environ(pid, root):
     """The process's environment as KEY=value lines, or None when it cannot be read."""
+    if ps_host(root):
+        return environ_ps(pid)
     try:
         return _text(f'{root}/{pid}/environ').replace('\0', '\n').split('\n')
     except OSError:
