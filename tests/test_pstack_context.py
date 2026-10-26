@@ -3172,6 +3172,34 @@ class CommandOutputTests(unittest.TestCase):
         )
 
 
+class ApplySymlinkTests(unittest.TestCase):
+    def test_a_symlinked_destination_parent_refuses_and_changes_nothing(self):
+        repo, mig = fixture_migration(self)
+        outside = repo.parent / 'outside'
+        outside.mkdir()
+        (repo / 'docs/standards').symlink_to(outside)
+        before = tree_of(repo)
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('symlink: docs/standards/typed-evidence.md', done.stderr)
+        self.assertIn('docs/standards is a symbolic link', done.stderr)
+        self.assertIn('nothing written', done.stderr)
+        self.assertEqual(tree_of(repo), before)
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_a_symlinked_planned_file_refuses_and_keeps_the_link(self):
+        repo, mig = fixture_migration(self)
+        real = repo / 'real-standards.md'
+        real.write_bytes((repo / 'STANDARDS.md').read_bytes())
+        (repo / 'STANDARDS.md').unlink()
+        (repo / 'STANDARDS.md').symlink_to(real)
+        done = apply_run(repo, mig)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('symlink: STANDARDS.md', done.stderr)
+        self.assertTrue((repo / 'STANDARDS.md').is_symlink())
+        self.assertEqual(list((repo / 'docs').glob('standards')), [])
+
+
 class ApplyConsumerTests(unittest.TestCase):
     def overlay_in_tree(self, selector):
         repo, mig = fixture_migration(self)

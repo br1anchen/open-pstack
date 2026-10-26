@@ -3136,6 +3136,19 @@ def refusal(proof: Proof) -> str:
     )
 
 
+def symlinked(repo: Path, path: str) -> str | None:
+    """The first component of `path`, from the repo down, that is a symlink; None when none is (or none exists)."""
+    here = repo
+    walked = Path()
+    for part in Path(path).parts:
+        here, walked = here / part, walked / part
+        if here.is_symlink():
+            return str(walked)
+        if not here.exists():
+            return None
+    return None
+
+
 def write_file(repo: Path, w: Write) -> None:
     """Write one planned file beside itself and move it into place; an existing file keeps its mode, a new one gets
     the umask default."""
@@ -3190,6 +3203,12 @@ def apply(
     todo = [w for w, state in where if state == 'pre']
     if not todo:
         return ApplyResult((), local)
+    linked = [(w.path, link) for w in todo if (link := symlinked(repo, w.path))]
+    if linked:
+        raise ApplyRefused(
+            '\n'.join(f'symlink: {p}: {link} is a symbolic link' for p, link in linked)
+            + '\nnothing written; replace each link with the file or directory it points to'
+        )
     proof = proof_at_base(repo, migration, planned)
     if not proof.ok:
         raise ApplyRefused(
