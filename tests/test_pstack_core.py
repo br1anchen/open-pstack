@@ -1659,6 +1659,15 @@ class CoreTests(unittest.TestCase):
         procinfo.end_when_parent_exits(1, lambda pid, sig: sent.append((pid, sig)))
         self.assertEqual(sent, [(os.getpid(), signal.SIGTERM)])
 
+    @unittest.skipIf(sys.platform == 'darwin', 'the kqueue watch is the macOS path')
+    def test_a_live_parent_watch_is_refused_off_macos(self):
+        sent = []
+        with self.assertRaisesRegex(AssertionError, 'macOS only'):
+            procinfo.end_when_parent_exits(
+                os.getpid(), lambda pid, sig: sent.append((pid, sig))
+            )
+        self.assertEqual(sent, [])
+
     def test_a_ps_host_adds_the_process_tree_to_the_processes_whose_environment_ps_shows(
         self,
     ):

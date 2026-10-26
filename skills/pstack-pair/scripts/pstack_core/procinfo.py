@@ -297,6 +297,7 @@ def end_when_parent_exits(parent=None, kill=os.kill):
     if parent == 1:
         kill(os.getpid(), signal.SIGTERM)
         return
+    assert sys.platform == 'darwin', 'a kqueue watch of the parent is macOS only'
     queue = select.kqueue()
     watch = select.kevent(
         parent,
