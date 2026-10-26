@@ -3245,8 +3245,9 @@ class CommandOutputTests(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         got = json.loads(done.stdout)
         self.assertEqual(got['written'], ['STANDARDS.md'])
-        self.assertTrue(got['refused'])
-        self.assertIn('stopped after 1 writes', got['message'])
+        self.assertIs(got['ok'], False)
+        self.assertEqual(got['exit'], 1)
+        self.assertIn('stopped after 1 writes', got['error'])
 
     def test_a_refused_apply_with_json_prints_json_with_nothing_written(self):
         repo, mig = fixture_migration(self)
@@ -3256,7 +3257,48 @@ class CommandOutputTests(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         got = json.loads(done.stdout)
         self.assertEqual(got['written'], [])
-        self.assertIn('foreign: STANDARDS.md', got['message'])
+        self.assertIn('foreign: STANDARDS.md', got['error'])
+        self.assertEqual(done.stderr, '')
+
+    def test_a_missing_migration_under_json_prints_the_error_as_json_alone(self):
+        repo, _ = fixture_migration(self)
+        gone = Path(repo).parent / 'nowhere.toml'
+        for cmd in ('preview', 'check', 'apply'):
+            with self.subTest(cmd):
+                argv = [sys.executable, str(KITCHEN), 'context', cmd, str(gone)]
+                plain = subprocess.run(
+                    argv,
+                    cwd=repo,
+                    env=GIT_ENV,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=60,
+                )
+                done = subprocess.run(
+                    [*argv, '--json'],
+                    cwd=repo,
+                    env=GIT_ENV,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=60,
+                )
+                self.assertEqual(plain.returncode, 2)
+                self.assertEqual(plain.stdout, '')
+                self.assertTrue(
+                    plain.stderr.startswith('kitchen: cannot read migration')
+                )
+                self.assertEqual(done.returncode, 2)
+                self.assertEqual(done.stderr, '')
+                self.assertEqual(
+                    json.loads(done.stdout),
+                    {
+                        'ok': False,
+                        'exit': 2,
+                        'error': plain.stderr.removeprefix('kitchen: ').rstrip('\n'),
+                    },
+                )
 
     def test_a_base_that_stops_resolving_is_a_kitchen_error_not_a_traceback(self):
         repo, mig = applied_repo(self)

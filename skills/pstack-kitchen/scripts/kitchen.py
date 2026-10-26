@@ -4156,6 +4156,11 @@ def context_inventory(args) -> int:
     return 0
 
 
+def context_failure(code: int, message: str, **extra) -> dict:
+    """What a `context` command prints on stdout under `--json` when it fails, in place of its stderr line."""
+    return {'ok': False, 'exit': code, 'error': message, **extra}
+
+
 def cx_in_block(proof, b, f) -> bool:
     """Whether a finding falls inside a block's range: on its destination, or on its source, at a line the block
     carries from the base or next to one. A finding on a line no block text stands behind belongs to the nearest
@@ -4271,11 +4276,7 @@ def context_apply(args) -> int:
         done = cx.apply(repo, args.migration, int(stop) if stop is not None else None)
     except cx.ApplyRefused as e:
         if args.json:
-            emit(
-                {'written': list(e.written), 'refused': True, 'message': str(e)},
-                True,
-                '',
-            )
+            emit(context_failure(1, str(e), written=list(e.written)), True, '')
             return 1
         for path in e.written:
             print(f'wrote: {path}')
@@ -4786,7 +4787,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return context_command(args)
         except KitchenError as e:
-            print(f'kitchen: {e}', file=sys.stderr)
+            if getattr(args, 'json', False):
+                emit(context_failure(e.code, str(e)), True, '')
+            else:
+                print(f'kitchen: {e}', file=sys.stderr)
             return e.code
     if args.cmd == 'ledger-backfill':
         n = ledger_backfill(args.ledger, args.runs or pstack_state() / 'kitchen/runs')
