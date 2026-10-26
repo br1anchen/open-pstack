@@ -287,13 +287,16 @@ def descendants(procs, roots, skip):
     return below(roots) - below(skip) - set(skip) - set(roots)
 
 
-def end_when_parent_exits():
+def end_when_parent_exits(parent=None, kill=os.kill):
     """macOS has no PR_SET_PDEATHSIG: a thread blocks on a kqueue event for the parent's exit and then sends this process SIGTERM. A parent that
-    is already gone ends it at once."""
+    is already gone ends it at once: its pid no longer exists, or the process was reparented to launchd (pid 1), which no watch ever sees exit."""
     import select
     import threading
 
-    parent = os.getppid()
+    parent = os.getppid() if parent is None else parent
+    if parent == 1:
+        kill(os.getpid(), signal.SIGTERM)
+        return
     queue = select.kqueue()
     watch = select.kevent(
         parent,
@@ -304,11 +307,11 @@ def end_when_parent_exits():
     try:
         queue.control([watch], 0, 0)
     except ProcessLookupError:
-        os.kill(os.getpid(), signal.SIGTERM)
+        kill(os.getpid(), signal.SIGTERM)
         return
 
     def wait_for_parent():
         queue.control(None, 1, None)
-        os.kill(os.getpid(), signal.SIGTERM)
+        kill(os.getpid(), signal.SIGTERM)
 
     threading.Thread(target=wait_for_parent, daemon=True).start()

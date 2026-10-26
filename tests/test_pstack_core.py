@@ -1654,6 +1654,11 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(checkin.busy_command('p1', 8200, 10000), '')
         self.assertEqual(checkin.busy_command('', 8200, 10000), '')
 
+    def test_a_process_whose_parent_already_exited_ends_at_once(self):
+        sent = []
+        procinfo.end_when_parent_exits(1, lambda pid, sig: sent.append((pid, sig)))
+        self.assertEqual(sent, [(os.getpid(), signal.SIGTERM)])
+
     def test_a_ps_host_adds_the_process_tree_to_the_processes_whose_environment_ps_shows(
         self,
     ):
