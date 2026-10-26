@@ -4176,7 +4176,7 @@ def cx_in_block(proof, b, f) -> bool:
     return f.path == b.dest
 
 
-def context_check_text(repo: Path, migration, proof) -> str:
+def context_check_text(base: str, proof) -> str:
     """`context check`'s text: a line per block, each finding, each consumer, the references broken at base and the
     tree each part was proven against."""
     out = []
@@ -4209,7 +4209,6 @@ def context_check_text(repo: Path, migration, proof) -> str:
             )
         )
     out += [f'pre-existing: {f.path}:{f.line}: {f.message}' for f in proof.pre_existing]
-    base = cx_base(repo, migration)
     out += [
         'proven against: the planned files, the kitchen.toml and the overlays as they are on disk;'
         f' every other file as at base {base}',
@@ -4246,9 +4245,10 @@ def context_check(args) -> int:
             emit({'ok': False, 'states': states}, args.json, f'{summary}\n{listed}')
             return 1
         proof = cx.check(repo, args.migration)
+        base = cx_base(repo, migration)
     except cx.ContextError as e:
         raise KitchenError(str(e), 2) from e
-    text = context_check_text(repo, migration, proof)
+    text = context_check_text(base, proof)
     if n['foreign']:
         text = f'{summary}\n{listed}\n{text}'
     emit({**cx.proof_data(proof), 'states': states}, args.json, text)
@@ -4268,6 +4268,13 @@ def context_apply(args) -> int:
     try:
         done = cx.apply(repo, args.migration, int(stop) if stop is not None else None)
     except cx.ApplyRefused as e:
+        if args.json:
+            emit(
+                {'written': list(e.written), 'refused': True, 'message': str(e)},
+                True,
+                '',
+            )
+            return 1
         for path in e.written:
             print(f'wrote: {path}')
         raise KitchenError(str(e), 1) from e

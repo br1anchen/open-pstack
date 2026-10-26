@@ -2347,6 +2347,14 @@ def keyed_parts(data: dict) -> tuple[dict[tuple, dict], list[str], list[object]]
     return keyed, repeated, invalid
 
 
+def part_line(headers: list[int], data: dict, match: Callable[[dict], bool]) -> int:
+    """The 1-based line of the first `[[part]]` table that `match` accepts; 0 when it has none."""
+    for k, x in enumerate(data.get('part', [])):
+        if isinstance(x, dict) and match(x):
+            return headers[k] if k < len(headers) else 0
+    return 0
+
+
 def consumer_proof(
     base: Tree,
     out: Tree,
@@ -2423,6 +2431,19 @@ def consumer_proof(
             except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
                 fail(path, 0, 'overlay', '', f'cannot read it: {e}')
                 continue
+            headers = [
+                n + 1
+                for n, text in enumerate(
+                    (out.data.get(path) or b'').decode().splitlines()
+                )
+                if text.strip() == '[[part]]'
+            ]
+
+            def line_of(
+                match: Callable[[dict], bool], data=data, headers=headers
+            ) -> int:
+                return part_line(headers, data, match)
+
             try:
                 base_data = tomllib.loads((base.data.get(path) or b'').decode())
             except (tomllib.TOMLDecodeError, UnicodeDecodeError):
@@ -2430,19 +2451,31 @@ def consumer_proof(
             base_parts, base_repeated, _ = keyed_parts(base_data)
             keyed, repeated, invalid = keyed_parts(data)
             for pid in invalid:
-                fail(path, 0, 'part', '', f'part id must be a string, not {pid!r}')
+                fail(
+                    path,
+                    line_of(lambda x, pid=pid: x.get('id') == pid),
+                    'part',
+                    '',
+                    f'part id must be a string, not {pid!r}',
+                )
             for pid in repeated:
                 if pid in base_repeated:
                     broken.append(
                         Finding(
                             path,
-                            0,
+                            line_of(lambda x, pid=pid: x.get('id') == pid),
                             'link',
                             f'part {pid}: duplicate part id (broken at base)',
                         )
                     )
                 else:
-                    fail(path, 0, f'part {pid}', '', 'duplicate part id')
+                    fail(
+                        path,
+                        line_of(lambda x, pid=pid: x.get('id') == pid),
+                        f'part {pid}',
+                        '',
+                        'duplicate part id',
+                    )
             for key, part in keyed.items():
                 source = part.get('source')
                 target = source.get('path') if isinstance(source, dict) else None
@@ -2453,6 +2486,7 @@ def consumer_proof(
                 ):
                     continue
                 what = f'part {part.get("id")}'
+                at_line = line_of(lambda x, part=part: x is part)
                 selector = str(part.get('select'))
                 was = base_parts.get(key)
                 was_source = was.get('source') if was else None
@@ -2472,7 +2506,10 @@ def consumer_proof(
                     except pb.PlaybookError:
                         broken.append(
                             Finding(
-                                path, 0, 'link', f'{target} {selector} (broken at base)'
+                                path,
+                                at_line,
+                                'link',
+                                f'{target} {selector} (broken at base)',
                             )
                         )
                         continue
@@ -2480,13 +2517,13 @@ def consumer_proof(
                     doc = pb.parse((out.data.get(target) or b'').decode())
                     (start, end) = pb.select(doc, selector)[0]
                 except pb.PlaybookError as e:
-                    fail(path, 0, what, f'{target} {selector}', str(e))
+                    fail(path, at_line, what, f'{target} {selector}', str(e))
                     continue
                 at = origins[target][start] if start < len(origins[target]) else None
                 if isinstance(at, Generated) and at.kind in STUBS:
                     fail(
                         path,
-                        0,
+                        at_line,
                         what,
                         f'{target} {selector}',
                         f'{selector} selects a heading of {target} that only points to where its section moved',

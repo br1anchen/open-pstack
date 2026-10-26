@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -20,6 +21,12 @@ spec = importlib.util.spec_from_file_location('context', scripts / 'context.py')
 assert spec and spec.loader
 context = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(context)
+
+kitchen_spec = importlib.util.spec_from_file_location('kitchen', scripts / 'kitchen.py')
+assert kitchen_spec and kitchen_spec.loader
+kitchen_module = importlib.util.module_from_spec(kitchen_spec)
+sys.modules['kitchen'] = kitchen_module
+kitchen_spec.loader.exec_module(kitchen_module)
 
 GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')} | {
     'GIT_CONFIG_GLOBAL': '/dev/null',
@@ -2655,7 +2662,7 @@ class OverlayCheckTests(unittest.TestCase):
         )
         done = check_run(repo, mig)
         self.assertEqual(done.returncode, 1, done.stdout)
-        self.assertIn(f'{OVERLAY}: consumer: part a: ', done.stdout)
+        self.assertIn(f'{OVERLAY}:6: consumer: part a: ', done.stdout)
 
     def test_an_overlay_string_on_a_moved_heading_exits_1_naming_the_overlay(self):
         text = (
@@ -2687,7 +2694,7 @@ class OverlayCheckTests(unittest.TestCase):
         done = check_run(repo, mig)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn(
-            f'pre-existing: {OVERLAY}:0: STANDARDS.md heading:Nowhere (broken at base)',
+            f'pre-existing: {OVERLAY}:6: STANDARDS.md heading:Nowhere (broken at base)',
             done.stdout,
         )
 
@@ -3115,6 +3122,54 @@ class ApplyTests(unittest.TestCase):
                 done = apply_run(repo, mig, env={'KITCHEN_CONTEXT_STOP_AFTER': bad})
                 self.assertEqual(done.returncode, 2)
                 self.assertIn('KITCHEN_CONTEXT_STOP_AFTER', done.stderr)
+
+
+class CommandOutputTests(unittest.TestCase):
+    def test_a_stopped_apply_with_json_prints_one_json_object_naming_what_was_written(
+        self,
+    ):
+        repo, mig = fixture_migration(self)
+        done = apply_run(repo, mig, '--json', env=STOP)
+        self.assertEqual(done.returncode, 1)
+        got = json.loads(done.stdout)
+        self.assertEqual(got['written'], ['STANDARDS.md'])
+        self.assertTrue(got['refused'])
+        self.assertIn('stopped after 1 writes', got['message'])
+
+    def test_a_refused_apply_with_json_prints_json_with_nothing_written(self):
+        repo, mig = fixture_migration(self)
+        with (repo / 'STANDARDS.md').open('a') as f:
+            f.write('by hand\n')
+        done = apply_run(repo, mig, '--json')
+        self.assertEqual(done.returncode, 1)
+        got = json.loads(done.stdout)
+        self.assertEqual(got['written'], [])
+        self.assertIn('foreign: STANDARDS.md', got['message'])
+
+    def test_a_base_that_stops_resolving_is_a_kitchen_error_not_a_traceback(self):
+        repo, mig = applied_repo(self)
+        cx = kitchen_module.context_module()
+
+        def gone(repo_, migration):
+            raise cx.ContextError('base does not resolve any more')
+
+        args = types.SimpleNamespace(repo=str(repo), migration=mig, json=False)
+        with mock.patch.object(kitchen_module, 'cx_base', gone):
+            with self.assertRaises(kitchen_module.KitchenError) as caught:
+                kitchen_module.context_check(args)
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn('does not resolve', str(caught.exception))
+
+    def test_an_overlay_finding_names_the_line_of_its_part_table(self):
+        parts = (('a', 'heading:Style'), ('b', 'heading:Nowhere'))
+        m = without_rewrites(sample_migration())
+        base = BASE | {OVERLAY: overlay_text(parts[0])}
+        out = context.render(m, base, (), {*FILES, *base})
+        proof = proved_with(m, base, out, {OVERLAY: overlay_text(*parts)})
+        self.assertEqual(
+            [(f.path, f.line, f.kind) for f in proof.findings],
+            [(OVERLAY, 13, 'consumer')],
+        )
 
 
 class ApplyConsumerTests(unittest.TestCase):
