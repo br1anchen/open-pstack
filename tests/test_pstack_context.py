@@ -2848,6 +2848,7 @@ class CheckCommandTests(unittest.TestCase):
             stable(done.stdout),
             '0 of 5 planned files at pre-image, 4 at post-image, 1 foreign\n'
             'foreign: STANDARDS.md (proven below)\n'
+            f'fix: {context.FOREIGN_FIX}\n'
             'STANDARDS.md:9-29 -> docs/standards/typed-evidence.md (18 lines): ok\n'
             'STANDARDS.md:18-25 -> docs/standards/rust.md (12 lines): ok\n'
             'STANDARDS.md:42-45 -> docs/standards/testing-notes.md (4 lines): ok\n'
@@ -2904,6 +2905,7 @@ class CheckCommandTests(unittest.TestCase):
             stable(done.stdout),
             '0 of 5 planned files at pre-image, 4 at post-image, 1 foreign\n'
             'foreign: STANDARDS.md (proven below)\n'
+            f'fix: {context.FOREIGN_FIX}\n'
             'STANDARDS.md:9-29 -> docs/standards/typed-evidence.md (18 lines): ok\n'
             'STANDARDS.md:18-25 -> docs/standards/rust.md (12 lines): ok\n'
             'STANDARDS.md:42-45 -> docs/standards/testing-notes.md (4 lines):'
@@ -3034,6 +3036,7 @@ class CheckCommandTests(unittest.TestCase):
         self.assertEqual(
             lines[1], 'foreign: docs/standards/testing-notes.md (proven below)'
         )
+        self.assertEqual(lines[2], f'fix: {context.FOREIGN_FIX}')
         self.assertIn(
             'docs/standards/testing-notes.md:3: dropped: missing before this line: STANDARDS.md:44',
             lines,
@@ -3200,6 +3203,11 @@ class ApplyTests(unittest.TestCase):
         done = apply_run(repo, mig)
         self.assertEqual(done.returncode, 1)
         self.assertIn('foreign: STANDARDS.md', done.stderr)
+        self.assertIn(
+            'restore each foreign file to its base or output state', done.stderr
+        )
+        self.assertIn('git checkout <base> -- <path>', done.stderr)
+        self.assertNotIn('to the current commit', done.stderr)
         self.assertIn('inventory --draft', done.stderr)
         self.assertEqual(tree_of(repo), before)
 

@@ -2779,6 +2779,11 @@ def index_local(ref: Ref) -> bool:
 
 
 STATES = ('pre', 'post', 'foreign')
+FOREIGN_FIX = (
+    'restore each foreign file to its base or output state (for example `git checkout <base> -- <path>` or a fresh'
+    ' apply); only if the repo moved on after the migration was written, update `base` and each `[[file]]` sha256'
+    ' or redraft with `inventory --draft`'
+)
 
 
 def state_of(repo: Path, w: 'Write') -> str:
@@ -3253,8 +3258,7 @@ def apply(
             '\n'.join(
                 f'foreign: {p}: at neither the base nor the output' for p in foreign
             )
-            + '\nnothing written; update `base` and each `[[file]]` sha256 to the current commit,'
-            ' or redraft with `inventory --draft`'
+            + f'\nnothing written; {FOREIGN_FIX}'
         )
     todo = [w for w, state in where if state == 'pre']
     if not todo:

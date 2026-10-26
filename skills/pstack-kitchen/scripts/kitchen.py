@@ -4247,6 +4247,8 @@ def context_check(args) -> int:
         listed = '\n'.join(
             f'{s}: {p}{note if s == "foreign" else ""}' for p, s in where if s != 'post'
         )
+        if n['foreign']:
+            listed += f'\nfix: {cx.FOREIGN_FIX}'
         states = [{'path': p, 'state': s} for p, s in where]
         if n['pre']:
             emit({'ok': False, 'states': states}, args.json, f'{summary}\n{listed}')
