@@ -2962,7 +2962,11 @@ def unified_diff(write: Write) -> str:
 
 
 class ApplyRefused(ContextError):
-    """`apply` declined or stopped: the tree holds what it had written so far, and the message says why."""
+    """`apply` declined or stopped: the tree holds what it had written so far (`written`), and the message says why."""
+
+    def __init__(self, message: str, written: tuple[str, ...] = ()):
+        super().__init__(message)
+        self.written = written
 
 
 @dataclass(frozen=True)
@@ -3029,7 +3033,8 @@ def apply(
 ) -> ApplyResult:
     """Write a migration's planned files: only after `prove` passes on them in memory, only the ones still at their
     pre-image, and nothing when any planned file is neither image. Completes a partial apply; a second run finds
-    every file at its post-image and changes nothing. `stop_after` ends the run after that many writes made."""
+    every file at its post-image and changes nothing. `stop_after` ends the run when it has made that many writes and
+    another remains; when exactly that many remain, they are all written and the run ends normally."""
     migration = load(migration_path)
     planned = plan(repo, migration)
     open_refs = plan_unresolved(repo, migration)
@@ -3064,10 +3069,12 @@ def apply(
     written: list[str] = []
     for w in todo:
         if stop_after is not None and len(written) >= stop_after:
-            raise ApplyRefused(f'stopped after {len(written)} writes')
+            raise ApplyRefused(f'stopped after {len(written)} writes', tuple(written))
         write_file(repo, w)
         written.append(w.path)
     proof = check(repo, migration_path)
     if not proof.ok:
-        raise ApplyRefused(f'{refusal(proof)}\nwritten, and the tree does not prove')
+        raise ApplyRefused(
+            f'{refusal(proof)}\nwritten, and the tree does not prove', tuple(written)
+        )
     return ApplyResult(tuple(written), local)

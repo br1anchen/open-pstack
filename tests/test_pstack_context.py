@@ -2660,10 +2660,6 @@ class IndexLocalTests(unittest.TestCase):
         self.assertIn('index-local: STANDARDS.md:3', done.stdout)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 def apply_run(repo, mig, *extra, env=None, umask=None):
     return subprocess.run(
         [sys.executable, str(KITCHEN), 'context', 'apply', str(mig), *extra],
@@ -2761,14 +2757,12 @@ class ApplyTests(unittest.TestCase):
 
     def test_a_plan_that_does_not_prove_writes_nothing(self):
         repo, mig = fixture_migration(self)
+        before = tree_of(repo)
         with mock.patch.object(context, 'prove', return_value=failing_proof()):
             with self.assertRaises(context.ApplyRefused) as caught:
                 context.apply(repo, mig)
         self.assertIn('nothing written', str(caught.exception))
-        self.assertEqual(
-            [p for p in sample_migration().writes if (repo / p).exists()],
-            ['STANDARDS.md', '.agents/kitchen.toml'],
-        )
+        self.assertEqual(tree_of(repo), before)
 
     def test_a_stop_after_that_is_not_a_positive_whole_number_exits_two(self):
         repo, mig = fixture_migration(self)
@@ -2798,6 +2792,15 @@ class ApplyRecoveryTests(unittest.TestCase):
         first = apply_run(repo, mig, env=STOP)
         self.assertEqual(first.returncode, 1)
         self.assertIn('stopped after 1 writes', first.stderr)
+        self.assertEqual(first.stdout, 'wrote: STANDARDS.md\n')
+        self.assertEqual(
+            [
+                p
+                for p in tree_of(repo)
+                if '.tmp' in p or p.rsplit('/', 1)[-1].startswith('.')
+            ],
+            [],
+        )
         self.assertEqual(counts(repo, mig), {'pre': total - 1, 'post': 1, 'foreign': 0})
         half = check_run(repo, mig)
         self.assertEqual(half.returncode, 1)
@@ -2883,3 +2886,16 @@ class EndToEndTests(unittest.TestCase):
             timeout=60,
         )
         self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
+
+
+class ApplyExactStopTests(unittest.TestCase):
+    def test_a_stop_after_as_many_as_remain_writes_them_all_and_exits_zero(self):
+        repo, mig = fixture_migration(self)
+        total = len(sample_migration().writes)
+        done = apply_run(repo, mig, env={'KITCHEN_CONTEXT_STOP_AFTER': str(total)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.count('wrote: '), total)
+
+
+if __name__ == '__main__':
+    unittest.main()

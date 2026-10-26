@@ -4235,6 +4235,8 @@ def context_apply(args) -> int:
     try:
         done = cx.apply(repo, args.migration, int(stop) if stop is not None else None)
     except cx.ApplyRefused as e:
+        for path in e.written:
+            print(f'wrote: {path}')
         raise KitchenError(str(e), 1) from e
     except cx.ContextError as e:
         raise KitchenError(str(e), 2) from e
