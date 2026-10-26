@@ -3160,6 +3160,29 @@ class CommandOutputTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 2)
         self.assertIn('does not resolve', str(caught.exception))
 
+    def overlay_finding_lines(self, text):
+        m = without_rewrites(sample_migration())
+        base = BASE | {OVERLAY: overlay_text(('a', 'heading:Style'))}
+        out = context.render(m, base, (), {*FILES, *base})
+        proof = proved_with(m, base, out, {OVERLAY: text})
+        return [(f.path, f.line, f.kind) for f in proof.findings]
+
+    def test_an_overlay_with_parts_as_an_inline_array_reports_line_zero(self):
+        text = (
+            b'schema = 1\nid = "standards"\ntitle = "Standards"\nkind = "language"\n'
+            b'part = [{ id = "b", source = { root = "repo", path = "STANDARDS.md" },'
+            b' select = "heading:Nowhere", owners = ["sidekick"], reviewed = "000000000000" }]\n'
+        )
+        self.assertEqual(self.overlay_finding_lines(text), [(OVERLAY, 0, 'consumer')])
+
+    def test_a_part_header_inside_a_multi_line_string_does_not_shift_the_line(self):
+        text = (
+            b'schema = 1\nid = "standards"\ntitle = "Standards"\nkind = "language"\n'
+            b'note = """\n[[part]]\n"""\n'
+            + overlay_text(('b', 'heading:Nowhere')).split(b'\n', 4)[4]
+        )
+        self.assertEqual(self.overlay_finding_lines(text), [(OVERLAY, 0, 'consumer')])
+
     def test_an_overlay_finding_names_the_line_of_its_part_table(self):
         parts = (('a', 'heading:Style'), ('b', 'heading:Nowhere'))
         m = without_rewrites(sample_migration())

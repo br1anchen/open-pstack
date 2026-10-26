@@ -2348,10 +2348,14 @@ def keyed_parts(data: dict) -> tuple[dict[tuple, dict], list[str], list[object]]
 
 
 def part_line(headers: list[int], data: dict, match: Callable[[dict], bool]) -> int:
-    """The 1-based line of the first `[[part]]` table that `match` accepts; 0 when it has none."""
-    for k, x in enumerate(data.get('part', [])):
+    """The 1-based line of the first `[[part]]` table that `match` accepts; 0 when it has none, or when the header
+    scan and the parsed parts disagree in count (an inline array, a header inside a multi-line string)."""
+    parts = data.get('part', [])
+    if not isinstance(parts, list) or len(headers) != len(parts):
+        return 0
+    for k, x in enumerate(parts):
         if isinstance(x, dict) and match(x):
-            return headers[k] if k < len(headers) else 0
+            return headers[k]
     return 0
 
 
