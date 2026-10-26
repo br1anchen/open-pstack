@@ -2578,6 +2578,22 @@ class OverlayPartMatchTests(unittest.TestCase):
                     [('consumer', 'part: part id must be a string')],
                 )
 
+    def test_a_part_id_that_is_not_a_string_already_at_base_is_pre_existing(self):
+        text = overlay_text(('a', 'heading:Style')).replace(b'id = "a"', b'id = 3')
+        proof = self.prove_with(text, text)
+        self.assertEqual(proof.findings, [])
+        self.assertEqual(
+            [f.message for f in proof.pre_existing],
+            ['part id 3: must be a string (broken at base)'],
+        )
+
+    def test_a_part_id_that_is_not_a_string_and_not_the_one_at_base_fails(self):
+        base = overlay_text(('a', 'heading:Style')).replace(b'id = "a"', b'id = 3')
+        text = base.replace(b'id = 3', b'id = 4')
+        proof = self.prove_with(base, text)
+        self.assertEqual([f.kind for f in proof.findings], ['consumer'])
+        self.assertEqual(proof.pre_existing, [])
+
 
 def proved_with(m, base, outputs, consumers):
     with contextlib.ExitStack() as stack:

@@ -2453,16 +2453,27 @@ def consumer_proof(
                 base_data = tomllib.loads((base.data.get(path) or b'').decode())
             except (tomllib.TOMLDecodeError, UnicodeDecodeError):
                 base_data = {}
-            base_parts, base_repeated, _ = keyed_parts(base_data)
+            base_parts, base_repeated, base_invalid = keyed_parts(base_data)
             keyed, repeated, invalid = keyed_parts(data)
             for pid in invalid:
-                fail(
-                    path,
-                    line_of(lambda x, pid=pid: x.get('id') == pid),
-                    'part',
-                    '',
-                    f'part id must be a string, not {pid!r}',
-                )
+                at = line_of(lambda x, pid=pid: x.get('id') == pid)
+                if any(type(b) is type(pid) and b == pid for b in base_invalid):
+                    broken.append(
+                        Finding(
+                            path,
+                            at,
+                            'link',
+                            f'part id {pid!r}: must be a string (broken at base)',
+                        )
+                    )
+                else:
+                    fail(
+                        path,
+                        at,
+                        'part',
+                        '',
+                        f'part id must be a string, not {pid!r}',
+                    )
             for pid in repeated:
                 if pid in base_repeated:
                     broken.append(
