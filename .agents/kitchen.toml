@@ -28,6 +28,7 @@ tests = ["tests/**"]
 require_tests = true
 verify = "batch"
 sample = 0.2
+retry_under_load = false
 
 # The skill text and references: links and inventory, plus the template-status contract test; no other tests needed.
 [profile.pstack-docs]
