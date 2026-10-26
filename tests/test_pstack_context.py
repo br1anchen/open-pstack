@@ -1283,6 +1283,31 @@ class UnresolvedTests(unittest.TestCase):
             done.stdout,
         )
 
+    def test_a_keep_that_covers_no_reference_is_reported_and_exits_one(self):
+        repo, text = fixture_repo(self)
+        text = edit(
+            text,
+            'ref = "../../STANDARDS.md#typed-evidence"',
+            'ref = "STANDARDS.md#typed-evidence"',
+        )
+        done = preview(repo, text)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn(
+            'unused keep: docs/adr/0007-standards.md STANDARDS.md#typed-evidence\n',
+            done.stdout,
+        )
+        self.assertIn(ADR_LINE, done.stdout)
+        listed = json.loads(preview(repo, text, '--json').stdout)
+        self.assertEqual(
+            listed['unused_keeps'],
+            [
+                {
+                    'path': 'docs/adr/0007-standards.md',
+                    'ref': 'STANDARDS.md#typed-evidence',
+                }
+            ],
+        )
+
     def test_a_reference_inside_the_moved_text_is_not_unresolved(self):
         repo, text = fixture_repo(self)
         done = preview(repo, without(text, 'rewrite', 'keep'))

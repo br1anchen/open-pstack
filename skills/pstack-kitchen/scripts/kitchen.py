@@ -4089,9 +4089,11 @@ def context_module():
     return module
 
 
-def context_preview_text(writes: list[dict], unresolved: list[dict]) -> str:
+def context_preview_text(
+    writes: list[dict], unresolved: list[dict], unused: list[dict]
+) -> str:
     """Each planned write's diff, in `writes` order (a file the migration leaves alone is named), then one line for
-    each reference to a moved section that nothing covers."""
+    each reference to a moved section that nothing covers and one for each keep that covers no reference."""
     diffs = ''.join(w['diff'] or f'unchanged: {w["path"]}\n' for w in writes)
     lines = ''.join(
         f'index-local: {u["path"]}:{u["line"]}: {" ".join(u["raw"].split())} '
@@ -4100,7 +4102,8 @@ def context_preview_text(writes: list[dict], unresolved: list[dict]) -> str:
         else f'unresolved: {u["path"]}:{u["line"]}: {" ".join(u["raw"].split())}\n'
         for u in unresolved
     )
-    return (diffs + lines).rstrip('\n')
+    keeps = ''.join(f'unused keep: {k["path"]} {k["ref"]}\n' for k in unused)
+    return (diffs + lines + keeps).rstrip('\n')
 
 
 def inventory_text(data: dict) -> str:
@@ -4311,6 +4314,7 @@ def context_command(args) -> int:
         migration = cx.load(args.migration)
         planned = cx.plan(repo, migration)
         open_refs = cx.plan_unresolved(repo, migration)
+        idle = cx.plan_unused_keeps(repo, migration)
     except cx.ContextError as e:
         raise KitchenError(str(e), 2) from e
     writes = [
@@ -4334,12 +4338,13 @@ def context_command(args) -> int:
         }
         for r in open_refs
     ]
+    unused = [{'path': k.path, 'ref': k.ref} for k in idle]
     emit(
-        {'writes': writes, 'unresolved': unresolved},
+        {'writes': writes, 'unresolved': unresolved, 'unused_keeps': unused},
         args.json,
-        context_preview_text(writes, unresolved),
+        context_preview_text(writes, unresolved, unused),
     )
-    return 1 if any(not u.get('index-local') for u in unresolved) else 0
+    return 1 if unused or any(not u.get('index-local') for u in unresolved) else 0
 
 
 def playbooks_command(args) -> int:

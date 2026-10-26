@@ -1475,6 +1475,28 @@ def plan_unresolved(repo: Path, migration: Migration) -> list[Ref]:
     return unresolved(migration, read_scanned(repo, commit, files, declared), files)
 
 
+def unused_keeps(
+    migration: Migration, base_files: dict[str, bytes], files: Collection[str]
+) -> list[Keep]:
+    """The `[[keep]]` entries whose `ref` is the written target of no reference in their `path`."""
+    unused = []
+    for k in migration.keeps:
+        data = base_files.get(k.path)
+        if data is None or all(
+            written_target(r) != k.ref for r in references(k.path, data, files)
+        ):
+            unused.append(k)
+    return unused
+
+
+def plan_unused_keeps(repo: Path, migration: Migration) -> list[Keep]:
+    """`unused_keeps` over the tracked files of the repo at the migration's base commit."""
+    commit = resolve_base(repo, migration)
+    files = repo_files(repo, migration)
+    declared = [k.path for k in migration.keeps]
+    return unused_keeps(migration, read_scanned(repo, commit, files, declared), files)
+
+
 # ---- proof -----------------------------------------------------------------
 #
 # `prove` accounts for every line of every planned output against the migration's base, without asking the writers
