@@ -640,7 +640,12 @@ def expected(path):
     return (fixtures / 'expected' / path).read_bytes()
 
 
-FILES = {'STANDARDS.md', 'docs/guide.md', '.agents/kitchen.toml'}
+FILES = {
+    'STANDARDS.md',
+    'docs/guide.md',
+    'docs/adr/0007-standards.md',
+    '.agents/kitchen.toml',
+}
 
 
 KITCHEN_TOML = (fixtures / 'repo/.agents/kitchen.toml').read_bytes()
@@ -1067,7 +1072,9 @@ class PreviewTests(unittest.TestCase):
             sorted(p.name for p in repo.iterdir() if p.name != '.git'),
             ['.agents', 'STANDARDS.md', 'docs'],
         )
-        self.assertEqual([p.name for p in (repo / 'docs').iterdir()], ['guide.md'])
+        self.assertEqual(
+            sorted(p.name for p in (repo / 'docs').iterdir()), ['adr', 'guide.md']
+        )
 
     def test_repo_can_follow_the_subcommand(self):
         repo, text = fixture_repo(self)
@@ -1100,6 +1107,110 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(done.returncode, 2)
         self.assertIn(
             "destination 'docs/standards/rust.md' already exists at base", done.stderr
+        )
+
+
+def without(text, *tables):
+    """The migration text without its `[[rewrite]]` and/or `[[keep]]` tables (and the kitchen.toml they target)."""
+    head, *blocks = text.split('\n[[')
+    kept = []
+    for block in blocks:
+        name = block.split(']]', 1)[0]
+        if name in tables:
+            continue
+        if name == 'file' and 'rewrite' in tables and '.agents/kitchen.toml' in block:
+            continue
+        kept.append(block)
+    if 'rewrite' in tables:
+        head = head.replace('  ".agents/kitchen.toml",\n', '')
+    return '\n[['.join([head, *kept])
+
+
+KITCHEN_LINE = 'unresolved: .agents/kitchen.toml:2: STANDARDS.md#typed-evidence\n'
+ADR_LINE = (
+    'unresolved: docs/adr/0007-standards.md:3: '
+    '[typed evidence](../../STANDARDS.md#typed-evidence)\n'
+)
+
+
+def unresolved_lines(stdout):
+    return ''.join(x + '\n' for x in stdout.splitlines() if x.startswith('unresolved:'))
+
+
+class UnresolvedTests(unittest.TestCase):
+    def test_a_migration_without_its_rewrite_and_keep_lists_both_and_exits_one(self):
+        repo, text = fixture_repo(self)
+        done = preview(repo, without(text, 'rewrite', 'keep'))
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(unresolved_lines(done.stdout), KITCHEN_LINE + ADR_LINE)
+        self.assertTrue(done.stdout.endswith(ADR_LINE))
+        self.assertIn('+++ b/docs/standards/rust.md', done.stdout)
+        self.assertEqual(git(repo, 'status', '--porcelain'), '')
+
+    def test_the_rewrite_covers_its_reference_and_the_keep_covers_the_other(self):
+        repo, text = fixture_repo(self)
+        keep_only = preview(repo, without(text, 'rewrite'))
+        self.assertEqual(keep_only.returncode, 1, keep_only.stderr)
+        self.assertEqual(unresolved_lines(keep_only.stdout), KITCHEN_LINE)
+        rewrite_only = preview(repo, without(text, 'keep'))
+        self.assertEqual(rewrite_only.returncode, 1, rewrite_only.stderr)
+        self.assertEqual(unresolved_lines(rewrite_only.stdout), ADR_LINE)
+
+    def test_a_migration_with_both_exits_zero_and_lists_nothing(self):
+        repo, text = fixture_repo(self)
+        done = preview(repo, text)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(unresolved_lines(done.stdout), '')
+
+    def test_json_adds_the_unresolved_references_with_their_resolved_target(self):
+        repo, text = fixture_repo(self)
+        done = preview(repo, without(text, 'rewrite', 'keep'), '--json')
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(
+            json.loads(done.stdout)['unresolved'],
+            [
+                {
+                    'path': '.agents/kitchen.toml',
+                    'line': 2,
+                    'raw': 'STANDARDS.md#typed-evidence',
+                    'target': 'STANDARDS.md#typed-evidence',
+                },
+                {
+                    'path': 'docs/adr/0007-standards.md',
+                    'line': 3,
+                    'raw': '[typed evidence](../../STANDARDS.md#typed-evidence)',
+                    'target': 'STANDARDS.md#typed-evidence',
+                },
+            ],
+        )
+        covered = json.loads(preview(repo, text, '--json').stdout)
+        self.assertEqual(covered['unresolved'], [])
+
+    def test_a_reference_inside_the_moved_text_is_not_unresolved(self):
+        repo, text = fixture_repo(self)
+        done = preview(repo, without(text, 'rewrite', 'keep'))
+        self.assertNotIn('unresolved: STANDARDS.md', done.stdout)
+
+    def test_a_staying_reference_to_a_moved_section_is_unresolved_in_its_own_file(self):
+        staying = STANDARDS.replace(
+            b'Keep it short.', b'Keep it short, as [typed](#typed-evidence) says.'
+        )
+        m = migration_of(move(TYPED, 'docs/t.md'))
+        got = context.unresolved(m, {'STANDARDS.md': staying}, {'STANDARDS.md'})
+        self.assertEqual(
+            [(r.path, r.line, r.raw) for r in got],
+            [('STANDARDS.md', 48, '[typed](#typed-evidence)')],
+        )
+
+    def test_files_are_read_through_git_at_the_base_not_the_working_tree(self):
+        repo, text = fixture_repo(self)
+        (repo / 'docs/adr/0007-standards.md').write_text('# ADR\n')
+        (repo / 'docs/new.md').write_text('[t](../STANDARDS.md#typed-evidence)\n')
+        m = context.parse_migration(without(text, 'rewrite', 'keep'))
+        got = context.plan_unresolved(repo, m)
+        self.assertEqual(
+            [(r.path, r.line) for r in got],
+            [('.agents/kitchen.toml', 2), ('docs/adr/0007-standards.md', 3)],
         )
 
 

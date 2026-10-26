@@ -799,6 +799,11 @@ def resolve(ref: Ref, files: Collection[str]) -> tuple[str, str] | None:
     return found, unquote(ref.fragment).lower()
 
 
+def target_of(ref: Ref) -> str:
+    """The `path#anchor` a reference names, as `resolve` reads it but for a file that need not exist."""
+    return f'{target_path(ref)}#{unquote(ref.fragment).lower()}'.removesuffix('#')
+
+
 # ---- cuts ------------------------------------------------------------------
 
 
@@ -1322,6 +1327,129 @@ def rewritten(
                 )
         done[r.path] = data.replace(r.from_.encode(), r.to.encode())
     return done
+
+
+# ---- unresolved ------------------------------------------------------------
+
+
+def scanned(path: str) -> bool:
+    """Whether the scanner reads a tracked file: a Markdown, TOML or text file that is not a migration."""
+    return path.endswith(SCANNED) and not path.startswith(MIGRATIONS)
+
+
+def read_blobs(repo: Path, commit: str, paths: Collection[str]) -> dict[str, bytes]:
+    """The bytes of each of `paths` at `commit`, in one `git cat-file --batch`; anything that is not a blob is left out."""
+    env = {k: v for k, v in os.environ.items() if k not in REPO_ENV}
+    names = sorted(paths)
+    request = ''.join(f'{commit}:{p}\n' for p in names).encode()
+    try:
+        done = subprocess.run(
+            ['git', '-C', str(repo), 'cat-file', '--batch'],
+            input=request,
+            env=env,
+            capture_output=True,
+            timeout=GIT_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise ContextError(f'git cat-file did not run: {e}') from e
+    if done.returncode:
+        raise ContextError(f'cannot read the files at {commit}')
+    out: dict[str, bytes] = {}
+    data, at = done.stdout, 0
+    for name in names:
+        end = data.index(b'\n', at)
+        header = data[at:end].split()
+        at = end + 1
+        if len(header) == 3 and header[1] == b'blob':
+            size = int(header[2])
+            out[name] = data[at : at + size]
+            at += size + 1
+    return out
+
+
+def sources(migration: Migration) -> set[str]:
+    return {mv.source for mv in migration.moves}
+
+
+def read_scanned(
+    repo: Path, commit: str, files: Collection[str], also: Collection[str] = ()
+) -> dict[str, bytes]:
+    """Every file the scanner reads, from `files` (the repo's paths at `commit`), and the `also` paths that exist,
+    as their bytes at that commit."""
+    return read_blobs(repo, commit, [p for p in files if scanned(p) or (p in also)])
+
+
+def written_target(ref: Ref) -> str:
+    return ref.target + (f'#{ref.fragment}' if ref.fragment else '')
+
+
+def line_offsets(text: str) -> list[int]:
+    offsets, at = [], 0
+    for line in text.split('\n'):
+        offsets.append(at)
+        at += len(line) + 1
+    return offsets
+
+
+def rewrite_spans(migration: Migration, path: str, text: str) -> list[tuple[int, int]]:
+    """Where in `text` each `[[rewrite]]` of `path` changes it: the span of its `from`, when it occurs exactly once."""
+    spans = []
+    for r in migration.rewrites:
+        if r.path == path and text.count(r.from_) == 1:
+            at = text.index(r.from_)
+            spans.append((at, at + len(r.from_)))
+    return spans
+
+
+def unresolved(
+    migration: Migration, base_files: dict[str, bytes], files: Collection[str]
+) -> list[Ref]:
+    """Every reference, in a Markdown, TOML or text file of `base_files` and outside the moved text, whose target is
+    a moved section and that no `[[rewrite]]` or `[[keep]]` covers. A rewrite covers the references its `from` span
+    holds; a keep covers the references of its file whose written target is its `ref`. Ordered by path and line."""
+    mine = {f.path: base_files[f.path] for f in migration.files if f.path in base_files}
+    amap = anchor_map(migration, mine, render(migration, mine, (), files))
+    made = cuts(
+        migration,
+        {p: read(d, p).sections for p, d in mine.items() if p in sources(migration)},
+    )
+    moved: dict[str, list[tuple[int, int]]] = {}
+    for c in made:
+        moved.setdefault(c.move.source, []).append((c.section.start, c.section.end))
+    found: list[Ref] = []
+    for path in sorted(base_files):
+        if not scanned(path):
+            continue
+        data = base_files[path]
+        try:
+            text = data.decode()
+        except UnicodeDecodeError:
+            continue
+        offsets = line_offsets(text)
+        spans = rewrite_spans(migration, path, text)
+        kept = {k.ref for k in migration.keeps if k.path == path}
+        for ref in references(path, data, files):
+            hit = resolve(ref, files)
+            if hit is None or hit not in amap:
+                continue
+            if any(a <= ref.line - 1 < b for a, b in moved.get(path, [])):
+                continue
+            where = offsets[ref.line - 1]
+            if written_target(ref) in kept or any(
+                a <= where + ref.start and where + ref.end <= b for a, b in spans
+            ):
+                continue
+            found.append(ref)
+    return sorted(found, key=lambda r: (r.path, r.line, r.start))
+
+
+def plan_unresolved(repo: Path, migration: Migration) -> list[Ref]:
+    """`unresolved` over the tracked files of the repo at the migration's base commit."""
+    commit = resolve_base(repo, migration)
+    files = repo_files(repo, migration)
+    declared = [f.path for f in migration.files]
+    return unresolved(migration, read_scanned(repo, commit, files, declared), files)
 
 
 # ---- preview ---------------------------------------------------------------

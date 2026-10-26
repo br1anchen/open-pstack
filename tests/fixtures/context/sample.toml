@@ -40,5 +40,5 @@ to = "docs/standards/typed-evidence.md#typed-evidence"
 
 [[keep]]
 path = "docs/adr/0007-standards.md"
-ref = "STANDARDS.md#typed-evidence"
+ref = "../../STANDARDS.md#typed-evidence"
 reason = "ADRs are historical records"

@@ -4089,20 +4089,26 @@ def context_module():
     return module
 
 
-def context_preview_text(writes: list[dict]) -> str:
-    """Each planned write's diff, in `writes` order; a file the migration leaves alone is named."""
-    return ''.join(w['diff'] or f'unchanged: {w["path"]}\n' for w in writes).rstrip(
-        '\n'
+def context_preview_text(writes: list[dict], unresolved: list[dict]) -> str:
+    """Each planned write's diff, in `writes` order (a file the migration leaves alone is named), then one line for
+    each reference to a moved section that nothing covers."""
+    diffs = ''.join(w['diff'] or f'unchanged: {w["path"]}\n' for w in writes)
+    lines = ''.join(
+        f'unresolved: {u["path"]}:{u["line"]}: {" ".join(u["raw"].split())}\n'
+        for u in unresolved
     )
+    return (diffs + lines).rstrip('\n')
 
 
 def context_command(args) -> int:
-    """`context preview`: the diff of every file a migration would write. Writes nothing."""
+    """`context preview`: the diff of every file a migration would write, and the references to a moved section
+    that nothing covers; exit 1 when there are any. Writes nothing."""
     cx = context_module()
     repo = repo_root(args.repo)
     try:
         migration = cx.load(args.migration)
         planned = cx.plan(repo, migration)
+        open_refs = cx.plan_unresolved(repo, migration)
     except cx.ContextError as e:
         raise KitchenError(str(e), 2) from e
     writes = [
@@ -4116,8 +4122,21 @@ def context_command(args) -> int:
         }
         for w in planned
     ]
-    emit({'writes': writes}, args.json, context_preview_text(writes))
-    return 0
+    unresolved = [
+        {
+            'path': r.path,
+            'line': r.line,
+            'raw': r.raw,
+            'target': cx.target_of(r),
+        }
+        for r in open_refs
+    ]
+    emit(
+        {'writes': writes, 'unresolved': unresolved},
+        args.json,
+        context_preview_text(writes, unresolved),
+    )
+    return 1 if unresolved else 0
 
 
 def playbooks_command(args) -> int:
