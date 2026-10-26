@@ -906,6 +906,34 @@ class GateTests(KitchenTests):
             'retried', self.data('gate', 'app', 'fast', code=2)['commands'][0]
         )
 
+    def test_a_profile_that_refuses_the_rerun_fails_under_load(self):
+        mark = Path(self.tmp.name) / 'ran-once'
+        self.write(
+            '.agents/kitchen.toml',
+            KITCHEN.replace(
+                'fast = ["test -f src/app.py"]',
+                f'fast = ["test -e {mark} || {{ touch {mark}; exit 1; }}"]\nretry_under_load = false',
+            ),
+        )
+        self.env['PSTACK_KITCHEN_RETRY_LOAD'] = '-1'
+        r = self.data('gate', 'app', 'fast', code=2)
+        c = r['commands'][0]
+        self.assertFalse(r['passed'])
+        self.assertNotIn('retried', c)
+        self.assertNotIn('flaky', c)
+        self.assertEqual(c['exit'], 1)
+        self.write(
+            '.agents/kitchen.toml',
+            KITCHEN.replace(
+                'fast = ["test -f src/app.py"]',
+                'fast = ["test -f src/app.py"]\nretry_under_load = "no"',
+            ),
+        )
+        self.assertIn(
+            'profile.app.retry_under_load: expected true or false',
+            self.run_kitchen('validate', code=1),
+        )
+
     def test_gate_tmpdirs_default_to_slash_tmp(self):
         os.environ.pop('PSTACK_KITCHEN_GATE_TMP', None)
         self.assertEqual(kitchen.gate_tmp_base(), Path('/tmp'))

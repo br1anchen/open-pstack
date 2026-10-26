@@ -83,6 +83,7 @@ class Profile:
     sample: float
     heavy: frozenset[str]
     wrap: str | None
+    retry_under_load: bool = True
     path_res: list[re.Pattern] = field(default_factory=list)
     test_res: list[re.Pattern] = field(default_factory=list)
 
@@ -209,6 +210,7 @@ def parse(data: dict) -> Kitchen:
                 'sample',
                 'heavy',
                 'wrap',
+                'retry_under_load',
             },
         )
         wrap = p.get('wrap')
@@ -241,6 +243,9 @@ def parse(data: dict) -> Kitchen:
             sample=float(sample),
             heavy=_heavy_stages(p.get('heavy', False), f'{where}.heavy'),
             wrap=wrap,
+            retry_under_load=_bool(
+                p.get('retry_under_load', True), f'{where}.retry_under_load'
+            ),
             path_res=[glob_regex(g) for g in paths],
             test_res=[glob_regex(g) for g in tests],
         )
@@ -1371,6 +1376,7 @@ def _run_gate(
                 root,
                 waited,
                 env,
+                p.retry_under_load,
             )
         out['waited'] = waited
         if commands and not inside:
@@ -1391,6 +1397,7 @@ def _run_commands(
     root: Path,
     waited: float,
     env: dict[str, str],
+    retry: bool = True,
 ) -> dict:
     results = []
     for i, cmd in commands:
@@ -1403,7 +1410,7 @@ def _run_commands(
             'seconds': round(time.monotonic() - start, 1),
             'log': str(log),
         }
-        load = overloaded() if code != 0 else None
+        load = overloaded() if code != 0 and retry else None
         if load is not None:
             # A suite that times out on a loaded machine is not a broken
             # change: it gets one rerun, recorded as flaky when it passes.
