@@ -2893,15 +2893,14 @@ def is_broken(
 
 
 def top_level(found: list[Section]) -> list[Section]:
-    """The sections an author reads as the document's top level: the shallowest level's headings, or, while that
-    level holds a single heading (a title) and a deeper level exists, the headings one level below it."""
-    level = min(s.level for s in found)
-    while sum(s.level == level for s in found) == 1:
-        deeper = [s.level for s in found if s.level > level]
-        if not deeper:
-            break
-        level = min(deeper)
-    return [s for s in found if s.level == level]
+    """The sections an author reads as the document's top level: those with no ancestor, or, while exactly one
+    section stands at a depth (a title) and it has children, the sections one depth below it."""
+    depth = 1
+    while True:
+        here = [s for s in found if len(s.path) == depth]
+        if len(here) != 1 or not any(len(s.path) == depth + 1 for s in found):
+            return here
+        depth += 1
 
 
 def top_sections(data: bytes, where: str) -> tuple[int | None, tuple[Heading, ...]]:
@@ -2910,7 +2909,7 @@ def top_sections(data: bytes, where: str) -> tuple[int | None, tuple[Heading, ..
         return None, ()
     top = top_level(reading.sections)
     text = decode(reading.lines, where)
-    return top[0].level, tuple(
+    return min(s.level for s in top), tuple(
         Heading(s.raw, tokens_of('\n'.join(text[s.start : s.end]))) for s in top
     )
 

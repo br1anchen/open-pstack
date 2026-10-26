@@ -1404,15 +1404,29 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(done.returncode, 2)
         self.assertIn('has no commit at HEAD', done.stderr)
 
-    def test_the_top_level_is_the_shallowest_heading_level_present(self):
+    def test_the_top_level_is_the_headings_with_no_ancestor(self):
         got = documents({'x.md': b'### Deep\n\ntext\n\n## Mid\n\n## Mid2\n\nmore\n'})
         x = got['x.md']
         self.assertEqual(x.level, 2)
-        self.assertEqual([h.raw for h in x.sections], ['Mid', 'Mid2'])
-        self.assertEqual(x.sections[0].tokens, len('## Mid') // 4)
+        self.assertEqual([h.raw for h in x.sections], ['Deep', 'Mid', 'Mid2'])
+        self.assertEqual(x.sections[1].tokens, len('## Mid') // 4)
         self.assertEqual(
             x.tokens, len('### Deep\n\ntext\n\n## Mid\n\n## Mid2\n\nmore\n') // 4
         )
+
+    def test_a_heading_before_the_title_level_stays_a_top_level_section(self):
+        data = b'## Preamble\n\nx\n\n# Main\n\n## M1\n\n# Other\n'
+        got = documents({'x.md': data})['x.md']
+        self.assertEqual([h.raw for h in got.sections], ['Preamble', 'Main', 'Other'])
+        self.assertEqual(got.level, 1)
+
+    def test_a_deeper_heading_before_a_shallower_one_is_a_top_level_section(self):
+        got = documents({'x.md': b'### Deep\n\n## Mid\n\n### Under\n'})['x.md']
+        self.assertEqual([h.raw for h in got.sections], ['Deep', 'Mid'])
+
+    def test_a_lone_title_descends_into_its_own_children_by_path(self):
+        got = documents({'x.md': b'# T\n\n## A\n\n#### x\n\n### y\n'})['x.md']
+        self.assertEqual([h.raw for h in got.sections], ['x', 'y'])
 
     def test_a_lone_title_hands_the_top_level_to_the_headings_below_it(self):
         got = documents({'x.md': b'# Title\n\n## A\n\ntext\n\n## B\n\n### C\n\nmore\n'})
@@ -1567,6 +1581,16 @@ class DraftTests(unittest.TestCase):
             'SHA256', sha(STANDARDS)
         )
         self.assertEqual(done.stdout, want)
+
+    def test_the_draft_keeps_a_heading_before_the_title_level(self):
+        repo, _ = fixture_repo(
+            self, {'g.md': b'## Preamble\n\nx\n\n# Main\n\n## M1\n\n# Other\n'}
+        )
+        done = inventory(repo, '--draft', 'g.md')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('# ancestry = ["Preamble"]', done.stdout)
+        self.assertIn('# ancestry = ["Main"]', done.stdout)
+        self.assertIn('# ancestry = ["Other"]', done.stdout)
 
     def test_a_block_for_each_top_level_section_with_occurrence_for_a_repeat(self):
         repo = Path(tempfile.mkdtemp())
