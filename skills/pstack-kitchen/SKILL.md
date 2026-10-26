@@ -31,7 +31,7 @@ which skills build a run's commands came from. Every command runs in Python, in 
 `revise`, `catch`, `retro`, the master hand-over and the feedback inbox). `scripts/kitchen.py` reads the repo's kitchen and runs its gates;
 `kitchen_core/kpy.py` is the only way the commands reach it.
 
-[`references/playbook-roles.toml`](references/playbook-roles.toml) maps each part of the pstack playbooks a brief names to the roles that own it, with a reviewed digest per part. `kitchen.py playbooks validate` checks it against the playbook sources (`scripts/check-pstack.py` runs the same check), and `kitchen.py playbooks review <name>` lists the parts whose source changed since they were reviewed.
+[`references/playbook-roles.toml`](references/playbook-roles.toml) maps each part of the pstack playbooks a brief names to the roles that own it, with a reviewed digest per part. `kitchen.py playbooks validate` checks it against the playbook sources (`scripts/check-pstack.py` runs the same check), and `kitchen.py playbooks review <name>` lists the parts whose source changed since they were reviewed. `kitchen.py context` moves sections of a repo's Markdown into modules from a reviewed migration file; [the reference page](references/context-migration.md) has the sequence.
 
 ## Preconditions
 

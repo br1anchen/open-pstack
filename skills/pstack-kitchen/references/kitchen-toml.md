@@ -85,7 +85,7 @@ silently doing nothing.
 | `.command` | `""` | how to regenerate them; shown in the warning |
 | `[review]` | | |
 | `.self` | `[]` | skills the sidekick runs on its diff before reporting done |
-| `.standards` | `[]` | doc sections (`path#anchor`) the review holds the diff to |
+| `.standards` | `[]` | doc sections (`path#anchor`) the review holds the diff to; a [context migration](context-migration.md) rewrites these references, as it does a policy `.source`, or fails `check` on one it leaves behind |
 | `.max_batch_diff` | `800` | a batch over this many diff lines verifies per unit instead |
 | `.engine` | unset | a review tool the owner requires on every unit, such as `"joo"`. The kitchen does not run it; the master does, and land-check refuses an accepted unit whose review note has no `engine: <name> <run id or artifact path>` line. `doctor` checks that `<name>-dev` or `<name>` is on PATH |
 | `.routine`, `.escalated`, `.landing` | unset | tuned a reviewer the kitchen no longer runs; still parsed, ignored, and `validate` and `doctor` warn while the file sets them |
@@ -103,7 +103,7 @@ An overlay adds a repo's own standards to the playbook a brief names. It is a
 `<id>.toml` file in `.agents/playbooks/` for a repo kitchen, or in
 `<kitchen-file-stem>.playbooks/` beside the host kitchen file for a host
 kitchen, so each host kitchen has overlays of its own. A `<id>.md` beside it is
-narrative and is never read. The example is `rust-engine` from
+narrative and is never read. A [context migration](context-migration.md) checks each part whose source it moves. The example is `rust-engine` from
 `tests/fixtures/playbooks/repo/.agents/playbooks/`, cut to its first part and
 with a `kitchen` text that stands on its own:
 
