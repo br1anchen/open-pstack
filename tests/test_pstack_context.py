@@ -1,3 +1,4 @@
+import dataclasses
 import hashlib
 import importlib.util
 import json
@@ -642,10 +643,12 @@ def expected(path):
 FILES = {'STANDARDS.md', 'docs/guide.md', '.agents/kitchen.toml'}
 
 
+KITCHEN_TOML = (fixtures / 'repo/.agents/kitchen.toml').read_bytes()
+BASE = {'STANDARDS.md': STANDARDS, '.agents/kitchen.toml': KITCHEN_TOML}
+
+
 def render_sample(migration=None, present=()):
-    return context.render(
-        migration or sample_migration(), {'STANDARDS.md': STANDARDS}, present, FILES
-    )
+    return context.render(migration or sample_migration(), BASE, present, FILES)
 
 
 class RenderTests(unittest.TestCase):
@@ -658,6 +661,7 @@ class RenderTests(unittest.TestCase):
                 'docs/standards/typed-evidence.md',
                 'docs/standards/rust.md',
                 'docs/standards/testing-notes.md',
+                '.agents/kitchen.toml',
             },
         )
         for path, data in out.items():
@@ -666,7 +670,7 @@ class RenderTests(unittest.TestCase):
 
     def test_the_anchor_map_follows_each_moved_heading_to_its_new_home(self):
         m = sample_migration()
-        got = context.anchor_map(m, {'STANDARDS.md': STANDARDS}, render_sample(m))
+        got = context.anchor_map(m, BASE, render_sample(m))
         typed, rust = 'docs/standards/typed-evidence.md', 'docs/standards/rust.md'
         self.assertEqual(
             got,
@@ -685,7 +689,7 @@ class RenderTests(unittest.TestCase):
 
     def test_the_anchor_map_leaves_unmoved_headings_out(self):
         m = sample_migration()
-        got = context.anchor_map(m, {'STANDARDS.md': STANDARDS}, render_sample(m))
+        got = context.anchor_map(m, BASE, render_sample(m))
         for anchor in (
             'coding-standards',
             'testing',
@@ -911,6 +915,79 @@ class RebaseTests(unittest.TestCase):
         self.assertIn(b'[guide](../guide.md#moved)', typed.after)
 
 
+class RewriteTests(unittest.TestCase):
+    def rewrite_sample(self, **changes):
+        m = sample_migration()
+        r = m.rewrites[0]
+        fields = {'path': r.path, 'from_': r.from_, 'to': r.to} | changes
+        return dataclasses.replace(m, rewrites=(context.Rewrite(**fields),))
+
+    def refused(self, m, base, fragment):
+        with self.assertRaises(context.ContextError) as caught:
+            context.render(m, base, (), FILES)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_a_rewrite_replaces_exactly_its_from_text_in_the_base_bytes(self):
+        out = render_sample()
+        self.assertEqual(
+            out['.agents/kitchen.toml'].decode(),
+            expected('.agents/kitchen.toml').decode(),
+        )
+        self.assertEqual(
+            out['.agents/kitchen.toml'],
+            KITCHEN_TOML.replace(
+                b'"STANDARDS.md#typed-evidence"',
+                b'"docs/standards/typed-evidence.md#typed-evidence"',
+            ),
+        )
+
+    def test_a_from_that_occurs_twice_is_refused_with_the_file_and_the_count(self):
+        twice = KITCHEN_TOML + b'again = "STANDARDS.md#typed-evidence"\n'
+        self.refused(
+            sample_migration(),
+            BASE | {'.agents/kitchen.toml': twice},
+            ".agents/kitchen.toml: `from` 'STANDARDS.md#typed-evidence' occurs 2 times",
+        )
+
+    def test_a_from_that_never_occurs_is_refused_with_the_file_and_the_count(self):
+        self.refused(
+            self.rewrite_sample(from_='STANDARDS.md#nowhere'),
+            BASE,
+            ".agents/kitchen.toml: `from` 'STANDARDS.md#nowhere' occurs 0 times",
+        )
+
+    def test_a_to_that_resolves_to_nothing_is_refused_naming_it(self):
+        self.refused(
+            self.rewrite_sample(to='docs/standards/missing.md#x'),
+            BASE,
+            "rewrite `to` 'docs/standards/missing.md#x' resolves to nothing",
+        )
+
+    def test_a_to_naming_a_heading_the_destination_lacks_is_refused(self):
+        self.refused(
+            self.rewrite_sample(to='docs/standards/rust.md#nowhere'),
+            BASE,
+            'names no heading of docs/standards/rust.md',
+        )
+
+    def test_a_to_may_name_a_file_of_the_repo(self):
+        out = context.render(
+            self.rewrite_sample(to='docs/guide.md#moved'), BASE, (), FILES
+        )
+        self.assertIn(b'"docs/guide.md#moved"', out['.agents/kitchen.toml'])
+
+    def test_a_rewrite_target_that_is_also_moved_is_refused(self):
+        m = self.rewrite_sample(path='STANDARDS.md')
+        self.refused(m, BASE, 'also be a move source or destination')
+
+    def test_a_requires_naming_a_migration_source_is_accepted(self):
+        m = migration_of(move(RUST, 'docs/rust.md', requires=['STANDARDS.md']))
+        out = context.render(m, {'STANDARDS.md': STANDARDS})
+        self.assertIn(
+            b'Read first: [STANDARDS.md](../STANDARDS.md).', out['docs/rust.md']
+        )
+
+
 KITCHEN = scripts / 'kitchen.py'
 
 
@@ -938,9 +1015,14 @@ class PreviewTests(unittest.TestCase):
             '--- /dev/null\n+++ b/docs/standards/typed-evidence.md\n',
             '--- /dev/null\n+++ b/docs/standards/rust.md\n',
             '--- /dev/null\n+++ b/docs/standards/testing-notes.md\n',
+            '--- a/.agents/kitchen.toml\n+++ b/.agents/kitchen.toml\n',
         ):
             self.assertIn(header, done.stdout)
-        self.assertIn('unchanged: .agents/kitchen.toml', done.stdout)
+        self.assertNotIn('unchanged:', done.stdout)
+        self.assertIn(
+            '+standards = ["docs/standards/typed-evidence.md#typed-evidence"]',
+            done.stdout,
+        )
         self.assertIn(
             '+Read first: [docs/standards/typed-evidence.md](typed-evidence.md).',
             done.stdout,
@@ -969,9 +1051,10 @@ class PreviewTests(unittest.TestCase):
         new = writes['docs/standards/rust.md']
         self.assertIsNone(new['before_sha256'])
         self.assertEqual(new['after_sha256'], sha(expected('docs/standards/rust.md')))
-        same = writes['.agents/kitchen.toml']
+        rewritten = writes['.agents/kitchen.toml']
+        self.assertEqual(rewritten['before_sha256'], sha(KITCHEN_TOML))
         self.assertEqual(
-            (same['before_sha256'], same['diff']), (same['after_sha256'], '')
+            rewritten['after_sha256'], sha(expected('.agents/kitchen.toml'))
         )
 
     def test_it_reads_the_base_commit_not_the_working_tree(self):

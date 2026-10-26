@@ -1266,11 +1266,62 @@ def render(
     sources = {mv.source for mv in migration.moves}
     readings = {p: read(d, p) for p, d in base_files.items() if p in sources}
     made = cuts(migration, {p: r.sections for p, r in readings.items()}, present)
-    first = assemble(migration, readings, made, Patches({}, {}, {}), present)
+    held = {*present, *base_files}
+    first = assemble(migration, readings, made, Patches({}, {}, {}), held)
     amap = anchor_map(migration, base_files, first)
     known = {*files, *base_files, *present, *first}
     patches = rebase(readings, made, known, amap)
-    return assemble(migration, readings, made, patches, present)
+    outputs = assemble(migration, readings, made, patches, held)
+    return outputs | rewritten(migration, base_files, outputs, known)
+
+
+def rewritten(
+    migration: Migration,
+    base_files: dict[str, bytes],
+    outputs: dict[str, bytes],
+    known: Collection[str],
+) -> dict[str, bytes]:
+    """Each `[[rewrite]]` target's base bytes with `from` replaced by `to`. `from` must occur exactly once in the
+    file as the earlier rewrites left it; `to` must name a file the repo, the migration or its outputs hold, and the
+    section of it that `to` names must exist in the output."""
+    moved = {mv.source for mv in migration.moves} | {mv.to for mv in migration.moves}
+    done: dict[str, bytes] = {}
+    for r in migration.rewrites:
+        if r.path in moved:
+            raise ContextError(
+                f'{r.path}: a rewrite target cannot also be a move source or destination'
+            )
+        if r.path not in base_files:
+            raise ContextError(f'{r.path}: rewrite target is not among the base files')
+        data = done.get(r.path, base_files[r.path])
+        count = data.count(r.from_.encode())
+        if count != 1:
+            raise ContextError(
+                f'{r.path}: `from` {r.from_!r} occurs {count} times; it must occur exactly once'
+            )
+        target, fragment = split_target(r.to)
+        ref = Ref(
+            r.path,
+            1,
+            0,
+            len(r.to),
+            'inline' if r.path.endswith(MARKDOWN) else 'text',
+            target,
+            fragment,
+            r.to,
+        )
+        found = resolve(ref, known)
+        if found is None:
+            raise ContextError(f'{r.path}: rewrite `to` {r.to!r} resolves to nothing')
+        path, anchor = found
+        if anchor and path in outputs and path.endswith(MARKDOWN):
+            there = set(anchors(read(outputs[path], path).sections).values())
+            if anchor not in there:
+                raise ContextError(
+                    f'{r.path}: rewrite `to` {r.to!r} names no heading of {path} after the move'
+                )
+        done[r.path] = data.replace(r.from_.encode(), r.to.encode())
+    return done
 
 
 # ---- preview ---------------------------------------------------------------
