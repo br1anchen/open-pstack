@@ -2889,6 +2889,25 @@ class CheckCommandTests(unittest.TestCase):
         self.assertNotIn('fix:', done.stdout)
         self.assertTrue(done.stdout.endswith('ok\n'))
 
+    def test_a_failed_walk_keeps_a_failing_consumer_false_not_null(self):
+        repo, mig = applied_repo(self, {OVERLAY: overlay_text(('a', 'heading:Style'))})
+        kitchen = repo / '.agents/kitchen.toml'
+        kitchen.write_text(
+            kitchen.read_text().replace(
+                'docs/standards/typed-evidence.md#typed-evidence',
+                'docs/standards/typed-evidence.md#nowhere',
+            )
+        )
+        index = repo / 'STANDARDS.md'
+        lines = index.read_bytes().split(b'\n')
+        lines.insert(3, lines[3])
+        index.write_bytes(b'\n'.join(lines))
+        edited = json.loads(check_run(repo, mig, '--json').stdout)
+        self.assertIs(edited['walked'], False)
+        by_path = {c['path']: c['ok'] for c in edited['consumers']}
+        self.assertIs(by_path['.agents/kitchen.toml'], False)
+        self.assertIsNone(by_path['.agents/playbooks/standards.toml'])
+
     def test_a_broken_link_after_a_clean_walk_prints_the_consumers_judged(self):
         repo, mig = applied_repo(self, {OVERLAY: overlay_text(('a', 'heading:Style'))})
         rust = repo / 'docs/standards/rust.md'

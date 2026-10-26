@@ -2886,8 +2886,10 @@ class Document:
     path: str
     bytes: int
     tokens: int
-    level: int | None  # the shallowest heading level present
-    sections: tuple[Heading, ...]  # the headings of that level
+    level: int | None  # the shallowest level among `sections`; None with no headings
+    sections: tuple[
+        Heading, ...
+    ]  # the top sections by heading path (`top_level`); they may mix levels
     inbound: tuple[Inbound, ...]
     candidate: bool
     error: str | None  # why the headings could not be read, when they could not
@@ -2936,6 +2938,8 @@ def top_level(found: list[Section]) -> list[Section]:
 
 
 def top_sections(data: bytes, where: str) -> tuple[int | None, tuple[Heading, ...]]:
+    """The top sections by heading path (`top_level`), which may mix levels, and the shallowest level among them:
+    `### Deep` then `## Mid` gives level 2 and both; a lone title with children gives its children."""
     reading = read(data, where)
     if not reading.sections:
         return None, ()
