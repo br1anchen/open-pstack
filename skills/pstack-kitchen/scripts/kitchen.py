@@ -1410,8 +1410,8 @@ def _run_commands(
             'seconds': round(time.monotonic() - start, 1),
             'log': str(log),
         }
-        load = overloaded() if code != 0 and retry else None
-        if load is not None:
+        load = overloaded() if code != 0 else None
+        if load is not None and retry:
             # A suite that times out on a loaded machine is not a broken
             # change: it gets one rerun, recorded as flaky when it passes.
             first = log.with_name(f'{log.stem}.first.log')
@@ -1427,6 +1427,15 @@ def _run_commands(
                 },
                 flaky=code == 0,
             )
+        elif load is not None:
+            # A profile that refuses the rerun keeps the failure; the rerun
+            # only says whether it depends on timing.
+            again = log.with_name(f'{log.stem}.rerun.log')
+            r['rerun'] = {
+                'load': load,
+                'exit': run_command(root, cmd, again, env),
+                'log': str(again),
+            }
         if code != 0:
             r['tail'] = log.read_text(errors='replace').splitlines()[-20:]
         results.append(r)
@@ -5026,6 +5035,16 @@ def main(argv: list[str] | None = None) -> int:
                     lines.append(
                         f'  retried at load {t["load"]} after exit {t["first_exit"]} (log: {t["first_log"]}): '
                         + ('passed' if x['flaky'] else 'failed again')
+                    )
+                if x.get('rerun'):
+                    t = x['rerun']
+                    lines.append(
+                        f'  reran at load {t["load"]} (log: {t["log"]}): '
+                        + (
+                            'passed, so the failure depends on timing: look for a race or a tight timeout'
+                            if t['exit'] == 0
+                            else f'failed again (exit {t["exit"]})'
+                        )
                     )
                 lines += [f'    | {t}' for t in x.get('tail', [])]
             lines += [

@@ -65,7 +65,7 @@ silently doing nothing.
 | `.verify` | `"batch"` | routine verification: `gates` (deterministic gates only, no verifier), `batch` (one verifier per landing stack), `unit` (one per unit) |
 | `.sample` | `0.1` | share of clean routine units the master audits in full |
 | `.heavy` | `false` | `true`, or a list of stages from `fast`, `behavioral`, `landing`: those stages' gates take one of `resources.max_parallel_heavy` machine-wide slots, so a verifier's build never races the sidekick's. `true` means all three. A 30-second fast gate should not queue behind a verifier's behavioral build, so a repo that builds only there opts in with `heavy = ["behavioral", "landing"]`. A heavy gate takes its heavy slot before its machine gate slot |
-| `.retry_under_load` | `true` | `false` turns off the one rerun a gate command gets when it fails under load (see Commands), so the failure counts. |
+| `.retry_under_load` | `true` | `false` keeps the failure of a gate command that fails under load: its one rerun (see Commands) no longer counts, it only says whether the failure depends on timing. |
 | `.wrap` | `[run].wrap` | this profile's wrap; `""` runs it unwrapped |
 | `[playbooks].target_tokens` | `1500` | the token target (characters divided by four) for the `## Playbook:` section dispatch writes into a routine or escalated brief: the sidekick's parts of the unit's stamped composition. It is a target, not a cap. The role's authority and the inventory of every part always go in; the text of each part follows in composition order while the estimate stays within the target, and every part past it is listed under `Pending reads` with the `kitchen.sh playbook-part <store> <NNN> <role> <part-id>` call that prints it from the stored composition. `validate` rejects a value that is not an integer of 1 or more |
 | `[escalate]` | | what turns a routine change into an escalated one: per-unit verification by the master's kind, full sampling, the escalated review settings, and the consultant |
@@ -228,9 +228,13 @@ runs once more: a pass then counts, marked `flaky under load` in the step's
 output and counted by `retro` as `gate-flaky`, so a suite that only fails on
 a loaded machine shows up as that rather than as broken changes.
 `PSTACK_KITCHEN_RETRY_LOAD` sets the load per core (default `1.0`; `off` never
-reruns). A profile with `retry_under_load = false` never reruns either, so a
-failure under load fails the step as `gate-fail`: for a repo whose flaky gates
-have each turned out to hide a race, not a slow machine. Each gate also runs with its own short `TMPDIR` under `/tmp`, removed
+reruns). A profile with `retry_under_load = false` keeps the failure: the step
+fails as `gate-fail` with the first run's exit and log tail, and the rerun is a
+diagnosis, its log beside the first (`<name>.rerun.log`). A rerun that passes
+prints `reran at load <load> (log: <path>): passed, so the failure depends on
+timing: look for a race or a tight timeout`; one that fails prints `failed
+again (exit <n>)`. It is for a repo whose flaky gates have each turned out to
+hide a race, not a slow machine. Each gate also runs with its own short `TMPDIR` under `/tmp`, removed
 when it ends (`PSTACK_KITCHEN_GATE_TMP` moves it). Every command sees `PSTACK_KITCHEN_STEP_BASE`, the commit the step or unit
 is checked against, so an affected-only command covers every commit of a
 multi-commit step (`turbo run test --filter=...[$PSTACK_KITCHEN_STEP_BASE]`;

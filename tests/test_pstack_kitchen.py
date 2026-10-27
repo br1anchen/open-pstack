@@ -906,7 +906,7 @@ class GateTests(KitchenTests):
             'retried', self.data('gate', 'app', 'fast', code=2)['commands'][0]
         )
 
-    def test_a_profile_that_refuses_the_rerun_fails_under_load(self):
+    def test_a_profile_that_refuses_the_rerun_keeps_the_failure_and_diagnoses_it(self):
         mark = Path(self.tmp.name) / 'ran-once'
         self.write(
             '.agents/kitchen.toml',
@@ -918,10 +918,36 @@ class GateTests(KitchenTests):
         self.env['PSTACK_KITCHEN_RETRY_LOAD'] = '-1'
         r = self.data('gate', 'app', 'fast', code=2)
         c = r['commands'][0]
+        # the rerun passes, yet the failure stands: the rerun only diagnoses it, with its own log beside the failing one
         self.assertFalse(r['passed'])
         self.assertNotIn('retried', c)
         self.assertNotIn('flaky', c)
         self.assertEqual(c['exit'], 1)
+        self.assertEqual(
+            (c['rerun']['exit'], Path(c['rerun']['log']).name),
+            (0, 'app-fast-0.rerun.log'),
+        )
+        self.assertTrue(Path(c['log']).exists())
+        mark.unlink()
+        out = self.run_kitchen('gate', 'app', 'fast', code=2)
+        self.assertIn('app fast: FAIL', out)
+        self.assertRegex(
+            out,
+            r'\n  reran at load [0-9.]+ \(log: \S+/app-fast-0\.rerun\.log\): passed, so the failure depends on timing: '
+            r'look for a race or a tight timeout\n',
+        )
+        self.assertNotIn('flaky under load', out)
+        self.write(
+            '.agents/kitchen.toml',
+            KITCHEN.replace(
+                'fast = ["test -f src/app.py"]',
+                'fast = ["exit 3"]\nretry_under_load = false',
+            ),
+        )
+        self.assertIn(
+            'rerun.log): failed again (exit 3)\n',
+            self.run_kitchen('gate', 'app', 'fast', code=2),
+        )
         self.write(
             '.agents/kitchen.toml',
             KITCHEN.replace(
