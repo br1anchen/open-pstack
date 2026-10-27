@@ -12189,6 +12189,82 @@ esac
             for ln in lines[1:]
         ]
 
+    def rewrite_ledger(self, edit):
+        path = next(
+            (Path(self.env['XDG_STATE_HOME']) / 'pstack/kitchen/repos').glob(
+                '*/ledger.tsv'
+            )
+        )
+        head, rows = self.ledger()
+        path.write_text(
+            '\n'.join(
+                ['\t'.join(head)] + ['\t'.join(r[k] for k in head) for r in edit(rows)]
+            )
+            + '\n'
+        )
+
+    def failing_step(self, text):
+        self.write('FAIL', 'x\n')
+        self.write('src/util.py', text)
+        sha = self.commit('broken')
+        self.run_sh('step', str(self.store), sha, 'one', code=2)
+
+    def test_a_retro_rerun_keeps_the_time_of_rows_it_wrote_before(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.failing_step('X = 7\n')
+        self.run_sh('retro', str(self.store))
+        old = '2026-01-01T00:00:00Z'
+        self.rewrite_ledger(lambda rows: [dict(r, ts=old) for r in rows])
+        count = len(self.ledger()[1])
+        self.assertGreater(count, 0)
+        self.run_sh('retro', str(self.store))
+        rows = self.ledger()[1]
+        self.assertEqual(len(rows), count)
+        self.assertEqual({r['ts'] for r in rows}, {old})
+
+    def test_a_dismissed_candidate_stays_hidden_after_a_retro_rerun(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.failing_step('X = 7\n')
+        self.run_sh('retro', str(self.store))
+        old, between = '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z'
+
+        def three_runs(rows):
+            fails = [r for r in rows if r['kind'] == 'gate-fail']
+            more = [dict(r, run=f'other-{n}') for n in (1, 2) for r in fails]
+            return [dict(r, ts=old) for r in rows + more]
+
+        self.rewrite_ledger(three_runs)
+        fail = next(r for r in self.ledger()[1] if r['kind'] == 'gate-fail')
+        listed = f'gate-fail {fail["class"]} {fail["area"]}'
+        args = [fail['class'], fail['area'], '--match', fail['match']]
+        self.assertIn(listed, self.run_sh('retro', str(self.store)))
+        subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                '--repo',
+                str(self.repo),
+                'lessons',
+                'dismiss',
+                'gate-fail',
+                *args,
+                '--note',
+                'mixed',
+            ],
+            env=self.env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        self.rewrite_ledger(
+            lambda rows: [
+                dict(r, ts=between) if r['kind'] == 'dismiss' else r for r in rows
+            ]
+        )
+        self.assertNotIn(listed, self.run_sh('retro', str(self.store)))
+        self.failing_step('X = 8\n')
+        self.assertIn(listed, self.run_sh('retro', str(self.store)))
+
     def test_the_ledger_says_where_and_what(self):
         b = self.brief('001', 'util', ['src/lib/**', 'tests/**'])
         self.dispatch(b)

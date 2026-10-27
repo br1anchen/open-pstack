@@ -2643,18 +2643,29 @@ def ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
 
 
 def _ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
+    # A rerun must not make old trouble look newer than a dismissal.
+    when = {
+        (r['kind'], r['class'], r['detail']): r['ts']
+        for r in ledger_rows(ledger)
+        if r['run'] == run and r['kind'] in RETRO_KINDS
+    }
     rows = [
         r
         for r in ledger_rows(ledger)
         if r['run'] != run or r['kind'] not in RETRO_KINDS
     ]
-    new = retro_rows(store, run, ts)
+    new = [
+        (when.get((r[2], r[3], r[4]), ts), *r[1:]) for r in retro_rows(store, run, ts)
+    ]
     catches = [
         tuple(r[k] for k in LEDGER_HEAD)
         for r in rows
         if r['run'] == run and r['kind'] == 'catch'
     ]
-    new += lesson_rows(store, run, ts, new + catches)
+    new += [
+        (when.get((r[2], r[3], r[4]), ts), *r[1:])
+        for r in lesson_rows(store, run, ts, new + catches)
+    ]
     write_ledger(ledger, rows + [dict(zip(LEDGER_HEAD, r, strict=True)) for r in new])
     return len(new)
 
