@@ -6893,12 +6893,14 @@ esac
         out = self.run_sh('verify', str(self.store), '--landing')
         self.assertIn('status: clean', out)
         self.assertIn(
-            'rotate at this boundary (2 units verified since your last handoff)', out
+            'rotate only if more work follows (2 units verified since your last handoff)',
+            out,
         )
         self.assertEqual(self.state()['master']['units_since_handoff'], 2)
         out = self.run_sh('verify', str(self.store), '--landing')
         self.assertIn(
-            'rotate at this boundary (3 units verified since your last handoff)', out
+            'rotate only if more work follows (3 units verified since your last handoff)',
+            out,
         )
 
     def landed(self):
@@ -6909,15 +6911,43 @@ esac
         landing = self.run_sh('verify', str(self.store), '--landing')
         return unit, landing
 
-    def test_a_clean_landing_verdict_says_to_rotate_below_the_unit_threshold(self):
+    def test_a_landing_with_nothing_left_says_to_rotate_only_if_more_work_follows(self):
         unit, landing = self.landed()
         self.assertNotIn('rotate', unit)
         self.assertIn('status: clean', landing)
         self.assertIn(
-            'master: a clean landing verdict ends an issue; rotate at this boundary (2 units verified since your last handoff): kitchen.sh new-handoff',
+            'master: a clean landing verdict ends an issue; nothing is queued or running, so rotate only if more work follows (2 units verified since your last handoff): kitchen.sh new-handoff',
             landing,
         )
         self.assertEqual(self.state()['master']['units_since_handoff'], 2)
+        self.assertTrue(self.state()['master']['landed_since_handoff'])
+
+    def test_a_landing_with_a_queued_brief_says_to_rotate_at_this_boundary(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        self.three_units()
+        self.run_sh('verify', str(self.store), '001')
+        queued = self.brief('004', 'u4', ['docs/**'])
+        (self.store / 'queue').write_text(f'{queued}\n')
+        landing = self.run_sh('verify', str(self.store), '--landing')
+        self.assertIn(
+            'master: a clean landing verdict ends an issue; rotate at this boundary (2 units verified since your last handoff): kitchen.sh new-handoff',
+            landing,
+        )
+        self.assertTrue(self.state()['master']['landed_since_handoff'])
+
+    def test_a_landing_while_a_unit_is_out_says_to_rotate_at_this_boundary(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        self.three_units()
+        self.run_sh('verify', str(self.store), '001')
+        self.dispatch(self.brief('004', 'u4', ['docs/**']))
+        landing = self.run_sh('verify', str(self.store), '--landing')
+        self.assertIn(
+            'master: a clean landing verdict ends an issue; rotate at this boundary (2 units verified since your last handoff): kitchen.sh new-handoff',
+            landing,
+        )
+        self.assertTrue(self.state()['master']['landed_since_handoff'])
 
     def test_dispatch_after_a_landing_repeats_the_rotation_advice_and_still_sends(self):
         reminder = 'master: a landing was verified since your last handoff; rotate before the next issue: kitchen.sh new-handoff'

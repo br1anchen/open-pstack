@@ -27,10 +27,13 @@ from pstack_core.errors import (
 from pstack_core.exits import end_agent, stop_prime_role
 from pstack_core.numbers import env_int, int_or_none
 from pstack_core.panes import agent_prompt, herdr
+from pstack_core.replies import queued_brief
 from pstack_core.send import submit_typed
 from pstack_core.store import (
     count,
+    dispatched_brief,
     event,
+    expected_report,
     header_field,
     json_type,
     member,
@@ -251,10 +254,19 @@ def verdict_problem(verdict):
     return Verdict.parse(verdict).problem
 
 
+def work_left(store):
+    """True when a brief waits in the queue or the dispatched brief has no report yet."""
+    if queued_brief(store):
+        return True
+    brief = dispatched_brief(store)
+    return bool(brief) and not os.path.exists(expected_report(store, brief))
+
+
 def handoff_due(store, say=None, landing=False):
     """Every clean verdict, a landing verdict included, counts toward the master's next handoff; once the count reaches KITCHEN_MASTER_ROTATE_UNITS
     (default 5) each clean verdict says to rotate, until rotate-master resets the count. A clean landing verdict is a boundary on its own: it marks
-    `master.landed_since_handoff` (cleared by rotate-master, read by dispatch and discuss) and always says to rotate. The line goes to `say` (default: standard output)."""
+    `master.landed_since_handoff` (cleared by rotate-master, read by dispatch and discuss) and says to rotate at once when work is left (a queued
+    brief, or a dispatched one with no report) and to rotate only if more work follows when none is. The line goes to `say` (default: standard output)."""
     every = max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 5), 1)
 
     def bump(doc):
@@ -268,8 +280,10 @@ def handoff_due(store, say=None, landing=False):
     handoff = (
         f'kitchen.sh new-handoff {store}, fill it, kitchen.sh rotate-master {store}'
     )
-    if landing:
+    if landing and work_left(store):
         line = f'master: a clean landing verdict ends an issue; rotate at this boundary ({n} units verified since your last handoff): {handoff}\n'
+    elif landing:
+        line = f'master: a clean landing verdict ends an issue; nothing is queued or running, so rotate only if more work follows ({n} units verified since your last handoff): {handoff}\n'
     elif n >= every:
         line = f'master: {n} units verified since your last handoff; rotate at this boundary: {handoff}\n'
     else:
