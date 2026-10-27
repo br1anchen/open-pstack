@@ -21,6 +21,7 @@ fast = [
   "uv run --frozen ruff format --check",
   "uv run --frozen ruff check",
   "uv check --frozen",
+  "python3 tests/spec_gen.py --check",
   "python3 tests/run.py",
 ]
 behavioral = ["python3 tests/run.py"]
@@ -30,10 +31,15 @@ verify = "batch"
 sample = 0.2
 retry_under_load = false
 
-# The skill text and references: links and inventory, plus the template-status contract test; no other tests needed.
+# The skill text and references: links and inventory, the template-status contract test, and tests/SPEC.md,
+# whose lines cite skill documents by line number; no other tests needed.
 [profile.pstack-docs]
 paths = ["skills/**", "README.md", "AGENTS.md", "LICENSE", ".agents/LESSONS.md"]
-fast = ["python3 scripts/check-pstack.py", "python3 tests/run.py -k template_tells_a_role"]
+fast = [
+  "python3 scripts/check-pstack.py",
+  "python3 tests/run.py -k template_tells_a_role",
+  "python3 tests/spec_gen.py --check",
+]
 verify = "gates"
 sample = 0.0
 
