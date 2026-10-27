@@ -297,7 +297,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    stage it: `kitchen.py --repo <root> lessons add <args> "<rule>"`. If the
    evidence shares no cause, dismiss it, `kitchen.py --repo <root> lessons
    dismiss <args> --note "<why>"`; it stays hidden until newer trouble of
-   its kind comes back. A staged lesson is `proposed`; the human makes it
+   its kind comes back; rerunning retro keeps the time of rows it already
+   wrote, so a rerun alone does not bring it back. A staged lesson is `proposed`; the human makes it
    `active` (`lessons set <id> active`). The lessons file is this run's
    change in the shared worktree: commit it on its own, as `lessons add`
    prints, so it lands with the run and no sidekick commit sweeps it up.
