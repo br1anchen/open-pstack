@@ -219,8 +219,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    where it leaves trunk (origin's default branch, else main or master), the
    base `verify --landing` prints, so a rebase never pulls trunk's commits
    into it.
-   Once the landing is handed to the human, rotate (`new-handoff`, then
-   `rotate-master`): the next issue starts on a fresh master.
+   Once the landing is handed to the human and more work follows, rotate
+   (`new-handoff`, then `rotate-master`): the next issue starts on a fresh
+   master.
    A malformed verdict (no command output under Evidence, or a status other
    than clean, reject or inconclusive) covers nothing in land-check, and
    `revise` refuses it; read it before a fix brief.
@@ -352,8 +353,10 @@ place of the history:
   every clean verdict's `verify` prints `master: N units verified since your last handoff`. At
   that boundary, with no dispatch you must answer this turn. A clean landing
   verdict is a boundary on its own, whatever the unit count: `verify --landing`
-  says to rotate, and every `dispatch` and `discuss` repeats the reminder until
-  `rotate-master` runs. All of it is advice; nothing refuses:
+  says to rotate when a brief is queued or a unit is still out, and to rotate
+  only if more work follows when nothing is; every `dispatch` and `discuss`
+  repeats the reminder until `rotate-master` runs. All of it is advice; nothing
+  refuses:
   `kitchen.sh new-handoff <store>` writes `session-handoff.md` from
   [the template](handoff-template.md) with every unit's state filled in.
   Fill Goal, Decisions and Next, correct Units, then
