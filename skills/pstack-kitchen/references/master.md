@@ -193,9 +193,15 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      `engine: skipped (deletion-only, proof: <command>)`; for a unit that adds
      lines, land-check refuses that line (`skipped is only for a deletion-only
      range`). For `joo`:
-     `joo-dev engine review --repo <root> --range <base>..<head> --json --out <store>/scratch/joo-NNN.json`
-     (or `joo`), cite that artifact path, and read its findings with
-     `joo-dev connected review context --artifact <path> --json`.
+     `joo-dev engine review --repo <root> --range <base>..<head> --json --out <store>/scratch/joo-NNN > <store>/scratch/joo-NNN.json`
+     (or `joo`). `--out` names a directory where joo keeps the run's state
+     (its index, snapshots and `runs/<run id>/`); the review itself is the
+     JSON on standard output, an envelope `{ok, result, version}`. Cite that
+     file and the run id it holds (`.result.runId`) and read the findings from
+     `.result.findings`. For a connected review, write `.result` to a file of
+     its own and pass that file to
+     `joo-dev connected review context --artifact <file> --json`; it refuses
+     the envelope and the directory.
      Decide each blocking finding:
      fixed (a note or a fix brief to the sidekick, queued behind its running
      unit when it is busy), a follow-up in the review note (it goes to
