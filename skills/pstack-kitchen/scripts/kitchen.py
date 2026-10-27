@@ -3871,6 +3871,19 @@ def snapshot(inv: Invocation, dest: Path) -> str:
     return str(snap.resolve())
 
 
+def record_checkout(inv: Invocation, dest: Path) -> None:
+    """What a step's gates or a brief's Verify commands ended on: HEAD, then the
+    tracked files changed since, written to dest whole. The step or finish that
+    started the run discards a result whose checkout moved under it."""
+    root = repo_root(inv.root)
+    text = git(root, 'rev-parse', 'HEAD', check=False) + git(
+        root, 'status', '--porcelain', '--untracked-files=no', check=False
+    )
+    tmp = dest.with_name(f'{dest.name}.tmp')
+    tmp.write_text(text)
+    os.replace(tmp, dest)
+
+
 def manifests(inv: Invocation, paths: list[str]) -> list[str]:
     """The paths that match [escalate].manifests."""
     _, kitchen, _ = open_kitchen(inv)
@@ -4464,6 +4477,12 @@ def build_parser() -> argparse.ArgumentParser:
         '(nothing for a repo kitchen, which git versions)',
     )
     sn.add_argument('dir', type=Path)
+    co = sub.add_parser(
+        'checkout',
+        help='write HEAD and the tracked files changed since to FILE, as a gate or '
+        'Verify run ends',
+    )
+    co.add_argument('file', type=Path)
     su = sub.add_parser(
         'setup', help='run [scratch].setup in the repo root, inside the wrap'
     )
@@ -4872,6 +4891,9 @@ def main(argv: list[str] | None = None) -> int:
             for warning in r.warnings:
                 print(warning, file=sys.stderr)
             emit(r.as_dict(), args.json, r.text())
+            return 0
+        if args.cmd == 'checkout':
+            record_checkout(inv, args.file)
             return 0
         if args.cmd == 'snapshot':
             snap = snapshot(inv, args.dir)

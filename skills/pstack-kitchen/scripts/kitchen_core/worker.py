@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The detached half of `kitchen.sh step` and `kitchen.sh finish`: runs the repo's checks and writes the job's rc file.
+"""The detached half of `kitchen.sh step` and `kitchen.sh finish`: runs the repo's checks and writes the job's checkout and rc files.
 
     worker.py step   <repo> <kitchen.py> <job> <base> <head> [<config>]
     worker.py finish <repo> <kitchen.py> <brief> <job> [<config>] [<base>]
@@ -62,6 +62,7 @@ def step(repo, py, job, base, head, config=''):
             rc = 2
     if kitchen(py, repo, config, 'policy', '--base', base, '--head', head):
         rc = 2
+    kitchen(py, repo, config, 'checkout', f'{job}/checkout')
     write_rc(job, rc)
 
 
@@ -78,6 +79,7 @@ def finish(repo, py, brief, job, config='', base=''):
         f'{job}/logs',
         *(['--base', base] if base else []),
     )
+    kitchen(py, repo, config, 'checkout', f'{job}/checkout')
     write_rc(job, rc)
 
 

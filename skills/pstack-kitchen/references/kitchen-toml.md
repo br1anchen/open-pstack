@@ -258,6 +258,7 @@ kitchen.py classify --working-tree                    # uncommitted work
 kitchen.py classify --paths 'apps/web/**' src/x.ts    # a brief's Scope, before work starts
 kitchen.py gate <profile> fast|behavioral|landing     # exit 2 on failure; --keep-going, --only N
 kitchen.py policy --base <sha> [--head <sha>]         # forbid rules and test-touch; exit 2 on findings
+kitchen.py checkout <file>                            # HEAD and the changed tracked files, as a step's gates or finish's Verify end
 kitchen.py history [--last 20]                        # how each recent commit classifies, and its policy findings
 kitchen.py doctor [--run]                             # coverage, commands, features; --run records a baseline
 kitchen.py lessons [--all]                            # staged lessons with held/hit counts, then the top candidates

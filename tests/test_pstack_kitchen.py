@@ -3329,6 +3329,13 @@ class FleetTests(unittest.TestCase):
         self.assertEqual(sorted(str(p) for p in self.t.rglob('*')), before)
 
 
+# A gate or Verify command that moves the checkout under the run, at a fixed point: its first run commits, its second edits a tracked file.
+MOVE_CHECKOUT = (
+    'n=$(cat "$FAKE/moves" 2>/dev/null || echo 0); echo $((n + 1)) >"$FAKE/moves"; '
+    'case $n in 0) git commit -q --allow-empty -m moved ;; 1) echo "X = 9" >src/util.py ;; esac'
+)
+
+
 class KitchenScriptTests(unittest.TestCase):
     """kitchen.sh against a fake herdr, and a real repo and kitchen.py."""
 
@@ -4983,6 +4990,41 @@ esac
         self.write('untracked.txt', 'x\n')
         self.assertIn('gates: pass', self.run_sh('step', str(self.store), head, 'two'))
 
+    def test_step_discards_gates_whose_checkout_moved_while_they_ran(self):
+        # The gates run on the checkout: a commit or an edit of a tracked file during them means their result proves something else, so the step is
+        # refused with no row and no event, and the next run starts them again. The gate's first run commits and its second edits a tracked file.
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(
+            toml.read_text().replace(
+                'fast = ["test ! -e FAIL"]', f'fast = [{json.dumps(MOVE_CHECKOUT)}]'
+            )
+        )
+        self.commit('gate')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        first = self.commit('step 1')
+        before = (self.store / 'events.tsv').read_text()
+        out = self.run_sh('step', str(self.store), first, 'one', code=1)
+        moved = self.git('rev-parse', 'HEAD')
+        self.assertEqual(
+            out,
+            f'kitchen.sh: step {first}: HEAD moved to {moved[:9]} while the gates ran, so they did not prove {first}; record the step at HEAD\n',
+        )
+        out = self.run_sh('step', str(self.store), moved, 'one', code=1)
+        self.assertEqual(
+            out,
+            f'kitchen.sh: step {moved}: tracked files changed while the gates ran, so they did not prove {moved}:\n M src/util.py\n'
+            'commit or stash them, then run the same step again\n',
+        )
+        self.assertFalse((self.store / 'gates.tsv').exists())
+        self.assertEqual((self.store / 'events.tsv').read_text(), before)
+        self.git('checkout', '--', 'src/util.py')
+        self.assertIn(
+            'gates: pass (app)', self.run_sh('step', str(self.store), moved, 'one')
+        )
+
     def test_recording_the_same_sha_again_runs_nothing_and_merges_resolves(self):
         # B2, B4. The second record of a commit runs no gate, touches no job directory, writes no row and logs no event; --resolves still lands.
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
@@ -5742,6 +5784,11 @@ esac
         (job / 'rc').write_text('1\n')
         self.assertEqual(self.core_finish(report)[0], 7)
         (job / 'rc').write_text('0\n')
+        # a passing run whose checkout moved under it proves nothing; a job from an older worker has no checkout file
+        for ended in (f'{"0" * 40}\n', f'{head}\n M src/util.py\n'):
+            (job / 'checkout').write_text(ended)
+            self.assertEqual(self.core_finish(report)[0], 7, ended)
+        (job / 'checkout').unlink()
         code, out, err = self.core_finish(report)
         self.assertEqual((code, err), (0, ''))
         self.assertRegex(
@@ -5778,6 +5825,42 @@ esac
             'verify: pass (1 commands from the brief)',
             self.run_sh('finish', str(self.store), report),
         )
+
+    def test_finish_discards_a_verify_run_whose_checkout_moved_while_it_ran(self):
+        # The Verify command's first run commits and its second edits a tracked file; each discarded run is removed and runs again.
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, MOVE_CHECKOUT)
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        head = self.commit('step')
+        self.done(b, head)
+        report = str(self.store / 'reports' / b.name)
+        job = Path(
+            self.kitchen_variant().verify_job(BARE_CTX, str(self.store), str(b), head)
+        )
+        out = self.run_sh('finish', str(self.store), report, code=1)
+        moved = self.git('rev-parse', 'HEAD')
+        self.assertEqual(
+            out,
+            f"kitchen.sh: the checkout moved to {moved[:9]} while the brief's Verify commands ran at {head[:9]}, so they did not prove it; check "
+            "out the report's head (or fix head:) and finish again\n",
+        )
+        self.assertFalse(job.exists())
+        self.git('reset', '-q', '--hard', head)
+        out = self.run_sh('finish', str(self.store), report, code=1)
+        self.assertEqual(
+            out,
+            f"kitchen.sh: tracked files changed while the brief's Verify commands ran at {head[:9]}, so they did not prove it:\n M src/util.py\n"
+            'Commit this as a step (kitchen.sh step) and name it in head:, or remove it, then finish again\n',
+        )
+        self.assertFalse(job.exists())
+        self.assertEqual(self.reported(), [])
+        self.git('checkout', '--', 'src/util.py')
+        self.assertIn(
+            'verify: pass (1 commands from the brief)',
+            self.run_sh('finish', str(self.store), report),
+        )
+        self.assertEqual(len(self.reported()), 1)
 
     def test_finish_with_no_verify_commands_and_a_slow_one(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])

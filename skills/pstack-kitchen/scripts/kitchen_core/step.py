@@ -5,7 +5,8 @@ Verify commands, rerun by the kitchen, exit 0. Both start their checks detached 
 same command again waits on the same job. A detached run is worker.py started in a session of its own with its argv,
 PSTACK_KITCHEN_RUN, its working directory, standard input from /dev/null and its output in the job's log file; the Python parent never waits for it, and it
 writes the job's `rc` file when done. A step's job directory holds out.N (one log per run) and `out` (a link to the latest), rc, consumed, classify.json,
-profiles and base; finish's holds out, rc, consumed and logs/.
+profiles and base; finish's holds out, rc, consumed and logs/. Both hold `checkout`, HEAD and the tracked files changed as the checks ended: a result
+whose checkout moved under it proves nothing and is discarded.
 
 kitchen.py is reached through kpy (its classify_change function, in process); worker.py runs it as a child process, since it
 outlives this process. None of the in-process calls writes os.environ (kitchen.py :745, :771, :1023, :1038 belong to `gate` and `brief-verify`, which only
@@ -190,7 +191,16 @@ def start_gates(ctx, store, root, brief, job, base, full):
         return
     cfg = brief_kitchen(brief)
     # every run of the gates has its own log (out.1, out.2, ...), and `out` points at the latest: a path an event named keeps its run's text
-    for leftover in ('rc', 'rc.tmp', 'consumed', 'classify.json', 'profiles', 'base'):
+    for leftover in (
+        'rc',
+        'rc.tmp',
+        'checkout',
+        'checkout.tmp',
+        'consumed',
+        'classify.json',
+        'profiles',
+        'base',
+    ):
         remove_path(f'{job}/{leftover}')
     os.makedirs(job, exist_ok=True)
     run = len([n for n in os.listdir(job) if re.match(r'out\.[0-9]', n)]) + 1
@@ -236,6 +246,23 @@ class GateRun:
     state: str
     profiles: list
     classified: str
+
+
+def discard_moved_gates(ctx, sha, full, job):
+    """The gates ran on the checkout, so their result proves the step only when HEAD and the tracked files ended where the step started: a moved
+    run is consumed with no gates.tsv row and no event, and the step refused, so running it again starts the gates afresh."""
+    moved = ctx.variant.checkout_moved(job, full)
+    if moved is None:
+        return
+    open(f'{job}/consumed', 'w').close()
+    ended, changed = moved
+    if ended != full:
+        raise StepRefused(
+            f'step {sha}: HEAD moved to {ended[:9]} while the gates ran, so they did not prove {sha}; record the step at HEAD'
+        )
+    raise StepRefused(
+        f'step {sha}: tracked files changed while the gates ran, so they did not prove {sha}:\n{changed}\ncommit or stash them, then run the same step again'
+    )
 
 
 def settle_gates(store, unit, full, job):
@@ -344,6 +371,7 @@ def step(ctx, args):
     if not wait_for_rc(job):
         gates_running(store, sha, summary, full, job)
         raise Exit(4)
+    discard_moved_gates(ctx, sha, full, job)
     run = settle_gates(store, unit, full, job)
     if not run.passed:
         report_failed_gates(store, unit, brief, full, job, summary)
@@ -399,6 +427,27 @@ def require_head_checked_out(root, report, brief):
     return head
 
 
+def discard_moved_verify(ctx, brief, head, job):
+    """The Verify commands ran on the checkout, so their result proves the head only when HEAD, and the tracked files unless the brief says
+    `commit: no`, ended where finish started them: a moved run is removed, so finishing again runs them afresh."""
+    moved = ctx.variant.checkout_moved(
+        job, head, not header_field(brief, 'commit').startswith('no')
+    )
+    if moved is None:
+        return
+    remove_path(job)
+    ended, changed = moved
+    if ended != head:
+        raise StepRefused(
+            f"the checkout moved to {ended[:9]} while the brief's Verify commands ran at {head[:9]}, so they did not prove it; check out the report's "
+            'head (or fix head:) and finish again'
+        )
+    raise StepRefused(
+        f"tracked files changed while the brief's Verify commands ran at {head[:9]}, so they did not prove it:\n{changed}\nCommit this as a step "
+        '(kitchen.sh step) and name it in head:, or remove it, then finish again'
+    )
+
+
 def finish(ctx, args):
     require_herdr()
     default_signals()
@@ -443,6 +492,7 @@ def finish(ctx, args):
     if not wait_for_rc(job):
         verify_running(store, args[1], head, job)
         raise Exit(4)
+    discard_moved_verify(ctx, brief, head, job)
     open(f'{job}/consumed', 'w').close()
     rc = read_text(f'{job}/rc').rstrip('\n')
     sys.stdout.write(read_text(f'{job}/out'))

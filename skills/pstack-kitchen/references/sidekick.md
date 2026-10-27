@@ -32,7 +32,12 @@ differ:
   says two failures in a row, stop: write the report with status `blocked`,
   the logs under Questions, and what you tried, then `kitchen.sh finish`.
   The gates run in your checkout itself, so commit everything before `step`
-  and leave the tree alone until it records.
+  and leave the tree alone until it records. A run whose checkout moved under
+  it proves nothing: when HEAD or a tracked file changed by the time the
+  gates ended, `step` refuses with no gates.tsv row, saying `HEAD moved to
+  <short> while the gates ran` (record the step at HEAD) or `tracked files
+  changed while the gates ran` with the files (commit or stash them, then run
+  the same step again), and the next run starts the gates afresh.
   The checks run detached, and `step` returns within about two minutes; when
   it prints `gates: still running`, run the same command again, at once, to
   keep waiting. Never move `step` to your harness's background and wait for a
@@ -69,7 +74,11 @@ differ:
   master only when every command exits 0. On a failure (exit 2) it prints
   each command's log tail: fix it in a new commit, record it with `step`,
   name it in `head:`, and run `finish` again. If they cannot pass, report
-  `blocked` with the output. Exit 4 means they are still running, as with
+  `blocked` with the output. A run whose checkout moved before the commands
+  ended (HEAD, or a tracked file unless the brief says `commit: no`) is
+  thrown away and refused (`the checkout moved to <short> while the brief's
+  Verify commands ran`, or `tracked files changed while ...` with the files);
+  put the checkout back at `head:` and run `finish` again. Exit 4 means they are still running, as with
   `step`: run the same `finish` again at once.
 - **Before `finish`,** stop the background shells you started. Rotation and `close` end a Claude with
   "Exit and stop tasks", so anything still running at the end of the unit is stopped.

@@ -82,6 +82,18 @@ def verify_job(ctx, store, brief, head):
     return f'{store}/steps/jobs/{unit}-verify-{head[:12]}-{key}'
 
 
+def checkout_moved(job, head, tree=True):
+    """Whether the checkout moved while the job's checks ran, from the `checkout` file worker.py writes as they end (HEAD, then the tracked files
+    changed): None when they ended at head with no tracked file changed (or tree is false), else the HEAD they ended on and the changed files. A
+    job from an older worker has no file and counts as unmoved."""
+    try:
+        ended, _, changed = read_text(f'{job}/checkout').partition('\n')
+    except OSError:
+        return None
+    changed = changed.rstrip('\n') if tree else ''
+    return None if ended == head and not changed else (ended, changed)
+
+
 USAGE = """usage: kitchen.sh <command> [args]
 
 The pair's commands (pstack-pair's pair.sh help) work unchanged: init, rotate, failover, permission,
@@ -208,6 +220,7 @@ class KitchenVariant(TrioVariant):
     verify_job = staticmethod(
         verify_job
     )  # finish (kitchen_core.step) keeps its Verify run where report_ready looks for it
+    checkout_moved = staticmethod(checkout_moved)
 
     def require_agreed_plan(self, ctx, store, brief):
         """Routine units run on the brief alone; an escalated one needs the agreed plan with the consultant's advice, as in the trio. A
@@ -244,11 +257,14 @@ class KitchenVariant(TrioVariant):
         head = commit_of(read(store, 'git_root'), header_field(report, 'head'))
         if head is None:
             return ReportReadiness(False, '', 'its head: is not a commit')
+        job = verify_job(ctx, store, brief, head)
         try:
-            rc = read_text(f'{verify_job(ctx, store, brief, head)}/rc').rstrip('\n')
+            rc = read_text(f'{job}/rc').rstrip('\n')
         except OSError:
             rc = ''
-        if rc == '0':
+        if rc == '0' and not checkout_moved(
+            job, head, not header_field(brief, 'commit').startswith('no')
+        ):
             return base
         return ReportReadiness(
             False,
