@@ -62,11 +62,14 @@ def trust_args(kind):
 
 
 def codex_mcp_names(cwd):
-    """The names of the MCP servers codex lists where it runs that are not disabled; none when codex is absent or its list is no JSON."""
+    """The names of the MCP servers codex lists where it runs, with plugins off, that are not disabled; none when codex is absent or its list is no JSON.
+
+    It lists with plugins off because `mcp_args` passes `--disable plugins`: a `-c mcp_servers.<n>.enabled=false` for a plugin server that flag removed leaves a table with no transport, which codex refuses.
+    """
     try:
         r = with_timeout(
             '20',
-            ['codex', 'mcp', 'list', '--json'],
+            ['codex', '--disable', 'plugins', 'mcp', 'list', '--json'],
             cwd=cwd or '.',
             stdin=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
-# Fake codex for pair tests: `codex mcp list --json` prints $FAKE/codex-mcp.json
-# (the MCP servers configured where it runs), else none. Every call is logged.
+# Fake codex for pair tests. `codex mcp list --json` prints the MCP servers
+# configured where it runs ($FAKE/codex-mcp.json) plus the ones plugins provide
+# ($FAKE/codex-mcp-plugins.json); `codex --disable plugins mcp list --json`
+# prints only the configured ones. Either file may be absent. Every call is logged.
 set -u
 : "${FAKE:?}"
 printf 'codex %s (cwd %s)\n' "$*" "$PWD" >>"$FAKE/calls.log"
+servers() {
+	python3 -c '
+import json, sys
+merged = []
+for path in sys.argv[1:]:
+    try:
+        with open(path) as f:
+            merged += json.load(f)
+    except FileNotFoundError:
+        pass
+print(json.dumps(merged))
+' "$@"
+}
 case "$*" in
-"mcp list --json") cat "$FAKE/codex-mcp.json" 2>/dev/null || printf '[]\n' ;;
+"mcp list --json") servers "$FAKE/codex-mcp.json" "$FAKE/codex-mcp-plugins.json" ;;
+"--disable plugins mcp list --json") servers "$FAKE/codex-mcp.json" ;;
 *) printf 'fake codex: unhandled %s\n' "$*" >&2; exit 2 ;;
 esac

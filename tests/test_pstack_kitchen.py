@@ -6319,6 +6319,14 @@ esac
                 ]
             )
         )
+        (self.fake / 'codex-mcp-plugins.json').write_text(
+            json.dumps(
+                [
+                    {'name': 'cua_repl', 'enabled': True, 'transport': 'stdio'},
+                    {'name': 'node_repl', 'enabled': True, 'transport': 'stdio'},
+                ]
+            )
+        )
         self.run_sh(
             'consultant',
             str(self.store),
@@ -6340,7 +6348,11 @@ esac
         )
         self.assertNotIn('off-already', start)
         self.assertNotIn('has.dot', start)
-        self.assertIn(f'codex mcp list --json (cwd {self.repo})', calls)
+        self.assertNotIn('cua_repl', start)
+        self.assertNotIn('node_repl', start)
+        self.assertIn(
+            f'codex --disable plugins mcp list --json (cwd {self.repo})', calls
+        )
         self.set_roster(
             '[verifier.escalated]\nkind = "codex"\nargs = ["-c", "mcp_servers.railway.enabled=true"]\n'
         )
