@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at a34ea9d by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 42a6d4f by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -338,20 +338,20 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `running:` (read by skills/pstack-kitchen/references/master.md:86) — skills/pstack-pair/scripts/pstack_core/checkin.py:345 — test_pstack_pair.PairScriptTests.test_trio (+8)
 - `steps:` (read by skills/pstack-pair-guided/SKILL.md:257) — skills/pstack-pair/scripts/pstack_core/checkin.py:445 — test_pstack_pair.PairScriptTests.test_trio (+9)
 - `idle:` (read by skills/pstack-kitchen/references/master.md:74) — skills/pstack-pair/scripts/pstack_core/wait.py:217 — test_pstack_pair.PairScriptTests.test_trio (+3)
-- `queued:` (read by skills/pstack-kitchen/references/master.md:389) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:59 — test_pstack_pair.PairScriptTests.test_trio (+5)
+- `queued:` (read by skills/pstack-kitchen/references/master.md:274) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:59 — test_pstack_pair.PairScriptTests.test_trio (+5)
 - `rotated:` (read by skills/pstack-kitchen/references/master.md:82) — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:144 — test_pstack_pair.PairScriptTests.test_trio (+15)
 - `report_status:` (read by skills/pstack-pair-guided/SKILL.md:153) — skills/pstack-pair/scripts/pstack_core/wait.py:175 — test_pstack_pair.PairScriptTests.test_trio (+17)
 - `review-delta:` (read by skills/pstack-pair-guided/references/master.md:102) — skills/pstack-pair/scripts/pstack_core/replies.py:202 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `provider_error:` (read by skills/pstack-pair/references/master.md:276) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:501 — test_pstack_core.CoreTests.test_a_provider_stop_with_a_fallback_but_no_retry_hook_ends_with_the_provider_error (+7)
 - `editing:` (read by skills/pstack-kitchen/references/master.md:86) — skills/pstack-pair/scripts/pstack_core/checkin.py:349 — test_pstack_pair.PairScriptTests.test_trio (+6)
 - `written but not ready` (read by skills/pstack-kitchen/references/master.md:90) — skills/pstack-pair/scripts/pstack_core/wait.py:266 — test_pstack_core.CoreTests.test_the_quiet_wait_behaviour (+5)
-- `closed:` (read by skills/pstack-kitchen/references/master.md:96) — skills/pstack-kitchen/scripts/kitchen_core/feedback.py:260 — test_pstack_core.CoreTests.test_verify_behaviour (+7)
-- `cancelled:` (read by skills/pstack-kitchen/references/master.md:96) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:318 — test_pstack_core.CoreTests.test_verify_cancel_behaviour (+4)
+- `closed:` (read by skills/pstack-kitchen/references/master-verify.md:9) — skills/pstack-kitchen/scripts/kitchen_core/feedback.py:260 — test_pstack_core.CoreTests.test_verify_behaviour (+7)
+- `cancelled:` (read by skills/pstack-kitchen/references/master-verify.md:9) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:318 — test_pstack_core.CoreTests.test_verify_cancel_behaviour (+4)
 - `audit:` (read by skills/pstack-kitchen/SKILL.md:166) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:547 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_verdicts (+3)
-- `covered:` (read by skills/pstack-kitchen/references/master.md:101) — skills/pstack-kitchen/scripts/kitchen_core/landing.py:404 — test_pstack_core.CoreTests.test_land_check_behaviour (+24)
-- `warning: unreviewed:` (read by skills/pstack-kitchen/references/master.md:96) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:610 — test_pstack_core.CoreTests.test_take_master_behaviour (+3)
-- `redelivered:` (read by skills/pstack-kitchen/references/master.md:127) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:237 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_the_wait_itself (+4)
-- `deadline` (read by skills/pstack-kitchen/references/master.md:116) — skills/pstack-kitchen/scripts/kitchen.py:1094 — test_pstack_core.CoreTests.test_the_verify_wait_hides_the_minute_count_it_prints (+8)
+- `covered:` (read by skills/pstack-kitchen/references/master-verify.md:14) — skills/pstack-kitchen/scripts/kitchen_core/landing.py:404 — test_pstack_core.CoreTests.test_land_check_behaviour (+24)
+- `warning: unreviewed:` (read by skills/pstack-kitchen/references/master-verify.md:9) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:610 — test_pstack_core.CoreTests.test_take_master_behaviour (+3)
+- `redelivered:` (read by skills/pstack-kitchen/references/master-verify.md:40) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:237 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_the_wait_itself (+4)
+- `deadline` (read by skills/pstack-kitchen/references/master-verify.md:29) — skills/pstack-kitchen/scripts/kitchen.py:1094 — test_pstack_core.CoreTests.test_the_verify_wait_hides_the_minute_count_it_prints (+8)
 - `advice:` (read by skills/pstack-kitchen/references/playbook-roles.toml:405) — skills/pstack-pair/scripts/pstack_core/commands/metrics.py:245 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `advice_status:` — skills/pstack-pair/scripts/pstack_core/consult.py:423 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `paused:` (read by skills/pstack-pair-guided/SKILL.md:290) — skills/pstack-pair/scripts/pstack_core/commands/status.py:157 — test_pstack_pair.PairScriptTests.test_trio (+3)
