@@ -179,6 +179,16 @@ report as `partial` with what is verified and what is next, and end the turn.
   asks them.
 - Approval dialogs in your own pane are the human's or the master's to answer.
   Wait.
+- Never use `git stash`: the stash stack is shared by every worktree and
+  session of the repository, so a `pop` can take another session's change. Set
+  work aside with a WIP commit.
+- A command your harness refuses (an auto-mode classifier, a permission prompt)
+  stops the unit: do not make the same change another way (smaller edits,
+  another tool, a script). Report `blocked`, naming the refused command and the
+  reason given, and end the turn.
+- Work that needs secrets, accounts or an operator's action (credentials,
+  deploy variables, production settings) stops at a `blocked` report that names
+  exactly what the human must do.
 - Leave panes, tabs, and workspaces as you found them.
 - Progress lines are for the master's check-in: one line each, no output
   pasted. Evidence goes in the report.
