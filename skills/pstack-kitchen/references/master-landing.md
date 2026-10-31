@@ -66,7 +66,7 @@ The detail behind step 8 of [master.md](master.md).
    `escalate.manifests` that differ between the verdict's base
    (read, with its head, from its packet's `range:`, the same range coverage
    uses) and the current base, whichever side changed them; a verdict verified
-   on a base inside the stack does not warn of the stack's own lower commits; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
+   on a base inside the stack does not warn of the stack's own lower commits; re-verify the landing before trusting it. The landing's playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. It stops before
    shipping's merge step (merging bottom-up, then freezing writes while the
    stack lands) whatever the playbook says, because `[landing].mode` caps it

@@ -112,9 +112,15 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    Run `kitchen.sh verify <store> <NNN>` (in Claude Code, start it with
    `--until-verdict` in the background). One verification is open at a time;
    a done unit that arrives while one is open is verified together with the
-   next. A reject goes to `revise` and the fix is verified with `--covers`.
+   next. `verify` returns exit 4 with progress while the verifier works; then
+   run `kitchen.sh verify <store> --wait` (exit 5 means none is open). A reject
+   goes to `revise` and the fix is verified with `--covers`. A rejected unit is
+   never re-verified at its own head; a second rejection, an `inconclusive`
+   verdict or an `invalid` one is yours to read.
    Review the unit's range with the owner's engine and cite it in the review
-   note. Details: [master-verify.md](master-verify.md).
+   note. With `[review].engine` set, the review note cites the run under
+   `head:` as `engine: <name> <run>`, or land-check refuses the unit.
+   Details: [master-verify.md](master-verify.md).
 7. **Review and accept.** With a clean verdict and every blocking finding decided,
    write `reviews/NNN-<slug>.md` from the pair's review template, reading the
    report's `review-delta` and the verdict, not the whole diff. When
@@ -129,7 +135,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    whole for anything between units, then the landing brief. Review it from
    where it leaves trunk (origin's default branch, else main or master), the
    base `verify --landing` prints, so a rebase never pulls trunk's commits
-   into it.
+   into it. The landing goes only as far as `[landing].mode` allows and the
+   kitchen never merges; the human lands.
    Once the landing is handed to the human and more work follows, rotate
    (`new-handoff`, then `rotate-master`): the next issue starts on a fresh
    master.
