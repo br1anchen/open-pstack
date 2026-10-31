@@ -60,7 +60,10 @@ The detail behind step 8 of [master.md](master.md).
    stays uncovered until the landing verification proves the stack. A unit built
    on top of a landing verdict's tip says it is newer than the verdict, and a
    verdict whose base does not resolve says so; the `(squashed?)` note is for
-   neither. When the stack was rebased after the last landing verdict, land-check and `verify --landing` print `warning: dependency manifests changed since the verified base: <files>` for the kitchen's `escalate.manifests` that differ between the verdict's base
+   neither. When the stack was rebased after the last landing verdict,
+   land-check and `verify --landing` print `warning: dependency manifests
+   changed since the verified base: <files>` for the kitchen's
+   `escalate.manifests` that differ between the verdict's base
    (read, with its head, from its packet's `range:`, the same range coverage
    uses) and the current base, whichever side changed them; a verdict verified
    on a base inside the stack does not warn of the stack's own lower commits; re-verify the landing before trusting it. Its playbook (`opening-a-pr` or
