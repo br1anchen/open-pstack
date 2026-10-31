@@ -109,7 +109,7 @@ worth most.
 | Owns | plans, briefs, review triage, decisions, the human | the working tree, steps, fixes | design critique | the verdict |
 | Writes | the store | the brief's Scope | advice, scratch | its verdict, in a scratch worktree |
 
-Enter your role. Master: [references/master.md](references/master.md).
+Enter your role. Master: [references/master.md](references/master.md). (read it in a read of its own; with other files in one shell call it overflows the tool's output and comes back as a preview)
 Sidekick: [references/sidekick.md](references/sidekick.md).
 Consultant: [references/consultant.md](references/consultant.md).
 Verifier: [references/verifier.md](references/verifier.md).

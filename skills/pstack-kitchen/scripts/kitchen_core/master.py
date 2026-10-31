@@ -326,7 +326,9 @@ def rotate_master(ctx, args):
     agent_prompt(
         temp,
         f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {next_gen}). '
-        f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read {store}/session-handoff.md.',
+        f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read '
+        f'~/.agents/skills/{skill}/references/master.md and {store}/session-handoff.md, '
+        'each in a read of its own (a file-read tool, not one cat of several files).',
         wait=True,
         until='working',
         timeout_ms=30000,

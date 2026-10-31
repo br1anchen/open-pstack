@@ -6429,7 +6429,9 @@ esac
             f'pstack-kitchen MASTER {self.store} (generation 2). Run ', bootstrap
         )
         self.assertIn(
-            f'kitchen.sh take-master {self.store} first, then read {self.store}/session-handoff.md.',
+            f'kitchen.sh take-master {self.store} first, then read '
+            f'~/.agents/skills/pstack-kitchen/references/master.md and {self.store}/session-handoff.md, '
+            'each in a read of its own (a file-read tool, not one cat of several files).',
             bootstrap,
         )
         calls = (self.fake / 'calls.log').read_text()
