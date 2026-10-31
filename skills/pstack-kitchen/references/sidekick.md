@@ -36,7 +36,7 @@ differ:
   it proves nothing: when HEAD or a tracked file changed by the time the
   gates ended, `step` refuses with no gates.tsv row, saying `HEAD moved to
   <short> while the gates ran` (record the step at HEAD) or `tracked files
-  changed while the gates ran` with the files (commit or stash them, then run
+  changed while the gates ran` with the files (commit them, then run
   the same step again), and the next run starts the gates afresh.
   The checks run detached, and `step` returns within about two minutes; when
   it prints `gates: still running`, run the same command again, at once, to

@@ -5006,7 +5006,7 @@ esac
         out = self.run_sh('step', str(self.store), head, 'two', code=1)
         self.assertEqual(
             out,
-            f'kitchen.sh: step {head}: the tree has uncommitted changes to tracked files; commit or stash them first\n',
+            f'kitchen.sh: step {head}: the tree has uncommitted changes to tracked files; commit them (a WIP commit if unfinished; never git stash) first\n',
         )
         self.assertFalse((self.store / 'gates.tsv').exists())
         self.assertEqual(events(), before)
@@ -5042,7 +5042,7 @@ esac
         self.assertEqual(
             out,
             f'kitchen.sh: step {moved}: tracked files changed while the gates ran, so they did not prove {moved}:\n M src/util.py\n'
-            'commit or stash them, then run the same step again\n',
+            'commit them (a WIP commit if unfinished; never git stash), then run the same step again\n',
         )
         self.assertFalse((self.store / 'gates.tsv').exists())
         self.assertEqual((self.store / 'events.tsv').read_text(), before)

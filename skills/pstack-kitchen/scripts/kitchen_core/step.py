@@ -158,7 +158,7 @@ def check_checkout(root, sha, full):
         '\n'
     ):
         raise StepRefused(
-            f'step {sha}: the tree has uncommitted changes to tracked files; commit or stash them first'
+            f'step {sha}: the tree has uncommitted changes to tracked files; commit them (a WIP commit if unfinished; never git stash) first'
         )
 
 
@@ -261,7 +261,7 @@ def discard_moved_gates(ctx, sha, full, job):
             f'step {sha}: HEAD moved to {ended[:9]} while the gates ran, so they did not prove {sha}; record the step at HEAD'
         )
     raise StepRefused(
-        f'step {sha}: tracked files changed while the gates ran, so they did not prove {sha}:\n{changed}\ncommit or stash them, then run the same step again'
+        f'step {sha}: tracked files changed while the gates ran, so they did not prove {sha}:\n{changed}\ncommit them (a WIP commit if unfinished; never git stash), then run the same step again'
     )
 
 
