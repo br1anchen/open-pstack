@@ -143,37 +143,39 @@ def acceptance_warnings(text, gates):
     return list(warned.values())
 
 
-PROBE_WORDS = frozenset({'rg', 'grep', 'wc', 'sort', 'head', 'tail', 'cut'})
-PROBE_GIT = frozenset({'grep', 'ls-files', 'diff'})
-PROBE_WRITERS = ('--output', '--pre', '-o')
-PROBE_TEST = re.compile(r'(!\s+)?test\s+-[zn]\s+"\$\((.*)\)"', re.DOTALL)
+PROBE_WORDS = frozenset({'rg', 'grep', 'wc', 'head', 'tail', 'cut'})
+PROBE_GIT = frozenset({'grep', 'ls-files'})
+PROBE_WRITERS = ('--output', '--pre', '-O', '--open-files-in-pager')
 PROBE_SECONDS = 10
 PROBE_SHOWN = 120
 
 
 def probe_words(command):
-    """The command's words with `|` kept as its own token, or None when it holds anything else shell-shaped: a newline, a backtick, `;`, `&`, a redirection, a parenthesis."""
+    """The command's words with `|` kept as its own token, or None when it holds anything else shell-shaped: a newline, a backtick, or a token made only of punctuation other than a lone `|` (`||`, `&&`, `;`, `&`, a redirection, a parenthesis)."""
     if '\n' in command or '`' in command:
         return None
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     try:
-        return list(lexer)
+        words = list(lexer)
     except ValueError:
         return None
+    if any(set(w) <= set('();<>&|') and w != '|' for w in words):
+        return None
+    return words
 
 
 def read_only_stage(stage):
-    """Whether one pipeline stage starts with a read-only word and writes nothing (`--output`, `--pre`, `sort -o`)."""
-    if not stage or stage[0].startswith(('--output', '--pre')):
+    """Whether one pipeline stage starts with a read-only word and carries no option that writes or starts a program (`--output`, `--pre`, `-O`, `--open-files-in-pager`)."""
+    if not stage or any(w.startswith(PROBE_WRITERS) for w in stage):
         return False
     if stage[0] == 'git':
         return len(stage) > 1 and stage[1] in PROBE_GIT
-    return stage[0] in PROBE_WORDS and not (stage[0] == 'sort' and '-o' in stage)
+    return stage[0] in PROBE_WORDS
 
 
 def read_only_pipeline(command):
-    """Whether `command` is one pipeline of read-only stages: each starts with rg, grep, wc, sort, head, tail or cut, or with git grep, git ls-files or git diff."""
+    """Whether `command` is one pipeline of read-only stages: each starts with rg, grep, wc, head, tail or cut, or with git grep or git ls-files."""
     words = probe_words(command)
     if not words or '$(' in command:
         return False
@@ -182,8 +184,6 @@ def read_only_pipeline(command):
     stage = []
     for word in [*words, '|']:
         if word != '|':
-            if set(word) <= set('();<>&') or word.startswith(('--output', '--pre')):
-                return False
             stage.append(word)
         elif read_only_stage(stage):
             stage = []
@@ -194,17 +194,25 @@ def read_only_pipeline(command):
 
 def is_probe(command):
     """Whether a Verify command only reads: a read-only pipeline, `test -e|-f|-d|-s <path>`, or `test -z|-n "$(<such a pipeline>)"`, each with an optional leading `!`."""
-    if inner := PROBE_TEST.fullmatch(command):
-        return command.count('$(') == 1 and read_only_pipeline(inner.group(2))
     words = probe_words(command)
-    if words and words[0] == '!':
+    if not words:
+        return False
+    if words[0] == '!':
         words = words[1:]
     if words and words[0] == 'test':
+        if len(words) != 3 or words[2] == '|':
+            return False
+        flag, word = words[1], words[2]
+        if flag in ('-e', '-f', '-d', '-s'):
+            return '$' not in word
         return (
-            len(words) == 3
-            and words[1] in ('-e', '-f', '-d', '-s')
-            and '$' not in words[2]
-            and words[2] not in ('|', '(')
+            flag in ('-z', '-n')
+            and command.count('"') == 2
+            and '\\' not in command
+            and word.startswith('$(')
+            and word.endswith(')')
+            and word.count('$(') == 1
+            and read_only_pipeline(word[2:-1])
         )
     return read_only_pipeline(command)
 

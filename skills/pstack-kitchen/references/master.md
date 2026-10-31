@@ -48,10 +48,12 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    "prints nothing" check as `test -z "$(...)"`, or say in the brief why not;
    `queue` prints it too.
    Classify also runs the brief's read-only Verify lines once at the current
-   tree: a pipeline of `rg`, `grep`, `wc`, `sort`, `head`, `tail` or `cut`
-   stages (or `git grep`, `git ls-files`, `git diff`), `test -e|-f|-d|-s <path>`,
-   and `test -z|-n "$(...)"` around such a pipeline. Anything with `;`, `&&`,
-   `||`, a redirection, a backtick or another first word is never run. Each
+   tree: a pipeline of `rg`, `grep`, `wc`, `head`, `tail` or `cut`
+   stages (or `git grep`, `git ls-files`), `test -e|-f|-d|-s <path>`,
+   and `test -z|-n "$(...)"` around such a pipeline, each with an optional
+   leading `!`. A `|` is the only operator a probe may hold: anything with `;`,
+   `&&`, `||`, a redirection, a backtick, another first word, or an option that
+   writes or starts a program (`--pre`, `--output`, `-O`) is never run. Each
    prints `probe: passes now: <command>` or `probe: fails now: <command>`; a
    probe that wrote to stderr or exited 2 or more prints `warn: Verify probe
    <command> errored (exit N): <stderr line>`, and an rg glob such as `!bin/**`

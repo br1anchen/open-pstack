@@ -4431,6 +4431,14 @@ esac
             ),
             ('test -f missing.txt', 'probe: fails now: test -f missing.txt'),
             (
+                'test -n "$(grep -rn \'present\' .)"',
+                'probe: passes now: test -n "$(grep -rn \'present\' .)"',
+            ),
+            (
+                '! grep -q absent file.txt',
+                'probe: passes now: ! grep -q absent file.txt',
+            ),
+            (
                 "rg -n x -g '!bin/**' src",
                 "warn: Verify glob '!bin/**' is matched from the search root; write '!**/bin/**' to exclude it at any depth",
             ),
@@ -4458,6 +4466,16 @@ esac
             'grep x a.txt && rm a.txt',
             'test -z "$(rm -rf x)"',
             "grep x <<'EOF'\nx\nEOF",
+            'test -z "$(grep a b)" || rm -rf x; echo ")"',
+            'grep -q x a.txt || rm a.txt',
+            '! grep -q x a.txt || rm a.txt',
+            'sort -ofile a.txt',
+            'sort -uo file a.txt',
+            'git grep -Ocat x',
+            'git grep --open-files-in-pager=cat x',
+            'git diff --ext-diff',
+            'rg --pre=cat x',
+            'rg --pre cat x',
         ]
         out = self.classify_verify(never)
         self.assertNotIn('probe:', out)
