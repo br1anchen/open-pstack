@@ -41,11 +41,24 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    in the brief why not.
    A `warn: Acceptance runs <command>, which Verify does not` line names a
    backquoted command in Acceptance (one starting with git, python3, test,
-   grep, awk, uv or bash) that neither Verify nor a touched profile's fast or
+   grep, awk, uv, bash or rg, with `./`, or with the first word of a touched
+   profile's gate) that neither Verify nor a touched profile's fast or
    behavioral gate runs (Verify runs it when it appears there whole, between
    command boundaries: `test -f a` is not run by `test -f ab`), so `finish` would not rerun it: add it to Verify, a
    "prints nothing" check as `test -z "$(...)"`, or say in the brief why not;
    `queue` prints it too.
+   Classify also runs the brief's read-only Verify lines once at the current
+   tree: a pipeline of `rg`, `grep`, `wc`, `sort`, `head`, `tail` or `cut`
+   stages (or `git grep`, `git ls-files`, `git diff`), `test -e|-f|-d|-s <path>`,
+   and `test -z|-n "$(...)"` around such a pipeline. Anything with `;`, `&&`,
+   `||`, a redirection, a backtick or another first word is never run. Each
+   prints `probe: passes now: <command>` or `probe: fails now: <command>`; a
+   probe that wrote to stderr or exited 2 or more prints `warn: Verify probe
+   <command> errored (exit N): <stderr line>`, and an rg glob such as `!bin/**`
+   that is matched from the search root prints `warn: Verify glob ...` (write
+   `!**/bin/**` to exclude at any depth). A "prints nothing" check should fail
+   now when the unit is meant to remove the text, and pass now when it guards
+   against a regression. Probes never stop classify, dispatch or queue.
    - **Routine:** no plan round. The brief is the plan, so make it precise:
      Steps of fifteen to thirty minutes that name the files and functions,
      Acceptance a script or command can check. The sidekick may run a cheaper

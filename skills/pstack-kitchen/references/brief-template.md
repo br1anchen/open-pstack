@@ -53,7 +53,9 @@ needs the store or the main checkout (a kitchen.sh command, an absolute path)
 with `# master-only`, on its last line or, for a heredoc, its first: finish
 still reruns it, but the verifier's packet leaves it out and lists it under
 `not for the verifier:` (a command naming the main checkout or the store, by
-absolute path, `~/` or `$HOME/`, is listed the same way even unmarked)}}
+absolute path, `~/` or `$HOME/`, is listed the same way even unmarked).
+kitchen.sh classify runs the read-only lines (searches and file tests) once at
+the current tree and prints `probe: passes now` or `probe: fails now` for each}}
 ```
 
 ## Forbidden
