@@ -238,8 +238,11 @@ class KitchenVariant(TrioVariant):
         require_agreed_plan(ctx, store, brief, no_gate)
 
     def steps_due(self, ctx, store, brief):
-        """The master reads every step of an escalated unit; a routine unit's steps are proved by their gates."""
+        """The master reads every step of an escalated unit unless its brief says `steps: gates` (escalated only by its plan); a routine
+        unit's steps are proved by their gates."""
         if not brief or risk_of(brief) != 'escalated':
+            return False
+        if header_field(brief, 'steps') == 'gates':
             return False
         return super().steps_due(ctx, store, brief)
 

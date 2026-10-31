@@ -3625,7 +3625,7 @@ esac
         steps = self.store / 'steps/001-util.tsv'
         steps.parent.mkdir(exist_ok=True)
         steps.write_text('1\tabc\t1\t\tone\n2\tdef\t2\t\ttwo\n')
-        text = b.read_text()
+        text = re.sub(r'^steps:.*\n', '', b.read_text(), flags=re.M)
         for header, risk, due in (
             ('risk: routine', 'routine', False),
             ('risk: escalated', 'escalated', True),
@@ -3641,6 +3641,21 @@ esac
             self.assertEqual(module.risk_of(str(b)), risk, header)
             self.assertEqual(
                 module.VARIANT().steps_due(ctx, str(self.store), str(b)), due, header
+            )
+        # `steps:` only lowers an escalated unit to its gates; `master` and no line leave it due
+        for steps, risk, due in (
+            ('steps: gates\n', 'escalated', False),
+            ('steps: master\n', 'escalated', True),
+            ('', 'escalated', True),
+            ('steps: master\n', 'routine', False),
+            ('steps: gates\n', 'routine', False),
+        ):
+            stepped = re.sub(r'^risk:.*\n', f'risk: {risk}\n{steps}', text, flags=re.M)
+            b.write_text(stepped)
+            self.assertEqual(
+                module.VARIANT().steps_due(ctx, str(self.store), str(b)),
+                due,
+                (steps, risk),
             )
         b.write_text(re.sub(r'^risk:.*\n', '', text, flags=re.M))
         self.assertEqual(
@@ -4460,6 +4475,84 @@ esac
         self.assertIn('escalate: the brief says risk: escalated', out)
         self.assertIn('risk: escalated\n', b.read_text())
 
+    def test_classify_stamps_who_reads_an_escalated_units_steps(self):
+        plan = self.store / 'plans/001-util.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text('# Plan 001: util\n\nrisk: escalated\n')
+        gates_line = (
+            'steps: gates (escalated only by its plan; its gates prove each step)\n'
+        )
+
+        def classify(b):
+            return self.run_sh('classify', str(self.store), str(b))
+
+        def stamped(b):
+            return re.findall(r'^steps: (\w+)$', b.read_text(), flags=re.M)
+
+        # (case, scope, plan, extra header, hand edit, classifies, stamp after each, printed line)
+        for case, scope, with_plan, edit, runs, want, printed in (
+            (
+                'escalated plan, routine Scope',
+                ['src/util.py'],
+                True,
+                None,
+                1,
+                ['gates'],
+                gates_line,
+            ),
+            (
+                'escalated plan, escalate path',
+                ['src/util.py', 'contracts/api.json'],
+                True,
+                None,
+                1,
+                ['master'],
+                'steps: master\n',
+            ),
+            (
+                'master wrote risk: escalated',
+                ['src/util.py'],
+                False,
+                (r'^risk:.*$', 'risk: escalated'),
+                2,
+                ['master', 'master'],
+                'steps: master\n',
+            ),
+            (
+                'plan-only brief classified twice',
+                ['src/util.py'],
+                True,
+                None,
+                2,
+                ['gates', 'gates'],
+                gates_line,
+            ),
+            (
+                'steps: master written by hand',
+                ['src/util.py'],
+                True,
+                (r'^steps:.*$', 'steps: master'),
+                2,
+                ['master', 'master'],
+                'steps: master\n',
+            ),
+            ('routine brief', ['src/util.py'], False, None, 1, ['gates'], None),
+        ):
+            with self.subTest(case):
+                b = self.brief(
+                    '001', 'util', scope, plan=str(plan) if with_plan else 'none'
+                )
+                if edit:
+                    b.write_text(re.sub(edit[0], edit[1], b.read_text(), flags=re.M))
+                for i in range(runs):
+                    out = classify(b)
+                    self.assertEqual(stamped(b), [want[i]], case)
+                    self.assertEqual(
+                        [l for l in out.splitlines(True) if l.startswith('steps:')],
+                        [printed] if printed else [],
+                        case,
+                    )
+
     def use_overlays(self):
         """The playbook fixture's overlays and the docs they point into, committed to the throwaway repo."""
         shutil.copytree(
@@ -4758,7 +4851,7 @@ esac
         self.write('src/util.py', 'X = 9\n')
         self.write('tests/test_app.py', 'x = 9\n')
         self.done(b, self.commit('util'))
-        b.write_text(b.read_text().replace('risk: routine', 'risk: escalated'))
+        b.write_text(re.sub(r'^risk:.*$', 'risk: escalated', b.read_text(), flags=re.M))
         self.run_sh('verify', str(self.store), '001')
         self.assertEqual(self.packet_fields()['verifier-class'], 'escalated')
         self.assertIn(

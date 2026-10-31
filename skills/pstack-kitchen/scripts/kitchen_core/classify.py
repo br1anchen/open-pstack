@@ -60,6 +60,33 @@ def brief_escalations(brief):
     return reasons
 
 
+def steps_reader(escalate, current, master_said, risk):
+    """Who reads an escalated unit's steps: `master` when its own paths escalate it (a reason that is neither the plan's nor the brief's
+    risk line), the master wrote risk: escalated before the first classify, or `steps: master` is already there; otherwise `gates`.
+    A unit that is not escalated has nothing to read."""
+    if risk != 'escalated':
+        return 'gates'
+    own = [
+        r
+        for r in escalate
+        if not r.startswith('escalated plan:') and r != 'the brief says risk: escalated'
+    ]
+    return 'master' if own or master_said or current == 'master' else 'gates'
+
+
+def stamp_steps(brief, escalate, risk, current, risk_before):
+    """Stamps the brief's steps: header from `steps_reader` and returns the classify line for an escalated unit (none for a routine one). `current`
+    and `risk_before` are the brief's steps: and risk: as classify found them, before it rewrote risk:."""
+    master_said = risk_before == 'escalated' and current not in ('master', 'gates')
+    steps = steps_reader(escalate, current, master_said, risk)
+    set_header(brief, 'steps', steps)
+    if risk != 'escalated':
+        return []
+    if steps == 'master':
+        return ['steps: master']
+    return ['steps: gates (escalated only by its plan; its gates prove each step)']
+
+
 def kitchen_snapshot(store, root=None):
     """A host kitchen has no history, so a brief is classified, stepped and verified against the copy taken when it was classified (kitchen: in its
     header), the way a repo kitchen is read at the unit's commit. The copy's path, or nothing for a repo kitchen."""
@@ -264,6 +291,7 @@ def classify_brief(store, brief):
     elif header_field(brief, 'kitchen'):
         set_header(brief, 'kitchen', 'repo')
     cfg = brief_kitchen(brief)
+    before = header_field(brief, 'steps'), risk_of(brief)
     composition = compose_playbooks(store, brief, globs, cfg[1] if cfg else None)
     try:
         data = kpy.kitchen_py.classify_change(
@@ -283,6 +311,7 @@ def classify_brief(store, brief):
     set_header(brief, 'profiles', ', '.join(profiles) or 'none')
     set_header(brief, 'verify', verify_line)
     set_header(brief, 'review-engine', data.get('review_engine') or 'none')
+    steps_lines = stamp_steps(brief, escalate, risk, *before)
     sys.stdout.write(f'risk: {risk}\n')
     for line in swallowed_headings(read_text(brief)):
         sys.stdout.write(f'{line}\n')
@@ -300,6 +329,7 @@ def classify_brief(store, brief):
     lines = [
         f'profiles: {", ".join(profiles)}',
         f'verify: {verify_line}',
+        *steps_lines,
         *(f'escalate: {reason}' for reason in escalate),
     ]
     lines += [f'warn: {warning}' for warning in data.get('warnings') or []]

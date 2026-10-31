@@ -15473,7 +15473,7 @@ class CoreTests(unittest.TestCase):
             ),
             'a brief that says risk: escalated': (
                 0,
-                'escalate: the brief says risk: escalated',
+                'steps: master\nescalate: the brief says risk: escalated',
             ),
             'a brief whose reason after the class is kept': (0, 'risk: escalated\n'),
             'a routine brief with a reason kept': (0, 'risk: routine\n'),
@@ -15484,7 +15484,7 @@ class CoreTests(unittest.TestCase):
             'a brief with no risk line': (0, 'risk: routine\n'),
             'a brief under an escalated plan': (
                 0,
-                'escalate: escalated plan: 001-p.md',
+                'steps: gates (escalated only by its plan; its gates prove each step)\nescalate: escalated plan: 001-p.md',
             ),
             'a brief under a routine plan': (0, 'risk: routine\n'),
             'a brief under a plan that is not there': (0, 'risk: routine\n'),
