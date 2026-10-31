@@ -4611,7 +4611,7 @@ esac
                 ['master', 'master'],
                 'steps: master\n',
             ),
-            ('routine brief', ['src/util.py'], False, None, 1, ['gates'], None),
+            ('routine brief', ['src/util.py'], False, None, 1, ['none'], None),
         ):
             with self.subTest(case):
                 b = self.brief(
@@ -4627,6 +4627,14 @@ esac
                         [printed] if printed else [],
                         case,
                     )
+        # a brief classified as routine, then escalated by the master, is read by the master
+        b = self.brief('002', 'later', ['src/util.py'])
+        classify(b)
+        self.assertEqual(stamped(b), ['none'])
+        b.write_text(re.sub(r'^risk:.*$', 'risk: escalated', b.read_text(), flags=re.M))
+        out = classify(b)
+        self.assertEqual(stamped(b), ['master'])
+        self.assertIn('steps: master\n', out)
 
     def use_overlays(self):
         """The playbook fixture's overlays and the docs they point into, committed to the throwaway repo."""
