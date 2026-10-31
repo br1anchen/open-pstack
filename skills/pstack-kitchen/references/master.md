@@ -74,7 +74,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      [the trio master](../../pstack-trio/references/master.md), with
      `kitchen.sh` for `pair.sh`. Classify stamps `steps:` on the brief: `master`
      when the unit's own paths or a `risk: escalated` you wrote escalate it,
-     `gates` when only its plan is escalated, so its gates prove each step. Write
+     `gates` when only its plan is escalated, so its gates prove each step, and
+     `none` for a routine unit. Write
      `steps: master` on a plan-only brief to read every step; classify never
      lowers it.
 5. **Dispatch and wait.** `kitchen.sh dispatch <store> <brief>`, then

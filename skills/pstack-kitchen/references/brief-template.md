@@ -8,7 +8,7 @@ risk: set by kitchen.sh classify at dispatch; an escalated plan, or `escalated` 
 profiles: set by kitchen.sh classify at dispatch
 verify: set by kitchen.sh classify at dispatch
 review-engine: set by kitchen.sh classify at dispatch
-steps: set by kitchen.sh classify at dispatch; write master here to read every step of a unit escalated only by its plan
+steps: set by kitchen.sh classify at dispatch (none for a routine unit); write master here to read every step of a unit escalated only by its plan
 standing: {{STORE}}/standing-orders.md
 report: {{STORE}}/reports/{{SEQ}}-{{SLUG}}.md
 
