@@ -417,6 +417,10 @@ name the function to change and the one to leave alone, the test file to
 add to, the existing pattern to copy (by path), and what done looks like as
 a command's output. Put prior verdicts and findings in Context by path.
 
+When a brief names several cases of one rule (a decision, a cap, a retry), it
+asks for one parameterised table over those cases, not one test per case, and
+names only the few behaviour-level tests that cannot share it.
+
 ## Reports and bookkeeping
 
 `finish` refuses a done report without its `head:`, so a malformed report is
