@@ -4413,6 +4413,59 @@ esac
                 )
                 self.assertEqual(len(warned), int(warns), warned)
 
+    def classify_verify(self, verify, seq='001'):
+        brief = self.brief(seq, 'probe', ['src/util.py'], verify=verify)
+        return self.run_sh('classify', str(self.store), str(brief))
+
+    def test_classify_probes_the_read_only_verify_lines(self):
+        self.write('file.txt', 'present\n')
+        cases = [
+            ('grep -q present file.txt', 'probe: passes now: grep -q present file.txt'),
+            (
+                'test -z "$(grep -rn present file.txt)"',
+                'probe: fails now: test -z "$(grep -rn present file.txt)"',
+            ),
+            (
+                'grep -q x missing.txt',
+                'warn: Verify probe grep -q x missing.txt errored (exit 2)',
+            ),
+            ('test -f missing.txt', 'probe: fails now: test -f missing.txt'),
+            (
+                "rg -n x -g '!bin/**' src",
+                "warn: Verify glob '!bin/**' is matched from the search root; write '!**/bin/**' to exclude it at any depth",
+            ),
+        ]
+        for seq, (command, expected) in enumerate(cases, 1):
+            with self.subTest(command=command):
+                out = self.classify_verify([command], seq=f'{seq:03d}')
+                self.assertIn(expected, out)
+        self.assertNotIn(
+            'warn: Verify probe test -f',
+            self.classify_verify(['test -f missing.txt'], '010'),
+        )
+        for glob in ("'!**/bin/**'", "'!/bin/**'"):
+            with self.subTest(glob=glob):
+                out = self.classify_verify([f'rg -n x -g {glob} src'], '011')
+                self.assertNotIn('Verify glob', out)
+
+    def test_classify_probe_runs_no_verify_line_that_writes_or_chains(self):
+        self.write('a.txt', 'x\n')
+        (self.repo / 'x').mkdir()
+        never = [
+            'python3 tests/run.py -k x',
+            'grep x a.txt > out',
+            'grep x a.txt; rm a.txt',
+            'grep x a.txt && rm a.txt',
+            'test -z "$(rm -rf x)"',
+            "grep x <<'EOF'\nx\nEOF",
+        ]
+        out = self.classify_verify(never)
+        self.assertNotIn('probe:', out)
+        self.assertNotIn('Verify probe', out)
+        self.assertTrue((self.repo / 'a.txt').is_file())
+        self.assertTrue((self.repo / 'x').is_dir())
+        self.assertFalse((self.repo / 'out').exists())
+
     def test_acceptance_commands_count_as_run_by_verify_or_a_gate(self):
         diff = ['- `git diff --exit-code -- src`']
         self.assertEqual(self.acceptance_warns(diff, ['git diff -- src']), [])

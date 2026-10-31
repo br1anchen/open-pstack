@@ -6,6 +6,8 @@ os.environ or builds a child's command line (`child_args`, `child_env`): those b
 import json
 import os
 import re
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from pstack_core.store import (
     field,
     header_field,
     pair_file,
+    read,
     read_text,
     risk_of,
     write_text,
@@ -141,6 +144,130 @@ def acceptance_warnings(text, gates):
             f'Acceptance runs {command}, which Verify does not; add it to Verify (wrap a "prints nothing" check as test -z "$(...)")',
         )
     return list(warned.values())
+
+
+PROBE_WORDS = frozenset({'rg', 'grep', 'wc', 'sort', 'head', 'tail', 'cut'})
+PROBE_GIT = frozenset({'grep', 'ls-files', 'diff'})
+PROBE_WRITERS = ('--output', '--pre', '-o')
+PROBE_TEST = re.compile(r'(!\s+)?test\s+-[zn]\s+"\$\((.*)\)"', re.DOTALL)
+PROBE_SECONDS = 10
+PROBE_SHOWN = 120
+
+
+def probe_words(command):
+    """The command's words with `|` kept as its own token, or None when it holds anything else shell-shaped: a newline, a backtick, `;`, `&`, a redirection, a parenthesis."""
+    if '\n' in command or '`' in command:
+        return None
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        return list(lexer)
+    except ValueError:
+        return None
+
+
+def read_only_stage(stage):
+    """Whether one pipeline stage starts with a read-only word and writes nothing (`--output`, `--pre`, `sort -o`)."""
+    if not stage or stage[0].startswith(('--output', '--pre')):
+        return False
+    if stage[0] == 'git':
+        return len(stage) > 1 and stage[1] in PROBE_GIT
+    return stage[0] in PROBE_WORDS and not (stage[0] == 'sort' and '-o' in stage)
+
+
+def read_only_pipeline(command):
+    """Whether `command` is one pipeline of read-only stages: each starts with rg, grep, wc, sort, head, tail or cut, or with git grep, git ls-files or git diff."""
+    words = probe_words(command)
+    if not words or '$(' in command:
+        return False
+    if words[0] == '!':
+        words = words[1:]
+    stage = []
+    for word in [*words, '|']:
+        if word != '|':
+            if set(word) <= set('();<>&') or word.startswith(('--output', '--pre')):
+                return False
+            stage.append(word)
+        elif read_only_stage(stage):
+            stage = []
+        else:
+            return False
+    return True
+
+
+def is_probe(command):
+    """Whether a Verify command only reads: a read-only pipeline, `test -e|-f|-d|-s <path>`, or `test -z|-n "$(<such a pipeline>)"`, each with an optional leading `!`."""
+    if inner := PROBE_TEST.fullmatch(command):
+        return command.count('$(') == 1 and read_only_pipeline(inner.group(2))
+    words = probe_words(command)
+    if words and words[0] == '!':
+        words = words[1:]
+    if words and words[0] == 'test':
+        return (
+            len(words) == 3
+            and words[1] in ('-e', '-f', '-d', '-s')
+            and '$' not in words[2]
+            and words[2] not in ('|', '(')
+        )
+    return read_only_pipeline(command)
+
+
+def run_probe(command, root):
+    """Runs one probe at the tree and returns its classify lines: `probe: passes now` or `probe: fails now`, then a `warn:` when it errored (stderr, or exit 2 or more; for `test -z "$(...)"` that stderr is the inner pipeline's)."""
+    shown = command[:PROBE_SHOWN]
+    try:
+        done = subprocess.run(
+            ['bash', '-c', command],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=PROBE_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return [f'warn: Verify probe {shown} did not end in {PROBE_SECONDS}s']
+    lines = [f'probe: {"passes" if done.returncode == 0 else "fails"} now: {shown}']
+    if done.stderr.strip() or done.returncode >= 2:
+        first = done.stderr.strip().split('\n')[0]
+        lines.append(
+            f'warn: Verify probe {shown} errored (exit {done.returncode}): {first}'
+        )
+    return lines
+
+
+def root_anchored_globs(command):
+    """The rg `-g`/`--glob` values in `command` that negate a path with a `/` but do not start with `!**/` or `!/`."""
+    words = probe_words(command)
+    if not words or 'rg' not in words:
+        return []
+    values = []
+    for i, word in enumerate(words):
+        if word in ('-g', '--glob') and i + 1 < len(words):
+            values.append(words[i + 1])
+        elif word.startswith('--glob='):
+            values.append(word[len('--glob=') :])
+    return [
+        v
+        for v in values
+        if v.startswith('!') and '/' in v and not v.startswith(('!**/', '!/'))
+    ]
+
+
+def verify_probes(brief, root):
+    """Classify lines for the brief's Verify block: each read-only line run once at the current tree, and a warning for each root-anchored negated rg glob in any line. Nothing here stops classify."""
+    try:
+        commands = kpy.kitchen_py.brief_verify_commands(Path(brief))
+    except kpy.KitchenError:
+        return []
+    lines = []
+    for command in commands:
+        if '\n' not in command and is_probe(command):
+            lines += run_probe(command, root)
+    globs = dict.fromkeys(g for c in commands for g in root_anchored_globs(c))
+    lines += [
+        f"warn: Verify glob '{g}' is matched from the search root; write '!**/{g[1:]}' to exclude it at any depth"
+        for g in globs
+    ]
+    return lines
 
 
 def header_values(brief, key):
@@ -344,6 +471,7 @@ def classify_brief(store, brief):
         f'warn: {warning}'
         for warning in acceptance_warnings(read_text(brief), data.get('gates') or [])
     ]
+    lines += verify_probes(brief, read(store, 'git_root'))
     if data.get('bookkeeping'):
         lines.append(
             'bookkeeping: the Scope is outside the repo; gates only, nothing to escalate'

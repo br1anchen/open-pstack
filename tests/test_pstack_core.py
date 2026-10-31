@@ -18269,6 +18269,10 @@ class ShellCallSiteTests(unittest.TestCase):
     # kitchen.py runs the repo's own commands, which are shell text by contract; no module under pstack_core, kitchen_core or a variant.py is here.
     ALLOWED = {
         (
+            'pstack-kitchen/scripts/kitchen_core/classify.py',
+            'run_probe',
+        ): "a brief's read-only Verify line, run once at classify (is_probe admits only reads)",
+        (
             'pstack-kitchen/scripts/kitchen.py',
             'run_wrapped',
         ): "a profile's gate command line, run by the repo's shell",
