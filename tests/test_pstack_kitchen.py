@@ -4391,6 +4391,28 @@ esac
             self.acceptance_warns(self.ACCEPTANCE_071, fixed, seq='002'), []
         )
 
+    def test_classify_warns_on_acceptance_commands_the_repo_gates_start_with(self):
+        self.write(
+            '.agents/kitchen.toml',
+            KITCHEN.replace(
+                'fast = ["test -f src/app.py"]', 'fast = ["bun run check"]'
+            ),
+        )
+        self.commit('bun kitchen')
+        cases = [
+            ('`bun run lint`', True),
+            ('`./tooling/check x`', True),
+            ('`rg -n foo src`', True),
+            ('`foo.py`', False),
+            ('`risk: escalated`', False),
+        ]
+        for seq, (command, warns) in enumerate(cases, 1):
+            with self.subTest(command=command):
+                warned = self.acceptance_warns(
+                    [f'- {command}'], ['none'], seq=f'{seq:03d}'
+                )
+                self.assertEqual(len(warned), int(warns), warned)
+
     def test_acceptance_commands_count_as_run_by_verify_or_a_gate(self):
         diff = ['- `git diff --exit-code -- src`']
         self.assertEqual(self.acceptance_warns(diff, ['git diff -- src']), [])

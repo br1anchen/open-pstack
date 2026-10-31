@@ -25,7 +25,7 @@ from pstack_core.store import (
 from . import kpy
 from .landing import playbooks, section
 
-ACCEPTANCE_COMMAND = re.compile(r'`((?:git|python3|test|grep|awk|uv|bash) [^`\n]+)`')
+ACCEPTANCE_WORDS = ('git', 'python3', 'test', 'grep', 'awk', 'uv', 'bash', 'rg')
 
 CLASSIFY_FAILED = 'kitchen.py classify failed; run kitchen.py validate in the repo'
 
@@ -120,12 +120,19 @@ def runs_in(command, verify):
     )
 
 
+def acceptance_command(gates):
+    """The pattern for a backquoted command in Acceptance: it starts with one of the fixed words, the first word of a touched gate, or `./`."""
+    words = {*ACCEPTANCE_WORDS, *(g.split()[0] for g in gates if g.split())}
+    alternatives = '|'.join(re.escape(w) for w in sorted(words))
+    return re.compile(rf'`((?:(?:{alternatives}) |\./)[^`\n]+)`')
+
+
 def acceptance_warnings(text, gates):
     """One warning per backquoted command in Acceptance that neither Verify nor a gate runs, so `finish` would not rerun it."""
     verify = normal_form(section(text, 'Verify'))
     covered = {normal_form(g) for g in gates}
     warned = {}
-    for command in ACCEPTANCE_COMMAND.findall(section(text, 'Acceptance')):
+    for command in acceptance_command(gates).findall(section(text, 'Acceptance')):
         normal = normal_form(command)
         if normal in covered or runs_in(normal, verify):
             continue
