@@ -59,13 +59,17 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      playbook and writes each block's consultant and master parts into the
      plan. Consults work as in
      [the trio master](../../pstack-trio/references/master.md), with
-     `kitchen.sh` for `pair.sh`.
+     `kitchen.sh` for `pair.sh`. Classify stamps `steps:` on the brief: `master`
+     when the unit's own paths or a `risk: escalated` you wrote escalate it,
+     `gates` when only its plan is escalated, so its gates prove each step. Write
+     `steps: master` on a plan-only brief to read every step; classify never
+     lowers it.
 5. **Dispatch and wait.** `kitchen.sh dispatch <store> <brief>`, then
    `kitchen.sh wait <store>`, each in your harness's background mode where it
    has one (Claude Code: run in the background and you are re-invoked when it
    returns), so a wait never holds your turn. The kitchen's wait is quiet: a
-   check-in with nothing flagged does not return. It returns for a report, an
-   escalated unit's steps, a blocked sidekick, a digest that carries a flag
+   check-in with nothing flagged does not return. It returns for a report, the
+   steps of an escalated unit whose brief says `steps: master`, a blocked sidekick, a digest that carries a flag
    (a stale log, a write outside Scope, an objection, an open blocking note (a
    blocking note you publish is also delivered to a working sidekick at once),
    a timebox overrun, a pause), or after `--max` minutes (an hour) with the

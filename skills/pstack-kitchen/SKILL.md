@@ -211,7 +211,7 @@ open reports and `feedback --close` retires one.
 ## When the master wakes
 
 A report (done, partial, blocked), a check-in digest at the interval, a
-steer objection, an escalated unit's steps, a rejected or inconclusive
+steer objection, the steps of an escalated unit whose brief says `steps: master`, a rejected or inconclusive
 verdict, review findings, a sampled audit, an approval dialog, and a
 provider error. Two failed gates in a row reach the master as a blocked
 report. Everything else the kitchen handles. Each `wait`, `dispatch` and
