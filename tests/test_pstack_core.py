@@ -3594,6 +3594,10 @@ class CoreTests(unittest.TestCase):
             },
             agents={'s1': 'idle claude'},
         )
+        # the tie-break between the two reports needs one mtime second, which two writes a second apart do not give; set it past the resend's epoch
+        same = int(time.time()) + 3600
+        for name in ('reports/001-x.md', 'reports/001-x-s1.md'):
+            os.utime(st / name, (same, same))
         steer = st / 'steers/001-x-s2.md'
         steer.parent.mkdir(exist_ok=True)
         steer.write_text(
