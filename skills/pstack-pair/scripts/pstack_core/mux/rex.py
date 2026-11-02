@@ -331,7 +331,7 @@ class Rex(Mux):
     def poll(self, block, timeout_ms, done):
         """Looks at the block every PAIR_REX_POLL_S until done(pane, quiet) holds or timeout_ms passes; quiet counts the looks in a row at an
         unchanged screen. The last (pane, held) seen; pane None when the block is gone."""
-        deadline = time.monotonic() + timeout_ms / 1000
+        deadline = time.monotonic() + float(timeout_ms) / 1000
         screen, quiet = None, 0
         while True:
             pane = self.look(block)
@@ -371,6 +371,7 @@ class Rex(Mux):
         run(['block', 'rename', pane, name])
         if not self.type(pane, shlex.join([kind, *args])):
             return say(1, self.failure, message=f'cannot type into {pane}')
+        timeout_ms = float(timeout_ms)
         stall = env_float('PAIR_REX_STALL_S', 15) * 1000
         up, held = self.poll(pane, min(stall, timeout_ms), lambda p, q: p.running)
         if up is None or not held:
@@ -415,7 +416,7 @@ class Rex(Mux):
             return say(1, self.failure, message=f'cannot type into {block}')
         if not wait:
             return say(0, status=before.state or 'unknown')
-        timeout_ms = WAIT_MS if timeout_ms is None else timeout_ms
+        timeout_ms = WAIT_MS if timeout_ms is None else float(timeout_ms)
         if until:
             last, held = self.poll(
                 block, timeout_ms, lambda p, q: self.status(p, q) == until
@@ -455,11 +456,10 @@ class Rex(Mux):
         first = self.look(block)
         if first is None or not first.running:
             return say(1, NOT_FOUND, message=f'no agent {name}')
-        start = first.state or 'working'
-        target = (lambda s: s in until) if until else (lambda s: s != start)
-        timeout_ms = WAIT_MS if timeout_ms is None else timeout_ms
+        target = until or SETTLED
+        timeout_ms = WAIT_MS if timeout_ms is None else float(timeout_ms)
         last, held = self.poll(
-            block, timeout_ms, lambda p, q: not p.running or target(self.status(p, q))
+            block, timeout_ms, lambda p, q: not p.running or self.status(p, q) in target
         )
         if last is None or not last.running:
             return say(1, NOT_FOUND, message=f'{name} is gone')

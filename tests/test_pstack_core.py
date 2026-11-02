@@ -18848,6 +18848,11 @@ class RexMuxTests(unittest.TestCase):
             r = self.rex.prompt('s1', 'go', wait=True, timeout_ms=1000)
         self.assertEqual((r.ok, r.error), (False, mux.STALLED))
 
+    def test_wait_without_until_returns_at_once_for_an_agent_whose_turn_has_ended(self):
+        self.started()
+        r = self.rex.wait('s1', timeout_ms=0)
+        self.assertEqual((r.ok, r.status), (True, 'idle'))
+
     def test_wait_returns_the_status_the_agent_reaches(self):
         self.started()
         self.r('turn').write_text('working\nworking\nblocked\n')

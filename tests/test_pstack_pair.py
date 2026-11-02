@@ -81,6 +81,34 @@ class PairScriptTests(unittest.TestCase):
         self.check('trio')
 
 
+class RexScriptTests(unittest.TestCase):
+    """tests/pstack-pair/rex-scenario.sh runs pair and trio on the Rex backend against fake rex; the transcript must match golden/rex-<variant>.txt."""
+
+    def check(self, variant):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        env = inherited_env()
+        watch_jq(self, env)
+        out = subprocess.run(
+            [here / 'rex-scenario.sh', skills, variant],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=600,
+        ).stdout
+        golden = here / 'golden' / f'rex-{variant}.txt'
+        if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
+            golden.write_text(out)
+        self.assertEqual(out, golden.read_text())
+
+    def test_pair_on_rex(self):
+        self.check('pair')
+
+    def test_trio_on_rex(self):
+        self.check('trio')
+
+
 class DevinSessionTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -3387,7 +3387,7 @@ class KitchenScriptTests(unittest.TestCase):
         self.env = {
             **inherited_env(),
             'FAKE': str(self.fake),
-            'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'),
+            **self.mux_env(),
             'KITCHEN_VERIFY_POLL_S': '0.2',
             'KITCHEN_VERIFY_GRACE_POLL_S': '0.2',
             'KITCHEN_STEP_POLL_S': '0.2',
@@ -3400,8 +3400,6 @@ class KitchenScriptTests(unittest.TestCase):
             'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
             'HOME': str(t / 'home'),
             'XDG_STATE_HOME': str(t / 'state'),
-            'HERDR_ENV': '1',
-            'HERDR_PANE_ID': 'p0',
             'PAIR_SETTLE_HOLD': '0',
             'PAIR_SUBMIT_CHECK_S': '0',
             'KITCHEN_QUIET_MAX_S': '20',
@@ -3485,6 +3483,14 @@ esac
 ''')
         hook.chmod(0o755)
         self.run_sh('spawn', str(self.store))
+
+    def mux_env(self):
+        """The variables that put kitchen.sh inside the fake multiplexer, with the master in its pane."""
+        return {
+            'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'),
+            'HERDR_ENV': '1',
+            'HERDR_PANE_ID': 'p0',
+        }
 
     def git(self, *args):
         return subprocess.run(
@@ -12613,3 +12619,31 @@ esac
             [(r['run'], r['kind'], r['area']) for r in rows],
             [('old', 'steer', ''), ('demo', 'catch', '')],
         )
+
+
+class KitchenRexTests(KitchenScriptTests):
+    """Verification on the Rex backend against fake rex: the verifier starts in a block of its own, takes its packet, and its verdict
+    returns. The rest of KitchenScriptTests reads fake herdr's state and is left to the Herdr run."""
+
+    KEEP = (
+        'test_a_blocked_unit_can_still_be_verified',
+        'test_a_unit_dispatched_as_escalated_is_verified_by_the_escalated_class',
+        'test_landing_verification_starts_where_the_stack_leaves_trunk',
+    )
+
+    def mux_env(self):
+        master = self.fake / 'rex/blocks/block_m0'
+        master.mkdir(parents=True)
+        (master / 'fg').write_text('200 claude\n')
+        (master / 'state').write_text('working claude-code t0\n')
+        return {
+            'REX_BLOCK': 'block:m0',
+            'REX_SESSION': 'session:s1',
+            'PAIR_REX_POLL_S': '0',
+            'PAIR_REX_STALL_S': '1',
+        }
+
+
+for _name in dir(KitchenScriptTests):
+    if _name.startswith('test_') and _name not in KitchenRexTests.KEEP:
+        setattr(KitchenRexTests, _name, None)

@@ -156,7 +156,8 @@ class Mux:
         raise NotImplementedError
 
     def wait(self, name, until=(), timeout_ms=None, stdout=PIPE, stderr=PIPE):
-        """Waits up to timeout_ms for the agent's status to change (to one of `until` when given). Its Reply carries the status it ended in."""
+        """Waits up to timeout_ms for the agent to be in one of `until` (by default, for its turn to end: idle, done or blocked). Its Reply
+        carries the status it ended in."""
         raise NotImplementedError
 
     def notify(self, title, body):

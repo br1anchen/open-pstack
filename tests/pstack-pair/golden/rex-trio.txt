@@ -1,0 +1,85 @@
+
+$ pair.sh init demo
+store: <T>/state/pstack/trio/demo (master demo-master in block:m0)
+standing orders: <T>/state/pstack/trio/demo/standing-orders.md
+[exit 0]
+  rex block inspect block:m0 --json
+  rex block rename block:m0 demo-master
+
+$ pair.sh spawn <T>/state/pstack/trio/demo --sidekick codex --consultant claude --permission none
+split block:m0 right -> block:b1
+sidekick demo-sidekick (codex) started in block:b1 with permission native-args (master: auto)
+ready: <T>/state/pstack/trio/demo/reports/000-ready.md
+split block:b1 right -> block:b2
+consultant demo-consultant (claude) started in block:b2 with permission native-args (master: auto)
+ready: <T>/state/pstack/trio/demo/advice/000-ready.md
+kinds: master claude, sidekick codex, consultant claude
+[exit 0]
+  codex --disable plugins mcp list --json (cwd <T>/repo)
+  rex split -b block:m0 --split right --focus=false -c <T>/repo --json
+  rex block rename block:b1 demo-sidekick
+  rex send -b block:b1 codex --disable plugins
+  rex send-key -b block:b1 enter
+  rex send -b block:b1 Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 1, pane block:b1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY.
+  rex send-key -b block:b1 enter
+  rex block inspect block:b1 --json
+  rex split -b block:b1 --split right --focus=false -c <T>/repo --json
+  rex block rename block:b2 demo-consultant
+  rex send -b block:b2 claude --strict-mcp-config --mcp-config <SKILLS>/pstack-pair/scripts/../references/no-mcp.json
+  rex send-key -b block:b2 enter
+  rex send -b block:b2 Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the consultant role (generation 1, pane block:b2). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write advice/000-ready.md, and reply READY.
+  rex send-key -b block:b2 enter
+
+$ pair.sh discuss <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/plans/001-design.md
+sent PLAN 001-design.md to sidekick demo-sidekick
+sent PLAN 001-design.md to consultant demo-consultant
+sidekick_state: idle
+sidekick_response: <T>/state/pstack/trio/demo/reports/001-design.md
+sidekick_status: agree
+consultant_state: idle
+consultant_response: <T>/state/pstack/trio/demo/advice/001-design.md
+consultant_status: agree
+[exit 0]
+  rex send -b block:b1 pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md
+  rex send-key -b block:b1 enter
+  rex send -b block:b2 pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md
+  rex send-key -b block:b2 enter
+
+$ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/002-build.md --timeout 3000
+state: idle
+report: <T>/state/pstack/trio/demo/reports/002-build.md
+report_status: done
+[exit 0]
+  rex send -b block:b1 pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/002-build.md
+  rex send-key -b block:b1 enter
+
+$ pair.sh status <T>/state/pstack/trio/demo
+# Trio status
+
+generated: <TS>
+master: demo-master (block:m0) working
+sidekick: demo-sidekick (block:b1) idle
+consultant: demo-consultant (block:b2) idle
+
+| seq | kind | unit | report | advice | review |
+|---|---|---|---|---|---|
+| 001 | plan | design | agree | agree | agreed |
+| 002 | brief | build | done | none | none |
+
+latest report: <T>/state/pstack/trio/demo/reports/002-build.md
+latest advice: <T>/state/pstack/trio/demo/advice/001-design.md
+[exit 0]
+
+$ pair.sh stop <T>/state/pstack/trio/demo --timeout 3000
+sidekick_state: idle
+consultant_state: idle
+report: <T>/state/pstack/trio/demo/reports/002-stop.md (partial)
+advice: <T>/state/pstack/trio/demo/advice/001-design.md (agree)
+[exit 0]
+  rex send -b block:b1 pstack-trio STOP <T>/state/pstack/trio/demo
+  rex send-key -b block:b1 enter
+  rex send -b block:b2 pstack-trio STOP <T>/state/pstack/trio/demo
+  rex send-key -b block:b2 enter
+
+registry:
+{ "demo-consultant": { "block": "block:b2", "kind": "claude" }, "demo-master": { "block": "block:m0", "kind": "" }, "demo-sidekick": { "block": "block:b1", "kind": "codex" } }
