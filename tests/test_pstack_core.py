@@ -18814,14 +18814,14 @@ class RexMuxTests(unittest.TestCase):
             _, r = self.started()
         self.assertEqual((r.ok, r.error), (False, rex_mux.START_FAILED))
 
-    def test_an_agent_that_reports_no_state_is_ready_once_its_screen_is_quiet_and_reads_unknown(
+    def test_an_agent_that_reports_no_state_is_ready_once_its_screen_is_quiet_and_reads_idle(
         self,
     ):
         self.r('start-state').write_text('none')
         _, r = self.started('pi')
         self.assertTrue(r.ok)
         agent = self.rex.agent('s1')
-        self.assertEqual((agent.kind, agent.status), ('pi', 'unknown'))
+        self.assertEqual((agent.kind, agent.status), ('pi', 'idle'))
 
     def test_prompt_until_working_returns_when_the_agent_reports_working(self):
         self.started()
@@ -18887,6 +18887,38 @@ class RexMuxTests(unittest.TestCase):
         (self.block() / 'typed').write_text('')
         self.rex.type(pane, 'claude')
         self.assertEqual(self.rex.agent('demo-master').kind, 'claude')
+
+    def test_a_record_left_by_an_earlier_program_in_the_block_is_not_the_agents(self):
+        pane, _ = self.started()
+        (self.block() / 'state').write_text('done claude-code t0\n')
+        (self.block() / 'fg').write_text('300 pi\n')
+        self.assertEqual(rex_mux.Rex().look(pane).state, '')
+
+    def test_a_screen_read_status_is_unknown_until_the_screen_changes_or_stays_quiet(
+        self,
+    ):
+        self.r('start-state').write_text('none')
+        pane, _ = self.started('pi')
+        seen = []
+        self.rex.poll(pane, 1000, lambda p, s: seen.append(s) or len(seen) == 4)
+        self.assertEqual(seen, ['unknown', 'unknown', 'unknown', 'idle'])
+
+    def test_start_takes_the_block_from_any_name_it_had(self):
+        pane = self.rex.split('block:me', 'right', '/w')
+        self.rex.rename(pane, 'old')
+        self.rex.start('s1', 'claude', pane, [])
+        self.assertEqual(sorted(rex_mux.registry()), ['s1'])
+
+    def test_a_registry_that_is_no_object_reads_empty(self):
+        path = Path(rex_mux.registry_path())
+        path.parent.mkdir(parents=True)
+        path.write_text('[]')
+        self.assertEqual(rex_mux.registry(), {})
+
+    def test_typed_text_goes_after_a_double_dash_so_a_leading_dash_is_text(self):
+        self.started()
+        self.rex.prompt('s1', '- fix the test')
+        self.assertIn('rex send -b block:b0 -- - fix the test', self.calls())
 
     def test_blocks_are_read_closed_and_measured(self):
         pane = self.rex.split('block:me', 'right', '/w')

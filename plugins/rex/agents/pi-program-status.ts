@@ -28,6 +28,9 @@ export default function (pi) {
   }
 
   pi.on("session_start", (_event, ctx) => {
+    // A new session starts with no prompt open and nothing reported yet.
+    prompts = 0;
+    last = undefined;
     tui = ctx?.mode === "tui";
     active = ctx?.isIdle?.() === false;
     publish(true);
@@ -37,7 +40,8 @@ export default function (pi) {
     publish();
   });
   pi.on("agent_settled", (_event, ctx) => {
-    if (ctx?.isIdle?.() !== true) {
+    // Another extension may already have started the next run; without isIdle, settled means stopped.
+    if (typeof ctx?.isIdle === "function" && ctx.isIdle() !== true) {
       return;
     }
     active = false;
@@ -52,6 +56,8 @@ export default function (pi) {
     publish();
   });
   pi.on("session_shutdown", () => {
+    prompts = 0;
+    last = undefined;
     if (tui) {
       process.stdout.write("\x1b]7501;state=clear\x07");
     }

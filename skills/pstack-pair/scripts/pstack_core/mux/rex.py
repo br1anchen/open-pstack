@@ -40,7 +40,7 @@ SETTLED = ('idle', 'done', 'blocked')
 KEYS = {'esc': 'escape'}
 # Polls of an unchanged screen after which an agent that reports no state counts as idle.
 QUIET = 3
-# The default wait when the caller names none, as herdr's.
+# A prompt's wait when the caller names none.
 WAIT_MS = 30000
 NOT_FOUND = 'agent_not_found'
 START_FAILED = 'agent_start_failed'
@@ -85,7 +85,7 @@ def registry():
         return {}
     return {
         k: v
-        for k, v in doc.items()
+        for k, v in (doc.items() if isinstance(doc, dict) else ())
         if isinstance(v, dict) and isinstance(v.get('block'), str)
     }
 
@@ -122,13 +122,16 @@ class Pane:
         self.name = field(foreground, 'name') or ''
         self.cwd = field(foreground, 'cwd') or ''
         self.shell = field(chain[-1], 'pid', int)
-        records = [
-            r for r in field(status, 'records', list) or [] if isinstance(r, dict)
-        ]
+        # A record left by an earlier program in the block (done and error outlive it) is not this agent's: only one owned by the
+        # foreground program or a process between it and the shell counts.
+        mine = {field(p, 'pid', int) for p in chain[:-1]} - {None}
         own = [
-            r for r in records if field(field(r, 'owner', dict), 'pid', int) == self.pid
+            r
+            for r in field(status, 'records', list) or []
+            if isinstance(r, dict)
+            and field(field(r, 'owner', dict), 'pid', int) in mine
         ]
-        self.record = (own or records[-1:] or [None])[0]
+        self.record = own[-1] if own else None
 
     @property
     def running(self):
@@ -284,8 +287,10 @@ class Rex(Mux):
         if pane is None or not pane.running:
             return None
         known, kind = self.named(block)
+        # An agent that reports no state reads idle, as Herdr's screen-read kinds do; panes.agent_status's busy-screen check turns a
+        # working one back to working.
         return Agent(
-            known, kind or pane.app, pane.state or 'unknown', block, pane.cwd, None
+            known, kind or pane.app, pane.state or 'idle', block, pane.cwd, None
         )
 
     def screen(self, name, lines):
@@ -315,7 +320,7 @@ class Rex(Mux):
 
     def type(self, block, text):
         return (
-            run(['send', '-b', block, text]).returncode == 0
+            run(['send', '-b', block, '--', text]).returncode == 0
             and run(['send-key', '-b', block, 'enter']).returncode == 0
         )
 
@@ -329,30 +334,30 @@ class Rex(Mux):
         return Reply(code, out, err, error, status)
 
     def poll(self, block, timeout_ms, done):
-        """Looks at the block every PAIR_REX_POLL_S until done(pane, quiet) holds or timeout_ms passes; quiet counts the looks in a row at an
-        unchanged screen. The last (pane, held) seen; pane None when the block is gone."""
-        deadline = time.monotonic() + float(timeout_ms) / 1000
+        """Looks at the block every PAIR_REX_POLL_S until done(pane, status) holds or timeout_ms (None: no limit) passes. The status is the
+        reported one, or, for an agent that reports none, read from its screen: working once it has changed, idle after QUIET looks in a row
+        at an unchanged one, unknown before either. (pane, status, held) at the last look; pane None when the block is gone."""
+        limit = float('inf') if timeout_ms is None else float(timeout_ms) / 1000
+        deadline = time.monotonic() + limit
         screen, quiet = None, 0
         while True:
             pane = self.look(block)
             if pane is None:
-                return None, False
-            if not pane.state:
+                return None, '', False
+            status = pane.state
+            if not status:
                 now = self.pane_screen(block, 200)[1]
-                quiet = quiet + 1 if now == screen else 0
+                changed = screen is not None and now != screen
+                quiet = quiet + 1 if screen is not None and not changed else 0
                 screen = now
-            if done(pane, quiet):
-                return pane, True
+                status = (
+                    'working' if changed else 'idle' if quiet >= QUIET else 'unknown'
+                )
+            if done(pane, status):
+                return pane, status, True
             if time.monotonic() >= deadline:
-                return pane, False
+                return pane, status, False
             time.sleep(env_float('PAIR_REX_POLL_S', 0.5))
-
-    @staticmethod
-    def status(pane, quiet):
-        """The agent's status: reported, or from its screen (idle once quiet, working while it changes)."""
-        if pane.state:
-            return pane.state
-        return 'idle' if quiet >= QUIET else 'working'
 
     def start(
         self, name, kind, pane, args, timeout_ms=60000, stdout=DEVNULL, stderr=PIPE
@@ -367,25 +372,30 @@ class Rex(Mux):
             return say(1, NOT_FOUND, message=f'no block {pane}')
         if look.running:
             return say(1, PANE_BUSY, f'{look.name} holds the foreground of {pane}')
-        register(lambda agents: agents.update({name: {'block': pane, 'kind': kind}}))
+
+        def claim(agents):
+            for old in [n for n, e in agents.items() if e['block'] == pane]:
+                del agents[old]
+            agents[name] = {'block': pane, 'kind': kind}
+
+        register(claim)
         run(['block', 'rename', pane, name])
         if not self.type(pane, shlex.join([kind, *args])):
             return say(1, self.failure, message=f'cannot type into {pane}')
-        timeout_ms = float(timeout_ms)
         stall = env_float('PAIR_REX_STALL_S', 15) * 1000
-        up, held = self.poll(pane, min(stall, timeout_ms), lambda p, q: p.running)
+        up, _, held = self.poll(
+            pane, min(stall, float(timeout_ms)), lambda p, s: p.running
+        )
         if up is None or not held:
             return say(1, START_FAILED, f'{kind} never took the foreground of {pane}')
-        last, held = self.poll(
-            pane,
-            timeout_ms,
-            lambda p, q: not p.running or self.status(p, q) in SETTLED,
+        last, status, held = self.poll(
+            pane, timeout_ms, lambda p, s: not p.running or s in SETTLED
         )
         if last is None or not last.running:
             return say(1, START_FAILED, f'{kind} exited in {pane}')
         if not held:
             return say(1, TIMEOUT, f'{kind} did not settle in {timeout_ms}ms')
-        if last.state == 'blocked':
+        if status == 'blocked':
             return say(1, NOT_READY, 'blocked during startup')
         return say(0)
 
@@ -416,11 +426,9 @@ class Rex(Mux):
             return say(1, self.failure, message=f'cannot type into {block}')
         if not wait:
             return say(0, status=before.state or 'unknown')
-        timeout_ms = WAIT_MS if timeout_ms is None else float(timeout_ms)
+        timeout_ms = WAIT_MS if timeout_ms is None else timeout_ms
         if until:
-            last, held = self.poll(
-                block, timeout_ms, lambda p, q: self.status(p, q) == until
-            )
+            last, _, held = self.poll(block, timeout_ms, lambda p, s: s == until)
             if last is None:
                 return say(1, NOT_FOUND, message=f'{name} is gone')
             return (
@@ -429,24 +437,20 @@ class Rex(Mux):
                 else say(1, TIMEOUT, '', f'{name} not {until} in {timeout_ms}ms')
             )
         stall = env_float('PAIR_REX_STALL_S', 15) * 1000
-        took = lambda p, q: (
-            p.stamp != before.stamp or self.status(p, q) in ('working', 'blocked')
-        )
-        last, held = self.poll(block, min(stall, timeout_ms), took)
+        took = lambda p, s: p.stamp != before.stamp or s in ('working', 'blocked')
+        last, _, held = self.poll(block, min(stall, float(timeout_ms)), took)
         if last is None:
             return say(1, NOT_FOUND, message=f'{name} is gone')
         if not held:
             return say(1, STALLED, message=f'{name} did not take the prompt')
-        last, held = self.poll(
-            block, timeout_ms, lambda p, q: self.status(p, q) in SETTLED
-        )
+        last, status, held = self.poll(block, timeout_ms, lambda p, s: s in SETTLED)
         if last is None:
             return say(1, NOT_FOUND, message=f'{name} is gone')
         if not held:
             return say(
-                1, TIMEOUT, 'working', f'{name} still working after {timeout_ms}ms'
+                1, TIMEOUT, status, f'{name} still {status} after {timeout_ms}ms'
             )
-        return say(0, status=self.status(last, QUIET))
+        return say(0, status=status)
 
     def wait(self, name, until=(), timeout_ms=None, stdout=PIPE, stderr=PIPE):
         say = lambda code, error='', status='', message='': self.answer(
@@ -457,13 +461,11 @@ class Rex(Mux):
         if first is None or not first.running:
             return say(1, NOT_FOUND, message=f'no agent {name}')
         target = until or SETTLED
-        timeout_ms = WAIT_MS if timeout_ms is None else float(timeout_ms)
-        last, held = self.poll(
-            block, timeout_ms, lambda p, q: not p.running or self.status(p, q) in target
+        last, status, held = self.poll(
+            block, timeout_ms, lambda p, s: not p.running or s in target
         )
         if last is None or not last.running:
             return say(1, NOT_FOUND, message=f'{name} is gone')
-        status = self.status(last, QUIET if held else 0)
         return (
             say(0, status=status)
             if held

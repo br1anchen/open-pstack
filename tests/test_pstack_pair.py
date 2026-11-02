@@ -26,20 +26,10 @@ tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / 'tests'))
-from test_pstack_core import event_log, watch_jq  # noqa: E402
+from test_pstack_core import LEAKED_PREFIXES, event_log, watch_jq  # noqa: E402
 
 here = root / 'tests/pstack-pair'
 skills = root / 'skills'
-
-
-LEAKED_PREFIXES = (
-    'PSTACK_KITCHEN_',
-    'KITCHEN_',
-    'PAIR_',
-    'HERDR_',
-    'REX_',
-    'PSTACK_MUX',
-)
 
 
 def inherited_env():
