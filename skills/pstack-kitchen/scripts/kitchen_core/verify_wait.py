@@ -403,7 +403,7 @@ class Waiter:
             deadline = read_int(store, 'verifying.deadline')
             if not (state != 'absent' and deadline is not None and now < deadline):
                 break
-            if now >= v.until:
+            if now >= v.until or not mux.get().waits:
                 started = read_int(store, 'verifying.started')
                 self.say(
                     f'verifying: units {read(store, "verifying.units")} by {v.kind}, {tdiv(now - started, 60)}m of {tdiv(deadline - started, 60)}m, verifier '

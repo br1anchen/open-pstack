@@ -207,6 +207,7 @@ class KitchenVariant(TrioVariant):
     # Its own table, as every variant has one: stop is the trio's, which loops over the kitchen's roles (the verifier too). Spawn
     # stays the pair's, under kitchen.sh's wrapper.
     commands = {'stop': TrioVariant.commands['stop']}
+    subagents_fallback = True
 
     def startup(self, ctx, words):
         """Every command word stamps the skills build on a store named as its second word: a run keeps the list of skills directories its

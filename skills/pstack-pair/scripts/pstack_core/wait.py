@@ -405,6 +405,10 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
             result.steps_due, result.code, result.err = True, 0, ''
             result.status = status_now(name)
             break
+        if not mux.get().waits:
+            # The role's subagent runs once this command returns; nothing has landed yet.
+            result.code, result.status = 0, status_now(name)
+            break
         slice_ms = (deadline - clock()) * 1000
         slice_ms = min(slice_ms, 30000)
         slice_ms = max(slice_ms, 1000)

@@ -583,6 +583,7 @@ manual_at = [
         at(SPAWN, "event(store, role, 'spawn', '-', f'{kind}:unready')", 'return 4'),
     ),
     (WAIT, at(WAIT, "WaitOutcome(4, 'superseded'", "WaitOutcome(4, 'superseded'")),
+    (SPAWN, at(SPAWN, "f'{kind}:handed-off'", 'return 4')),
 ]
 exit_lines, seen = [], set()
 for path in git_grep(r'.', *PROD, flags='-lE'):
@@ -786,6 +787,12 @@ manual_exit = [
         f'{SPAWN}:{manual_at[5][1]}',
         'spawn returns 4 when the agent settled but READY is missing',
         ['is missing; state='],
+    ),
+    (
+        4,
+        f'{SPAWN}:{manual_at[7][1]}',
+        'spawn returns 4 with no multiplexer, once the bootstrap prompt is handed to a subagent',
+        ['next: run the subagent the line above names'],
     ),
     (
         4,
