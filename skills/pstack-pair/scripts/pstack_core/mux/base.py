@@ -70,6 +70,8 @@ class Mux:
     failure = ''
     pane_var = ''
     inside = ''
+    # Whether Agent.session is ever set: a Prime role is cleaned up through the daemon session it names, so it needs a backend that tracks one.
+    tracks_sessions = True
 
     # The calling pane and where it lives.
     def require(self, what=None):

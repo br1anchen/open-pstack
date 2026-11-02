@@ -154,7 +154,7 @@ class NoPaneId(PairError):
 
 
 class AgentStartFailed(PairError):
-    """Herdr could not start the agent in its pane."""
+    """The multiplexer could not start the agent in its pane, or cannot run that kind."""
 
     code = 2
 

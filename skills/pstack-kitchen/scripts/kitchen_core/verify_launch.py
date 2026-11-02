@@ -30,6 +30,7 @@ from pstack_core.panes import agent_kind, agent_status, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
+from pstack_core.spawn import require_kind_runs
 from pstack_core.store import (
     event,
     field,
@@ -246,6 +247,7 @@ def launch_verifier(v):
     """The verifier's pane beside the sidekick (the master when it is gone) and its agent, started on the scratch. A start that fails closes the pane
     and the scratch and ends the command; a Prime verifier keeps both. (pane, whether the agent started)."""
     store = v.store
+    require_kind_runs(v.kind)
     v.name = field(store, 'verifier', 'name')
     anchor = field(store, 'sidekick', 'pane_id')
     if not (anchor and mux.get().pane_exists(anchor)):
