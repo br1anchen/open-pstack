@@ -18955,13 +18955,39 @@ class RexMuxTests(unittest.TestCase):
         (self.block() / 'screen').write_text('before\n')
         mkonce = self.fake / 'once'
         mkonce.mkdir()
-        hook = mkonce / 'rex-send'
+        hook = mkonce / 'rex-send-key'
         hook.write_text(f"#!/bin/sh\nprintf 'after\\n' >'{self.block()}/screen'\n")
         hook.chmod(0o755)
         with mock.patch.dict(os.environ, {'PAIR_REX_STALL_S': '0'}):
             r = self.rex.prompt('s1', 'go', wait=True, timeout_ms=1000)
         self.assertEqual((r.ok, r.status), (True, 'idle'))
         self.assertEqual(self.rex.prompt('s1', 'x').status, 'idle')
+
+    def test_a_no_state_agent_that_opens_on_a_trust_dialog_is_not_ready(self):
+        self.r('start-state').write_text('none')
+        pane = self.rex.split('block:me', 'right', '/w')
+        (self.block() / 'screen').write_text(
+            'Do you trust the files\nin this folder?\n'
+        )
+        r = self.rex.start('s1', 'pi', pane, [])
+        self.assertEqual((r.ok, r.error), (False, mux.NOT_READY))
+
+    def test_the_echo_of_typed_text_alone_is_no_sign_a_no_state_agent_took_it(self):
+        self.r('start-state').write_text('none')
+        self.started('pi')
+        (self.fake / 'calls.log').write_text('')
+        mkonce = self.fake / 'once'
+        mkonce.mkdir()
+        hook = mkonce / 'rex-send'
+        hook.write_text(f"#!/bin/sh\nprintf 'go\\n' >'{self.block()}/screen'\n")
+        hook.chmod(0o755)
+        with mock.patch.dict(os.environ, {'PAIR_REX_STALL_S': '0'}):
+            r = self.rex.prompt('s1', 'go', wait=True, timeout_ms=1000)
+        self.assertEqual((r.ok, r.error), (False, mux.STALLED))
+        self.assertEqual(
+            [c.split(' -b ')[0] for c in self.calls()[2:5]],
+            ['rex send', 'rex capture', 'rex send-key'],
+        )
 
     def test_blocks_are_read_closed_and_measured(self):
         pane = self.rex.split('block:me', 'right', '/w')

@@ -8,13 +8,9 @@ import time
 
 from . import mux
 from .errors import NoPaneId, PaneSizeUnreadable, TrustPrompt
+from .mux import TRUST_RE
 from .numbers import env_int
 from .store import load, peek, text_at
-
-TRUST_RE = re.compile(
-    'trust this folder|project you created or one you trust|do you trust the (files|contents)',
-    re.IGNORECASE,
-)
 
 
 def require_mux(what=None):

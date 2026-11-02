@@ -25,7 +25,8 @@ from pstack_core.errors import (
     UnknownVerifierKind,
     VerifierStartFailed,
 )
-from pstack_core.panes import TRUST_RE, agent_kind, agent_status, new_pane
+from pstack_core.mux import TRUST_RE
+from pstack_core.panes import agent_kind, agent_status, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed

@@ -1,11 +1,18 @@
 """The terminal multiplexer the roles run in, as one interface: panes to split, read, type into and close, and the agents started in them, each by
 name, with a status. A backend implements it on its own program; nothing outside mux/ names one."""
 
+import re
 import subprocess
 from dataclasses import dataclass
 
 # Where a call's output goes: captured (PIPE), dropped (DEVNULL), stderr merged into stdout (MERGED) or left on the terminal (None).
 DEVNULL, PIPE, MERGED = subprocess.DEVNULL, subprocess.PIPE, subprocess.STDOUT
+
+# An agent's folder-trust dialog, as its screen shows it (whitespace folded to single spaces).
+TRUST_RE = re.compile(
+    'trust this folder|project you created or one you trust|do you trust the (files|contents)',
+    re.IGNORECASE,
+)
 
 # pstack's words for why an agent call failed; a backend names its own failures with these.
 TIMEOUT = 'timeout'
