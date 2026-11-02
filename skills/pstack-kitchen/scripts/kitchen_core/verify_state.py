@@ -15,6 +15,7 @@ import sys
 import time
 import zlib
 
+from pstack_core import mux
 from pstack_core.commands.scratch import remove_scratch
 from pstack_core.errors import (
     DamagedStore,
@@ -26,7 +27,6 @@ from pstack_core.errors import (
 )
 from pstack_core.exits import end_agent, stop_prime_role
 from pstack_core.numbers import env_int, int_or_none
-from pstack_core.panes import agent_prompt, herdr
 from pstack_core.replies import queued_brief
 from pstack_core.send import submit_typed
 from pstack_core.store import (
@@ -182,7 +182,7 @@ def close_verifier(ctx, store, name, kind, pane, verdict):
         )
         if refused:
             sys.stderr.write(f'verifier exit refused: {refused}\n')
-    herdr('pane', 'close', pane)
+    mux.get().pane_close(pane)
     if kind == 'prime-agent':
         update(store, lambda doc: set_member(doc, 'verifier', 'closed', True))
     if scratch:
@@ -236,7 +236,7 @@ def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind='', say
     event(store, 'master', 'verify-redeliver', brief, kind)
     (say or sys.stdout.write)(f'redelivered: {why}; sent it again\n')
     sys.stdout.flush()
-    agent_prompt(
+    mux.get().prompt(
         name, verify_prompt(ctx, packet), wait=True, until='working', timeout_ms=30000
     )
     submit_typed(name, os.path.basename(packet))

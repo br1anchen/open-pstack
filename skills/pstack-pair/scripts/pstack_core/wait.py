@@ -1,28 +1,20 @@
 """wait: the timing options, the loop that waits for the sidekick's reply, and finish_wait, which prints the outcome. WaitResult carries code,
-out, err, ready and steps_due."""
+status, err, error, ready and steps_due."""
 
 import json
 import os
 import signal
-import subprocess
 import sys
 import time
 from dataclasses import dataclass, replace
 
-from . import procinfo
+from . import mux, procinfo
 from .argv import Spec, read
 from .checkin import CheckIn, checkin, sidekick_activity
 from .errors import BadStepRow, Die, MissingStore, PairError, refuse_as
+from .mux import TIMEOUT
 from .numbers import env_float, env_int, exit_code, tdiv, whole_number
-from .panes import (
-    agent_state,
-    agent_status,
-    error_code,
-    error_state,
-    herdr_get,
-    pane_busy,
-    require_herdr,
-)
+from .panes import agent_status, pane_busy, require_mux
 from .providers import provider_hint
 from .replies import (
     dispatched,
@@ -39,7 +31,6 @@ from .replies import (
 )
 from .review import review_base
 from .store import (
-    TEXT,
     acquire_lock,
     field,
     header_field,
@@ -56,16 +47,32 @@ from .store import (
 )
 
 
+def status_now(name):
+    """The agent's status as the multiplexer reports it, '' when it has none."""
+    agent = mux.get().agent(name)
+    return agent.status if agent else ''
+
+
 class WaitResult:
-    __slots__ = ('code', 'out', 'err', 'ready', 'steps_due', 'superseded')
+    """How the agent wait ended: its exit code, the agent status it carries, its error text and error word (see mux), and what the store held."""
+
+    __slots__ = ('code', 'status', 'err', 'ready', 'steps_due', 'superseded', 'error')
 
     def __init__(
-        self, code=0, out='', err='', ready='', steps_due=False, superseded=False
+        self,
+        code=0,
+        status='',
+        err='',
+        ready='',
+        steps_due=False,
+        superseded=False,
+        error='',
     ):
         self.superseded = superseded
         self.code = code
-        self.out = out
+        self.status = status
         self.err = err
+        self.error = error
         self.ready = ready
         self.steps_due = steps_due
 
@@ -133,13 +140,13 @@ def state_line(store, result, write):
     """Writes the `state:` line of a wait that returned and returns the state: the agent's own, or for a failed wait what its stderr names (a timeout
     reads the agent's status now, any other failure is also written to stderr)."""
     if result.code != 0:
-        state = error_state(result.err)
-        if state == 'timeout':
+        state = result.error or mux.get().failure
+        if state == TIMEOUT:
             state = agent_status(field(store, 'sidekick', 'name'))
         else:
             sys.stderr.write(f'{result.err}\n')
     else:
-        state = agent_state(result.out, 'settled')
+        state = result.status or 'settled'
     write(f'state: {state}\n')
     return state
 
@@ -370,7 +377,7 @@ def superseded(store, token):
 
 def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
     """wait_for_reply(): block until the sidekick's reply lands or the interval ends, in slices so a report is seen the moment
-    it is written. A settle from herdr is a hint, not proof: only one that holds for PAIR_SETTLE_HOLD seconds ends the wait."""
+    it is written. A settle from the multiplexer is a hint, not proof: only one that holds for PAIR_SETTLE_HOLD seconds ends the wait."""
     result = WaitResult()
     settle_hold = env_int('PAIR_SETTLE_HOLD', 60)
     busy_poll = env_float('PAIR_BUSY_POLL', 10)
@@ -391,27 +398,23 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
         ready = pending_report(ctx, store) or fresh_reply(ctx, store)
         if ready:
             result.ready, result.code, result.err = ready, 0, ''
-            result.out = herdr_get(name)
+            result.status = status_now(name)
             break
         result.ready = ''
         if ctx.variant.steps_due(ctx, store, dispatched(store)):
             result.steps_due, result.code, result.err = True, 0, ''
-            result.out = herdr_get(name)
+            result.status = status_now(name)
             break
         slice_ms = (deadline - clock()) * 1000
         slice_ms = min(slice_ms, 30000)
         slice_ms = max(slice_ms, 1000)
-        r = subprocess.run(
-            ['herdr', 'agent', 'wait', name, '--timeout', str(slice_ms)],
-            capture_output=True,
-            check=False,
-            **TEXT,
-        )
-        result.code = exit_code(r.returncode)
-        result.out = r.stdout.rstrip('\n')
-        result.err = r.stderr.rstrip('\n')
+        r = mux.get().wait(name, timeout_ms=slice_ms)
+        result.code = exit_code(r.code)
+        result.status = r.status
+        result.err = (r.err or '').rstrip('\n')
+        result.error = r.error
         if result.code == 0:
-            state = agent_state(result.out, None)
+            state = result.status
             if state == 'blocked':
                 break
             if (
@@ -441,8 +444,7 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
             time.sleep(settle_poll)
             continue
         settled_at = None
-        code = error_code(result.err)
-        if code != 'timeout':
+        if result.error != TIMEOUT:
             break
         if not clock() < deadline:
             if arrived():
@@ -546,7 +548,7 @@ def wait_target(ctx, args, out=None):
     """(store, timeout in milliseconds) of a wait's arguments, `<store> [--timeout MS | --every MIN]`, for a store that exists; a store with no
     pair.json is refused after `state: ` goes to `out`."""
     write = sys.stdout.write if out is None else out
-    require_herdr()
+    require_mux()
     end_with_parent()
     if len(args) < 1:
         raise Die(f'usage: {ctx.prog} wait <store> [--timeout MS | --every MIN]')

@@ -5,29 +5,19 @@ registers it as its own discuss."""
 import glob
 import os
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 
-from . import argv, git
+from . import argv, git, mux
 from .commands.rotate import rotate_if_due
 from .commands.status import latest
 from .errors import AgentBlocked, AgentBusy, AgentNotLive, Die, PromptFailed, Unfilled
 from .gates import require_not_paused
-from .panes import (
-    DEVNULL,
-    agent_prompt,
-    agent_state,
-    agent_status,
-    await_file,
-    error_code,
-    error_state,
-    require_herdr,
-)
+from .mux import DEVNULL, STALLED, TIMEOUT
+from .panes import agent_status, await_file, require_mux
 from .review import require_filled
 from .send import require_fresh_session, submit_typed
 from .store import (
-    TEXT,
     event,
     field,
     fill_template,
@@ -91,16 +81,13 @@ def deliver_plan(ctx, store, role, name, seq, plan):
     working, with nothing typed and no answer, still idle, gets the plan once more."""
     text = f'{ctx.skill} PLAN {plan}'
     sys.stdout.flush()
-    r = agent_prompt(
+    r = mux.get().prompt(
         name, text, wait=True, until='working', timeout_ms=30000, stdout=DEVNULL
     )
-    took = 1 if r.returncode == 0 else 0
-    if not took:
-        err = r.stderr
-        code = error_code(err)
-        if code not in ('timeout', 'agent_prompt_stalled'):
-            sys.stderr.write(err)
-            raise PromptFailed(f'herdr prompt failed for {name}')
+    took = 1 if r.ok else 0
+    if not took and r.error not in (TIMEOUT, STALLED):
+        sys.stderr.write(r.err)
+        raise PromptFailed(f'{mux.get().program} prompt failed for {name}')
     submitted = submit_typed(name, os.path.basename(plan))
     if took or submitted or plan_answer(store, role, seq, plan):
         return
@@ -110,7 +97,7 @@ def deliver_plan(ctx, store, role, name, seq, plan):
             f'redelivered: {role} {name} sat idle without the plan; sent it again\n'
         )
         sys.stdout.flush()
-        agent_prompt(
+        mux.get().prompt(
             name,
             text,
             wait=True,
@@ -152,7 +139,7 @@ def plan_round_for(store, seq, plan):
             )
         elif status == 'blocked':
             raise AgentBlocked(
-                f'{who(role, name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60'
+                f'{who(role, name)} is blocked; inspect: {mux.get().inspect_agent(name, 60)}'
             )
         else:
             if role != 'sidekick':
@@ -186,15 +173,9 @@ def await_answer(store, role, seq, slug, plan, timeout):
     is polled for its file. An empty answer is a missing one."""
     name = field(store, role, 'name')
     sys.stdout.flush()
-    r = subprocess.run(
-        ['herdr', 'agent', 'wait', name, '--timeout', str(timeout)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        check=False,
-        **TEXT,
-    )
-    status = agent_state(r.stdout, 'settled')
-    if r.returncode != 0:
+    r = mux.get().wait(name, timeout_ms=timeout, stderr=DEVNULL)
+    status = r.status or 'settled'
+    if not r.ok:
         status = agent_status(name)
     found = plan_answer(store, role, seq, plan)
     if not found and status != 'blocked':
@@ -217,7 +198,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     runs again once it reports. A role whose answer is newer than the plan file is not asked again, so the second discuss sends only the deferred
     half and returns both answers. Returns the exit status."""
     write = sys.stdout.write
-    require_herdr()
+    require_mux()
     if len(args) < 2:
         raise Die(f'usage: {ctx.prog} discuss <store> <plan-path> [--timeout MS]')
     store, plan, timeout = args[0], args[1], 540000
@@ -357,7 +338,7 @@ def require_consultant_idle(store):
         )
     if status == 'blocked':
         raise AgentBlocked(
-            f'{who("consultant", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60'
+            f'{who("consultant", name)} is blocked; inspect: {mux.get().inspect_agent(name, 60)}'
         )
     if status not in ('idle', 'done'):
         raise AgentBusy(
@@ -369,7 +350,7 @@ def require_consultant_idle(store):
 def consult(ctx, args):
     """A consult reaches the consultant at any time, the sidekick working or not. The header records the sidekick's state and HEAD at send; the
     consultant reads committed work at that head, or a scratch snapshot, never a tree that moves under it."""
-    require_herdr()
+    require_mux()
     if len(args) < 2:
         raise Die(f'usage: {ctx.prog} consult <store> <consult-path> [--timeout MS]')
     store, path = args[0], os.path.realpath(args[1])
@@ -405,13 +386,14 @@ def consult(ctx, args):
     )
     event(store, 'master', 'send-consult', path, kind)
     sys.stdout.flush()
-    r = agent_prompt(name, f'{ctx.skill} CONSULT {path}', wait=True, timeout_ms=timeout)
-    out, err = r.stdout, r.stderr
-    if r.returncode != 0:
-        status = error_state(err)
-        sys.stderr.write(err.rstrip('\n') + '\n')
+    r = mux.get().prompt(
+        name, f'{ctx.skill} CONSULT {path}', wait=True, timeout_ms=timeout
+    )
+    if not r.ok:
+        status = r.error
+        sys.stderr.write(r.err.rstrip('\n') + '\n')
     else:
-        status = agent_state(out, 'settled')
+        status = r.status or 'settled'
     print(f'state: {status}')
     advice = f'{store}/advice/{seq}-{slug}-c{k}.md'
     if not os.path.isfile(advice) and status != 'blocked':

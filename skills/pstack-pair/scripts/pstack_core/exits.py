@@ -5,17 +5,10 @@ import re
 import sys
 import time
 
+from . import mux
+from .mux import MERGED, NOT_READY
 from .numbers import env_float, env_int
-from .panes import (
-    MERGED,
-    agent_prompt,
-    agent_status,
-    dig,
-    error_code,
-    herdr,
-    pane_text,
-    parse,
-)
+from .panes import agent_status, pane_text
 from .prime import prime_active_session, prime_command, prime_sessions
 from .providers import record_prime_session
 from .store import member, update
@@ -50,22 +43,18 @@ def answer_exit_dialog(name):
     for text, keys in EXIT_DIALOGS:
         if text in screen:
             for key in keys:
-                herdr('agent', 'send-keys', name, key)
+                mux.get().key(name, key)
             return
 
 
 def end_agent(name, kind, deadline):
     """Sends the kind's exit command and waits until the agent is absent or the epoch second `deadline` passes, answering Claude's exit dialog
-    meanwhile. (error, gone): error is the text of an exit command herdr refused ('' for one it took or whose agent was already gone), and an
-    agent that was refused is not waited on. A refusal with agent_not_ready means the pane is already back at its shell and herdr has not dropped
-    the agent yet: the wait goes on, and the agent counts as exited only once herdr no longer lists it."""
-    r = agent_prompt(name, exit_command(kind), stderr=MERGED)
-    err = r.stdout.rstrip('\n')
-    if (
-        r.returncode != 0
-        and not TOLERATED.search(err)
-        and error_code(err) != 'agent_not_ready'
-    ):
+    meanwhile. (error, gone): error is the text of an exit command the multiplexer refused ('' for one it took or whose agent was already gone), and an
+    agent that was refused is not waited on. A refusal with agent_not_ready means the pane is already back at its shell and the multiplexer has not
+    dropped the agent yet: the wait goes on, and the agent counts as exited only once it no longer lists it."""
+    r = mux.get().prompt(name, exit_command(kind), stderr=MERGED)
+    err = r.out.rstrip('\n')
+    if not r.ok and not TOLERATED.search(err) and r.error != NOT_READY:
         return err, False
     while agent_status(name) != 'absent':
         if int(time.time()) >= deadline:
@@ -76,18 +65,17 @@ def end_agent(name, kind, deadline):
 
 
 def shell_owns_foreground(pane):
-    """True when the pane's agent is gone and its shell owns the foreground process group; None when herdr cannot say."""
-    code, info = herdr('pane', 'process-info', '--pane', pane)
-    if code != 0:
+    """True when the pane's agent is gone and its shell owns the foreground process group; None when the multiplexer cannot say."""
+    process = mux.get().processes(pane)
+    if process is None:
         return None
     if agent_status(pane) != 'absent':
         return False
-    process = dig(parse(info), 'result', 'process_info')
-    shell = process.get('shell_pid') if isinstance(process, dict) else None
+    shell = process.shell_pid
     return (
         isinstance(shell, (int, float))
         and not isinstance(shell, bool)
-        and process.get('foreground_process_group_id') == shell
+        and process.foreground_group == shell
     )
 
 
@@ -111,9 +99,9 @@ def stop_prime_role(store, role):
     # Detach while the client is still an active Herdr target. A blocked client cannot take /quit through agent.prompt; Ctrl+D exits its
     # empty editor. Stopping the worker alone leaves the TUI displaying a session-closed error.
     if status in ('idle', 'done'):
-        agent_prompt(name, '/quit')
+        mux.get().prompt(name, '/quit')
     elif status == 'blocked':
-        herdr('agent', 'send-keys', name, 'ctrl+d')
+        mux.get().key(name, 'ctrl+d')
     if active:
         if prime_command(store, role, 'stop', active, '--json')[0] != 0:
             return False

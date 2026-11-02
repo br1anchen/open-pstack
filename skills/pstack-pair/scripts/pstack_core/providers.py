@@ -1,11 +1,12 @@
 """What a sidekick that stopped without a report may have hit: its model provider's errors, read from the pane,
-the agent's own session log, or herdr."""
+the agent's own session log, or the multiplexer."""
 
 import glob
 import os
 import re
 
-from .panes import agent_status, dig, herdr, pane_text, parse
+from . import mux
+from .panes import agent_status, pane_text, parse
 from .store import load, member, newest, newest_first, peek, read_text, text_at, update
 
 PROVIDER_ERROR_RE = (
@@ -37,7 +38,7 @@ def tail_lines_with_newline(text, count):
 
 
 def agent_session_error(session, cwd=''):
-    """The error a pi agent stopped on, from its session log: session is the log herdr reported, else the newest log
+    """The error a pi agent stopped on, from its session log: session is the log the multiplexer reported, else the newest log
     in pi's session directory for cwd. Only when the session's last assistant turn ended in an error."""
     path = session
     if not path or not os.path.isfile(path):
@@ -85,18 +86,15 @@ def muse_session_error(cwd):
 
 
 def record_prime_session(store, role):
-    """Record the daemon session herdr reports for the role's prime-agent pane. False when herdr reports none."""
+    """Record the daemon session the multiplexer reports for the role's prime-agent pane. False when it reports none."""
     section = peek(load(store), role)
-    code, out = herdr('agent', 'get', text_at(section, 'name'))
-    if code != 0:
-        return False
-    agent = dig(parse(out), 'result', 'agent')
-    session = dig(agent, 'agent_session')
+    agent = mux.get().agent(text_at(section, 'name'))
+    session = agent.session if agent else None
     if not (
-        isinstance(agent, dict)
+        agent
         and isinstance(session, dict)
-        and agent.get('agent') == 'prime-agent'
-        and agent.get('pane_id') == text_at(section, 'pane_id')
+        and agent.kind == 'prime-agent'
+        and agent.pane == text_at(section, 'pane_id')
         and session.get('kind') in ('path', 'id')
         and isinstance(session.get('value'), str)
         and session['value']

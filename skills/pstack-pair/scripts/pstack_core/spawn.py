@@ -7,7 +7,7 @@ import sys
 import time
 from dataclasses import dataclass, replace
 
-from . import agents
+from . import agents, mux
 from .argv import Spec, read
 from .errors import (
     AgentStartFailed,
@@ -18,20 +18,14 @@ from .errors import (
     NoFallback,
     PrimeFailed,
 )
+from .mux import DEVNULL, MERGED, PIPE, STALLED
 from .numbers import env_float, env_int, exit_code, whole_number
 from .panes import (
-    DEVNULL,
-    MERGED,
-    PIPE,
-    agent_field,
-    agent_prompt,
-    agent_start,
     agent_status,
     await_file,
-    herdr,
     new_pane,
     refuse_untrusted,
-    require_herdr,
+    require_mux,
 )
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
@@ -77,20 +71,17 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
     time.sleep(env_float('PAIR_SUBMIT_CHECK_S', 5))
     if os.path.isfile(f'{store}/{ready}'):
         return True
-    code, info = herdr('agent', 'get', name)
-    if code != 0:
-        return True
-    live_pane = agent_field(info, 'pane_id')
-    if (live_pane if live_pane not in (None, False) else '') != pane:
+    agent = mux.get().agent(name)
+    if agent is None or agent.pane != pane:
         return True
     if field(store, role, 'generation') != generation:
         return True
     state = agent_status(name)
     if state in ('idle', 'done'):
         if os.path.basename(ready) in visible_without_blanks(name):
-            herdr('agent', 'send-keys', name, 'enter')
+            mux.get().key(name, 'enter')
         else:
-            agent_prompt(
+            mux.get().prompt(
                 name,
                 bootstrap,
                 wait=True,
@@ -100,7 +91,7 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
             )
     elif state == 'blocked':
         stderr_of(
-            f'{name} is blocked on a dialog that needs the human; no keys were sent. Read it with: herdr agent read {name} --source visible --lines 60\n'
+            f'{name} is blocked on a dialog that needs the human; no keys were sent. Read it with: {mux.get().inspect_agent(name, 60)}\n'
         )
         return False
     return True
@@ -171,23 +162,23 @@ def report_live(store, role, name, status, ready):
 
 
 def start_agent(store, role, name, request, args, cwd):
-    """(pane, whether a prime-agent failed to start): the agent starts in the pane asked for, else the role's recorded pane when herdr still has it,
+    """(pane, whether a prime-agent failed to start): the agent starts in the pane asked for, else the role's recorded pane when the multiplexer still has it,
     else in a new pane. A failed start in a given pane falls back to a new one, except for a prime-agent, whose pane and launch stay for inspection."""
     kind, pane, prime_start_failed = request.kind, request.pane, False
     if not pane:
         previous = field(store, role, 'pane_id')
-        if previous and herdr('pane', 'get', previous)[0] == 0:
+        if previous and mux.get().pane_exists(previous):
             pane = previous
     if pane:
-        r = agent_start(
+        r = mux.get().start(
             name, kind, pane, args, request.timeout, stdout=PIPE, stderr=MERGED
         )
-        if r.returncode == 0:
+        if r.ok:
             print(f'reused pane {pane}')
         else:
             refuse_untrusted(pane, kind, cwd)
             stderr_of(
-                f'pane {pane} unavailable for agent start: {r.stdout.rstrip(chr(10))}\n'
+                f'pane {pane} unavailable for agent start: {r.out.rstrip(chr(10))}\n'
             )
             if kind == 'prime-agent':
                 prime_start_failed = True
@@ -195,14 +186,14 @@ def start_agent(store, role, name, request, args, cwd):
                 pane = ''
     if not pane:
         pane = new_pane(store, role, request.anchor, request.direction, cwd)
-        r = agent_start(name, kind, pane, args, request.timeout, stderr=None)
-        if r.returncode != 0:
+        r = mux.get().start(name, kind, pane, args, request.timeout, stderr=None)
+        if not r.ok:
             if kind == 'prime-agent':
                 prime_start_failed = True
             else:
                 refuse_untrusted(pane, kind, cwd, True)
                 raise AgentStartFailed(
-                    f'agent start failed in {pane}; inspect: herdr pane read {pane} --source visible'
+                    f'agent start failed in {pane}; inspect: {mux.get().inspect_pane(pane)}'
                 )
     return pane, prime_start_failed
 
@@ -260,13 +251,13 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
         f'Load the {ctx.skill} skill from ~/.agents/skills/{ctx.skill}/SKILL.md and take the {role} role (generation '
         f'{generation}, pane {pane}). {ctx.store_label} store: {store}. Follow its bootstrap steps, write {ready}, and reply READY.'
     )
-    r = agent_prompt(name, bootstrap, wait=True, timeout_ms=240000)
-    code, err = exit_code(r.returncode), r.stderr.rstrip('\n')
+    r = mux.get().prompt(name, bootstrap, wait=True, timeout_ms=240000)
+    code, err = exit_code(r.code), r.err.rstrip('\n')
     if not os.path.isfile(f'{store}/{ready}'):
         submitted = submit_typed(name, os.path.basename(ready))
         if submitted != 0 and code == 0:
             await_file(f'{store}/{ready}', 240000)
-    if code != 0 and 'agent_prompt_stalled' in err:
+    if code != 0 and r.error == STALLED:
         # A first-run screen (pi's changelog after an update, a trust prompt, Claude's update banner) can take the Enter that submits the bootstrap,
         # or swallow the prompt whole. bootstrap_recover acts only on a live idle agent in this pane; otherwise state detection lagged on a narrow
         # pane while the agent works. Either way the ready file is the signal.
@@ -280,7 +271,7 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
                 code = 0
     if code != 0:
         stderr_of(f'{role} bootstrap did not settle: {err}\n')
-        stderr_of(f'inspect: herdr agent read {name} --source visible --lines 60\n')
+        stderr_of(f'inspect: {mux.get().inspect_agent(name, 60)}\n')
         event(store, role, 'spawn', '-', f'{kind}:failed')
         if role == 'sidekick' and kind == 'prime-agent':
             stderr_of(provider_hint(store, 'bootstrap'))
@@ -410,7 +401,7 @@ def spawn_sidekick(ctx, store, request):
 def spawn_consultant(ctx, store, request):
     """The consultant splits from the sidekick's pane, so the master keeps its height; the master's pane when the sidekick's is gone."""
     anchor = field(store, 'sidekick', 'pane_id')
-    if not anchor or herdr('pane', 'get', anchor)[0] != 0:
+    if not anchor or not mux.get().pane_exists(anchor):
         anchor = field(store, 'master', 'pane_id')
     return spawn_role(ctx, store, 'consultant', replace(request, anchor=anchor))
 
@@ -493,7 +484,7 @@ def start_sidekick(ctx, store, options):
 
 def spawn(ctx, args):
     end_with_parent()
-    require_herdr()
+    require_mux()
     if not args:
         raise Die(usage(ctx))
     return start_sidekick(ctx, args[0], spawn_options(args[1:]))

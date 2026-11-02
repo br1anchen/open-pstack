@@ -8,7 +8,7 @@ import re
 import time
 from dataclasses import dataclass
 
-from . import git, panes, procinfo
+from . import git, mux, procinfo
 from .numbers import int_or_none, tdiv
 from .replies import dispatched, file_mtime
 from .review import noted_through, open_notes, range_floor
@@ -96,33 +96,28 @@ def iso_epoch(stamp):
 
 
 def proc_candidates(pane, root, env, since, now):
-    """(command, seconds running) of each process of this user carrying the pane's HERDR_PANE_ID, and the herdr socket when the caller
-    has one, started since the dispatch: the pane's work as /proc shows it."""
-    sock = env.get('HERDR_SOCKET_PATH', '')
+    """(command, seconds running) of each process of this user carrying the pane's marks in its environment (mux pane_env), started
+    since the dispatch: the pane's work as /proc shows it."""
+    marks = mux.get().pane_env(pane, env)
     found = []
     recent = [p for p in procinfo.of_user(os.getuid(), root) if now - p.elapsed > since]
     environs = procinfo.environs(recent, root)
     for proc in recent:
         lines = environs.get(proc.pid)
-        if lines is None or f'HERDR_PANE_ID={pane}' not in lines:
-            continue
-        if sock and f'HERDR_SOCKET_PATH={sock}' not in lines:
+        if lines is None or any(mark not in lines for mark in marks):
             continue
         found.append((proc.comm, proc.elapsed))
     return found
 
 
 def tree_candidates(pane):
-    """(command, seconds running) of each process below the agents herdr names in the pane's foreground, caffeinate (which Claude
+    """(command, seconds running) of each process below the agents the multiplexer names in the pane's foreground, caffeinate (which Claude
     restarts every few minutes) and the check itself left out: the pane's work on a host whose ps shows no environments. A process
     detached into its own session is reparented and missed."""
-    code, info = panes.herdr('pane', 'process-info', '--pane', pane)
-    listed = panes.dig(
-        panes.parse(info), 'result', 'process_info', 'foreground_processes'
-    )
-    if code != 0 or not isinstance(listed, list):
+    process = mux.get().processes(pane)
+    if process is None or process.foreground_pids is None:
         return []
-    roots = {p.get('pid') for p in listed if isinstance(p, dict)}
+    roots = set(process.foreground_pids)
     procs = procinfo.from_ps()
     skip = {os.getpid(), os.getppid()}
     mine = procinfo.descendants(procs, roots, skip)
@@ -161,7 +156,7 @@ def busy_command(pane, since, now, env=None):
 
 
 def busy(status, pane, since, now, env=None):
-    """What keeps an agent from taking a message between turns, or '': 'working' for herdr's working status, or the command (as busy_command
+    """What keeps an agent from taking a message between turns, or '': 'working' for the multiplexer's working status, or the command (as busy_command
     names it) that a pane the agent left idle or done has run since `since`. A blocked agent is never busy: it may sit at an approval UI, which a
     caller refuses and does not wait on."""
     if status == 'working':
@@ -188,7 +183,7 @@ def sidekick_activity(store, now):
 
 
 def sidekick_busy(store, status, now):
-    """busy() for the sidekick: the herdr status the caller already holds (steer and queue branch on it, so it is not read twice) and the command its
+    """busy() for the sidekick: the agent status the caller already holds (steer and queue branch on it, so it is not read twice) and the command its
     pane has run since the current dispatch."""
     pane, since = dispatch_facts(store)
     return busy(status, pane, since, now)

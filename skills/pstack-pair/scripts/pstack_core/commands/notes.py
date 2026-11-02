@@ -3,10 +3,11 @@ import os
 import re
 import sys
 
-from .. import git
+from .. import git, mux
 from ..argv import Spec, read
 from ..errors import Die, PairError, PromptFailed
-from ..panes import DEVNULL, agent_prompt, agent_status
+from ..mux import DEVNULL
+from ..panes import agent_status
 from ..prime import prime_steer
 from ..replies import file_mtime, sent_epoch
 from ..review import noted_through, open_notes, require_filled, review_base
@@ -172,8 +173,8 @@ def deliver_blocking_note(ctx, store, path):
     if kind == 'prime-agent':
         if not prime_steer(store, message):
             raise PromptFailed(f'Prime delivery failed for {name}')
-    elif agent_prompt(name, message, stdout=DEVNULL, stderr=None).returncode != 0:
-        raise PromptFailed(f'herdr prompt failed for {name}')
+    elif not mux.get().prompt(name, message, stdout=DEVNULL, stderr=None).ok:
+        raise PromptFailed(f'{mux.get().program} prompt failed for {name}')
     return f'; sent to {name}'
 
 

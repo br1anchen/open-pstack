@@ -28,7 +28,7 @@ from pstack_core.errors import (
     ToolFailed,
     translate,
 )
-from pstack_core.panes import require_herdr
+from pstack_core.panes import require_mux
 from pstack_core.store import (
     event,
     header_field,
@@ -339,7 +339,7 @@ def start_verification(ctx, store, argv, o, root, allunits, c):
 
 def verify(ctx, args):
     """Start a verification of the named units or the landing and wait for its verdict; the status is the exit code."""
-    require_herdr()
+    require_mux()
     if len(args) < 2:
         raise Die(USAGE)
     store, argv = args[0], list(args[1:])
@@ -448,7 +448,7 @@ class Sink:
 
 def close_wait(ctx, store, say):
     """The WaiterOutcome of closing the verdict nobody read. Everything the wait says on either stream goes to `say` in the order it was said: what
-    the wait writes to its sinks, and what the code under it writes to sys.stderr (the Prime cleanup's reasons, herdr's reply problems), which
+    the wait writes to its sinks, and what the code under it writes to sys.stderr (the Prime cleanup's reasons, the daemon's reply problems), which
     stands in for the sink here; a child process on the close path has its stderr piped to sys.stderr by the code that runs it. A failure ends
     the outcome with its message after what was said, and the status of the verdict the wait had already shown."""
     waiter = Waiter(

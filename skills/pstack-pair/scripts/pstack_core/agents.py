@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 
+from . import mux
 from .argv import Spec, read
 from .numbers import env_float
 from .prime import with_timeout
@@ -298,7 +299,7 @@ def preflight_prime(args):
                     'Reply with exactly: OK. Do not use tools.',
                 ],
                 stderr=subprocess.STDOUT,
-                env={**os.environ, 'HERDR_ENV': '0'},
+                env={**os.environ, **mux.get().outside_env()},
             )
             out, code = r.stdout.rstrip('\n'), r.returncode
             if code == 0 and any(
