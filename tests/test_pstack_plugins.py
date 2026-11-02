@@ -1,6 +1,9 @@
-"""The Herdr plugin manifest, the Rex actions and plugins/pstack-action.py, against the fake herdr and fake rex."""
+"""The Herdr plugin manifest, the Rex actions and plugins/pstack-action.py, against the fake herdr and fake rex, and the pi extension under
+bun."""
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -184,6 +187,141 @@ class PluginTests(unittest.TestCase):
             self.assertIn(name, lua)
         self.assertIn('"/plugins/pstack-action.py"', lua)
         self.assertIn('PSTACK_MUX = "rex"', lua)
+
+
+def osc(state, kind=''):
+    return (
+        f'\x1b]7501;state={state}:app=pi' + (f':kind={kind}' if kind else '') + '\x07'
+    )
+
+
+TUI = {'mode': 'tui', 'idle': True}
+IDLE, WORKING = osc('idle'), osc('working')
+
+
+@unittest.skipUnless(shutil.which('bun'), 'bun is not installed')
+class PiExtensionTests(unittest.TestCase):
+    """plugins/rex/agents/pi-program-status.ts, driven by tests/plugins/pi-harness.ts with pi's events in order."""
+
+    def run_pi(self, steps, rex=True):
+        env = {k: v for k, v in os.environ.items() if not k.startswith(LEAKED_PREFIXES)}
+        if rex:
+            env['REX_BLOCK'] = 'block:1'
+        result = subprocess.run(
+            ['bun', str(root / 'tests/plugins/pi-harness.ts'), json.dumps(steps)],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+        return json.loads(result.stdout)
+
+    def states(self, steps):
+        return self.run_pi(steps)['out']
+
+    def test_outside_a_rex_block_it_listens_to_nothing(self):
+        doc = self.run_pi([['session_start', {}, TUI], ['agent_start']], rex=False)
+        self.assertEqual(doc, {'handlers': [], 'out': []})
+
+    def test_a_turn_reports_idle_working_then_idle_once_each(self):
+        self.assertEqual(
+            self.states(
+                [
+                    ['session_start', {}, TUI],
+                    ['agent_start'],
+                    ['agent_start'],
+                    [
+                        'agent_end',
+                        {'messages': [{'role': 'assistant', 'stopReason': 'stop'}]},
+                    ],
+                    ['agent_settled', {}, TUI],
+                ]
+            ),
+            [IDLE, WORKING, IDLE],
+        )
+
+    def test_settled_while_another_run_started_stays_working(self):
+        busy = {'mode': 'tui', 'idle': False}
+        self.assertEqual(
+            self.states(
+                [
+                    ['session_start', {}, TUI],
+                    ['agent_start'],
+                    ['agent_settled', {}, busy],
+                ]
+            ),
+            [IDLE, WORKING],
+        )
+
+    def test_a_session_that_starts_busy_reports_working_and_settled_without_is_idle_means_stopped(
+        self,
+    ):
+        self.assertEqual(
+            self.states(
+                [
+                    ['session_start', {}, {'mode': 'tui', 'idle': False}],
+                    ['agent_settled', {}, {'mode': 'tui'}],
+                ]
+            ),
+            [WORKING, IDLE],
+        )
+
+    def test_a_question_is_blocked_until_its_last_prompt_ends(self):
+        self.assertEqual(
+            self.states(
+                [
+                    ['session_start', {}, TUI],
+                    ['agent_start'],
+                    ['ui_prompt_start'],
+                    ['ui_prompt_start'],
+                    ['ui_prompt_end'],
+                    ['ui_prompt_end'],
+                ]
+            ),
+            [IDLE, WORKING, osc('blocked', 'question'), WORKING],
+        )
+
+    def test_a_run_that_stopped_on_an_error_ends_in_error_until_the_next_run(self):
+        self.assertEqual(
+            self.states(
+                [
+                    ['session_start', {}, TUI],
+                    ['agent_start'],
+                    [
+                        'agent_end',
+                        {'messages': [{'role': 'assistant', 'stopReason': 'error'}]},
+                    ],
+                    ['agent_settled', {}, TUI],
+                    ['agent_start'],
+                ]
+            ),
+            [IDLE, WORKING, osc('error'), WORKING],
+        )
+
+    def test_a_new_session_reports_again_and_shutdown_clears_the_state(self):
+        self.assertEqual(
+            self.states(
+                [
+                    ['session_start', {}, TUI],
+                    ['session_start', {}, TUI],
+                    ['session_shutdown'],
+                ]
+            ),
+            [IDLE, IDLE, '\x1b]7501;state=clear\x07'],
+        )
+
+    def test_outside_the_tui_it_reports_nothing(self):
+        self.assertEqual(
+            self.states(
+                [
+                    ['session_start', {}, {'mode': 'print', 'idle': True}],
+                    ['agent_start'],
+                    ['session_shutdown'],
+                ]
+            ),
+            [],
+        )
 
 
 if __name__ == '__main__':
