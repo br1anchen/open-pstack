@@ -268,7 +268,11 @@ class KindRequired(PairError):
     """spawn was given no agent kind."""
 
     def __init__(self):
-        super().__init__('--kind is required (run: herdr agent, for the kind list)')
+        from . import mux
+
+        super().__init__(
+            f'--kind is required (run: {mux.get().list_kinds()}, for the kind list)'
+        )
 
 
 class BadScratch(PairError):

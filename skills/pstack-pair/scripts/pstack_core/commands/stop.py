@@ -4,10 +4,12 @@ import re
 import sys
 import time
 
+from .. import mux
 from ..argv import read
 from ..errors import Die, FileFailed, PairJsonGone
+from ..mux import DEVNULL, TIMEOUT
 from ..numbers import env_float, env_int, tdiv
-from ..panes import DEVNULL, agent_prompt, agent_status, herdr, pane_text, require_herdr
+from ..panes import agent_status, pane_text, require_mux
 from ..replies import file_mtime
 from ..store import event, field, header_field, read_text, update, who
 from ..wait import (
@@ -16,6 +18,7 @@ from ..wait import (
     end_with_parent,
     finish_wait,
     print_outcome,
+    status_now,
     timeout_ms,
 )
 from .report import require_pair
@@ -55,7 +58,7 @@ def stop_written(store, role, before):
 
 
 def send_enter(name):
-    herdr('agent', 'send-keys', name, 'enter')
+    mux.get().key(name, 'enter')
 
 
 def devin_send_now(store, role, name, text, before, deadline):
@@ -83,7 +86,7 @@ def devin_send_now(store, role, name, text, before, deadline):
         return True
     if f'❭ {text}' in pane_text(name):
         sys.stderr.write(
-            f'{role}: STOP is still typed in the input box; read it: herdr agent read {name} --source visible\n'
+            f'{role}: STOP is still typed in the input box; read it: {mux.get().inspect_agent(name)}\n'
         )
         return False
     if not seen:
@@ -96,7 +99,7 @@ def devin_send_now(store, role, name, text, before, deadline):
 
 
 def stop_role(ctx, store, role, timeout):
-    """STOP for one role: (code, out, err). An idle agent gets it with a wait. A working one may settle its current turn before it reads STOP,
+    """STOP for one role: the WaitResult of its turn. An idle agent gets it with a wait. A working one may settle its current turn before it reads STOP,
     so the wait ends on its stop report or advice written after the send, not on a settle. A working Devin parks a mid-turn message as queued
     until Enter is pressed, so Enter follows."""
     name = field(store, role, 'name')
@@ -105,21 +108,21 @@ def stop_role(ctx, store, role, timeout):
     if agent_status(name) == 'working':
         epoch = int(time.time())
         before = stop_candidates(store, role)
-        r = agent_prompt(name, text, stdout=DEVNULL)
-        if r.returncode != 0:
-            return 2, '', r.stderr.rstrip('\n')
+        r = mux.get().prompt(name, text, stdout=DEVNULL)
+        if not r.ok:
+            return WaitResult(2, '', r.err.rstrip('\n'), error=r.error)
         deadline = epoch + env_int('PAIR_STOP_DEADLINE_S', tdiv(timeout, 1000))
-        code, err = 0, ''
+        code, error = 0, ''
         if field(store, role, 'kind') == 'devin':
             devin_send_now(store, role, name, f'{ctx.skill} STOP', before, deadline)
         while not stop_written(store, role, before):
             if int(time.time()) >= deadline:
-                code, err = 1, '{"error":{"code":"timeout"}}'
+                code, error = 1, TIMEOUT
                 break
             time.sleep(env_float('PAIR_STOP_POLL_S', 5))
-        return code, herdr('agent', 'get', name)[1].rstrip('\n'), err
-    r = agent_prompt(name, text, wait=True, timeout_ms=timeout)
-    return r.returncode, r.stdout.rstrip('\n'), r.stderr.rstrip('\n')
+        return WaitResult(code, status_now(name), error=error)
+    r = mux.get().prompt(name, text, wait=True, timeout_ms=timeout)
+    return WaitResult(r.code, r.status, r.err.rstrip('\n'), error=r.error)
 
 
 def clear_queue(store):
@@ -136,7 +139,7 @@ def clear_queue(store):
 
 
 def stop(ctx, args):
-    require_herdr()
+    require_mux()
     end_with_parent()
     if not args:
         raise Die(f'usage: {ctx.prog} stop <store> [--timeout MS]')
@@ -153,7 +156,5 @@ def stop(ctx, args):
     if status == 'blocked':
         raise Die(f'{who("sidekick", name)} is blocked; inspect it before stopping', 3)
     clear_queue(store)
-    code, out, err = stop_role(ctx, store, 'sidekick', timeout)
-    return print_outcome(
-        finish_wait(ctx, store, interval, WaitResult(code, out, err), 'any')
-    )
+    result = stop_role(ctx, store, 'sidekick', timeout)
+    return print_outcome(finish_wait(ctx, store, interval, result, 'any'))

@@ -14,7 +14,7 @@ from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
 from pstack_core.commands.report import require_pair
 from pstack_core.errors import DamagedStore, Die, Exit, SetupFailed
-from pstack_core.panes import agent_status, require_herdr
+from pstack_core.panes import agent_status, require_mux
 from pstack_core.spawn import spawn_options, start_sidekick
 from pstack_core.store import (
     event,
@@ -163,7 +163,7 @@ def roster_lines(roster, *keys):
 
 
 def spawn(ctx, args):
-    require_herdr()
+    require_mux()
     if len(args) < 1:
         raise Die(
             'usage: kitchen.sh spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [-- agent-args...]'
@@ -208,7 +208,7 @@ def spawn(ctx, args):
 
 def consultant(ctx, args):
     """The consultant joins only when a unit escalates: the scarcest quota is spent on design questions that warrant it."""
-    require_herdr()
+    require_mux()
     if len(args) < 1:
         raise Die(
             'usage: kitchen.sh consultant <store> --reason TEXT [--kind KIND] [--permission MODE|none] [-- agent-args...]'

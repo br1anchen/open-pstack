@@ -3,7 +3,7 @@ import re
 import shutil
 import sys
 
-from . import gates, permission, send, spawn, wait
+from . import gates, mux, permission, send, spawn, wait
 from .commands import (
     init,
     metrics,
@@ -119,8 +119,9 @@ def main(argv):
         skill_root, words = parse(argv)
         variant, ctx = build(skill_root)
         prog = ctx.prog
-        if shutil.which('herdr') is None:
-            raise Die('herdr is required on PATH')
+        program = mux.get().program
+        if shutil.which(program) is None:
+            raise Die(f'{program} is required on PATH')
         variant.startup(ctx, words)
         if not words:
             sys.stdout.write(variant.usage)

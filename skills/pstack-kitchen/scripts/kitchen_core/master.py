@@ -7,7 +7,7 @@ import shutil
 import sys
 import time
 
-from pstack_core import procinfo
+from pstack_core import mux, procinfo
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
@@ -23,15 +23,11 @@ from pstack_core.exits import end_agent, exit_deadline, stop_prime_role
 from pstack_core.numbers import env_float, env_int
 from pstack_core.panes import (
     agent_kind,
-    agent_prompt,
-    agent_start,
+    agent_session,
     agent_status,
-    error_state,
-    herdr,
     new_pane,
     refuse_untrusted,
-    reply_at,
-    require_herdr,
+    require_mux,
 )
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
@@ -76,7 +72,7 @@ def close_role(store, role):
     if agent_status(name) != 'absent':
         sys.stderr.write(f'{role} {name} did not exit; its pane {pane} stays open\n')
         return False
-    herdr('pane', 'close', pane)
+    mux.get().pane_close(pane)
     update(store, lambda doc: member(doc, role).__setitem__('closed', True))
     event(store, 'master', 'close', '-', f'{role}:{kind}')
     sys.stdout.write(f'closed {role} {name} ({pane})\n')
@@ -85,7 +81,7 @@ def close_role(store, role):
 
 
 def close(ctx, args):
-    require_herdr()
+    require_mux()
     if not args:
         raise Die('usage: kitchen.sh close <store> [--force]')
     store = args[0]
@@ -147,19 +143,9 @@ def section_has_text(path, heading):
     return found
 
 
-def herdr_session(name):
-    """the session value of `herdr agent get NAME`, a reply that cannot be read ignored."""
-    return (
-        reply_at(
-            herdr('agent', 'get', name)[1],
-            'result',
-            'agent',
-            'agent_session',
-            'value',
-            quiet=True,
-        )
-        or ''
-    )
+def tracked_session(name):
+    """The session value the multiplexer tracks for the agent NAME, '' when it tracks none."""
+    return agent_session(mux.get().agent(name))
 
 
 def check_handoff(ctx, store):
@@ -224,17 +210,20 @@ def next_master_argv(store, temp, model):
 
 
 def write_start_failure_log(store, next_gen, argv, err, pane):
-    """sessions/master-g<n>-start-failed.log: the launch command, herdr's error and the pane's screen, which a closed pane or a read that fails
+    """sessions/master-g<n>-start-failed.log: the launch command, the multiplexer's error and the pane's screen, which a closed pane or a read that fails
     says in place of raising. Returns its path."""
-    code, screen = herdr('pane', 'read', pane, '--source', 'visible', '--lines', '80')
+    m = mux.get()
+    code, screen = m.pane_screen(pane, 80)
     screen = (
-        screen if code == 0 else f'(the pane could not be read: herdr exit {code})\n'
+        screen
+        if code == 0
+        else f'(the pane could not be read: {m.program} exit {code})\n'
     )
     os.makedirs(f'{store}/sessions', exist_ok=True)
     path = f'{store}/sessions/master-g{next_gen}-start-failed.log'
     with open(path, 'w') as f:
         f.write(
-            f'## launch\n\n{shlex.join(argv)}\n\n## herdr\n\n{err}\n\n## pane screen\n\n{screen}'
+            f'## launch\n\n{shlex.join(argv)}\n\n## {m.program}\n\n{err}\n\n## pane screen\n\n{screen}'
         )
     return path
 
@@ -245,10 +234,10 @@ def start_next_master(store, pane, temp, argv, gen_n):
     cwd = read(store, 'cwd')
     new_pane_id = new_pane(store, 'master', pane, '', cwd)
     sys.stdout.flush()
-    started = agent_start(temp, 'claude', new_pane_id, argv)
-    if started.returncode == 0:
+    started = mux.get().start(temp, 'claude', new_pane_id, argv)
+    if started.ok:
         return new_pane_id
-    err = started.stderr or ''
+    err = started.err or ''
     next_gen = gen_n + 1
     log = write_start_failure_log(store, next_gen, argv, err, new_pane_id)
     event(
@@ -256,7 +245,7 @@ def start_next_master(store, pane, temp, argv, gen_n):
         'master',
         'rotate-failed',
         '-',
-        f'generation:{next_gen}:{error_state(err)}',
+        f'generation:{next_gen}:{started.error}',
     )
     refuse_untrusted(
         new_pane_id,
@@ -301,7 +290,7 @@ def record_handover(store, handoff, gen_n, session, old, new):
 
 
 def rotate_master(ctx, args):
-    require_herdr()
+    require_mux()
     if not args:
         raise Die('usage: kitchen.sh rotate-master <store> [--model MODEL]')
     store = args[0]
@@ -310,10 +299,10 @@ def rotate_master(ctx, args):
     handoff = check_handoff(ctx, store)
     name, pane = rotatable_master(store)
     model = model or detect_model_arg()
-    session = herdr_session(name)
+    session = tracked_session(name)
     gen_n = master_generation(store, session)
     next_gen = gen_n + 1
-    # Herdr names are unique, so the new master holds a generation name until take-master frees the run's own.
+    # Agent names are unique, so the new master holds a generation name until take-master frees the run's own.
     temp = f'{read(store, "slug")}-master-g{next_gen}'
     argv, remote = next_master_argv(store, temp, model)
     new_pane_id = start_next_master(store, pane, temp, argv, gen_n)
@@ -323,7 +312,7 @@ def rotate_master(ctx, args):
     event(store, 'master', 'handoff', '-', f'generation:{gen_n}')
     event(store, 'master', 'spawn', '-', f'claude:generation:{next_gen}')
     skill = ctx.skill
-    agent_prompt(
+    mux.get().prompt(
         temp,
         f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {next_gen}). '
         f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read '
@@ -349,7 +338,7 @@ def rotate_master(ctx, args):
 
 
 def take_master(ctx, args):
-    require_herdr()
+    require_mux()
     if len(args) != 1:
         raise Die('usage: kitchen.sh take-master <store>')
     store = args[0]
@@ -360,7 +349,7 @@ def take_master(ctx, args):
     if not prev:
         sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
         return 0
-    here = os.environ.get('HERDR_PANE_ID', '')
+    here = mux.get().own_pane()
     if here != pane:
         raise Die(
             f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}",
@@ -371,20 +360,17 @@ def take_master(ctx, args):
     while agent_status(prev) == 'working' and int(time.time()) < deadline:
         time.sleep(env_float('KITCHEN_ROTATE_POLL_S', 2))
     # Close the pane only while it still holds the old master, or nothing.
-    host = (
-        reply_at(
-            herdr('agent', 'get', prev_pane)[1], 'result', 'agent', 'name', quiet=True
-        )
-        or ''
-    )
+    m = mux.get()
+    hosted = m.agent(prev_pane)
+    host = hosted.name if hosted else ''
     closed = 'kept'
-    if herdr('pane', 'get', prev_pane)[0] != 0:
+    if not m.pane_exists(prev_pane):
         closed = 'gone'
     elif not host or host == prev:
-        if herdr('pane', 'close', prev_pane)[0] == 0:
+        if m.pane_close(prev_pane):
             closed = 'closed'
     base = f'{read(store, "slug")}-master'
-    if name != base and herdr('agent', 'rename', pane, base)[0] == 0:
+    if name != base and m.rename(pane, base):
         name = base
 
     def mutate(doc):

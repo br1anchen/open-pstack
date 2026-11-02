@@ -1,18 +1,19 @@
 import contextlib
 import io
 import os
-import subprocess
 import sys
 import time
 
+from .. import mux
 from ..agents import current_no_mcp
 from ..argv import Spec, read
 from ..checkin import sidekick_busy
 from ..errors import Die, RotationFailed, translate
 from ..exits import end_agent, exit_deadline, stop_prime_role
 from ..gates import check_scope, require_not_paused
+from ..mux import DEVNULL
 from ..numbers import env_float, env_int
-from ..panes import agent_status, herdr, require_herdr
+from ..panes import agent_status, require_mux
 from ..replies import queued_brief
 from ..review import require_filled
 from ..send import store_relative
@@ -35,7 +36,7 @@ from ..wait import end_with_parent
 def rotate(ctx, args):
     """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session."""
     end_with_parent()
-    require_herdr()
+    require_mux()
     if len(args) != 1:
         raise Die(f'usage: {ctx.prog} rotate <store>')
     store = args[0]
@@ -109,22 +110,12 @@ def rotate_if_due(ctx, store, what):
     if read_flag(store, 'sidekick.bootstrap_pending') is True:
         return
     # The report lands a moment before the sidekick's turn ends.
-    subprocess.run(
-        [
-            'herdr',
-            'agent',
-            'wait',
-            field(store, 'sidekick', 'name'),
-            '--until',
-            'idle',
-            '--until',
-            'done',
-            '--timeout',
-            '60000',
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
+    mux.get().wait(
+        field(store, 'sidekick', 'name'),
+        ('idle', 'done'),
+        60000,
+        stdout=DEVNULL,
+        stderr=DEVNULL,
     )
     said = io.StringIO()
     code = 0
@@ -151,24 +142,12 @@ def require_idle_session(store, what):
     name = field(store, 'sidekick', 'name')
     state = agent_status(name)
     if state not in ('idle', 'done', 'blocked', 'absent'):
-        subprocess.run(
-            [
-                'herdr',
-                'agent',
-                'wait',
-                name,
-                '--until',
-                'idle',
-                '--until',
-                'done',
-                '--until',
-                'blocked',
-                '--timeout',
-                str(env_int('PAIR_ROTATE_READY_S', 60) * 1000),
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
+        mux.get().wait(
+            name,
+            ('idle', 'done', 'blocked'),
+            env_int('PAIR_ROTATE_READY_S', 60) * 1000,
+            stdout=DEVNULL,
+            stderr=DEVNULL,
         )
         state = agent_status(name)
     if state not in ('idle', 'done'):
@@ -239,7 +218,7 @@ def failover(ctx, args):
     """Replaces a failing sidekick with its recorded fallback in the same pane. The new agent picks up from the store: the step log, progress,
     and the brief it was on; every committed step survives. A run stays on the fallback, since failover never switches back."""
     end_with_parent()
-    require_herdr()
+    require_mux()
     if not args:
         raise Die(f'usage: {ctx.prog} failover <store> [--reason TEXT] [--force]')
     store = args[0]
@@ -261,7 +240,7 @@ def failover(ctx, args):
                 f'{who("sidekick", name)} is working; pair.sh stop {store} first, or pass --force to interrupt it',
                 5,
             )
-        herdr('agent', 'send-keys', name, 'esc')
+        mux.get().key(name, 'esc')
         time.sleep(env_float('PAIR_ESC_WAIT_S', 2))
     if kind == 'prime-agent':
         if not stop_prime_role(store, 'sidekick'):

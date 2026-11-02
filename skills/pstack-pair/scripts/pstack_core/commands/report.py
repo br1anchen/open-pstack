@@ -1,8 +1,9 @@
 import os
 
-from .. import procinfo
+from .. import mux, procinfo
 from ..errors import Die, MissingStore, refuse_as
-from ..panes import DEVNULL, agent_prompt, agent_status, require_herdr
+from ..mux import DEVNULL
+from ..panes import agent_status, require_mux
 from ..store import (
     event,
     expected_report,
@@ -43,7 +44,7 @@ def report(ctx, args):
 
 
 def notify(ctx, args):
-    require_herdr()
+    require_mux()
     if len(args) != 2:
         raise Die(f'usage: {ctx.prog} notify <store> <report-or-advice-path>')
     store = os.path.realpath(args[0])
@@ -67,9 +68,11 @@ def notify(ctx, args):
             f'master {master} is {status}; the wait that owns the store returns {file}'
         )
     elif status in ('idle', 'done'):
-        code = agent_prompt(
-            master, f'{ctx.skill} {word} {file}', stdout=DEVNULL, stderr=None
-        ).returncode
+        code = (
+            mux.get()
+            .prompt(master, f'{ctx.skill} {word} {file}', stdout=DEVNULL, stderr=None)
+            .code
+        )
         if code:
             return code
         print(f'prompted master {master} (was {status}) with {word} {file}')
@@ -96,7 +99,7 @@ def next_brief(ctx, args):
 
 
 def finish(ctx, args):
-    require_herdr()
+    require_mux()
     if len(args) != 2:
         raise Die(f'usage: {ctx.prog} finish <store> <report-path>')
     store = os.path.realpath(args[0])

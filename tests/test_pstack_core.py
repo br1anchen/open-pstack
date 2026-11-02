@@ -37,6 +37,7 @@ from pstack_core import (
     errors,
     exits,
     git,
+    mux,
     numbers,
     panes,
     permission,
@@ -78,6 +79,7 @@ from pstack_core.errors import (  # noqa: E402
     refuse_as,
     translate,
 )
+from pstack_core.mux import herdr as herdr_mux  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.variant import Variant, load_module, load_skill_variant  # noqa: E402
 
@@ -5751,9 +5753,13 @@ class CoreTests(unittest.TestCase):
         calls = []
         with (
             mock.patch.object(
-                feedback, 'herdr', side_effect=lambda *a: calls.append(a) or (0, '')
+                herdr_mux,
+                'run',
+                side_effect=lambda args, *a, **k: (
+                    calls.append(tuple(args))
+                    or subprocess.CompletedProcess(args, 0, '', '')
+                ),
             ),
-            mock.patch.object(feedback, 'agent_prompt') as prompt,
             contextlib.redirect_stdout(io.StringIO()) as said,
         ):
             self.assertEqual(feedback.deliver_report(str(fb), '/fb/inbox/x.md'), 0)
@@ -5775,7 +5781,6 @@ class CoreTests(unittest.TestCase):
                 )
             ],
         )
-        prompt.assert_not_called()
 
     def test_a_gates_mode_verification_writes_its_clean_verdict_from_the_step_rows_without_starting_a_verifier(
         self,
@@ -6223,14 +6228,12 @@ class CoreTests(unittest.TestCase):
             'moved off pane p7',
             out['status when herdr answers an agent of null']['stdout'],
         )
-        self.assertIn(
-            'herdr reply is not JSON\n',
-            out['status when herdr answers text that is not JSON']['stderr'],
-        )
-        self.assertIn(
-            'herdr reply has no object on the way to result.agent.pane_id\n',
-            out['status when herdr answers a result that is a string']['stderr'],
-        )
+        # A reply the backend cannot read describes no pane, so the maintainer reads as moved off its own.
+        for name in (
+            'status when herdr answers text that is not JSON',
+            'status when herdr answers a result that is a string',
+        ):
+            self.assertIn('moved off pane p7', out[name]['stdout'], name)
         self.assertIn(
             'herdr reports no name for the agent on pane p7',
             out['on when herdr answers an agent of null']['stderr'],
@@ -8050,7 +8053,7 @@ class CoreTests(unittest.TestCase):
             markers = []
             with (
                 mock.patch.object(
-                    send_module.subprocess,
+                    subprocess,
                     'run',
                     return_value=subprocess.CompletedProcess([], 0, b'', b''),
                 ),
@@ -11146,7 +11149,7 @@ class CoreTests(unittest.TestCase):
         )
         code = (
             'from unittest import mock\n'
-            'with mock.patch.object(vs, "end_agent", return_value=("", True)), mock.patch.object(vs, "herdr"), \\\n'
+            'with mock.patch.object(vs, "end_agent", return_value=("", True)), mock.patch.object(vs.mux.get(), "pane_close"), \\\n'
             '        mock.patch.object(vs, "remove_scratch", side_effect=TypeError("bug")):\n'
             '    try:\n        vs.run_close(ctx, store, "v1", "claude", "p3", "/v/001-x-v1.md")\n    except TypeError as e:\n        print("raised", e)\n'
         )
@@ -15708,7 +15711,7 @@ class CoreTests(unittest.TestCase):
         st = self.claim_store('gen', None, {'sidekick': {'generation': 'x'}})
         before = (st / 'pair.json').read_text()
         with (
-            mock.patch.object(send.subprocess, 'run'),
+            mock.patch.object(subprocess, 'run'),
             self.assertRaises(DamagedStore) as caught,
         ):
             send.record_dispatch(str(st), str(st / 'briefs/001-x.md'), now=0)
@@ -15736,7 +15739,7 @@ class CoreTests(unittest.TestCase):
         self,
     ):
         st = self.claim_store('nocwd', None)
-        with mock.patch.object(send.subprocess, 'run') as run:
+        with mock.patch.object(subprocess, 'run') as run:
             send.record_dispatch(str(st), str(st / 'briefs/001-x.md'), now=0)
         run.assert_not_called()
         self.assertEqual(
@@ -17657,7 +17660,14 @@ class CoreTests(unittest.TestCase):
         }
         for name, (text, state, code) in cases.items():
             self.assertEqual(
-                (panes.error_state(text), panes.error_code(text)), (state, code), name
+                (
+                    herdr_mux.Herdr()
+                    .reply(subprocess.CompletedProcess([], 1, '', text))
+                    .error,
+                    herdr_mux.error_code(text),
+                ),
+                (state, code),
+                name,
             )
         statuses = {
             'a status': (
@@ -17672,7 +17682,10 @@ class CoreTests(unittest.TestCase):
         }
         for name, (text, with_default, without) in statuses.items():
             self.assertEqual(
-                (panes.agent_state(text, 'settled'), panes.agent_state(text, None)),
+                (
+                    herdr_mux.reply_status(text) or 'settled',
+                    herdr_mux.reply_status(text),
+                ),
                 (with_default, without),
                 name,
             )
@@ -18376,11 +18389,11 @@ class ShellCallSiteTests(unittest.TestCase):
 
 
 class HerdrCallTests(unittest.TestCase):
-    """herdr is run from panes.py only; the argv it sends is fixed here."""
+    """herdr is run from mux/herdr.py only; the argv it sends is fixed here."""
 
     def sent(self, call, **kwargs):
         with mock.patch.object(
-            panes.subprocess,
+            herdr_mux.subprocess,
             'run',
             return_value=subprocess.CompletedProcess([], 0, 'out', 'err'),
         ) as run:
@@ -18392,18 +18405,20 @@ class HerdrCallTests(unittest.TestCase):
         self,
     ):
         self.assertEqual(
-            self.sent(lambda: panes.agent_prompt('a', 'hi'))[0],
+            self.sent(lambda: herdr_mux.Herdr().prompt('a', 'hi'))[0],
             ['herdr', 'agent', 'prompt', 'a', 'hi'],
         )
         self.assertEqual(
             self.sent(
-                lambda: panes.agent_prompt('a', 'hi', wait=True, timeout_ms=240000)
+                lambda: herdr_mux.Herdr().prompt(
+                    'a', 'hi', wait=True, timeout_ms=240000
+                )
             )[0],
             ['herdr', 'agent', 'prompt', 'a', 'hi', '--wait', '--timeout', '240000'],
         )
         self.assertEqual(
             self.sent(
-                lambda: panes.agent_prompt(
+                lambda: herdr_mux.Herdr().prompt(
                     'a', 'hi', wait=True, until='working', timeout_ms=30000
                 )
             )[0],
@@ -18425,7 +18440,9 @@ class HerdrCallTests(unittest.TestCase):
         self,
     ):
         argv, streams = self.sent(
-            lambda: panes.agent_start('a', 'pi', 'w1:p2', ['--model', 'm'], '5000')
+            lambda: herdr_mux.Herdr().start(
+                'a', 'pi', 'w1:p2', ['--model', 'm'], '5000'
+            )
         )
         self.assertEqual(
             argv,
@@ -18449,7 +18466,7 @@ class HerdrCallTests(unittest.TestCase):
             streams, {'stdout': subprocess.DEVNULL, 'stderr': subprocess.PIPE}
         )
         self.assertEqual(
-            self.sent(lambda: panes.agent_start('a', 'pi', 'p', []))[0][8:],
+            self.sent(lambda: herdr_mux.Herdr().start('a', 'pi', 'p', []))[0][8:],
             ['--timeout', '60000', '--'],
         )
 
@@ -18457,43 +18474,43 @@ class HerdrCallTests(unittest.TestCase):
         self,
     ):
         self.assertEqual(
-            self.sent(lambda: panes.herdr('x'))[1],
+            self.sent(lambda: herdr_mux.run(['x']))[1],
             {'stdout': subprocess.PIPE, 'stderr': subprocess.PIPE},
         )
         self.assertEqual(
-            self.sent(lambda: panes.herdr_ok('x'))[1],
+            self.sent(lambda: herdr_mux.Herdr().key('a', 'esc', stderr=None))[1],
             {'stdout': subprocess.DEVNULL, 'stderr': None},
         )
         self.assertEqual(
-            self.sent(lambda: panes.herdr_json('x'))[1],
+            self.sent(lambda: herdr_mux.Herdr().json('x'))[1],
             {'stdout': subprocess.PIPE, 'stderr': None},
         )
         self.assertEqual(
-            self.sent(lambda: panes.agent_prompt('a', 't', stderr=panes.MERGED))[1],
+            self.sent(lambda: herdr_mux.Herdr().prompt('a', 't', stderr=mux.MERGED))[1],
             {'stdout': subprocess.PIPE, 'stderr': subprocess.STDOUT},
         )
 
-    def test_require_herdr_says_the_default_or_the_callers_message_outside_herdr(self):
+    def test_require_mux_says_the_default_or_the_callers_message_outside_herdr(self):
         with mock.patch.dict(os.environ, {'HERDR_ENV': '0'}):
             with self.assertRaises(NotInHerdr) as caught:
-                panes.require_herdr()
+                panes.require_mux()
             self.assertEqual(
                 str(caught.exception), 'not running inside Herdr (HERDR_ENV != 1)'
             )
             with self.assertRaises(NotInHerdr) as caught:
-                panes.require_herdr('maintainer on needs Herdr (HERDR_ENV=1)')
+                panes.require_mux('maintainer on needs Herdr (HERDR_ENV=1)')
             self.assertEqual(
                 str(caught.exception), 'maintainer on needs Herdr (HERDR_ENV=1)'
             )
         with mock.patch.dict(os.environ, {'HERDR_ENV': '1'}):
-            panes.require_herdr()
+            panes.require_mux()
 
     def test_until_without_wait_is_refused_rather_than_sent(self):
         with (
-            mock.patch.object(panes.subprocess, 'run') as run,
+            mock.patch.object(herdr_mux.subprocess, 'run') as run,
             self.assertRaises(ValueError),
         ):
-            panes.agent_prompt('a', 'hi', until='working')
+            herdr_mux.Herdr().prompt('a', 'hi', until='working')
         run.assert_not_called()
 
     @staticmethod
@@ -18538,7 +18555,7 @@ class HerdrCallTests(unittest.TestCase):
                 source,
             )
 
-    def test_no_module_but_panes_builds_an_agent_start_or_prompt_argv(self):
+    def test_no_module_but_the_herdr_backend_builds_an_agent_start_or_prompt_argv(self):
         stray = []
         for skill in (
             'pstack-pair/scripts/pstack_core',
@@ -18552,7 +18569,7 @@ class HerdrCallTests(unittest.TestCase):
                     '*.py' if skill.endswith('/scripts') else '**/*.py'
                 )
             ):
-                if path.name in ('panes.py', 'kitchen.py'):
+                if path.parent.name == 'mux' or path.name == 'kitchen.py':
                     continue
                 stray += [
                     f'{path.relative_to(root)}:{node.lineno}'
@@ -18563,8 +18580,134 @@ class HerdrCallTests(unittest.TestCase):
         self.assertEqual(stray, [])
 
 
+class MuxSeamTests(unittest.TestCase):
+    """The multiplexer is one seam: mux.get() is the backend, and nothing outside mux/ names one."""
+
+    SOURCES = (
+        'pstack-pair/scripts/pstack_core',
+        'pstack-kitchen/scripts/kitchen_core',
+        'pstack-pair-guided/scripts',
+        'pstack-trio/scripts',
+        'pstack-kitchen/scripts',
+    )
+
+    def test_no_module_outside_mux_runs_herdr_or_reads_its_variables(self):
+        stray = []
+        for skill in self.SOURCES:
+            for path in sorted(
+                (root / 'skills' / skill).glob(
+                    '*.py' if skill.endswith('/scripts') else '**/*.py'
+                )
+            ):
+                if path.parent.name == 'mux' or path.name == 'kitchen.py':
+                    continue
+                stray += [
+                    f'{path.relative_to(root)}:{node.lineno}: {node.value}'
+                    for node in ast.walk(ast.parse(path.read_text(), str(path)))
+                    if isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and (node.value == 'herdr' or node.value.startswith('HERDR_'))
+                ]
+        self.assertEqual(stray, [])
+
+    def test_the_backend_is_herdr(self):
+        self.assertEqual(
+            (type(mux.get()).__name__, mux.get().program), ('Herdr', 'herdr')
+        )
+
+    def reply(self, code, out):
+        return mock.patch.object(
+            herdr_mux,
+            'run',
+            return_value=subprocess.CompletedProcess([], code, out, ''),
+        )
+
+    def test_an_agent_is_read_from_herdrs_reply_and_a_missing_one_is_none(self):
+        out = json.dumps(
+            {
+                'result': {
+                    'agent': {
+                        'name': 'demo-sidekick',
+                        'agent': 'claude',
+                        'agent_status': 'idle',
+                        'pane_id': 'w1:p2',
+                        'cwd': '/r',
+                        'agent_session': {'kind': 'id', 'value': 's1'},
+                    }
+                }
+            }
+        )
+        with self.reply(0, out):
+            got = herdr_mux.Herdr().agent('demo-sidekick')
+        self.assertEqual(
+            got,
+            mux.Agent(
+                'demo-sidekick',
+                'claude',
+                'idle',
+                'w1:p2',
+                '/r',
+                {'kind': 'id', 'value': 's1'},
+            ),
+        )
+        self.assertEqual(panes.agent_session(got), 's1')
+        with self.reply(0, 'not json'):
+            self.assertEqual(
+                herdr_mux.Herdr().agent('x'), mux.Agent('', '', '', '', '', None)
+            )
+        with self.reply(1, ''):
+            self.assertIsNone(herdr_mux.Herdr().agent('x'))
+
+    def test_a_panes_processes_are_read_and_a_failed_read_is_none(self):
+        out = json.dumps(
+            {
+                'result': {
+                    'process_info': {
+                        'shell_pid': 10,
+                        'foreground_process_group_id': 10,
+                        'foreground_processes': [{'pid': 11}, 'x', {'pid': 12}],
+                    }
+                }
+            }
+        )
+        with self.reply(0, out):
+            self.assertEqual(
+                herdr_mux.Herdr().processes('p1'), mux.Process(10, 10, (11, 12))
+            )
+        with self.reply(0, '{"result":{"process_info":{}}}'):
+            self.assertEqual(
+                herdr_mux.Herdr().processes('p1'), mux.Process(None, None, None)
+            )
+        with self.reply(1, ''):
+            self.assertIsNone(herdr_mux.Herdr().processes('p1'))
+
+    def test_a_failed_call_names_its_error_and_a_reply_its_status(self):
+        h = herdr_mux.Herdr()
+        failed = h.reply(
+            subprocess.CompletedProcess([], 1, '', '{"error":{"code":"timeout"}}')
+        )
+        self.assertEqual((failed.ok, failed.error), (False, mux.TIMEOUT))
+        merged = h.reply(
+            subprocess.CompletedProcess(
+                [], 1, '{"error":{"code":"agent_not_ready"}}', None
+            ),
+            mux.MERGED,
+        )
+        self.assertEqual(merged.error, mux.NOT_READY)
+        self.assertEqual(
+            h.reply(subprocess.CompletedProcess([], 1, '', 'boom')).error,
+            'herdr_error',
+        )
+        done = h.reply(
+            subprocess.CompletedProcess(
+                [], 0, '{"result":{"agent":{"agent_status":"done"}}}', ''
+            )
+        )
+        self.assertEqual((done.ok, done.error, done.status), (True, '', 'done'))
+
+
 class AgentStartRetryTests(unittest.TestCase):
-    """agent_start against the fake herdr: a pane herdr calls busy is tried again, any other refusal is not."""
+    """Herdr.start against the fake herdr: a pane herdr calls busy is tried again, any other refusal is not."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -18584,12 +18727,12 @@ class AgentStartRetryTests(unittest.TestCase):
         return [line for line in log if line.startswith('agent start')]
 
     def start(self, **kwargs):
-        return panes.agent_start('a', 'pi', 'p1', ['--model', 'm'], **kwargs)
+        return herdr_mux.Herdr().start('a', 'pi', 'p1', ['--model', 'm'], **kwargs)
 
     def test_a_busy_pane_is_tried_again_and_the_start_that_follows_is_the_result(self):
         (self.fake / 'start-busy-once').touch()
         r = self.start()
-        self.assertEqual((r.returncode, len(self.starts())), (0, 2))
+        self.assertEqual((r.code, len(self.starts())), (0, 2))
 
     def test_a_pane_busy_on_every_try_is_tried_five_times_and_the_last_error_is_passed_through(
         self,
@@ -18597,21 +18740,21 @@ class AgentStartRetryTests(unittest.TestCase):
         (self.fake / 'start-busy').touch()
         r = self.start()
         self.assertEqual(
-            (r.returncode, len(self.starts()), r.stderr),
+            (r.code, len(self.starts()), r.err),
             (1, 5, '{"error":{"code":"agent_pane_busy"}}\n'),
         )
 
     def test_a_start_herdr_refuses_for_another_reason_is_tried_once(self):
         (self.fake / 'start-fail').touch()
         r = self.start()
-        self.assertEqual((r.returncode, len(self.starts())), (1, 1))
-        self.assertIn('start_failed', r.stderr)
+        self.assertEqual((r.code, len(self.starts())), (1, 1))
+        self.assertIn('start_failed', r.err)
 
     def test_an_agent_not_ready_start_is_tried_once(self):
         (self.fake / 'trust-dialog').touch()
         r = self.start()
-        self.assertEqual((r.returncode, len(self.starts())), (1, 1))
-        self.assertIn('agent_not_ready', r.stderr)
+        self.assertEqual((r.code, len(self.starts())), (1, 1))
+        self.assertIn('agent_not_ready', r.err)
 
     def test_the_last_tries_text_reaches_each_kind_of_caller_in_its_own_stream(self):
         (self.fake / 'start-fail').touch()
@@ -18619,13 +18762,13 @@ class AgentStartRetryTests(unittest.TestCase):
         with mock.patch.object(sys, 'stderr', err):
             inherited = self.start(stderr=None)
         self.assertEqual(
-            (inherited.returncode, err.getvalue()),
+            (inherited.code, err.getvalue()),
             (1, '{"error":{"code":"start_failed"}}\n'),
         )
-        dropped = self.start(stderr=panes.DEVNULL)
-        self.assertEqual((dropped.returncode, dropped.stderr), (1, None))
-        merged = self.start(stdout=panes.PIPE, stderr=panes.MERGED)
-        self.assertEqual(merged.stdout, '{"error":{"code":"start_failed"}}\n')
+        dropped = self.start(stderr=mux.DEVNULL)
+        self.assertEqual((dropped.code, dropped.err), (1, None))
+        merged = self.start(stdout=mux.PIPE, stderr=mux.MERGED)
+        self.assertEqual(merged.out, '{"error":{"code":"start_failed"}}\n')
 
     def test_a_busy_try_before_a_refusal_never_reaches_the_inherited_stream(self):
         (self.fake / 'start-busy-once').touch()
@@ -19576,7 +19719,6 @@ class WaitSeamTests(DispatchedStore):
         self.printed = []
         with (
             mock.patch.object(wait, 'agent_status', return_value=agent),
-            mock.patch.object(wait, 'agent_state', return_value=state),
             mock.patch.object(wait, 'sidekick_activity', return_value=activity),
             mock.patch('pstack_core.checkin.sidekick_activity', return_value=activity),
         ):
@@ -19584,7 +19726,7 @@ class WaitSeamTests(DispatchedStore):
                 self.ctx,
                 str(self.store),
                 9,
-                wait.WaitResult(0, '', '', report),
+                wait.WaitResult(0, state, '', report),
                 mode,
                 self.EPOCH + 60,
                 quiet,
@@ -19725,7 +19867,7 @@ class WaitSeamTests(DispatchedStore):
         (self.store / 'wait.pid').write_text('newer\n')
         printed = []
         with mock.patch.object(
-            wait, 'herdr_get', side_effect=AssertionError('no herdr call')
+            wait, 'status_now', side_effect=AssertionError('no multiplexer call')
         ):
             outcome = wait.wait_for(
                 self.ctx,
@@ -19874,7 +20016,7 @@ class WaitSeamTests(DispatchedStore):
 
         self.quiet = quiet
         with (
-            mock.patch.object(wait, 'require_herdr'),
+            mock.patch.object(wait, 'require_mux'),
             mock.patch.object(wait, 'end_with_parent'),
             mock.patch.object(kitchen_wait, 'wait_for', returns),
             mock.patch.object(kitchen_wait, 'quiet_now', return_value=0),

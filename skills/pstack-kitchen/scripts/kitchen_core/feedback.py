@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 
+from pstack_core import mux
 from pstack_core.argv import Spec, read
 from pstack_core.checkin import iso_epoch
 from pstack_core.errors import (
@@ -17,7 +18,7 @@ from pstack_core.errors import (
     FeedbackLocked,
     FileFailed,
 )
-from pstack_core.panes import agent_prompt, herdr, reply_at, require_herdr
+from pstack_core.panes import agent_session
 from pstack_core.replies import file_mtime
 from pstack_core.store import (
     event,
@@ -278,8 +279,7 @@ def close(args):
 
 
 def maintainer_problem(fb, record=NOT_READ):
-    """Why the registered maintainer cannot be told, or '' when it can. A herdr answer that is not what it expects gives one stderr line and an
-    empty value."""
+    """Why the registered maintainer cannot be told, or '' when it can. An agent the multiplexer cannot describe reads as moved off its pane."""
     file = f'{fb}/maintainer.json'
     if not os.path.isfile(file):
         return 'no maintainer is registered'
@@ -289,23 +289,14 @@ def maintainer_problem(fb, record=NOT_READ):
         registered(record, 'pane'),
         registered(record, 'session'),
     )
-    code, info = herdr('agent', 'get', name)
-    if code != 0:
+    agent = mux.get().agent(name)
+    if agent is None:
         return f'agent {name} is gone'
-    info = info.rstrip('\n')
-    if (reply_at(info, 'result', 'agent', 'pane_id') or '') != pane:
+    if agent.pane != pane:
         return f'agent {name} moved off pane {pane}'
-    if (
-        session
-        and (reply_at(info, 'result', 'agent', 'agent_session', 'value') or '')
-        != session
-    ):
+    if session and agent_session(agent) != session:
         return f'agent {name} is a different session than the one registered'
-    return (
-        f'agent {name} is blocked on a dialog'
-        if reply_at(info, 'result', 'agent', 'agent_status') == 'blocked'
-        else ''
-    )
+    return f'agent {name} is blocked on a dialog' if agent.status == 'blocked' else ''
 
 
 def gap_found(path):
@@ -332,23 +323,14 @@ def deliver_report(fb, path):
     problem = maintainer_problem(fb, record)
     if not problem:
         if (
-            agent_prompt(
-                registered(record, 'name'), f'pstack-kitchen FEEDBACK {path}'
-            ).returncode
-            == 0
+            mux.get()
+            .prompt(registered(record, 'name'), f'pstack-kitchen FEEDBACK {path}')
+            .ok
         ):
             sys.stdout.write(f'delivered: to maintainer {registered(record, "name")}\n')
             return 0
     problem = problem or 'the prompt to the maintainer failed'
-    herdr(
-        'notification',
-        'show',
-        'pstack-kitchen: feedback filed',
-        '--body',
-        path,
-        '--sound',
-        'request',
-    )
+    mux.get().notify('pstack-kitchen: feedback filed', path)
     sys.stdout.write(
         f'delivered: notification for the human ({problem}); read it with: cat {path}\n'
     )
@@ -437,29 +419,27 @@ def maintainer(ctx, args):
     file = f'{fb}/maintainer.json'
     if sub == 'on':
         pane = read(rest, Spec(valued=('--pane',))).last('--pane', '')
-        require_herdr('maintainer on needs Herdr (HERDR_ENV=1)')
-        pane = pane or os.environ.get('HERDR_PANE_ID', '')
+        m = mux.get()
+        m.require(f'maintainer on needs {m.label} ({m.inside})')
+        pane = pane or m.own_pane()
         if not pane:
             raise Die('no pane: pass --pane ID')
-        code, info = herdr('agent', 'get', pane)
-        if code != 0:
-            raise Die(f'herdr has no agent on pane {pane}')
+        found = m.agent(pane)
+        if found is None:
+            raise Die(f'{m.program} has no agent on pane {pane}')
         os.makedirs(fb, exist_ok=True)
         tmp = scratch_file(fb, '.maintainer-')
-        agent = reply_at(info, 'result', 'agent')
-        agent = agent if isinstance(agent, dict) else {}
-        session = agent.get('agent_session')
         record = {
-            'name': agent.get('name'),
-            'pane': agent.get('pane_id'),
-            'session': session.get('value') if isinstance(session, dict) else None,
+            'name': found.name or None,
+            'pane': found.pane or None,
+            'session': agent_session(found) or None,
             'since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         }
         write_text(tmp, json.dumps(record, indent=2, ensure_ascii=False) + '\n')
         if not record['name']:
             rm_f(tmp)
             raise Die(
-                f'herdr reports no name for the agent on pane {pane}; name it first'
+                f'{m.program} reports no name for the agent on pane {pane}; name it first'
             )
         move_into_place(tmp, file)
         sys.stdout.write(f'maintainer: {record["name"]} on {record["pane"] or ""}\n')

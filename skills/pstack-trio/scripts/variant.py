@@ -2,6 +2,7 @@ import glob
 import os
 import sys
 
+from pstack_core import mux
 from pstack_core.argv import Spec, read
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, stop_role
@@ -14,7 +15,7 @@ from pstack_core.consult import (
 )
 from pstack_core.errors import Die, MasterKindUnknown, NoDiverseKinds, PlanNotAgreed
 from pstack_core.numbers import whole_number
-from pstack_core.panes import agent_kind, agent_status, require_herdr
+from pstack_core.panes import agent_kind, agent_status, require_mux
 from pstack_core.spawn import (
     SpawnRequest,
     record_fallback,
@@ -24,14 +25,14 @@ from pstack_core.spawn import (
 )
 from pstack_core.store import field, header_field, pair_file, who
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
-from pstack_core.wait import agent_state, end_with_parent, timeout_ms
+from pstack_core.wait import end_with_parent, timeout_ms
 
 
 def stop(ctx, args):
     """STOP to each of the run's roles in turn (--only names one): the trio's stop, which the kitchen runs too. It loops over
     ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, a blocked one sets the exit status
     to 3, and the newest report and advice are shown at the end."""
-    require_herdr()
+    require_mux()
     end_with_parent()
     if not args:
         raise Die(
@@ -56,8 +57,8 @@ def stop(ctx, args):
             )
             rc = 3
             continue
-        code, out, _ = stop_role(ctx, store, role, timeout)
-        status = agent_status(name) if code != 0 else agent_state(out, 'settled')
+        result = stop_role(ctx, store, role, timeout)
+        status = agent_status(name) if result.code != 0 else result.status or 'settled'
         print(f'{role}_state: {status}')
         if status == 'blocked':
             rc = 3
@@ -79,7 +80,7 @@ def require_diverse_kinds(master, sidekick, consultant):
     """The trio needs at least two distinct agent kinds, so the consultant is a second perspective and not the master's echo."""
     if not master:
         raise MasterKindUnknown(
-            "cannot read the master's agent kind from herdr; run pair.sh init first"
+            f"cannot read the master's agent kind from {mux.get().program}; run pair.sh init first"
         )
     if master == sidekick == consultant:
         raise NoDiverseKinds(
@@ -108,7 +109,7 @@ def spawn(ctx, args):
     """Starts the sidekick and the consultant (--only names one) in panes of their own, the sidekick first: the first role that does not come up
     ends the command with its status (3: the bootstrap did not settle; 4: it settled without the ready file)."""
     end_with_parent()
-    require_herdr()
+    require_mux()
     if not args:
         raise Die(USAGE)
     store = args[0]
@@ -141,9 +142,13 @@ def spawn(ctx, args):
     sidekick_kind = opts['sidekick'] or field(store, 'sidekick', 'kind')
     consultant_kind = opts['consultant'] or field(store, 'consultant', 'kind')
     if only != 'consultant' and not sidekick_kind:
-        raise Die('--sidekick KIND is required (run: herdr agent, for the kind list)')
+        raise Die(
+            f'--sidekick KIND is required (run: {mux.get().list_kinds()}, for the kind list)'
+        )
     if only != 'sidekick' and not consultant_kind:
-        raise Die('--consultant KIND is required (run: herdr agent, for the kind list)')
+        raise Die(
+            f'--consultant KIND is required (run: {mux.get().list_kinds()}, for the kind list)'
+        )
     master_kind = agent_kind(field(store, 'master', 'pane_id'))
     require_diverse_kinds(
         master_kind, sidekick_kind or master_kind, consultant_kind or master_kind

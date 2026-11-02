@@ -1,15 +1,16 @@
-"""Panes for the roles: where a new one goes, the folder-trust dialog that stops an agent at startup, and the wait for a file an agent writes."""
+"""Panes for the roles: where a new one goes, the folder-trust dialog that stops an agent at startup, an agent's status as the roles read it,
+and the wait for a file an agent writes. The multiplexer underneath is mux.get()."""
 
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 
-from .errors import NoPaneId, NotInHerdr, PaneSizeUnreadable, TrustPrompt
-from .numbers import env_float, env_int
-from .store import TEXT, load, peek, text_at
+from . import mux
+from .errors import NoPaneId, PaneSizeUnreadable, TrustPrompt
+from .numbers import env_int
+from .store import load, peek, text_at
 
 TRUST_RE = re.compile(
     'trust this folder|project you created or one you trust|do you trust the (files|contents)',
@@ -17,116 +18,28 @@ TRUST_RE = re.compile(
 )
 
 
-DEVNULL, PIPE, MERGED = subprocess.DEVNULL, subprocess.PIPE, subprocess.STDOUT
-
-
-def run_herdr(args, stdout=PIPE, stderr=PIPE):
-    """The one place herdr is run: its CompletedProcess, with each stream captured (PIPE), dropped (DEVNULL), merged into stdout (MERGED) or
-    left on the terminal (None)."""
-    return subprocess.run(
-        ['herdr', *args], stdout=stdout, stderr=stderr, check=False, **TEXT
-    )
-
-
-def require_herdr(what=None):
-    """Ends with the caller's message (the default says the command must run inside Herdr) when HERDR_ENV is not 1."""
-    if os.environ.get('HERDR_ENV') != '1':
-        raise NotInHerdr(what)
-
-
-def herdr_json(*args):
-    """herdr with its stderr left on the terminal: the parsed JSON of its stdout, or None when it is not JSON."""
-    try:
-        return json.loads(run_herdr(args, stderr=None).stdout)
-    except ValueError:
-        return None
-
-
-def herdr_ok(*args):
-    """herdr with stdout dropped and stderr left on the terminal: whether it succeeded."""
-    return run_herdr(args, stdout=DEVNULL, stderr=None).returncode == 0
-
-
-START_TRIES = 5
-
-
-def agent_start(name, kind, pane, args, timeout_ms=60000, stdout=DEVNULL, stderr=PIPE):
-    """herdr agent start NAME in the pane, running `args` as the agent's command line: the CompletedProcess of the last try. A pane herdr calls busy
-    (agent_pane_busy, as a pane split a moment ago can be) is tried again, up to five tries PAIR_START_RETRY_S apart; any other error ends it. Each
-    try's stderr is captured to read the code, and the last one's text goes to `stderr` as the caller asked: inherited, dropped, merged into stdout
-    or in the result."""
-    argv = [
-        'agent',
-        'start',
-        name,
-        '--kind',
-        kind,
-        '--pane',
-        pane,
-        '--timeout',
-        str(timeout_ms),
-        '--',
-        *args,
-    ]
-    capture = stderr if stderr == MERGED else PIPE
-    for tries in range(1, START_TRIES + 1):
-        r = run_herdr(argv, stdout, capture)
-        text = r.stdout if capture == MERGED else r.stderr
-        if (
-            r.returncode == 0
-            or tries == START_TRIES
-            or error_code(text or '') != 'agent_pane_busy'
-        ):
-            break
-        time.sleep(env_float('PAIR_START_RETRY_S', 1))
-    if stderr is None and r.stderr:
-        sys.stderr.write(r.stderr)
-    if stderr == DEVNULL:
-        r.stderr = None
-    return r
-
-
-def agent_prompt(
-    name, text, wait=False, until=None, timeout_ms=None, stdout=PIPE, stderr=PIPE
-):
-    """herdr agent prompt NAME TEXT, optionally waiting (until a state) up to timeout_ms: the CompletedProcess."""
-    if until and not wait:
-        raise ValueError('agent_prompt: until needs wait')
-    argv = ['agent', 'prompt', name, text]
-    if wait:
-        argv.append('--wait')
-    if until:
-        argv += ['--until', until]
-    if timeout_ms is not None:
-        argv += ['--timeout', str(timeout_ms)]
-    return run_herdr(argv, stdout, stderr)
-
-
-def herdr_get(name):
-    """The stdout of herdr agent get NAME, whatever its status."""
-    return herdr('agent', 'get', name)[1].rstrip('\n')
+def require_mux(what=None):
+    """Ends with the caller's message (by default, that the command must run inside the multiplexer) when not inside it."""
+    mux.get().require(what)
 
 
 def pick_direction(pane):
     """Cells are about twice as tall as wide: a pane is visually wider than tall when width >= 2 * height. Split wide panes right and tall
     panes down."""
-    layout = herdr_json('pane', 'layout', '--pane', pane)
-    panes = dig(layout, 'result', 'layout', 'panes')
-    for each in panes if isinstance(panes, list) else []:
-        if isinstance(each, dict) and each.get('pane_id') == pane:
-            rect = each.get('rect') if isinstance(each.get('rect'), dict) else {}
-            width, height = rect.get('width'), rect.get('height')
-            if not (
-                isinstance(width, int)
-                and not isinstance(width, bool)
-                and isinstance(height, int)
-                and not isinstance(height, bool)
-            ):
-                raise PaneSizeUnreadable(
-                    f'pane {pane} has a size that is not a number: {width} x {height}'
-                )
-            return 'right' if width >= 2 * height else 'down'
-    return 'right'
+    size = mux.get().pane_size(pane)
+    if size is None:
+        return 'right'
+    width, height = size
+    if not (
+        isinstance(width, int)
+        and not isinstance(width, bool)
+        and isinstance(height, int)
+        and not isinstance(height, bool)
+    ):
+        raise PaneSizeUnreadable(
+            f'pane {pane} has a size that is not a number: {width} x {height}'
+        )
+    return 'right' if width >= 2 * height else 'down'
 
 
 def new_pane(store, role, anchor, direction, cwd, env=()):
@@ -134,41 +47,16 @@ def new_pane(store, role, anchor, direction, cwd, env=()):
     master's workspace, labelled with the role; each KEY=VALUE of env is an --env for the launched process. Prints where it went and returns its id."""
     pair = load(store)
     slug = text_at(pair, 'slug')
-    env_args = [part for kv in env for part in ('--env', kv)]
     if pair.get('placement') == 'tab':
         master = text_at(peek(pair, 'master'), 'pane_id')
-        made = herdr_json(
-            'tab',
-            'create',
-            '--workspace',
-            master.split(':', 1)[0],
-            '--cwd',
-            cwd,
-            '--label',
-            f'{slug}-{role}',
-            '--no-focus',
-            *env_args,
-        )
-        pane = dig(made, 'result', 'root_pane', 'pane_id')
-        if not pane or not isinstance(pane, str):
+        pane = mux.get().tab(master, f'{slug}-{role}', cwd, env)
+        if not pane:
             raise NoPaneId('tab create returned no pane id')
         print(f'tab {slug}-{role} -> {pane}')
         return pane
     direction = direction or pick_direction(anchor)
-    made = herdr_json(
-        'pane',
-        'split',
-        '--pane',
-        anchor,
-        '--direction',
-        direction,
-        '--cwd',
-        cwd,
-        '--no-focus',
-        *env_args,
-    )
-    pane = dig(made, 'result', 'pane', 'pane_id')
-    if not pane or not isinstance(pane, str):
+    pane = mux.get().split(anchor, direction, cwd, env)
+    if not pane:
         raise NoPaneId('pane split returned no pane id')
     print(f'split {anchor} {direction} -> {pane}')
     return pane
@@ -178,13 +66,13 @@ def refuse_untrusted(pane, kind, directory, close=False, then=None):
     """A dialog asking to trust the working folder (Claude, Codex) blocks an agent at startup. Trusting a repo is the human's decision, never the
     script's: decline it, which returns the pane to its shell, and stop with what to do. Claude's dialog defaults to "No, exit", so an Enter
     would quit. `then` is the advice after the refusal; by default, trust the folder and rerun the spawn."""
-    code, out = herdr('pane', 'read', pane, '--source', 'visible', '--lines', '40')
-    if not TRUST_RE.search(re.sub(r'[\n\t ]+', ' ', out)):
+    m = mux.get()
+    if not TRUST_RE.search(re.sub(r'[\n\t ]+', ' ', m.pane_screen(pane, 40)[1])):
         return
-    herdr('pane', 'send-keys', pane, 'esc')
+    m.pane_key(pane, 'esc')
     # A pane split for this start holds nothing else; a retry opens its own.
     if close:
-        herdr('pane', 'close', pane)
+        m.pane_close(pane)
     raise TrustPrompt(
         f'{kind} asks whether to trust {directory}, and that decision is yours: '
         + (
@@ -210,18 +98,12 @@ BUSY = re.compile(
 )
 
 
-def herdr(*args):
-    """herdr with stderr dropped: (exit code, stdout text)."""
-    r = run_herdr(args)
-    return r.returncode, r.stdout
-
-
 def pane_text(name):
     """The pane's visible screen as one line."""
     return re.sub(
         r'[\n\t ]+',
         ' ',
-        herdr('agent', 'read', name, '--source', 'visible', '--lines', '40')[1],
+        mux.get().screen(name, 40)[1],
     )
 
 
@@ -264,40 +146,26 @@ def reply_at(reply, *keys, quiet=False):
     return None
 
 
-def error_code(err):
-    """The error code of the reply herdr printed, or ''."""
-    code = dig(parse(err), 'error', 'code')
-    return code if isinstance(code, str) else ''
-
-
-def error_state(err):
-    """The error code of the reply herdr printed, `herdr_error` when it has none."""
-    return error_code(err) or 'herdr_error'
-
-
-def agent_state(out, default):
-    """The agent status in the reply, else default ('' when there is none)."""
-    status = dig(parse(out), 'result', 'agent', 'agent_status')
-    return status if isinstance(status, str) and status else (default or '')
-
-
-def agent_field(out, key):
-    """The key of the agent in herdr's JSON reply; None when it is missing or null."""
-    agent = dig(parse(out), 'result', 'agent')
-    return agent.get(key) if isinstance(agent, dict) else None
-
-
 def agent_status(name):
-    """idle|working|blocked|done|unknown, or absent when herdr has no such agent."""
-    code, out = herdr('agent', 'get', name)
-    if code != 0:
+    """idle|working|blocked|done|unknown, or absent when the multiplexer has no such agent. An idle or done agent whose screen shows it busy is
+    working."""
+    agent = mux.get().agent(name)
+    if agent is None:
         return 'absent'
-    state = agent_field(out, 'agent_status') or 'unknown'
+    state = agent.status or 'unknown'
     if state in ('idle', 'done') and pane_busy(name):
         return 'working'
     return state
 
 
 def agent_kind(name):
-    """The herdr agent kind hosting name (a name or pane id), or empty."""
-    return agent_field(herdr('agent', 'get', name)[1], 'agent') or ''
+    """The kind of the agent hosting name (a name or pane id), or empty."""
+    agent = mux.get().agent(name)
+    return agent.kind if agent else ''
+
+
+def agent_session(agent):
+    """The value of the session the multiplexer tracks for an Agent (None for none), '' when it tracks none."""
+    session = agent.session if agent else None
+    value = session.get('value') if isinstance(session, dict) else None
+    return value if isinstance(value, str) else ''

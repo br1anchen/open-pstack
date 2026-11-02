@@ -5,7 +5,7 @@ import re
 from pstack_core.argv import Spec, read
 from pstack_core.errors import Die, MissingStore, PlanNotAgreed, refuse_as
 from pstack_core.gates import require_not_paused
-from pstack_core.panes import require_herdr
+from pstack_core.panes import require_mux
 from pstack_core.send import send_and_wait
 from pstack_core.store import (
     fill_template,
@@ -21,7 +21,7 @@ from pstack_core.wait import TIMEOUT_ONLY, end_with_parent, timeout_ms
 
 def answer(ctx, args):
     """Deliver the human's or master's answer to a sidekick's ask (a message of kind ANSWER) and wait for its reply."""
-    require_herdr()
+    require_mux()
     end_with_parent()
     if len(args) < 2:
         raise Die(

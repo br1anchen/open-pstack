@@ -6,10 +6,10 @@ import sys
 import time
 from dataclasses import dataclass
 
-from .. import git
+from .. import git, mux
 from ..argv import Spec, read
 from ..errors import Die, Exit, FileFailed, PathFailed, reason
-from ..panes import herdr, require_herdr
+from ..panes import require_mux
 from ..permission import logical_cwd
 from ..store import _dumps, event, member, update
 
@@ -85,21 +85,22 @@ def init_request(ctx, args):
             2,
             f'{ctx.prog}: init refuses under PSTACK_KITCHEN_ROLE=verifier: it renames the calling pane, and the kitchen would lose its verifier\n',
         )
-    require_herdr()
+    require_mux()
     if not args:
         raise Die(f'usage: {ctx.prog} init <slug> [--store DIR] [--pane ID]')
     slug = args[0]
     opts = read(args[1:], Spec(valued=('--store', '--pane')))
     store, longest = opts.last('--store', ''), ctx.roles[-1]
-    pane = opts.last('--pane', os.environ.get('HERDR_PANE_ID', ''))
+    pane = opts.last('--pane', mux.get().own_pane())
     if not re.fullmatch(rf'[a-z][a-z0-9_-]{{0,{ctx.slug_max}}}', slug):
         raise Die(
             f"slug must match [a-z][a-z0-9_-]{{0,{ctx.slug_max}}} (so <slug>-{longest} fits Herdr's 32-char name limit)"
         )
     store = store or f'{ctx.state_root}/{slug}'
     if not pane:
+        m = mux.get()
         raise Die(
-            'HERDR_PANE_ID is unset; run from a Herdr-managed pane, or pass --pane ID'
+            f'{m.pane_var} is unset; run from a {m.label}-managed pane, or pass --pane ID'
         )
     return InitRequest(slug, store, pane)
 
@@ -114,16 +115,14 @@ def init_store(ctx, request, out=None):
     master = f'{slug}-master'
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     cwd, root = logical_cwd(), git.toplevel()
-    workspace, tab = (
-        os.environ.get('HERDR_WORKSPACE_ID', ''),
-        os.environ.get('HERDR_TAB_ID', ''),
-    )
-    # HERDR_PANE_ID can be stale: Codex runs every session's commands through one shared app-server daemon, which keeps the pane it was
+    workspace, tab = mux.get().location()
+    # The pane variable can be stale: Codex runs every session's commands through one shared app-server daemon, which keeps the pane it was
     # started in.
-    if herdr('agent', 'rename', pane, master)[0] != 0:
+    if not mux.get().rename(pane, master):
+        m = mux.get()
         raise Die(
-            f'pane {pane} is not a live Herdr pane; HERDR_PANE_ID is stale when a harness runs commands through a shared daemon '
-            "(Codex's app-server). Pass your pane with --pane ID (herdr agent list shows each agent's pane)",
+            f'pane {pane} is not a live {m.label} pane; {m.pane_var} is stale when a harness runs commands through a shared daemon '
+            f"(Codex's app-server). Pass your pane with --pane ID ({m.list_agents()} shows each agent's pane)",
             2,
         )
     if os.path.isfile(f'{store}/pair.json'):

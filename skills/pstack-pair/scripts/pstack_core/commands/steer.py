@@ -4,10 +4,12 @@ import re
 import sys
 import time
 
+from .. import mux
 from ..argv import Spec, read
 from ..checkin import live_steer_effects, sidekick_busy
 from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
-from ..panes import DEVNULL, agent_prompt, agent_status, herdr_ok, require_herdr
+from ..mux import DEVNULL
+from ..panes import agent_status, require_mux
 from ..prime import prime_steer
 from ..replies import file_mtime, sent_epoch
 from ..review import has_placeholder
@@ -92,23 +94,21 @@ def steer_working(store, name, steer_path, message, interrupt):
     step, notes or progress; Prime queues it through its daemon."""
     if interrupt:
         # Esc cancels the running tool call so the steer is read now, not after it.
-        if not herdr_ok('agent', 'send-keys', name, 'esc'):
-            raise PromptFailed(f'herdr send-keys failed for {name}')
-        if not herdr_ok(
-            'agent',
-            'wait',
-            name,
-            '--until',
-            'idle',
-            '--until',
-            'done',
-            '--until',
-            'blocked',
-            '--timeout',
-            '15000',
+        if not mux.get().key(name, 'esc', stderr=None):
+            raise PromptFailed(f'{mux.get().program} send-keys failed for {name}')
+        if (
+            not mux.get()
+            .wait(
+                name,
+                ('idle', 'done', 'blocked'),
+                15000,
+                stdout=DEVNULL,
+                stderr=None,
+            )
+            .ok
         ):
             raise NotSettled(
-                f'{who("sidekick", name)} did not settle after esc; inspect: herdr agent read {name} --source visible --lines 60'
+                f'{who("sidekick", name)} did not settle after esc; inspect: {mux.get().inspect_agent(name, 60)}'
             )
     event(store, 'master', 'send-steer', steer_path, 'working')
     kind = field(store, 'sidekick', 'kind')
@@ -125,8 +125,8 @@ def steer_working(store, name, steer_path, message, interrupt):
             f'steered {name} with {steer_path}; Prime queues it between tool calls without cancelling the running command'
         )
     else:
-        if agent_prompt(name, message, stdout=DEVNULL, stderr=None).returncode != 0:
-            raise PromptFailed(f'herdr prompt failed for {name}')
+        if not mux.get().prompt(name, message, stdout=DEVNULL, stderr=None).ok:
+            raise PromptFailed(f'{mux.get().program} prompt failed for {name}')
         print(
             f'steered {name} with {steer_path}; its harness hands it over between tool calls and the ack lands in the progress log'
         )
@@ -254,7 +254,7 @@ def resume_unit(store, name, steer_path, timeout, ctx):
 
 
 def steer(ctx, args):
-    require_herdr()
+    require_mux()
     end_with_parent()
     if len(args) < 2:
         raise Die(usage(ctx))
@@ -303,14 +303,14 @@ def steer(ctx, args):
                 f'{who("sidekick", name)} is unknown; read the pane, then pass --force to steer anyway',
                 5,
             )
-        if agent_prompt(name, message, stdout=DEVNULL, stderr=None).returncode != 0:
-            raise Die(f'herdr prompt failed for {name}', 2)
+        if not mux.get().prompt(name, message, stdout=DEVNULL, stderr=None).ok:
+            raise Die(f'{mux.get().program} prompt failed for {name}', 2)
         print(f'steered {name} with {steer_path}')
     elif status == 'absent':
         raise Die(f'{who("sidekick", name)} is not live', 2)
     elif status == 'blocked':
         raise Die(
-            f'{who("sidekick", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60',
+            f'{who("sidekick", name)} is blocked; inspect: {mux.get().inspect_agent(name, 60)}',
             3,
         )
     return 0

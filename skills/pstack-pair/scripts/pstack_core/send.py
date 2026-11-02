@@ -5,12 +5,11 @@ import glob
 import os
 import re
 import signal
-import subprocess
 import sys
 import time
 from dataclasses import dataclass
 
-from . import git
+from . import git, mux
 from .argv import read
 from .errors import (
     AgentBlocked,
@@ -23,19 +22,12 @@ from .errors import (
     refuse_as,
 )
 from .gates import check_scope, require_not_paused
+from .mux import DEVNULL, STALLED, TIMEOUT
 from .numbers import env_float
-from .panes import (
-    DEVNULL,
-    agent_kind,
-    agent_prompt,
-    agent_status,
-    error_code,
-    require_herdr,
-)
+from .panes import agent_kind, agent_status, require_mux
 from .replies import first3, pending, queued_brief
 from .review import require_filled
 from .store import (
-    TEXT,
     count,
     event,
     expected_report,
@@ -112,13 +104,7 @@ def require_fresh_session(store):
 
 def visible_without_blanks(name):
     """The last 12 visible lines of the pane with its newlines, spaces and box bars removed."""
-    r = subprocess.run(
-        ['herdr', 'agent', 'read', name, '--source', 'visible', '--lines', '12'],
-        capture_output=True,
-        check=False,
-        **TEXT,
-    )
-    return re.sub('[\n │]', '', r.stdout)
+    return re.sub('[\n │]', '', mux.get().screen(name, 12)[1])
 
 
 def submit_typed(name, marker):
@@ -134,12 +120,7 @@ def submit_typed(name, marker):
             return submitted
         if kind == 'devin' and agent_status(name) == 'working':
             return submitted
-        subprocess.run(
-            ['herdr', 'agent', 'send-keys', name, 'enter'],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
+        mux.get().key(name, 'enter')
         tries += 1
         submitted = tries
     return submitted
@@ -148,15 +129,12 @@ def submit_typed(name, marker):
 def prompt_sidekick(name, text):
     """Sends one message and confirms the sidekick took it. A narrow pane can hide the working state, so a timeout or stall here is not an
     error; the wait that follows looks for the reply file either way."""
-    r = agent_prompt(
+    r = mux.get().prompt(
         name, text, wait=True, until='working', timeout_ms=30000, stdout=DEVNULL
     )
-    if r.returncode != 0:
-        err = r.stderr
-        code = error_code(err)
-        if code not in ('timeout', 'agent_prompt_stalled'):
-            sys.stderr.write(err)
-            raise PromptFailed(f'herdr prompt failed for {name}')
+    if not r.ok and r.error not in (TIMEOUT, STALLED):
+        sys.stderr.write(r.err)
+        raise PromptFailed(f'{mux.get().program} prompt failed for {name}')
     return submit_typed(
         name,
         os.path.basename(
@@ -185,7 +163,7 @@ def send_message(ctx, store, file, kind, now=None):
             )
         if status == 'blocked':
             raise AgentBlocked(
-                f'{who("sidekick", name)} is blocked; inspect: herdr agent read {name} --source visible --lines 60'
+                f'{who("sidekick", name)} is blocked; inspect: {mux.get().inspect_agent(name, 60)}'
             )
         raise AgentBusy(
             f'{who("sidekick", name)} is {status}; run: pair.sh wait {store}'
@@ -282,7 +260,7 @@ def record_dispatch(store, brief, now=None):
 
 
 def discuss(ctx, args):
-    require_herdr()
+    require_mux()
     if len(args) < 2:
         raise Die(f'usage: {ctx.prog} discuss <store> <plan-path> [--timeout MS]')
     store, plan = args[0], args[1]
@@ -340,7 +318,7 @@ class DispatchRequest:
 
 def dispatch_request(ctx, args):
     """The checks a dispatch makes before it sends anything, and what it was asked for."""
-    require_herdr()
+    require_mux()
     if len(args) < 2:
         raise Die(
             f'usage: {ctx.prog} dispatch <store> <brief-path> [--timeout MS | --every MIN]'

@@ -8,6 +8,7 @@ import re
 import sys
 import time
 
+from pstack_core import mux
 from pstack_core.agents import (
     has_mcp_arg,
     has_permission_arg,
@@ -24,16 +25,7 @@ from pstack_core.errors import (
     UnknownVerifierKind,
     VerifierStartFailed,
 )
-from pstack_core.panes import (
-    TRUST_RE,
-    agent_kind,
-    agent_prompt,
-    agent_start,
-    agent_status,
-    herdr,
-    new_pane,
-    reply_at,
-)
+from pstack_core.panes import TRUST_RE, agent_kind, agent_status, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
@@ -194,21 +186,18 @@ def verifier_args(kind, entry, directory):
 def record_verifier_session(store, name):
     """The agent's own session log, so a verifier that died on its provider or never got its packet can still say why after its pane is gone. Herdr
     gives pi's as a path and Claude's as an id, whose transcript Claude keeps under ~/.claude/projects/ in a directory named for the working directory."""
-    code, info = herdr('agent', 'get', name)
-    if code != 0:
+    agent = mux.get().agent(name)
+    if agent is None:
         return
-    agent = reply_at(info, 'result', 'agent', quiet=True)
-    agent = agent if isinstance(agent, dict) else {}
-    held = agent.get('agent_session')
-    held = held if isinstance(held, dict) else {}
+    held = agent.session or {}
     session = text_at(held, 'value') if held.get('kind') == 'path' else ''
     if not session:
         ident = (
             text_at(held, 'value')
-            if agent.get('agent') == 'claude' and held.get('kind') == 'id'
+            if agent.kind == 'claude' and held.get('kind') == 'id'
             else ''
         )
-        cwd = text_at(agent, 'cwd')
+        cwd = agent.cwd
         if not cwd:
             scratch = f'{store}/scratch/{read(store, "verifying.scratch")}'
             cwd = os.path.realpath(scratch) if os.path.isdir(scratch) else ''
@@ -258,12 +247,12 @@ def launch_verifier(v):
     store = v.store
     v.name = field(store, 'verifier', 'name')
     anchor = field(store, 'sidekick', 'pane_id')
-    if not (anchor and herdr('pane', 'get', anchor)[0] == 0):
+    if not (anchor and mux.get().pane_exists(anchor)):
         anchor = field(store, 'master', 'pane_id')
     if read(store, 'placement') == 'tab':
         field(
             store, 'master', 'pane_id'
-        )  # a master that is no object ends verify before any herdr call
+        )  # a master that is no object ends verify before any multiplexer call
     with contextlib.redirect_stdout(io.StringIO()):
         pane = new_pane(
             store,
@@ -277,18 +266,19 @@ def launch_verifier(v):
             ),
         )
     sys.stdout.flush()
-    started = agent_start(v.name, v.kind, pane, v.args, stderr=None).returncode == 0
+    m = mux.get()
+    started = m.start(v.name, v.kind, pane, v.args, stderr=None).ok
     if not started and v.kind != 'prime-agent':
         why = f'verifier start failed in {pane}'
         screen = re.sub(
             r'[\n\t ]+',
             ' ',
-            herdr('pane', 'read', pane, '--source', 'visible', '--lines', '40')[1],
+            m.pane_screen(pane, 40)[1],
         )
         if TRUST_RE.search(screen):
             why = f'{v.kind} asks whether to trust {v.scratch}, and that decision is yours: open {v.kind} in the repo once and trust it, or verify with another kind'
-            herdr('pane', 'send-keys', pane, 'esc')
-        herdr('pane', 'close', pane)
+            m.pane_key(pane, 'esc')
+        m.pane_close(pane)
         vs.remove_scratch(v.ctx, store, v.scratch_id)
         vs.set_outcome(v.packet, 'start-failed')
         raise VerifierStartFailed(why)
@@ -360,14 +350,15 @@ def deliver_packet(v):
     nothing typed and no verdict, still idle, gets the packet once more."""
     sys.stdout.flush()
     took = (
-        agent_prompt(
+        mux.get()
+        .prompt(
             v.name,
             vs.verify_prompt(v.ctx, v.packet),
             wait=True,
             until='working',
             timeout_ms=30000,
-        ).returncode
-        == 0
+        )
+        .ok
     )
     submitted = submit_typed(v.name, os.path.basename(v.packet))
     if not took and submitted == 0 and not os.path.isfile(v.verdict):

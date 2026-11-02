@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+from pstack_core import mux
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
 from pstack_core.checkin import busy
@@ -21,7 +22,7 @@ from pstack_core.errors import (
     VerificationTaken,
 )
 from pstack_core.numbers import env_float, env_int, tdiv
-from pstack_core.panes import agent_prompt, agent_status, pane_text
+from pstack_core.panes import agent_status, pane_text
 from pstack_core.providers import (
     agent_session_error,
     error_context,
@@ -229,7 +230,7 @@ class Waiter:
                     'reached, then end your turn. Stop any process you started first, and write the file complete in one write: create it under a '
                     'temporary name in the same directory, then rename it into place.'
                 )
-                if agent_prompt(name, text).returncode == 0:
+                if mux.get().prompt(name, text).ok:
                     submit_typed(name, os.path.basename(verdict))
                 else:
                     delivery = 'skipped:prompt-failed'

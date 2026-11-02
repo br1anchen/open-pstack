@@ -34,7 +34,7 @@ from pstack_core.errors import (
     reason,
 )
 from pstack_core.numbers import env_float, env_int, exit_code, int_or_none
-from pstack_core.panes import require_herdr
+from pstack_core.panes import require_mux
 from pstack_core.replies import file_mtime
 from pstack_core.review import range_floor
 from pstack_core.steplog import StepLog
@@ -449,7 +449,7 @@ def discard_moved_verify(ctx, brief, head, job):
 
 
 def finish(ctx, args):
-    require_herdr()
+    require_mux()
     default_signals()
     if len(args) != 2:
         return core_report.finish(ctx, args)
