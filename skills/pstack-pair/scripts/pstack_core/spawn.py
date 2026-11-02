@@ -291,6 +291,15 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
     return 4
 
 
+def require_kind_runs(kind):
+    """A Prime role needs a multiplexer that reports its daemon session, which its stop, rotation and failover go through."""
+    m = mux.get()
+    if kind == 'prime-agent' and not m.tracks_sessions:
+        raise AgentStartFailed(
+            f'prime-agent cannot run under {m.label}: it reports no Prime session to stop the role by; use another kind or Herdr'
+        )
+
+
 def spawn_role(ctx, store, role, request):
     """Starts the role's agent and bootstraps it: 0 once it is ready, 3 when the bootstrap did not settle and 4 when it settled without the ready file."""
     kind, master_mode = request.kind, mode_of_this_shell()
@@ -301,6 +310,7 @@ def spawn_role(ctx, store, role, request):
     args = start_arguments(kind, flags, list(request.args), cwd)
     ready = 'advice/000-ready.md' if role == 'consultant' else 'reports/000-ready.md'
     name = field(store, role, 'name')
+    require_kind_runs(kind)
     status = agent_status(name)
     if status != 'absent':
         return report_live(store, role, name, status, ready)

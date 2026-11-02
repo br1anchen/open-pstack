@@ -166,6 +166,7 @@ class Rex(Mux):
     failure = 'rex_error'
     pane_var = 'REX_BLOCK'
     inside = 'REX_BLOCK set'
+    tracks_sessions = False
 
     # The calling block.
     def require(self, what=None):

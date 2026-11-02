@@ -19066,6 +19066,20 @@ class RexMuxTests(unittest.TestCase):
         self.rex.prompt('s1', '/exit')
         self.assertTrue(self.rex.rename(other, 's1'))
 
+    def test_a_prime_role_is_refused_where_no_session_is_tracked(self):
+        from pstack_core import spawn
+
+        with mock.patch.object(mux, 'get', return_value=self.rex):
+            with self.assertRaises(spawn.AgentStartFailed) as refused:
+                spawn.require_kind_runs('prime-agent')
+            spawn.require_kind_runs('pi')
+        self.assertEqual(
+            str(refused.exception),
+            'prime-agent cannot run under Rex: it reports no Prime session to stop the role by; use another kind or Herdr',
+        )
+        with mock.patch.object(mux, 'get', return_value=herdr_mux.Herdr()):
+            spawn.require_kind_runs('prime-agent')
+
     def test_blocks_are_read_closed_and_measured(self):
         pane = self.rex.split('block:me', 'right', '/w')
         (self.block() / 'screen').write_text('one\ntwo\nthree\n')
