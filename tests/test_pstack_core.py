@@ -19058,6 +19058,14 @@ class RexMuxTests(unittest.TestCase):
             self.assertEqual(self.rex.look(pane).state, 'working')
         self.assertEqual(self.rex.look(pane).state, '')
 
+    def test_rename_refuses_a_name_another_blocks_live_agent_holds(self):
+        self.started()
+        other = self.rex.split('block:me', 'right', '/w')
+        self.assertFalse(self.rex.rename(other, 's1'))
+        self.assertEqual(rex_mux.registry()['s1']['block'], 'block:b0')
+        self.rex.prompt('s1', '/exit')
+        self.assertTrue(self.rex.rename(other, 's1'))
+
     def test_blocks_are_read_closed_and_measured(self):
         pane = self.rex.split('block:me', 'right', '/w')
         (self.block() / 'screen').write_text('one\ntwo\nthree\n')
