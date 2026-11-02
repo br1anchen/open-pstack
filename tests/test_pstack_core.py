@@ -83,7 +83,14 @@ from pstack_core.variant import Variant, load_module, load_skill_variant  # noqa
 
 sys.path.insert(0, str(root / 'tests'))
 
-LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
+LEAKED_PREFIXES = (
+    'PSTACK_KITCHEN_',
+    'KITCHEN_',
+    'PAIR_',
+    'HERDR_',
+    'REX_',
+    'PSTACK_MUX',
+)
 
 
 def inherited_env():
@@ -757,6 +764,7 @@ class CoreTests(unittest.TestCase):
                 check=False,
                 timeout=60,
                 cwd='/',
+                env={**os.environ, 'HERDR_ENV': '1'},
             )
             self.assertNotIn('bad core option', r.stderr, (kind, name, r.stderr))
             self.assertNotIn('unknown command', r.stderr, (kind, name, r.stderr))
@@ -6119,7 +6127,10 @@ class CoreTests(unittest.TestCase):
                 'on with --pane': (0, 'maintainer: mt on p7'),
                 'on with the pane of the shell': (0, 'maintainer: mt on p7'),
                 'on again replaces the registration': (0, 'maintainer: mt on p7'),
-                'on without herdr': (0, 'maintainer: mt on p7'),
+                'on without herdr': (
+                    1,
+                    'pair.sh: maintainer on needs Herdr (HERDR_ENV=1)',
+                ),
                 'on with no pane': (1, 'pair.sh: no pane: pass --pane ID'),
                 'on with an unknown option': (1, 'pair.sh: unknown option --bogus'),
                 'on for a pane with no agent': (
@@ -6380,7 +6391,10 @@ class CoreTests(unittest.TestCase):
                 'a third argument is ignored': (0, 'closed verifier v1 (p3)'),
                 'no arguments': (1, 'pair.sh: usage: kitchen.sh close'),
                 'no pair.json': (1, 'pair.sh: no pair.json in'),
-                'outside herdr': (0, 'closed verifier v1 (p3)'),
+                'outside herdr': (
+                    1,
+                    'pair.sh: not running inside Herdr (HERDR_ENV != 1)',
+                ),
             },
         )
         idle = out['an idle run closes verifier, consultant and sidekick']
@@ -6888,7 +6902,10 @@ class CoreTests(unittest.TestCase):
                 'two arguments': (1, 'pair.sh: usage: kitchen.sh take-master'),
                 'no arguments': (1, 'pair.sh: usage: kitchen.sh take-master'),
                 'no pair.json': (1, 'pair.sh: no pair.json in'),
-                'outside herdr': (0, 'closed the old master m1 (p0)'),
+                'outside herdr': (
+                    1,
+                    'pair.sh: not running inside Herdr (HERDR_ENV != 1)',
+                ),
             },
         )
         live = out['a previous master that is live']

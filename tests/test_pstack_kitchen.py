@@ -38,7 +38,14 @@ from pstack_core.store import Context  # noqa: E402
 BARE_CTX = Context('pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 20, '')
 from test_pstack_core import event_log, watch_jq  # noqa: E402
 
-LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
+LEAKED_PREFIXES = (
+    'PSTACK_KITCHEN_',
+    'KITCHEN_',
+    'PAIR_',
+    'HERDR_',
+    'REX_',
+    'PSTACK_MUX',
+)
 
 
 def inherited_env():
