@@ -176,8 +176,12 @@ class Subagents(Mux):
                 ),
                 '',
             )
+            # The master's pane is the session every subagent kitchen on the host runs from, so it keeps each kitchen's master name.
+            shared = pane == MASTER
             for old in [
-                n for n, e in doc['agents'].items() if e['pane'] == pane or n == name
+                n
+                for n, e in doc['agents'].items()
+                if n == name or (e['pane'] == pane and not shared)
             ]:
                 del doc['agents'][old]
             doc['agents'][name] = {'pane': pane, 'kind': kind}

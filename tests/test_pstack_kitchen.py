@@ -12653,7 +12653,7 @@ class SubagentKitchenTests(KitchenScriptTests):
     for the master to hand to its host's subagent tool, nothing waits, and the files the subagents write carry the run."""
 
     def mux_env(self):
-        return {'PSTACK_KITCHEN_SUBAGENT_TEST': '1'}
+        return {}
 
     def spawn_roles(self):
         out = self.run_sh('spawn', str(self.store), code=4)

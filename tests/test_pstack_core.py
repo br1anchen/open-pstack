@@ -18782,6 +18782,22 @@ class RexMuxTests(unittest.TestCase):
         with self.assertRaises(PairError):
             mux.choose({'PSTACK_MUX': 'tmux'})
 
+    def test_two_subagent_kitchens_on_one_host_keep_both_masters(self):
+        from pstack_core.mux import subagents
+
+        with tempfile.TemporaryDirectory() as state:
+            with mock.patch.dict(os.environ, {'XDG_STATE_HOME': state}):
+                m = subagents.Subagents()
+                self.assertTrue(m.rename(m.own_pane(), 'one-master'))
+                self.assertTrue(m.rename(m.own_pane(), 'two-master'))
+                pane = m.split(m.own_pane(), 'right', '/w')
+                m.start('one-sidekick', 'pi', pane, [])
+                self.assertTrue(m.rename(pane, 'one-sidekick-2'))
+                self.assertEqual(
+                    sorted(subagents.load()['agents']),
+                    ['one-master', 'one-sidekick-2', 'two-master'],
+                )
+
     def test_with_no_multiplexer_a_skill_that_allows_subagents_gets_them(self):
         choose = lambda env, allowed: type(mux.choose(env, allowed)).__name__
         self.assertEqual(choose({}, True), 'Subagents')
