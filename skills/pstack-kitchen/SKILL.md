@@ -118,9 +118,13 @@ and the store are the same; what changes is who carries each message:
   the subagent, then the next command (`wait`, `verify --wait`), which reads
   what it wrote. A `master: TEXT` line is a notice for you, already handled.
 - A rotation or failover ends the role; its next prompt goes to a fresh
-  subagent. The master is this session itself: `new-handoff` still records
-  where the run stands, but `rotate-master` needs Herdr or Rex. `prime-agent` cannot run here (it needs a multiplexer that tracks
-  its session).
+  subagent. The master is this session itself, so `rotate-master` starts
+  no new master: after `new-handoff` it records the hand-over and writes the
+  next generation's prompt to `sessions/master-g<n>-prompt.md`. End this
+  session; the human opens a new one in the same checkout, outside any
+  multiplexer, and gives it that prompt; its `take-master` takes the run
+  over in the same place. `prime-agent` cannot run here (it needs a
+  multiplexer that tracks its session).
 - Gates, Verify reruns, `land-check`, `classify`, the ledger and `retro` run
   as they do anywhere.
 

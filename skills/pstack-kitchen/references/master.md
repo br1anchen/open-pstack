@@ -212,6 +212,10 @@ place of the history:
   claude, rerun `rotate-master` and read the start-failed log), writes `sessions/master-g<n>-start-failed.log`
   with the launch command, herdr's error and the pane's screen, and changes
   nothing else; you stay the master and rotate at a later boundary.
+  With no multiplexer, `rotate-master` starts nothing: it records the
+  hand-over, writes the next generation's prompt to
+  `sessions/master-g<n>-prompt.md` and says to end this session; the human
+  gives that prompt to a new session in the same checkout.
 - `rotate-master` records the session it closes under `pair.json`
   `.master.sessions`, so a human can `claude --resume <id>` it.
   `KITCHEN_MASTER_REMOTE_CONTROL=0` starts the next master without Remote
