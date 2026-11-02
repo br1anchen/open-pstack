@@ -1,0 +1,34 @@
+id = "open-pstack.workflows"
+name = "pstack workflows"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Start a pstack kitchen, pair or trio in the focused agent's pane, see every kitchen run, and link the pstack skills."
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "kitchen"
+title = "pstack: start a kitchen in this pane"
+command = ["python3", "../pstack-action.py", "prompt", "/pstack-kitchen"]
+
+[[actions]]
+id = "pair"
+title = "pstack: start a pair in this pane"
+command = ["python3", "../pstack-action.py", "prompt", "/pstack-pair"]
+
+[[actions]]
+id = "trio"
+title = "pstack: start a trio in this pane"
+command = ["python3", "../pstack-action.py", "prompt", "/pstack-trio"]
+
+[[actions]]
+id = "sync"
+title = "pstack: link the skills into each agent"
+command = ["python3", "../pstack-action.py", "sync"]
+
+[[panes]]
+id = "fleet"
+title = "pstack kitchens"
+placement = "popup"
+width = "90%"
+height = "80%"
+command = ["python3", "../pstack-action.py", "fleet"]

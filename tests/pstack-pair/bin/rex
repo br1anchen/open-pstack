@@ -27,6 +27,7 @@ case "$1 ${2:-}" in
 	[ ! -e "$R/split-fail" ] || { printf 'rex: split failed\n' >&2; exit 1; }
 	[ "$1" = split ] && prefix=b || prefix=t
 	printf '{"block_ids":["%s"]}\n' "$(new_block "$prefix")" ;;
+"config reload") ;;
 "block inspect") need "$3"; printf '{"session_id":"session:s1","block":{"block_id":"%s"}}\n' "$3" ;;
 "block close") need "$3"; rm -rf "$(dir "$3")" ;;
 "block rename") need "$3"; printf '%s\n' "$4" >"$(dir "$3")/label" ;;

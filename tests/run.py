@@ -38,6 +38,7 @@ SUITES = [
     'test_pstack_kitchen',
     'test_pstack_pair',
     'test_pstack_playbooks',
+    'test_pstack_plugins',
     'test_pstack_sync',
     'test_pstack_token_audit',
     'test_pstack_upstream',
