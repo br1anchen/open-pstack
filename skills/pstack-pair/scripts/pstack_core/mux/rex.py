@@ -293,8 +293,14 @@ class Rex(Mux):
         known, kind = self.named(block)
         # An agent that reports no state reads idle, as Herdr's screen-read kinds do; panes.agent_status's busy-screen check turns a
         # working one back to working.
+        # An agent pstack never named goes by its block id, which every call here takes as a name.
         return Agent(
-            known, kind or pane.app, pane.state or 'idle', block, pane.cwd, None
+            known or block,
+            kind or pane.app,
+            pane.state or 'idle',
+            block,
+            pane.cwd,
+            None,
         )
 
     def screen(self, name, lines):
@@ -383,10 +389,10 @@ class Rex(Mux):
                 del agents[old]
             agents[name] = {'block': pane, 'kind': kind}
 
-        register(claim)
-        run(['block', 'rename', pane, name])
         if not self.type(pane, shlex.join([kind, *args])):
             return say(1, self.failure, message=f'cannot type into {pane}')
+        register(claim)
+        run(['block', 'rename', pane, name])
         stall = env_float('PAIR_REX_STALL_S', 15) * 1000
         up, _, held = self.poll(
             pane, min(stall, float(timeout_ms)), lambda p, s: p.running
@@ -446,7 +452,12 @@ class Rex(Mux):
         if until:
             # A turn that went working and back between two looks still stamped its report.
             seen = lambda p, s: (
-                s == until or (until == 'working' and p.stamp != before.stamp)
+                s == until
+                or (
+                    until == 'working'
+                    and p.stamp != before.stamp
+                    and s in ('working', 'idle', 'done')
+                )
             )
             last, _, held = self.poll(block, timeout_ms, seen, screen)
             if last is None:

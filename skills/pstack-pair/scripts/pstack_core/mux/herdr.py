@@ -217,6 +217,8 @@ class Herdr(Mux):
         reply = self.reply(r, capture)
         if stderr is None and r.stderr:
             sys.stderr.write(r.stderr)
+        if stderr == DEVNULL:
+            reply.err = None
         return reply
 
     def prompt(
