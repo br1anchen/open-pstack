@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 
+from .. import procinfo
 from ..errors import NotInMux
 from ..numbers import env_float
 from ..store import TEXT
@@ -105,6 +106,10 @@ def register(change):
         os.replace(f'{path}.tmp', path)
 
 
+def owner(record):
+    return field(field(record, 'owner', dict), 'pid', int)
+
+
 def kind_of(app):
     """pstack's kind for the app a block reports (`claude-code` is claude)."""
     return 'claude' if app == 'claude-code' else app
@@ -127,13 +132,13 @@ class Pane:
         # A record left by an earlier program in the block (done and error outlive it) is not this agent's: only one owned by the
         # foreground program or a process between it and the shell counts.
         mine = {field(p, 'pid', int) for p in chain[:-1]} - {None}
-        own = [
-            r
-            for r in field(status, 'records', list) or []
-            if isinstance(r, dict)
-            and field(field(r, 'owner', dict), 'pid', int) in mine
+        records = [
+            r for r in field(status, 'records', list) or [] if isinstance(r, dict)
         ]
+        own = [r for r in records if owner(r) in mine]
         self.record = own[-1] if own else None
+        # Records of other owners, which may be the agent's own children (a hook that reports for it).
+        self.others = [r for r in records if r not in own]
 
     @property
     def running(self):
@@ -185,13 +190,27 @@ class Rex(Mux):
         process = call(block, 'process')
         if process is None:
             return None
-        return Pane(process, call(block, 'program_status'))
+        pane = Pane(process, call(block, 'program_status'))
+        if pane.record is None and pane.others and pane.pid is not None:
+            below = procinfo.descendants(procinfo.from_ps(), {pane.pid}, set())
+            mine = [r for r in pane.others if owner(r) in below]
+            pane.record = mine[-1] if mine else None
+        return pane
 
     def pane_exists(self, pane):
         return run(['block', 'inspect', pane, '--json']).returncode == 0
 
     def pane_close(self, pane):
-        return run(['block', 'close', pane]).returncode == 0
+        """Closes the block and forgets the names it held."""
+        if run(['block', 'close', pane]).returncode != 0:
+            return False
+
+        def forget(agents):
+            for name in [n for n, e in agents.items() if e['block'] == pane]:
+                del agents[name]
+
+        register(forget)
+        return True
 
     def pane_screen(self, pane, lines):
         r = run(['capture', '-b', pane, '--trim'])
@@ -291,17 +310,22 @@ class Rex(Mux):
         if pane is None or not pane.running:
             return None
         known, kind = self.named(block)
-        # An agent that reports no state reads idle, as Herdr's screen-read kinds do; panes.agent_status's busy-screen check turns a
-        # working one back to working.
         # An agent pstack never named goes by its block id, which every call here takes as a name.
         return Agent(
             known or block,
             kind or pane.app,
-            pane.state or 'idle',
+            pane.state or self.screen_status(block),
             block,
             pane.cwd,
             None,
         )
+
+    def screen_status(self, block):
+        """An agent that reports no state, by two looks at its screen one poll apart: working when it changed, else idle (panes.agent_status's
+        busy-screen check still applies)."""
+        first = self.pane_screen(block, 200)[1]
+        time.sleep(env_float('PAIR_REX_POLL_S', 0.5))
+        return 'working' if self.pane_screen(block, 200)[1] != first else 'idle'
 
     def screen(self, name, lines):
         return self.pane_screen(self.block_of(name), lines)
@@ -474,8 +498,10 @@ class Rex(Mux):
             return say(1, NOT_FOUND, message=f'{name} is gone')
         if not held:
             return say(1, STALLED, message=f'{name} did not take the prompt')
-        last, status, held = self.poll(block, timeout_ms, lambda p, s: s in SETTLED)
-        if last is None:
+        last, status, held = self.poll(
+            block, timeout_ms, lambda p, s: not p.running or s in SETTLED
+        )
+        if last is None or not last.running:
             return say(1, NOT_FOUND, message=f'{name} is gone')
         if not held:
             return say(
