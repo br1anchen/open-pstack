@@ -129,6 +129,33 @@ checks below.
 Sync does not fetch upstream or delete removed skill names; remove obsolete
 generated links explicitly after reviewing their local contents.
 
+## Herdr plugin and Rex actions
+
+The workflows ship as a Herdr plugin and as Rex actions, so anyone with the
+skills linked can start them from the multiplexer's command palette. Both run
+`plugins/pstack-action.py`: `prompt` types `/pstack-kitchen` (or `/pstack-pair`,
+`/pstack-trio`) into the agent in the focused pane, `fleet` shows every kitchen
+run, and `sync` links the skills.
+
+Herdr:
+
+```bash
+herdr plugin install br1anchen/open-pstack/plugins/herdr
+```
+
+Rex has no plugin format, so `install-rex` adds one marked block to Rex's
+`init.lua` (backing the file up first), links the pi extension that reports
+pi's state to Rex, and reloads Rex's config. `--print` shows the block without
+writing, and `--uninstall` removes it:
+
+```bash
+python3 plugins/pstack-action.py install-rex
+```
+
+The block loads [`plugins/rex/pstack.lua`](plugins/rex/pstack.lua), which defines
+`pstack_kitchen`, `pstack_pair`, `pstack_trio`, `pstack_fleet` and `pstack_sync`.
+See [Running in Rex](skills/pstack-pair/references/rex.md) for what differs there.
+
 ## Runtime translation
 
 Every skill loads [runtime.md](skills/pstack/references/runtime.md), including
