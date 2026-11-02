@@ -19015,6 +19015,49 @@ class RexMuxTests(unittest.TestCase):
             self.assertFalse(self.rex.start('s1', 'claude', pane, []).ok)
         self.assertEqual(rex_mux.registry(), {})
 
+    def test_a_no_state_agent_reads_working_while_its_screen_changes(self):
+        self.r('start-state').write_text('none')
+        self.started('pi')
+        self.assertEqual(self.rex.agent('s1').status, 'idle')
+        (self.fake / 'once').mkdir()
+        # The first read arms the second, which sees the screen move.
+        second = self.fake / 'second'
+        second.write_text(f"#!/bin/sh\nprintf 'moved\\n' >'{self.block()}/screen'\n")
+        second.chmod(0o755)
+        hook = self.fake / 'once/rex-capture'
+        hook.write_text(f'#!/bin/sh\ncp \'{second}\' "$FAKE/once/rex-capture"\n')
+        hook.chmod(0o755)
+        (self.block() / 'screen').write_text('still\n')
+        self.assertEqual(self.rex.agent('s1').status, 'working')
+
+    def test_closing_a_block_forgets_the_names_it_held(self):
+        pane, _ = self.started()
+        self.assertTrue(self.rex.pane_close(pane))
+        self.assertEqual(rex_mux.registry(), {})
+
+    def test_an_agent_that_exits_mid_turn_is_gone_not_idle(self):
+        self.started()
+        (self.fake / 'once').mkdir()
+        hook = self.fake / 'once/rex-send-key'
+        hook.write_text(
+            f"#!/bin/sh\nprintf '100 zsh\\n' >'{self.block()}/fg'; rm -f '{self.block()}/state'\n"
+        )
+        hook.chmod(0o755)
+        with mock.patch.dict(os.environ, {'PAIR_REX_STALL_S': '0'}):
+            r = self.rex.prompt('s1', 'go', wait=True, timeout_ms=1000)
+        self.assertEqual((r.ok, r.error), (False, rex_mux.NOT_FOUND))
+
+    def test_a_record_from_a_child_of_the_agent_is_the_agents(self):
+        pane, _ = self.started()
+        (self.block() / 'state').write_text('working claude-code t9\n')
+        (self.block() / 'fg').write_text('300 claude\n')
+        with (
+            mock.patch.object(rex_mux.procinfo, 'descendants', return_value={200}),
+            mock.patch.object(rex_mux.procinfo, 'from_ps', return_value=[]),
+        ):
+            self.assertEqual(self.rex.look(pane).state, 'working')
+        self.assertEqual(self.rex.look(pane).state, '')
+
     def test_blocks_are_read_closed_and_measured(self):
         pane = self.rex.split('block:me', 'right', '/w')
         (self.block() / 'screen').write_text('one\ntwo\nthree\n')
