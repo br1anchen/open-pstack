@@ -3,6 +3,7 @@ name in pstack's registry, a prompt is a line on stdout (and in the role's inbox
 subagent tool, and nothing waits: the master runs the subagent, then the next command, which reads the files the subagent wrote."""
 
 import fcntl
+import hashlib
 import json
 import os
 import sys
@@ -13,6 +14,16 @@ NOT_FOUND = 'agent_not_found'
 # What ends an agent's session; to a subagent role it means the role is over, and the next prompt goes to a fresh subagent.
 EXITS = ('/exit', '/quit')
 MASTER = 'subagent:master'
+
+
+def master_pane():
+    """The pane of the master in this working directory: each kitchen's master, one per checkout, gets a pane of its own."""
+    digest = hashlib.sha1(os.path.realpath(os.getcwd()).encode()).hexdigest()[:8]
+    return f'{MASTER}:{digest}'
+
+
+def is_master(pane):
+    return pane == MASTER or pane.startswith(f'{MASTER}:')
 
 
 def state_dir():
@@ -82,7 +93,7 @@ class Subagents(Mux):
         """A single session needs nothing."""
 
     def own_pane(self):
-        return MASTER
+        return master_pane()
 
     def location(self):
         return '', ''
@@ -95,7 +106,7 @@ class Subagents(Mux):
         return {}
 
     def pane_exists(self, pane):
-        return pane == MASTER or pane in load()['panes']
+        return is_master(pane) or pane in load()['panes']
 
     def pane_close(self, pane):
         def drop(doc):
@@ -176,12 +187,8 @@ class Subagents(Mux):
                 ),
                 '',
             )
-            # The master's pane is the session every subagent kitchen on the host runs from, so it keeps each kitchen's master name.
-            shared = pane == MASTER
             for old in [
-                n
-                for n, e in doc['agents'].items()
-                if n == name or (e['pane'] == pane and not shared)
+                n for n, e in doc['agents'].items() if e['pane'] == pane or n == name
             ]:
                 del doc['agents'][old]
             doc['agents'][name] = {'pane': pane, 'kind': kind}
@@ -225,12 +232,12 @@ class Subagents(Mux):
                 sys.stderr.write(text_err)
             return Reply(1, '', text_err if stderr == PIPE else None, NOT_FOUND)
         known, e = found
-        if text in EXITS and e['pane'] != MASTER:
+        if text in EXITS and not is_master(e['pane']):
             self.end(known)
             return Reply(
                 0, '' if stdout == PIPE else None, '' if stderr == PIPE else None
             )
-        if e['pane'] == MASTER:
+        if is_master(e['pane']):
             line = f'master: {text}\n'
         else:
             line = f'subagent {known} ({e.get("kind") or "agent"}): {text}\n'

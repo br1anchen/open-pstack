@@ -12668,7 +12668,7 @@ class SubagentKitchenTests(KitchenScriptTests):
             self.spawn_out,
         )
         doc = self.state()
-        self.assertEqual(doc['master']['pane_id'], 'subagent:master')
+        self.assertTrue(doc['master']['pane_id'].startswith('subagent:master:'))
         self.assertEqual(doc['sidekick']['pane_id'], 'subagent:1')
 
     def test_a_dispatch_hands_the_brief_to_the_sidekick_subagent_and_returns(self):
