@@ -16,10 +16,11 @@ export default function (pi) {
   let tui = false;
   let active = false;
   let prompts = 0;
+  let failed = false;
   let last: string | undefined;
 
   function publish(force = false): void {
-    const state: State = prompts > 0 ? "blocked" : active ? "working" : "idle";
+    const state: State = prompts > 0 ? "blocked" : active ? "working" : failed ? "error" : "idle";
     if (!tui || (!force && state === last)) {
       return;
     }
@@ -30,6 +31,7 @@ export default function (pi) {
   pi.on("session_start", (_event, ctx) => {
     // A new session starts with no prompt open and nothing reported yet.
     prompts = 0;
+    failed = false;
     last = undefined;
     tui = ctx?.mode === "tui";
     active = ctx?.isIdle?.() === false;
@@ -37,7 +39,13 @@ export default function (pi) {
   });
   pi.on("agent_start", () => {
     active = true;
+    failed = false;
     publish();
+  });
+  // A run whose last assistant message stopped on an error (a provider failure) ends in error, not idle.
+  pi.on("agent_end", (event) => {
+    const replies = (event?.messages ?? []).filter((m) => m?.role === "assistant");
+    failed = replies.at(-1)?.stopReason === "error";
   });
   pi.on("agent_settled", (_event, ctx) => {
     // Another extension may already have started the next run; without isIdle, settled means stopped.

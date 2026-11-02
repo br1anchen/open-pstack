@@ -5783,6 +5783,29 @@ class CoreTests(unittest.TestCase):
             ],
         )
 
+    def test_a_filed_report_the_multiplexer_cannot_show_is_said_to_be_not_delivered(
+        self,
+    ):
+        sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
+        try:
+            import variant as kitchen_variant
+        finally:
+            sys.path.pop(0)
+        kitchen_variant.load_kitchen_core()
+        from kitchen_core import feedback
+
+        fb = self.path / 'fb'
+        fb.mkdir()
+        with (
+            mock.patch.object(mux, 'get', return_value=rex_mux.Rex()),
+            contextlib.redirect_stdout(io.StringIO()) as said,
+        ):
+            self.assertEqual(feedback.deliver_report(str(fb), '/fb/inbox/x.md'), 0)
+        self.assertEqual(
+            said.getvalue(),
+            'not delivered (no maintainer is registered; Rex showed no notification); read it with: cat /fb/inbox/x.md\n',
+        )
+
     def test_a_gates_mode_verification_writes_its_clean_verdict_from_the_step_rows_without_starting_a_verifier(
         self,
     ):
@@ -18831,7 +18854,7 @@ class RexMuxTests(unittest.TestCase):
 
     def test_prompt_until_working_times_out_when_the_turn_is_never_seen_working(self):
         self.started()
-        self.r('turn').write_text('idle\n')
+        self.r('swallow').touch()
         r = self.rex.prompt('s1', 'go', wait=True, until='working', timeout_ms=0)
         self.assertEqual((r.ok, r.error), (False, mux.TIMEOUT))
 
@@ -18919,6 +18942,26 @@ class RexMuxTests(unittest.TestCase):
         self.started()
         self.rex.prompt('s1', '- fix the test')
         self.assertIn('rex send -b block:b0 -- - fix the test', self.calls())
+
+    def test_a_turn_too_quick_to_be_seen_working_still_counts_for_until_working(self):
+        self.started()
+        self.r('turn').write_text('idle\n')
+        r = self.rex.prompt('s1', 'go', wait=True, until='working', timeout_ms=1000)
+        self.assertEqual((r.ok, r.error), (True, ''))
+
+    def test_a_no_state_agent_whose_quick_turn_changed_its_screen_took_the_prompt(self):
+        self.r('start-state').write_text('none')
+        self.started('pi')
+        (self.block() / 'screen').write_text('before\n')
+        mkonce = self.fake / 'once'
+        mkonce.mkdir()
+        hook = mkonce / 'rex-send'
+        hook.write_text(f"#!/bin/sh\nprintf 'after\\n' >'{self.block()}/screen'\n")
+        hook.chmod(0o755)
+        with mock.patch.dict(os.environ, {'PAIR_REX_STALL_S': '0'}):
+            r = self.rex.prompt('s1', 'go', wait=True, timeout_ms=1000)
+        self.assertEqual((r.ok, r.status), (True, 'idle'))
+        self.assertEqual(self.rex.prompt('s1', 'x').status, 'idle')
 
     def test_blocks_are_read_closed_and_measured(self):
         pane = self.rex.split('block:me', 'right', '/w')
