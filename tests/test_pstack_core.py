@@ -18785,17 +18785,26 @@ class RexMuxTests(unittest.TestCase):
     def test_two_subagent_kitchens_on_one_host_keep_both_masters(self):
         from pstack_core.mux import subagents
 
-        with tempfile.TemporaryDirectory() as state:
+        with (
+            tempfile.TemporaryDirectory() as state,
+            tempfile.TemporaryDirectory() as a,
+            tempfile.TemporaryDirectory() as b,
+        ):
             with mock.patch.dict(os.environ, {'XDG_STATE_HOME': state}):
                 m = subagents.Subagents()
-                self.assertTrue(m.rename(m.own_pane(), 'one-master'))
-                self.assertTrue(m.rename(m.own_pane(), 'two-master'))
-                pane = m.split(m.own_pane(), 'right', '/w')
-                m.start('one-sidekick', 'pi', pane, [])
-                self.assertTrue(m.rename(pane, 'one-sidekick-2'))
+                here = os.getcwd()
+                try:
+                    os.chdir(a)
+                    one = m.own_pane()
+                    self.assertTrue(m.rename(one, 'one-master'))
+                    os.chdir(b)
+                    two = m.own_pane()
+                    self.assertTrue(m.rename(two, 'two-master'))
+                finally:
+                    os.chdir(here)
+                self.assertNotEqual(one, two)
                 self.assertEqual(
-                    sorted(subagents.load()['agents']),
-                    ['one-master', 'one-sidekick-2', 'two-master'],
+                    (m.agent(one).name, m.agent(two).name), ('one-master', 'two-master')
                 )
 
     def test_with_no_multiplexer_a_skill_that_allows_subagents_gets_them(self):
