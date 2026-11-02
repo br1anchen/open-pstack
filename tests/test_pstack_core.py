@@ -18989,6 +18989,15 @@ class RexMuxTests(unittest.TestCase):
             ['rex send', 'rex capture', 'rex send-key'],
         )
 
+    def test_wait_without_until_polls_through_a_turn_until_it_ends(self):
+        self.started()
+        self.r('turn').write_text('working\nworking\nworking\ndone\n')
+        self.rex.prompt('s1', 'go')
+        r = self.rex.wait('s1', timeout_ms=1000)
+        self.assertEqual((r.ok, r.status), (True, 'done'))
+        looks = [c for c in self.calls() if c.endswith(' program_status')]
+        self.assertGreaterEqual(len(looks), 4)
+
     def test_blocks_are_read_closed_and_measured(self):
         pane = self.rex.split('block:me', 'right', '/w')
         (self.block() / 'screen').write_text('one\ntwo\nthree\n')

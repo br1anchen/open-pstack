@@ -432,9 +432,12 @@ class Rex(Mux):
                 1, NOT_READY, message=f'{name} is no longer the foreground of {block}'
             )
         # The screen of an agent that reports no state is read once the text is typed and before Enter submits it, so the echo of the
-        # text does not count as the agent taking it.
+        # text does not count as the agent taking it; the echo gets one poll interval to land.
         typed = run(['send', '-b', block, '--', text]).returncode == 0
-        screen = None if before.state else self.pane_screen(block, 200)[1]
+        screen = None
+        if not before.state:
+            time.sleep(env_float('PAIR_REX_POLL_S', 0.5))
+            screen = self.pane_screen(block, 200)[1]
         if not (typed and run(['send-key', '-b', block, 'enter']).returncode == 0):
             return say(1, self.failure, message=f'cannot type into {block}')
         if not wait:
