@@ -12635,6 +12635,9 @@ class KitchenRexTests(KitchenScriptTests):
         }
 
 
+assert set(KitchenRexTests.KEEP) <= set(dir(KitchenScriptTests)), (
+    'a KitchenRexTests.KEEP name is no KitchenScriptTests test'
+)
 for _name in dir(KitchenScriptTests):
     if _name.startswith('test_') and _name not in KitchenRexTests.KEEP:
         setattr(KitchenRexTests, _name, None)

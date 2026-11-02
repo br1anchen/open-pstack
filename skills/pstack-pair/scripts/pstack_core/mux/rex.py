@@ -5,6 +5,7 @@ an agent is a name pstack gives a block, kept in its own registry, and an agent'
 import fcntl
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -21,6 +22,7 @@ from .base import (
     PIPE,
     STALLED,
     TIMEOUT,
+    TRUST_RE,
     Agent,
     Mux,
     Process,
@@ -205,7 +207,9 @@ class Rex(Mux):
 
     def pane_size(self, pane):
         size = call(pane, 'size')
-        return None if size is None else (size.get('columns'), size.get('rows'))
+        return (
+            (size.get('columns'), size.get('rows')) if isinstance(size, dict) else None
+        )
 
     def shell(self, env):
         """The command a new block runs: the login shell, carrying env, or none (Rex's own) when there is no env."""
@@ -396,7 +400,11 @@ class Rex(Mux):
             return say(1, START_FAILED, f'{kind} exited in {pane}')
         if not held:
             return say(1, TIMEOUT, f'{kind} did not settle in {timeout_ms}ms')
-        if status == 'blocked':
+        # An agent that reports no state shows its folder-trust dialog only on screen.
+        dialog = not last.state and TRUST_RE.search(
+            re.sub(r'[\n\t ]+', ' ', self.pane_screen(pane, 40)[1])
+        )
+        if status == 'blocked' or dialog:
             return say(1, NOT_READY, 'blocked during startup')
         return say(0)
 
@@ -423,8 +431,11 @@ class Rex(Mux):
             return say(
                 1, NOT_READY, message=f'{name} is no longer the foreground of {block}'
             )
+        # The screen of an agent that reports no state is read once the text is typed and before Enter submits it, so the echo of the
+        # text does not count as the agent taking it.
+        typed = run(['send', '-b', block, '--', text]).returncode == 0
         screen = None if before.state else self.pane_screen(block, 200)[1]
-        if not self.type(block, text):
+        if not (typed and run(['send-key', '-b', block, 'enter']).returncode == 0):
             return say(1, self.failure, message=f'cannot type into {block}')
         if not wait:
             return say(0, status=before.state or 'idle')
