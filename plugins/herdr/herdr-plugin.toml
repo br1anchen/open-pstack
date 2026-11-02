@@ -8,22 +8,22 @@ platforms = ["linux", "macos"]
 [[actions]]
 id = "kitchen"
 title = "pstack: start a kitchen in this pane"
-command = ["python3", "../pstack-action.py", "prompt", "/pstack-kitchen"]
+command = ["python3", "run.py", "prompt", "/pstack-kitchen"]
 
 [[actions]]
 id = "pair"
 title = "pstack: start a pair in this pane"
-command = ["python3", "../pstack-action.py", "prompt", "/pstack-pair"]
+command = ["python3", "run.py", "prompt", "/pstack-pair"]
 
 [[actions]]
 id = "trio"
 title = "pstack: start a trio in this pane"
-command = ["python3", "../pstack-action.py", "prompt", "/pstack-trio"]
+command = ["python3", "run.py", "prompt", "/pstack-trio"]
 
 [[actions]]
 id = "sync"
 title = "pstack: link the skills into each agent"
-command = ["python3", "../pstack-action.py", "sync"]
+command = ["python3", "run.py", "sync"]
 
 [[panes]]
 id = "fleet"
@@ -31,4 +31,4 @@ title = "pstack kitchens"
 placement = "popup"
 width = "90%"
 height = "80%"
-command = ["python3", "../pstack-action.py", "fleet"]
+command = ["python3", "run.py", "fleet"]

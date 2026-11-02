@@ -62,9 +62,16 @@ def rex_config():
     return Path(os.environ.get('REX_CONFIG') or Path(home) / 'rex/init.lua')
 
 
+def lua_string(text):
+    """A Lua string literal for text."""
+    return (
+        '"' + text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n') + '"'
+    )
+
+
 def rex_block():
     lua = ROOT / 'plugins/rex/pstack.lua'
-    return f'{BEGIN}\ndofile({str(lua)!r})({str(ROOT)!r})\n{END}\n'.replace("'", '"')
+    return f'{BEGIN}\ndofile({lua_string(str(lua))})({lua_string(str(ROOT))})\n{END}\n'
 
 
 def without_block(text):
@@ -72,6 +79,10 @@ def without_block(text):
     if BEGIN not in text:
         return text
     head, _, rest = text.partition(BEGIN)
+    if END + '\n' not in rest:
+        raise SystemExit(
+            f'pstack: {rex_config()} has "{BEGIN}" but no "{END}" line after it; fix the block by hand'
+        )
     _, _, tail = rest.partition(END + '\n')
     return head.rstrip('\n') + ('\n' if head.strip() else '') + tail
 
@@ -104,6 +115,8 @@ def install_rex(args):
         if link.is_symlink():
             link.unlink()
     elif link.parent.is_dir() and not link.exists():
+        if link.is_symlink():
+            link.unlink()
         link.symlink_to(ROOT / 'plugins/rex/agents/pi-program-status.ts')
         print(f'pi extension: {link}')
     if shutil.which('rex'):
