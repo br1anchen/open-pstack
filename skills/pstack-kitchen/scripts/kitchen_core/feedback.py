@@ -330,7 +330,12 @@ def deliver_report(fb, path):
             sys.stdout.write(f'delivered: to maintainer {registered(record, "name")}\n')
             return 0
     problem = problem or 'the prompt to the maintainer failed'
-    mux.get().notify('pstack-kitchen: feedback filed', path)
+    m = mux.get()
+    if not m.notify('pstack-kitchen: feedback filed', path):
+        sys.stdout.write(
+            f'not delivered ({problem}; {m.label} showed no notification); read it with: cat {path}\n'
+        )
+        return 0
     sys.stdout.write(
         f'delivered: notification for the human ({problem}); read it with: cat {path}\n'
     )

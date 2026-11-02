@@ -333,13 +333,14 @@ class Rex(Mux):
         out = text if stderr == MERGED else ('' if stdout == PIPE else None)
         return Reply(code, out, err, error, status)
 
-    def poll(self, block, timeout_ms, done):
+    def poll(self, block, timeout_ms, done, screen=None):
         """Looks at the block every PAIR_REX_POLL_S until done(pane, status) holds or timeout_ms (None: no limit) passes. The status is the
         reported one, or, for an agent that reports none, read from its screen: working once it has changed, idle after QUIET looks in a row
-        at an unchanged one, unknown before either. (pane, status, held) at the last look; pane None when the block is gone."""
+        at an unchanged one, unknown before either, counted from `screen` when the caller read it before acting. (pane, status, held) at the
+        last look; pane None when the block is gone."""
         limit = float('inf') if timeout_ms is None else float(timeout_ms) / 1000
         deadline = time.monotonic() + limit
-        screen, quiet = None, 0
+        quiet = 0
         while True:
             pane = self.look(block)
             if pane is None:
@@ -422,13 +423,18 @@ class Rex(Mux):
             return say(
                 1, NOT_READY, message=f'{name} is no longer the foreground of {block}'
             )
+        screen = None if before.state else self.pane_screen(block, 200)[1]
         if not self.type(block, text):
             return say(1, self.failure, message=f'cannot type into {block}')
         if not wait:
-            return say(0, status=before.state or 'unknown')
+            return say(0, status=before.state or 'idle')
         timeout_ms = WAIT_MS if timeout_ms is None else timeout_ms
         if until:
-            last, _, held = self.poll(block, timeout_ms, lambda p, s: s == until)
+            # A turn that went working and back between two looks still stamped its report.
+            seen = lambda p, s: (
+                s == until or (until == 'working' and p.stamp != before.stamp)
+            )
+            last, _, held = self.poll(block, timeout_ms, seen, screen)
             if last is None:
                 return say(1, NOT_FOUND, message=f'{name} is gone')
             return (
@@ -438,7 +444,7 @@ class Rex(Mux):
             )
         stall = env_float('PAIR_REX_STALL_S', 15) * 1000
         took = lambda p, s: p.stamp != before.stamp or s in ('working', 'blocked')
-        last, _, held = self.poll(block, min(stall, float(timeout_ms)), took)
+        last, _, held = self.poll(block, min(stall, float(timeout_ms)), took, screen)
         if last is None:
             return say(1, NOT_FOUND, message=f'{name} is gone')
         if not held:
