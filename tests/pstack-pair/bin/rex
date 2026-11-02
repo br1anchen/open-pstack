@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Fake rex for the Rex backend's tests. State lives in $FAKE/rex/blocks/<id>/: `fg` ("pid name"; pid 100 is the block's shell, 200 its
+# agent), `state` ("state app stamp", what the agent reports), `queue` (states the next program_status calls report, one per call),
+# `screen` (the block's text) and `label`. Every call is logged to $FAKE/calls.log as "rex ...".
+set -u
+: "${FAKE:?}"
+R="$FAKE/rex"
+mkdir -p "$R/blocks"
+printf 'rex %s\n' "$*" >>"$FAKE/calls.log"
+# $FAKE/once/rex-<command>: a script run once, at the next call of that command, so a test changes state at a set point.
+if [ -x "$FAKE/once/rex-$1" ]; then
+	mv "$FAKE/once/rex-$1" "$FAKE/once/rex-$1.ran"
+	"$FAKE/once/rex-$1.ran"
+fi
+dir() { printf '%s/blocks/%s' "$R" "${1//:/_}"; }
+need() { [ -d "$(dir "$1")" ] || { printf 'rex: block %s not found\n' "$1" >&2; exit 3; }; }
+# The value after -b among the arguments.
+block_arg() { while [ $# -gt 0 ]; do [ "$1" = -b ] && { printf '%s' "$2"; return; }; shift; done; }
+stamp() { n=$(( $(cat "$R/clock" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$R/clock"; printf 't%s' "$n"; }
+new_block() {
+	n=$(ls "$R/blocks" | wc -l | tr -d ' '); id="block:$1$n"; d="$(dir "$id")"; mkdir -p "$d"
+	printf '100 zsh\n' >"$d/fg"; printf '%s\n' "$id"
+}
+to_shell() { d="$(dir "$1")"; printf '100 zsh\n' >"$d/fg"; rm -f "$d/state" "$d/queue"; }
+case "$1 ${2:-}" in
+"split "* | "window new")
+	[ ! -e "$R/split-fail" ] || { printf 'rex: split failed\n' >&2; exit 1; }
+	[ "$1" = split ] && prefix=b || prefix=t
+	printf '{"block_ids":["%s"]}\n' "$(new_block "$prefix")" ;;
+"block inspect") need "$3"; printf '{"session_id":"session:s1","block":{"block_id":"%s"}}\n' "$3" ;;
+"block close") need "$3"; rm -rf "$(dir "$3")" ;;
+"block rename") need "$3"; printf '%s\n' "$4" >"$(dir "$3")/label" ;;
+"block call")
+	b="$(block_arg "$@")"; need "$b"; d="$(dir "$b")"
+	method="${*: -1}"
+	read -r pid name <"$d/fg"
+	case "$method" in
+	process)
+		if [ "$pid" = 100 ]; then
+			printf '{"foreground":{"pid":100,"name":"zsh","cwd":"/w"},"ancestors":[{"pid":1,"name":"login"}]}\n'
+		else
+			printf '{"foreground":{"pid":%s,"name":"%s","cwd":"/w"},"ancestors":[{"pid":100,"name":"zsh"},{"pid":1,"name":"login"}]}\n' "$pid" "$name"
+		fi ;;
+	program_status)
+		if [ -s "$d/queue" ] && [ -f "$d/state" ]; then
+			read -r _ app _ <"$d/state"; next="$(head -1 "$d/queue")"; tail -n +2 "$d/queue" >"$d/queue.tmp"; mv "$d/queue.tmp" "$d/queue"
+			printf '%s %s %s\n' "$next" "$app" "$(stamp)" >"$d/state"
+		fi
+		if [ -f "$d/state" ]; then
+			read -r state app at <"$d/state"
+			printf '{"records":[{"state":"%s","app":"%s","updated_at":"%s","owner":{"pid":200}}]}\n' "$state" "$app" "$at"
+		else printf '{"records":[]}\n'; fi ;;
+	size) if [ -f "$R/size" ]; then read -r w h <"$R/size"; else w=200; h=50; fi; printf '{"columns":%s,"rows":%s}\n' "$w" "$h" ;;
+	*) printf 'fake rex: unhandled method %s\n' "$method" >&2; exit 2 ;;
+	esac ;;
+"capture "*)
+	b="$(block_arg "$@")"; need "$b"; d="$(dir "$b")"
+	if [ -f "$d/screen" ]; then cat "$d/screen"; else printf 'block text\n'; fi ;;
+"send "*)
+	b="$(block_arg "$@")"; need "$b"; d="$(dir "$b")"; text="${*: -1}"
+	printf '%s\n' "$text" >>"$d/typed"
+	read -r pid _ <"$d/fg"
+	if [ "$pid" = 100 ]; then
+		# Typed at the shell: the command's first word starts as the agent. $R/start-state is the state it opens in (idle by default;
+		# "none": it reports no state); $R/start-exits: it exits at once.
+		[ ! -e "$R/start-exits" ] && printf '200 %s\n' "${text%% *}" >"$d/fg"
+		st="$(cat "$R/start-state" 2>/dev/null || echo idle)"
+		app="${text%% *}"; [ "$app" != claude ] || app=claude-code
+		[ "$st" = none ] || [ -e "$R/start-exits" ] || printf '%s %s %s\n' "$st" "$app" "$(stamp)" >"$d/state"
+	elif [ "$text" = /exit ] || [ "$text" = /quit ]; then to_shell "$b"
+	elif [ -f "$d/state" ] && [ ! -e "$R/swallow" ]; then
+		# A prompt the agent takes: its turn is $R/turn's states, one per look (working then idle by default).
+		cat "$R/turn" 2>/dev/null >"$d/queue" || printf 'working\nidle\n' >"$d/queue"
+		[ -x "$FAKE/hook" ] && "$FAKE/hook" "$(cat "$d/label" 2>/dev/null)" "$text"
+	fi ;;
+"send-key "*)
+	b="$(block_arg "$@")"; need "$b"
+	[ "${*: -1}" != ctrl+d ] || to_shell "$b" ;;
+*) printf 'fake rex: unhandled %s\n' "$*" >&2; exit 2 ;;
+esac
+exit 0

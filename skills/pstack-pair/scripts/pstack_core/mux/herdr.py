@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-from ..errors import NotInHerdr
+from ..errors import NotInMux
 from ..numbers import env_float
 from ..store import TEXT
 from .base import DEVNULL, MERGED, PANE_BUSY, PIPE, Agent, Mux, Process, Reply
@@ -66,7 +66,7 @@ class Herdr(Mux):
 
     def require(self, what=None):
         if os.environ.get('HERDR_ENV') != '1':
-            raise NotInHerdr(what)
+            raise NotInMux(what or 'not running inside Herdr (HERDR_ENV != 1)')
 
     def own_pane(self):
         return os.environ.get(self.pane_var, '')

@@ -77,11 +77,8 @@ class BadSlug(PairError):
     """A name for a file under the store is not lowercase letters, digits, underscore and hyphen."""
 
 
-class NotInHerdr(PairError):
-    """The command needs Herdr and HERDR_ENV is not 1."""
-
-    def __init__(self, message=None):
-        super().__init__(message or 'not running inside Herdr (HERDR_ENV != 1)')
+class NotInMux(PairError):
+    """The command needs a multiplexer and does not run inside the one chosen; the backend words the message."""
 
 
 class Paused(PairError):

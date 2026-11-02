@@ -65,7 +65,7 @@ from pstack_core.errors import (  # noqa: E402
     LockHeld,
     MissingStore,
     NoBrief,
-    NotInHerdr,
+    NotInMux,
     PairError,
     PairJsonGone,
     Paused,
@@ -80,6 +80,7 @@ from pstack_core.errors import (  # noqa: E402
     translate,
 )
 from pstack_core.mux import herdr as herdr_mux  # noqa: E402
+from pstack_core.mux import rex as rex_mux  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.variant import Variant, load_module, load_skill_variant  # noqa: E402
 
@@ -18492,12 +18493,12 @@ class HerdrCallTests(unittest.TestCase):
 
     def test_require_mux_says_the_default_or_the_callers_message_outside_herdr(self):
         with mock.patch.dict(os.environ, {'HERDR_ENV': '0'}):
-            with self.assertRaises(NotInHerdr) as caught:
+            with self.assertRaises(NotInMux) as caught:
                 panes.require_mux()
             self.assertEqual(
                 str(caught.exception), 'not running inside Herdr (HERDR_ENV != 1)'
             )
-            with self.assertRaises(NotInHerdr) as caught:
+            with self.assertRaises(NotInMux) as caught:
                 panes.require_mux('maintainer on needs Herdr (HERDR_ENV=1)')
             self.assertEqual(
                 str(caught.exception), 'maintainer on needs Herdr (HERDR_ENV=1)'
@@ -18591,7 +18592,7 @@ class MuxSeamTests(unittest.TestCase):
         'pstack-kitchen/scripts',
     )
 
-    def test_no_module_outside_mux_runs_herdr_or_reads_its_variables(self):
+    def test_no_module_outside_mux_runs_a_multiplexer_or_reads_its_variables(self):
         stray = []
         for skill in self.SOURCES:
             for path in sorted(
@@ -18606,7 +18607,10 @@ class MuxSeamTests(unittest.TestCase):
                     for node in ast.walk(ast.parse(path.read_text(), str(path)))
                     if isinstance(node, ast.Constant)
                     and isinstance(node.value, str)
-                    and (node.value == 'herdr' or node.value.startswith('HERDR_'))
+                    and (
+                        node.value in ('herdr', 'rex')
+                        or node.value.startswith(('HERDR_', 'REX_'))
+                    )
                 ]
         self.assertEqual(stray, [])
 
@@ -18704,6 +18708,199 @@ class MuxSeamTests(unittest.TestCase):
             )
         )
         self.assertEqual((done.ok, done.error, done.status), (True, '', 'done'))
+
+
+class RexMuxTests(unittest.TestCase):
+    """The Rex backend against the fake rex: blocks named as agents in pstack's registry, and an agent's status from what it reports to
+    its block, or from its screen when it reports nothing."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.fake = Path(tmp.name) / 'fake'
+        (self.fake / 'rex').mkdir(parents=True)
+        env = {
+            'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
+            'FAKE': str(self.fake),
+            'XDG_STATE_HOME': str(Path(tmp.name) / 'state'),
+            'PAIR_REX_POLL_S': '0',
+            'REX_BLOCK': 'block:me',
+            'REX_SESSION': 'session:s1',
+        }
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.rex = rex_mux.Rex()
+
+    def r(self, name):
+        return self.fake / 'rex' / name
+
+    def block(self, name='b0'):
+        return self.r('blocks') / f'block_{name}'
+
+    def calls(self):
+        return (self.fake / 'calls.log').read_text().splitlines()
+
+    def started(self, kind='claude', args=('--model', 'm')):
+        pane = self.rex.split('block:me', 'right', '/w')
+        return pane, self.rex.start('s1', kind, pane, list(args))
+
+    def test_choose_takes_pstack_mux_then_herdr_env_then_rex_block_and_herdr_otherwise(
+        self,
+    ):
+        choose = lambda env: type(mux.choose(env)).__name__
+        self.assertEqual(choose({'PSTACK_MUX': 'rex', 'HERDR_ENV': '1'}), 'Rex')
+        self.assertEqual(choose({'PSTACK_MUX': 'herdr', 'REX_BLOCK': 'b'}), 'Herdr')
+        self.assertEqual(choose({'HERDR_ENV': '1', 'REX_BLOCK': 'b'}), 'Herdr')
+        self.assertEqual(choose({'REX_BLOCK': 'b'}), 'Rex')
+        self.assertEqual(choose({}), 'Herdr')
+        with self.assertRaises(PairError):
+            mux.choose({'PSTACK_MUX': 'tmux'})
+
+    def test_require_refuses_outside_a_rex_block(self):
+        self.rex.require()
+        with mock.patch.dict(os.environ, {'REX_BLOCK': ''}):
+            with self.assertRaises(NotInMux) as caught:
+                self.rex.require()
+            self.assertEqual(
+                str(caught.exception), 'not running inside Rex (REX_BLOCK unset)'
+            )
+
+    def test_split_places_an_unfocused_block_and_starts_the_login_shell_with_the_env(
+        self,
+    ):
+        with mock.patch.dict(os.environ, {'SHELL': '/bin/zsh'}):
+            pane = self.rex.split('block:me', 'down', '/w', ('A=1',))
+        self.assertEqual(pane, 'block:b0')
+        self.assertEqual(
+            self.calls()[-1],
+            'rex split -b block:me --split below --focus=false -c /w --json --shell none -- env A=1 /bin/zsh -l',
+        )
+
+    def test_tab_opens_a_window_in_the_session_of_the_block_it_is_near(self):
+        near = self.rex.split('block:me', 'right', '/w')
+        self.assertEqual(self.rex.tab(near, 'demo-sidekick', '/w'), 'block:t1')
+        self.assertEqual(
+            self.calls()[-1],
+            'rex window new -s session:s1 demo-sidekick --focus=false -c /w --json',
+        )
+
+    def test_start_types_the_kind_and_its_args_and_names_the_block_as_the_agent(self):
+        pane, r = self.started()
+        self.assertEqual((r.ok, r.error), (True, ''))
+        self.assertEqual((self.block() / 'typed').read_text(), 'claude --model m\n')
+        self.assertIn(f'rex block rename {pane} s1', self.calls())
+        agent = self.rex.agent('s1')
+        self.assertEqual(
+            (agent.name, agent.kind, agent.status, agent.pane),
+            ('s1', 'claude', 'idle', pane),
+        )
+        self.assertEqual(self.rex.agent(pane).name, 's1')
+
+    def test_start_refuses_a_block_whose_foreground_is_not_its_shell(self):
+        pane, _ = self.started()
+        r = self.rex.start('s2', 'claude', pane, [], stderr=mux.PIPE)
+        self.assertEqual((r.ok, r.error), (False, mux.PANE_BUSY))
+        self.assertIn('agent_pane_busy', r.err)
+
+    def test_an_agent_that_opens_blocked_is_not_ready(self):
+        self.r('start-state').write_text('blocked')
+        _, r = self.started()
+        self.assertEqual((r.ok, r.error), (False, mux.NOT_READY))
+
+    def test_an_agent_that_exits_at_once_failed_to_start(self):
+        self.r('start-exits').touch()
+        with mock.patch.dict(os.environ, {'PAIR_REX_STALL_S': '0'}):
+            _, r = self.started()
+        self.assertEqual((r.ok, r.error), (False, rex_mux.START_FAILED))
+
+    def test_an_agent_that_reports_no_state_is_ready_once_its_screen_is_quiet_and_reads_unknown(
+        self,
+    ):
+        self.r('start-state').write_text('none')
+        _, r = self.started('pi')
+        self.assertTrue(r.ok)
+        agent = self.rex.agent('s1')
+        self.assertEqual((agent.kind, agent.status), ('pi', 'unknown'))
+
+    def test_prompt_until_working_returns_when_the_agent_reports_working(self):
+        self.started()
+        r = self.rex.prompt('s1', 'go', wait=True, until='working', timeout_ms=0)
+        self.assertEqual((r.ok, r.status), (True, 'working'))
+        self.assertEqual((self.block() / 'typed').read_text().splitlines()[-1], 'go')
+
+    def test_prompt_until_working_times_out_when_the_turn_is_never_seen_working(self):
+        self.started()
+        self.r('turn').write_text('idle\n')
+        r = self.rex.prompt('s1', 'go', wait=True, until='working', timeout_ms=0)
+        self.assertEqual((r.ok, r.error), (False, mux.TIMEOUT))
+
+    def test_prompt_wait_follows_the_turn_until_it_settles(self):
+        self.started()
+        self.r('turn').write_text('working\nworking\ndone\n')
+        r = self.rex.prompt('s1', 'go', wait=True, timeout_ms=1000)
+        self.assertEqual((r.ok, r.status), (True, 'done'))
+
+    def test_a_prompt_the_agent_never_takes_is_stalled(self):
+        self.started()
+        self.r('swallow').touch()
+        with mock.patch.dict(os.environ, {'PAIR_REX_STALL_S': '0'}):
+            r = self.rex.prompt('s1', 'go', wait=True, timeout_ms=1000)
+        self.assertEqual((r.ok, r.error), (False, mux.STALLED))
+
+    def test_wait_returns_the_status_the_agent_reaches(self):
+        self.started()
+        self.r('turn').write_text('working\nworking\nblocked\n')
+        self.rex.prompt('s1', 'go')
+        r = self.rex.wait('s1', ('idle', 'done', 'blocked'), 1000)
+        self.assertEqual((r.ok, r.status), (True, 'blocked'))
+
+    def test_an_exited_agent_is_absent_and_its_shell_owns_the_foreground(self):
+        pane, _ = self.started()
+        running = self.rex.processes(pane)
+        self.assertEqual((running.shell_pid, running.foreground_group), (100, 200))
+        self.rex.prompt('s1', '/exit', stderr=mux.MERGED)
+        self.assertIsNone(self.rex.agent('s1'))
+        gone = self.rex.processes(pane)
+        self.assertEqual((gone.shell_pid, gone.foreground_group), (100, 100))
+        r = self.rex.prompt('s1', 'go', stderr=mux.MERGED)
+        self.assertEqual(r.error, mux.NOT_READY)
+        self.assertIn('no longer the foreground', r.out)
+
+    def test_rename_moves_the_name_and_keeps_the_kind(self):
+        pane, _ = self.started('codex')
+        self.assertTrue(self.rex.rename('s1', 'demo-sidekick'))
+        self.assertIsNone(rex_mux.registry().get('s1'))
+        self.assertEqual(self.rex.agent('demo-sidekick').kind, 'codex')
+        self.assertFalse(self.rex.rename('block:gone', 'x'))
+
+    def test_a_named_block_with_no_kind_takes_the_kind_its_agent_reports(self):
+        pane = self.rex.split('block:me', 'right', '/w')
+        self.rex.rename(pane, 'demo-master')
+        self.rex.pane_key(pane, 'esc')
+        self.assertEqual(self.calls()[-1], f'rex send-key -b {pane} escape')
+        (self.block() / 'typed').write_text('')
+        self.rex.type(pane, 'claude')
+        self.assertEqual(self.rex.agent('demo-master').kind, 'claude')
+
+    def test_blocks_are_read_closed_and_measured(self):
+        pane = self.rex.split('block:me', 'right', '/w')
+        (self.block() / 'screen').write_text('one\ntwo\nthree\n')
+        self.assertEqual(self.rex.pane_screen(pane, 2), (0, 'two\nthree\n'))
+        self.assertEqual(self.rex.pane_size(pane), (200, 50))
+        self.assertTrue(self.rex.pane_exists(pane))
+        self.assertTrue(self.rex.pane_close(pane))
+        self.assertFalse(self.rex.pane_exists(pane))
+        self.assertIsNone(self.rex.pane_size(pane))
+        self.assertIsNone(self.rex.processes(pane))
+
+    def test_the_block_variable_marks_a_blocks_processes_and_is_cleared_for_a_one_shot(
+        self,
+    ):
+        self.assertEqual(self.rex.pane_env('block:b0', {}), ['REX_BLOCK=block:b0'])
+        self.assertEqual(self.rex.outside_env(), {'REX_BLOCK': '', 'REX_SESSION': ''})
+        self.assertEqual(self.rex.own_pane(), 'block:me')
+        self.assertFalse(self.rex.notify('t', 'b'))
 
 
 class AgentStartRetryTests(unittest.TestCase):
