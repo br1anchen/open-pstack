@@ -293,6 +293,11 @@ def rotate_master(ctx, args):
     require_mux()
     if not args:
         raise Die('usage: kitchen.sh rotate-master <store> [--model MODEL]')
+    if not mux.get().starts_master:
+        raise RotateRefused(
+            'with no multiplexer the master is this session, so no new master can start beside it; write the handoff '
+            '(kitchen.sh new-handoff) and keep going, or run the kitchen in Herdr or Rex to rotate'
+        )
     store = args[0]
     model = read_options(args[1:], Spec(valued=('--model',))).last('--model', '')
     pair_file(store)

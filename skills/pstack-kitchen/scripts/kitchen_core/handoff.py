@@ -5,6 +5,7 @@ import os
 import sys
 import time
 
+from pstack_core import mux
 from pstack_core.errors import Die
 from pstack_core.replies import queued_brief
 from pstack_core.store import (
@@ -84,7 +85,20 @@ def new_handoff(ctx, args):
         ),
     )
     sys.stdout.write(path + '\n')
-    sys.stdout.write(
-        f'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master {store}\n'
+    then = (
+        f'then kitchen.sh rotate-master {store}'
+        if mux.get().starts_master
+        else 'it is the record a later session starts from (with no multiplexer there is no rotate-master)'
     )
+    sys.stdout.write(f'next: fill it (Goal, Decisions, Next; correct Units), {then}\n')
     return 0
+
+
+def rotation_step(store):
+    """What the master runs to rotate: the handoff then rotate-master, or, when the master is the one session (no multiplexer), the handoff
+    alone, which a later session reads."""
+    if mux.get().starts_master:
+        return (
+            f'kitchen.sh new-handoff {store}, fill it, kitchen.sh rotate-master {store}'
+        )
+    return f'kitchen.sh new-handoff {store} and fill it; with no multiplexer this session stays the master (rotate-master needs Herdr or Rex)'

@@ -45,6 +45,8 @@ from pstack_core.store import (
     write_text,
 )
 
+from .handoff import rotation_step
+
 
 def hostname():
     return os.environ.get('HOSTNAME') or socket.gethostname() or 'localhost'
@@ -277,9 +279,7 @@ def handoff_due(store, say=None, landing=False):
 
     update(store, bump)
     n = read_int(store, 'master.units_since_handoff')
-    handoff = (
-        f'kitchen.sh new-handoff {store}, fill it, kitchen.sh rotate-master {store}'
-    )
+    handoff = rotation_step(store)
     if landing and work_left(store):
         line = f'master: a clean landing verdict ends an issue; rotate at this boundary ({n} units verified since your last handoff): {handoff}\n'
     elif landing:

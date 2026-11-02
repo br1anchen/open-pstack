@@ -21,6 +21,7 @@ from pstack_core.store import field, get, pair_file, risk_of
 from pstack_core.wait import default_signals
 
 from .classify import classify_brief
+from .handoff import rotation_step
 from .landing import is_landing, land_check_problems
 from .playbook_delivery import deliver, deliver_plan_blocks
 from .units import has_pair
@@ -34,8 +35,7 @@ def remind_landed(store):
     """Advisory only: once a clean landing verdict has been seen, every dispatch and discuss says to rotate until rotate-master clears it."""
     if get(store, 'master.landed_since_handoff') is True:
         sys.stdout.write(
-            f'master: a landing was verified since your last handoff; rotate before the next issue: kitchen.sh new-handoff {store}, fill it, '
-            f'kitchen.sh rotate-master {store}\n'
+            f'master: a landing was verified since your last handoff; rotate before the next issue: {rotation_step(store)}\n'
         )
 
 

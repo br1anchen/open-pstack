@@ -86,6 +86,7 @@ class Subagents(Mux):
     pane_var = ''
     inside = 'a single session'
     tracks_sessions = False
+    starts_master = False
     # Nothing in this process can wait for a subagent: the master runs it after the command returns.
     waits = False
 
