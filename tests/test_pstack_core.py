@@ -13809,7 +13809,7 @@ class CoreTests(unittest.TestCase):
             ),
             'a slug that is not one': (
                 1,
-                "pair.sh: slug must match [a-z][a-z0-9_-]{0,20} (so <slug>-consultant fits Herdr's 32-char name limit)",
+                'pair.sh: slug must match [a-z][a-z0-9_-]{0,20} (so <slug>-consultant fits the 32-char agent name limit)',
             ),
         }
         out = self.kitchen_cases('init', cases, expect)

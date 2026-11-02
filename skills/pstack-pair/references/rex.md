@@ -1,0 +1,30 @@
+# Running in Rex
+
+The pair, trio, guided pair and kitchen run in [Rex](https://www.superlogical.com/rex) as they do in Herdr. `pair.sh` and `kitchen.sh`
+pick the multiplexer they run in: `PSTACK_MUX=herdr` or `PSTACK_MUX=rex` when set, otherwise Herdr when `HERDR_ENV=1`, otherwise Rex
+when `REX_BLOCK` is set. Every command, message and store file is the same in both.
+
+## What differs
+
+- A pane is a Rex block, and a pane id is a block id (`block:…`). A tab is a Rex window.
+- Rex has no agent list. pstack names the blocks its agents run in and keeps the names in
+  `${XDG_STATE_HOME:-~/.local/state}/pstack/rex-agents.json`. An agent pstack did not name goes by its block id.
+- An agent's status is what it reports to its block (the Program Status Protocol, OSC 7501). Claude Code, Codex and Muse report it
+  themselves. pi reports it through [the pstack pi extension](../../../plugins/rex/agents/pi-program-status.ts). For an agent that
+  reports nothing (Devin, Prime Agent, opencode), pstack reads its screen: it is working while the screen changes and idle once
+  the screen stays still.
+- Rex shows no notification that a program outside the block can raise, so `kitchen.sh feedback` with no maintainer prints
+  "not delivered" and the path to read.
+- Every block and the store live on one machine. With a remote Rex server, run pstack on that machine.
+
+## Reading a pane
+
+What `pair.sh` prints for a human to run uses the Rex commands:
+
+| Herdr | Rex |
+| --- | --- |
+| `herdr agent read NAME --source visible` | `rex capture -b BLOCK --trim` |
+| `herdr pane read PANE --source visible` | `rex capture -b BLOCK --trim` |
+| `herdr agent list` | `rex block ls` |
+
+Load the Rex skill (`rex skill show`) before you touch blocks by hand. Never type into your own block.

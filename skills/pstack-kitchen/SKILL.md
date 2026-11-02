@@ -1,6 +1,6 @@
 ---
 name: pstack-kitchen
-description: "Run coding work as a kitchen in one Herdr session: a master that plans, briefs, triages code review, and decides; a sidekick on the cheapest capable model that implements under the repo's own deterministic gates; a consultant started only when a unit escalates; and a fresh verifier pane that proves each unit on the real surface. The master is woken by exceptions, not by every step. Needs the repo's .agents/kitchen.toml (pstack-kitchen-setup writes it). Use for /pstack-kitchen, 'kitchen mode', 'run the kitchen', a `pstack-kitchen PLAN|BRIEF|STEER|CONSULT|VERIFY|REPORT|ADVICE|FEEDBACK|MASTER|STOP` message, 'be the sidekick/consultant/verifier' in a kitchen, or sustained delegated work that should not need the master on every step. Requires HERDR_ENV=1."
+description: "Run coding work as a kitchen in one Herdr or Rex session: a master that plans, briefs, triages code review, and decides; a sidekick on the cheapest capable model that implements under the repo's own deterministic gates; a consultant started only when a unit escalates; and a fresh verifier pane that proves each unit on the real surface. The master is woken by exceptions, not by every step. Needs the repo's .agents/kitchen.toml (pstack-kitchen-setup writes it). Use for /pstack-kitchen, 'kitchen mode', 'run the kitchen', a `pstack-kitchen PLAN|BRIEF|STEER|CONSULT|VERIFY|REPORT|ADVICE|FEEDBACK|MASTER|STOP` message, 'be the sidekick/consultant/verifier' in a kitchen, or sustained delegated work that should not need the master on every step. Requires Herdr (HERDR_ENV=1) or Rex (REX_BLOCK)."
 ---
 
 Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. Its runtime mappings apply to all referenced playbooks and scripts.
@@ -35,8 +35,9 @@ which skills build a run's commands came from. Every command runs in Python, in 
 
 ## Preconditions
 
-1. `test "${HERDR_ENV:-}" = 1`, the Herdr skill loaded, `herdr`, and
-   Python 3.11 or later on PATH. `scripts/kitchen.sh help` lists the commands.
+1. Inside Herdr (`test "${HERDR_ENV:-}" = 1`, the Herdr skill loaded, `herdr`
+   on PATH) or Rex (`REX_BLOCK` set, `rex skill show` read, `rex` on PATH; see
+   [Running in Rex](../pstack-pair/references/rex.md)), and Python 3.11 or later on PATH. `scripts/kitchen.sh help` lists the commands.
 2. The repo has a kitchen (`.agents/kitchen.toml`, or a host kitchen; see
    [kitchen-toml.md](references/kitchen-toml.md)) and `kitchen.py validate`
    passes (`scripts/kitchen.py`). Without it, run pstack-kitchen-setup first; a

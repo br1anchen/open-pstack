@@ -2,7 +2,7 @@
 
 Pstack skills for coding agents (Claude Code, Codex, Pi, Grok Build), with the
 local multi-agent workflows built on them: `pstack-pair`, `pstack-trio` and
-`pstack-kitchen` over Herdr. It needs no particular package or dotfile
+`pstack-kitchen` over Herdr or [Rex](skills/pstack-pair/references/rex.md). It needs no particular package or dotfile
 manager: [Install and update](#install-and-update) links the skills from a
 checkout or from any pinned copy.
 
@@ -40,7 +40,7 @@ and hashes of the previously installed SKILL.md files. The base is Cursor pstack
 `pstack-teach`, `pstack-pair`, `pstack-pair-guided`, `pstack-trio`,
 `pstack-kitchen`, and `pstack-kitchen-setup` customizations are retained, including Devin bypass defaults, task-boundary
 session rotation, and durable handoffs. `pstack-pair` runs a master and sidekick agent
-pair over Herdr; `pstack-pair-guided` is its experimental variant with
+pair over Herdr or Rex; `pstack-pair-guided` is its experimental variant with
 scope-scaled human approval and a sidekick ask channel; `pstack-trio` adds a
 consultant of a different agent kind that joins every plan round, answers
 design and finding consults, and prototypes in a throwaway worktree.
@@ -55,7 +55,7 @@ See their SKILL.md files. The four share one Python core,
 configuration and adds its own commands. The consultant's commands
 (plan rounds, consults, advice) live in Python, in
 `pstack-pair/scripts/pstack_core/consult.py`; the trio's `variant.py` registers them with its spawn and multi-role stop, and the kitchen's registers them too. `pstack-pair/scripts/pair.py` and `pstack_core/` are a stdlib-only Python core (each variant's hooks are Python in its skill's `scripts/variant.py`); `tests/SPEC.md` and the golden transcripts in `tests/pstack-pair/golden` are the contract the tests hold it to. `tests/test_pstack_pair.py`
-drives all three against a fake `herdr` and compares golden transcripts. Other workflows use the current
+drives all three against a fake `herdr` (and pair and trio against a fake `rex`) and compares golden transcripts. Other workflows use the current
 upstream revision plus the runtime adaptation. The old installation is backed
 up on sync, including any local edits outside SKILL.md.
 

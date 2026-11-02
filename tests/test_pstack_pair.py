@@ -2249,7 +2249,7 @@ HELP = {
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
+exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
 """,
     'guided': """usage: pair.sh <command> [args]
 
@@ -2314,7 +2314,7 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed or not approved, 7 ask or steer cap reached
+exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed or not approved, 7 ask or steer cap reached
 """,
     'trio': """usage: pair.sh <command> [args]
 
@@ -2387,7 +2387,7 @@ exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no report or advice yet or queue empty,
+exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 agent blocked, 4 no report or advice yet or queue empty,
             5 agent in the wrong state or queue taken, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,
             8 agent kinds not diverse
 """,

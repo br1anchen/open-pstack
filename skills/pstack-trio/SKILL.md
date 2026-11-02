@@ -1,16 +1,16 @@
 ---
 name: pstack-trio
-description: "Run three coding agents in one Herdr session: a master that plans, briefs, reviews, and decides; a sidekick that implements, tests, and diagnoses under pstack playbooks; and a consultant of a different agent kind that critiques plans, answers design and finding consults, and prototypes in a throwaway worktree. The master drives every discussion, delegates implementation to the sidekick, and consults before steering on anything that changes the design. Use for /pstack-trio, 'trio mode', 'spawn a sidekick and a consultant', 'be the consultant', a `pstack-trio PLAN|BRIEF|STEER|CONSULT|REPORT|ADVICE|STOP` message, or when work should be delegated with a second opinion on file. Requires HERDR_ENV=1 and at least two distinct agent kinds."
+description: "Run three coding agents in one Herdr or Rex session: a master that plans, briefs, reviews, and decides; a sidekick that implements, tests, and diagnoses under pstack playbooks; and a consultant of a different agent kind that critiques plans, answers design and finding consults, and prototypes in a throwaway worktree. The master drives every discussion, delegates implementation to the sidekick, and consults before steering on anything that changes the design. Use for /pstack-trio, 'trio mode', 'spawn a sidekick and a consultant', 'be the consultant', a `pstack-trio PLAN|BRIEF|STEER|CONSULT|REPORT|ADVICE|STOP` message, or when work should be delegated with a second opinion on file. Requires Herdr (HERDR_ENV=1) or Rex (REX_BLOCK) and at least two distinct agent kinds."
 ---
 
 Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. Its runtime mappings apply to all referenced playbooks and scripts.
 
 # Pstack trio
 
-Three agents, one Herdr session, one repository. The master owns judgment,
+Three agents, one Herdr or Rex session, one repository. The master owns judgment,
 the sidekick owns the working tree, and the consultant owns the second
 opinion. Every message between them is a file in the trio store plus a
-one-line Herdr prompt that names the file. The terminal is never the record,
+one-line prompt that names the file. The terminal is never the record,
 because agents on the alternate screen leave no scrollback.
 
 The trio is `pstack-pair` with a consultant added. The pair's plan rounds,
@@ -20,14 +20,15 @@ never messages the sidekick and never writes the shared tree.
 
 ## Preconditions
 
-1. `test "${HERDR_ENV:-}" = 1`. Outside Herdr, say so and stop.
-2. Load the Herdr skill for pane and agent control:
-   `~/.agents/skills/herdr/SKILL.md`, or `herdr --skill` when that file is
-   absent. Its safety rules apply throughout.
-3. `herdr` and Python 3.11 or later (`python3`) on PATH. `scripts/pair.sh help` lists every store and
-   channel operation; use it instead of hand-built `herdr` calls for the trio.
+1. Inside Herdr (`test "${HERDR_ENV:-}" = 1`) or Rex (`REX_BLOCK` set). Outside both, say so and stop.
+2. Load the multiplexer's skill for pane and agent control: Herdr's
+   `~/.agents/skills/herdr/SKILL.md` (or `herdr --skill` when that file is
+   absent), or Rex's `rex skill show`. Its safety rules apply throughout. In
+   Rex, read [Running in Rex](../pstack-pair/references/rex.md).
+3. `herdr` or `rex`, and Python 3.11 or later (`python3`), on PATH. `scripts/pair.sh help` lists every store and
+   channel operation; use it instead of hand-built `herdr` or `rex` calls for the trio.
 4. At least two distinct agent kinds among master, sidekick, and consultant.
-   `pair.sh spawn` reads the master's kind from Herdr and exits 8 when all
+   `pair.sh spawn` reads the master's kind from the multiplexer and exits 8 when all
    three would match; tell the human to pick another kind or use
    `pstack-pair`. Sidekick and consultant may share a kind.
 5. Start the master in auto mode. Devin defaults to bypass permissions with
@@ -115,7 +116,7 @@ gets the plan at once, the sidekick's half is `deferred` (exit 4), and running
 `discuss` again once the sidekick reports sends only that half. `consult` returns when the consultant settles into `idle`, `done`, or
 `blocked`. `dispatch` and `wait` return when the sidekick's reply lands, the
 report written since the message, or when it is `blocked`; a settle from
-`herdr` alone is not trusted: a Devin sidekick shows idle as a prompt arrives
+the multiplexer alone is not trusted: a Devin sidekick shows idle as a prompt arrives
 and between steps, and in a narrow pane can show done for a whole run, so a
 settle is checked against the pane's "esc to interrupt" line, and one with no
 report that holds for a minute ends the wait with `report: missing`. `dispatch`
@@ -205,7 +206,7 @@ shared store protocol and requires rotation after each completed brief.
 
 ## Pi sidekick and fallback
 
-A pi sidekick reports its state to Herdr through its own events and queues a
+A pi sidekick reports its state to Herdr (and, with the pstack extension, to Rex) through its own events and queues a
 steer without cancelling the running command. When its model sits behind a
 route that can fail, spawn it with `--fallback devin`: `spawn` checks the
 model first, and `pair.sh failover` swaps in the fallback mid-run. Read
@@ -289,7 +290,7 @@ mid-step.
 
 ## Shared rules
 
-- Facts about panes, agents, and states come from `herdr` JSON through
+- Facts about panes, agents, and states come from the multiplexer through
   `pair.sh`, never from memory or sidebar order.
 - Approval dialogs belong to the human unless the standing orders delegate a
   class of them to the master. No agent answers another's dialogs.

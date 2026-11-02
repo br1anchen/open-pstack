@@ -94,7 +94,7 @@ def init_request(ctx, args):
     pane = opts.last('--pane', mux.get().own_pane())
     if not re.fullmatch(rf'[a-z][a-z0-9_-]{{0,{ctx.slug_max}}}', slug):
         raise Die(
-            f"slug must match [a-z][a-z0-9_-]{{0,{ctx.slug_max}}} (so <slug>-{longest} fits Herdr's 32-char name limit)"
+            f'slug must match [a-z][a-z0-9_-]{{0,{ctx.slug_max}}} (so <slug>-{longest} fits the 32-char agent name limit)'
         )
     store = store or f'{ctx.state_root}/{slug}'
     if not pane:
