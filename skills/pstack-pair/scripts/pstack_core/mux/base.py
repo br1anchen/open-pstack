@@ -72,6 +72,8 @@ class Mux:
     inside = ''
     # Whether Agent.session is ever set: a Prime role is cleaned up through the daemon session it names, so it needs a backend that tracks one.
     tracks_sessions = True
+    # Whether a new master can start in a pane of its own (a master rotation); False when the master is the one session itself.
+    starts_master = True
     # Whether a call may wait in this process for an agent to act; False when the agents run only after the command returns.
     waits = True
 

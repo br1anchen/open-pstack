@@ -12691,6 +12691,21 @@ class SubagentKitchenTests(KitchenScriptTests):
         self.assertIn('subagent demo-sidekick (pi): Load the pstack-kitchen skill', out)
         self.assertIn('generation 2', out)
 
+    def test_rotate_master_says_the_master_is_this_session_and_handoff_says_what_is_left(
+        self,
+    ):
+        out = self.run_sh('rotate-master', str(self.store), code=5)
+        self.assertIn(
+            'with no multiplexer the master is this session, so no new master can start beside it; write the handoff '
+            '(kitchen.sh new-handoff) and keep going, or run the kitchen in Herdr or Rex to rotate',
+            out,
+        )
+        out = self.run_sh('new-handoff', str(self.store))
+        self.assertIn(
+            'it is the record a later session starts from (with no multiplexer there is no rotate-master)',
+            out,
+        )
+
     def test_verify_hands_the_packet_to_a_verifier_subagent_then_reads_its_verdict(
         self,
     ):
