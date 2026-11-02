@@ -119,8 +119,9 @@ def main(argv):
         skill_root, words = parse(argv)
         variant, ctx = build(skill_root)
         prog = ctx.prog
+        mux.allow_subagents(variant.subagents_fallback)
         program = mux.get().program
-        if shutil.which(program) is None:
+        if program and shutil.which(program) is None:
             raise Die(f'{program} is required on PATH')
         variant.startup(ctx, words)
         if not words:

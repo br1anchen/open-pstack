@@ -1906,6 +1906,8 @@ class CoreTests(unittest.TestCase):
             'XDG_STATE_HOME': str(top / 'state'),
             'HERDR_PANE_ID': 'p0',
             'HERDR_SOCKET_PATH': str(top / 'herdr.sock'),
+            # These worlds are Herdr's: outside it the kitchen would fall back to subagents (SubagentKitchenTests covers that).
+            'PSTACK_MUX': 'herdr',
             'PAIR_SETTLE_HOLD': '0',
             'PAIR_SUBMIT_CHECK_S': '0',
         }
@@ -18779,6 +18781,15 @@ class RexMuxTests(unittest.TestCase):
         self.assertEqual(choose({}), 'Herdr')
         with self.assertRaises(PairError):
             mux.choose({'PSTACK_MUX': 'tmux'})
+
+    def test_with_no_multiplexer_a_skill_that_allows_subagents_gets_them(self):
+        choose = lambda env, allowed: type(mux.choose(env, allowed)).__name__
+        self.assertEqual(choose({}, True), 'Subagents')
+        self.assertEqual(choose({}, False), 'Herdr')
+        self.assertEqual(choose({'REX_BLOCK': 'b'}, True), 'Rex')
+        self.assertEqual(choose({'HERDR_ENV': '1'}, True), 'Herdr')
+        self.assertEqual(choose({'PSTACK_MUX': 'subagents'}, False), 'Subagents')
+        self.assertFalse(mux.choose({}, True).waits)
 
     def test_require_refuses_outside_a_rex_block(self):
         self.rex.require()

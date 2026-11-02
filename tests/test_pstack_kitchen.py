@@ -159,7 +159,8 @@ class KitchenTests(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        if code is not None:
+            self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         self.stdout = result.stdout
         return result.stdout + result.stderr
 
@@ -3473,6 +3474,9 @@ Load*) [ -e "$FAKE/no-ready" ] || printf 'status: done\\n' >'{self.store}/report
 esac
 ''')
         hook.chmod(0o755)
+        self.spawn_roles()
+
+    def spawn_roles(self):
         self.run_sh('spawn', str(self.store))
 
     def mux_env(self):
@@ -3525,7 +3529,8 @@ esac
             check=False,
             timeout=timeout,
         )
-        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        if code is not None:
+            self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         added = self.wake_rows()[len(before) :]
         # One kitchen.sh call returns to its caller once (a retry it execs is the same return), so it logs at most one master wake.
         self.assertLessEqual(
@@ -12641,3 +12646,71 @@ assert set(KitchenRexTests.KEEP) <= set(dir(KitchenScriptTests)), (
 for _name in dir(KitchenScriptTests):
     if _name.startswith('test_') and _name not in KitchenRexTests.KEEP:
         setattr(KitchenRexTests, _name, None)
+
+
+class SubagentKitchenTests(KitchenScriptTests):
+    """The kitchen with no multiplexer: every role is a subagent of the master's session. Each prompt is a `subagent NAME (KIND): TEXT` line
+    for the master to hand to its host's subagent tool, nothing waits, and the files the subagents write carry the run."""
+
+    def mux_env(self):
+        return {'PSTACK_KITCHEN_SUBAGENT_TEST': '1'}
+
+    def spawn_roles(self):
+        out = self.run_sh('spawn', str(self.store), code=4)
+        self.assertIn('subagent demo-sidekick (pi): Load the pstack-kitchen skill', out)
+        self.spawn_out = out
+        # The sidekick subagent bootstraps.
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+
+    def test_init_needs_no_multiplexer_and_names_the_master_in_the_session(self):
+        self.assertIn(
+            'next: run the subagent the line above names, with its prompt; it writes the ready file',
+            self.spawn_out,
+        )
+        doc = self.state()
+        self.assertEqual(doc['master']['pane_id'], 'subagent:master')
+        self.assertEqual(doc['sidekick']['pane_id'], 'subagent:1')
+
+    def test_a_dispatch_hands_the_brief_to_the_sidekick_subagent_and_returns(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.dispatch(b)
+        self.assertIn(f'subagent demo-sidekick (pi): pstack-kitchen BRIEF {b}', out)
+        inbox = self.store.parents[3] / 'pstack/subagents/inbox/demo-sidekick.txt'
+        self.assertIn(f'pstack-kitchen BRIEF {b}', inbox.read_text())
+        # The sidekick subagent does the unit and reports; the master's wait returns the report.
+        self.write('src/util.py', 'X = 2\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        self.done(b, self.commit('util'))
+        report = self.store / 'reports' / b.name
+        out = self.run_sh('finish', str(self.store), str(report))
+        self.assertIn(f'master: pstack-kitchen REPORT {report}', out)
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertIn(f'the reply to {b.name} was already shown', out)
+        # The finished unit asks for a fresh session: the role ends and the next prompt goes to a new subagent.
+        out = self.run_sh('rotate', str(self.store), code=4)
+        self.assertIn('subagent demo-sidekick (pi): Load the pstack-kitchen skill', out)
+        self.assertIn('generation 2', out)
+
+    def test_verify_hands_the_packet_to_a_verifier_subagent_then_reads_its_verdict(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        out = self.run_sh('verify', str(self.store), '001', code=4)
+        self.assertIn('subagent demo-verifier', out)
+        packet = self.store / 'verdicts/001-util-v1-packet.md'
+        self.assertIn(f'VERIFY {packet}', out)
+        verdict = self.store / 'verdicts/001-util-v1.md'
+        verdict.write_text(
+            '# Verdict\n\nstatus: clean\nunits: 001\n\n## Findings\n\n## Evidence\n\n```\n$ true\n```\n'
+        )
+        out = self.run_sh('verify', str(self.store), '--wait', code=0)
+        self.assertIn('status: clean', out)
+
+
+for _name in dir(KitchenScriptTests):
+    if _name.startswith('test_') and _name not in vars(SubagentKitchenTests):
+        setattr(SubagentKitchenTests, _name, None)

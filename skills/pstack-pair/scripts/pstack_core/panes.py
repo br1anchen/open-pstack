@@ -79,6 +79,8 @@ def refuse_untrusted(pane, kind, directory, close=False, then=None):
 
 def await_file(path, timeout_ms):
     """Poll for a file every PAIR_FILE_POLL_MS (5000 by default) until it exists or timeout_ms of polling has passed."""
+    if not mux.get().waits:
+        return os.path.isfile(path)
     poll = env_int('PAIR_FILE_POLL_MS', 5000)
     waited = 0
     while not os.path.isfile(path) and waited < timeout_ms:

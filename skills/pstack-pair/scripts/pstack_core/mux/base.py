@@ -72,6 +72,8 @@ class Mux:
     inside = ''
     # Whether Agent.session is ever set: a Prime role is cleaned up through the daemon session it names, so it needs a backend that tracks one.
     tracks_sessions = True
+    # Whether a call may wait in this process for an agent to act; False when the agents run only after the command returns.
+    waits = True
 
     # The calling pane and where it lives.
     def require(self, what=None):

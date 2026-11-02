@@ -281,6 +281,8 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
         print(f'ready: {store}/{ready}')
         event(store, role, 'spawn', '-', f'{kind}:ready')
         return 0
+    if not mux.get().waits:
+        return handed_off(store, role, kind)
     stderr_of(
         f'{role} settled but {ready} is missing; state={agent_status(name)}. Read the pane before prompting again.\n'
     )
@@ -288,6 +290,15 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
     if role == 'sidekick':
         stderr_of(provider_hint(store, 'bootstrap'))
     event(store, role, 'spawn', '-', f'{kind}:unready')
+    return 4
+
+
+def handed_off(store, role, kind):
+    """A bootstrap prompt a subagent carries out after spawn returns: 4 until its ready file is on file."""
+    event(store, role, 'spawn', '-', f'{kind}:handed-off')
+    stderr_of(
+        'next: run the subagent the line above names, with its prompt; it writes the ready file, and the next command picks it up\n'
+    )
     return 4
 
 

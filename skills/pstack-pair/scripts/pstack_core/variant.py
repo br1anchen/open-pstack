@@ -167,6 +167,9 @@ class Variant:
             self.STATE_DIR,
         )
 
+    # Whether the roles may run as subagents of the master's own session when no multiplexer is found (mux.allow_subagents).
+    subagents_fallback = False
+
     def startup(self, ctx, words):
         """Runs once per invocation, after the entry checks and before dispatch, for every command word."""
 

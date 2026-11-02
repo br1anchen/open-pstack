@@ -38,6 +38,8 @@ which skills build a run's commands came from. Every command runs in Python, in 
 1. Inside Herdr (`test "${HERDR_ENV:-}" = 1`, the Herdr skill loaded, `herdr`
    on PATH) or Rex (`REX_BLOCK` set, `rex skill show` read, `rex` on PATH; see
    [Running in Rex](../pstack-pair/references/rex.md)), and Python 3.11 or later on PATH. `scripts/kitchen.sh help` lists the commands.
+   Inside neither, the kitchen runs in this one session with its roles as
+   subagents: read [Without a multiplexer](#without-a-multiplexer).
 2. The repo has a kitchen (`.agents/kitchen.toml`, or a host kitchen; see
    [kitchen-toml.md](references/kitchen-toml.md)) and `kitchen.py validate`
    passes (`scripts/kitchen.py`). Without it, run pstack-kitchen-setup first; a
@@ -97,6 +99,29 @@ To use Prime Agent, set `kind = "prime-agent"` in `[sidekick]`,
 [the Prime adapter](../pstack-pair/references/prime-sidekick.md). Each verifier
 stops its exact daemon session before its scratch worktree is removed; failed
 cleanup preserves both the pane and scratch for inspection.
+
+## Without a multiplexer
+
+When neither Herdr nor Rex is found (or `PSTACK_MUX=subagents`), the kitchen
+runs in the master's own session, as plain pstack does, and every other role
+is a subagent the master starts with its host's subagent tool. The commands
+and the store are the same; what changes is who carries each message:
+
+- A command that would prompt a role prints one line,
+  `subagent NAME (KIND): TEXT`, and keeps it in
+  `${XDG_STATE_HOME:-~/.local/state}/pstack/subagents/inbox/NAME.txt`. Start a
+  subagent with TEXT as its whole prompt. It loads this skill, takes the role
+  TEXT names, runs the role's `kitchen.sh` commands itself, and writes its
+  files. KIND is the roster's wish; the subagent runs on the host's own model.
+- Nothing waits. `spawn`, `dispatch`, `discuss`, `consult` and `verify` hand
+  off their prompt and return (exit 4 while the answer is not on file); run
+  the subagent, then the next command (`wait`, `verify --wait`), which reads
+  what it wrote. A `master: TEXT` line is a notice for you, already handled.
+- A rotation or failover ends the role; its next prompt goes to a fresh
+  subagent. `prime-agent` cannot run here (it needs a multiplexer that tracks
+  its session).
+- Gates, Verify reruns, `land-check`, `classify`, the ledger and `retro` run
+  as they do anywhere.
 
 ## Roles and quota
 

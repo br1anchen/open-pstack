@@ -11,6 +11,7 @@ import os
 import sys
 import time
 
+from pstack_core import mux
 from pstack_core.argv import Spec, read
 from pstack_core.errors import BadNumber, Die, PathFailed, translate
 from pstack_core.numbers import env_float, env_int, int_or_none, whole_number
@@ -91,7 +92,7 @@ def quiet_wait(ctx, store, rest):
             owner = owner.after(outcome)
             checkin = outcome.kind == 'checkin' and outcome.checkin is not None
             if checkin and not outcome.flagged:
-                if under_max():
+                if under_max() and mux.get().waits:
                     poll_sleep(env_float('KITCHEN_QUIET_POLL_S', 1))
                     continue
                 write(
