@@ -141,7 +141,7 @@ def usage_text(commands, exit_codes):
 
 PAIR_USAGE = usage_text(
     PAIR_COMMANDS,
-    'exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached',
+    'exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached',
 )
 
 

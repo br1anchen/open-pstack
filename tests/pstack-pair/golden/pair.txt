@@ -60,11 +60,11 @@ usage: pair.sh <command> [args]
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
+exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
 [exit 0]
 
 $ pair.sh init BadSlug
-pair.sh: slug must match [a-z][a-z0-9_-]{0,21} (so <slug>-sidekick fits Herdr's 32-char name limit)
+pair.sh: slug must match [a-z][a-z0-9_-]{0,21} (so <slug>-sidekick fits the 32-char agent name limit)
 [exit 1]
 
 $ pair.sh init demo
@@ -1044,7 +1044,7 @@ usage: pair.sh <command> [args]
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
+exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
 pair.sh: unknown command: bogus
 [exit 1]
 

@@ -240,7 +240,7 @@ USAGE = usage_text(
             }
         },
     ),
-    'exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no report or advice yet or queue empty,\n'
+    'exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 agent blocked, 4 no report or advice yet or queue empty,\n'
     '            5 agent in the wrong state or queue taken, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,\n'
     '            8 agent kinds not diverse',
 )

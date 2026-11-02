@@ -148,7 +148,7 @@ USAGE = usage_text(
             }
         },
     ),
-    'exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, '
+    'exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, '
     '6 plan not agreed or not approved, 7 ask or steer cap reached',
 )
 

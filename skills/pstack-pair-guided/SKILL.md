@@ -1,6 +1,6 @@
 ---
 name: pstack-pair-guided
-description: "The guided variant of pstack-pair: two coding agents in one Herdr session, a master that designs, briefs, reviews, and decides, and a sidekick that implements, tests, and diagnoses under pstack playbooks. Adds scope-scaled human approval of a plain-language direction summary, a sidekick ask channel answered by the master or escalated to the human, and periodic check-ins with directional steers while the sidekick works. Use for /pstack-pair-guided, 'guided pair', a `pstack-pair-guided PLAN|BRIEF|ANSWER|STEER|REPORT|STOP` message, or when the human wants to approve direction before implementation. Requires HERDR_ENV=1."
+description: "The guided variant of pstack-pair: two coding agents in one Herdr or Rex session, a master that designs, briefs, reviews, and decides, and a sidekick that implements, tests, and diagnoses under pstack playbooks. Adds scope-scaled human approval of a plain-language direction summary, a sidekick ask channel answered by the master or escalated to the human, and periodic check-ins with directional steers while the sidekick works. Use for /pstack-pair-guided, 'guided pair', a `pstack-pair-guided PLAN|BRIEF|ANSWER|STEER|REPORT|STOP` message, or when the human wants to approve direction before implementation. Requires Herdr (HERDR_ENV=1) or Rex (REX_BLOCK)."
 ---
 
 Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. Its runtime mappings apply to all referenced playbooks and scripts.
@@ -14,19 +14,20 @@ steers work as in `pstack-pair`; a steer is the master's counterpart to an
 ask. Both skills stay installed so the two approaches can be compared; they
 use separate store roots.
 
-Two agents, one Herdr session, one repository. The master owns judgment and the
+Two agents, one Herdr or Rex session, one repository. The master owns judgment and the
 sidekick owns the working tree. Every message between them is a file in the
-pair store plus a one-line Herdr prompt that names the file. The terminal is
+pair store plus a one-line prompt that names the file. The terminal is
 never the record, because agents on the alternate screen leave no scrollback.
 
 ## Preconditions
 
-1. `test "${HERDR_ENV:-}" = 1`. Outside Herdr, say so and stop.
-2. Load the Herdr skill for pane and agent control:
-   `~/.agents/skills/herdr/SKILL.md`, or `herdr --skill` when that file is
-   absent. Its safety rules apply throughout.
-3. `herdr` and Python 3.11 or later (`python3`) on PATH. `scripts/pair.sh help` lists every store and
-   channel operation; use it instead of hand-built `herdr` calls for the pair.
+1. Inside Herdr (`test "${HERDR_ENV:-}" = 1`) or Rex (`REX_BLOCK` set). Outside both, say so and stop.
+2. Load the multiplexer's skill for pane and agent control: Herdr's
+   `~/.agents/skills/herdr/SKILL.md` (or `herdr --skill` when that file is
+   absent), or Rex's `rex skill show`. Its safety rules apply throughout. In
+   Rex, read [Running in Rex](../pstack-pair/references/rex.md).
+3. `herdr` or `rex`, and Python 3.11 or later (`python3`), on PATH. `scripts/pair.sh help` lists every store and
+   channel operation; use it instead of hand-built `herdr` or `rex` calls for the pair.
 4. Start the master in auto mode. Devin defaults to bypass permissions with
    `--permission-mode dangerous`. Other kinds inherit the master's mode.
    `pair.sh permission` prints the detected master mode. Use `--permission
@@ -99,7 +100,7 @@ the files for one unit sort together.
 
 The master's `dispatch` and `wait` return when the sidekick's reply lands:
 the report written since the message, or a `blocked` sidekick. A settle from
-`herdr` alone is not trusted: a Devin sidekick shows idle as a prompt arrives
+the multiplexer alone is not trusted: a Devin sidekick shows idle as a prompt arrives
 and between steps, and in a narrow pane can show done for a whole run, so a
 settle is checked against the pane's "esc to interrupt" line; a settle with
 no report that holds for a minute ends the wait with `report: missing`.
@@ -215,7 +216,7 @@ shared store protocol and requires rotation after each completed brief.
 
 ## Pi sidekick and fallback
 
-A pi sidekick reports its state to Herdr through its own events and queues a
+A pi sidekick reports its state to Herdr (and, with the pstack extension, to Rex) through its own events and queues a
 steer without cancelling the running command. When its model sits behind a
 route that can fail, spawn it with `--fallback devin`: `spawn` checks the
 model first, and `pair.sh failover` swaps in the fallback mid-run. Read
@@ -299,7 +300,7 @@ mid-step.
 
 ## Shared rules
 
-- Facts about panes, agents, and states come from `herdr` JSON through
+- Facts about panes, agents, and states come from the multiplexer through
   `pair.sh`, never from memory or sidebar order.
 - Approval dialogs belong to the human unless the standing orders delegate a
   class of them to the master. Neither agent answers the other's dialogs.
