@@ -334,9 +334,15 @@ class Rex(Mux):
         return self.pane_key(self.block_of(name), key, stderr)
 
     def rename(self, target, name):
+        """Names the agent in the block; a name another block's live agent holds is not taken, as Herdr's names are unique."""
         block = self.block_of(target)
         if not self.pane_exists(block):
             return False
+        held = registry().get(name)
+        if held and held['block'] != block:
+            other = self.look(held['block'])
+            if other is not None and other.running:
+                return False
 
         def move(agents):
             kind = next(
