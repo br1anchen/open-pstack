@@ -18998,6 +18998,23 @@ class RexMuxTests(unittest.TestCase):
         looks = [c for c in self.calls() if c.endswith(' program_status')]
         self.assertGreaterEqual(len(looks), 4)
 
+    def test_a_new_blocked_report_is_not_working_for_until_working(self):
+        self.started()
+        self.r('turn').write_text('blocked\n')
+        r = self.rex.prompt('s1', 'go', wait=True, until='working', timeout_ms=0)
+        self.assertEqual((r.ok, r.error), (False, mux.TIMEOUT))
+
+    def test_an_agent_pstack_never_named_goes_by_its_block_id(self):
+        pane = self.rex.split('block:me', 'right', '/w')
+        self.rex.type(pane, 'claude')
+        self.assertEqual(self.rex.agent(pane).name, pane)
+
+    def test_a_start_that_cannot_type_names_no_agent(self):
+        pane = self.rex.split('block:me', 'right', '/w')
+        with mock.patch.object(self.rex, 'type', return_value=False):
+            self.assertFalse(self.rex.start('s1', 'claude', pane, []).ok)
+        self.assertEqual(rex_mux.registry(), {})
+
     def test_blocks_are_read_closed_and_measured(self):
         pane = self.rex.split('block:me', 'right', '/w')
         (self.block() / 'screen').write_text('one\ntwo\nthree\n')
