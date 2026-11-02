@@ -4,7 +4,6 @@ and the wait for a file an agent writes. The multiplexer underneath is mux.get()
 import json
 import os
 import re
-import sys
 import time
 
 from . import mux
@@ -117,33 +116,6 @@ def parse(reply):
         return json.loads(reply)
     except ValueError:
         return None
-
-
-def dig(value, *keys):
-    """The value at keys in parsed JSON, None when a step is absent or over a value that is no object."""
-    for key in keys:
-        value = value.get(key) if isinstance(value, dict) else None
-    return value
-
-
-def reply_at(reply, *keys, quiet=False):
-    """The value at keys in a herdr or daemon reply, None when it has none. A reply that is not JSON, or whose path steps
-    over a value that is no object, is one stderr line saying so (quiet leaves it out), and None."""
-    doc = parse(reply)
-    problem = 'is not JSON' if doc is None and reply.strip() != 'null' else ''
-    if not problem:
-        for key in keys:
-            if doc is not None and not isinstance(doc, dict):
-                problem = f'has no object on the way to {".".join(keys)}'
-                break
-            doc = doc.get(key) if doc else None
-        else:
-            return doc
-    if not quiet:
-        sys.stdout.flush()
-        sys.stderr.write(f'herdr reply {problem}\n')
-        sys.stderr.flush()
-    return None
 
 
 def agent_status(name):

@@ -766,7 +766,7 @@ class CoreTests(unittest.TestCase):
                 check=False,
                 timeout=60,
                 cwd='/',
-                env={**os.environ, 'HERDR_ENV': '1'},
+                env={**self.env, 'HERDR_ENV': '1', 'FAKE': str(self.path / 'fake')},
             )
             self.assertNotIn('bad core option', r.stderr, (kind, name, r.stderr))
             self.assertNotIn('unknown command', r.stderr, (kind, name, r.stderr))
