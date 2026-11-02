@@ -32,7 +32,14 @@ here = root / 'tests/pstack-pair'
 skills = root / 'skills'
 
 
-LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
+LEAKED_PREFIXES = (
+    'PSTACK_KITCHEN_',
+    'KITCHEN_',
+    'PAIR_',
+    'HERDR_',
+    'REX_',
+    'PSTACK_MUX',
+)
 
 
 def inherited_env():

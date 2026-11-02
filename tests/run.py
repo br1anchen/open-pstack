@@ -56,12 +56,16 @@ def write_tripwire_jq(directory):
     path.chmod(0o755)
 
 
+# What tells the code under test which multiplexer it runs in: a test sets these itself, so a run inside Herdr or Rex is the same as one outside.
+MUX_PREFIXES = ('HERDR_', 'REX_', 'PSTACK_MUX')
+
+
 def tripwire_env(directory):
-    """The environment of a test process: os.environ with a directory holding the failing jq first on PATH, and TMPDIR
-    spelled the way the code under test resolves it (macOS keeps `/var` as a link to `/private/var`)."""
+    """The environment of a test process: os.environ without the multiplexer's variables, with a directory holding the failing jq first on
+    PATH, and TMPDIR spelled the way the code under test resolves it (macOS keeps `/var` as a link to `/private/var`)."""
     write_tripwire_jq(directory)
     return {
-        **os.environ,
+        **{k: v for k, v in os.environ.items() if not k.startswith(MUX_PREFIXES)},
         'PATH': f'{directory}:{os.environ.get("PATH", "")}',
         'TMPDIR': os.path.realpath(tempfile.gettempdir()),
     }
