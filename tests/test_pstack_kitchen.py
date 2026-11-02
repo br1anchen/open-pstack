@@ -12691,20 +12691,60 @@ class SubagentKitchenTests(KitchenScriptTests):
         self.assertIn('subagent demo-sidekick (pi): Load the pstack-kitchen skill', out)
         self.assertIn('generation 2', out)
 
-    def test_rotate_master_says_the_master_is_this_session_and_handoff_says_what_is_left(
+    def test_rotate_master_writes_the_next_sessions_prompt_and_take_master_there_takes_the_run_over(
         self,
     ):
+        self.filled_handoff()
+        before = self.state()['master']
+        out = self.run_sh('rotate-master', str(self.store))
+        prompt = self.store / 'sessions/master-g2-prompt.md'
+        self.assertIn(
+            'handoff recorded: '
+            + str(self.store / 'sessions/master-1-handoff.md')
+            + ' (generation 1)',
+            out,
+        )
+        self.assertIn(f'next master prompt: {prompt}', out)
+        self.assertIn(
+            'next: end this session with no further commands; the human opens a new coding-agent session in ',
+            out,
+        )
+        self.assertIn(
+            f'outside any multiplexer as this one, and gives it the prompt in {prompt}: generation 2 owns the run',
+            out,
+        )
+        self.assertIn(
+            f'pstack-kitchen MASTER {self.store} (generation 2). Run ~/.agents/skills/pstack-kitchen/scripts/kitchen.sh '
+            f'take-master {self.store} first',
+            prompt.read_text(),
+        )
+        state = self.state()['master']
+        self.assertEqual(
+            (state['name'], state['pane_id'], state['generation']),
+            (before['name'], before['pane_id'], 2),
+        )
+        # A second rotation before anyone took over names the prompt to start it with.
         out = self.run_sh('rotate-master', str(self.store), code=5)
         self.assertIn(
-            'with no multiplexer the master is this session, so no new master can start beside it; write the handoff '
-            '(kitchen.sh new-handoff) and keep going, or run the kitchen in Herdr or Rex to rotate',
+            f'a hand-over is open: generation 2 has not taken over yet; start it with {self.store}/sessions/master-g2-prompt.md, '
+            f'or run kitchen.sh take-master {self.store} here to keep going',
             out,
         )
-        out = self.run_sh('new-handoff', str(self.store))
+        # The next session, in the same checkout, takes over in the same place and keeps the master's name.
+        out = self.run_sh('take-master', str(self.store))
         self.assertIn(
-            'it is the record a later session starts from (with no multiplexer there is no rotate-master)',
+            f'took over from {before["name"]} in the same place ({before["pane_id"]})',
             out,
         )
+        self.assertIn(
+            f'master: {before["name"]} in {before["pane_id"]} (generation 2)', out
+        )
+        state = self.state()['master']
+        self.assertNotIn('previous', state)
+        registry = json.loads(
+            (self.store.parents[3] / 'pstack/subagents/registry.json').read_text()
+        )
+        self.assertEqual(registry['agents'][before['name']]['pane'], before['pane_id'])
 
     def test_verify_hands_the_packet_to_a_verifier_subagent_then_reads_its_verdict(
         self,

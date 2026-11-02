@@ -289,19 +289,60 @@ def record_handover(store, handoff, gen_n, session, old, new):
     return copy
 
 
+def master_prompt(ctx, store, gen):
+    """The prompt that makes an agent the master of generation `gen`."""
+    skill = ctx.skill
+    return (
+        f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {gen}). '
+        f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read '
+        f'~/.agents/skills/{skill}/references/master.md and {store}/session-handoff.md, '
+        'each in a read of its own (a file-read tool, not one cat of several files).'
+    )
+
+
+def hand_to_next_session(ctx, store, handoff):
+    """The rotation when the master is the one session (no multiplexer): nothing can start beside it, so the hand-over is recorded with the
+    same name and pane, the next generation's prompt is written to sessions/master-g<n>-prompt.md, and the human starts a new session with it."""
+    if read(store, 'master.previous.name'):
+        start = (
+            f'{store}/sessions/master-g{field(store, "master", "generation")}-prompt.md'
+        )
+        how = f'start it with {start}, or ' if os.path.isfile(start) else ''
+        raise RotateRefused(
+            f'a hand-over is open: generation {field(store, "master", "generation")} has not taken over yet; '
+            f'{how}run kitchen.sh take-master {store} here to keep going'
+        )
+    name = field(store, 'master', 'name')
+    pane = field(store, 'master', 'pane_id')
+    gen_n = master_generation(store, '')
+    next_gen = gen_n + 1
+    prompt = master_prompt(ctx, store, next_gen)
+    os.makedirs(f'{store}/sessions', exist_ok=True)
+    start = f'{store}/sessions/master-g{next_gen}-prompt.md'
+    with open(start, 'w') as f:
+        f.write(prompt + '\n')
+    copy = record_handover(store, handoff, gen_n, '', (name, pane), (name, pane))
+    event(store, 'master', 'handoff', '-', f'generation:{gen_n}')
+    out = sys.stdout
+    out.write(f'handoff recorded: {copy} (generation {gen_n})\n')
+    out.write(f'next master prompt: {start}\n')
+    out.write(
+        f'next: end this session with no further commands; the human opens a new coding-agent session in {read(store, "cwd")}, '
+        f'outside any multiplexer as this one, and gives it the prompt in {start}: generation {next_gen} owns the run\n'
+    )
+    return 0
+
+
 def rotate_master(ctx, args):
     require_mux()
     if not args:
         raise Die('usage: kitchen.sh rotate-master <store> [--model MODEL]')
-    if not mux.get().starts_master:
-        raise RotateRefused(
-            'with no multiplexer the master is this session, so no new master can start beside it; write the handoff '
-            '(kitchen.sh new-handoff) and keep going, or run the kitchen in Herdr or Rex to rotate'
-        )
     store = args[0]
     model = read_options(args[1:], Spec(valued=('--model',))).last('--model', '')
     pair_file(store)
     handoff = check_handoff(ctx, store)
+    if not mux.get().starts_master:
+        return hand_to_next_session(ctx, store, handoff)
     name, pane = rotatable_master(store)
     model = model or detect_model_arg()
     session = tracked_session(name)
@@ -316,13 +357,9 @@ def rotate_master(ctx, args):
     )
     event(store, 'master', 'handoff', '-', f'generation:{gen_n}')
     event(store, 'master', 'spawn', '-', f'claude:generation:{next_gen}')
-    skill = ctx.skill
     mux.get().prompt(
         temp,
-        f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {next_gen}). '
-        f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read '
-        f'~/.agents/skills/{skill}/references/master.md and {store}/session-handoff.md, '
-        'each in a read of its own (a file-read tool, not one cat of several files).',
+        master_prompt(ctx, store, next_gen),
         wait=True,
         until='working',
         timeout_ms=30000,
@@ -369,7 +406,10 @@ def take_master(ctx, args):
     hosted = m.agent(prev_pane)
     host = hosted.name if hosted else ''
     closed = 'kept'
-    if not m.pane_exists(prev_pane):
+    if prev_pane == pane:
+        # One session handed to the next in the same place (no multiplexer): there is no old pane to close.
+        closed = 'same'
+    elif not m.pane_exists(prev_pane):
         closed = 'gone'
     elif not host or host == prev:
         if m.pane_close(prev_pane):
@@ -394,6 +434,8 @@ def take_master(ctx, args):
     out = sys.stdout
     if closed == 'closed':
         out.write(f'closed the old master {prev} ({prev_pane})\n')
+    elif closed == 'same':
+        out.write(f'took over from {prev} in the same place ({pane})\n')
     elif closed == 'gone':
         out.write(f'the old master pane {prev_pane} is already gone\n')
     else:
