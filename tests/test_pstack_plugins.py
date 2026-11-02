@@ -64,8 +64,30 @@ class PluginTests(unittest.TestCase):
             ['fleet', 'kitchen', 'pair', 'sync', 'trio'],
         )
         for entry in entries:
-            self.assertEqual(entry['command'][0], 'python3')
-            self.assertTrue((manifest.parent / entry['command'][1]).resolve() == script)
+            self.assertEqual(entry['command'][:2], ['python3', 'run.py'])
+        self.assertTrue((manifest.parent / 'run.py').is_file())
+
+    def test_the_herdr_launcher_finds_the_checkout_through_the_linked_skill(self):
+        alone = self.path / 'installed'
+        alone.mkdir()
+        (alone / 'run.py').write_text((root / 'plugins/herdr/run.py').read_text())
+        launch = lambda: subprocess.run(
+            [sys.executable, str(alone / 'run.py'), 'install-rex', '--print'],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        r = launch()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('no pstack checkout found', r.stderr)
+        skills = self.path / 'home/.agents/skills'
+        skills.mkdir(parents=True)
+        (skills / 'pstack-pair').symlink_to(root / 'skills/pstack-pair')
+        r = launch()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('-- pstack begin', r.stdout)
 
     def test_a_herdr_action_prompts_the_agent_in_the_focused_pane(self):
         r = self.action('prompt', '/pstack-kitchen', HERDR_ENV='1', HERDR_PANE_ID='p3')
@@ -116,6 +138,38 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(init.read_text(), 'rex.bind("cmd+d", "pane.split")\n')
         self.assertFalse(link.is_symlink())
+
+    def test_install_rex_refuses_a_block_whose_end_marker_is_gone(self):
+        init = self.path / 'config/rex/init.lua'
+        init.parent.mkdir(parents=True)
+        init.write_text(
+            '-- pstack begin (written by plugins/pstack-action.py install-rex; remove with --uninstall)\nmine()\n'
+        )
+        r = self.action('install-rex')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('no "-- pstack end" line', r.stderr)
+        self.assertIn('mine()', init.read_text())
+
+    def test_install_rex_replaces_a_dangling_pi_extension_link(self):
+        ext = self.path / 'home/.pi/agent/extensions'
+        ext.mkdir(parents=True)
+        (ext / 'pstack-program-status.ts').symlink_to(self.path / 'gone.ts')
+        r = self.action('install-rex')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(
+            (ext / 'pstack-program-status.ts').resolve(),
+            root / 'plugins/rex/agents/pi-program-status.ts',
+        )
+
+    def test_the_lua_block_quotes_a_path_with_quotes_and_backslashes(self):
+        sys.path.insert(0, str(root / 'plugins'))
+        try:
+            import importlib
+
+            action = importlib.import_module('pstack-action')
+        finally:
+            sys.path.pop(0)
+        self.assertEqual(action.lua_string('a"b\\c'), '"a\\"b\\\\c"')
 
     def test_install_rex_print_shows_the_block_and_changes_nothing(self):
         r = self.action('install-rex', '--print')
