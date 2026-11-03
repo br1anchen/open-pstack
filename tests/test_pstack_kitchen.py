@@ -2105,6 +2105,28 @@ class LessonTests(KitchenTests):
             ],
         )
 
+    def test_doctor_flags_a_non_gate_lesson_by_its_hit_rate(self):
+        self.row('run-a', 'reject', 'verify', '001', 'src', 'missed it')
+        self.row('run-b', 'reject', 'verify', '002', 'src', 'missed it')
+        self.run_kitchen('lessons', 'add', 'reject', 'verify', 'src', 'Check it.')
+        self.run_kitchen('lessons', 'set', 'L001', 'active')
+        for n, kind in enumerate(['held'] * 7 + ['hit'] * 3):
+            self.row(
+                f'run-{n}',
+                'lesson',
+                kind,
+                f'1{n:02}',
+                'src',
+                '',
+                detail=self.key('L001'),
+            )
+        self.assertEqual(
+            self.doctor()['items'],
+            [
+                'L001: hit 3 of 10 units (30%) while active; rewrite the rule or retire it'
+            ],
+        )
+
     def test_doctor_flags_the_same_rule_and_add_refuses_it(self):
         self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
         self.run_kitchen('lessons', 'add', 'catch', 'review', 'src/lib', 'Rule one.')
