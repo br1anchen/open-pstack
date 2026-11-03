@@ -3456,7 +3456,7 @@ def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
             and (n['hits'] or needs_rewrite(n))
         ):
             items.append(
-                f'{x.id}: a gate lesson hit {n["hits"]} times; encode an autofix the step runs '
+                f'{x.id}: a gate lesson hit {"once" if n["hits"] == 1 else str(n["hits"]) + " times"}; encode an autofix the step runs '
                 'before its gate (a formatter or fixer in the profile) in place of more rule text'
             )
         elif f.get('status') == 'active' and needs_rewrite(n):

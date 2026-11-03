@@ -2100,7 +2100,17 @@ class LessonTests(KitchenTests):
         self.assertEqual(
             self.doctor()['items'],
             [
-                'L001: a gate lesson hit 1 times; encode an autofix the step runs '
+                'L001: a gate lesson hit once; encode an autofix the step runs '
+                'before its gate (a formatter or fixer in the profile) in place of more rule text'
+            ],
+        )
+        self.row(
+            'run-d', 'lesson', 'hit', '004', 'src', 'lint', detail=self.key('L001')
+        )
+        self.assertEqual(
+            self.doctor()['items'],
+            [
+                'L001: a gate lesson hit 2 times; encode an autofix the step runs '
                 'before its gate (a formatter or fixer in the profile) in place of more rule text'
             ],
         )
