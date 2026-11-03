@@ -127,6 +127,14 @@ class Pane:
             chain.pop()
         self.pid = field(foreground, 'pid', int)
         self.name = field(foreground, 'name') or ''
+        # Every name the foreground program goes by, to tell the agent from a helper the shell runs while it starts (mise, a prompt hook).
+        self.names = {
+            os.path.basename(v)
+            for v in (
+                field(foreground, k) for k in ('name', 'argv0', 'path', 'invoked_path')
+            )
+            if v
+        }
         self.cwd = field(foreground, 'cwd') or ''
         self.shell = field(chain[-1], 'pid', int)
         # A record left by an earlier program in the block (done and error outlive it) is not this agent's: only one owned by the
@@ -144,6 +152,18 @@ class Pane:
     def running(self):
         """An agent, not the shell, holds the foreground."""
         return self.pid is not None and self.pid != self.shell
+
+    def runs(self, program):
+        """Whether the foreground is `program`: by the names Rex reports, or, for a script under an interpreter (node running codex), by
+        its command line."""
+        if not self.running:
+            return False
+        if program in self.names:
+            return True
+        proc = procinfo.read_ps(self.pid)
+        return proc is not None and program in {
+            os.path.basename(a) for a in proc.argv[:3]
+        }
 
     @property
     def state(self):
@@ -420,23 +440,33 @@ class Rex(Mux):
                 del agents[old]
             agents[name] = {'block': pane, 'kind': kind}
 
+        def unclaim(agents):
+            if agents.get(name, {}).get('block') == pane:
+                del agents[name]
+
+        def failed(error, message):
+            register(unclaim)
+            return say(1, error, message)
+
         if not self.type(pane, shlex.join([kind, *args])):
             return say(1, self.failure, message=f'cannot type into {pane}')
         register(claim)
         run(['block', 'rename', pane, name])
         stall = env_float('PAIR_REX_STALL_S', 15) * 1000
+        # A new block's shell may still be starting: what it runs then (mise, a prompt hook) holds the foreground for a moment and is not
+        # the agent.
         up, _, held = self.poll(
-            pane, min(stall, float(timeout_ms)), lambda p, s: p.running
+            pane, min(stall, float(timeout_ms)), lambda p, s: p.runs(kind)
         )
         if up is None or not held:
-            return say(1, START_FAILED, f'{kind} never took the foreground of {pane}')
+            return failed(START_FAILED, f'{kind} never took the foreground of {pane}')
         last, status, held = self.poll(
             pane, timeout_ms, lambda p, s: not p.running or s in SETTLED
         )
         if last is None or not last.running:
-            return say(1, START_FAILED, f'{kind} exited in {pane}')
+            return failed(START_FAILED, f'{kind} exited in {pane}')
         if not held:
-            return say(1, TIMEOUT, f'{kind} did not settle in {timeout_ms}ms')
+            return failed(TIMEOUT, f'{kind} did not settle in {timeout_ms}ms')
         # An agent that reports no state shows its folder-trust dialog only on screen.
         dialog = not last.state and TRUST_RE.search(
             re.sub(r'[\n\t ]+', ' ', self.pane_screen(pane, 40)[1])

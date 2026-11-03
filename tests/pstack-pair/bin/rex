@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fake rex for the Rex backend's tests. State lives in $FAKE/rex/blocks/<id>/: `fg` ("pid name"; pid 100 is the block's shell, 200 its
-# agent), `state` ("state app stamp", what the agent reports), `queue` (states the next program_status calls report, one per call),
+# agent), `fgqueue` (the foregrounds the process calls after the next one show, one per call), `state` ("state app stamp", what the agent reports),
+# `queue` (states the next program_status calls report, one per call),
 # `screen` (the block's text) and `label`. Every call is logged to $FAKE/calls.log as "rex ...".
 set -u
 : "${FAKE:?}"
@@ -35,6 +36,9 @@ case "$1 ${2:-}" in
 	b="$(block_arg "$@")"; need "$b"; d="$(dir "$b")"
 	method="${*: -1}"
 	read -r pid name <"$d/fg"
+	if [ "$method" = process ] && [ -s "$d/fgqueue" ]; then
+		head -1 "$d/fgqueue" >"$d/fg"; tail -n +2 "$d/fgqueue" >"$d/fgqueue.tmp"; mv "$d/fgqueue.tmp" "$d/fgqueue"
+	fi
 	case "$method" in
 	process)
 		if [ "$pid" = 100 ]; then
@@ -63,8 +67,10 @@ case "$1 ${2:-}" in
 	read -r pid _ <"$d/fg"
 	if [ "$pid" = 100 ]; then
 		# Typed at the shell: the command's first word starts as the agent. $R/start-state is the state it opens in (idle by default;
-		# "none": it reports no state); $R/start-exits: it exits at once.
+		# "none": it reports no state); $R/start-exits: it exits at once; $R/start-helper: a helper of the still-starting shell holds the
+		# foreground for one look, then the shell, then the agent.
 		[ ! -e "$R/start-exits" ] && printf '200 %s\n' "${text%% *}" >"$d/fg"
+		[ ! -e "$R/start-helper" ] || { printf '999999999 mise\n' >"$d/fg"; printf '100 zsh\n200 %s\n' "${text%% *}" >"$d/fgqueue"; }
 		st="$(cat "$R/start-state" 2>/dev/null || echo idle)"
 		app="${text%% *}"; [ "$app" != claude ] || app=claude-code
 		[ "$st" = none ] || [ -e "$R/start-exits" ] || printf '%s %s %s\n' "$st" "$app" "$(stamp)" >"$d/state"
