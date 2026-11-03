@@ -10697,7 +10697,7 @@ class CoreTests(unittest.TestCase):
         }
         out = self.kitchen_cases('revise', cases, expect)
         unit = out['a rejected unit verdict']['files']['briefs/003-x-fix.md']
-        self.assertIn('playbook: bug-fix', unit)
+        self.assertIn('playbook: review-fix', unit)
         self.assertIn('- verdict: <T>/st/verdicts/001-x-v1.md', unit)
         self.assertIn('true 1', unit)
         landing = out['a rejected landing verdict names the union of the Scopes'][

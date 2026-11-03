@@ -647,7 +647,7 @@ def revise(ctx, args):
     path = new_from_template(ctx, store, slug, 'briefs', 'brief-template.md')
     olds, new = [open(b).read() for b in briefs], open(path).read()
     last = olds[-1]
-    new = re.sub(r'^playbook: .*$', 'playbook: bug-fix', new, count=1, flags=re.M)
+    new = re.sub(r'^playbook: .*$', 'playbook: review-fix', new, count=1, flags=re.M)
     for key in ('timebox', 'commit'):
         new = re.sub(
             rf'^{key}: .*$', f'{key}: {header(last, key)}', new, count=1, flags=re.M

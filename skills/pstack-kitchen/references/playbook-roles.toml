@@ -85,6 +85,51 @@ reviewed = "2b41ae474b55"
 sidekick = "In the report, under Ran and the sections the template names: what was broken, the root cause, the fix, and how you verified it. Paste the failing-then-passing repro output verbatim. Every claim carries its command output or a file pointer."
 verifier = "The evidence standard for the brief's Acceptance, not new criteria: the failing-then-passing repro output, verbatim. A verdict line cites the command output that shows it."
 
+[playbook.review-fix]
+source = { root = "skills", path = "pstack-kitchen/references/review-fix.md" }
+
+[[playbook.review-fix.part]]
+id = "review-fix.intro-1"
+select = "intro:1"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "ed5060cf2bab"
+
+[playbook.review-fix.part.kitchen]
+master = "List each finding in the brief with where it is; the parent unit settled the design. Use this workflow for every fix brief that answers a review, a rejected verdict or a landing review, in place of the parent's workflow."
+verifier = "You own the proof, not the fixes. Prove the brief's Acceptance, finding by finding, on the real surface at the unit's head."
+
+[[playbook.review-fix.part]]
+id = "review-fix.step-1"
+select = "step:1"
+owners = ["sidekick"]
+reviewed = "1e80c08a5202"
+
+[[playbook.review-fix.part]]
+id = "review-fix.step-2"
+select = "step:2"
+owners = ["sidekick", "verifier"]
+reviewed = "433ae2931bf7"
+
+[playbook.review-fix.part.kitchen]
+sidekick = "Fix one finding at a time, the smallest change that answers it. Each finding is one commit with the test that pins it, in the same commit, recorded with kitchen.sh step. A finding with no testable behaviour (a comment, a name, a log line) says so in its commit message."
+verifier = "Check from the unit's commit range that each listed finding has its commit and the test that pins it, or a commit message saying it has no testable behaviour. A fix brief has no repro-first rule: a test in the same commit as its fix is no finding. Do not write or edit commits."
+
+[[playbook.review-fix.part]]
+id = "review-fix.step-3"
+select = "step:3"
+owners = ["sidekick"]
+reviewed = "358aeab362f7"
+
+[[playbook.review-fix.part]]
+id = "review-fix.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "bfd6669fe262"
+
+[playbook.review-fix.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: each finding with its commit, the test that pins it, and the command output that shows it fixed. A finding left open says why. Every claim carries its command output or a file pointer."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: per finding, the command output that shows it fixed at the unit's head. A verdict line cites that output."
+
 [playbook.feature]
 source = { root = "skills", path = "poteto-mode/playbooks/feature.md" }
 

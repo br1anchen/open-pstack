@@ -61,7 +61,7 @@ The detail behind step 6 of [master.md](master.md).
      A `batch` unit may wait for the next done unit and verify together
      (`kitchen.sh verify <store> 004 005`); verify a batch before landing at
      the latest. Exit 2 with `reject`: run the `revise` command it prints,
-     read the fix brief, dispatch it, and verify the fix together with the
+     read the fix brief (it runs the `review-fix` workflow), dispatch it, and verify the fix together with the
      unit it fixes (`kitchen.sh verify <store> 007 --covers 003`): one
      verdict at the fix's head covers both, and land-check accepts it. A
      rejected landing verdict gets one fix brief over the union of the
@@ -162,9 +162,9 @@ The detail behind step 6 of [master.md](master.md).
      `joo-dev connected review context --artifact <file> --json`; it refuses
      the envelope and the directory.
      Decide each blocking finding:
-     fixed (a note or a fix brief to the sidekick, queued behind its running
-     unit when it is busy), a follow-up in the review note (it goes to
-     `followups.md`), or dismissed with the reason. A finding that a file is
+     fixed (a note, or a fix brief to the sidekick with `playbook: review-fix`,
+     queued behind its running unit when it is busy), a follow-up in the
+     review note (it goes to `followups.md`), or dismissed with the reason. A finding that a file is
      "not in the range" may be a binary add a reviewer cannot read: check
      `git diff --name-status <base>..<head>` before dismissing it. A later
      review round, a landing review above all, can raise again what an

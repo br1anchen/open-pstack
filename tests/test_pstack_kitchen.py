@@ -12286,7 +12286,7 @@ esac
         self.assertEqual(fix.name, '002-util-fix.md')
         self.assertIn(f'- verdict: {verdict}', text)
         self.assertIn('- src/** — scope', text)
-        self.assertIn('playbook: bug-fix', text)
+        self.assertIn('playbook: review-fix', text)
 
     def rejected(self, name, units):
         verdict = self.store / f'verdicts/{name}.md'
