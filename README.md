@@ -67,10 +67,12 @@ artwork are not runtime dependencies.
 ## Install and update
 
 `scripts/pstack-sync.py` installs individual skill links in `~/.agents/skills`,
-`~/.claude/skills`, `~/.pi/agent/skills`, and `~/.grok/skills`.
-Existing directory-wide aliases are respected. Codex and generic Agent Skills
-consumers use the shared `.agents` path. Pi and Grok also support that shared
-path; their native links support installations that use only native discovery.
+`~/.claude/skills`, and `~/.grok/skills`.
+Existing directory-wide aliases are respected; `--apply` moves the pstack skill
+links that earlier installs made in `~/.pi/agent/skills` (to any copy of
+pstack, or dangling) into its backup, since pi now reads the shared path. Codex, pi and generic Agent Skills
+consumers use the shared `.agents` path. Grok also supports that shared path;
+its native links support installations that use only native discovery.
 
 From a checkout, the links point at the working tree, so edits are live:
 

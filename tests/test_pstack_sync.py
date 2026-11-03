@@ -32,10 +32,10 @@ class SyncTests(unittest.TestCase):
             (home / '.claude').mkdir()
             (home / '.claude/skills').symlink_to(shared, target_is_directory=True)
             dry = sync_module.sync(source, home)
-            self.assertEqual(len(dry['changed']), 3)
+            self.assertEqual(len(dry['changed']), 2)
             self.assertEqual((shared / 'pstack/SKILL.md').read_text(), 'local edits')
             result = sync_module.sync(source, home, True)
-            self.assertEqual(len(result['changed']), 3)
+            self.assertEqual(len(result['changed']), 2)
             self.assertEqual(
                 (Path(result['backup']) / '.agents/skills/pstack/SKILL.md').read_text(),
                 'local edits',
@@ -43,6 +43,56 @@ class SyncTests(unittest.TestCase):
             self.assertTrue((shared / 'unrelated').is_dir())
             for path in sync_module.ROOTS:
                 self.assertEqual((home / path / 'pstack').resolve(), source / 'pstack')
+            self.assertEqual(sync_module.sync(source, home, True)['changed'], [])
+            # pi reads ~/.agents/skills, so nothing is linked under ~/.pi.
+            self.assertFalse((home / '.pi').exists())
+
+    def test_removes_its_old_pi_links_and_keeps_others(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, home = root / 'source', root / 'home'
+            (source / 'pstack').mkdir(parents=True)
+            (source / 'pstack/SKILL.md').write_text('new')
+            pi = home / '.pi/agent/skills'
+            pi.mkdir(parents=True)
+            (pi / 'pstack').symlink_to(source / 'pstack')
+            (source / 'pstack-pair').mkdir()
+            (source / 'pstack-pair/SKILL.md').write_text('new')
+            # An older pinned copy of the tree, and a skill of the user's own that shares no pstack name.
+            pinned = root / 'pinned/skills'
+            for name in ('pstack', 'pstack-pair'):
+                (pinned / name).mkdir(parents=True)
+                (pinned / name / 'SKILL.md').write_text('old')
+            (pi / 'pstack-pair').symlink_to(pinned / 'pstack-pair')
+            (root / 'mine').mkdir()
+            (pi / 'mine').symlink_to(root / 'mine')
+            dry = sync_module.sync(source, home)
+            self.assertIn(f'{pi / "pstack"} (removed)', dry['changed'])
+            self.assertIn(f'{pi / "pstack-pair"} (removed)', dry['changed'])
+            self.assertTrue((pi / 'pstack').is_symlink())
+            result = sync_module.sync(source, home, True)
+            self.assertFalse((pi / 'pstack').is_symlink())
+            self.assertFalse((pi / 'pstack-pair').is_symlink())
+            self.assertTrue(
+                (Path(result['backup']) / '.pi/agent/skills/pstack-pair').is_symlink()
+            )
+            self.assertTrue((pi / 'mine').is_symlink())
+
+    def test_a_pi_skills_dir_that_aliases_the_shared_one_keeps_its_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, home = root / 'source', root / 'home'
+            (source / 'pstack').mkdir(parents=True)
+            (source / 'pstack/SKILL.md').write_text('new')
+            (home / '.agents/skills').mkdir(parents=True)
+            (home / '.pi/agent').mkdir(parents=True)
+            (home / '.pi/agent/skills').symlink_to(
+                home / '.agents/skills', target_is_directory=True
+            )
+            sync_module.sync(source, home, True)
+            self.assertEqual(
+                (home / '.agents/skills/pstack').resolve(), source / 'pstack'
+            )
             self.assertEqual(sync_module.sync(source, home, True)['changed'], [])
 
     def test_replaces_broken_links_and_updates_sources(self):
