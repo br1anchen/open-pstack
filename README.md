@@ -144,8 +144,7 @@ herdr plugin install br1anchen/open-pstack/plugins/herdr
 ```
 
 Rex has no plugin format, so `install-rex` adds one marked block to Rex's
-`init.lua` (backing the file up first), links the pi extension that reports
-pi's state to Rex, and reloads Rex's config. `--print` shows the block without
+`init.lua` (backing the file up first) and reloads Rex's config. `--print` shows the block without
 writing, and `--uninstall` removes it:
 
 ```bash

@@ -5,8 +5,8 @@
   prompt --target PANE TEXT     type TEXT into the agent in PANE (a Herdr pane or Rex block) and submit it
   fleet                         print `kitchen.sh fleet`, then wait for Enter (for a popup or a window)
   install-rex [--print | --uninstall]
-                                add (or remove) the pstack actions to Rex's init.lua as one marked block, back the file up,
-                                link the pi extension and reload Rex's config; --print shows the block and changes nothing
+                                add (or remove) the pstack actions to Rex's init.lua as one marked block, back the file up
+                                and reload Rex's config; --print shows the block and changes nothing
 
 The multiplexer is pstack's own choice (PSTACK_MUX, HERDR_ENV, REX_BLOCK); the Rex actions set PSTACK_MUX=rex."""
 
@@ -87,10 +87,6 @@ def without_block(text):
     return head.rstrip('\n') + ('\n' if head.strip() else '') + tail
 
 
-def pi_extension_link():
-    return Path(os.path.expanduser('~/.pi/agent/extensions/pstack-program-status.ts'))
-
-
 def install_rex(args):
     if args.print:
         sys.stdout.write(rex_block())
@@ -110,15 +106,6 @@ def install_rex(args):
             print(f'backup: {backup}')
         path.write_text(new)
     print(f'{"removed from" if args.uninstall else "installed in"} {path}')
-    link = pi_extension_link()
-    if args.uninstall:
-        if link.is_symlink():
-            link.unlink()
-    elif link.parent.is_dir() and not link.exists():
-        if link.is_symlink():
-            link.unlink()
-        link.symlink_to(ROOT / 'plugins/rex/agents/pi-program-status.ts')
-        print(f'pi extension: {link}')
     if shutil.which('rex'):
         return subprocess.run(['rex', 'config', 'reload'], check=False).returncode
     return 0
