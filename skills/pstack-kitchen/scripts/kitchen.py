@@ -2799,6 +2799,10 @@ CANDIDATE_RUNS = {'gate-fail': 3, 'catch': 1}
 PROMOTE_AFTER = (
     3  # clean units in the area, with no hit, before a lesson can be promoted
 )
+# A lesson is judged by its hit rate once this many units scored it; before
+# that, two hits are enough.
+REWRITE_SAMPLE = 8
+REWRITE_RATE = 0.25
 LESSONS_HEAD = """# Kitchen lessons
 
 Rules learned from trouble that repeated in one area across kitchen runs.
@@ -2931,6 +2935,13 @@ def promotable(x: Lesson, n: dict[str, int]) -> bool:
         and n['held'] >= PROMOTE_AFTER
         and n['hits'] == 0
     )
+
+
+def needs_rewrite(n: dict[str, int]) -> bool:
+    units = n['held'] + n['hits']
+    if units < REWRITE_SAMPLE:
+        return n['hits'] >= 2
+    return n['hits'] / units >= REWRITE_RATE
 
 
 def lesson_counts(rows: list[dict[str, str]], x: Lesson) -> dict[str, int]:
@@ -3428,9 +3439,11 @@ def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
             items.append(
                 f'{x.id}: unreadable ({", ".join(missing) or "status " + f.get("status", "")}); fix it by hand'
             )
-        elif f.get('status') == 'active' and n['hits'] >= 2:
+        elif f.get('status') == 'active' and needs_rewrite(n):
+            units = n['held'] + n['hits']
             items.append(
-                f'{x.id}: hit {n["hits"]} times while active; rewrite the rule or retire it'
+                f'{x.id}: hit {n["hits"]} of {units} units ({n["hits"] * 100 // units}%) while active; '
+                'rewrite the rule or retire it'
             )
         elif promotable(x, n):
             items.append(

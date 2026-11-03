@@ -2045,7 +2045,7 @@ class LessonTests(KitchenTests):
         self.assertEqual(
             self.doctor()['items'],
             [
-                'L001: hit 2 times while active; rewrite the rule or retire it',
+                'L001: hit 2 of 2 units (100%) while active; rewrite the rule or retire it',
                 'L002: unreadable (kind, class, layer, area); fix it by hand',
             ],
         )
@@ -2068,6 +2068,19 @@ class LessonTests(KitchenTests):
             ('Run the formatter in the pre-commit hook.', 0, 0),
         )
         self.assertEqual(self.doctor()['status'], 'ok')
+
+    def test_a_lesson_needs_a_rewrite_by_its_hit_rate(self):
+        for held, hits, flags in (
+            (0, 2, True),
+            (1, 1, False),
+            (107, 16, False),
+            (6, 2, True),
+            (7, 2, False),
+        ):
+            with self.subTest(held=held, hits=hits):
+                self.assertEqual(
+                    kitchen.needs_rewrite({'held': held, 'hits': hits}), flags
+                )
 
     def test_rewriting_the_file_keeps_what_a_human_wrote(self):
         self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
