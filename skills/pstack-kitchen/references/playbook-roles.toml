@@ -104,16 +104,20 @@ select = "step:1"
 owners = ["master", "sidekick"]
 reviewed = "8918f20d52fc"
 
+[playbook.feature.part.kitchen]
+sidekick = "Read the Scope's files and the code they call before you edit. The design is the brief's: a design question goes in the report under Questions, not into a design exploration of your own."
+
+# The design steps are the master's: the brief leaves the sidekick no design decision.
 [[playbook.feature.part]]
 id = "feature.step-2"
 select = "step:2"
-owners = ["master", "sidekick"]
+owners = ["master"]
 reviewed = "af77b1a3517b"
 
 [[playbook.feature.part]]
 id = "feature.step-3"
 select = "step:3"
-owners = ["master", "sidekick"]
+owners = ["master"]
 reviewed = "353baa29538a"
 
 [[playbook.feature.part]]
@@ -124,7 +128,7 @@ reviewed = "0c3f4fb562ce"
 
 [playbook.feature.part.kitchen]
 master = "Hand code-writing to the sidekick through the brief, with a specific scope: file paths, the named data shape and its organizing structure per **principle-model-the-domain**, and success criteria."
-sidekick = "Implement with a specific scope: file paths, the named data shape and its organizing structure per **principle-model-the-domain** (a state machine over scattered booleans, a table or registry over branching, a typed model over repeated shape assumptions), chosen before you write logic, and the brief's success criteria. You may delegate to a subagent on your roster model, within your role's limits, for disjoint scoped edits that you integrate serially. When the implementation admits multiple valid shapes (error handling, abstraction layer, test structure), compare them with the **arena** skill. Comments per **Comments**. Surgical edits; re-ground against the source for upstream-derived files. Port shared-primitive improvements to all consumers and verify each. Commit liberally."
+sidekick = "Implement with a specific scope: file paths, the named data shape and its organizing structure per **principle-model-the-domain** (a state machine over scattered booleans, a table or registry over branching, a typed model over repeated shape assumptions), chosen before you write logic, and the brief's success criteria. You may delegate to a subagent on your roster model, within your role's limits, for disjoint scoped edits that you integrate serially. Comments per **Comments**. Surgical edits; re-ground against the source for upstream-derived files. Port shared-primitive improvements to all consumers and verify each. Commit liberally."
 
 [[playbook.feature.part]]
 id = "feature.step-5"
@@ -172,7 +176,7 @@ owners = ["sidekick", "verifier"]
 reviewed = "a4759e2087fa"
 
 [playbook.feature.part.kitchen]
-sidekick = "In the report, under Ran and the sections the template names: what you built, what you chose and why, the throughput checkpoint, and open decisions. Tables for design alternatives. Every claim carries its command output or a file pointer."
+sidekick = "In the report, under Ran and the sections the template names: what you built, what you chose and why, and open decisions. Tables for design alternatives. Every claim carries its command output or a file pointer."
 verifier = "The evidence standard for the brief's Acceptance, not new criteria: the built behavior shown on the matching surface, with the output. A verdict line cites the command output that shows it."
 
 [playbook.refactoring]

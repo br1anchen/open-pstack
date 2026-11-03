@@ -575,6 +575,18 @@ class ShippedMapRoleTests(unittest.TestCase):
                 self.assertNotIn('deslop', text, f'{pid} {role}')
         self.assertTrue({'no-comments', 'unslop', 'technical-writing'} <= installed)
 
+    def test_the_feature_sidekick_gets_no_design_step_arena_or_checkpoint(self):
+        by_id = parts(shipped())
+        self.assertEqual(by_id['feature.step-2']['owners'], ['master'])
+        self.assertEqual(by_id['feature.step-3']['owners'], ['master'])
+        self.assertIn(
+            'The design is the brief', by_id['feature.step-1']['kitchen']['sidekick']
+        )
+        for pid in ('feature.step-1', 'feature.step-4', 'feature.reply'):
+            text = by_id[pid]['kitchen']['sidekick']
+            self.assertNotIn('arena', text, pid)
+            self.assertNotIn('checkpoint', text, pid)
+
     def test_every_owner_of_the_investigation_reply_has_text_for_it(self):
         reply = parts(shipped())['investigation.reply']
         self.assertEqual(set(reply['owners']), set(reply['kitchen']))
