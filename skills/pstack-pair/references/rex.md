@@ -10,7 +10,7 @@ when `REX_BLOCK` is set. Every command, message and store file is the same in bo
 - Rex has no agent list. pstack names the blocks its agents run in and keeps the names in
   `${XDG_STATE_HOME:-~/.local/state}/pstack/rex-agents.json`. An agent pstack did not name goes by its block id.
 - An agent's status is what it reports to its block (the Program Status Protocol, OSC 7501). Claude Code, Codex and Muse report it
-  themselves. pi reports it through [the pstack pi extension](../../../plugins/rex/agents/pi-program-status.ts). For an agent that
+  themselves, as does pi from 1.1.0. For an agent that
   reports nothing (Devin, opencode), pstack reads its screen: it is working while the screen changes and idle once
   the screen stays still.
 - Rex shows no notification that a program outside the block can raise, so `kitchen.sh feedback` with no maintainer prints
