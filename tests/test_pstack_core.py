@@ -18867,11 +18867,29 @@ class RexMuxTests(unittest.TestCase):
         _, r = self.started()
         self.assertEqual((r.ok, r.error), (False, mux.NOT_READY))
 
-    def test_an_agent_that_exits_at_once_failed_to_start(self):
+    def test_an_agent_that_exits_at_once_failed_to_start_and_leaves_no_name(self):
         self.r('start-exits').touch()
         with mock.patch.dict(os.environ, {'PAIR_REX_STALL_S': '0'}):
             _, r = self.started()
         self.assertEqual((r.ok, r.error), (False, rex_mux.START_FAILED))
+        self.assertNotIn('s1', rex_mux.registry())
+        self.assertIsNone(self.rex.agent('s1'))
+
+    def test_an_agent_run_as_a_script_is_known_by_its_command_line(self):
+        process = {
+            'foreground': {'pid': 200, 'name': 'node'},
+            'ancestors': [{'pid': 100, 'name': 'zsh'}, {'pid': 1, 'name': 'login'}],
+        }
+        pane = rex_mux.Pane(process, None)
+        proc = procinfo.Proc(200, 100, 501, 'node', ('node', '/opt/bin/codex', '-a'), 1)
+        with mock.patch.object(procinfo, 'read_ps', return_value=proc):
+            self.assertEqual((pane.runs('codex'), pane.runs('claude')), (True, False))
+
+    def test_a_helper_of_the_starting_shell_in_the_foreground_is_not_the_agent(self):
+        self.r('start-helper').touch()
+        pane, r = self.started()
+        self.assertTrue(r.ok, r)
+        self.assertEqual(self.rex.agent('s1').pane, pane)
 
     def test_an_agent_that_reports_no_state_is_ready_once_its_screen_is_quiet_and_reads_idle(
         self,
