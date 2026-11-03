@@ -1069,9 +1069,10 @@ def render_role(
     to Pending reads: its authority, the inventory of every part it owns, then each
     part's text while the running estimate stays within `target_tokens`. Parts with
     an overlay origin come first, the rest after them, each group in composition
-    order, so the repo's standards stay inline when the workflow's text overflows. A part that does not fit, and every later one, is a named
-    pending read; nothing is dropped. A verifier's parts are always whole. A role
-    with no parts gets ('', [])."""
+    order, so the repo's standards stay inline when the workflow's text overflows.
+    A part that does not fit, and every later one, is a named pending read; nothing
+    is dropped. A verifier's parts are always whole. A role with no parts gets
+    ('', [])."""
     owned = composition['roles'].get(role) or []
     if not owned:
         return '', []

@@ -2094,6 +2094,7 @@ class LessonTests(KitchenTests):
             'lessons', 'add', 'gate-fail', 'app', 'src', 'Run the formatter.'
         )
         self.run_kitchen('lessons', 'set', 'L001', 'active')
+        self.assertEqual(self.doctor()['items'], [])
         self.row(
             'run-c', 'lesson', 'hit', '003', 'src', 'lint', detail=self.key('L001')
         )
