@@ -356,12 +356,12 @@ class Rex(Mux):
         return self.pane_key(self.block_of(name), key, stderr)
 
     def held_elsewhere(self, name, block):
-        """Whether another block's live agent holds `name`: Herdr's names are unique, so pstack's are too."""
+        """The other block whose live agent holds `name`, or '': Herdr's names are unique, so pstack's are too."""
         held = registry().get(name)
         if not held or held['block'] == block:
-            return False
+            return ''
         other = self.look(held['block'])
-        return other is not None and other.running
+        return held['block'] if other is not None and other.running else ''
 
     def rename(self, target, name):
         """Names the agent in the block; a name another block's live agent holds is not taken, as Herdr's names are unique."""
@@ -440,10 +440,9 @@ class Rex(Mux):
             return say(1, NOT_FOUND, message=f'no block {pane}')
         if look.running:
             return say(1, PANE_BUSY, f'{look.name} holds the foreground of {pane}')
-        if self.held_elsewhere(name, pane):
-            return say(
-                1, NAME_TAKEN, f'a live agent in {registry()[name]["block"]} is {name}'
-            )
+        holder = self.held_elsewhere(name, pane)
+        if holder:
+            return say(1, NAME_TAKEN, f'a live agent in {holder} is {name}')
 
         def claim(agents):
             for old in [n for n, e in agents.items() if e['block'] == pane]:
@@ -460,7 +459,7 @@ class Rex(Mux):
 
         line = shlex.join([kind, *args])
         # zsh's spelling correction (CORRECT, CORRECT_ALL) would stop the line at a "correct X to Y?" question.
-        if look.name == 'zsh':
+        if os.path.basename(look.name).lstrip('-') == 'zsh':
             line = f'nocorrect {line}'
         if not self.type(pane, line):
             return say(1, self.failure, message=f'cannot type into {pane}')

@@ -12746,6 +12746,52 @@ class SubagentKitchenTests(KitchenScriptTests):
         )
         self.assertEqual(registry['agents'][before['name']]['pane'], before['pane_id'])
 
+    def test_a_wrapper_of_one_command_is_not_a_new_session(self):
+        self.filled_handoff()
+        old = self.state()['master']
+        self.run_sh('rotate-master', str(self.store))
+        result = subprocess.run(
+            ['env', 'timeout', '60', str(self.script), 'take-master', str(self.store)],
+            cwd=self.repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f'in the same place ({old["pane_id"]})', result.stdout)
+
+    def test_take_master_from_a_session_in_another_checkout_does_not_move_the_run(
+        self,
+    ):
+        self.filled_handoff()
+        old = self.state()['master']
+        self.run_sh('rotate-master', str(self.store))
+        with tempfile.TemporaryDirectory() as elsewhere:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    '-c',
+                    'import subprocess, sys; sys.exit(subprocess.call(sys.argv[1:]))',
+                    str(self.script),
+                    'take-master',
+                    str(self.store),
+                ],
+                cwd=elsewhere,
+                env=self.env,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+        self.assertEqual(result.returncode, 5, result.stdout + result.stderr)
+        self.assertIn(
+            f"take-master runs from the new master's pane {old['pane_id']}, not ",
+            result.stderr,
+        )
+        self.assertEqual(self.state()['master']['pane_id'], old['pane_id'])
+
     def test_take_master_in_a_new_session_takes_the_run_into_that_sessions_pane(
         self,
     ):

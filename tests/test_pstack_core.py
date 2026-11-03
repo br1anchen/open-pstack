@@ -18868,6 +18868,13 @@ class RexMuxTests(unittest.TestCase):
         )
         self.assertEqual(self.rex.agent(pane).name, 's1')
 
+    def test_start_knows_a_login_zsh_by_its_dashed_name(self):
+        self.r('shell').write_text('-zsh')
+        self.started()
+        self.assertEqual(
+            (self.block() / 'typed').read_text(), 'nocorrect claude --model m\n'
+        )
+
     def test_start_types_the_plain_line_into_a_shell_other_than_zsh(self):
         self.r('shell').write_text('bash')
         self.started()
