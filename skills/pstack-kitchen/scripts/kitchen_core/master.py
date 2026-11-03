@@ -392,8 +392,13 @@ def take_master(ctx, args):
         sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
         return 0
     here = mux.get().own_pane()
-    # With no multiplexer the next master is a new session, in a pane of its own: it takes the run where it is.
-    moved = not mux.get().starts_master and here and here != pane
+    # With no multiplexer the next master is a new session, in a pane of its own: one in the run's checkout takes the run where it is.
+    moved = (
+        not mux.get().starts_master
+        and here != pane
+        and bool(read(store, 'cwd'))
+        and os.path.realpath(os.getcwd()) == os.path.realpath(read(store, 'cwd'))
+    )
     if moved:
         update(store, lambda doc: member(doc, 'master').__setitem__('pane_id', here))
         pane = here

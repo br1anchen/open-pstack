@@ -16,17 +16,32 @@ NOT_FOUND = 'agent_not_found'
 EXITS = ('/exit', '/quit')
 MASTER = 'subagent:master'
 SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
+# Programs that run one command and stand for no session of their own.
+WRAPPERS = (
+    'env',
+    'timeout',
+    'gtimeout',
+    'nice',
+    'nohup',
+    'time',
+    'stdbuf',
+    'caffeinate',
+    'sudo',
+    'uv',
+    'uvx',
+)
 
 
 def host_session():
-    """The pid of the coding-agent session this command runs under: the first ancestor that is not a shell, '' when none is read."""
+    """The pid of the coding-agent session this command runs under: the first ancestor that is neither a shell nor a wrapper of one command,
+    '' when none is read."""
     root = procinfo.proc_root()
     pid, depth = os.getppid(), 0
     while pid > 1 and depth < 12:
         proc = procinfo.read(pid, root)
         if proc is None:
             return ''
-        if os.path.basename(proc.comm).lstrip('-') not in SHELLS:
+        if os.path.basename(proc.comm).lstrip('-') not in SHELLS + WRAPPERS:
             return str(pid)
         pid, depth = proc.ppid, depth + 1
     return ''
