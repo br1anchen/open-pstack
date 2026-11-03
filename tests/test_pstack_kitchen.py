@@ -12746,6 +12746,42 @@ class SubagentKitchenTests(KitchenScriptTests):
         )
         self.assertEqual(registry['agents'][before['name']]['pane'], before['pane_id'])
 
+    def test_take_master_in_a_new_session_takes_the_run_into_that_sessions_pane(
+        self,
+    ):
+        self.filled_handoff()
+        old = self.state()['master']
+        self.run_sh('rotate-master', str(self.store))
+        # A process between the test and the command stands for the new coding-agent session.
+        result = subprocess.run(
+            [
+                sys.executable,
+                '-c',
+                'import subprocess, sys; sys.exit(subprocess.call(sys.argv[1:]))',
+                str(self.script),
+                'take-master',
+                str(self.store),
+            ],
+            cwd=self.repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        new = self.state()['master']
+        self.assertNotEqual(new['pane_id'], old['pane_id'])
+        self.assertTrue(new['pane_id'].startswith(old['pane_id'].rsplit(':', 1)[0]))
+        self.assertIn(
+            f'took over from {old["name"]}, whose session was {old["pane_id"]}',
+            result.stdout,
+        )
+        registry = json.loads(
+            (self.store.parents[3] / 'pstack/subagents/registry.json').read_text()
+        )
+        self.assertEqual(registry['agents'][old['name']]['pane'], new['pane_id'])
+
     def test_verify_hands_the_packet_to_a_verifier_subagent_then_reads_its_verdict(
         self,
     ):

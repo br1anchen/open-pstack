@@ -110,7 +110,9 @@ def visible_without_blanks(name):
 def submit_typed(name, marker):
     """Herdr can report a fresh agent working while a prompt still sits typed in its input, so the pane is read too: while its last lines
     still show the message's marker, Enter submits it, up to three times. A working Devin is left alone, since there Enter cancels the
-    running command. Returns the number of Enters sent."""
+    running command. Returns the number of Enters sent; none where no prompt is typed into a pane (subagents)."""
+    if not mux.get().waits:
+        return 0
     submitted = 0
     kind = agent_kind(name)
     tries = 0

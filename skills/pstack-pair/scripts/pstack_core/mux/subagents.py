@@ -8,18 +8,36 @@ import json
 import os
 import sys
 
+from .. import procinfo
 from .base import DEVNULL, PIPE, Agent, Mux, Reply
 
 NOT_FOUND = 'agent_not_found'
 # What ends an agent's session; to a subagent role it means the role is over, and the next prompt goes to a fresh subagent.
 EXITS = ('/exit', '/quit')
 MASTER = 'subagent:master'
+SHELLS = ('bash', 'sh', 'zsh', 'dash', 'fish')
+
+
+def host_session():
+    """The pid of the coding-agent session this command runs under: the first ancestor that is not a shell, '' when none is read."""
+    root = procinfo.proc_root()
+    pid, depth = os.getppid(), 0
+    while pid > 1 and depth < 12:
+        proc = procinfo.read(pid, root)
+        if proc is None:
+            return ''
+        if os.path.basename(proc.comm).lstrip('-') not in SHELLS:
+            return str(pid)
+        pid, depth = proc.ppid, depth + 1
+    return ''
 
 
 def master_pane():
-    """The pane of the master in this working directory: each kitchen's master, one per checkout, gets a pane of its own."""
+    """The pane of the master: one per checkout and host session, so two kitchens in one checkout, each in a session of its own, keep
+    their masters apart."""
     digest = hashlib.sha1(os.path.realpath(os.getcwd()).encode()).hexdigest()[:8]
-    return f'{MASTER}:{digest}'
+    host = host_session()
+    return f'{MASTER}:{digest}' + (f':{host}' if host else '')
 
 
 def is_master(pane):

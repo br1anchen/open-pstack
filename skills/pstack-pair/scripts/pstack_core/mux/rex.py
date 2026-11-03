@@ -47,6 +47,7 @@ QUIET = 3
 WAIT_MS = 30000
 NOT_FOUND = 'agent_not_found'
 START_FAILED = 'agent_start_failed'
+NAME_TAKEN = 'agent_name_taken'
 
 
 def run(args, stdout=PIPE, stderr=PIPE):
@@ -354,16 +355,21 @@ class Rex(Mux):
     def key(self, name, key, stderr=DEVNULL):
         return self.pane_key(self.block_of(name), key, stderr)
 
+    def held_elsewhere(self, name, block):
+        """Whether another block's live agent holds `name`: Herdr's names are unique, so pstack's are too."""
+        held = registry().get(name)
+        if not held or held['block'] == block:
+            return False
+        other = self.look(held['block'])
+        return other is not None and other.running
+
     def rename(self, target, name):
         """Names the agent in the block; a name another block's live agent holds is not taken, as Herdr's names are unique."""
         block = self.block_of(target)
         if not self.pane_exists(block):
             return False
-        held = registry().get(name)
-        if held and held['block'] != block:
-            other = self.look(held['block'])
-            if other is not None and other.running:
-                return False
+        if self.held_elsewhere(name, block):
+            return False
 
         def move(agents):
             kind = next(
@@ -434,6 +440,10 @@ class Rex(Mux):
             return say(1, NOT_FOUND, message=f'no block {pane}')
         if look.running:
             return say(1, PANE_BUSY, f'{look.name} holds the foreground of {pane}')
+        if self.held_elsewhere(name, pane):
+            return say(
+                1, NAME_TAKEN, f'a live agent in {registry()[name]["block"]} is {name}'
+            )
 
         def claim(agents):
             for old in [n for n, e in agents.items() if e['block'] == pane]:
@@ -448,7 +458,11 @@ class Rex(Mux):
             register(unclaim)
             return say(1, error, message)
 
-        if not self.type(pane, shlex.join([kind, *args])):
+        line = shlex.join([kind, *args])
+        # zsh's spelling correction (CORRECT, CORRECT_ALL) would stop the line at a "correct X to Y?" question.
+        if look.name == 'zsh':
+            line = f'nocorrect {line}'
+        if not self.type(pane, line):
             return say(1, self.failure, message=f'cannot type into {pane}')
         register(claim)
         run(['block', 'rename', pane, name])
