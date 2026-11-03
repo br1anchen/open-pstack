@@ -14245,6 +14245,16 @@ class CoreTests(unittest.TestCase):
                     )
                 },
             ),
+            'an escalated review-fix brief': dispatch(
+                path,
+                '--timeout',
+                '0',
+                files={
+                    'briefs/002-y.md': self.launch_brief('002', 'y')
+                    .replace('risk: routine', 'risk: escalated')
+                    .replace('playbook: feature', 'playbook: review-fix')
+                },
+            ),
             'a sidekick that is blocked': dispatch(
                 path, '--timeout', '0', agents={**agents, 's1': 'blocked claude'}
             ),
@@ -14336,6 +14346,10 @@ class CoreTests(unittest.TestCase):
                 "lists nothing under Scope's may write:",
             ),
             'an escalated brief': (6, 'playbook feature needs an agreed plan'),
+            'an escalated review-fix brief': (
+                6,
+                'playbook review-fix needs an agreed plan',
+            ),
             'a sidekick that is blocked': (3, 'sidekick s1 is blocked'),
             'outside herdr': (1, 'not running inside Herdr'),
         }

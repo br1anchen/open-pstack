@@ -11,7 +11,14 @@ from .checkin import scope_entries, scope_match
 from .errors import BadScope, Die, Paused, PlanNotAgreed
 from .store import event, header_field, pair_file, paused_reason, read_text, write_text
 
-PLAN_PLAYBOOKS = ('feature', 'bug-fix', 'refactoring', 'perf-issue', 'pstack-tdd')
+PLAN_PLAYBOOKS = (
+    'feature',
+    'bug-fix',
+    'review-fix',
+    'refactoring',
+    'perf-issue',
+    'pstack-tdd',
+)
 
 
 def require_not_paused(store):
