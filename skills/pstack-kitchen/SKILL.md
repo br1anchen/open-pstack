@@ -227,7 +227,9 @@ its children may do beyond these shared rules.
    - **Promote:** after 3 held and no hit, `kitchen.py lessons promote` drafts
      the proposal (the check, which layer and why, an example, proof, false
      positives); the human decides each one, and the check lands through a
-     brief. A lesson hit twice is rewritten or retired; `doctor` flags both.
+     brief. A lesson hit in a quarter of its units (two hits before 8 units) is
+     rewritten or retired, a gate lesson's hits call for an autofix in the step,
+     and `doctor` flags both and any duplicate rule.
 
 ## Feedback
 

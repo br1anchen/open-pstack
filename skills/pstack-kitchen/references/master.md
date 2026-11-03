@@ -156,8 +156,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    promote without a yes. On yes the check is a brief like any other (a
    kitchen.toml change through pstack-kitchen-setup's maintain path), and
    once it lands, `lessons set <id> promoted --note "<commit> <check>"`. A
-   lesson hit twice while active is wrong or too weak: rewrite it with
-   `lessons set <id> active --rule "<rule>"`, or retire it with a note.
+   lesson hit in a quarter of its units while active (two hits before 8 units)
+   is wrong or too weak: rewrite it with
+   `lessons set <id> active --rule "<rule>"`, or retire it with a note. A hit
+   gate lesson needs an autofix the step runs before its gate, not more rule
+   text. `doctor` also flags two lessons with the same rule; retire one.
    For a class already
    repeated and plain enough to enforce now, propose the encoding it names
    to the human, or run the `correct` skill on it; a kitchen change is a
