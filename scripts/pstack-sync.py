@@ -7,7 +7,21 @@ import os
 import tempfile
 from pathlib import Path
 
-ROOTS = ('.agents/skills', '.claude/skills', '.pi/agent/skills', '.grok/skills')
+# pi reads ~/.agents/skills itself, so it gets no links of its own.
+ROOTS = ('.agents/skills', '.claude/skills', '.grok/skills')
+# Where earlier installs linked pi's copies; a link there to a pstack skill would show pi each skill twice.
+RETIRED = ('.pi/agent/skills',)
+
+
+def pstack_link(path, skill):
+    """Whether `path` is a link an install made for `skill`: to this copy, to another pstack skills tree (one with the pstack skill
+    beside it), or to one that is gone."""
+    if not path.is_symlink():
+        return False
+    target = path.resolve()
+    if target == skill.resolve() or not target.exists():
+        return True
+    return target.name == skill.name and (target.parent / 'pstack/SKILL.md').is_file()
 
 
 def sync(source, home, apply=False):
@@ -17,6 +31,17 @@ def sync(source, home, apply=False):
     backup = None
     changes = []
     seen = set()
+
+    def save(path, root):
+        nonlocal backup
+        if backup is None:
+            backup_root = home / '.local/state/pstack/backups'
+            backup_root.mkdir(parents=True, exist_ok=True)
+            backup = Path(tempfile.mkdtemp(prefix='install-', dir=backup_root))
+        saved = backup / root / path.name
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        path.rename(saved)
+
     for root in ROOTS:
         parent = home / root
         if apply:
@@ -33,18 +58,22 @@ def sync(source, home, apply=False):
             if not apply:
                 continue
             if target.exists() or target.is_symlink():
-                if backup is None:
-                    backup_root = home / '.local/state/pstack/backups'
-                    backup_root.mkdir(parents=True, exist_ok=True)
-                    backup = Path(tempfile.mkdtemp(prefix='install-', dir=backup_root))
-                saved = backup / root / skill.name
-                saved.parent.mkdir(parents=True, exist_ok=True)
-                target.rename(saved)
+                save(target, root)
             # A unique temporary link makes replacement atomic for readers.
             with tempfile.TemporaryDirectory(prefix='.pstack-', dir=parent) as staging:
                 link = Path(staging) / skill.name
                 link.symlink_to(skill.resolve(), target_is_directory=True)
                 os.replace(link, target)
+    for root in RETIRED:
+        for skill in skills:
+            old = home / root / skill.name
+            # A retired directory that aliases a live one holds the links just made.
+            if old.parent.resolve() / old.name in seen:
+                continue
+            if pstack_link(old, skill):
+                changes.append(f'{old} (removed)')
+                if apply:
+                    save(old, root)
     return {
         'skills': len(skills),
         'changed': changes,
