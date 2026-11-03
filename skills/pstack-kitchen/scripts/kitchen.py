@@ -3450,11 +3450,7 @@ def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
             items.append(
                 f'{x.id}: unreadable ({", ".join(missing) or "status " + f.get("status", "")}); fix it by hand'
             )
-        elif (
-            f.get('status') == 'active'
-            and f['kind'] in GATE_KINDS
-            and (n['hits'] or needs_rewrite(n))
-        ):
+        elif f.get('status') == 'active' and f['kind'] in GATE_KINDS and n['hits']:
             items.append(
                 f'{x.id}: a gate lesson hit {"once" if n["hits"] == 1 else str(n["hits"]) + " times"}; encode an autofix the step runs '
                 'before its gate (a formatter or fixer in the profile) in place of more rule text'
