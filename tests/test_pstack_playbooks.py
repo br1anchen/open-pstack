@@ -1177,6 +1177,27 @@ class RenderRoleTests(unittest.TestCase):
         )
         self.assertIn('- third: kitchen.sh playbook-part /s 010 sidekick third\n', text)
 
+    def test_overlay_parts_come_first_so_workflow_parts_overflow_first(self):
+        comp = self.composition(flow='intro\n' + 'w' * 400, std='intro\n' + 's' * 100)
+        sidekick = comp['roles']['sidekick']
+        sidekick[1]['from'] = [{'part': 'std', 'by': 'overlay:coach'}]
+        none_fit = playbooks.render_role(comp, 'sidekick', 0)[0]
+        head = len(none_fit.split('\nPending reads')[0])
+        text, pending = playbooks.render_role(comp, 'sidekick', (head + 150) // 4)
+        self.assertEqual(pending, ['flow'])
+        self.assertIn('s' * 100, text)
+        self.assertNotIn('w' * 400, text)
+        self.assertLess(text.index('- std: '), text.index('- flow: '))
+
+    def test_a_part_with_a_workflow_and_an_overlay_origin_counts_as_overlay(self):
+        comp = self.composition(flow='w' * 400, both='b' * 100)
+        comp['roles']['sidekick'][1]['from'] = [
+            {'part': 'both', 'by': 'workflow:feature'},
+            {'part': 'both', 'by': 'overlay:coach'},
+        ]
+        text, pending = playbooks.render_role(comp, 'sidekick', 100)
+        self.assertLess(text.index('- both: '), text.index('- flow: '))
+
     def test_a_part_after_an_overflow_stays_pending_even_when_it_is_small(self):
         comp = self.composition(big='x' * 4000, tiny='ok')
         _, pending = playbooks.render_role(comp, 'sidekick', 100)

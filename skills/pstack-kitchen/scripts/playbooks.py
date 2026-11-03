@@ -1054,6 +1054,10 @@ def demote_headings(text: str) -> str:
     return '\n'.join(lines)
 
 
+def from_overlay(part: dict) -> bool:
+    return any(o['by'].startswith('overlay:') for o in part['from'])
+
+
 def render_role(
     composition: dict,
     role: str,
@@ -1063,13 +1067,17 @@ def render_role(
 ) -> tuple[str, list[str]]:
     """The `## Playbook:` section a role is given and the ids of the parts that went
     to Pending reads: its authority, the inventory of every part it owns, then each
-    part's text in composition order while the running estimate stays within
-    `target_tokens`. A part that does not fit, and every later one, is a named
+    part's text while the running estimate stays within `target_tokens`. Parts with
+    an overlay origin come first, the rest after them, each group in composition
+    order, so the repo's standards stay inline when the workflow's text overflows. A part that does not fit, and every later one, is a named
     pending read; nothing is dropped. A verifier's parts are always whole. A role
     with no parts gets ('', [])."""
-    parts = composition['roles'].get(role) or []
-    if not parts:
+    owned = composition['roles'].get(role) or []
+    if not owned:
         return '', []
+    parts = [p for p in owned if from_overlay(p)] + [
+        p for p in owned if not from_overlay(p)
+    ]
     ids = [o['id'] for o in composition['overlays']['selected']]
     head = ' + '.join([composition['workflow'], *ids])
     lines = [f'## Playbook: {head} (your parts)', '', ROLE_AUTHORITY[role], '']
