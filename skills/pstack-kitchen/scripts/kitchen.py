@@ -2937,6 +2937,10 @@ def promotable(x: Lesson, n: dict[str, int]) -> bool:
     )
 
 
+def rule_key(rule: str) -> str:
+    return ' '.join(rule.split()).casefold()
+
+
 def needs_rewrite(n: dict[str, int]) -> bool:
     units = n['held'] + n['hits']
     if units < REWRITE_SAMPLE:
@@ -3160,6 +3164,13 @@ def lessons_add(
                 'a lesson needs evidence'
             )
         lessons = read_lessons(path)
+        for x in lessons:
+            if x.fields.get('status') != 'retired' and rule_key(x.rule) == rule_key(
+                rule
+            ):
+                raise KitchenError(
+                    f"the rule is already {x.id}'s; set that one active or rewrite it"
+                )
         # Ids come from the host ledger too: runs in other worktrees stage
         # lessons in their own copy of the file, and the ledger counts by id.
         n = (
@@ -3439,6 +3450,15 @@ def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
             items.append(
                 f'{x.id}: unreadable ({", ".join(missing) or "status " + f.get("status", "")}); fix it by hand'
             )
+        elif (
+            f.get('status') == 'active'
+            and f['kind'] in GATE_KINDS
+            and (n['hits'] or needs_rewrite(n))
+        ):
+            items.append(
+                f'{x.id}: a gate lesson hit {n["hits"]} times; encode an autofix the step runs '
+                'before its gate (a formatter or fixer in the profile) in place of more rule text'
+            )
         elif f.get('status') == 'active' and needs_rewrite(n):
             units = n['held'] + n['hits']
             items.append(
@@ -3449,6 +3469,13 @@ def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
             items.append(
                 f'{x.id}: promotable (held {n["held"]}); kitchen.py lessons promote {x.id}'
             )
+    seen: dict[str, str] = {}
+    for x in lessons:
+        if x.fields.get('status') == 'retired':
+            continue
+        first = seen.setdefault(rule_key(x.rule), x.id)
+        if first != x.id:
+            items.append(f'{x.id}: same rule as {first}; retire one')
     by = {s: sum(x.fields.get('status') == s for x in lessons) for s in LESSON_STATUS}
     detail = ', '.join(f'{v} {k}' for k, v in by.items() if v) + f' ({path})'
     return ('warn' if items else 'ok'), detail, items

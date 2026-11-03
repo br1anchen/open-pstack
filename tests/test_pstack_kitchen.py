@@ -2045,7 +2045,8 @@ class LessonTests(KitchenTests):
         self.assertEqual(
             self.doctor()['items'],
             [
-                'L001: hit 2 of 2 units (100%) while active; rewrite the rule or retire it',
+                'L001: a gate lesson hit 2 times; encode an autofix the step runs '
+                'before its gate (a formatter or fixer in the profile) in place of more rule text',
                 'L002: unreadable (kind, class, layer, area); fix it by hand',
             ],
         )
@@ -2081,6 +2082,44 @@ class LessonTests(KitchenTests):
                 self.assertEqual(
                     kitchen.needs_rewrite({'held': held, 'hits': hits}), flags
                 )
+
+    def test_doctor_points_a_hit_gate_lesson_at_an_autofix(self):
+        self.row(
+            'run-a', 'gate-fail', 'app', '001', 'src', 'lint', detail='001-x abc1234'
+        )
+        self.row(
+            'run-b', 'gate-fail', 'app', '002', 'src', 'lint', detail='002-y def5678'
+        )
+        self.run_kitchen(
+            'lessons', 'add', 'gate-fail', 'app', 'src', 'Run the formatter.'
+        )
+        self.run_kitchen('lessons', 'set', 'L001', 'active')
+        self.row(
+            'run-c', 'lesson', 'hit', '003', 'src', 'lint', detail=self.key('L001')
+        )
+        self.assertEqual(
+            self.doctor()['items'],
+            [
+                'L001: a gate lesson hit 1 times; encode an autofix the step runs '
+                'before its gate (a formatter or fixer in the profile) in place of more rule text'
+            ],
+        )
+
+    def test_doctor_flags_the_same_rule_and_add_refuses_it(self):
+        self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
+        self.run_kitchen('lessons', 'add', 'catch', 'review', 'src/lib', 'Rule one.')
+        path = self.repo / '.agents/LESSONS.md'
+        before = path.read_text()
+        self.assertIn(
+            "the rule is already L001's",
+            self.run_kitchen(
+                'lessons', 'add', 'catch', 'review', 'src/lib', 'RULE   one.', code=1
+            ),
+        )
+        self.assertEqual(path.read_text(), before)
+        copy = before[before.index('## L001') :].replace('L001', 'L002')
+        path.write_text(before + '\n' + copy.replace('Rule one.', 'rule  ONE.'))
+        self.assertIn('L002: same rule as L001; retire one', self.doctor()['items'])
 
     def test_rewriting_the_file_keeps_what_a_human_wrote(self):
         self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
