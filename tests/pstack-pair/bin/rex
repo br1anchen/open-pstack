@@ -2,7 +2,7 @@
 # Fake rex for the Rex backend's tests. State lives in $FAKE/rex/blocks/<id>/: `fg` ("pid name"; pid 100 is the block's shell, 200 its
 # agent), `fgqueue` (the foregrounds the process calls after the next one show, one per call), `state` ("state app stamp", what the agent reports),
 # `queue` (states the next program_status calls report, one per call),
-# `screen` (the block's text) and `label`. Every call is logged to $FAKE/calls.log as "rex ...".
+# `screen` (the block's text) and `label`. $R/shell names the blocks' shell (zsh by default). Every call is logged to $FAKE/calls.log as "rex ...".
 set -u
 : "${FAKE:?}"
 R="$FAKE/rex"
@@ -42,7 +42,7 @@ case "$1 ${2:-}" in
 	case "$method" in
 	process)
 		if [ "$pid" = 100 ]; then
-			printf '{"foreground":{"pid":100,"name":"zsh","cwd":"/w"},"ancestors":[{"pid":1,"name":"login"}]}\n'
+			printf '{"foreground":{"pid":100,"name":"%s","cwd":"/w"},"ancestors":[{"pid":1,"name":"login"}]}\n' "$(cat "$R/shell" 2>/dev/null || echo zsh)"
 		else
 			printf '{"foreground":{"pid":%s,"name":"%s","cwd":"/w"},"ancestors":[{"pid":100,"name":"zsh"},{"pid":1,"name":"login"}]}\n' "$pid" "$name"
 		fi ;;
@@ -66,6 +66,7 @@ case "$1 ${2:-}" in
 	printf '%s\n' "$text" >>"$d/typed"
 	read -r pid _ <"$d/fg"
 	if [ "$pid" = 100 ]; then
+		text="${text#nocorrect }"
 		# Typed at the shell: the command's first word starts as the agent. $R/start-state is the state it opens in (idle by default;
 		# "none": it reports no state); $R/start-exits: it exits at once; $R/start-helper: a helper of the still-starting shell holds the
 		# foreground for one look, then the shell, then the agent.

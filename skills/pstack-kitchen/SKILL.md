@@ -122,8 +122,8 @@ and the store are the same; what changes is who carries each message:
   no new master: after `new-handoff` it records the hand-over and writes the
   next generation's prompt to `sessions/master-g<n>-prompt.md`. End this
   session; the human opens a new one in the same checkout, outside any
-  multiplexer, and gives it that prompt; its `take-master` takes the run
-  over in the same place. `prime-agent` cannot run here (it needs a
+  multiplexer, and gives it that prompt; its `take-master` moves the run
+  to that session. `prime-agent` cannot run here (it needs a
   multiplexer that tracks its session).
 - Gates, Verify reruns, `land-check`, `classify`, the ledger and `retro` run
   as they do anywhere.

@@ -17,14 +17,14 @@ kinds: master claude, sidekick codex, consultant claude
 [exit 0]
   codex --disable plugins mcp list --json (cwd <T>/repo)
   rex split -b block:m0 --split right --focus=false -c <T>/repo --json
-  rex send -b block:b1 -- codex --disable plugins
+  rex send -b block:b1 -- nocorrect codex --disable plugins
   rex send-key -b block:b1 enter
   rex block rename block:b1 demo-sidekick
   rex send -b block:b1 -- Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 1, pane block:b1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY.
   rex send-key -b block:b1 enter
   rex block inspect block:b1 --json
   rex split -b block:b1 --split right --focus=false -c <T>/repo --json
-  rex send -b block:b2 -- claude --strict-mcp-config --mcp-config <SKILLS>/pstack-pair/scripts/../references/no-mcp.json
+  rex send -b block:b2 -- nocorrect claude --strict-mcp-config --mcp-config <SKILLS>/pstack-pair/scripts/../references/no-mcp.json
   rex send-key -b block:b2 enter
   rex block rename block:b2 demo-consultant
   rex send -b block:b2 -- Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the consultant role (generation 1, pane block:b2). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write advice/000-ready.md, and reply READY.

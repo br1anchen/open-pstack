@@ -392,6 +392,11 @@ def take_master(ctx, args):
         sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
         return 0
     here = mux.get().own_pane()
+    # With no multiplexer the next master is a new session, in a pane of its own: it takes the run where it is.
+    moved = not mux.get().starts_master and here and here != pane
+    if moved:
+        update(store, lambda doc: member(doc, 'master').__setitem__('pane_id', here))
+        pane = here
     if here != pane:
         raise Die(
             f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}",
@@ -415,7 +420,7 @@ def take_master(ctx, args):
         if m.pane_close(prev_pane):
             closed = 'closed'
     base = f'{read(store, "slug")}-master'
-    if name != base and m.rename(pane, base):
+    if (name != base or moved) and m.rename(pane, base):
         name = base
 
     def mutate(doc):
@@ -432,7 +437,9 @@ def take_master(ctx, args):
         f'generation:{field(store, "master", "generation")}',
     )
     out = sys.stdout
-    if closed == 'closed':
+    if moved and closed == 'closed':
+        out.write(f'took over from {prev}, whose session was {prev_pane}\n')
+    elif closed == 'closed':
         out.write(f'closed the old master {prev} ({prev_pane})\n')
     elif closed == 'same':
         out.write(f'took over from {prev} in the same place ({pane})\n')

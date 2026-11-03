@@ -18617,6 +18617,15 @@ class MuxSeamTests(unittest.TestCase):
         'pstack-kitchen/scripts',
     )
 
+    def test_submit_typed_sends_and_sleeps_nothing_where_no_prompt_is_typed(self):
+        from pstack_core.mux import subagents
+
+        with (
+            mock.patch.object(mux, 'get', return_value=subagents.Subagents()),
+            mock.patch.object(send.time, 'sleep', side_effect=AssertionError('slept')),
+        ):
+            self.assertEqual(send.submit_typed('demo-sidekick', 'BRIEF'), 0)
+
     def test_no_module_outside_mux_runs_a_multiplexer_or_reads_its_variables(self):
         stray = []
         for skill in self.SOURCES:
@@ -18847,7 +18856,10 @@ class RexMuxTests(unittest.TestCase):
     def test_start_types_the_kind_and_its_args_and_names_the_block_as_the_agent(self):
         pane, r = self.started()
         self.assertEqual((r.ok, r.error), (True, ''))
-        self.assertEqual((self.block() / 'typed').read_text(), 'claude --model m\n')
+        # zsh would offer to correct a word of the line; nocorrect turns that off for it.
+        self.assertEqual(
+            (self.block() / 'typed').read_text(), 'nocorrect claude --model m\n'
+        )
         self.assertIn(f'rex block rename {pane} s1', self.calls())
         agent = self.rex.agent('s1')
         self.assertEqual(
@@ -18855,6 +18867,19 @@ class RexMuxTests(unittest.TestCase):
             ('s1', 'claude', 'idle', pane),
         )
         self.assertEqual(self.rex.agent(pane).name, 's1')
+
+    def test_start_types_the_plain_line_into_a_shell_other_than_zsh(self):
+        self.r('shell').write_text('bash')
+        self.started()
+        self.assertEqual((self.block() / 'typed').read_text(), 'claude --model m\n')
+
+    def test_start_refuses_a_name_another_blocks_live_agent_holds(self):
+        first, _ = self.started()
+        other = self.rex.split('block:me', 'right', '/w')
+        r = self.rex.start('s1', 'claude', other, [], stderr=mux.PIPE)
+        self.assertEqual((r.ok, r.error), (False, rex_mux.NAME_TAKEN))
+        self.assertIn(f'a live agent in {first} is s1', r.err)
+        self.assertEqual(rex_mux.registry()['s1']['block'], first)
 
     def test_start_refuses_a_block_whose_foreground_is_not_its_shell(self):
         pane, _ = self.started()
