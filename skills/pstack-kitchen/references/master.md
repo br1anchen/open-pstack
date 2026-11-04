@@ -102,8 +102,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    Run `kitchen.sh verify <store> <NNN>` (in Claude Code, start it with
    `--until-verdict` in the background). One verification is open at a time;
    a done unit that arrives while one is open is verified together with the
-   next. `verify` returns exit 4 with progress while the verifier works; then
-   run `kitchen.sh verify <store> --wait` (exit 5 means none is open). A reject
+   next. `verify` returns exit 4 with progress while the verifier works (a
+   background runner shows it as failed; it is not), then run
+   `kitchen.sh verify <store> --wait` (exit 5 means none is open). A reject
    goes to `revise` and the fix is verified with `--covers`. A rejected unit is
    never re-verified at its own head; a second rejection, an `inconclusive`
    verdict or an `invalid` one is yours to read.
