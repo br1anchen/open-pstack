@@ -241,10 +241,11 @@ def child_parts(child):
 def candidate_dirs(store, projects):
     """Project dirs of the store's repo, and of verifier scratch worktrees named for its slug."""
     prefixes = [encode_cwd(root) for root in store.roots]
-    scratch = f'pstack-scratch-runs-{encode_cwd(store.slug)}-'
+    # A scratch root named for scratch: the state home's pstack/scratch, or .git/pstack-scratch from before the move.
+    scratch = re.compile(rf'scratch-runs-{re.escape(encode_cwd(store.slug))}-')
     for directory in sorted(Path(projects).iterdir()):
         if directory.is_dir() and (
-            scratch in directory.name
+            scratch.search(directory.name)
             or any(directory.name.startswith(p) for p in prefixes)
         ):
             yield from sorted(directory.glob('*.jsonl'))
@@ -252,11 +253,8 @@ def candidate_dirs(store, projects):
 
 def in_store_tree(store, session):
     """Whether the session ran in the store's repo or in a verifier scratch worktree for its slug."""
-    # The scratch root under the state home (pstack/scratch), or .git/pstack-scratch for runs from before it moved.
-    if any(
-        f'/{root}/runs-{store.slug}/' in session.cwd
-        for root in ('pstack/scratch', 'pstack-scratch')
-    ):
+    # A run's scratch worktrees sit at <root>/runs-<slug>/ under a root named for scratch (pstack/scratch, .git/pstack-scratch).
+    if re.search(rf'scratch/runs-{re.escape(store.slug)}/', session.cwd):
         return True
     return any(session.cwd == r or session.cwd.startswith(f'{r}/') for r in store.roots)
 

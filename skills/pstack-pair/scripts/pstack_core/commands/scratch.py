@@ -41,10 +41,15 @@ def scratch_root():
     """Where scratch worktrees live: PSTACK_SCRATCH_ROOT, else pstack/scratch under the state home. Outside every repository, since
     TypeScript treats a module path under /.git as not portable (declaration emit fails in a bun or pnpm repo); Claude and Codex
     trust a folder's subfolders, so the human trusts this root once per host. kitchen.py scratch_root says the same."""
-    return os.environ.get('PSTACK_SCRATCH_ROOT') or os.path.join(
-        os.environ.get('XDG_STATE_HOME') or os.path.expanduser('~/.local/state'),
-        'pstack',
-        'scratch',
+    moved = os.environ.get('PSTACK_SCRATCH_ROOT')
+    return (
+        os.path.abspath(moved)
+        if moved
+        else os.path.join(
+            os.environ.get('XDG_STATE_HOME') or os.path.expanduser('~/.local/state'),
+            'pstack',
+            'scratch',
+        )
     )
 
 
@@ -170,11 +175,32 @@ def add_jj_scratch(cwd, ident, path, at):
         raise ScratchNotMade(f'scratch {path} is not a git work tree')
 
 
+def common_dir(cwd):
+    found = git.out(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+    return os.path.realpath(found) if found else ''
+
+
+def require_owned(cwd, path):
+    """A scratch already at `path` is reused only when it is a worktree of this repository. The root is shared by every repo on the host,
+    so a worktree another repo left behind under the same run name is refused, not checked against the wrong code."""
+    owner = common_dir(path)
+    if owner != common_dir(cwd):
+        how = (
+            f'git -C {os.path.dirname(owner)} worktree remove --force {path}'
+            if owner
+            else f'rm -rf {path}'
+        )
+        raise BadScratch(
+            f'{path} is left over from {"another repository" if owner else "a scratch that is not a git worktree"}; remove it ({how}) and run again'
+        )
+
+
 def make_scratch(ctx, store, ident, *, at=''):
     """The path of the scratch worktree `ident`, made at the commit `at` (HEAD with the live diff when empty) unless it is there already. A
     live diff that does not apply is said on stderr and leaves the scratch at HEAD."""
     cwd, link, path = locate(store, ident)
     if os.path.isdir(path):
+        require_owned(cwd, path)
         return path
     try:
         os.makedirs(f'{store}/scratch', exist_ok=True)
