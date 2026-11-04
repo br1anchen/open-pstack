@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at eded7cd by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 5a04777 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -199,7 +199,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): unit …'s commits match by patch-id but … reverts them in the checked-out head … (unit { — skills/pstack-kitchen/scripts/kitchen_core/units.py:279 — test_pstack_core.CoreTests.test_heads_in_names_the_units_a_verifications_head_does_not_carry
 - exit 2 (herdr or gate failure): unit …'s head … is not in the checked-out head … (unit …); name the unit that carries  — skills/pstack-kitchen/scripts/kitchen_core/units.py:283 — test_pstack_core.CoreTests.test_heads_in_names_the_units_a_verifications_head_does_not_carry (+1)
 - exit 2 (herdr or gate failure): batch of … diff lines is over review.max_batch_diff; verify each unit — skills/pstack-kitchen/scripts/kitchen_core/verify.py:395 — test_pstack_kitchen.KitchenScriptTests.test_a_batch_over_review_max_batch_diff_is_refused_but_a_fix_verified_with_its_unit_is_not
-- exit 2 (herdr or gate failure): verifier entry is not JSON: … — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:124 — test_pstack_core.CoreTests.test_a_re_raise_inside_an_except_names_the_error_it_answers_and_says_the_same_message (+1)
+- exit 2 (herdr or gate failure): verifier entry is not JSON: … — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:125 — test_pstack_core.CoreTests.test_a_re_raise_inside_an_except_names_the_error_it_answers_and_says_the_same_message (+1)
 - exit 2 (herdr or gate failure): (returns 2 in report()) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:527 — test_pstack_core.CoreTests.test_a_lost_close_reports_the_attempt_by_its_packet_outcome_and_its_verdict (+2)
 - exit 2 (herdr or gate failure): (returns 2 in report()) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:570 — test_pstack_kitchen.KitchenScriptTests.test_rejected_verdict_drafts_the_fix_brief
 - exit 2 (herdr or gate failure): (returns 2 in report()) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:574 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_verdicts
@@ -209,11 +209,11 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): … prompt failed for … — skills/pstack-pair/scripts/pstack_core/commands/notes.py:177 — test_pstack_core.CoreTests.test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line (+3)
 - exit 2 (herdr or gate failure): … has no valid status: line (one of …) — skills/pstack-pair/scripts/pstack_core/commands/report.py:111 — test_pstack_core.CoreTests.test_finish_refuses_a_report_with_no_valid_status_line
 - exit 2 (herdr or gate failure): … exit failed: … — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:66 — test_pstack_core.CoreTests.test_rotate_refuses_and_reports_what_a_caller_reads
-- exit 2 (herdr or gate failure): git worktree add failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:128 — test_pstack_kitchen.KitchenScriptTests.test_a_parent_is_not_recorded_when_the_scratch_worktree_cannot_be_made
-- exit 2 (herdr or gate failure): jj workspace add failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:149 — not a caller contract: jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure
-- exit 2 (herdr or gate failure): git reset in … failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:158 — test_pstack_core.CoreTests.test_a_jj_scratch_that_git_does_not_see_as_its_work_tree_is_refused_and_removed
-- exit 2 (herdr or gate failure): scratch … is not a git work tree — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:161 — test_pstack_core.CoreTests.test_a_jj_scratch_that_git_does_not_see_as_its_work_tree_is_refused_and_removed
-- exit 2 (herdr or gate failure): git worktree add failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:200 — test_pstack_kitchen.KitchenScriptTests.test_a_parent_is_not_recorded_when_the_scratch_worktree_cannot_be_made
+- exit 2 (herdr or gate failure): git worktree add failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:137 — test_pstack_kitchen.KitchenScriptTests.test_a_parent_is_not_recorded_when_the_scratch_worktree_cannot_be_made
+- exit 2 (herdr or gate failure): jj workspace add failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:158 — not a caller contract: jj workspace add failing in a valid repo; the exit code is the same 2 as every herdr or git failure
+- exit 2 (herdr or gate failure): git reset in … failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:167 — test_pstack_core.CoreTests.test_a_jj_scratch_that_git_does_not_see_as_its_work_tree_is_refused_and_removed
+- exit 2 (herdr or gate failure): scratch … is not a git work tree — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:170 — test_pstack_core.CoreTests.test_a_jj_scratch_that_git_does_not_see_as_its_work_tree_is_refused_and_removed
+- exit 2 (herdr or gate failure): git worktree add failed — skills/pstack-pair/scripts/pstack_core/commands/scratch.py:209 — test_pstack_kitchen.KitchenScriptTests.test_a_parent_is_not_recorded_when_the_scratch_worktree_cannot_be_made
 - exit 2 (herdr or gate failure): … send-keys failed for … — skills/pstack-pair/scripts/pstack_core/commands/steer.py:98 — test_pstack_core.CoreTests.test_steer_refuses_and_reports_what_a_caller_reads
 - exit 2 (herdr or gate failure): Prime steer failed for … — skills/pstack-pair/scripts/pstack_core/commands/steer.py:123 — test_pstack_core.CoreTests.test_steer_refuses_and_reports_what_a_caller_reads
 - exit 2 (herdr or gate failure): … prompt failed for … — skills/pstack-pair/scripts/pstack_core/commands/steer.py:129 — test_pstack_core.CoreTests.test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line (+3)
@@ -262,9 +262,9 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 5 (wrong state): take-master runs from the new master's pane …, not … — skills/pstack-kitchen/scripts/kitchen_core/master.py:406 — test_pstack_core.CoreTests.test_take_master_behaviour (+2)
 - exit 5 (wrong state): no verification is open; start one with kitchen.sh verify … <NNN> — skills/pstack-kitchen/scripts/kitchen_core/verify.py:359 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_the_wait_itself (+1)
 - exit 5 (wrong state): a verification is open (…); kitchen.sh verify … --wait — skills/pstack-kitchen/scripts/kitchen_core/verify.py:370 — test_pstack_core.CoreTests.test_close_behaviour (+1)
-- exit 5 (wrong state): The verifier's agent did not start — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:287 — test_pstack_core.CoreTests.test_verify_behaviour (+1)
-- exit 5 (wrong state): Prime verifier start failed in …; its pane and scratch stay for inspection (verify-wait c — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:336 — test_pstack_kitchen.KitchenScriptTests.test_prime_verifier_failed_start_preserves_its_scratch
-- exit 5 (wrong state): Prime verifier did not report its session; its pane and scratch stay for inspection — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:340 — test_pstack_kitchen.KitchenScriptTests.test_a_prime_verifier_that_reports_no_session_keeps_its_pane_scratch_and_the_record_of_how_it_was_launched
+- exit 5 (wrong state): The verifier's agent did not start — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:291 — test_pstack_core.CoreTests.test_verify_behaviour (+1)
+- exit 5 (wrong state): Prime verifier start failed in …; its pane and scratch stay for inspection (verify-wait c — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:340 — test_pstack_kitchen.KitchenScriptTests.test_prime_verifier_failed_start_preserves_its_scratch
+- exit 5 (wrong state): Prime verifier did not report its session; its pane and scratch stay for inspection — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:344 — test_pstack_kitchen.KitchenScriptTests.test_a_prime_verifier_that_reports_no_session_keeps_its_pane_scratch_and_the_record_of_how_it_was_launched
 - exit 5 (wrong state): Another call closed the verification this one worked on, so this one touches nothing more — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:154 — test_pstack_core.CoreTests.test_a_wait_whose_verification_another_call_closed_says_so_to_its_sink_and_ends_with_5 (+8)
 - exit 5 (wrong state): Another call closed the verification this one worked on, so this one touches nothing more — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:160 — test_pstack_core.CoreTests.test_a_wait_whose_verification_another_call_closed_says_so_to_its_sink_and_ends_with_5 (+8)
 - exit 5 (wrong state): Prime verifier cleanup failed; its pane and scratch stay for inspection — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:176 — test_pstack_core.CoreTests.test_verify_cancel_behaviour
@@ -340,7 +340,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `STEER:` (read by skills/pstack-pair-guided/SKILL.md:185) — skills/pstack-pair/scripts/pstack_core/store.py:386 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `REPORT` (read by skills/pstack-kitchen/SKILL.md:3) — skills/pstack-pair/scripts/pstack_core/commands/report.py:54 — test_pstack_pair.PairScriptTests.test_trio (+7)
 - `running:` (read by skills/pstack-kitchen/references/master.md:96) — skills/pstack-pair/scripts/pstack_core/checkin.py:340 — test_pstack_pair.PairScriptTests.test_trio (+8)
-- `steps:` (read by skills/pstack-kitchen/SKILL.md:247) — skills/pstack-kitchen/scripts/kitchen_core/classify.py:68 — test_pstack_pair.PairScriptTests.test_trio (+12)
+- `steps:` (read by skills/pstack-kitchen/SKILL.md:253) — skills/pstack-kitchen/scripts/kitchen_core/classify.py:68 — test_pstack_pair.PairScriptTests.test_trio (+12)
 - `idle:` (read by skills/pstack-kitchen/references/master.md:83) — skills/pstack-pair/scripts/pstack_core/wait.py:224 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `queued:` (read by skills/pstack-kitchen/references/master.md:233) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:59 — test_pstack_pair.PairScriptTests.test_trio (+5)
 - `rotated:` (read by skills/pstack-kitchen/references/master.md:92) — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:135 — test_pstack_pair.PairScriptTests.test_trio (+15)
@@ -351,7 +351,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `written but not ready` (read by skills/pstack-kitchen/references/master.md:100) — skills/pstack-pair/scripts/pstack_core/wait.py:273 — test_pstack_core.CoreTests.test_the_quiet_wait_behaviour (+5)
 - `closed:` (read by skills/pstack-kitchen/references/master-landing.md:36) — skills/pstack-kitchen/scripts/kitchen_core/feedback.py:261 — test_pstack_core.CoreTests.test_verify_behaviour (+7)
 - `cancelled:` (read by skills/pstack-kitchen/references/master-verify.md:40) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:318 — test_pstack_core.CoreTests.test_verify_cancel_behaviour (+4)
-- `audit:` (read by skills/pstack-kitchen/SKILL.md:197) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:548 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_verdicts (+3)
+- `audit:` (read by skills/pstack-kitchen/SKILL.md:203) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:548 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_verdicts (+3)
 - `covered:` (read by skills/pstack-kitchen/references/master-landing.md:20) — skills/pstack-kitchen/scripts/kitchen_core/landing.py:404 — test_pstack_core.CoreTests.test_land_check_behaviour (+24)
 - `warning: unreviewed:` (read by skills/pstack-kitchen/references/master-verify.md:13) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:611 — test_pstack_core.CoreTests.test_take_master_behaviour (+3)
 - `redelivered:` (read by skills/pstack-kitchen/references/master-verify.md:84) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:237 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_the_wait_itself (+4)
@@ -365,7 +365,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `superseded` (read by skills/pstack-kitchen/references/master.md:77) — skills/pstack-pair/scripts/pstack_core/commands/notes.py:320 — test_pstack_core.CoreTests.test_a_newer_wait_supersedes_the_older_and_the_wait_that_returns_releases_the_store (+9)
 - `sidekick_response:` — skills/pstack-pair/scripts/pstack_core/consult.py:197 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `report: missing` (read by skills/pstack-pair-guided/SKILL.md:106) — skills/pstack-pair/scripts/pstack_core/wait.py:271 — test_pstack_pair.PairScriptTests.test_trio (+10)
-- `next:` (read by skills/pstack-pair-guided/references/sidekick.md:85) — skills/pstack-kitchen/scripts/kitchen.py:3253 — test_pstack_pair.PairScriptTests.test_trio (+25)
+- `next:` (read by skills/pstack-pair-guided/references/sidekick.md:85) — skills/pstack-kitchen/scripts/kitchen.py:3337 — test_pstack_pair.PairScriptTests.test_trio (+25)
 
 ## Store files and fields
 
@@ -378,7 +378,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `reports/NNN-<slug>-s<k>.md` written by sidekick: objection to steer k, from [the steer response template](references/steer-response-template.md) — skills/pstack-pair/SKILL.md:65 — test_pstack_pair.PairScriptTests.test_trio (+95)
 - `reports/NNN-<slug>.md` written by sidekick: evidence for brief NNN, from [the report template](references/report-template.md), or the agree/object respons — skills/pstack-pair/SKILL.md:66 — test_pstack_pair.PairScriptTests.test_trio (+95)
 - `reviews/NNN-<slug>.md` written by master: verdict on report NNN, from [the review template](references/review-template.md); `agreed` on a plan unlocks i — skills/pstack-pair/SKILL.md:67 — test_pstack_pair.PairScriptTests.test_trio (+38)
-- `scratch/<id>` written by master via `pair.sh scratch`: link to a throwaway worktree at a unit's commit for rerunning its checks, kept inside the repo's git directory — skills/pstack-pair/SKILL.md:68 — test_pstack_pair.PairScriptTests.test_trio (+46)
+- `scratch/<id>` written by master via `pair.sh scratch`: link to a throwaway worktree at a unit's commit for rerunning its checks, kept outside the repo under `${XDG_S — skills/pstack-pair/SKILL.md:68 — test_pstack_pair.PairScriptTests.test_trio (+49)
 - `gates.md` written by master: open questions for the human — skills/pstack-pair/SKILL.md:69 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `decisions.tsv` written by master via `pair.sh log`: the show-me-your-work trail — skills/pstack-pair/SKILL.md:70 — test_pstack_pair.PairScriptTests.test_trio (+4)
 - `status.md` written by `pair.sh status`: derived table; never hand-edited — skills/pstack-pair/SKILL.md:71 — test_pstack_pair.PairScriptTests.test_trio (+3)
@@ -394,9 +394,9 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `consults/NNN-<slug>-c<k>.md` written by master: question k about unit NNN for the consultant, from [the consult template](references/consult-template.md), wit — skills/pstack-trio/SKILL.md:78 — test_pstack_pair.PairScriptTests.test_trio (+7)
 - `advice/NNN-<slug>.md` written by consultant: design critique of plan NNN, from [the plan advice template](references/plan-advice-template.md) — skills/pstack-trio/SKILL.md:81 — test_pstack_pair.PairScriptTests.test_trio (+20)
 - `advice/NNN-<slug>-c<k>.md` written by consultant: answer to consult k, from [the advice template](references/advice-template.md) — skills/pstack-trio/SKILL.md:82 — test_pstack_pair.PairScriptTests.test_trio (+20)
-- `gates.tsv` written by `kitchen.sh step`: one row per step check: time, unit, commit, pass or fail, profiles — skills/pstack-kitchen/SKILL.md:263 — test_pstack_core.CoreTests.test_a_gates_mode_verification_writes_its_clean_verdict_from_the_step_rows_without_starting_a_verifier (+8)
-- `verdicts/NNN-<slug>-v<k>.md` written by verifier, or `verify` for gates mode: the verdict, from [the verdict template](references/verdict-template.md) — skills/pstack-kitchen/SKILL.md:264 — test_pstack_pair.PairScriptTests.test_trio (+69)
-- `verdicts/NNN-<slug>-v<k>-packet.md` written by `kitchen.sh verify`: what the verifier was given — skills/pstack-kitchen/SKILL.md:265 — test_pstack_pair.PairScriptTests.test_trio (+69)
+- `gates.tsv` written by `kitchen.sh step`: one row per step check: time, unit, commit, pass or fail, profiles — skills/pstack-kitchen/SKILL.md:269 — test_pstack_core.CoreTests.test_a_gates_mode_verification_writes_its_clean_verdict_from_the_step_rows_without_starting_a_verifier (+8)
+- `verdicts/NNN-<slug>-v<k>.md` written by verifier, or `verify` for gates mode: the verdict, from [the verdict template](references/verdict-template.md) — skills/pstack-kitchen/SKILL.md:270 — test_pstack_pair.PairScriptTests.test_trio (+69)
+- `verdicts/NNN-<slug>-v<k>-packet.md` written by `kitchen.sh verify`: what the verifier was given — skills/pstack-kitchen/SKILL.md:271 — test_pstack_pair.PairScriptTests.test_trio (+69)
 - `pair.json` `.consultant.failovers` — skills/pstack-kitchen/scripts/kitchen_core/setup.py:282 — test_pstack_core.CoreTests.test_consultant_behaviour (+9)
 - `pair.json` `.consultant.kind` — skills/pstack-pair/scripts/pstack_core/spawn.py:207 — test_pstack_pair.PairScriptTests.test_trio (+48)
 - `pair.json` `.master.generation` — skills/pstack-kitchen/scripts/kitchen_core/master.py:187 — test_pstack_pair.PairScriptTests.test_trio (+23)
@@ -414,19 +414,19 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `pair.json` `.sent.seen` — skills/pstack-pair/scripts/pstack_core/send.py:231 — test_pstack_pair.PairScriptTests.test_trio (+4)
 - `pair.json` `.sidekick.bootstrap_pending` — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:110 — test_pstack_pair.PairScriptTests.test_trio (+8)
 - `pair.json` `.sidekick.failovers` — skills/pstack-pair/scripts/pstack_core/spawn.py:354 — test_pstack_core.CoreTests.test_consultant_behaviour (+9)
-- `pair.json` `.sidekick.fallback` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:99 — test_pstack_kitchen.ClassifyTests.test_roster_and_statedir (+7)
+- `pair.json` `.sidekick.fallback` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:100 — test_pstack_kitchen.ClassifyTests.test_roster_and_statedir (+7)
 - `pair.json` `.sidekick.generation` — skills/pstack-pair/scripts/pstack_core/send.py:231 — test_pstack_pair.PairScriptTests.test_trio (+23)
 - `pair.json` `.sidekick.kind` — skills/pstack-pair/scripts/pstack_core/store.py:225 — test_pstack_pair.PairScriptTests.test_trio (+48)
 - `pair.json` `.sidekick.rotation_required` — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:107 — test_pstack_pair.PairScriptTests.test_trio (+9)
 - `pair.json` `.sidekick.start_args` — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:79 — test_pstack_pair.PairScriptTests.test_trio (+16)
-- `pair.json` `.verifier.closed` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:300 — test_pstack_pair.PairScriptTests.test_trio (+5)
-- `pair.json` `.verifier.kind` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:300 — test_pstack_pair.PairScriptTests.test_trio (+48)
-- `pair.json` `.verifier.launch_cwd` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:300 — test_pstack_core.CoreTests.test_a_prime_sidekick_that_reports_no_session_ends_spawn_with_5_and_keeps_its_pane_and_launch_record (+1)
+- `pair.json` `.verifier.closed` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:304 — test_pstack_pair.PairScriptTests.test_trio (+5)
+- `pair.json` `.verifier.kind` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:304 — test_pstack_pair.PairScriptTests.test_trio (+48)
+- `pair.json` `.verifier.launch_cwd` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:304 — test_pstack_core.CoreTests.test_a_prime_sidekick_that_reports_no_session_ends_spawn_with_5_and_keeps_its_pane_and_launch_record (+1)
 - `pair.json` `.verifier.name` — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:232 — test_pstack_pair.PairScriptTests.test_trio (+10)
-- `pair.json` `.verifier.pane_id` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:300 — test_pstack_pair.PairScriptTests.test_trio (+17)
-- `pair.json` `.verifier.session` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:300 — test_pstack_core.CoreTests.test_maintainer_behaviour (+14)
-- `pair.json` `.verifier.session_stopped` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:300 — test_pstack_core.CoreTests.test_a_prime_sidekick_that_reports_no_session_ends_spawn_with_5_and_keeps_its_pane_and_launch_record (+1)
-- `pair.json` `.verifier.start_args` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:300 — test_pstack_pair.PairScriptTests.test_trio (+16)
+- `pair.json` `.verifier.pane_id` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:304 — test_pstack_pair.PairScriptTests.test_trio (+17)
+- `pair.json` `.verifier.session` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:304 — test_pstack_core.CoreTests.test_maintainer_behaviour (+14)
+- `pair.json` `.verifier.session_stopped` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:304 — test_pstack_core.CoreTests.test_a_prime_sidekick_that_reports_no_session_ends_spawn_with_5_and_keeps_its_pane_and_launch_record (+1)
+- `pair.json` `.verifier.start_args` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:304 — test_pstack_pair.PairScriptTests.test_trio (+16)
 - `pair.json` `.verifying.argv` — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:596 — test_pstack_kitchen.KitchenScriptTests.test_a_prime_verifier_that_reports_no_session_keeps_its_pane_scratch_and_the_record_of_how_it_was_launched
 - `pair.json` `.verifying.brief` — skills/pstack-kitchen/scripts/kitchen_core/verify.py:484 — test_pstack_pair.PairScriptTests.test_trio (+11)
 - `pair.json` `.verifying.closing` — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:3 — test_pstack_core.CoreTests.test_claim_close_takes_a_claim_only_from_a_holder_that_is_gone (+7)
@@ -441,7 +441,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `pair.json` `.verifying.retried` — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:366 — test_pstack_kitchen.GateTests.test_a_failure_under_load_is_rerun_once_and_marked_flaky (+1)
 - `pair.json` `.verifying.risk` — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:355 — test_pstack_kitchen.ClassifyTests.test_routine_change_takes_its_profile_settings (+7)
 - `pair.json` `.verifying.sample` — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:361 — test_pstack_kitchen.ClassifyTests.test_routine_change_takes_its_profile_settings (+2)
-- `pair.json` `.verifying.scratch` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:204 — test_pstack_pair.PairScriptTests.test_trio (+14)
+- `pair.json` `.verifying.scratch` — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:205 — test_pstack_pair.PairScriptTests.test_trio (+15)
 - `pair.json` `.verifying.session` — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:72 — test_pstack_core.CoreTests.test_maintainer_behaviour (+14)
 - `pair.json` `.verifying.started` — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:108 — test_pstack_kitchen.EventRowTests.test_run_counters_counts_the_first_event_of_a_headerless_store (+4)
 - `pair.json` `.verifying.unit` — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:363 — test_pstack_core.CoreTests.test_a_waiter_mid_wait_when_another_call_cancels_the_verification_says_it_was_closed_elsewhere (+5)

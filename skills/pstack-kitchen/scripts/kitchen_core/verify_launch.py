@@ -17,6 +17,7 @@ from pstack_core.agents import (
     permission_args,
     trust_args,
 )
+from pstack_core.commands.scratch import scratch_root
 from pstack_core.errors import (
     BadVerifierEntry,
     DamagedStore,
@@ -279,7 +280,10 @@ def launch_verifier(v):
             m.pane_screen(pane, 40)[1],
         )
         if TRUST_RE.search(screen):
-            why = f'{v.kind} asks whether to trust {v.scratch}, and that decision is yours: open {v.kind} in the repo once and trust it, or verify with another kind'
+            why = (
+                f'{v.kind} asks whether to trust {v.scratch}, and that decision is yours: trust the scratch root {scratch_root()} once '
+                f'(open {v.kind} there and accept; every scratch under it is then trusted), or verify with another kind'
+            )
             m.pane_key(pane, 'esc')
         m.pane_close(pane)
         vs.remove_scratch(v.ctx, store, v.scratch_id)

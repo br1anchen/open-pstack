@@ -355,7 +355,7 @@ pair.sh: unit 003 already had its glance; send a finding consult, or pass --forc
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 003-build-c1
 Preparing worktree (detached HEAD <SHA>)
-<T>/repo/.git/pstack-scratch/trio-demo/003-build-c1
+<T>/state/pstack/scratch/trio-demo/003-build-c1
 [exit 0]
 
 $ pair.sh status <T>/state/pstack/trio/demo
@@ -386,7 +386,7 @@ open scratch worktrees (remove with pair.sh scratch <store> <id> --remove):
   herdr agent read demo-consultant --source visible --lines 40
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 003-build-c1 --remove
-removed <T>/repo/.git/pstack-scratch/trio-demo/003-build-c1
+removed <T>/state/pstack/scratch/trio-demo/003-build-c1
 [exit 0]
 
 $ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/005-qtwo.md
@@ -661,7 +661,7 @@ report: missing
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 004-qone-review --at <SHA>
 Preparing worktree (detached HEAD <SHA>)
-<T>/repo/.git/pstack-scratch/trio-demo/004-qone-review
+<T>/state/pstack/scratch/trio-demo/004-qone-review
 [exit 0]
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 099-bad-review --at <SHA>
@@ -669,7 +669,7 @@ pair.sh: not a commit: <SHA>
 [exit 1]
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 004-qone-review --remove
-removed <T>/repo/.git/pstack-scratch/trio-demo/004-qone-review
+removed <T>/state/pstack/scratch/trio-demo/004-qone-review
 [exit 0]
 
 $ pair.sh step <T>/state/pstack/trio/demo <SHA> parser reads v2

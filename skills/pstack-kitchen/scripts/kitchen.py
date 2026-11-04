@@ -1977,6 +1977,22 @@ def doctor(
         'ok',
         describe_verifier(escalated) + differs + '; also used by verify --landing',
     )
+    scratch = scratch_root()
+    trust = {k: scratch_trust(k, scratch) for k in roster_kinds(vr)}
+    untrusted = [k for k, ok in trust.items() if ok is False]
+    if untrusted:
+        add(
+            'scratch trust',
+            'warn',
+            f'{", ".join(untrusted)} does not trust the scratch root {scratch}, so a verifier or consult there stops at the trust '
+            f'dialog; trust it once: mkdir -p {shlex.quote(str(scratch))}, open each agent there and accept',
+        )
+    elif any(ok for ok in trust.values()):
+        add(
+            'scratch trust',
+            'ok',
+            f'{scratch} is trusted by {", ".join(k for k, ok in trust.items() if ok)}',
+        )
     if kitchen.review['engine']:
         engine = kitchen.review['engine']
         found = shutil.which(f'{engine}-dev') or shutil.which(engine)
@@ -2132,6 +2148,74 @@ def roster_data() -> tuple[Path, dict]:
         ),
     }
     return path, out
+
+
+def scratch_root() -> Path:
+    """Where verifier and consult scratch worktrees live; pstack_core.commands.scratch.scratch_root says the same."""
+    return Path(
+        os.environ.get('PSTACK_SCRATCH_ROOT')
+        or Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state')
+        / 'pstack/scratch'
+    )
+
+
+def _under(path: str, roots: list[str]) -> bool:
+    return any(path == r or path.startswith(r.rstrip('/') + '/') for r in roots)
+
+
+def scratch_trust(kind: str, root: Path) -> bool | None:
+    """Whether claude or codex trusts the scratch root, itself or through a folder above it (both inherit trust); None when the agent
+    has no config on this host or the kind keeps no trust list."""
+    spellings = list(dict.fromkeys([str(root), os.path.realpath(root)]))
+    try:
+        if kind == 'claude':
+            config = os.environ.get('CLAUDE_CONFIG_DIR')
+            path = (
+                Path(config) / '.claude.json'
+                if config
+                else Path.home() / '.claude.json'
+            )
+            if not path.is_file():
+                return None
+            projects = json.loads(path.read_text()).get('projects') or {}
+            trusted = [
+                p
+                for p, v in projects.items()
+                if isinstance(v, dict) and v.get('hasTrustDialogAccepted')
+            ]
+        elif kind == 'codex':
+            path = (
+                Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex')
+                / 'config.toml'
+            )
+            if not path.is_file():
+                return None
+            projects = tomllib.loads(path.read_text()).get('projects') or {}
+            trusted = [
+                p
+                for p, v in projects.items()
+                if isinstance(v, dict) and v.get('trust_level') == 'trusted'
+            ]
+        else:
+            return None
+    except (OSError, ValueError, AttributeError):
+        return None
+    return any(_under(s, trusted) for s in spellings)
+
+
+def roster_kinds(vr: dict) -> list[str]:
+    """Every agent kind the roster may start on a scratch or in the repo, fallbacks included."""
+    entries = [
+        vr['sidekick'],
+        vr['sidekick']['fallback'],
+        vr['consultant'],
+        vr['consultant']['fallback'],
+        vr['verifier']['routine'],
+        vr['verifier']['routine'].get('fallback') or {},
+        vr['verifier']['escalated'],
+        vr['verifier']['escalated'].get('fallback') or {},
+    ]
+    return list(dict.fromkeys(e.get('kind', '') for e in entries if e.get('kind')))
 
 
 # The escalated verifier (and verify --landing's) when the roster names none: claude on the strongest model.

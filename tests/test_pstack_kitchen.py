@@ -149,6 +149,9 @@ class KitchenTests(unittest.TestCase):
         self.git('commit', '-q', '-m', message)
         return self.git('rev-parse', 'HEAD')
 
+    def doctor_check(self, name):
+        return {c['check']: c for c in self.data('doctor', code=None)['checks']}[name]
+
     def run_kitchen(self, *args, code=0):
         result = subprocess.run(
             [sys.executable, str(script), *args],
@@ -1531,6 +1534,34 @@ class HostKitchenTests(KitchenTests):
         )
         r = self.data('--at', 'HEAD', 'validate')
         self.assertEqual((r['source'], r['path']), ('roster', str(other)))
+
+    def test_doctor_warns_when_claude_or_codex_does_not_trust_the_scratch_root(self):
+        root = Path(self.env['XDG_STATE_HOME']) / 'pstack/scratch'
+        claude, codex = Path(self.tmp.name) / 'claude', Path(self.tmp.name) / 'codex'
+        claude.mkdir()
+        codex.mkdir()
+        self.env['CLAUDE_CONFIG_DIR'], self.env['CODEX_HOME'] = str(claude), str(codex)
+        Path(self.env['PSTACK_KITCHEN_ROSTER']).write_text(
+            '[consultant]\nkind = "codex"\n'
+        )
+        (claude / '.claude.json').write_text(
+            '{"projects": {"/elsewhere": {"hasTrustDialogAccepted": true}}}'
+        )
+        (codex / 'config.toml').write_text(
+            f'[projects."{root.parent}"]\ntrust_level = "trusted"\n'
+        )
+        check = self.doctor_check('scratch trust')
+        self.assertEqual(check['status'], 'warn')
+        self.assertIn(f'claude does not trust the scratch root {root}', check['detail'])
+        # Trust in a folder above the root covers it.
+        (claude / '.claude.json').write_text(
+            json.dumps(
+                {'projects': {str(root.parent): {'hasTrustDialogAccepted': True}}}
+            )
+        )
+        check = self.doctor_check('scratch trust')
+        self.assertEqual(check['status'], 'ok')
+        self.assertIn('trusted by codex, claude', check['detail'])
 
     def test_a_committed_kitchen_shadows_the_host_one(self):
         self.write('.agents/kitchen.toml', KITCHEN)
@@ -4243,7 +4274,7 @@ esac
             f'removed {path}\n',
         )
         self.assertFalse(path.exists())
-        self.assertNotIn('pstack-scratch', self.git('worktree', 'list'))
+        self.assertNotIn('/pstack/scratch/', self.git('worktree', 'list'))
         self.assertNotIn('scratch-', self.jj_listing())
 
     @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
@@ -4260,7 +4291,7 @@ esac
         self.env['PATH'] = f'{stubs}:{self.env["PATH"]}'
         out = self.run_sh('scratch', str(self.store), '001-x-verify', code=2)
         self.assertIn('jj workspace add failed', out)
-        self.assertNotIn('pstack-scratch', self.git('worktree', 'list'))
+        self.assertNotIn('/pstack/scratch/', self.git('worktree', 'list'))
         self.assertNotIn('scratch-', self.jj_listing())
 
     def test_kitchen_scratch_made_for_a_store_with_a_trailing_slash_or_a_relative_name_is_the_one_removed(
@@ -4288,7 +4319,7 @@ esac
             expect_dir = '.' if spelling == self.store.name else self.store.parent.name
             self.assertTrue(
                 path.endswith(
-                    f'pstack-scratch/{expect_dir}-{self.store.name}/001-x-review'
+                    f'/pstack/scratch/{expect_dir}-{self.store.name}/001-x-review'
                 ),
                 f'{spelling}: {path}',
             )
@@ -6283,9 +6314,21 @@ esac
         self.assertRegex(calls, r'pane close p\d')
         self.assertEqual(list((self.store / 'scratch').iterdir()), [])
         packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
-        self.assertIn(f'scratch: {self.repo.resolve()}/.git/pstack-scratch/', packet)
+        self.assertIn(
+            f'scratch: {self.env["XDG_STATE_HOME"]}/pstack/scratch/runs-demo/', packet
+        )
         self.assertIn('gate app behavioral', packet)
         self.assertIn('## Acceptance', packet)
+
+    def test_a_verifier_trust_dialog_names_the_scratch_root_to_trust(self):
+        Path(self.env['PSTACK_KITCHEN_ROSTER']).write_text(
+            '[verifier]\nkind = "claude"\n'
+        )
+        (self.fake / 'trust-dialog').touch()
+        _, out = self.verify_app_unit('clean', 5)
+        root = f'{self.env["XDG_STATE_HOME"]}/pstack/scratch'
+        self.assertIn(f'trust the scratch root {root} once', out)
+        self.assertEqual(list((self.store / 'scratch').iterdir()), [])
 
     def test_the_verifier_close_answers_claudes_background_work_dialog(self):
         self.env.update({'PAIR_EXIT_POLL_S': '0', 'KITCHEN_VERIFIER_EXIT_S': '5'})
@@ -6567,12 +6610,13 @@ esac
         self.assertNotIn('consult', self.state())
         self.assertNotIn('CONSULT', (self.fake / 'calls.log').read_text())
 
-    def test_scratch_lives_inside_the_repo_git_dir_and_leaves_no_trace(self):
+    def test_scratch_lives_outside_the_repo_and_leaves_no_trace(self):
         path = Path(
             self.run_sh('scratch', str(self.store), '001-x-review').splitlines()[0]
         )
-        git_dir = self.repo / '.git' / 'pstack-scratch'
-        self.assertEqual(path.parent.parent, git_dir)
+        root = Path(self.env['XDG_STATE_HOME']) / 'pstack/scratch'
+        self.assertEqual(path.parent.parent, root)
+        self.assertFalse((self.repo / '.git/pstack-scratch').exists())
         self.assertEqual(
             (self.store / 'scratch/001-x-review').resolve(), path.resolve()
         )
@@ -6581,7 +6625,28 @@ esac
         self.run_sh('scratch', str(self.store), '001-x-review', '--remove')
         self.assertFalse(path.exists())
         self.assertFalse((self.store / 'scratch/001-x-review').is_symlink())
-        self.assertEqual(list(git_dir.iterdir()), [])
+        self.assertEqual(list(root.iterdir()), [])
+
+    def test_scratch_root_follows_pstack_scratch_root(self):
+        root = Path(self.tmp.name) / 'elsewhere'
+        self.env['PSTACK_SCRATCH_ROOT'] = str(root)
+        path = Path(
+            self.run_sh('scratch', str(self.store), '001-x-review').splitlines()[0]
+        )
+        self.assertEqual(path.parent.parent, root)
+        self.run_sh('scratch', str(self.store), '001-x-review', '--remove')
+        self.assertFalse(path.exists())
+
+    def test_a_scratch_made_under_the_old_git_root_is_still_removed(self):
+        old = self.repo / '.git/pstack-scratch/runs-demo/001-x-review'
+        old.parent.mkdir(parents=True)
+        self.git('worktree', 'add', '--detach', str(old), 'HEAD')
+        (self.store / 'scratch').mkdir(exist_ok=True)
+        (self.store / 'scratch/001-x-review').symlink_to(old)
+        out = self.run_sh('scratch', str(self.store), '001-x-review', '--remove')
+        self.assertEqual(out, f'removed {old}\n')
+        self.assertFalse(old.exists())
+        self.assertNotIn(str(old), self.git('worktree', 'list'))
 
     def test_a_trust_dialog_is_declined_not_answered(self):
         (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
@@ -12166,7 +12231,10 @@ esac
 
     def test_a_parent_is_not_recorded_when_the_scratch_worktree_cannot_be_made(self):
         init, head = self.landing_world_for_parent_checks()
-        blocked = self.repo / '.git/pstack-scratch/runs-demo/000-landing-verify'
+        blocked = (
+            Path(self.env['XDG_STATE_HOME'])
+            / 'pstack/scratch/runs-demo/000-landing-verify'
+        )
         blocked.parent.mkdir(parents=True)
         blocked.write_text('a file where the worktree goes\n')
         out = self.run_sh(
