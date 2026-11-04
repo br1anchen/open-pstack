@@ -2152,9 +2152,11 @@ def roster_data() -> tuple[Path, dict]:
 
 def scratch_root() -> Path:
     """Where verifier and consult scratch worktrees live; pstack_core.commands.scratch.scratch_root says the same."""
+    moved = os.environ.get('PSTACK_SCRATCH_ROOT')
     return Path(
-        os.environ.get('PSTACK_SCRATCH_ROOT')
-        or Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state')
+        os.path.abspath(moved)
+        if moved
+        else Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state')
         / 'pstack/scratch'
     )
 

@@ -6637,6 +6637,40 @@ esac
         self.run_sh('scratch', str(self.store), '001-x-review', '--remove')
         self.assertFalse(path.exists())
 
+    def test_a_scratch_another_repo_left_under_the_same_run_name_is_refused(self):
+        other = Path(self.tmp.name) / 'other'
+        other.mkdir()
+        subprocess.run(['git', 'init', '-q', str(other)], check=True, timeout=60)
+        subprocess.run(
+            ['git', '-C', str(other), 'commit', '-q', '--allow-empty', '-m', 'x'],
+            check=True,
+            timeout=60,
+            env=self.env,
+        )
+        leftover = (
+            Path(self.env['XDG_STATE_HOME']) / 'pstack/scratch/runs-demo/001-x-review'
+        )
+        leftover.parent.mkdir(parents=True)
+        subprocess.run(
+            [
+                'git',
+                '-C',
+                str(other),
+                'worktree',
+                'add',
+                '-q',
+                '--detach',
+                str(leftover),
+            ],
+            check=True,
+            timeout=60,
+        )
+        out = self.run_sh('scratch', str(self.store), '001-x-review', code=1)
+        self.assertIn(
+            f'{leftover} is left over from another repository; remove it (git -C ', out
+        )
+        self.assertTrue(leftover.is_dir())
+
     def test_a_scratch_made_under_the_old_git_root_is_still_removed(self):
         old = self.repo / '.git/pstack-scratch/runs-demo/001-x-review'
         old.parent.mkdir(parents=True)

@@ -9865,7 +9865,7 @@ class CoreTests(unittest.TestCase):
             'one fence': f'# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n{fence}\nout\n',
             'fences after another section': f'# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\nnone\n## Notes\n{fence}\nout\n{fence}\n',
             'a heading inside a fence': f'# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n### A\n\n{fence}\n## Counts\nout\n{fence}\n\n## Notes\n',
-            'tilde fences under a subsection': '# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n### B\n~~~\nout\n~~~\n',
+            'tilde fences under a subsection': '# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n### B\n~~~\nout\n```\n## Notes\n~~~\n',
             'evidence heading with words': f'# V\n\nstatus: clean\nunits: 001\n\n## Evidence of it\n{fence}\n{fence}\n',
         }
         paths = {}
