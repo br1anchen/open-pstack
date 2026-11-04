@@ -37,6 +37,17 @@ def drop_worktree(cwd, path):
     git.ok(cwd, 'worktree', 'prune')
 
 
+def scratch_root():
+    """Where scratch worktrees live: PSTACK_SCRATCH_ROOT, else pstack/scratch under the state home. Outside every repository, since
+    TypeScript treats a module path under /.git as not portable (declaration emit fails in a bun or pnpm repo); Claude and Codex
+    trust a folder's subfolders, so the human trusts this root once per host. kitchen.py scratch_root says the same."""
+    return os.environ.get('PSTACK_SCRATCH_ROOT') or os.path.join(
+        os.environ.get('XDG_STATE_HOME') or os.path.expanduser('~/.local/state'),
+        'pstack',
+        'scratch',
+    )
+
+
 def locate(store, ident):
     """(cwd, link, path) of the scratch `ident` for a store: the repository the store works in, the link under the store and the worktree it names.
     The store must exist, the id must look like NNN-<slug> and the store's cwd must be a git root."""
@@ -49,13 +60,11 @@ def locate(store, ident):
     if not cwd:
         raise BadScratch("the store's cwd is not inside a git repository")
     link = f'{store}/scratch/{ident}'
-    found = git.run(
-        cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir', stderr=git.PIPE
-    )
-    sys.stderr.write(found.stderr)
-    common = found.stdout.rstrip('\n')
-    path = f'{common}/pstack-scratch/{basename(parent_dir(store))}-{basename(store)}/{ident}'
-    if not os.path.islink(link) and os.path.isdir(link):
+    path = f'{scratch_root()}/{basename(parent_dir(store))}-{basename(store)}/{ident}'
+    if os.path.islink(link) and os.path.isdir(os.readlink(link)):
+        # A scratch made before the root moved (under .git/pstack-scratch) stays where its link points, so it can still be removed.
+        path = os.readlink(link)
+    elif os.path.isdir(link):
         path = link
     return cwd, link, path
 

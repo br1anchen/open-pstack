@@ -80,7 +80,7 @@ Consultant: [references/consultant.md](references/consultant.md).
 | `reports/NNN-<slug>.md` | sidekick | evidence for brief NNN, from [the report template](references/report-template.md), or the agree/object response to plan NNN, from [the plan response template](references/plan-response-template.md) |
 | `advice/NNN-<slug>.md` | consultant | design critique of plan NNN, from [the plan advice template](references/plan-advice-template.md) |
 | `advice/NNN-<slug>-c<k>.md` | consultant | answer to consult k, from [the advice template](references/advice-template.md) |
-| `scratch/<id>` | consultant or master via `pair.sh scratch` | link to a throwaway worktree for one consult (`NNN-<slug>-c<k>`) or review (`NNN-<slug>-review`), at a commit or the live state, kept inside the repo's git directory (`.git/pstack-scratch/`) so an agent there inherits the repo's folder trust; removed when done |
+| `scratch/<id>` | consultant or master via `pair.sh scratch` | link to a throwaway worktree for one consult (`NNN-<slug>-c<k>`) or review (`NNN-<slug>-review`), at a commit or the live state, kept outside the repo under `${XDG_STATE_HOME:-~/.local/state}/pstack/scratch/` (`PSTACK_SCRATCH_ROOT` moves it), which Claude and Codex must trust once per host (`kitchen.py doctor` checks); removed when done |
 | `reviews/NNN-<slug>.md` | master | verdict on unit NNN, from [the review template](references/review-template.md); names the advice it drew on and any overrule |
 | `gates.md` | master | open questions for the human |
 | `decisions.tsv` | master via `pair.sh log` | the show-me-your-work trail |

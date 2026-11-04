@@ -86,6 +86,12 @@ which skills build a run's commands came from. Every command runs in Python, in 
    by `claude --model claude-opus-5-5` with no fallback. `kind = "master"`
    in either entry means the master's own kind.
 
+   Verifiers and consults work in scratch worktrees under
+   `${XDG_STATE_HOME:-~/.local/state}/pstack/scratch/` (`PSTACK_SCRATCH_ROOT`
+   moves it), outside the repo. Claude and Codex ask to trust a folder they
+   have not seen, so trust that root once per host: open each agent there and
+   accept. `kitchen.py doctor` warns while a roster kind does not trust it.
+
    Every gate takes one of the machine's slots, so parallel kitchens queue
    their test suites instead of overloading the machine. The default is one
    slot per eight cores.

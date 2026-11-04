@@ -266,32 +266,35 @@ class TokenAuditTests(unittest.TestCase):
         self.assertEqual(result['roles']['sidekick'], audit()['roles']['sidekick'])
 
     def test_a_verifier_scratch_outside_the_repo_path_is_found_by_the_store_slug(self):
-        with tempfile.TemporaryDirectory() as directory:
-            projects = Path(directory) / 'projects'
-            shutil.copytree(fixtures / 'projects', projects)
-            [verifier] = projects.glob('*scratch*/cccccccc-*.jsonl')
-            elsewhere = (
-                projects / '-other-git-pstack-scratch-runs-fixture-1-002-x-verify'
-            )
-            elsewhere.mkdir()
-            record = json.loads(verifier.read_text().splitlines()[0])
-            record['cwd'] = '/other/pstack-scratch/runs-fixture-1/002-x-verify'
-            record['message']['content'] = (
-                'take the verifier role. pstack-kitchen VERIFY /state/pstack/kitchen/runs/fixture-1/verdicts/002-x-v1'
-            )
-            (elsewhere / 'gggggggg-0000-4000-8000-000000000007.jsonl').write_text(
-                json.dumps(record) + '\n'
-            )
-            result = json.loads(run_audit('--json', projects=projects))[0]
-        self.assertEqual(result['roles']['verifier']['sessions'], 2)
-        self.assertIn(
-            {
-                'session': 'gggggggg-0000-4000-8000-000000000007',
-                'role': 'verifier',
-                'how': 'prompt',
-            },
-            result['sessions'],
-        )
+        # The state-home scratch root, and the .git/pstack-scratch one of runs from before it moved.
+        for cwd in (
+            '/other/pstack-scratch/runs-fixture-1/002-x-verify',
+            '/state/pstack/scratch/runs-fixture-1/002-x-verify',
+        ):
+            with self.subTest(cwd), tempfile.TemporaryDirectory() as directory:
+                projects = Path(directory) / 'projects'
+                shutil.copytree(fixtures / 'projects', projects)
+                [verifier] = projects.glob('*scratch*/cccccccc-*.jsonl')
+                elsewhere = projects / cwd.replace('/', '-')
+                elsewhere.mkdir()
+                record = json.loads(verifier.read_text().splitlines()[0])
+                record['cwd'] = cwd
+                record['message']['content'] = (
+                    'take the verifier role. pstack-kitchen VERIFY /state/pstack/kitchen/runs/fixture-1/verdicts/002-x-v1'
+                )
+                (elsewhere / 'gggggggg-0000-4000-8000-000000000007.jsonl').write_text(
+                    json.dumps(record) + '\n'
+                )
+                result = json.loads(run_audit('--json', projects=projects))[0]
+                self.assertEqual(result['roles']['verifier']['sessions'], 2)
+                self.assertIn(
+                    {
+                        'session': 'gggggggg-0000-4000-8000-000000000007',
+                        'role': 'verifier',
+                        'how': 'prompt',
+                    },
+                    result['sessions'],
+                )
 
     def test_the_audit_writes_nothing_in_the_store(self):
         store = fixtures / 'store'

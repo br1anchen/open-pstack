@@ -93,6 +93,7 @@ LEAKED_PREFIXES = (
     'HERDR_',
     'REX_',
     'PSTACK_MUX',
+    'PSTACK_SCRATCH_ROOT',
 )
 
 
@@ -15978,10 +15979,10 @@ class CoreTests(unittest.TestCase):
     def test_closing_keeps_the_direct_and_child_stderr_of_the_code_under_the_wait_in_the_order_it_was_written(
         self,
     ):
-        """The old capture held fd 2 for the wait; now stderr written in process, and the stderr of the git child that the scratch removal runs, land
-        in the closed text between the lines the wait said and the failure it ends with."""
+        """The old capture held fd 2 for the wait; now stderr written in process, and the stderr of a git child the wait runs, land in the
+        closed text between the lines the wait said and the failure it ends with."""
         verify = self.kitchen_core_module('verify')
-        from pstack_core.commands import scratch
+        from pstack_core import git
         from pstack_core.errors import PrimeFailed
 
         ctx = Context(
@@ -16000,7 +16001,9 @@ class CoreTests(unittest.TestCase):
             def run(self):
                 self.out('a stdout line\n')
                 sys.stderr.write('PY-STDERR prime reason\n')
-                scratch.remove_scratch(ctx, str(st), '001-x-verify')
+                sys.stderr.write(
+                    git.run('/nonexistent-dir', 'rev-parse', stderr=git.PIPE).stderr
+                )
                 raise PrimeFailed('Prime verifier cleanup failed')
 
         lines = []

@@ -57,8 +57,9 @@ def write_tripwire_jq(directory):
     path.chmod(0o755)
 
 
-# What tells the code under test which multiplexer it runs in: a test sets these itself, so a run inside Herdr or Rex is the same as one outside.
-MUX_PREFIXES = ('HERDR_', 'REX_', 'PSTACK_MUX')
+# What tells the code under test which multiplexer it runs in, and where scratch goes: a test sets these itself, so a run inside Herdr or Rex is the same
+# as one outside.
+MUX_PREFIXES = ('HERDR_', 'REX_', 'PSTACK_MUX', 'PSTACK_SCRATCH_ROOT')
 
 
 def tripwire_env(directory):
@@ -69,6 +70,9 @@ def tripwire_env(directory):
         **{k: v for k, v in os.environ.items() if not k.startswith(MUX_PREFIXES)},
         'PATH': f'{directory}:{os.environ.get("PATH", "")}',
         'TMPDIR': os.path.realpath(tempfile.gettempdir()),
+        # The agents' trust lists that kitchen.py doctor reads: none, unless a test writes one.
+        'CLAUDE_CONFIG_DIR': os.path.join(directory, 'no-claude-config'),
+        'CODEX_HOME': os.path.join(directory, 'no-codex-home'),
     }
 
 

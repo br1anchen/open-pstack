@@ -65,7 +65,7 @@ Sidekick: [references/sidekick.md](references/sidekick.md).
 | `reports/NNN-<slug>-s<k>.md` | sidekick | objection to steer k, from [the steer response template](references/steer-response-template.md) |
 | `reports/NNN-<slug>.md` | sidekick | evidence for brief NNN, from [the report template](references/report-template.md), or the agree/object response to plan NNN, from [the plan response template](references/plan-response-template.md) |
 | `reviews/NNN-<slug>.md` | master | verdict on report NNN, from [the review template](references/review-template.md); `agreed` on a plan unlocks its briefs |
-| `scratch/<id>` | master via `pair.sh scratch` | link to a throwaway worktree at a unit's commit for rerunning its checks, kept inside the repo's git directory (`.git/pstack-scratch/`) so an agent there inherits the repo's folder trust; removed after the review |
+| `scratch/<id>` | master via `pair.sh scratch` | link to a throwaway worktree at a unit's commit for rerunning its checks, kept outside the repo under `${XDG_STATE_HOME:-~/.local/state}/pstack/scratch/` (`PSTACK_SCRATCH_ROOT` moves it), which Claude and Codex must trust once per host (`kitchen.py doctor` checks); removed after the review |
 | `gates.md` | master | open questions for the human |
 | `decisions.tsv` | master via `pair.sh log` | the show-me-your-work trail |
 | `status.md` | `pair.sh status` | derived table; never hand-edited |
