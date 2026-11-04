@@ -5041,12 +5041,23 @@ esac
         self.assertIn('without: rust-engine needs a reason', out)
 
     def test_a_unit_dispatched_as_escalated_is_verified_by_the_escalated_class(self):
+        self.escalated_unit_is_verified_escalated('risk: escalated')
+
+    def test_an_escalated_risk_with_a_reason_gets_the_escalated_class(self):
+        self.escalated_unit_is_verified_escalated(
+            'risk: escalated (contract change: X)'
+        )
+
+    def test_an_escalated_risk_with_a_colon_reason_gets_the_escalated_class(self):
+        self.escalated_unit_is_verified_escalated('risk: escalated: contract change')
+
+    def escalated_unit_is_verified_escalated(self, risk_line):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         self.write('src/util.py', 'X = 9\n')
         self.write('tests/test_app.py', 'x = 9\n')
         self.done(b, self.commit('util'))
-        b.write_text(re.sub(r'^risk:.*$', 'risk: escalated', b.read_text(), flags=re.M))
+        b.write_text(re.sub(r'^risk:.*$', risk_line, b.read_text(), flags=re.M))
         self.run_sh('verify', str(self.store), '001')
         self.assertEqual(self.packet_fields()['verifier-class'], 'escalated')
         self.assertIn(

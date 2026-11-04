@@ -36,6 +36,7 @@ from pstack_core.store import (
     peek,
     read,
     read_text,
+    risk_of,
     update,
     wake,
     write_text,
@@ -163,7 +164,7 @@ def classify_units(ctx, store, root, o, allunits):
     escalate = tuple(
         f'unit {u} was dispatched as escalated'
         for u in allunits
-        if header_field(brief_or_nothing(ctx, store, u), 'risk') == 'escalated'
+        if risk_of(brief_or_nothing(ctx, store, u)) == 'escalated'
     )
     cfg = brief_kitchen(brief_or_nothing(ctx, store, allunits[-1]))
     data = kpy.call(
