@@ -1637,6 +1637,20 @@ class LessonTests(KitchenTests):
             ],
         )
 
+    def test_evidence_puts_globs_in_code_spans(self):
+        finding = (
+            'a.ts: [test-touch] no file matching apps/*/test/**, packages/*/test/** (x)'
+        )
+        self.row('run-a', 'catch', 'review', '001', 'src', finding)
+        self.row('run-b', 'catch', 'review', '002', 'src', 'already `src/*.ts` quoted')
+        self.assertEqual(
+            self.data('lessons')['candidates'][0]['evidence'],
+            [
+                '2026-10-01 run-a 001: a.ts: [test-touch] no file matching `apps/*/test/**`, `packages/*/test/**` (x)',
+                '2026-10-02 run-b 002: already `src/*.ts` quoted',
+            ],
+        )
+
     def test_a_gate_failure_is_a_candidate_by_its_check_after_three_runs(self):
         for run in ('run-a', 'run-b'):
             self.row(

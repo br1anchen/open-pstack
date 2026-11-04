@@ -2983,8 +2983,20 @@ def same_trouble(kind: str, cls: str, match: str, r: dict[str, str]) -> bool:
     )
 
 
+GLOB_WORD = re.compile(r'[^\s,`()]*\*[^\s,`()]*')
+
+
+def code_globs(text: str) -> str:
+    """Each glob outside a code span put in backticks, so a Markdown formatter does not read its `*` as emphasis."""
+    parts = text.split('`')
+    return '`'.join(
+        GLOB_WORD.sub(lambda m: f'`{m[0]}`', part) if n % 2 == 0 else part
+        for n, part in enumerate(parts)
+    )
+
+
 def evidence_line(r: dict[str, str]) -> str:
-    return (
+    return code_globs(
         f'{r["ts"][:10]} {r["run"]} {r["unit"] or "-"}: {r["finding"] or r["detail"]}'
     )
 
