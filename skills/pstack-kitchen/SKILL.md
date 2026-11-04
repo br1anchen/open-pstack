@@ -263,7 +263,7 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `gates.tsv` | `kitchen.sh step` | one row per step check: time, unit, commit, pass or fail, profiles |
 | `verdicts/NNN-<slug>-v<k>.md` | verifier, or `verify` for gates mode | the verdict, from [the verdict template](references/verdict-template.md) |
 | `verdicts/NNN-<slug>-v<k>-packet.md` | `kitchen.sh verify` | what the verifier was given |
-| `pair.json` `.escalations` | `kitchen.sh consultant` | why the consultant was started |
+| `pair.json` `.escalations` | `kitchen.sh consultant` | why the consultant was started, one entry per start; an escalated unit is its brief's `risk:` line |
 | `session-handoff.md` | master via `kitchen.sh new-handoff` | the running master's handoff to its next generation, from [the handoff template](references/handoff-template.md) |
 | `sessions/master-<g>-handoff.md`, `pair.json` `.master.sessions` | `kitchen.sh rotate-master` | each closed master generation: its handoff and resumable session id |
 | `pair.json` `.master.previous` | `kitchen.sh rotate-master`, cleared by `take-master` | the old master during a hand-over, whose pane the new master closes |

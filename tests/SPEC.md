@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at f2495bc by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at eded7cd by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -342,7 +342,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `running:` (read by skills/pstack-kitchen/references/master.md:96) — skills/pstack-pair/scripts/pstack_core/checkin.py:340 — test_pstack_pair.PairScriptTests.test_trio (+8)
 - `steps:` (read by skills/pstack-kitchen/SKILL.md:247) — skills/pstack-kitchen/scripts/kitchen_core/classify.py:68 — test_pstack_pair.PairScriptTests.test_trio (+12)
 - `idle:` (read by skills/pstack-kitchen/references/master.md:83) — skills/pstack-pair/scripts/pstack_core/wait.py:224 — test_pstack_pair.PairScriptTests.test_trio (+3)
-- `queued:` (read by skills/pstack-kitchen/references/master.md:232) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:59 — test_pstack_pair.PairScriptTests.test_trio (+5)
+- `queued:` (read by skills/pstack-kitchen/references/master.md:233) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:59 — test_pstack_pair.PairScriptTests.test_trio (+5)
 - `rotated:` (read by skills/pstack-kitchen/references/master.md:92) — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:135 — test_pstack_pair.PairScriptTests.test_trio (+15)
 - `report_status:` (read by skills/pstack-pair-guided/SKILL.md:154) — skills/pstack-pair/scripts/pstack_core/wait.py:182 — test_pstack_pair.PairScriptTests.test_trio (+17)
 - `review-delta:` (read by skills/pstack-pair-guided/references/master.md:102) — skills/pstack-pair/scripts/pstack_core/replies.py:202 — test_pstack_pair.PairScriptTests.test_trio (+3)
