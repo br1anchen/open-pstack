@@ -216,7 +216,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
     seq, slug = base[:3], base[:-3][4:] if base.endswith('.md') else base[4:]
     round_ = plan_round_for(store, seq, plan)
     wait_on = send_plan(ctx, store, plan, seq, round_)
-    rc, woke = 0, []
+    rc, woke, agreed = 0, [], []
     for role in ('sidekick', 'consultant'):
         if role == round_.deferred:
             write(
@@ -236,6 +236,7 @@ def discuss_with_consultant(ctx, args, one_wake=False):
         if found:
             write(f'{role}_response: {found}\n')
             write(f'{role}_status: {header_field(found, "status")}\n')
+            agreed.append(header_field(found, 'status') == 'agree')
             if status != 'answered':
                 if one_wake:
                     woke.append(f'{role}:{header_field(found, "status")}')
@@ -248,6 +249,11 @@ def discuss_with_consultant(ctx, args, one_wake=False):
             rc = 3
     if woke:
         wake(ctx, store, plan, ','.join(woke))
+    if rc == 0 and len(agreed) == 2 and all(agreed):
+        # What dispatch's plan gate asks for next, so a master does not learn it from two refusals.
+        write(
+            f"next: both agree; write reviews/{seq}-{slug}.md with verdict: agreed, and set the brief's plan: {plan}\n"
+        )
     return rc
 
 

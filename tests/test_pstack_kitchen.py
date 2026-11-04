@@ -5069,6 +5069,21 @@ esac
         self.dispatch(self.brief('001', 'util', ['src/util.py']))
         self.dispatch(self.brief('002', 'api', ['contracts/**']), code=6)
 
+    def test_the_plan_gate_names_kitchen_sh_and_a_plan_value_that_is_not_a_path(self):
+        b = self.brief('002', 'api', ['contracts/**'], plan='required')
+        out = self.dispatch(b, code=6)
+        self.assertIn("plan: must be the plan file's path, not 'required'", out)
+        self.assertIn('agree it with kitchen.sh discuss', out)
+        plan = self.store / 'plans/002-api.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text('# Plan 002: api\n\nrisk: escalated\n')
+        b = self.brief('002', 'api', ['contracts/**'], plan=str(plan))
+        out = self.dispatch(b, code=6)
+        self.assertIn(
+            'has no review; run kitchen.sh discuss and write reviews/002-', out
+        )
+        self.assertNotIn('pair.sh', out)
+
     def test_step_records_only_after_gates_and_policy_pass(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

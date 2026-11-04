@@ -13067,7 +13067,10 @@ class CoreTests(unittest.TestCase):
                 2,
                 'risk: must start with routine or escalated',
             ),
-            'a risk word followed by tabs': (0, 'consultant_status: agree'),
+            'a risk word followed by tabs': (
+                0,
+                "consultant_status: agree\nnext: both agree; write reviews/001-x.md with verdict: agreed, and set the brief's plan: <T>/st/plans/001-x.md\n",
+            ),
             'an escalated plan answered before the call': (
                 0,
                 'sidekick_state: answered\nsidekick_response: <T>/st/reports/001-x.md\nsidekick_status: agree\nconsultant_state: answered\n',

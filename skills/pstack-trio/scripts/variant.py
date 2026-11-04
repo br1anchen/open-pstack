@@ -282,7 +282,7 @@ class TrioVariant(Variant):
             )
         ):
             raise PlanNotAgreed(
-                f'plan {plan} has no consultant advice under advice/{seq}-*; run pair.sh discuss so both agents respond'
+                f'plan {plan} has no consultant advice under advice/{seq}-*; run {ctx.prog} discuss so both agents respond'
             )
 
 

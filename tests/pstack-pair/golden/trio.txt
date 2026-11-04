@@ -155,6 +155,7 @@ sidekick_status: agree
 consultant_state: idle
 consultant_response: <T>/state/pstack/trio/demo/advice/001-design.md
 consultant_status: agree
+next: both agree; write reviews/001-design.md with verdict: agreed, and set the brief's plan: <T>/state/pstack/trio/demo/plans/001-design.md
 [exit 0]
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
