@@ -321,19 +321,23 @@ class Verdict:
         """Empty when the verdict is well formed, else what is wrong."""
         if self.status not in ('clean', 'reject', 'inconclusive'):
             return 'status is not clean, reject, or inconclusive'
-        fences, evidence = 0, False
+        fences, evidence, fenced = 0, False, False
         try:
             lines = read_text(self.path).split('\n')
         except OSError:
             return 'no command output under Evidence'
         for line in lines:
+            # A heading inside a fence is command output, not the end of Evidence; ### subsections stay in it.
+            if line.lstrip().startswith(('```', '~~~')):
+                fenced = not fenced
+                fences += evidence
+                continue
+            if fenced:
+                continue
             if line.startswith('## Evidence'):
                 evidence = True
-                continue
-            if line.startswith('## '):
+            elif line.startswith('## '):
                 evidence = False
-            if evidence and line.startswith('```'):
-                fences += 1
         return '' if fences >= 2 else 'no command output under Evidence'
 
 

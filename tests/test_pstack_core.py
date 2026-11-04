@@ -9862,7 +9862,9 @@ class CoreTests(unittest.TestCase):
             'a bad status': f'# V\n\nstatus: maybe\nunits: 001\nrange: a..b\n\n{body}',
             'no status': f'# V\n\nunits: 001\nrange: a..b\n\n{body}',
             'one fence': f'# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n{fence}\nout\n',
-            'fences after another section': f'# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n{fence}\n## Notes\n{fence}\n',
+            'fences after another section': f'# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\nnone\n## Notes\n{fence}\nout\n{fence}\n',
+            'a heading inside a fence': f'# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n### A\n\n{fence}\n## Counts\nout\n{fence}\n\n## Notes\n',
+            'tilde fences under a subsection': '# V\n\nstatus: clean\nunits: 001\nrange: a..b\n\n## Evidence\n\n### B\n~~~\nout\n~~~\n',
             'evidence heading with words': f'# V\n\nstatus: clean\nunits: 001\n\n## Evidence of it\n{fence}\n{fence}\n',
         }
         paths = {}
@@ -9893,6 +9895,8 @@ class CoreTests(unittest.TestCase):
                 'a b||001|status is not clean, reject, or inconclusive',
                 'a b|clean|001|no command output under Evidence',
                 'a b|clean|001|no command output under Evidence',
+                'a b|clean|001|',
+                'a b|clean|001|',
                 ' |clean|001|',
                 ' |||status is not clean, reject, or inconclusive',
             ],
