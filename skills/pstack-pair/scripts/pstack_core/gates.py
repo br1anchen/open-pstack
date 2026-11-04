@@ -42,6 +42,10 @@ def require_agreed_plan(ctx, store, brief, extra):
             f'playbook {playbook} needs an agreed plan; brief has plan: {plan or "<missing>"}'
         )
     if not os.path.isfile(plan):
+        if '/' not in plan and not plan.endswith('.md'):
+            raise PlanNotAgreed(
+                f"plan: must be the plan file's path, not '{plan}'; write the plan, agree it with {ctx.prog} discuss, then set plan: <path>"
+            )
         raise PlanNotAgreed(f'plan not found: {plan}')
     seq = os.path.basename(plan.rstrip('/') or plan)[:3]
     reviews = sorted(
@@ -51,7 +55,7 @@ def require_agreed_plan(ctx, store, brief, extra):
     )
     if not reviews:
         raise PlanNotAgreed(
-            f'plan {plan} has no review; run pair.sh discuss and write reviews/{seq}-<slug>.md with verdict: agreed'
+            f'plan {plan} has no review; run {ctx.prog} discuss and write reviews/{seq}-<slug>.md with verdict: agreed'
         )
     review = reviews[0]
     verdict = header_field(review, 'verdict')
