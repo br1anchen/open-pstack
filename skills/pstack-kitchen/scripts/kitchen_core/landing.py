@@ -444,14 +444,16 @@ def landing_range_covering(store, seq, brief, ranges, landing_verdict, say):
 
 
 def landed_as(root, base, head):
-    """How the landing verdict's range base..head came into HEAD when its head is not an ancestor: 'rebased' when every commit's patch-id is among
-    the commits HEAD added since the two forked, 'squashed' when one of those carries the range's whole change, else ''."""
-    if not base:
-        return ''
-    forked = git.run(root, 'merge-base', head, 'HEAD', quiet=True).stdout.rstrip('\n')
+    """(how, trunk) when trunk carries the landing verdict's range base..head under other shas: how is 'rebased' when every commit's patch-id is
+    among the commits trunk added since the two forked, 'squashed' when one of those carries the range's whole change. A stack rebased onto a newer
+    trunk but not merged is not landed: HEAD alone proves nothing. ('', '') otherwise."""
+    trunk = trunk_ref(root) or ''
+    if not base or not trunk:
+        return '', ''
+    forked = git.run(root, 'merge-base', head, trunk, quiet=True).stdout.rstrip('\n')
     if not forked:
-        return ''
-    index = StackIndex.build(root, forked, 'HEAD').load()
+        return '', ''
+    index = StackIndex.build(root, forked, trunk).load()
     ours = [
         c
         for c in git.run(
@@ -460,13 +462,13 @@ def landed_as(root, base, head):
         if c
     ]
     if ours and all(index.by_id.get(patch_id(root, c)) for c in ours):
-        return 'rebased'
+        return 'rebased', trunk
     net = first_field(
         git.run(root, 'diff-tree', '-p', '--binary', '--full-index', base, head).stdout
     )
     if net and index.by_id.get(net):
-        return 'squashed'
-    return ''
+        return 'squashed', trunk
+    return '', ''
 
 
 def say_landing_verification(
@@ -495,9 +497,9 @@ def say_landing_verification(
                     say(
                         f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, {behind} commit{"" if behind_n == 1 else "s"} behind HEAD\n'
                     )
-            elif landed := landed_as(root, verdict_base_rev, verdict_head_rev):
+            elif (landed := landed_as(root, verdict_base_rev, verdict_head_rev))[0]:
                 say(
-                    f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, landed ({landed}): HEAD carries its commits under other shas\n'
+                    f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, landed ({landed[0]}): {landed[1]} carries its commits under other shas\n'
                 )
             else:
                 say(

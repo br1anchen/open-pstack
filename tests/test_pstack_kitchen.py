@@ -12303,29 +12303,43 @@ esac
         self.assertNotIn('covered: unit 002', out)
         self.assertIn('unverified: unit 002', out)
 
-    def landing_verdict_then_merged(self, squash):
+    def landing_verdict_then_merged(self, squash, merged=True):
         init, heads = self.two_unit_stack()
         landing = self.store / 'verdicts/landing-v1.md'
         landing.parent.mkdir(exist_ok=True)
-        self.land_on_new_trunk(init, heads, squash=squash)
+        _, tip = self.land_on_new_trunk(init, heads, squash=squash)
+        if merged:
+            self.git('update-ref', 'refs/remotes/origin/main', tip)
         landing.write_text(
             f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{heads[1][:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
         )
         out = self.run_sh('land-check', str(self.store))
-        self.assertNotIn('verify --landing again', out)
+        if merged:
+            self.assertNotIn('verify --landing again', out)
         return out, landing, heads[1]
 
     def test_a_landing_verdict_whose_stack_was_rebase_merged_says_landed_rebased(self):
         out, landing, head = self.landing_verdict_then_merged(squash=False)
         self.assertIn(
-            f'landing verdict {landing} at {head[:9]}, landed (rebased): HEAD carries its commits under other shas',
+            f'landing verdict {landing} at {head[:9]}, landed (rebased): refs/remotes/origin/main carries its commits under other shas',
             out,
+        )
+
+    def test_a_landing_verdict_whose_stack_was_rebased_but_not_merged_asks_for_a_new_one(
+        self,
+    ):
+        out, landing, head = self.landing_verdict_then_merged(
+            squash=False, merged=False
+        )
+        self.assertNotIn('landed (', out)
+        self.assertIn(
+            f"landing verdict {landing} at {head[:9]}, not in HEAD's history", out
         )
 
     def test_a_landing_verdict_whose_stack_was_squash_merged_says_landed_squashed(self):
         out, landing, head = self.landing_verdict_then_merged(squash=True)
         self.assertIn(
-            f'landing verdict {landing} at {head[:9]}, landed (squashed): HEAD carries its commits under other shas',
+            f'landing verdict {landing} at {head[:9]}, landed (squashed): refs/remotes/origin/main carries its commits under other shas',
             out,
         )
 

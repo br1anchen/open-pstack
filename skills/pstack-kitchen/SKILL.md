@@ -208,7 +208,7 @@ its children may do beyond these shared rules.
    then run land-check). land-check covers a unit rebased into the stack by
    patch-id, or rewritten (a squash) when a clean landing verdict's head has
    the unit head's tree; it says how many commits behind HEAD an older landing
-   verdict is, says `landed (rebased)` or `landed (squashed)` when HEAD
+   verdict is, says `landed (rebased)` or `landed (squashed)` when trunk
    carries a landing verdict's commits under other shas, and warns when dependency manifests changed after its verified base;
    `verify --landing --parent REF` records where the stack starts and
    `--head REV` proves a branch other than HEAD. The revert check that
