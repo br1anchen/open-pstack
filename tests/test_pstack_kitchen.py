@@ -9384,7 +9384,8 @@ esac
             check=False,
             timeout=120,
         )
-        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        if code is not None:
+            self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         return result.stdout + result.stderr
 
     def test_a_store_named_dot_records_absolute_paths_and_lists_relative_commands_for_the_verifier(
@@ -11687,6 +11688,17 @@ esac
         """A rejecting verdict of unit(s) and the fix brief drafted from it: (the verdict, the fix brief)."""
         verdict = self.verdict_file(f'{seq}-util-v1', 'reject', units or seq)
         return verdict, self.revise_fix(verdict)
+
+    def test_revise_with_a_store_named_dot_and_a_relative_verdict_links_the_absolute_verdict(
+        self,
+    ):
+        self.fix_world()
+        verdict = self.verdict_file('001-util-v1', 'reject', '001')
+        out = self.run_in_store(
+            'revise', '.', os.path.relpath(verdict, self.store), code=None
+        )
+        fix = next((self.store / 'briefs').glob('002-*.md'))
+        self.assertIn(f'- verdict: {verdict}\n', fix.read_text(), out)
 
     def test_a_verified_fix_covers_the_unit_its_verdict_rejected(self):
         self.fix_world()

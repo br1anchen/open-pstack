@@ -660,7 +660,7 @@ def revise(ctx, args):
     Forbidden."""
     if len(args) != 2:
         raise Die('usage: kitchen.sh revise <store> <verdict-path>')
-    store, verdict = args
+    store, verdict = args[0], os.path.abspath(args[1])
     if not os.path.isfile(verdict):
         raise Die(f'verdict not found: {verdict}')
     if header_field(verdict, 'status') != 'reject':
