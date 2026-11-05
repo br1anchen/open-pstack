@@ -90,6 +90,9 @@ is yours alone.
    it with `pair.sh note <store> <draft>`, and wait again. A blocking note is
    delivered to a working sidekick at once (`pstack-pair NOTE <path>`; a Devin
    gets it at its next `pair.sh step`, `progress` or `notes`); never hold a note for the end. A
+   note that authorizes an edit outside Scope carries `scope effect: may write:
+   <path or glob>` (several as `may write "<a>" and "<b>"`); the check-in then
+   counts those paths as Scope, and a narrowing still goes through a steer. A
    note on the running unit may come before its first step: `new-note` then writes `n0`
    (`through: step 0`, over the range from the unit's base to HEAD) and never overwrites a
    published one. A quiet wait announces each open blocking note once: the store keeps the

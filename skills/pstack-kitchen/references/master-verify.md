@@ -64,9 +64,12 @@ The detail behind step 6 of [master.md](master.md).
      read the fix brief (it runs the `review-fix` workflow), dispatch it, and verify the fix together with the
      unit it fixes (`kitchen.sh verify <store> 007 --covers 003`): one
      verdict at the fix's head covers both, and land-check accepts it. A
-     rejected landing verdict gets one fix brief over the union of the
-     units' Scopes from the same `revise`; prove it with `verify --landing`
-     again. Never
+     rejected landing verdict gets one fix brief from the same `revise`, over
+     the units the verdict's `units:` line names, else those its `range:`
+     holds. Its Acceptance is one line per finding plus one line that the
+     units' Acceptance still holds. Its Verify is a placeholder: fill in the
+     targeted check per finding, because dispatch refuses the brief until you
+     do. Prove it with `verify --landing` again. Never
      re-verify the rejected unit at its own head. A second rejection, an
      `inconclusive`, or an `invalid` verdict is yours: read the verdict and
      the unit before anything else.
