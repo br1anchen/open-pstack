@@ -206,8 +206,10 @@ its children may do beyond these shared rules.
    proves the stack tip with a fresh verifier, and its clean verdict covers
    the last units that were not verified on their own (review them against it,
    then run land-check). land-check covers a unit rebased into the stack by
-   patch-id, says how many commits behind HEAD an older landing verdict is,
-   and warns when dependency manifests changed after its verified base;
+   patch-id, or rewritten (a squash) when a commit of a clean landing range
+   has its head's tree; it says how many commits behind HEAD an older landing
+   verdict is, says `landed (rebased)` or `landed (squashed)` when HEAD
+   carries a landing verdict's commits under other shas, and warns when dependency manifests changed after its verified base;
    `verify --landing --parent REF` records where the stack starts and
    `--head REV` proves a branch other than HEAD. The revert check that
    leaves a rebased unit uncovered compares patches without context, so a later

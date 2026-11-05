@@ -12266,6 +12266,51 @@ esac
         self.assertNotIn('covered:', out)
         self.assertIn('unverified: unit 001', out)
 
+    def test_a_unit_whose_history_was_squashed_is_covered_by_a_landing_verdict_on_its_tree(
+        self,
+    ):
+        init, heads = self.two_unit_stack()
+        self.git('checkout', '-q', '-b', 'squashed', init)
+        self.git('cherry-pick', '-n', *heads)
+        tip = self.commit('the stack squashed in place')
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        landing.write_text(
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{tip[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
+        )
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn(
+            f"covered: unit 002 (its head's tree is {tip[:9]}'s, rewritten) by the clean landing verdict {landing}",
+            out,
+        )
+        self.assertIn('unverified: unit 001', out)
+
+    def landing_verdict_then_merged(self, squash):
+        init, heads = self.two_unit_stack()
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        self.land_on_new_trunk(init, heads, squash=squash)
+        landing.write_text(
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{heads[1][:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
+        )
+        out = self.run_sh('land-check', str(self.store))
+        self.assertNotIn('verify --landing again', out)
+        return out, landing, heads[1]
+
+    def test_a_landing_verdict_whose_stack_was_rebase_merged_says_landed_rebased(self):
+        out, landing, head = self.landing_verdict_then_merged(squash=False)
+        self.assertIn(
+            f'landing verdict {landing} at {head[:9]}, landed (rebased): HEAD carries its commits under other shas',
+            out,
+        )
+
+    def test_a_landing_verdict_whose_stack_was_squash_merged_says_landed_squashed(self):
+        out, landing, head = self.landing_verdict_then_merged(squash=True)
+        self.assertIn(
+            f'landing verdict {landing} at {head[:9]}, landed (squashed): HEAD carries its commits under other shas',
+            out,
+        )
+
     def test_an_older_landing_verdict_says_how_many_commits_behind_head_it_is(self):
         init, head, landing = self.landing_range_world()
         landing.write_text(

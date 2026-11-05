@@ -28,9 +28,11 @@ from .units import (
     StackIndex,
     Verdict,
     dispatch_head,
+    first_field,
     has_pair,
     inclusion,
     is_ancestor,
+    patch_id,
     repo_root,
     unit_brief,
     unit_head,
@@ -392,6 +394,30 @@ def verified_fix(store, seq, covers, links=1, seen=()):
     return ''
 
 
+def commit_tree(root, rev):
+    """The tree of a commit, '' when it names none."""
+    return git.run(
+        root, 'rev-parse', '--verify', '--quiet', f'{rev}^{{tree}}'
+    ).stdout.rstrip('\n')
+
+
+def same_tree_in(root, tree, base, head):
+    """The newest commit of base..head (head alone without a base) whose tree is `tree`, or ''. A history rewritten after the unit (a squash, a
+    dropped pair of commits) leaves the unit's tree in the landing range under a sha it does not know."""
+    listed = git.run(
+        root,
+        'log',
+        '--format=%H %T',
+        f'{base}..{head}' if base else '-1',
+        *([] if base else [head]),
+    ).stdout
+    for line in listed.split('\n'):
+        sha, _, found = line.partition(' ')
+        if found and found == tree:
+            return sha
+    return ''
+
+
 def landing_range_covering(store, seq, brief, ranges, landing_verdict, say):
     """The path of the first clean landing verdict whose range holds the unit, or '' with the note for a unit the newest one does not match."""
     unit = RecordedUnit(store, brief)
@@ -409,6 +435,14 @@ def landing_range_covering(store, seq, brief, ranges, landing_verdict, say):
             else:
                 say(f'covered: unit {seq} by the clean landing verdict {held.path}\n')
             return held.path
+    tree = commit_tree(unit.root, unit.head)
+    for held in ranges:
+        same = tree and same_tree_in(unit.root, tree, held.base, held.head)
+        if same:
+            say(
+                f"covered: unit {seq} (its head's tree is {same[:9]}'s, rewritten) by the clean landing verdict {held.path}\n"
+            )
+            return held.path
     if ranges[0].path == landing_verdict:
         say(
             landing_unmatched_note(
@@ -422,6 +456,32 @@ def landing_range_covering(store, seq, brief, ranges, landing_verdict, say):
                 newest,
             )
         )
+    return ''
+
+
+def landed_as(root, base, head):
+    """How the landing verdict's range base..head came into HEAD when its head is not an ancestor: 'rebased' when every commit's patch-id is among
+    the commits HEAD added since the two forked, 'squashed' when one of those carries the range's whole change, else ''."""
+    if not base:
+        return ''
+    forked = git.run(root, 'merge-base', head, 'HEAD', quiet=True).stdout.rstrip('\n')
+    if not forked:
+        return ''
+    index = StackIndex.build(root, forked, 'HEAD').load()
+    ours = [
+        c
+        for c in git.run(
+            root, 'rev-list', '--no-merges', f'{base}..{head}'
+        ).stdout.split('\n')
+        if c
+    ]
+    if ours and all(index.by_id.get(patch_id(root, c)) for c in ours):
+        return 'rebased'
+    net = first_field(
+        git.run(root, 'diff-tree', '-p', '--binary', '--full-index', base, head).stdout
+    )
+    if net and index.by_id.get(net):
+        return 'squashed'
     return ''
 
 
@@ -451,6 +511,10 @@ def say_landing_verification(
                     say(
                         f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, {behind} commit{"" if behind_n == 1 else "s"} behind HEAD\n'
                     )
+            elif landed := landed_as(root, verdict_base_rev, verdict_head_rev):
+                say(
+                    f'landing verdict {landing_verdict} at {verdict_head_rev[:9]}, landed ({landed}): HEAD carries its commits under other shas\n'
+                )
             else:
                 say(
                     f"landing verdict {landing_verdict} at {verdict_head_rev[:9]}, not in HEAD's history (rebased or another branch); verify --landing "
