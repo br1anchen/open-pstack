@@ -61,7 +61,7 @@ silently doing nothing.
 | `.landing` | `[]` | the full battery, run once, in the landing unit: `verify --landing` puts `gate <profile> landing` in the verifier's packet for each touched profile that declares it |
 | `.features` | `[]` | feature-map files of the repo's verification skill that the verifier reads for this profile |
 | `.tests` | `[]` | globs of this profile's test files |
-| `.require_tests` | `false` | a change to the profile's files needs a change to a `tests` file (`kitchen.py policy` reports `test-touch`) |
+| `.require_tests` | `false` | a change to the profile's files needs a change to a `tests` file (`kitchen.py policy` reports `test-touch`); a commit in the range whose message has the line `kitchen-allow: test-touch <reason>` waives it, and the step prints the waiver and marks its `gates.tsv` row `waived:test-touch` |
 | `.verify` | `"batch"` | routine verification: `gates` (deterministic gates only, no verifier), `batch` (one verifier per landing stack), `unit` (one per unit) |
 | `.sample` | `0.1` | share of clean routine units the master audits in full |
 | `.heavy` | `false` | `true`, or a list of stages from `fast`, `behavioral`, `landing`: those stages' gates take one of `resources.max_parallel_heavy` machine-wide slots, so a verifier's build never races the sidekick's. `true` means all three. A 30-second fast gate should not queue behind a verifier's behavioral build, so a repo that builds only there opts in with `heavy = ["behavioral", "landing"]`. A heavy gate takes its heavy slot before its machine gate slot |

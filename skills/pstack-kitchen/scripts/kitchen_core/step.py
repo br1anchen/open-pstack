@@ -313,6 +313,15 @@ def discard_moved_gates(ctx, sha, full, job):
     )
 
 
+def test_touch_waived(job):
+    """The policy's `test-touch waived by <commit>: <reason>` line from the job's log, or '': a commit trailer let a source change with no test
+    through, and the step says so."""
+    found = re.search(
+        r'(?m)^policy: (test-touch waived by .*)$', read_text(f'{job}/out')
+    )
+    return found.group(1) if found else ''
+
+
 def settle_gates(store, unit, full, job):
     """Consumes the finished job and appends the step's row to gates.tsv."""
     open(f'{job}/consumed', 'w').close()
@@ -325,9 +334,11 @@ def settle_gates(store, unit, full, job):
     )
     state = 'fail' if rc != 0 else 'none' if not profiles else 'pass'
     os.makedirs(f'{store}/steps', exist_ok=True)
+    # a sixth column, only on a step a commit trailer let through with no test
+    waived = '\twaived:test-touch' if rc == 0 and test_touch_waived(job) else ''
     with open(f'{store}/gates.tsv', 'a') as f:
         f.write(
-            f'{int(time.time())}\t{unit}\t{full[:9]}\t{state}\t{",".join(profiles)}\n'
+            f'{int(time.time())}\t{unit}\t{full[:9]}\t{state}\t{",".join(profiles)}{waived}\n'
         )
     return GateRun(rc == 0, state, profiles, classified)
 
@@ -366,6 +377,9 @@ def report_passed_gates(store, brief, job, run):
         sys.stdout.write(f'gates: none ran; no profile covers {unmapped}\n')
         return
     sys.stdout.write(f'gates: pass ({",".join(run.profiles)})\n')
+    if waived := test_touch_waived(job):
+        sys.stdout.write(f'policy: {waived}; the review sees it\n')
+        event(store, 'sidekick', 'test-touch-waived', brief, waived)
     names = '\n'.join(
         m.group(1)
         for m in (

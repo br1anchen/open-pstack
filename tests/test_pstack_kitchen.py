@@ -5579,6 +5579,28 @@ esac
         )
         self.assertEqual((self.repo / 'lane.txt').read_text(), 'demo|sidekick')
 
+    def test_a_step_whose_commit_waives_test_touch_with_a_reason_passes_and_says_so(
+        self,
+    ):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.write('src/util.py', 'X = 4\n')
+        bare = self.commit('no test\n\nkitchen-allow: test-touch')
+        out = self.run_sh('step', str(self.store), bare, 'no reason', code=2)
+        self.assertIn('[test-touch] profile app requires tests', out)
+        self.write('src/util.py', 'X = 5\n')
+        sha = self.commit(
+            'rename only\n\nkitchen-allow: test-touch a rename; no behavior moved'
+        )
+        out = self.run_sh('step', str(self.store), sha, 'rename')
+        self.assertIn('gates: pass (app)', out)
+        self.assertIn(
+            f'policy: test-touch waived by {sha[:9]}: a rename; no behavior moved; the review sees it',
+            out,
+        )
+        row = (self.store / 'gates.tsv').read_text().splitlines()[-1].split('\t')
+        self.assertEqual(row[3:], ['pass', 'app', 'waived:test-touch'])
+        self.assertIn('\ttest-touch-waived\t', (self.store / 'events.tsv').read_text())
+
     def test_a_resumed_units_commit_is_checked_against_its_own_diff(self):
         self.write('src/util.py', 'X = 3\n')
         self.write('tests/test_app.py', 'x = 3\n')

@@ -1644,12 +1644,28 @@ def overloaded() -> float | None:
 
 
 ALLOW = re.compile(r'kitchen-allow:\s*([a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)')
+TEST_TOUCH_WAIVER = re.compile(r'(?m)^\s*kitchen-allow:\s*test-touch\s+(\S.*?)\s*$')
+
+
+def test_touch_waiver(root: Path, base: str, head: str) -> tuple[str, str] | None:
+    """(commit, reason) of the newest commit in base..head whose message carries `kitchen-allow: test-touch <reason>`: a change whose source
+    needs no test (a type-only edit, a rename) says why in its own history, where the review sees it. A trailer with no reason waives nothing."""
+    log = git(root, 'log', '--format=%H%x00%B%x01', f'{base}..{head}')
+    for entry in log.split('\x01'):
+        sha, _, body = entry.strip('\n').partition('\x00')
+        m = TEST_TOUCH_WAIVER.search(body)
+        if sha and m:
+            return sha, m.group(1)
+    return None
 
 
 # Added lines that break a forbid rule, unless the line carries
 # `kitchen-allow: <id>` with the reason beside it; and profiles that require
 # tests whose source changed with no test change.
-def check_policy(root: Path, kitchen: Kitchen, args) -> list[dict]:
+def check_policy(
+    root: Path, kitchen: Kitchen, args
+) -> tuple[list[dict], tuple[str, str] | None]:
+    """The findings, and the (commit, reason) of a test-touch waiver that let a source change with no test through, or None."""
     if args.working_tree:
         diff = git(root, 'diff', *DIFF_OPTS, '-U0', 'HEAD')
     else:
@@ -1692,11 +1708,19 @@ def check_policy(root: Path, kitchen: Kitchen, args) -> list[dict]:
     else:
         changed = changes(root, None, base=args.base, head=args.head).files
     paths = [c[0] for c in changed]
+    waiver = (
+        None
+        if args.working_tree
+        else test_touch_waiver(root, args.base, args.head or 'HEAD')
+    )
+    waived = None
     for p in kitchen.profiles.values():
         if not p.require_tests or any(matches(f, p.test_res) for f in paths):
             continue
         source = [f for f in paths if matches(f, p.path_res)]
-        if source:
+        if source and waiver:
+            waived = waiver
+        elif source:
             findings.append(
                 {
                     'rule': 'test-touch',
@@ -1709,7 +1733,7 @@ def check_policy(root: Path, kitchen: Kitchen, args) -> list[dict]:
                     'source': CONFIG,
                 }
             )
-    return findings
+    return findings, waived
 
 
 def first_word(cmd: str) -> str | None:
@@ -2079,7 +2103,7 @@ def history(root: Path, kitchen: Kitchen, last: int) -> list[dict]:
             paths=None, working_tree=False, at=None, base=parent, head=rev
         )
         r = classify(kitchen, changes(root, None, base=parent, head=rev).files)
-        findings = check_policy(root, kitchen, ns)
+        findings, _ = check_policy(root, kitchen, ns)
         rows.append(
             {
                 'rev': rev[:9],
@@ -5226,9 +5250,20 @@ def main(argv: list[str] | None = None) -> int:
             emit(r, args.json, '\n'.join(lines))
             return 0 if r['passed'] else 2
         if args.cmd == 'policy':
-            f = check_policy(root, kitchen, args)
+            f, waived = check_policy(root, kitchen, args)
             emit(
-                {'findings': f},
+                {
+                    'findings': f,
+                    **(
+                        {
+                            'waived': {
+                                'test-touch': {'commit': waived[0], 'reason': waived[1]}
+                            }
+                        }
+                        if waived
+                        else {}
+                    ),
+                },
                 args.json,
                 '\n'.join(
                     [
@@ -5239,6 +5274,11 @@ def main(argv: list[str] | None = None) -> int:
                         + (f'\n    {x["text"]}' if x['text'] else '')
                         for x in f
                     ]
+                    + (
+                        [f'policy: test-touch waived by {waived[0][:9]}: {waived[1]}']
+                        if waived
+                        else []
+                    )
                     or ['policy: clean']
                 ),
             )
