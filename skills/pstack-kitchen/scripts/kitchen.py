@@ -1477,6 +1477,21 @@ def _complete(text: str) -> bool:
     return r.returncode == 0 and not r.stderr.strip()
 
 
+USAGE_LINE = re.compile(r'^\s*usage:', re.I)
+
+
+def output_summary(log: Path) -> dict:
+    """What a passing Verify command printed, in brief: its line count and last line, so a reader sees a test run's summary, or that none ran. A
+    command whose output opens with a usage line printed its help, which exits 0 too, and gets a warning."""
+    lines = [l for l in log.read_text(errors='replace').splitlines() if l.strip()]
+    found = {'lines': len(lines), 'last': lines[-1].strip()[:200] if lines else ''}
+    if lines and USAGE_LINE.match(lines[0]):
+        found['warn'] = (
+            'its output opens with a usage line: it may have printed help instead of running'
+        )
+    return found
+
+
 def brief_verify_commands(brief: Path) -> list[str]:
     """The brief's ## Verify block as the commands finish reruns. A command ends
     where bash reads a complete one, so a continued line, a heredoc, or a loop
@@ -1618,6 +1633,8 @@ def run_brief_verify(
                 }
                 if code != 0:
                     r['tail'] = log.read_text(errors='replace').splitlines()[-20:]
+                else:
+                    r.update(output_summary(log))
                 out['commands'].append(r)
     finally:
         if tmp:
@@ -5247,6 +5264,13 @@ def main(argv: list[str] | None = None) -> int:
                     f'  exit {x["exit"]} {x["seconds"]}s {x["command"]}  log: {x["log"]}'
                 )
                 lines += [f'    | {t}' for t in x.get('tail', [])]
+                if 'lines' in x:
+                    lines.append(
+                        f'    output: {x["lines"]} lines'
+                        + (f'; last: {x["last"]}' if x['last'] else '')
+                    )
+                if x.get('warn'):
+                    lines.append(f'    warn: {x["warn"]}')
             emit(r, args.json, '\n'.join(lines))
             return 0 if r['passed'] else 2
         if args.cmd == 'policy':
