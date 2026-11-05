@@ -5259,7 +5259,8 @@ esac
                 (finish_job / 'rc').read_text(),
             ),
             (
-                "verify: pass (1 commands from the brief)\n  exit 0 <S>s grep -q 'X = 2' src/util.py  log: <logs>/verify-0.log\n",
+                "verify: pass (1 commands from the brief)\n  exit 0 <S>s grep -q 'X = 2' src/util.py  log: <logs>/verify-0.log\n"
+                '    output: 0 lines\n',
                 '0\n',
             ),
         )
@@ -6476,6 +6477,28 @@ esac
             )
         self.assertTrue((job / 'out.died.1').is_file())
         self.assertTrue((job / 'out.died.2').is_file())
+
+    def test_finish_shows_what_each_verify_command_printed_and_warns_on_a_usage_screen(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(
+            b,
+            "printf 'ran 3 tests\\n\\n3 passed\\n'\nprintf 'Usage: bun run [flags] <script>\\n  e2e\\n'",
+        )
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 5\n')
+        self.done(b, self.commit('step'))
+        out = self.run_sh(
+            'finish', str(self.store), str(self.store / 'reports' / b.name)
+        )
+        self.assertIn('verify: pass (2 commands from the brief)', out)
+        self.assertIn('    output: 2 lines; last: 3 passed\n', out)
+        self.assertIn(
+            '    output: 2 lines; last: e2e\n    warn: its output opens with a usage line: it may have printed help instead of running\n',
+            out,
+        )
+        self.assertEqual(out.count('warn:'), 1)
 
     def test_gates_mode_verifies_without_a_verifier(self):
         b = self.brief('001', 'docs', ['docs/**'])

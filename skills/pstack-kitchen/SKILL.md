@@ -188,7 +188,10 @@ its children may do beyond these shared rules.
    policy check and records only a passing step. The master does not read a
    routine unit's steps. At done, `kitchen.sh finish` reruns the brief's
    Verify commands exactly as written at the report's head, and the report
-   reaches the master only when every one exits 0.
+   reaches the master only when every one exits 0. Each passing command's
+   line shows how many lines it printed and the last one, so a test run's
+   summary, or its absence, is in view; output that opens with a usage line
+   (help, which exits 0 too) gets a warning.
 3. **Verify.** `kitchen.sh verify` per the unit's verify mode: `gates` (the
    step gates were the proof), `batch` (one verifier for several routine
    units), or `unit`. The verifier proves the brief's Acceptance at the
