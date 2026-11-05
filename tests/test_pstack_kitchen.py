@@ -12364,6 +12364,23 @@ esac
             f'landing verdict {landing} at {head[:9]}, 2 commits behind HEAD', out
         )
 
+    @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
+    def test_verify_landing_takes_a_jj_revision_that_names_one_commit(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.colocate())
+        self.assertIn(
+            'kitchen.sh: --parent all() names ',
+            self.run_sh(
+                'verify', str(self.store), '--landing', '--parent', 'all()', code=1
+            ),
+        )
+        out = self.run_sh('verify', str(self.store), '--landing', '--parent', 'root()+')
+        self.assertIn(f'landing base: recorded parent root()+ ({init[:9]})', out)
+        self.assertEqual(self.state()['landing']['parent'], init)
+
     def test_verify_landing_parent_is_recorded_and_used_by_the_next_landing(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         b = self.brief('001', 'util', ['src/**', 'tests/**'])

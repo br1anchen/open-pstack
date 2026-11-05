@@ -53,6 +53,7 @@ from .units import (
     heads_in,
     is_ancestor,
     landing_base,
+    named_commit,
     repo_root,
     unit_brief,
     unit_range,
@@ -106,25 +107,19 @@ def next_index(directory, prefix, letter):
 def classify_landing(store, root, o):
     """The landing's range and class: the head, the parent the stack starts from (--parent, or the last landing's), the kitchen as it is now, and
     the diff's classification."""
-    head = commit_of(root, o.land_head or 'HEAD')
-    if head is None:
-        raise BadRevision(f'--head {o.land_head} is not a commit')
+    head = named_commit(root, o.land_head or 'HEAD', '--head')
     override = label = ''
     if o.parent_ref == 'none':
         label = 'none'
     if o.parent_ref and o.parent_ref != 'none':
-        override = commit_of(root, o.parent_ref)
-        if override is None:
-            raise BadRevision(f'--parent {o.parent_ref} is not a commit')
+        override = named_commit(root, o.parent_ref, '--parent')
         label = o.parent_ref
         if not (override != head and is_ancestor(root, override, head)):
             raise BadRevision(
                 f'--parent {o.parent_ref} ({override[:9]}) must be an ancestor of {head[:9]} and not the same commit; name where the stack starts'
             )
     if o.range_base:
-        base = commit_of(root, o.range_base)
-        if base is None:
-            raise BadRevision(f'--base {o.range_base} is not a commit')
+        base = named_commit(root, o.range_base, '--base')
     else:
         base = landing_base(store, root, head, override, label, o.range_base)
     # A rebase since the last landing verdict may have moved a dependency manifest.
