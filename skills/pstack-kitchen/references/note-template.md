@@ -4,6 +4,12 @@ unit: {{UNIT}}
 through: step {{K}}
 range: {{RANGE}}
 status: {{blocking | clear}}
+scope effect: none
+
+<Leave `scope effect: none` unless this note authorizes an edit outside the
+unit's Scope: `may write: <path or glob>`, or several as `may write "<a>" and
+"<b>"`. The check-in then counts those paths as Scope, so they are no longer
+reported outside scope. A narrowing (`must not write`) goes through a steer.>
 
 <Review the range with `git diff {{RANGE}}`, or `git show` per step. Blocking
 is only what would make the unit wrong to land: wrong behaviour, a missed

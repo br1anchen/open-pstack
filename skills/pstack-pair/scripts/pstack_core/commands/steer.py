@@ -6,7 +6,7 @@ import time
 
 from .. import mux
 from ..argv import Spec, read
-from ..checkin import live_steer_effects, sidekick_busy
+from ..checkin import live_steer_effects, scope_effect_form_ok, sidekick_busy
 from ..errors import BadSteer, Die, NoObjectionOpen, NotSettled, PromptFailed
 from ..mux import DEVNULL
 from ..panes import agent_status, require_mux
@@ -77,12 +77,7 @@ def check_steer_file(ctx, steer_path):
         raise BadSteer(f'not a steer file: {steer_path}')
     if has_placeholder(text) or re.search(r'(?m)^(kind|scope effect): .*\|', text):
         raise BadSteer(f'{steer_path} still has unfilled placeholders')
-    # the forms steer-template.md describes, each optionally followed by ` \u2014 <note>`
-    effect = header_field(steer_path, 'scope effect').rstrip().split(' \u2014 ')[0]
-    if not re.fullmatch(
-        r'none|may write: \S.*|may write "[^"]+"(?: and "[^"]+")*|must not write: \S.*',
-        effect,
-    ):
+    if not scope_effect_form_ok(header_field(steer_path, 'scope effect')):
         raise BadSteer(
             f'{steer_path}: scope effect must be none, "may write: <path or glob>" or "must not write: <path or glob>"'
         )

@@ -5,6 +5,7 @@ import sys
 
 from .. import git, mux
 from ..argv import Spec, read
+from ..checkin import NOTE_SCOPE_EFFECT_FORM, scope_effect_form_ok
 from ..errors import Die, PairError, PromptFailed
 from ..mux import DEVNULL
 from ..panes import agent_status
@@ -99,6 +100,11 @@ def note(ctx, args):
     status = header_field(draft, 'status')
     if status not in ('blocking', 'clear'):
         raise Die(f'{draft} needs status: blocking or clear')
+    effect = header_field(draft, 'scope effect')
+    if effect and not scope_effect_form_ok(effect, NOTE_SCOPE_EFFECT_FORM):
+        raise Die(
+            f'{draft}: scope effect must be none or "may write: <path or glob>" (several as may write "<a>" and "<b>"); a narrowing goes through a steer'
+        )
     path = draft.removesuffix('.draft')
     name = unit_name(path)
     unit = re.sub(r'-n[0-9]+$', '', name)

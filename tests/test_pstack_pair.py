@@ -1356,6 +1356,62 @@ class ReadinessTests(unittest.TestCase):
         self.steer(2, 'scope', 'must not write: docs/new.md')
         self.assertEqual(self.outside('docs/new.md'), ['docs/new.md'])
 
+    def note_with_effect(self, k, effect, suffix='.md'):
+        f = self.store / f'notes/001-first-n{k}{suffix}'
+        f.parent.mkdir(exist_ok=True)
+        f.write_text(
+            f'# Note 001 n{k}\n\nunit: 001-first\nstatus: clear\nscope effect: {effect}\n\n## Blocking\n\n- none\n'
+        )
+        return f
+
+    def test_a_published_notes_may_write_effect_is_not_outside_scope(self):
+        self.note_with_effect(1, 'may write: docs/new.md')
+        self.assertEqual(self.outside('docs/new.md', 'other.txt'), ['other.txt'])
+
+    def test_a_published_notes_quoted_may_write_paths_all_count(self):
+        self.note_with_effect(
+            1, 'may write "gen/**" and "docs/two.md" \u2014 generated'
+        )
+        self.assertEqual(
+            self.outside('gen/a/b.json', 'docs/two.md', 'other.txt'), ['other.txt']
+        )
+
+    def test_a_notes_none_effect_allows_nothing(self):
+        self.note_with_effect(1, 'none')
+        self.assertEqual(self.outside('docs/new.md'), ['docs/new.md'])
+
+    def test_a_note_draft_effect_counts_only_once_published(self):
+        self.note_with_effect(1, 'may write: docs/new.md', suffix='.md.draft')
+        self.assertEqual(self.outside('docs/new.md'), ['docs/new.md'])
+
+    def publish_note_draft(self, effect, code):
+        draft = self.note_with_effect(1, effect, suffix='.md.draft')
+        out = self.run_command('note', str(self.store), str(draft), code=code)
+        return draft, out
+
+    def test_note_publishes_a_draft_with_a_may_write_effect(self):
+        draft, out = self.publish_note_draft('may write: docs/new.md', 0)
+        self.assertIn('published', out)
+        self.assertFalse(draft.exists())
+
+    def test_note_publishes_a_draft_with_no_scope_effect_line(self):
+        draft = self.store / 'notes/001-first-n1.md.draft'
+        draft.parent.mkdir(exist_ok=True)
+        draft.write_text('# Note\n\nstatus: clear\n\n## Blocking\n\n- none\n')
+        self.run_command('note', str(self.store), str(draft))
+        self.assertTrue(draft.with_suffix('').exists())
+
+    def test_note_refuses_a_must_not_write_effect_and_publishes_nothing(self):
+        draft, out = self.publish_note_draft('must not write: docs/new.md', 1)
+        self.assertIn('scope effect must be none or "may write', out)
+        self.assertTrue(draft.exists())
+        self.assertFalse(draft.with_suffix('').exists())
+
+    def test_note_refuses_a_malformed_scope_effect(self):
+        draft, out = self.publish_note_draft('sometimes write docs', 1)
+        self.assertIn('scope effect must be none or "may write', out)
+        self.assertTrue(draft.exists())
+
     def test_a_double_star_glob_matches_a_top_level_file(self):
         (self.cwd / 'flake.nix').write_text('x')
         self.git('add', 'flake.nix')

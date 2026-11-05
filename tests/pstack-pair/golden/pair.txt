@@ -2053,6 +2053,12 @@ unit: 012-qsteps
 through: step 1
 range: <SHA>..<SHA>
 status: blocking
+scope effect: none
+
+<Leave `scope effect: none` unless this note authorizes an edit outside the
+unit's Scope: `may write: <path or glob>`, or several as `may write "<a>" and
+"<b>"`. The check-in then counts those paths as Scope, so they are no longer
+reported outside scope. A narrowing (`must not write`) goes through a steer.>
 
 <Review the range with `git diff <SHA>..<SHA>`, or `git show` per step. Blocking
 is only what would make the unit wrong to land: wrong behaviour, a missed
@@ -2074,6 +2080,12 @@ unit: 012-qsteps
 through: step 2
 range: <SHA>..<SHA>
 status: clear
+scope effect: none
+
+<Leave `scope effect: none` unless this note authorizes an edit outside the
+unit's Scope: `may write: <path or glob>`, or several as `may write "<a>" and
+"<b>"`. The check-in then counts those paths as Scope, so they are no longer
+reported outside scope. A narrowing (`must not write`) goes through a steer.>
 
 <Review the range with `git diff <SHA>..<SHA>`, or `git show` per step. Blocking
 is only what would make the unit wrong to land: wrong behaviour, a missed
@@ -2095,6 +2107,12 @@ unit: 012-qsteps
 through: step 3
 range: <SHA>..<SHA>
 status: clear
+scope effect: none
+
+<Leave `scope effect: none` unless this note authorizes an edit outside the
+unit's Scope: `may write: <path or glob>`, or several as `may write "<a>" and
+"<b>"`. The check-in then counts those paths as Scope, so they are no longer
+reported outside scope. A narrowing (`must not write`) goes through a steer.>
 
 <Review the range with `git diff <SHA>..<SHA>`, or `git show` per step. Blocking
 is only what would make the unit wrong to land: wrong behaviour, a missed
@@ -2116,6 +2134,12 @@ unit: 012-qsteps
 through: step 4
 range: <SHA>..<SHA>
 status: clear
+scope effect: none
+
+<Leave `scope effect: none` unless this note authorizes an edit outside the
+unit's Scope: `may write: <path or glob>`, or several as `may write "<a>" and
+"<b>"`. The check-in then counts those paths as Scope, so they are no longer
+reported outside scope. A narrowing (`must not write`) goes through a steer.>
 
 <Review the range with `git diff <SHA>..<SHA>`, or `git show` per step. Blocking
 is only what would make the unit wrong to land: wrong behaviour, a missed

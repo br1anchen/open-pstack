@@ -221,6 +221,38 @@ def scope_entries(brief, want):
     return found
 
 
+SCOPE_EFFECT_FORM = (
+    r'none|may write: \S.*|may write "[^"]+"(?: and "[^"]+")*|must not write: \S.*'
+)
+NOTE_SCOPE_EFFECT_FORM = r'none|may write: \S.*|may write "[^"]+"(?: and "[^"]+")*'
+
+
+def scope_effect_form_ok(value, form=SCOPE_EFFECT_FORM):
+    """Whether a `scope effect:` value is one of the forms the templates describe, each optionally followed by ` \u2014 <note>`."""
+    return re.fullmatch(form, value.rstrip().split(' \u2014 ')[0]) is not None
+
+
+def scope_effect_paths(value):
+    """(may, mustnot): the paths one `scope effect:` header value names. The paths come before a note (` \u2014 <note>`), which may quote words of
+    its own: quoted or not is decided by what precedes it. A line with a quote and no quoted string adds nothing."""
+    line = value.split(' \u2014 ')[0]
+    found = {'may write': [], 'must not write': []}
+    for head, paths in found.items():
+        if not line.startswith(head):
+            continue
+        if '"' in line:
+            quoted = re.findall(r'"[^"]*"', line)
+            paths.extend(q.replace('"', '').replace('`', '') for q in quoted)
+        else:
+            rest = line[len(head) :]
+            rest = rest[1:] if rest.startswith(':') else rest
+            rest = rest[1:] if rest.startswith(' ') else rest
+            rest = rest.split(' ')[0].replace('`', '')
+            if rest:
+                paths.append(rest)
+    return found['may write'], found['must not write']
+
+
 def live_steer_effects(store, seq):
     """(may, mustnot): the paths a unit's live steers allow beyond its brief (`scope effect: may write ...`) and forbid (`must not write ...`), in
     steer order. A steer is live when it is not a withdraw and no later steer withdraws it by `supersedes:`. A line with a quote and no quoted
@@ -244,27 +276,30 @@ def live_steer_effects(store, seq):
             continue
         if f' {os.path.basename(f)} ' in withdrawn:
             continue
-        # the paths come before a note (` \u2014 <note>`), which may quote words of its own: quoted or not is decided by what precedes it
-        line = header_field(f, 'scope effect').split(' \u2014 ')[0]
-        for head, paths in found.items():
-            if not line.startswith(head):
-                continue
-            if '"' in line:
-                quoted = re.findall(r'"[^"]*"', line)
-                paths.extend(q.replace('"', '').replace('`', '') for q in quoted)
-            else:
-                rest = line[len(head) :]
-                rest = rest[1:] if rest.startswith(':') else rest
-                rest = rest[1:] if rest.startswith(' ') else rest
-                rest = rest.split(' ')[0].replace('`', '')
-                if rest:
-                    paths.append(rest)
+        may, mustnot = scope_effect_paths(header_field(f, 'scope effect'))
+        found['may write'] += may
+        found['must not write'] += mustnot
     return found['may write'], found['must not write']
 
 
 def steer_scope_entries(store, seq):
     """The paths a unit's live steers allow beyond its brief."""
     return live_steer_effects(store, seq)[0]
+
+
+def note_scope_entries(store, seq):
+    """The paths a unit's published notes allow beyond its brief (`scope effect: may write ...`); a `.md.draft` is not published."""
+    paths = []
+    for f in sorted(
+        glob.glob(
+            os.path.join(
+                glob.escape(store), 'notes', glob.escape(seq) + '-*-n[0-9]*.md'
+            )
+        )
+    ):
+        if os.path.isfile(f):
+            paths += scope_effect_paths(header_field(f, 'scope effect'))[0]
+    return paths
 
 
 def scope_match(pattern, path):
@@ -393,7 +428,11 @@ def touched_section(store, brief, seq, cwd, head, since=None):
     lines += [f'  {f}\n' for f in touched[:30]]
     may = [
         re.sub(r'/$', '/*', p)
-        for p in [*scope_entries(brief, 'may'), *steer_scope_entries(store, seq)]
+        for p in [
+            *scope_entries(brief, 'may'),
+            *steer_scope_entries(store, seq),
+            *note_scope_entries(store, seq),
+        ]
     ]
     outside = [
         f
