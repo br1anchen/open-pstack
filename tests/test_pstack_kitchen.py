@@ -11778,7 +11778,7 @@ esac
 
     def test_a_landing_fix_covers_each_unit_it_lists(self):
         self.fix_world(('001', '002'))
-        rejected = self.verdict_file('landing-v1', 'reject', 'landing')
+        rejected = self.verdict_file('landing-v1', 'reject', 'landing (001 002)')
         fix = self.revise_fix(rejected)
         text = fix.read_text()
         self.assertIn(f'- unit brief: {self.store}/briefs/001-util.md', text)
@@ -12997,7 +12997,9 @@ esac
         )
         return verdict
 
-    def test_a_rejected_landing_verdict_drafts_one_fix_over_the_units_scopes(self):
+    def test_a_rejected_landing_verdict_drafts_one_fix_over_the_named_units_scopes(
+        self,
+    ):
         self.brief('001', 'util', ['src/**'])
         self.brief('002', 'guide', ['docs/**'])
         verdict = self.rejected('landing-v3', 'landing (001 002)')
@@ -13008,11 +13010,108 @@ esac
         self.assertIn(f'`kitchen.sh verify {self.store} --landing`', text)
         self.assertIn('plan: none\n', text)
         self.assertIn('unit brief: ' + str(self.store / 'briefs/002-guide.md'), text)
-        verdict = self.rejected('landing-v4', 'landing')
-        text = Path(
+
+    def landing_stack_of_three(self):
+        """Units 001 to 003 each commit one file; returns the head of 001 and of 003, so base..head holds 002 and 003 only."""
+        heads = []
+        for n, slug in ((1, 'one'), (2, 'two'), (3, 'three')):
+            b = self.brief(
+                f'00{n}',
+                slug,
+                [f'src/mod{n}.py'],
+                acceptance=[f'- unit {n} acceptance'],
+            )
+            self.dispatch(b)
+            self.write(f'src/mod{n}.py', f'X = {n}\n')
+            heads.append(self.commit(slug))
+            self.done(b, heads[-1])
+        return heads[0], heads[2]
+
+    def rejected_landing(self, name, base, head, findings):
+        verdict = self.store / f'verdicts/{name}.md'
+        verdict.parent.mkdir(exist_ok=True)
+        verdict.write_text(
+            f'# Verdict\n\nstatus: reject\nunits: landing\nrange: {base[:9]}..{head[:9]}\n\n## Findings\n\n{findings}\n\n## Evidence\n\n```\n$ true\n```\n'
+        )
+        return verdict
+
+    def landing_fix_text(self, verdict):
+        return Path(
             self.run_sh('revise', str(self.store), str(verdict)).strip()
         ).read_text()
-        self.assertIn('- src/** — scope\n- docs/** — scope\n', text)
+
+    def test_a_landing_fix_covers_the_units_in_the_verdicts_range_and_no_others(self):
+        base, head = self.landing_stack_of_three()
+        verdict = self.rejected_landing('landing-v1', base, head, '1. flaky')
+        text = self.landing_fix_text(verdict)
+        self.assertIn('unit brief: ' + str(self.store / 'briefs/002-two.md'), text)
+        self.assertIn('unit brief: ' + str(self.store / 'briefs/003-three.md'), text)
+        self.assertNotIn('001-one.md', text)
+        self.assertIn('- src/mod2.py — scope', text)
+        self.assertIn('- src/mod3.py — scope', text)
+        self.assertNotIn('src/mod1.py', text)
+
+    def test_a_landing_fix_whose_range_holds_no_unit_still_names_the_verdict(self):
+        base, head = self.landing_stack_of_three()
+        verdict = self.rejected_landing('landing-v1', head, head, '1. flaky')
+        text = self.landing_fix_text(verdict)
+        self.assertIn(f'- verdict: {verdict}', text)
+        self.assertNotIn('unit brief:', text)
+
+    def test_a_landing_fix_leaves_out_a_forbidden_path_another_unit_may_write(self):
+        base, head = self.landing_stack_of_three()
+        for seq, slug, _may, forbidden in (
+            ('002', 'two', 'src/mod2.py', ['- src/mod3.py', '- src/other/**']),
+            ('003', 'three', 'src/mod3.py', ['- src/mod9.py']),
+        ):
+            brief = self.store / f'briefs/{seq}-{slug}.md'
+            text = brief.read_text()
+            brief.write_text(
+                text.replace(
+                    'must not write:\n- x',
+                    'must not write:\n' + '\n'.join(forbidden),
+                )
+            )
+        text = self.landing_fix_text(
+            self.rejected_landing('landing-v1', base, head, '1. flaky')
+        )
+        scope = text.split('## Scope', 1)[1].split('\n## ', 1)[0]
+        forbidden = scope.split('must not write:', 1)[1]
+        self.assertNotIn('src/mod3.py', forbidden)
+        self.assertIn('- src/other/**', forbidden)
+        self.assertIn('- src/mod9.py', forbidden)
+
+    def test_a_landing_fix_acceptance_is_one_line_per_finding_and_one_still_holds(
+        self,
+    ):
+        base, head = self.landing_stack_of_three()
+        verdict = self.rejected_landing(
+            'landing-v1',
+            base,
+            head,
+            '1. The first thing broke. It broke twice.\n2. The second thing broke.',
+        )
+        text = self.landing_fix_text(verdict)
+        accept = text.split('## Acceptance\n', 1)[1].split('\n## ', 1)[0].strip()
+        self.assertEqual(
+            accept.splitlines(),
+            [
+                f'- Finding 1 of {verdict} no longer holds: The first thing broke.',
+                f'- Finding 2 of {verdict} no longer holds: The second thing broke.',
+                '- Every Acceptance line of the unit briefs in Context still holds at the new head.',
+            ],
+        )
+
+    def test_dispatch_refuses_a_landing_fix_until_its_verify_is_filled(self):
+        base, head = self.landing_stack_of_three()
+        fix = Path(
+            self.run_sh(
+                'revise',
+                str(self.store),
+                str(self.rejected_landing('landing-v1', base, head, '1. flaky')),
+            ).strip()
+        )
+        self.assertIn('unfilled placeholders', self.dispatch(fix, code=1))
 
     FENCED_NOTES = (
         '## Notes\n\n````md\n## Acceptance\n\n- FAKE acceptance\n\n'

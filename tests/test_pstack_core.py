@@ -5602,7 +5602,7 @@ class CoreTests(unittest.TestCase):
         ):
             self.assertEqual(landing.verified_fix('/st', '001', covers), '004')
 
-    def test_a_fix_brief_takes_the_last_briefs_sections_or_the_union_of_every_units_for_a_landing_verdict(
+    def test_a_fix_brief_takes_the_last_briefs_sections_or_the_units_scopes_and_the_findings_for_a_landing_verdict(
         self,
     ):
         sys.path.insert(0, str(root / 'skills/pstack-kitchen/scripts'))
@@ -5626,8 +5626,10 @@ class CoreTests(unittest.TestCase):
             (unit['Scope'], unit['Verify']),
             ('\nmay write:\n- src/a.py\n- docs/**\n\n', '\ntrue 2\n\n'),
         )
+        verdict = self.path / 'v.md'
+        verdict.write_text('## Findings\n\n1. It broke. Twice.\n\n## Evidence\n')
         whole = landing.fix_brief_fills(
-            'v.md',
+            str(verdict),
             '/st',
             ['/st/briefs/001-a.md', '/st/briefs/002-b.md'],
             [first, last],
@@ -5635,7 +5637,7 @@ class CoreTests(unittest.TestCase):
         )
         self.assertEqual(
             whole['Context'],
-            '\n- verdict: v.md\n- unit brief: /st/briefs/001-a.md\n- unit brief: /st/briefs/002-b.md\n\n',
+            f'\n- verdict: {verdict}\n- unit brief: /st/briefs/001-a.md\n- unit brief: /st/briefs/002-b.md\n\n',
         )
         self.assertEqual(
             whole['Scope'],
@@ -5643,7 +5645,10 @@ class CoreTests(unittest.TestCase):
         )
         self.assertEqual(
             (whole['Acceptance'], whole['Verify']),
-            ('\n- a works\n- b works\n\n', '\ntrue 1\n\ntrue 2\n\n'),
+            (
+                f'\n- Finding 1 of {verdict} no longer holds: It broke.\n- Every Acceptance line of the unit briefs in Context still holds at the new head.\n\n',
+                landing.LANDING_VERIFY,
+            ),
         )
         self.assertEqual(whole['Steps'], unit['Steps'])
 
@@ -10581,7 +10586,7 @@ class CoreTests(unittest.TestCase):
             'a rejected landing verdict names the union of the Scopes': with_verdict(
                 'landing 001 002', 'verdicts/landing-v1.md'
             ),
-            'a rejected landing verdict that names no unit takes every unit brief': with_verdict(
+            'a rejected landing verdict that names no unit and has no range drafts a brief over none': with_verdict(
                 'landing', 'verdicts/landing-v1.md'
             ),
             'a landing verdict skips landing briefs': dict(
@@ -10622,7 +10627,7 @@ class CoreTests(unittest.TestCase):
                 files={'verdicts/landing-v1.md': rejected('landing')},
                 pair={'slug': 'demo'},
             ),
-            'a landing verdict over a store with no unit briefs to fix': dict(
+            'a landing verdict over a store with no unit briefs to fix still drafts a brief': dict(
                 args=['revise', '{st}', '{st}/verdicts/landing-v1.md'],
                 files={
                     'verdicts/landing-v1.md': rejected('landing'),
@@ -10649,7 +10654,7 @@ class CoreTests(unittest.TestCase):
                 0,
                 '/st/briefs/003-landing-fix.md',
             ),
-            'a rejected landing verdict that names no unit takes every unit brief': (
+            'a rejected landing verdict that names no unit and has no range drafts a brief over none': (
                 0,
                 '/st/briefs/003-landing-fix.md',
             ),
@@ -10680,9 +10685,9 @@ class CoreTests(unittest.TestCase):
                 0,
                 '/st/briefs/003-landing-fix.md',
             ),
-            'a landing verdict over a store with no unit briefs to fix': (
-                1,
-                'pair.sh: no unit briefs to fix in',
+            'a landing verdict over a store with no unit briefs to fix still drafts a brief': (
+                0,
+                '/st/briefs/003-landing-fix.md',
             ),
             'a heads that is a string': (0, '/st/briefs/003-x-fix.md'),
             'a dispatch that is a string': (0, '/st/briefs/003-x-fix.md'),
@@ -10711,8 +10716,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(landing.count('- src/a.py'), 1)
         self.assertIn('- docs/**', landing)
         self.assertIn('- tests/**', landing)
-        self.assertIn('true 1', landing)
-        self.assertIn('true 2', landing)
+        self.assertNotIn('true 1', landing)
 
     def kitchen_py(self, store, code, env=None, cwd=None, pid=None, prog='pair.sh'):
         """Python run in a fresh interpreter with kitchen_core.verify_state loaded as `vs` and a context `ctx`: (status, stdout, stderr). pid, when

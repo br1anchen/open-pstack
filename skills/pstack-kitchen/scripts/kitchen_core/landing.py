@@ -2,6 +2,7 @@
 
 A failing read inside land-check is an empty answer and the check goes on."""
 
+import fnmatch
 import functools
 import glob
 import os
@@ -601,6 +602,10 @@ def union(lines):
     return list(dict.fromkeys(lines))
 
 
+def entry_path(entry):
+    return entry[2:].split(' — ', 1)[0].strip()
+
+
 def scope(texts):
     may, mustnot = [], []
     for t in texts:
@@ -612,11 +617,18 @@ def scope(texts):
                 cur = mustnot
             elif cur is not None and line.startswith('- '):
                 cur.append(line)
+    may = union(may)
+    paths = [entry_path(m) for m in may]
+    mustnot = [
+        m
+        for m in union(mustnot)
+        if not any(fnmatch.fnmatchcase(p, entry_path(m)) for p in paths)
+    ]
     return (
         '\nmay write:\n'
-        + '\n'.join(union(may))
+        + '\n'.join(may)
         + '\n\nmust not write:\n'
-        + '\n'.join(union(mustnot) or ['- none'])
+        + '\n'.join(mustnot or ['- none'])
         + '\n\n'
     )
 
@@ -628,23 +640,47 @@ def lines(texts, name):
     return '\n' + '\n'.join(body) + '\n\n'
 
 
+def finding_lines(verdict):
+    """One Acceptance line per numbered finding in the verdict's Findings, each with the finding's first sentence."""
+    found = []
+    for line in section(read_text(verdict), 'Findings').splitlines():
+        m = re.match(r'\s*(\d+)\.\s+(.*\S)', line)
+        if m:
+            first = re.match(r'.*?[.!?](?=\s|$)', m[2])
+            found.append(
+                f'- Finding {m[1]} of {verdict} no longer holds: {first[0] if first else m[2]}'
+            )
+    return found
+
+
+LANDING_VERIFY = '\n{{name the targeted check for each finding of the verdict, one command per line}}\n\n'
+
+
 def fix_brief_fills(verdict, store, briefs, olds, landing):
-    """The section bodies of a fix brief by section name: for a landing verdict every unit's Scope, Acceptance, Verify and Forbidden merged, for a
-    unit's own verdict the last brief's sections as they stand."""
+    """The section bodies of a fix brief by section name: for a landing verdict the units' Scope and Forbidden merged, one Acceptance line per
+    finding, and a Verify left for the master; for a unit's own verdict the last brief's sections as they stand."""
     steps = '\n1. One commit per finding in the verdict: the change, and the check that shows the finding is gone.\n\n'
     if landing:
-        return {
+        fills = {
             'Goal': f'\nFix every finding in the landing verdict {verdict}, so a fresh `kitchen.sh verify {store} --landing` of the stack passes.\n\n',
             'Steps': steps,
             'Context': f'\n- verdict: {verdict}\n'
             + ''.join(f'- unit brief: {b}\n' for b in briefs)
             + '\n',
-            'Scope': scope(olds),
-            'Acceptance': lines(olds, 'Acceptance'),
-            'Forbidden': lines(olds, 'Forbidden'),
-            'Verify': '\n'
-            + ''.join(section(t, 'Verify').strip('\n') + '\n\n' for t in olds),
+            'Acceptance': '\n'
+            + '\n'.join(
+                [
+                    *finding_lines(verdict),
+                    '- Every Acceptance line of the unit briefs in Context still holds at the new head.',
+                ]
+            )
+            + '\n\n',
+            'Verify': LANDING_VERIFY,
         }
+        if olds:
+            fills['Scope'] = scope(olds)
+            fills['Forbidden'] = lines(olds, 'Forbidden')
+        return fills
     fills = {
         'Goal': f"\nFix every finding in the verifier's verdict {verdict}, so a fresh verification of the same acceptance passes.\n\n",
         'Steps': steps,
@@ -656,8 +692,8 @@ def fix_brief_fills(verdict, store, briefs, olds, landing):
 
 
 def revise(ctx, args):
-    """The fix brief for a rejected verdict: a unit's own, or for a landing verdict one that carries every unit's Scope, Acceptance, Verify and
-    Forbidden."""
+    """The fix brief for a rejected verdict: a unit's own, or for a landing verdict one over the units its `units:` header lists, else the unit
+    briefs its `range:` holds. It carries their Scope and Forbidden, an Acceptance line per finding and a Verify for the master to fill."""
     if len(args) != 2:
         raise Die('usage: kitchen.sh revise <store> <verdict-path>')
     store, verdict = args[0], os.path.abspath(args[1])
@@ -673,15 +709,18 @@ def revise(ctx, args):
     if landing:
         briefs = [unit_brief(store, u) for u in re.findall(r'[0-9]{3}', units)]
         if not briefs:
-            briefs = [
-                b
-                for b in sorted(
-                    glob.glob(f'{glob.escape(store)}/briefs/[0-9][0-9][0-9]-*.md')
+            from .verify_packet import (
+                landing_covered_briefs,
+            )  # verify_packet imports this module
+
+            base, head = (
+                commit_of(repo_root(store), ref)
+                for ref in Verdict.parse(verdict).refs()
+            )
+            if head:
+                briefs = landing_covered_briefs(
+                    store, repo_root(store), base or '', head
                 )
-                if os.path.isfile(b) and not is_landing(b)
-            ]
-        if not briefs:
-            raise Die(f'no unit briefs to fix in {store}/briefs')
         slug = 'landing-fix'
     else:
         numbers = re.findall(r'[0-9]{3}', units)
@@ -696,9 +735,9 @@ def revise(ctx, args):
         slug = re.sub(r'-fix[0-9]*$', '', name[4:]) + '-fix'
     path = new_from_template(ctx, store, slug, 'briefs', 'brief-template.md')
     olds, new = [open(b).read() for b in briefs], open(path).read()
-    last = olds[-1]
+    last = olds[-1] if olds else ''
     new = re.sub(r'^playbook: .*$', 'playbook: review-fix', new, count=1, flags=re.M)
-    for key in ('timebox', 'commit'):
+    for key in ('timebox', 'commit') if olds else ():
         new = re.sub(
             rf'^{key}: .*$', f'{key}: {header(last, key)}', new, count=1, flags=re.M
         )
