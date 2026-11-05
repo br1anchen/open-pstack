@@ -763,6 +763,8 @@ $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: working
 steps: 1 to review on 012-qsteps
   3 <SHA> fixup: board consumer
+    <SHA> stray
+    <SHA> fix n1
 range: <SHA>..<SHA>
 next: review the range, then pair.sh new-note <T>/state/pstack/trio/demo 012
 [exit 0]
