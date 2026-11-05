@@ -26,7 +26,7 @@ def kitchen(py, repo, config, *args):
             *args,
         ],
         stdin=subprocess.DEVNULL,
-        # the job's lock, inherited from the command that started this worker, stays held while any check runs, even one that outlives this process
+        # the job's lock, inherited from the command that started this worker, stays held while a kitchen.py child runs, even one that outlives it
         close_fds=False,
     ).returncode
     # the same mapping as pstack_core.numbers.exit_code; this file runs standalone under -I and imports nothing from it
