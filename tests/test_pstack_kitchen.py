@@ -12280,10 +12280,28 @@ esac
         )
         out = self.run_sh('land-check', str(self.store), code=2)
         self.assertIn(
-            f"covered: unit 002 (its head's tree is {tip[:9]}'s, rewritten) by the clean landing verdict {landing}",
+            f"covered: unit 002 (its head's tree is the landing head {tip[:9]}'s, rewritten) by the clean landing verdict {landing}",
             out,
         )
         self.assertIn('unverified: unit 001', out)
+
+    def test_a_unit_whose_tree_only_an_earlier_commit_of_the_landing_range_has_stays_unverified(
+        self,
+    ):
+        init, heads = self.two_unit_stack()
+        self.git('checkout', '-q', '-b', 'squashed', init)
+        self.git('cherry-pick', '-n', *heads)
+        self.commit('the stack squashed in place')
+        self.git('rm', '-q', 'src/mod2.py')
+        tip = self.commit('unit 002 reverted')
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        landing.write_text(
+            f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{tip[:9]}\n\n## Evidence\n\n```\n$ true\n```\n'
+        )
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertNotIn('covered: unit 002', out)
+        self.assertIn('unverified: unit 002', out)
 
     def landing_verdict_then_merged(self, squash):
         init, heads = self.two_unit_stack()

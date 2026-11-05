@@ -401,23 +401,6 @@ def commit_tree(root, rev):
     ).stdout.rstrip('\n')
 
 
-def same_tree_in(root, tree, base, head):
-    """The newest commit of base..head (head alone without a base) whose tree is `tree`, or ''. A history rewritten after the unit (a squash, a
-    dropped pair of commits) leaves the unit's tree in the landing range under a sha it does not know."""
-    listed = git.run(
-        root,
-        'log',
-        '--format=%H %T',
-        f'{base}..{head}' if base else '-1',
-        *([] if base else [head]),
-    ).stdout
-    for line in listed.split('\n'):
-        sha, _, found = line.partition(' ')
-        if found and found == tree:
-            return sha
-    return ''
-
-
 def landing_range_covering(store, seq, brief, ranges, landing_verdict, say):
     """The path of the first clean landing verdict whose range holds the unit, or '' with the note for a unit the newest one does not match."""
     unit = RecordedUnit(store, brief)
@@ -435,12 +418,13 @@ def landing_range_covering(store, seq, brief, ranges, landing_verdict, say):
             else:
                 say(f'covered: unit {seq} by the clean landing verdict {held.path}\n')
             return held.path
+    # A history rewritten after the unit (a squash, a dropped pair of commits) leaves its tree under a sha it does not know; only the range head's
+    # tree was verified, so only that one covers it.
     tree = commit_tree(unit.root, unit.head)
     for held in ranges:
-        same = tree and same_tree_in(unit.root, tree, held.base, held.head)
-        if same:
+        if tree and tree == commit_tree(unit.root, held.head):
             say(
-                f"covered: unit {seq} (its head's tree is {same[:9]}'s, rewritten) by the clean landing verdict {held.path}\n"
+                f"covered: unit {seq} (its head's tree is the landing head {held.head[:9]}'s, rewritten) by the clean landing verdict {held.path}\n"
             )
             return held.path
     if ranges[0].path == landing_verdict:
