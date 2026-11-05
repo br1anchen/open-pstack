@@ -4,7 +4,7 @@ A step is recorded only once the touched profiles' fast gates and the policy che
 Verify commands, rerun by the kitchen, exit 0. Both start their checks detached and return within KITCHEN_STEP_SLICE_S seconds (default 100); running the
 same command again waits on the same job. A detached run is worker.py started in a session of its own with its argv,
 PSTACK_KITCHEN_RUN, its working directory, standard input from /dev/null and its output in the job's log file; the Python parent never waits for it, and it
-writes the job's `rc` file when done; its pid is in the job's `pid` file, and a worker that ended with no rc is started once more. A step's job directory holds out.N (one log per run) and `out` (a link to the latest), rc, consumed, classify.json,
+writes the job's `rc` file when done; it holds the job's `lock` file locked while it runs, and a worker that ended with no rc is started once more. A step's job directory holds out.N (one log per run) and `out` (a link to the latest), rc, consumed, classify.json,
 profiles and base; finish's holds out, rc, consumed and logs/. Both hold `checkout`, HEAD and the tracked files changed as the checks ended: a result
 whose checkout moved under it proves nothing and is discarded.
 
@@ -12,6 +12,8 @@ kitchen.py is reached through kpy (its classify_change function, in process); wo
 outlives this process. None of the in-process calls writes os.environ (kitchen.py :745, :771, :1023, :1038 belong to `gate` and `brief-verify`, which only
 worker.py runs)."""
 
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -56,9 +58,6 @@ from .units import recorded_head
 from .wait import poll_sleep
 
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'worker.py')
-# The workers this process started, by job directory: one that dies while this process waits is a zombie until polled, and a signal-0 probe of a
-# zombie succeeds, so a worker started here is asked through its Popen.
-STARTED = {}
 
 
 def verify_job(ctx, store, brief, head):
@@ -74,23 +73,32 @@ def ignore_interrupts():
 
 
 def detached(command, argv, log, store):
-    """worker.py COMMAND ARGV... with its output in log and PSTACK_KITCHEN_RUN set to the run's slug, in a session of its own, never waited for; its
-    pid goes in the `pid` file beside the log, so a later run can tell a worker that died from one still running."""
+    """worker.py COMMAND ARGV... with its output in log and PSTACK_KITCHEN_RUN set to the run's slug, in a session of its own, never waited for. It
+    starts holding the `lock` file beside the log, locked here and handed down, and passes it to the checks it runs, so a later run can tell a worker
+    that died from one still running; its pid goes in the `pid` file for whoever reads the job."""
+    job = os.path.dirname(log)
     env = {**os.environ, 'PSTACK_KITCHEN_RUN': read(store, 'slug')}
     sys.stdout.flush()
     sys.stderr.flush()
-    with open(log, 'w', encoding='utf-8') as out:
-        worker = subprocess.Popen(
-            [sys.executable, '-I', WORKER, command, *argv],
-            stdin=subprocess.DEVNULL,
-            stdout=out,
-            stderr=subprocess.STDOUT,
-            env=env,
-            start_new_session=True,
-            preexec_fn=ignore_interrupts,
-        )
-    STARTED[os.path.dirname(log)] = worker
-    with open(f'{os.path.dirname(log)}/pid', 'w') as f:
+    lock = os.open(f'{job}/lock', os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        # a worker of this job's previous run that has not quite exited still holds it; the new one shares the lock from then on
+        with contextlib.suppress(BlockingIOError):
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with open(log, 'w', encoding='utf-8') as out:
+            worker = subprocess.Popen(
+                [sys.executable, '-I', WORKER, command, *argv],
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                env=env,
+                start_new_session=True,
+                preexec_fn=ignore_interrupts,
+                pass_fds=(lock,),
+            )
+    finally:
+        os.close(lock)
+    with open(f'{job}/pid', 'w') as f:
         f.write(f'{worker.pid}\n')
 
 
@@ -146,24 +154,19 @@ def queue_line(log):
 
 
 def worker_died(job):
-    """Whether the job's worker ended without writing rc (killed, or its host slept through a reboot): a job with no pid file is from an older build and
+    """Whether the job's worker ended without writing rc (killed, or its host restarted): the worker and the checks it runs hold the job's `lock`
+    file locked, and the system drops the lock when the last of them ends, whatever pid it had. A job with no lock file is from an older build and
     counts as alive."""
-    if job in STARTED:
-        return STARTED[job].poll() is not None and not os.path.isfile(f'{job}/rc')
-    pid = (
-        int_or_none(read_text(f'{job}/pid').strip())
-        if os.path.isfile(f'{job}/pid')
-        else None
-    )
-    if pid is None:
+    if not os.path.isfile(f'{job}/lock') or os.path.isfile(f'{job}/rc'):
         return False
+    fd = os.open(f'{job}/lock', os.O_RDWR)
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return not os.path.isfile(f'{job}/rc')
-    except OSError:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
         return False
-    return False
+    finally:
+        os.close(fd)
+    return not os.path.isfile(f'{job}/rc')
 
 
 def wait_for_rc(job):
@@ -543,7 +546,7 @@ def finish(ctx, args):
     while (state := wait_for_rc(job)) == 'died':
         # the rerun writes out afresh, so each dead run's log is kept beside it (out.died.N); a refusal leaves the last one in out
         log = f'{job}/out'
-        if not restarted and os.path.isfile(log):
+        if not restarted:
             log = f'{job}/out.died.{len([n for n in os.listdir(job) if n.startswith("out.died.")]) + 1}'
             os.replace(f'{job}/out', log)
         rerun_dead_worker(log, 'verify', restarted)
