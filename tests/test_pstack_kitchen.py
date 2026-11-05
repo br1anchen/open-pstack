@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -5565,6 +5566,47 @@ esac
         )
         self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
 
+    def kill_worker(self, job):
+        """Ends the job's detached worker and its children with no result written, and points its pid file at a process already reaped."""
+        os.killpg(int((job / 'pid').read_text()), signal.SIGKILL)
+        gone = subprocess.Popen(['true'])
+        gone.wait(timeout=60)
+        (job / 'pid').write_text(f'{gone.pid}\n')
+        self.assertFalse((job / 'rc').exists())
+
+    def test_a_step_whose_gate_worker_died_says_so_and_reruns_it(self):
+        self.write(
+            '.agents/kitchen.toml',
+            (self.repo / '.agents/kitchen.toml')
+            .read_text()
+            .replace(
+                'fast = ["test ! -e FAIL"]',
+                'fast = ["test -e GO || sleep 60"]',  # kitchen-allow: test-sleep (a gate that outlives its killed worker)
+            ),
+        )
+        self.commit('held gate')
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.write('src/util.py', 'X = 4\n')
+        self.write('tests/test_app.py', 'x = 4\n')
+        sha = self.commit('step')
+        self.env['KITCHEN_STEP_SLICE_S'] = '0'
+        self.assertIn(
+            'gates: still running',
+            self.run_sh('step', str(self.store), sha, 's', code=4),
+        )
+        job = next((self.store / 'steps/jobs').iterdir())
+        self.kill_worker(job)
+        (self.repo / 'GO').touch()
+        self.env['KITCHEN_STEP_SLICE_S'] = '30'
+        out = self.run_sh('step', str(self.store), sha, 's')
+        self.assertIn(
+            f'gates: the worker died without a result (log: {job}/out); rerunning\n',
+            out,
+        )
+        self.assertIn('gates: pass (app)', out)
+        self.assertEqual(sorted(p.name for p in job.glob('out.*')), ['out.1', 'out.2'])
+        self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
+
     def test_a_note_published_while_gates_run_refuses_the_rerun_and_the_resolving_rerun_reuses_the_job(
         self,
     ):
@@ -6278,6 +6320,33 @@ esac
             self.run_sh('finish', str(self.store), report),
         )
         self.assertEqual(Path(self.env['OUT']).read_text(), 'sidekick|demo')
+
+    def test_a_finish_whose_verify_worker_died_says_so_and_reruns_it(self):
+        b = self.brief('001', 'held', ['src/**', 'tests/**'])
+        self.verify_block(
+            b,
+            'test -e "$GO" || sleep 60',  # kitchen-allow: test-sleep (a Verify command that outlives its killed worker)
+        )
+        self.env['GO'] = str(Path(self.tmp.name) / 'go')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 5\n')
+        self.done(b, self.commit('held step'))
+        report = str(self.store / 'reports' / b.name)
+        self.env['KITCHEN_STEP_SLICE_S'] = '0'
+        self.assertIn(
+            'Verify commands are still running',
+            self.run_sh('finish', str(self.store), report, code=4),
+        )
+        job = next(p.parent for p in self.store.rglob('pid'))
+        self.kill_worker(job)
+        Path(self.env['GO']).touch()
+        self.env['KITCHEN_STEP_SLICE_S'] = '30'
+        out = self.run_sh('finish', str(self.store), report)
+        self.assertIn(
+            f'verify: the worker died without a result (log: {job}/out); rerunning\n',
+            out,
+        )
+        self.assertIn('verify: pass (1 commands from the brief)', out)
 
     def test_gates_mode_verifies_without_a_verifier(self):
         b = self.brief('001', 'docs', ['docs/**'])
