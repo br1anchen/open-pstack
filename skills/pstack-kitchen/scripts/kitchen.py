@@ -1661,7 +1661,9 @@ def overloaded() -> float | None:
 
 
 ALLOW = re.compile(r'kitchen-allow:\s*([a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)')
-TEST_TOUCH_WAIVER = re.compile(r'(?m)^\s*kitchen-allow:\s*test-touch\s+(\S.*?)\s*$')
+TEST_TOUCH_WAIVER = re.compile(
+    r'(?m)^[ \t]*kitchen-allow:[ \t]*test-touch[ \t]+(\S.*?)[ \t]*$'
+)
 
 
 def test_touch_waiver(root: Path, base: str, head: str) -> tuple[str, str] | None:

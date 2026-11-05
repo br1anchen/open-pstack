@@ -5585,7 +5585,9 @@ esac
     ):
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
         self.write('src/util.py', 'X = 4\n')
-        bare = self.commit('no test\n\nkitchen-allow: test-touch')
+        bare = self.commit(
+            'no test\n\nkitchen-allow: test-touch\nSigned-off-by: t <t@t>'
+        )
         out = self.run_sh('step', str(self.store), bare, 'no reason', code=2)
         self.assertIn('[test-touch] profile app requires tests', out)
         self.write('src/util.py', 'X = 5\n')
