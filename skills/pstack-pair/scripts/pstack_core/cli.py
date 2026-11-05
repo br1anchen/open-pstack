@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import shutil
 import sys
@@ -91,6 +92,13 @@ def parse(argv):
 COMMAND_WORD = re.compile(r'[a-z][a-z-]*')
 
 
+def absolute_store(args):
+    """args with a store given as a relative path (`.`, `../x`) made absolute against the cwd, once, before any command reads or records it."""
+    if args and os.path.isfile(os.path.join(args[0], 'pair.json')):
+        return [os.path.abspath(args[0]), *args[1:]]
+    return args
+
+
 def build(skill_root):
     """The variant of the skill at skill_root, and the Context its attributes give."""
     variant = load_variant_class(skill_root)()
@@ -135,7 +143,7 @@ def main(argv):
         if command is None:
             sys.stdout.write(variant.usage)
             raise Die(f'unknown command: {cmd}')
-        return command(ctx, words[1:])
+        return command(ctx, absolute_store(words[1:]))
     except Exception as e:
         text, code = translate(e, prog)
         sys.stderr.write(text)

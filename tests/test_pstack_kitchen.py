@@ -4375,7 +4375,7 @@ esac
             self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
             path = made.stdout.splitlines()[-1]
             self.assertTrue(os.path.isdir(path), spelling)
-            expect_dir = '.' if spelling == self.store.name else self.store.parent.name
+            expect_dir = self.store.parent.name
             self.assertTrue(
                 path.endswith(
                     f'/pstack/scratch/{expect_dir}-{self.store.name}/001-x-review'
@@ -9372,6 +9372,77 @@ esac
             'verify', str(self.store), '001', '--timeout', '60', '--every', '0'
         )
         return out, (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+
+    def run_in_store(self, *args, code=0, cwd=None):
+        """kitchen.sh run from the store itself (or cwd), the way a store named `.` is."""
+        result = subprocess.run(
+            [str(self.script), *args],
+            cwd=cwd or self.store,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        return result.stdout + result.stderr
+
+    def test_a_store_named_dot_records_absolute_paths_and_lists_relative_commands_for_the_verifier(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        text = b.read_text()
+        block = (
+            '```bash\n./tooling/x --flag\n'
+            "./tooling/nix-develop --command ./tooling/cargo-cached nextest run -E 'test(/^a::b::/)'\n"
+            f'cat {self.store}/standing-orders.md\n```'
+        )
+        b.write_text(text.replace('```bash\nx\n```', block))
+        self.run_in_store(
+            'dispatch', '.', 'briefs/001-util.md', '--timeout', '1', code=4
+        )
+        self.assertEqual(self.state()['dispatch']['brief'], str(b))
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        self.done(b, self.commit('util'))
+        self.run_in_store('verify', '.', '001', '--timeout', '60', '--every', '0')
+        packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        shown, _, apart = packet.partition('not for the verifier:')
+        self.assertIn('\n./tooling/x --flag\n', shown)
+        self.assertIn("-E 'test(/^a::b::/)'", shown)
+        self.assertIn(
+            f'(absolute path)\n```bash\ncat {self.store}/standing-orders.md\n```',
+            apart,
+        )
+        self.assertNotIn('tooling', apart)
+        self.assertIn(f'\nverdict: {self.store}/verdicts/001-util-v1.md\n', packet)
+        self.assertIn(f'\nbrief: {self.store}/briefs/001-util.md\n', packet)
+        self.run_in_store('status', str(self.store), cwd=self.repo)
+
+    def test_rotate_master_with_a_store_named_dot_hands_the_absolute_store_on(self):
+        self.filled_handoff()
+        self.run_in_store('rotate-master', '.')
+        text = (self.store / 'sessions/master-1-handoff.md').read_text()
+        self.assertIn(f'store: {self.store}\n', text)
+        self.assertNotIn('store: .\n', text)
+        self.assertIn(
+            f'pstack-kitchen MASTER {self.store}',
+            (self.fake / 'master-bootstrap').read_text(),
+        )
+
+    def test_finish_with_a_store_named_dot_and_a_relative_report_reruns_verify_and_sends_the_report(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], verify=['true'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 6\n')
+        self.write('tests/test_app.py', 'x = 6\n')
+        head = self.commit('util')
+        report = self.store / 'reports' / b.name
+        report.write_text(f'# Report\n\nstatus: done\nhead: {head}\n')
+        out = self.run_in_store('finish', '.', f'reports/{b.name}')
+        self.assertNotIn('FileNotFoundError', out)
+        self.assertIn('REPORT', out)
 
     def test_a_verify_block_the_kitchen_refuses_is_warned_of_and_said_so_in_the_packet(
         self,

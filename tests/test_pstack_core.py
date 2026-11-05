@@ -13050,11 +13050,11 @@ class CoreTests(unittest.TestCase):
             ),
             'a store given with a trailing slash, answered': (
                 0,
-                'consultant_response: <T>/st//advice/001-x.md',
+                'consultant_response: <T>/st/advice/001-x.md',
             ),
             'a store given with a trailing slash, answered by a hook': (
                 0,
-                'consultant_response: <T>/st//advice/001-x.md',
+                'consultant_response: <T>/st/advice/001-x.md',
             ),
             'a risk word followed by a no-break space': (
                 2,
