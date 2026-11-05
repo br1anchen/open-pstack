@@ -55,7 +55,7 @@ which skills build a run's commands came from. Every command runs in Python, in 
    kind = "devin"
    [consultant]
    kind = "codex"
-   [consultant.fallback] # optional: started when the consultant's preflight fails
+   [consultant.fallback] # optional: started when the consultant's preflight or start fails
    kind = "claude"
    args = ["--model", "claude-fable-5-1"]
    [verifier]            # routine units; default: the run's current sidekick

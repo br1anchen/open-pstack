@@ -24,6 +24,7 @@ from .panes import (
     agent_status,
     await_file,
     new_pane,
+    pane_tail,
     refuse_untrusted,
     require_mux,
 )
@@ -192,8 +193,10 @@ def start_agent(store, role, name, request, args, cwd):
                 prime_start_failed = True
             else:
                 refuse_untrusted(pane, kind, cwd, True)
+                stderr_of(pane_tail(pane))
                 raise AgentStartFailed(
-                    f'agent start failed in {pane}; inspect: {mux.get().inspect_pane(pane)}'
+                    f'agent start failed in {pane}; inspect: {mux.get().inspect_pane(pane)}',
+                    pane,
                 )
     return pane, prime_start_failed
 
@@ -286,6 +289,8 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
     stderr_of(
         f'{role} settled but {ready} is missing; state={agent_status(name)}. Read the pane before prompting again.\n'
     )
+    # A startup dialog (a hook to review, a trust prompt) is the other cause, and it shows only in the pane: the human approves it there.
+    stderr_of(pane_tail(pane))
     # A provider stop (a rate limit) is the usual cause, and it shows only in the pane or the agent's session log.
     if role == 'sidekick':
         stderr_of(provider_hint(store, 'bootstrap'))

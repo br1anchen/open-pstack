@@ -40,8 +40,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      Acceptance a script or command can check. The sidekick may run a cheaper
      model; a decision you leave open is one it may get wrong.
    - **Escalated:** start the consultant with
-     `kitchen.sh consultant <store> --reason "<the first escalate line>"`,
-     then a plan round as in the trio: `kitchen.sh new-plan`, set
+     `kitchen.sh consultant <store> --reason "<the first escalate line>"`
+     (a kind that fails its preflight or start fails over to the roster's
+     `[consultant.fallback]`; `--kind K` takes the roster entry of kind K's
+     arguments; a consultant with no ready file prints its pane, where a
+     startup dialog waits for the human), then a plan round as in the trio: `kitchen.sh new-plan`, set
      `risk: escalated`, `kitchen.sh discuss`. A plan carries `contract: 2`
      in its header and a `playbook: <name>` line (and optionally `with: <id>`)
      under each Steps block; `discuss` refuses a block without a mapped

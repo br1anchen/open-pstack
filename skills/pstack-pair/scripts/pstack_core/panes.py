@@ -77,6 +77,16 @@ def refuse_untrusted(pane, kind, directory, close=False, then=None):
     )
 
 
+def pane_tail(pane, lines=20):
+    """The pane's last lines, indented under `pane P shows:`, for a message about an agent that did not start or answer: a dialog (a hook to
+    approve, a config error) shows only there. '' when the multiplexer shows nothing."""
+    code, text = mux.get().pane_screen(pane, lines)
+    text = text.rstrip()
+    if code != 0 or not text:
+        return ''
+    return f'pane {pane} shows:\n' + ''.join(f'  {l}\n' for l in text.split('\n'))
+
+
 def await_file(path, timeout_ms):
     """Poll for a file every PAIR_FILE_POLL_MS (5000 by default) until it exists or timeout_ms of polling has passed."""
     if not mux.get().waits:
