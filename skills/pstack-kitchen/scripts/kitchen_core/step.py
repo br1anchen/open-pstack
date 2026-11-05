@@ -4,7 +4,7 @@ A step is recorded only once the touched profiles' fast gates and the policy che
 Verify commands, rerun by the kitchen, exit 0. Both start their checks detached and return within KITCHEN_STEP_SLICE_S seconds (default 100); running the
 same command again waits on the same job. A detached run is worker.py started in a session of its own with its argv,
 PSTACK_KITCHEN_RUN, its working directory, standard input from /dev/null and its output in the job's log file; the Python parent never waits for it, and it
-writes the job's `rc` file when done. A step's job directory holds out.N (one log per run) and `out` (a link to the latest), rc, consumed, classify.json,
+writes the job's `rc` file when done; its pid is in the job's `pid` file, and a worker that ended with no rc is started once more. A step's job directory holds out.N (one log per run) and `out` (a link to the latest), rc, consumed, classify.json,
 profiles and base; finish's holds out, rc, consumed and logs/. Both hold `checkout`, HEAD and the tracked files changed as the checks ended: a result
 whose checkout moved under it proves nothing and is discarded.
 
@@ -71,12 +71,13 @@ def ignore_interrupts():
 
 
 def detached(command, argv, log, store):
-    """worker.py COMMAND ARGV... with its output in log and PSTACK_KITCHEN_RUN set to the run's slug, in a session of its own, never waited for."""
+    """worker.py COMMAND ARGV... with its output in log and PSTACK_KITCHEN_RUN set to the run's slug, in a session of its own, never waited for; its
+    pid goes in the `pid` file beside the log, so a later run can tell a worker that died from one still running."""
     env = {**os.environ, 'PSTACK_KITCHEN_RUN': read(store, 'slug')}
     sys.stdout.flush()
     sys.stderr.flush()
     with open(log, 'w', encoding='utf-8') as out:
-        subprocess.Popen(
+        worker = subprocess.Popen(
             [sys.executable, '-I', WORKER, command, *argv],
             stdin=subprocess.DEVNULL,
             stdout=out,
@@ -85,6 +86,8 @@ def detached(command, argv, log, store):
             start_new_session=True,
             preexec_fn=ignore_interrupts,
         )
+    with open(f'{os.path.dirname(log)}/pid', 'w') as f:
+        f.write(f'{worker.pid}\n')
 
 
 def slice_deadline():
@@ -138,14 +141,46 @@ def queue_line(log):
     return ''
 
 
+def worker_died(job):
+    """Whether the job's worker ended without writing rc (killed, or its host slept through a reboot): a job with no pid file is from an older build and
+    counts as alive."""
+    pid = (
+        int_or_none(read_text(f'{job}/pid').strip())
+        if os.path.isfile(f'{job}/pid')
+        else None
+    )
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return not os.path.isfile(f'{job}/rc')
+    except OSError:
+        return False
+    return False
+
+
 def wait_for_rc(job):
-    """Waits for the job's rc file for up to a slice: whether it is there."""
+    """Waits for the job's rc file for up to a slice: `done` when it is there, `died` when the worker ended without it, else `running`."""
     deadline = slice_deadline()
     while not os.path.isfile(f'{job}/rc'):
+        if worker_died(job):
+            return 'died'
         if past(deadline):
-            return False
+            return 'running'
         poll_sleep(env_float('KITCHEN_STEP_POLL_S', 2))
-    return True
+    return 'done'
+
+
+def rerun_dead_worker(job, what, restarted):
+    """What a run says of a worker that died without a result: it starts it once more, and refuses when the rerun died too."""
+    if restarted:
+        raise StepRefused(
+            f'the {what} worker died again without a result (log: {job}/out); read the log, then run the same command again'
+        )
+    sys.stdout.write(
+        f'{what}: the worker died without a result (log: {job}/out); rerunning\n'
+    )
 
 
 def check_checkout(root, sha, full):
@@ -200,6 +235,7 @@ def start_gates(ctx, store, root, brief, job, base, full):
         'classify.json',
         'profiles',
         'base',
+        'pid',
     ):
         remove_path(f'{job}/{leftover}')
     os.makedirs(job, exist_ok=True)
@@ -368,7 +404,13 @@ def step(ctx, args):
     base = step_base(store, root, unit, log, sha, full)
     job = f'{store}/steps/jobs/{unit}-{full[:12]}'
     start_gates(ctx, store, root, brief, job, base, full)
-    if not wait_for_rc(job):
+    restarted = False
+    while (state := wait_for_rc(job)) == 'died':
+        rerun_dead_worker(job, 'gates', restarted)
+        restarted = True
+        open(f'{job}/consumed', 'w').close()
+        start_gates(ctx, store, root, brief, job, base, full)
+    if state == 'running':
         gates_running(store, sha, summary, full, job)
         raise Exit(4)
     discard_moved_gates(ctx, sha, full, job)
@@ -479,17 +521,25 @@ def finish(ctx, args):
         and os.path.isfile(f'{job}/consumed')
     ):
         remove_path(job)
+    cfg = brief_kitchen(brief)
+    command = [
+        root,
+        str(kpy.KITCHEN_PY),
+        brief,
+        job,
+        cfg[1] if cfg else '',
+        recorded_head(store, unit),
+    ]
     if not os.path.isdir(job):
         os.makedirs(job, exist_ok=True)
-        cfg = brief_kitchen(brief)
-        base = recorded_head(store, unit)
-        detached(
-            'finish',
-            [root, str(kpy.KITCHEN_PY), brief, job, cfg[1] if cfg else '', base],
-            f'{job}/out',
-            store,
-        )
-    if not wait_for_rc(job):
+        detached('finish', command, f'{job}/out', store)
+    restarted = False
+    while (state := wait_for_rc(job)) == 'died':
+        rerun_dead_worker(job, 'verify', restarted)
+        restarted = True
+        remove_path(f'{job}/checkout')
+        detached('finish', command, f'{job}/out', store)
+    if state == 'running':
         verify_running(store, args[1], head, job)
         raise Exit(4)
     discard_moved_verify(ctx, brief, head, job)
