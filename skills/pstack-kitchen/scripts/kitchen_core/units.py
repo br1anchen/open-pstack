@@ -89,23 +89,26 @@ def in_jj_workspace(root):
 
 def follow_jj(root):
     """In a jj workspace whose .git is a linked worktree rather than a colocated repository (init links one in a workspace that has none), jj
-    never moves git's HEAD: after a `jj commit` git still names the commit init saw. Moves HEAD and the index, never the files jj wrote, to the
-    working copy's parent, so git's HEAD is the commit jj's working copy sits on."""
+    never moves git's HEAD: after a `jj commit` git still names the commit init saw. Moves HEAD and the index, never the files jj wrote, forward
+    to the working copy's parent, so git's HEAD is the commit jj's working copy sits on."""
     if not (
         os.path.isdir(f'{root}/.jj') and os.path.isfile(f'{root}/.git')
     ) or not shutil.which('jj'):
         return
     parent = subprocess.run(
-        ['jj', '-R', root, 'log', '--no-graph', '-r', '@-', '-T', 'commit_id'],
+        ['jj', '-R', root, 'log', '--no-graph', '-r', '@-', '-T', 'commit_id ++ "\\n"'],
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         check=False,
         timeout=60,
     )
-    commit = parent.stdout.strip() if parent.returncode == 0 else ''
-    if commit and commit != git.out(root, 'rev-parse', 'HEAD'):
-        git.ok(root, 'reset', '-q', commit)
+    # a merge working copy has several parents and names no one commit
+    ids = parent.stdout.split() if parent.returncode == 0 else []
+    head = git.out(root, 'rev-parse', 'HEAD')
+    # only forward: a commit made with git in this worktree is ahead of jj, and moving HEAD back would undo it
+    if len(ids) == 1 and head and ids[0] != head and is_ancestor(root, head, ids[0]):
+        git.ok(root, 'reset', '-q', ids[0])
 
 
 def named_commit(root, rev, flag):
