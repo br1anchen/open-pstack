@@ -4279,6 +4279,49 @@ esac
         self.assertNotIn('scratch-', self.jj_listing())
 
     @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
+    def test_init_in_a_jj_workspace_without_git_links_a_git_worktree_and_reinit_refreshes_git_root(
+        self,
+    ):
+        head = self.colocate()
+        ws = Path(self.tmp.name) / 'ws'
+        subprocess.run(
+            ['jj', 'workspace', 'add', str(ws)],
+            cwd=self.repo,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+
+        def run_in_ws(*args):
+            done = subprocess.run(
+                args,
+                cwd=ws,
+                env=self.env,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            return done.stdout + done.stderr
+
+        out = run_in_ws(str(self.script), 'init', 'jjws')
+        self.assertIn(f'git: linked a worktree of {self.repo.resolve()}/.git at ', out)
+        store = self.store.parent / 'jjws'
+        state = json.loads((store / 'pair.json').read_text())
+        self.assertEqual(Path(state['git_root']).resolve(), ws.resolve())
+        self.assertEqual(run_in_ws('git', 'rev-parse', 'HEAD').strip(), head)
+        self.assertEqual(run_in_ws('git', 'status', '--porcelain'), '')
+        run_in_ws('jj', 'status')
+        state['git_root'] = ''
+        (store / 'pair.json').write_text(json.dumps(state))
+        out = run_in_ws(str(self.script), 'init', 'jjws')
+        self.assertNotIn('git: linked', out)
+        state = json.loads((store / 'pair.json').read_text())
+        self.assertEqual(Path(state['git_root']).resolve(), ws.resolve())
+
+    @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
     def test_a_failed_jj_scratch_leaves_no_git_worktree(self):
         self.colocate()
         stubs = Path(self.tmp.name) / 'stubs'
