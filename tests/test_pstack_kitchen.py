@@ -5607,6 +5607,34 @@ esac
         self.assertEqual(sorted(p.name for p in job.glob('out.*')), ['out.1', 'out.2'])
         self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
 
+    def test_a_step_whose_rerun_worker_dies_too_refuses_with_its_log(self):
+        self.write(
+            '.agents/kitchen.toml',
+            (self.repo / '.agents/kitchen.toml')
+            .read_text()
+            .replace(
+                'fast = ["test ! -e FAIL"]',
+                'fast = ["python3 -c \'import os, signal; os.killpg(0, signal.SIGKILL)\'"]',
+            ),
+        )
+        self.commit('a gate that kills its worker')
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.write('src/util.py', 'X = 4\n')
+        self.write('tests/test_app.py', 'x = 4\n')
+        sha = self.commit('step')
+        self.env.update({'KITCHEN_STEP_SLICE_S': '30', 'KITCHEN_STEP_POLL_S': '0.05'})
+        out = self.run_sh('step', str(self.store), sha, 's', code=1)
+        job = next((self.store / 'steps/jobs').iterdir())
+        self.assertIn(
+            f'gates: the worker died without a result (log: {job}/out); rerunning\n',
+            out,
+        )
+        self.assertIn(
+            f'the gates worker died again without a result (log: {job}/out); read the log',
+            out,
+        )
+        self.assertFalse((self.store / 'gates.tsv').exists())
+
     def test_a_note_published_while_gates_run_refuses_the_rerun_and_the_resolving_rerun_reuses_the_job(
         self,
     ):
@@ -6343,7 +6371,7 @@ esac
         self.env['KITCHEN_STEP_SLICE_S'] = '30'
         out = self.run_sh('finish', str(self.store), report)
         self.assertIn(
-            f'verify: the worker died without a result (log: {job}/out); rerunning\n',
+            f'verify: the worker died without a result (log: {job}/out.died); rerunning\n',
             out,
         )
         self.assertIn('verify: pass (1 commands from the brief)', out)

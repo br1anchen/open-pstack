@@ -56,6 +56,9 @@ from .units import recorded_head
 from .wait import poll_sleep
 
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'worker.py')
+# The workers this process started, by job directory: one that dies while this process waits is a zombie until polled, and a signal-0 probe of a
+# zombie succeeds, so a worker started here is asked through its Popen.
+STARTED = {}
 
 
 def verify_job(ctx, store, brief, head):
@@ -86,6 +89,7 @@ def detached(command, argv, log, store):
             start_new_session=True,
             preexec_fn=ignore_interrupts,
         )
+    STARTED[os.path.dirname(log)] = worker
     with open(f'{os.path.dirname(log)}/pid', 'w') as f:
         f.write(f'{worker.pid}\n')
 
@@ -144,6 +148,8 @@ def queue_line(log):
 def worker_died(job):
     """Whether the job's worker ended without writing rc (killed, or its host slept through a reboot): a job with no pid file is from an older build and
     counts as alive."""
+    if job in STARTED:
+        return STARTED[job].poll() is not None and not os.path.isfile(f'{job}/rc')
     pid = (
         int_or_none(read_text(f'{job}/pid').strip())
         if os.path.isfile(f'{job}/pid')
@@ -172,14 +178,14 @@ def wait_for_rc(job):
     return 'done'
 
 
-def rerun_dead_worker(job, what, restarted):
-    """What a run says of a worker that died without a result: it starts it once more, and refuses when the rerun died too."""
+def rerun_dead_worker(log, what, restarted):
+    """What a run says of a worker that died without a result, whose output is in log: it starts it once more, and refuses when the rerun died too."""
     if restarted:
         raise StepRefused(
-            f'the {what} worker died again without a result (log: {job}/out); read the log, then run the same command again'
+            f'the {what} worker died again without a result (log: {log}); read the log, then run the same command again'
         )
     sys.stdout.write(
-        f'{what}: the worker died without a result (log: {job}/out); rerunning\n'
+        f'{what}: the worker died without a result (log: {log}); rerunning\n'
     )
 
 
@@ -406,7 +412,7 @@ def step(ctx, args):
     start_gates(ctx, store, root, brief, job, base, full)
     restarted = False
     while (state := wait_for_rc(job)) == 'died':
-        rerun_dead_worker(job, 'gates', restarted)
+        rerun_dead_worker(f'{job}/out', 'gates', restarted)
         restarted = True
         open(f'{job}/consumed', 'w').close()
         start_gates(ctx, store, root, brief, job, base, full)
@@ -535,7 +541,9 @@ def finish(ctx, args):
         detached('finish', command, f'{job}/out', store)
     restarted = False
     while (state := wait_for_rc(job)) == 'died':
-        rerun_dead_worker(job, 'verify', restarted)
+        # the rerun writes out afresh; the dead run's log is kept beside it
+        os.replace(f'{job}/out', f'{job}/out.died')
+        rerun_dead_worker(f'{job}/out.died', 'verify', restarted)
         restarted = True
         remove_path(f'{job}/checkout')
         detached('finish', command, f'{job}/out', store)
