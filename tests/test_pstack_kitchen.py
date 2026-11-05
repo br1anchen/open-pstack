@@ -8169,6 +8169,13 @@ esac
         self.assertIn('### feature.prove (also unit 001)', packet)
         self.assertIn('### feature.extra\n\nExtra.', packet)
 
+    def test_a_docs_brief_dispatches_with_no_plan_and_carries_the_docs_parts(self):
+        b = self.brief('001', 'readme', ['docs/**'], playbook='docs')
+        self.dispatch(b)
+        composition = (self.store / 'compositions/001.json').read_text()
+        self.assertIn('docs.step-3', composition)
+        self.assertIn('Check every path, link, command and flag', b.read_text())
+
     def test_an_old_brief_with_a_label_and_no_composition_still_verifies(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
