@@ -4330,6 +4330,11 @@ esac
         self.assertEqual(run_in_ws('git', 'rev-parse', 'HEAD').strip(), stepped)
         self.assertEqual(run_in_ws('git', 'status', '--porcelain'), '')
         self.assertEqual((ws / 'src/util.py').read_text(), 'X = 6\n')
+        (ws / 'src/util.py').write_text('X = 7\n')
+        run_in_ws('git', 'commit', '-qam', 'a git step')
+        ahead = run_in_ws('git', 'rev-parse', 'HEAD').strip()
+        follow_jj(str(ws))
+        self.assertEqual(run_in_ws('git', 'rev-parse', 'HEAD').strip(), ahead)
 
     @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
     def test_a_failed_jj_scratch_leaves_no_git_worktree(self):
