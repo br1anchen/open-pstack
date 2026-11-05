@@ -50,6 +50,7 @@ from .landing import latest_landing_verdict, manifest_warning
 from .units import (
     Verdict,
     brief_or_nothing,
+    follow_jj,
     heads_in,
     is_ancestor,
     landing_base,
@@ -107,6 +108,7 @@ def next_index(directory, prefix, letter):
 def classify_landing(store, root, o):
     """The landing's range and class: the head, the parent the stack starts from (--parent, or the last landing's), the kitchen as it is now, and
     the diff's classification."""
+    follow_jj(root)
     head = named_commit(root, o.land_head or 'HEAD', '--head')
     override = label = ''
     if o.parent_ref == 'none':

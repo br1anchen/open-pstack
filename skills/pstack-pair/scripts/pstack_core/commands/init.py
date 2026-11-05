@@ -90,8 +90,12 @@ def jj_git_worktree(cwd, write):
         commit,
     ):
         return ''
-    os.replace(f'{staging}/.git', f'{cwd}/.git')
-    os.rmdir(staging)
+    try:
+        os.replace(f'{staging}/.git', f'{cwd}/.git')
+        os.rmdir(staging)
+    except OSError as e:
+        sys.stderr.write(f'git: cannot link a worktree at {cwd}: {reason(e)}\n')
+        return ''
     # git would list .jj as untracked, and a gate that wants a clean tree would fail
     if not os.path.exists(f'{cwd}/.jj/.gitignore'):
         with open(f'{cwd}/.jj/.gitignore', 'w') as f:

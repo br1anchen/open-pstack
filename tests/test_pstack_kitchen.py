@@ -4320,6 +4320,16 @@ esac
         self.assertNotIn('git: linked', out)
         state = json.loads((store / 'pair.json').read_text())
         self.assertEqual(Path(state['git_root']).resolve(), ws.resolve())
+        (ws / 'src/util.py').write_text('X = 6\n')
+        run_in_ws('jj', 'commit', '-m', 'a jj step')
+        stepped = run_in_ws('jj', 'log', '--no-graph', '-r', '@-', '-T', 'commit_id')
+        self.assertEqual(run_in_ws('git', 'rev-parse', 'HEAD').strip(), head)
+        from kitchen_core.units import follow_jj
+
+        follow_jj(str(ws))
+        self.assertEqual(run_in_ws('git', 'rev-parse', 'HEAD').strip(), stepped)
+        self.assertEqual(run_in_ws('git', 'status', '--porcelain'), '')
+        self.assertEqual((ws / 'src/util.py').read_text(), 'X = 6\n')
 
     @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
     def test_a_failed_jj_scratch_leaves_no_git_worktree(self):
