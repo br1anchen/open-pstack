@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at 364dca0 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 74eb070 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -340,7 +340,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `STEER:` (read by skills/pstack-pair-guided/SKILL.md:185) — skills/pstack-pair/scripts/pstack_core/store.py:386 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `REPORT` (read by skills/pstack-kitchen/SKILL.md:3) — skills/pstack-pair/scripts/pstack_core/commands/report.py:54 — test_pstack_pair.PairScriptTests.test_trio (+7)
 - `running:` (read by skills/pstack-kitchen/references/master.md:99) — skills/pstack-pair/scripts/pstack_core/checkin.py:340 — test_pstack_pair.PairScriptTests.test_trio (+8)
-- `steps:` (read by skills/pstack-kitchen/SKILL.md:253) — skills/pstack-kitchen/scripts/kitchen_core/classify.py:68 — test_pstack_pair.PairScriptTests.test_trio (+12)
+- `steps:` (read by skills/pstack-kitchen/SKILL.md:255) — skills/pstack-kitchen/scripts/kitchen_core/classify.py:68 — test_pstack_pair.PairScriptTests.test_trio (+12)
 - `idle:` (read by skills/pstack-kitchen/references/master.md:86) — skills/pstack-pair/scripts/pstack_core/wait.py:224 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `queued:` (read by skills/pstack-kitchen/references/master.md:236) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:59 — test_pstack_pair.PairScriptTests.test_trio (+5)
 - `rotated:` (read by skills/pstack-kitchen/references/master.md:95) — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:135 — test_pstack_pair.PairScriptTests.test_trio (+15)
@@ -352,7 +352,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `closed:` (read by skills/pstack-kitchen/references/master-landing.md:36) — skills/pstack-kitchen/scripts/kitchen_core/feedback.py:261 — test_pstack_core.CoreTests.test_verify_behaviour (+7)
 - `cancelled:` (read by skills/pstack-kitchen/references/master-verify.md:40) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:318 — test_pstack_core.CoreTests.test_verify_cancel_behaviour (+4)
 - `audit:` (read by skills/pstack-kitchen/SKILL.md:203) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:548 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_verdicts (+3)
-- `covered:` (read by skills/pstack-kitchen/references/master-landing.md:20) — skills/pstack-kitchen/scripts/kitchen_core/landing.py:430 — test_pstack_core.CoreTests.test_land_check_behaviour (+25)
+- `covered:` (read by skills/pstack-kitchen/references/master-landing.md:20) — skills/pstack-kitchen/scripts/kitchen_core/landing.py:413 — test_pstack_core.CoreTests.test_land_check_behaviour (+26)
 - `warning: unreviewed:` (read by skills/pstack-kitchen/references/master-verify.md:13) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:611 — test_pstack_core.CoreTests.test_take_master_behaviour (+3)
 - `redelivered:` (read by skills/pstack-kitchen/references/master-verify.md:84) — skills/pstack-kitchen/scripts/kitchen_core/verify_state.py:237 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_the_wait_itself (+4)
 - `deadline` (read by skills/pstack-kitchen/references/master-landing.md:11) — skills/pstack-kitchen/scripts/kitchen.py:1094 — test_pstack_core.CoreTests.test_the_verify_wait_hides_the_minute_count_it_prints (+8)
@@ -394,9 +394,9 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `consults/NNN-<slug>-c<k>.md` written by master: question k about unit NNN for the consultant, from [the consult template](references/consult-template.md), wit — skills/pstack-trio/SKILL.md:78 — test_pstack_pair.PairScriptTests.test_trio (+7)
 - `advice/NNN-<slug>.md` written by consultant: design critique of plan NNN, from [the plan advice template](references/plan-advice-template.md) — skills/pstack-trio/SKILL.md:81 — test_pstack_pair.PairScriptTests.test_trio (+21)
 - `advice/NNN-<slug>-c<k>.md` written by consultant: answer to consult k, from [the advice template](references/advice-template.md) — skills/pstack-trio/SKILL.md:82 — test_pstack_pair.PairScriptTests.test_trio (+21)
-- `gates.tsv` written by `kitchen.sh step`: one row per step check: time, unit, commit, pass or fail, profiles — skills/pstack-kitchen/SKILL.md:269 — test_pstack_core.CoreTests.test_a_gates_mode_verification_writes_its_clean_verdict_from_the_step_rows_without_starting_a_verifier (+10)
-- `verdicts/NNN-<slug>-v<k>.md` written by verifier, or `verify` for gates mode: the verdict, from [the verdict template](references/verdict-template.md) — skills/pstack-kitchen/SKILL.md:270 — test_pstack_pair.PairScriptTests.test_trio (+70)
-- `verdicts/NNN-<slug>-v<k>-packet.md` written by `kitchen.sh verify`: what the verifier was given — skills/pstack-kitchen/SKILL.md:271 — test_pstack_pair.PairScriptTests.test_trio (+70)
+- `gates.tsv` written by `kitchen.sh step`: one row per step check: time, unit, commit, pass or fail, profiles — skills/pstack-kitchen/SKILL.md:271 — test_pstack_core.CoreTests.test_a_gates_mode_verification_writes_its_clean_verdict_from_the_step_rows_without_starting_a_verifier (+10)
+- `verdicts/NNN-<slug>-v<k>.md` written by verifier, or `verify` for gates mode: the verdict, from [the verdict template](references/verdict-template.md) — skills/pstack-kitchen/SKILL.md:272 — test_pstack_pair.PairScriptTests.test_trio (+71)
+- `verdicts/NNN-<slug>-v<k>-packet.md` written by `kitchen.sh verify`: what the verifier was given — skills/pstack-kitchen/SKILL.md:273 — test_pstack_pair.PairScriptTests.test_trio (+71)
 - `pair.json` `.consultant.failovers` — skills/pstack-kitchen/scripts/kitchen_core/setup.py:303 — test_pstack_core.CoreTests.test_consultant_behaviour (+9)
 - `pair.json` `.consultant.kind` — skills/pstack-pair/scripts/pstack_core/spawn.py:210 — test_pstack_pair.PairScriptTests.test_trio (+48)
 - `pair.json` `.master.generation` — skills/pstack-kitchen/scripts/kitchen_core/master.py:187 — test_pstack_pair.PairScriptTests.test_trio (+23)
