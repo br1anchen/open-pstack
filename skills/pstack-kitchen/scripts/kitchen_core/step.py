@@ -158,7 +158,11 @@ def worker_died(job):
     counts as alive."""
     if not os.path.isfile(f'{job}/lock') or os.path.isfile(f'{job}/rc'):
         return False
-    fd = os.open(f'{job}/lock', os.O_RDWR)
+    try:
+        # another call may be replacing the lock file for a fresh run
+        fd = os.open(f'{job}/lock', os.O_RDWR)
+    except FileNotFoundError:
+        return False
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -546,7 +550,12 @@ def finish(ctx, args):
         # the rerun writes out afresh, so each dead run's log is kept beside it (out.died.N); a refusal leaves the last one in out
         log = f'{job}/out'
         if not restarted:
-            log = f'{job}/out.died.{len([n for n in os.listdir(job) if n.startswith("out.died.")]) + 1}'
+            kept = [
+                int_or_none(n[len('out.died.') :])
+                for n in os.listdir(job)
+                if n.startswith('out.died.')
+            ]
+            log = f'{job}/out.died.{max([n for n in kept if n is not None], default=0) + 1}'
             os.replace(f'{job}/out', log)
         rerun_dead_worker(log, 'verify', restarted)
         restarted = True

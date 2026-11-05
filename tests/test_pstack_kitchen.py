@@ -6395,6 +6395,7 @@ esac
                 f'the verify worker died again without a result (log: {job}/out)', out
             )
         self.assertTrue((job / 'out.died.1').is_file())
+        self.assertTrue((job / 'out.died.2').is_file())
 
     def test_gates_mode_verifies_without_a_verifier(self):
         b = self.brief('001', 'docs', ['docs/**'])
