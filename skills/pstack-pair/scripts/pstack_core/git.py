@@ -35,6 +35,16 @@ def out(root, *args):
     return r.stdout.rstrip('\n') if r.returncode == 0 else None
 
 
+def range_commits(root, base, tip):
+    """(full sha, subject) of each non-merge commit in base..tip, oldest first, or None when git cannot list the range."""
+    text = out(
+        root, 'log', '--reverse', '--no-merges', '--format=%H%x09%s', f'{base}..{tip}'
+    )
+    if text is None:
+        return None
+    return [tuple(line.split('\t', 1)) for line in text.splitlines() if '\t' in line]
+
+
 def toplevel(path=None):
     """The top of the repository that holds path (the current directory without one), or '' outside a repository or without git."""
     try:

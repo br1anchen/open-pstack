@@ -8,7 +8,7 @@ import sys
 import time
 from dataclasses import dataclass, replace
 
-from . import mux, procinfo
+from . import git, mux, procinfo
 from .argv import Spec, read
 from .checkin import CheckIn, checkin, sidekick_activity
 from .errors import BadStepRow, Die, MissingStore, PairError, refuse_as
@@ -193,11 +193,18 @@ def steps_returned(ctx, store, running, paused, write):
         return WaitOutcome(1, 'steps', paused=paused)
     first = rows[0].split('\t')[0]
     write(f'steps: {len(rows)} to review on {unit_name(running)}\n')
+    pair = load(store)
+    root = text_at(pair, 'git_root') or text_at(pair, 'cwd')
+    floor = review_base(store, running)
     for row in rows:
         cols = row.split('\t')
-        write(
-            f'  {cols[0]} {(cols[1] if len(cols) > 1 else "")[:9]} {cols[2] if len(cols) > 2 else ""}\n'
-        )
+        sha = cols[1] if len(cols) > 1 else ''
+        write(f'  {cols[0]} {sha[:9]} {cols[2] if len(cols) > 2 else ""}\n')
+        commits = git.range_commits(root, floor, sha) if floor and sha else None
+        if commits and len(commits) > 1:
+            for short, subject in commits:
+                write(f'    {short[:9]} {subject}\n')
+        floor = sha
     last = rows[-1].split('\t')
     write(
         f'range: {review_base(store, running)[:9]}..{(last[1] if len(last) > 1 else "")[:9]}\n'

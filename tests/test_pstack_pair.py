@@ -1004,6 +1004,19 @@ class ReadinessTests(unittest.TestCase):
         out = self.wait(0)
         self.assertIn('steps: 1 to review on 001-first', out)
 
+    def test_a_step_range_of_two_commits_lists_each_under_the_step(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        fixup = self.commit('fixup that rode along')
+        c2 = self.commit('two')
+        self.step(c2)
+        out = self.wait(0)
+        self.assertIn(
+            f'  2 {c2[:9]} a step\n    {fixup[:9]} fixup that rode along\n    {c2[:9]} two\n',
+            out,
+        )
+        self.assertIn(f'  1 {c1[:9]} a step\n  2 ', out)
+
     def test_an_earlier_unit_is_judged_by_its_own_notes_while_the_next_one_runs(self):
         c1 = self.commit('one')
         self.step(c1)
