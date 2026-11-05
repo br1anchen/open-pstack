@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at a74cb01 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 2a49e05 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -231,7 +231,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): agent start failed in …; inspect: … — skills/pstack-pair/scripts/pstack_core/spawn.py:197 — test_pstack_core.CoreTests.test_failover_refuses_and_reports_what_a_caller_reads (+2)
 - exit 2 (herdr or gate failure): prime-agent cannot run under …: it reports no Prime session to stop the role by; use anot — skills/pstack-pair/scripts/pstack_core/spawn.py:314 — test_pstack_core.RexMuxTests.test_a_prime_role_is_refused_where_no_session_is_tracked
 - exit 2 (herdr or gate failure): no fallback recorded for a failed …; pass --fallback KIND or fix the agent — skills/pstack-pair/scripts/pstack_core/spawn.py:409 — test_pstack_core.CoreTests.test_spawn_reports_the_failure_a_caller_branches_on
-- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:97 — test_pstack_pair.PairScriptTests.test_trio (+331)
+- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:97 — test_pstack_pair.PairScriptTests.test_trio (+332)
 - exit 2 (herdr or gate failure): the last step row does not start with a JSON step number: … — skills/pstack-pair/scripts/pstack_core/wait.py:211 — test_pstack_core.CoreTests.test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words (+1)
 - exit 2 (herdr or gate failure): cannot read the master's agent kind from …; run pair.sh init first — skills/pstack-trio/scripts/variant.py:82 — test_pstack_core.CoreTests.test_trio_spawn_and_discuss_report_the_state_they_stop_on
 - exit 3 (agent blocked): sidekick … is …; resolve that before queueing — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:204 — test_pstack_core.CoreTests.test_queue_accepts_a_sidekick_idle_on_a_background_command_and_refuses_a_blocked_or_quiet_one (+2)

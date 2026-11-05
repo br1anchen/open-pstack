@@ -442,6 +442,7 @@ EXPECTED = {
     'pause-safely',
     'opening-a-pr',
     'shipping',
+    'docs',
 }
 
 
@@ -462,7 +463,7 @@ class ShippedMapTests(unittest.TestCase):
     def test_the_shipped_map_validates_against_the_real_sources(self):
         self.assertEqual(playbooks.validate_map(shipped()), [])
 
-    def test_the_map_covers_the_fourteen_playbooks_kitchen_briefs_use(self):
+    def test_the_map_covers_the_fifteen_playbooks_kitchen_briefs_use(self):
         self.assertEqual(set(shipped()['playbook']), EXPECTED)
 
     def test_every_reply_is_owned_by_the_sidekick_and_the_verifier_with_kitchen_text(
@@ -628,7 +629,7 @@ class PlaybooksCommandTests(unittest.TestCase):
     def test_validate_passes_on_the_shipped_map(self):
         done = kitchen('validate')
         self.assertEqual((done.returncode, done.stderr), (0, ''))
-        self.assertIn('14 playbooks', done.stdout)
+        self.assertIn('15 playbooks', done.stdout)
 
     def test_validate_fails_naming_the_part_when_a_source_word_changes(self):
         done = kitchen('--skills', str(self.edited_skills()), 'validate')

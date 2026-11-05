@@ -983,3 +983,57 @@ reviewed = "af588d2d5535"
 master = "The verified run and its ceiling, each unit's verdict and who produced it, how far landing went under [landing].mode, and what the next gap needs."
 sidekick = "In the report, under Ran and the sections the template names: the commits and gates behind each unit, and the head the report covers. Every claim carries its command output or a file pointer."
 verifier = "The evidence standard for the brief's Acceptance, not new criteria: the verdict for each unit, with who produced it and the evidence. A verdict line cites the command output that shows it."
+
+# A kitchen playbook, not a pstack one: a docs unit edits prose only, so it takes no plan round and no new test.
+[playbook.docs]
+source = { root = "skills", path = "pstack-kitchen/references/playbooks/docs.md" }
+
+[[playbook.docs.part]]
+id = "docs.intro-1"
+select = "intro:1"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "694c359c0a74"
+
+[[playbook.docs.part]]
+id = "docs.intro-2"
+select = "intro:2"
+owners = ["master", "sidekick", "verifier"]
+reviewed = "0feadad62555"
+
+[[playbook.docs.part]]
+id = "docs.step-1"
+select = "step:1"
+owners = ["sidekick", "verifier"]
+reviewed = "6296639e7be6"
+
+[[playbook.docs.part]]
+id = "docs.step-2"
+select = "step:2"
+owners = ["sidekick", "master"]
+reviewed = "179e3f207620"
+
+[playbook.docs.part.kitchen]
+master = "A code change the text needs comes back as a Question; route it through a new brief."
+sidekick = "Write the change inside the brief's Scope. A code change the text turns out to need goes in the report under Questions with status blocked; the master routes it through a new brief."
+
+[[playbook.docs.part]]
+id = "docs.step-3"
+select = "step:3"
+owners = ["sidekick", "verifier"]
+reviewed = "b581740ec541"
+
+[[playbook.docs.part]]
+id = "docs.step-4"
+select = "step:4"
+owners = ["sidekick"]
+reviewed = "5f7e20675dc9"
+
+[[playbook.docs.part]]
+id = "docs.reply"
+select = "reply"
+owners = ["sidekick", "verifier"]
+reviewed = "09278083003b"
+
+[playbook.docs.part.kitchen]
+sidekick = "In the report, under Ran and the sections the template names: what changed, and for each claim the file or command output that backs it."
+verifier = "The evidence standard for the brief's Acceptance, not new criteria: each claim the changed text makes holds at the unit's head, shown by the file or command output it names. A verdict line cites the command output that shows it."
