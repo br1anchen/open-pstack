@@ -211,7 +211,8 @@ its children may do beyond these shared rules.
    verdict is, says `landed (rebased)` or `landed (squashed)` when trunk
    carries a landing verdict's commits under other shas, and warns when dependency manifests changed after its verified base;
    `verify --landing --parent REF` records where the stack starts and
-   `--head REV` proves a branch other than HEAD. The revert check that
+   `--head REV` proves a branch other than HEAD (in a jj workspace either may
+   be a jj revision, such as `main@origin`, that names one commit). The revert check that
    leaves a rebased unit uncovered compares patches without context, so a later
    commit that happens to delete an identical line elsewhere also reads as a
    revert: a known limitation that refuses (never covers) a unit, and

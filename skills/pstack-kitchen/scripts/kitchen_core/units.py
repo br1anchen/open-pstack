@@ -7,6 +7,8 @@ A failing git command is an empty answer and the function goes on; a git result 
 import glob
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 from pstack_core import git
@@ -71,6 +73,52 @@ def first_field(diff):
     """The patch-id (`git patch-id --stable`) of a diff, without trailing newlines."""
     out = git.run(None, 'patch-id', '--stable', stdin=diff).stdout
     return '\n'.join(line.split(' ')[0] for line in out.split('\n')).rstrip('\n')
+
+
+def in_jj_workspace(root):
+    """Whether root is inside a jj workspace: a `.jj` directory in it or above it."""
+    path = os.path.abspath(root)
+    while True:
+        if os.path.isdir(f'{path}/.jj'):
+            return True
+        parent = os.path.dirname(path)
+        if parent == path:
+            return False
+        path = parent
+
+
+def named_commit(root, rev, flag):
+    """The full sha of a revision named on the command line: a git revision, else in a jj workspace a jj revision (main@origin, a change id) that
+    names exactly one commit. A BadRevision says which it is not."""
+    found = commit_of(root, rev)
+    if found is not None:
+        return found
+    if in_jj_workspace(root) and shutil.which('jj'):
+        listed = subprocess.run(
+            [
+                'jj',
+                '-R',
+                root,
+                'log',
+                '--no-graph',
+                '--ignore-working-copy',
+                '-r',
+                rev,
+                '-T',
+                'commit_id ++ "\\n"',
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        ids = listed.stdout.split() if listed.returncode == 0 else []
+        if len(ids) > 1:
+            raise BadRevision(f'{flag} {rev} names {len(ids)} commits in jj; name one')
+        if ids and (found := commit_of(root, ids[0])) is not None:
+            return found
+    raise BadRevision(f'{flag} {rev} is not a commit')
 
 
 def dispatch_head(store, brief):
@@ -467,9 +515,7 @@ def unit_range(ctx, store, units, covered=(), range_base=''):
         raise UnitNotCheckable(f"unit {last}'s head is not a commit")
     head = resolved
     if range_base:
-        base = commit_of(root, range_base)
-        if base is None:
-            raise BadRevision(f'--base {range_base} is not a commit')
+        base = named_commit(root, range_base, '--base')
     else:
         base, note = range_floor(root, base, head)
         if note:
