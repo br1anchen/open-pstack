@@ -541,9 +541,12 @@ def finish(ctx, args):
         detached('finish', command, f'{job}/out', store)
     restarted = False
     while (state := wait_for_rc(job)) == 'died':
-        # the rerun writes out afresh; the dead run's log is kept beside it
-        os.replace(f'{job}/out', f'{job}/out.died')
-        rerun_dead_worker(f'{job}/out.died', 'verify', restarted)
+        # the rerun writes out afresh, so each dead run's log is kept beside it (out.died.N); a refusal leaves the last one in out
+        log = f'{job}/out'
+        if not restarted and os.path.isfile(log):
+            log = f'{job}/out.died.{len([n for n in os.listdir(job) if n.startswith("out.died.")]) + 1}'
+            os.replace(f'{job}/out', log)
+        rerun_dead_worker(log, 'verify', restarted)
         restarted = True
         remove_path(f'{job}/checkout')
         detached('finish', command, f'{job}/out', store)
