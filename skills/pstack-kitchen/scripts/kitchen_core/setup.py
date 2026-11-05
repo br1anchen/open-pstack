@@ -274,12 +274,12 @@ def consultant(ctx, args):
         # An agent that never starts (a broken config, a start timeout) fails over as a failed preflight does; its pane holds nothing else.
         if not fallback or fallback == kind:
             raise
-        sys.stderr.write(f'{e.message}\n')
+        # its pane is closed next, so neither line names a pane to inspect
+        failed = e.message.split('; inspect: ')[0]
+        sys.stderr.write(f'{failed}\n')
         if e.pane:
             mux.get().pane_close(e.pane)
-        consultant_failover(
-            store, kind, fallback, f'start: {e.message.split(chr(10))[0]}'
-        )
+        consultant_failover(store, kind, fallback, f'start: {failed}')
         code = pair_spawn.spawn_consultant(
             ctx,
             store,

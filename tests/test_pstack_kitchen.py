@@ -5567,11 +5567,10 @@ esac
         self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
 
     def kill_worker(self, job):
-        """Ends the job's detached worker and its children with no result written, and points its pid file at a process already reaped."""
+        """Ends the job's detached worker and its checks with no result written, and points its pid file at a live process, as a pid reused after a
+        restart would: only the job's lock tells the worker is gone."""
         os.killpg(int((job / 'pid').read_text()), signal.SIGKILL)
-        gone = subprocess.Popen(['true'])
-        gone.wait(timeout=60)
-        (job / 'pid').write_text(f'{gone.pid}\n')
+        (job / 'pid').write_text(f'{os.getpid()}\n')
         self.assertFalse((job / 'rc').exists())
 
     def test_a_step_whose_gate_worker_died_says_so_and_reruns_it(self):
