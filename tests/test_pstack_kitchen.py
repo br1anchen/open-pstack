@@ -6371,10 +6371,31 @@ esac
         self.env['KITCHEN_STEP_SLICE_S'] = '30'
         out = self.run_sh('finish', str(self.store), report)
         self.assertIn(
-            f'verify: the worker died without a result (log: {job}/out.died); rerunning\n',
+            f'verify: the worker died without a result (log: {job}/out.died.1); rerunning\n',
             out,
         )
         self.assertIn('verify: pass (1 commands from the brief)', out)
+
+    def test_a_finish_whose_verify_worker_keeps_dying_refuses_each_time_and_keeps_each_log(
+        self,
+    ):
+        b = self.brief('001', 'dies', ['src/**', 'tests/**'])
+        self.verify_block(
+            b, "python3 -c 'import os, signal; os.killpg(0, signal.SIGKILL)'"
+        )
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 5\n')
+        self.done(b, self.commit('step'))
+        report = str(self.store / 'reports' / b.name)
+        self.env.update({'KITCHEN_STEP_SLICE_S': '30', 'KITCHEN_STEP_POLL_S': '0.05'})
+        for n in (1, 2):
+            out = self.run_sh('finish', str(self.store), report, code=1)
+            job = next(p.parent for p in self.store.rglob('pid'))
+            self.assertIn(f'(log: {job}/out.died.{n}); rerunning', out)
+            self.assertIn(
+                f'the verify worker died again without a result (log: {job}/out)', out
+            )
+        self.assertTrue((job / 'out.died.1').is_file())
 
     def test_gates_mode_verifies_without_a_verifier(self):
         b = self.brief('001', 'docs', ['docs/**'])
