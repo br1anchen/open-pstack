@@ -12,7 +12,6 @@ kitchen.py is reached through kpy (its classify_change function, in process); wo
 outlives this process. None of the in-process calls writes os.environ (kitchen.py :745, :771, :1023, :1038 belong to `gate` and `brief-verify`, which only
 worker.py runs)."""
 
-import contextlib
 import fcntl
 import json
 import os
@@ -74,17 +73,17 @@ def ignore_interrupts():
 
 def detached(command, argv, log, store):
     """worker.py COMMAND ARGV... with its output in log and PSTACK_KITCHEN_RUN set to the run's slug, in a session of its own, never waited for. It
-    starts holding the `lock` file beside the log, locked here and handed down, and passes it to the checks it runs, so a later run can tell a worker
-    that died from one still running; its pid goes in the `pid` file for whoever reads the job."""
+    starts holding the `lock` file beside the log, locked here and handed down, and passes it to the kitchen.py children it runs, so a later run can
+    tell a worker that died from one still running; its pid goes in the `pid` file for a human reading the job."""
     job = os.path.dirname(log)
     env = {**os.environ, 'PSTACK_KITCHEN_RUN': read(store, 'slug')}
     sys.stdout.flush()
     sys.stderr.flush()
-    lock = os.open(f'{job}/lock', os.O_RDWR | os.O_CREAT, 0o644)
+    # Each run locks a new file: a worker of the job's previous run that has not quite exited keeps its lock on the old one.
+    remove_path(f'{job}/lock')
+    lock = os.open(f'{job}/lock', os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o644)
     try:
-        # a worker of this job's previous run that has not quite exited still holds it; the new one shares the lock from then on
-        with contextlib.suppress(BlockingIOError):
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(lock, fcntl.LOCK_EX)
         with open(log, 'w', encoding='utf-8') as out:
             worker = subprocess.Popen(
                 [sys.executable, '-I', WORKER, command, *argv],
@@ -154,8 +153,8 @@ def queue_line(log):
 
 
 def worker_died(job):
-    """Whether the job's worker ended without writing rc (killed, or its host restarted): the worker and the checks it runs hold the job's `lock`
-    file locked, and the system drops the lock when the last of them ends, whatever pid it had. A job with no lock file is from an older build and
+    """Whether the job's worker ended without writing rc (killed, or its host restarted): the worker and the kitchen.py children it runs hold the
+    job's `lock` file locked, and the system drops the lock when the last of them ends, whatever pid it had. A job with no lock file is from an older build and
     counts as alive."""
     if not os.path.isfile(f'{job}/lock') or os.path.isfile(f'{job}/rc'):
         return False
