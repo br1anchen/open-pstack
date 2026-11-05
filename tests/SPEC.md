@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at 0431a06 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at b64db32 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -359,7 +359,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `advice:` (read by skills/pstack-kitchen/references/playbook-roles.toml:454) — skills/pstack-pair/scripts/pstack_core/commands/metrics.py:245 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - `advice_status:` — skills/pstack-pair/scripts/pstack_core/consult.py:411 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `paused:` (read by skills/pstack-pair-guided/SKILL.md:291) — skills/pstack-pair/scripts/pstack_core/commands/status.py:157 — test_pstack_pair.PairScriptTests.test_trio (+3)
-- `gates: still running` (read by skills/pstack-kitchen/references/brief-template.md:71) — skills/pstack-kitchen/scripts/kitchen_core/step.py:276 — test_pstack_core.CoreTests.test_step_behaviour (+3)
+- `gates: still running` (read by skills/pstack-kitchen/references/brief-template.md:71) — skills/pstack-kitchen/scripts/kitchen_core/step.py:279 — test_pstack_core.CoreTests.test_step_behaviour (+3)
 - `gates: queued` (read by skills/pstack-kitchen/SKILL.md:75) — docs only — test_pstack_kitchen.KitchenScriptTests.test_a_step_waiting_for_a_gate_slot_says_where_it_stands (+1)
 - `ready:` (read by skills/pstack-pair/references/master.md:83) — skills/pstack-kitchen/scripts/variant.py:254 — test_pstack_pair.PairScriptTests.test_trio (+9)
 - `superseded` (read by skills/pstack-kitchen/references/master.md:80) — skills/pstack-pair/scripts/pstack_core/commands/notes.py:320 — test_pstack_core.CoreTests.test_a_newer_wait_supersedes_the_older_and_the_wait_that_returns_releases_the_store (+9)
