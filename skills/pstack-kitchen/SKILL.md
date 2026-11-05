@@ -92,6 +92,11 @@ which skills build a run's commands came from. Every command runs in Python, in 
    have not seen, so trust that root once per host: open each agent there and
    accept. `kitchen.py doctor` warns while a roster kind does not trust it.
 
+   In a jj workspace with no `.git` of its own (`jj workspace add`, not
+   colocated), `init` links a git worktree of the backing repository in place
+   at the working copy's parent, so git and the gates work there; running
+   `init` again fills a `git_root` that is empty or gone.
+
    Every gate takes one of the machine's slots, so parallel kitchens queue
    their test suites instead of overloading the machine. The default is one
    slot per eight cores.

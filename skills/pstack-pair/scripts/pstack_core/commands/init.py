@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -49,10 +50,67 @@ def write_new(path, text):
         raise PathFailed(path, e) from None
 
 
-def re_register(store, pane, workspace, tab, now):
-    """json_update of .master.pane_id, .master.workspace_id, .master.tab_id and .master.registered_at."""
+def jj_git_worktree(cwd, write):
+    """The git root of a jj workspace that has no .git of its own (`jj workspace add` beside a repo, not colocated), where git finds no repository and
+    every git and gate command fails: a git worktree of the workspace's backing repository is linked in place at the working copy's parent, as a jj
+    scratch is (added elsewhere with no checkout, its .git moved in, repaired, its index read from HEAD). '' when cwd is no such workspace or jj or
+    git cannot do it."""
+    if (
+        not os.path.isdir(f'{cwd}/.jj')
+        or os.path.exists(f'{cwd}/.git')
+        or not shutil.which('jj')
+    ):
+        return ''
+
+    def jj(*args):
+        done = subprocess.run(
+            ['jj', '-R', cwd, '--ignore-working-copy', *args],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        return done.stdout.strip() if done.returncode == 0 else ''
+
+    gitdir = jj('git', 'root')
+    commit = jj('log', '--no-graph', '-r', '@-', '-T', 'commit_id')
+    if not gitdir or not commit:
+        return ''
+    staging = f'{cwd}.pstack-git'
+    if not git.ok(
+        None,
+        '--git-dir',
+        gitdir,
+        'worktree',
+        'add',
+        '--no-checkout',
+        '--detach',
+        staging,
+        commit,
+    ):
+        return ''
+    os.replace(f'{staging}/.git', f'{cwd}/.git')
+    os.rmdir(staging)
+    # git would list .jj as untracked, and a gate that wants a clean tree would fail
+    if not os.path.exists(f'{cwd}/.jj/.gitignore'):
+        with open(f'{cwd}/.jj/.gitignore', 'w') as f:
+            f.write('/*\n')
+    if not (git.ok(cwd, 'worktree', 'repair') and git.ok(cwd, 'reset', '-q')):
+        return ''
+    write(
+        f'git: linked a worktree of {gitdir} at {cwd} (jj workspace without .git) at {commit[:9]}\n'
+    )
+    return git.toplevel(cwd)
+
+
+def re_register(store, pane, workspace, tab, now, root=''):
+    """json_update of .master.pane_id, .master.workspace_id, .master.tab_id and .master.registered_at, and of .git_root when it is empty or gone and
+    the checkout now has one."""
 
     def mutate(doc):
+        if root and not os.path.isdir(doc.get('git_root') or ''):
+            doc['git_root'] = root
         member(doc, 'master').update(
             {
                 'pane_id': pane,
@@ -115,6 +173,7 @@ def init_store(ctx, request, out=None):
     master = f'{slug}-master'
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     cwd, root = logical_cwd(), git.toplevel()
+    root = root or jj_git_worktree(cwd, write)
     workspace, tab = mux.get().location()
     # The pane variable can be stale: Codex runs every session's commands through one shared app-server daemon, which keeps the pane it was
     # started in.
@@ -126,7 +185,7 @@ def init_store(ctx, request, out=None):
             2,
         )
     if os.path.isfile(f'{store}/pair.json'):
-        re_register(store, pane, workspace, tab, now)
+        re_register(store, pane, workspace, tab, now, root)
         write(f'store: {store} (re-registered master {master} in {pane})\n')
     else:
         doc = {
