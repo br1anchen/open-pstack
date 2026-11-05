@@ -53,7 +53,7 @@ from pstack_core.wait import default_signals
 
 from . import kpy
 from .classify import brief_kitchen
-from .units import recorded_head
+from .units import follow_jj, recorded_head
 from .wait import poll_sleep
 
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'worker.py')
@@ -412,6 +412,7 @@ def step(ctx, args):
     left = core_step.unresolved_notes(store, brief, resolves)
     if left:
         raise open_notes_refusal(ctx.prog, left)
+    follow_jj(root)
     check_checkout(root, sha, full)
     base = step_base(store, root, unit, log, sha, full)
     job = f'{store}/steps/jobs/{unit}-{full[:12]}'
@@ -524,6 +525,7 @@ def finish(ctx, args):
     if wanted == '' or wanted.startswith('<'):
         return core_report.finish(ctx, args)
     root = read(store, 'git_root')
+    follow_jj(root)
     head = require_head_checked_out(root, report, brief)
     unit = unit_name(brief)
     job = verify_job(ctx, store, brief, head)

@@ -87,6 +87,27 @@ def in_jj_workspace(root):
         path = parent
 
 
+def follow_jj(root):
+    """In a jj workspace whose .git is a linked worktree rather than a colocated repository (init links one in a workspace that has none), jj
+    never moves git's HEAD: after a `jj commit` git still names the commit init saw. Moves HEAD and the index, never the files jj wrote, to the
+    working copy's parent, so git's HEAD is the commit jj's working copy sits on."""
+    if not (
+        os.path.isdir(f'{root}/.jj') and os.path.isfile(f'{root}/.git')
+    ) or not shutil.which('jj'):
+        return
+    parent = subprocess.run(
+        ['jj', '-R', root, 'log', '--no-graph', '-r', '@-', '-T', 'commit_id'],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    commit = parent.stdout.strip() if parent.returncode == 0 else ''
+    if commit and commit != git.out(root, 'rev-parse', 'HEAD'):
+        git.ok(root, 'reset', '-q', commit)
+
+
 def named_commit(root, rev, flag):
     """The full sha of a revision named on the command line: a git revision, else in a jj workspace a jj revision (main@origin, a change id) that
     names exactly one commit. A BadRevision says which it is not."""
