@@ -7529,6 +7529,73 @@ esac
             (self.store / 'events.tsv').read_text(),
         )
 
+    def consultant_start(self):
+        return [
+            line
+            for line in (self.fake / 'calls.log').read_text().splitlines()
+            if line.startswith('agent start demo-consultant')
+        ][-1]
+
+    def test_a_consultant_that_cannot_start_starts_the_roster_fallback(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        self.muse_consultant_roster()
+        (self.fake / 'start-fail-kind').write_text('muse')
+        out = self.run_sh('consultant', str(self.store), '--reason', 'contract', code=4)
+        self.assertIn('agent start failed in ', out)
+        self.assertIn(' shows:\n  Error loading config.toml\n', out)
+        self.assertIn(
+            'failover: consultant muse -> claude (start: agent start failed in ', out
+        )
+        start = self.consultant_start()
+        self.assertIn('--kind claude', start)
+        self.assertIn('--model claude-fable-5-1', start)
+        failover = self.state()['consultant']['failovers'][0]
+        self.assertEqual((failover['from'], failover['to']), ('muse', 'claude'))
+        closed = [
+            l
+            for l in (self.fake / 'calls.log').read_text().splitlines()
+            if l.startswith('pane close')
+        ]
+        self.assertEqual(len(closed), 1)
+
+    def test_a_consultant_that_cannot_start_with_no_fallback_says_why(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        self.muse_consultant_roster()
+        (self.fake / 'start-fail-kind').write_text('claude')
+        out = self.run_sh(
+            'consultant',
+            str(self.store),
+            '--reason',
+            'contract',
+            '--kind',
+            'claude',
+            code=2,
+        )
+        self.assertIn('agent start failed in ', out)
+        self.assertNotIn('failover', out)
+
+    def test_a_consultant_kind_named_in_the_roster_takes_that_entrys_arguments(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        self.muse_consultant_roster()
+        self.run_sh(
+            'consultant',
+            str(self.store),
+            '--reason',
+            'contract',
+            '--kind',
+            'claude',
+            code=4,
+        )
+        self.assertIn('--kind claude', self.consultant_start())
+        self.assertIn('--model claude-fable-5-1', self.consultant_start())
+
+    def test_a_consultant_with_no_ready_file_shows_its_pane(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        self.muse_consultant_roster()
+        out = self.run_sh('consultant', str(self.store), '--reason', 'contract', code=4)
+        self.assertIn('consultant settled but advice/000-ready.md is missing', out)
+        self.assertIn(' shows:\n  pane text\n', out)
+
     def test_a_consultant_whose_muse_preflight_passes_starts_muse(self):
         (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
         self.muse_consultant_roster()

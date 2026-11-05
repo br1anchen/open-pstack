@@ -158,6 +158,11 @@ class AgentStartFailed(PairError):
 
     code = 2
 
+    # pane: the pane the agent was started in, '' when none was
+    def __init__(self, message='', pane=''):
+        self.pane = pane
+        super().__init__(message)
+
 
 class NoFallback(PairError):
     """An agent failed and the store records no other kind to start."""

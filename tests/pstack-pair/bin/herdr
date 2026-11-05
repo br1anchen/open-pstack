@@ -48,6 +48,10 @@ case "$1 $2" in
 	if [ -e "$FAKE/start-fail" ]; then printf '{"error":{"code":"start_failed"}}\n' >&2; exit 1; fi
 	name="$3"; kind=""; shift 3
 	while [ $# -gt 0 ]; do case "$1" in --kind) kind="$2"; shift 2 ;; --pane) printf '%s' "$name" >"$FAKE/panes/$2"; shift 2 ;; --) break ;; *) shift ;; esac; done
+	# $FAKE/start-fail-kind: an agent of the kind the file names cannot start (a broken config of its own); other kinds can.
+	if [ -s "$FAKE/start-fail-kind" ] && [ "$kind" = "$(cat "$FAKE/start-fail-kind")" ]; then
+		printf 'Error loading config.toml\n' >"$FAKE/start-failed-screen"; printf '{"error":{"code":"start_failed"}}\n' >&2; exit 1
+	fi
 	# $FAKE/trust-dialog: the agent opens on a folder-trust dialog.
 	if [ -e "$FAKE/trust-dialog" ]; then
 		printf '{"error":{"code":"agent_not_ready","message":"blocked during startup"}}\n' >&2; exit 1
@@ -180,10 +184,11 @@ case "$1 $2" in
 	# Closing a pane ends the agent in it.
 	held="$(cat "$FAKE/panes/$3" 2>/dev/null)"
 	[ -z "$held" ] || rm -f "$FAKE/agents/$held"
-	rm -f "$FAKE/panes/$3"; printf '{"result":{"type":"ok"}}\n' ;;
+	rm -f "$FAKE/panes/$3" "$FAKE/start-failed-screen"; printf '{"result":{"type":"ok"}}\n' ;;
 "tab create") [ ! -e "$FAKE/tab-fail" ] || { printf '{"error":{"code":"tab_failed"}}\n' >&2; exit 1; }; [ ! -e "$FAKE/tab-null" ] || { printf '{"result":{}}\n'; exit 0; }; n=$(ls "$FAKE/panes" | wc -l | tr -d " "); : >"$FAKE/panes/t$n"; printf '{"result":{"type":"tab_created","tab":{"tab_id":"tab%s"},"root_pane":{"pane_id":"t%s"}}}\n' "$n" "$n" ;;
 "pane read")
 	if [ -e "$FAKE/trust-dialog" ]; then printf ' Quick safety check: Is this a project you created or one you\n trust?\n ❯ No, exit\n'
+	elif [ -s "$FAKE/start-failed-screen" ]; then cat "$FAKE/start-failed-screen"
 	else printf 'pane text\n'; fi ;;
 "pane send-keys") printf '{"result":{"type":"ok"}}\n' ;;
 "pane layout") pane="$4"
