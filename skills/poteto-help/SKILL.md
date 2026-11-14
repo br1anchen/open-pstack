@@ -20,6 +20,7 @@ Type the help skill and the skill it routes to the way the host spells them:
 | Codex | `$poteto-help ...` | `$pstack ...` or `$poteto-mode ...` |
 | Pi | `/skill:poteto-help ...` | `/skill:pstack ...` |
 | Grok Build | `/poteto-help ...` | `/pstack ...` |
+| Amp | `use the poteto-help skill: ...` | `use the pstack skill to ...` or `use the poteto-mode skill to ...` |
 | Other agent | Read `poteto-help/SKILL.md` | Read `pstack/SKILL.md` |
 
 Every command below is written with the Claude Code spelling. Translate the prefix for the host. If the host has no skill command, ask it to read the skill's `SKILL.md` by path. For a worked example, read [the scenario guide](references/scenarios.md), which walks one feature through observing, deciding, doing and proving.
@@ -57,7 +58,7 @@ Installing changes nothing until the user invokes a skill. Only `/setup-pstack` 
 
 If cost is the worry, say where the tokens go and how to spend fewer. pstack spends extra tokens on subagents and review panels. Rerun `/setup-pstack` and pick a smaller budget or cheaper models. A role set to `auto` or `inherit-parent` runs on the chat's model, which saves tokens when the chat runs on Auto or a cheaper model. A shorter panel list runs fewer subagents, one for each entry. Save `/poteto-mode` for work that needs rigor.
 
-pstack runs on Claude Code, Codex, Pi and Grok Build, and the [README](../../README.md) says how each links the skills. The runtime adapter maps Cursor's tool names to the host's, and a step that needs a Cursor-only feature, such as Bugbot or Automations, is skipped with a one-line note.
+pstack runs on Claude Code, Codex, Pi, Grok Build and Amp, and the [README](../../README.md) says how each links the skills. The runtime adapter maps Cursor's tool names to the host's, and a step that needs a Cursor-only feature, such as Bugbot or Automations, is skipped with a one-line note.
 
 Skills are in the Agent Skills format, so any tool that reads them can use them. Workflow skills that fan out to subagents need a host with a delegation tool. Without one, the runtime adapter runs the roles one after another and labels the result a single-agent review.
 

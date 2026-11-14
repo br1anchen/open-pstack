@@ -10,8 +10,8 @@ work, bypass a sandbox, or use a model forbidden by the host.
 ## Resolve the runtime first
 
 Identify the active agent from its session context, not from which executables
-happen to be installed. Use `claude`, `codex`, `pi`, `grok`, or `generic` as the
-runtime key. Read `~/.config/pstack/models/<runtime>.md` if present. Substitute
+happen to be installed. Use `claude`, `codex`, `pi`, `grok`, `amp`, or `generic`
+as the runtime key. Read `~/.config/pstack/models/<runtime>.md` if present. Substitute
 that key for the literal `<runtime>` in workflow paths. Missing roles inherit
 the parent model. Prime Agent uses `generic` and its exposed native tools;
 Pi extensions and their APIs do not apply. Read the budget comment and
@@ -29,13 +29,13 @@ within pstack mean `pstack-tdd` and `pstack-teach`.
 
 ## Tools and delegation
 
-| Operation in upstream prose | Claude Code | Codex | Pi | Grok Build / generic |
-| --- | --- | --- | --- | --- |
-| Read, edit, search, shell | Read, Edit/Write, Grep/Glob, Bash | Exposed shell/exec and apply_patch tools | read, edit/write, bash | Use the exposed file and shell tools |
-| Task / spawn a worker | Agent, or Task on older sessions | spawn_agent when exposed | subagent extension only when installed and exposed | Native subagent tool when exposed |
-| Resume / drain workers | Agent resume and task-output tools available in session | followup_task or resume equivalent; wait_agent, messages, status tools as exposed | Extension's documented lifecycle | Runtime's documented lifecycle |
-| AskQuestion | AskUserQuestion when exposed | request_user_input_async or request_user_input when allowed in the active mode | Extension UI when exposed | Available structured question tool |
-| TodoWrite / todolist | TodoWrite or task tools | update_plan when exposed | Extension plan tool | Native plan tool |
+| Operation in upstream prose | Claude Code | Codex | Pi | Amp | Grok Build / generic |
+| --- | --- | --- | --- | --- | --- |
+| Read, edit, search, shell | Read, Edit/Write, Grep/Glob, Bash | Exposed shell/exec and apply_patch tools | read, edit/write, bash | The file and shell tools Amp exposes for the selected model, such as edit_file, create_file and shell_command | Use the exposed file and shell tools |
+| Task / spawn a worker | Agent, or Task on older sessions | spawn_agent when exposed | subagent extension only when installed and exposed | Task; create_thread for a separately owned task, another machine, or another model | Native subagent tool when exposed |
+| Resume / drain workers | Agent resume and task-output tools available in session | followup_task or resume equivalent; wait_agent, messages, status tools as exposed | Extension's documented lifecycle | Task with the worker's `id` continues it; `mode: async` results arrive as a message; subagent_stop; for threads, send_thread_message, wait_for_threads, read_thread | Runtime's documented lifecycle |
+| AskQuestion | AskUserQuestion when exposed | request_user_input_async or request_user_input when allowed in the active mode | Extension UI when exposed | ask_user_choice, within the limits its description sets | Available structured question tool |
+| TodoWrite / todolist | TodoWrite or task tools | update_plan when exposed | Extension plan tool | No plan tool: a Markdown checklist, or an artifact document for a plan the user reviews | Native plan tool |
 
 When a question or plan tool is absent, use a concise question in chat or a
 Markdown checklist. Never invent tool calls or pass Cursor fields to a foreign
@@ -62,6 +62,47 @@ label the result a single-agent review. Independent verification remains
 unfulfilled where the playbook requires it. Do not describe sequential work as
 parallel or independently reviewed. Do not launch other agent CLIs to bypass
 the host's delegation restrictions.
+
+## Amp
+
+- Skills: Amp discovers the linked skills in `~/.agents/skills` and loads one
+  with its `skill` tool. It also reads `~/.claude/skills`, but the first skill
+  with a name wins, so the second link set adds no duplicates. A user invokes a
+  skill by naming it in the prompt, as in "use the pstack skill to ...". Amp has
+  no slash command for skills. `reload_skills` or a new thread picks up a sync;
+  `amp skills list` shows where each skill came from.
+- Models: Task subagents run the thread's model and reasoning effort and take no
+  model override. When the `amp` models file names a model for a role, run
+  that role as a thread through create_thread with its `model` (and `effort`
+  where the model supports it); list_agent_modes lists the choices. Otherwise
+  use separate Task role prompts and report the reduced diversity. Plugin
+  agents such as `@amp/oracle` run the model set in their plugin file.
+- Threads: create_thread starts a separate thread, by default in a new orb with
+  its own checkout of the project's default branch, or on a named runner. It
+  does not see this thread's uncommitted work: send files with
+  upload_thread_file, pull them back with download_thread_changes, and ask the
+  thread to report with send_thread_message to this thread's ID. This is the
+  documented remote execution service the cloud agent mapping below refers to.
+- Control: `control-cli` runs commands with shell_command and drives a TUI in a
+  tmux session. `control-ui` uses agent-browser (load `using-agent-browser`) for
+  web UI and the Mac satellite (mac_sidecar, mac_shell) for Xcode and the iOS
+  Simulator. Inspect captures with view_media.
+- Persistent state: an idle orb can be deleted, and the next message restores
+  only the thread's git changes and `.amp/in/orb-backup/`. In an orb, keep a
+  task store that must survive under `.amp/in/orb-backup/pstack/` instead of
+  `XDG_STATE_HOME`; a local CLI session keeps the usual path. Artifacts hold
+  reports and plans people read and comment on.
+- Automation: a recurring audit or `/loop 1h` becomes the thread's schedule
+  (load `building-schedules`; one schedule per thread). Event wake-ups use Amp's
+  GitHub, GitLab and Linear subscriptions, found with tool_search. A webhook is a
+  plugin's `amp.createWebhook`, which works only in orb threads (load
+  `creating-webhooks`). Secrets go in Amp's project or personal secrets, never
+  in the thread.
+- Amp can also be a role the pair, trio and kitchen start in a pane
+  (`kind = "amp"`); read [the Amp adapter](../../pstack-pair/references/amp-sidekick.md).
+- MCP servers and deferred Amp tools are reached through tool_search and
+  code_exec. Painter generates images; diagrams and charts go in a visual
+  artifact (load `creating-artifacts`).
 
 ## Editor and service features
 
@@ -92,8 +133,9 @@ the host's delegation restrictions.
   prove an interaction works.
 - `create-skill` means the installed skill-authoring guidance, or standard
   SKILL.md with name, description, steps, and linked references. Project skills
-  go in `.agents/skills` for Codex/Pi, `.claude/skills` for Claude, or
+  go in `.agents/skills` for Codex/Pi/Amp, `.claude/skills` for Claude, or
   `.grok/skills` for Grok unless the repository already defines a shared location.
+  On Amp, the built-in `building-skills` skill is the authoring guidance.
 - `deslop` means review the actual diff for redundant code, unnecessary guards,
   and irrelevant changes, then apply the no-comments and unslop workflows.
   `cursor-team-kit` is not a dependency. Use repository checks in place of IDE
@@ -109,7 +151,11 @@ stores JSONL under `~/.claude/projects`; Codex under `$CODEX_HOME/sessions`, or
 `~/.codex/sessions`; Pi under `~/.pi/agent/sessions`. Discover the actual session
 file from host metadata or workspace fields before opening message bodies.
 For Grok, prefer its session tooling or an explicit export; do not assume a
-Cursor-compatible schema or filesystem path. On generic agents, use the current
+Cursor-compatible schema or filesystem path. Amp keeps threads on its server,
+not in local files: the current thread's URL is in the session environment;
+read another thread with read_thread, find one with find_thread (through
+tool_search), or export one with `amp threads markdown T-...` or
+`amp threads export T-...`. On generic agents, use the current
 conversation or an explicitly supplied transcript.
 
 All mentions of `~/.cursor/projects`, `agent-transcripts`, Cursor project slugs,

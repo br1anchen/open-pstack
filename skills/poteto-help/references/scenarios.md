@@ -2,7 +2,8 @@
 
 This guide uses the installed skills and playbooks as its executable source of
 truth. Prompts below use Claude/Grok syntax. In Codex replace `/skill-name` with
-`$skill-name`; in Pi use `/skill:skill-name`. Plain requests to use a named skill
+`$skill-name`; in Pi use `/skill:skill-name`; in Amp name the skill, as in
+"use the skill-name skill". Plain requests to use a named skill
 also work when the host supports discovery.
 
 ## What the two articles contribute

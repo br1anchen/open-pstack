@@ -1,6 +1,6 @@
 # open-pstack
 
-Pstack skills for coding agents (Claude Code, Codex, Pi, Grok Build), with the
+Pstack skills for coding agents (Claude Code, Codex, Pi, Grok Build, Amp), with the
 local multi-agent workflows built on them: `pstack-pair`, `pstack-trio` and
 `pstack-kitchen` over Herdr or [Rex](skills/pstack-pair/references/rex.md). It needs no particular package or dotfile
 manager: [Install and update](#install-and-update) links the skills from a
@@ -17,6 +17,7 @@ scripts, and MIT license. Start with the
 | Codex | `$poteto-help ...` | `$pstack ...` or `$poteto-mode ...` |
 | Pi | `/skill:poteto-help ...` | `/skill:pstack ...` |
 | Grok Build | `/poteto-help ...` | `/pstack ...` |
+| Amp | `use the poteto-help skill: ...` | `use the pstack skill to ...` or `use the poteto-mode skill to ...` |
 | Other agent | Read `poteto-help/SKILL.md` | Read `pstack/SKILL.md` |
 
 `poteto-mode` is upstream's execution router. `poteto-help` is upstream's
@@ -70,8 +71,9 @@ artwork are not runtime dependencies.
 `~/.claude/skills`, and `~/.grok/skills`.
 Existing directory-wide aliases are respected; `--apply` moves the pstack skill
 links that earlier installs made in `~/.pi/agent/skills` (to any copy of
-pstack, or dangling) into its backup, since pi now reads the shared path. Codex, pi and generic Agent Skills
-consumers use the shared `.agents` path. Grok also supports that shared path;
+pstack, or dangling) into its backup, since pi now reads the shared path. Codex, pi, Amp and generic Agent Skills
+consumers use the shared `.agents` path; Amp also reads `~/.claude/skills`, but
+the first skill with a name wins, so it lists each pstack skill once. Grok also supports that shared path;
 its native links support installations that use only native discovery.
 
 From a checkout, the links point at the working tree, so edits are live:

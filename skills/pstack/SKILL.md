@@ -1,6 +1,6 @@
 ---
 name: pstack
-description: "Use pstack for rigorous coding, debugging, review, or sustained engineering work in Claude Code, Codex, Pi, Grok Build, or another coding agent."
+description: "Use pstack for rigorous coding, debugging, review, or sustained engineering work in Claude Code, Codex, Pi, Grok Build, Amp, or another coding agent."
 ---
 
 # Pstack
