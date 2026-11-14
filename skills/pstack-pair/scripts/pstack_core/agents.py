@@ -51,7 +51,8 @@ def permission_args(kind, mode):
 
 
 def asks_no_approvals(kind, mode):
-    return kind in ('pi', 'prime-agent') and mode != 'plan'
+    # Amp runs every tool without asking and has no read-only flag, so only a plan mode is left untranslated.
+    return kind in ('pi', 'prime-agent', 'amp') and mode != 'plan'
 
 
 def trust_args(kind):
@@ -177,7 +178,7 @@ def has_permission_arg(args):
 
 
 def has_preflight(kind):
-    return kind in ('pi', 'prime-agent', 'muse')
+    return kind in ('pi', 'prime-agent', 'muse', 'amp')
 
 
 def timeout_s():
@@ -231,6 +232,41 @@ def preflight_muse(args):
     if r.returncode == 0 and 'OK' in out:
         return 0
     sys.stderr.write('\n'.join(out.split('\n')[-5:]) + '\n')
+    return 1
+
+
+def preflight_amp(args):
+    """One `amp -x` prompt with the role's model and settings flags; Amp archives the thread it makes. -x comes last because it reads the message
+    from the token right after it."""
+    parsed = read(
+        args,
+        Spec(
+            valued=(
+                '--model',
+                '-m',
+                '--mode',
+                '--effort',
+                '--features',
+                '--settings-file',
+            ),
+            flags=('--fast',),
+            unknown='collect',
+            dangling='drop',
+        ),
+    )
+    kept = [token for pair in parsed.occurrences for token in pair if token is not None]
+    r = with_timeout(
+        timeout_s(),
+        ['amp', *kept, '-x', 'Reply with exactly: OK'],
+        cwd='/tmp',
+        stdin=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
+    out = r.stdout.rstrip('\n')
+    if r.returncode == 0 and 'OK' in out:
+        return 0
+    timed_out = [f'amp timed out after {timeout_s()}s'] if r.returncode == 124 else []
+    sys.stderr.write(' '.join(timed_out + last_lines(out, 3)) + '\n')
     return 1
 
 
@@ -326,4 +362,6 @@ def preflight_kind(kind, args):
         return preflight_prime(args)
     if kind == 'muse':
         return preflight_muse(args)
+    if kind == 'amp':
+        return preflight_amp(args)
     return preflight_pi(args)

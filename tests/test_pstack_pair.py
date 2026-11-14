@@ -1975,6 +1975,62 @@ esac
             ['--yolo', '--model', 'muse-spark-1.3'],
         )
 
+    def test_amp_starts_with_its_own_arguments_and_only_a_plan_mode_goes_untranslated(
+        self,
+    ):
+        # Amp asks before no tool, so any mode but plan needs no flag; it has no read-only flag for plan.
+        for permission, recorded, warned in (
+            ('bypassPermissions', 'bypassPermissions', False),
+            ('auto', 'auto', False),
+            ('plan', 'untranslated', True),
+        ):
+            with self.subTest(permission):
+                out = self.run_command(
+                    'spawn',
+                    str(self.store),
+                    '--kind',
+                    'amp',
+                    '--permission',
+                    permission,
+                    '--',
+                    '--model',
+                    'anthropic/claude-opus-5-5',
+                )
+                sidekick = self.state()['sidekick']
+                self.assertEqual(
+                    (sidekick['kind'], sidekick['start_args']),
+                    ('amp', ['--model', 'anthropic/claude-opus-5-5']),
+                )
+                self.assertEqual(sidekick['permission_mode'], recorded)
+                self.assertEqual(
+                    'no permission translation for kind amp' in out, warned
+                )
+                # The agent leaves, so the next spawn starts it again.
+                (self.fake / 'agents/demo-sidekick').unlink()
+        # Each start first asked Amp for an answer with the role's model; -x comes last, as Amp reads the message right after it.
+        self.assertEqual(
+            (self.fake / 'amp.log').read_text().splitlines(),
+            ['--model anthropic/claude-opus-5-5 -x Reply with exactly: OK'] * 3,
+        )
+
+    def test_an_amp_that_cannot_answer_fails_over_at_spawn(self):
+        (self.fake / 'amp-fail').write_text('Error: Unknown model provider: nope\n')
+        out = self.run_command(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'amp',
+            '--fallback',
+            'codex',
+            '--',
+            '--model',
+            'nope/nope',
+        )
+        self.assertIn('failover: amp -> codex', out)
+        sidekick = self.state()['sidekick']
+        self.assertEqual(sidekick['kind'], 'codex')
+        self.assertIn('Unknown model provider', sidekick['failovers'][0]['reason'])
+
     def test_failed_preflight_without_fallback_starts_nothing(self):
         (self.fake / 'pi-fail').write_text('No API key found for devin.\n')
         self.spawn_pi(code=2)

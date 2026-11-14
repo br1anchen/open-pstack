@@ -188,7 +188,7 @@ the steer's Direction cites the advice path.
 
 ## Task sessions of every kind
 
-A sidekick of any kind (Claude, Codex, Devin, pi, Prime, Muse) uses a fresh conversation for each completed brief. Before
+A sidekick of any kind (Claude, Codex, Devin, pi, Prime, Muse, Amp) uses a fresh conversation for each completed brief. Before
 spawning, queueing, rotating, or cleaning its storage, read
 [the Devin session lifecycle](../pstack-pair/references/devin-sessions.md) for Devin or Pi,
 or [the Prime adapter](../pstack-pair/references/prime-sidekick.md) for Prime. Partial and blocked work stays in

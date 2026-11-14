@@ -196,7 +196,8 @@ class Subagents(Mux):
         return 0, ''
 
     def key(self, name, key, stderr=DEVNULL):
-        if key == 'ctrl+d':
+        # Prime's and Amp's exits are keys.
+        if key in ('ctrl+d', 'ctrl+c'):
             self.end(name)
         return True
 

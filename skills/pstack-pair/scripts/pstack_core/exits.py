@@ -18,6 +18,10 @@ def exit_command(kind):
     return '/quit' if kind in ('pi', 'prime-agent', 'codex', 'muse') else '/exit'
 
 
+# Kinds that quit on keys rather than a command: Amp sends a typed /exit to its model as a message, and two Ctrl+C presses quit it, mid-turn too.
+EXIT_KEYS = {'amp': ('ctrl+c', 'ctrl+c')}
+
+
 def exit_deadline():
     """The epoch second an exit may last until: now plus 15 s (PAIR_EXIT_DEADLINE_S)."""
     return int(time.time()) + env_int('PAIR_EXIT_DEADLINE_S', 15)
@@ -51,11 +55,16 @@ def end_agent(name, kind, deadline):
     """Sends the kind's exit command and waits until the agent is absent or the epoch second `deadline` passes, answering Claude's exit dialog
     meanwhile. (error, gone): error is the text of an exit command the multiplexer refused ('' for one it took or whose agent was already gone), and an
     agent that was refused is not waited on. A refusal with agent_not_ready means the pane is already back at its shell and the multiplexer has not
-    dropped the agent yet: the wait goes on, and the agent counts as exited only once it no longer lists it."""
-    r = mux.get().prompt(name, exit_command(kind), stderr=MERGED)
-    err = r.out.rstrip('\n')
-    if not r.ok and not TOLERATED.search(err) and r.error != NOT_READY:
-        return err, False
+    dropped the agent yet: the wait goes on, and the agent counts as exited only once it no longer lists it. A kind in EXIT_KEYS gets its keys instead,
+    and a key that does not land is left to the wait."""
+    if kind in EXIT_KEYS:
+        for key in EXIT_KEYS[kind]:
+            mux.get().key(name, key)
+    else:
+        r = mux.get().prompt(name, exit_command(kind), stderr=MERGED)
+        err = r.out.rstrip('\n')
+        if not r.ok and not TOLERATED.search(err) and r.error != NOT_READY:
+            return err, False
     while agent_status(name) != 'absent':
         if int(time.time()) >= deadline:
             return '', False

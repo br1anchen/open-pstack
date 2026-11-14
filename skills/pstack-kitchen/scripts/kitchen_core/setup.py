@@ -247,7 +247,7 @@ def consultant(ctx, args):
     kind, native, fallback, fb_args = consultant_agents(kind, native)
     if not kind:
         raise Die('no --kind and no [consultant] kind in the host roster')
-    # A consultant whose kind has a preflight (Muse, pi, Prime) is checked before its pane starts, as the sidekick is: a logged-out account or a
+    # A consultant whose kind has a preflight (Muse, Amp, pi, Prime) is checked before its pane starts, as the sidekick is: a logged-out account or a
     # spent plan starts the roster's [consultant.fallback] instead.
     if (
         agents.has_preflight(kind)

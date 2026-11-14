@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Fake Amp CLI for pair.sh tests: the headless preflight (`amp ... -x <message>`).
+# Every call is logged; $FAKE/amp-fail holds the error an account that cannot
+# answer prints.
+set -u
+: "${FAKE:?}"
+printf '%s\n' "$*" >>"$FAKE/amp.log"
+for arg in "$@"; do
+	[ "$arg" = -x ] || continue
+	if [ -s "$FAKE/amp-fail" ]; then cat "$FAKE/amp-fail"; exit 1; fi
+	printf 'OK\n'; exit 0
+done
+printf 'fake amp: unhandled %s\n' "$*" >&2; exit 2

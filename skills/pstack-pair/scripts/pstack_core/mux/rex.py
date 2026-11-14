@@ -596,4 +596,4 @@ class Rex(Mux):
         return 'rex block ls'
 
     def list_kinds(self):
-        return 'command -v claude codex pi devin muse prime-agent'
+        return 'command -v claude codex pi devin muse prime-agent amp'

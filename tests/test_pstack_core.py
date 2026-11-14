@@ -17462,13 +17462,15 @@ class CoreTests(unittest.TestCase):
         )
 
     def test_rotate_exits_and_respawns_every_kind_a_sidekick_can_be(self):
-        for kind, exit_line in (
-            ('claude', '/exit'),
-            ('codex', '/quit'),
-            ('devin', '/exit'),
-            ('pi', '/quit'),
-            ('muse', '/quit'),
-            ('prime-agent', '/quit'),
+        for kind, exit_call in (
+            ('claude', 'agent prompt s1 /exit'),
+            ('codex', 'agent prompt s1 /quit'),
+            ('devin', 'agent prompt s1 /exit'),
+            ('pi', 'agent prompt s1 /quit'),
+            ('muse', 'agent prompt s1 /quit'),
+            ('prime-agent', 'agent prompt s1 /quit'),
+            # Amp takes a typed /exit as a message; two Ctrl+C presses quit it.
+            ('amp', 'agent send-keys s1 ctrl+c\nagent send-keys s1 ctrl+c'),
         ):
             with self.subTest(kind):
                 type(self).port_runs += 1
@@ -17481,7 +17483,7 @@ class CoreTests(unittest.TestCase):
                 self.assertEqual(got['rc'], 0, got['stderr'])
                 self.assertIn(f'sidekick s1 ({kind}) started in p1', got['stdout'])
                 self.assertIn(f'agent start s1 --kind {kind} --pane p1', got['calls'])
-                self.assertIn(f'agent prompt s1 {exit_line}', got['calls'])
+                self.assertIn(exit_call, got['calls'])
 
     def test_steer_refuses_and_reports_what_a_caller_reads(self):
         cases = self.steer_cases()

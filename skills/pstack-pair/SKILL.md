@@ -161,7 +161,7 @@ not continuously, and corrects direction, not keystrokes.
 
 ## Task sessions of every kind
 
-A sidekick of any kind (Claude, Codex, Devin, pi, Prime, Muse) uses a fresh conversation for each completed brief. Before
+A sidekick of any kind (Claude, Codex, Devin, pi, Prime, Muse, Amp) uses a fresh conversation for each completed brief. Before
 spawning, queueing, rotating, or cleaning its storage, read
 [the Devin session lifecycle](references/devin-sessions.md) for Devin or Pi,
 or [the Prime adapter](references/prime-sidekick.md) for Prime. Partial and blocked work stays in
@@ -175,6 +175,11 @@ pstack store persists across sessions.
 Use `--kind muse` for any role. Read [the Muse adapter](references/muse-sidekick.md)
 for its permission, trust, preflight and exit handling. Muse keeps one
 conversation per pane, so it is not rotated per brief.
+
+## Amp
+
+Use `--kind amp` for any role. Read [the Amp adapter](references/amp-sidekick.md)
+for its permissions, preflight, exit keys and steering.
 
 ## Prime Agent
 

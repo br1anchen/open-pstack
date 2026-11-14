@@ -70,7 +70,8 @@ case "$1 $2" in
 		grep -qx stays "$FAKE/exit-not-ready/$name" || rm -f "$FAKE/agents/$name"
 		printf '{"error":{"code":"agent_not_ready","message":"no longer the pane foreground process"}}\n' >&2; exit 1
 	fi
-	if [ "$text" = /exit ] || [ "$text" = /quit ]; then
+	# Amp takes a typed /exit or /quit as a message to its model and stays; two Ctrl+C presses quit it (see agent send-keys).
+	if { [ "$text" = /exit ] || [ "$text" = /quit ]; } && [ "$(kind_of "$name")" != amp ]; then
 		# $FAKE/exit-dialog/<name>: Claude's background-work dialog (the file's text) stays up and the agent with it until Enter is sent.
 		# $FAKE/exit-stuck/<name>: the exit command is taken but the agent stays, its screen shows no dialog, and it leaves on the Nth
 		# `agent read` after the command (N is the file's number).
@@ -141,6 +142,12 @@ case "$1 $2" in
 	fi
 	if [ "${4:-}" = ctrl+d ] && [ "$(kind_of "$3")" = prime-agent ]; then
 		rm -f "$FAKE/agents/$3"; printf '{}\n'; exit 0
+	fi
+	if [ "${4:-}" = ctrl+c ] && [ "$(kind_of "$3")" = amp ]; then
+		# The first press arms Amp's quit, the second quits it.
+		mkdir -p "$FAKE/amp-ctrl-c"
+		if [ -e "$FAKE/amp-ctrl-c/$3" ]; then rm -f "$FAKE/agents/$3" "$FAKE/amp-ctrl-c/$3"; else : >"$FAKE/amp-ctrl-c/$3"; fi
+		printf '{}\n'; exit 0
 	fi
 	if [ "${4:-}" = enter ] && [ -s "$FAKE/stalled/$3" ]; then
 		text="$(cat "$FAKE/stalled/$3")"; rm -f "$FAKE/stalled/$3"

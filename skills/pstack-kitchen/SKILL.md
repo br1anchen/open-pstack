@@ -105,6 +105,10 @@ To use Muse Code, set `kind = "muse"` in any roster entry with Muse-native
 `args` (for example `["--model", "muse-wonder-full"]`); read
 [the Muse adapter](../pstack-pair/references/muse-sidekick.md).
 
+To use Amp, set `kind = "amp"` in any roster entry with Amp-native `args`
+(for example `["--model", "anthropic/claude-opus-5-5"]`); read
+[the Amp adapter](../pstack-pair/references/amp-sidekick.md).
+
 To use Prime Agent, set `kind = "prime-agent"` in `[sidekick]`,
 `[consultant]`, or a verifier entry, with Prime-native `args`. Read
 [the Prime adapter](../pstack-pair/references/prime-sidekick.md). Each verifier
