@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Fake hc (herdr-core) for the herdr-core backend's tests. State lives in $FAKE/hc/terms/<address>/: `name`, `cwd`, `argv` (one word a line),
+# `live` (present while the terminal runs), `agent` (the program exec'd into its shell), `status` ("state app", what it reports; absent: a
+# null status), `queue` (states the next get or ls calls report, one per call; each settled one ends a turn), `turn`, `labels` (k=v lines),
+# `screen` and `typed`. Addresses count up in $H/count and are never reused. Every call is logged to $FAKE/calls.log as "hc ...".
+set -u
+: "${FAKE:?}"
+H="$FAKE/hc"
+mkdir -p "$H/terms"
+printf 'hc %s\n' "$*" >>"$FAKE/calls.log"
+# $FAKE/once/hc-<command>: a script run once, at the next call of that command, so a test changes state at a set point.
+if [ -x "$FAKE/once/hc-$1" ]; then
+	mv "$FAKE/once/hc-$1" "$FAKE/once/hc-$1.ran"
+	"$FAKE/once/hc-$1.ran"
+fi
+fail() { printf 'hc: %s\n' "$1" >&2; exit "${2:-1}"; }
+# The directory of the terminal an address or an hc name refers to.
+find_term() {
+	[ -d "$H/terms/$1" ] && { printf '%s' "$H/terms/$1"; return; }
+	for d in "$H"/terms/*/; do [ -f "$d/name" ] && [ "$(cat "$d/name")" = "$1" ] && { printf '%s' "${d%/}"; return; }; done
+	return 1
+}
+need() { d="$(find_term "$1")" || fail "no terminal $1"; }
+# The next queued state of a terminal, as a look at it would see it.
+advance() {
+	local d="$1"
+	[ -s "$d/queue" ] && [ -f "$d/status" ] || return 0
+	read -r _ app <"$d/status"; next="$(head -1 "$d/queue")"; tail -n +2 "$d/queue" >"$d/queue.tmp"; mv "$d/queue.tmp" "$d/queue"
+	printf '%s %s\n' "$next" "$app" >"$d/status"
+	[ "$next" = working ] || echo $(( $(cat "$d/turn") + 1 )) >"$d/turn"
+}
+json_of() {
+	local d="$1" status=null labels="" argv="" state=finished
+	[ -f "$d/live" ] && state=live
+	if [ -f "$d/status" ]; then read -r st app <"$d/status"; status="{\"state\":\"$st\",\"app\":\"$app\"}"; fi
+	while IFS='=' read -r k v; do labels="$labels${labels:+,}\"$k\":\"$v\""; done <"$d/labels"
+	while IFS= read -r a; do argv="$argv${argv:+,}\"$a\""; done <"$d/argv"
+	printf '{"address":"%s","name":"%s","argv":[%s],"cwd":"%s","labels":{%s},"state":"%s","status":%s,"turn":%s}' \
+		"$(basename "$d")" "$(cat "$d/name")" "$argv" "$(cat "$d/cwd")" "$labels" "$state" "$status" "$(cat "$d/turn")"
+}
+finish() { rm -f "$1/live" "$1/status" "$1/queue"; }
+case "$1" in
+run)
+	[ ! -e "$H/run-fail" ] || fail 'run failed'
+	shift; name='' cwd=/
+	while [ $# -gt 0 ]; do case "$1" in --name) name="$2"; shift 2 ;; --cwd) cwd="$2"; shift 2 ;; --) shift; break ;; *) shift ;; esac; done
+	n=$(( $(cat "$H/count" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$H/count"; d="$H/terms/t$n"; mkdir -p "$d"
+	printf '%s' "$name" >"$d/name"; printf '%s' "$cwd" >"$d/cwd"; printf '%s\n' "$@" >"$d/argv"
+	: >"$d/labels"; echo 0 >"$d/turn"; touch "$d/live"
+	json_of "$d"; echo ;;
+ls)
+	out=""; for d in "$H"/terms/*/; do [ -d "$d" ] || continue; d="${d%/}"; advance "$d"; out="$out${out:+,}$(json_of "$d")"; done
+	printf '{"terminals":[%s],"hidden_finished":0,"machines":[]}\n' "$out" ;;
+get) need "$2"; advance "$d"; json_of "$d"; echo ;;
+label) need "$2"; k="${3%%=*}"; grep -v "^$k=" "$d/labels" >"$d/labels.tmp"; printf '%s\n' "$3" >>"$d/labels.tmp"; mv "$d/labels.tmp" "$d/labels" ;;
+read) need "$2"; if [ -f "$d/screen" ]; then cat "$d/screen"; else printf 'terminal text\n'; fi ;;
+send)
+	need "$2"; [ -f "$d/live" ] || fail "terminal $2 finished"
+	text="${*: -1}"; printf '%s\n' "$text" >>"$d/typed"
+	if [ ! -f "$d/agent" ]; then
+		# Typed at the shell: `exec PROGRAM ...` replaces it with the agent. $H/start-state is the state it opens in (idle by default; "none":
+		# it reports no state); $H/start-exits: it exits at once, which finishes the terminal.
+		line="${text#nocorrect }"
+		case "$line" in exec\ *)
+			line="${line#exec }"; prog="${line%% *}"; printf '%s' "$prog" >"$d/agent"
+			if [ -e "$H/start-exits" ]; then finish "$d"; exit 0; fi
+			st="$(cat "$H/start-state" 2>/dev/null || echo idle)"; app="$prog"; [ "$app" != claude ] || app=claude-code
+			[ "$st" = none ] || printf '%s %s\n' "$st" "$app" >"$d/status" ;;
+		esac
+	elif [ "$text" = /exit ] || [ "$text" = /quit ]; then finish "$d"
+	elif [ ! -e "$H/swallow" ]; then
+		# A prompt the agent takes: its turn is $H/turn's states, one per look (working then done by default).
+		if [ -f "$d/status" ]; then cat "$H/turn" 2>/dev/null >"$d/queue" || printf 'working\ndone\n' >"$d/queue"; fi
+		agent="$(grep '^pstack.agent=' "$d/labels" | cut -d= -f2-)"
+		[ -x "$FAKE/hook" ] && "$FAKE/hook" "$agent" "$text"
+	fi
+	printf '{"turn":%s,"started":true}\n' "$(cat "$d/turn")" ;;
+keys) need "$2"; [ "$3" != ctrl+d ] || [ ! -f "$d/agent" ] || finish "$d" ;;
+kill) need "$2"; finish "$d" ;;
+rm) need "$2"; [ ! -f "$d/live" ] || fail "terminal $2 is live" 4; rm -rf "$d" ;;
+*) fail "fake hc: unhandled $*" 2 ;;
+esac
+exit 0

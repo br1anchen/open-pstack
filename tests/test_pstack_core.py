@@ -7,6 +7,7 @@ import errno
 import functools
 import inspect
 import io
+import itertools
 import json
 import os
 import re
@@ -80,6 +81,7 @@ from pstack_core.errors import (  # noqa: E402
     translate,
 )
 from pstack_core.mux import herdr as herdr_mux  # noqa: E402
+from pstack_core.mux import herdr_core as hc_mux  # noqa: E402
 from pstack_core.mux import rex as rex_mux  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 from pstack_core.variant import Variant, load_module, load_skill_variant  # noqa: E402
@@ -92,6 +94,7 @@ LEAKED_PREFIXES = (
     'PAIR_',
     'HERDR_',
     'REX_',
+    'HC_',
     'PSTACK_MUX',
     'PSTACK_SCRATCH_ROOT',
 )
@@ -18676,8 +18679,8 @@ class MuxSeamTests(unittest.TestCase):
                     if isinstance(node, ast.Constant)
                     and isinstance(node.value, str)
                     and (
-                        node.value in ('herdr', 'rex')
-                        or node.value.startswith(('HERDR_', 'REX_'))
+                        node.value in ('herdr', 'rex', 'hc')
+                        or node.value.startswith(('HERDR_', 'REX_', 'HC_'))
                     )
                 ]
         self.assertEqual(stray, [])
@@ -19218,6 +19221,295 @@ class RexMuxTests(unittest.TestCase):
         self.assertEqual(self.rex.outside_env(), {'REX_BLOCK': '', 'REX_SESSION': ''})
         self.assertEqual(self.rex.own_pane(), 'block:me')
         self.assertFalse(self.rex.notify('t', 'b'))
+
+
+class HerdrCoreMuxTests(unittest.TestCase):
+    """The herdr-core backend against the fake hc: a pane is a headless terminal, an agent is exec'd into its shell and named by a terminal
+    label, and its status is what it reports to hc, or its screen when it reports nothing."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.fake = Path(tmp.name) / 'fake'
+        (self.fake / 'hc').mkdir(parents=True)
+        env = {
+            'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
+            'FAKE': str(self.fake),
+            'PAIR_HC_POLL_S': '0',
+            'PAIR_HC_STALL_S': '0',
+            'HC_TERMINAL_ID': 't0',
+            'SHELL': '/bin/zsh',
+        }
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.hc = hc_mux.HerdrCore()
+
+    def h(self, name):
+        return self.fake / 'hc' / name
+
+    def term(self, address='t1'):
+        return self.h('terms') / address
+
+    def calls(self):
+        return (self.fake / 'calls.log').read_text().splitlines()
+
+    def started(self, kind='claude', args=('--model', 'm')):
+        pane = self.hc.split('t0', 'right', '/w')
+        return pane, self.hc.start('s1', kind, pane, list(args))
+
+    def test_choose_takes_hc_terminal_id_after_herdr_and_rex(self):
+        choose = lambda env: type(mux.choose(env)).__name__
+        self.assertEqual(choose({'HC_TERMINAL_ID': 't1'}), 'HerdrCore')
+        self.assertEqual(choose({'HC_TERMINAL_ID': 't1', 'HERDR_ENV': '1'}), 'Herdr')
+        self.assertEqual(choose({'HC_TERMINAL_ID': 't1', 'REX_BLOCK': 'b'}), 'Rex')
+        self.assertEqual(
+            choose({'PSTACK_MUX': 'herdr-core', 'HERDR_ENV': '1'}), 'HerdrCore'
+        )
+        self.assertEqual(
+            choose({'PSTACK_MUX': 'herdr', 'HC_TERMINAL_ID': 't1'}), 'Herdr'
+        )
+        self.assertEqual(
+            type(mux.choose({'HC_TERMINAL_ID': 't1'}, True)).__name__, 'HerdrCore'
+        )
+        with self.assertRaises(PairError) as refused:
+            mux.choose({'PSTACK_MUX': 'hc'})
+        self.assertEqual(
+            str(refused.exception),
+            'PSTACK_MUX must be herdr, rex, herdr-core or subagents, not hc',
+        )
+
+    def test_require_refuses_outside_an_hc_terminal(self):
+        self.hc.require()
+        with mock.patch.dict(os.environ, {'HC_TERMINAL_ID': ''}):
+            with self.assertRaises(NotInMux) as caught:
+                self.hc.require()
+        self.assertEqual(
+            str(caught.exception),
+            'not running inside herdr-core (HC_TERMINAL_ID unset)',
+        )
+
+    def test_the_calling_terminal_has_no_workspace_or_tab_and_marks_its_processes(
+        self,
+    ):
+        self.assertEqual(self.hc.own_pane(), 't0')
+        self.assertEqual(self.hc.location(), ('', ''))
+        self.assertEqual(self.hc.pane_env('t3', {}), ['HC_TERMINAL_ID=t3'])
+        self.assertEqual(self.hc.outside_env(), {'HC_TERMINAL_ID': ''})
+
+    def test_split_and_tab_start_a_named_terminal_running_the_login_shell_with_the_env(
+        self,
+    ):
+        self.assertEqual(self.hc.split('t0', 'down', '/w', ('A=1',)), 't1')
+        self.assertRegex(
+            self.calls()[-1],
+            r'^hc run --bg --name pstack-[0-9a-f]{12} --cwd /w --json -- env A=1 /bin/zsh -l$',
+        )
+        self.assertEqual(self.hc.tab('t1', 'demo-sidekick', '/v'), 't2')
+        self.assertRegex(
+            self.calls()[-1],
+            r'^hc run --bg --name pstack-[0-9a-f]{12} --cwd /v --json -- /bin/zsh -l$',
+        )
+        self.h('run-fail').touch()
+        self.assertEqual(self.hc.split('t0', 'right', '/w'), '')
+
+    def test_start_execs_the_kind_in_the_shell_and_labels_the_terminal_with_name_and_kind(
+        self,
+    ):
+        pane, r = self.started()
+        self.assertEqual((r.ok, r.error), (True, ''))
+        self.assertEqual(
+            self.calls()[1:5],
+            [
+                f'hc get {pane} --json',
+                'hc ls --json',
+                f'hc send {pane} -- nocorrect exec claude --model m',
+                f'hc label {pane} pstack.agent=s1',
+            ],
+        )
+        self.assertEqual(self.calls()[5], f'hc label {pane} pstack.kind=claude')
+        agent = self.hc.agent('s1')
+        self.assertEqual(
+            (
+                agent.name,
+                agent.kind,
+                agent.status,
+                agent.pane,
+                agent.cwd,
+                agent.session,
+            ),
+            ('s1', 'claude', 'idle', pane, '/w', None),
+        )
+        self.assertEqual(self.hc.agent(pane).name, 's1')
+
+    def test_start_types_the_plain_line_into_a_shell_other_than_zsh(self):
+        with mock.patch.dict(os.environ, {'SHELL': '/bin/bash'}):
+            self.started()
+        self.assertEqual((self.term() / 'typed').read_text(), 'exec claude --model m\n')
+
+    def test_start_refuses_a_terminal_where_an_agent_runs_and_a_name_held_elsewhere(
+        self,
+    ):
+        first, _ = self.started()
+        r = self.hc.start('s2', 'claude', first, [], stderr=mux.PIPE)
+        self.assertEqual((r.ok, r.error), (False, mux.PANE_BUSY))
+        other = self.hc.split('t0', 'right', '/w')
+        r = self.hc.start('s1', 'claude', other, [], stderr=mux.PIPE)
+        self.assertEqual((r.ok, r.error), (False, hc_mux.NAME_TAKEN))
+        self.assertEqual(
+            r.err, f'hc: agent_name_taken: a live agent in {first} is s1\n'
+        )
+        r = self.hc.start('s3', 'claude', 't9', [], stderr=mux.PIPE)
+        self.assertEqual((r.ok, r.error), (False, hc_mux.NOT_FOUND))
+
+    def test_an_agent_that_opens_blocked_or_on_a_silent_trust_dialog_is_not_ready(
+        self,
+    ):
+        self.h('start-state').write_text('blocked')
+        _, r = self.started()
+        self.assertEqual((r.ok, r.error), (False, mux.NOT_READY))
+        self.h('start-state').write_text('none')
+        pane = self.hc.split('t0', 'right', '/w')
+        (self.term(pane) / 'screen').write_text(
+            'Do you trust the files\nin this folder?\n'
+        )
+        r = self.hc.start('s2', 'codex', pane, [])
+        self.assertEqual((r.ok, r.error), (False, mux.NOT_READY))
+
+    def test_an_agent_that_exits_at_once_failed_to_start_and_is_absent(self):
+        self.h('start-exits').touch()
+        pane, r = self.started()
+        self.assertEqual((r.ok, r.error), (False, hc_mux.START_FAILED))
+        self.assertIsNone(self.hc.agent('s1'))
+        self.assertFalse(self.hc.pane_exists(pane))
+
+    def test_an_agent_that_reports_no_state_is_ready_once_its_screen_is_quiet(self):
+        self.h('start-state').write_text('none')
+        _, r = self.started('codex')
+        self.assertTrue(r.ok, r)
+        agent = self.hc.agent('s1')
+        self.assertEqual((agent.kind, agent.status), ('codex', 'idle'))
+
+    def test_a_silent_agent_counts_only_its_reports_until_the_stall_passes(self):
+        self.h('start-state').write_text('none')
+        pane = self.hc.split('t0', 'right', '/w')
+        # A clock that moves half a millisecond a reading: the 1ms start ends at the third, before the 60s stall would allow a screen read.
+        clock = itertools.count(0, 0.0005)
+        with (
+            mock.patch.dict(os.environ, {'PAIR_HC_STALL_S': '60'}),
+            mock.patch.object(hc_mux.time, 'monotonic', lambda: next(clock)),
+        ):
+            r = self.hc.start('s1', 'codex', pane, [], timeout_ms=1)
+        self.assertEqual((r.ok, r.error), (False, mux.TIMEOUT))
+        self.assertNotIn(f'hc read {pane}', self.calls())
+
+    def test_error_reads_blocked_and_a_reported_app_names_the_kind(self):
+        pane = self.hc.split('t0', 'right', '/w')
+        (self.term(pane) / 'status').write_text('error claude-code\n')
+        self.assertTrue(self.hc.rename(pane, 'demo-master'))
+        agent = self.hc.agent('demo-master')
+        self.assertEqual((agent.kind, agent.status), ('claude', 'blocked'))
+
+    def test_a_shell_terminal_holds_no_agent(self):
+        pane = self.hc.split('t0', 'right', '/w')
+        self.assertTrue(self.hc.pane_exists(pane))
+        self.assertIsNone(self.hc.agent(pane))
+        r = self.hc.prompt(pane, 'go', stderr=mux.MERGED)
+        self.assertEqual(r.error, mux.NOT_READY)
+        self.assertEqual(self.hc.wait(pane, timeout_ms=0).error, hc_mux.NOT_FOUND)
+
+    def test_prompt_sends_with_no_if_idle_after_a_done_turn(self):
+        self.started()
+        (self.term() / 'status').write_text('done claude-code\n')
+        r = self.hc.prompt('s1', '- fix the test')
+        self.assertEqual((r.ok, r.status), (True, 'done'))
+        self.assertEqual(self.calls()[-1], 'hc send t1 -- - fix the test')
+
+    def test_prompt_until_working_returns_when_the_agent_reports_working(self):
+        self.started()
+        r = self.hc.prompt('s1', 'go', wait=True, until='working', timeout_ms=0)
+        self.assertEqual((r.ok, r.status), (True, 'working'))
+
+    def test_a_turn_too_quick_to_be_seen_working_still_counts_by_the_turn_counter(self):
+        self.started()
+        self.h('turn').write_text('done\n')
+        r = self.hc.prompt('s1', 'go', wait=True, until='working', timeout_ms=1000)
+        self.assertEqual((r.ok, r.error), (True, ''))
+
+    def test_prompt_until_working_times_out_when_the_turn_is_never_seen(self):
+        self.started()
+        self.h('swallow').touch()
+        r = self.hc.prompt('s1', 'go', wait=True, until='working', timeout_ms=0)
+        self.assertEqual((r.ok, r.error), (False, mux.TIMEOUT))
+
+    def test_prompt_wait_follows_the_turn_until_it_settles(self):
+        self.started()
+        self.h('turn').write_text('working\nworking\nblocked\n')
+        r = self.hc.prompt('s1', 'go', wait=True, timeout_ms=1000)
+        self.assertEqual((r.ok, r.status), (True, 'blocked'))
+
+    def test_a_prompt_the_agent_never_takes_is_stalled(self):
+        self.started()
+        self.h('swallow').touch()
+        r = self.hc.prompt('s1', 'go', wait=True, timeout_ms=1000)
+        self.assertEqual((r.ok, r.error), (False, mux.STALLED))
+
+    def test_wait_returns_the_status_the_agent_reaches_or_times_out(self):
+        self.started()
+        self.assertEqual(self.hc.wait('s1', timeout_ms=0).status, 'idle')
+        self.h('turn').write_text('working\nworking\ndone\n')
+        self.hc.prompt('s1', 'go')
+        r = self.hc.wait('s1', timeout_ms=1000)
+        self.assertEqual((r.ok, r.status), (True, 'done'))
+        self.h('turn').write_text('working\n')
+        self.hc.prompt('s1', 'go')
+        r = self.hc.wait('s1', ('idle',), timeout_ms=0, stderr=mux.MERGED)
+        self.assertEqual((r.ok, r.error, r.status), (False, mux.TIMEOUT, 'working'))
+        self.assertEqual(r.out, 'hc: timeout: s1 still working after 0ms\n')
+
+    def test_an_exited_agent_finishes_its_terminal(self):
+        pane, _ = self.started()
+        self.hc.prompt('s1', '/exit')
+        self.assertIsNone(self.hc.agent('s1'))
+        self.assertFalse(self.hc.pane_exists(pane))
+        r = self.hc.prompt('s1', 'go', stderr=mux.MERGED)
+        self.assertEqual(r.error, hc_mux.NOT_FOUND)
+        self.assertEqual(r.out, 'hc: agent_not_found: no agent s1\n')
+
+    def test_rename_relabels_and_refuses_a_name_another_live_agent_holds(self):
+        pane, _ = self.started('codex')
+        self.assertTrue(self.hc.rename('s1', 'demo-sidekick'))
+        self.assertEqual(
+            self.calls()[-1], f'hc label {pane} pstack.agent=demo-sidekick'
+        )
+        self.assertIsNone(self.hc.agent('s1'))
+        self.assertEqual(self.hc.agent('demo-sidekick').kind, 'codex')
+        other = self.hc.split('t0', 'right', '/w')
+        self.assertFalse(self.hc.rename(other, 'demo-sidekick'))
+        self.assertFalse(self.hc.rename('t9', 'x'))
+
+    def test_terminals_are_read_keyed_and_closed_and_have_no_size_or_processes(self):
+        pane, _ = self.started()
+        (self.term() / 'screen').write_text('one\ntwo\nthree\n')
+        self.assertEqual(self.hc.pane_screen(pane, 2), (0, 'two\nthree\n'))
+        self.assertEqual(self.hc.screen('s1', 1), (0, 'three\n'))
+        self.assertTrue(self.hc.key('s1', 'esc'))
+        self.assertEqual(self.calls()[-1], f'hc keys {pane} esc')
+        self.assertIsNone(self.hc.pane_size(pane))
+        self.assertIsNone(self.hc.processes(pane))
+        self.assertTrue(self.hc.pane_close(pane))
+        self.assertEqual(self.calls()[-2:], [f'hc kill {pane}', f'hc rm {pane}'])
+        self.assertFalse(self.hc.pane_exists(pane))
+        self.assertFalse(self.hc.notify('t', 'b'))
+
+    def test_messages_name_the_hc_commands(self):
+        pane, _ = self.started()
+        self.assertEqual(
+            self.hc.inspect_agent('s1', 60), f'hc read {pane} | tail -n 60'
+        )
+        self.assertEqual(self.hc.inspect_pane(pane), f'hc read {pane}')
+        self.assertEqual(self.hc.list_agents(), 'hc ls')
+        self.assertFalse(self.hc.tracks_sessions)
 
 
 class AgentStartRetryTests(unittest.TestCase):

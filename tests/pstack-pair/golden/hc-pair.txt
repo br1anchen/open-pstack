@@ -1,0 +1,57 @@
+
+$ pair.sh init demo
+store: <T>/state/pstack/pair/demo (master demo-master in t0)
+standing orders: <T>/state/pstack/pair/demo/standing-orders.md
+[exit 0]
+  hc label t0 pstack.agent=demo-master
+
+$ pair.sh spawn <T>/state/pstack/pair/demo --kind claude --permission none
+split t0 right -> t1
+sidekick demo-sidekick (claude) started in t1 with permission native-args (master: auto)
+ready: <T>/state/pstack/pair/demo/reports/000-ready.md
+[exit 0]
+  hc run --bg --name pstack-<SHA> --cwd <T>/repo --json -- /bin/zsh -l
+  hc send t1 -- nocorrect exec claude --strict-mcp-config --mcp-config <SKILLS>/pstack-pair/scripts/../references/no-mcp.json
+  hc label t1 pstack.agent=demo-sidekick
+  hc label t1 pstack.kind=claude
+  hc send t1 -- Load the pstack-pair skill from ~/.agents/skills/pstack-pair/SKILL.md and take the sidekick role (generation 1, pane t1). Pair store: <T>/state/pstack/pair/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY.
+
+$ pair.sh discuss <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/plans/001-design.md
+state: done
+report: <T>/state/pstack/pair/demo/reports/001-design.md
+report_status: agree
+[exit 0]
+  hc send t1 -- pstack-pair PLAN <T>/state/pstack/pair/demo/plans/001-design.md
+
+$ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/002-build.md --timeout 3000
+state: done
+report: <T>/state/pstack/pair/demo/reports/002-build.md
+report_status: done
+[exit 0]
+  hc send t1 -- pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/002-build.md
+
+$ pair.sh status <T>/state/pstack/pair/demo
+# Pair status
+
+generated: <TS>
+master: demo-master (t0) working
+sidekick: demo-sidekick (t1) done
+
+| seq | kind | unit | report | review |
+|---|---|---|---|---|
+| 001 | plan | design | agree | agreed |
+| 002 | brief | build | done | none |
+
+latest report: <T>/state/pstack/pair/demo/reports/002-build.md
+[exit 0]
+
+$ pair.sh stop <T>/state/pstack/pair/demo --timeout 3000
+state: done
+report: <T>/state/pstack/pair/demo/reports/002-stop.md
+report_status: partial
+[exit 0]
+  hc send t1 -- pstack-pair STOP <T>/state/pstack/pair/demo
+
+labels:
+  t0 pstack.agent=demo-master
+  t1 pstack.agent=demo-sidekick pstack.kind=claude

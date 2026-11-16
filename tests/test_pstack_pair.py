@@ -99,6 +99,35 @@ class RexScriptTests(unittest.TestCase):
         self.check('trio')
 
 
+class HerdrCoreScriptTests(unittest.TestCase):
+    """tests/pstack-pair/hc-scenario.sh runs pair and trio on the herdr-core backend against fake hc; the transcript must match
+    golden/hc-<variant>.txt."""
+
+    def check(self, variant):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        env = inherited_env()
+        watch_jq(self, env)
+        out = subprocess.run(
+            [here / 'hc-scenario.sh', skills, variant],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=600,
+        ).stdout
+        golden = here / 'golden' / f'hc-{variant}.txt'
+        if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
+            golden.write_text(out)
+        self.assertEqual(out, golden.read_text())
+
+    def test_pair_on_herdr_core(self):
+        self.check('pair')
+
+    def test_trio_on_herdr_core(self):
+        self.check('trio')
+
+
 class DevinSessionTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
