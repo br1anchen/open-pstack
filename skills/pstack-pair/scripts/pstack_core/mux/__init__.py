@@ -1,6 +1,7 @@
-"""The multiplexer this process runs under, chosen once: the rest of pstack asks `mux.get()` and names no backend. PSTACK_MUX (herdr, rex
-or subagents) picks one; otherwise Herdr when HERDR_ENV=1, Rex when REX_BLOCK is set (Herdr wins inside both), and inside neither the
-single-session subagents when the skill allows them (allow_subagents), else Herdr, which refuses."""
+"""The multiplexer this process runs under, chosen once: the rest of pstack asks `mux.get()` and names no backend. PSTACK_MUX (herdr, rex,
+herdr-core or subagents) picks one; otherwise Herdr when HERDR_ENV=1, Rex when REX_BLOCK is set, herdr-core when HC_TERMINAL_ID is set (in
+that order, so a nest of them picks as it did before herdr-core), and inside none the single-session subagents when the skill allows them
+(allow_subagents), else Herdr, which refuses."""
 
 import os
 
@@ -58,21 +59,31 @@ def get():
 def choose(env, subagents=False):
     """The backend env selects; `subagents` allows the single-session fallback."""
     want = env.get('PSTACK_MUX', '')
-    if want not in ('', 'herdr', 'rex', 'subagents'):
+    if want not in ('', 'herdr', 'rex', 'herdr-core', 'subagents'):
         from ..errors import PairError
 
-        raise PairError(f'PSTACK_MUX must be herdr, rex or subagents, not {want}')
-    found = env.get('HERDR_ENV') == '1' or env.get('REX_BLOCK')
+        raise PairError(
+            f'PSTACK_MUX must be herdr, rex, herdr-core or subagents, not {want}'
+        )
+    herdr = env.get('HERDR_ENV') == '1'
+    found = herdr or env.get('REX_BLOCK') or env.get('HC_TERMINAL_ID')
     if want == 'subagents' or (not want and not found and subagents):
         from .subagents import Subagents
 
         return Subagents()
-    if want == 'rex' or (
-        not want and env.get('HERDR_ENV') != '1' and env.get('REX_BLOCK')
-    ):
+    if want == 'rex' or (not want and not herdr and env.get('REX_BLOCK')):
         from .rex import Rex
 
         return Rex()
+    if want == 'herdr-core' or (
+        not want
+        and not herdr
+        and not env.get('REX_BLOCK')
+        and env.get('HC_TERMINAL_ID')
+    ):
+        from .herdr_core import HerdrCore
+
+        return HerdrCore()
     from .herdr import Herdr
 
     return Herdr()
