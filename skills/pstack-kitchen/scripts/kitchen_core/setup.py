@@ -9,7 +9,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from pstack_core import agents, git, mux
+from pstack_core import git, mux
 from pstack_core import spawn as pair_spawn
 from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
@@ -244,22 +244,24 @@ def spawn(ctx, args):
     )
 
 
-def consultant_agents(kind, native):
-    """(kind, args, fallback kind, fallback args) of the consultant: a kind the roster names, given or not, starts with that entry's arguments unless the
-    command passes its own, and the main entry keeps its fallback. The kind is '' when neither --kind nor the roster names one."""
+def consultant_chain(kind, native):
+    """The agents the consultant starts on and steps down to, each {kind, args}: a kind the roster names, given or not, starts with that entry's
+    arguments unless the command passes its own, and the main entry keeps its fallback chain. The first kind is '' when neither --kind nor the
+    roster names one."""
     roster = host_roster()
     main_kind = roster_text(roster, 'consultant', 'kind')
     kind = kind or main_kind
     if kind and kind == main_kind:
-        return (
-            kind,
-            native or roster_lines(roster, 'consultant', 'args'),
-            roster_text(roster, 'consultant', 'fallback', 'kind'),
-            roster_lines(roster, 'consultant', 'fallback', 'args'),
-        )
+        return [
+            {
+                'kind': kind,
+                'args': native or roster_lines(roster, 'consultant', 'args'),
+            },
+            *roster_lines(roster, 'consultant', 'fallbacks'),
+        ]
     if kind == roster_text(roster, 'consultant', 'fallback', 'kind'):
         native = native or roster_lines(roster, 'consultant', 'fallback', 'args')
-    return kind, native, '', []
+    return [{'kind': kind, 'args': native}]
 
 
 def consultant(ctx, args):
@@ -282,47 +284,48 @@ def consultant(ctx, args):
     pair_file(store)
     if not reason:
         raise Die('--reason is required: the escalation that warrants the consultant')
-    kind, native, fallback, fb_args = consultant_agents(kind, native)
-    if not kind:
+    chain = consultant_chain(kind, native)
+    if not chain[0]['kind']:
         raise Die('no --kind and no [consultant] kind in the host roster')
     # A consultant whose kind has a preflight (Muse, Amp, pi, Prime) is checked before its pane starts, as the sidekick is: a logged-out account or a
-    # spent plan starts the roster's [consultant.fallback] instead.
-    if (
-        agents.has_preflight(kind)
-        and agent_status(field(store, 'consultant', 'name')) == 'absent'
-    ):
-        code, why = pair_spawn.preflight_reason(kind, native)
-        if code != 0:
-            if not fallback or fallback == kind:
+    # spent plan steps down the roster's [[consultant.fallback]] chain, and a start that fails steps down it as well.
+    end_with_parent()
+    index = 0
+    while True:
+        if agent_status(field(store, 'consultant', 'name')) == 'absent':
+            index, steps = pair_spawn.walk_chain(
+                chain, index, pair_spawn.entry_preflight
+            )
+            step_down_consultant(store, chain, steps)
+            if index is None:
+                last = chain[-1]['kind']
+                why = steps[-1][1].removeprefix('preflight: ')
                 raise Die(
-                    f'consultant {kind} failed its preflight and the roster names no other fallback: {why or "no answer"}',
+                    f'consultant {last} failed its preflight and the roster names no other fallback: {why}',
                     2,
                 )
-            consultant_failover(
-                store, kind, fallback, f'preflight: {why or "no answer"}'
+        entry = chain[index]
+        try:
+            code = pair_spawn.spawn_consultant(
+                ctx,
+                store,
+                pair_spawn.SpawnRequest(
+                    entry['kind'], permission, args=tuple(entry['args'])
+                ),
             )
-            kind, native, fallback = fallback, fb_args, ''
+            break
+        except AgentStartFailed as e:
+            # An agent that never starts (a broken config, a start timeout) steps down as a failed preflight does; its pane holds nothing else.
+            if index + 1 >= len(chain):
+                raise
+            # its pane is closed next, so neither line names a pane to inspect
+            failed = e.message.split('; inspect: ')[0]
+            sys.stderr.write(f'{failed}\n')
+            if e.pane:
+                mux.get().pane_close(e.pane)
+            step_down_consultant(store, chain, [(index, f'start: {failed}')])
+            index += 1
     # The escalation is recorded once the consultant is up, so a start that fails (a trust prompt) and is retried counts it once.
-    end_with_parent()
-    try:
-        code = pair_spawn.spawn_consultant(
-            ctx, store, pair_spawn.SpawnRequest(kind, permission, args=tuple(native))
-        )
-    except AgentStartFailed as e:
-        # An agent that never starts (a broken config, a start timeout) fails over as a failed preflight does; its pane holds nothing else.
-        if not fallback or fallback == kind:
-            raise
-        # its pane is closed next, so neither line names a pane to inspect
-        failed = e.message.split('; inspect: ')[0]
-        sys.stderr.write(f'{failed}\n')
-        if e.pane:
-            mux.get().pane_close(e.pane)
-        consultant_failover(store, kind, fallback, f'start: {failed}')
-        code = pair_spawn.spawn_consultant(
-            ctx,
-            store,
-            pair_spawn.SpawnRequest(fallback, permission, args=tuple(fb_args)),
-        )
     if code:
         raise Exit(code)
     stamp = now()
@@ -337,8 +340,21 @@ def consultant(ctx, args):
     return 0
 
 
+def step_down_consultant(store, chain, steps):
+    """consultant_failover for each (index, why) step of the chain: the entry that failed to the one after it."""
+    for failed, why in steps:
+        if failed + 1 < len(chain):
+            consultant_failover(
+                store,
+                pair_spawn.entry_label(chain[failed]),
+                pair_spawn.entry_label(chain[failed + 1]),
+                why,
+            )
+
+
 def consultant_failover(store, source, target, why):
-    """The consultant's move from a kind that failed to the roster's fallback: the line it prints, .consultant.failovers and the master's event."""
+    """The consultant's move from an agent that failed to the next of its chain, each named by its label: the line it prints, .consultant.failovers
+    and the master's event."""
     shown = (why.replace('\n', ' ') + ' ')[:200]
     sys.stdout.write(f'failover: consultant {source} -> {target} ({shown.rstrip()})\n')
     record_consultant_failover(store, source, target, why)

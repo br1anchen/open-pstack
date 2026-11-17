@@ -13995,11 +13995,11 @@ class CoreTests(unittest.TestCase):
             ),
             'the roster kind failing its preflight takes the fallback': (
                 0,
-                'failover: consultant pi -> codex (preflight: pi 1.0.2 at',
+                'failover: consultant pi c -> codex (preflight: pi 1.0.2 at',
             ),
             'a failover over earlier failovers': (
                 0,
-                'failover: consultant pi -> codex (preflight: pi 1.0.2 at',
+                'failover: consultant pi c -> codex (preflight: pi 1.0.2 at',
             ),
             'a failover over failovers that are no array': (
                 1,
@@ -14015,11 +14015,11 @@ class CoreTests(unittest.TestCase):
             ),
             'a failing preflight that says nothing': (
                 0,
-                'failover: consultant pi -> codex (preflight: pi 1.0.2 at',
+                'failover: consultant pi c -> codex (preflight: pi 1.0.2 at',
             ),
             'a failing preflight with a long message': (
                 0,
-                'failover: consultant pi -> codex (preflight: pi 1.0.2 at',
+                'failover: consultant pi c -> codex (preflight: pi 1.0.2 at',
             ),
             'a roster kind that returns 4 after its preflight': (
                 4,
@@ -14078,7 +14078,7 @@ class CoreTests(unittest.TestCase):
             ],
         )
         self.assertIn(
-            'consultant:pi:codex',
+            'consultant:pi c:codex',
             '\n'.join(
                 out['the roster kind failing its preflight takes the fallback'][
                     'events'

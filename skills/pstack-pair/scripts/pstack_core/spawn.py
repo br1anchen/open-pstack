@@ -397,6 +397,11 @@ def entry_label(entry):
     return agents.model_label(text_at(entry, 'kind'), names(entry, 'args'))
 
 
+def entry_preflight(kind, args):
+    """(status, text) of a chain entry's preflight: a kind with none passes."""
+    return preflight_reason(kind, args) if agents.has_preflight(kind) else (0, '')
+
+
 def walk_chain(chain, start, preflight):
     """(index, steps): the first entry of chain from `start` whose preflight passes, and the steps down the chain on the way, each (index of the entry
     that failed, why). preflight(kind, args) is (status, text) as preflight_reason; the index is None when every entry from `start` failed."""
@@ -448,9 +453,7 @@ def start_chain(ctx, store, request, chain, start):
         else walk_chain(
             chain,
             start,
-            lambda kind, args: (
-                preflight_reason(kind, args) if agents.has_preflight(kind) else (0, '')
-            ),
+            entry_preflight,
         )
     )
     for failed, reason in steps:

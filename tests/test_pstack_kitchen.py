@@ -7996,7 +7996,8 @@ esac
         )
         out = self.run_sh('consultant', str(self.store), '--reason', 'contract', code=4)
         self.assertIn(
-            'failover: consultant muse -> claude (preflight: Usage limit reached', out
+            'failover: consultant muse muse-wonder-full -> claude claude-fable-5-1 (preflight: Usage limit reached',
+            out,
         )
         start = [
             line
@@ -8006,9 +8007,12 @@ esac
         self.assertIn('--kind claude', start)
         self.assertIn('--model claude-fable-5-1', start)
         failover = self.state()['consultant']['failovers'][0]
-        self.assertEqual((failover['from'], failover['to']), ('muse', 'claude'))
+        self.assertEqual(
+            (failover['from'], failover['to']),
+            ('muse muse-wonder-full', 'claude claude-fable-5-1'),
+        )
         self.assertIn(
-            '\tmaster\tfailover\t-\tconsultant:muse:claude',
+            '\tmaster\tfailover\t-\tconsultant:muse muse-wonder-full:claude claude-fable-5-1',
             (self.store / 'events.tsv').read_text(),
         )
 
@@ -8027,13 +8031,17 @@ esac
         self.assertIn('agent start failed in ', out)
         self.assertIn(' shows:\n  Error loading config.toml\n', out)
         self.assertIn(
-            'failover: consultant muse -> claude (start: agent start failed in ', out
+            'failover: consultant muse muse-wonder-full -> claude claude-fable-5-1 (start: agent start failed in ',
+            out,
         )
         start = self.consultant_start()
         self.assertIn('--kind claude', start)
         self.assertIn('--model claude-fable-5-1', start)
         failover = self.state()['consultant']['failovers'][0]
-        self.assertEqual((failover['from'], failover['to']), ('muse', 'claude'))
+        self.assertEqual(
+            (failover['from'], failover['to']),
+            ('muse muse-wonder-full', 'claude claude-fable-5-1'),
+        )
         closed = [
             l
             for l in (self.fake / 'calls.log').read_text().splitlines()
@@ -14294,6 +14302,54 @@ class AmpKitchenTests(KitchenScriptTests):
             for line in (store / 'events.tsv').read_text().splitlines()
             if '\tmaster\tfailover\t' in line
         ]
+
+    def role_chain_roster(self, role, extra=''):
+        """A host roster whose `role` runs first on a/one and steps down to b/two and then c/three, all amp."""
+        roster = Path(self.tmp.name) / 'role-chain-roster.toml'
+        table = role if role != 'escalated' else 'verifier.escalated'
+        roster.write_text(
+            f'[sidekick]\nkind = "amp"\nargs = ["--model", "s/one"]\n[{table}]\nkind = "amp"\nargs = ["--model", "a/one"]\n'
+            + ''.join(
+                f'[[{table}.fallback]]\nkind = "amp"\nargs = ["--model", "{m}"]\n'
+                for m in ('b/two', 'c/three')
+            )
+            + extra
+        )
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+
+    def models_started(self, title):
+        return [
+            line.split('--model ')[1].split()[0]
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if f'--title {title}' in line and ' -ox ' in line
+        ]
+
+    def test_a_consultant_steps_down_its_chain_on_failed_preflights(self):
+        self.role_chain_roster('consultant')
+        (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\n')
+        out = self.run_sh('consultant', str(self.store), '--reason', 'contract', code=4)
+        self.assertIn('failover: consultant amp a/one -> amp b/two (preflight: ', out)
+        self.assertEqual(self.models_started('demo-consultant'), ['c/three'])
+        self.assertEqual(
+            self.failover_events(self.store),
+            ['consultant:amp a/one:amp b/two', 'consultant:amp b/two:amp c/three'],
+        )
+        failovers = self.state()['consultant']['failovers']
+        self.assertEqual(
+            [(f['from'], f['to']) for f in failovers],
+            [('amp a/one', 'amp b/two'), ('amp b/two', 'amp c/three')],
+        )
+
+    def test_a_consultant_whose_whole_chain_fails_starts_nothing(self):
+        self.role_chain_roster('consultant')
+        (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\nc/three\n')
+        out = self.run_sh('consultant', str(self.store), '--reason', 'contract', code=2)
+        self.assertIn(
+            'consultant amp failed its preflight and the roster names no other fallback',
+            out,
+        )
+        self.assertEqual(self.models_started('demo-consultant'), [])
+        self.assertEqual(len(self.failover_events(self.store)), 2)
 
     def test_spawn_records_the_roster_chain_and_starts_its_first_entry(self):
         store, _ = self.spawn_chain('ch')
