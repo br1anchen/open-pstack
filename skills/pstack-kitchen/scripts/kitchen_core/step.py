@@ -518,15 +518,15 @@ def discard_moved_verify(ctx, brief, head, job):
     )
 
 
-def finish(ctx, args):
-    """finish_report, then the master's rotation line when its thread is due: the sidekick's own status stays the report's."""
-    status = finish_report(ctx, args)
-    if status == 0 and len(args) == 2:
+def finish_and_notice(ctx, args):
+    """The pair's finish of a report for one store, then the rotation line when the master's thread is due; the status stays the report's."""
+    status = core_report.finish(ctx, args)
+    if status == 0:
         sys.stdout.write(rotate_notice(args[0]))
     return status
 
 
-def finish_report(ctx, args):
+def finish(ctx, args):
     require_mux()
     default_signals()
     if len(args) != 2:
@@ -543,10 +543,10 @@ def finish_report(ctx, args):
         or report != expected_report(store, brief)
         or not core_report.pair_report_ready(ctx, store, report)
     ):
-        return core_report.finish(ctx, args)
+        return finish_and_notice(ctx, args)
     wanted = header_field(report, 'head')
     if wanted == '' or wanted.startswith('<'):
-        return core_report.finish(ctx, args)
+        return finish_and_notice(ctx, args)
     root = read(store, 'git_root')
     follow_jj(root)
     head = require_head_checked_out(root, report, brief)
@@ -601,4 +601,4 @@ def finish_report(ctx, args):
         )
         raise Exit(2)
     event(store, 'sidekick', 'finish-verify-pass', brief, head[:9])
-    return core_report.finish(ctx, args)
+    return finish_and_notice(ctx, args)

@@ -14430,14 +14430,14 @@ class AmpKitchenTests(KitchenScriptTests):
 
     def test_half_a_context_window_rotates_the_sidekick_even_in_the_same_area(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
-        (self.fake / 'amp-context').write_text(
+        (self.fake / f'amp-context-{amp_thread(1)}').write_text(
             '{"totalTokens": 50000, "maxContextTokens": 100000, "compactionCount": 0}\n'
         )
         self.next_unit_rotates('002', 'two', ['src/**', 'tests/**'])
 
     def test_a_compacted_sidekick_rotates_even_in_the_same_area(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
-        (self.fake / 'amp-context').write_text(
+        (self.fake / f'amp-context-{amp_thread(1)}').write_text(
             '{"totalTokens": 1000, "maxContextTokens": 100000, "compactionCount": 1}\n'
         )
         self.next_unit_rotates('002', 'two', ['src/**', 'tests/**'])

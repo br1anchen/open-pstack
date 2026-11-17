@@ -539,7 +539,6 @@ def take_master(ctx, args):
         master = member(doc, 'master')
         master['name'] = name
         master.pop('previous', None)
-        master.pop('rotate_due', None)
 
     update(store, mutate)
     event(
