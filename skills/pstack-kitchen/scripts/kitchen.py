@@ -2143,17 +2143,40 @@ def history(root: Path, kitchen: Kitchen, last: int) -> list[dict]:
 
 # Which agents fill the roles is the host's choice, not the repo's, so it
 # lives beside the other host preferences, outside every repo.
-def _entry(t: dict, source: str) -> dict:
+def _fallbacks(t: dict, where: str) -> list[dict]:
+    """The agents a role steps down to, in order: [[role.fallback]] tables, or the one [role.fallback] table when it names a kind. Each is
+    {kind, args}. where names the role in an error."""
     fb = t.get('fallback')
+    items = fb if isinstance(fb, list) else [] if fb is None else [fb]
+    if not all(isinstance(i, dict) for i in items):
+        raise KitchenError(f'[{where}.fallback] must be a table or an array of tables')
+    if isinstance(fb, list) and not all(i.get('kind') for i in items):
+        raise KitchenError(f'[[{where}.fallback]] entries each need a kind')
+    return [
+        {'kind': i['kind'], 'args': [str(a) for a in i.get('args', [])]}
+        for i in items
+        if i.get('kind')
+    ]
+
+
+def _first_fallback(t: dict, fallbacks: list[dict]) -> dict:
+    """A role's `fallback` as the readers of a roster take it: the first of its chain, else the {kind, args} the table gave ('' kind when
+    it names none)."""
+    if fallbacks:
+        return fallbacks[0]
+    fb = t.get('fallback')
+    fb = fb[0] if isinstance(fb, list) and fb else fb
+    fb = fb if isinstance(fb, dict) else {}
+    return {'kind': fb.get('kind', ''), 'args': [str(a) for a in fb.get('args', [])]}
+
+
+def _entry(t: dict, source: str, where: str) -> dict:
+    fallbacks = _fallbacks(t, where)
     return {
         'kind': t.get('kind', ''),
         'args': [str(a) for a in t.get('args', [])],
-        'fallback': {
-            'kind': fb.get('kind', ''),
-            'args': [str(a) for a in fb.get('args', [])],
-        }
-        if fb
-        else None,
+        'fallback': _first_fallback(t, fallbacks) if t.get('fallback') else None,
+        'fallbacks': fallbacks,
         'source': source,
     }
 
@@ -2202,18 +2225,17 @@ def roster_data() -> tuple[Path, dict]:
     except tomllib.TOMLDecodeError as e:
         raise KitchenError(f'{path}: {e}') from None
     out: dict[str, dict] = {}
-    for role in ('sidekick', 'consultant'):
+    for role in ('sidekick', 'consultant', 'master'):
+        if role == 'master' and 'master' not in data:
+            continue
         t = data.get(role, {})
+        fallbacks = _fallbacks(t, role)
         out[role] = {
             'kind': t.get('kind', ''),
             'args': [str(a) for a in t.get('args', [])],
+            'fallback': _first_fallback(t, fallbacks),
+            'fallbacks': fallbacks,
         }
-        if role in ('sidekick', 'consultant'):
-            fb = t.get('fallback', {})
-            out[role]['fallback'] = {
-                'kind': fb.get('kind', ''),
-                'args': [str(a) for a in fb.get('args', [])],
-            }
     # An A/B of sidekick models: init picks one of [[sidekick.alternate]] per run and records it, and spawn starts that one.
     alternate = data.get('sidekick', {}).get('alternate', [])
     if not isinstance(alternate, list) or not all(
@@ -2233,13 +2255,21 @@ def roster_data() -> tuple[Path, dict]:
     v = data.get('verifier', {})
     esc = v.get('escalated')
     out['verifier'] = {
-        'routine': _entry(v, 'roster')
+        'routine': _entry(v, 'roster', 'verifier')
         if v.get('kind')
-        else {'kind': 'sidekick', 'args': [], 'fallback': None, 'source': 'sidekick'},
-        'escalated': _entry(esc, 'roster')
+        else {
+            'kind': 'sidekick',
+            'args': [],
+            'fallback': None,
+            'fallbacks': [],
+            'source': 'sidekick',
+        },
+        'escalated': _entry(esc, 'roster', 'verifier.escalated')
         if esc and esc.get('kind')
         else dict(
-            DEFAULT_ESCALATED_VERIFIER, args=list(DEFAULT_ESCALATED_VERIFIER['args'])
+            DEFAULT_ESCALATED_VERIFIER,
+            args=list(DEFAULT_ESCALATED_VERIFIER['args']),
+            fallbacks=[],
         ),
     }
     return path, out
@@ -2302,16 +2332,17 @@ def scratch_trust(kind: str, root: Path) -> bool | None:
 
 def roster_kinds(vr: dict) -> list[str]:
     """Every agent kind the roster may start on a scratch or in the repo, fallbacks included."""
-    entries = [
+    roles = [
         vr['sidekick'],
         *vr['sidekick'].get('alternate', []),
-        vr['sidekick']['fallback'],
         vr['consultant'],
-        vr['consultant']['fallback'],
         vr['verifier']['routine'],
-        vr['verifier']['routine'].get('fallback') or {},
         vr['verifier']['escalated'],
-        vr['verifier']['escalated'].get('fallback') or {},
+        vr.get('master') or {},
+    ]
+    entries = [
+        *roles,
+        *(f for r in roles for f in r.get('fallbacks') or [r.get('fallback') or {}]),
     ]
     return list(dict.fromkeys(e.get('kind', '') for e in entries if e.get('kind')))
 
@@ -2321,6 +2352,7 @@ class DefaultVerifier(TypedDict):
     kind: str
     args: list[str]
     fallback: None
+    fallbacks: list[dict]
     source: str
 
 
@@ -2328,6 +2360,7 @@ DEFAULT_ESCALATED_VERIFIER: DefaultVerifier = {
     'kind': 'claude',
     'args': ['--model', 'claude-opus-5-5'],
     'fallback': None,
+    'fallbacks': [],
     'source': 'default',
 }
 

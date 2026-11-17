@@ -8,6 +8,7 @@
 #   ($FAKE/amp-context is the JSON it prints; by default 10% of the window used, no compaction) and `amp threads usage T`
 #   ($FAKE/amp-cost/T is the dollar figure it reports, $0.00 by default; `none` there prints no Cost line). The export reports
 #   $FAKE/amp-state/<T> as lastKnownAgentState (state and updatedAt on one line; none when absent) and the thread's delivered messages.
+# - $FAKE/amp-preflight-fail: model names, one per line; the headless preflight (`amp ... -x`) fails with a usage-limit error for a --model listed there.
 # - $FAKE/amp-upload-fail: how many more sends end in the upload error; with $FAKE/amp-upload-fail-after-delivery the message is
 #   delivered first, as when the CLI loses the reply.
 set -u
@@ -77,6 +78,11 @@ for arg in "$@"; do
 done
 for arg in "$@"; do
 	[ "$arg" = -x ] || continue
+	prev=""
+	for a in "$@"; do
+		[ "$prev" = --model ] && grep -qxF -- "$a" "$FAKE/amp-preflight-fail" 2>/dev/null && { printf 'Error: usage limit reached for %s\n' "$a"; exit 1; }
+		prev="$a"
+	done
 	if [ -s "$FAKE/amp-fail" ]; then cat "$FAKE/amp-fail"; exit 1; fi
 	printf 'OK\n'; exit 0
 done

@@ -223,9 +223,11 @@ def spawn(ctx, args):
                 if chosen
                 else roster_lines(roster, 'sidekick', 'args')
             )
+    chain_rest = ()
     if not fallback and kind == main_kind:
         fallback = roster_text(roster, 'sidekick', 'fallback', 'kind')
         fb_args = roster_lines(roster, 'sidekick', 'fallback', 'args')
+        chain_rest = tuple(roster_lines(roster, 'sidekick', 'fallbacks')[1:])
     given = spawn_options(list(opts.leftovers))
     end_with_parent()
     return start_sidekick(
@@ -237,6 +239,7 @@ def spawn(ctx, args):
             fallback=fallback,
             native=tuple(native),
             fallback_args=(*opts.all('--fallback-arg'), *fb_args),
+            chain_rest=chain_rest,
         ),
     )
 

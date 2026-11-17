@@ -101,7 +101,8 @@ def bootstrap_recover(ctx, store, name, role, pane, ready, bootstrap, generation
 @dataclass(frozen=True)
 class SpawnRequest:
     """How to start a role's agent: its kind and permission ('' for the kind's default), the pane to split from, the start timeout in milliseconds, the
-    split direction, the pane to reuse, and the agent's own arguments."""
+    split direction, the pane to reuse, the agent's own arguments, and the {kind, args} entries after the recorded fallback that a sidekick steps
+    down to (see walk_chain)."""
 
     kind: str
     permission: str = ''
@@ -110,6 +111,7 @@ class SpawnRequest:
     direction: str = ''
     pane: str = ''
     args: tuple = ()
+    fallbacks: tuple = ()
 
 
 def start_permission(kind, permission, master_mode, args):
@@ -390,42 +392,111 @@ def preflight_reason(kind, args):
         sys.stderr = seen
 
 
-def spawn_sidekick(ctx, store, request):
-    """Starts the sidekick, or its recorded fallback when the kind's preflight fails. The fallback starts with its own recorded arguments and
-    its kind's default permission. A live sidekick skips the preflight. Returns spawn_role's 0, 3 or 4."""
-    kind = request.kind
-    if (
-        agents.has_preflight(kind)
-        and agent_status(field(store, 'sidekick', 'name')) == 'absent'
-    ):
-        code, reason = preflight_reason(kind, list(request.args))
-        if code != 0:
-            reason = f'preflight: {reason or "no answer"}'
-            sys.stderr.write(f'{kind} failed {reason}\n')
-            fallback = peek(peek(load(store), 'sidekick'), 'fallback')
-            name = text_at(fallback, 'kind')
-            if not name or name == kind:
-                raise NoFallback(
-                    f'no fallback recorded for a failed {kind}; pass --fallback KIND or fix the agent'
-                )
+def entry_label(entry):
+    """A chain entry ({kind, args}) as the metrics name it."""
+    return agents.model_label(text_at(entry, 'kind'), names(entry, 'args'))
+
+
+def walk_chain(chain, start, preflight):
+    """(index, steps): the first entry of chain from `start` whose preflight passes, and the steps down the chain on the way, each (index of the entry
+    that failed, why). preflight(kind, args) is (status, text) as preflight_reason; the index is None when every entry from `start` failed."""
+    steps = []
+    for index in range(start, len(chain)):
+        code, reason = preflight(chain[index]['kind'], list(chain[index]['args']))
+        if code == 0:
+            return index, steps
+        steps.append((index, f'preflight: {reason or "no answer"}'))
+    return None, steps
+
+
+def sidekick_chain(sidekick, running_label):
+    """(chain, index) of the sidekick entry of pair.json: the chain it was started with and the entry it runs. A sidekick started before chains
+    existed has the agent it runs and its recorded fallback."""
+    chain = [e for e in listing(sidekick, 'chain') if isinstance(e, dict)]
+    if chain:
+        return chain, count(sidekick, 'chain_index')
+    fallback = peek(sidekick, 'fallback')
+    if not text_at(fallback, 'kind'):
+        return [], 0
+    running = {'kind': text_at(sidekick, 'kind'), 'args': names(sidekick, 'start_args')}
+    chain = [running, {'kind': fallback['kind'], 'args': names(fallback, 'args')}]
+    return chain, int(running_label == entry_label(chain[1]))
+
+
+def record_chain(store, chain, index):
+    """.sidekick.chain (the agents the sidekick starts on and steps down to, each {kind, args}), .sidekick.chain_index (the one it runs) and
+    .sidekick.fallback, the entry after the running one (the last entry keeps it)."""
+
+    def mutate(doc):
+        entry = member(doc, 'sidekick')
+        entry['chain'] = chain
+        entry['chain_index'] = index
+        if index + 1 < len(chain):
+            entry['fallback'] = chain[index + 1]
+
+    update(store, mutate)
+
+
+def start_chain(ctx, store, request, chain, start):
+    """Starts the sidekick on the first entry of chain from `start` whose preflight passes, with a failover event and line for each entry that failed.
+    The first entry takes the request's own permission and arguments; a later one starts with its kind's default permission and its own arguments.
+    A kind with no preflight, or a live sidekick, starts without one."""
+    live = agent_status(field(store, 'sidekick', 'name')) != 'absent'
+    index, steps = (
+        (start, [])
+        if live
+        else walk_chain(
+            chain,
+            start,
+            lambda kind, args: (
+                preflight_reason(kind, args) if agents.has_preflight(kind) else (0, '')
+            ),
+        )
+    )
+    for failed, reason in steps:
+        sys.stderr.write(f'{chain[failed]["kind"]} failed {reason}\n')
+        if failed + 1 < len(chain):
             record_failover(
                 store,
-                agents.model_label(kind, request.args),
-                agents.model_label(name, names(fallback, 'args')),
+                entry_label(chain[failed]),
+                entry_label(chain[failed + 1]),
                 reason,
             )
-            return spawn_role(
-                ctx,
-                store,
-                'sidekick',
-                replace(
-                    request,
-                    kind=name,
-                    permission='',
-                    args=tuple(names(fallback, 'args')),
-                ),
+    if index is None:
+        if len(chain) == 1:
+            raise NoFallback(
+                f'no fallback recorded for a failed {chain[start]["kind"]}; pass --fallback KIND or fix the agent'
             )
-    return spawn_role(ctx, store, 'sidekick', request)
+        raise NoFallback(
+            f'every agent of the sidekick chain failed its preflight ({", ".join(map(entry_label, chain[start:]))})'
+        )
+    record_chain(store, chain, index)
+    if index == start:
+        return spawn_role(ctx, store, 'sidekick', request)
+    return spawn_role(
+        ctx,
+        store,
+        'sidekick',
+        replace(
+            request,
+            kind=chain[index]['kind'],
+            permission='',
+            args=tuple(chain[index]['args']),
+        ),
+    )
+
+
+def spawn_sidekick(ctx, store, request):
+    """Starts the sidekick on its chain: the request's agent, then the recorded fallback, then the entries the request names after it (start_chain).
+    Returns spawn_role's 0, 3 or 4."""
+    recorded = peek(peek(load(store), 'sidekick'), 'fallback')
+    chain = [{'kind': request.kind, 'args': list(request.args)}]
+    if text_at(recorded, 'kind'):
+        chain.append(
+            {'kind': text_at(recorded, 'kind'), 'args': names(recorded, 'args')}
+        )
+    chain += [{'kind': e['kind'], 'args': list(e['args'])} for e in request.fallbacks]
+    return start_chain(ctx, store, request, chain, 0)
 
 
 def spawn_consultant(ctx, store, request):
@@ -469,6 +540,7 @@ class SpawnOptions:
     timeout: str = '60000'
     placement: str = ''
     native: tuple = ()
+    chain_rest: tuple = ()
 
 
 def spawn_options(words):
@@ -508,6 +580,7 @@ def start_sidekick(ctx, store, options):
             options.direction,
             options.pane,
             options.native,
+            options.chain_rest,
         ),
     )
 

@@ -17434,7 +17434,7 @@ class CoreTests(unittest.TestCase):
                 ),
                 'already on the fallback': (
                     5,
-                    'the sidekick already runs the fallback (devin)',
+                    'the sidekick runs the last of its chain (devin)',
                 ),
                 'a working sidekick without --force': (
                     5,

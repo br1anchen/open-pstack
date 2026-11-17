@@ -4,12 +4,13 @@ import os
 import re
 import sys
 import time
+from dataclasses import replace
 
 from .. import mux
 from ..agents import current_no_mcp, model_label
 from ..argv import Spec, read
 from ..checkin import sidekick_busy
-from ..errors import Die, RotationFailed, translate
+from ..errors import Die, Exit, RotationFailed, translate
 from ..exits import end_agent, exit_deadline, stop_prime_role
 from ..gates import check_scope, require_not_paused
 from ..mux import DEVNULL
@@ -18,8 +19,17 @@ from ..panes import agent_status, require_mux
 from ..replies import queued_brief
 from ..review import require_filled
 from ..send import store_relative
-from ..spawn import SpawnRequest, record_failover, spawn_role
+from ..spawn import (
+    SpawnRequest,
+    entry_label,
+    record_chain,
+    record_failover,
+    sidekick_chain,
+    spawn_role,
+    start_chain,
+)
 from ..store import (
+    count,
     event,
     expected_report,
     field,
@@ -88,18 +98,38 @@ def rotate(ctx, args):
         '-',
         f'generation:{field(store, "sidekick", "generation")}',
     )
-    return spawn_role(
+    request = SpawnRequest(
+        kind,
+        'none',
+        field(store, 'master', 'pane_id'),
+        pane=field(store, 'sidekick', 'pane_id'),
+        args=tuple(start_args),
+    )
+    chain, index = sidekick_chain(
+        sidekick, model_label(kind, names(sidekick, 'start_args'))
+    )
+    if index == 0:
+        return spawn_role(ctx, store, 'sidekick', request)
+    return fail_back(ctx, store, request, chain, index)
+
+
+def fail_back(ctx, store, request, chain, index):
+    """The rotation of a sidekick that failed over: it starts again from the top of its chain, each entry that still fails its preflight a failover
+    event as at spawn. Landing higher than it ran is a failback event and line; the sidekick stays where the walk lands."""
+    top = chain[0]
+    code = start_chain(
         ctx,
         store,
-        'sidekick',
-        SpawnRequest(
-            kind,
-            'none',
-            field(store, 'master', 'pane_id'),
-            pane=field(store, 'sidekick', 'pane_id'),
-            args=tuple(start_args),
-        ),
+        replace(request, kind=top['kind'], permission='', args=tuple(top['args'])),
+        chain,
+        0,
     )
+    landed = count(peek(load(store), 'sidekick'), 'chain_index')
+    if landed < index:
+        source, target = entry_label(chain[index]), entry_label(chain[landed])
+        event(store, 'master', 'failback', '-', f'{source}:{target}')
+        print(f'failback: the sidekick returns to {target}')
+    return code
 
 
 def profiles_of(brief):
@@ -138,7 +168,8 @@ def rotate_if_due(ctx, store, what, brief=''):
         return
     if read_flag(store, 'sidekick.bootstrap_pending') is True:
         return
-    kept = keeps_session(store, brief) if what == 'brief' else ''
+    failed_over = count(peek(load(store), 'sidekick'), 'chain_index') > 0
+    kept = '' if failed_over else keeps_session(store, brief) if what == 'brief' else ''
     if kept:
         update_role(store, 'sidekick', {'rotation_required': False})
         event(store, 'sidekick', 'reuse', brief, kept)
@@ -162,6 +193,13 @@ def rotate_if_due(ctx, store, what, brief=''):
         except Exception as e:
             text, code = translate(e, ctx.prog)
             said.write(text)
+    if code == 4 and not mux.get().waits:
+        # The new thread bootstraps on its own after rotate returns: this was a fresh session, and its READY settles the bootstrap.
+        update_role(store, 'sidekick', {'rotation_required': False})
+        raise Exit(
+            4,
+            f'{said.getvalue()}rotated: a new sidekick thread is starting; {f"run dispatch {brief}" if brief else "send the plan"} again after its READY\n',
+        )
     if code:
         raise RotationFailed(
             code,
@@ -252,8 +290,8 @@ def queue(ctx, args):
 
 
 def failover(ctx, args):
-    """Replaces a failing sidekick with its recorded fallback in the same pane. The new agent picks up from the store: the step log, progress,
-    and the brief it was on; every committed step survives. A run stays on the fallback, since failover never switches back."""
+    """Replaces a failing sidekick with the next agent of its chain in the same pane. The new agent picks up from the store: the step log, progress,
+    and the brief it was on; every committed step survives. The sidekick goes back up the chain at its next rotation (rotate_if_due), not here."""
     end_with_parent()
     require_mux()
     if not args:
@@ -264,14 +302,14 @@ def failover(ctx, args):
     pair_file(store)
     sidekick = peek(load(store), 'sidekick')
     kind = field(store, 'sidekick', 'kind')
-    recorded = peek(sidekick, 'fallback')
-    fallback = text_at(recorded, 'kind')
-    if not fallback:
-        raise Die('no fallback recorded; spawn the sidekick with --fallback KIND', 5)
     running_label = model_label(kind, names(sidekick, 'start_args'))
-    target_label = model_label(fallback, names(recorded, 'args'))
-    if running_label == target_label:
-        raise Die(f'the sidekick already runs the fallback ({target_label})', 5)
+    chain, index = sidekick_chain(sidekick, running_label)
+    if len(chain) < 2:
+        raise Die('no fallback recorded; spawn the sidekick with --fallback KIND', 5)
+    if index + 1 >= len(chain):
+        raise Die(f'the sidekick runs the last of its chain ({running_label})', 5)
+    target = chain[index + 1]
+    fallback, target_label = target['kind'], entry_label(target)
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     if status == 'working':
@@ -292,6 +330,7 @@ def failover(ctx, args):
                 5,
             )
     record_failover(store, running_label, target_label, reason)
+    record_chain(store, chain, index + 1)
     rc = spawn_role(
         ctx,
         store,
@@ -300,7 +339,7 @@ def failover(ctx, args):
             fallback,
             anchor=field(store, 'master', 'pane_id'),
             pane=field(store, 'sidekick', 'pane_id'),
-            args=tuple(names(recorded, 'args')),
+            args=tuple(target['args']),
         ),
     )
     running = field(store, 'dispatch', 'brief')

@@ -523,6 +523,7 @@ class ClassifyTests(KitchenTests):
                 'kind': 'pi',
                 'args': ['--model', 'devin/swe-2'],
                 'fallback': {'kind': 'devin', 'args': []},
+                'fallbacks': [{'kind': 'devin', 'args': []}],
                 'alternate': [],
             },
         )
@@ -557,7 +558,13 @@ class ClassifyTests(KitchenTests):
         v = self.data('roster')['verifier']
         self.assertEqual(
             v['routine'],
-            {'kind': 'sidekick', 'args': [], 'fallback': None, 'source': 'sidekick'},
+            {
+                'kind': 'sidekick',
+                'args': [],
+                'fallback': None,
+                'fallbacks': [],
+                'source': 'sidekick',
+            },
         )
         self.assertEqual(
             v['escalated'],
@@ -565,6 +572,7 @@ class ClassifyTests(KitchenTests):
                 'kind': 'claude',
                 'args': ['--model', 'claude-opus-5-5'],
                 'fallback': None,
+                'fallbacks': [],
                 'source': 'default',
             },
         )
@@ -584,13 +592,48 @@ class ClassifyTests(KitchenTests):
                 'kind': 'pi',
                 'args': ['--model', 'm'],
                 'fallback': {'kind': 'claude', 'args': ['--model', 's']},
+                'fallbacks': [{'kind': 'claude', 'args': ['--model', 's']}],
                 'source': 'roster',
             },
         )
         self.assertEqual(
             v['escalated'],
-            {'kind': 'master', 'args': [], 'fallback': None, 'source': 'roster'},
+            {
+                'kind': 'master',
+                'args': [],
+                'fallback': None,
+                'fallbacks': [],
+                'source': 'roster',
+            },
         )
+
+    def test_a_role_names_a_fallback_chain_in_order(self):
+        roster = Path(self.tmp.name) / 'roster.toml'
+        roster.write_text(
+            '[sidekick]\nkind = "amp"\nargs = ["--model", "a/one"]\n'
+            '[[sidekick.fallback]]\nkind = "amp"\nargs = ["--model", "b/two"]\n'
+            '[[sidekick.fallback]]\nkind = "amp"\nargs = ["--model", "c/three"]\n'
+            '[master]\nkind = "amp"\n[[master.fallback]]\nkind = "claude"\n'
+            '[[verifier.escalated.fallback]]\nkind = "codex"\n'
+            '[verifier.escalated]\nkind = "claude"\n'
+        )
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        r = self.data('roster')
+        chain = [
+            {'kind': 'amp', 'args': ['--model', 'b/two']},
+            {'kind': 'amp', 'args': ['--model', 'c/three']},
+        ]
+        self.assertEqual(r['sidekick']['fallbacks'], chain)
+        self.assertEqual(r['sidekick']['fallback'], chain[0])
+        self.assertEqual(r['master']['fallbacks'], [{'kind': 'claude', 'args': []}])
+        self.assertEqual(
+            r['verifier']['escalated']['fallbacks'], [{'kind': 'codex', 'args': []}]
+        )
+        roster.write_text(
+            '[sidekick]\nkind = "amp"\n[[sidekick.fallback]]\nargs = []\n'
+        )
+        out = self.run_kitchen('roster', code=1)
+        self.assertIn('[[sidekick.fallback]] entries each need a kind', out)
 
     def test_repo_verify_kinds_warn_only_when_set(self):
         self.assertNotIn('moved to the host roster', self.run_kitchen('validate'))
@@ -14215,7 +14258,101 @@ class AmpKitchenTests(KitchenScriptTests):
             r'\tmaster\tfailover\t-\tamp a/one:amp b/two\n',
         )
         out = self.run_sh('failover', str(store), code=5)
-        self.assertIn('the sidekick already runs the fallback (amp b/two)', out)
+        self.assertIn('the sidekick runs the last of its chain (amp b/two)', out)
+
+    CHAIN = ('a/one', 'b/two', 'c/three')
+
+    def chain_roster(self):
+        roster = Path(self.tmp.name) / 'chain-roster.toml'
+        roster.write_text(
+            '[sidekick]\nkind = "amp"\nargs = ["--model", "a/one"]\n'
+            + ''.join(
+                f'[[sidekick.fallback]]\nkind = "amp"\nargs = ["--model", "{m}"]\n'
+                for m in self.CHAIN[1:]
+            )
+        )
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+
+    def spawn_chain(self, slug, code=4):
+        """A run in the same runs directory whose sidekick starts from the roster's chain, with the models in $FAKE/amp-preflight-fail failing."""
+        self.chain_roster()
+        self.run_sh('init', slug)
+        store = self.store.parent / slug
+        out = self.run_sh('spawn', str(store), code=code)
+        return store, out
+
+    def sidekick_models_started(self, slug):
+        return [
+            line.split('--model ')[1].split()[0]
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if f'--title {slug}-sidekick' in line and ' -ox ' in line
+        ]
+
+    def failover_events(self, store):
+        return [
+            line.split('\t')[5]
+            for line in (store / 'events.tsv').read_text().splitlines()
+            if '\tmaster\tfailover\t' in line
+        ]
+
+    def test_spawn_records_the_roster_chain_and_starts_its_first_entry(self):
+        store, _ = self.spawn_chain('ch')
+        sidekick = json.loads((store / 'pair.json').read_text())['sidekick']
+        self.assertEqual(
+            sidekick['chain'],
+            [{'kind': 'amp', 'args': ['--model', m]} for m in self.CHAIN],
+        )
+        self.assertEqual(sidekick['chain_index'], 0)
+        self.assertEqual(sidekick['fallback'], sidekick['chain'][1])
+        self.assertEqual(self.sidekick_models_started('ch'), ['a/one'])
+        self.assertEqual(self.failover_events(store), [])
+
+    def test_a_spawn_whose_first_entry_fails_its_preflight_starts_the_second(self):
+        (self.fake / 'amp-preflight-fail').write_text('a/one\n')
+        store, out = self.spawn_chain('ch')
+        self.assertIn('failover: amp a/one -> amp b/two (preflight: ', out)
+        self.assertEqual(self.sidekick_models_started('ch'), ['b/two'])
+        self.assertEqual(self.failover_events(store), ['amp a/one:amp b/two'])
+        sidekick = json.loads((store / 'pair.json').read_text())['sidekick']
+        self.assertEqual(sidekick['chain_index'], 1)
+        self.assertEqual(sidekick['fallback'], sidekick['chain'][2])
+
+    def test_a_spawn_whose_first_two_entries_fail_starts_the_third(self):
+        (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\n')
+        store, _ = self.spawn_chain('ch')
+        self.assertEqual(self.sidekick_models_started('ch'), ['c/three'])
+        self.assertEqual(
+            self.failover_events(store),
+            ['amp a/one:amp b/two', 'amp b/two:amp c/three'],
+        )
+        sidekick = json.loads((store / 'pair.json').read_text())['sidekick']
+        self.assertEqual(sidekick['chain_index'], 2)
+
+    def test_a_spawn_whose_whole_chain_fails_starts_nothing(self):
+        (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\nc/three\n')
+        _, out = self.spawn_chain('ch', code=None)
+        self.assertIn(
+            'every agent of the sidekick chain failed its preflight (amp a/one, amp b/two, amp c/three)',
+            out,
+        )
+        self.assertEqual(self.sidekick_models_started('ch'), [])
+
+    def test_failover_steps_down_the_chain_and_is_refused_at_its_end(self):
+        store, _ = self.spawn_chain('ch')
+        (store / 'reports/000-ready.md').write_text('status: done\n')
+        self.run_sh('failover', str(store), '--reason', 'limit', code=4)
+        self.run_sh('failover', str(store), '--reason', 'limit', code=4)
+        self.assertEqual(
+            self.sidekick_models_started('ch'), ['a/one', 'b/two', 'c/three']
+        )
+        self.assertEqual(
+            self.failover_events(store),
+            ['amp a/one:amp b/two', 'amp b/two:amp c/three'],
+        )
+        sidekick = json.loads((store / 'pair.json').read_text())['sidekick']
+        self.assertEqual(sidekick['chain_index'], 2)
+        out = self.run_sh('failover', str(store), code=5)
+        self.assertIn('the sidekick runs the last of its chain (amp c/three)', out)
 
     def test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master(
         self,
@@ -14255,14 +14392,14 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn('reaches it only when you send it', reply)
         self.assertNotIn('pstack-build.tgz', reply)
 
-    def finish_unit(self, seq, slug, scope, path):
+    def finish_unit(self, seq, slug, scope, path, thread=1):
         """A routine unit dispatched to the sidekick's thread and finished done there; the dispatch's output."""
         b = self.brief(seq, slug, scope, verify=['python3 -c 1'])
         out = self.run_sh('dispatch', str(self.store), str(b), code=None)
         self.write(path, f'{slug}\n')
         self.done(b, self.commit(slug))
         self.as_thread(
-            amp_thread(1),
+            amp_thread(thread),
             'finish',
             str(self.store),
             str(self.store / 'reports' / b.name),
@@ -14308,6 +14445,104 @@ class AmpKitchenTests(KitchenScriptTests):
     def test_a_unit_in_another_area_rotates_the_sidekick(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         self.next_unit_rotates('002', 'guide', ['docs/**'])
+
+    PRIMARY = ['--model', 'zhipuai/glm-5.3', '--orb-size', 'a1.small']
+
+    def sidekick_on_second_entry_with_a_unit_done(self):
+        """The sidekick failed over mid-unit to the second entry of its chain (thread 2) and finished the unit there."""
+        pair = self.state()
+        second = {'kind': 'amp', 'args': ['--model', 'b/two']}
+        pair['sidekick']['chain'] = [{'kind': 'amp', 'args': self.PRIMARY}, second]
+        pair['sidekick']['chain_index'] = 0
+        pair['sidekick']['fallback'] = second
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        first = self.brief(
+            '001', 'one', ['src/**', 'tests/**'], verify=['python3 -c 1']
+        )
+        self.dispatch(first)
+        self.run_sh('failover', str(self.store), '--reason', 'limit', code=4)
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        # The failed-over thread takes the unit again, so it is the generation that finishes it.
+        self.run_sh('dispatch', str(self.store), str(first), code=None)
+        self.write('src/one.py', 'one\n')
+        self.done(self.store / 'briefs/001-one.md', self.commit('one'))
+        self.as_thread(
+            amp_thread(2),
+            'finish',
+            str(self.store),
+            str(self.store / 'reports/001-one.md'),
+        )
+        self.assertEqual(self.state()['sidekick']['chain_index'], 1)
+
+    def failover_and_failback_events(self):
+        return [
+            line.split('\t')[3:6]
+            for line in (self.store / 'events.tsv').read_text().splitlines()
+            if '\tmaster\tfailover\t' in line or '\tmaster\tfailback\t' in line
+        ]
+
+    def test_the_unit_after_a_failover_starts_the_sidekick_on_the_top_of_its_chain_again(
+        self,
+    ):
+        self.sidekick_on_second_entry_with_a_unit_done()
+        b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertNotIn('kept:', out)
+        self.assertIn('failback: the sidekick returns to amp zhipuai/glm-5.3', out)
+        started = [
+            line
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if '--title demo-sidekick' in line and ' -ox ' in line
+        ]
+        self.assertEqual(len(started), 3, started)
+        self.assertIn('--model zhipuai/glm-5.3 ', started[2])
+        self.assertEqual(
+            self.failover_and_failback_events(),
+            [
+                ['failover', '-', 'amp zhipuai/glm-5.3:amp b/two'],
+                ['failback', '-', 'amp b/two:amp zhipuai/glm-5.3'],
+            ],
+        )
+        self.assertEqual(self.state()['sidekick']['chain_index'], 0)
+
+    def test_a_top_of_the_chain_that_still_fails_keeps_the_sidekick_one_down_without_a_failback(
+        self,
+    ):
+        self.sidekick_on_second_entry_with_a_unit_done()
+        (self.fake / 'amp-preflight-fail').write_text('zhipuai/glm-5.3\n')
+        b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertNotIn('failback', out)
+        started = [
+            line
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if '--title demo-sidekick' in line and ' -ox ' in line
+        ]
+        self.assertIn('--model b/two ', started[2])
+        self.assertEqual(
+            self.failover_and_failback_events(),
+            [
+                ['failover', '-', 'amp zhipuai/glm-5.3:amp b/two'],
+                ['failover', '-', 'amp zhipuai/glm-5.3:amp b/two'],
+            ],
+        )
+        self.assertEqual(self.state()['sidekick']['chain_index'], 1)
+
+    def test_a_dispatch_after_a_rotation_is_sent_once_the_new_thread_is_ready(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        b = self.brief('002', 'guide', ['docs/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertIn(
+            f'rotated: a new sidekick thread is starting; run dispatch {b} again after its READY',
+            out,
+        )
+        self.assertNotIn('rotating the sidekick before this brief failed', out)
+        self.assertEqual(self.briefs_in(amp_thread(2)), [])
+        self.assertIs(self.state()['sidekick']['rotation_required'], False)
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertNotIn('needs a fresh session', out)
+        self.assertEqual(len(self.briefs_in(amp_thread(2))), 1)
 
     def set_state(self, thread, state, at='2026-01-01T00:00:00.000Z'):
         """The lastKnownAgentState `amp threads export` reports for thread."""
