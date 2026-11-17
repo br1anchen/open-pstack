@@ -14442,6 +14442,38 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.next_unit_rotates('002', 'two', ['src/**', 'tests/**'])
 
+    def set_master_context(self, percent, compacted=0):
+        """What `amp threads context` reports for the master's thread: percent of its window used and its compaction count."""
+        (self.fake / f'amp-context-{AMP_MASTER}').write_text(
+            f'{{"totalTokens": {percent * 1000}, "maxContextTokens": 100000, "compactionCount": {compacted}}}\n'
+        )
+
+    def master_rotate_reason(self):
+        """kitchen_core.master's master_context and master_rotate_reason for the run's store, as the master's own thread asks them."""
+        code = (
+            'import sys\n'
+            f'sys.path[:0] = [{str(skill / "scripts")!r}, {str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from kitchen_core import master\n'
+            f'print(master.master_context({str(self.store)!r}), '
+            f'repr(master.master_rotate_reason({str(self.store)!r})))\n'
+        )
+        return subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout.strip()
+
+    def test_rotate_due_is_decided_by_the_masters_own_context(self):
+        self.set_master_context(59)
+        self.assertEqual(self.master_rotate_reason(), "0.59 ''")
+        self.set_master_context(61)
+        self.assertEqual(self.master_rotate_reason(), "0.61 'context:61%'")
+        self.set_master_context(10, compacted=1)
+        self.assertEqual(self.master_rotate_reason(), "1.0 'compacted'")
+
     def test_a_unit_in_another_area_rotates_the_sidekick(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         self.next_unit_rotates('002', 'guide', ['docs/**'])

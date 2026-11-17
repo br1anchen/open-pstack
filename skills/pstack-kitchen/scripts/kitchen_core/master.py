@@ -53,6 +53,37 @@ from .landing import playbooks
 from .verify_wait import warn_unreviewed
 
 
+def master_context(store):
+    """The share (0 to 1; 1 once it compacted) of its context window the master's own thread has used, or None where the backend cannot say."""
+    return mux.get().context_used(field(store, 'master', 'name'))
+
+
+def master_rotate_reason(store):
+    """Why the master must rotate before it hands out the next unit: its thread has compacted (context_used reports 1.0 for any compaction, and a
+    fresh master thread starts with none) or has used more than KITCHEN_MASTER_CONTEXT_PCT (60) percent of its window. '' when it need not."""
+    used = master_context(store)
+    if used is None:
+        return ''
+    if used >= 1:
+        return 'compacted'
+    if used * 100 > env_int('KITCHEN_MASTER_CONTEXT_PCT', 60):
+        return f'context:{round(used * 100)}%'
+    return ''
+
+
+def rotate_line(reason, store):
+    """The line the kitchen says when the master is due: what happened to its thread, and the rotation commands."""
+    what = (
+        'has compacted'
+        if reason == 'compacted'
+        else f'has used {reason.removeprefix("context:")} of its context'
+    )
+    return (
+        f'master: your thread {what}; rotate before dispatching: kitchen.sh new-handoff {store}, fill it, '
+        f'kitchen.sh rotate-master {store} [--model <provider/model>]\n'
+    )
+
+
 def close_role(store, role):
     """Ends a role's agent and closes its pane, for a run that is over: the exit command, then up to fifteen seconds for the agent to go (a
     Claude asking what to do with its background tasks is told to stop them and exit). The pane closes only once the agent is gone; an agent

@@ -5,7 +5,7 @@
 #   thread URL; the thread's messages go to $FAKE/amp-threads/<T>/<n>.txt and its attachments to <n>-<name> beside them. $FAKE/amp-ox-fail
 #   holds the error a thread that cannot start prints.
 # - `amp threads archive T`, `amp threads export T` ($FAKE/amp-mode is the agentMode it reports) and `amp threads context T`
-#   ($FAKE/amp-context is the JSON it prints; by default 10% of the window used, no compaction) and `amp threads usage T`
+#   ($FAKE/amp-context-<T>, else $FAKE/amp-context, is the JSON it prints; by default 10% of the window used, no compaction) and `amp threads usage T`
 #   ($FAKE/amp-cost/T is the dollar figure it reports, $0.00 by default; `none` there prints no Cost line). The export reports
 #   $FAKE/amp-state/<T> as lastKnownAgentState (state and updatedAt on one line; none when absent) and the thread's delivered messages.
 # - $FAKE/amp-preflight-fail: model names, one per line; the headless preflight (`amp ... -x`) fails with a usage-limit error for a --model listed there.
@@ -41,7 +41,7 @@ case "${1:-} ${2:-}" in
 	# $FAKE/amp-continue-fail: the error a message to an existing thread prints.
 	if [ -s "$FAKE/amp-continue-fail" ]; then cat "$FAKE/amp-continue-fail" >&2; exit 1; fi
 	shift 2; t="$1"; shift; deliver "$t" "$@"; exit 0 ;;
-"threads context") cat "$FAKE/amp-context" 2>/dev/null || printf '{"threadID":"%s","totalTokens":10000,"maxContextTokens":100000,"compactionCount":0}\n' "$3"; exit 0 ;;
+"threads context") cat "$FAKE/amp-context-$3" 2>/dev/null || cat "$FAKE/amp-context" 2>/dev/null || printf '{"threadID":"%s","totalTokens":10000,"maxContextTokens":100000,"compactionCount":0}\n' "$3"; exit 0 ;;
 "threads usage")
 	cost="$(cat "$FAKE/amp-cost/$3" 2>/dev/null || echo 0.00)"
 	if [ "$cost" = none ]; then printf 'role\nCovered by your subscription\n'; else printf 'role\nCost: $%s\nCovered by your subscription\n' "$cost"; fi
