@@ -82,6 +82,8 @@ install_pstack() {
   printf 'pstack: skills linked from %s\n' "$repo_root/skills"
 }
 
+# The skills go first: they need nothing the later steps install, so a uv or
+# joo failure never leaves the orb without them.
+step "pstack-kitchen skills" install_pstack
 step "uv dev tools" install_dev_tools
 step "joo review engine" install_joo
-step "pstack-kitchen skills" install_pstack
