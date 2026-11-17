@@ -54,7 +54,7 @@ install_joo_stub() {
 # No builds.tsv row is written: the linked skills are the working tree, which
 # the kitchen commits to as it runs, so no one revision is the build a run
 # used, and fleet and feedback show it as unknown. The project environment
-# variables PSTACK_MUX=subagents, XDG_STATE_HOME under .amp/in/orb-backup/pstack
+# variables PSTACK_MUX=amp, XDG_STATE_HOME under .amp/in/orb-backup/pstack
 # and PSTACK_SCRATCH_ROOT carry the orb-specific settings into every agent
 # shell; ~/.bash_profile would not, because agent tools run `bash -c`.
 install_pstack() {

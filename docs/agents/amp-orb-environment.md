@@ -46,7 +46,9 @@ Three Amp project environment variables (Settings, Secrets & Env Vars)
 configure the kitchen for orbs, because agent tools run `bash -c` and never
 read `~/.bash_profile`:
 
-- `PSTACK_MUX=subagents`
+- `PSTACK_MUX=amp`, so the kitchen runs each role as an Amp thread on a
+  model of its own; single-session subagent mode needs
+  `PSTACK_MUX=subagents` on each command
 - `XDG_STATE_HOME=/home/user/workspace/repo/.amp/in/orb-backup/pstack`, so
   the run store, ledger and subagent inbox survive orb deletion; Amp's
   `.git/info/exclude` ignores `.amp/in/`, so the store never dirties the tree
@@ -57,11 +59,10 @@ read `~/.bash_profile`:
 The test suite scrubs `PSTACK_MUX` and `PSTACK_SCRATCH_ROOT` and gives each
 test its own `XDG_STATE_HOME`, so these settings do not change its results.
 
-`AGENTS.md` (Kitchen on Amp orbs) covers subagent mode and master rotation
-across threads, and the Amp threads backend (`PSTACK_MUX=amp` on the
-command), which runs each role as an Amp thread on a model of its own and
-needs none of this setup's links in the role orbs: each prompt carries the
-master's skills build and installs it under `~/.local/share/pstack-builds/`.
+`AGENTS.md` (Kitchen on Amp orbs) covers both modes. A role's orb needs
+none of this setup's links: each prompt carries the master's skills build and
+installs it under `~/.local/share/pstack-builds/`, and the master's own
+rotation starts the next master as a thread.
 
 ## Checks
 
