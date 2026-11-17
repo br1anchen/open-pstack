@@ -18,16 +18,29 @@ Amp orbs are the Debian 12 sandboxes Amp agents work in
   run used; `kitchen.sh fleet` and feedback show the build as `unknown`;
 - runs `uv sync --frozen`, so the pinned ruff and ty that the `pstack`
   profile's fast gates run are in `.venv`;
-- builds joo (`joo-dev`, the review engine `.agents/kitchen.toml` names) from
-  the private `br1anchen/judge_of_owls` into `~/.local/bin`, installs the
-  Claude CLI, and writes `~/.joo/config.json` with `claude:opus` unless one
-  exists. Reviews run on the owner's Claude subscription token, the personal
-  Amp secret `CLAUDE_CODE_OAUTH_TOKEN`; without it, or without read access to
-  that repository, the step skips, and a failed fetch, build or CLI install
-  only warns, so check `command -v joo-dev` before relying on it.
+- installs the Claude CLI, writes `~/.joo/config.json` with `claude:opus`
+  unless one exists, and puts a `joo-dev` stub in `~/.local/bin`. joo, the
+  review engine `.agents/kitchen.toml` names, builds from the private
+  `br1anchen/judge_of_owls` and reviews on the owner's Claude subscription
+  token, the personal Amp secret `CLAUDE_CODE_OAUTH_TOKEN`. Amp runs project
+  setup with no user identity, so setup can read neither; the build happens in
+  the thread, after the snapshot, and no token or login reaches the snapshot.
 
-`.agents/resume` runs the same sync on every activation and wake, which is a
-no-op unless a snapshot came without the links.
+`.agents/resume` runs on every activation and wake. It reruns the skill sync,
+a no-op unless a snapshot came without the links, and runs
+`.agents/joo-build start`: when the token is set and joo is not built, that
+starts the build in the background, under a lock in `~/.cache`, so wakes
+that overlap never build twice, and logs to `~/.cache/joo-build.log`.
+Resume returns in well under a second.
+
+The stub runs `.agents/joo-build wait` before every `joo-dev` call. It
+returns at once when joo is built. Otherwise it reports the running build and
+waits for it, or builds now when none is running or the last one died with
+its process, then runs the real `joo-dev`, which the build wrote over the
+stub. A cold build takes about 2.5 minutes. Without the token it exits 1 and
+says so, and a failed build prints the log's last lines. `kitchen.py doctor`
+finds the stub on PATH, so it does not prove joo is built; `ls
+~/.local/bin/.joo-revision` does.
 
 Three Amp project environment variables (Settings, Secrets & Env Vars)
 configure the kitchen for orbs, because agent tools run `bash -c` and never

@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Builds joo (Judge of Owls, the private br1anchen/judge_of_owls), the review
+# engine .agents/kitchen.toml names, into ~/.local/bin/joo-dev. Amp runs
+# project setup with no user identity, so setup can read neither that
+# repository nor the owner's Claude token, the personal Amp secret
+# CLAUDE_CODE_OAUTH_TOKEN. The build runs in the thread instead, after the
+# snapshot was taken, so no token or login reaches a snapshot.
+#
+#   joo-build start  start a build in the background, unless joo is built, a
+#                    build is running or the token is unset (.agents/resume
+#                    runs this on every activation and wake)
+#   joo-build wait   wait for a running build, or build now, and report it;
+#                    exits 0 once joo is built. The joo-dev stub that setup
+#                    installs runs this before every review.
+#
+# One lock serialises the builds, so concurrent wakes never build twice, and a
+# build that died with its orb process frees the lock for the next caller.
+# Docs: docs/agents/amp-orb-environment.md
+set -euo pipefail
+
+bin="$HOME/.local/bin"
+built="$bin/.joo-revision"
+lock="$HOME/.cache/joo-build.lock"
+log="$HOME/.cache/joo-build.log"
+src="$HOME/.cache/judge_of_owls"
+self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
+
+stamp() {
+  printf '%s joo: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
+}
+
+# The build itself, with the lock held. Its output goes to the log. Callers
+# run it as `"$self" build`, its own process, so `set -e` holds inside it even
+# where the caller tests its status.
+build() {
+  if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+    stamp 'CLAUDE_CODE_OAUTH_TOKEN is not set, so joo cannot be built or run'
+    return 1
+  fi
+  # The Claude CLI rejects a token with whitespace in it as "Not logged in".
+  if [[ "$CLAUDE_CODE_OAUTH_TOKEN" =~ [[:space:]] ]]; then
+    stamp 'warning: CLAUDE_CODE_OAUTH_TOKEN contains whitespace; re-enter the Amp secret as one line'
+  fi
+  stamp 'build started'
+  # The orb's single-user Nix profile script is not written for `set -u`.
+  set +u
+  # shellcheck disable=SC1091
+  source "$HOME/.nix-profile/etc/profile.d/nix.sh"
+  set -u
+  if [[ -d "$src/.git" ]]; then
+    git -C "$src" fetch --quiet --depth 1 origin main
+    git -C "$src" reset --quiet --hard FETCH_HEAD
+  else
+    gh repo clone br1anchen/judge_of_owls "$src" -- --quiet --depth 1
+  fi
+  mkdir -p "$bin"
+  (cd "$src" && nix develop --command bash -c 'bun install --frozen-lockfile && bun run build:local')
+  git -C "$src" rev-parse HEAD > "$built"
+  stamp "built $(cut -c 1-12 "$built")"
+}
+
+hold_lock() {
+  mkdir -p "$(dirname "$lock")"
+  exec 9> "$lock"
+}
+
+case "${1:-}" in
+  start)
+    [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" && ! -f "$built" ]] || exit 0
+    mkdir -p "$(dirname "$log")"
+    setsid -f "$self" background < /dev/null >> "$log" 2>&1
+    ;;
+  build)
+    build
+    ;;
+  background)
+    hold_lock
+    flock -n 9 || exit 0
+    [[ -f "$built" ]] || "$self" build
+    ;;
+  wait)
+    [[ -f "$built" ]] && exit 0
+    hold_lock
+    if ! flock -n 9; then
+      printf 'joo: a build is running (log %s); waiting for it. Last lines:\n' "$log"
+      tail -n 3 "$log" 2> /dev/null || true
+      flock 9
+    fi
+    if [[ -f "$built" ]]; then
+      printf 'joo: built %s\n' "$(cut -c 1-12 "$built")"
+      exit 0
+    fi
+    if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+      printf 'joo: not built, and CLAUDE_CODE_OAUTH_TOKEN (personal Amp secret) is not set, so joo cannot be built or run\n'
+      exit 1
+    fi
+    printf 'joo: not built yet; building now, about 2.5 minutes (log %s)\n' "$log"
+    if ! "$self" build >> "$log" 2>&1; then
+      printf 'joo: build failed; last lines of %s:\n' "$log"
+      tail -n 20 "$log"
+      exit 1
+    fi
+    printf 'joo: built %s\n' "$(cut -c 1-12 "$built")"
+    ;;
+  *)
+    printf 'usage: joo-build start|wait\n' >&2
+    exit 2
+    ;;
+esac

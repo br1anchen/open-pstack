@@ -24,49 +24,28 @@ install_dev_tools() {
   uv sync --frozen --quiet
 }
 
-# joo (Judge of Owls, the private br1anchen/judge_of_owls) is the review engine
-# .agents/kitchen.toml names. It reviews through the Claude CLI on the owner's
-# Claude subscription token, the personal Amp secret CLAUDE_CODE_OAUTH_TOKEN.
-# Without that token or read access to the repository the step skips, and any
-# later failure only warns, so a joo problem never stops an orb from starting.
-# joo is rebuilt only when its main branch moved.
-install_joo() {
-  if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] \
-    || ! gh repo view br1anchen/judge_of_owls --json name >/dev/null 2>&1; then
-    printf 'joo: skipped (needs CLAUDE_CODE_OAUTH_TOKEN and read access to br1anchen/judge_of_owls)\n'
-    return 0
-  fi
-  # The Claude CLI rejects a token with whitespace in it as "Not logged in".
-  if [[ "$CLAUDE_CODE_OAUTH_TOKEN" =~ [[:space:]] ]]; then
-    printf 'joo: warning: CLAUDE_CODE_OAUTH_TOKEN contains whitespace; re-enter the Amp secret as one line\n'
-  fi
-  # The orb base image ships single-user Nix; its profile script cannot reach
-  # this already-running process. It is not written for `set -u`.
-  local nix_sh="$HOME/.nix-profile/etc/profile.d/nix.sh"
-  [[ -r "$nix_sh" ]] || { printf 'joo: warning: no Nix profile at %s\n' "$nix_sh"; return 0; }
-  # Sourcing on the left of || also suspends errexit inside nix.sh.
-  set +u
-  # shellcheck disable=SC1090
-  source "$nix_sh" || { set -u; printf 'joo: warning: %s failed\n' "$nix_sh"; return 0; }
-  set -u
-  local src="$HOME/.cache/judge_of_owls"
-  if [[ -d "$src/.git" ]]; then
-    git -C "$src" fetch --quiet --depth 1 origin main && git -C "$src" reset --quiet --hard FETCH_HEAD
-  else
-    gh repo clone br1anchen/judge_of_owls "$src" -- --quiet --depth 1
-  fi || { printf 'joo: warning: could not fetch judge_of_owls\n'; return 0; }
-  local revision built="$HOME/.local/bin/.joo-revision"
-  revision="$(git -C "$src" rev-parse HEAD)"
-  mkdir -p "$HOME/.local/bin"
-  if [[ ! -x "$HOME/.local/bin/joo-dev" || "$(cat "$built" 2>/dev/null)" != "$revision" ]]; then
-    (cd "$src" && nix develop --command bash -c 'bun install --frozen-lockfile && bun run build:local') \
-      || { printf 'joo: warning: build failed\n'; return 0; }
-    printf '%s\n' "$revision" > "$built"
-  fi
+# joo (Judge of Owls) is the review engine .agents/kitchen.toml names. Setup
+# runs with no user identity, so it cannot build joo from the private
+# br1anchen/judge_of_owls; .agents/resume starts that build in the thread
+# (.agents/joo-build). Setup installs what needs no identity: the Claude CLI
+# joo reviews through, joo's config, and a joo-dev stub that waits for the
+# build, or runs it, before each review; the build replaces the stub. None of
+# them holds a secret. A failure only warns.
+install_joo_stub() {
   command -v claude >/dev/null || npm install --global --silent @anthropic-ai/claude-code \
-    || { printf 'joo: warning: could not install the Claude CLI\n'; return 0; }
-  mkdir -p "$HOME/.joo"
+    || printf 'joo: warning: could not install the Claude CLI\n'
+  mkdir -p "$HOME/.joo" "$HOME/.local/bin"
   [[ -f "$HOME/.joo/config.json" ]] || printf '{ "agentTiers": "claude:opus" }\n' > "$HOME/.joo/config.json"
+  [[ -f "$HOME/.local/bin/.joo-revision" ]] && return 0
+  # The stub is one compound command, which bash reads whole before running
+  # it, because the build overwrites this file while a review waits in it.
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    '# joo-dev stub from .agents/setup; the joo build replaces it.' \
+    "{ \"$repo_root/.agents/joo-build\" wait >&2 && exec \"\$HOME/.local/bin/joo-dev\" \"\$@\"; exit; }" \
+    > "$HOME/.local/bin/joo-dev"
+  chmod +x "$HOME/.local/bin/joo-dev"
+  printf 'joo: stub installed; .agents/resume builds joo in the thread\n'
 }
 
 # The skills are this repo, so the kitchen runs from this checkout: its own
@@ -87,4 +66,4 @@ install_pstack() {
 # joo failure never leaves the orb without them.
 step "pstack-kitchen skills" install_pstack
 step "uv dev tools" install_dev_tools
-step "joo review engine" install_joo
+step "joo review engine stub" install_joo_stub

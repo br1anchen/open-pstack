@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Amp orb resume hook. Runs after activation and on every wake, so it must be
 # fast and idempotent. It relinks this checkout's skills into ~/.agents/skills
-# when a snapshot came without them; a second sync is a no-op.
+# when a snapshot came without them (a second sync is a no-op), and starts the
+# joo build in the background when the owner's Claude token is set and joo is
+# not built yet; .agents/joo-build holds the lock and writes the log.
 # Docs: https://ampcode.com/docs/orbs/customizing, docs/agents/amp-orb-environment.md
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 python3 "$repo_root/scripts/pstack-sync.py" --apply >/dev/null
+"$repo_root/.agents/joo-build" start
