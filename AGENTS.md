@@ -27,6 +27,17 @@
 - Tests are hermetic: they scrub inherited `PSTACK_KITCHEN_*`, `KITCHEN_*`, `PAIR_*`, `HERDR_*`, `REX_*` and `PSTACK_MUX` variables, so a run inside a live kitchen gives the same result as one outside it.
 - Drive pair.sh and kitchen.sh by hand only against the fake herdr: put `tests/pstack-pair/bin` first on PATH and point XDG_STATE_HOME at a temp directory, as `tests/pstack-pair/scenario.sh` does (it unsets `PSTACK_KITCHEN_ROLE` and `PSTACK_KITCHEN_RUN`, which a verifier pane carries). `init`, `spawn`, `stop` and `close` against the real herdr register, rename or close the calling pane, so an agent that runs them there loses its own pane.
 
+## Kitchen on Amp orbs
+
+Sustained or multi-unit work runs with the `pstack-kitchen` skill against `.agents/kitchen.toml`, in subagent mode (`PSTACK_MUX=subagents`; orbs have no Herdr or Rex). `.agents/setup` links this checkout's own `skills/*` into `~/.agents/skills`, so `kitchen.sh` runs the code in the working tree, and the run store lives in `.amp/in/orb-backup/pstack/`, so it survives orb deletion; [docs/agents/amp-orb-environment.md](docs/agents/amp-orb-environment.md) lists what setup provides. In subagent mode `kitchen.sh` prints each role's prompt (`subagent NAME (KIND): TEXT`) instead of starting a pane; the master hands TEXT to a Task subagent as its whole prompt, then runs the next command, which reads the files the subagent wrote. To rotate the master after `new-handoff` and `rotate-master`, the master starts the next generation itself, without asking the human:
+
+1. Push the run's branch, since a new orb checks out only what origin has.
+2. `create_thread` in this project. The prompt is `sessions/master-g<n>-prompt.md` plus three steps to do first: wait for `.git/pstack-run.tgz`, extract it with `tar -xzf .git/pstack-run.tgz -C .amp/in/orb-backup`, and check out the branch.
+3. `tar -czf .amp/in/orb-backup/pstack-run.tgz -C .amp/in/orb-backup pstack`, then upload it with `upload_thread_file` to `.git/pstack-run.tgz` in the new thread. That's one file of up to 4 MiB; split a larger archive into parts.
+4. The new thread runs `kitchen.sh take-master <store>`, and the old master ends its turn.
+
+The Amp threads backend (`PSTACK_MUX=amp`), being built in this repo, runs each role as its own Amp thread and hands the store to the next master itself; once it lands it can replace subagent mode and this manual rotation, and the project's `PSTACK_MUX` changes with it.
+
 ## Security
 
 - No secrets in the repo; agents read tokens from the host environment.

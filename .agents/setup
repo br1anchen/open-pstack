@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Amp orb setup. Runs once per fresh orb (and again on a stale snapshot), so
+# every step is idempotent and cheap when its result is already present. It
+# readies an orb to run the pstack-kitchen workflow on this repo against
+# .agents/kitchen.toml: the locked dev tools its gates use, the joo review
+# engine it names, and this checkout's own skills linked into ~/.agents/skills.
+# Docs: https://ampcode.com/docs/orbs, docs/agents/amp-orb-environment.md
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+cd "$repo_root"
+
+step() {
+  local label="$1"
+  shift
+  local started=$SECONDS
+  printf '==> %s\n' "$label"
+  "$@"
+  printf '<== %s (%ss)\n' "$label" "$((SECONDS - started))"
+}
+
+# ruff and ty, pinned in uv.lock, which the pstack profile's fast gates run.
+install_dev_tools() {
+  uv sync --frozen --quiet
+}
+
+# joo (Judge of Owls, the private br1anchen/judge_of_owls) is the review engine
+# .agents/kitchen.toml names. It reviews through the Claude CLI on the owner's
+# Claude subscription token, the personal Amp secret CLAUDE_CODE_OAUTH_TOKEN.
+# Without that token or read access to the repository the step skips, and any
+# later failure only warns, so a joo problem never stops an orb from starting.
+# joo is rebuilt only when its main branch moved.
+install_joo() {
+  if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] \
+    || ! gh repo view br1anchen/judge_of_owls --json name >/dev/null 2>&1; then
+    printf 'joo: skipped (needs CLAUDE_CODE_OAUTH_TOKEN and read access to br1anchen/judge_of_owls)\n'
+    return 0
+  fi
+  # The Claude CLI rejects a token with whitespace in it as "Not logged in".
+  if [[ "$CLAUDE_CODE_OAUTH_TOKEN" =~ [[:space:]] ]]; then
+    printf 'joo: warning: CLAUDE_CODE_OAUTH_TOKEN contains whitespace; re-enter the Amp secret as one line\n'
+  fi
+  # The orb base image ships single-user Nix; its profile script cannot reach
+  # this already-running process.
+  # shellcheck disable=SC1091
+  source "$HOME/.nix-profile/etc/profile.d/nix.sh"
+  local src="$HOME/.cache/judge_of_owls"
+  if [[ -d "$src/.git" ]]; then
+    git -C "$src" fetch --quiet --depth 1 origin main && git -C "$src" reset --quiet --hard FETCH_HEAD
+  else
+    gh repo clone br1anchen/judge_of_owls "$src" -- --quiet --depth 1
+  fi || { printf 'joo: warning: could not fetch judge_of_owls\n'; return 0; }
+  local revision built="$HOME/.local/bin/.joo-revision"
+  revision="$(git -C "$src" rev-parse HEAD)"
+  mkdir -p "$HOME/.local/bin"
+  if [[ ! -x "$HOME/.local/bin/joo-dev" || "$(cat "$built" 2>/dev/null)" != "$revision" ]]; then
+    (cd "$src" && nix develop --command bash -c 'bun install --frozen-lockfile && bun run build:local') \
+      || { printf 'joo: warning: build failed\n'; return 0; }
+    printf '%s\n' "$revision" > "$built"
+  fi
+  command -v claude >/dev/null || npm install --global --silent @anthropic-ai/claude-code \
+    || { printf 'joo: warning: could not install the Claude CLI\n'; return 0; }
+  mkdir -p "$HOME/.joo"
+  [[ -f "$HOME/.joo/config.json" ]] || printf '{ "agentTiers": "claude:opus" }\n' > "$HOME/.joo/config.json"
+}
+
+# The skills are this repo, so the kitchen runs from this checkout: its own
+# installer links skills/* into ~/.agents/skills (and ~/.claude/skills,
+# ~/.grok/skills), and an edit to the checkout is what the next command runs.
+# The checkout's HEAD goes to builds.tsv, which is how each run names the build
+# it used. The project environment variables PSTACK_MUX=subagents,
+# XDG_STATE_HOME under .amp/in/orb-backup/pstack and PSTACK_SCRATCH_ROOT carry
+# the orb-specific settings into every agent shell; ~/.bash_profile would not,
+# because agent tools run `bash -c`.
+install_pstack() {
+  python3 scripts/pstack-sync.py --apply >/dev/null
+  local revision builds="${XDG_STATE_HOME:-$HOME/.local/state}/pstack/builds.tsv"
+  revision="$(git rev-parse HEAD)"
+  mkdir -p "$(dirname "$builds")"
+  if [[ "$(tail -n 1 "$builds" 2>/dev/null | cut -f 2)" != "$revision" ]]; then
+    printf '%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$revision" "$repo_root/skills" >> "$builds"
+  fi
+  printf 'pstack: skills from %s at %s\n' "$repo_root" "${revision:0:12}"
+}
+
+step "uv dev tools" install_dev_tools
+step "joo review engine" install_joo
+step "pstack-kitchen skills" install_pstack
