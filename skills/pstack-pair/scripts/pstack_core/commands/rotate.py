@@ -6,7 +6,7 @@ import sys
 import time
 
 from .. import mux
-from ..agents import current_no_mcp
+from ..agents import current_no_mcp, model_label
 from ..argv import Spec, read
 from ..checkin import sidekick_busy
 from ..errors import Die, RotationFailed, translate
@@ -262,13 +262,16 @@ def failover(ctx, args):
     opts = read(args[1:], Spec(valued=('--reason',), flags=('--force',)))
     reason, force = opts.last('--reason', 'requested'), opts.present('--force')
     pair_file(store)
+    sidekick = peek(load(store), 'sidekick')
     kind = field(store, 'sidekick', 'kind')
-    recorded = peek(peek(load(store), 'sidekick'), 'fallback')
+    recorded = peek(sidekick, 'fallback')
     fallback = text_at(recorded, 'kind')
     if not fallback:
         raise Die('no fallback recorded; spawn the sidekick with --fallback KIND', 5)
-    if kind == fallback:
-        raise Die(f'the sidekick already runs the fallback ({fallback})', 5)
+    running_label = model_label(kind, names(sidekick, 'start_args'))
+    target_label = model_label(fallback, names(recorded, 'args'))
+    if running_label == target_label:
+        raise Die(f'the sidekick already runs the fallback ({target_label})', 5)
     name = field(store, 'sidekick', 'name')
     status = agent_status(name)
     if status == 'working':
@@ -288,7 +291,7 @@ def failover(ctx, args):
                 f'{kind} sidekick has not exited; close it by hand, then rerun failover',
                 5,
             )
-    record_failover(store, kind, fallback, reason)
+    record_failover(store, running_label, target_label, reason)
     rc = spawn_role(
         ctx,
         store,

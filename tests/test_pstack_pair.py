@@ -1866,7 +1866,7 @@ esac
             '--fallback-arg',
             'swe-2-high',
         )
-        self.assertIn('failover: pi -> devin', out)
+        self.assertIn('failover: pi devin/swe-2 -> devin swe-2-high', out)
         sidekick = self.state()['sidekick']
         self.assertEqual(sidekick['kind'], 'devin')
         self.assertEqual(
@@ -1880,7 +1880,8 @@ esac
                 'swe-2-high',
             ],
         )
-        self.assertEqual(sidekick['failovers'][0]['from'], 'pi')
+        self.assertEqual(sidekick['failovers'][0]['from'], 'pi devin/swe-2')
+        self.assertEqual(sidekick['failovers'][0]['to'], 'devin swe-2-high')
         self.assertIn('capacity issues', sidekick['failovers'][0]['reason'])
         self.assertIn('preflight: pi 1.0.2 at ', sidekick['failovers'][0]['reason'])
         self.assertIn(', twice: exit 1 ', sidekick['failovers'][0]['reason'])
@@ -2274,7 +2275,8 @@ esac
         self.assertEqual(sidekick['failovers'][-1]['reason'], 'provider-error')
         self.assertIn(f'next: re-dispatch {brief}', out)
         self.assertIn(
-            'failovers: 1 (pi:devin)', self.run_command('metrics', str(self.store))
+            'failovers: 1 (pi devin/swe-2:devin)',
+            self.run_command('metrics', str(self.store)),
         )
         self.run_command('failover', str(self.store), code=5)
 

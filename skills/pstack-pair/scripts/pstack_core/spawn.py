@@ -354,7 +354,8 @@ def set_placement(store, want=''):
 
 
 def record_failover(store, source, target, reason):
-    """The sidekick's failover from one kind to another: .sidekick.failovers, the master's failover event, and the line it prints."""
+    """The sidekick's failover from one agent to another, each named by its label (agents.model_label): .sidekick.failovers, the master's failover
+    event, and the line it prints."""
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
     def mutate(doc):
@@ -407,7 +408,12 @@ def spawn_sidekick(ctx, store, request):
                 raise NoFallback(
                     f'no fallback recorded for a failed {kind}; pass --fallback KIND or fix the agent'
                 )
-            record_failover(store, kind, name, reason)
+            record_failover(
+                store,
+                agents.model_label(kind, request.args),
+                agents.model_label(name, names(fallback, 'args')),
+                reason,
+            )
             return spawn_role(
                 ctx,
                 store,

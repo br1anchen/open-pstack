@@ -14167,6 +14167,56 @@ class AmpKitchenTests(KitchenScriptTests):
     def test_retro_prints_no_sidekick_section_without_the_model_record(self):
         self.assertNotIn('by sidekick model', self.run_sh('retro', str(self.store)))
 
+    def spawn_amp_sidekick(self, slug, primary, fallback):
+        """A second run in the same runs directory whose sidekick starts on the amp model `primary` with `fallback` as its fallback model; its
+        READY is on file."""
+        store = self.store.parent / slug
+        self.run_sh('init', slug)
+        self.run_sh(
+            'spawn',
+            str(store),
+            '--kind',
+            'amp',
+            '--fallback',
+            'amp',
+            '--fallback-arg',
+            '--model',
+            '--fallback-arg',
+            fallback,
+            '--',
+            '--model',
+            primary,
+            code=4,
+        )
+        (store / 'reports/000-ready.md').write_text('status: done\n')
+        return store
+
+    def test_failover_moves_an_amp_sidekick_to_another_model_and_names_both(self):
+        store = self.spawn_amp_sidekick('fo', 'a/one', 'b/two')
+        out = self.run_sh('failover', str(store), '--reason', 'limit', code=4)
+        self.assertIn('failover: amp a/one -> amp b/two (limit)', out)
+        started = [
+            line
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if '--title fo-sidekick' in line
+        ]
+        self.assertEqual(len(started), 2, started)
+        self.assertIn('--model a/one ', started[0])
+        self.assertIn('--model b/two ', started[1])
+        failover = json.loads((store / 'pair.json').read_text())['sidekick'][
+            'failovers'
+        ]
+        self.assertEqual(
+            [(f['from'], f['to'], f['reason']) for f in failover],
+            [('amp a/one', 'amp b/two', 'limit')],
+        )
+        self.assertRegex(
+            (store / 'events.tsv').read_text(),
+            r'\tmaster\tfailover\t-\tamp a/one:amp b/two\n',
+        )
+        out = self.run_sh('failover', str(store), code=5)
+        self.assertIn('the sidekick already runs the fallback (amp b/two)', out)
+
     def test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master(
         self,
     ):
