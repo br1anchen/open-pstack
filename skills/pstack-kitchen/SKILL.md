@@ -161,21 +161,27 @@ kind = "amp"
 args = ["--model", "openai/gpt-6-astra", "--effort", "high"]
 [verifier]
 kind = "amp"
-args = ["--model", "anthropic/claude-sonnet-5-5"]
+args = ["--model", "anthropic/claude-sonnet-5-5", "--orb-size", "a1.small"]
 [verifier.escalated]
 kind = "amp"
-args = ["--model", "anthropic/claude-opus-5-5"]
+args = ["--model", "anthropic/claude-opus-5-5", "--orb-size", "a1.large"]
 ```
 
 - A role's thread starts with the first prompt it is sent (`amp -ox` with the
-  entry's `--model`, `-m`, `--mode`, `--effort`, `--features` and `--fast`);
+  entry's `--model`, `-m`, `--mode`, `--effort`, `--features`, `--fast` and
+  `--orb-size`; without `--orb-size` the orb takes the project's default
+  size, so name `a1.small` for a docs-only role and a larger size for one
+  whose gates build and test);
   later prompts continue it (`amp threads continue <T> -ox`). A role of any
   other kind runs on Amp's default mode, with a warning. Each prompt prints
   `amp NAME (THREAD): TEXT`.
 - Every orb has its own checkout and its own copy of the store. Each prompt
   attaches a bundle: the store's files, a git bundle of HEAD and of each
   scratch worktree the store links (less what the remote holds), and the
-  agents this side knows. The receiving thread's first move is
+  agents this side knows. A prompt to a role also attaches the master's
+  skills build and the line that installs it under
+  `~/.local/share/pstack-builds/`, so every orb runs the run's build. The
+  receiving thread's first move is
   `PSTACK_MUX=amp ~/.agents/skills/pstack-pair/scripts/pair.sh sync <URL>`,
   which the prompt names. It merges the store three-way against the bundle
   it last sent that thread (a file only one side changed keeps that side's
@@ -188,15 +194,36 @@ args = ["--model", "anthropic/claude-opus-5-5"]
   and return (exit 4 while the answer is not on file); end your turn. A
   role's `finish` or `notify` messages the master's thread with its own
   bundle, and the master runs that sync, then the next command.
-- A rotation or failover archives the role's thread; its next prompt starts a
-  fresh one. Each verification starts a fresh verifier thread, which sends
-  its verdict back with `kitchen.sh notify`; run `verify --wait` after its
-  sync.
-- `rotate-master` starts the next master as a new thread, on `--model` or this
-  thread's own mode, with the bundle and the master prompt; its `take-master`
-  takes the run over there. No human step is needed. A role's reply that
-  still reaches the old master's thread names a sync that forwards it to the
-  new one.
+- A new role thread takes two to three minutes before it works: the orb
+  starts, runs the project's setup, installs the build, syncs and builds
+  joo. The rotation policy spends that on fresh context only where it buys
+  something:
+  - The sidekick keeps its thread across consecutive routine units in the
+    same profiles: `dispatch` prints `kept: the amp sidekick keeps its
+    session for this routine unit (<profiles>, context N%)`. It rotates when
+    the next unit is escalated, its profiles differ, or the thread has used
+    `PAIR_REUSE_CONTEXT_PCT` (50) percent of its context window or compacted
+    (`amp threads context`). A rotation or failover archives the role's
+    thread; its next prompt starts a fresh one.
+  - The verifier stays fresh: each verification starts a new verifier
+    thread, which sends its verdict back with `kitchen.sh notify`; run
+    `verify --wait` after its sync. Keep it for escalated units and
+    landings, and give routine profiles `verify = "batch"` or `"gates"` in
+    `.agents/kitchen.toml`, so a routine unit starts no verifier thread of
+    its own.
+  - The consultant starts at the first escalation and lives the run, as
+    anywhere.
+  - The master rotates on context pressure, as anywhere: `rotate-master`
+    starts the next master as a new thread, on `--model` or this thread's
+    own mode, with the bundle and the master prompt; its `take-master` takes
+    the run over there. No human step is needed. A role's reply that still
+    reaches the old master's thread names a sync that forwards it to the new
+    one.
+
+  The cost to optimize is latency, not money: an idle orb pauses after five
+  minutes and costs nothing while paused, and a start costs about a cent at
+  a1.medium. Never skip joo on a role orb to start faster; the review step
+  needs it.
 - `prime-agent` cannot run here.
 
 ## Roles and quota

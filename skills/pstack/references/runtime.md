@@ -104,7 +104,17 @@ the host's delegation restrictions.
   thread of its own, on the model its roster entry names, and carry the store
   and commits between orbs themselves; read
   [Amp threads](../../pstack-kitchen/SKILL.md#amp-threads). Prefer it over
-  create_thread by hand for a kitchen.
+  create_thread by hand for a kitchen. A new role thread costs two to three
+  minutes (orb start, setup, the build install, sync, the joo build), so the
+  sidekick keeps its thread across routine units in one area and rotates on
+  context pressure or an area change; the verifier stays fresh for escalated
+  units and landings, while routine profiles verify in `batch` or `gates`
+  mode; the consultant and the master's own rotation on context pressure are
+  unchanged. A roster entry's `--orb-size` (such as `a1.small` for a
+  docs-only role) sizes that role's orb. Idle orbs pause after five minutes
+  and cost nothing while paused, and a start costs about a cent at
+  a1.medium, so the cost to save is latency, not money; never skip joo on a
+  role orb.
 - MCP servers and deferred Amp tools are reached through tool_search and
   code_exec. Painter generates images; diagrams and charts go in a visual
   artifact (load `creating-artifacts`).

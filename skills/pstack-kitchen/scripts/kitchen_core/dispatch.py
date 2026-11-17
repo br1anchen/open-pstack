@@ -70,7 +70,7 @@ def dispatch(ctx, args):
         remind_landed(store)
     # a landing brief that land-check passed on a store with no pair.json goes on to the core dispatch, which refuses it
     if has_pair(store):
-        rotate_if_due(ctx, store, 'brief')
+        rotate_if_due(ctx, store, 'brief', brief)
     # --max belongs to the quiet wait, not to the pair's dispatch.
     held = []
     try:

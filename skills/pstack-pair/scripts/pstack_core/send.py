@@ -344,7 +344,7 @@ def dispatch_request(ctx, args):
         )
     from .commands.rotate import rotate_if_due
 
-    rotate_if_due(ctx, store, 'brief')
+    rotate_if_due(ctx, store, 'brief', brief)
     return DispatchRequest(store, brief, timeout, send_only)
 
 

@@ -80,6 +80,12 @@ class Mux:
     master_threads = False
     # What spawn says when a bootstrap prompt was handed off and nothing waited for it (waits is False).
     handoff_next = ''
+    # Whether a sidekick may keep its session across routine units in one area (rotate_if_due): where a fresh session costs minutes.
+    reuses_sessions = False
+
+    def context_used(self, name):
+        """The share of its context window the agent `name` has used (0 to 1; 1 once it compacted), or None when the backend cannot say."""
+        return None
 
     # The calling pane and where it lives.
     def require(self, what=None):

@@ -13678,6 +13678,8 @@ class AmpKitchenTests(KitchenScriptTests):
             '--',
             '--model',
             'zhipuai/glm-5.3',
+            '--orb-size',
+            'a1.small',
             code=4,
         )
         self.spawn_out = out
@@ -13721,7 +13723,11 @@ class AmpKitchenTests(KitchenScriptTests):
             self.spawn_out,
         )
         log = (self.fake / 'amp.log').read_text()
-        self.assertIn('--model zhipuai/glm-5.3 --title demo-sidekick --attach ', log)
+        # The orb size the role's arguments name goes to amp -ox with its model.
+        self.assertIn(
+            '--model zhipuai/glm-5.3 --orb-size a1.small --title demo-sidekick --attach ',
+            log,
+        )
         [message] = self.thread_messages(sidekick)
         self.assertIn(f'store: {self.store}', message)
         self.assertIn(
@@ -13790,6 +13796,60 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertNotIn('reaches it only when you send it', reply)
         self.assertNotIn('pstack-build.tgz', reply)
+
+    def finish_unit(self, seq, slug, scope, path):
+        """A routine unit dispatched to the sidekick's thread and finished done there; the dispatch's output."""
+        b = self.brief(seq, slug, scope, verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.write(path, f'{slug}\n')
+        self.done(b, self.commit(slug))
+        self.as_thread(
+            amp_thread(1),
+            'finish',
+            str(self.store),
+            str(self.store / 'reports' / b.name),
+        )
+        return out
+
+    def next_unit_rotates(self, seq, slug, scope):
+        """Dispatching the next unit starts a fresh sidekick thread: the rotation hands off its bootstrap (exit 4) and archives the old one."""
+        b = self.brief(seq, slug, scope, verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertNotIn('kept:', out)
+        self.assertIn(
+            f'amp demo-sidekick ({amp_thread(2)}): Load the pstack-kitchen skill', out
+        )
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{amp_thread(1)}\n')
+
+    def test_a_routine_unit_in_the_same_area_keeps_the_sidekick_thread(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        out = self.finish_unit('002', 'two', ['src/**', 'tests/**'], 'src/two.py')
+        self.assertIn(
+            'kept: the amp sidekick keeps its session for this routine unit (app, context 10%)',
+            out,
+        )
+        self.assertNotIn('rotated:', out)
+        self.assertIn('pstack-kitchen BRIEF', self.thread_messages(amp_thread(1))[-1])
+        self.assertEqual((self.fake / 'amp-started').read_text(), '1')
+        self.assertFalse((self.fake / 'amp-archived').exists())
+
+    def test_half_a_context_window_rotates_the_sidekick_even_in_the_same_area(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        (self.fake / 'amp-context').write_text(
+            '{"totalTokens": 50000, "maxContextTokens": 100000, "compactionCount": 0}\n'
+        )
+        self.next_unit_rotates('002', 'two', ['src/**', 'tests/**'])
+
+    def test_a_compacted_sidekick_rotates_even_in_the_same_area(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        (self.fake / 'amp-context').write_text(
+            '{"totalTokens": 1000, "maxContextTokens": 100000, "compactionCount": 1}\n'
+        )
+        self.next_unit_rotates('002', 'two', ['src/**', 'tests/**'])
+
+    def test_a_unit_in_another_area_rotates_the_sidekick(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.next_unit_rotates('002', 'guide', ['docs/**'])
 
     def test_the_bundle_carries_the_sidekicks_commit_to_a_checkout_that_lacks_it(self):
         sidekick = amp_thread(1)

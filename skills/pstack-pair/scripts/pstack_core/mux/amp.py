@@ -6,6 +6,7 @@ continues it (`amp threads continue -ox`). Each orb has its own checkout and its
 role's bundle the same way, and the master acts on it in its next turn."""
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -36,9 +37,17 @@ MASTER_RE = re.compile(r'-master(-g[0-9]+)?$')
 # The skills tree this pstack runs from, and the installer beside it (an open-pstack checkout or clone has both).
 SKILLS = os.path.realpath(os.path.join(os.path.dirname(__file__), *['..'] * 4))
 INSTALLER = os.path.join(os.path.dirname(SKILLS), 'scripts', 'pstack-sync.py')
-# The flags of a role's arguments that choose the thread's model; the rest belong to the pane agents.
+# The flags of a role's arguments that choose the thread's model and its orb's size; the rest belong to the pane agents.
 MODEL_SPEC = Spec(
-    valued=('--model', '-m', '--mode', '--effort', '--features', '--settings-file'),
+    valued=(
+        '--model',
+        '-m',
+        '--mode',
+        '--effort',
+        '--features',
+        '--settings-file',
+        '--orb-size',
+    ),
     flags=('--fast',),
     unknown='collect',
     dangling='drop',
@@ -157,8 +166,29 @@ class Amp(Subagents):
     waits = False
     handoff_next = "next: end your turn; the role's thread writes the ready file, and its reply arrives here as a message that names the sync to run first\n"
 
+    # A new role thread costs minutes (orb start, setup, the build install, sync, the joo build), so a sidekick keeps its thread across
+    # routine units in one area until its context fills.
+    reuses_sessions = True
+
     def path(self):
         return registry_path()
+
+    def context_used(self, name):
+        found = self.entry(name)
+        thread = found[1].get('thread') if found else ''
+        if not thread:
+            return None
+        r = run(['amp', 'threads', 'context', thread])
+        try:
+            doc = json.loads(r.stdout) if r.returncode == 0 else {}
+        except ValueError:
+            return None
+        doc = doc if isinstance(doc, dict) else {}
+        used, limit = doc.get('totalTokens'), doc.get('maxContextTokens')
+        compacted = doc.get('compactionCount') or 0
+        if not (isinstance(used, int) and isinstance(limit, int) and limit > 0):
+            return None
+        return 1.0 if compacted else used / limit
 
     def require(self, what=None):
         if not own_thread():
@@ -437,8 +467,6 @@ class Amp(Subagents):
 
     def thread_mode(self):
         """The agent mode this thread runs (a mode key or provider/model), '' when amp cannot say."""
-        import json
-
         r = run(['amp', 'threads', 'export', own_thread()]) if own_thread() else None
         try:
             mode = (

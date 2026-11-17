@@ -1,6 +1,7 @@
 import contextlib
 import io
 import os
+import re
 import sys
 import time
 
@@ -22,12 +23,15 @@ from ..store import (
     event,
     expected_report,
     field,
+    header_field,
     load,
     names,
     pair_file,
     peek,
     read_flag,
+    risk_of,
     text_at,
+    update_role,
     who,
 )
 from ..wait import end_with_parent
@@ -98,16 +102,49 @@ def rotate(ctx, args):
     )
 
 
-def rotate_if_due(ctx, store, what):
+def profiles_of(brief):
+    """The profiles classify wrote in a brief's header, as a set."""
+    return {p for p in re.split(r'[\s,]+', header_field(brief, 'profiles')) if p}
+
+
+def keeps_session(store, brief):
+    """Why the sidekick keeps its session for `brief` ('' when it rotates): only where a fresh session costs minutes (mux reuses_sessions,
+    Amp threads), and only when the unit it finished and this one are both routine, in the same profiles, and its context is under
+    PAIR_REUSE_CONTEXT_PCT (50) percent of the window and never compacted. A context the backend cannot read rotates."""
+    m = mux.get()
+    previous = field(store, 'dispatch', 'brief')
+    if not (m.reuses_sessions and brief and previous and os.path.isfile(previous)):
+        return ''
+    if risk_of(brief) != 'routine' or risk_of(previous) != 'routine':
+        return ''
+    area = profiles_of(brief)
+    if not area or area != profiles_of(previous):
+        return ''
+    used = m.context_used(field(store, 'sidekick', 'name'))
+    if used is None or used * 100 >= env_int('PAIR_REUSE_CONTEXT_PCT', 50):
+        return ''
+    return f'{", ".join(sorted(area))}, context {round(used * 100)}%'
+
+
+def rotate_if_due(ctx, store, what, brief=''):
     """The sidekick is rotated before the next brief or plan once its last unit is done, so the rotation costs the master no extra wake. Partial
     or blocked work never sets rotation_required and keeps its session. A replacement whose READY is still pending is left to its bootstrap:
-    send refuses until it is ready."""
+    send refuses until it is ready. Where a fresh session costs minutes, a routine brief in the area of the unit just done keeps the session
+    while its context has room (keeps_session)."""
     if (
         not os.path.isfile(f'{store}/pair.json')
         or read_flag(store, 'sidekick.rotation_required') is not True
     ):
         return
     if read_flag(store, 'sidekick.bootstrap_pending') is True:
+        return
+    kept = keeps_session(store, brief) if what == 'brief' else ''
+    if kept:
+        update_role(store, 'sidekick', {'rotation_required': False})
+        event(store, 'sidekick', 'reuse', brief, kept)
+        sys.stdout.write(
+            f'kept: the {field(store, "sidekick", "kind")} sidekick keeps its session for this routine unit ({kept})\n'
+        )
         return
     # The report lands a moment before the sidekick's turn ends.
     mux.get().wait(

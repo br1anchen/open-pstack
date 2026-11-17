@@ -4,7 +4,8 @@
 # - a new orb thread (`amp -ox ... [--attach FILE] MESSAGE`) and a message to one (`amp threads continue T -ox ...`): each prints the
 #   thread URL; the thread's messages go to $FAKE/amp-threads/<T>/<n>.txt and its attachments to <n>-<name> beside them. $FAKE/amp-ox-fail
 #   holds the error a thread that cannot start prints.
-# - `amp threads archive T` and `amp threads export T` ($FAKE/amp-mode is the agentMode it reports).
+# - `amp threads archive T`, `amp threads export T` ($FAKE/amp-mode is the agentMode it reports) and `amp threads context T`
+#   ($FAKE/amp-context is the JSON it prints; by default 10% of the window used, no compaction).
 set -u
 : "${FAKE:?}"
 printf '%s\n' "$*" >>"$FAKE/amp.log"
@@ -16,7 +17,7 @@ deliver() {
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--attach) cp "$2" "$dir/$n-$(basename "$2")"; shift 2 ;;
-		--model|-m|--mode|--effort|--features|--title|--settings-file|--project) shift 2 ;;
+		--model|-m|--mode|--effort|--features|--title|--settings-file|--project|--orb-size) shift 2 ;;
 		# As the real CLI: -x takes the token right after it as the message, unless that token is an option; any other word is no message.
 		-ox) case "${2:-}" in -*|'') shift ;; *) message="$2"; shift 2 ;; esac ;;
 		*) shift ;;
@@ -30,6 +31,7 @@ case "${1:-} ${2:-}" in
 	# $FAKE/amp-continue-fail: the error a message to an existing thread prints.
 	if [ -s "$FAKE/amp-continue-fail" ]; then cat "$FAKE/amp-continue-fail" >&2; exit 1; fi
 	shift 2; t="$1"; shift; deliver "$t" "$@"; exit 0 ;;
+"threads context") cat "$FAKE/amp-context" 2>/dev/null || printf '{"threadID":"%s","totalTokens":10000,"maxContextTokens":100000,"compactionCount":0}\n' "$3"; exit 0 ;;
 "threads archive") printf '%s\n' "$3" >>"$FAKE/amp-archived"; exit 0 ;;
 "threads export") printf '{"id":"%s","agentMode":"%s","messages":[]}\n' "$3" "$(cat "$FAKE/amp-mode" 2>/dev/null)"; exit 0 ;;
 esac
