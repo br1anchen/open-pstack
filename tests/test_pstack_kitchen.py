@@ -13851,6 +13851,80 @@ class AmpKitchenTests(KitchenScriptTests):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         self.next_unit_rotates('002', 'guide', ['docs/**'])
 
+    def set_state(self, thread, state, at='2026-01-01T00:00:00.000Z'):
+        """The lastKnownAgentState `amp threads export` reports for thread."""
+        (self.fake / 'amp-state').mkdir(exist_ok=True)
+        (self.fake / 'amp-state' / thread).write_text(f'{state} {at}\n')
+
+    def briefs_in(self, thread):
+        return [m for m in self.thread_messages(thread) if 'pstack-kitchen BRIEF' in m]
+
+    def test_a_thread_in_a_turn_is_working_and_a_brief_is_not_queued_behind_it(self):
+        sidekick = amp_thread(1)
+        self.set_state(sidekick, 'tool_use')
+        self.assertIn(
+            'demo-sidekick (amp:1) working', self.run_sh('status', str(self.store))
+        )
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn('demo-sidekick is working', out)
+        self.assertEqual(self.briefs_in(sidekick), [])
+
+    def test_a_steer_to_a_working_thread_queues_once_and_is_not_sent_again_while_it_runs(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.set_state(sidekick, 'tool_use', '2026-01-01T00:00:00.000Z')
+        steer = self.store / 'steers/001-util-s1.md'
+        steer.parent.mkdir(exist_ok=True)
+        steer.write_text(
+            '# Steer 001-s1: util\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n'
+        )
+        out = self.run_sh('steer', str(self.store), str(steer))
+        self.assertIn(f'queued {steer} for demo-sidekick: Amp threads deliver', out)
+        self.assertNotIn('steered ', out)
+        out = self.run_sh('steer', str(self.store), str(steer))
+        self.assertIn('not sent again: the same message is still pending there', out)
+        steers = [m for m in self.thread_messages(sidekick) if 'STEER' in m]
+        self.assertEqual(len(steers), 1)
+        # Each message names itself, so a retry can tell whether it already arrived.
+        ids = {
+            m.rsplit('pstack-msg: ', 1)[-1].strip()
+            for m in self.thread_messages(sidekick)
+        }
+        self.assertEqual(len(ids), len(self.thread_messages(sidekick)))
+
+    def test_a_send_whose_upload_broke_off_is_retried_and_delivered_once(self):
+        sidekick = amp_thread(1)
+        self.env['PSTACK_AMP_RETRY_S'] = '0'
+        (self.fake / 'amp-upload-fail').write_text('1')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.assertEqual(len(self.briefs_in(sidekick)), 1)
+        self.assertEqual((self.fake / 'amp-upload-fail').read_text(), '0')
+
+    def test_a_send_that_reached_the_thread_before_its_upload_error_is_not_resent(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.env['PSTACK_AMP_RETRY_S'] = '0'
+        (self.fake / 'amp-upload-fail').write_text('1')
+        (self.fake / 'amp-upload-fail-after-delivery').write_text('')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.dispatch(b)
+        self.assertIn(f'amp demo-sidekick ({sidekick}): pstack-kitchen BRIEF {b}', out)
+        self.assertEqual(len(self.briefs_in(sidekick)), 1)
+
+    def test_an_upload_that_keeps_failing_fails_the_send_after_its_tries(self):
+        self.env['PSTACK_AMP_RETRY_S'] = '0'
+        (self.fake / 'amp-upload-fail').write_text('5')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn('Attachment upload did not complete', out)
+        self.assertEqual((self.fake / 'amp-upload-fail').read_text(), '2')
+        self.assertEqual(self.briefs_in(amp_thread(1)), [])
+
     def test_the_bundle_carries_the_sidekicks_commit_to_a_checkout_that_lacks_it(self):
         sidekick = amp_thread(1)
         b = self.brief('001', 'util', ['src/**', 'tests/**'], verify=['python3 -c 1'])

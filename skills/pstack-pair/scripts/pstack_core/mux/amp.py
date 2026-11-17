@@ -5,6 +5,8 @@ continues it (`amp threads continue -ox`). Each orb has its own checkout and its
 `PSTACK_MUX=amp pair.sh sync <attachment>`. Nothing waits in this process: a role's reply is a prompt to the master's thread, carrying the
 role's bundle the same way, and the master acts on it in its next turn."""
 
+import calendar
+import fcntl
 import hashlib
 import json
 import os
@@ -14,9 +16,12 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import uuid
 
 from .. import bundle
 from ..argv import Spec, read
+from ..numbers import env_int
 from ..store import TEXT
 from .base import DEVNULL, PIPE, Agent, Reply
 from .subagents import EXITS, NOT_FOUND, Subagents, change, load
@@ -66,6 +71,73 @@ def registry_path():
 def sent_path(thread):
     """The last bundle this side sent to thread: the base its reply is merged against."""
     return os.path.join(state_dir(), 'sent', f'{bundle.tag_of(thread)}.tgz')
+
+
+def outbox_path():
+    """What this side sent to each thread: {thread: {hash, id, at}}, so a repeated send of the same text is not delivered twice."""
+    return os.path.join(state_dir(), 'outbox.json')
+
+
+# The error the CLI prints when a bundle's upload breaks off; the message may or may not have gone out.
+UPLOAD_FAILED = 'Attachment upload did not complete'
+# How a message names itself, so a retry can tell it already reached the thread.
+MSG_ID = 'pstack-msg:'
+# lastKnownAgentState values of a thread whose turn has ended.
+SETTLED = ('idle', 'error', 'cancelled')
+
+
+def iso_epoch(text):
+    """The epoch of an ISO-8601 UTC time such as 2026-11-17T22:08:04.497Z, or 0."""
+    try:
+        return calendar.timegm(time.strptime(text[:19], '%Y-%m-%dT%H:%M:%S'))
+    except (TypeError, ValueError):
+        return 0
+
+
+def export(thread):
+    """The thread as `amp threads export` prints it, {} when amp cannot say."""
+    r = run(['amp', 'threads', 'export', thread])
+    try:
+        doc = json.loads(r.stdout) if r.returncode == 0 else {}
+    except ValueError:
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def thread_state(doc):
+    """(state, since) of an exported thread: its lastKnownAgentState and the epoch it took it; ('', 0) when the export has none."""
+    meta = doc.get('meta') if isinstance(doc.get('meta'), dict) else {}
+    known = meta.get('lastKnownAgentState')
+    if not isinstance(known, dict) or not isinstance(known.get('state'), str):
+        return '', 0
+    return known['state'], iso_epoch(known.get('updatedAt') or '')
+
+
+def holds(doc, msg_id):
+    """Whether the exported thread holds a message naming msg_id."""
+    return f'{MSG_ID} {msg_id}' in json.dumps(doc.get('messages') or [])
+
+
+def load_json(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def record_sent(thread, entry):
+    """outbox.json's entry for thread, under a lock beside it."""
+    path = outbox_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(f'{path}.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        doc = load_json(path)
+        doc[thread] = entry
+        with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
+            json.dump(doc, f, indent=1, sort_keys=True)
+        os.replace(f'{path}.tmp', path)
 
 
 def own_thread():
@@ -169,6 +241,10 @@ class Amp(Subagents):
     # A new role thread costs minutes (orb start, setup, the build install, sync, the joo build), so a sidekick keeps its thread across
     # routine units in one area until its context fills.
     reuses_sessions = True
+    # The thread send() left alone because the same text to it is still pending ('' when it sent).
+    skipped = ''
+    # `amp threads continue -ox` queues a message behind a running turn; the CLI has no way to steer one.
+    steers_running = False
 
     def path(self):
         return registry_path()
@@ -233,10 +309,12 @@ class Amp(Subagents):
             return None
         known, e = found
         thread = e.get('thread') or ''
+        # A thread whose turn runs is working: a message sent now waits behind that turn.
+        state = thread_state(export(thread))[0] if thread else ''
         return Agent(
             known,
             e.get('kind') or '',
-            'idle',
+            'idle' if state in ('', *SETTLED) else 'working',
             e['pane'],
             '',
             {'kind': 'id', 'value': thread} if thread else None,
@@ -327,6 +405,7 @@ class Amp(Subagents):
 
     def send(self, name, text, thread='', flags=(), store='', title=''):
         """Sends text to thread (a new thread on flags when ''), with the bundle of store attached. (thread, error text)."""
+        self.skipped = ''
         store = store or store_in(text) or load(self.path()).get('store') or ''
         if store:
             change(lambda doc: doc.__setitem__('store', store), self.path())
@@ -360,26 +439,59 @@ class Amp(Subagents):
                     + ('' if MASTER_RE.search(name) else RETURN)
                 )
             cwd = bundle.repo_of(store) if store else None
-            if thread:
-                # -x reads its message from the token right after it, so `-ox MESSAGE` comes last.
-                r = run(
-                    ['amp', 'threads', 'continue', thread, *attach, '-ox', message], cwd
-                )
-            else:
-                r = run(
-                    ['amp', *flags, '--title', title or name, *attach, '-ox', message],
-                    cwd,
-                )
-            found = THREAD_RE.search(r.stdout or '')
-            if r.returncode != 0 or not found:
-                return '', (
-                    r.stderr or r.stdout or f'amp exited {r.returncode}'
-                ).strip()
-            thread = found.group(0)
+            digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
+            if thread and self.pending(thread, digest):
+                self.skipped = thread
+                return thread, ''
+            msg_id = uuid.uuid4().hex[:12]
+            message = f'{message}\n\n{MSG_ID} {msg_id}'
+            tries = max(1, env_int('PSTACK_AMP_SEND_TRIES', 3))
+            for attempt in range(tries):
+                if thread:
+                    # -x reads its message from the token right after it, so `-ox MESSAGE` comes last.
+                    r = run(
+                        ['amp', 'threads', 'continue', thread, *attach, '-ox', message],
+                        cwd,
+                    )
+                else:
+                    r = run(
+                        [
+                            'amp',
+                            *flags,
+                            '--title',
+                            title or name,
+                            *attach,
+                            '-ox',
+                            message,
+                        ],
+                        cwd,
+                    )
+                found = THREAD_RE.search(r.stdout or '')
+                if r.returncode == 0 and found:
+                    thread = found.group(0)
+                    break
+                err = (r.stderr or r.stdout or f'amp exited {r.returncode}').strip()
+                # A failed send may still have reached the thread: a retry that resent it would deliver it twice.
+                if thread and holds(export(thread), msg_id):
+                    break
+                if UPLOAD_FAILED not in err or attempt + 1 == tries:
+                    return '', err
+                time.sleep(env_int('PSTACK_AMP_RETRY_S', 10))
+            record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
             if attach:
                 os.makedirs(os.path.dirname(sent_path(thread)), exist_ok=True)
                 shutil.copyfile(attach[1], sent_path(thread))
         return thread, ''
+
+    def pending(self, thread, digest):
+        """Whether the same text went to thread last and the thread has not ended a turn since: sending it again would only queue a copy."""
+        sent = load_json(outbox_path()).get(thread)
+        if not isinstance(sent, dict) or sent.get('hash') != digest:
+            return False
+        state, since = thread_state(export(thread))
+        if state in SETTLED and since >= int(sent.get('at') or 0):
+            return False
+        return state != ''
 
     def prompt(
         self,
@@ -419,7 +531,12 @@ class Amp(Subagents):
                 self.path(),
             )
         out = sys.__stdout__ or sys.stdout
-        out.write(f'amp {known} ({thread}): {text}\n')
+        if self.skipped:
+            out.write(
+                f'amp {known} ({thread}): not sent again: the same message is still pending there (its turn has not ended since): {text}\n'
+            )
+        else:
+            out.write(f'amp {known} ({thread}): {text}\n')
         out.flush()
         return Reply(
             0,

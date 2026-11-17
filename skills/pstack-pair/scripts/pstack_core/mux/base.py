@@ -82,6 +82,8 @@ class Mux:
     handoff_next = ''
     # Whether a sidekick may keep its session across routine units in one area (rotate_if_due): where a fresh session costs minutes.
     reuses_sessions = False
+    # Whether a message to an agent in the middle of a turn reaches it between tool calls (a steer) rather than after the turn.
+    steers_running = True
 
     def context_used(self, name):
         """The share of its context window the agent `name` has used (0 to 1; 1 once it compacted), or None when the backend cannot say."""

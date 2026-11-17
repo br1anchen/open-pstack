@@ -122,6 +122,12 @@ def steer_working(store, name, steer_path, message, interrupt):
     else:
         if not mux.get().prompt(name, message, stdout=DEVNULL, stderr=None).ok:
             raise PromptFailed(f'{mux.get().program} prompt failed for {name}')
+        if not mux.get().steers_running:
+            print(
+                f'queued {steer_path} for {name}: {mux.get().label} deliver a message to a working agent only after its turn ends, '
+                'so it reads the steer then; it is not sent again while that turn runs'
+            )
+            return
         print(
             f'steered {name} with {steer_path}; its harness hands it over between tool calls and the ack lands in the progress log'
         )

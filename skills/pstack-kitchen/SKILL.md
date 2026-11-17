@@ -194,6 +194,17 @@ args = ["--model", "anthropic/claude-opus-5-5", "--orb-size", "a1.large"]
   and return (exit 4 while the answer is not on file); end your turn. A
   role's `finish` or `notify` messages the master's thread with its own
   bundle, and the master runs that sync, then the next command.
+- A message reaches a role's thread only after its current turn ends: `amp
+  threads continue -ox` queues it, and the CLI has no way to steer a running
+  turn. So a role whose thread is in a turn reads `working` (its
+  `lastKnownAgentState` from `amp threads export`): `dispatch` and a plan
+  round refuse it instead of queueing behind it, and `steer` says `queued`.
+  Every message ends with a `pstack-msg: <id>` line. The same text sent again
+  to a thread that has not ended a turn since is not delivered twice (`not
+  sent again: the same message is still pending there`), and a send that
+  fails with `Attachment upload did not complete` is retried
+  (`PSTACK_AMP_SEND_TRIES`, 3, `PSTACK_AMP_RETRY_S` seconds apart, 10) unless
+  the thread already holds its id.
 - A new role thread takes two to three minutes before it works: the orb
   starts, runs the project's setup, installs the build, syncs and builds
   joo. The rotation policy spends that on fresh context only where it buys
