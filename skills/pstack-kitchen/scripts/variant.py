@@ -180,7 +180,8 @@ consult, advice. These differ or are new:
                                             provider stops, catches, open feedback), then one per skills build;
                                             read-only, no store needed
 
-exit codes: the pair's, plus 2 for a failed gate, a rejected or invalid verdict, or a failed land-check
+exit codes: the pair's, plus 2 for a failed gate, a rejected or invalid verdict, or a failed land-check, and 9 for a dispatch, discuss or queue
+refused because the master's thread is due to rotate (over KITCHEN_MASTER_CONTEXT_PCT percent of its context, or compacted)
 """
 
 

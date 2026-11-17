@@ -267,7 +267,11 @@ def handoff_due(store, say=None, landing=False):
     (default 5) each clean verdict says to rotate, until rotate-master resets the count. A clean landing verdict is a boundary on its own: it marks
     `master.landed_since_handoff` (cleared by rotate-master, read by dispatch and discuss) and says to rotate at once when work is left (a queued
     brief, or a dispatched one with no report) and to rotate only if more work follows when none is. The line goes to `say` (default: standard output)."""
+    from .master import rotate_notice
+
     every = max(env_int('KITCHEN_MASTER_ROTATE_UNITS', 5), 1)
+    if notice := rotate_notice(store):
+        (say or sys.stdout.write)(notice)
 
     def bump(doc):
         master = member(doc, 'master')

@@ -14474,6 +14474,121 @@ class AmpKitchenTests(KitchenScriptTests):
         self.set_master_context(10, compacted=1)
         self.assertEqual(self.master_rotate_reason(), "1.0 'compacted'")
 
+    ROTATE_LINE = 'master: your thread has used 61% of its context; rotate before dispatching: kitchen.sh new-handoff '
+
+    def rotate_due_events(self):
+        return [
+            line
+            for line in (self.store / 'events.tsv').read_text().splitlines()
+            if '\tmaster\trotate-due\t' in line
+        ]
+
+    def test_a_master_over_sixty_percent_is_refused_and_logs_one_rotate_due(self):
+        self.set_master_context(61)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        for _ in range(2):
+            out = self.run_sh('dispatch', str(self.store), str(b), code=9)
+            self.assertIn(self.ROTATE_LINE + f'{self.store}, fill it, ', out)
+            self.assertIn(
+                f'kitchen.sh rotate-master {self.store} [--model <provider/model>]', out
+            )
+        self.assertEqual(self.briefs_in(amp_thread(1)), [])
+        [row] = self.rotate_due_events()
+        self.assertTrue(row.endswith('\tmaster\trotate-due\t-\tcontext:61%'), row)
+        due = self.state()['master']['rotate_due']
+        self.assertEqual((due['reason'], due['generation']), ('context:61%', 1))
+
+    def test_a_master_at_fifty_nine_percent_dispatches(self):
+        self.set_master_context(59)
+        self.run_sh(
+            'dispatch',
+            str(self.store),
+            str(self.brief('001', 'util', ['src/**', 'tests/**'])),
+            code=4,
+        )
+        self.assertEqual(len(self.briefs_in(amp_thread(1))), 1)
+        self.assertEqual(self.rotate_due_events(), [])
+
+    def test_a_compacted_master_is_refused_at_any_percentage(self):
+        self.set_master_context(5, compacted=1)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=9)
+        self.assertIn(
+            'master: your thread has compacted; rotate before dispatching: ', out
+        )
+        self.assertTrue(self.rotate_due_events()[0].endswith('\tcompacted'))
+
+    def test_discuss_and_queue_are_refused_too_but_a_queue_clear_is_not(self):
+        sent = len(self.thread_messages(amp_thread(1)))
+        self.set_master_context(61)
+        plan = self.store / 'plans/001-p.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text('# Plan\n\nrisk: routine\n')
+        out = self.run_sh('discuss', str(self.store), str(plan), code=9)
+        self.assertIn(self.ROTATE_LINE, out)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.run_sh('queue', str(self.store), str(b), code=9)
+        self.assertIn(self.ROTATE_LINE, out)
+        self.assertNotIn(
+            'rotate before', self.run_sh('queue', str(self.store), '--clear')
+        )
+        self.assertEqual(len(self.thread_messages(amp_thread(1))), sent)
+
+    def test_the_warn_gate_prints_the_line_and_dispatches(self):
+        self.set_master_context(61)
+        self.env['KITCHEN_MASTER_CONTEXT_GATE'] = 'warn'
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertIn(self.ROTATE_LINE, out)
+        self.assertEqual(len(self.briefs_in(amp_thread(1))), 1)
+
+    def test_rotate_master_clears_the_gate_for_the_next_master(self):
+        self.set_master_context(61)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.run_sh('dispatch', str(self.store), str(b), code=9)
+        self.assertIn('rotate_due', self.state()['master'])
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        self.assertNotIn('rotate_due', self.state()['master'])
+        master2 = amp_thread(2)
+        self.as_thread(master2, 'take-master', str(self.store))
+        self.assertNotIn('rotate_due', self.state()['master'])
+        out = self.as_thread(master2, 'dispatch', str(self.store), str(b), code=4)
+        self.assertNotIn('rotate before dispatching', out)
+        self.assertEqual(len(self.briefs_in(amp_thread(1))), 1)
+        self.assertEqual(len(self.rotate_due_events()), 1)
+
+    def test_a_sidekicks_finish_and_a_verdicts_handoff_say_the_master_is_due(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.dispatch(b)
+        self.set_master_context(61)
+        self.write('src/util.py', 'X = 3\n')
+        self.done(b, self.commit('util'))
+        out = self.as_thread(
+            amp_thread(1),
+            'finish',
+            str(self.store),
+            str(self.store / 'reports' / b.name),
+        )
+        self.assertIn(self.ROTATE_LINE, out)
+        code = (
+            'import sys\n'
+            f'sys.path[:0] = [{str(skill / "scripts")!r}, {str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from kitchen_core import verify_state\n'
+            'said = []\n'
+            f'verify_state.handoff_due({str(self.store)!r}, said.append)\n'
+            "print(''.join(said))\n"
+        )
+        said = subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout
+        self.assertIn(self.ROTATE_LINE, said)
+
     def test_a_unit_in_another_area_rotates_the_sidekick(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         self.next_unit_rotates('002', 'guide', ['docs/**'])

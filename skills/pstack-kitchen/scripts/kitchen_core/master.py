@@ -33,6 +33,7 @@ from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
 from pstack_core.store import (
+    count,
     event,
     field,
     json_type,
@@ -69,6 +70,35 @@ def master_rotate_reason(store):
     if used * 100 > env_int('KITCHEN_MASTER_CONTEXT_PCT', 60):
         return f'context:{round(used * 100)}%'
     return ''
+
+
+ROTATE_DUE_EXIT = 9
+
+
+def note_rotate_due(store, reason):
+    """Records .master.rotate_due ({at, reason, generation}) and logs one rotate-due event per master generation, however often the kitchen refuses
+    in it; rotate-master and take-master clear the record."""
+    master = peek(load(store), 'master')
+    generation = count(master, 'generation') or 1
+    if count(peek(master, 'rotate_due'), 'generation') == generation:
+        return
+    due = {
+        'at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        'reason': reason,
+        'generation': generation,
+    }
+    update(store, lambda doc: member(doc, 'master').__setitem__('rotate_due', due))
+    event(store, 'master', 'rotate-due', '-', reason)
+
+
+def rotate_notice(store, record=False):
+    """The line that tells the master to rotate, or '' when it need not; with record, the due state is logged too (note_rotate_due)."""
+    reason = master_rotate_reason(store)
+    if not reason:
+        return ''
+    if record:
+        note_rotate_due(store, reason)
+    return rotate_line(reason, store)
 
 
 def rotate_line(reason, store):
@@ -312,6 +342,7 @@ def record_handover(store, handoff, gen_n, session, old, new):
         master['generation'] = gen_n + 1
         master['units_since_handoff'] = 0
         master['landed_since_handoff'] = False
+        master.pop('rotate_due', None)
         master['sessions'] = kept + [
             {'generation': gen_n, 'session': session, 'handoff': copy, 'at': now}
         ]
@@ -508,6 +539,7 @@ def take_master(ctx, args):
         master = member(doc, 'master')
         master['name'] = name
         master.pop('previous', None)
+        master.pop('rotate_due', None)
 
     update(store, mutate)
     event(

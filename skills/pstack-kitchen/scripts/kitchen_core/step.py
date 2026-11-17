@@ -53,6 +53,7 @@ from pstack_core.wait import default_signals
 
 from . import kpy
 from .classify import brief_kitchen
+from .master import rotate_notice
 from .units import follow_jj, recorded_head
 from .wait import poll_sleep
 
@@ -518,6 +519,14 @@ def discard_moved_verify(ctx, brief, head, job):
 
 
 def finish(ctx, args):
+    """finish_report, then the master's rotation line when its thread is due: the sidekick's own status stays the report's."""
+    status = finish_report(ctx, args)
+    if status == 0 and len(args) == 2:
+        sys.stdout.write(rotate_notice(args[0]))
+    return status
+
+
+def finish_report(ctx, args):
     require_mux()
     default_signals()
     if len(args) != 2:

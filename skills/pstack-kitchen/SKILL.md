@@ -224,7 +224,13 @@ args = ["--model", "anthropic/claude-opus-5-5", "--orb-size", "a1.large"]
     its own.
   - The consultant starts at the first escalation and lives the run, as
     anywhere.
-  - The master rotates on context pressure, as anywhere: `rotate-master`
+  - The master rotates when its thread has used more than
+    `KITCHEN_MASTER_CONTEXT_PCT` (60) percent of its context window or has
+    compacted, and the kitchen enforces it: `dispatch`, `discuss` and `queue`
+    refuse with exit 9 and the rotation commands, log one `rotate-due` event
+    per master generation, and `verify` and `finish` print the same line;
+    `KITCHEN_MASTER_CONTEXT_GATE=warn` prints without refusing, and
+    `rotate-master` and `take-master` clear it. `rotate-master`
     starts the next master as a new thread, on `--model` or this thread's
     own mode, with the bundle and the master prompt; its `take-master` takes
     the run over there. No human step is needed. A role's reply that still

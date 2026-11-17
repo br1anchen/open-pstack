@@ -22,6 +22,7 @@ from pstack_core.wait import default_signals
 
 from .classify import classify_brief
 from .landing import is_landing, land_check_problems
+from .master import ROTATE_DUE_EXIT, rotate_notice
 from .playbook_delivery import deliver, deliver_plan_blocks
 from .units import has_pair
 from .wait import block, log_checkin_wake, quiet_wait, refused
@@ -37,6 +38,17 @@ def remind_landed(store):
             f'master: a landing was verified since your last handoff; rotate before the next issue: kitchen.sh new-handoff {store}, fill it, '
             f'kitchen.sh rotate-master {store}\n'
         )
+
+
+def rotate_gate(store):
+    """The master's rotation gate in front of every unit it hands out: a master whose thread is due (master_rotate_reason) is told to rotate and
+    refused with ROTATE_DUE_EXIT, or, with KITCHEN_MASTER_CONTEXT_GATE=warn, told and let through. 0 goes on."""
+    if not has_pair(store):
+        return 0
+    line = rotate_notice(store, record=True)
+    sys.stdout.write(line)
+    warn_only = os.environ.get('KITCHEN_MASTER_CONTEXT_GATE') == 'warn'
+    return ROTATE_DUE_EXIT if line and not warn_only else 0
 
 
 def dispatch(ctx, args):
@@ -55,6 +67,8 @@ def dispatch(ctx, args):
         brief = f'{store}/{brief}'
     if not os.path.isfile(brief):
         raise Die(f'brief not found: {brief}')
+    if refused_status := rotate_gate(store):
+        return refused_status
     if is_landing(brief):
         if land_check_problems(store):
             raise Die(f'landing refused: kitchen.sh land-check {store} fails', 2)
@@ -111,6 +125,8 @@ def queue(ctx, args):
     # A brief path may be given relative to the store (briefs/NNN-x.md), as for dispatch.
     if len(args) >= 2:
         pair_file(args[0])
+    if len(args) >= 2 and args[1] != '--clear' and (refused := rotate_gate(args[0])):
+        return refused
     if (
         len(args) >= 2
         and args[1] != '--clear'
@@ -139,6 +155,8 @@ def discuss(ctx, args):
     store, plan = args[0], args[1]
     if not os.path.isfile(plan):
         raise Die(f'plan not found: {plan}')
+    if refused := rotate_gate(store):
+        return refused
     if risk_of(plan) not in ('routine', 'escalated'):
         raise Die(
             f'{plan}: risk: must start with routine or escalated, as kitchen.sh classify prints it',

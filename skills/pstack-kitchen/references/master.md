@@ -198,7 +198,19 @@ place of the history:
   first call is about 52k tokens; one with them, about 117k), and with
   Remote Control on so the human can follow it from claude.ai or a phone:
   `claude --strict-mcp-config --mcp-config ~/.agents/skills/pstack-pair/references/no-mcp.json --remote-control <slug>-master`.
-- From the `KITCHEN_MASTER_ROTATE_UNITS`-th (5) clean verdict on (a gates-mode unit and a landing verdict count too),
+- Check your own context at every unit boundary: this step is required.
+  Where the backend can read your thread's context (Amp threads:
+  `amp threads context`), the kitchen does it for you. Once your thread has
+  used more than `KITCHEN_MASTER_CONTEXT_PCT` (60) percent of its window, or
+  has compacted at all, `dispatch`, `discuss` and `queue` refuse with exit 9,
+  print the rotation commands and log one `rotate-due` event per
+  generation; `verify` and a sidekick's `finish` print the same line.
+  Write the handoff and run `rotate-master` at once, on
+  `--model anthropic/claude-opus-5-5` under the subscription-first roster;
+  the gate clears when the next master runs `take-master`.
+  `KITCHEN_MASTER_CONTEXT_GATE=warn` turns the refusal into the printed line,
+  for a master that must finish one more step.
+- Besides that gate, from the `KITCHEN_MASTER_ROTATE_UNITS`-th (5) clean verdict on (a gates-mode unit and a landing verdict count too),
   every clean verdict's `verify` prints `master: N units verified since your last handoff`. At
   that boundary, with no dispatch you must answer this turn. A clean landing
   verdict is a boundary on its own, whatever the unit count: `verify --landing`
