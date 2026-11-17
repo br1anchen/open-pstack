@@ -65,6 +65,7 @@ from pstack_core.errors import (  # noqa: E402
     LockHeld,
     MissingStore,
     NoBrief,
+    NoDiverseKinds,
     NotInMux,
     PairError,
     PairJsonGone,
@@ -94,6 +95,8 @@ LEAKED_PREFIXES = (
     'REX_',
     'PSTACK_MUX',
     'PSTACK_SCRATCH_ROOT',
+    'AMP_THREAD_ID',
+    'AMP_CURRENT_THREAD_ID',
 )
 
 
@@ -18859,6 +18862,22 @@ class RexMuxTests(unittest.TestCase):
         self.assertEqual(choose({'PSTACK_MUX': 'subagents'}, False), 'Subagents')
         self.assertFalse(mux.choose({}, True).waits)
 
+    def test_amp_threads_are_chosen_by_name_or_inside_a_thread_whose_orb_holds_their_registry(
+        self,
+    ):
+        choose = lambda env, allowed=True: type(mux.choose(env, allowed)).__name__
+        with tempfile.TemporaryDirectory() as state:
+            thread = {'AMP_THREAD_ID': 'T-1', 'XDG_STATE_HOME': state}
+            self.assertEqual(choose({'PSTACK_MUX': 'amp'}, False), 'Amp')
+            # An Amp thread with no run of its own is not taken for one.
+            self.assertEqual(choose(thread), 'Subagents')
+            os.makedirs(f'{state}/pstack/amp')
+            open(f'{state}/pstack/amp/registry.json', 'w').close()
+            self.assertEqual(choose(thread, False), 'Amp')
+            self.assertEqual(choose({**thread, 'HERDR_ENV': '1'}), 'Herdr')
+            self.assertEqual(choose({**thread, 'PSTACK_MUX': 'subagents'}), 'Subagents')
+            self.assertEqual(choose({'XDG_STATE_HOME': state}), 'Subagents')
+
     def test_require_refuses_outside_a_rex_block(self):
         self.rex.require()
         with mock.patch.dict(os.environ, {'REX_BLOCK': ''}):
@@ -20552,3 +20571,123 @@ class WaitSeamTests(DispatchedStore):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BundleMergeTests(unittest.TestCase):
+    """bundle.apply merges a store another orb sent against the bundle this side last sent it: each side keeps what only it changed."""
+
+    def setUp(self):
+        from pstack_core import bundle
+
+        self.bundle = bundle
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = Path(self.tmp.name) / 'store'
+        (self.store / 'reports').mkdir(parents=True)
+        self.write(
+            'pair.json',
+            json.dumps(
+                {'master': {'name': 'm', 'generation': 1}, 'sidekick': {'kind': 'amp'}}
+            ),
+        )
+        self.write('events.tsv', 'a\nb\n')
+        self.write('reports/001-x.md', 'base\n')
+        self.write('briefs.md', 'base\n')
+        self.write('wait.pid', '1\n')
+
+    def write(self, rel, text):
+        (self.store / rel).write_text(text)
+
+    def read(self, rel):
+        return (self.store / rel).read_text()
+
+    def pack(self, name):
+        path = Path(self.tmp.name) / name
+        self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': 'm', 'thread': 'T-m'},
+            {'name': 's', 'pane': 'amp:1'},
+            {},
+        )
+        return str(path)
+
+    def test_each_side_keeps_its_own_changes_and_both_changes_go_to_the_sender_named_as_a_conflict(
+        self,
+    ):
+        base = self.pack('base.tgz')
+        # The sender (the sidekick's orb) changes the report, the sidekick's entry and appends an event.
+        self.write('reports/001-x.md', 'theirs\n')
+        self.write('briefs.md', 'theirs\n')
+        self.write(
+            'pair.json',
+            json.dumps(
+                {
+                    'master': {'name': 'm', 'generation': 1},
+                    'sidekick': {'kind': 'amp', 'ready': True},
+                }
+            ),
+        )
+        self.write('events.tsv', 'a\nb\nfrom-sidekick\n')
+        incoming = self.pack('incoming.tgz')
+        # Meanwhile this side (the master's orb) changed the master's entry, the brief and the events.
+        self.write('reports/001-x.md', 'base\n')
+        self.write('briefs.md', 'ours\n')
+        self.write(
+            'pair.json',
+            json.dumps(
+                {'master': {'name': 'm', 'generation': 2}, 'sidekick': {'kind': 'amp'}}
+            ),
+        )
+        self.write('events.tsv', 'a\nb\nfrom-master\n')
+        self.write('wait.pid', '2\n')
+        _, lines = self.bundle.apply(incoming, base)
+        self.assertEqual(self.read('reports/001-x.md'), 'theirs\n')
+        self.assertEqual(
+            json.loads(self.read('pair.json')),
+            {
+                'master': {'name': 'm', 'generation': 2},
+                'sidekick': {'kind': 'amp', 'ready': True},
+            },
+        )
+        self.assertEqual(self.read('events.tsv'), 'a\nb\nfrom-master\nfrom-sidekick\n')
+        self.assertEqual(self.read('briefs.md'), 'theirs\n')
+        self.assertEqual(self.read('wait.pid'), '2\n')
+        self.assertEqual(
+            lines, ['store: 4 updated, 0 removed; conflicts, took theirs: briefs.md']
+        )
+
+    def test_a_file_the_sender_deleted_goes_and_one_only_this_side_wrote_stays(self):
+        base = self.pack('base.tgz')
+        (self.store / 'briefs.md').unlink()
+        incoming = self.pack('incoming.tgz')
+        self.write('briefs.md', 'base\n')
+        self.write('reports/002-new.md', 'mine\n')
+        self.bundle.apply(incoming, base)
+        self.assertFalse((self.store / 'briefs.md').exists())
+        self.assertEqual(self.read('reports/002-new.md'), 'mine\n')
+
+
+class TrioAmpDiversityTests(unittest.TestCase):
+    """Every Amp role is the same program, so the trio's diversity check tells Amp roles apart by the model their arguments name."""
+
+    def test_amp_roles_are_labelled_by_model_and_other_kinds_by_kind(self):
+        trio = load_module(
+            str(root / 'skills/pstack-trio/scripts/variant.py'), 'trio_amp_labels'
+        )
+        self.assertEqual(trio.diversity_label('codex', ['--model', 'x']), 'codex')
+        self.assertEqual(
+            trio.diversity_label(
+                'amp', ['--effort', 'high', '--model', 'openai/gpt-6-astra']
+            ),
+            'amp openai/gpt-6-astra',
+        )
+        self.assertEqual(
+            trio.diversity_label('amp', ['-m', 'zhipuai/glm-5.3']),
+            'amp zhipuai/glm-5.3',
+        )
+        trio.require_diverse_kinds(
+            'amp smart', 'amp zhipuai/glm-5.3', 'amp openai/gpt-6-astra'
+        )
+        with self.assertRaises(NoDiverseKinds):
+            trio.require_diverse_kinds('amp x/y', 'amp x/y', 'amp x/y')

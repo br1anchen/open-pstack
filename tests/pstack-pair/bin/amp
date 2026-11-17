@@ -1,10 +1,46 @@
 #!/usr/bin/env bash
-# Fake Amp CLI for pair.sh tests: the headless preflight (`amp ... -x <message>`).
-# Every call is logged; $FAKE/amp-fail holds the error an account that cannot
-# answer prints.
+# Fake Amp CLI for pair.sh tests. Every call is logged to $FAKE/amp.log.
+# - the headless preflight (`amp ... -x <message>`): $FAKE/amp-fail holds the error an account that cannot answer prints.
+# - a new orb thread (`amp -ox ... [--attach FILE] MESSAGE`) and a message to one (`amp threads continue T -ox ...`): each prints the
+#   thread URL; the thread's messages go to $FAKE/amp-threads/<T>/<n>.txt and its attachments to <n>-<name> beside them. $FAKE/amp-ox-fail
+#   holds the error a thread that cannot start prints.
+# - `amp threads archive T` and `amp threads export T` ($FAKE/amp-mode is the agentMode it reports).
 set -u
 : "${FAKE:?}"
 printf '%s\n' "$*" >>"$FAKE/amp.log"
+deliver() {
+	thread="$1"; shift
+	dir="$FAKE/amp-threads/$thread"; mkdir -p "$dir"
+	n=$(( $(find "$dir" -name '*.txt' | wc -l) + 1 ))
+	message=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--attach) cp "$2" "$dir/$n-$(basename "$2")"; shift 2 ;;
+		--model|-m|--mode|--effort|--features|--title|--settings-file|--project) shift 2 ;;
+		# As the real CLI: -x takes the token right after it as the message, unless that token is an option; any other word is no message.
+		-ox) case "${2:-}" in -*|'') shift ;; *) message="$2"; shift 2 ;; esac ;;
+		*) shift ;;
+		esac
+	done
+	printf '%s\n' "$message" >"$dir/$n.txt"
+	printf 'https://ampcode.com/threads/%s\n' "$thread"
+}
+case "${1:-} ${2:-}" in
+"threads continue")
+	# $FAKE/amp-continue-fail: the error a message to an existing thread prints.
+	if [ -s "$FAKE/amp-continue-fail" ]; then cat "$FAKE/amp-continue-fail" >&2; exit 1; fi
+	shift 2; t="$1"; shift; deliver "$t" "$@"; exit 0 ;;
+"threads archive") printf '%s\n' "$3" >>"$FAKE/amp-archived"; exit 0 ;;
+"threads export") printf '{"id":"%s","agentMode":"%s","messages":[]}\n' "$3" "$(cat "$FAKE/amp-mode" 2>/dev/null)"; exit 0 ;;
+esac
+for arg in "$@"; do
+	if [ "$arg" = -ox ]; then
+		if [ -s "$FAKE/amp-ox-fail" ]; then cat "$FAKE/amp-ox-fail" >&2; exit 1; fi
+		n=$(( $(cat "$FAKE/amp-started" 2>/dev/null || echo 0) + 1 )); printf '%s' "$n" >"$FAKE/amp-started"
+		deliver "$(printf 'T-00000000-0000-4000-8000-%012d' "$n")" "$@"
+		exit 0
+	fi
+done
 for arg in "$@"; do
 	[ "$arg" = -x ] || continue
 	if [ -s "$FAKE/amp-fail" ]; then cat "$FAKE/amp-fail"; exit 1; fi

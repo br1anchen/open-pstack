@@ -1,6 +1,6 @@
 ---
 name: pstack-kitchen
-description: "Run coding work as a kitchen in one Herdr or Rex session: a master that plans, briefs, triages code review, and decides; a sidekick on the cheapest capable model that implements under the repo's own deterministic gates; a consultant started only when a unit escalates; and a fresh verifier pane that proves each unit on the real surface. The master is woken by exceptions, not by every step. Needs the repo's .agents/kitchen.toml (pstack-kitchen-setup writes it). Use for /pstack-kitchen, 'kitchen mode', 'run the kitchen', a `pstack-kitchen PLAN|BRIEF|STEER|CONSULT|VERIFY|REPORT|ADVICE|FEEDBACK|MASTER|STOP` message, 'be the sidekick/consultant/verifier' in a kitchen, or sustained delegated work that should not need the master on every step. Requires Herdr (HERDR_ENV=1) or Rex (REX_BLOCK)."
+description: "Run coding work as a kitchen in one Herdr or Rex session: a master that plans, briefs, triages code review, and decides; a sidekick on the cheapest capable model that implements under the repo's own deterministic gates; a consultant started only when a unit escalates; and a fresh verifier pane that proves each unit on the real surface. The master is woken by exceptions, not by every step. Needs the repo's .agents/kitchen.toml (pstack-kitchen-setup writes it). Use for /pstack-kitchen, 'kitchen mode', 'run the kitchen', a `pstack-kitchen PLAN|BRIEF|STEER|CONSULT|VERIFY|REPORT|ADVICE|FEEDBACK|MASTER|STOP` message, 'be the sidekick/consultant/verifier' in a kitchen, or sustained delegated work that should not need the master on every step. Requires Herdr (HERDR_ENV=1) or Rex (REX_BLOCK), or runs its roles as Amp threads on models of their own (PSTACK_MUX=amp), or as subagents of one session."
 ---
 
 Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. Its runtime mappings apply to all referenced playbooks and scripts.
@@ -39,7 +39,9 @@ which skills build a run's commands came from. Every command runs in Python, in 
    on PATH) or Rex (`REX_BLOCK` set, `rex skill show` read, `rex` on PATH; see
    [Running in Rex](../pstack-pair/references/rex.md)), and Python 3.11 or later on PATH. `scripts/kitchen.sh help` lists the commands.
    Inside neither, the kitchen runs in this one session with its roles as
-   subagents: read [Without a multiplexer](#without-a-multiplexer).
+   subagents: read [Without a multiplexer](#without-a-multiplexer). In an
+   Amp thread, `PSTACK_MUX=amp` runs every role as an Amp thread on its own
+   model instead: read [Amp threads](#amp-threads).
 2. The repo has a kitchen (`.agents/kitchen.toml`, or a host kitchen; see
    [kitchen-toml.md](references/kitchen-toml.md)) and `kitchen.py validate`
    passes (`scripts/kitchen.py`). Without it, run pstack-kitchen-setup first; a
@@ -142,6 +144,60 @@ and the store are the same; what changes is who carries each message:
   multiplexer that tracks its session).
 - Gates, Verify reruns, `land-check`, `classify`, the ledger and `retro` run
   as they do anywhere.
+
+## Amp threads
+
+With `PSTACK_MUX=amp`, run from an Amp thread (`AMP_THREAD_ID` set), every
+role is an Amp thread of its own, in an orb of its own, on the model its
+roster entry names. This is how a kitchen on Amp gets model diversity, since
+Amp's Task subagents run the master's model and take no override:
+
+```toml
+[sidekick]
+kind = "amp"
+args = ["--model", "zhipuai/glm-5.3"]     # or anthropic/claude-sonnet-5-5
+[consultant]
+kind = "amp"
+args = ["--model", "openai/gpt-6-astra", "--effort", "high"]
+[verifier]
+kind = "amp"
+args = ["--model", "anthropic/claude-sonnet-5-5"]
+[verifier.escalated]
+kind = "amp"
+args = ["--model", "anthropic/claude-opus-5-5"]
+```
+
+- A role's thread starts with the first prompt it is sent (`amp -ox` with the
+  entry's `--model`, `-m`, `--mode`, `--effort`, `--features` and `--fast`);
+  later prompts continue it (`amp threads continue <T> -ox`). A role of any
+  other kind runs on Amp's default mode, with a warning. Each prompt prints
+  `amp NAME (THREAD): TEXT`.
+- Every orb has its own checkout and its own copy of the store. Each prompt
+  attaches a bundle: the store's files, a git bundle of HEAD and of each
+  scratch worktree the store links (less what the remote holds), and the
+  agents this side knows. The receiving thread's first move is
+  `PSTACK_MUX=amp ~/.agents/skills/pstack-pair/scripts/pair.sh sync <URL>`,
+  which the prompt names. It merges the store three-way against the bundle
+  it last sent that thread (a file only one side changed keeps that side's
+  copy; one both changed takes the sender's and is named; `pair.json` merges
+  key by key; `.tsv` files take the union of their lines), fetches the
+  commits, moves a clean checkout to the sender's HEAD when that loses no
+  commit, and adds the scratch worktrees. Files over 1 MiB, locks and pid
+  files stay home.
+- Nothing waits. `spawn`, `dispatch`, `discuss`, `consult` and `verify` send
+  and return (exit 4 while the answer is not on file); end your turn. A
+  role's `finish` or `notify` messages the master's thread with its own
+  bundle, and the master runs that sync, then the next command.
+- A rotation or failover archives the role's thread; its next prompt starts a
+  fresh one. Each verification starts a fresh verifier thread, which sends
+  its verdict back with `kitchen.sh notify`; run `verify --wait` after its
+  sync.
+- `rotate-master` starts the next master as a new thread, on `--model` or this
+  thread's own mode, with the bundle and the master prompt; its `take-master`
+  takes the run over there. No human step is needed. A role's reply that
+  still reaches the old master's thread names a sync that forwards it to the
+  new one.
+- `prime-agent` cannot run here.
 
 ## Roles and quota
 

@@ -2371,6 +2371,8 @@ HELP = {
   status <store>                            table of briefs, reports, reviews, and live agent states
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
+  sync <bundle-path-or-url>                 Amp threads (PSTACK_MUX=amp): merge the store, commits and scratch worktrees a
+                                            prompt's bundle carries into this orb; run first on every prompt that names it
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
@@ -2436,6 +2438,8 @@ exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick block
   status <store>                            table of briefs, reports, reviews, and live agent states
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
+  sync <bundle-path-or-url>                 Amp threads (PSTACK_MUX=amp): merge the store, commits and scratch worktrees a
+                                            prompt's bundle carries into this orb; run first on every prompt that names it
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
@@ -2509,6 +2513,8 @@ exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick block
   status <store>                            table of units, reports, advice, reviews, agent states, open scratch
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
+  sync <bundle-path-or-url>                 Amp threads (PSTACK_MUX=amp): merge the store, commits and scratch worktrees a
+                                            prompt's bundle carries into this orb; run first on every prompt that names it
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 

@@ -299,11 +299,9 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
 
 
 def handed_off(store, role, kind):
-    """A bootstrap prompt a subagent carries out after spawn returns: 4 until its ready file is on file."""
+    """A bootstrap prompt a subagent or an Amp thread carries out after spawn returns: 4 until its ready file is on file."""
     event(store, role, 'spawn', '-', f'{kind}:handed-off')
-    stderr_of(
-        'next: run the subagent the line above names, with its prompt; it writes the ready file, and the next command picks it up\n'
-    )
+    stderr_of(mux.get().handoff_next)
     return 4
 
 

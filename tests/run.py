@@ -59,7 +59,14 @@ def write_tripwire_jq(directory):
 
 # What tells the code under test which multiplexer it runs in, and where scratch goes: a test sets these itself, so a run inside Herdr or Rex is the same
 # as one outside.
-MUX_PREFIXES = ('HERDR_', 'REX_', 'PSTACK_MUX', 'PSTACK_SCRATCH_ROOT')
+MUX_PREFIXES = (
+    'HERDR_',
+    'REX_',
+    'PSTACK_MUX',
+    'PSTACK_SCRATCH_ROOT',
+    'AMP_THREAD_ID',
+    'AMP_CURRENT_THREAD_ID',
+)
 
 
 def tripwire_env(directory):

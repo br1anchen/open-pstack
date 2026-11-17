@@ -34,3 +34,14 @@ What pstack does for it:
 
 Like every kind, Amp starts a fresh session per completed brief: rotation exits it with two Ctrl+C presses and
 respawns it with its recorded arguments, which start a new thread.
+
+## Amp threads instead of panes
+
+Outside Herdr and Rex, `PSTACK_MUX=amp` in an Amp thread runs each role as an
+Amp thread of its own on the model its arguments name, each in its own orb,
+with the store and commits carried in a bundle attached to every prompt.
+Read [Amp threads](../../pstack-kitchen/SKILL.md#amp-threads) in the kitchen
+skill; the pair and the trio work the same way (`pair.sh spawn --kind amp --
+--model anthropic/claude-sonnet-5-5`). The trio's diversity check tells Amp
+roles apart by model: master, sidekick and consultant need two distinct
+models among them.

@@ -333,6 +333,49 @@ def hand_to_next_session(ctx, store, handoff):
     return 0
 
 
+def hand_to_next_thread(ctx, store, handoff, model):
+    """The rotation when every role is a thread of its own (Amp): the next master starts as a new thread, on --model or this thread's own
+    mode, with the store's bundle and the master prompt; its take-master takes the run over there. The hand-over is recorded before the bundle
+    is packed, so the new thread reads it, and put back when the thread does not start. This name then means the new master: a role's reply that
+    still reaches this thread is forwarded to it."""
+    if read(store, 'master.previous.name'):
+        raise RotateRefused(
+            f'a hand-over is open: generation {field(store, "master", "generation")} has not taken over yet; '
+            f'its thread runs kitchen.sh take-master {store} first'
+        )
+    m = mux.get()
+    name = field(store, 'master', 'name')
+    pane = field(store, 'master', 'pane_id')
+    gen_n = master_generation(store, '')
+    next_gen = gen_n + 1
+    temp = f'{read(store, "slug")}-master-g{next_gen}'
+    before = read_text(f'{store}/pair.json')
+    new_pane_id = m.new_master(temp)
+    copy = record_handover(store, handoff, gen_n, '', (name, pane), (temp, new_pane_id))
+    try:
+        thread = m.launch_master(
+            store, temp, master_prompt(ctx, store, next_gen), model
+        )
+    except NextMasterNotStarted:
+        with open(f'{store}/pair.json', 'w') as f:
+            f.write(before)
+        event(store, 'master', 'rotate-failed', '-', f'generation:{next_gen}')
+        raise
+    m.hand_over(name, temp)
+    event(store, 'master', 'handoff', '-', f'generation:{gen_n}')
+    event(store, 'master', 'spawn', '-', f'amp:generation:{next_gen}')
+    out = sys.stdout
+    out.write(f'handoff recorded: {copy} (generation {gen_n})\n')
+    out.write(
+        f'next master: {temp} (generation {next_gen}) in thread {thread}; it runs take-master there\n'
+    )
+    out.write(
+        f'next: end your turn now, with no further commands: generation {next_gen} owns the run, and a role reply that still reaches this '
+        'thread names a sync that forwards it there\n'
+    )
+    return 0
+
+
 def rotate_master(ctx, args):
     require_mux()
     if not args:
@@ -341,6 +384,8 @@ def rotate_master(ctx, args):
     model = read_options(args[1:], Spec(valued=('--model',))).last('--model', '')
     pair_file(store)
     handoff = check_handoff(ctx, store)
+    if mux.get().master_threads:
+        return hand_to_next_thread(ctx, store, handoff, model)
     if not mux.get().starts_master:
         return hand_to_next_session(ctx, store, handoff)
     name, pane = rotatable_master(store)

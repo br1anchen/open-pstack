@@ -23,7 +23,7 @@ from pstack_core.spawn import (
     spawn_consultant,
     spawn_sidekick,
 )
-from pstack_core.store import field, header_field, pair_file, who
+from pstack_core.store import field, header_field, load, pair_file, peek, who
 from pstack_core.variant import PAIR_COMMANDS, Variant, command_table, usage_text
 from pstack_core.wait import end_with_parent, timeout_ms
 
@@ -89,6 +89,43 @@ def require_diverse_kinds(master, sidekick, consultant):
         )
 
 
+def diversity_label(kind, args):
+    """What the diversity check compares for a role: its kind, and for an Amp role the model its arguments name, since every Amp role is the
+    same program on a model of its choosing."""
+    if kind != 'amp':
+        return kind
+    parsed = read(
+        list(args),
+        Spec(valued=('--model', '-m', '--mode'), unknown='collect', dangling='drop'),
+    )
+    model = parsed.last('--model') or parsed.last('-m') or parsed.last('--mode') or ''
+    return f'amp {model}'.strip()
+
+
+def master_label(kind):
+    """The master's diversity label: under Amp threads, its kind with the mode its thread runs."""
+    mode = getattr(mux.get(), 'thread_mode', lambda: '')() if kind == 'amp' else ''
+    return f'amp {mode}'.strip() if mode else kind
+
+
+def require_diverse_roles(
+    store, master_kind, sidekick_kind, consultant_kind, only, rest
+):
+    """require_diverse_kinds on the roles' labels: a role being spawned is labelled by the arguments given now, one kept by those it
+    started with, and a role with no kind stands for the master."""
+
+    def label(role, kind, spawned):
+        recorded = peek(load(store), role).get('start_args')
+        args = rest if spawned else (recorded if isinstance(recorded, list) else [])
+        return diversity_label(kind, args) if kind else master_label(master_kind)
+
+    require_diverse_kinds(
+        master_label(master_kind),
+        label('sidekick', sidekick_kind, only != 'consultant'),
+        label('consultant', consultant_kind, only != 'sidekick'),
+    )
+
+
 VALUED = {
     '--sidekick': 'sidekick',
     '--consultant': 'consultant',
@@ -150,8 +187,8 @@ def spawn(ctx, args):
             f'--consultant KIND is required (run: {mux.get().list_kinds()}, for the kind list)'
         )
     master_kind = agent_kind(field(store, 'master', 'pane_id'))
-    require_diverse_kinds(
-        master_kind, sidekick_kind or master_kind, consultant_kind or master_kind
+    require_diverse_roles(
+        store, master_kind, sidekick_kind, consultant_kind, only, rest
     )
     master_pane = field(store, 'master', 'pane_id')
     cpermission = opts['cpermission'] or opts['permission']

@@ -16,6 +16,7 @@ from .commands import (
     steer,
     step,
     stop,
+    sync,
 )
 from .errors import Die, translate
 from .store import Context
@@ -51,6 +52,7 @@ COMMANDS = {
     'rotate': rotate.rotate,
     'failover': rotate.failover,
     'stop': stop.stop,
+    'sync': sync.sync,
 }
 
 # The commands a variant may replace whole. Only these names, and a name the core lacks, ask the variant, so every other command is the core's.

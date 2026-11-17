@@ -73,10 +73,11 @@ def inbox(name):
     return os.path.join(state_dir(), 'inbox', f'{name}.txt')
 
 
-def load():
-    """{'next': the next pane number, 'agents': {name: {'pane', 'kind'}}, 'panes': [ids]}."""
+def load(path=None):
+    """{'next': the next pane number, 'agents': {name: {'pane', 'kind', ...}}, 'panes': [ids]} of the registry at path (by default, this
+    backend's)."""
     try:
-        with open(registry_path(), encoding='utf-8') as f:
+        with open(path or registry_path(), encoding='utf-8') as f:
             doc = json.load(f)
     except (OSError, ValueError):
         doc = {}
@@ -98,13 +99,13 @@ def load():
     }
 
 
-def change(apply):
-    """Applies apply(doc) to the registry under its lock; apply's value."""
-    path = registry_path()
+def change(apply, path=None):
+    """Applies apply(doc) to the registry at path (by default, this backend's) under its lock; apply's value."""
+    path = path or registry_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(f'{path}.lock', 'w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        doc = load()
+        doc = load(path)
         value = apply(doc)
         with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
             json.dump(doc, f, indent=1, sort_keys=True)
@@ -122,6 +123,11 @@ class Subagents(Mux):
     starts_master = False
     # Nothing in this process can wait for a subagent: the master runs it after the command returns.
     waits = False
+    handoff_next = 'next: run the subagent the line above names, with its prompt; it writes the ready file, and the next command picks it up\n'
+
+    def path(self):
+        """The registry file of this backend."""
+        return registry_path()
 
     def require(self, what=None):
         """A single session needs nothing."""
@@ -140,7 +146,7 @@ class Subagents(Mux):
         return {}
 
     def pane_exists(self, pane):
-        return is_master(pane) or pane in load()['panes']
+        return is_master(pane) or pane in load(self.path())['panes']
 
     def pane_close(self, pane):
         def drop(doc):
@@ -148,7 +154,7 @@ class Subagents(Mux):
             for name in [n for n, e in doc['agents'].items() if e['pane'] == pane]:
                 del doc['agents'][name]
 
-        change(drop)
+        change(drop, self.path())
         return True
 
     def pane_screen(self, pane, lines):
@@ -167,7 +173,7 @@ class Subagents(Mux):
             doc['panes'].append(pane)
             return pane
 
-        return change(add)
+        return change(add, self.path())
 
     def split(self, anchor, direction, cwd, env=()):
         return self.new()
@@ -180,7 +186,7 @@ class Subagents(Mux):
 
     def entry(self, name):
         """(name, entry) of the agent called `name` or living in pane `name`, or None."""
-        agents = load()['agents']
+        agents = load(self.path())['agents']
         if name in agents:
             return name, agents[name]
         return next(((n, e) for n, e in agents.items() if e['pane'] == name), None)
@@ -205,7 +211,7 @@ class Subagents(Mux):
         """The role's subagent is done: its name leaves the registry, so the role reads absent until it starts again."""
         found = self.entry(name)
         if found is not None:
-            change(lambda doc: doc['agents'].pop(found[0], None))
+            change(lambda doc: doc['agents'].pop(found[0], None), self.path())
 
     def rename(self, target, name):
         found = self.entry(target)
@@ -228,7 +234,7 @@ class Subagents(Mux):
                 del doc['agents'][old]
             doc['agents'][name] = {'pane': pane, 'kind': kind}
 
-        change(move)
+        change(move, self.path())
         return True
 
     def start(
@@ -243,7 +249,7 @@ class Subagents(Mux):
                 del doc['agents'][old]
             doc['agents'][name] = {'pane': pane, 'kind': kind}
 
-        change(claim)
+        change(claim, self.path())
         return Reply(0, '' if stdout == PIPE else None, '' if stderr == PIPE else None)
 
     def prompt(

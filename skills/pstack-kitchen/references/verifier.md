@@ -124,6 +124,9 @@ work?", and then your pane closes.
 7. End the turn. The master's `kitchen.sh verify` reads the verdict, closes
    your pane, and removes the scratch worktree; leave both to it, and stop
    anything you launched before you end.
+   As an Amp thread (the packet's prompt named a `sync` to run first), your
+   orb's store is a copy: run `kitchen.sh notify <store> <verdict>` before
+   you end, which sends the verdict to the master's thread.
 
 ## Delegation
 

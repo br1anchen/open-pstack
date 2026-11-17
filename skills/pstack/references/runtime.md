@@ -100,6 +100,11 @@ the host's delegation restrictions.
   in the thread.
 - Amp can also be a role the pair, trio and kitchen start in a pane
   (`kind = "amp"`); read [the Amp adapter](../../pstack-pair/references/amp-sidekick.md).
+  With `PSTACK_MUX=amp` the kitchen, pair and trio run each role as an Amp
+  thread of its own, on the model its roster entry names, and carry the store
+  and commits between orbs themselves; read
+  [Amp threads](../../pstack-kitchen/SKILL.md#amp-threads). Prefer it over
+  create_thread by hand for a kitchen.
 - MCP servers and deferred Amp tools are reached through tool_search and
   code_exec. Painter generates images; diagrams and charts go in a visual
   artifact (load `creating-artifacts`).

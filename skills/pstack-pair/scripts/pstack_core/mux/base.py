@@ -76,6 +76,10 @@ class Mux:
     starts_master = True
     # Whether a call may wait in this process for an agent to act; False when the agents run only after the command returns.
     waits = True
+    # Whether a new master starts as a thread of its own (new_master, launch_master, hand_over) when starts_master is False.
+    master_threads = False
+    # What spawn says when a bootstrap prompt was handed off and nothing waited for it (waits is False).
+    handoff_next = ''
 
     # The calling pane and where it lives.
     def require(self, what=None):

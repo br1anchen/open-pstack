@@ -12,6 +12,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import textwrap
 import time
@@ -13651,3 +13652,266 @@ class SubagentKitchenTests(KitchenScriptTests):
 for _name in dir(KitchenScriptTests):
     if _name.startswith('test_') and _name not in vars(SubagentKitchenTests):
         setattr(SubagentKitchenTests, _name, None)
+
+
+AMP_MASTER = 'T-aaaaaaaa-0000-4000-8000-000000000000'
+
+
+def amp_thread(n):
+    return f'T-00000000-0000-4000-8000-{n:012d}'
+
+
+class AmpKitchenTests(KitchenScriptTests):
+    """The kitchen with PSTACK_MUX=amp: every role is an Amp thread of its own, started on the model its arguments name, and every prompt
+    carries a bundle of the store and its commits that the receiving thread syncs first. Nothing waits; a role's reply is a message to the
+    master's thread."""
+
+    def mux_env(self):
+        return {'PSTACK_MUX': 'amp', 'AMP_THREAD_ID': AMP_MASTER}
+
+    def spawn_roles(self):
+        out = self.run_sh(
+            'spawn',
+            str(self.store),
+            '--kind',
+            'amp',
+            '--',
+            '--model',
+            'zhipuai/glm-5.3',
+            code=4,
+        )
+        self.spawn_out = out
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+
+    def thread_messages(self, thread):
+        d = self.fake / 'amp-threads' / thread
+        return [
+            p.read_text() for p in sorted(d.glob('*.txt'), key=lambda p: int(p.stem))
+        ]
+
+    def as_thread(self, thread, *args, code=0, mux=''):
+        """kitchen.sh run from another Amp thread (a role's, or the next master's), here on the same machine; mux is the PSTACK_MUX its orb
+        sets, if any."""
+        env = {**self.env, 'AMP_THREAD_ID': thread}
+        env.pop('PSTACK_MUX')
+        if mux:
+            env['PSTACK_MUX'] = mux
+        result = subprocess.run(
+            [str(self.script), *args],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        return result.stdout + result.stderr
+
+    def test_spawn_starts_the_sidekick_as_a_thread_on_its_model_with_the_store_attached(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.assertIn(
+            f'amp demo-sidekick ({sidekick}): Load the pstack-kitchen skill',
+            self.spawn_out,
+        )
+        self.assertIn(
+            "next: end your turn; the role's thread writes the ready file",
+            self.spawn_out,
+        )
+        log = (self.fake / 'amp.log').read_text()
+        self.assertIn('--model zhipuai/glm-5.3 --title demo-sidekick --attach ', log)
+        [message] = self.thread_messages(sidekick)
+        self.assertIn(f'store: {self.store}', message)
+        self.assertIn(
+            'then `PSTACK_MUX=amp ~/.agents/skills/pstack-pair/scripts/pair.sh sync <the pstack-demo-sidekick.tgz attachment',
+            message,
+        )
+        self.assertEqual(self.state()['sidekick']['pane_id'], 'amp:1')
+        # The thread's orb may hold no pstack, or another build: the prompt carries this one and says how to install it first.
+        self.assertIn('run `d=~/.local/share/pstack-builds/', message)
+        self.assertIn(
+            'python3 $d/scripts/pstack-sync.py --source $d/skills --apply', message
+        )
+        self.assertIn(
+            'reaches it only when you send it: `PSTACK_MUX=amp kitchen.sh finish` or `PSTACK_MUX=amp kitchen.sh notify <store> <file>`',
+            message,
+        )
+        with tarfile.open(
+            self.fake / 'amp-threads' / sidekick / '1-pstack-build.tgz'
+        ) as tar:
+            names = set(tar.getnames())
+        self.assertLessEqual(
+            {
+                'scripts/pstack-sync.py',
+                'skills/pstack-pair/scripts/pair.sh',
+                'skills/pstack-pair/scripts/pstack_core/mux/amp.py',
+            },
+            names,
+        )
+        self.assertFalse([n for n in names if '__pycache__' in n])
+        self.assertEqual(self.state()['master']['pane_id'], f'amp:{AMP_MASTER}')
+
+    def test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.dispatch(b)
+        self.assertIn(f'amp demo-sidekick ({sidekick}): pstack-kitchen BRIEF {b}', out)
+        self.assertIn(
+            f'threads continue {sidekick} --attach ',
+            (self.fake / 'amp.log').read_text(),
+        )
+        bundle = self.fake / 'amp-threads' / sidekick / '2-pstack-demo-sidekick.tgz'
+        # The sidekick's thread syncs first (the registry it learns names the master's thread), does the unit and finishes.
+        out = self.as_thread(sidekick, 'sync', str(bundle))
+        self.assertIn(f'synced: {self.store} from demo-master', out)
+        self.assertNotIn('warning: this orb sets PSTACK_MUX', out)
+        # An orb whose project sets another backend is told to prefix the commands that message the master.
+        out = self.as_thread(sidekick, 'sync', str(bundle), mux='subagents')
+        self.assertIn(
+            'warning: this orb sets PSTACK_MUX=subagents; run finish and notify here as PSTACK_MUX=amp kitchen.sh',
+            out,
+        )
+        self.write('src/util.py', 'X = 2\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        self.done(b, self.commit('util'))
+        report = self.store / 'reports' / b.name
+        out = self.as_thread(sidekick, 'finish', str(self.store), str(report))
+        self.assertIn(
+            f'amp demo-master ({AMP_MASTER}): pstack-kitchen REPORT {report}', out
+        )
+        [reply] = self.thread_messages(AMP_MASTER)
+        self.assertTrue(reply.startswith(f'pstack-kitchen REPORT {report}\n'), reply)
+        self.assertIn(
+            'pair.sh sync <the pstack-demo-master.tgz attachment URL below>', reply
+        )
+        self.assertNotIn('reaches it only when you send it', reply)
+        self.assertNotIn('pstack-build.tgz', reply)
+
+    def test_the_bundle_carries_the_sidekicks_commit_to_a_checkout_that_lacks_it(self):
+        sidekick = amp_thread(1)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.dispatch(b)
+        base = self.git('rev-parse', 'HEAD')
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        head = self.commit('util')
+        self.done(b, head)
+        self.as_thread(
+            sidekick, 'finish', str(self.store), str(self.store / 'reports' / b.name)
+        )
+        # The master's orb never saw the commit: put its checkout back and drop the object.
+        self.git('reset', '-q', '--hard', base)
+        self.git('reflog', 'expire', '--expire=now', '--all')
+        self.git('gc', '-q', '--prune=now')
+        self.assertNotEqual(
+            subprocess.run(
+                ['git', 'cat-file', '-e', head], cwd=self.repo, check=False, timeout=60
+            ).returncode,
+            0,
+        )
+        out = self.run_sh(
+            'sync',
+            str(self.fake / 'amp-threads' / AMP_MASTER / '1-pstack-demo-master.tgz'),
+        )
+        self.assertIn('checkout: ', out)
+        self.assertIn(f'at {head[:9]}, as demo-sidekick', out)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), head)
+
+    def test_rotate_master_starts_the_next_master_as_a_thread_and_a_stale_reply_is_forwarded(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.store / 'reports' / '001-util-s1.md').write_text('status: object\n')
+        self.as_thread(
+            sidekick,
+            'finish',
+            str(self.store),
+            str(self.store / 'reports/001-util-s1.md'),
+        )
+        stale = self.fake / 'amp-threads' / AMP_MASTER / '1-pstack-demo-master.tgz'
+        self.filled_handoff()
+        (self.fake / 'amp-mode').write_text('openai/gpt-6-astra\n')
+        out = self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        self.assertIn(
+            f'next master: demo-master-g2 (generation 2) in thread {master2}; it runs take-master there',
+            out,
+        )
+        self.assertIn(
+            '-m openai/gpt-6-astra --title demo-master-g2 --attach ',
+            (self.fake / 'amp.log').read_text(),
+        )
+        [prompt] = self.thread_messages(master2)
+        self.assertIn(f'pstack-kitchen MASTER {self.store} (generation 2)', prompt)
+        self.assertIn('installs the pstack build the sender runs', prompt)
+        state = self.state()['master']
+        self.assertEqual(
+            (state['name'], state['previous']['name']),
+            ('demo-master-g2', 'demo-master'),
+        )
+        # A second rotation before the new thread took over is refused.
+        out = self.run_sh('rotate-master', str(self.store), code=5)
+        self.assertIn(
+            f'a hand-over is open: generation 2 has not taken over yet; its thread runs kitchen.sh take-master {self.store} first',
+            out,
+        )
+        # A forward amp refuses names the thread it was meant for and fails like the multiplexer.
+        (self.fake / 'amp-continue-fail').write_text('thread not found\n')
+        out = self.run_sh('sync', str(stale), code=2)
+        self.assertIn(
+            f'demo-master is now {master2}, and forwarding to it failed: thread not found',
+            out,
+        )
+        (self.fake / 'amp-continue-fail').unlink()
+        # A reply the sidekick sent before it learned of the hand-over reaches the old master, whose sync forwards it.
+        out = self.run_sh('sync', str(stale))
+        self.assertIn(
+            f'forwarded to demo-master ({master2}): this thread no longer holds demo-master',
+            out,
+        )
+        self.assertIn('pstack-kitchen REPORT', self.thread_messages(master2)[-1])
+        # The new master's thread takes the run over.
+        out = self.as_thread(master2, 'take-master', str(self.store))
+        self.assertIn(f'closed the old master demo-master (amp:{AMP_MASTER})', out)
+        self.assertIn('master: demo-master in amp:2 (generation 2)', out)
+        self.assertNotIn('previous', self.state()['master'])
+
+    def test_a_master_thread_that_does_not_start_leaves_the_run_where_it_was(self):
+        self.filled_handoff()
+        before = self.state()['master']
+        (self.fake / 'amp-ox-fail').write_text('Unknown model provider\n')
+        out = self.run_sh('rotate-master', str(self.store), '--model', 'nope/x', code=2)
+        self.assertIn(
+            'the next master thread did not start: Unknown model provider', out
+        )
+        self.assertEqual(self.state()['master'], before)
+
+    def test_each_verification_starts_a_fresh_verifier_thread(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        out = self.run_sh('verify', str(self.store), '001', code=4)
+        packet = self.store / 'verdicts/001-util-v1-packet.md'
+        self.assertIn(
+            f'amp demo-verifier ({amp_thread(2)}): Load the pstack-kitchen skill', out
+        )
+        self.assertIn(f'VERIFY {packet}', self.thread_messages(amp_thread(2))[0])
+        # The packet's scratch worktree travels with the bundle, so the verifier's orb can check it out at the unit's head.
+        self.assertIn(
+            'scratch/',
+            (self.fake / 'amp.log').read_text()
+            + str(list((self.store / 'scratch').iterdir())),
+        )
+
+
+for _name in dir(KitchenScriptTests):
+    if _name.startswith('test_') and _name not in vars(AmpKitchenTests):
+        setattr(AmpKitchenTests, _name, None)

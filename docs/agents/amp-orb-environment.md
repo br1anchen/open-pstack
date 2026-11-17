@@ -58,7 +58,10 @@ The test suite scrubs `PSTACK_MUX` and `PSTACK_SCRATCH_ROOT` and gives each
 test its own `XDG_STATE_HOME`, so these settings do not change its results.
 
 `AGENTS.md` (Kitchen on Amp orbs) covers subagent mode and master rotation
-across threads.
+across threads, and the Amp threads backend (`PSTACK_MUX=amp` on the
+command), which runs each role as an Amp thread on a model of its own and
+needs none of this setup's links in the role orbs: each prompt carries the
+master's skills build and installs it under `~/.local/share/pstack-builds/`.
 
 ## Checks
 

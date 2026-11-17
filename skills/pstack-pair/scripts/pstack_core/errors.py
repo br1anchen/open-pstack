@@ -242,6 +242,10 @@ class PathFailed(PairError):
         super().__init__(f'{path}: {error.strerror}')
 
 
+class BundleUnreadable(PairError):
+    """An Amp prompt's bundle cannot be fetched or read."""
+
+
 class NoBrief(PairError):
     """No brief carries the unit's number."""
 
