@@ -44,9 +44,10 @@ install_joo() {
   # this already-running process. It is not written for `set -u`.
   local nix_sh="$HOME/.nix-profile/etc/profile.d/nix.sh"
   [[ -r "$nix_sh" ]] || { printf 'joo: warning: no Nix profile at %s\n' "$nix_sh"; return 0; }
+  # Sourcing on the left of || also suspends errexit inside nix.sh.
   set +u
   # shellcheck disable=SC1090
-  source "$nix_sh"
+  source "$nix_sh" || { set -u; printf 'joo: warning: %s failed\n' "$nix_sh"; return 0; }
   set -u
   local src="$HOME/.cache/judge_of_owls"
   if [[ -d "$src/.git" ]]; then
