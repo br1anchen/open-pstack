@@ -11211,7 +11211,7 @@ esac
         self.assertEqual(
             self.open_verification_entry(),
             (
-                '    "entry": {\n      "kind": "claude",\n      "args": [],\n      "fallback": null,\n      "source": "master"\n    },\n'
+                '    "entry": {\n      "kind": "claude",\n      "args": [],\n      "fallback": null,\n      "fallbacks": [],\n      "source": "master"\n    },\n'
             ),
         )
 

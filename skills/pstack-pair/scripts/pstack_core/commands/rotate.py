@@ -10,7 +10,7 @@ from .. import mux
 from ..agents import current_no_mcp, model_label
 from ..argv import Spec, read
 from ..checkin import sidekick_busy
-from ..errors import Die, Exit, RotationFailed, translate
+from ..errors import Die, RotationFailed, translate
 from ..exits import end_agent, exit_deadline, stop_prime_role
 from ..gates import check_scope, require_not_paused
 from ..mux import DEVNULL
@@ -196,10 +196,10 @@ def rotate_if_due(ctx, store, what, brief=''):
     if code == 4 and not mux.get().waits:
         # The new thread bootstraps on its own after rotate returns: this was a fresh session, and its READY settles the bootstrap.
         update_role(store, 'sidekick', {'rotation_required': False})
-        raise Exit(
-            4,
-            f'{said.getvalue()}rotated: a new sidekick thread is starting; {f"run dispatch {brief}" if brief else "send the plan"} again after its READY\n',
+        sys.stderr.write(
+            f'{said.getvalue()}rotated: a new sidekick thread is starting; {f"run dispatch {brief}" if brief else "send the plan"} again after its READY\n'
         )
+        raise RotationFailed(4)
     if code:
         raise RotationFailed(
             code,
