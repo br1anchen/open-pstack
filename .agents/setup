@@ -71,20 +71,15 @@ install_joo() {
 # The skills are this repo, so the kitchen runs from this checkout: its own
 # installer links skills/* into ~/.agents/skills (and ~/.claude/skills,
 # ~/.grok/skills), and an edit to the checkout is what the next command runs.
-# The checkout's HEAD goes to builds.tsv, which is how each run names the build
-# it used. The project environment variables PSTACK_MUX=subagents,
-# XDG_STATE_HOME under .amp/in/orb-backup/pstack and PSTACK_SCRATCH_ROOT carry
-# the orb-specific settings into every agent shell; ~/.bash_profile would not,
-# because agent tools run `bash -c`.
+# No builds.tsv row is written: the linked skills are the working tree, which
+# the kitchen commits to as it runs, so no one revision is the build a run
+# used, and fleet and feedback show it as unknown. The project environment
+# variables PSTACK_MUX=subagents, XDG_STATE_HOME under .amp/in/orb-backup/pstack
+# and PSTACK_SCRATCH_ROOT carry the orb-specific settings into every agent
+# shell; ~/.bash_profile would not, because agent tools run `bash -c`.
 install_pstack() {
   python3 scripts/pstack-sync.py --apply >/dev/null
-  local revision builds="${XDG_STATE_HOME:-$HOME/.local/state}/pstack/builds.tsv"
-  revision="$(git rev-parse HEAD)"
-  mkdir -p "$(dirname "$builds")"
-  if [[ "$(tail -n 1 "$builds" 2>/dev/null | cut -f 2)" != "$revision" ]]; then
-    printf '%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$revision" "$repo_root/skills" >> "$builds"
-  fi
-  printf 'pstack: skills from %s at %s\n' "$repo_root" "${revision:0:12}"
+  printf 'pstack: skills linked from %s\n' "$repo_root/skills"
 }
 
 step "uv dev tools" install_dev_tools

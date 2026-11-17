@@ -22,8 +22,9 @@ Amp orbs are the Debian 12 sandboxes Amp agents work in
   `~/.claude/skills`, `~/.grok/skills`) with `scripts/pstack-sync.py --apply`,
   so `~/.agents/skills/pstack-kitchen/scripts/kitchen.sh` resolves to the
   working tree. Nothing is cloned: an edit to the checkout is what the next
-  `kitchen.sh` command runs. The checkout's `HEAD` goes to `builds.tsv`, which
-  is how each run names the build it used.
+  `kitchen.sh` command runs. Setup writes no `builds.tsv` row, because the
+  kitchen commits to that tree as it runs and no one revision is the build a
+  run used; `kitchen.sh fleet` and feedback show the build as `unknown`.
 
 `.agents/resume` runs the same sync on every activation and wake, which is a
 no-op unless a snapshot came without the links.
