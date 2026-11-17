@@ -1953,7 +1953,7 @@ esac
             '--fallback-arg',
             'gpt-6.1-sol',
         )
-        self.assertIn('failover: muse -> codex', out)
+        self.assertIn('failover: muse muse-wonder-full -> codex gpt-6.1-sol', out)
         sidekick = self.state()['sidekick']
         self.assertEqual(sidekick['kind'], 'codex')
         self.assertIn('Usage limit reached', sidekick['failovers'][0]['reason'])
@@ -2027,7 +2027,7 @@ esac
             '--model',
             'nope/nope',
         )
-        self.assertIn('failover: amp -> codex', out)
+        self.assertIn('failover: amp nope/nope -> codex', out)
         sidekick = self.state()['sidekick']
         self.assertEqual(sidekick['kind'], 'codex')
         self.assertIn('Unknown model provider', sidekick['failovers'][0]['reason'])
