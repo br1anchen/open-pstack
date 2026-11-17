@@ -470,7 +470,8 @@ def start_chain(ctx, store, request, chain, start):
         raise NoFallback(
             f'every agent of the sidekick chain failed its preflight ({", ".join(map(entry_label, chain[start:]))})'
         )
-    record_chain(store, chain, index)
+    if len(chain) > 1:
+        record_chain(store, chain, index)
     if index == start:
         return spawn_role(ctx, store, 'sidekick', request)
     return spawn_role(
