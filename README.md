@@ -1,6 +1,6 @@
 # open-pstack
 
-Pstack skills for coding agents (Claude Code, Codex, Pi, Grok Build, Amp), with the
+Pstack skills for coding agents (Claude Code, Codex, Pi, Grok Build, Amp, which can also run each kitchen role as a thread of its own), with the
 local multi-agent workflows built on them: `pstack-pair`, `pstack-trio` and
 `pstack-kitchen` over Herdr or [Rex](skills/pstack-pair/references/rex.md). It needs no particular package or dotfile
 manager: [Install and update](#install-and-update) links the skills from a
