@@ -41,9 +41,13 @@ install_joo() {
     printf 'joo: warning: CLAUDE_CODE_OAUTH_TOKEN contains whitespace; re-enter the Amp secret as one line\n'
   fi
   # The orb base image ships single-user Nix; its profile script cannot reach
-  # this already-running process.
-  # shellcheck disable=SC1091
-  source "$HOME/.nix-profile/etc/profile.d/nix.sh"
+  # this already-running process. It is not written for `set -u`.
+  local nix_sh="$HOME/.nix-profile/etc/profile.d/nix.sh"
+  [[ -r "$nix_sh" ]] || { printf 'joo: warning: no Nix profile at %s\n' "$nix_sh"; return 0; }
+  set +u
+  # shellcheck disable=SC1090
+  source "$nix_sh"
+  set -u
   local src="$HOME/.cache/judge_of_owls"
   if [[ -d "$src/.git" ]]; then
     git -C "$src" fetch --quiet --depth 1 origin main && git -C "$src" reset --quiet --hard FETCH_HEAD

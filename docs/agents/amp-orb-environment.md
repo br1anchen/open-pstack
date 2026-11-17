@@ -34,7 +34,9 @@ read `~/.bash_profile`:
 
 - `PSTACK_MUX=subagents`
 - `XDG_STATE_HOME=/home/user/workspace/repo/.amp/in/orb-backup/pstack`, so
-  the run store, ledger and subagent inbox survive orb deletion
+  the run store, ledger and subagent inbox survive orb deletion; Amp's
+  `.git/info/exclude` ignores `.amp/in/`, so the store never dirties the tree
+  that `kitchen.sh finish` checks
 - `PSTACK_SCRATCH_ROOT=/home/user/.local/state/pstack/scratch`, which keeps
   verifier worktrees outside the checkout, as pstack requires
 
