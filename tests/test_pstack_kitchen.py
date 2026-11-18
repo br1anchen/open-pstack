@@ -15237,8 +15237,7 @@ class AmpKitchenTests(KitchenScriptTests):
                 other_run: {'name': 'demo-sidekick', 'store': '/other/run'},
             }
         )
-        origin = 'https://example.com/acme/demo.git'
-        self.git('remote', 'add', 'origin', origin)
+        self.git('remote', 'add', 'origin', 'https://example.com/acme/demo.git')
         out = self.run_sh('threads', str(self.store), '--discover', '--archive')
         self.assertIn(f'discovered {ours} (verifier)', out)
         self.assertNotIn(prefix, out)
@@ -15246,8 +15245,38 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(self.threads_json()[other_run]['store'], '/other/run')
         self.assertNotIn(prefix, self.threads_json())
         self.assertIn(
-            f'archived:false demo- repo:{origin}', (self.fake / 'amp.log').read_text()
+            'archived:false demo- repo:example.com/acme/demo',
+            (self.fake / 'amp.log').read_text(),
         )
+
+    def test_the_repo_filter_of_a_search_is_host_owner_name_whatever_the_remote_s_form(
+        self,
+    ):
+        table = {
+            'https://ghp_token123@github.com/owner/repo.git': 'github.com/owner/repo',
+            'https://user:secret@github.com:8443/owner/repo/': 'github.com/owner/repo',
+            'ssh://git@github.com/owner/repo.git': 'github.com/owner/repo',
+            'ssh://git@github.com:22/owner/repo': 'github.com/owner/repo',
+            'git@github.com:owner/repo.git': 'github.com/owner/repo',
+            'github.com:owner/repo': 'github.com/owner/repo',
+            'https://github.com/owner/repo': 'github.com/owner/repo',
+            '/srv/git/repo.git': '',
+        }
+        code = (
+            'import json, sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core.mux.amp import repo_filter\n'
+            'print(json.dumps({u: repo_filter(u) for u in json.loads(sys.argv[1])}))\n'
+        )
+        out = subprocess.run(
+            [sys.executable, '-I', '-c', code, json.dumps(list(table))],
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+        self.assertEqual(json.loads(out), table)
 
     def test_a_send_to_an_existing_thread_never_stamps_it_started(self):
         sidekick = amp_thread(1)

@@ -300,6 +300,20 @@ def supersedes(current, thread):
     return bool(current and current != thread and newer > int(mine.get('started') or 0))
 
 
+def repo_filter(url):
+    """`host/owner/name` of a git remote URL, for amp's `repo:` search filter, whatever its form: https with credentials, ssh://, scp-like
+    `git@host:owner/name`, with or without `.git`. '' for a remote that has no host (a local path)."""
+    scp = re.fullmatch(r'(?:[^@/\s]+@)?([^:/\s]+):(?!//)(.+)', url.strip())
+    full = re.fullmatch(
+        r'[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)(?::[0-9]+)?/(.+)', url.strip()
+    )
+    found = full or scp
+    if not found:
+        return ''
+    host, path = found.groups()
+    return f'{host}/{path.strip("/").removesuffix(".git")}'
+
+
 def run_titles(slug):
     """The titles of a run's role threads: `<slug>-<role>`, and `-g<n>` after a master."""
     return re.compile(
@@ -784,8 +798,10 @@ class Amp(Subagents):
         doc = load_json(os.path.join(store, 'pair.json'))
         slug = doc.get('slug') or ''
         here, known = os.path.realpath(store), load_json(threads_path())
-        origin = git.out(
-            doc.get('git_root') or doc.get('cwd'), 'remote', 'get-url', 'origin'
+        origin = repo_filter(
+            git.out(
+                doc.get('git_root') or doc.get('cwd'), 'remote', 'get-url', 'origin'
+            )
         )
         ours = run_titles(slug)
         found = []
