@@ -11,13 +11,14 @@ import json
 import os
 import posixpath
 import re
+import sys
 import time
 from typing import NamedTuple
 
-from . import git
-from .errors import PairError
+from . import git, secrets
+from .errors import PairError, SecretFound
 from .numbers import env_float, env_int
-from .store import acquire_lock
+from .store import acquire_lock, event
 
 BRANCH_PREFIX = 'kitchen/'
 LOCK = '.publish.lock'
@@ -530,11 +531,52 @@ def checked_rel(store, path):
     )
 
 
-def _commit(store, rels, message):
-    """One commit of exactly these paths; 0 when nothing in them changed."""
+def _refuse_secrets(store, rels, writer):
+    """Raises SecretFound, with nothing left staged, when a staged file of rels holds a credential. A line a `pstack-allow-secret: <reason>` marker
+    exempts goes through and is logged: a line on stderr and an event of the writer, which the review reads."""
+    staged = (
+        git.out(
+            store,
+            '-c',
+            'core.quotepath=off',
+            'diff',
+            '--cached',
+            '--name-only',
+            '--diff-filter=d',
+            '--',
+            *rels,
+        )
+        or ''
+    ).splitlines()
+    exempt = []
+    found = secrets.scan(
+        [(rel, git.out(store, 'show', f':{rel}') or '') for rel in staged],
+        root=store,
+        exempt=exempt,
+    )
+    if found:
+        _run(store, 'reset', '--quiet', '--', *rels)
+        raise SecretFound(found)
+    for e in exempt:
+        sys.stderr.write(
+            f'secret: {e.path}:{e.line}: {e.kind} allowed by pstack-allow-secret ({e.reason})\n'
+        )
+        event(
+            store,
+            writer.role,
+            'secret-allowed',
+            e.path,
+            f'line {e.line} {e.kind}: {e.reason}',
+        )
+
+
+def _commit(store, rels, message, writer):
+    """One commit of exactly these paths; 0 when nothing in them changed. SecretFound, with the paths unstaged and nothing committed, when a
+    changed file holds a credential."""
     _run(store, 'add', '-A', '--', *rels)
     if _run(store, 'diff', '--cached', '--quiet', '--', *rels).returncode == 0:
         return 0
+    _refuse_secrets(store, rels, writer)
     done = _run(store, 'commit', '-m', message, '--', *rels)
     if done.returncode != 0:
         raise PublishFailed(f'cannot commit in {store}: {done.stderr.strip()}')
@@ -587,7 +629,7 @@ def _publish(store, rels, message, writer, sleep):
                 _run(store, 'reset', '--mixed', 'HEAD~1')
             raise
         if attempt == 0 and rels:
-            made = _commit(store, rels, message)
+            made = _commit(store, rels, message, writer)
         if not fresh:
             raise PublishFailed(
                 f'{branch} could not be fetched; the commit stays here for the next publish'

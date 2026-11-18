@@ -355,6 +355,20 @@ class VerdictMissing(PairError):
     code = 4
 
 
+class SecretFound(PairError):
+    """A file to publish holds something that looks like a credential. findings are what pstack_core.secrets found; the message is one line each,
+    naming the file and line and what to write instead. The value is never in it."""
+
+    def __init__(self, findings):
+        self.findings = list(findings)
+        super().__init__(
+            '\n'.join(
+                f'secret: {f.path}:{f.line}: {f.kind}; redact it (write [REDACTED: {f.kind}]) and run the command again'
+                for f in self.findings
+            )
+        )
+
+
 class FeedbackLocked(PairError):
     """The feedback inbox stayed locked."""
 
@@ -389,9 +403,11 @@ class EmptyStepLog(PairError):
 
 def translate(exc, prog):
     """(stderr text, exit code) for an exception that ends a command; anything else propagates. Exit prints as it is, the rest after
-    the program's name."""
+    the program's name, except SecretFound, whose lines each start with `secret:`."""
     if isinstance(exc, Exit):
         return exc.stderr, exc.code
+    if isinstance(exc, SecretFound):
+        return f'{exc.message}\n', exc.code
     if isinstance(exc, (Die, PairError)):
         return (f'{prog}: {exc.message}\n' if exc.message else ''), exc.code
     if isinstance(exc, (OSError, ValueError)):

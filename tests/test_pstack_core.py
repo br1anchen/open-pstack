@@ -21406,6 +21406,60 @@ class GitStoreTests(unittest.TestCase):
             self.publish(self.store, ['plans/001-p.md'], writer)
         self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 1)
 
+    def test_gitstore_a_report_with_a_credential_is_refused_unstaged_and_unpushed_until_it_is_redacted(
+        self,
+    ):
+        token = _fake('gh', 'p_', 'a1' * 18)
+        writer = gitstore.Writer('sidekick', 1)
+        self.write(self.store, 'reports/001-x.md', f'ok\nstatus: done\ntoken {token}\n')
+        self.write(self.store, 'progress/001-x.md', 'clean\n')
+        head, remote = gitstore.head_of(self.store), self.remote_commits()
+        with self.assertRaises(errors.SecretFound) as caught:
+            self.publish(self.store, ['reports/001-x.md', 'progress/001-x.md'], writer)
+        self.assertEqual(
+            caught.exception.message,
+            'secret: reports/001-x.md:3: github-token; redact it (write [REDACTED: github-token]) and run the command again',
+        )
+        self.assertNotIn(token, caught.exception.message)
+        self.assertEqual(gitstore.head_of(self.store), head)
+        self.assertEqual(self.remote_commits(), remote)
+        self.assertEqual(
+            self.sh('git', 'diff', '--cached', '--name-only', cwd=self.store), ''
+        )
+        self.assertIn(token, Path(self.store, 'reports/001-x.md').read_text())
+        self.write(
+            self.store,
+            'reports/001-x.md',
+            'ok\nstatus: done\ntoken [REDACTED: github-token]\n',
+        )
+        self.publish(self.store, ['reports/001-x.md', 'progress/001-x.md'], writer)
+        self.assertEqual(self.remote_commits(), remote + 1)
+        self.assertTrue(
+            {'reports/001-x.md', 'progress/001-x.md'} <= self.remote_files()
+        )
+
+    def test_gitstore_an_allowed_credential_line_is_published_and_logged_for_the_review(
+        self,
+    ):
+        token = _fake('gh', 'p_', 'a1' * 18)
+        self.write(
+            self.store,
+            'reports/001-x.md',
+            f'{token} pstack-allow-secret: a fixture the test reads\n',
+        )
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.publish(
+                self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+            )
+        self.assertIn('reports/001-x.md', self.remote_files())
+        self.assertIn(
+            'reports/001-x.md:1: github-token allowed by pstack-allow-secret (a fixture the test reads)',
+            err.getvalue(),
+        )
+        logged = [r for r in store.events(self.store) if '\tsecret-allowed\t' in r]
+        self.assertEqual(len(logged), 1, logged)
+        self.assertIn('a fixture the test reads', logged[0])
+
     def test_gitstore_a_crash_after_the_commit_leaves_it_for_the_next_publish(self):
         self.write(self.store, 'reports/001-x.md')
         with mock.patch.object(gitstore, 'push', side_effect=RuntimeError('killed')):
