@@ -95,6 +95,10 @@ class Mux:
         """The share of its context window the agent `name` has used (0 to 1; 1 once it compacted), or None when the backend cannot say."""
         return None
 
+    def compactions(self, name):
+        """How many times the agent `name`'s conversation compacted, or None when the backend cannot say."""
+        return None
+
     def role_thread(self, name):
         """The thread the agent `name` runs in, '' where roles are not threads of their own."""
         return ''

@@ -106,6 +106,44 @@ def write_relay(record):
     os.replace(f'{path}.tmp', path)
 
 
+def thread_context(thread):
+    """`amp threads context` of the thread as an object, None when amp cannot say."""
+    r = run(['amp', 'threads', 'context', thread])
+    try:
+        doc = json.loads(r.stdout) if r.returncode == 0 else {}
+    except ValueError:
+        return None
+    return doc if isinstance(doc, dict) else {}
+
+
+def thread_compactions(thread):
+    """How many times the thread compacted, None when amp cannot say."""
+    doc = thread_context(thread) if thread else None
+    count = doc.get('compactionCount') if doc else None
+    return count if isinstance(count, int) and not isinstance(count, bool) else None
+
+
+def delivered_path():
+    """What this side already gave each thread: {thread: {build, compactions}}, so a later message carries only what changed."""
+    return os.path.join(state_dir(), 'delivered.json')
+
+
+def record_delivered(thread, update):
+    """delivered.json's entry for thread, with `update` merged into it, under a lock beside it."""
+    path = delivered_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(f'{path}.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        doc = load_json(path)
+        doc[thread] = {**(doc.get(thread) or {}), **update}
+        with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
+            json.dump(doc, f, indent=1, sort_keys=True)
+        os.replace(f'{path}.tmp', path)
+
+
+# What a message to a thread that already has the workflow setup says about sending files back, in place of RETURN.
+RETURN_SHORT = ' Send files for the master back with PSTACK_MUX=amp kitchen.sh finish or notify (pair.sh in a pair or trio).'
+
 # The error the CLI prints when a bundle's upload breaks off; the message may or may not have gone out.
 UPLOAD_FAILED = 'Attachment upload did not complete'
 # How a message names itself, so a retry can tell it already reached the thread.
@@ -284,17 +322,17 @@ class Amp(Subagents):
         thread = found[1].get('thread') if found else ''
         if not thread:
             return None
-        r = run(['amp', 'threads', 'context', thread])
-        try:
-            doc = json.loads(r.stdout) if r.returncode == 0 else {}
-        except ValueError:
+        doc = thread_context(thread)
+        if doc is None:
             return None
-        doc = doc if isinstance(doc, dict) else {}
         used, limit = doc.get('totalTokens'), doc.get('maxContextTokens')
         compacted = doc.get('compactionCount') or 0
         if not (isinstance(used, int) and isinstance(limit, int) and limit > 0):
             return None
         return 1.0 if compacted else used / limit
+
+    def compactions(self, name):
+        return thread_compactions(self.role_thread(name))
 
     def role_thread(self, name):
         found = self.entry(name)
@@ -458,6 +496,13 @@ class Amp(Subagents):
         if store:
             change(lambda doc: doc.__setitem__('store', store), self.path())
         message = text
+        # What this thread was already given: a message to it carries the build, the send-back rules and the re-orientation only when it needs them.
+        seen = load_json(delivered_path()).get(thread) if thread else None
+        compactions = thread_compactions(thread) if thread and seen else None
+        compacted = compactions is not None and compactions > int(
+            (seen or {}).get('compactions') or 0
+        )
+        build = ''
         with tempfile.TemporaryDirectory() as tmp:
             attach = []
             if store and os.path.isfile(os.path.join(store, 'pair.json')):
@@ -478,13 +523,22 @@ class Amp(Subagents):
                     '' if thread and MASTER_RE.search(name) else pack_build(build_path)
                 )
                 install = ''
-                if build:
+                if build and (not seen or seen.get('build') != build):
                     attach += ['--attach', build_path]
                     install = f'`{install_line(build)}` (it installs the pstack build the sender runs, the same on every orb), then '
+                elif build:
+                    build = ''
+                full_return = not seen or compacted
                 message = (
                     f'{text}\n\npstack: before you act on this message, run {install}`{SYNC} <the pstack-{name}.tgz attachment URL below>`: '
                     f'it merges the {store} store and its commits into your orb.'
-                    + ('' if MASTER_RE.search(name) else RETURN)
+                    + (
+                        ''
+                        if MASTER_RE.search(name)
+                        else RETURN
+                        if full_return
+                        else RETURN_SHORT
+                    )
                 )
             cwd = bundle.repo_of(store) if store else None
             digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
@@ -526,6 +580,14 @@ class Amp(Subagents):
                     return '', err
                 time.sleep(env_int('PSTACK_AMP_RETRY_S', 10))
             record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
+            gave = (
+                {'compactions': compactions or 0}
+                if compactions is not None or not seen
+                else {}
+            )
+            if build:
+                gave['build'] = build
+            record_delivered(thread, gave)
             if attach:
                 os.makedirs(os.path.dirname(sent_path(thread)), exist_ok=True)
                 shutil.copyfile(attach[1], sent_path(thread))

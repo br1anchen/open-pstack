@@ -14758,6 +14758,59 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual((self.fake / 'amp-started').read_text(), '1')
         self.assertFalse((self.fake / 'amp-archived').exists())
 
+    def attachments(self, thread):
+        """The names of the files attached to the messages of thread, without the message number."""
+        d = self.fake / 'amp-threads' / thread
+        return sorted(p.name.split('-', 1)[1] for p in d.glob('*.tgz'))
+
+    def test_a_role_thread_gets_the_build_and_the_send_back_rules_once(self):
+        sidekick = amp_thread(1)
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.finish_unit('002', 'two', ['src/**', 'tests/**'], 'src/two.py')
+        bootstrap, first, second = self.thread_messages(sidekick)
+        install, rules = (
+            'run `d=~/.local/share/pstack-builds/',
+            'reaches it only when you send it',
+        )
+        sync = f'`PSTACK_MUX=amp ~/.agents/skills/pstack-pair/scripts/pair.sh sync <the pstack-demo-sidekick.tgz attachment URL below>`: it merges the {self.store} store'
+        short = 'Send files for the master back with PSTACK_MUX=amp kitchen.sh finish or notify (pair.sh in a pair or trio).'
+        self.assertIn(install, bootstrap)
+        self.assertIn(rules, bootstrap)
+        self.assertNotIn(short, bootstrap)
+        for later in (first, second):
+            self.assertNotIn(install, later)
+            self.assertNotIn(rules, later)
+            self.assertIn(sync, later)
+            self.assertIn(short, later)
+            self.assertLess(len(later), 600)
+        # The build travels with the first message only; every message carries the store.
+        self.assertEqual(
+            self.attachments(sidekick),
+            ['pstack-build.tgz', *['pstack-demo-sidekick.tgz'] * 3],
+        )
+
+    def test_a_changed_build_is_attached_again_to_a_thread_that_has_the_old_one(self):
+        sidekick = amp_thread(1)
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        # The same pstack with one file changed is another build.
+        copy = Path(self.tmp.name) / 'copy'
+        shutil.copytree(
+            root / 'skills',
+            copy / 'skills',
+            ignore=shutil.ignore_patterns('__pycache__'),
+            symlinks=True,
+        )
+        (copy / 'scripts').mkdir()
+        shutil.copy(root / 'scripts/pstack-sync.py', copy / 'scripts/pstack-sync.py')
+        with (copy / 'skills/pstack-pair/SKILL.md').open('a') as f:
+            f.write('\nA changed line.\n')
+        self.script = copy / 'skills/pstack-kitchen/scripts/kitchen.sh'
+        self.finish_unit('002', 'two', ['src/**', 'tests/**'], 'src/two.py')
+        *_, last = self.thread_messages(sidekick)
+        self.assertIn('run `d=~/.local/share/pstack-builds/', last)
+        self.assertNotIn('reaches it only when you send it', last)
+        self.assertEqual(self.attachments(sidekick).count('pstack-build.tgz'), 2)
+
     def test_half_a_context_window_rotates_the_sidekick_even_in_the_same_area(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         (self.fake / f'amp-context-{amp_thread(1)}').write_text(
