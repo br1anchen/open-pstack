@@ -654,7 +654,7 @@ def take_master(ctx, args):
         master.pop('previous', None)
 
     update(store, mutate)
-    m.retire(m.thread_of_pane(prev_pane), prev)
+    m.retire(m.thread_of_pane(prev_pane), prev, store)
     archive_retired(ctx, store, 'take-master has run')
     event(
         store,

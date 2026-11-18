@@ -122,8 +122,9 @@ class Mux:
         retired_only); none where roles are not threads or this is not the master."""
         return []
 
-    def retire(self, thread, name):
-        """Records that the thread of the role `name` is no longer used, so a sweep archives it once that is safe."""
+    def retire(self, thread, name, store=''):
+        """Records that the thread of the role `name` of the run `store` (by default, the one its entry last worked for) is no longer used, so that
+        run's sweep archives it once that is safe."""
 
     def archive(self, row):
         """Archives the thread of `row` and records it as gone; whether it was archived."""

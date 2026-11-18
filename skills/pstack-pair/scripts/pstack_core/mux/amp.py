@@ -349,10 +349,12 @@ def assess(thread, store, role):
     if thread == own_thread() or thread in live:
         return 'in use', f'in use by {live.get(thread) or "this master"}'
     state, since = thread_state(export(thread))
-    if state not in ('', *SETTLED):
+    if state == '':
+        return 'unknown', 'state unknown (export failed or gave none)'
+    if state not in SETTLED:
         return state, f'working ({state}): it is in a turn'
     sent = load_json(outbox_path()).get(thread)
-    if isinstance(sent, dict) and state != '' and not since >= int(sent.get('at') or 0):
+    if isinstance(sent, dict) and not since >= int(sent.get('at') or 0):
         return state, 'a message to it is still pending (its turn has not ended since)'
     for record in relay_records(store):
         if (
@@ -531,6 +533,7 @@ class Amp(Subagents):
 
     def sent_to_master(self, skill, path, since=0):
         announce = f'{skill} REPORT {path}\\n'
+        latest = None
         for message in export(own_thread()).get('messages') or []:
             text = json.dumps(message.get('content'))
             if message.get('role') != 'user' or announce not in text:
@@ -538,11 +541,14 @@ class Amp(Subagents):
             made = message.get('createdAt') or ''
             if made and iso_epoch(made) < since:
                 continue
-            quoted = re.search(r'sha256: ([0-9a-f]{12})', text.split(announce, 1)[1])
-            if quoted and file_digest(path) == quoted.group(1):
-                continue
-            return made or 'an unknown time'
-        return None
+            latest = (made, text)
+        if latest is None:
+            return None
+        made, text = latest
+        quoted = re.search(r'sha256: ([0-9a-f]{12})', text.split(announce, 1)[1])
+        if quoted and file_digest(path) == quoted.group(1):
+            return None
+        return made or 'an unknown time'
 
     def thread_pane(self, thread):
         return thread_pane(thread)
@@ -618,10 +624,28 @@ class Amp(Subagents):
         self.retire(found[1].get('thread') or '', found[0])
         change(lambda doc: doc['agents'].pop(found[0], None), self.path())
 
-    def retire(self, thread, name):
+    def remember_store(self, name, store):
+        """The registry's store is the last one sent to, and the role's entry remembers the run it works for, so that retiring its thread later is
+        scoped to that store."""
+
+        def record(doc):
+            doc['store'] = store
+            if name in doc['agents']:
+                doc['agents'][name]['store'] = store
+
+        change(record, self.path())
+
+    def retire(self, thread, name, store=''):
         if thread and thread != own_thread():
+            store = store or (self.entry(name) or (name, {}))[1].get('store') or ''
             record_thread(
-                thread, {'name': name, 'role': role_of(name), 'at': int(time.time())}
+                thread,
+                {
+                    'name': name,
+                    'role': role_of(name),
+                    'at': int(time.time()),
+                    'store': os.path.realpath(store) if store else '',
+                },
             )
 
     def thread_rows(self, store, retired_only=False):
@@ -634,26 +658,42 @@ class Amp(Subagents):
         )
         if not own_thread() or own_thread() != mine:
             return []
+        here = os.path.realpath(store)
         known = load_json(threads_path())
-        found = {
-            t: e.get('role') or role_of(e.get('name') or '')
-            for t, e in known.items()
-            if not e.get('archived')
-        }
+        found, unscoped = {}, []
+        for t, e in known.items():
+            if e.get('archived'):
+                continue
+            if not e.get('store'):
+                unscoped.append(
+                    ThreadRow(
+                        t,
+                        e.get('role') or role_of(e.get('name') or ''),
+                        '',
+                        'no store recorded',
+                    )
+                )
+            elif os.path.realpath(e['store']) == here:
+                found[t] = e.get('role') or role_of(e.get('name') or '')
         if not retired_only:
             for e in (doc.get('sidekick_threads') or {}).values():
                 found.update({t: 'sidekick' for t in e if isinstance(t, str)})
             for e in master.get('sessions') or []:
                 if isinstance(e, dict) and (e.get('session') or '').startswith('T-'):
                     found.setdefault(e['session'], 'master')
+            ours = re.compile(
+                re.escape(doc.get('slug') or '\0')
+                + r'-(?:sidekick|verifier|consultant|master(?:-g[0-9]+)?)'
+            )
             for name, e in agents.items():
-                if e.get('thread'):
+                if e.get('thread') and ours.fullmatch(name):
                     found.setdefault(e['thread'], role_of(name))
-        return [
+        rows = [
             ThreadRow(thread, role, *assess(thread, store, role))
             for thread, role in found.items()
             if not (known.get(thread) or {}).get('archived')
         ]
+        return rows + ([] if retired_only else unscoped)
 
     def archive(self, row):
         if run(['amp', 'threads', 'archive', row.thread]).returncode:
@@ -771,7 +811,7 @@ class Amp(Subagents):
         self.skipped = ''
         store = store or store_in(text) or load(self.path()).get('store') or ''
         if store:
-            change(lambda doc: doc.__setitem__('store', store), self.path())
+            self.remember_store(name, store)
         message = text
         # What this thread was already given: a message to it carries the build, the send-back rules and the re-orientation only when it needs them.
         seen = load_json(delivered_path()).get(thread) if thread else None
