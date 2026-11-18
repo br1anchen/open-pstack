@@ -173,8 +173,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    table's last row. The 13 columns are: Date | Repo | Run | Master thread |
    Sidekick model | Units | Master wakes | Failed gates | Steers + fix briefs |
    Verifier rejections | Review findings | Median dispatch→accept (min) |
-   Sidekick cost ($). Write Verifier rejections as `<rejections>
-   (<first-pass>)`, as retro prints them. If someone else saved a newer
+   Sidekick cost ($). Combine retro's `rej` and `1st-pass`
+   columns into the Verifier rejections cell, written `<rej> (<1st-pass>)`. If someone else saved a newer
    revision, the publish returns the current content: re-read it and insert
    again.
 
@@ -265,9 +265,7 @@ place of the history:
 - Before `new-handoff`, under Amp threads with more than one sidekick model
   in play, run `kitchen.sh retro <store>` and add its rows to the comparison
   artifact's "Run log" as step 9 describes. Rows written at a rotation cover
-  the run so far and say `partial` in the Run column. A rotation also
-  returns the sidekick to the top of its fallback chain, which logs a
-  `failback` event beside the `failover` events a step down logged.
+  the run so far and say `partial` in the Run column.
 - `rotate-master` records the session it closes under `pair.json`
   `.master.sessions`, so a human can `claude --resume <id>` it.
   `KITCHEN_MASTER_REMOTE_CONTROL=0` starts the next master without Remote
