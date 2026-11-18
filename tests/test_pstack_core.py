@@ -11857,7 +11857,7 @@ class CoreTests(unittest.TestCase):
                 verifying={'entry': {'fallback': {'kind': 'claude', 'args': []}}},
             ),
             'a provider error on a retried call': world(
-                screens=rate, verifying={**fallback, 'retried': True}
+                screens=rate, verifying={'retried': True}
             ),
             'a provider error with a retry entry among the arguments': world(
                 screens=rate,

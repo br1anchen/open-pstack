@@ -38,6 +38,7 @@ from pstack_core.spawn import (
     walk_chain,
 )
 from pstack_core.store import (
+    count,
     event,
     field,
     json_type,
@@ -109,9 +110,13 @@ def verifier_entry(store, cls):
             )
         chain = [e for e in listing(sidekick, 'chain') if isinstance(e, dict)]
         if chain:
+            # Each verification starts from the top of the chain; the sidekick's own start arguments are the top's only while it runs it.
+            top_runs = count(sidekick, 'chain_index') == 0
             return {
-                'kind': chain[0].get('kind'),
-                'args': names(chain[0], 'args'),
+                'kind': sidekick.get('kind') if top_runs else chain[0].get('kind'),
+                'args': names(sidekick, 'start_args')
+                if top_runs
+                else names(chain[0], 'args'),
                 'source': 'sidekick',
                 'fallback': fallback_link(chain[1:]),
             }

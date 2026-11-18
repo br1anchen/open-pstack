@@ -366,7 +366,7 @@ class Waiter:
             read_flag(store, 'verifying.retried') is True,
             self.argv(),
         )
-        v.running = entry_label(peek(peek(load(store), 'verifying'), 'entry'))
+        v.running = entry_label(peek(peek(load(store), 'verifying'), 'entry')) or v.kind
         v.until = now_s() + self.every_m * 60
         return v
 
