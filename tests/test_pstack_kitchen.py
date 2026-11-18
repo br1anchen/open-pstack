@@ -15564,6 +15564,55 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(sent.read_bytes(), before)
         self.assertFalse(Path(record['bundle']).exists())
 
+    def test_a_pending_relay_whose_thread_has_ended_a_turn_since_is_stale(self):
+        sidekick = amp_thread(1)
+        steer = self.working_sidekick_steer()
+        self.run_sh('steer', str(self.store), str(steer))
+        [record_file] = self.relays_dir().glob('*.json')
+        rid = json.loads(record_file.read_text())['id']
+        self.assertIn(
+            f'relay-pending: {rid} for', self.run_sh('status', str(self.store))
+        )
+        # The turn the relay was meant for is over: it is no longer owed, and the steer goes by the CLI between turns.
+        self.set_state(sidekick, 'idle', '2999-01-01T00:00:00.000Z')
+        self.assertNotIn('relay-pending:', self.run_sh('status', str(self.store)))
+        out = self.run_sh('steer', str(self.store), str(steer))
+        self.assertIn(f'steered demo-sidekick with {steer}', out)
+        self.assertNotIn('already pending', out)
+        # A relay of the same text made now is a new record, and the old one is marked stale.
+        record, how = self.relay_of('STEER again')
+        self.assertEqual(how, 'made')
+        self.set_state(sidekick, 'idle', '2999-02-01T00:00:00.000Z')
+        again, how = self.relay_of('STEER again')
+        self.assertEqual(how, 'made')
+        self.assertNotEqual(again['id'], record['id'])
+        states = {
+            r['id']: r['state']
+            for r in map(
+                lambda f: json.loads(f.read_text()), self.relays_dir().glob('*.json')
+            )
+        }
+        self.assertEqual(states[record['id']], 'stale')
+        self.assertEqual(states[again['id']], 'relay-pending')
+
+    def test_a_steer_whose_bundle_is_over_the_upload_limit_says_so_once_and_queues(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        steer = self.working_sidekick_steer()
+        # A commit of incompressible bytes the sidekick's orb lacks goes into the bundle.
+        (self.repo / 'big.bin').write_bytes(os.urandom(5 * 1024 * 1024))
+        self.commit('big')
+        out = self.run_sh('steer', str(self.store), str(steer))
+        self.assertEqual(out.count("over upload_thread_file's 4 MiB"), 1)
+        self.assertRegex(out, r'relay: bundle is 5\.\d MiB')
+        self.assertIn(f'queued {steer} for demo-sidekick', out)
+        self.assertEqual(list(self.relays_dir().glob('*.json')), [])
+        self.assertEqual(list((self.repo / '.git/pstack-relay').glob('*.tgz')), [])
+        self.assertEqual(
+            len([m for m in self.thread_messages(sidekick) if 'STEER' in m]), 1
+        )
+
     def test_a_steer_that_cannot_be_relayed_queues_behind_the_turn_once(self):
         sidekick = amp_thread(1)
         steer = self.working_sidekick_steer()

@@ -157,7 +157,7 @@ def lines(ctx, store, out):
     if os.path.isfile(f'{store}/paused'):
         out.write(f'paused: {paused_reason(store)}\n')
     for record in reversed(amp.relay_records(store)):
-        if record.get('state') == amp.PENDING:
+        if record.get('state') == amp.PENDING and not amp.Amp().relay_is_stale(record):
             since = time.strftime('%H:%M', time.localtime(int(record.get('at') or 0)))
             out.write(
                 f'relay-pending: {record["id"]} for {record["name"]} since {since}\n'

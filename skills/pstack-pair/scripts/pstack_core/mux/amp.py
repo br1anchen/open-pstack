@@ -6,6 +6,7 @@ continues it (`amp threads continue -ox`). Each orb has its own checkout and its
 role's bundle the same way, and the master acts on it in its next turn."""
 
 import calendar
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -85,7 +86,7 @@ def relays_dir():
 
 # The most upload_thread_file takes.
 RELAY_LIMIT = 4 * 1024 * 1024
-PENDING, DONE = 'relay-pending', 'relay-done'
+PENDING, DONE, STALE = 'relay-pending', 'relay-done', 'stale'
 
 
 def relay_records(store=None):
@@ -97,6 +98,15 @@ def relay_records(store=None):
         if doc.get('id') and (store is None or doc.get('store') == store):
             found.append(doc)
     return sorted(found, key=lambda doc: int(doc.get('at') or 0), reverse=True)
+
+
+@contextlib.contextmanager
+def relay_lock():
+    """The lock the relay records are read and written under, beside them, as the registry and the outbox have theirs."""
+    os.makedirs(relays_dir(), exist_ok=True)
+    with open(os.path.join(relays_dir(), 'lock'), 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def write_relay(record):
@@ -634,74 +644,86 @@ class Amp(Subagents):
             return False
         return state != ''
 
+    def turn_ended_since(self, thread, at):
+        """Whether the thread has ended a turn since `at` (an unknown state is not an end)."""
+        state, since = thread_state(export(thread))
+        return state in SETTLED and since >= at
+
+    def relay_is_stale(self, record):
+        """A pending relay whose thread has ended a turn since it was made: the master can no longer steer that turn."""
+        return record.get('state') == PENDING and self.turn_ended_since(
+            record['thread'], int(record.get('at') or 0)
+        )
+
     def relay(self, name, text, store, steer=''):
         """A steer for the thread of role `name`, which is in a turn, as a relay the master sends with its own tools (a CLI message would only queue
         behind the turn): the bundle is packed under the master's .git, where upload_thread_file reaches it and no store bundle carries it, and the
         message and the record are written under relays/. (record, how) with how 'made', 'pending' (the same text is still waiting to be relayed) or
-        'delivered' (it was relayed and the thread has not ended a turn since); (None, '') when there is nothing to relay with, or the bundle is over
-        upload_thread_file's limit, which is said."""
+        'delivered' (it was relayed and the thread has not ended a turn since). A pending relay whose thread has ended a turn since is marked stale and
+        made anew. ({'size': bytes}, 'too-large') when the bundle is over upload_thread_file's limit; (None, '') when there is nothing to relay with."""
         found = self.entry(name)
         thread = (found[1].get('thread') or '') if found else ''
         repo = bundle.repo_of(store) if store else ''
         if not thread or not repo or not os.path.isdir(os.path.join(repo, '.git')):
             return None, ''
-        digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
-        same = next(
-            (
-                r
-                for r in relay_records(store)
-                if r.get('thread') == thread and r.get('hash') == digest
-            ),
-            None,
-        )
-        if same and same.get('state') == PENDING:
-            return same, 'pending'
-        if same and self.in_turn_since(thread, int(same.get('done_at') or 0)):
-            return same, 'delivered'
-        msg_id = uuid.uuid4().hex[:12]
-        path = os.path.join(repo, '.git', 'pstack-relay', f'{msg_id}.tgz')
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        bundle.pack(
-            store,
-            path,
-            self.sender(),
-            {'name': name, 'pane': found[1]['pane']},
-            self.agents(),
-            text,
-        )
-        size = os.path.getsize(path)
-        if size > RELAY_LIMIT:
-            os.remove(path)
-            sys.stdout.write(
-                f"relay: bundle is {size / 1048576:.1f} MiB, over upload_thread_file's 4 MiB; send it with the CLI after the turn instead\n"
+        with relay_lock():
+            digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
+            same = next(
+                (
+                    r
+                    for r in relay_records(store)
+                    if r.get('thread') == thread and r.get('hash') == digest
+                ),
+                None,
             )
-            return None, ''
-        upload_to = f'.git/pstack-relay-{msg_id}.tgz'
-        message = (
-            f'{text}\n\npstack: before you act on this message, run `{SYNC} {repo}/{upload_to}`: '
-            f'it merges the {store} store and its commits into your orb.'
-            + ('' if MASTER_RE.search(name) else RETURN)
-            + f'\n\n{MSG_ID} {msg_id}'
-        )
-        os.makedirs(relays_dir(), exist_ok=True)
-        message_path = os.path.join(relays_dir(), f'{msg_id}.md')
-        with open(message_path, 'w', encoding='utf-8') as f:
-            f.write(message)
-        record = {
-            'id': msg_id,
-            'name': name,
-            'thread': thread,
-            'store': store,
-            'steer': steer,
-            'hash': digest,
-            'bundle': path,
-            'message': message_path,
-            'upload_to': upload_to,
-            'state': PENDING,
-            'at': int(time.time()),
-        }
-        write_relay(record)
-        return record, 'made'
+            if same and same.get('state') == PENDING:
+                if not self.relay_is_stale(same):
+                    return same, 'pending'
+                write_relay({**same, 'state': STALE})
+                same = None
+            if same and self.in_turn_since(thread, int(same.get('done_at') or 0)):
+                return same, 'delivered'
+            msg_id = uuid.uuid4().hex[:12]
+            path = os.path.join(repo, '.git', 'pstack-relay', f'{msg_id}.tgz')
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            bundle.pack(
+                store,
+                path,
+                self.sender(),
+                {'name': name, 'pane': found[1]['pane']},
+                self.agents(),
+                text,
+            )
+            size = os.path.getsize(path)
+            if size > RELAY_LIMIT:
+                os.remove(path)
+                return {'size': size}, 'too-large'
+            upload_to = f'.git/pstack-relay-{msg_id}.tgz'
+            message = (
+                f'{text}\n\npstack: before you act on this message, run `{SYNC} {repo}/{upload_to}`: '
+                f'it merges the {store} store and its commits into your orb.'
+                + ('' if MASTER_RE.search(name) else RETURN)
+                + f'\n\n{MSG_ID} {msg_id}'
+            )
+            os.makedirs(relays_dir(), exist_ok=True)
+            message_path = os.path.join(relays_dir(), f'{msg_id}.md')
+            with open(message_path, 'w', encoding='utf-8') as f:
+                f.write(message)
+            record = {
+                'id': msg_id,
+                'name': name,
+                'thread': thread,
+                'store': store,
+                'steer': steer,
+                'hash': digest,
+                'bundle': path,
+                'message': message_path,
+                'upload_to': upload_to,
+                'state': PENDING,
+                'at': int(time.time()),
+            }
+            write_relay(record)
+            return record, 'made'
 
     def prompt(
         self,

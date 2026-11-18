@@ -16,18 +16,16 @@ def relay_done(ctx, args):
         raise Die(f'usage: {ctx.prog} relay-done <store> <id>')
     store, rid = args
     pair_file(store)
-    record = (
-        amp.load_json(os.path.join(amp.relays_dir(), f'{rid}.json'))
-        if re.fullmatch(r'[0-9a-f]+', rid)
-        else {}
-    )
+    path = os.path.join(amp.relays_dir(), f'{rid}.json')
+    record = amp.load_json(path) if re.fullmatch(r'[0-9a-f]+', rid) else {}
     if record.get('store') != store:
         raise Die(f'relay-done: no relay {rid} for {store}', 5)
     if record.get('state') == amp.DONE:
         print(f'relayed: {rid} already done')
         return 0
     thread, now = record['thread'], int(time.time())
-    amp.write_relay({**record, 'state': amp.DONE, 'done_at': now})
+    with amp.relay_lock():
+        amp.write_relay({**amp.load_json(path), 'state': amp.DONE, 'done_at': now})
     # A send the CLI made to the thread after this relay was made is newer: its outbox entry and the bundle it sent stay the thread's.
     newer = int(amp.load_json(amp.outbox_path()).get(thread, {}).get('at') or 0) > int(
         record.get('at') or 0

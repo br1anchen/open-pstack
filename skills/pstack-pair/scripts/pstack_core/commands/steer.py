@@ -87,7 +87,11 @@ def relay_steer(prog, store, name, steer_path, message):
     """A steer for a thread in a turn, where a message sent by the command would only queue behind it (Amp): the master sends it with its own tools. This
     writes the relay (once; the same steer again names the one still pending) and prints the three calls the master makes. Whether it was relayed."""
     record, how = mux.get().relay(name, message, store, steer_path)
-    if record is None:
+    if how == 'too-large' and record:
+        print(
+            f"relay: bundle is {record['size'] / 1048576:.1f} MiB, over upload_thread_file's 4 MiB; send it with the CLI after the turn instead"
+        )
+    if record is None or how == 'too-large':
         return False
     rid, thread = record['id'], record['thread']
     if how == 'delivered':

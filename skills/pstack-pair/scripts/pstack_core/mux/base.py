@@ -88,7 +88,7 @@ class Mux:
     relays = False
 
     def relay(self, name, text, store, steer=''):
-        """(record, how) of the relay of text to the agent `name` for the master to send, (None, '') where there is none."""
+        """(record, how) of the relay of text to the agent `name` for the master to send, (None, '') where there is none, ({'size': bytes}, 'too-large') when the bundle is over what the master can upload."""
         return None, ''
 
     def context_used(self, name):
