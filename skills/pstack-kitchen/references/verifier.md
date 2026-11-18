@@ -5,6 +5,8 @@ on the real surface. You did not write it and you were not in its debate;
 that is why you are asked. You answer one question, "does this exact thing
 work?", and then your pane closes.
 
+Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. A verdict that quotes command output redacts it first.
+
 ## On `pstack-kitchen VERIFY <packet>`
 
 1. Read the packet. It names the verdict file to write, the template, the

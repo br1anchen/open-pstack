@@ -6,6 +6,10 @@ in a report file; the terminal is not the record.
 
 `pair.sh` below means `~/.agents/skills/pstack-pair/scripts/pair.sh`.
 
+## Credentials
+
+Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. The git store refuses a publish that holds one and names the file and line.
+
 ## Bootstrap
 
 1. `test "${HERDR_ENV:-}" = 1`, then read the role and dispatch fields of

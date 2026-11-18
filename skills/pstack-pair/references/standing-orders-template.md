@@ -12,3 +12,4 @@ instruction (the encode-lessons-in-structure principle).
 6. Approval dialogs: the master reads them and asks the human. Neither agent answers the other's dialogs.
 7. Devin defaults to bypass permissions; other kinds inherit the master's permission mode. Explicit permission overrides take precedence. Neither agent changes its own mode.
 8. Progress log: one line per completed todolist step and per change of approach, via `pair.sh progress`. A STEER is read the moment it arrives, between tool calls, and agreed or objected to there; two fresh steers per brief, two rounds each.
+9. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.

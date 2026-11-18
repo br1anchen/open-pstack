@@ -19,3 +19,4 @@ instruction (the encode-lessons-in-structure principle).
 13. A repo policy rule is opted out of only on the line, with `kitchen-allow: <id>` and the reason beside it; the review reads every such line.
 14. The verifier writes only its verdict file and the scratch worktree it was given, and never edits the code it verifies.
 15. Landing never merges; it goes as far as `[landing].mode` in the repo's kitchen.toml, and only after `kitchen.sh land-check` passes.
+16. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.

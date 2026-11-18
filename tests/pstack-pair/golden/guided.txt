@@ -101,7 +101,7 @@ ready: <T>/state/pstack/pair-guided/demo/reports/000-ready.md
   herdr pane layout --pane p0
   herdr pane split --pane p0 --direction right --cwd <T>/repo --no-focus
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-pair-guided skill from ~/.agents/skills/pstack-pair-guided/SKILL.md and take the sidekick role (generation 1, pane p1). Pair store: <T>/state/pstack/pair-guided/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-pair-guided skill from ~/.agents/skills/pstack-pair-guided/SKILL.md and take the sidekick role (generation 1, pane p1). Pair store: <T>/state/pstack/pair-guided/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
 
 $ pair.sh spawn <T>/state/pstack/pair-guided/demo --kind devin
 sidekick demo-sidekick already live (idle) in p1
@@ -428,7 +428,7 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-pair-guided skill from ~/.agents/skills/pstack-pair-guided/SKILL.md and take the sidekick role (generation 2, pane p1). Pair store: <T>/state/pstack/pair-guided/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-pair-guided skill from ~/.agents/skills/pstack-pair-guided/SKILL.md and take the sidekick role (generation 2, pane p1). Pair store: <T>/state/pstack/pair-guided/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair-guided BRIEF <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md --wait --until working --timeout 30000
@@ -771,7 +771,7 @@ ready: <T>/state/pstack/pair-guided/demo/reports/000-ready.md
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-pair-guided skill from ~/.agents/skills/pstack-pair-guided/SKILL.md and take the sidekick role (generation 3, pane p1). Pair store: <T>/state/pstack/pair-guided/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-pair-guided skill from ~/.agents/skills/pstack-pair-guided/SKILL.md and take the sidekick role (generation 3, pane p1). Pair store: <T>/state/pstack/pair-guided/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/014-qscope.md --timeout 1000
 state: working

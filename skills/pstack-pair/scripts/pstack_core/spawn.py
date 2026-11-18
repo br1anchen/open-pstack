@@ -30,6 +30,7 @@ from .panes import (
 )
 from .permission import mode_of_this_shell
 from .providers import provider_hint, record_prime_session
+from .secrets import REDACT_RULE
 from .send import fresh_kind, submit_typed, visible_without_blanks
 from .store import (
     count,
@@ -262,7 +263,7 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
         )
     bootstrap = (
         f'{load_skill(ctx.skill, mux.get().reads_skill_file(name))} and take the {role} role (generation '
-        f'{generation}, pane {pane}). {ctx.store_label} store: {store}. Follow its bootstrap steps, write {ready}, and reply READY.'
+        f'{generation}, pane {pane}). {ctx.store_label} store: {store}. Follow its bootstrap steps, write {ready}, and reply READY. {REDACT_RULE}'
     )
     r = mux.get().prompt(name, bootstrap, wait=True, timeout_ms=240000)
     code, err = exit_code(r.code), r.err.rstrip('\n')

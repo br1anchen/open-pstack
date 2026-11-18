@@ -36,3 +36,5 @@ advice does not arrive in the timebox.}}
 Write the advice file named above from the advice template. Then
 `kitchen.sh notify {{STORE}} <advice-path>` and end the turn with the single line
 `pstack-kitchen ADVICE <path>`.
+
+Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.

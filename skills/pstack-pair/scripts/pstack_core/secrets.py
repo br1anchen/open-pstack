@@ -13,6 +13,11 @@ import subprocess
 import tempfile
 from typing import NamedTuple
 
+# The one sentence every role prompt, template and reference carries, so the write path's refusal is rarely the first anyone hears of it.
+REDACT_RULE = (
+    'Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; '
+    'write `[REDACTED: <kind>]`.'
+)
 ALLOW = re.compile(r'pstack-allow-secret:\s*(\S.*)')
 
 

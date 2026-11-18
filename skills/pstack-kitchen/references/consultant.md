@@ -11,6 +11,8 @@ profiles, or files no gate covers. Spend your answer on the decision the
 escalation is about. The verifier proves behaviour and Judge of Owls reviews
 the diff; you are not a third reviewer of routine code.
 
+Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.
+
 Your parts of the playbooks arrive in the file you are given. In a plan they
 are the `## Playbook (plan blocks)` section, one `### Block N` per Steps
 block with the parts you and the master share labelled by role. In a consult

@@ -116,14 +116,14 @@ kinds: master claude, sidekick devin, consultant codex
   herdr pane layout --pane p0
   herdr pane split --pane p0 --direction right --cwd <T>/repo --no-focus
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 1, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 1, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
   herdr pane get p1
   herdr codex --disable plugins mcp list --json (cwd <T>/repo)
   herdr agent get demo-consultant
   herdr pane layout --pane p1
   herdr pane split --pane p1 --direction right --cwd <T>/repo --no-focus
   herdr agent start demo-consultant --kind codex --pane p2 --timeout 60000 -- -a on-request -s workspace-write --disable plugins
-  herdr agent prompt demo-consultant Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the consultant role (generation 1, pane p2). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write advice/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-consultant Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the consultant role (generation 1, pane p2). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write advice/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
 
 $ pair.sh spawn <T>/state/pstack/trio/demo --sidekick claude --consultant claude
 pair.sh: all three agents would be claude; pstack-trio needs at least two distinct kinds (master claude, sidekick claude, consultant claude). Restart with a different --sidekick or --consultant kind, or use pstack-pair
@@ -501,7 +501,7 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 2, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 2, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/005-qtwo.md --wait --until working --timeout 30000
@@ -847,7 +847,7 @@ ready: <T>/state/pstack/trio/demo/reports/000-ready.md
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 3, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 3, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/013-qscope.md --timeout 1000
 state: working

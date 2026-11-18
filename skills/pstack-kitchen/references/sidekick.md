@@ -6,6 +6,8 @@ reading `pstack-kitchen` for `pstack-pair` in every message and
 `~/.agents/skills/pstack-kitchen/scripts/kitchen.sh` for `pair.sh`. These
 differ:
 
+- **Credentials stay out of the store.** Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.
+
 - **Bootstrap reads less.** `session-handoff.md` is the master's handoff to
   its next generation: do not read it. Of pstack-pair's SKILL.md read the
   Messages, Check-ins and steers, Task sessions of every kind, Pausing and

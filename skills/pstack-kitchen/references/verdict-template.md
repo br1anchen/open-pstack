@@ -53,3 +53,5 @@ proved, and the review reads this section.>
 
 <One line per lesson the packet lists: `L001: held`, or `L001: hit <what
 recurred>`. "none" when the packet lists none.>
+
+Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.

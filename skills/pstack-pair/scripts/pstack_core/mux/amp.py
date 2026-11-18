@@ -25,6 +25,7 @@ from .. import bundle, git
 from ..argv import Spec, read
 from ..errors import PairError
 from ..numbers import env_int
+from ..secrets import REDACT_RULE
 from ..store import TEXT, expected_report, header_field, revisions
 from . import subagents
 from .base import DEVNULL, PIPE, Agent, Reply, ThreadRow
@@ -40,7 +41,7 @@ RETURN = (
     ' This orb holds a copy of the store, so a file you write for the master (the ready file, a report, a plan or steer response, advice, '
     'a verdict) reaches it only when you send it: `PSTACK_MUX=amp kitchen.sh finish` or `PSTACK_MUX=amp kitchen.sh notify <store> <file>` '
     'in a kitchen, `pair.sh` in a pair or trio (the prefix wins over a PSTACK_MUX the orb sets). Run one for each such file before you end '
-    'the turn.'
+    'the turn. ' + REDACT_RULE
 )
 MASTER_RE = re.compile(r'-master(-g[0-9]+)?$')
 ROLES = ('sidekick', 'verifier', 'consultant', 'master')

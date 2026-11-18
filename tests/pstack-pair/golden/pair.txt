@@ -98,7 +98,7 @@ ready: <T>/state/pstack/pair/demo/reports/000-ready.md
   herdr pane layout --pane p0
   herdr pane split --pane p0 --direction right --cwd <T>/repo --no-focus
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-pair skill from ~/.agents/skills/pstack-pair/SKILL.md and take the sidekick role (generation 1, pane p1). Pair store: <T>/state/pstack/pair/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-pair skill from ~/.agents/skills/pstack-pair/SKILL.md and take the sidekick role (generation 1, pane p1). Pair store: <T>/state/pstack/pair/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
 
 $ pair.sh spawn <T>/state/pstack/pair/demo --kind devin
 sidekick demo-sidekick already live (idle) in p1
@@ -379,7 +379,7 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-pair skill from ~/.agents/skills/pstack-pair/SKILL.md and take the sidekick role (generation 2, pane p1). Pair store: <T>/state/pstack/pair/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-pair skill from ~/.agents/skills/pstack-pair/SKILL.md and take the sidekick role (generation 2, pane p1). Pair store: <T>/state/pstack/pair/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/005-qtwo.md --wait --until working --timeout 30000
@@ -721,7 +721,7 @@ ready: <T>/state/pstack/pair/demo/reports/000-ready.md
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-pair skill from ~/.agents/skills/pstack-pair/SKILL.md and take the sidekick role (generation 3, pane p1). Pair store: <T>/state/pstack/pair/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-pair skill from ~/.agents/skills/pstack-pair/SKILL.md and take the sidekick role (generation 3, pane p1). Pair store: <T>/state/pstack/pair/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. --wait --timeout 240000
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/013-qscope.md --timeout 1000
 state: working
@@ -2426,6 +2426,7 @@ instruction (the encode-lessons-in-structure principle).
 6. Approval dialogs: the master reads them and asks the human. Neither agent answers the other's dialogs.
 7. Devin defaults to bypass permissions; other kinds inherit the master's permission mode. Explicit permission overrides take precedence. Neither agent changes its own mode.
 8. Progress log: one line per completed todolist step and per change of approach, via `pair.sh progress`. A STEER is read the moment it arrives, between tool calls, and agreed or objected to there; two fresh steers per brief, two rounds each.
+9. Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.
 --- ./status.md
 # Pair status
 
