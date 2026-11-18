@@ -115,6 +115,13 @@ the host's delegation restrictions.
   and cost nothing while paused, and a start costs about a cent at
   a1.medium, so the cost to save is latency, not money; never skip joo on a
   role orb.
+  A roster can alternate the sidekick between models across runs
+  (`[[sidekick.alternate]]`), and the master then appends one row per sidekick
+  model to the comparison artifact's Run log at the run's end and at each
+  rotation; [the master's reference](../../pstack-kitchen/references/master.md)
+  has the duty. Each role can also list `[[<role>.fallback]]` models, ordered
+  Claude subscription, ChatGPT subscription, then an Amp-billed model, and
+  steps down the chain when its model hits a usage limit.
 - MCP servers and deferred Amp tools are reached through tool_search and
   code_exec. Painter generates images; diagrams and charts go in a visual
   artifact (load `creating-artifacts`).

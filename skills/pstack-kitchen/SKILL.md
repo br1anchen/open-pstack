@@ -153,20 +153,97 @@ roster entry names. This is how a kitchen on Amp gets model diversity, since
 Amp's Task subagents run the master's model and take no override:
 
 ```toml
+# Subscription-first: each chain lists the Claude subscription model, then the
+# ChatGPT subscription model, then a model billed in Amp credits.
+[master]
+kind = "amp"
+args = ["--model", "anthropic/claude-opus-5-5"]
+[[master.fallback]]
+kind = "amp"
+args = ["--model", "openai/gpt-6-astra"]
+[[master.fallback]]
+kind = "amp"
+args = ["--model", "google-vertex/gemini-4-carbon"]
+
 [sidekick]
 kind = "amp"
-args = ["--model", "zhipuai/glm-5.3"]     # or anthropic/claude-sonnet-5-5
-[consultant]
+args = ["--model", "anthropic/claude-sonnet-5-5"]
+[[sidekick.fallback]]
+kind = "amp"
+args = ["--model", "openai/gpt-6.1-sol"]
+[[sidekick.fallback]]
+kind = "amp"
+args = ["--model", "zhipuai/glm-5.3"]
+
+[consultant]          # OpenAI first, for a view the other roles lack
 kind = "amp"
 args = ["--model", "openai/gpt-6-astra", "--effort", "high"]
+[[consultant.fallback]]
+kind = "amp"
+args = ["--model", "anthropic/claude-fable-5-2"]
+[[consultant.fallback]]
+kind = "amp"
+args = ["--model", "google-vertex/gemini-4-carbon"]
+
 [verifier]
 kind = "amp"
 args = ["--model", "anthropic/claude-sonnet-5-5", "--orb-size", "a1.small"]
+[[verifier.fallback]]
+kind = "amp"
+args = ["--model", "openai/gpt-6.1-sol", "--orb-size", "a1.small"]
+[[verifier.fallback]]
+kind = "amp"
+args = ["--model", "google-vertex/gemini-4-hydrogen", "--orb-size", "a1.small"]
+
 [verifier.escalated]
 kind = "amp"
 args = ["--model", "anthropic/claude-opus-5-5", "--orb-size", "a1.large"]
+[[verifier.escalated.fallback]]
+kind = "amp"
+args = ["--model", "openai/gpt-6-astra", "--orb-size", "a1.large"]
+[[verifier.escalated.fallback]]
+kind = "amp"
+args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
 ```
 
+- A connected Claude subscription serves `anthropic/*` models and a ChatGPT
+  subscription serves `openai/*`; every other provider bills Amp credits.
+  Order each chain Claude subscription, ChatGPT subscription, then an
+  Amp-billed model, and put a role on an OpenAI model first only where it is
+  assigned there (the consultant, for diversity). `amp config model-providers
+  check-access --provider-model <model>` says which a model is:
+  `modelRouting.connectionType` is `model_provider_claude_sub` or
+  `model_provider_openai_chatgpt` for a subscription, and `modelRouting.kind`
+  is `upstream-model-provider` for an Amp-billed model (it answers `ok: false`
+  with no detail for `zhipuai/*` models; the thread's usage page shows the
+  Amp billing).
+- A role steps down its chain when its model hits a usage limit or a routing
+  error. The step is automatic when a start's preflight fails, and also for a
+  verifier its provider stops. Mid-unit the master makes it with
+  `kitchen.sh failover <store> --reason <why>`. Each step logs a `failover`
+  event. The sidekick returns to the top of its chain at the next rotation
+  (`failback: the sidekick returns to <label>`, a `failback` event); a
+  verifier and a consultant start from the top each time, and so does the next
+  master. A single `[sidekick.fallback]` table still works.
+- A roster may replace the sidekick's `[sidekick]` `kind` and `args` with two
+  or more `[[sidekick.alternate]]` tables, each with its own `kind` and
+  `args` (`[sidekick.fallback]` still applies), to compare models across runs:
+
+  ```toml
+  [[sidekick.alternate]]
+  kind = "amp"
+  args = ["--model", "zhipuai/glm-5.3"]
+  [[sidekick.alternate]]
+  kind = "amp"
+  args = ["--model", "anthropic/claude-sonnet-5-5"]
+  ```
+
+  `init` picks the entry the fewest runs on this host recorded (ties break by
+  a hash of the run name, so fresh orbs pick at random), prints `sidekick:
+  alternate picks <label> (entry i of n)` and records it in `pair.json`
+  `.sidekick_choice`. `spawn` with no `--kind` starts that entry, so a
+  rotation or a respawn keeps the model. Setting `[sidekick]` `kind` and
+  alternates together is an error.
 - A role's thread starts with the first prompt it is sent (`amp -ox` with the
   entry's `--model`, `-m`, `--mode`, `--effort`, `--features`, `--fast` and
   `--orb-size`; without `--orb-size` the orb takes the project's default
@@ -452,6 +529,9 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `session-handoff.md` | master via `kitchen.sh new-handoff` | the running master's handoff to its next generation, from [the handoff template](references/handoff-template.md) |
 | `sessions/master-<g>-handoff.md`, `pair.json` `.master.sessions` | `kitchen.sh rotate-master` | each closed master generation: its handoff and resumable session id |
 | `pair.json` `.master.previous` | `kitchen.sh rotate-master`, cleared by `take-master` | the old master during a hand-over, whose pane the new master closes |
+| `pair.json` `.sidekick_choice` | `kitchen.sh init` | the `[[sidekick.alternate]]` entry this run starts, with its label |
+| `pair.json` `.dispatch.sidekick`, `.sidekick_models` | `kitchen.sh dispatch` | each brief's sidekick as `<kind> <model>`; `.sidekick_models` keeps it per unit |
+| `pair.json` `.sidekick_threads` | `kitchen.sh dispatch`, under Amp threads | the threads each sidekick model ran in |
 
 Each store's `pair.json` `.skill_builds` lists the skills directories its commands ran from, stamped
 at `init`; a run from before stamps has none and counts as `unknown`. `pstack/builds.tsv`, which an install
@@ -459,6 +539,13 @@ step may append to at each switch, maps a skills directory to the revision that 
 and every store, without writing: a row per run and a row per build (`mixed` runs, which ran on more
 than one build, and `unknown` ones stay in their own rows). `retro` takes its verified-unit count from
 the same function: the union of unit ids over clean, non-landing verdicts.
+
+`fleet` and `retro` also print a by-sidekick-model table from `.sidekick_models`: per model, the units, the
+master wakes while that model's unit was the newest dispatch, failed step gates, steers plus review-fix
+briefs, verifier rejections with the units verified on their first verdict, blocking review notes, and the
+median minutes from a unit's first dispatch to the master's first review accept. `fleet` adds a runs column.
+Under Amp threads `retro` adds one `sidekick cost <label>: $X over N threads` line per model, read from
+`amp threads usage`; a run from before `.sidekick_models` gives no rows.
 
 Beside the runs, on the host: `pstack/feedback/inbox/<date>-<repo>-<run>[-k].md` (open reports),
 `feedback/done/` (closed ones, with a Closed block) and `feedback/maintainer.json` (the registered

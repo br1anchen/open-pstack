@@ -163,6 +163,21 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    prints, so it lands with the run and no sidekick commit sweeps it up.
    Other runs see it once it lands.
 
+   Under Amp threads, when more than one sidekick model was in play (a
+   roster with `[[sidekick.alternate]]`, or a failover that changed it), add
+   one row per sidekick model to the "Run log" table of the
+   [sidekick model comparison](https://ampcode.com/artifacts/sidekick-model-comparison-glm-5-3-vs-sonnet-5-5-41b45815-a276-4b6b-9703-cc97e5fa9248),
+   filled from `retro`'s by-sidekick table and its `sidekick cost` lines.
+   Read the artifact with the artifact tool, then publish with `base_revision`
+   set to the revision you read, as edits that insert the rows after the
+   table's last row. The 13 columns are: Date | Repo | Run | Master thread |
+   Sidekick model | Units | Master wakes | Failed gates | Steers + fix briefs |
+   Verifier rejections | Review findings | Median dispatch→accept (min) |
+   Sidekick cost ($). Write Verifier rejections as `<rejections>
+   (<first-pass>)`, as retro prints them. If someone else saved a newer
+   revision, the publish returns the current content: re-read it and insert
+   again.
+
    A lesson marked `(promotable)` held in 3 units with no hit. Draft its
    proposal, `kitchen.py --repo <root> lessons promote <id> --out
    <store>/promotions/<id>.md`, and fill what it leaves to you: the exact
@@ -247,6 +262,12 @@ place of the history:
   hand-over, writes the next generation's prompt to
   `sessions/master-g<n>-prompt.md` and says to end this session; the human
   gives that prompt to a new session in the same checkout.
+- Before `new-handoff`, under Amp threads with more than one sidekick model
+  in play, run `kitchen.sh retro <store>` and add its rows to the comparison
+  artifact's "Run log" as step 9 describes. Rows written at a rotation cover
+  the run so far and say `partial` in the Run column. A rotation also
+  returns the sidekick to the top of its fallback chain, which logs a
+  `failback` event beside the `failover` events a step down logged.
 - `rotate-master` records the session it closes under `pair.json`
   `.master.sessions`, so a human can `claude --resume <id>` it.
   `KITCHEN_MASTER_REMOTE_CONTROL=0` starts the next master without Remote
