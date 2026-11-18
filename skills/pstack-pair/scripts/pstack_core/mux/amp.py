@@ -42,6 +42,7 @@ RETURN = (
     'the turn.'
 )
 MASTER_RE = re.compile(r'-master(-g[0-9]+)?$')
+ROLES = ('sidekick', 'verifier', 'consultant', 'master')
 # The skills tree this pstack runs from, and the installer beside it (an open-pstack checkout or clone has both).
 SKILLS = os.path.realpath(os.path.join(os.path.dirname(__file__), *['..'] * 4))
 INSTALLER = os.path.join(os.path.dirname(SKILLS), 'scripts', 'pstack-sync.py')
@@ -341,7 +342,27 @@ def live_threads(doc):
             thread = pane[len('amp:') :] if pane.startswith('amp:T-') else ''
         if thread:
             live[thread] = name
-    return live
+    return {**current_threads(doc), **live}
+
+
+def current_threads(doc):
+    """{thread: name} of the newest thread recorded for each role name of pair.json, while it is neither retired nor archived: the registry may\n    have lost its entry, and a role's current thread must still read as in use. A verifier counts only while a verification is open."""
+    names = {}
+    for role in ('sidekick', 'consultant', 'verifier', 'master'):
+        entry = doc.get(role) if isinstance(doc.get(role), dict) else {}
+        if entry.get('name') and (role != 'verifier' or doc.get('verifying')):
+            names[entry['name']] = role
+    newest = {}
+    for thread, e in load_json(threads_path()).items():
+        if e.get('name') in names and e.get('started'):
+            if int(e['started']) >= int(newest.get(e['name'], ('', 0))[1]):
+                newest[e['name']] = (thread, int(e['started']))
+    return {
+        t: n
+        for n, (t, _) in newest.items()
+        if not load_json(threads_path())[t].get('at')
+        and not load_json(threads_path())[t].get('archived')
+    }
 
 
 def assess(thread, store, role):
@@ -485,6 +506,7 @@ class Amp(Subagents):
     starts_master = False
     # A new master starts as a thread of its own (start_master); the human starts nothing.
     master_threads = True
+    archives_threads = True
     waits = False
     handoff_next = "next: end your turn; the role's thread writes the ready file, and its reply arrives here as a message that names the sync to run first\n"
 
@@ -698,6 +720,60 @@ class Amp(Subagents):
         ]
         return rows + ([] if retired_only else unscoped)
 
+    def register(self, thread, role, store):
+        record_thread(
+            thread,
+            {
+                'name': f'{role}-registered',
+                'role': role,
+                'store': os.path.realpath(store),
+                'started': int(time.time()),
+                'registered': True,
+            },
+        )
+        return True
+
+    def discover(self, store):
+        """Records, for the run at `store`, each unarchived thread that a search on its path or on its `<slug>-` title words finds: a thread
+        titled `<slug>-<role>` keeps that role, any other is a helper. This thread, a thread another run recorded and a thread already known are
+        left out."""
+        doc = load_json(os.path.join(store, 'pair.json'))
+        slug = doc.get('slug') or ''
+        here, known = os.path.realpath(store), load_json(threads_path())
+        found = []
+        for query, by_title in (
+            (f'archived:false "{here}"', False),
+            (f'archived:false {slug}-', True),
+        ):
+            r = run(['amp', 'threads', 'search', '--json', '-n', '100', query])
+            try:
+                hits = json.loads(r.stdout) if r.returncode == 0 else []
+            except ValueError:
+                hits = []
+            for hit in hits if isinstance(hits, list) else []:
+                thread, title = hit.get('id') or '', hit.get('title') or ''
+                titled = bool(slug) and title.startswith(f'{slug}-')
+                if (
+                    not thread
+                    or thread == own_thread()
+                    or (by_title and not titled)
+                    or (known.get(thread) or {}).get('store')
+                ):
+                    continue
+                role = role_of(title) if titled else ''
+                role = role if role in ROLES else 'helper'
+                record_thread(
+                    thread,
+                    {
+                        'name': title or f'{role}-discovered',
+                        'role': role,
+                        'store': here,
+                    },
+                )
+                known[thread] = {'store': here}
+                found.append((thread, role))
+        return found
+
     def archive(self, row):
         if run(['amp', 'threads', 'archive', row.thread]).returncode:
             return False
@@ -812,6 +888,7 @@ class Amp(Subagents):
     def send(self, name, text, thread='', flags=(), store='', title=''):
         """Sends text to thread (a new thread on flags when ''), with the bundle of store attached. (thread, error text)."""
         self.skipped = ''
+        started = not thread
         store = store or store_in(text) or load(self.path()).get('store') or ''
         if store:
             self.remember_store(name, store)
@@ -875,6 +952,16 @@ class Amp(Subagents):
                     return '', err
                 time.sleep(env_int('PSTACK_AMP_RETRY_S', 10))
             record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
+            if started and store:
+                record_thread(
+                    thread,
+                    {
+                        'name': name,
+                        'role': role_of(name),
+                        'store': os.path.realpath(store),
+                        'started': int(time.time()),
+                    },
+                )
             # Only what this message carried is recorded: the thread's compaction count (a new thread's is read now), the build when it was
             # attached, and the full send-back rules when they went in it.
             if compactions is None:

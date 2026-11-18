@@ -311,6 +311,17 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   <store>` lists every thread the store named with its role, state and `in use`,
   `archivable` or `kept: <reason>`; `threads <store> --archive` archives the
   archivable ones. Run it once on a store from an older build.
+  Whichever command retires a thread is covered: every write to the thread
+  registry that drops or replaces a role's thread (a pane reused by a rotation,
+  a verifier slot reused, a synced bundle, a closed pane) records the old thread
+  as retired for its store, and every thread the kitchen starts is recorded for
+  its store when it starts. A thread the master started outside the kitchen (a
+  `create_thread` helper) is recorded with `threads <store> --register <T-id>
+  [--role helper]`; it is archived by the same rule as a role, never while in a
+  turn. `threads <store> --discover` records the unarchived threads that name
+  the run (by its path or its `<slug>-` title) on a store started on an older
+  build; add `--archive` to archive what is safe. Every command that sweeps ends
+  its output with one line, `archive: <a> archived, <k> kept, <u> in use`.
 - A message sent by the CLI reaches a role's thread only after its current
   turn ends: `amp threads continue -ox` queues it, and the CLI has no way to
   steer a running turn. So a role whose thread is in a turn reads `working`

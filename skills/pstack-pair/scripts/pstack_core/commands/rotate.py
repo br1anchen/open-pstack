@@ -157,17 +157,42 @@ def keeps_session(store, brief):
     return f'{", ".join(sorted(area))}, context {round(used * 100)}%'
 
 
+class Sweep:
+    """What the archive sweeps of one command did, so the command ends with one summary line (summary) however many sweeps it ran."""
+
+    archived = kept = in_use = 0
+    ran = False
+
+    @classmethod
+    def count(cls, archived, kept, in_use):
+        cls.ran = True
+        cls.archived += archived
+        cls.kept += kept
+        cls.in_use += in_use
+
+    @classmethod
+    def summary(cls):
+        """The last line a sweeping command prints, or '' when it swept nothing."""
+        if not cls.ran:
+            return ''
+        return (
+            f'archive: {cls.archived} archived, {cls.kept} kept, {cls.in_use} in use\n'
+        )
+
+
 def archive_retired(ctx, store, trigger, retired_only=True):
     """Archives each thread the store no longer uses that the rule allows (mux archivable), logging each in decisions.tsv and events.tsv with its
     thread id, and says `kept <thread>: <reason>` for each it may not archive yet; a thread a live role holds is left out. Returns the rows
-    it archived. Only the master's thread archives, and only where roles are threads (Amp)."""
-    archived = []
-    for row in mux.get().thread_rows(store, retired_only):
+    it archived. Only the master's thread archives, and only where roles are threads (Amp). The counts go to Sweep.summary."""
+    archived, kept, in_use = [], 0, 0
+    m = mux.get()
+    for row in m.thread_rows(store, retired_only):
         if row.in_use:
-            continue
-        if not row.archivable:
+            in_use += 1
+        elif not row.archivable:
+            kept += 1
             print(f'kept {row.thread}: {row.why}')
-        elif mux.get().archive(row):
+        elif m.archive(row):
             archived.append(row)
             event(store, 'master', 'archive', '-', f'{row.role}:{row.thread}')
             try:
@@ -186,19 +211,39 @@ def archive_retired(ctx, store, trigger, retired_only=True):
                 sys.stderr.write(f'archive: {row.thread} archived; not logged: {e}\n')
             print(f'archived {row.thread} ({row.role}): {trigger}')
         else:
+            kept += 1
             print(f'kept {row.thread}: amp threads archive failed')
+    if m.archives_threads:
+        Sweep.count(len(archived), kept, in_use)
     return archived
 
 
 def threads(ctx, args):
-    """Lists every thread the store and the registry named, with its role, its state and whether it is in use, archivable or kept (and why);
-    --archive archives each archivable one."""
+    """Lists every thread the store and the registry named, with its role, its state and whether it is in use, archivable or kept (and why).
+    --register T-ID [--role ROLE] records a thread the master started outside the kitchen (a helper); --discover records the unarchived threads
+    that name this run, for a store started on an older build; --archive archives each archivable one."""
+    usage = f'usage: {ctx.prog} threads <store> [--archive] [--discover] [--register T-ID [--role ROLE]]'
     if not args:
-        raise Die(f'usage: {ctx.prog} threads <store> [--archive]')
+        raise Die(usage)
     store = args[0]
     pair_file(store)
-    do = read(args[1:], Spec(flags=('--archive',))).present('--archive')
-    rows = mux.get().thread_rows(store)
+    opts = read(
+        args[1:],
+        Spec(valued=('--register', '--role'), flags=('--archive', '--discover')),
+    )
+    do = opts.present('--archive')
+    m = mux.get()
+    thread = opts.last('--register', '')
+    if thread:
+        if not re.fullmatch(r'T-[0-9A-Za-z-]+', thread):
+            raise Die(f'--register needs a thread id (T-...), not {thread}')
+        role = opts.last('--role', 'helper')
+        if m.register(thread, role, store):
+            print(f'registered {thread} ({role})')
+    if opts.present('--discover'):
+        for found, role in m.discover(store):
+            print(f'discovered {found} ({role})')
+    rows = m.thread_rows(store)
     if not rows:
         print(
             'no threads: only the master of an Amp run (PSTACK_MUX=amp) lists and archives them'
@@ -216,6 +261,12 @@ def threads(ctx, args):
     if do:
         archived = archive_retired(ctx, store, 'threads --archive', retired_only=False)
         print(f'archived {len(archived)} thread(s)')
+    else:
+        Sweep.count(
+            0,
+            sum(not r.in_use and not r.archivable for r in rows),
+            sum(r.in_use for r in rows),
+        )
     return 0
 
 

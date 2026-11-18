@@ -148,8 +148,10 @@ def main(argv):
         if command is None:
             sys.stdout.write(variant.usage)
             raise Die(f'unknown command: {cmd}')
-        return command(ctx, absolute_store(words[1:]))
+        code = command(ctx, absolute_store(words[1:]))
     except Exception as e:
         text, code = translate(e, prog)
         sys.stderr.write(text)
-        return code
+    # Whatever the command printed, a sweep's one summary line is the last.
+    sys.stdout.write(rotate.Sweep.summary())
+    return code

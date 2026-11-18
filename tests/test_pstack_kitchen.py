@@ -15113,6 +15113,144 @@ class AmpKitchenTests(KitchenScriptTests):
             out, rf'(?m)^{verifier}  verifier  unknown  kept: state unknown'
         )
 
+    def threads_json(self):
+        return json.loads(
+            (Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/threads.json').read_text()
+        )
+
+    def test_a_thread_the_kitchen_starts_is_recorded_for_its_store_and_stays_in_use_without_its_registry_entry(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        entry = self.threads_json()[sidekick]
+        self.assertEqual(
+            {k: entry[k] for k in ('name', 'role', 'store')},
+            {
+                'name': 'demo-sidekick',
+                'role': 'sidekick',
+                'store': os.path.realpath(self.store),
+            },
+        )
+        self.assertGreater(entry['started'], 0)
+        (Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/registry.json').unlink()
+        out = self.run_sh('threads', str(self.store))
+        self.assertRegex(out, rf'(?m)^{sidekick}  sidekick  in use  in use$')
+
+    def search_hits(self, *hits):
+        (self.fake / 'amp-search').write_text(json.dumps(list(hits)))
+
+    def test_a_registered_helper_is_archived_when_idle_and_kept_with_its_reason_in_a_turn(
+        self,
+    ):
+        idle, busy = amp_thread(21), amp_thread(22)
+        self.set_state(idle, 'idle', '2999-01-01T00:00:00.000Z')
+        self.set_state(busy, 'tool_use')
+        out = self.run_sh('threads', str(self.store), '--register', idle)
+        self.assertIn(f'registered {idle} (helper)', out)
+        self.run_sh(
+            'threads', str(self.store), '--register', busy, '--role', 'researcher'
+        )
+        out = self.run_sh('threads', str(self.store), '--archive')
+        self.assertRegex(out, rf'(?m)^{idle}  helper  idle  archivable$')
+        self.assertIn(f'archived {idle} (helper): threads --archive', out)
+        self.assertIn(f'kept {busy}: working (tool_use): it is in a turn', out)
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{idle}\n')
+        self.assert_archived_and_logged(idle, 'helper')
+        self.assertEqual(self.threads_json()[busy]['role'], 'researcher')
+
+    def test_the_next_sweep_archives_a_registered_helper_that_has_gone_idle(self):
+        helper = amp_thread(23)
+        self.run_sh('threads', str(self.store), '--register', helper)
+        self.set_state(helper, 'tool_use')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn(f'kept {helper}: working (tool_use)', out)
+        self.set_state(helper, 'idle', '2999-01-01T00:00:00.000Z')
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn(f'archived {helper} (helper)', out)
+        self.assertIn(helper, (self.fake / 'amp-archived').read_text().split())
+
+    def test_threads_discover_records_the_run_s_unrecorded_threads_and_leaves_the_others(
+        self,
+    ):
+        role, helper, other, foreign = (amp_thread(n) for n in (31, 32, 33, 34))
+        self.set_state(role, 'idle', '2999-01-01T00:00:00.000Z')
+        self.set_state(helper, 'idle', '2999-01-01T00:00:00.000Z')
+        self.search_hits(
+            {'id': role, 'title': 'demo-consultant'},
+            {'id': helper, 'title': 'a side chat', 'text': f'see {self.store}'},
+            {'id': AMP_MASTER, 'title': 'demo-master', 'text': str(self.store)},
+            {'id': other, 'title': 'other-sidekick', 'text': '/elsewhere/store'},
+            {'id': foreign, 'title': 'demo-verifier'},
+        )
+        known = self.threads_json()
+        known[foreign] = {
+            'name': 'demo-verifier',
+            'role': 'verifier',
+            'store': '/other/run',
+        }
+        (Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/threads.json').write_text(
+            json.dumps(known)
+        )
+        out = self.run_sh('threads', str(self.store), '--discover', '--archive')
+        self.assertIn(f'discovered {role} (consultant)', out)
+        self.assertIn(f'discovered {helper} (helper)', out)
+        archived = (self.fake / 'amp-archived').read_text().split()
+        self.assertEqual(sorted(archived), sorted([role, helper]))
+        for thread in (AMP_MASTER, other, foreign):
+            self.assertNotIn(thread, archived)
+        self.assertNotIn(other, self.threads_json())
+        self.assertNotEqual(
+            self.threads_json()[foreign]['store'], os.path.realpath(self.store)
+        )
+
+    def merged(self, *args, code=0):
+        """kitchen.sh's stdout and stderr as one stream in the order they were written, as a terminal shows them."""
+        result = subprocess.run(
+            [str(self.script), *args],
+            cwd=self.repo,
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        if code is not None:
+            self.assertEqual(result.returncode, code, result.stdout)
+        return result.stdout
+
+    def last_line(self, out):
+        return out.rstrip('\n').split('\n')[-1]
+
+    def test_every_sweeping_command_ends_with_one_archive_summary_line(self):
+        old, new = amp_thread(1), amp_thread(2)
+        ready = self.store / 'reports/000-ready.md'
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.set_state(old, 'idle', '2999-01-01T00:00:00.000Z')
+        b = self.brief('002', 'guide', ['docs/**'], verify=['python3 -c 1'])
+        out = self.merged('dispatch', str(self.store), str(b), code=4)
+        self.assertRegex(
+            self.last_line(out), r'^archive: 0 archived, 0 kept, \d+ in use$'
+        )
+        ready.write_text('status: done\n')
+        out = self.merged('dispatch', str(self.store), str(b), code=None)
+        self.assertIn(f'archived {old} (sidekick)', out)
+        self.assertRegex(
+            self.last_line(out), r'^archive: 1 archived, 0 kept, \d+ in use$'
+        )
+        self.assertEqual(len(re.findall(r'(?m)^archive: ', out)), 1)
+        out = self.merged('threads', str(self.store))
+        self.assertRegex(
+            self.last_line(out), r'^archive: 0 archived, 0 kept, \d+ in use$'
+        )
+        self.set_state(new, 'tool_use')
+        out = self.merged('close', str(self.store), '--force', code=None)
+        self.assertRegex(
+            self.last_line(out), r'^archive: 0 archived, 1 kept, \d+ in use$'
+        )
+        self.assertIn(f'kept {new}: ', out)
+
     REGISTRY_WRITES = {
         'a start that claims the pane or name of a live entry': (
             "Amp().start('demo-verifier', 'amp', 'amp:2', ['--model', 'm/x'])"

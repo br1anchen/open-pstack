@@ -101,6 +101,8 @@ class Mux:
     handoff_next = ''
     # Whether a sidekick may keep its session across routine units in one area (rotate_if_due): where a fresh session costs minutes.
     reuses_sessions = False
+    # Whether this backend's roles are threads the master archives (a sweep then ends its command with one summary line).
+    archives_threads = False
     # Whether a message to an agent in the middle of a turn reaches it between tool calls (a steer) rather than after the turn.
     steers_running = True
     # Whether a steer for an agent in a turn is relayed by the master (relay), because a message to it would only queue behind the turn.
@@ -125,6 +127,16 @@ class Mux:
     def retire(self, thread, name, store=''):
         """Records that the thread of the role `name` of the run `store` (by default, the one its entry last worked for) is no longer used, so that
         run's sweep archives it once that is safe."""
+
+    def register(self, thread, role, store):
+        """Records a thread the kitchen did not start (a helper the master created) as a thread of the run `store` with `role`, so the run's sweep
+        archives it once that is safe; whether anything was recorded."""
+        return False
+
+    def discover(self, store):
+        """Records the unarchived threads that name the run `store` (a store started on an older build never recorded them): [(thread, role)] of
+        the ones newly recorded."""
+        return []
 
     def archive(self, row):
         """Archives the thread of `row` and records it as gone; whether it was archived."""

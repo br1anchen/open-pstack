@@ -4,6 +4,7 @@
 # - a new orb thread (`amp -ox ... [--attach FILE] MESSAGE`) and a message to one (`amp threads continue T -ox ...`): each prints the
 #   thread URL; the thread's messages go to $FAKE/amp-threads/<T>/<n>.txt and its attachments to <n>-<name> beside them. $FAKE/amp-ox-fail
 #   holds the error a thread that cannot start prints.
+# - `amp threads search --json -n N QUERY` ($FAKE/amp-search holds the threads a query can find).
 # - `amp threads archive T`, `amp threads export T` ($FAKE/amp-mode is the agentMode it reports) and `amp threads context T`
 #   ($FAKE/amp-context-<T>, else $FAKE/amp-context, is the JSON it prints; by default 10% of the window used, no compaction) and `amp threads usage T`
 #   ($FAKE/amp-cost/T is the dollar figure it reports, $0.00 by default; `none` there prints no Cost line). The export reports
@@ -45,6 +46,19 @@ case "${1:-} ${2:-}" in
 "threads usage")
 	cost="$(cat "$FAKE/amp-cost/$3" 2>/dev/null || echo 0.00)"
 	if [ "$cost" = none ]; then printf 'role\nCovered by your subscription\n'; else printf 'role\nCost: $%s\nCovered by your subscription\n' "$cost"; fi
+	exit 0 ;;
+"threads search")
+	# $FAKE/amp-search: the JSON list of threads a search can find ({id, title, text}); a query keeps those whose title or text holds it.
+	python3 - "$FAKE" "${@: -1}" <<'PY'
+import json, os, sys
+fake, query = sys.argv[1], sys.argv[2]
+query = query.replace('archived:false', '').replace('"', '').strip().lower()
+try:
+    hits = json.load(open(os.path.join(fake, 'amp-search')))
+except OSError:
+    hits = []
+print(json.dumps([{'id': h['id'], 'title': h.get('title', ''), 'updatedAt': '2026-01-01T00:00:00.000Z'} for h in hits if query in (h.get('title', '') + ' ' + h.get('text', '')).lower()]))
+PY
 	exit 0 ;;
 "threads archive") printf '%s\n' "$3" >>"$FAKE/amp-archived"; exit 0 ;;
 "threads export")
