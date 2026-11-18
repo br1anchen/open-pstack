@@ -350,16 +350,24 @@ def attach(store, repo, branch):
     _run(repo, 'worktree', 'lock', '--reason', 'pstack run store', store)
 
 
-def create(store, repo, branch):
-    """The orphan branch `branch` as a worktree at store, with a .gitignore, pushed to origin. The worktree is locked, so a prune of the work
-    repository cannot drop it while its directory is away."""
+def _branch_places(repo, branch):
+    """(here, on origin): whether the store branch is in the work repository, and whether origin lists it."""
+    here = git.ok(repo, 'show-ref', '--verify', '--quiet', f'refs/heads/{branch}')
+    return here, bool(git.out(repo, 'ls-remote', '--heads', 'origin', branch))
+
+
+def _require_origin(repo):
     if not repo or not git.ok(repo, 'remote', 'get-url', 'origin'):
         raise StoreSetupError(
             'PSTACK_STORE=git needs a work repository with a remote named origin'
         )
-    if git.ok(
-        repo, 'show-ref', '--verify', '--quiet', f'refs/heads/{branch}'
-    ) or git.out(repo, 'ls-remote', '--heads', 'origin', branch):
+
+
+def create(store, repo, branch):
+    """The orphan branch `branch` as a worktree at store, with a .gitignore, pushed to origin. The worktree is locked, so a prune of the work
+    repository cannot drop it while its directory is away. PublishFailed after the commit: the store is made and the next publish sends it."""
+    _require_origin(repo)
+    if any(_branch_places(repo, branch)):
         raise StoreSetupError(
             f'the branch {branch} already exists; attach to it instead of creating the store'
         )
@@ -387,6 +395,26 @@ def create(store, repo, branch):
         raise PublishFailed(
             f'{branch} is committed in {store} and not on origin yet ({pushed.detail}); the next publish sends it'
         )
+
+
+def open_store(store, repo, branch):
+    """The store of an init that may already have started: the worktree is already on the branch (a rerun after a later step failed), the
+    branch is on origin or only here (checked out at store), or neither (created). PublishFailed as create raises it."""
+    if is_git(store) and branch_of(store) == branch:
+        return
+    _require_origin(repo)
+    here, remote = _branch_places(repo, branch)
+    if remote:
+        attach(store, repo, branch)
+    elif here:
+        added = _run(repo, 'worktree', 'add', store, branch)
+        if added.returncode != 0:
+            raise StoreSetupError(
+                f'cannot check {branch} out at {store}: {added.stderr.strip()}'
+            )
+        _run(repo, 'worktree', 'lock', '--reason', 'pstack run store', store)
+    else:
+        create(store, repo, branch)
 
 
 class Push(NamedTuple):
@@ -421,16 +449,16 @@ def unpublished(store, branch):
 
 def refresh(store):
     """Fetches the branch and brings the checkout up to it: a fast-forward, or the commits here put on top of it. False when the remote cannot
-    be read, which means the files may be stale and is not a statement about what is missing."""
+    be read, which means the files may be stale and is not a statement about what is missing. A branch origin does not have yet (a store whose
+    first push failed) is nothing to fetch: True, and every commit here is unpublished."""
     branch = branch_of(store)
     remote = _remote_ref(branch)
-    if (
-        _run(
-            store, 'fetch', '--quiet', 'origin', f'+refs/heads/{branch}:{remote}'
-        ).returncode
-        != 0
-    ):
-        return False
+    fetched = _run(
+        store, 'fetch', '--quiet', 'origin', f'+refs/heads/{branch}:{remote}'
+    )
+    if fetched.returncode != 0:
+        listed = _run(store, 'ls-remote', '--exit-code', '--heads', 'origin', branch)
+        return listed.returncode == 2
     if _count(store, f'HEAD..{remote}') == 0:
         return True
     if unpublished(store, branch) == 0:

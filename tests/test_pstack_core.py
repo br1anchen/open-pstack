@@ -21052,12 +21052,11 @@ class GitStoreTests(unittest.TestCase):
             self.assertEqual(metrics.run(ctx, [self.store]), 0)
         self.assertIn('sidekick', out.getvalue())
 
-    def test_gitstore_init_creates_the_branch_and_refresh_survives_a_worktree_prune(
-        self,
-    ):
-        state = self.path / 'state'
+    def run_init(self, slug, target, work, pane='p0'):
+        """pair.sh init with PSTACK_STORE=git from the work repository, against the fake herdr; a pane named gone* is one that no longer exists."""
         fake = self.path / 'fake'
-        fake.mkdir()
+        fake.mkdir(exist_ok=True)
+        (self.path / 'home').mkdir(exist_ok=True)
         env = {
             **inherited_env(),
             'PATH': f'{FAKE_HERDR_BIN}:{os.environ["PATH"]}',
@@ -21065,28 +21064,32 @@ class GitStoreTests(unittest.TestCase):
             'FAKE': str(fake),
             'HERDR_ENV': '1',
             'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
-            'HERDR_PANE_ID': 'p0',
+            'HERDR_PANE_ID': pane,
             'HERDR_WORKSPACE_ID': 'w1',
             'HERDR_TAB_ID': 't1',
-            'XDG_STATE_HOME': str(state),
+            'XDG_STATE_HOME': str(self.path / 'state'),
             'PSTACK_STORE': 'git',
         }
-        (self.path / 'home').mkdir()
-        target = str(self.path / 'init-store')
-        done = subprocess.run(
+        return subprocess.run(
             [
                 str(root / 'skills/pstack-pair/scripts/pair.sh'),
                 'init',
-                'demo2',
+                slug,
                 '--store',
                 target,
             ],
-            cwd=self.work,
+            cwd=work,
             env=env,
             capture_output=True,
             text=True,
             timeout=120,
         )
+
+    def test_gitstore_init_creates_the_branch_and_refresh_survives_a_worktree_prune(
+        self,
+    ):
+        target = str(self.path / 'init-store')
+        done = self.run_init('demo2', target, self.work)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertTrue(gitstore.is_git(target))
         doc = json.loads(Path(target, 'pair.json').read_text())
@@ -21119,6 +21122,73 @@ class GitStoreTests(unittest.TestCase):
         self.assertTrue(gitstore.refresh(target))
         self.assertTrue(Path(target, 'pair.json').is_file())
         self.assertIn(target, self.sh('git', 'worktree', 'list', cwd=self.work))
+
+    def remote_tree(self, branch):
+        return set(
+            self.sh(
+                'git',
+                '--git-dir',
+                str(self.remote),
+                'ls-tree',
+                '-r',
+                '--name-only',
+                branch,
+            ).split()
+        )
+
+    def test_gitstore_init_with_an_unreachable_remote_warns_and_a_later_publish_sends_the_commits(
+        self,
+    ):
+        work = self.clone('offline-work')
+        nowhere = str(self.path / 'nowhere.git')
+        self.sh('git', 'remote', 'set-url', 'origin', nowhere, cwd=work)
+        target = str(self.path / 'offline-store')
+        done = self.run_init('demo3', target, work)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('warning', done.stderr)
+        self.assertTrue(Path(target, 'pair.json').is_file())
+        self.assertNotIn(
+            'kitchen/demo3',
+            self.sh('git', '--git-dir', str(self.remote), 'branch', '--list'),
+        )
+        self.sh('git', 'remote', 'set-url', 'origin', str(self.remote), cwd=work)
+        self.write(target, 'plans/001-p.md')
+        self.publish(target, ['plans/001-p.md'], gitstore.Writer('master'))
+        self.assertTrue(
+            {'.gitignore', 'pair.json', 'plans/001-p.md'}
+            <= self.remote_tree('kitchen/demo3')
+        )
+        self.assertEqual(gitstore.unpublished(target, 'kitchen/demo3'), 0)
+
+    def test_gitstore_init_rerun_after_a_failed_pane_rename_attaches_to_the_branch(
+        self,
+    ):
+        target = str(self.path / 'rerun-store')
+        failed = self.run_init('demo4', target, self.work, pane='gone1')
+        self.assertEqual(failed.returncode, 2, failed.stderr)
+        self.assertFalse(Path(target, 'pair.json').exists())
+        self.assertIn(
+            'kitchen/demo4',
+            self.sh('git', '--git-dir', str(self.remote), 'branch', '--list'),
+        )
+        done = self.run_init('demo4', target, self.work)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(Path(target, 'pair.json').is_file())
+        self.assertTrue(
+            {'.gitignore', 'pair.json'} <= self.remote_tree('kitchen/demo4')
+        )
+
+    def test_gitstore_init_rerun_attaches_to_a_branch_that_only_origin_has(self):
+        target = str(self.path / 'away-store')
+        failed = self.run_init('demo5', target, self.work, pane='gone1')
+        self.assertEqual(failed.returncode, 2, failed.stderr)
+        shutil.rmtree(target)
+        other = self.clone('away-work')
+        done = self.run_init('demo5', target, other)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(gitstore.is_git(target))
+        self.assertTrue(Path(target, 'pair.json').is_file())
+        self.assertIn('pair.json', self.remote_tree('kitchen/demo5'))
 
     def test_gitstore_two_clones_publish_twenty_role_files_concurrently_and_all_land(
         self,

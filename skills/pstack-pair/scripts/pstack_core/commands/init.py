@@ -182,6 +182,15 @@ def publish_first(ctx, store):
         sys.stderr.write(f'{ctx.prog}: warning: {e}\n')
 
 
+def open_git_store(ctx, store, root, slug):
+    """The branch store, made or picked up where an earlier init stopped. A push that fails is a warning: the commit is kept and the first
+    publish sends it. A store that cannot be made at all stays fatal."""
+    try:
+        gitstore.open_store(store, root, f'{gitstore.BRANCH_PREFIX}{slug}')
+    except gitstore.PublishFailed as e:
+        sys.stderr.write(f'{ctx.prog}: warning: {e}\n')
+
+
 def init_store(ctx, request, out=None):
     """Creates or re-registers the store and returns where it is. The lines the command prints go to `out` (default: standard output) as they are
     produced; what goes wrong is said on stderr or raised."""
@@ -193,7 +202,7 @@ def init_store(ctx, request, out=None):
         f'{store}/pair.json'
     )
     if on_git:
-        gitstore.create(store, root, f'{gitstore.BRANCH_PREFIX}{slug}')
+        open_git_store(ctx, store, root, slug)
     for d in ctx.store_dirs:
         make_dir(f'{store}/{d}')
     master = f'{slug}-master'
