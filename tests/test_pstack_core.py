@@ -54,6 +54,7 @@ from pstack_core import (
 )  # noqa: E402
 from pstack_core.commands import metrics  # noqa: E402
 from pstack_core.commands import report as report_commands  # noqa: E402
+from pstack_core.commands import rotate as rotate_commands  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
     AgentBlocked,
     AgentBusy,
@@ -21490,6 +21491,37 @@ class GitStoreTests(unittest.TestCase):
         self.write(self.store, 'reports/001-x.md', 'status: done\nrewritten\n')
         record(self.store, report, {}, '1')
         self.assertEqual(len(rotation_rows()), 2)
+
+    def test_gitstore_the_master_records_a_kept_session_in_its_own_events_file(self):
+        brief = f'{self.store}/briefs/001-x.md'
+        send.record_dispatch(self.store, brief)
+        self.write(self.store, 'reports/001-x.md', 'status: done\n')
+        self.publish(self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1))
+        sidekick_store = self.other_store()
+        ctx = Context('pstack-pair', '/x', self.store, 'Pair', (), (), 21, '')
+        with (
+            mock.patch.object(
+                rotate_commands, 'keeps_session', return_value='pstack, context 10%'
+            ),
+            mock.patch.object(rotate_commands, 'archive_retired'),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            rotate_commands.rotate_if_due(ctx, self.store, 'brief', brief)
+        self.assertFalse(store.rotation_required(self.store))
+        self.assertFalse(os.path.exists(f'{self.store}/events/sidekick-g1.tsv'))
+        store.event(sidekick_store, 'sidekick', 'step', '001-x', '1:abc')
+        self.publish(
+            sidekick_store, ['events/sidekick-g1.tsv'], gitstore.Writer('sidekick', 1)
+        )
+        self.assertTrue(gitstore.refresh(self.store))
+        self.publish(self.store, ['events/master-g1.tsv'], gitstore.Writer('master', 1))
+        self.assertTrue(
+            {'events/master-g1.tsv', 'events/sidekick-g1.tsv'} <= self.remote_files()
+        )
+        reuse = [r.split('\t') for r in store.events(self.store) if '\treuse\t' in r]
+        self.assertEqual(len(reuse), 1)
+        self.assertEqual(reuse[0][2], 'master')
+        self.assertIn('sidekick', reuse[0][-1])
 
     def test_gitstore_a_parked_note_is_printed_once_without_touching_pair_json(self):
         note = f'{self.store}/notes/001-n1.md'

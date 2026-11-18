@@ -13,6 +13,7 @@ from ..checkin import sidekick_busy
 from ..errors import Die, RotationFailed, translate
 from ..exits import end_agent, exit_deadline, stop_prime_role
 from ..gates import check_scope, require_not_paused
+from ..gitstore import is_git
 from ..mux import DEVNULL
 from ..numbers import env_float, env_int
 from ..panes import agent_status, require_mux
@@ -304,7 +305,10 @@ def rotate_if_due(ctx, store, what, brief=''):
     kept = '' if failed_over else keeps_session(store, brief) if what == 'brief' else ''
     if kept:
         clear_rotation(store)
-        event(store, 'sidekick', 'reuse', brief, kept)
+        if is_git(store):
+            event(store, 'master', 'reuse', brief, f'sidekick: {kept}')
+        else:
+            event(store, 'sidekick', 'reuse', brief, kept)
         sys.stdout.write(
             f'kept: the {field(store, "sidekick", "kind")} sidekick keeps its session for this routine unit ({kept})\n'
         )
