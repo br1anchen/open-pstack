@@ -15118,6 +15118,11 @@ class AmpKitchenTests(KitchenScriptTests):
             (Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/threads.json').read_text()
         )
 
+    def write_threads(self, doc):
+        (Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/threads.json').write_text(
+            json.dumps(doc)
+        )
+
     def test_a_thread_the_kitchen_starts_is_recorded_for_its_store_and_stays_in_use_without_its_registry_entry(
         self,
     ):
@@ -15157,6 +15162,18 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual((self.fake / 'amp-archived').read_text(), f'{idle}\n')
         self.assert_archived_and_logged(idle, 'helper')
         self.assertEqual(self.threads_json()[busy]['role'], 'researcher')
+        # The same store again changes nothing; a thread another run recorded is refused and keeps its store.
+        self.run_sh('threads', str(self.store), '--register', busy)
+        other = amp_thread(24)
+        self.write_threads(
+            {**self.threads_json(), other: {'role': 'helper', 'store': '/other/run'}}
+        )
+        before = self.threads_json()
+        out = self.merged('threads', str(self.store), '--register', other, code=1)
+        self.assertIn(
+            f'kitchen.sh: {other} is recorded for /other/run; not registered', out
+        )
+        self.assertEqual(self.threads_json()[other], before[other])
 
     def test_the_next_sweep_archives_a_registered_helper_that_has_gone_idle(self):
         helper = amp_thread(23)
@@ -15203,6 +15220,65 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotEqual(
             self.threads_json()[foreign]['store'], os.path.realpath(self.store)
         )
+
+    def test_threads_discover_records_only_titles_that_are_exactly_this_run_s_and_searches_its_repo(
+        self,
+    ):
+        prefix, other_run, ours = amp_thread(41), amp_thread(42), amp_thread(43)
+        self.set_state(ours, 'idle', '2999-01-01T00:00:00.000Z')
+        self.search_hits(
+            {'id': prefix, 'title': 'demo-x-sidekick'},
+            {'id': other_run, 'title': 'demo-sidekick'},
+            {'id': ours, 'title': 'demo-verifier'},
+        )
+        self.write_threads(
+            {
+                **self.threads_json(),
+                other_run: {'name': 'demo-sidekick', 'store': '/other/run'},
+            }
+        )
+        origin = 'https://example.com/acme/demo.git'
+        self.git('remote', 'add', 'origin', origin)
+        out = self.run_sh('threads', str(self.store), '--discover', '--archive')
+        self.assertIn(f'discovered {ours} (verifier)', out)
+        self.assertNotIn(prefix, out)
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{ours}\n')
+        self.assertEqual(self.threads_json()[other_run]['store'], '/other/run')
+        self.assertNotIn(prefix, self.threads_json())
+        self.assertIn(
+            f'archived:false demo- repo:{origin}', (self.fake / 'amp.log').read_text()
+        )
+
+    def test_a_send_to_an_existing_thread_never_stamps_it_started(self):
+        sidekick = amp_thread(1)
+        known = self.threads_json()
+        del known[sidekick]
+        self.write_threads(known)
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.assertNotIn(sidekick, self.threads_json())
+
+    def test_a_late_bundle_from_a_retired_thread_does_not_take_its_role_back(self):
+        old, new = amp_thread(1), amp_thread(2)
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        late = self.store / 'reports/late.md'
+        late.write_text('status: done\n')
+        self.as_thread(old, 'notify', str(self.store), str(late))
+        bundle = max(
+            (self.fake / 'amp-threads' / AMP_MASTER).glob('*-pstack-demo-master.tgz'),
+            key=lambda p: int(p.name.split('-', 1)[0]),
+        )
+        self.next_unit_rotates('002', 'guide', ['docs/**'])
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        self.run_sh('sync', str(bundle))
+        registry = json.loads(self.registry().read_text())
+        self.assertEqual(registry['agents']['demo-sidekick']['thread'], new)
+        self.assertNotIn('at', self.threads_json()[new])
+        self.assertIn('at', self.threads_json()[old])
+        self.set_state(old, 'idle', '2999-01-01T00:00:00.000Z')
+        self.set_state(new, 'idle', '2999-01-01T00:00:00.000Z')
+        out = self.run_sh('threads', str(self.store), '--archive')
+        self.assertRegex(out, rf'(?m)^{new}  sidekick  in use  in use$')
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{old}\n')
 
     def merged(self, *args, code=0):
         """kitchen.sh's stdout and stderr as one stream in the order they were written, as a terminal shows them."""

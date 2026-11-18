@@ -23,6 +23,7 @@ import uuid
 
 from .. import bundle, git
 from ..argv import Spec, read
+from ..errors import PairError
 from ..numbers import env_int
 from ..store import TEXT
 from . import subagents
@@ -271,10 +272,11 @@ def keep_sent_bundle(thread, attach):
         shutil.copyfile(attach[1], sent_path(thread))
 
 
-def record_started(thread, name, store):
+def record_started(thread, name, store, created):
     """A thread the kitchen started for the role `name` of the run `store`: recorded at once, so the run's sweep lists it even if the registry
-    later loses its entry. A thread already recorded for a store, or a send with no store, records nothing."""
-    if not store or (load_json(threads_path()).get(thread) or {}).get('store'):
+    later loses its entry. `created` is whether the send made the thread: a send to an existing thread, or one with no store, records nothing,
+    for current_threads reads the newest `started` as the role's thread."""
+    if not (created and store):
         return
     record_thread(
         thread,
@@ -284,6 +286,25 @@ def record_started(thread, name, store):
             'store': os.path.realpath(store),
             'started': int(time.time()),
         },
+    )
+
+
+def supersedes(current, thread):
+    """Whether `current`, the thread a registry name holds now (empty when it holds none), has the name instead of `thread`: thread is recorded
+    retired or archived, or current was started after it. A late bundle from such a thread must not take the name back."""
+    known = load_json(threads_path())
+    mine = known.get(thread) or {}
+    if mine.get('at') or mine.get('archived'):
+        return True
+    newer = int((known.get(current) or {}).get('started') or 0)
+    return bool(current and current != thread and newer > int(mine.get('started') or 0))
+
+
+def run_titles(slug):
+    """The titles of a run's role threads: `<slug>-<role>`, and `-g<n>` after a master."""
+    return re.compile(
+        re.escape(slug or '\0')
+        + r'-(?:sidekick|verifier|consultant|master(?:-g[0-9]+)?)'
     )
 
 
@@ -729,10 +750,7 @@ class Amp(Subagents):
             for e in master.get('sessions') or []:
                 if isinstance(e, dict) and (e.get('session') or '').startswith('T-'):
                     found.setdefault(e['session'], 'master')
-            ours = re.compile(
-                re.escape(doc.get('slug') or '\0')
-                + r'-(?:sidekick|verifier|consultant|master(?:-g[0-9]+)?)'
-            )
+            ours = run_titles(doc.get('slug'))
             for name, e in agents.items():
                 if e.get('thread') and ours.fullmatch(name):
                     found.setdefault(e['thread'], role_of(name))
@@ -744,6 +762,10 @@ class Amp(Subagents):
         return rows + ([] if retired_only else unscoped)
 
     def register(self, thread, role, store):
+        """Records thread as a helper of the run at `store`; a thread recorded for another run is refused."""
+        other = (load_json(threads_path()).get(thread) or {}).get('store') or ''
+        if other and other != os.path.realpath(store):
+            raise PairError(f'{thread} is recorded for {other}; not registered')
         record_thread(
             thread,
             {
@@ -758,24 +780,28 @@ class Amp(Subagents):
 
     def discover(self, store):
         """Records, for the run at `store`, each unarchived thread that a search on its path or on its `<slug>-` title words finds: a thread
-        titled `<slug>-<role>` keeps that role, any other is a helper. This thread, a thread another run recorded and a thread already known are
-        left out."""
+        titled exactly `<slug>-<role>` keeps that role, any other is a helper. The title search stays in the run's repository when it has an
+        origin. This thread, a thread any run recorded and a thread titled for another run are left out."""
         doc = load_json(os.path.join(store, 'pair.json'))
         slug = doc.get('slug') or ''
         here, known = os.path.realpath(store), load_json(threads_path())
+        origin = git.out(
+            doc.get('git_root') or doc.get('cwd'), 'remote', 'get-url', 'origin'
+        )
+        ours = run_titles(slug)
         found = []
         for query, by_title in (
             (f'archived:false "{here}"', False),
-            (f'archived:false {slug}-', True),
+            (f'archived:false {slug}- ' + (f'repo:{origin}' if origin else ''), True),
         ):
-            r = run(['amp', 'threads', 'search', '--json', '-n', '100', query])
+            r = run(['amp', 'threads', 'search', '--json', '-n', '100', query.strip()])
             try:
                 hits = json.loads(r.stdout) if r.returncode == 0 else []
             except ValueError:
                 hits = []
             for hit in hits if isinstance(hits, list) else []:
                 thread, title = hit.get('id') or '', hit.get('title') or ''
-                titled = bool(slug) and title.startswith(f'{slug}-')
+                titled = bool(slug) and bool(ours.fullmatch(title))
                 if (
                     not thread
                     or thread == own_thread()
@@ -783,8 +809,7 @@ class Amp(Subagents):
                     or (known.get(thread) or {}).get('store')
                 ):
                     continue
-                role = role_of(title) if titled else ''
-                role = role if role in ROLES else 'helper'
+                role = role_of(title) if titled else 'helper'
                 record_thread(
                     thread,
                     {
@@ -911,6 +936,7 @@ class Amp(Subagents):
     def send(self, name, text, thread='', flags=(), store='', title=''):
         """Sends text to thread (a new thread on flags when ''), with the bundle of store attached. (thread, error text)."""
         self.skipped = ''
+        created = not thread
         store = store or store_in(text) or load(self.path()).get('store') or ''
         if store:
             self.remember_store(name, store)
@@ -974,7 +1000,7 @@ class Amp(Subagents):
                     return '', err
                 time.sleep(env_int('PSTACK_AMP_RETRY_S', 10))
             record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
-            record_started(thread, name, store)
+            record_started(thread, name, store, created)
             # Only what this message carried is recorded: the thread's compaction count (a new thread's is read now), the build when it was
             # attached, and the full send-back rules when they went in it.
             if compactions is None:
@@ -1206,10 +1232,28 @@ class Amp(Subagents):
 
 def retire_lost(path, lost, store):
     """A write of this backend's registry dropped these entries' threads: each is retired for the run its entry worked for (else the
-    registry's), so the master's sweep archives it once that is safe, whichever command made the write."""
-    if path == registry_path():
-        for name, entry in lost:
-            Amp().retire(entry['thread'], name, entry.get('store') or store)
+    registry's), so the master's sweep archives it once that is safe, whichever command made the write. A name still in the registry, held by
+    another thread, was replaced, not ended: the thread that is its role's newest started one for the run is left alone then, as a stale
+    write is the likeliest reason for the swap."""
+    if path != registry_path():
+        return
+    held = load(path)['agents']
+    known = load_json(threads_path())
+    for name, entry in lost:
+        run_store = entry.get('store') or store
+        newest = max(
+            (
+                (int(e.get('started') or 0), t)
+                for t, e in known.items()
+                if e.get('name') == name
+                and e.get('store') == (os.path.realpath(run_store) if run_store else '')
+                and e.get('started')
+            ),
+            default=(0, ''),
+        )[1]
+        if name in held and newest == entry['thread']:
+            continue
+        Amp().retire(entry['thread'], name, run_store)
 
 
 subagents.on_threads_lost = retire_lost

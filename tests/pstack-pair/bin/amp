@@ -52,7 +52,7 @@ case "${1:-} ${2:-}" in
 	python3 - "$FAKE" "${@: -1}" <<'PY'
 import json, os, sys
 fake, query = sys.argv[1], sys.argv[2]
-query = query.replace('archived:false', '').replace('"', '').strip().lower()
+query = ' '.join(w for w in query.replace('archived:false', '').replace('"', '').split() if not w.startswith('repo:')).lower()
 try:
     hits = json.load(open(os.path.join(fake, 'amp-search')))
 except OSError:

@@ -35,8 +35,8 @@ def fetch(source, into):
 
 def learn(manifest):
     """Merges the agents the sender knows into this orb's registry. The sender's own entry is the sender's word; any other fills only a
-    name this side lacks or knows no thread for. The agent the bundle is for is this thread, unless the name already means another thread
-    here. Returns that other thread, '' when the bundle is this thread's."""
+    name this side lacks or knows no thread for; an entry whose thread is retired, archived or older than the one that holds the name is
+    ignored (supersedes). The agent the bundle is for is this thread, unless the name already means another thread here. Returns that other thread, '' when the bundle is this thread's."""
     me = amp.own_thread()
     to = manifest.get('to') if isinstance(manifest.get('to'), dict) else {}
     target = to.get('name') or ''
@@ -53,7 +53,11 @@ def learn(manifest):
             if not isinstance(entry, dict) or not isinstance(entry.get('pane'), str):
                 continue
             mine = doc['agents'].get(name)
-            if name == sender or mine is None or not mine.get('thread'):
+            # A thread retired, archived or started before the one that holds the name does not take it back: its bundle is late.
+            late = amp.supersedes(
+                (mine or {}).get('thread') or '', entry.get('thread') or ''
+            )
+            if not late and (name == sender or mine is None or not mine.get('thread')):
                 kept = mine or {}
                 doc['agents'][name] = {
                     'pane': entry['pane'],
