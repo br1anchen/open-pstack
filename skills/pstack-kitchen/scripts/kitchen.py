@@ -2463,14 +2463,33 @@ def last_working_event(events: list[list[str]]) -> int | None:
 
 
 def _event_rows(store: Path) -> list[list[str]]:
-    """The store's events.tsv rows. event() writes no header; a store from an older build may start with one, and that line is skipped."""
-    try:
-        lines = (store / 'events.tsv').read_text().splitlines()
-    except OSError:
-        return []
-    if lines and lines[0].startswith('ts\t'):
-        lines = lines[1:]
-    return [line.split('\t') for line in lines]
+    """The store's event rows. event() writes no header; a store from an older build may start with one, and that line is skipped. A git-backed
+    store (a `.git` in it) keeps one file per writer generation under events/: the rows are the union of those and events.tsv, ordered by epoch,
+    writer and line, as pstack_core.gitstore.event_rows orders them (a test runs both on the same store)."""
+    if not (store / '.git').exists():
+        try:
+            lines = (store / 'events.tsv').read_text().splitlines()
+        except OSError:
+            return []
+        if lines and lines[0].startswith('ts\t'):
+            lines = lines[1:]
+        return [line.split('\t') for line in lines]
+    found: list[tuple[int, str, int, str]] = []
+    sources = [('', store / 'events.tsv')] + [
+        (p.name, p) for p in sorted((store / 'events').glob('*.tsv'))
+    ]
+    for writer, path in sources:
+        try:
+            lines = path.read_text(errors='replace').splitlines()
+        except OSError:
+            continue
+        for n, line in enumerate(lines):
+            if writer == '' and n == 0 and line.startswith('ts\t'):
+                continue
+            cols = line.split('\t')
+            epoch = int(cols[1]) if len(cols) > 1 and cols[1].isdigit() else 0
+            found.append((epoch, writer, n, line))
+    return [line.split('\t') for *_, line in sorted(found)]
 
 
 def run_counters(store: Path) -> dict:

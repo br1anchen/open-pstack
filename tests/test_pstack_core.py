@@ -5,6 +5,7 @@ import calendar
 import contextlib
 import errno
 import functools
+import importlib.util
 import inspect
 import io
 import json
@@ -18,6 +19,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import zlib
@@ -37,6 +39,7 @@ from pstack_core import (
     errors,
     exits,
     git,
+    gitstore,
     mux,
     numbers,
     panes,
@@ -49,6 +52,7 @@ from pstack_core import (
     store,
     wait,
 )  # noqa: E402
+from pstack_core.commands import metrics  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
     AgentBlocked,
     AgentBusy,
@@ -89,6 +93,7 @@ sys.path.insert(0, str(root / 'tests'))
 
 LEAKED_PREFIXES = (
     'PSTACK_KITCHEN_',
+    'PSTACK_STORE',
     'KITCHEN_',
     'PAIR_',
     'HERDR_',
@@ -20752,3 +20757,583 @@ class TrioAmpDiversityTests(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertEqual(agents.model_label('amp', args), label)
                 self.assertEqual(trio.diversity_label('amp', args), label)
+
+
+class GitStoreTests(unittest.TestCase):
+    """The git backend of a store: ownership, revisions, per-writer events and the fenced publication path, against a local bare remote."""
+
+    BRANCH = 'kitchen/demo'
+    LOCAL_PATHS = (
+        '.pair.lock',
+        '.publish.lock',
+        'pair.json.tmp',
+        'wait.pid',
+        'bundle.tgz',
+        'scratch/001-x/f.txt',
+        'steps/jobs/001-x-abc/out',
+    )
+
+    def sh(self, *args, cwd=None):
+        return subprocess.run(
+            args, cwd=cwd, check=True, capture_output=True, text=True, timeout=60
+        ).stdout
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(os.path.realpath(self.tmp.name))
+        self.remote = self.path / 'remote.git'
+        self.sh('git', 'init', '-q', '--bare', str(self.remote))
+        self.work = self.clone('work')
+        self.sh(
+            'git',
+            '-c',
+            'user.name=t',
+            '-c',
+            'user.email=t@t',
+            'commit',
+            '-q',
+            '--allow-empty',
+            '-m',
+            'one',
+            cwd=self.work,
+        )
+        self.sh('git', 'push', '-q', 'origin', 'HEAD', cwd=self.work)
+        self.store = str(self.path / 'store')
+        gitstore.create(self.store, str(self.work), self.BRANCH)
+        self.write(
+            self.store,
+            'pair.json',
+            json.dumps({'master': {'generation': 1}, 'sidekick': {'generation': 1}}),
+        )
+        self.publish(self.store, ['pair.json'], gitstore.Writer('master'))
+        patcher = mock.patch.dict(
+            os.environ,
+            {'PSTACK_STORE_PUSH_BACKOFF_S': '0', 'PSTACK_STORE_PUSH_TRIES': '50'},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def clone(self, name):
+        path = self.path / name
+        self.sh('git', 'clone', '-q', str(self.remote), str(path))
+        return path
+
+    def other_store(self, name='other'):
+        """The store of another orb: the same branch, checked out from its own clone of the work repository."""
+        directory = self.path / name
+        work = self.clone(f'{name}-work')
+        gitstore.attach(str(directory), str(work), self.BRANCH)
+        return str(directory)
+
+    def write(self, store, rel, text='x\n'):
+        path = Path(store, rel)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def publish(self, store, rels, writer, message='m'):
+        return gitstore.publish(store, rels, message, writer, sleep=lambda s: None)
+
+    def remote_files(self):
+        out = self.sh(
+            'git',
+            '--git-dir',
+            str(self.remote),
+            'ls-tree',
+            '-r',
+            '--name-only',
+            self.BRANCH,
+        )
+        return set(out.split())
+
+    def remote_commits(self):
+        return len(
+            self.sh(
+                'git', '--git-dir', str(self.remote), 'rev-list', self.BRANCH
+            ).split()
+        )
+
+    def set_generation(self, store, role, generation):
+        doc = json.loads(Path(store, 'pair.json').read_text())
+        doc.setdefault(role, {})['generation'] = generation
+        self.write(store, 'pair.json', json.dumps(doc))
+
+    def test_gitstore_ownership_table_classifies_every_path_of_a_real_store_layout(
+        self,
+    ):
+        ctx = Context(
+            'pstack-kitchen',
+            str(root / 'skills/pstack-kitchen'),
+            '/s',
+            'Kitchen',
+            (),
+            (),
+            21,
+            '',
+        )
+        layout = Path(self.tmp.name) / 'layout'
+        paths = [
+            'pair.json',
+            'standing-orders.md',
+            'session-handoff.md',
+            'status.md',
+            'gates.md',
+            'gates.tsv',
+            'followups.md',
+            'decisions.tsv',
+            'events.tsv',
+            'queue',
+            'paused',
+            'compositions/001.json',
+            'sessions/master-1-handoff.md',
+            'sessions/sidekick-2-previous-ready.md',
+            'steps/001-x.tsv',
+            'verdicts/001-x-v1.md',
+            'verdicts/001-x-v1-packet.md',
+            'verdicts/landing-v1.md',
+            'verdicts/landing-v1-packet.md',
+            'notes/001-n1.md',
+            'answers/001-x-a1.md',
+            'kitchens/host.toml',
+            'events/master-g1.tsv',
+            'gates/sidekick-g2.tsv',
+            'acks/sidekick-g1.tsv',
+            'reports/000-ready-g3.md',
+            *self.LOCAL_PATHS,
+            *(f'{d}/001-x.md' for d in ctx.variant.store_dirs if d != 'scratch'),
+        ]
+        for rel in paths:
+            self.write(layout, rel)
+        walked = sorted(
+            os.path.relpath(os.path.join(top, name), layout)
+            for top, _, names in os.walk(layout)
+            for name in names
+        )
+        self.assertEqual(len(walked), len(set(paths)))
+        self.assertEqual([rel for rel in walked if gitstore.classify(rel) is None], [])
+        self.assertIsNone(gitstore.classify('mystery.txt'))
+        self.assertIsNone(gitstore.classify('reports/a/b.md'))
+
+    def test_gitstore_ignores_exactly_the_local_class(self):
+        for rel in self.LOCAL_PATHS:
+            with self.subTest(rel=rel):
+                self.assertEqual(gitstore.classify(rel).kind, gitstore.LOCAL)
+                self.assertTrue(git.ok(self.store, 'check-ignore', '-q', rel))
+        for rel in (
+            'pair.json',
+            'reports/001-x.md',
+            'events/master-g1.tsv',
+            'steps/001-x.tsv',
+            'sessions/a.md',
+        ):
+            with self.subTest(rel=rel):
+                self.assertFalse(git.ok(self.store, 'check-ignore', '-q', rel))
+
+    def test_gitstore_a_write_to_a_path_the_writer_does_not_own_raises_ownership_error(
+        self,
+    ):
+        sidekick = gitstore.Writer('sidekick', 1)
+        cases = [
+            ('briefs/001-x.md', gitstore.Writer('sidekick', 1)),
+            ('reports/001-x.md', gitstore.Writer('verifier', 1)),
+            ('verdicts/001-x-v1-packet.md', gitstore.Writer('verifier', 1)),
+            ('events/master-g1.tsv', sidekick),
+            ('events/sidekick-g2.tsv', sidekick),
+            ('mystery.txt', gitstore.Writer('master')),
+            ('wait.pid', gitstore.Writer('master')),
+        ]
+        for rel, writer in cases:
+            with self.subTest(rel=rel, writer=writer):
+                self.write(self.store, rel)
+                with self.assertRaises(gitstore.OwnershipError) as caught:
+                    self.publish(self.store, [rel], writer)
+                self.assertIn(rel, str(caught.exception))
+        self.assertNotIn('briefs/001-x.md', self.remote_files())
+        self.write(self.store, 'events/sidekick-g1.tsv')
+        self.publish(self.store, ['events/sidekick-g1.tsv'], sidekick)
+        self.assertIn('events/sidekick-g1.tsv', self.remote_files())
+
+    def test_gitstore_refuses_paths_that_leave_the_store_or_are_links_or_directories(
+        self,
+    ):
+        outside = self.path / 'outside.md'
+        outside.write_text('x')
+        Path(self.store, 'reports').mkdir(exist_ok=True)
+        os.symlink(outside, Path(self.store, 'reports/001-link.md'))
+        self.write(self.store, 'reports/dir/inner.md')
+        for rel in ('../outside.md', 'reports/001-link.md', 'reports/dir'):
+            with self.subTest(rel=rel):
+                with self.assertRaises(gitstore.OwnershipError):
+                    self.publish(self.store, [rel], gitstore.Writer('sidekick', 1))
+        self.assertNotIn('reports/001-link.md', self.remote_files())
+
+    def test_gitstore_reports_written_in_the_same_instant_are_ordered_by_publication(
+        self,
+    ):
+        other = self.other_store()
+        sidekick = gitstore.Writer('sidekick', 1)
+        for rel in ('reports/003-x.md', 'reports/003-x-s1.md'):
+            self.write(self.store, rel)
+            self.publish(self.store, [rel], sidekick)
+        gitstore.refresh(other)
+        for where in (self.store, other):
+            first, second = (
+                f'{where}/reports/003-x.md',
+                f'{where}/reports/003-x-s1.md',
+            )
+            os.utime(first, ns=(10**18, 10**18))
+            os.utime(second, ns=(10**18, 10**18))
+            with self.subTest(where=where):
+                self.assertEqual(store.newest_first([first, second]), [second, first])
+                self.assertEqual(store.newest([first, second]), second)
+        later = f'{self.store}/reports/003-x-s2.md'
+        self.write(self.store, 'reports/003-x-s2.md')
+        os.utime(later, ns=(10**18, 10**18))
+        names = [
+            f'{self.store}/reports/003-x.md',
+            f'{self.store}/reports/003-x-s1.md',
+            later,
+        ]
+        self.assertEqual(store.newest(names), later)
+        edited = f'{self.store}/reports/003-x.md'
+        Path(edited).write_text('changed\n')
+        self.assertEqual(store.newest(names[:2]), edited)
+        self.assertEqual(
+            store.revision(names[1]).commit,
+            git.out(
+                self.store, 'log', '-1', '--format=%H', '--', 'reports/003-x-s1.md'
+            ),
+        )
+
+    def test_gitstore_events_are_one_file_per_writer_and_the_union_keeps_identical_rows(
+        self,
+    ):
+        self.write(
+            self.store,
+            'events.tsv',
+            '2026-01-01T00:00:00Z\t100\tmaster\tinit\t-\tpair\n',
+        )
+        with mock.patch('time.time', return_value=200.0):
+            store.event(self.store, 'sidekick', 'step', '001-x', '1:abc')
+            self.set_generation(self.store, 'sidekick', 2)
+            store.event(self.store, 'sidekick', 'step', '001-x', '1:abc')
+        self.assertEqual(
+            sorted(os.listdir(f'{self.store}/events')),
+            ['sidekick-g1.tsv', 'sidekick-g2.tsv'],
+        )
+        rows = store.events(self.store)
+        self.assertEqual([r.split('\t')[1] for r in rows], ['100', '200', '200'])
+        self.assertEqual(rows[1], rows[2])
+
+    def test_gitstore_the_master_wake_dedupe_reads_only_the_masters_own_file(self):
+        with mock.patch('time.time', return_value=300.0):
+            store.event(self.store, 'master', 'wake', '001-x', 'report', dedupe=True)
+            store.event(self.store, 'sidekick', 'step', '001-x', '1:abc')
+            store.event(self.store, 'master', 'wake', '001-x', 'report', dedupe=True)
+        names = [r.split('\t')[3] for r in store.events(self.store)]
+        self.assertEqual(sorted(names), ['step', 'wake'])
+
+    def test_gitstore_metrics_and_the_kitchen_read_the_same_union(self):
+        with mock.patch('time.time', return_value=500.0):
+            store.event(self.store, 'master', 'init', '-', 'pstack-pair')
+            store.event(self.store, 'sidekick', 'step', '001-x', '1:abc')
+        spec = importlib.util.spec_from_file_location(
+            'kitchen_py_events', root / 'skills/pstack-kitchen/scripts/kitchen.py'
+        )
+        assert spec is not None and spec.loader is not None
+        kitchen_py = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = kitchen_py
+        spec.loader.exec_module(kitchen_py)
+        rows = kitchen_py._event_rows(Path(self.store))
+        self.assertEqual(['\t'.join(r) for r in rows], store.events(self.store))
+        out = io.StringIO()
+        ctx = Context('pstack-pair', '/x', self.store, 'Pair', (), (), 21, '')
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(metrics.run(ctx, [self.store]), 0)
+        self.assertIn('sidekick', out.getvalue())
+
+    def test_gitstore_init_creates_the_branch_and_refresh_survives_a_worktree_prune(
+        self,
+    ):
+        state = self.path / 'state'
+        fake = self.path / 'fake'
+        fake.mkdir()
+        env = {
+            **inherited_env(),
+            'PATH': f'{FAKE_HERDR_BIN}:{os.environ["PATH"]}',
+            'HOME': str(self.path / 'home'),
+            'FAKE': str(fake),
+            'HERDR_ENV': '1',
+            'HERDR_SOCKET_PATH': str(self.path / 'herdr.sock'),
+            'HERDR_PANE_ID': 'p0',
+            'HERDR_WORKSPACE_ID': 'w1',
+            'HERDR_TAB_ID': 't1',
+            'XDG_STATE_HOME': str(state),
+            'PSTACK_STORE': 'git',
+        }
+        (self.path / 'home').mkdir()
+        target = str(self.path / 'init-store')
+        done = subprocess.run(
+            [
+                str(root / 'skills/pstack-pair/scripts/pair.sh'),
+                'init',
+                'demo2',
+                '--store',
+                target,
+            ],
+            cwd=self.work,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(gitstore.is_git(target))
+        doc = json.loads(Path(target, 'pair.json').read_text())
+        self.assertEqual(
+            doc['store_backend'], {'backend': 'git', 'branch': 'kitchen/demo2'}
+        )
+        listed = self.sh(
+            'git',
+            '--git-dir',
+            str(self.remote),
+            'ls-tree',
+            '-r',
+            '--name-only',
+            'kitchen/demo2',
+        ).split()
+        self.assertEqual(
+            sorted(listed),
+            [
+                '.gitignore',
+                'decisions.tsv',
+                'events/master-g0.tsv',
+                'gates.md',
+                'pair.json',
+                'standing-orders.md',
+            ],
+        )
+        self.sh('git', 'worktree', 'prune', cwd=self.work)
+        self.write(self.store, 'plans/001-p.md')
+        self.publish(self.store, ['plans/001-p.md'], gitstore.Writer('master'))
+        self.assertTrue(gitstore.refresh(target))
+        self.assertTrue(Path(target, 'pair.json').is_file())
+        self.assertIn(target, self.sh('git', 'worktree', 'list', cwd=self.work))
+
+    def test_gitstore_two_clones_publish_twenty_role_files_concurrently_and_all_land(
+        self,
+    ):
+        other = self.other_store()
+        writers = (
+            (self.store, gitstore.Writer('sidekick', 1), 'reports/{n:03d}-a.md'),
+            (other, gitstore.Writer('verifier'), 'verdicts/{n:03d}-b-v1.md'),
+        )
+        errors_seen = []
+
+        def work(where, writer, pattern):
+            try:
+                for n in range(10):
+                    rel = pattern.format(n=n)
+                    self.write(where, rel, f'{n}\n')
+                    self.publish(where, [rel], writer, f'{writer.role} {n}')
+            except Exception as e:  # noqa: BLE001
+                errors_seen.append(e)
+
+        threads = [threading.Thread(target=work, args=w) for w in writers]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=300)
+        self.assertEqual(errors_seen, [])
+        expected = {f'reports/{n:03d}-a.md' for n in range(10)} | {
+            f'verdicts/{n:03d}-b-v1.md' for n in range(10)
+        }
+        self.assertTrue(expected <= self.remote_files())
+
+    def test_gitstore_a_rejected_push_is_retried_and_lands(self):
+        other = self.other_store()
+        real, calls = gitstore.push, []
+
+        def push_after_the_remote_moved(where, branch):
+            if where != self.store:
+                return real(where, branch)
+            calls.append(where)
+            if len(calls) == 1:
+                self.write(other, 'plans/001-p.md')
+                self.publish(other, ['plans/001-p.md'], gitstore.Writer('master'))
+            return real(where, branch)
+
+        self.write(self.store, 'reports/001-x.md')
+        with mock.patch.object(gitstore, 'push', push_after_the_remote_moved):
+            self.publish(
+                self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+            )
+        self.assertEqual(len(calls), 2)
+        self.assertTrue({'reports/001-x.md', 'plans/001-p.md'} <= self.remote_files())
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 0)
+
+    def test_gitstore_a_rejection_that_never_clears_stops_with_the_commit_kept(self):
+        self.write(self.store, 'reports/001-x.md')
+        rejected = gitstore.Push('rejected', '! [rejected]')
+        with mock.patch.dict(os.environ, {'PSTACK_STORE_PUSH_TRIES': '3'}):
+            with mock.patch.object(gitstore, 'push', return_value=rejected) as push:
+                with self.assertRaises(gitstore.PublishFailed):
+                    self.publish(
+                        self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+                    )
+        self.assertEqual(push.call_count, 3)
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 1)
+
+    def test_gitstore_an_old_generation_is_refused_after_a_replacement(self):
+        self.write(self.store, 'reports/001-x.md')
+        self.set_generation(self.store, 'sidekick', 2)
+        self.publish(self.store, ['pair.json'], gitstore.Writer('master'))
+        before = self.remote_commits()
+        with self.assertRaises(gitstore.FencedWriter):
+            self.publish(
+                self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+            )
+        self.assertEqual(self.remote_commits(), before)
+        self.assertNotIn('reports/001-x.md', self.remote_files())
+        self.publish(self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 2))
+        self.assertIn('reports/001-x.md', self.remote_files())
+
+    def test_gitstore_an_old_generation_is_refused_on_the_retry_after_a_rejected_push(
+        self,
+    ):
+        master = self.other_store()
+        real, calls = gitstore.push, []
+
+        def replace_the_sidekick_then_push(where, branch):
+            if where != self.store:
+                return real(where, branch)
+            calls.append(where)
+            if len(calls) == 1:
+                self.set_generation(master, 'sidekick', 2)
+                self.publish(master, ['pair.json'], gitstore.Writer('master'))
+            return real(where, branch)
+
+        self.write(self.store, 'reports/001-x.md')
+        with mock.patch.object(gitstore, 'push', replace_the_sidekick_then_push):
+            with self.assertRaises(gitstore.FencedWriter):
+                self.publish(
+                    self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+                )
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn('reports/001-x.md', self.remote_files())
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 0)
+
+    def test_gitstore_a_crash_after_the_commit_leaves_it_for_the_next_publish(self):
+        self.write(self.store, 'reports/001-x.md')
+        with mock.patch.object(gitstore, 'push', side_effect=RuntimeError('killed')):
+            with self.assertRaises(RuntimeError):
+                self.publish(
+                    self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+                )
+        self.assertFalse(Path(self.store, gitstore.LOCK).exists())
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 1)
+        self.assertNotIn('reports/001-x.md', self.remote_files())
+        self.write(self.store, 'progress/001-x.md')
+        self.publish(self.store, ['progress/001-x.md'], gitstore.Writer('sidekick', 1))
+        self.assertTrue(
+            {'reports/001-x.md', 'progress/001-x.md'} <= self.remote_files()
+        )
+        self.assertEqual(
+            self.publish(self.store, [], gitstore.Writer('sidekick', 1)), ''
+        )
+
+    def test_gitstore_a_push_that_landed_but_lost_its_reply_is_not_repeated(self):
+        real, calls = gitstore.push, []
+
+        def land_then_lose_the_reply(where, branch):
+            calls.append(where)
+            real(where, branch)
+            return gitstore.Push('failed', 'connection reset')
+
+        self.write(self.store, 'reports/001-x.md')
+        before = self.remote_commits()
+        with mock.patch.object(gitstore, 'push', land_then_lose_the_reply):
+            head = self.publish(
+                self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+            )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(head, git.out(self.store, 'rev-parse', 'HEAD'))
+        self.assertEqual(self.remote_commits(), before + 1)
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 0)
+
+    def test_gitstore_a_push_that_never_landed_is_a_failure_that_keeps_the_commit(self):
+        self.write(self.store, 'reports/001-x.md')
+        down = gitstore.Push('failed', 'could not resolve host')
+        with mock.patch.object(gitstore, 'push', return_value=down) as push:
+            with self.assertRaises(gitstore.PublishFailed) as caught:
+                self.publish(
+                    self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+                )
+        self.assertEqual(push.call_count, 1)
+        self.assertIn('could not resolve host', str(caught.exception))
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 1)
+
+    def test_gitstore_refresh_keeps_an_unpublished_commit_on_top_of_the_remote(self):
+        other = self.other_store()
+        self.write(self.store, 'reports/001-x.md')
+        down = gitstore.Push('failed', 'offline')
+        with mock.patch.object(gitstore, 'push', return_value=down):
+            with self.assertRaises(gitstore.PublishFailed):
+                self.publish(
+                    self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+                )
+        self.write(other, 'plans/001-p.md')
+        self.publish(other, ['plans/001-p.md'], gitstore.Writer('master'))
+        self.assertTrue(gitstore.refresh(self.store))
+        self.assertTrue(Path(self.store, 'plans/001-p.md').is_file())
+        self.assertTrue(Path(self.store, 'reports/001-x.md').is_file())
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 1)
+        self.publish(self.store, [], gitstore.Writer('sidekick', 1))
+        self.assertTrue({'reports/001-x.md', 'plans/001-p.md'} <= self.remote_files())
+
+    def test_gitstore_refresh_says_false_when_the_remote_cannot_be_read(self):
+        self.sh(
+            'git',
+            'remote',
+            'set-url',
+            'origin',
+            str(self.path / 'nowhere.git'),
+            cwd=self.store,
+        )
+        self.assertFalse(gitstore.refresh(self.store))
+
+    def test_gitstore_the_master_derives_rotation_from_a_done_report_and_the_sidekick_never_writes_pair_json(
+        self,
+    ):
+        brief = f'{self.store}/briefs/001-x.md'
+        doc = json.loads(Path(self.store, 'pair.json').read_text())
+        doc['dispatch'] = {'brief': brief, 'generation': 1}
+        self.write(self.store, 'pair.json', json.dumps(doc))
+        self.assertFalse(store.rotation_required(self.store))
+        self.write(self.store, 'reports/001-x.md', 'status: partial\n')
+        self.assertFalse(store.rotation_required(self.store))
+        self.write(self.store, 'reports/001-x.md', 'status: done\n')
+        self.assertTrue(store.rotation_required(self.store))
+        store.clear_rotation(self.store)
+        self.assertFalse(store.rotation_required(self.store))
+        doc = json.loads(Path(self.store, 'pair.json').read_text())
+        self.assertNotIn('rotation_required', doc['sidekick'])
+
+    def test_gitstore_a_parked_note_is_printed_once_without_touching_pair_json(self):
+        note = f'{self.store}/notes/001-n1.md'
+        self.write(self.store, 'notes/001-n1.md')
+        doc = json.loads(Path(self.store, 'pair.json').read_text())
+        doc['notice_notes'] = [note]
+        self.write(self.store, 'pair.json', json.dumps(doc))
+        before = Path(self.store, 'pair.json').read_bytes()
+        ctx = Context('pstack-pair', '/x', self.store, 'Pair', (), (), 21, '')
+        self.assertIn(note, store.note_notice(ctx, self.store))
+        self.assertEqual(store.note_notice(ctx, self.store), '')
+        self.assertEqual(Path(self.store, 'pair.json').read_bytes(), before)
+        self.assertEqual(
+            [p for p in os.listdir(f'{self.store}/acks')], ['sidekick-g1.tsv']
+        )
+        self.publish(
+            self.store, ['acks/sidekick-g1.tsv'], gitstore.Writer('sidekick', 1)
+        )
+        self.assertIn('acks/sidekick-g1.tsv', self.remote_files())

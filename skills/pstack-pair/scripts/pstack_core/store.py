@@ -5,7 +5,7 @@ import re
 import time
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from typing import Literal, TypedDict
+from typing import Literal, NamedTuple, TypedDict
 
 from .errors import BadSlug, DamagedStore, LockHeld, MissingStore
 from .numbers import env_float, env_int
@@ -21,14 +21,50 @@ class TextMode(TypedDict):
 TEXT: TextMode = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'}
 
 
+class Revision(NamedTuple):
+    """How a file's age is told. stamp is whole seconds (a modification time; under git a published file's commit time). order sorts files, oldest
+    first: a modification time in ns, and under git the publication order of the commit that last wrote the file. commit and digest identify the
+    content under git and are empty otherwise."""
+
+    stamp: int
+    order: int
+    commit: str = ''
+    digest: str = ''
+
+
+def revisions(paths):
+    """{path: Revision}. A file of a git-backed store is ordered by its commit, never by a modification time, which a pull gives to every file it
+    brings alike; any other file by its modification time (lstat: a link is itself)."""
+    from . import gitstore
+
+    found, grouped = {}, {}
+    for path in paths:
+        root = gitstore.root_of(path)
+        if root is None:
+            st = os.lstat(path)
+            found[path] = Revision(int(st.st_mtime), st.st_mtime_ns)
+        else:
+            grouped.setdefault(root, []).append(path)
+    for root, group in grouped.items():
+        published, changed = gitstore.history(root), gitstore.dirty(root)
+        for path in group:
+            found[path] = Revision(
+                *gitstore.revision_fields(root, path, published, changed)
+            )
+    return found
+
+
+def revision(path):
+    return revisions([path])[path]
+
+
 def newest_first(paths):
-    """The paths by modification time, newest first; two that share a time go by name without its extension (003-x.md before 003-x-s1.md)."""
+    """The paths newest first: by revision, and two that share one go by name without its extension (003-x.md before 003-x-s1.md)."""
+    paths = list(paths)
+    found = revisions(paths)
     return sorted(
         paths,
-        key=lambda p: (
-            -os.lstat(p).st_mtime_ns,
-            os.path.splitext(os.path.basename(p))[0],
-        ),
+        key=lambda p: (-found[p].order, os.path.splitext(os.path.basename(p))[0]),
     )
 
 
@@ -59,7 +95,6 @@ def event(store, actor, name, unit, detail='', dedupe=False):
 
     With dedupe a master wake row identical to the last row in epoch, actor,
     event, unit and detail is not written twice."""
-    log = f'{store}/events.tsv'
     unit = os.path.basename(unit or '-')
     if unit.endswith('.md') and unit != '.md':
         unit = unit[:-3]
@@ -67,6 +102,7 @@ def event(store, actor, name, unit, detail='', dedupe=False):
     epoch = int(now)
     row = f'{epoch}\t{actor}\t{name}\t{unit}\t{detail}'
     try:
+        log = event_log(store, actor)
         if dedupe and actor == 'master' and name == 'wake':
             try:
                 if last_line(log).split('\t', 1)[-1] == row:
@@ -79,6 +115,29 @@ def event(store, actor, name, unit, detail='', dedupe=False):
             f.write(text)
     except OSError:
         pass
+
+
+def event_log(store, actor):
+    """The file an actor's events go to: events.tsv, or under git the actor's own file for its generation, so no two writers share a file."""
+    from . import gitstore
+
+    return (
+        gitstore.event_file(store, actor)
+        if gitstore.is_git(store)
+        else f'{store}/events.tsv'
+    )
+
+
+def events(store):
+    """The event rows of a store as lines, oldest first: events.tsv as it is, or under git the union of the writers' files by epoch, writer and line."""
+    from . import gitstore
+
+    if gitstore.is_git(store):
+        return gitstore.event_rows(store)
+    try:
+        return read_text(f'{store}/events.tsv').splitlines()
+    except OSError:
+        return []
 
 
 def wake(ctx, store, unit, detail):
@@ -369,11 +428,20 @@ def open_steers(store):
 
 
 def note_notice(ctx, store):
-    """The blocking notes parked for a Devin sidekick (.notice_notes), once: each is printed and taken off the list."""
+    """The blocking notes parked for a Devin sidekick (.notice_notes), once: each is printed and taken off the list. Under git the sidekick does
+    not write pair.json, so it records each one it printed in its own acks file, and a note acknowledged there is not printed again."""
+    from . import gitstore
+
     parked = [f for f in names(load(store), 'notice_notes') if os.path.isfile(f)]
+    if gitstore.is_git(store):
+        done = gitstore.acknowledged(store)
+        parked = [f for f in parked if f not in done]
     if not parked:
         return ''
-    update(store, lambda doc: doc.pop('notice_notes', None))
+    if gitstore.is_git(store):
+        gitstore.acknowledge(store, parked)
+    else:
+        update(store, lambda doc: doc.pop('notice_notes', None))
     return ''.join(
         f'NOTE: read {f} now, before your next tool call. Fix each blocking item first, as a fixup commit recorded with '
         f'{ctx.prog} step {store} <sha> <summary> --resolves <n-ids>.\n'
@@ -424,9 +492,10 @@ def _dumps(doc):
     )
 
 
-def acquire_lock(store):
-    """The mkdir lock on pair.json, waited for up to 10 s (PAIR_LOCK_TRIES polls of PAIR_LOCK_POLL_S): its path. The caller removes it."""
-    lock = f'{store}/.pair.lock'
+def acquire_lock(store, name='.pair.lock'):
+    """The mkdir lock on pair.json (or another named one of the store), waited for up to 10 s (PAIR_LOCK_TRIES polls of PAIR_LOCK_POLL_S): its
+    path. The caller removes it."""
+    lock = f'{store}/{name}'
     tries = env_int('PAIR_LOCK_TRIES', 100)
     poll = env_float('PAIR_LOCK_POLL_S', 0.1)
     i = 0
@@ -499,6 +568,42 @@ def update_role(store, role, changes):
         member(doc, role).update(changes)
 
     update(store, mutate)
+
+
+def rotation_required(store):
+    """Whether the sidekick must be replaced before its next task. Under local it is the flag `finish` sets in pair.json. Under git the sidekick
+    cannot write pair.json, so the master derives it: a done report for the current dispatch, written by the generation that took it, and not
+    kept by a rotation (rotation_cleared names the brief it was kept for)."""
+    from . import gitstore
+
+    doc = load(store)
+    sidekick = peek(doc, 'sidekick')
+    if not gitstore.is_git(store):
+        return sidekick.get('rotation_required') is True
+    dispatch = peek(doc, 'dispatch')
+    brief = text_at(dispatch, 'brief')
+    if (
+        not brief
+        or text_at(dispatch, 'generation', '0') != text_at(sidekick, 'generation', '0')
+        or sidekick.get('rotation_cleared') == brief
+    ):
+        return False
+    report = expected_report(store, brief)
+    return os.path.isfile(report) and header_field(report, 'status') == 'done'
+
+
+def clear_rotation(store):
+    """The sidekick keeps its session (or its replacement has started): rotation is no longer required."""
+    from . import gitstore
+
+    if gitstore.is_git(store):
+        update_role(
+            store,
+            'sidekick',
+            {'rotation_cleared': text_at(peek(load(store), 'dispatch'), 'brief')},
+        )
+    else:
+        update_role(store, 'sidekick', {'rotation_required': False})
 
 
 def mark_ready(store, role):

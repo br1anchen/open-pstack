@@ -17,6 +17,7 @@ from .store import (
     names,
     peek,
     read_text,
+    revision,
     suffix_number,
     unit_name,
     update,
@@ -24,8 +25,8 @@ from .store import (
 
 
 def file_mtime(path):
-    """stat -c %Y: whole seconds, of a symlink itself (stat does not follow it)."""
-    return int(os.lstat(path).st_mtime)
+    """stat -c %Y: whole seconds, of a symlink itself (stat does not follow it); under a git-backed store, the commit time of a published file."""
+    return revision(path).stamp
 
 
 def latest_report(store, want=''):

@@ -27,6 +27,7 @@ from .store import (
     pair_file,
     read,
     read_text,
+    revision,
     update,
     wake,
     who,
@@ -47,10 +48,7 @@ def plan_answer(store, role, seq, plan):
     if (
         found
         and os.path.exists(found)
-        and (
-            not os.path.exists(plan)
-            or os.stat(found).st_mtime_ns > os.stat(plan).st_mtime_ns
-        )
+        and (not os.path.exists(plan) or revision(found).order > revision(plan).order)
     ):
         return found
     return ''

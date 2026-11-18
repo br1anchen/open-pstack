@@ -7,7 +7,7 @@ import sys
 import time
 from dataclasses import dataclass
 
-from .. import git, mux
+from .. import git, gitstore, mux
 from ..argv import Spec, read
 from ..errors import Die, Exit, FileFailed, PathFailed, reason
 from ..panes import require_mux
@@ -167,17 +167,37 @@ def init_request(ctx, args):
     return InitRequest(slug, store, pane)
 
 
+def publish_first(ctx, store):
+    """The first publication of a git-backed store: what init wrote, in one commit by the master."""
+    first = [
+        'pair.json',
+        'standing-orders.md',
+        'gates.md',
+        'decisions.tsv',
+        os.path.relpath(gitstore.event_file(store, 'master'), store),
+    ]
+    try:
+        gitstore.publish(store, first, 'kitchen: init', gitstore.Writer('master'))
+    except gitstore.PublishFailed as e:
+        sys.stderr.write(f'{ctx.prog}: warning: {e}\n')
+
+
 def init_store(ctx, request, out=None):
     """Creates or re-registers the store and returns where it is. The lines the command prints go to `out` (default: standard output) as they are
     produced; what goes wrong is said on stderr or raised."""
     write = sys.stdout.write if out is None else out
     slug, store, pane = request.slug, request.store, request.pane
+    cwd, root = logical_cwd(), git.toplevel()
+    root = root or jj_git_worktree(cwd, write)
+    on_git = os.environ.get('PSTACK_STORE') == 'git' and not os.path.isfile(
+        f'{store}/pair.json'
+    )
+    if on_git:
+        gitstore.create(store, root, f'{gitstore.BRANCH_PREFIX}{slug}')
     for d in ctx.store_dirs:
         make_dir(f'{store}/{d}')
     master = f'{slug}-master'
     now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-    cwd, root = logical_cwd(), git.toplevel()
-    root = root or jj_git_worktree(cwd, write)
     workspace, tab = mux.get().location()
     # The pane variable can be stale: Codex runs every session's commands through one shared app-server daemon, which keeps the pane it was
     # started in.
@@ -218,6 +238,11 @@ def init_store(ctx, request, out=None):
         # Under Amp threads the run's first master thread anchors the thread tree (nest).
         if anchor := mux.get().own_thread():
             doc['anchor'] = {'thread': anchor}
+        if on_git:
+            doc['store_backend'] = {
+                'backend': 'git',
+                'branch': f'{gitstore.BRANCH_PREFIX}{slug}',
+            }
         write_new(f'{store}/pair.json', _dumps(doc))
         write(f'store: {store} (master {master} in {pane})\n')
     event(store, 'master', 'init', '-', ctx.skill)
@@ -230,6 +255,8 @@ def init_store(ctx, request, out=None):
     if not os.path.isfile(f'{store}/decisions.tsv'):
         write_new(f'{store}/decisions.tsv', DECISIONS)
     write(f'standing orders: {orders}\n')
+    if on_git:
+        publish_first(ctx, store)
     return InitResult(store, orders)
 
 

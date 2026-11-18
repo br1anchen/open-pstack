@@ -1,7 +1,7 @@
 import hashlib
 import os
 
-from .. import mux, procinfo
+from .. import gitstore, mux, procinfo
 from ..errors import Die, MissingStore, refuse_as
 from ..mux import DEVNULL
 from ..panes import agent_status, require_mux
@@ -14,6 +14,7 @@ from ..store import (
     member,
     open_steers,
     peek,
+    rotation_required,
     steer_number,
     text_at,
     unit_name,
@@ -180,13 +181,16 @@ def finish(ctx, args):
         and report == expected_report(store, current)
         and text_at(dispatch, 'generation', '0') == generation
     ):
-        if sidekick.get('rotation_required') is not True:
-            update(
-                store,
-                lambda doc: member(doc, 'sidekick').__setitem__(
-                    'rotation_required', True
-                ),
-            )
+        # Under git the master derives the fact from this report (rotation_required), so the sidekick writes only its event.
+        on_git = gitstore.is_git(store)
+        if on_git or sidekick.get('rotation_required') is not True:
+            if not on_git:
+                update(
+                    store,
+                    lambda doc: member(doc, 'sidekick').__setitem__(
+                        'rotation_required', True
+                    ),
+                )
             event(
                 store,
                 'sidekick',
@@ -204,7 +208,7 @@ def finish(ctx, args):
                 'and the master folds it into the next brief'
             )
     pair = load(store)
-    if status == 'done' and peek(pair, 'sidekick').get('rotation_required') is True:
+    if status == 'done' and rotation_required(store):
         print(
             f'rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate {store}'
         )

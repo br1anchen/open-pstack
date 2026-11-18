@@ -37,6 +37,8 @@ from .store import (
     member,
     names,
     peek,
+    revision,
+    rotation_required,
     settle_ready,
     text_at,
     update,
@@ -88,16 +90,13 @@ def require_fresh_session(store):
     # READY aside, so one present belongs to the live generation.
     if (
         sidekick.get('bootstrap_pending') is True
-        and sidekick.get('rotation_required') is not True
+        and not rotation_required(store)
         and os.path.isfile(f'{store}/reports/000-ready.md')
         and agent_status(text_at(sidekick, 'name')) != 'absent'
     ):
         settle_ready(store, 'sidekick')
         return
-    if (
-        sidekick.get('rotation_required') is True
-        or sidekick.get('bootstrap_pending') is True
-    ):
+    if rotation_required(store) or sidekick.get('bootstrap_pending') is True:
         raise FreshSessionRequired(
             f'the {kind} sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate '
             f'{store} after a completed task. The queue is preserved.'
@@ -234,7 +233,7 @@ def fresh_kind(kind):
 def record_dispatch(store, brief, now=None):
     """The dispatch record: .dispatch (with .sidekick.generation), .sent (with .sent.seen when a report already exists), the unit's base head, and the pending list."""
     old = expected_report(store, brief)
-    seen = f'{old}:{int(os.stat(old).st_mtime)}' if os.path.isfile(old) else ''
+    seen = f'{old}:{revision(old).stamp}' if os.path.isfile(old) else ''
     pair = load(store)
     cwd = text_at(pair, 'cwd')
     head = (

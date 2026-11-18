@@ -29,6 +29,7 @@ from ..spawn import (
     start_chain,
 )
 from ..store import (
+    clear_rotation,
     count,
     event,
     expected_report,
@@ -40,8 +41,8 @@ from ..store import (
     peek,
     read_flag,
     risk_of,
+    rotation_required,
     text_at,
-    update_role,
     who,
 )
 from ..wait import end_with_parent
@@ -59,7 +60,7 @@ def rotate(ctx, args):
     require_not_paused(store)
     kind = field(store, 'sidekick', 'kind')
     sidekick = peek(load(store), 'sidekick')
-    if sidekick.get('rotation_required') is not True:
+    if not rotation_required(store):
         raise Die(
             'rotation requires a completed task; partial or blocked work keeps its session',
             5,
@@ -295,14 +296,14 @@ def rotate_if_due(ctx, store, what, brief=''):
     if not os.path.isfile(f'{store}/pair.json'):
         return
     archive_retired(ctx, store, f'a {what} is being sent')
-    if read_flag(store, 'sidekick.rotation_required') is not True:
+    if not rotation_required(store):
         return
     if read_flag(store, 'sidekick.bootstrap_pending') is True:
         return
     failed_over = count(peek(load(store), 'sidekick'), 'chain_index') > 0
     kept = '' if failed_over else keeps_session(store, brief) if what == 'brief' else ''
     if kept:
-        update_role(store, 'sidekick', {'rotation_required': False})
+        clear_rotation(store)
         event(store, 'sidekick', 'reuse', brief, kept)
         sys.stdout.write(
             f'kept: the {field(store, "sidekick", "kind")} sidekick keeps its session for this routine unit ({kept})\n'
@@ -326,7 +327,7 @@ def rotate_if_due(ctx, store, what, brief=''):
             said.write(text)
     if code == 4 and not mux.get().waits:
         # The new thread bootstraps on its own after rotate returns: this was a fresh session, and its READY settles the bootstrap.
-        update_role(store, 'sidekick', {'rotation_required': False})
+        clear_rotation(store)
         sys.stderr.write(
             f'{said.getvalue()}rotated: a new sidekick thread is starting; {f"run dispatch {brief}" if brief else "send the plan"} again after its READY\n'
         )

@@ -5,6 +5,7 @@ import sys
 import time
 from dataclasses import dataclass
 
+from .. import gitstore
 from ..errors import Die, reason
 from ..numbers import env_int
 from ..store import read_text
@@ -53,6 +54,11 @@ def parse_events(log):
         rows.pop()
     if rows and rows[0].startswith('ts\t'):
         rows = rows[1:]
+    return [e for e in map(parse_event, rows) if e]
+
+
+def parse_rows(rows):
+    """The events in rows already read, for a git-backed store whose events are the union of its writers' files."""
     return [e for e in map(parse_event, rows) if e]
 
 
@@ -307,12 +313,17 @@ def run(ctx, args):
         raise Die(f'usage: {ctx.prog} metrics <store>')
     store = args[0]
     log = f'{store}/events.tsv'
-    if not (os.path.exists(log) and os.stat(log).st_size > 0):
+    rows = gitstore.event_rows(store) if gitstore.is_git(store) else None
+    if rows is None and not (os.path.exists(log) and os.stat(log).st_size > 0):
         raise Die(f'no events.tsv in {store}; it is written from the first command on')
+    if rows is not None and not rows:
+        raise Die(f'no events in {store}; they are written from the first command on')
     metrics = Metrics(env_int('PAIR_METRICS_NOW', int(time.time())))
     # A directory in place of the log is skipped with a warning and counts nothing; a log that cannot be read ends with exit 2.
     events = []
-    if os.path.isdir(log):
+    if rows is not None:
+        events = parse_rows(rows)
+    elif os.path.isdir(log):
         sys.stderr.write(f'{ctx.prog}: warning: {log} is a directory: skipped\n')
     else:
         try:
