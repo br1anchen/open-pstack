@@ -190,6 +190,24 @@ args = ["--model", "anthropic/claude-opus-5-5", "--orb-size", "a1.large"]
   commits, moves a clean checkout to the sender's HEAD when that loses no
   commit, and adds the scratch worktrees. Files over 1 MiB, locks and pid
   files stay home.
+- A role gets its setup once. Its first message (the bootstrap at spawn or
+  rotation) carries the build, the line that installs it and the full rules for
+  sending files back to the master; a later message to the same thread carries
+  the store bundle, the sync line and a one-line send-back rule, and attaches
+  the build again only when the master's build changed. A role whose thread
+  compacted since the last message gets that message headed by `You compacted
+  since the last message. Re-read ~/.agents/skills/<skill>/SKILL.md (your
+  role: <role>), the store <store> (standing-orders.md, pair.json), and the
+  file this message names before you act.` and the full send-back rules again.
+  A role on `--mode claude-code` may not load Amp skills, so its bootstrap says
+  `Read the file ~/.agents/skills/<skill>/SKILL.md` where others say `Load the
+  <skill> skill`. A kept sidekick session also reads a brief's `## Playbook:`
+  and `## Report` sections once: when the session has received them already
+  and they are unchanged, a later brief holds `Unchanged from briefs/<NNN-slug>.md,
+  which this session already read; reread it there.` in their place, and a new
+  generation (a spawn, a rotation or a failover), a changed composition or a
+  compaction since gives them in full again (`.sidekick.delivered` in
+  `pair.json` records what was delivered, to which generation).
 - Nothing waits. `spawn`, `dispatch`, `discuss`, `consult` and `verify` send
   and return (exit 4 while the answer is not on file); end your turn. A
   role's `finish` or `notify` messages the master's thread with its own

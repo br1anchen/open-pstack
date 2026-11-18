@@ -51,6 +51,13 @@ differ:
   `Pending reads`: run its `kitchen.sh playbook-part <store> <NNN> sidekick
   <part-id>` (it prints the stored text and where it came from, never the live
   source) and read it before you act on that part.
+- **A section that says `Unchanged from briefs/<NNN-slug>.md` is the one you
+  already read.** In a kept Amp session a brief's `## Playbook:` or `## Report`
+  section may be that single line: open the named brief and read the section
+  there. A message that starts `You compacted since the last message` means your
+  earlier reading is gone: re-read the skill file, the store's
+  `standing-orders.md` and `pair.json`, and the file the message names, before
+  you act.
 - **Policy rules are the repo's.** A forbid finding names what to use
   instead; use it. Opting a line out (`kitchen-allow: <id>` with the reason)
   is for a case the rule did not foresee, and the master reads every one.

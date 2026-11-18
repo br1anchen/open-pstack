@@ -80,7 +80,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `send_thread_message` to the thread with the text of the message file the
    third line names, then `kitchen.sh relay-done <store> <id>`. A
    `relay-pending:` line in `kitchen.sh status` is a relay you have not
-   finished; the sidekick reads nothing until you send it. When you work outside the kitchen in your own
+   finished; the sidekick reads nothing until you send it. Under Amp threads a kept sidekick session
+   gets a brief's playbook and report sections as a pointer to the brief that
+   carried them (`Unchanged from briefs/...`); there is nothing to do about it,
+   and a rotation, a changed composition or a compaction brings them back in
+   full. When you work outside the kitchen in your own
    session (another branch, a prototype, a question for the human), leave a
    `kitchen.sh wait <store>` running in the background so a report or a step is
    not left waiting for you; in lichess-token-1083, steps sat 13 min unread
