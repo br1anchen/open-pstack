@@ -15010,6 +15010,143 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn(f'archived {verifier} (verifier): its verdict is recorded', out)
         self.assertEqual((self.fake / 'amp-archived').read_text(), f'{verifier}\n')
 
+    def sync_notified(self, thread, path):
+        """The role's thread sends `path` to the master with notify and the master syncs that message's bundle: how a READY, a report or a
+        verdict reaches the master's store (and its registry) in production."""
+        self.as_thread(thread, 'notify', str(self.store), str(path))
+        bundles = (self.fake / 'amp-threads' / AMP_MASTER).glob(
+            '*-pstack-demo-master.tgz'
+        )
+        newest = max(bundles, key=lambda p: int(p.name.split('-', 1)[0]))
+        return self.run_sh('sync', str(newest))
+
+    def assert_archived_and_logged(self, thread, role):
+        self.assertIn(thread, (self.fake / 'amp-archived').read_text().split())
+        self.assertTrue(
+            [r for r in self.decisions() if f'\tarchive {role} {thread}\t' in r]
+        )
+        self.assertIn(
+            f'\tmaster\tarchive\t-\t{role}:{thread}\n',
+            (self.store / 'events.tsv').read_text(),
+        )
+
+    def test_a_rotated_sidekick_whose_replies_reached_the_master_by_sync_is_archived(
+        self,
+    ):
+        old, new = amp_thread(1), amp_thread(2)
+        ready = self.store / 'reports/000-ready.md'
+        self.sync_notified(old, ready)
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.sync_notified(old, self.store / 'reports/001-one.md')
+        self.set_state(old, 'idle', '2999-01-01T00:00:00.000Z')
+        b = self.brief('002', 'guide', ['docs/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(b), code=4)
+        ready.write_text('status: done\n')
+        self.sync_notified(new, ready)
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn(f'archived {old} (sidekick)', out)
+        self.assert_archived_and_logged(old, 'sidekick')
+
+    def test_a_closed_consultant_whose_ready_reached_the_master_by_sync_is_archived(
+        self,
+    ):
+        out = self.run_sh(
+            'consultant',
+            str(self.store),
+            '--reason',
+            'contract',
+            '--kind',
+            'amp',
+            '--',
+            '--model',
+            'c/one',
+            code=4,
+        )
+        consultant = amp_thread(2)
+        self.assertIn(f'demo-consultant ({consultant})', out)
+        ready = self.store / 'advice/000-ready.md'
+        ready.write_text('status: done\n')
+        self.sync_notified(consultant, ready)
+        self.set_state(consultant, 'idle', '2999-01-01T00:00:00.000Z')
+        self.set_state(amp_thread(1), 'idle', '2999-01-01T00:00:00.000Z')
+        out = self.run_sh('close', str(self.store), '--force', code=None)
+        self.assertIn(f'archived {consultant} (consultant)', out)
+        self.assert_archived_and_logged(consultant, 'consultant')
+
+    def test_a_verifier_whose_verdict_reached_the_master_by_sync_is_archived(self):
+        self.verify_started('001')
+        verifier = amp_thread(2)
+        verdict = self.store / 'verdicts/001-util-v1.md'
+        verdict.write_text('# Verdict\n\nstatus: clean\nunits: 001-util\n')
+        self.sync_notified(verifier, verdict)
+        self.set_state(verifier, 'idle', '2999-01-01T00:00:00.000Z')
+        out = self.run_sh('verify', str(self.store), '--wait', code=None)
+        self.assertIn(f'archived {verifier} (verifier)', out)
+        self.assert_archived_and_logged(verifier, 'verifier')
+        out = self.run_sh('threads', str(self.store))
+        self.assertNotRegex(out, rf'(?m)^{verifier}  verifier  \S+  in use$')
+
+    REGISTRY_WRITES = {
+        'a start that claims the pane or name of a live entry': (
+            "Amp().start('demo-verifier', 'amp', 'amp:2', ['--model', 'm/x'])"
+        ),
+        'a pane closed with its agent still in the registry': (
+            "Amp().pane_close('amp:2')"
+        ),
+        'a rename onto a name another thread holds': (
+            "Amp().rename('amp:3', 'demo-verifier')"
+        ),
+    }
+
+    def test_every_registry_write_that_drops_a_thread_retires_it_for_its_store(self):
+        reg = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp'
+        old = amp_thread(7)
+        for why, call in self.REGISTRY_WRITES.items():
+            with self.subTest(why):
+                (reg / 'threads.json').unlink(missing_ok=True)
+                entry = {'kind': 'amp', 'args': [], 'store': str(self.store)}
+                (reg / 'registry.json').write_text(
+                    json.dumps(
+                        {
+                            'next': 4,
+                            'panes': ['amp:2', 'amp:3'],
+                            'agents': {
+                                'demo-verifier': {
+                                    **entry,
+                                    'pane': 'amp:2',
+                                    'thread': old,
+                                },
+                                'demo-helper': {
+                                    **entry,
+                                    'pane': 'amp:3',
+                                    'thread': amp_thread(8),
+                                },
+                            },
+                        }
+                    )
+                )
+                code = (
+                    'import sys\n'
+                    f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+                    'from pstack_core.mux.amp import Amp\n'
+                    f'{call}\n'
+                )
+                subprocess.run(
+                    [sys.executable, '-I', '-c', code],
+                    env={**self.env, 'AMP_THREAD_ID': AMP_MASTER},
+                    check=True,
+                    timeout=60,
+                )
+                retired = json.loads((reg / 'threads.json').read_text())
+                self.assertEqual(
+                    {k: retired[old][k] for k in ('name', 'role', 'store')},
+                    {
+                        'name': 'demo-verifier',
+                        'role': 'verifier',
+                        'store': os.path.realpath(self.store),
+                    },
+                )
+
     def test_the_old_master_thread_is_archived_by_take_master_and_not_before(self):
         self.filled_handoff()
         self.run_sh('rotate-master', str(self.store))

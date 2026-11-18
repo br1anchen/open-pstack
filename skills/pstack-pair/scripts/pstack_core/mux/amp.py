@@ -25,6 +25,7 @@ from .. import bundle, git
 from ..argv import Spec, read
 from ..numbers import env_int
 from ..store import TEXT
+from . import subagents
 from .base import DEVNULL, PIPE, Agent, Reply, ThreadRow
 from .subagents import EXITS, NOT_FOUND, Subagents, change, load
 
@@ -616,13 +617,11 @@ class Amp(Subagents):
         )
 
     def end(self, name):
-        """The role's thread is done: its name leaves the registry, so its next prompt starts a fresh thread, and the thread is retired: it is
-        archived by a later sweep, once archivable says it is safe (retire)."""
+        """The role's thread is done: its name leaves the registry, so its next prompt starts a fresh thread, and the thread is retired (as every
+        registry write that drops a thread retires it, retire_lost): it is archived by a later sweep, once archivable says it is safe."""
         found = self.entry(name)
-        if found is None:
-            return
-        self.retire(found[1].get('thread') or '', found[0])
-        change(lambda doc: doc['agents'].pop(found[0], None), self.path())
+        if found is not None:
+            change(lambda doc: doc['agents'].pop(found[0], None), self.path())
 
     def remember_store(self, name, store):
         """The registry's store is the last one sent to, and the role's entry remembers the run it works for, so that retiring its thread later is
@@ -637,7 +636,8 @@ class Amp(Subagents):
 
     def retire(self, thread, name, store=''):
         if thread and thread != own_thread():
-            store = store or (self.entry(name) or (name, {}))[1].get('store') or ''
+            found = self.entry(name) or (name, {})
+            store = store or found[1].get('store') or load(self.path()).get('store')
             record_thread(
                 thread,
                 {
@@ -1101,3 +1101,14 @@ class Amp(Subagents):
 
     def list_kinds(self):
         return 'amp (any model: pass --model provider/name in the role arguments)'
+
+
+def retire_lost(path, lost, store):
+    """A write of this backend's registry dropped these entries' threads: each is retired for the run its entry worked for (else the
+    registry's), so the master's sweep archives it once that is safe, whichever command made the write."""
+    if path == registry_path():
+        for name, entry in lost:
+            Amp().retire(entry['thread'], name, entry.get('store') or store)
+
+
+subagents.on_threads_lost = retire_lost

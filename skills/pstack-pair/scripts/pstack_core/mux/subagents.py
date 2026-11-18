@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import sys
+from collections.abc import Callable
 
 from .. import procinfo
 from .base import DEVNULL, PIPE, Agent, Mux, Reply
@@ -75,7 +76,7 @@ def inbox(name):
 
 def load(path=None):
     """{'next': the next pane number, 'agents': {name: {'pane', 'kind', ...}}, 'panes': [ids]} of the registry at path (by default, this
-    backend's)."""
+    backend's), and its 'store' (the run the last send was for) when it has one."""
     try:
         with open(path or registry_path(), encoding='utf-8') as f:
             doc = json.load(f)
@@ -88,7 +89,9 @@ def load(path=None):
     panes = panes if isinstance(panes, list) else []
     nxt = doc.get('next')
     nxt = nxt if isinstance(nxt, int) else 1
+    store = doc.get('store')
     return {
+        **({'store': store} if isinstance(store, str) and store else {}),
         'next': nxt,
         'agents': {
             k: v
@@ -99,6 +102,11 @@ def load(path=None):
     }
 
 
+# Called with (path, lost) after a registry write dropped agent entries or moved them to another thread: lost is [(name, entry)] of each entry
+# whose thread no entry holds any more. The Amp backend sets it, so a thread that leaves its registry is retired wherever the write came from.
+on_threads_lost: Callable[[str, list, str], None] | None = None
+
+
 def change(apply, path=None):
     """Applies apply(doc) to the registry at path (by default, this backend's) under its lock; apply's value."""
     path = path or registry_path()
@@ -106,10 +114,20 @@ def change(apply, path=None):
     with open(f'{path}.lock', 'w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         doc = load(path)
+        before = {n: dict(e) for n, e in doc['agents'].items()}
         value = apply(doc)
         with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
             json.dump(doc, f, indent=1, sort_keys=True)
         os.replace(f'{path}.tmp', path)
+        kept = {e.get('thread') for e in doc['agents'].values()}
+        lost = [
+            (n, e)
+            for n, e in before.items()
+            if e.get('thread') and e['thread'] not in kept
+        ]
+        store = doc.get('store') or ''
+    if lost and on_threads_lost is not None:
+        on_threads_lost(path, lost, store)
     return value
 
 

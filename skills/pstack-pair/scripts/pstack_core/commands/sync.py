@@ -60,6 +60,7 @@ def learn(manifest):
                     'kind': entry.get('kind') or kept.get('kind') or '',
                     'args': kept.get('args') or [],
                     'thread': entry.get('thread') or kept.get('thread') or '',
+                    **({'store': kept['store']} if kept.get('store') else {}),
                 }
             if entry['pane'] not in doc['panes']:
                 doc['panes'].append(entry['pane'])
