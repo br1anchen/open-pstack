@@ -302,10 +302,11 @@ def supersedes(current, thread):
 
 def repo_filter(url):
     """`host/owner/name` of a git remote URL, for amp's `repo:` search filter, whatever its form: https with credentials, ssh://, scp-like
-    `git@host:owner/name`, with or without `.git`. '' for a remote that has no host (a local path)."""
-    scp = re.fullmatch(r'(?:[^@/\s]+@)?([^:/\s]+):(?!//)(.+)', url.strip())
+    `git@host:owner/name`, with or without `.git`. '' for no remote, or one that has no host (a local path)."""
+    url = (url or '').strip()
+    scp = re.fullmatch(r'(?:[^@/\s]+@)?([^:/\s]+):(?!//)(.+)', url)
     full = re.fullmatch(
-        r'[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)(?::[0-9]+)?/(.+)', url.strip()
+        r'[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)(?::[0-9]+)?/(.+)', url
     )
     found = full or scp
     if not found:

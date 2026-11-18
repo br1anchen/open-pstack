@@ -15261,6 +15261,7 @@ class AmpKitchenTests(KitchenScriptTests):
             'github.com:owner/repo': 'github.com/owner/repo',
             'https://github.com/owner/repo': 'github.com/owner/repo',
             '/srv/git/repo.git': '',
+            '': '',
         }
         code = (
             'import json, sys\n'
