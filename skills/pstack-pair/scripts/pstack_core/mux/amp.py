@@ -773,7 +773,9 @@ class Amp(Subagents):
             for thread, role in found.items()
             if not (known.get(thread) or {}).get('archived')
         ]
-        return rows + ([] if retired_only else unscoped)
+        return rows + (
+            [] if retired_only else [u for u in unscoped if u.thread not in found]
+        )
 
     def register(self, thread, role, store):
         """Records thread as a helper of the run at `store`; a thread recorded for another run is refused."""

@@ -14937,6 +14937,23 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn(f'kept {unknown}: state unknown', out)
         self.assertFalse(archived.exists())
 
+    def test_a_thread_with_no_store_that_the_store_names_is_listed_and_archived_once(
+        self,
+    ):
+        named = amp_thread(11)
+        self.retire_threads({named: {'name': 'demo-sidekick', 'role': 'sidekick'}})
+        pair = self.state()
+        pair['sidekick_threads'] = {'amp m/one': [named]}
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        self.set_state(named, 'idle', '2999-01-01T00:00:00.000Z')
+        out = self.merged('threads', str(self.store))
+        self.assertEqual(len(re.findall(rf'(?m)^{named}  ', out)), 1)
+        self.assertRegex(out, rf'(?m)^{named}  sidekick  idle  archivable$')
+        out = self.merged('threads', str(self.store), '--archive')
+        self.assertEqual(out.count(f'archived {named} '), 1)
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{named}\n')
+        self.assertRegex(self.last_line(out), r'^archive: 1 archived, 0 kept, ')
+
     def test_a_sweep_archives_only_the_threads_of_its_own_store_and_never_one_with_no_store(
         self,
     ):
