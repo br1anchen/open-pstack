@@ -14916,6 +14916,18 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(self.state()['master']['pane_id'], f'amp:{master2}')
         self.assertNotIn('previous', self.state()['master'])
 
+    def test_take_master_from_another_thread_than_the_masters_pane_is_refused(self):
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        self.assertEqual(self.state()['master']['pane_id'], f'amp:{master2}')
+        out = self.as_thread(amp_thread(1), 'take-master', str(self.store), code=5)
+        self.assertIn(
+            f"take-master runs from the new master's pane amp:{master2}, not amp:{amp_thread(1)}",
+            out,
+        )
+        self.assertEqual(self.state()['master']['previous']['name'], 'demo-master')
+
     def test_take_master_records_the_masters_thread_as_its_pane_in_every_orb(self):
         """The next master's pane is its thread's, whatever counter pane an orb's registry gave it, so the next role started there gets another."""
         self.filled_handoff()

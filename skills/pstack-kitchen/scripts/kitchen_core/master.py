@@ -566,6 +566,36 @@ def own_master_pane():
     return m.own_pane()
 
 
+def adopt_thread_pane(store, pane, here):
+    """(pane, adopted) the new master of a thread hand-over holds. Its bundle was packed when its thread started, before the old master recorded that thread's
+    pane, so the store it synced may still hold the counter pane the next master had until then (the counter of the old master's orb). Only the thread the
+    hand-over prompt went to runs take-master with a hand-over open, so a counter pane is that thread's to take: it is recorded as the thread's own pane. The pane
+    of another thread is left, and refuses the caller."""
+    m = mux.get()
+    if (
+        not m.master_threads
+        or not m.own_thread()
+        or pane == here
+        or m.thread_of_pane(pane)
+    ):
+        return pane, False
+    update(store, lambda doc: member(doc, 'master').__setitem__('pane_id', here))
+    return here, True
+
+
+def new_session_takes_run(store, here, pane):
+    """With no multiplexer the next master is a new session, in a pane of its own: one in the run's checkout takes the run where it is. A master that
+    is a thread is placed by its thread, never by where it runs."""
+    m = mux.get()
+    return (
+        not m.starts_master
+        and not m.master_threads
+        and here != pane
+        and bool(read(store, 'cwd'))
+        and os.path.realpath(os.getcwd()) == os.path.realpath(read(store, 'cwd'))
+    )
+
+
 def take_master(ctx, args):
     require_mux()
     if len(args) != 1:
@@ -579,13 +609,8 @@ def take_master(ctx, args):
         sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
         return 0
     here = own_master_pane()
-    # With no multiplexer the next master is a new session, in a pane of its own: one in the run's checkout takes the run where it is.
-    moved = (
-        not mux.get().starts_master
-        and here != pane
-        and bool(read(store, 'cwd'))
-        and os.path.realpath(os.getcwd()) == os.path.realpath(read(store, 'cwd'))
-    )
+    pane, adopted = adopt_thread_pane(store, pane, here)
+    moved = new_session_takes_run(store, here, pane)
     if moved:
         update(store, lambda doc: member(doc, 'master').__setitem__('pane_id', here))
         pane = here
@@ -612,7 +637,7 @@ def take_master(ctx, args):
         if m.pane_close(prev_pane):
             closed = 'closed'
     base = f'{read(store, "slug")}-master'
-    if (name != base or moved) and m.rename(pane, base):
+    if (name != base or moved or adopted) and m.rename(pane, base):
         name = base
 
     def mutate(doc):
