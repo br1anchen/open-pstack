@@ -15155,6 +15155,69 @@ class AmpKitchenTests(KitchenScriptTests):
     def briefs_in(self, thread):
         return [m for m in self.thread_messages(thread) if 'pstack-kitchen BRIEF' in m]
 
+    def relays_dir(self):
+        return Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/relays'
+
+    def relay_of(self, text, name='demo-sidekick'):
+        """(the record, how) of Amp.relay for the run's store, as the master's own thread asks it; (None, '') when there is nothing to relay with."""
+        code = (
+            'import json, sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core.mux import amp\n'
+            f'print(json.dumps(amp.Amp().relay({name!r}, {text!r}, {str(self.store)!r})))\n'
+        )
+        out = subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout.strip()
+        return json.loads(out.splitlines()[-1])
+
+    def test_a_relay_is_a_record_and_a_bundle_under_git_and_the_same_text_is_relayed_once(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.set_state(sidekick, 'tool_use')
+        record, how = self.relay_of('STEER one')
+        self.assertEqual(how, 'made')
+        rid = record['id']
+        self.assertEqual(
+            (record['state'], record['name'], record['thread'], record['store']),
+            ('relay-pending', 'demo-sidekick', sidekick, str(self.store)),
+        )
+        self.assertEqual(record['upload_to'], f'.git/pstack-relay-{rid}.tgz')
+        bundle = self.repo / '.git/pstack-relay' / f'{rid}.tgz'
+        self.assertEqual(record['bundle'], str(bundle))
+        self.assertTrue(bundle.is_file())
+        message = Path(record['message']).read_text()
+        self.assertEqual(Path(record['message']), self.relays_dir() / f'{rid}.md')
+        self.assertTrue(message.startswith('STEER one\n\npstack: before you act'))
+        self.assertIn(
+            f'`PSTACK_MUX=amp ~/.agents/skills/pstack-pair/scripts/pair.sh sync {self.repo}/.git/pstack-relay-{rid}.tgz`',
+            message,
+        )
+        self.assertTrue(message.endswith(f'pstack-msg: {rid}'))
+        self.assertEqual(
+            json.loads((self.relays_dir() / f'{rid}.json').read_text()), record
+        )
+        # Nothing went through the CLI, and the same text is not relayed twice while it waits.
+        self.assertEqual(self.thread_messages(sidekick)[1:], [])
+        self.assertEqual(self.relay_of('STEER one'), [record, 'pending'])
+        self.assertEqual(len(list(self.relays_dir().glob('*.json'))), 1)
+        # Once the master has sent it, the same text waits for the thread's next turn end; a new text is its own relay.
+        done = {**record, 'state': 'relay-done', 'done_at': 1790000000}
+        (self.relays_dir() / f'{rid}.json').write_text(json.dumps(done))
+        self.set_state(sidekick, 'tool_use', '2026-11-18T00:00:00.000Z')
+        self.assertEqual(self.relay_of('STEER one'), [done, 'delivered'])
+        self.assertEqual(self.relay_of('STEER two')[1], 'made')
+        self.set_state(sidekick, 'idle', '2999-01-01T00:00:00.000Z')
+        again, how = self.relay_of('STEER one')
+        self.assertEqual(how, 'made')
+        self.assertNotEqual(again['id'], rid)
+
     def test_a_thread_in_a_turn_is_working_and_a_brief_is_not_queued_behind_it(self):
         sidekick = amp_thread(1)
         self.set_state(sidekick, 'tool_use')

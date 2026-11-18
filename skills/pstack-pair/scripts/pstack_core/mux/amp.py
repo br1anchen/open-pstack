@@ -78,6 +78,34 @@ def outbox_path():
     return os.path.join(state_dir(), 'outbox.json')
 
 
+def relays_dir():
+    """The steers handed to the master to send: relays/<id>.json is each record, relays/<id>.md the message the master sends."""
+    return os.path.join(state_dir(), 'relays')
+
+
+# The most upload_thread_file takes.
+RELAY_LIMIT = 4 * 1024 * 1024
+PENDING, DONE = 'relay-pending', 'relay-done'
+
+
+def relay_records(store=None):
+    """The relay records (of one store), newest first."""
+    found = []
+    directory = relays_dir()
+    for name in sorted(os.listdir(directory)) if os.path.isdir(directory) else []:
+        doc = load_json(os.path.join(directory, name)) if name.endswith('.json') else {}
+        if doc.get('id') and (store is None or doc.get('store') == store):
+            found.append(doc)
+    return sorted(found, key=lambda doc: int(doc.get('at') or 0), reverse=True)
+
+
+def write_relay(record):
+    path = os.path.join(relays_dir(), f'{record["id"]}.json')
+    with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
+        json.dump(record, f, indent=1, sort_keys=True)
+    os.replace(f'{path}.tmp', path)
+
+
 # The error the CLI prints when a bundle's upload breaks off; the message may or may not have gone out.
 UPLOAD_FAILED = 'Attachment upload did not complete'
 # How a message names itself, so a retry can tell it already reached the thread.
@@ -245,6 +273,8 @@ class Amp(Subagents):
     skipped = ''
     # `amp threads continue -ox` queues a message behind a running turn; the CLI has no way to steer one.
     steers_running = False
+    # A steer for a thread in a turn is handed to the master to send with its own tools (relay).
+    relays = True
 
     def path(self):
         return registry_path()
@@ -506,10 +536,83 @@ class Amp(Subagents):
         sent = load_json(outbox_path()).get(thread)
         if not isinstance(sent, dict) or sent.get('hash') != digest:
             return False
+        return self.in_turn_since(thread, int(sent.get('at') or 0))
+
+    def in_turn_since(self, thread, at):
+        """Whether the thread has not ended a turn since `at`."""
         state, since = thread_state(export(thread))
-        if state in SETTLED and since >= int(sent.get('at') or 0):
+        if state in SETTLED and since >= at:
             return False
         return state != ''
+
+    def relay(self, name, text, store, steer=''):
+        """A steer for the thread of role `name`, which is in a turn, as a relay the master sends with its own tools (a CLI message would only queue
+        behind the turn): the bundle is packed under the master's .git, where upload_thread_file reaches it and no store bundle carries it, and the
+        message and the record are written under relays/. (record, how) with how 'made', 'pending' (the same text is still waiting to be relayed) or
+        'delivered' (it was relayed and the thread has not ended a turn since); (None, '') when there is nothing to relay with, or the bundle is over
+        upload_thread_file's limit, which is said."""
+        found = self.entry(name)
+        thread = (found[1].get('thread') or '') if found else ''
+        repo = bundle.repo_of(store) if store else ''
+        if not thread or not repo or not os.path.isdir(os.path.join(repo, '.git')):
+            return None, ''
+        digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
+        same = next(
+            (
+                r
+                for r in relay_records(store)
+                if r.get('thread') == thread and r.get('hash') == digest
+            ),
+            None,
+        )
+        if same and same.get('state') == PENDING:
+            return same, 'pending'
+        if same and self.in_turn_since(thread, int(same.get('done_at') or 0)):
+            return same, 'delivered'
+        msg_id = uuid.uuid4().hex[:12]
+        path = os.path.join(repo, '.git', 'pstack-relay', f'{msg_id}.tgz')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        bundle.pack(
+            store,
+            path,
+            self.sender(),
+            {'name': name, 'pane': found[1]['pane']},
+            self.agents(),
+            text,
+        )
+        size = os.path.getsize(path)
+        if size > RELAY_LIMIT:
+            os.remove(path)
+            sys.stdout.write(
+                f"relay: bundle is {size / 1048576:.1f} MiB, over upload_thread_file's 4 MiB; send it with the CLI after the turn instead\n"
+            )
+            return None, ''
+        upload_to = f'.git/pstack-relay-{msg_id}.tgz'
+        message = (
+            f'{text}\n\npstack: before you act on this message, run `{SYNC} {repo}/{upload_to}`: '
+            f'it merges the {store} store and its commits into your orb.'
+            + ('' if MASTER_RE.search(name) else RETURN)
+            + f'\n\n{MSG_ID} {msg_id}'
+        )
+        os.makedirs(relays_dir(), exist_ok=True)
+        message_path = os.path.join(relays_dir(), f'{msg_id}.md')
+        with open(message_path, 'w', encoding='utf-8') as f:
+            f.write(message)
+        record = {
+            'id': msg_id,
+            'name': name,
+            'thread': thread,
+            'store': store,
+            'steer': steer,
+            'hash': digest,
+            'bundle': path,
+            'message': message_path,
+            'upload_to': upload_to,
+            'state': PENDING,
+            'at': int(time.time()),
+        }
+        write_relay(record)
+        return record, 'made'
 
     def prompt(
         self,
