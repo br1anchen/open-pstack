@@ -29,6 +29,7 @@ from pstack_core.exits import end_agent, stop_prime_role
 from pstack_core.numbers import env_int, int_or_none
 from pstack_core.replies import queued_brief
 from pstack_core.send import submit_typed
+from pstack_core.spawn import load_skill
 from pstack_core.store import (
     count,
     dispatched_brief,
@@ -222,8 +223,8 @@ def set_outcome(packet, value):
     write_text(packet, text)
 
 
-def verify_prompt(ctx, packet):
-    return f'Load the {ctx.skill} skill from ~/.agents/skills/{ctx.skill}/SKILL.md and take the verifier role. {ctx.skill} VERIFY {packet}'
+def verify_prompt(ctx, packet, as_file=False):
+    return f'{load_skill(ctx.skill, as_file)} and take the verifier role. {ctx.skill} VERIFY {packet}'
 
 
 def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind='', say=None):
@@ -237,7 +238,11 @@ def redeliver_packet(ctx, store, why, name='', packet='', brief='', kind='', say
     (say or sys.stdout.write)(f'redelivered: {why}; sent it again\n')
     sys.stdout.flush()
     mux.get().prompt(
-        name, verify_prompt(ctx, packet), wait=True, until='working', timeout_ms=30000
+        name,
+        verify_prompt(ctx, packet, mux.get().reads_skill_file(name)),
+        wait=True,
+        until='working',
+        timeout_ms=30000,
     )
     submit_typed(name, os.path.basename(packet))
 

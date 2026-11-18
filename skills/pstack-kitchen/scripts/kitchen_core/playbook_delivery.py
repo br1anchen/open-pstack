@@ -161,15 +161,16 @@ def lean_sections(store, brief):
     """Where a role keeps its conversation across units (Amp threads), a brief whose playbook and report sections the sidekick's session already
     holds carries a pointer to the brief that carried them in place of both: `.sidekick.delivered` is the generation, the digests of the two
     sections and the brief that carried them in full, and the compaction count then. A new generation (a spawn, a rotation or a failover), a
-    changed composition, a compaction since, or the carrier itself being sent again gets the sections in full, and records them. Returns the
-    pointed-to brief, or ''."""
+    changed composition, a compaction since, or the carrier itself being sent again gets the sections in full. Returns what to record once the
+    brief has been sent (record_sections), or None when the brief carries a pointer or nothing is delivered in this way: a brief that is refused
+    delivers nothing, so it records nothing."""
     m = mux.get()
     if not m.reuses_sessions:
-        return ''
+        return None
     lines = read_text(brief).split('\n')
     spans = {k: section_span(lines, k) for k in ('## Playbook:', '## Report')}
     if not all(spans.values()):
-        return ''
+        return None
     # a pending read names the unit's own number; the composition is the same for any unit
     unit = unit_number(brief)
     digest = {
@@ -200,19 +201,24 @@ def lean_sections(store, brief):
             lines[first:end] = [lines[first], '', pointer, '']
             spans = {k: section_span(lines, k) for k in spans}
         write_if_changed(brief, '\n'.join(lines))
-        return carrier
+        return None
+    return {
+        'generation': field(store, 'sidekick', 'generation'),
+        **digest,
+        'brief': unit_id,
+        'compactions': compactions or 0,
+    }
 
-    def mutate(doc):
-        # the delivered sections: .sidekick.delivered
-        member(doc, 'sidekick')['delivered'] = {
-            'generation': field(store, 'sidekick', 'generation'),
-            **digest,
-            'brief': unit_id,
-            'compactions': compactions or 0,
-        }
 
-    update(store, mutate)
-    return ''
+def record_sections(store, delivered):
+    """The sections the brief that was just sent carried in full, as lean_sections returned them: what the sidekick's session holds now."""
+    if delivered:
+
+        def mutate(doc):
+            # the delivered sections: .sidekick.delivered
+            member(doc, 'sidekick')['delivered'] = delivered
+
+        update(store, mutate)
 
 
 def plan_context(store):

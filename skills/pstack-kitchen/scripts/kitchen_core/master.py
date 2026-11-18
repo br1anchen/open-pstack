@@ -32,7 +32,7 @@ from pstack_core.panes import (
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
-from pstack_core.spawn import entry_label, entry_preflight, walk_chain
+from pstack_core.spawn import entry_label, entry_preflight, load_skill, walk_chain
 from pstack_core.store import (
     count,
     event,
@@ -365,11 +365,11 @@ def record_handover(store, handoff, gen_n, session, old, new):
     return copy
 
 
-def master_prompt(ctx, store, gen):
-    """The prompt that makes an agent the master of generation `gen`."""
+def master_prompt(ctx, store, gen, as_file=False):
+    """The prompt that makes an agent the master of generation `gen`; as_file tells it to read the skill's file (an Amp thread that runs Claude Code)."""
     skill = ctx.skill
     return (
-        f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md and take the master role: {skill} MASTER {store} (generation {gen}). '
+        f'{load_skill(skill, as_file)} and take the master role: {skill} MASTER {store} (generation {gen}). '
         f'Run ~/.agents/skills/{skill}/scripts/kitchen.sh take-master {store} first, then read '
         f'~/.agents/skills/{skill}/references/master.md and {store}/session-handoff.md, '
         'each in a read of its own (a file-read tool, not one cat of several files).'
@@ -487,8 +487,9 @@ def hand_to_next_thread(ctx, store, handoff, model):
     new_pane_id = m.new_master(temp)
     copy = record_handover(store, handoff, gen_n, '', (name, pane), (temp, new_pane_id))
     try:
+        as_file = m.mode_reads_skill_file(model or m.thread_mode())
         thread = m.launch_master(
-            store, temp, master_prompt(ctx, store, next_gen), model
+            store, temp, master_prompt(ctx, store, next_gen, as_file), model
         )
     except NextMasterNotStarted:
         with open(f'{store}/pair.json', 'w') as f:

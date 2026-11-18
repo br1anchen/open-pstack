@@ -161,9 +161,10 @@ def reorientation(name, text, store):
     if not found or MASTER_RE.search(name):
         return ''
     skill, role = found.group(1), name.rsplit('-', 1)[-1]
+    held = f', the store {store} (standing-orders.md, pair.json),' if store else ''
     return (
-        f'You compacted since the last message. Re-read ~/.agents/skills/{skill}/SKILL.md (your role: {role}), the store {store} '
-        '(standing-orders.md, pair.json), and the file this message names before you act.\n\n'
+        f'You compacted since the last message. Re-read ~/.agents/skills/{skill}/SKILL.md (your role: {role}){held} '
+        'and the file this message names before you act.\n\n'
     )
 
 
@@ -357,11 +358,14 @@ class Amp(Subagents):
             return None
         return 1.0 if compacted else used / limit
 
+    def mode_reads_skill_file(self, mode):
+        return mode == 'claude-code'
+
     def reads_skill_file(self, name):
         found = self.entry(name)
         args = (found[1].get('args') or []) if found else []
         return any(
-            flag == '--mode' and mode == 'claude-code'
+            flag in ('--mode', '-m') and self.mode_reads_skill_file(mode)
             for flag, mode in zip(args, args[1:], strict=False)
         )
 
@@ -523,10 +527,10 @@ class Amp(Subagents):
             for n, e in load(self.path())['agents'].items()
         }
 
-    def with_bundle(self, name, text, store, thread, seen, compacted, tmp):
+    def with_bundle(self, name, text, store, thread, seen, full_rules, tmp):
         """(attachments, message, build) of a message to `name`: the store's bundle always, and the pstack build with the line that installs it
         when `seen` (what the thread was already given) lacks this build, as the message text after `text`. build is the id to record, '' when
-        none was attached; compacted gives the send-back rules in full again."""
+        none was attached; full_rules gives the send-back rules in full."""
         path = os.path.join(tmp, f'pstack-{name}.tgz')
         pane = (self.entry(name) or (name, {'pane': ''}))[1]['pane']
         bundle.pack(
@@ -547,7 +551,7 @@ class Amp(Subagents):
             install = f'`{install_line(build)}` (it installs the pstack build the sender runs, the same on every orb), then '
         else:
             build = ''
-        rules = RETURN if not seen or compacted else RETURN_SHORT
+        rules = RETURN if full_rules else RETURN_SHORT
         message = (
             f'{text}\n\npstack: before you act on this message, run {install}`{SYNC} <the pstack-{name}.tgz attachment URL below>`: '
             f'it merges the {store} store and its commits into your orb.'
@@ -564,20 +568,24 @@ class Amp(Subagents):
         message = text
         # What this thread was already given: a message to it carries the build, the send-back rules and the re-orientation only when it needs them.
         seen = load_json(delivered_path()).get(thread) if thread else None
-        compactions = thread_compactions(thread) if thread and seen else None
-        compacted = compactions is not None and compactions > int(
-            (seen or {}).get('compactions') or 0
+        compactions = thread_compactions(thread) if thread else None
+        compacted = (
+            bool(seen)
+            and compactions is not None
+            and compactions > int(seen.get('compactions') or 0)
         )
+        # The send-back rules go in full until a message that carried them has been sent, and again after a compaction.
+        full_rules = not (seen and seen.get('rules')) or compacted
         build = ''
         with tempfile.TemporaryDirectory() as tmp:
             attach = []
             if store and os.path.isfile(os.path.join(store, 'pair.json')):
                 attach, message, build = self.with_bundle(
-                    name, text, store, thread, seen, compacted, tmp
+                    name, text, store, thread, seen, full_rules, tmp
                 )
             if compacted:
                 message = reorientation(name, text, store) + message
-            cwd = bundle.repo_of(store) if store else None
+            cwd = (bundle.repo_of(store) if store else '') or None
             digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
             if thread and self.pending(thread, digest):
                 self.skipped = thread
@@ -617,14 +625,17 @@ class Amp(Subagents):
                     return '', err
                 time.sleep(env_int('PSTACK_AMP_RETRY_S', 10))
             record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
-            gave = (
-                {'compactions': compactions or 0}
-                if compactions is not None or not seen
-                else {}
-            )
+            # Only what this message carried is recorded: the thread's compaction count (a new thread's is read now), the build when it was
+            # attached, and the full send-back rules when they went in it.
+            if compactions is None:
+                compactions = thread_compactions(thread)
+            gave = {} if compactions is None else {'compactions': compactions}
             if build:
                 gave['build'] = build
-            record_delivered(thread, gave)
+            if attach and full_rules and not MASTER_RE.search(name):
+                gave['rules'] = True
+            if gave:
+                record_delivered(thread, gave)
             if attach:
                 os.makedirs(os.path.dirname(sent_path(thread)), exist_ok=True)
                 shutil.copyfile(attach[1], sent_path(thread))

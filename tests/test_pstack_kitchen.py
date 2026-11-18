@@ -14828,6 +14828,118 @@ class AmpKitchenTests(KitchenScriptTests):
             timeout=60,
         )
 
+    def send_from_the_master(self, name, text, thread='', store=''):
+        """Amp.send of the master's own thread, as a command outside a dispatch makes it: the thread the message went to."""
+        code = (
+            'import sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core.mux import amp\n'
+            f'thread, err = amp.Amp().send({name!r}, {text!r}, {thread!r}, store={store or str(self.store)!r})\n'
+            'print(thread)\n'
+        )
+        return subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout.strip()
+
+    def set_compactions(self, thread, count):
+        (self.fake / f'amp-context-{thread}').write_text(
+            f'{{"totalTokens": 1000, "maxContextTokens": 100000, "compactionCount": {count}}}\n'
+        )
+
+    def test_a_pointer_to_setup_is_sent_only_to_a_role_that_was_sent_the_setup_before_it_compacted(
+        self,
+    ):
+        note = lambda n: f'pstack-kitchen NOTE {self.store}/reviews/{n}.md'
+        # (role, the second message, compactions when the first goes, when the second goes, whether the second starts with the pointer)
+        cases = [
+            ('demo-verifier', note('n2'), 0, 1, True),
+            ('demo-verifier', note('n2'), 2, 2, False),
+            ('demo-master', note('n2'), 0, 1, False),
+            ('demo-verifier', 'a message that names no skill', 0, 1, False),
+        ]
+        for i, (role, second, before, after, pointer) in enumerate(cases):
+            with self.subTest(role=role, second=second, before=before, after=after):
+                # a new thread's id is the next one the fake amp hands out
+                thread = amp_thread(2 + i)
+                self.set_compactions(thread, before)
+                self.assertEqual(self.send_from_the_master(role, note('n1')), thread)
+                self.set_compactions(thread, after)
+                self.send_from_the_master(role, second, thread)
+                message = self.thread_messages(thread)[-1]
+                self.assertEqual(
+                    message.startswith('You compacted since the last message.'),
+                    pointer,
+                    message,
+                )
+
+    def test_a_message_that_carried_no_bundle_does_not_count_as_the_setup_a_thread_was_given(
+        self,
+    ):
+        elsewhere = Path(self.tmp.name) / 'no-store'
+        elsewhere.mkdir()
+        thread = self.send_from_the_master(
+            'demo-verifier', 'pstack-kitchen NOTE x', store=str(elsewhere)
+        )
+        [first] = self.thread_messages(thread)
+        self.assertNotIn('pstack: before you act', first)
+        self.send_from_the_master('demo-verifier', 'pstack-kitchen NOTE y', thread)
+        second = self.thread_messages(thread)[-1]
+        self.assertIn('run `d=~/.local/share/pstack-builds/', second)
+        self.assertIn('reaches it only when you send it', second)
+        self.assertEqual(self.attachments(thread).count('pstack-build.tgz'), 1)
+
+    def test_a_refused_dispatch_records_no_delivered_sections_and_the_next_brief_carries_them_in_full(
+        self,
+    ):
+        one = self.brief('001', 'one', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.run_sh('pause', str(self.store), '--reason', 'hold')
+        self.run_sh('dispatch', str(self.store), str(one), code=None)
+        self.assertNotIn('delivered', self.state()['sidekick'])
+        self.assertEqual(self.briefs_in(amp_thread(1)), [])
+        self.run_sh('resume', str(self.store))
+        two = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(two), code=None)
+        text = self.brief_text('002', 'two')
+        self.assertNotIn('Unchanged from briefs/', text)
+        self.assertGreater(len(self.section(text, '## Playbook:')), 1000)
+        self.assertEqual(self.state()['sidekick']['delivered']['brief'], '002-two')
+
+    READ_THE_FILE = 'Read the file ~/.agents/skills/pstack-kitchen/SKILL.md (the pstack-kitchen skill; read it as a file if your harness does not load Amp skills) and take the '
+
+    def claude_code_roster(self, table):
+        roster = Path(self.tmp.name) / 'claude-code-roster.toml'
+        roster.write_text(
+            '[sidekick]\nkind = "amp"\nargs = ["--model", "s/one"]\n'
+            f'[{table}]\nkind = "amp"\nargs = ["--mode", "claude-code", "--features", "model:claude-sonnet-5-5"]\n'
+        )
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+
+    def test_a_claude_code_verifier_and_master_are_told_to_read_the_skill_file(self):
+        self.claude_code_roster('verifier')
+        self.verify_started('001')
+        verifier = self.thread_messages(amp_thread(2))[0]
+        self.assertTrue(
+            verifier.startswith(
+                self.READ_THE_FILE + 'verifier role. pstack-kitchen VERIFY '
+            ),
+            verifier,
+        )
+        self.claude_code_roster('master')
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master = self.thread_messages(amp_thread(3))[0]
+        self.assertTrue(
+            master.startswith(
+                self.READ_THE_FILE + 'master role: pstack-kitchen MASTER '
+            ),
+            master,
+        )
+
     def test_a_role_that_compacted_starts_its_next_message_with_a_pointer_and_gets_the_rules_in_full(
         self,
     ):
@@ -15612,6 +15724,59 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(
             len([m for m in self.thread_messages(sidekick) if 'STEER' in m]), 1
         )
+
+    def test_the_relay_packed_last_holds_the_sync_base_whichever_is_confirmed_first(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.working_sidekick_steer()
+        amp_state = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp'
+        # the dispatch that started the unit was sent long before either relay was packed
+        outbox = json.loads((amp_state / 'outbox.json').read_text())
+        outbox[sidekick]['at'] -= 100
+        (amp_state / 'outbox.json').write_text(json.dumps(outbox))
+        first, _ = self.relay_of('STEER one')
+        # R1 was packed a while before R2
+        first_file = self.relays_dir() / f'{first["id"]}.json'
+        first_file.write_text(json.dumps({**first, 'at': first['at'] - 10}))
+        second, _ = self.relay_of('STEER two')
+        packed = Path(second['bundle']).read_bytes()
+        # both were packed before either is confirmed
+        (self.relays_dir() / f'{second["id"]}.json').write_text(
+            json.dumps({**second, 'at': second['at'] - 5})
+        )
+        self.run_sh('relay-done', str(self.store), first['id'])
+        self.run_sh('relay-done', str(self.store), second['id'])
+        outbox = json.loads((amp_state / 'outbox.json').read_text())[sidekick]
+        self.assertEqual((outbox['id'], outbox['hash']), (second['id'], second['hash']))
+        self.assertEqual((amp_state / 'sent' / f'{sidekick}.tgz').read_bytes(), packed)
+        # and the other way round, the earlier relay confirmed last leaves R2's base alone
+        third, _ = self.relay_of('STEER three')
+        third_file = self.relays_dir() / f'{third["id"]}.json'
+        third_file.write_text(json.dumps({**third, 'at': third['at'] - 10}))
+        fourth, _ = self.relay_of('STEER four')
+        packed = Path(fourth['bundle']).read_bytes()
+        (self.relays_dir() / f'{fourth["id"]}.json').write_text(
+            json.dumps({**fourth, 'at': fourth['at'] - 5})
+        )
+        self.run_sh('relay-done', str(self.store), fourth['id'])
+        out = self.run_sh('relay-done', str(self.store), third['id'])
+        self.assertIn('a newer send already holds the sync base', out)
+        self.assertEqual((amp_state / 'sent' / f'{sidekick}.tgz').read_bytes(), packed)
+
+    def test_relay_done_of_a_relay_that_is_no_longer_pending_changes_and_logs_nothing(
+        self,
+    ):
+        self.working_sidekick_steer()
+        record, _ = self.relay_of('STEER stale')
+        record_file = self.relays_dir() / f'{record["id"]}.json'
+        record_file.write_text(json.dumps({**record, 'state': 'stale'}))
+        before = (self.store / 'events.tsv').read_text()
+        out = self.run_sh('relay-done', str(self.store), record['id'])
+        self.assertIn(f'relayed: {record["id"]} already stale', out)
+        self.assertEqual(json.loads(record_file.read_text())['state'], 'stale')
+        self.assertEqual((self.store / 'events.tsv').read_text(), before)
+        self.assertTrue(Path(record['bundle']).exists())
 
     def test_a_steer_that_cannot_be_relayed_queues_behind_the_turn_once(self):
         sidekick = amp_thread(1)

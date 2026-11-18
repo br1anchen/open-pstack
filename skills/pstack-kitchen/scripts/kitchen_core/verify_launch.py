@@ -436,7 +436,7 @@ def deliver_packet(v):
         mux.get()
         .prompt(
             v.name,
-            vs.verify_prompt(v.ctx, v.packet),
+            vs.verify_prompt(v.ctx, v.packet, mux.get().reads_skill_file(v.name)),
             wait=True,
             until='working',
             timeout_ms=30000,

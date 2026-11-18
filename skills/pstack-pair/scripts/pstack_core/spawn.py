@@ -242,6 +242,14 @@ def record_prime_start(store, role, name, pane, cwd, start_failed):
         )
 
 
+def load_skill(skill, as_file):
+    """How a prompt tells an agent to take up a skill: load it by name, or, for an Amp thread that runs Claude Code (as_file), which may not load
+    Amp skills, read its file."""
+    if as_file:
+        return f'Read the file ~/.agents/skills/{skill}/SKILL.md (the {skill} skill; read it as a file if your harness does not load Amp skills)'
+    return f'Load the {skill} skill from ~/.agents/skills/{skill}/SKILL.md'
+
+
 def bootstrap_role(ctx, store, role, kind, name, pane, ready):
     """Sends the bootstrap prompt and waits for the ready file: 0 once it is there, 3 when the prompt never settled and 4 when it settled without it. A
     ready file left by the generation before is kept aside first."""
@@ -252,14 +260,8 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
             f'{store}/{ready}',
             f'{store}/sessions/{role}-{generation}-previous-ready.md',
         )
-    # A Claude Code thread of Amp may not load Amp skills: it reads the skill's file.
-    load = (
-        f'Read the file ~/.agents/skills/{ctx.skill}/SKILL.md (the {ctx.skill} skill; read it as a file if your harness does not load Amp skills)'
-        if mux.get().reads_skill_file(name)
-        else f'Load the {ctx.skill} skill from ~/.agents/skills/{ctx.skill}/SKILL.md'
-    )
     bootstrap = (
-        f'{load} and take the {role} role (generation '
+        f'{load_skill(ctx.skill, mux.get().reads_skill_file(name))} and take the {role} role (generation '
         f'{generation}, pane {pane}). {ctx.store_label} store: {store}. Follow its bootstrap steps, write {ready}, and reply READY.'
     )
     r = mux.get().prompt(name, bootstrap, wait=True, timeout_ms=240000)
