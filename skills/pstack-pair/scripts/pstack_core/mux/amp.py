@@ -264,6 +264,29 @@ def record_thread(thread, update):
         os.replace(f'{path}.tmp', path)
 
 
+def keep_sent_bundle(thread, attach):
+    """The bundle a message to thread carried (attach is its `--attach FILE` pair, empty when it carried none), kept as what was sent to it."""
+    if attach:
+        os.makedirs(os.path.dirname(sent_path(thread)), exist_ok=True)
+        shutil.copyfile(attach[1], sent_path(thread))
+
+
+def record_started(thread, name, store):
+    """A thread the kitchen started for the role `name` of the run `store`: recorded at once, so the run's sweep lists it even if the registry
+    later loses its entry. A thread already recorded for a store, or a send with no store, records nothing."""
+    if not store or (load_json(threads_path()).get(thread) or {}).get('store'):
+        return
+    record_thread(
+        thread,
+        {
+            'name': name,
+            'role': role_of(name),
+            'store': os.path.realpath(store),
+            'started': int(time.time()),
+        },
+    )
+
+
 def role_of(name):
     """The role a registry name stands for: master (any generation), else its last word (sidekick, verifier, consultant)."""
     return 'master' if MASTER_RE.search(name) else name.rsplit('-', 1)[-1]
@@ -888,7 +911,6 @@ class Amp(Subagents):
     def send(self, name, text, thread='', flags=(), store='', title=''):
         """Sends text to thread (a new thread on flags when ''), with the bundle of store attached. (thread, error text)."""
         self.skipped = ''
-        started = not thread
         store = store or store_in(text) or load(self.path()).get('store') or ''
         if store:
             self.remember_store(name, store)
@@ -952,16 +974,7 @@ class Amp(Subagents):
                     return '', err
                 time.sleep(env_int('PSTACK_AMP_RETRY_S', 10))
             record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
-            if started and store:
-                record_thread(
-                    thread,
-                    {
-                        'name': name,
-                        'role': role_of(name),
-                        'store': os.path.realpath(store),
-                        'started': int(time.time()),
-                    },
-                )
+            record_started(thread, name, store)
             # Only what this message carried is recorded: the thread's compaction count (a new thread's is read now), the build when it was
             # attached, and the full send-back rules when they went in it.
             if compactions is None:
@@ -973,9 +986,7 @@ class Amp(Subagents):
                 gave['rules'] = True
             if gave:
                 record_delivered(thread, gave)
-            if attach:
-                os.makedirs(os.path.dirname(sent_path(thread)), exist_ok=True)
-                shutil.copyfile(attach[1], sent_path(thread))
+            keep_sent_bundle(thread, attach)
         return thread, ''
 
     def pending(self, thread, digest):
