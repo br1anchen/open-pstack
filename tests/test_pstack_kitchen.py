@@ -14799,6 +14799,11 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual((self.store / 'pair.json').read_text(), before)
         self.assertFalse(verdict.exists())
         self.assertEqual(len(self.thread_messages(verifier)), 1)
+        # Once a sync brings the verdict in, the same message no longer says pending sync, and the verification closes on it.
+        verdict.write_text('# Verdict\n\nstatus: clean\nunits: 001-util\n')
+        out = self.run_sh('verify', str(self.store), '--wait', code=None)
+        self.assertNotIn('pending sync', out)
+        self.assertIn(f'verdict: {verdict}', out)
 
     def test_a_report_already_sent_to_the_master_is_pending_sync_for_its_wait(self):
         sidekick = amp_thread(1)
@@ -14817,7 +14822,11 @@ class AmpKitchenTests(KitchenScriptTests):
             out,
         )
         self.assertNotIn('report: missing', out)
+        # Once a sync brings the report in, the same message no longer says pending sync.
         report.write_text(text)
+        out = self.run_sh('wait', str(self.store), code=None)
+        self.assertNotIn('pending sync', out)
+        self.assertIn('status: done', out)
 
     def finish_unit(self, seq, slug, scope, path, thread=1):
         """A routine unit dispatched to the sidekick's thread and finished done there; the dispatch's output."""

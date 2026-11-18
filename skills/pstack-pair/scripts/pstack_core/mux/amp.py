@@ -211,6 +211,15 @@ def holds(doc, msg_id):
     return f'{MSG_ID} {msg_id}' in json.dumps(doc.get('messages') or [])
 
 
+def file_digest(path):
+    """The first twelve hex digits of the sha256 of the file's bytes, '' when it cannot be read: what notify quotes of the file it sends."""
+    try:
+        with open(path, 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()[:12]
+    except OSError:
+        return ''
+
+
 def load_json(path):
     try:
         with open(path, encoding='utf-8') as f:
@@ -378,14 +387,17 @@ class Amp(Subagents):
     def own_thread(self):
         return own_thread()
 
-    def sent_to_master(self, text, since=0):
+    def sent_to_master(self, skill, path, since=0):
+        announce = f'{skill} REPORT {path}\\n'
         for message in export(own_thread()).get('messages') or []:
-            if message.get('role') != 'user':
-                continue
-            if f'{text}\\n' not in json.dumps(message.get('content')):
+            text = json.dumps(message.get('content'))
+            if message.get('role') != 'user' or announce not in text:
                 continue
             made = message.get('createdAt') or ''
             if made and iso_epoch(made) < since:
+                continue
+            quoted = re.search(r'sha256: ([0-9a-f]{12})', text.split(announce, 1)[1])
+            if quoted and file_digest(path) == quoted.group(1):
                 continue
             return made or 'an unknown time'
         return None

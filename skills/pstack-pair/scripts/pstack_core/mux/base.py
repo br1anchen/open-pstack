@@ -92,9 +92,10 @@ class Mux:
     # The thread the last prompt left alone because the same message was still pending there; '' when it sent.
     skipped = ''
 
-    def sent_to_master(self, text, since=0):
-        """When a message that begins with `text` (a line, not a prefix of a longer one) reached the master's own thread at or after the epoch
-        `since`, as the thread dates it ('an unknown time' when it does not); None when none did or where roles do not message the master."""
+    def sent_to_master(self, skill, path, since=0):
+        """When a message announcing the file `path` reached the master's own thread at or after the epoch `since` ('an unknown time' when the thread
+        does not date it) while the master's store lacks that file, or holds it with other content than the message quoted; None when none did, and
+        where roles do not message the master."""
         return None
 
     def relay(self, name, text, store, steer=''):

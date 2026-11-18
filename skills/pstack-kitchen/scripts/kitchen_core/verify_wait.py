@@ -394,8 +394,7 @@ class Waiter:
         """When the verifier messaged the master its verdict, which this orb's copy of the store does not hold until the master syncs (the deadline
         and the stall are not declared for a verdict on its way); None when it did not, and always on a backend whose roles share the store."""
         return mux.get().sent_to_master(
-            f'{self.ctx.skill} REPORT {v.verdict}',
-            read_int(self.store, 'verifying.started') or 0,
+            self.ctx.skill, v.verdict, read_int(self.store, 'verifying.started') or 0
         )
 
     def poll(self, v):

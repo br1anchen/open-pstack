@@ -64,14 +64,14 @@ def refused(ctx, error, held):
 
 
 def report_sent_at(ctx, store):
-    """(the report this wait is for, when the sidekick messaged it to the master), which the master's copy of the store lacks until it syncs;
+    """(the report this wait is for, when the sidekick messaged it to the master), which the master's copy of the store lacks (or holds with other content) until it syncs;
     (the report, None) when it did not, and always on a backend whose roles share the store."""
     brief = (
         field(store, 'sent', 'file') if field(store, 'sent', 'kind') == 'BRIEF' else ''
     )
     report = expected_report(store, brief) if brief else f'{store}/reports/000-ready.md'
     since = int_or_none(field(store, 'sent', 'epoch')) or 0
-    return report, mux.get().sent_to_master(f'{ctx.skill} REPORT {report}', since)
+    return report, mux.get().sent_to_master(ctx.skill, report, since)
 
 
 def quiet_wait(ctx, store, rest):
