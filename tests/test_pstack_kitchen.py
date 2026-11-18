@@ -14811,6 +14811,53 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn('reaches it only when you send it', last)
         self.assertEqual(self.attachments(sidekick).count('pstack-build.tgz'), 2)
 
+    def message_from_the_master(self, name, text):
+        """Amp.prompt of the master's own thread: a message to the role `name` that no kitchen command would send now."""
+        code = (
+            'import sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core.mux import amp\n'
+            f'sys.exit(amp.Amp().prompt({name!r}, {text!r}).code)\n'
+        )
+        subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+
+    def test_a_role_that_compacted_starts_its_next_message_with_a_pointer_and_gets_the_rules_in_full(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        (self.fake / f'amp-context-{sidekick}').write_text(
+            '{"totalTokens": 1000, "maxContextTokens": 100000, "compactionCount": 1}\n'
+        )
+        for n in ('n1', 'n2'):
+            self.message_from_the_master(
+                'demo-sidekick', f'pstack-kitchen NOTE {self.store}/reviews/{n}.md'
+            )
+        *_, compacted, same = self.thread_messages(sidekick)
+        rules = 'reaches it only when you send it'
+        self.assertTrue(
+            compacted.startswith(
+                'You compacted since the last message. Re-read ~/.agents/skills/pstack-kitchen/SKILL.md (your role: sidekick), '
+                f'the store {self.store} (standing-orders.md, pair.json), and the file this message names before you act.\n\n'
+                f'pstack-kitchen NOTE {self.store}/reviews/n1.md'
+            ),
+            compacted,
+        )
+        self.assertIn(rules, compacted)
+        # The next message at the same count is as lean as before.
+        self.assertTrue(
+            same.startswith(f'pstack-kitchen NOTE {self.store}/reviews/n2.md'), same
+        )
+        self.assertNotIn(rules, same)
+        self.assertIn('Send files for the master back with', same)
+
     def test_half_a_context_window_rotates_the_sidekick_even_in_the_same_area(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         (self.fake / f'amp-context-{amp_thread(1)}').write_text(

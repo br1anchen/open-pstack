@@ -141,6 +141,22 @@ def record_delivered(thread, update):
         os.replace(f'{path}.tmp', path)
 
 
+SKILL_RE = re.compile(r'^(pstack-[a-z-]+) [A-Z]+\b')
+
+
+def reorientation(name, text, store):
+    """What a role that compacted since its last message reads first: its role's skill file and the store, which its summary may have lost.
+    '' when the message names no skill (it is no message to a role)."""
+    found = SKILL_RE.match(text)
+    if not found or MASTER_RE.search(name):
+        return ''
+    skill, role = found.group(1), name.rsplit('-', 1)[-1]
+    return (
+        f'You compacted since the last message. Re-read ~/.agents/skills/{skill}/SKILL.md (your role: {role}), the store {store} '
+        '(standing-orders.md, pair.json), and the file this message names before you act.\n\n'
+    )
+
+
 # What a message to a thread that already has the workflow setup says about sending files back, in place of RETURN.
 RETURN_SHORT = ' Send files for the master back with PSTACK_MUX=amp kitchen.sh finish or notify (pair.sh in a pair or trio).'
 
@@ -541,6 +557,8 @@ class Amp(Subagents):
                 attach, message, build = self.with_bundle(
                     name, text, store, thread, seen, compacted, tmp
                 )
+            if compacted:
+                message = reorientation(name, text, store) + message
             cwd = bundle.repo_of(store) if store else None
             digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
             if thread and self.pending(thread, digest):
