@@ -14858,6 +14858,88 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn(rules, same)
         self.assertIn('Send files for the master back with', same)
 
+    def brief_text(self, seq, slug):
+        return (self.store / 'briefs' / f'{seq}-{slug}.md').read_text()
+
+    def section(self, text, heading):
+        """The text of the section of a brief whose heading starts with `heading`, without the heading line."""
+        found = re.search(rf'(?ms)^{re.escape(heading)}[^\n]*\n(.*?)(?=^## |\Z)', text)
+        assert found is not None, heading
+        return found.group(1).strip()
+
+    POINTER = 'Unchanged from briefs/001-one.md, which this session already read; reread it there.'
+
+    def test_a_kept_session_reads_the_playbook_and_report_sections_once(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.finish_unit('002', 'two', ['src/**', 'tests/**'], 'src/two.py')
+        first, second = self.brief_text('001', 'one'), self.brief_text('002', 'two')
+        self.assertGreater(len(self.section(first, '## Playbook:')), 1000)
+        self.assertIn('kitchen.sh finish', self.section(first, '## Report'))
+        self.assertEqual(self.section(second, '## Playbook:'), self.POINTER)
+        self.assertEqual(self.section(second, '## Report'), self.POINTER)
+        # The two sections are what a kept session saves, less the pointers that stand for them.
+        saved = len(self.section(first, '## Playbook:')) + len(
+            self.section(first, '## Report')
+        )
+        self.assertGreaterEqual(len(first) - len(second), saved - 2 * len(self.POINTER))
+        # What the second brief says of itself is whole: its goal, scope and verify commands.
+        self.assertIn('python3 -c 1', second)
+        held = self.state()['sidekick']['delivered']
+        self.assertEqual((held['generation'], held['brief']), ('1', '001-one'))
+
+    def test_a_rotated_session_gets_the_playbook_and_report_sections_in_full(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        # Another area starts a fresh thread, which has read nothing.
+        b = self.brief('002', 'guide', ['docs/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(b), code=4)
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        self.run_sh('dispatch', str(self.store), str(b), code=None)
+        text = self.brief_text('002', 'guide')
+        self.assertNotIn('Unchanged from briefs/', text)
+        self.assertGreater(len(self.section(text, '## Playbook:')), 1000)
+        self.assertIn('kitchen.sh finish', self.section(text, '## Report'))
+        held = self.state()['sidekick']['delivered']
+        self.assertEqual((held['generation'], held['brief']), ('2', '002-guide'))
+
+    def test_a_session_that_compacted_since_the_carrier_gets_the_sections_in_full(self):
+        sidekick = amp_thread(1)
+        b = self.brief('001', 'one', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(b), code=4)
+        # No unit was finished, so nothing rotates the sidekick: its session goes on, and it compacted.
+        (self.fake / f'amp-context-{sidekick}').write_text(
+            '{"totalTokens": 1000, "maxContextTokens": 100000, "compactionCount": 1}\n'
+        )
+        c = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(c), code=None)
+        text = self.brief_text('002', 'two')
+        self.assertNotIn('Unchanged from briefs/', text)
+        self.assertGreater(len(self.section(text, '## Playbook:')), 1000)
+        self.assertEqual(self.state()['sidekick']['delivered']['compactions'], 1)
+        # The carrier is the brief that holds the sections now; the next brief at the same count points to it.
+        d = self.brief('003', 'three', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(d), code=None)
+        self.assertEqual(
+            self.section(self.brief_text('003', 'three'), '## Report'),
+            'Unchanged from briefs/002-two.md, which this session already read; reread it there.',
+        )
+
+    def test_a_brief_sent_again_after_a_pointer_has_its_sections_back(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.finish_unit('002', 'two', ['src/**', 'tests/**'], 'src/two.py')
+        self.assertEqual(
+            self.section(self.brief_text('002', 'two'), '## Report'), self.POINTER
+        )
+        # Dispatch renders the brief afresh: a pointer is made again, not left half-way or lost.
+        self.run_sh(
+            'dispatch',
+            str(self.store),
+            str(self.store / 'briefs/002-two.md'),
+            code=None,
+        )
+        self.assertEqual(
+            self.section(self.brief_text('002', 'two'), '## Report'), self.POINTER
+        )
+
     def test_half_a_context_window_rotates_the_sidekick_even_in_the_same_area(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         (self.fake / f'amp-context-{amp_thread(1)}').write_text(

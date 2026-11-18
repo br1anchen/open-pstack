@@ -1,11 +1,24 @@
 """Delivery of the stamped playbook composition: the sidekick's parts go into the brief at dispatch, and a pending read is resolved from the stored composition, never from the live source."""
 
+import hashlib
 import json
 import os
+import re
 import sys
 
+from pstack_core import mux
 from pstack_core.errors import Die, PairError
-from pstack_core.store import read_text, write_text
+from pstack_core.store import (
+    field,
+    load,
+    member,
+    peek,
+    read_text,
+    text_at,
+    unit_name,
+    update,
+    write_text,
+)
 
 from . import kpy
 from .classify import brief_kitchen, composition_path, unit_number
@@ -89,8 +102,39 @@ def refuse_open_fences(composition, roles=('sidekick', 'verifier')):
                 )
 
 
+POINTER = re.compile(
+    r'^Unchanged from briefs/(\S+\.md), which this session already read; reread it there\.$'
+)
+
+
+def section_span(lines, prefix):
+    """(first line, line after the last) of the brief's section whose heading starts with `prefix`, None when it has none."""
+    starts = playbooks().section_headings(lines)
+    own = next((i for i in starts if lines[i].startswith(prefix)), None)
+    if own is None:
+        return None
+    return own, next((i for i in starts if i > own), len(lines))
+
+
+def restore_report(store, brief):
+    """A brief whose `## Report` section was made a pointer to the brief that carried it (lean_sections) has the section back in full: dispatch
+    renders the brief afresh each time, and a session that started over needs the whole text."""
+    lines = read_text(brief).split('\n')
+    span = section_span(lines, '## Report')
+    found = span and POINTER.match(lines[span[0] + 2] if span[0] + 2 < span[1] else '')
+    carrier = f'{store}/briefs/{found.group(1)}' if found and span else ''
+    if not (span and os.path.isfile(carrier)):
+        return
+    full = read_text(carrier).split('\n')
+    carried = section_span(full, '## Report')
+    if carried:
+        lines[span[0] : span[1]] = full[carried[0] : carried[1]]
+        write_if_changed(brief, '\n'.join(lines))
+
+
 def deliver(store, brief):
     """Puts the sidekick's rendering of the unit's composition into the brief; returns (parts, tokens, pending) or None when the unit has no composition."""
+    restore_report(store, brief)
     unit = unit_number(brief)
     composition = read_composition(store, unit)
     if composition is None:
@@ -107,6 +151,68 @@ def deliver(store, brief):
         pb.estimate_tokens(section),
         len(pending),
     )
+
+
+def sha(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def lean_sections(store, brief):
+    """Where a role keeps its conversation across units (Amp threads), a brief whose playbook and report sections the sidekick's session already
+    holds carries a pointer to the brief that carried them in place of both: `.sidekick.delivered` is the generation, the digests of the two
+    sections and the brief that carried them in full, and the compaction count then. A new generation (a spawn, a rotation or a failover), a
+    changed composition, a compaction since, or the carrier itself being sent again gets the sections in full, and records them. Returns the
+    pointed-to brief, or ''."""
+    m = mux.get()
+    if not m.reuses_sessions:
+        return ''
+    lines = read_text(brief).split('\n')
+    spans = {k: section_span(lines, k) for k in ('## Playbook:', '## Report')}
+    if not all(spans.values()):
+        return ''
+    # a pending read names the unit's own number; the composition is the same for any unit
+    unit = unit_number(brief)
+    digest = {
+        'playbook': sha(
+            '\n'.join(lines[slice(*spans['## Playbook:'])]).replace(
+                f'playbook-part {store} {unit} ', 'playbook-part STORE NNN '
+            )
+        ),
+        'report': sha('\n'.join(lines[slice(*spans['## Report'])])),
+    }
+    sidekick = peek(load(store), 'sidekick')
+    name, unit_id = text_at(sidekick, 'name'), unit_name(brief)
+    compactions = m.compactions(name)
+    held = peek(sidekick, 'delivered')
+    carrier = text_at(held, 'brief')
+    if (
+        held.get('generation') == field(store, 'sidekick', 'generation')
+        and all(held.get(k) == v for k, v in digest.items())
+        and carrier
+        and carrier != unit_id
+        and os.path.isfile(f'{store}/briefs/{carrier}.md')
+        and compactions is not None
+        and compactions <= (held.get('compactions') or 0)
+    ):
+        pointer = f'Unchanged from briefs/{carrier}.md, which this session already read; reread it there.'
+        for key in ('## Report', '## Playbook:'):
+            first, end = spans[key]
+            lines[first:end] = [lines[first], '', pointer, '']
+            spans = {k: section_span(lines, k) for k in spans}
+        write_if_changed(brief, '\n'.join(lines))
+        return carrier
+
+    def mutate(doc):
+        # the delivered sections: .sidekick.delivered
+        member(doc, 'sidekick')['delivered'] = {
+            'generation': field(store, 'sidekick', 'generation'),
+            **digest,
+            'brief': unit_id,
+            'compactions': compactions or 0,
+        }
+
+    update(store, mutate)
+    return ''
 
 
 def plan_context(store):

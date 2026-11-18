@@ -23,7 +23,7 @@ from pstack_core.wait import default_signals
 from .classify import classify_brief
 from .landing import is_landing, land_check_problems
 from .master import ROTATE_DUE_EXIT, rotate_notice
-from .playbook_delivery import deliver, deliver_plan_blocks
+from .playbook_delivery import deliver, deliver_plan_blocks, lean_sections
 from .units import has_pair
 from .wait import block, log_checkin_wake, quiet_wait, refused
 
@@ -69,7 +69,8 @@ def dispatch(ctx, args):
         raise Die(f'brief not found: {brief}')
     if refused_status := rotate_gate(store):
         return refused_status
-    if is_landing(brief):
+    landing = is_landing(brief)
+    if landing:
         if land_check_problems(store):
             raise Die(f'landing refused: kitchen.sh land-check {store} fails', 2)
     else:
@@ -85,6 +86,9 @@ def dispatch(ctx, args):
     # a landing brief that land-check passed on a store with no pair.json goes on to the core dispatch, which refuses it
     if has_pair(store):
         rotate_if_due(ctx, store, 'brief', brief)
+        if not landing:
+            # after the rotation: only then is it known which session reads this brief
+            lean_sections(store, brief)
     # --max belongs to the quiet wait, not to the pair's dispatch.
     held = []
     try:
