@@ -72,7 +72,15 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    that is idle with a unit reported `blocked` or `partial` resumes the unit:
    its scope effect goes into the brief and the brief is sent again, with the
    old report set aside; the busy rule and the other cases are in the
-   pstack-pair master reference. When you work outside the kitchen in your own
+   pstack-pair master reference. Under Amp threads (`PSTACK_MUX=amp`) a steer
+   for a sidekick whose thread is in a turn is a relay you owe: `kitchen.sh
+   steer` prints `relay-pending: <id> ...` and three `relay:` lines. Run
+   `upload_thread_file` (amp module, through code_exec: `{thread, path,
+   destination, overwrite: true}` with the values the second line names), then
+   `send_thread_message` to the thread with the text of the message file the
+   third line names, then `kitchen.sh relay-done <store> <id>`. A
+   `relay-pending:` line in `kitchen.sh status` is a relay you have not
+   finished; the sidekick reads nothing until you send it. When you work outside the kitchen in your own
    session (another branch, a prototype, a question for the human), leave a
    `kitchen.sh wait <store>` running in the background so a report or a step is
    not left waiting for you; in lichess-token-1083, steps sat 13 min unread

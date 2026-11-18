@@ -194,11 +194,31 @@ args = ["--model", "anthropic/claude-opus-5-5", "--orb-size", "a1.large"]
   and return (exit 4 while the answer is not on file); end your turn. A
   role's `finish` or `notify` messages the master's thread with its own
   bundle, and the master runs that sync, then the next command.
-- A message reaches a role's thread only after its current turn ends: `amp
-  threads continue -ox` queues it, and the CLI has no way to steer a running
-  turn. So a role whose thread is in a turn reads `working` (its
-  `lastKnownAgentState` from `amp threads export`): `dispatch` and a plan
-  round refuse it instead of queueing behind it, and `steer` says `queued`.
+- A message sent by the CLI reaches a role's thread only after its current
+  turn ends: `amp threads continue -ox` queues it, and the CLI has no way to
+  steer a running turn. So a role whose thread is in a turn reads `working`
+  (its `lastKnownAgentState` from `amp threads export`): `dispatch` and a plan
+  round refuse it instead of queueing behind it. A `steer` for it (with
+  `--interrupt` too, since there is no Esc) is a relay, because the master's
+  own `send_thread_message` does reach a busy thread between tool calls.
+  `steer` packs the bundle under the master's `.git`, writes the message and
+  records the relay as `relay-pending`, then prints four lines: `relay-pending:
+  <id> for <name> (<thread>)`, `relay: upload_thread_file path=<bundle>
+  destination=<upload_to> thread=<thread>`, `relay: send_thread_message to
+  <thread> with the text of <message file>` and `relay: then run kitchen.sh
+  relay-done <store> <id>`. The relay is the master's to finish, in three
+  steps: call `upload_thread_file({thread, path, destination, overwrite:
+  true})` from the amp module through code_exec, with the three values the
+  line names; call `send_thread_message` to the thread with the text of the
+  message file; run `kitchen.sh relay-done <store> <id>`, which marks it sent
+  and logs a `relay` event. The same steer again while it is pending prints
+  the same lines with `(already pending; not made again)` and makes no second
+  record, and `status` lists each relay the master still owes as
+  `relay-pending: <id> for <name> since <hh:mm>`. Once done, the same steer is
+  not relayed again until the thread has ended a turn. A bundle over
+  `upload_thread_file`'s 4 MiB, or a checkout with no `.git`, falls back to
+  `queued ...`: the CLI delivers it after the turn. A message to an idle role
+  still goes by the CLI.
   Every message ends with a `pstack-msg: <id>` line. The same text sent again
   to a thread that has not ended a turn since is not delivered twice (`not
   sent again: the same message is still pending there`), and a send that

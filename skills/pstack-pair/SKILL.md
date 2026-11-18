@@ -161,7 +161,7 @@ not continuously, and corrects direction, not keystrokes.
 
 ## Task sessions of every kind
 
-A sidekick of any kind (Claude, Codex, Devin, pi, Prime, Muse, Amp) uses a fresh conversation for each completed brief, except under Amp threads (`PSTACK_MUX=amp`), where a routine brief in the area of the unit just done keeps the thread while its context has room ([Amp threads](../pstack-kitchen/SKILL.md#amp-threads)). Before
+A sidekick of any kind (Claude, Codex, Devin, pi, Prime, Muse, Amp) uses a fresh conversation for each completed brief, except under Amp threads (`PSTACK_MUX=amp`), where a routine brief in the area of the unit just done keeps the thread while its context has room ([Amp threads](../pstack-kitchen/SKILL.md#amp-threads)); there a steer for a thread in a turn is relayed by the master, which sends it with its own tools and then runs `relay-done` (same section). Before
 spawning, queueing, rotating, or cleaning its storage, read
 [the Devin session lifecycle](references/devin-sessions.md) for Devin or Pi,
 or [the Prime adapter](references/prime-sidekick.md) for Prime. Partial and blocked work stays in
