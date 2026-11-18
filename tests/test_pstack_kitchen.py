@@ -14151,7 +14151,7 @@ class AmpKitchenTests(KitchenScriptTests):
             p.read_text() for p in sorted(d.glob('*.txt'), key=lambda p: int(p.stem))
         ]
 
-    def as_thread(self, thread, *args, code=0, mux='', env=None):
+    def as_thread(self, thread, *args, code=0, mux='', env=None, cwd=None):
         """kitchen.sh run from another Amp thread (a role's, or the next master's), here on the same machine; mux is the PSTACK_MUX its orb
         sets, if any, and env what else that orb's environment holds."""
         env = {**self.env, **(env or {}), 'AMP_THREAD_ID': thread}
@@ -14160,7 +14160,7 @@ class AmpKitchenTests(KitchenScriptTests):
             env['PSTACK_MUX'] = mux
         result = subprocess.run(
             [str(self.script), *args],
-            cwd=self.repo,
+            cwd=cwd or self.repo,
             env=env,
             capture_output=True,
             text=True,
@@ -14896,6 +14896,25 @@ class AmpKitchenTests(KitchenScriptTests):
         self.run_sh('rotate-master', str(self.store))
         self.assertEqual(self.state()['master']['previous']['name'], 'demo-master')
         self.assertEqual(len(self.thread_messages(amp_thread(2))), 1)
+
+    def test_take_master_in_the_new_thread_from_the_bundle_it_received(self):
+        """The bundle is packed when the next master's thread starts, before the old master records that thread's pane: the new master syncs
+        a store whose .master.pane_id is still the counter the pane had before its thread existed."""
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        [bundle] = (self.fake / 'amp-threads' / master2).glob(
+            '1-pstack-demo-master-g2.tgz'
+        )
+        self.as_thread(master2, 'sync', str(bundle))
+        self.assertEqual(self.state()['master']['pane_id'], 'amp:2')
+        # The new thread's orb checks the run out elsewhere, so the run's own directory does not place it.
+        elsewhere = Path(self.tmp.name) / 'orb2-checkout'
+        elsewhere.mkdir()
+        out = self.as_thread(master2, 'take-master', str(self.store), cwd=elsewhere)
+        self.assertIn(f'master: demo-master in amp:{master2} (generation 2)', out)
+        self.assertEqual(self.state()['master']['pane_id'], f'amp:{master2}')
+        self.assertNotIn('previous', self.state()['master'])
 
     def test_take_master_records_the_masters_thread_as_its_pane_in_every_orb(self):
         """The next master's pane is its thread's, whatever counter pane an orb's registry gave it, so the next role started there gets another."""
