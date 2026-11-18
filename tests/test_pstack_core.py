@@ -47,6 +47,7 @@ from pstack_core import (
     procinfo,
     providers,
     review,
+    secrets,
     send,
     steplog,
     store,
@@ -21626,3 +21627,138 @@ class GitStoreTests(unittest.TestCase):
             self.store, ['acks/sidekick-g1.tsv'], gitstore.Writer('sidekick', 1)
         )
         self.assertIn('acks/sidekick-g1.tsv', self.remote_files())
+
+
+def _fake(*parts):
+    """A fake credential built at run time, so no file of the repo holds a literal the scanner matches."""
+    return ''.join(parts)
+
+
+# (kind, a line template whose {} is the credential or its placeholder, the credential): every rule of pstack_core.secrets.
+SECRET_ROWS = (
+    ('private-key', _fake('-----BEGIN ', 'OPENSSH ', 'PRIVATE KEY-----{}'), ''),
+    ('github-token', _fake('gh', 'p_{}'), 'a1' * 18),
+    ('github-token', _fake('github', '_pat_{}'), 'A' * 22 + '_b'),
+    ('aws-key-id', _fake('AK', 'IA{}'), 'ABCDEFGHIJKLMNOP'),
+    ('slack-token', _fake('xo', 'xb-{}'), '1234567890-abcdefghij'),
+    ('stripe-key', _fake('sk', '_live_{}'), 'a' * 24),
+    ('anthropic-key', _fake('sk-', 'ant-{}'), 'api03-' + 'a' * 30),
+    ('openai-key', _fake('sk-', '{}'), 'proj-' + 'a' * 40),
+    ('google-api-key', _fake('AI', 'za{}'), 'a' * 35),
+    ('gcp-service-account', _fake('"private', '_key": "{}"'), 'MIIEvQIBADAN'),
+    ('railway-token', _fake('RAILWAY', '_TOKEN={}'), 'abcd1234'),
+    ('railway-token', _fake('export RAILWAY', '_API_TOKEN="{}"'), 'abcd1234'),
+    (
+        'jwt',
+        _fake('ey', 'J{}'),
+        'hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N',
+    ),
+    ('authorization-header', _fake('Author', 'ization: Bearer {}'), 'abcd1234efgh5678'),
+    ('authorization-header', _fake('Author', 'ization: {}'), 'dXNlcjpwYXNzd29yZDE'),
+    ('bearer-token', _fake('curl -H "Bea', 'rer {}"'), 'abcdEFGH12345678ijkl'),
+    ('env-secret', _fake('STRIPE_', 'API_KEY={}'), 'abc123def456'),
+    ('env-secret', _fake('DB_', 'PASSWORD={}'), 'hunter2'),
+    ('env-secret', _fake('export CLIENT_', 'SECRET="{}"'), 'abc123'),
+    ('env-secret', _fake('API_', 'TOKEN = "{}"'), 'abc123def'),
+    ('url-credentials', _fake('https://', 'alice:{}@example.com/x'), 'hunter22'),
+    (
+        'url-credentials',
+        _fake('DATABASE_', 'URL=postgres://u:', '{}@db.internal/app'),
+        'pw1234',
+    ),
+)
+SECRET_PLACEHOLDERS = (
+    '[REDACTED: github-token]',
+    '[REDACTED:gcp-service-account]',
+    '<token>',
+    '***',
+    'xxx',
+    '$VAR',
+    '${VAR}',
+    '',
+)
+
+
+class SecretScanTests(unittest.TestCase):
+    """The scanner behind the git store's write path: each rule finds its credential, each placeholder form and the allow marker pass."""
+
+    def test_secret_scan_each_rule_finds_its_credential_and_never_carries_it(self):
+        for kind, template, real in SECRET_ROWS:
+            line = template.format(real)
+            with self.subTest(kind=kind, line=line[:12]):
+                found = secrets.scan([('notes/a.md', f'ok\n{line}\n')])
+                self.assertIn(secrets.Finding('notes/a.md', 2, kind), found)
+                self.assertTrue(all(f.line == 2 for f in found), found)
+                if real:
+                    self.assertNotIn(real, repr(found))
+
+    def test_secret_scan_every_placeholder_form_passes(self):
+        for kind, template, real in SECRET_ROWS:
+            if not real:
+                continue
+            for placeholder in SECRET_PLACEHOLDERS:
+                line = template.format(placeholder)
+                with self.subTest(kind=kind, placeholder=placeholder):
+                    self.assertEqual(secrets.scan([('a.md', line)]), [], line)
+
+    def test_secret_scan_prose_and_code_that_name_a_credential_pass(self):
+        for line in (
+            'never paste credentials, tokens, private keys, Authorization headers or .env content',
+            'Bearer authentication and Basic authentication',
+            'TOKEN = re.compile(r"[a-z]+")',
+            'the KEY=VALUE lines of the environment',
+            'MAX_TOKENS=4096 and API_KEYS=2',
+            'https://example.com/a/b and git@github.com:owner/repo.git',
+            'Authorization: <token>',
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(secrets.scan([('a.md', line)]), [], line)
+
+    def test_secret_scan_the_allow_marker_exempts_a_line_and_logs_it_only_with_a_reason(
+        self,
+    ):
+        secret = _fake('gh', 'p_', 'a1' * 18)
+        exempt = []
+        found = secrets.scan(
+            [('a.md', f'x {secret} pstack-allow-secret: a fixture for the test\n')],
+            exempt=exempt,
+        )
+        self.assertEqual(found, [])
+        self.assertEqual(
+            exempt,
+            [secrets.Exemption('a.md', 1, 'github-token', 'a fixture for the test')],
+        )
+        bare = secrets.scan([('a.md', f'x {secret} pstack-allow-secret:\n')])
+        self.assertEqual(bare, [secrets.Finding('a.md', 1, 'github-token')])
+
+    def test_secret_scan_reads_paths_relative_to_a_root_and_skips_unreadable_ones(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'd').mkdir()
+            Path(tmp, 'd/f.md').write_text(
+                _fake('line one\n', 'DB_', 'PASSWORD=', 'hunter2\n')
+            )
+            found = secrets.scan(['d/f.md', 'gone.md'], root=tmp)
+        self.assertEqual(found, [secrets.Finding('d/f.md', 2, 'env-secret')])
+
+    def test_secret_scan_merges_gitleaks_findings_when_it_is_on_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'a.md').write_text('one\ntwo\nthree\n')
+            Path(tmp, 'b.md').write_text('clean\n')
+            bin_dir = Path(tmp, 'bin')
+            bin_dir.mkdir()
+            fake = bin_dir / 'gitleaks'
+            fake.write_text(
+                '#!/bin/sh\nwhile [ $# -gt 0 ]; do\n'
+                '  [ "$1" = --report-path ] && out=$2\n'
+                '  [ "$1" = --source ] && src=$2\n  shift\ndone\n'
+                'printf \'[{"File":"%s/a.md","StartLine":2,"RuleID":"generic-api-key"},'
+                '{"File":"%s/other.md","StartLine":1,"RuleID":"x"}]\' "$src" "$src" > "$out"\n'
+            )
+            fake.chmod(0o755)
+            with mock.patch.dict(
+                os.environ, {'PATH': f'{bin_dir}:{os.environ["PATH"]}'}
+            ):
+                found = secrets.scan(['a.md', 'b.md'], root=tmp)
+        self.assertEqual(
+            found, [secrets.Finding('a.md', 2, 'gitleaks-generic-api-key')]
+        )

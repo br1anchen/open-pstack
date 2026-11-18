@@ -1563,7 +1563,10 @@ class HostKitchenTests(KitchenTests):
             ('git@github.com:Acme/Widget.git', 'github.com/Acme/Widget'),
             ('https://GitHub.com/acme/widget/', 'github.com/acme/widget'),
             ('ssh://git@host:2222/a/b.git', 'host/a/b'),
-            ('https://user:tok@gitlab.example/g/sub/r.git', 'gitlab.example/g/sub/r'),
+            (
+                'https://user:' + 'tok@gitlab.example/g/sub/r.git',
+                'gitlab.example/g/sub/r',
+            ),
             ('/srv/git/r.git', None),
             ('', None),
         ]:
