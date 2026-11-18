@@ -15533,6 +15533,37 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(len(self.thread_messages(sidekick)), before + 1)
         self.assertEqual(len(list(self.relays_dir().glob('*.json'))), 1)
 
+    def test_relay_done_after_a_newer_cli_send_keeps_that_sends_outbox_entry_and_sync_base(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        steer = self.working_sidekick_steer()
+        self.run_sh('steer', str(self.store), str(steer))
+        [record_file] = self.relays_dir().glob('*.json')
+        record = json.loads(record_file.read_text())
+        # The relay was made a while ago; the turn has ended and the CLI has sent the thread something since.
+        record_file.write_text(json.dumps({**record, 'at': record['at'] - 100}))
+        self.set_state(sidekick, 'idle', '2999-01-01T00:00:00.000Z')
+        self.message_from_the_master(
+            'demo-sidekick', f'pstack-kitchen NOTE {self.store}/reviews/n1.md'
+        )
+        amp_state = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp'
+        sent = amp_state / 'sent' / f'{sidekick}.tgz'
+        outbox = json.loads((amp_state / 'outbox.json').read_text())[sidekick]
+        before = sent.read_bytes()
+        out = self.run_sh('relay-done', str(self.store), record['id'])
+        self.assertEqual(
+            out.strip(),
+            f'relayed: {record["id"]} to demo-sidekick ({sidekick}); a newer send already holds the sync base',
+        )
+        self.assertEqual(json.loads(record_file.read_text())['state'], 'relay-done')
+        self.assertEqual(
+            json.loads((amp_state / 'outbox.json').read_text())[sidekick], outbox
+        )
+        self.assertNotEqual(outbox['hash'], record['hash'])
+        self.assertEqual(sent.read_bytes(), before)
+        self.assertFalse(Path(record['bundle']).exists())
+
     def test_a_steer_that_cannot_be_relayed_queues_behind_the_turn_once(self):
         sidekick = amp_thread(1)
         steer = self.working_sidekick_steer()

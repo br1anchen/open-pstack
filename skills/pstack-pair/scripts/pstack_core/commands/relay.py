@@ -28,12 +28,19 @@ def relay_done(ctx, args):
         return 0
     thread, now = record['thread'], int(time.time())
     amp.write_relay({**record, 'state': amp.DONE, 'done_at': now})
-    # What send records, so the CLI does not send the same text again, and the base the role's reply is merged against.
-    amp.record_sent(thread, {'hash': record['hash'], 'id': rid, 'at': now})
+    # A send the CLI made to the thread after this relay was made is newer: its outbox entry and the bundle it sent stay the thread's.
+    newer = int(amp.load_json(amp.outbox_path()).get(thread, {}).get('at') or 0) > int(
+        record.get('at') or 0
+    )
+    if not newer:
+        # What send records, so the CLI does not send the same text again, and the base the role's reply is merged against.
+        amp.record_sent(thread, {'hash': record['hash'], 'id': rid, 'at': now})
+        if os.path.isfile(record['bundle']):
+            os.makedirs(os.path.dirname(amp.sent_path(thread)), exist_ok=True)
+            shutil.copyfile(record['bundle'], amp.sent_path(thread))
     if os.path.isfile(record['bundle']):
-        os.makedirs(os.path.dirname(amp.sent_path(thread)), exist_ok=True)
-        shutil.copyfile(record['bundle'], amp.sent_path(thread))
         os.remove(record['bundle'])
     event(store, 'master', 'relay', record.get('steer') or '-', f'{rid}:{thread}')
-    sys.stdout.write(f'relayed: {rid} to {record["name"]} ({thread})\n')
+    held = '; a newer send already holds the sync base' if newer else ''
+    sys.stdout.write(f'relayed: {rid} to {record["name"]} ({thread}){held}\n')
     return 0
