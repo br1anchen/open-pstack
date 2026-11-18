@@ -7,6 +7,7 @@ from ..mux import DEVNULL
 from ..panes import agent_status, require_mux
 from ..store import (
     event,
+    events,
     expected_report,
     field,
     header_field,
@@ -181,23 +182,7 @@ def finish(ctx, args):
         and report == expected_report(store, current)
         and text_at(dispatch, 'generation', '0') == generation
     ):
-        # Under git the master derives the fact from this report (rotation_required), so the sidekick writes only its event.
-        on_git = gitstore.is_git(store)
-        if on_git or sidekick.get('rotation_required') is not True:
-            if not on_git:
-                update(
-                    store,
-                    lambda doc: member(doc, 'sidekick').__setitem__(
-                        'rotation_required', True
-                    ),
-                )
-            event(
-                store,
-                'sidekick',
-                'rotation-required',
-                report,
-                f'generation:{generation}',
-            )
+        record_rotation_required(store, report, sidekick, generation)
     code = notify(ctx, [store, report])
     if code:
         return code
@@ -214,6 +199,26 @@ def finish(ctx, args):
         )
     print(f'next: end the turn with the single line: {ctx.skill} REPORT {report}')
     return 0
+
+
+def record_rotation_required(store, report, sidekick, generation):
+    """A done report of the current dispatch: under local the flag in pair.json and one event, until a rotation clears it. Under git the master
+    derives the fact from the report itself (rotation_required), so the sidekick writes only its event, once for each content of the report."""
+    detail = f'generation:{generation}'
+    if not gitstore.is_git(store):
+        if sidekick.get('rotation_required') is not True:
+            update(
+                store,
+                lambda doc: member(doc, 'sidekick').__setitem__(
+                    'rotation_required', True
+                ),
+            )
+            event(store, 'sidekick', 'rotation-required', report, detail)
+        return
+    detail += f' sha256:{gitstore.digest_of(report)}'
+    written = ['sidekick', 'rotation-required', unit_name(report), detail]
+    if not any(row.split('\t')[2:] == written for row in events(store)):
+        event(store, 'sidekick', 'rotation-required', report, detail)
 
 
 def pair_report_ready(ctx, store, report):

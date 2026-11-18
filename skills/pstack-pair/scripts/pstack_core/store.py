@@ -572,8 +572,9 @@ def update_role(store, role, changes):
 
 def rotation_required(store):
     """Whether the sidekick must be replaced before its next task. Under local it is the flag `finish` sets in pair.json. Under git the sidekick
-    cannot write pair.json, so the master derives it: a done report for the current dispatch, written by the generation that took it, and not
-    kept by a rotation (rotation_cleared names the brief it was kept for)."""
+    cannot write pair.json, so the master derives it: a done report for the current dispatch, written by the generation that took it, newer
+    than the report the dispatch found (.dispatch.report_order: a re-dispatch of a unit leaves its old done report behind), and not kept by a
+    rotation (rotation_cleared names the brief it was kept for)."""
     from . import gitstore
 
     doc = load(store)
@@ -589,7 +590,11 @@ def rotation_required(store):
     ):
         return False
     report = expected_report(store, brief)
-    return os.path.isfile(report) and header_field(report, 'status') == 'done'
+    return (
+        os.path.isfile(report)
+        and header_field(report, 'status') == 'done'
+        and revision(report).order > count(dispatch, 'report_order')
+    )
 
 
 def clear_rotation(store):

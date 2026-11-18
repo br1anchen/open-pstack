@@ -9,7 +9,7 @@ import sys
 import time
 from dataclasses import dataclass
 
-from . import git, mux
+from . import git, gitstore, mux
 from .agents import model_label
 from .argv import read
 from .errors import (
@@ -234,6 +234,10 @@ def record_dispatch(store, brief, now=None):
     """The dispatch record: .dispatch (with .sidekick.generation), .sent (with .sent.seen when a report already exists), the unit's base head, and the pending list."""
     old = expected_report(store, brief)
     seen = f'{old}:{revision(old).stamp}' if os.path.isfile(old) else ''
+    on_git = gitstore.is_git(store)
+    # .sent.seen is moved on to every report the master is shown, so it cannot say which done report came before the dispatch; under git the
+    # dispatch keeps that report's order itself (rotation_required compares against it).
+    report_order = revision(old).order if on_git and os.path.isfile(old) else 0
     pair = load(store)
     cwd = text_at(pair, 'cwd')
     head = (
@@ -260,7 +264,10 @@ def record_dispatch(store, brief, now=None):
             'head': head,
             'generation': generation,
             **({'sidekick': label} if label else {}),
+            **({'report_order': report_order} if on_git else {}),
         }
+        if on_git:
+            sidekick.pop('rotation_cleared', None)
         doc['sent'] = {'file': brief, 'kind': 'BRIEF', 'at': at, 'epoch': epoch}
         if seen:
             doc['sent']['seen'] = seen

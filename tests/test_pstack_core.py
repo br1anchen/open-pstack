@@ -53,6 +53,7 @@ from pstack_core import (
     wait,
 )  # noqa: E402
 from pstack_core.commands import metrics  # noqa: E402
+from pstack_core.commands import report as report_commands  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
     AgentBlocked,
     AgentBusy,
@@ -21388,6 +21389,56 @@ class GitStoreTests(unittest.TestCase):
         self.assertFalse(store.rotation_required(self.store))
         doc = json.loads(Path(self.store, 'pair.json').read_text())
         self.assertNotIn('rotation_required', doc['sidekick'])
+
+    def test_gitstore_a_redispatch_after_a_rotation_waits_for_a_new_done_report(self):
+        brief = f'{self.store}/briefs/001-x.md'
+        sidekick = gitstore.Writer('sidekick', 1)
+        send.record_dispatch(self.store, brief)
+        self.write(self.store, 'reports/001-x.md', 'status: done\n')
+        self.publish(self.store, ['reports/001-x.md'], sidekick)
+        self.assertTrue(store.rotation_required(self.store))
+        self.set_generation(self.store, 'sidekick', 2)
+        send.record_dispatch(self.store, brief)
+        self.assertFalse(store.rotation_required(self.store))
+        dispatch = json.loads(Path(self.store, 'pair.json').read_text())['dispatch']
+        self.assertEqual(
+            dispatch['report_order'],
+            store.revision(f'{self.store}/reports/001-x.md').order,
+        )
+        self.write(self.store, 'reports/001-x.md', 'status: done\nsecond try\n')
+        self.publish(self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 2))
+        self.assertTrue(store.rotation_required(self.store))
+
+    def test_gitstore_a_redispatch_of_a_unit_that_kept_its_session_waits_for_a_new_done_report(
+        self,
+    ):
+        brief = f'{self.store}/briefs/001-x.md'
+        send.record_dispatch(self.store, brief)
+        self.write(self.store, 'reports/001-x.md', 'status: done\n')
+        self.publish(self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1))
+        store.clear_rotation(self.store)
+        send.record_dispatch(self.store, brief)
+        self.assertFalse(store.rotation_required(self.store))
+        self.write(self.store, 'reports/001-x.md', 'status: done\nagain\n')
+        self.publish(self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1))
+        self.assertTrue(store.rotation_required(self.store))
+
+    def test_gitstore_finishing_the_same_done_report_twice_writes_one_rotation_event(
+        self,
+    ):
+        report = f'{self.store}/reports/001-x.md'
+        self.write(self.store, 'reports/001-x.md', 'status: done\n')
+
+        def rotation_rows():
+            return [r for r in store.events(self.store) if 'rotation-required' in r]
+
+        record = report_commands.record_rotation_required
+        record(self.store, report, {}, '1')
+        record(self.store, report, {}, '1')
+        self.assertEqual(len(rotation_rows()), 1)
+        self.write(self.store, 'reports/001-x.md', 'status: done\nrewritten\n')
+        record(self.store, report, {}, '1')
+        self.assertEqual(len(rotation_rows()), 2)
 
     def test_gitstore_a_parked_note_is_printed_once_without_touching_pair_json(self):
         note = f'{self.store}/notes/001-n1.md'
