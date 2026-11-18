@@ -566,8 +566,15 @@ def publish(store, paths, message, writer, sleep=time.sleep):
             pass
 
 
+def _changed(store, rels):
+    """Whether any of these paths differs from HEAD (modified, new or removed)."""
+    return bool(rels) and bool(git.out(store, 'status', '--porcelain', '--', *rels))
+
+
 def _publish(store, rels, message, writer, sleep):
     branch = branch_of(store)
+    if not _changed(store, rels) and unpublished(store, branch) == 0:
+        return ''
     tries = env_int('PSTACK_STORE_PUSH_TRIES', 5)
     backoff = env_float('PSTACK_STORE_PUSH_BACKOFF_S', 0.2)
     made = 0

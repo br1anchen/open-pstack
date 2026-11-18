@@ -21384,6 +21384,27 @@ class GitStoreTests(unittest.TestCase):
         self.assertNotIn('reports/001-x.md', self.remote_files())
         self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 0)
 
+    def test_gitstore_a_publish_with_nothing_to_send_is_a_no_op_when_origin_is_unreachable(
+        self,
+    ):
+        before = gitstore.head_of(self.store)
+        self.sh(
+            'git',
+            'remote',
+            'set-url',
+            'origin',
+            str(self.path / 'gone.git'),
+            cwd=self.work,
+        )
+        writer = gitstore.Writer('master', 1)
+        self.assertEqual(self.publish(self.store, ['pair.json'], writer), '')
+        self.assertEqual(self.publish(self.store, [], writer), '')
+        self.assertEqual(gitstore.head_of(self.store), before)
+        self.write(self.store, 'plans/001-p.md')
+        with self.assertRaises(gitstore.PublishFailed):
+            self.publish(self.store, ['plans/001-p.md'], writer)
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 1)
+
     def test_gitstore_a_crash_after_the_commit_leaves_it_for_the_next_publish(self):
         self.write(self.store, 'reports/001-x.md')
         with mock.patch.object(gitstore, 'push', side_effect=RuntimeError('killed')):
