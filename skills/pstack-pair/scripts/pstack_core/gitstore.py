@@ -46,8 +46,10 @@ class StoreDiverged(PairError):
 
 
 class Writer(NamedTuple):
+    """Who publishes. generation is the one pair.json holds for the role, 0 when it holds none yet (a master before its first rotation)."""
+
     role: str
-    generation: int | None = None
+    generation: int
 
 
 class Rule(NamedTuple):
@@ -139,8 +141,8 @@ def check_owned(rel, writer):
         found = rule.pattern.fullmatch(rel)
         assert found is not None
         generation = int(found['gen'])
-        if found['role'] != writer.role or writer.generation not in (None, generation):
-            mine = f'{writer.role}-g{"<n>" if writer.generation is None else writer.generation}'
+        if found['role'] != writer.role or writer.generation != generation:
+            mine = f'{writer.role}-g{writer.generation}'
             raise OwnershipError(
                 f'{rel}: each writer appends to {found["dir"]}/{mine}.tsv only'
             )
@@ -176,6 +178,11 @@ def generation_of(store, role):
         return None
     generation = member.get('generation') if isinstance(member, dict) else None
     return generation if isinstance(generation, int) else None
+
+
+def writer_of(store, role):
+    """The Writer for role as pair.json names it now: what a command publishes as."""
+    return Writer(role, generation_of(store, role) or 0)
 
 
 def event_file(store, actor):
@@ -493,9 +500,7 @@ def replay(store, remote):
 
 def fence(store, writer):
     """Raises FencedWriter unless the writer's generation is the active one in the store's pair.json as it is now."""
-    if writer.generation is None:
-        return
-    active = generation_of(store, writer.role)
+    active = generation_of(store, writer.role) or 0
     if active != writer.generation:
         raise FencedWriter(
             f'{writer.role} generation {writer.generation} is not the active one (pair.json says {active}); nothing is published'
@@ -558,7 +563,7 @@ def _publish(store, rels, message, writer, sleep):
     backoff = env_float('PSTACK_STORE_PUSH_BACKOFF_S', 0.2)
     made = 0
     for attempt in range(tries):
-        refresh(store)
+        fresh = refresh(store)
         try:
             fence(store, writer)
         except FencedWriter:
@@ -567,6 +572,10 @@ def _publish(store, rels, message, writer, sleep):
             raise
         if attempt == 0 and rels:
             made = _commit(store, rels, message)
+        if not fresh:
+            raise PublishFailed(
+                f'{branch} could not be fetched; the commit stays here for the next publish'
+            )
         if not made and unpublished(store, branch) == 0:
             return ''
         pushed = push(store, branch)

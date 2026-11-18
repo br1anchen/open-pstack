@@ -20807,7 +20807,7 @@ class GitStoreTests(unittest.TestCase):
             'pair.json',
             json.dumps({'master': {'generation': 1}, 'sidekick': {'generation': 1}}),
         )
-        self.publish(self.store, ['pair.json'], gitstore.Writer('master'))
+        self.publish(self.store, ['pair.json'], gitstore.Writer('master', 1))
         patcher = mock.patch.dict(
             os.environ,
             {'PSTACK_STORE_PUSH_BACKOFF_S': '0', 'PSTACK_STORE_PUSH_TRIES': '50'},
@@ -20940,8 +20940,8 @@ class GitStoreTests(unittest.TestCase):
             ('verdicts/001-x-v1-packet.md', gitstore.Writer('verifier', 1)),
             ('events/master-g1.tsv', sidekick),
             ('events/sidekick-g2.tsv', sidekick),
-            ('mystery.txt', gitstore.Writer('master')),
-            ('wait.pid', gitstore.Writer('master')),
+            ('mystery.txt', gitstore.Writer('master', 1)),
+            ('wait.pid', gitstore.Writer('master', 1)),
         ]
         for rel, writer in cases:
             with self.subTest(rel=rel, writer=writer):
@@ -21119,7 +21119,7 @@ class GitStoreTests(unittest.TestCase):
         )
         self.sh('git', 'worktree', 'prune', cwd=self.work)
         self.write(self.store, 'plans/001-p.md')
-        self.publish(self.store, ['plans/001-p.md'], gitstore.Writer('master'))
+        self.publish(self.store, ['plans/001-p.md'], gitstore.Writer('master', 1))
         self.assertTrue(gitstore.refresh(target))
         self.assertTrue(Path(target, 'pair.json').is_file())
         self.assertIn(target, self.sh('git', 'worktree', 'list', cwd=self.work))
@@ -21154,7 +21154,7 @@ class GitStoreTests(unittest.TestCase):
         )
         self.sh('git', 'remote', 'set-url', 'origin', str(self.remote), cwd=work)
         self.write(target, 'plans/001-p.md')
-        self.publish(target, ['plans/001-p.md'], gitstore.Writer('master'))
+        self.publish(target, ['plans/001-p.md'], gitstore.writer_of(target, 'master'))
         self.assertTrue(
             {'.gitignore', 'pair.json', 'plans/001-p.md'}
             <= self.remote_tree('kitchen/demo3')
@@ -21197,7 +21197,7 @@ class GitStoreTests(unittest.TestCase):
         other = self.other_store()
         writers = (
             (self.store, gitstore.Writer('sidekick', 1), 'reports/{n:03d}-a.md'),
-            (other, gitstore.Writer('verifier'), 'verdicts/{n:03d}-b-v1.md'),
+            (other, gitstore.Writer('verifier', 0), 'verdicts/{n:03d}-b-v1.md'),
         )
         errors_seen = []
 
@@ -21231,7 +21231,7 @@ class GitStoreTests(unittest.TestCase):
             calls.append(where)
             if len(calls) == 1:
                 self.write(other, 'plans/001-p.md')
-                self.publish(other, ['plans/001-p.md'], gitstore.Writer('master'))
+                self.publish(other, ['plans/001-p.md'], gitstore.Writer('master', 1))
             return real(where, branch)
 
         self.write(self.store, 'reports/001-x.md')
@@ -21255,10 +21255,43 @@ class GitStoreTests(unittest.TestCase):
         self.assertEqual(push.call_count, 3)
         self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 1)
 
+    def test_gitstore_a_fetch_that_fails_on_a_retry_stops_before_the_push_with_the_commit_kept(
+        self,
+    ):
+        self.write(self.store, 'reports/001-x.md')
+        rejected = gitstore.Push('rejected', '! [rejected]')
+        refreshes = iter([True])
+        before = self.remote_commits()
+        with mock.patch.object(gitstore, 'push', return_value=rejected) as push:
+            with mock.patch.object(
+                gitstore, 'refresh', lambda store: next(refreshes, False)
+            ):
+                with self.assertRaises(gitstore.PublishFailed):
+                    self.publish(
+                        self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+                    )
+        self.assertEqual(push.call_count, 1)
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 1)
+        self.assertEqual(self.remote_commits(), before)
+
+    def test_gitstore_the_master_publishes_as_the_generation_pair_json_holds(self):
+        self.assertEqual(
+            gitstore.writer_of(self.store, 'master'), gitstore.Writer('master', 1)
+        )
+        self.assertEqual(
+            gitstore.writer_of(self.store, 'verifier'), gitstore.Writer('verifier', 0)
+        )
+        self.set_generation(self.store, 'master', 2)
+        with self.assertRaises(gitstore.FencedWriter):
+            self.publish(self.store, ['pair.json'], gitstore.Writer('master', 1))
+        self.publish(
+            self.store, ['pair.json'], gitstore.writer_of(self.store, 'master')
+        )
+
     def test_gitstore_an_old_generation_is_refused_after_a_replacement(self):
         self.write(self.store, 'reports/001-x.md')
         self.set_generation(self.store, 'sidekick', 2)
-        self.publish(self.store, ['pair.json'], gitstore.Writer('master'))
+        self.publish(self.store, ['pair.json'], gitstore.Writer('master', 1))
         before = self.remote_commits()
         with self.assertRaises(gitstore.FencedWriter):
             self.publish(
@@ -21281,7 +21314,7 @@ class GitStoreTests(unittest.TestCase):
             calls.append(where)
             if len(calls) == 1:
                 self.set_generation(master, 'sidekick', 2)
-                self.publish(master, ['pair.json'], gitstore.Writer('master'))
+                self.publish(master, ['pair.json'], gitstore.Writer('master', 1))
             return real(where, branch)
 
         self.write(self.store, 'reports/001-x.md')
@@ -21354,7 +21387,7 @@ class GitStoreTests(unittest.TestCase):
                     self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
                 )
         self.write(other, 'plans/001-p.md')
-        self.publish(other, ['plans/001-p.md'], gitstore.Writer('master'))
+        self.publish(other, ['plans/001-p.md'], gitstore.Writer('master', 1))
         self.assertTrue(gitstore.refresh(self.store))
         self.assertTrue(Path(self.store, 'plans/001-p.md').is_file())
         self.assertTrue(Path(self.store, 'reports/001-x.md').is_file())

@@ -177,7 +177,9 @@ def publish_first(ctx, store):
         os.path.relpath(gitstore.event_file(store, 'master'), store),
     ]
     try:
-        gitstore.publish(store, first, 'kitchen: init', gitstore.Writer('master'))
+        gitstore.publish(
+            store, first, 'kitchen: init', gitstore.writer_of(store, 'master')
+        )
     except gitstore.PublishFailed as e:
         sys.stderr.write(f'{ctx.prog}: warning: {e}\n')
 
