@@ -10,6 +10,7 @@ import time
 
 from pstack_core import mux
 from pstack_core.agents import (
+    current_no_mcp,
     has_mcp_arg,
     has_permission_arg,
     has_trust_arg,
@@ -114,7 +115,7 @@ def verifier_entry(store, cls):
             top_runs = count(sidekick, 'chain_index') == 0
             return {
                 'kind': sidekick.get('kind') if top_runs else chain[0].get('kind'),
-                'args': names(sidekick, 'start_args')
+                'args': current_no_mcp(names(sidekick, 'start_args'))
                 if top_runs
                 else names(chain[0], 'args'),
                 'source': 'sidekick',
@@ -122,7 +123,7 @@ def verifier_entry(store, cls):
             }
         return {
             'kind': sidekick.get('kind'),
-            'args': names(sidekick, 'start_args'),
+            'args': current_no_mcp(names(sidekick, 'start_args')),
             'source': 'sidekick',
             'fallback': {'kind': fallback['kind'], 'args': names(fallback, 'args')}
             if fallback.get('kind')

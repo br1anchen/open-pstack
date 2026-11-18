@@ -11295,6 +11295,43 @@ esac
             ),
         )
 
+    def sidekick_marker_entry(self, chain_index, kind, start_args):
+        """The verifier entry of a sidekick-marker verifier, with the sidekick running chain entry chain_index of a pi, devin chain."""
+        state = self.state()
+        state['sidekick'].update(
+            {
+                'kind': kind,
+                'start_args': start_args,
+                'chain': [
+                    {'kind': 'pi', 'args': ['--model', 'top']},
+                    {'kind': 'devin', 'args': ['--model', 'second']},
+                ],
+                'chain_index': chain_index,
+            }
+        )
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.open_verification_entry()
+        return self.state()['verifying']['entry']
+
+    def test_the_sidekick_marker_verifier_gets_the_start_arguments_while_the_top_runs(
+        self,
+    ):
+        # The recorded no-mcp path names the build that spawned the sidekick; the verifier gets this build's file.
+        stale = '/old/build/references/no-mcp.json'
+        entry = self.sidekick_marker_entry(
+            0, 'pi', ['--model', 'top', '--mcp-config', stale]
+        )
+        self.assertEqual(entry['kind'], 'pi')
+        self.assertEqual(entry['args'][:3], ['--model', 'top', '--mcp-config'])
+        self.assertNotEqual(entry['args'][3], stale)
+        self.assertTrue(entry['args'][3].endswith('/references/no-mcp.json'))
+
+    def test_after_a_sidekick_failover_the_marker_verifier_gets_the_top_chain_entrys_arguments(
+        self,
+    ):
+        entry = self.sidekick_marker_entry(1, 'devin', ['--model', 'second'])
+        self.assertEqual((entry['kind'], entry['args']), ('pi', ['--model', 'top']))
+
     def test_the_master_source_entry_is_written_byte_for_byte(self):
         self.set_roster('[verifier]\nkind = "master"\n')
         self.assertEqual(
