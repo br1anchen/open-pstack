@@ -489,6 +489,38 @@ class Amp(Subagents):
             for n, e in load(self.path())['agents'].items()
         }
 
+    def with_bundle(self, name, text, store, thread, seen, compacted, tmp):
+        """(attachments, message, build) of a message to `name`: the store's bundle always, and the pstack build with the line that installs it
+        when `seen` (what the thread was already given) lacks this build, as the message text after `text`. build is the id to record, '' when
+        none was attached; compacted gives the send-back rules in full again."""
+        path = os.path.join(tmp, f'pstack-{name}.tgz')
+        pane = (self.entry(name) or (name, {'pane': ''}))[1]['pane']
+        bundle.pack(
+            store,
+            path,
+            self.sender(),
+            {'name': name, 'pane': pane},
+            self.agents(),
+            text,
+        )
+        attach = ['--attach', path]
+        build_path = os.path.join(tmp, 'pstack-build.tgz')
+        # The master's build is the run's: a reply to its thread carries none, a new master's thread gets this one.
+        build = '' if thread and MASTER_RE.search(name) else pack_build(build_path)
+        install = ''
+        if build and (not seen or seen.get('build') != build):
+            attach += ['--attach', build_path]
+            install = f'`{install_line(build)}` (it installs the pstack build the sender runs, the same on every orb), then '
+        else:
+            build = ''
+        rules = RETURN if not seen or compacted else RETURN_SHORT
+        message = (
+            f'{text}\n\npstack: before you act on this message, run {install}`{SYNC} <the pstack-{name}.tgz attachment URL below>`: '
+            f'it merges the {store} store and its commits into your orb.'
+            + ('' if MASTER_RE.search(name) else rules)
+        )
+        return attach, message, build
+
     def send(self, name, text, thread='', flags=(), store='', title=''):
         """Sends text to thread (a new thread on flags when ''), with the bundle of store attached. (thread, error text)."""
         self.skipped = ''
@@ -506,39 +538,8 @@ class Amp(Subagents):
         with tempfile.TemporaryDirectory() as tmp:
             attach = []
             if store and os.path.isfile(os.path.join(store, 'pair.json')):
-                path = os.path.join(tmp, f'pstack-{name}.tgz')
-                pane = (self.entry(name) or (name, {'pane': ''}))[1]['pane']
-                bundle.pack(
-                    store,
-                    path,
-                    self.sender(),
-                    {'name': name, 'pane': pane},
-                    self.agents(),
-                    text,
-                )
-                attach = ['--attach', path]
-                build_path = os.path.join(tmp, 'pstack-build.tgz')
-                # The master's build is the run's: a reply to its thread carries none, a new master's thread gets this one.
-                build = (
-                    '' if thread and MASTER_RE.search(name) else pack_build(build_path)
-                )
-                install = ''
-                if build and (not seen or seen.get('build') != build):
-                    attach += ['--attach', build_path]
-                    install = f'`{install_line(build)}` (it installs the pstack build the sender runs, the same on every orb), then '
-                elif build:
-                    build = ''
-                full_return = not seen or compacted
-                message = (
-                    f'{text}\n\npstack: before you act on this message, run {install}`{SYNC} <the pstack-{name}.tgz attachment URL below>`: '
-                    f'it merges the {store} store and its commits into your orb.'
-                    + (
-                        ''
-                        if MASTER_RE.search(name)
-                        else RETURN
-                        if full_return
-                        else RETURN_SHORT
-                    )
+                attach, message, build = self.with_bundle(
+                    name, text, store, thread, seen, compacted, tmp
                 )
             cwd = bundle.repo_of(store) if store else None
             digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
