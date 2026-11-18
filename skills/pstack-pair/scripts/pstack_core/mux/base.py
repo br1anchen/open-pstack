@@ -95,6 +95,10 @@ class Mux:
         """The share of its context window the agent `name` has used (0 to 1; 1 once it compacted), or None when the backend cannot say."""
         return None
 
+    def reads_skill_file(self, name):
+        """Whether the agent `name` may not load a skill by name and is told to read its file (an Amp thread that runs Claude Code)."""
+        return False
+
     def compactions(self, name):
         """How many times the agent `name`'s conversation compacted, or None when the backend cannot say."""
         return None

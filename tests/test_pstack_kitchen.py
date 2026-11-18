@@ -14940,6 +14940,32 @@ class AmpKitchenTests(KitchenScriptTests):
             self.section(self.brief_text('002', 'two'), '## Report'), self.POINTER
         )
 
+    def test_a_claude_code_role_is_told_to_read_the_skill_file_and_any_other_role_to_load_the_skill(
+        self,
+    ):
+        for slug, args, first in [
+            (
+                'cc',
+                ['--mode', 'claude-code', '--features', 'model:claude-sonnet-5-5'],
+                'Read the file ~/.agents/skills/pstack-kitchen/SKILL.md (the pstack-kitchen skill; read it as a file if your harness does not load Amp skills) and take the sidekick role (generation ',
+            ),
+            (
+                'plain',
+                ['--model', 'zhipuai/glm-5.3'],
+                'Load the pstack-kitchen skill from ~/.agents/skills/pstack-kitchen/SKILL.md and take the sidekick role (generation ',
+            ),
+        ]:
+            with self.subTest(slug=slug):
+                self.run_sh('init', slug)
+                store = self.store.parent / slug
+                out = self.run_sh(
+                    'spawn', str(store), '--kind', 'amp', '--', *args, code=4
+                )
+                thread = re.search(rf'amp {slug}-sidekick \((T-[^)]+)\)', out)
+                assert thread is not None, out
+                [bootstrap] = self.thread_messages(thread[1])
+                self.assertTrue(bootstrap.startswith(first), bootstrap)
+
     def test_half_a_context_window_rotates_the_sidekick_even_in_the_same_area(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         (self.fake / f'amp-context-{amp_thread(1)}').write_text(

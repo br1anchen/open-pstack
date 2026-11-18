@@ -252,8 +252,14 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
             f'{store}/{ready}',
             f'{store}/sessions/{role}-{generation}-previous-ready.md',
         )
+    # A Claude Code thread of Amp may not load Amp skills: it reads the skill's file.
+    load = (
+        f'Read the file ~/.agents/skills/{ctx.skill}/SKILL.md (the {ctx.skill} skill; read it as a file if your harness does not load Amp skills)'
+        if mux.get().reads_skill_file(name)
+        else f'Load the {ctx.skill} skill from ~/.agents/skills/{ctx.skill}/SKILL.md'
+    )
     bootstrap = (
-        f'Load the {ctx.skill} skill from ~/.agents/skills/{ctx.skill}/SKILL.md and take the {role} role (generation '
+        f'{load} and take the {role} role (generation '
         f'{generation}, pane {pane}). {ctx.store_label} store: {store}. Follow its bootstrap steps, write {ready}, and reply READY.'
     )
     r = mux.get().prompt(name, bootstrap, wait=True, timeout_ms=240000)

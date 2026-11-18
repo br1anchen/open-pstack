@@ -347,6 +347,14 @@ class Amp(Subagents):
             return None
         return 1.0 if compacted else used / limit
 
+    def reads_skill_file(self, name):
+        found = self.entry(name)
+        args = (found[1].get('args') or []) if found else []
+        return any(
+            flag == '--mode' and mode == 'claude-code'
+            for flag, mode in zip(args, args[1:], strict=False)
+        )
+
     def compactions(self, name):
         return thread_compactions(self.role_thread(name))
 
