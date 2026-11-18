@@ -358,9 +358,13 @@ def attach(store, repo, branch):
 
 
 def _branch_places(repo, branch):
-    """(here, on origin): whether the store branch is in the work repository, and whether origin lists it."""
+    """(here, on origin): whether the store branch is in the work repository, and whether origin lists it: True, False when origin answers that
+    it has no such branch (ls-remote --exit-code exits 2), None when origin cannot be reached (any other failure)."""
     here = git.ok(repo, 'show-ref', '--verify', '--quiet', f'refs/heads/{branch}')
-    return here, bool(git.out(repo, 'ls-remote', '--heads', 'origin', branch))
+    listed = _run(repo, 'ls-remote', '--exit-code', '--heads', 'origin', branch)
+    return here, (
+        True if listed.returncode == 0 else False if listed.returncode == 2 else None
+    )
 
 
 def _require_origin(repo):
@@ -406,7 +410,8 @@ def create(store, repo, branch):
 
 def open_store(store, repo, branch):
     """The store of an init that may already have started: the worktree is already on the branch (a rerun after a later step failed), the
-    branch is on origin or only here (checked out at store), or neither (created). PublishFailed as create raises it."""
+    branch is on origin or only here (checked out at store), or neither (created); an origin that cannot be reached with no branch here is
+    refused, since the branch may be there. PublishFailed as create raises it."""
     if is_git(store) and branch_of(store) == branch:
         return
     _require_origin(repo)
@@ -420,6 +425,10 @@ def open_store(store, repo, branch):
                 f'cannot check {branch} out at {store}: {added.stderr.strip()}'
             )
         _run(repo, 'worktree', 'lock', '--reason', 'pstack run store', store)
+    elif remote is None:
+        raise StoreSetupError(
+            f'origin is unreachable; cannot tell whether {branch} exists. Rerun init when origin answers'
+        )
     else:
         create(store, repo, branch)
 

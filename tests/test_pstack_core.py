@@ -21138,12 +21138,12 @@ class GitStoreTests(unittest.TestCase):
             ).split()
         )
 
-    def test_gitstore_init_with_an_unreachable_remote_warns_and_a_later_publish_sends_the_commits(
+    def test_gitstore_init_with_a_remote_that_refuses_the_push_warns_and_a_later_publish_sends_the_commits(
         self,
     ):
         work = self.clone('offline-work')
         nowhere = str(self.path / 'nowhere.git')
-        self.sh('git', 'remote', 'set-url', 'origin', nowhere, cwd=work)
+        self.sh('git', 'remote', 'set-url', '--push', 'origin', nowhere, cwd=work)
         target = str(self.path / 'offline-store')
         done = self.run_init('demo3', target, work)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -21153,7 +21153,9 @@ class GitStoreTests(unittest.TestCase):
             'kitchen/demo3',
             self.sh('git', '--git-dir', str(self.remote), 'branch', '--list'),
         )
-        self.sh('git', 'remote', 'set-url', 'origin', str(self.remote), cwd=work)
+        self.sh(
+            'git', 'remote', 'set-url', '--push', 'origin', str(self.remote), cwd=work
+        )
         self.write(target, 'plans/001-p.md')
         self.publish(target, ['plans/001-p.md'], gitstore.writer_of(target, 'master'))
         self.assertTrue(
@@ -21191,6 +21193,42 @@ class GitStoreTests(unittest.TestCase):
         self.assertTrue(gitstore.is_git(target))
         self.assertTrue(Path(target, 'pair.json').is_file())
         self.assertIn('pair.json', self.remote_tree('kitchen/demo5'))
+
+    def test_gitstore_init_with_an_unreachable_origin_and_no_branch_here_refuses_and_attaches_once_origin_answers(
+        self,
+    ):
+        away = self.run_init('demo6', str(self.path / 'seen-store'), self.work)
+        self.assertEqual(away.returncode, 0, away.stderr)
+        work = self.clone('blind-work')
+        self.sh(
+            'git', 'remote', 'set-url', 'origin', str(self.path / 'gone.git'), cwd=work
+        )
+        target = str(self.path / 'blind-store')
+        refused = self.run_init('demo6', target, work)
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertIn(
+            'origin is unreachable; cannot tell whether kitchen/demo6 exists. Rerun init when origin answers',
+            refused.stderr,
+        )
+        self.assertFalse(Path(target, 'pair.json').exists())
+        self.assertEqual(
+            self.sh('git', 'branch', '--list', 'kitchen/demo6', cwd=work), ''
+        )
+        self.sh('git', 'remote', 'set-url', 'origin', str(self.remote), cwd=work)
+        done = self.run_init('demo6', target, work)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(gitstore.is_git(target))
+        self.assertEqual(
+            self.sh('git', 'rev-list', '--count', 'kitchen/demo6', cwd=work).strip(),
+            self.sh(
+                'git',
+                '--git-dir',
+                str(self.remote),
+                'rev-list',
+                '--count',
+                'kitchen/demo6',
+            ).strip(),
+        )
 
     def test_gitstore_two_clones_publish_twenty_role_files_concurrently_and_all_land(
         self,
