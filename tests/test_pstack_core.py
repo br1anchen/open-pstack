@@ -21288,6 +21288,24 @@ class GitStoreTests(unittest.TestCase):
             self.store, ['pair.json'], gitstore.writer_of(self.store, 'master')
         )
 
+    def test_gitstore_head_missing_reads_the_revisions_of_all_reports_at_once(self):
+        from pstack_core.mux import amp
+
+        fake = 'f' * 40
+        names = [f'reports/00{n}-r.md' for n in range(1, 5)]
+        for n, rel in enumerate(names):
+            self.write(self.store, rel, f'head: {"a" * 39}{n}\n')
+        self.publish(self.store, names, gitstore.Writer('sidekick', 1))
+        self.write(self.store, names[1], f'head: {fake}\n')
+        self.publish(self.store, names[1:2], gitstore.Writer('sidekick', 1))
+        doc = json.loads(Path(self.store, 'pair.json').read_text())
+        self.write(
+            self.store, 'pair.json', json.dumps({**doc, 'git_root': str(self.work)})
+        )
+        with mock.patch.object(gitstore, 'dirty', wraps=gitstore.dirty) as dirty:
+            self.assertEqual(amp.head_missing(self.store), fake)
+        self.assertEqual(dirty.call_count, 1)
+
     def test_gitstore_an_old_generation_is_refused_after_a_replacement(self):
         self.write(self.store, 'reports/001-x.md')
         self.set_generation(self.store, 'sidekick', 2)

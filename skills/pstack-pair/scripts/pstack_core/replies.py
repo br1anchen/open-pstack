@@ -18,6 +18,7 @@ from .store import (
     peek,
     read_text,
     revision,
+    revisions,
     suffix_number,
     unit_name,
     update,
@@ -119,10 +120,10 @@ def fresh_reply(ctx, store):
         *sorted(glob.glob(os.path.join(reports, glob.escape(unit) + '-[sq][0-9]*.md'))),
     ]
     best, reply = -1, ''
-    for f in candidates:
-        if not os.path.isfile(f):
-            continue
-        t = file_mtime(f)
+    written = [f for f in candidates if os.path.isfile(f)]
+    stamps = revisions(written)
+    for f in written:
+        t = stamps[f].stamp
         if t < floor:
             continue
         if not ctx.variant.report_ready(ctx, store, f).ready:

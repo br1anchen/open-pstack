@@ -25,7 +25,7 @@ from .. import bundle, git
 from ..argv import Spec, read
 from ..errors import PairError
 from ..numbers import env_int
-from ..store import TEXT, expected_report, header_field, revision
+from ..store import TEXT, expected_report, header_field, revisions
 from . import subagents
 from .base import DEVNULL, PIPE, Agent, Reply, ThreadRow
 from .subagents import EXITS, NOT_FOUND, Subagents, change, load
@@ -381,9 +381,10 @@ def head_missing(store):
     repo = bundle.repo_of(store)
     if not reports or not repo:
         return ''
+    order = revisions(reports)
     found = re.search(
         r'^head:\s*([0-9a-f]{7,40})\s*$',
-        open(max(reports, key=lambda p: revision(p).order), encoding='utf-8').read(),
+        open(max(reports, key=lambda p: order[p].order), encoding='utf-8').read(),
         re.M,
     )
     head = found.group(1) if found else ''
