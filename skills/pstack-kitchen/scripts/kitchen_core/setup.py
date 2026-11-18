@@ -252,13 +252,20 @@ def consultant_chain(kind, native):
     main_kind = roster_text(roster, 'consultant', 'kind')
     kind = kind or main_kind
     if kind and kind == main_kind:
-        return [
+        chain = []
+        for entry in (
             {
                 'kind': kind,
                 'args': native or roster_lines(roster, 'consultant', 'args'),
             },
             *roster_lines(roster, 'consultant', 'fallbacks'),
-        ]
+        ):
+            # An entry the same as the one before it would preflight the agent that just failed.
+            if not chain or pair_spawn.entry_label(entry) != pair_spawn.entry_label(
+                chain[-1]
+            ):
+                chain.append(entry)
+        return chain
     if kind == roster_text(roster, 'consultant', 'fallback', 'kind'):
         native = native or roster_lines(roster, 'consultant', 'fallback', 'args')
     return [{'kind': kind, 'args': native}]
@@ -298,10 +305,10 @@ def consultant(ctx, args):
             )
             step_down_consultant(store, chain, steps)
             if index is None:
-                last = chain[-1]['kind']
+                tried = ', '.join(map(pair_spawn.entry_label, chain))
                 why = steps[-1][1].removeprefix('preflight: ')
                 raise Die(
-                    f'consultant {last} failed its preflight and the roster names no other fallback: {why}',
+                    f'consultant {tried} failed its preflight and the roster names no other fallback: {why}',
                     2,
                 )
         entry = chain[index]

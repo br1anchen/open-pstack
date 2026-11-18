@@ -14007,7 +14007,7 @@ class CoreTests(unittest.TestCase):
             ),
             'the roster kind failing its preflight with no fallback': (
                 2,
-                'pair.sh: consultant pi failed its preflight and the roster names no other fallback: pi 1.0.2 at',
+                'pair.sh: consultant pi c failed its preflight and the roster names no other fallback: pi 1.0.2 at',
             ),
             'a fallback that is the kind itself': (
                 2,

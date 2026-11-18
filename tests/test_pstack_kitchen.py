@@ -14576,11 +14576,35 @@ class AmpKitchenTests(KitchenScriptTests):
         (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\nc/three\n')
         out = self.run_sh('consultant', str(self.store), '--reason', 'contract', code=2)
         self.assertIn(
-            'consultant amp failed its preflight and the roster names no other fallback',
+            'consultant amp a/one, amp b/two, amp c/three failed its preflight and the roster names no other fallback',
             out,
         )
         self.assertEqual(self.models_started('demo-consultant'), [])
         self.assertEqual(len(self.failover_events(self.store)), 2)
+
+    def test_a_consultant_fallback_the_same_as_its_entry_is_not_preflighted_again(
+        self,
+    ):
+        self.role_chain_roster('consultant')
+        roster = Path(self.env['PSTACK_KITCHEN_ROSTER'])
+        roster.write_text(
+            '[sidekick]\nkind = "amp"\nargs = ["--model", "s/one"]\n'
+            '[consultant]\nkind = "amp"\nargs = ["--model", "a/one"]\n'
+            '[[consultant.fallback]]\nkind = "amp"\nargs = ["--model", "a/one"]\n'
+        )
+        (self.fake / 'amp-preflight-fail').write_text('a/one\n')
+        out = self.run_sh('consultant', str(self.store), '--reason', 'contract', code=2)
+        self.assertIn(
+            'consultant amp a/one failed its preflight and the roster names no other fallback',
+            out,
+        )
+        preflights = [
+            line
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if ' -x ' in line and '--model a/one' in line
+        ]
+        self.assertEqual(len(preflights), 1)
+        self.assertEqual(self.failover_events(self.store), [])
 
     def test_spawn_records_the_roster_chain_and_starts_its_first_entry(self):
         store, _ = self.spawn_chain('ch')
