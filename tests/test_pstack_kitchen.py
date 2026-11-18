@@ -14518,6 +14518,25 @@ class AmpKitchenTests(KitchenScriptTests):
             self.failover_events(self.store), ['master:amp a/one:amp b/two']
         )
 
+    def test_rotate_master_skips_roster_entries_that_are_not_amp_agents(self):
+        roster = Path(self.tmp.name) / 'mixed-master-roster.toml'
+        roster.write_text(
+            '[sidekick]\nkind = "amp"\nargs = ["--model", "s/one"]\n'
+            '[master]\nkind = "claude"\nargs = ["--model", "claude-opus-5-5"]\n'
+            '[[master.fallback]]\nkind = "amp"\nargs = ["--model", "b/two"]\n'
+        )
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        self.filled_handoff()
+        out = self.run_sh('rotate-master', str(self.store))
+        self.assertIn('skip: master claude claude-opus-5-5 is not an amp agent', out)
+        [started] = [
+            line
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if '--title demo-master-g2' in line
+        ]
+        self.assertIn('-m b/two --title demo-master-g2', started)
+        self.assertEqual(self.failover_events(self.store), [])
+
     def test_rotate_master_with_a_model_skips_the_roster_chain(self):
         (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\nc/three\n')
         [started] = self.rotate_master_log('--model', 'x/y')

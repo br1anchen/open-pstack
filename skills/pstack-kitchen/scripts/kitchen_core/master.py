@@ -434,7 +434,7 @@ def args_model(args):
 
 
 def next_master_model(store, model):
-    """The model the next master thread starts on: --model when given, else the first entry of the roster's [master] chain whose preflight passes (each
+    """The model the next master thread starts on: --model when given, else the first amp entry (where every role is an Amp thread) of the roster's [master] chain whose preflight passes (each
     entry that fails is a failover event, `master:<from>:<to>`), else '' (this thread's own mode). A chain with no passing entry refuses the rotation."""
     if model:
         return model
@@ -442,6 +442,11 @@ def next_master_model(store, model):
     if not entry or not entry.get('kind'):
         return ''
     chain = [{'kind': entry['kind'], 'args': entry['args']}, *entry['fallbacks']]
+    if mux.get().master_threads:
+        # The next master is an Amp thread, so an agent of another kind cannot be it.
+        for each in [e for e in chain if e['kind'] != 'amp']:
+            sys.stdout.write(f'skip: master {entry_label(each)} is not an amp agent\n')
+        chain = [e for e in chain if e['kind'] == 'amp']
     index, steps = walk_chain(chain, 0, entry_preflight)
     for failed, why in steps:
         if failed + 1 < len(chain):
