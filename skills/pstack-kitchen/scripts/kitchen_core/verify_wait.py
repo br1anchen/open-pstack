@@ -30,6 +30,7 @@ from pstack_core.providers import (
     prime_role_error,
 )
 from pstack_core.send import submit_typed
+from pstack_core.spawn import entry_label
 from pstack_core.store import (
     event,
     header_field,
@@ -42,7 +43,6 @@ from pstack_core.store import (
     read_flag,
     read_int,
     read_text,
-    text_at,
     wake,
 )
 
@@ -366,6 +366,7 @@ class Waiter:
             read_flag(store, 'verifying.retried') is True,
             self.argv(),
         )
+        v.running = entry_label(peek(peek(load(store), 'verifying'), 'entry'))
         v.until = now_s() + self.every_m * 60
         return v
 
@@ -500,15 +501,16 @@ class Waiter:
         if not present and provider:
             self.status = 'inconclusive (the verifier hit its provider, not the work)'
             say(f'verdict: none\nstatus: {self.status}\nprovider_error: {provider}\n')
-            fallback_kind = text_at(v.fallback, 'kind')
-            if (
-                self.retry
-                and not v.retried
-                and v.fallback
-                and fallback_kind != v.kind
-                and v.argv
-            ):
-                say(f'retry: verifying again on the fallback, {fallback_kind}\n')
+            fallback_label = entry_label(v.fallback) if v.fallback else ''
+            if self.retry and v.fallback and fallback_label != v.running and v.argv:
+                event(
+                    store,
+                    'master',
+                    'failover',
+                    '-',
+                    f'verifier:{v.running}:{fallback_label}',
+                )
+                say(f'retry: verifying again on the fallback, {fallback_label}\n')
                 sys.stdout.flush()
                 again = [
                     store,

@@ -10917,9 +10917,34 @@ esac
             out,
         )
 
+    def test_a_verifier_stopped_by_its_provider_retries_down_its_whole_chain(self):
+        self.set_roster(
+            '[verifier]\nkind = "pi"\nargs = ["--model", "first"]\n'
+            '[[verifier.fallback]]\nkind = "pi"\nargs = ["--model", "second"]\n'
+            '[[verifier.fallback]]\nkind = "devin"\n'
+        )
+        self.rate_limited_verifier()
+        _, out = self.verify_app_unit('ratelimit', 0)
+        starts = self.verifier_starts()
+        self.assertEqual(len(starts), 3, starts)
+        self.assertIn('--model first', starts[0])
+        self.assertIn('--model second', starts[1])
+        self.assertIn('--kind devin', starts[2])
+        self.assertIn('retry: verifying again on the fallback, pi second', out)
+        self.assertIn('retry: verifying again on the fallback, devin', out)
+        failovers = [
+            line.split('\t')[5]
+            for line in (self.store / 'events.tsv').read_text().splitlines()
+            if '\tmaster\tfailover\t' in line
+        ]
+        self.assertEqual(
+            failovers, ['verifier:pi first:pi second', 'verifier:pi second:devin']
+        )
+        self.assertIn('status: clean\n', out)
+
     def test_a_fallback_of_the_failed_kind_is_not_retried(self):
         self.set_roster(
-            '[verifier]\nkind = "pi"\n[verifier.fallback]\nkind = "pi"\nargs = ["--model", "other"]\n'
+            '[verifier]\nkind = "pi"\nargs = ["--model", "same"]\n[verifier.fallback]\nkind = "pi"\nargs = ["--model", "same"]\n'
         )
         self.rate_limited_verifier()
         self.verify_app_unit('ratelimit', 2)
@@ -11180,6 +11205,7 @@ esac
     def test_a_rate_limited_verifier_without_a_fallback_is_inconclusive(self):
         state = self.state()
         del state['sidekick']['fallback']
+        del state['sidekick']['chain']
         (self.store / 'pair.json').write_text(json.dumps(state))
         self.rate_limited_verifier()
         _, out = self.verify_app_unit('ratelimit', 2)
@@ -11226,6 +11252,7 @@ esac
     def assert_fallback_is_damage(self, value, word):
         state = self.state()
         state['sidekick']['fallback'] = value
+        state['sidekick'].pop('chain', None)
         (self.store / 'pair.json').write_text(json.dumps(state))
         _, out = self.verify_app_unit('clean', 1)
         self.assertIn(
@@ -11236,6 +11263,7 @@ esac
     def assert_argument_is_damage(self, change, word):
         state = self.state()
         change(state['sidekick'])
+        state['sidekick'].pop('chain', None)
         (self.store / 'pair.json').write_text(json.dumps(state))
         _, out = self.verify_app_unit('clean', 1)
         self.assertIn(f'pair.json is damaged: {word}', out)
@@ -14323,6 +14351,98 @@ class AmpKitchenTests(KitchenScriptTests):
             for line in (self.fake / 'amp.log').read_text().splitlines()
             if f'--title {title}' in line and ' -ox ' in line
         ]
+
+    def verify_started(self, *args):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        self.git(
+            'update-ref',
+            'refs/remotes/origin/main',
+            self.git('rev-list', '--max-parents=0', 'HEAD'),
+        )
+        return self.run_sh('verify', str(self.store), *args, code=4)
+
+    def verifier_failovers(self):
+        return [
+            line.split('\t')[5]
+            for line in (self.store / 'events.tsv').read_text().splitlines()
+            if '\tmaster\tfailover\t' in line and 'verifier:' in line
+        ]
+
+    def test_a_routine_verifier_steps_down_its_chain_on_failed_preflights(self):
+        self.role_chain_roster('verifier')
+        (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\n')
+        out = self.verify_started('001')
+        self.assertIn('failover: verifier amp a/one -> amp b/two (preflight: ', out)
+        self.assertEqual(self.models_started('demo-verifier'), ['c/three'])
+        self.assertEqual(
+            self.verifier_failovers(),
+            ['verifier:amp a/one:amp b/two', 'verifier:amp b/two:amp c/three'],
+        )
+
+    def test_a_verifier_whose_whole_chain_fails_starts_nothing(self):
+        self.role_chain_roster('verifier')
+        (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\nc/three\n')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        out = self.run_sh('verify', str(self.store), '001', code=5)
+        self.assertIn(
+            'every agent of the verifier chain failed its preflight (amp a/one, amp b/two, amp c/three)',
+            out,
+        )
+        self.assertEqual(self.models_started('demo-verifier'), [])
+
+    def test_the_escalated_verifier_starts_from_the_top_of_its_own_chain(self):
+        self.role_chain_roster('escalated')
+        (self.fake / 'amp-preflight-fail').write_text('a/one\n')
+        out = self.verify_started('--landing')
+        self.assertIn('failover: verifier amp a/one -> amp b/two (preflight: ', out)
+        self.assertEqual(self.models_started('demo-verifier'), ['b/two'])
+        self.assertEqual(self.verifier_failovers(), ['verifier:amp a/one:amp b/two'])
+
+    def rotate_master_log(self, *extra):
+        self.role_chain_roster('master')
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store), *extra)
+        return [
+            line
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if '--title demo-master-g2' in line
+        ]
+
+    def test_rotate_master_starts_the_next_master_on_the_first_passing_roster_entry(
+        self,
+    ):
+        (self.fake / 'amp-preflight-fail').write_text('a/one\n')
+        [started] = self.rotate_master_log()
+        self.assertIn('-m b/two --title demo-master-g2', started)
+        self.assertEqual(
+            self.failover_events(self.store), ['master:amp a/one:amp b/two']
+        )
+
+    def test_rotate_master_with_a_model_skips_the_roster_chain(self):
+        (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\nc/three\n')
+        [started] = self.rotate_master_log('--model', 'x/y')
+        self.assertIn('-m x/y --title demo-master-g2', started)
+        self.assertEqual(self.failover_events(self.store), [])
+
+    def test_rotate_master_whose_chain_all_fails_starts_nothing(self):
+        (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\nc/three\n')
+        self.role_chain_roster('master')
+        self.filled_handoff()
+        out = self.run_sh('rotate-master', str(self.store), code=5)
+        self.assertIn(
+            'every agent of the master chain failed its preflight (amp a/one, amp b/two, amp c/three); pass --model to start the next master anyway',
+            out,
+        )
+        self.assertNotIn('previous', self.state()['master'])
+        self.assertEqual(len(self.failover_events(self.store)), 2)
 
     def test_a_consultant_steps_down_its_chain_on_failed_preflights(self):
         self.role_chain_roster('consultant')

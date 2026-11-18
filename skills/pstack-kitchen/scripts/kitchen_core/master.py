@@ -32,6 +32,7 @@ from pstack_core.panes import (
 from pstack_core.permission import caller_pid, mode_of_this_shell
 from pstack_core.review import require_filled
 from pstack_core.send import submit_typed
+from pstack_core.spawn import entry_label, entry_preflight, walk_chain
 from pstack_core.store import (
     count,
     event,
@@ -50,6 +51,7 @@ from pstack_core.store import (
     who,
 )
 
+from . import kpy
 from .landing import playbooks
 from .verify_wait import warn_unreviewed
 
@@ -395,6 +397,37 @@ def hand_to_next_session(ctx, store, handoff):
     return 0
 
 
+def args_model(args):
+    """The model the arguments of a roster entry name (the last of --model, -m or --mode), '' when none does."""
+    model = ''
+    for flag, value in zip(args, args[1:], strict=False):
+        if flag in ('--model', '-m', '--mode'):
+            model = value
+    return model
+
+
+def next_master_model(store, model):
+    """The model the next master thread starts on: --model when given, else the first entry of the roster's [master] chain whose preflight passes (each
+    entry that fails is a failover event, `master:<from>:<to>`), else '' (this thread's own mode). A chain with no passing entry refuses the rotation."""
+    if model:
+        return model
+    entry = kpy.call(kpy.kitchen_py.roster_data)[1].get('master')
+    if not entry or not entry.get('kind'):
+        return ''
+    chain = [{'kind': entry['kind'], 'args': entry['args']}, *entry['fallbacks']]
+    index, steps = walk_chain(chain, 0, entry_preflight)
+    for failed, why in steps:
+        if failed + 1 < len(chain):
+            source, target = entry_label(chain[failed]), entry_label(chain[failed + 1])
+            sys.stdout.write(f'failover: master {source} -> {target} ({why})\n')
+            event(store, 'master', 'failover', '-', f'master:{source}:{target}')
+    if index is None:
+        raise RotateRefused(
+            f'every agent of the master chain failed its preflight ({", ".join(map(entry_label, chain))}); pass --model to start the next master anyway'
+        )
+    return args_model(chain[index]['args'])
+
+
 def hand_to_next_thread(ctx, store, handoff, model):
     """The rotation when every role is a thread of its own (Amp): the next master starts as a new thread, on --model or this thread's own
     mode, with the store's bundle and the master prompt; its take-master takes the run over there. The hand-over is recorded before the bundle
@@ -405,6 +438,7 @@ def hand_to_next_thread(ctx, store, handoff, model):
             f'a hand-over is open: generation {field(store, "master", "generation")} has not taken over yet; '
             f'its thread runs kitchen.sh take-master {store} first'
         )
+    model = next_master_model(store, model)
     m = mux.get()
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')

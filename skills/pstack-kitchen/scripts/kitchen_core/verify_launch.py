@@ -31,11 +31,17 @@ from pstack_core.panes import agent_kind, agent_status, new_pane
 from pstack_core.permission import mode_of_this_shell
 from pstack_core.providers import record_prime_session
 from pstack_core.send import submit_typed
-from pstack_core.spawn import require_kind_runs
+from pstack_core.spawn import (
+    entry_label,
+    entry_preflight,
+    require_kind_runs,
+    walk_chain,
+)
 from pstack_core.store import (
     event,
     field,
     json_type,
+    listing,
     load,
     names,
     peek,
@@ -90,6 +96,8 @@ def verifier_entry(store, cls):
     verifiers = roster.get('verifier') if isinstance(roster, dict) else None
     entry = verifiers.get(cls) if isinstance(verifiers, dict) else None
     kind = entry.get('kind') if isinstance(entry, dict) else ''
+    if isinstance(entry, dict) and entry.get('fallbacks'):
+        entry = {**entry, 'fallback': fallback_link(entry['fallbacks'])}
     if kind == 'sidekick':
         sidekick = peek(load(store), 'sidekick')
         fallback = sidekick.get('fallback')
@@ -99,6 +107,14 @@ def verifier_entry(store, cls):
             raise DamagedStore(
                 f'sidekick.fallback is {json_type(fallback)}, not an object'
             )
+        chain = [e for e in listing(sidekick, 'chain') if isinstance(e, dict)]
+        if chain:
+            return {
+                'kind': chain[0].get('kind'),
+                'args': names(chain[0], 'args'),
+                'source': 'sidekick',
+                'fallback': fallback_link(chain[1:]),
+            }
         return {
             'kind': sidekick.get('kind'),
             'args': names(sidekick, 'start_args'),
@@ -115,6 +131,48 @@ def verifier_entry(store, cls):
             'source': 'master',
         }
     return entry
+
+
+def fallback_link(fallbacks):
+    """The agents a verifier steps down to, as the nested `fallback` of the entry before them: each {kind, args} carries the rest of the chain as its own
+    `fallback`, so a retry that passes one entry on carries every later one with it. None when there are none."""
+    if not fallbacks:
+        return None
+    first = {'kind': fallbacks[0].get('kind'), 'args': names(fallbacks[0], 'args')}
+    rest = fallback_link(fallbacks[1:])
+    return {**first, 'fallback': rest} if rest else first
+
+
+def entry_chain(entry):
+    """[{kind, args}, ...]: the entry and then each of its nested fallbacks, in order."""
+    chain = []
+    while isinstance(entry, dict) and entry.get('kind'):
+        chain.append({'kind': entry['kind'], 'args': names(entry, 'args')})
+        entry = entry.get('fallback')
+    return chain
+
+
+def step_down_on_preflight(store, entry):
+    """The entry the verifier starts on: the first of the entry and its fallback chain whose preflight passes, each failed one a failover event and
+    line. The entry returned carries the chain after the one that runs. A verifier that none of the chain can start is a VerifierStartFailed."""
+    chain = entry_chain(entry)
+    index, steps = walk_chain(chain, 0, entry_preflight)
+    for failed, why in steps:
+        if failed + 1 < len(chain):
+            source, target = entry_label(chain[failed]), entry_label(chain[failed + 1])
+            sys.stdout.write(f'failover: verifier {source} -> {target} ({why})\n')
+            event(store, 'master', 'failover', '-', f'verifier:{source}:{target}')
+    if index is None:
+        raise VerifierStartFailed(
+            f'every agent of the verifier chain failed its preflight ({", ".join(map(entry_label, chain))})'
+        )
+    if index == 0:
+        return entry
+    return {
+        **entry,
+        **chain[index],
+        'fallback': fallback_link(chain[index + 1 :]),
+    }
 
 
 def parse_entry(text):
@@ -221,10 +279,14 @@ def choose_verifier(store, root, cls, o):
             if isinstance(retried, dict)
             else None
         )
+        if isinstance(entry, dict) and isinstance(retried, dict):
+            entry = {**entry, **retried, 'fallback': retried.get('fallback')}
     elif o.kind_override:
         kind = o.kind_override
         picked = pick_entry(entry, kind)
     else:
+        if isinstance(entry, dict) and entry.get('kind'):
+            entry = step_down_on_preflight(store, entry)
         kind = entry.get('kind') if isinstance(entry, dict) else ''
         picked = entry
     args_list = verifier_args(kind, picked, root)
