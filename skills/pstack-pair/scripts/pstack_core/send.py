@@ -237,7 +237,12 @@ def record_dispatch(store, brief, now=None):
     on_git = gitstore.is_git(store)
     # .sent.seen is moved on to every report the master is shown, so it cannot say which done report came before the dispatch; under git the
     # dispatch keeps that report's order itself (rotation_required compares against it).
-    report_order = revision(old).order if on_git and os.path.isfile(old) else 0
+    # Only a published report has an order a later one can be compared with (an unpublished file's order is above every commit), and one another
+    # orb published is here only after a fetch.
+    if on_git:
+        gitstore.refresh(store)
+    found = revision(old) if on_git and os.path.isfile(old) else None
+    report_order = found.order if found and found.commit else 0
     pair = load(store)
     cwd = text_at(pair, 'cwd')
     head = (

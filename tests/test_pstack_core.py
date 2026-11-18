@@ -21499,6 +21499,32 @@ class GitStoreTests(unittest.TestCase):
         self.publish(self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 2))
         self.assertTrue(store.rotation_required(self.store))
 
+    def test_gitstore_a_dispatch_orders_only_against_a_published_done_report(self):
+        brief = f'{self.store}/briefs/001-x.md'
+        send.record_dispatch(self.store, brief)
+        self.write(self.store, 'reports/001-x.md', 'status: done\nlocal only\n')
+        send.record_dispatch(self.store, brief)
+        dispatch = json.loads(Path(self.store, 'pair.json').read_text())['dispatch']
+        self.assertEqual(dispatch['report_order'], 0)
+        self.publish(self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1))
+        self.assertTrue(store.rotation_required(self.store))
+        sidekick_store = self.other_store()
+        self.write(sidekick_store, 'reports/002-y.md', 'status: done\nfirst\n')
+        self.publish(
+            sidekick_store, ['reports/002-y.md'], gitstore.Writer('sidekick', 1)
+        )
+        second = f'{self.store}/briefs/002-y.md'
+        self.assertFalse(os.path.exists(f'{self.store}/reports/002-y.md'))
+        send.record_dispatch(self.store, second)
+        self.assertTrue(os.path.exists(f'{self.store}/reports/002-y.md'))
+        self.assertFalse(store.rotation_required(self.store))
+        self.write(sidekick_store, 'reports/002-y.md', 'status: done\nsecond\n')
+        self.publish(
+            sidekick_store, ['reports/002-y.md'], gitstore.Writer('sidekick', 1)
+        )
+        gitstore.refresh(self.store)
+        self.assertTrue(store.rotation_required(self.store))
+
     def test_gitstore_a_redispatch_of_a_unit_that_kept_its_session_waits_for_a_new_done_report(
         self,
     ):
