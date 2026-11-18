@@ -15362,6 +15362,34 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertIn(f'kept {new}: ', out)
 
+    def test_a_thread_kept_by_one_sweep_and_archived_by_the_next_counts_once_as_archived(
+        self,
+    ):
+        """A sweep cannot be forced to keep a thread and then archive it within one command, so the summary is driven by its outcomes."""
+        sweeps = [
+            {'a': 'kept', 'b': 'in use', 'c': 'kept'},
+            {'a': 'archived', 'b': 'in use', 'c': 'kept', 'd': 'archived'},
+            {'b': 'in use', 'e': 'in use'},
+        ]
+        code = (
+            'import json, sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core.commands.rotate import Sweep\n'
+            'print(repr(Sweep.summary()))\n'
+            'for outcomes in json.loads(sys.argv[1]):\n'
+            '    Sweep.count(outcomes)\n'
+            'print(repr(Sweep.summary()))\n'
+        )
+        out = subprocess.run(
+            [sys.executable, '-I', '-c', code, json.dumps(sweeps)],
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout.splitlines()
+        self.assertEqual(out, ["''", "'archive: 2 archived, 1 kept, 2 in use\\n'"])
+
     REGISTRY_WRITES = {
         'a start that claims the pane or name of a live entry': (
             "Amp().start('demo-verifier', 'amp', 'amp:2', ['--model', 'm/x'])"

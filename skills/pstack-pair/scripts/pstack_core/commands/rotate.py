@@ -158,53 +158,56 @@ def keeps_session(store, brief):
 
 
 class Sweep:
-    """What the archive sweeps of one command did, so the command ends with one summary line (summary) however many sweeps it ran."""
+    """What the archive sweeps of one command did, so the command ends with one summary line (summary) however many sweeps it ran. Each thread
+    counts in one bucket, the best outcome it reached in the command: archived over kept over in use."""
 
-    archived = kept = in_use = 0
+    RANK = {'in use': 0, 'kept': 1, 'archived': 2}
     ran = False
+    buckets = {}
     seen = {}
 
     @classmethod
     def first(cls, thread, outcome):
-        """Whether this command has not yet counted `thread` with this outcome ('in use', or why it is kept): a command that sweeps twice (dispatch
-        does, before and after a rotation) counts and prints each thread once, and again only if its outcome changed."""
+        """Whether this command has not yet printed `thread` with this outcome ('in use', or why it is kept): a command that sweeps twice (dispatch
+        does, before and after a rotation) prints each thread once, and again only if its outcome changed."""
         if cls.seen.get(thread) == outcome:
             return False
         cls.seen[thread] = outcome
         return True
 
     @classmethod
-    def count(cls, archived, kept, in_use):
+    def count(cls, outcomes):
+        """Records {thread: 'archived' | 'kept' | 'in use'} of one sweep."""
         cls.ran = True
-        cls.archived += archived
-        cls.kept += kept
-        cls.in_use += in_use
+        for thread, bucket in outcomes.items():
+            if cls.RANK[bucket] >= cls.RANK.get(cls.buckets.get(thread, ''), -1):
+                cls.buckets[thread] = bucket
 
     @classmethod
     def summary(cls):
         """The last line a sweeping command prints, or '' when it swept nothing."""
         if not cls.ran:
             return ''
-        return (
-            f'archive: {cls.archived} archived, {cls.kept} kept, {cls.in_use} in use\n'
-        )
+        n = list(cls.buckets.values()).count
+        return f'archive: {n("archived")} archived, {n("kept")} kept, {n("in use")} in use\n'
 
 
 def archive_retired(ctx, store, trigger, retired_only=True):
     """Archives each thread the store no longer uses that the rule allows (mux archivable), logging each in decisions.tsv and events.tsv with its
     thread id, and says `kept <thread>: <reason>` for each it may not archive yet; a thread a live role holds is left out. Returns the rows
-    it archived. Only the master's thread archives, and only where roles are threads (Amp). The counts go to Sweep.summary."""
-    archived, kept, in_use = [], 0, 0
+    it archived. Only the master's thread archives, and only where roles are threads (Amp). The outcomes go to Sweep.summary."""
+    archived, outcomes = [], {}
     m = mux.get()
     for row in m.thread_rows(store, retired_only):
         if row.in_use:
-            in_use += Sweep.first(row.thread, 'in use')
+            outcomes[row.thread] = 'in use'
         elif not row.archivable:
+            outcomes[row.thread] = 'kept'
             if Sweep.first(row.thread, row.why):
-                kept += 1
                 print(f'kept {row.thread}: {row.why}')
         elif m.archive(row):
             archived.append(row)
+            outcomes[row.thread] = 'archived'
             event(store, 'master', 'archive', '-', f'{row.role}:{row.thread}')
             try:
                 log(
@@ -221,11 +224,12 @@ def archive_retired(ctx, store, trigger, retired_only=True):
             except Die as e:
                 sys.stderr.write(f'archive: {row.thread} archived; not logged: {e}\n')
             print(f'archived {row.thread} ({row.role}): {trigger}')
-        elif Sweep.first(row.thread, 'amp threads archive failed'):
-            kept += 1
-            print(f'kept {row.thread}: amp threads archive failed')
+        else:
+            outcomes[row.thread] = 'kept'
+            if Sweep.first(row.thread, 'amp threads archive failed'):
+                print(f'kept {row.thread}: amp threads archive failed')
     if m.archives_threads:
-        Sweep.count(len(archived), kept, in_use)
+        Sweep.count(outcomes)
     return archived
 
 
@@ -274,9 +278,11 @@ def threads(ctx, args):
         print(f'archived {len(archived)} thread(s)')
     else:
         Sweep.count(
-            0,
-            sum(not r.in_use and not r.archivable for r in rows),
-            sum(r.in_use for r in rows),
+            {
+                r.thread: 'in use' if r.in_use else 'kept'
+                for r in rows
+                if r.in_use or not r.archivable
+            }
         )
     return 0
 
