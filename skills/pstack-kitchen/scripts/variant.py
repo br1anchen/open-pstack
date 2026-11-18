@@ -112,6 +112,8 @@ consult, advice. These differ or are new:
                                             start the consultant for an escalated unit (roster kind by default)
   classify <store> <brief-path>             map the brief's may-write Scope to profiles and a risk class and
                                             stamp risk:, profiles:, verify: into its header
+  threads <store> [--archive]               Amp threads: every thread the store named, with its role, state and in use,
+                                            archivable or kept (why); --archive archives the archivable ones and logs each
   playbook-part <store> <NNN> <role> <part-id>
                                             print one stored part of the unit's playbook composition and where
                                             it came from (a Pending read in the brief's Playbook section)

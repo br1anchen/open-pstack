@@ -15,6 +15,7 @@ from pstack_core import mux
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
 from pstack_core.checkin import busy
+from pstack_core.commands.rotate import archive_retired
 from pstack_core.errors import (
     CloseHeld,
     DamagedStore,
@@ -506,6 +507,7 @@ class Waiter:
                 'provider' if provider else 'stalled' if self.stalled else 'missing',
             )
         vs.drop_verifying(self.store, v.verdict)
+        archive_retired(self.ctx, self.store, 'its verdict is recorded')
         if status not in ('clean', 'reject'):
             verifier_trail(v.session, v.packet, self.say)
         return problem, status

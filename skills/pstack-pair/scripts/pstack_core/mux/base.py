@@ -51,6 +51,25 @@ class Agent:
 
 
 @dataclass(frozen=True)
+class ThreadRow:
+    """One thread a store named: its `role`, its own `state` ('in use' for a live role's) and `why`, the reason it must not be archived ('' when
+    it may be; 'in use by NAME' when a live role holds it)."""
+
+    thread: str
+    role: str
+    state: str
+    why: str
+
+    @property
+    def in_use(self):
+        return self.why.startswith('in use')
+
+    @property
+    def archivable(self):
+        return not self.why
+
+
+@dataclass(frozen=True)
 class Process:
     """The processes of a pane: its shell's pid, the foreground process group, and the pids in the foreground, as the backend reports them
     (unchecked); a fact the backend lacks is None."""
@@ -97,6 +116,18 @@ class Mux:
         does not date it) while the master's store lacks that file, or holds it with other content than the message quoted; None when none did, and
         where roles do not message the master."""
         return None
+
+    def thread_rows(self, store, retired_only=False):
+        """The ThreadRow of each thread the store named, on the master's own thread (only the ones it retired and has not archived with
+        retired_only); none where roles are not threads or this is not the master."""
+        return []
+
+    def retire(self, thread, name):
+        """Records that the thread of the role `name` is no longer used, so a sweep archives it once that is safe."""
+
+    def archive(self, row):
+        """Archives the thread of `row` and records it as gone; whether it was archived."""
+        return False
 
     def relay(self, name, text, store, steer=''):
         """(record, how) of the relay of text to the agent `name` for the master to send, (None, '') where there is none, ({'size': bytes}, 'too-large') when the bundle is over what the master can upload."""

@@ -8,6 +8,7 @@ role's bundle the same way, and the master acts on it in its next turn."""
 import calendar
 import contextlib
 import fcntl
+import glob
 import hashlib
 import json
 import os
@@ -20,11 +21,11 @@ import tempfile
 import time
 import uuid
 
-from .. import bundle
+from .. import bundle, git
 from ..argv import Spec, read
 from ..numbers import env_int
 from ..store import TEXT
-from .base import DEVNULL, PIPE, Agent, Reply
+from .base import DEVNULL, PIPE, Agent, Reply, ThreadRow
 from .subagents import EXITS, NOT_FOUND, Subagents, change, load
 
 THREAD_RE = re.compile(
@@ -240,6 +241,147 @@ def record_sent(thread, entry):
         with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
             json.dump(doc, f, indent=1, sort_keys=True)
         os.replace(f'{path}.tmp', path)
+
+
+def threads_path():
+    """What this side knows of each role thread it retired or archived: {thread: {name, role, at, archived}}, so a thread that left the registry is
+    still listed and archived once that is safe."""
+    return os.path.join(state_dir(), 'threads.json')
+
+
+def record_thread(thread, update):
+    """threads.json's entry for thread, with `update` merged into it, under a lock beside it."""
+    path = threads_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(f'{path}.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        doc = load_json(path)
+        doc[thread] = {**(doc.get(thread) or {}), **update}
+        with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
+            json.dump(doc, f, indent=1, sort_keys=True)
+        os.replace(f'{path}.tmp', path)
+
+
+def role_of(name):
+    """The role a registry name stands for: master (any generation), else its last word (sidekick, verifier, consultant)."""
+    return 'master' if MASTER_RE.search(name) else name.rsplit('-', 1)[-1]
+
+
+def message_texts(message):
+    """The text of a thread message as `amp threads export` holds it: a string, or the text of each block."""
+    content = message.get('content')
+    if isinstance(content, str):
+        return content
+    return '\n'.join(
+        b.get('text') or ''
+        for b in content or []
+        if isinstance(b, dict) and isinstance(b.get('text'), str)
+    )
+
+
+ANNOUNCE_RE = re.compile(
+    r'^pstack-[a-z-]+ (?:REPORT|ADVICE) (/\S+)\n(?:[^\n]+\n)*?sha256: ([0-9a-f]{12})',
+    re.M,
+)
+# The directory of a store a role's files go to, by role.
+ROLE_DIRS = {'sidekick': 'reports', 'verifier': 'verdicts', 'consultant': 'advice'}
+
+
+def unsynced_files(role):
+    """The files of `role` the master's thread was sent whose latest announcement quotes a digest this orb's copy does not hold (a file still
+    to sync, or one rewritten since)."""
+    latest = {}
+    for message in export(own_thread()).get('messages') or []:
+        if message.get('role') == 'user':
+            for path, digest in ANNOUNCE_RE.findall(message_texts(message)):
+                latest[path] = digest
+    return [
+        path
+        for path, digest in latest.items()
+        if os.path.basename(os.path.dirname(path)) == ROLE_DIRS.get(role)
+        and file_digest(path) != digest
+    ]
+
+
+def head_missing(store):
+    """The head: of the newest sidekick report when the master's checkout lacks that commit (the work is only in the sidekick's orb), else ''."""
+    reports = glob.glob(
+        os.path.join(glob.escape(store), 'reports', '[0-9][0-9][0-9]-*.md')
+    )
+    repo = bundle.repo_of(store)
+    if not reports or not repo:
+        return ''
+    found = re.search(
+        r'^head:\s*([0-9a-f]{7,40})\s*$',
+        open(max(reports, key=os.path.getmtime), encoding='utf-8').read(),
+        re.M,
+    )
+    head = found.group(1) if found else ''
+    return (
+        head
+        if head and not git.ok(repo, 'cat-file', '-e', f'{head}^{{commit}}')
+        else ''
+    )
+
+
+def live_threads(doc):
+    """{thread: role name} of the threads pair.json's roles run in now, through the registry and the master's pane."""
+    agents = load(registry_path())['agents']
+    live = {}
+    for role in ('sidekick', 'consultant', 'verifier', 'master'):
+        entry = doc.get(role) if isinstance(doc.get(role), dict) else {}
+        name = entry.get('name') or ''
+        thread = (agents.get(name) or {}).get('thread') or ''
+        if role == 'master' and not thread:
+            pane = entry.get('pane_id') or ''
+            thread = pane[len('amp:') :] if pane.startswith('amp:T-') else ''
+        if thread:
+            live[thread] = name
+    return live
+
+
+def assess(thread, store, role):
+    """(the thread's state, why it must not be archived yet): '' when the store no longer uses it and nothing it did is unread. A thread in a turn,
+    one with a message or steer relay still pending to it, one whose file the master's store lacks, one holding commits the master lacks, one
+    whose replacement has not sent READY and an old master whose hand-over is open each stay."""
+    doc = load_json(os.path.join(store, 'pair.json'))
+    live = live_threads(doc)
+    if thread == own_thread() or thread in live:
+        return 'in use', f'in use by {live.get(thread) or "this master"}'
+    state, since = thread_state(export(thread))
+    if state not in ('', *SETTLED):
+        return state, f'working ({state}): it is in a turn'
+    sent = load_json(outbox_path()).get(thread)
+    if isinstance(sent, dict) and state != '' and not since >= int(sent.get('at') or 0):
+        return state, 'a message to it is still pending (its turn has not ended since)'
+    for record in relay_records(store):
+        if (
+            record.get('thread') == thread
+            and record.get('state') == PENDING
+            and not (state in SETTLED and since >= int(record.get('at') or 0))
+        ):
+            return state, 'a steer relay to it is still pending'
+    files = unsynced_files(role)
+    if files:
+        return state, f'it sent {files[0]}, which the master store does not hold yet'
+    if role == 'sidekick' and (head := head_missing(store)):
+        return state, f'its report head {head[:9]} is not in the master checkout'
+    role_doc = doc.get(role) if isinstance(doc.get(role), dict) else {}
+    ready = 'advice' if role == 'consultant' else 'reports'
+    if (
+        role in ('sidekick', 'consultant')
+        and role_doc.get('bootstrap_pending') is True
+        and not os.path.isfile(os.path.join(store, ready, '000-ready.md'))
+    ):
+        return state, f'the new {role} has not sent READY yet'
+    if role == 'master' and (doc.get('master') or {}).get('previous'):
+        return state, 'take-master has not run yet'
+    return state, ''
+
+
+def archivable(thread, store, role=''):
+    """'' when the thread may be archived, else why not (assess)."""
+    return assess(thread, store, role)[1]
 
 
 def own_thread():
@@ -468,14 +610,56 @@ class Amp(Subagents):
         )
 
     def end(self, name):
-        """The role's thread is done: it is archived and its name leaves the registry, so its next prompt starts a fresh thread."""
+        """The role's thread is done: its name leaves the registry, so its next prompt starts a fresh thread, and the thread is retired: it is
+        archived by a later sweep, once archivable says it is safe (retire)."""
         found = self.entry(name)
         if found is None:
             return
-        thread = found[1].get('thread') or ''
-        if thread and thread != own_thread():
-            run(['amp', 'threads', 'archive', thread])
+        self.retire(found[1].get('thread') or '', found[0])
         change(lambda doc: doc['agents'].pop(found[0], None), self.path())
+
+    def retire(self, thread, name):
+        if thread and thread != own_thread():
+            record_thread(
+                thread, {'name': name, 'role': role_of(name), 'at': int(time.time())}
+            )
+
+    def thread_rows(self, store, retired_only=False):
+        doc = load_json(os.path.join(store, 'pair.json'))
+        master = doc.get('master') if isinstance(doc.get('master'), dict) else {}
+        pane = master.get('pane_id') or ''
+        agents = load(self.path())['agents']
+        mine = (agents.get(master.get('name') or '') or {}).get('thread') or (
+            pane[len('amp:') :] if pane.startswith('amp:T-') else ''
+        )
+        if not own_thread() or own_thread() != mine:
+            return []
+        known = load_json(threads_path())
+        found = {
+            t: e.get('role') or role_of(e.get('name') or '')
+            for t, e in known.items()
+            if not e.get('archived')
+        }
+        if not retired_only:
+            for e in (doc.get('sidekick_threads') or {}).values():
+                found.update({t: 'sidekick' for t in e if isinstance(t, str)})
+            for e in master.get('sessions') or []:
+                if isinstance(e, dict) and (e.get('session') or '').startswith('T-'):
+                    found.setdefault(e['session'], 'master')
+            for name, e in agents.items():
+                if e.get('thread'):
+                    found.setdefault(e['thread'], role_of(name))
+        return [
+            ThreadRow(thread, role, *assess(thread, store, role))
+            for thread, role in found.items()
+            if not (known.get(thread) or {}).get('archived')
+        ]
+
+    def archive(self, row):
+        if run(['amp', 'threads', 'archive', row.thread]).returncode:
+            return False
+        record_thread(row.thread, {'role': row.role, 'archived': int(time.time())})
+        return True
 
     def rename(self, target, name):
         """Names the agent in the pane (or of the name) `target`, keeping its thread and model flags; a pane named by its thread (the

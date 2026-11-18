@@ -314,3 +314,5 @@ A unit classified routine can turn out to need a design decision. When a
 digest or a steer objection shows that, stop the unit (`kitchen.sh stop`),
 start the consultant, and take it through a plan round before the next
 brief. Record why with `kitchen.sh log`.
+
+Under Amp threads, the master archives role threads the run no longer uses (a replaced sidekick or consultant after the new READY, a verifier after its verdict, the old master after `take-master`, the rest at `close`) unless the safety rule keeps them; it prints `kept <thread>: <reason>` for each it keeps. On an older store, run `kitchen.sh threads <store> --archive` once to clear the leftovers.

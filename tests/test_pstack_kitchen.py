@@ -14828,6 +14828,116 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn('pending sync', out)
         self.assertIn('status: done', out)
 
+    def decisions(self):
+        return (self.store / 'decisions.tsv').read_text().splitlines()[1:]
+
+    def test_a_retired_sidekick_thread_is_kept_until_the_new_ready_then_archived_and_logged(
+        self,
+    ):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        b = self.brief('002', 'guide', ['docs/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(b), code=4)
+        # The new thread's READY is not in the store: the old thread stays, and says why.
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn(
+            f'kept {amp_thread(1)}: the new sidekick has not sent READY yet', out
+        )
+        self.assertFalse((self.fake / 'amp-archived').exists())
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{amp_thread(1)}\n')
+        [row] = [
+            r for r in self.decisions() if f'\tarchive sidekick {amp_thread(1)}\t' in r
+        ]
+        self.assertIn('\tarchive\t', row)
+        self.assertIn(
+            f'\tmaster\tarchive\t-\tsidekick:{amp_thread(1)}\n',
+            (self.store / 'events.tsv').read_text(),
+        )
+        # Archived once: a later sweep neither repeats it nor lists it.
+        self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{amp_thread(1)}\n')
+
+    def test_a_working_thread_or_one_with_a_pending_message_is_never_archived(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        b = self.brief('002', 'guide', ['docs/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(b), code=4)
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        old = amp_thread(1)
+        self.set_state(old, 'tool_use')
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn(f'kept {old}: working (tool_use): it is in a turn', out)
+        self.assertFalse((self.fake / 'amp-archived').exists())
+        # A message sent to it since its turn ended is still pending.
+        self.set_state(old, 'idle', '2026-01-01T00:00:00.000Z')
+        outbox = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/outbox.json'
+        doc = json.loads(outbox.read_text())
+        doc[old] = {'hash': 'x', 'id': 'y', 'at': 4102444800}
+        outbox.write_text(json.dumps(doc))
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn(f'kept {old}: a message to it is still pending', out)
+        self.assertFalse((self.fake / 'amp-archived').exists())
+
+    def test_the_threads_command_lists_the_unused_threads_and_archives_exactly_those(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.next_unit_rotates('002', 'guide', ['docs/**'])
+        # A verifier that finished, now unused, and a live sidekick (thread 2).
+        registry = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/threads.json'
+        verifier = amp_thread(9)
+        known = json.loads(registry.read_text())
+        known[verifier] = {'name': 'demo-verifier', 'role': 'verifier', 'at': 1}
+        registry.write_text(json.dumps(known))
+        archived = self.fake / 'amp-archived'
+        archived.write_text('')
+        out = self.run_sh('threads', str(self.store))
+        self.assertRegex(out, rf'(?m)^{verifier}  verifier  \S+  archivable$')
+        self.assertRegex(out, rf'(?m)^{amp_thread(2)}  sidekick  in use  in use$')
+        self.assertNotIn(sidekick, out)
+        self.assertEqual(archived.read_text(), '')
+        out = self.run_sh('threads', str(self.store), '--archive')
+        self.assertIn(f'archived {verifier} (verifier)', out)
+        self.assertEqual(archived.read_text(), f'{verifier}\n')
+        self.assertNotIn(amp_thread(2), archived.read_text())
+        self.assertTrue(
+            any(f'archive verifier {verifier}' in r for r in self.decisions())
+        )
+
+    def test_a_verifier_thread_is_archived_once_its_verdict_is_recorded(self):
+        self.verify_started('001')
+        verifier = amp_thread(2)
+        verdict = self.store / 'verdicts/001-util-v1.md'
+        verdict.write_text('# Verdict\n\nstatus: clean\nunits: 001-util\n')
+        self.as_thread(verifier, 'notify', str(self.store), str(verdict))
+        self.set_state(verifier, 'idle', '2999-01-01T00:00:00.000Z')
+        self.assertFalse((self.fake / 'amp-archived').exists())
+        out = self.run_sh('verify', str(self.store), '--wait', code=None)
+        self.assertIn(f'archived {verifier} (verifier): its verdict is recorded', out)
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{verifier}\n')
+
+    def test_the_old_master_thread_is_archived_by_take_master_and_not_before(self):
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        archived = self.fake / 'amp-archived'
+        self.assertFalse(archived.exists())
+        out = self.as_thread(master2, 'take-master', str(self.store))
+        self.assertIn(f'archived {AMP_MASTER} (master): take-master has run', out)
+        self.assertEqual(archived.read_text(), f'{AMP_MASTER}\n')
+        self.assertNotIn(master2, archived.read_text())
+
+    def test_close_archives_the_roles_that_pass_the_rule_and_says_why_it_kept_the_rest(
+        self,
+    ):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        sidekick = amp_thread(1)
+        self.set_state(sidekick, 'tool_use')
+        out = self.run_sh('close', str(self.store), '--force', code=None)
+        self.assertIn(f'kept {sidekick}: ', out)
+        self.assertFalse((self.fake / 'amp-archived').exists())
+
     def finish_unit(self, seq, slug, scope, path, thread=1):
         """A routine unit dispatched to the sidekick's thread and finished done there; the dispatch's output."""
         b = self.brief(seq, slug, scope, verify=['python3 -c 1'])
@@ -14843,13 +14953,18 @@ class AmpKitchenTests(KitchenScriptTests):
         return out
 
     def next_unit_rotates(self, seq, slug, scope):
-        """Dispatching the next unit starts a fresh sidekick thread: the rotation hands off its bootstrap (exit 4) and archives the old one."""
+        """Dispatching the next unit starts a fresh sidekick thread: the rotation hands off its bootstrap (exit 4). The old thread is retired but
+        archived only once the new one's READY is in the store and the next dispatch sweeps."""
         b = self.brief(seq, slug, scope, verify=['python3 -c 1'])
         out = self.run_sh('dispatch', str(self.store), str(b), code=4)
         self.assertNotIn('kept:', out)
         self.assertIn(
             f'amp demo-sidekick ({amp_thread(2)}): Load the pstack-kitchen skill', out
         )
+        self.assertFalse((self.fake / 'amp-archived').exists())
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn(f'archived {amp_thread(1)} (sidekick)', out)
         self.assertEqual((self.fake / 'amp-archived').read_text(), f'{amp_thread(1)}\n')
 
     def test_a_routine_unit_in_the_same_area_keeps_the_sidekick_thread(self):

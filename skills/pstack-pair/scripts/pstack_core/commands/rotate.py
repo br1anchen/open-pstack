@@ -45,6 +45,7 @@ from ..store import (
     who,
 )
 from ..wait import end_with_parent
+from .status import log
 
 
 def rotate(ctx, args):
@@ -156,15 +157,77 @@ def keeps_session(store, brief):
     return f'{", ".join(sorted(area))}, context {round(used * 100)}%'
 
 
+def archive_retired(ctx, store, trigger, retired_only=True):
+    """Archives each thread the store no longer uses that the rule allows (mux archivable), logging each in decisions.tsv and events.tsv with its
+    thread id, and says `kept <thread>: <reason>` for each it may not archive yet; a thread a live role holds is left out. Returns the rows
+    it archived. Only the master's thread archives, and only where roles are threads (Amp)."""
+    archived = []
+    for row in mux.get().thread_rows(store, retired_only):
+        if row.in_use:
+            continue
+        if not row.archivable:
+            print(f'kept {row.thread}: {row.why}')
+        elif mux.get().archive(row):
+            archived.append(row)
+            event(store, 'master', 'archive', '-', f'{row.role}:{row.thread}')
+            try:
+                log(
+                    ctx,
+                    [
+                        store,
+                        'archive',
+                        f'archive {row.role} {row.thread}',
+                        f'no longer used by the store; {trigger}',
+                        f'amp threads archive {row.thread}',
+                        'archived',
+                    ],
+                )
+            except Die as e:
+                sys.stderr.write(f'archive: {row.thread} archived; not logged: {e}\n')
+            print(f'archived {row.thread} ({row.role}): {trigger}')
+        else:
+            print(f'kept {row.thread}: amp threads archive failed')
+    return archived
+
+
+def threads(ctx, args):
+    """Lists every thread the store and the registry named, with its role, its state and whether it is in use, archivable or kept (and why);
+    --archive archives each archivable one."""
+    if not args:
+        raise Die(f'usage: {ctx.prog} threads <store> [--archive]')
+    store = args[0]
+    pair_file(store)
+    do = read(args[1:], Spec(flags=('--archive',))).present('--archive')
+    rows = mux.get().thread_rows(store)
+    if not rows:
+        print(
+            'no threads: only the master of an Amp run (PSTACK_MUX=amp) lists and archives them'
+        )
+        return 0
+    for row in rows:
+        verdict = (
+            'in use'
+            if row.in_use
+            else 'archivable'
+            if row.archivable
+            else f'kept: {row.why}'
+        )
+        print(f'{row.thread}  {row.role}  {row.state or "unknown"}  {verdict}')
+    if do:
+        archived = archive_retired(ctx, store, 'threads --archive', retired_only=False)
+        print(f'archived {len(archived)} thread(s)')
+    return 0
+
+
 def rotate_if_due(ctx, store, what, brief=''):
     """The sidekick is rotated before the next brief or plan once its last unit is done, so the rotation costs the master no extra wake. Partial
     or blocked work never sets rotation_required and keeps its session. A replacement whose READY is still pending is left to its bootstrap:
     send refuses until it is ready. Where a fresh session costs minutes, a routine brief in the area of the unit just done keeps the session
     while its context has room (keeps_session)."""
-    if (
-        not os.path.isfile(f'{store}/pair.json')
-        or read_flag(store, 'sidekick.rotation_required') is not True
-    ):
+    if not os.path.isfile(f'{store}/pair.json'):
+        return
+    archive_retired(ctx, store, f'a {what} is being sent')
+    if read_flag(store, 'sidekick.rotation_required') is not True:
         return
     if read_flag(store, 'sidekick.bootstrap_pending') is True:
         return

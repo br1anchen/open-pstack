@@ -2377,6 +2377,8 @@ HELP = {
                                             prompt's bundle carries into this orb; run first on every prompt that names it
   relay-done <store> <id>                   Amp threads: the master has sent the steer relay <id> (status lists the ones it still owes);
                                             the same steer is not relayed again until the thread ends a turn
+  threads <store> [--archive]               Amp threads: every thread the store named, with its role, state and in use, archivable or kept
+                                            (why); --archive archives the archivable ones and logs each
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
@@ -2446,6 +2448,8 @@ exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick block
                                             prompt's bundle carries into this orb; run first on every prompt that names it
   relay-done <store> <id>                   Amp threads: the master has sent the steer relay <id> (status lists the ones it still owes);
                                             the same steer is not relayed again until the thread ends a turn
+  threads <store> [--archive]               Amp threads: every thread the store named, with its role, state and in use, archivable or kept
+                                            (why); --archive archives the archivable ones and logs each
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
@@ -2523,6 +2527,8 @@ exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick block
                                             prompt's bundle carries into this orb; run first on every prompt that names it
   relay-done <store> <id>                   Amp threads: the master has sent the steer relay <id> (status lists the ones it still owes);
                                             the same steer is not relayed again until the thread ends a turn
+  threads <store> [--archive]               Amp threads: every thread the store named, with its role, state and in use, archivable or kept
+                                            (why); --archive archives the archivable ones and logs each
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
@@ -2548,6 +2554,8 @@ consult, advice. These differ or are new:
                                             start the consultant for an escalated unit (roster kind by default)
   classify <store> <brief-path>             map the brief's may-write Scope to profiles and a risk class and
                                             stamp risk:, profiles:, verify: into its header
+  threads <store> [--archive]               Amp threads: every thread the store named, with its role, state and in use,
+                                            archivable or kept (why); --archive archives the archivable ones and logs each
   playbook-part <store> <NNN> <role> <part-id>
                                             print one stored part of the unit's playbook composition and where
                                             it came from (a Pending read in the brief's Playbook section)

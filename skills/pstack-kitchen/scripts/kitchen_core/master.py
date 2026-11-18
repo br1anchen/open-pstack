@@ -11,6 +11,7 @@ from pstack_core import mux, procinfo
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
+from pstack_core.commands.rotate import archive_retired
 from pstack_core.errors import (
     DamagedStore,
     Die,
@@ -179,6 +180,7 @@ def close(ctx, args):
     for role in ('verifier', 'consultant', 'sidekick'):
         if not close_role(store, role):
             failed = True
+    archive_retired(ctx, store, 'the run is closed', retired_only=False)
     if failed:
         raise Exit(5)
     return 0
@@ -652,6 +654,8 @@ def take_master(ctx, args):
         master.pop('previous', None)
 
     update(store, mutate)
+    m.retire(m.thread_of_pane(prev_pane), prev)
+    archive_retired(ctx, store, 'take-master has run')
     event(
         store,
         'master',

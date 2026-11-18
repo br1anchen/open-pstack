@@ -222,6 +222,18 @@ args = ["--model", "anthropic/claude-opus-5-5", "--orb-size", "a1.large"]
   looks in the master's thread for that role's message; one found prints
   `pending sync: <role> sent <file> at <time>; run pair.sh sync from that
   message` and nothing is rewritten.
+- A role thread the store no longer uses is archived by the master, as soon as
+  that is safe, and each archive is logged (`decisions.tsv` phase `archive`, an
+  `archive` event) with its thread id: a replaced sidekick or consultant once
+  the new one's READY is in the store, a verifier once `verify --wait` has
+  recorded its verdict, the old master once `take-master` has run, and every
+  remaining role at `close`. A thread is kept (`kept <thread>: <reason>`) while
+  it is in a turn, a message or steer relay to it is pending, it sent the master
+  a file the master's store does not hold yet, its report's `head:` is not in the
+  master's checkout, or its replacement has not sent READY. `kitchen.sh threads
+  <store>` lists every thread the store named with its role, state and `in use`,
+  `archivable` or `kept: <reason>`; `threads <store> --archive` archives the
+  archivable ones. Run it once on a store from an older build.
 - A message sent by the CLI reaches a role's thread only after its current
   turn ends: `amp threads continue -ox` queues it, and the CLI has no way to
   steer a running turn. So a role whose thread is in a turn reads `working`

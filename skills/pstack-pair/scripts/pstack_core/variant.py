@@ -118,6 +118,8 @@ PAIR_COMMANDS = {
                                             prompt's bundle carries into this orb; run first on every prompt that names it"""),
     'relay-done': _entry("""  relay-done <store> <id>                   Amp threads: the master has sent the steer relay <id> (status lists the ones it still owes);
                                             the same steer is not relayed again until the thread ends a turn"""),
+    'threads': _entry("""  threads <store> [--archive]               Amp threads: every thread the store named, with its role, state and in use, archivable or kept
+                                            (why); --archive archives the archivable ones and logs each"""),
     'metrics': _entry("""  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts"""),
 }
