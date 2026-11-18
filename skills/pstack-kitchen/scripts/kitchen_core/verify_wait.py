@@ -390,6 +390,14 @@ class Waiter:
                 )
             self.update(v.verdict, lambda doc: doc.__setitem__('delivered', True))
 
+    def verdict_sent_at(self, v):
+        """When the verifier messaged the master its verdict, which this orb's copy of the store does not hold until the master syncs (the deadline
+        and the stall are not declared for a verdict on its way); None when it did not, and always on a backend whose roles share the store."""
+        return mux.get().sent_to_master(
+            f'{self.ctx.skill} REPORT {v.verdict}',
+            read_int(self.store, 'verifying.started') or 0,
+        )
+
     def poll(self, v):
         """Watch the verifier until a verdict is written, the deadline passes, the agent is gone, it ends its turn on a provider error, or it sits idle
         too long: (the agent's last state, None). At the interval it ends the call with a progress digest: (the state, the outcome with status 4)."""
@@ -402,15 +410,25 @@ class Waiter:
             vs.verification_still_open(store, verdict)
             now = now_s()
             deadline = read_int(store, 'verifying.deadline')
-            if not (state != 'absent' and deadline is not None and now < deadline):
+            sent = self.verdict_sent_at(v)
+            if sent is None and not (
+                state != 'absent' and deadline is not None and now < deadline
+            ):
                 break
-            if now >= v.until or not mux.get().waits:
-                started = read_int(store, 'verifying.started')
-                self.say(
-                    f'verifying: units {read(store, "verifying.units")} by {v.kind}, {tdiv(now - started, 60)}m of {tdiv(deadline - started, 60)}m, verifier '
-                    f'{verifier_shown(store, state)}\n'
-                )
-                self.say(f'next: other work, then kitchen.sh verify {store} --wait\n')
+            if sent is not None or now >= v.until or not mux.get().waits:
+                if sent is not None:
+                    self.say(
+                        f'pending sync: verifier sent {v.verdict} at {sent}; run pair.sh sync from that message\n'
+                    )
+                else:
+                    started = read_int(store, 'verifying.started')
+                    self.say(
+                        f'verifying: units {read(store, "verifying.units")} by {v.kind}, {tdiv(now - started, 60)}m of {tdiv(deadline - started, 60)}m, verifier '
+                        f'{verifier_shown(store, state)}\n'
+                    )
+                    self.say(
+                        f'next: other work, then kitchen.sh verify {store} --wait\n'
+                    )
                 wake(self.ctx, store, read(store, 'verifying.brief'), 'verify:progress')
                 return state, WaiterOutcome(4)
             # A verifier that ended its turn on a provider error will not write.

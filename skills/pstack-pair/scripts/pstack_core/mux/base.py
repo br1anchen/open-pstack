@@ -86,6 +86,16 @@ class Mux:
     steers_running = True
     # Whether a steer for an agent in a turn is relayed by the master (relay), because a message to it would only queue behind the turn.
     relays = False
+    # Whether each role keeps its own copy of the store in an orb of its own, so a file it writes for the master reaches it only inside a message
+    # (notify always sends it, whatever the master is doing, and a wait owner's pid in a synced store belongs to another machine).
+    remote_roles = False
+    # The thread the last prompt left alone because the same message was still pending there; '' when it sent.
+    skipped = ''
+
+    def sent_to_master(self, text, since=0):
+        """When a message that begins with `text` (a line, not a prefix of a longer one) reached the master's own thread at or after the epoch
+        `since`, as the thread dates it ('an unknown time' when it does not); None when none did or where roles do not message the master."""
+        return None
 
     def relay(self, name, text, store, steer=''):
         """(record, how) of the relay of text to the agent `name` for the master to send, (None, '') where there is none, ({'size': bytes}, 'too-large') when the bundle is over what the master can upload."""

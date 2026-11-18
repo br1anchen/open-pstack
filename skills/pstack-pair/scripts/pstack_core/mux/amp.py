@@ -334,12 +334,11 @@ class Amp(Subagents):
     # A new role thread costs minutes (orb start, setup, the build install, sync, the joo build), so a sidekick keeps its thread across
     # routine units in one area until its context fills.
     reuses_sessions = True
-    # The thread send() left alone because the same text to it is still pending ('' when it sent).
-    skipped = ''
     # `amp threads continue -ox` queues a message behind a running turn; the CLI has no way to steer one.
     steers_running = False
     # A steer for a thread in a turn is handed to the master to send with its own tools (relay).
     relays = True
+    remote_roles = True
 
     def path(self):
         return registry_path()
@@ -378,6 +377,18 @@ class Amp(Subagents):
 
     def own_thread(self):
         return own_thread()
+
+    def sent_to_master(self, text, since=0):
+        for message in export(own_thread()).get('messages') or []:
+            if message.get('role') != 'user':
+                continue
+            if f'{text}\\n' not in json.dumps(message.get('content')):
+                continue
+            made = message.get('createdAt') or ''
+            if made and iso_epoch(made) < since:
+                continue
+            return made or 'an unknown time'
+        return None
 
     def thread_pane(self, thread):
         return thread_pane(thread)

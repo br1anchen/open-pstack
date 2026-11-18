@@ -14722,6 +14722,103 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn('reaches it only when you send it', reply)
         self.assertNotIn('pstack-build.tgz', reply)
 
+    def test_a_role_message_always_reaches_a_working_master_as_one_message_with_its_bundle(
+        self,
+    ):
+        """finish and notify left a file for the master's next wait when its thread was in a turn; under amp that file stayed in the role's
+        orb. A READY, a done report and a verdict each queue a message behind the turn, carrying the store bundle and the file's header."""
+        sidekick = amp_thread(1)
+        self.set_state(AMP_MASTER, 'tool_use')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        head = self.commit('util')
+        self.done(b, head)
+        verdict = self.store / 'verdicts/001-util-v1.md'
+        verdict.parent.mkdir(exist_ok=True)
+        verdict.write_text(
+            f'# Verdict\n\nstatus: clean\nunits: 001-util\nhead: {head}\n'
+        )
+        ready = self.store / 'reports/000-ready.md'
+        ready.write_text('# Report 000: ready\n\nstatus: done\nhead: r1\n')
+        for path, command, header in (
+            (ready, 'finish', 'status: done'),
+            (self.store / 'reports' / b.name, 'finish', f'head: {head}'),
+            (verdict, 'notify', 'units: 001-util'),
+        ):
+            before = len(self.thread_messages(AMP_MASTER))
+            out = self.as_thread(sidekick, command, str(self.store), str(path))
+            self.assertIn(f'sent REPORT {path} to master demo-master', out)
+            self.assertNotIn('left ', out)
+            messages = self.thread_messages(AMP_MASTER)
+            self.assertEqual(len(messages), before + 1, out)
+            self.assertTrue(
+                messages[-1].startswith(f'pstack-kitchen REPORT {path}\n'), messages[-1]
+            )
+            self.assertIn(header, messages[-1])
+            self.assertEqual(
+                self.attachments(AMP_MASTER).count('pstack-demo-master.tgz'),
+                before + 1,
+            )
+
+    def test_the_same_file_is_sent_again_only_when_its_content_changed(self):
+        sidekick = amp_thread(1)
+        self.set_state(AMP_MASTER, 'tool_use')
+        ready = self.store / 'reports/000-ready.md'
+        ready.write_text('# Report 000: ready\n\nstatus: done\nhead: r1\n')
+        self.as_thread(sidekick, 'finish', str(self.store), str(ready))
+        self.as_thread(sidekick, 'finish', str(self.store), str(ready))
+        self.assertEqual(len(self.thread_messages(AMP_MASTER)), 1)
+        ready.write_text('# Report 000: ready\n\nstatus: done\nhead: r2\n')
+        self.as_thread(sidekick, 'finish', str(self.store), str(ready))
+        messages = self.thread_messages(AMP_MASTER)
+        self.assertEqual(len(messages), 2)
+        self.assertIn('head: r2', messages[1])
+
+    def test_a_verdict_already_sent_to_the_master_is_pending_sync_not_a_deadline(self):
+        """A verifier that sent its verdict and ended its turn leaves the verdict in its own orb until the master syncs; past the deadline the
+        master's verify --wait says so, and neither rewrites the verification nor prompts the verifier for an inconclusive verdict."""
+        self.verify_started('001')
+        verifier = amp_thread(2)
+        verdict = self.store / 'verdicts/001-util-v1.md'
+        verdict.write_text('# Verdict\n\nstatus: clean\nunits: 001-util\n')
+        self.as_thread(verifier, 'notify', str(self.store), str(verdict))
+        verdict.unlink()
+        self.set_state(verifier, 'idle', '2026-01-01T00:00:00.000Z')
+        state = self.state()
+        state['verifying']['deadline'] = 1
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        before = (self.store / 'pair.json').read_text()
+        out = self.run_sh('verify', str(self.store), '--wait', code=4)
+        at = 'an unknown time'  # the fake amp dates no message
+        self.assertIn(
+            f'pending sync: verifier sent {verdict} at {at}; run pair.sh sync from that message',
+            out,
+        )
+        self.assertNotIn('past its deadline', out)
+        self.assertEqual((self.store / 'pair.json').read_text(), before)
+        self.assertFalse(verdict.exists())
+        self.assertEqual(len(self.thread_messages(verifier)), 1)
+
+    def test_a_report_already_sent_to_the_master_is_pending_sync_for_its_wait(self):
+        sidekick = amp_thread(1)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.done(b, self.commit('util'))
+        report = self.store / 'reports' / b.name
+        self.as_thread(sidekick, 'finish', str(self.store), str(report))
+        text = report.read_text()
+        report.unlink()
+        out = self.run_sh('wait', str(self.store), code=4)
+        at = 'an unknown time'  # the fake amp dates no message
+        self.assertIn(
+            f'pending sync: sidekick sent {report} at {at}; run pair.sh sync from that message',
+            out,
+        )
+        self.assertNotIn('report: missing', out)
+        report.write_text(text)
+
     def finish_unit(self, seq, slug, scope, path, thread=1):
         """A routine unit dispatched to the sidekick's thread and finished done there; the dispatch's output."""
         b = self.brief(seq, slug, scope, verify=['python3 -c 1'])

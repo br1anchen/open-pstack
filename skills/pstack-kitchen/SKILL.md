@@ -212,6 +212,16 @@ args = ["--model", "anthropic/claude-opus-5-5", "--orb-size", "a1.large"]
   and return (exit 4 while the answer is not on file); end your turn. A
   role's `finish` or `notify` messages the master's thread with its own
   bundle, and the master runs that sync, then the next command.
+- A role's `finish` and `notify` always send the file as a message to the
+  master's thread, whatever the master is doing: the message queues behind its
+  turn, carries the store bundle with the file, and quotes the file's header
+  (status, brief, head, units) and a digest of its content, so a file rewritten
+  under the same path is sent again and an unchanged one is not sent twice. The
+  master reads it when its turn ends, after the sync the message names. Before
+  `wait` or `verify --wait` declares a missing report, a deadline or a stall, it
+  looks in the master's thread for that role's message; one found prints
+  `pending sync: <role> sent <file> at <time>; run pair.sh sync from that
+  message` and nothing is rewritten.
 - A message sent by the CLI reaches a role's thread only after its current
   turn ends: `amp threads continue -ox` queues it, and the CLI has no way to
   steer a running turn. So a role whose thread is in a turn reads `working`

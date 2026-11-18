@@ -1,3 +1,4 @@
+import hashlib
 import os
 
 from .. import mux, procinfo
@@ -43,6 +44,37 @@ def report(ctx, args):
     return 0
 
 
+def quoted_header(file):
+    """The lines of the file the master can act on before it syncs: its status, brief, head and units, and a digest of its content, so a file
+    rewritten under the same path is a message of its own."""
+    with open(file, 'rb') as f:
+        digest = hashlib.sha256(f.read()).hexdigest()[:12]
+    lines = [
+        f'{key}: {header_field(file, key)}'
+        for key in ('status', 'brief', 'head', 'units')
+        if header_field(file, key)
+    ]
+    return '\n'.join([*lines, f'sha256: {digest}'])
+
+
+def send_to_master(ctx, word, file, master, status):
+    """A backend whose roles keep copies of the store sends every file as a message to the master's thread, where it queues behind a turn: a
+    file only left in the sender's copy never reaches the master."""
+    text = f'{ctx.skill} {word} {file}\n{quoted_header(file)}'
+    reply = mux.get().prompt(master, text, stdout=DEVNULL, stderr=None)
+    if reply.code:
+        return reply.code
+    if mux.get().skipped:
+        print(
+            f'not sent again: {file} is still pending for master {master}; it reads it when its turn ends'
+        )
+    else:
+        print(
+            f'sent {word} {file} to master {master} (was {status}); it reads it when its turn ends'
+        )
+    return 0
+
+
 def notify(ctx, args):
     require_mux()
     if len(args) != 2:
@@ -62,6 +94,8 @@ def notify(ctx, args):
     )
     master = field(store, 'master', 'name')
     status = agent_status(master)
+    if mux.get().remote_roles:
+        return send_to_master(ctx, word, file, master, status)
     owner = read_wait_owner(store)
     if status in ('idle', 'done') and word == 'REPORT' and procinfo.alive(owner):
         print(

@@ -15,7 +15,7 @@ from pstack_core import mux
 from pstack_core.argv import Spec, read
 from pstack_core.errors import BadNumber, Die, PathFailed, translate
 from pstack_core.numbers import env_float, env_int, int_or_none, whole_number
-from pstack_core.store import field, read_text, wake
+from pstack_core.store import expected_report, field, read_text, wake
 from pstack_core.wait import WaitOwner, default_signals, release, wait_for, wait_target
 
 
@@ -63,6 +63,17 @@ def refused(ctx, error, held):
     return status
 
 
+def report_sent_at(ctx, store):
+    """(the report this wait is for, when the sidekick messaged it to the master), which the master's copy of the store lacks until it syncs;
+    (the report, None) when it did not, and always on a backend whose roles share the store."""
+    brief = (
+        field(store, 'sent', 'file') if field(store, 'sent', 'kind') == 'BRIEF' else ''
+    )
+    report = expected_report(store, brief) if brief else f'{store}/reports/000-ready.md'
+    since = int_or_none(field(store, 'sent', 'epoch')) or 0
+    return report, mux.get().sent_to_master(f'{ctx.skill} REPORT {report}', since)
+
+
 def quiet_wait(ctx, store, rest):
     """Returns the exit status the wait ends with."""
     write = sys.stdout.write
@@ -90,6 +101,16 @@ def quiet_wait(ctx, store, rest):
                 ctx, store, timeout=timeout, owner=owner, quiet=True, out=held.append
             )
             owner = owner.after(outcome)
+            report, sent = (
+                report_sent_at(ctx, store)
+                if outcome.kind in ('missing', 'checkin') and mux.get().remote_roles
+                else ('', None)
+            )
+            if sent is not None:
+                write(
+                    f'pending sync: sidekick sent {report} at {sent}; run pair.sh sync from that message\n'
+                )
+                return outcome.status
             checkin = outcome.kind == 'checkin' and outcome.checkin is not None
             if checkin and not outcome.flagged:
                 if under_max() and mux.get().waits:
