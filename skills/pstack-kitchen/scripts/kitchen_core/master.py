@@ -553,6 +553,14 @@ def rotate_master(ctx, args):
     return 0
 
 
+def own_master_pane():
+    """The pane the calling master is in. A master that is a thread is known by it: the registry's own pane for it is a counter of one orb."""
+    m = mux.get()
+    if m.master_threads and m.own_thread():
+        return m.thread_pane(m.own_thread())
+    return m.own_pane()
+
+
 def take_master(ctx, args):
     require_mux()
     if len(args) != 1:
@@ -565,11 +573,7 @@ def take_master(ctx, args):
     if not prev:
         sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
         return 0
-    m = mux.get()
-    here = m.own_pane()
-    if m.master_threads and m.own_thread():
-        # A master that is a thread is known by it: the registry's own pane for it is a counter of one orb.
-        here = m.thread_pane(m.own_thread())
+    here = own_master_pane()
     # With no multiplexer the next master is a new session, in a pane of its own: one in the run's checkout takes the run where it is.
     moved = (
         not mux.get().starts_master
@@ -590,6 +594,7 @@ def take_master(ctx, args):
     while agent_status(prev) == 'working' and int(time.time()) < deadline:
         time.sleep(env_float('KITCHEN_ROTATE_POLL_S', 2))
     # Close the pane only while it still holds the old master, or nothing.
+    m = mux.get()
     hosted = m.agent(prev_pane)
     host = hosted.name if hosted else ''
     closed = 'kept'
