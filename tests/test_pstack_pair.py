@@ -2375,6 +2375,8 @@ HELP = {
                                             append a decisions.tsv row (show-me-your-work format)
   sync <bundle-path-or-url>                 Amp threads (PSTACK_MUX=amp): merge the store, commits and scratch worktrees a
                                             prompt's bundle carries into this orb; run first on every prompt that names it
+  relay-done <store> <id>                   Amp threads: the master has sent the steer relay <id> (status lists the ones it still owes);
+                                            the same steer is not relayed again until the thread ends a turn
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
@@ -2442,6 +2444,8 @@ exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick block
                                             append a decisions.tsv row (show-me-your-work format)
   sync <bundle-path-or-url>                 Amp threads (PSTACK_MUX=amp): merge the store, commits and scratch worktrees a
                                             prompt's bundle carries into this orb; run first on every prompt that names it
+  relay-done <store> <id>                   Amp threads: the master has sent the steer relay <id> (status lists the ones it still owes);
+                                            the same steer is not relayed again until the thread ends a turn
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
@@ -2517,6 +2521,8 @@ exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick block
                                             append a decisions.tsv row (show-me-your-work format)
   sync <bundle-path-or-url>                 Amp threads (PSTACK_MUX=amp): merge the store, commits and scratch worktrees a
                                             prompt's bundle carries into this orb; run first on every prompt that names it
+  relay-done <store> <id>                   Amp threads: the master has sent the steer relay <id> (status lists the ones it still owes);
+                                            the same steer is not relayed again until the thread ends a turn
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 

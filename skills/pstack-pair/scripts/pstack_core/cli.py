@@ -9,6 +9,7 @@ from .commands import (
     init,
     metrics,
     notes,
+    relay,
     report,
     rotate,
     scratch,
@@ -53,6 +54,7 @@ COMMANDS = {
     'failover': rotate.failover,
     'stop': stop.stop,
     'sync': sync.sync,
+    'relay-done': relay.relay_done,
 }
 
 # The commands a variant may replace whole. Only these names, and a name the core lacks, ask the variant, so every other command is the core's.

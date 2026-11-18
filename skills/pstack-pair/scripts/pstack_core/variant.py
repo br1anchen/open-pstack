@@ -116,6 +116,8 @@ PAIR_COMMANDS = {
                                             append a decisions.tsv row (show-me-your-work format)"""),
     'sync': _entry("""  sync <bundle-path-or-url>                 Amp threads (PSTACK_MUX=amp): merge the store, commits and scratch worktrees a
                                             prompt's bundle carries into this orb; run first on every prompt that names it"""),
+    'relay-done': _entry("""  relay-done <store> <id>                   Amp threads: the master has sent the steer relay <id> (status lists the ones it still owes);
+                                            the same steer is not relayed again until the thread ends a turn"""),
     'metrics': _entry("""  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts"""),
 }

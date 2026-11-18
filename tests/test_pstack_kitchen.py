@@ -15270,6 +15270,61 @@ class AmpKitchenTests(KitchenScriptTests):
         events = (self.store / 'events.tsv').read_text()
         self.assertEqual(events.count('send-steer\t001-util-s1\trelay-pending'), 1)
 
+    def test_relay_done_marks_the_relay_sent_and_the_same_steer_waits_for_the_threads_next_turn_end(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        steer = self.working_sidekick_steer()
+        self.run_sh('steer', str(self.store), str(steer))
+        [record_file] = self.relays_dir().glob('*.json')
+        rid = json.loads(record_file.read_text())['id']
+        status = self.run_sh('status', str(self.store))
+        self.assertRegex(
+            status, rf'(?m)^relay-pending: {rid} for demo-sidekick since \d\d:\d\d$'
+        )
+        # An id that is no relay of this store is refused, and nothing changes.
+        out = self.run_sh('relay-done', str(self.store), 'deadbeef0000', code=5)
+        self.assertIn(f'relay-done: no relay deadbeef0000 for {self.store}', out)
+        self.assertEqual(json.loads(record_file.read_text())['state'], 'relay-pending')
+        out = self.run_sh('relay-done', str(self.store), rid)
+        self.assertEqual(out.strip(), f'relayed: {rid} to demo-sidekick ({sidekick})')
+        record = json.loads(record_file.read_text())
+        self.assertEqual(record['state'], 'relay-done')
+        self.assertGreater(record['done_at'], record['at'] - 1)
+        self.assertFalse(Path(record['bundle']).exists())
+        outbox = json.loads(
+            (Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/outbox.json').read_text()
+        )
+        self.assertEqual(
+            (outbox[sidekick]['id'], outbox[sidekick]['hash']), (rid, record['hash'])
+        )
+        self.assertTrue(
+            (
+                Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/sent' / f'{sidekick}.tgz'
+            ).is_file()
+        )
+        events = (self.store / 'events.tsv').read_text()
+        self.assertEqual(
+            events.count(f'\tmaster\trelay\t001-util-s1\t{rid}:{sidekick}'), 1
+        )
+        self.assertNotIn('relay-pending:', self.run_sh('status', str(self.store)))
+        out = self.run_sh('relay-done', str(self.store), rid)
+        self.assertEqual(out.strip(), f'relayed: {rid} already done')
+        self.assertEqual(events, (self.store / 'events.tsv').read_text())
+        # The thread has not ended a turn since: the same steer is not relayed again.
+        out = self.run_sh('steer', str(self.store), str(steer))
+        self.assertIn(
+            f'relayed: {rid} for demo-sidekick ({sidekick}) (already relayed', out
+        )
+        self.assertEqual(len(list(self.relays_dir().glob('*.json'))), 1)
+        # Once the thread has ended its turn it is idle, and a steer reaches it by the CLI between turns: nothing is left for the master to relay.
+        self.set_state(sidekick, 'idle', '2999-01-01T00:00:00.000Z')
+        before = len(self.thread_messages(sidekick))
+        out = self.run_sh('steer', str(self.store), str(steer))
+        self.assertIn(f'steered demo-sidekick with {steer}', out)
+        self.assertEqual(len(self.thread_messages(sidekick)), before + 1)
+        self.assertEqual(len(list(self.relays_dir().glob('*.json'))), 1)
+
     def test_a_steer_that_cannot_be_relayed_queues_behind_the_turn_once(self):
         sidekick = amp_thread(1)
         steer = self.working_sidekick_steer()

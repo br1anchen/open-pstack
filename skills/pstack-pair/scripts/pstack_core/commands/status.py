@@ -6,6 +6,7 @@ import sys
 import time
 
 from ..errors import Die, MissingStore, reason, translate
+from ..mux import amp
 from ..panes import agent_status
 from ..store import (
     event,
@@ -155,6 +156,12 @@ def lines(ctx, store, out):
         out.write(f'queued: {read_text(f"{store}/queue").rstrip(chr(10))}\n')
     if os.path.isfile(f'{store}/paused'):
         out.write(f'paused: {paused_reason(store)}\n')
+    for record in reversed(amp.relay_records(store)):
+        if record.get('state') == amp.PENDING:
+            since = time.strftime('%H:%M', time.localtime(int(record.get('at') or 0)))
+            out.write(
+                f'relay-pending: {record["id"]} for {record["name"]} since {since}\n'
+            )
     scratch = [w for line in names(pair, 'scratch') for w in line.split()]
     if scratch:
         out.write(
