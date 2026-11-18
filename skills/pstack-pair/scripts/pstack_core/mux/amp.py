@@ -326,10 +326,13 @@ def head_missing(store):
 
 
 def live_threads(doc):
-    """{thread: role name} of the threads pair.json's roles run in now, through the registry and the master's pane."""
+    """{thread: role name} of the threads pair.json's roles run in now, through the registry and the master's pane. A verifier is live only while a
+    verification is open (.verifying): its entry stays in pair.json afterwards, but its thread is done once the verdict is recorded."""
     agents = load(registry_path())['agents']
     live = {}
     for role in ('sidekick', 'consultant', 'verifier', 'master'):
+        if role == 'verifier' and not doc.get('verifying'):
+            continue
         entry = doc.get(role) if isinstance(doc.get(role), dict) else {}
         name = entry.get('name') or ''
         thread = (agents.get(name) or {}).get('thread') or ''

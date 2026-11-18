@@ -15086,6 +15086,33 @@ class AmpKitchenTests(KitchenScriptTests):
         out = self.run_sh('threads', str(self.store))
         self.assertNotRegex(out, rf'(?m)^{verifier}  verifier  \S+  in use$')
 
+    def test_a_verifier_is_not_in_use_once_its_verdict_is_recorded(self):
+        self.verify_started('001')
+        verifier = amp_thread(2)
+        verdict = self.store / 'verdicts/001-util-v1.md'
+        verdict.write_text('# Verdict\n\nstatus: clean\nunits: 001-util\n')
+        self.sync_notified(verifier, verdict)
+        self.assertRegex(
+            self.run_sh('threads', str(self.store)),
+            rf'(?m)^{verifier}  verifier  in use  in use$',
+        )
+        self.run_sh('verify', str(self.store), '--wait', code=None)
+        self.assertIsNone(self.state().get('verifying'))
+        # The verifier's entry is back in the registry (a reply still in flight is synced), though its verification is over.
+        registry = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/registry.json'
+        doc = json.loads(registry.read_text())
+        doc['agents']['demo-verifier'] = {
+            'pane': 'amp:2',
+            'kind': 'amp',
+            'args': [],
+            'thread': verifier,
+        }
+        registry.write_text(json.dumps(doc))
+        out = self.run_sh('threads', str(self.store))
+        self.assertRegex(
+            out, rf'(?m)^{verifier}  verifier  unknown  kept: state unknown'
+        )
+
     REGISTRY_WRITES = {
         'a start that claims the pane or name of a live entry': (
             "Amp().start('demo-verifier', 'amp', 'amp:2', ['--model', 'm/x'])"
