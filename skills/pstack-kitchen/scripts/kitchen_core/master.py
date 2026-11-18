@@ -69,8 +69,9 @@ def master_rotate_reason(store):
         return ''
     if used >= 1:
         return 'compacted'
-    if used * 100 > env_int('KITCHEN_MASTER_CONTEXT_PCT', 60):
-        return f'context:{round(used * 100)}%'
+    percent = round(used * 100)
+    if percent > env_int('KITCHEN_MASTER_CONTEXT_PCT', 60):
+        return f'context:{percent}%'
     return ''
 
 
@@ -78,19 +79,26 @@ ROTATE_DUE_EXIT = 9
 
 
 def note_rotate_due(store, reason):
-    """Records .master.rotate_due ({at, reason, generation}) and logs one rotate-due event per master generation, however often the kitchen refuses
-    in it; rotate-master and take-master clear the record."""
-    master = peek(load(store), 'master')
-    generation = count(master, 'generation') or 1
-    if count(peek(master, 'rotate_due'), 'generation') == generation:
-        return
-    due = {
-        'at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        'reason': reason,
-        'generation': generation,
-    }
-    update(store, lambda doc: member(doc, 'master').__setitem__('rotate_due', due))
-    event(store, 'master', 'rotate-due', '-', reason)
+    """Records .master.rotate_due ({at, reason, generation}) and logs one rotate-due event per master generation, however often (or at once) the
+    kitchen refuses in it: the check and the write are one update, and the event is the writer's. rotate-master clears the record (record_handover);
+    take-master does not."""
+    set_here = []
+
+    def mutate(doc):
+        master = member(doc, 'master')
+        generation = count(master, 'generation') or 1
+        if count(peek(master, 'rotate_due'), 'generation') == generation:
+            return
+        master['rotate_due'] = {
+            'at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'reason': reason,
+            'generation': generation,
+        }
+        set_here.append(True)
+
+    update(store, mutate)
+    if set_here:
+        event(store, 'master', 'rotate-due', '-', reason)
 
 
 def rotate_notice(store, record=False, audience='master'):
@@ -401,6 +409,16 @@ def hand_to_next_session(ctx, store, handoff):
     return 0
 
 
+def require_master_thread(store):
+    """Where every role is a thread (Amp), only the master's own thread rotates the master: a role that runs rotate-master from its own thread would hand
+    the run to a new master while the real one still works. A caller the backend cannot place keeps the command."""
+    here = mux.get().own_pane()
+    if here and here != field(store, 'master', 'pane_id'):
+        raise RotateRefused(
+            f"rotate-master: this thread is not the run's master ({here}); only the master rotates"
+        )
+
+
 def args_model(args):
     """The model the arguments of a roster entry name (the last of --model, -m or --mode), '' when none does."""
     model = ''
@@ -442,6 +460,7 @@ def hand_to_next_thread(ctx, store, handoff, model):
             f'a hand-over is open: generation {field(store, "master", "generation")} has not taken over yet; '
             f'its thread runs kitchen.sh take-master {store} first'
         )
+    require_master_thread(store)
     model = next_master_model(store, model)
     m = mux.get()
     name = field(store, 'master', 'name')

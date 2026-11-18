@@ -14621,7 +14621,7 @@ class AmpKitchenTests(KitchenScriptTests):
     def set_master_context(self, percent, compacted=0):
         """What `amp threads context` reports for the master's thread: percent of its window used and its compaction count."""
         (self.fake / f'amp-context-{AMP_MASTER}').write_text(
-            f'{{"totalTokens": {percent * 1000}, "maxContextTokens": 100000, "compactionCount": {compacted}}}\n'
+            f'{{"totalTokens": {round(percent * 1000)}, "maxContextTokens": 100000, "compactionCount": {compacted}}}\n'
         )
 
     def master_rotate_reason(self):
@@ -14643,12 +14643,29 @@ class AmpKitchenTests(KitchenScriptTests):
         ).stdout.strip()
 
     def test_rotate_due_is_decided_by_the_masters_own_context(self):
-        self.set_master_context(59)
-        self.assertEqual(self.master_rotate_reason(), "0.59 ''")
-        self.set_master_context(61)
-        self.assertEqual(self.master_rotate_reason(), "0.61 'context:61%'")
-        self.set_master_context(10, compacted=1)
-        self.assertEqual(self.master_rotate_reason(), "1.0 'compacted'")
+        # (percent used, compactions, KITCHEN_MASTER_CONTEXT_PCT, what master_context and master_rotate_reason answer)
+        table = [
+            (59, 0, None, "0.59 ''"),
+            (60, 0, None, "0.6 ''"),
+            (60.4, 0, None, "0.604 ''"),
+            (61, 0, None, "0.61 'context:61%'"),
+            (55, 0, '50', "0.55 'context:55%'"),
+            (10, 1, None, "1.0 'compacted'"),
+        ]
+        for percent, compacted, limit, expected in table:
+            with self.subTest(percent=percent, compacted=compacted, limit=limit):
+                self.set_master_context(percent, compacted)
+                if limit:
+                    self.env['KITCHEN_MASTER_CONTEXT_PCT'] = limit
+                try:
+                    self.assertEqual(self.master_rotate_reason(), expected)
+                finally:
+                    self.env.pop('KITCHEN_MASTER_CONTEXT_PCT', None)
+        with self.subTest('a master with no registered thread'):
+            state = self.state()
+            state['master']['name'] = 'nobody'
+            (self.store / 'pair.json').write_text(json.dumps(state))
+            self.assertEqual(self.master_rotate_reason(), "None ''")
 
     ROTATE_LINE = 'master: your thread has used 61% of its context; rotate before dispatching: kitchen.sh new-handoff '
 
@@ -14717,6 +14734,19 @@ class AmpKitchenTests(KitchenScriptTests):
         out = self.run_sh('dispatch', str(self.store), str(b), code=4)
         self.assertIn(self.ROTATE_LINE, out)
         self.assertEqual(len(self.briefs_in(amp_thread(1))), 1)
+
+    def test_only_the_masters_own_thread_rotates_the_master(self):
+        self.filled_handoff()
+        out = self.as_thread(amp_thread(1), 'rotate-master', str(self.store), code=5)
+        self.assertIn(
+            "rotate-master: this thread is not the run's master (amp:1); only the master rotates",
+            out,
+        )
+        self.assertNotIn('previous', self.state()['master'])
+        self.assertFalse((self.fake / 'amp-threads' / amp_thread(2)).exists())
+        self.run_sh('rotate-master', str(self.store))
+        self.assertEqual(self.state()['master']['previous']['name'], 'demo-master')
+        self.assertEqual(len(self.thread_messages(amp_thread(2))), 1)
 
     def test_rotate_master_clears_the_gate_for_the_next_master(self):
         self.set_master_context(61)
