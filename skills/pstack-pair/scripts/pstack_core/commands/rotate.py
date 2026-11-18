@@ -162,6 +162,16 @@ class Sweep:
 
     archived = kept = in_use = 0
     ran = False
+    seen = {}
+
+    @classmethod
+    def first(cls, thread, outcome):
+        """Whether this command has not yet counted `thread` with this outcome ('in use', or why it is kept): a command that sweeps twice (dispatch
+        does, before and after a rotation) counts and prints each thread once, and again only if its outcome changed."""
+        if cls.seen.get(thread) == outcome:
+            return False
+        cls.seen[thread] = outcome
+        return True
 
     @classmethod
     def count(cls, archived, kept, in_use):
@@ -188,10 +198,11 @@ def archive_retired(ctx, store, trigger, retired_only=True):
     m = mux.get()
     for row in m.thread_rows(store, retired_only):
         if row.in_use:
-            in_use += 1
+            in_use += Sweep.first(row.thread, 'in use')
         elif not row.archivable:
-            kept += 1
-            print(f'kept {row.thread}: {row.why}')
+            if Sweep.first(row.thread, row.why):
+                kept += 1
+                print(f'kept {row.thread}: {row.why}')
         elif m.archive(row):
             archived.append(row)
             event(store, 'master', 'archive', '-', f'{row.role}:{row.thread}')
@@ -210,7 +221,7 @@ def archive_retired(ctx, store, trigger, retired_only=True):
             except Die as e:
                 sys.stderr.write(f'archive: {row.thread} archived; not logged: {e}\n')
             print(f'archived {row.thread} ({row.role}): {trigger}')
-        else:
+        elif Sweep.first(row.thread, 'amp threads archive failed'):
             kept += 1
             print(f'kept {row.thread}: amp threads archive failed')
     if m.archives_threads:

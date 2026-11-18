@@ -15309,6 +15309,11 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertRegex(
             self.last_line(out), r'^archive: 0 archived, 0 kept, \d+ in use$'
         )
+        # The command sweeps before and after its rotation check: each thread still counts and prints once (the old thread kept, one thread in use; before the
+        # sweep deduped by thread this printed 2 kept and 2 in use).
+        out = self.merged('dispatch', str(self.store), str(b), code=None)
+        self.assertEqual(self.last_line(out), 'archive: 0 archived, 1 kept, 1 in use')
+        self.assertEqual(len(re.findall(rf'(?m)^kept {old}: ', out)), 1)
         ready.write_text('status: done\n')
         out = self.merged('dispatch', str(self.store), str(b), code=None)
         self.assertIn(f'archived {old} (sidekick)', out)
