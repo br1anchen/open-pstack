@@ -435,18 +435,23 @@ def args_model(args):
 
 def next_master_model(store, model):
     """The model the next master thread starts on: --model when given, else the first amp entry (where every role is an Amp thread) of the roster's [master] chain whose preflight passes (each
-    entry that fails is a failover event, `master:<from>:<to>`), else '' (this thread's own mode). A chain with no passing entry refuses the rotation."""
+    entry that fails is a failover event, `master:<from>:<to>`), else '' (this thread's own mode), which is also what a chain with no amp entry gives. An amp chain with
+    no passing entry refuses the rotation."""
     if model:
         return model
     entry = kpy.call(kpy.kitchen_py.roster_data)[1].get('master')
     if not entry or not entry.get('kind'):
         return ''
     chain = [{'kind': entry['kind'], 'args': entry['args']}, *entry['fallbacks']]
-    if mux.get().master_threads:
-        # The next master is an Amp thread, so an agent of another kind cannot be it.
-        for each in [e for e in chain if e['kind'] != 'amp']:
-            sys.stdout.write(f'skip: master {entry_label(each)} is not an amp agent\n')
-        chain = [e for e in chain if e['kind'] == 'amp']
+    # The next master is an Amp thread, so an agent of another kind cannot be it.
+    for each in [e for e in chain if e['kind'] != 'amp']:
+        sys.stdout.write(f'skip: master {entry_label(each)} is not an amp agent\n')
+    chain = [e for e in chain if e['kind'] == 'amp']
+    if not chain:
+        sys.stdout.write(
+            "skip: no amp entry in the master chain; the next master runs on this thread's mode\n"
+        )
+        return ''
     index, steps = walk_chain(chain, 0, entry_preflight)
     for failed, why in steps:
         if failed + 1 < len(chain):

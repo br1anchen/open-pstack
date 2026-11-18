@@ -14518,24 +14518,43 @@ class AmpKitchenTests(KitchenScriptTests):
             self.failover_events(self.store), ['master:amp a/one:amp b/two']
         )
 
-    def test_rotate_master_skips_roster_entries_that_are_not_amp_agents(self):
+    def rotate_master_on(self, master):
+        """(the output, the amp start line of the next master) of rotate-master with `master` as the roster's [master] table."""
         roster = Path(self.tmp.name) / 'mixed-master-roster.toml'
         roster.write_text(
-            '[sidekick]\nkind = "amp"\nargs = ["--model", "s/one"]\n'
-            '[master]\nkind = "claude"\nargs = ["--model", "claude-opus-5-5"]\n'
-            '[[master.fallback]]\nkind = "amp"\nargs = ["--model", "b/two"]\n'
+            '[sidekick]\nkind = "amp"\nargs = ["--model", "s/one"]\n' + master
         )
         self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
         self.filled_handoff()
         out = self.run_sh('rotate-master', str(self.store))
-        self.assertIn('skip: master claude claude-opus-5-5 is not an amp agent', out)
         [started] = [
             line
             for line in (self.fake / 'amp.log').read_text().splitlines()
             if '--title demo-master-g2' in line
         ]
-        self.assertIn('-m b/two --title demo-master-g2', started)
         self.assertEqual(self.failover_events(self.store), [])
+        return out, started
+
+    CLAUDE_MASTER = '[master]\nkind = "claude"\nargs = ["--model", "claude-opus-5-5"]\n'
+
+    def test_rotate_master_skips_roster_entries_that_are_not_amp_agents(self):
+        out, started = self.rotate_master_on(
+            self.CLAUDE_MASTER
+            + '[[master.fallback]]\nkind = "amp"\nargs = ["--model", "b/two"]\n'
+        )
+        self.assertIn('skip: master claude claude-opus-5-5 is not an amp agent', out)
+        self.assertIn('-m b/two --title demo-master-g2', started)
+
+    def test_rotate_master_with_no_amp_entry_in_the_roster_starts_on_this_threads_mode(
+        self,
+    ):
+        out, started = self.rotate_master_on(self.CLAUDE_MASTER)
+        self.assertIn('skip: master claude claude-opus-5-5 is not an amp agent', out)
+        self.assertIn(
+            "skip: no amp entry in the master chain; the next master runs on this thread's mode",
+            out,
+        )
+        self.assertNotIn(' -m ', started)
 
     def test_rotate_master_with_a_model_skips_the_roster_chain(self):
         (self.fake / 'amp-preflight-fail').write_text('a/one\nb/two\nc/three\n')
