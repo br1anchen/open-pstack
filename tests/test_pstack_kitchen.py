@@ -10942,6 +10942,61 @@ esac
         )
         self.assertIn('status: clean\n', out)
 
+    def verify_after_a_provider_stop(self, roster, *verify_args):
+        """The pi verifier stops on its provider (the fake's `ratelimit` mode; every other kind works): ([the agents started, as kind and
+        arguments], [the failover events], the output)."""
+        self.set_roster(roster)
+        (self.fake / 'amp-preflight-fail').write_text('a/one\n')
+        self.rate_limited_verifier()
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('ratelimit')
+        out = self.run_sh('verify', str(self.store), '001', *verify_args)
+        started = [line.split(' --kind ')[1] for line in self.verifier_starts()]
+        failovers = [
+            line.split('\t')[5]
+            for line in (self.store / 'events.tsv').read_text().splitlines()
+            if '\tmaster\tfailover\t' in line
+        ]
+        return started, failovers, out
+
+    def test_a_stopped_kind_verifier_retries_on_the_next_entry_not_the_agent_that_stopped(
+        self,
+    ):
+        # --kind pi starts the roster's second entry; its provider stop retries on the third, not on the second again.
+        started, failovers, out = self.verify_after_a_provider_stop(
+            '[verifier]\nkind = "devin"\n[[verifier.fallback]]\nkind = "pi"\nargs = ["--model", "second"]\n'
+            '[[verifier.fallback]]\nkind = "devin"\nargs = ["--model", "third"]\n',
+            '--kind',
+            'pi',
+        )
+        self.assertIn('status: clean\n', out)
+        self.assertIn('retry: verifying again on the fallback, devin third', out)
+        self.assertEqual(len(started), 2, started)
+        self.assertIn('pi', started[0])
+        self.assertIn('--model second', started[0])
+        self.assertIn('devin', started[1])
+        self.assertIn('--model third', started[1])
+        self.assertEqual(failovers, ['verifier:pi second:devin third'])
+
+    def test_a_verifier_retry_steps_past_an_entry_that_fails_its_preflight(self):
+        started, failovers, out = self.verify_after_a_provider_stop(
+            '[verifier]\nkind = "pi"\nargs = ["--model", "first"]\n'
+            '[[verifier.fallback]]\nkind = "amp"\nargs = ["--model", "a/one"]\n'
+            '[[verifier.fallback]]\nkind = "devin"\n'
+        )
+        self.assertIn('status: clean\n', out)
+        self.assertIn('failover: verifier amp a/one -> devin (preflight: ', out)
+        self.assertEqual(len(started), 2, started)
+        self.assertIn('pi', started[0])
+        self.assertIn('devin', started[1])
+        self.assertEqual(
+            failovers, ['verifier:pi first:amp a/one', 'verifier:amp a/one:devin']
+        )
+
     def test_a_fallback_of_the_failed_kind_is_not_retried(self):
         self.set_roster(
             '[verifier]\nkind = "pi"\nargs = ["--model", "same"]\n[verifier.fallback]\nkind = "pi"\nargs = ["--model", "same"]\n'

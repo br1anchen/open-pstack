@@ -286,9 +286,13 @@ def choose_verifier(store, root, cls, o):
         )
         if isinstance(entry, dict) and isinstance(retried, dict):
             entry = {**entry, **retried, 'fallback': retried.get('fallback')}
+            # A retry skips an entry whose preflight fails, as a fresh start does.
+            if kind:
+                entry = step_down_on_preflight(store, entry)
+                kind, picked = entry['kind'], entry
     elif o.kind_override:
         kind = o.kind_override
-        picked = pick_entry(entry, kind)
+        entry, picked = pick_entry(entry, kind)
     else:
         if isinstance(entry, dict) and entry.get('kind'):
             entry = step_down_on_preflight(store, entry)
@@ -301,14 +305,18 @@ def choose_verifier(store, root, cls, o):
 
 
 def pick_entry(entry, kind):
-    """The first of the entry and its fallback that names the kind, as {kind, args}; None when neither does."""
-    for candidate in (
-        entry,
-        entry.get('fallback') if isinstance(entry, dict) else None,
-    ):
-        if isinstance(candidate, dict) and candidate.get('kind') == kind:
-            return {'kind': candidate.get('kind'), 'args': candidate.get('args')}
-    return None
+    """(entry, picked): the first of the entry's chain that names the kind, as the entry the verifier runs (the rest of the chain after it is its
+    nested fallback, so a provider stop retries on the next agent and the running label names the one that started) and as {kind, args}; the
+    entry unchanged and None when nothing in the chain names the kind."""
+    chain = entry_chain(entry)
+    for index, candidate in enumerate(chain):
+        if candidate['kind'] == kind:
+            return {
+                **entry,
+                **candidate,
+                'fallback': fallback_link(chain[index + 1 :]),
+            }, candidate
+    return entry, None
 
 
 def launch_verifier(v):
