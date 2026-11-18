@@ -411,9 +411,14 @@ def hand_to_next_session(ctx, store, handoff):
 
 def require_master_thread(store):
     """Where every role is a thread (Amp), only the master's own thread rotates the master: a role that runs rotate-master from its own thread would hand
-    the run to a new master while the real one still works. A caller the backend cannot place keeps the command."""
-    here = mux.get().own_pane()
-    if here and here != field(store, 'master', 'pane_id'):
+    the run to a new master while the real one still works. Threads are compared, never counter panes, which mean different agents in different
+    orbs; a caller or a master whose thread is not known keeps the command."""
+    m = mux.get()
+    here = m.own_thread()
+    master = m.thread_of_pane(field(store, 'master', 'pane_id')) or m.role_thread(
+        field(store, 'master', 'name')
+    )
+    if here and master and here != master:
         raise RotateRefused(
             f"rotate-master: this thread is not the run's master ({here}); only the master rotates"
         )
@@ -480,6 +485,11 @@ def hand_to_next_thread(ctx, store, handoff, model):
             f.write(before)
         event(store, 'master', 'rotate-failed', '-', f'generation:{next_gen}')
         raise
+    # The pane the next master was given before its thread existed is an orb-local counter; every orb knows the thread's own pane.
+    update(
+        store,
+        lambda doc: member(doc, 'master').__setitem__('pane_id', m.thread_pane(thread)),
+    )
     m.hand_over(name, temp)
     event(store, 'master', 'handoff', '-', f'generation:{gen_n}')
     event(store, 'master', 'spawn', '-', f'amp:generation:{next_gen}')
@@ -555,7 +565,11 @@ def take_master(ctx, args):
     if not prev:
         sys.stdout.write(f'no hand-over open; {name} is the master in {pane}\n')
         return 0
-    here = mux.get().own_pane()
+    m = mux.get()
+    here = m.own_pane()
+    if m.master_threads and m.own_thread():
+        # A master that is a thread is known by it: the registry's own pane for it is a counter of one orb.
+        here = m.thread_pane(m.own_thread())
     # With no multiplexer the next master is a new session, in a pane of its own: one in the run's checkout takes the run where it is.
     moved = (
         not mux.get().starts_master
@@ -576,7 +590,6 @@ def take_master(ctx, args):
     while agent_status(prev) == 'working' and int(time.time()) < deadline:
         time.sleep(env_float('KITCHEN_ROTATE_POLL_S', 2))
     # Close the pane only while it still holds the old master, or nothing.
-    m = mux.get()
     hosted = m.agent(prev_pane)
     host = hosted.name if hosted else ''
     closed = 'kept'

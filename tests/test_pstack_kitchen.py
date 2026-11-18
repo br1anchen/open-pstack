@@ -14059,10 +14059,10 @@ class AmpKitchenTests(KitchenScriptTests):
             p.read_text() for p in sorted(d.glob('*.txt'), key=lambda p: int(p.stem))
         ]
 
-    def as_thread(self, thread, *args, code=0, mux=''):
+    def as_thread(self, thread, *args, code=0, mux='', env=None):
         """kitchen.sh run from another Amp thread (a role's, or the next master's), here on the same machine; mux is the PSTACK_MUX its orb
-        sets, if any."""
-        env = {**self.env, 'AMP_THREAD_ID': thread}
+        sets, if any, and env what else that orb's environment holds."""
+        env = {**self.env, **(env or {}), 'AMP_THREAD_ID': thread}
         env.pop('PSTACK_MUX')
         if mux:
             env['PSTACK_MUX'] = mux
@@ -14735,11 +14735,25 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn(self.ROTATE_LINE, out)
         self.assertEqual(len(self.briefs_in(amp_thread(1))), 1)
 
+    def registry(self, home=None):
+        """The Amp registry of an orb whose XDG_STATE_HOME is home (this one by default)."""
+        home = Path(home or self.env['XDG_STATE_HOME'])
+        return home / 'pstack/amp/registry.json'
+
     def test_only_the_masters_own_thread_rotates_the_master(self):
+        """Counter panes (amp:N) mean different agents in different orbs, so the master is known by its thread: the registry here gives the
+        master the counter pane amp:1 the sidekick has, and pair.json a counter pane no one has."""
+        sidekick = amp_thread(1)
+        registry = json.loads(self.registry().read_text())
+        registry['agents']['demo-master']['pane'] = 'amp:1'
+        self.registry().write_text(json.dumps(registry))
+        doc = self.state()
+        doc['master']['pane_id'] = 'amp:3'
+        (self.store / 'pair.json').write_text(json.dumps(doc))
         self.filled_handoff()
-        out = self.as_thread(amp_thread(1), 'rotate-master', str(self.store), code=5)
+        out = self.as_thread(sidekick, 'rotate-master', str(self.store), code=5)
         self.assertIn(
-            "rotate-master: this thread is not the run's master (amp:1); only the master rotates",
+            f"rotate-master: this thread is not the run's master ({sidekick}); only the master rotates",
             out,
         )
         self.assertNotIn('previous', self.state()['master'])
@@ -14747,6 +14761,51 @@ class AmpKitchenTests(KitchenScriptTests):
         self.run_sh('rotate-master', str(self.store))
         self.assertEqual(self.state()['master']['previous']['name'], 'demo-master')
         self.assertEqual(len(self.thread_messages(amp_thread(2))), 1)
+
+    def test_take_master_records_the_masters_thread_as_its_pane_in_every_orb(self):
+        """The next master's pane is its thread's, whatever counter pane an orb's registry gave it, so the next role started there gets another."""
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        self.assertEqual(self.state()['master']['pane_id'], f'amp:{master2}')
+        # What another orb's registry holds after a sync: the master under a counter pane of that orb.
+        orb = Path(self.tmp.name) / 'orb2'
+        registry = self.registry(orb)
+        registry.parent.mkdir(parents=True)
+        registry.write_text(
+            json.dumps(
+                {
+                    'next': 2,
+                    'panes': ['amp:1'],
+                    'agents': {
+                        'demo-master-g2': {
+                            'pane': 'amp:1',
+                            'kind': 'amp',
+                            'args': [],
+                            'thread': master2,
+                        }
+                    },
+                }
+            )
+        )
+        doc = self.state()
+        doc['master']['pane_id'] = 'amp:1'
+        (self.store / 'pair.json').write_text(json.dumps(doc))
+        self.as_thread(
+            master2, 'take-master', str(self.store), env={'XDG_STATE_HOME': str(orb)}
+        )
+        self.assertEqual(self.state()['master']['pane_id'], f'amp:{master2}')
+        agents = json.loads(registry.read_text())['agents']
+        self.assertEqual(
+            {n: e['pane'] for n, e in agents.items()},
+            {'demo-master': f'amp:{master2}'},
+        )
+        # The master2 thread now rotates the run; the registry's counter pane for it no longer decides who the master is.
+        self.filled_handoff()
+        self.as_thread(
+            master2, 'rotate-master', str(self.store), env={'XDG_STATE_HOME': str(orb)}
+        )
+        self.assertEqual(self.state()['master']['previous']['name'], 'demo-master')
 
     def test_rotate_master_clears_the_gate_for_the_next_master(self):
         self.set_master_context(61)
@@ -15065,7 +15124,7 @@ class AmpKitchenTests(KitchenScriptTests):
         # The new master's thread takes the run over.
         out = self.as_thread(master2, 'take-master', str(self.store))
         self.assertIn(f'closed the old master demo-master (amp:{AMP_MASTER})', out)
-        self.assertIn('master: demo-master in amp:2 (generation 2)', out)
+        self.assertIn(f'master: demo-master in amp:{master2} (generation 2)', out)
         self.assertNotIn('previous', self.state()['master'])
 
     def test_a_master_thread_that_does_not_start_leaves_the_run_where_it_was(self):

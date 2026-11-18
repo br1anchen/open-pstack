@@ -93,6 +93,18 @@ class Mux:
         """The thread the agent `name` runs in, '' where roles are not threads of their own."""
         return ''
 
+    def own_thread(self):
+        """The thread this process runs in, '' where agents are not threads."""
+        return ''
+
+    def thread_pane(self, thread):
+        """The pane that always means `thread` in every orb (a master's), '' where agents are not threads."""
+        return ''
+
+    def thread_of_pane(self, pane):
+        """The thread a pane named by thread_pane stands for, '' for any other pane."""
+        return ''
+
     def thread_cost(self, thread):
         """What the thread has cost so far in dollars, or None when the backend cannot say."""
         return None

@@ -270,6 +270,15 @@ class Amp(Subagents):
         found = self.entry(name)
         return (found[1].get('thread') or '') if found else ''
 
+    def own_thread(self):
+        return own_thread()
+
+    def thread_pane(self, thread):
+        return thread_pane(thread)
+
+    def thread_of_pane(self, pane):
+        return pane[len('amp:') :] if pane.startswith('amp:T-') else ''
+
     def thread_cost(self, thread):
         r = run(['amp', 'threads', 'usage', thread])
         m = re.search(r'^Cost: \$([0-9]+(?:\.[0-9]+)?)', r.stdout, re.M)
@@ -346,20 +355,20 @@ class Amp(Subagents):
         pane = found[1]['pane'] if found else target
         if not self.pane_exists(pane):
             return False
+        thread = self.thread_of_pane(pane)
+
+        def holds(e):
+            return e['pane'] == pane or bool(thread and e.get('thread') == thread)
 
         def move(doc):
-            old = next((e for e in doc['agents'].values() if e['pane'] == pane), {})
-            for gone in [
-                n for n, e in doc['agents'].items() if e['pane'] == pane or n == name
-            ]:
+            old = next((e for e in doc['agents'].values() if holds(e)), {})
+            for gone in [n for n, e in doc['agents'].items() if holds(e) or n == name]:
                 del doc['agents'][gone]
             doc['agents'][name] = {
                 'pane': pane,
                 'kind': old.get('kind') or 'amp',
                 'args': old.get('args') or [],
-                'thread': pane[len('amp:') :]
-                if pane.startswith('amp:T-')
-                else old.get('thread') or '',
+                'thread': thread or old.get('thread') or '',
             }
 
         change(move, self.path())
@@ -578,9 +587,11 @@ class Amp(Subagents):
         if not thread:
             change(lambda doc: doc['agents'].pop(name, None), self.path())
             raise NextMasterNotStarted(f'the next master thread did not start: {err}')
-        change(
-            lambda doc: doc['agents'][name].__setitem__('thread', thread), self.path()
-        )
+
+        def register(doc):
+            doc['agents'][name].update({'thread': thread, 'pane': thread_pane(thread)})
+
+        change(register, self.path())
         return thread
 
     def hand_over(self, name, to):
