@@ -28,6 +28,7 @@ import sys
 import tempfile
 import time
 import tomllib
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypedDict
@@ -2157,13 +2158,50 @@ def _entry(t: dict, source: str) -> dict:
     }
 
 
+def model_label(kind: str, args: list[str]) -> str:
+    """A role's agent as the metrics name it: its kind, and the model its arguments choose (the last of --model, -m or --mode) when they choose one, and
+    the last `model:<id>` item of the last comma-separated --features value. pstack_core.agents.model_label states the same rule; kitchen.py imports
+    nothing from pstack_core, and a test runs both on the same arguments."""
+    model, features = '', ''
+    for flag, value in zip(args, args[1:], strict=False):
+        if flag in ('--model', '-m', '--mode'):
+            model = value
+        elif flag == '--features':
+            features = value
+    hosted = [
+        i.removeprefix('model:') for i in features.split(',') if i.startswith('model:')
+    ]
+    return ' '.join(part for part in (kind, model, *hosted[-1:]) if part)
+
+
+def pick_alternate(entries: list[dict], runs_dir: Path, run: str) -> int:
+    """The index of the [[sidekick.alternate]] entry the run `run` starts: the one the fewest other stores under runs_dir recorded in
+    pair.json .sidekick_choice.label, and among ties the one at crc32(run) modulo the tie count, in roster order."""
+    used: dict[str, int] = {}
+    for store in runs_dir.glob('*'):
+        if store.name == run:
+            continue
+        try:
+            doc = json.loads((store / 'pair.json').read_text())
+        except (OSError, ValueError):
+            continue
+        choice = doc.get('sidekick_choice') if isinstance(doc, dict) else None
+        label = choice.get('label') if isinstance(choice, dict) else None
+        if isinstance(label, str):
+            used[label] = used.get(label, 0) + 1
+    labels = [model_label(e['kind'], e['args']) for e in entries]
+    fewest = min(used.get(label, 0) for label in labels)
+    ties = [i for i, label in enumerate(labels) if used.get(label, 0) == fewest]
+    return ties[zlib.crc32(run.encode()) % len(ties)]
+
+
 def roster_data() -> tuple[Path, dict]:
     path = roster_path()
     try:
         data = tomllib.loads(path.read_text()) if path.exists() else {}
     except tomllib.TOMLDecodeError as e:
         raise KitchenError(f'{path}: {e}') from None
-    out = {}
+    out: dict[str, dict] = {}
     for role in ('sidekick', 'consultant'):
         t = data.get(role, {})
         out[role] = {
@@ -2176,6 +2214,20 @@ def roster_data() -> tuple[Path, dict]:
                 'kind': fb.get('kind', ''),
                 'args': [str(a) for a in fb.get('args', [])],
             }
+    # An A/B of sidekick models: init picks one of [[sidekick.alternate]] per run and records it, and spawn starts that one.
+    alternate = data.get('sidekick', {}).get('alternate', [])
+    if not isinstance(alternate, list) or not all(
+        isinstance(a, dict) and a.get('kind') for a in alternate
+    ):
+        raise KitchenError(f'{path}: [[sidekick.alternate]] entries each need a kind')
+    if alternate and out['sidekick']['kind']:
+        raise KitchenError(
+            f'{path}: [sidekick] sets a kind and [[sidekick.alternate]] entries; keep one'
+        )
+    out['sidekick']['alternate'] = [
+        {'kind': a['kind'], 'args': [str(x) for x in a.get('args', [])]}
+        for a in alternate
+    ]
     # A routine verifier without an entry is the run's current sidekick, which only
     # the store knows, so the entry is a marker that cmd_verify resolves.
     v = data.get('verifier', {})
@@ -2252,6 +2304,7 @@ def roster_kinds(vr: dict) -> list[str]:
     """Every agent kind the roster may start on a scratch or in the repo, fallbacks included."""
     entries = [
         vr['sidekick'],
+        *vr['sidekick'].get('alternate', []),
         vr['sidekick']['fallback'],
         vr['consultant'],
         vr['consultant']['fallback'],
@@ -2283,7 +2336,9 @@ def roster_text(path: Path, out: dict) -> str:
     return (
         f'{path}: '
         + ', '.join(
-            f'{r} {v["kind"] or "unset"}' for r, v in out.items() if 'kind' in v
+            f'{r} {v["kind"] or ("alternate " + "/".join(a["kind"] for a in v["alternate"]) if v.get("alternate") else "unset")}'
+            for r, v in out.items()
+            if 'kind' in v
         )
         + f', verifier {out["verifier"]["routine"]["kind"]}/{out["verifier"]["escalated"]["kind"]}'
     )
@@ -2462,7 +2517,111 @@ def run_counters(store: Path) -> dict:
         'catches': catches,
         'steers': len(list((store / 'steers').glob('*-s[0-9]*.md'))),
         'verifier_attempts': attempts,
+        'by_sidekick': sidekick_breakdown(store, pair, events),
     }
+
+
+def sidekick_breakdown(store: Path, pair: dict, events: list[list[str]]) -> list[dict]:
+    """The run split by the sidekick model each unit was dispatched to (pair.json .sidekick_models, written at dispatch): units, master
+    wakes while its unit was the newest dispatch, failed step gates, steers and review-fix briefs, verifier rejections, the verified units
+    that passed on their first verdict, blocking review notes, and the minutes from a unit's first dispatch to the master's first review
+    accept after it. A store from before the record gives no rows."""
+    models = pair.get('sidekick_models')
+    if not isinstance(models, dict) or not models:
+        return []
+    first = {}
+    for key in sorted(models):
+        first.setdefault(key[:3], models[key])
+
+    def model_of(unit: str) -> str | None:
+        name = unit.removesuffix('.md')
+        return models.get(name) or first.get(name[:3])
+
+    rows: dict[str, dict] = {}
+
+    def row(model: str) -> dict:
+        return rows.setdefault(
+            model,
+            {
+                'sidekick': model,
+                'units': set(),
+                'wakes': 0,
+                'failed_gates': 0,
+                'steers_and_fixes': 0,
+                'rejections': 0,
+                'rejected': set(),
+                'verified': set(),
+                'findings': 0,
+                'accept_minutes': [],
+            },
+        )
+
+    for key, model in models.items():
+        row(model)['units'].add(key[:3])
+    current, dispatched, accepted = '', {}, set()
+    for e in events:
+        actor, name, unit, detail = e[2], e[3], e[4], e[5]
+        if name == 'send-brief':
+            current = unit
+            if e[1].isdigit():
+                dispatched.setdefault(unit[:3], int(e[1]))
+            continue
+        model = model_of(unit) or ''
+        if actor == 'master' and name == 'wake' and current:
+            model = model_of(current) or ''
+            if model:
+                row(model)['wakes'] += 1
+        elif name == 'gate-fail' and model:
+            row(model)['failed_gates'] += 1
+        elif name == 'note' and detail.endswith(':blocking') and model:
+            row(model)['findings'] += 1
+        elif name == 'log' and detail.startswith('review:') and current:
+            verdict = re.search(r'\b(accept|reject)', detail.lower())
+            number, model = current[:3], model_of(current)
+            if (
+                verdict
+                and verdict.group(1) == 'accept'
+                and model
+                and number in dispatched
+                and number not in accepted
+                and e[1].isdigit()
+            ):
+                accepted.add(number)
+                row(model)['accept_minutes'].append(
+                    round((int(e[1]) - dispatched[number]) / 60, 1)
+                )
+    for path in [
+        *(store / 'steers').glob('*-s[0-9]*.md'),
+        *(
+            b
+            for b in (store / 'briefs').glob('[0-9][0-9][0-9]-*.md')
+            if _header(b, 'playbook') == 'review-fix'
+        ),
+    ]:
+        model = model_of(path.name)
+        if model:
+            row(model)['steers_and_fixes'] += 1
+    for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md')):
+        if v.stem.endswith('-packet') or v.name.startswith('landing-'):
+            continue
+        status = _header(v, 'status').split(' ')[0]
+        for unit in _header(v, 'units').split():
+            model = model_of(unit)
+            if not model:
+                continue
+            if status == 'reject':
+                row(model)['rejections'] += 1
+                row(model)['rejected'].add(unit[:3])
+            elif status == 'clean':
+                row(model)['verified'].add(unit[:3])
+    out = []
+    for r in sorted(rows.values(), key=lambda r: r['sidekick']):
+        verified, minutes = r.pop('verified'), r['accept_minutes']
+        r['units'] = len(r['units'])
+        r['first_pass'] = f'{len(verified - r.pop("rejected"))}/{len(verified)}'
+        r['median_accept_minutes'] = statistics.median(minutes) if minutes else None
+        out.append(r)
+    return out
 
 
 def open_feedback() -> dict[str, int]:
@@ -3921,7 +4080,74 @@ def fleet(runs_dir: Path, since: str | None) -> dict:
     vlist = sorted(
         vrows.values(), key=lambda v: (v['agent'] == 'unknown', v['agent'], v['class'])
     )
-    return {'runs': rows, 'builds': brows, 'verifiers': vlist}
+    return {
+        'runs': rows,
+        'builds': brows,
+        'verifiers': vlist,
+        'sidekicks': sidekick_totals(rows),
+    }
+
+
+def sidekick_totals(rows: list[dict]) -> list[dict]:
+    """The runs' sidekick breakdowns summed by model: runs, the counts, first-pass verdicts and the median over every unit's dispatch to accept."""
+    out: dict[str, dict] = {}
+    for r in rows:
+        for s in r.get('by_sidekick') or []:
+            t = out.setdefault(
+                s['sidekick'],
+                {
+                    'sidekick': s['sidekick'],
+                    'runs': 0,
+                    **dict.fromkeys(SIDEKICK_COUNTS, 0),
+                    'first_pass': [0, 0],
+                    'accept_minutes': [],
+                },
+            )
+            t['runs'] += 1
+            for k in SIDEKICK_COUNTS:
+                t[k] += s[k]
+            passed, verified = (int(n) for n in s['first_pass'].split('/'))
+            t['first_pass'][0] += passed
+            t['first_pass'][1] += verified
+            t['accept_minutes'] += s['accept_minutes']
+    for t in out.values():
+        minutes = t.pop('accept_minutes')
+        t['first_pass'] = '/'.join(map(str, t['first_pass']))
+        t['median_accept_minutes'] = statistics.median(minutes) if minutes else None
+    return sorted(out.values(), key=lambda t: t['sidekick'])
+
+
+SIDEKICK_COUNTS = (
+    'units',
+    'wakes',
+    'failed_gates',
+    'steers_and_fixes',
+    'rejections',
+    'findings',
+)
+
+
+def sidekick_table(rows: list[dict], lead: str = '') -> list[str]:
+    """The by-sidekick-model rows as fleet and retro print them; lead names the first column (runs for fleet)."""
+    if not rows:
+        return []
+
+    def num(x):
+        return '-' if x is None else str(x)
+
+    head = f'{"sidekick model":40} ' + (f'{lead:>4} ' if lead else '')
+    lines = [
+        head
+        + f'{"units":>5} {"wakes":>5} {"gates":>5} {"st+fx":>5} {"rej":>3} {"1st-pass":>8} {"finds":>5} {"med→acc":>7}'
+    ]
+    for s in rows:
+        lines.append(
+            f'{s["sidekick"][:40]:40} '
+            + (f'{s[lead]:>4} ' if lead else '')
+            + f'{s["units"]:>5} {s["wakes"]:>5} {s["failed_gates"]:>5} {s["steers_and_fixes"]:>5} {s["rejections"]:>3} '
+            f'{s["first_pass"]:>8} {s["findings"]:>5} {num(s["median_accept_minutes"]):>7}'
+        )
+    return lines
 
 
 def fleet_text(report: dict) -> str:
@@ -3969,6 +4195,14 @@ def fleet_text(report: dict) -> str:
             f'{v["agent"][:38]:38} {v["class"]:9} {v["started"]:>5} {v["clean"]:>5} {v["reject"]:>3} {v["inconclusive"]:>5} '
             f'{v["invalid"]:>5} {v["provider"]:>4} {v["stalled"]:>5} {v["missing"]:>4} {v["start-failed"]:>5} {v["running"]:>3} {v["unknown"]:>3}'
         )
+    sidekicks = sidekick_table(report.get('sidekicks') or [], 'runs')
+    if sidekicks:
+        lines += [
+            '',
+            'units by the sidekick model they were dispatched to (gates: failed step gates; st+fx: steers and review-fix briefs;',
+            '1st-pass: verified units clean on their first verdict; finds: blocking review notes; med→acc: median minutes from dispatch to review accept)',
+            *sidekicks,
+        ]
     return '\n'.join(lines)
 
 

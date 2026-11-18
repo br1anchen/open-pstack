@@ -2317,7 +2317,8 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "brief": "<T>/state/pstack/pair-guided/demo/briefs/016-qnine.md",
     "at": "<TS>",
     "head": "<SHA>",
-    "generation": 3
+    "generation": 3,
+    "sidekick": "devin"
   },
   "heads": {
     "002-early": "<SHA>",
@@ -2333,6 +2334,21 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "014-qscope": "<SHA>",
     "015-qglob": "<SHA>",
     "016-qnine": "<SHA>"
+  },
+  "sidekick_models": {
+    "002-early": "devin",
+    "003-build": "devin",
+    "005-qone": "devin",
+    "006-qtwo": "devin",
+    "007-qthree": "devin",
+    "008-qfive": "devin",
+    "010-qseven": "devin",
+    "011-qeight": "devin",
+    "012-qfour": "devin",
+    "013-qsteps": "devin",
+    "014-qscope": "devin",
+    "015-qglob": "devin",
+    "016-qnine": "devin"
   },
   "notice_steers": [
     "<T>/state/pstack/pair-guided/demo/steers/003-build-s1.md",

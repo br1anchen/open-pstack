@@ -235,6 +235,23 @@ def preflight_muse(args):
     return 1
 
 
+def model_label(kind, args):
+    """A role's agent as the metrics name it: its kind, and the model its arguments choose (--model, -m or --mode) when they choose one. An external
+    agent's thread (--mode claude-code) also names its model in the `model:<id>` item of the comma-separated --features value, which the label ends with."""
+    parsed = read(
+        list(args),
+        Spec(
+            valued=('--model', '-m', '--mode', '--features'),
+            unknown='collect',
+            dangling='drop',
+        ),
+    )
+    model = parsed.last('--model') or parsed.last('-m') or parsed.last('--mode') or ''
+    items = (parsed.last('--features') or '').split(',')
+    hosted = [i.removeprefix('model:') for i in items if i.startswith('model:')]
+    return ' '.join(part for part in (kind, model, *hosted[-1:]) if part)
+
+
 def preflight_amp(args):
     """One `amp -x` prompt with the role's model and settings flags; Amp archives the thread it makes. -x comes last because it reads the message
     from the token right after it."""

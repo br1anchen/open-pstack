@@ -10,11 +10,13 @@ import time
 from dataclasses import dataclass
 
 from . import git, mux
+from .agents import model_label
 from .argv import read
 from .errors import (
     AgentBlocked,
     AgentBusy,
     AgentNotLive,
+    DamagedStore,
     Die,
     FreshSessionRequired,
     MissingStore,
@@ -190,6 +192,8 @@ def send_message(ctx, store, file, kind, now=None):
             record_sent(store, file, kind, now)
         event(store, 'master', f'send-{kind.lower()}', file)
         prompt_sidekick(name, f'{ctx.skill} {kind} {file}')
+        if kind == 'BRIEF':
+            record_sidekick_thread(store, mux.get().role_thread(name))
     finally:
         # TERM and HUP go back to what the process inherited (an ignored one stays ignored), but INT goes to its default even if it was inherited
         # as ignored.
@@ -241,12 +245,22 @@ def record_dispatch(store, brief, now=None):
     epoch = int(stamp)
 
     def mutate(doc):
-        generation = count(peek(doc, 'sidekick'), 'generation')
+        sidekick = peek(doc, 'sidekick')
+        generation = count(sidekick, 'generation')
+        # The agent that takes the brief, kept per unit so the metrics split a run by sidekick model after failover and rotation.
+        # Only a record: damaged start_args give no label here, and verify reports the damage.
+        try:
+            label = model_label(
+                text_at(sidekick, 'kind'), names(sidekick, 'start_args')
+            )
+        except DamagedStore:
+            label = ''
         doc['dispatch'] = {
             'brief': brief,
             'at': at,
             'head': head,
             'generation': generation,
+            **({'sidekick': label} if label else {}),
         }
         doc['sent'] = {'file': brief, 'kind': 'BRIEF', 'at': at, 'epoch': epoch}
         if seen:
@@ -256,7 +270,23 @@ def record_dispatch(store, brief, now=None):
         key = key[:-3] if key.endswith('.md') else key
         if heads.get(key) is None:
             heads[key] = head
+        if label:
+            member(doc, 'sidekick_models')[key] = label
         doc['pending'] = sorted({*names(doc, 'pending'), *([] if seen else [brief])})
+
+    update(store, mutate)
+
+
+def record_sidekick_thread(store, thread):
+    """.sidekick_threads: the threads each sidekick model ran in (a backend whose roles are threads names them), for the run's cost by model."""
+    if not thread:
+        return
+
+    def mutate(doc):
+        label = text_at(peek(doc, 'dispatch'), 'sidekick')
+        threads = member(doc, 'sidekick_threads')
+        if label and thread not in names(threads, label):
+            threads[label] = [*names(threads, label), thread]
 
     update(store, mutate)
 

@@ -5,8 +5,9 @@ import re
 import sys
 from pathlib import Path
 
+from pstack_core import mux
 from pstack_core.errors import Die, Exit, ToolFailed
-from pstack_core.store import event, now, pair_file, read, read_text, who
+from pstack_core.store import event, load, now, pair_file, read, read_text, who
 
 from . import kpy
 
@@ -113,6 +114,25 @@ def repeated_rows(ledger):
     return [r[1] for r in rows]
 
 
+def sidekick_costs(store):
+    """One line per sidekick model with the threads it ran in (pair.json .sidekick_threads) and their cost so far, where the backend can say."""
+    threads = load(store).get('sidekick_threads')
+    lines = []
+    for label, ids in sorted((threads if isinstance(threads, dict) else {}).items()):
+        costs = [mux.get().thread_cost(t) for t in ids]
+        known = [c for c in costs if c is not None]
+        cost = f'${sum(known):.2f}' if known else 'unknown'
+        partial = (
+            f' ({len(costs) - len(known)} unknown)'
+            if known and len(known) < len(costs)
+            else ''
+        )
+        lines.append(
+            f'sidekick cost {label}: {cost}{partial} over {len(ids)} thread{"" if len(ids) == 1 else "s"}: {" ".join(ids)}'
+        )
+    return lines
+
+
 def retro(ctx, args):
     if len(args) != 1:
         raise Die('usage: kitchen.sh retro <store>')
@@ -128,6 +148,12 @@ def retro(ctx, args):
         out.write(
             f'master wakes per verified unit: {c["wakes"] / c["verified_units"]:.1f}\n'
         )
+    if c['by_sidekick']:
+        out.write('by sidekick model:\n')
+        for line in kpy.kitchen_py.sidekick_table(c['by_sidekick']):
+            out.write(f'  {line}\n')
+        for line in sidekick_costs(store):
+            out.write(f'  {line}\n')
     out.write(
         'repeated across runs (the kitchen should catch these, not the master):\n'
     )

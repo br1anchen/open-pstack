@@ -7,6 +7,7 @@ process with a copy of the environment; none of them writes os.environ. test_set
 import os
 import sys
 from dataclasses import replace
+from pathlib import Path
 
 from pstack_core import agents, git, mux
 from pstack_core import spawn as pair_spawn
@@ -23,8 +24,10 @@ from pstack_core.store import (
     listing,
     load,
     member,
+    names,
     now,
     pair_file,
+    peek,
     read_text,
     text_at,
     update,
@@ -75,6 +78,31 @@ def stamp_skill_builds(ctx, store):
     update(store, mutate)
 
 
+def choose_alternate(store):
+    """With [[sidekick.alternate]] entries in the host roster, a run records the entry it starts in pair.json .sidekick_choice, picked among the runs of the
+    same runs directory by kitchen.py's pick_alternate. A run that has one keeps it, and says it again."""
+    entries = host_roster()['sidekick']['alternate']
+    if not entries:
+        return
+    chosen = peek(load(store), 'sidekick_choice')
+    if not chosen:
+        index = kpy.kitchen_py.pick_alternate(
+            entries, Path(store).parent, text_at(load(store), 'slug')
+        )
+        entry = entries[index]
+        chosen = {
+            'policy': 'alternate',
+            'index': index,
+            'kind': entry['kind'],
+            'args': entry['args'],
+            'label': kpy.kitchen_py.model_label(entry['kind'], entry['args']),
+        }
+        update(store, lambda doc: doc.update(sidekick_choice=chosen))
+    sys.stdout.write(
+        f'sidekick: alternate picks {text_at(chosen, "label")} (entry {int(chosen.get("index", 0)) + 1} of {len(entries)})\n'
+    )
+
+
 def validated(store):
     """What kitchen.py validate finds in the run's repo, or None when it names no valid kitchen (the reason is dropped)."""
     try:
@@ -91,6 +119,7 @@ def init(ctx, args):
     sys.stdout.write(''.join(lines))
     store, orders = made.store, made.orders
     stamp_skill_builds(ctx, store)
+    choose_alternate(store)
     found = validated(store)
     if found is None:
         sys.stdout.flush()
@@ -180,15 +209,21 @@ def spawn(ctx, args):
     kind, fallback = opts.last('--kind', ''), opts.last('--fallback', '')
     native = list(opts.after_dashdash)
     roster = host_roster()
+    chosen = peek(load(store), 'sidekick_choice')
+    main_kind = text_at(chosen, 'kind') or roster_text(roster, 'sidekick', 'kind')
     if not kind:
-        kind = roster_text(roster, 'sidekick', 'kind')
+        kind = main_kind
         if not kind:
             raise Die(
                 'no --kind and no [sidekick] kind in the host roster (~/.config/pstack/kitchen.toml)'
             )
         if not native:
-            native = roster_lines(roster, 'sidekick', 'args')
-    if not fallback and kind == roster_text(roster, 'sidekick', 'kind'):
+            native = (
+                names(chosen, 'args')
+                if chosen
+                else roster_lines(roster, 'sidekick', 'args')
+            )
+    if not fallback and kind == main_kind:
         fallback = roster_text(roster, 'sidekick', 'fallback', 'kind')
         fb_args = roster_lines(roster, 'sidekick', 'fallback', 'args')
     given = spawn_options(list(opts.leftovers))

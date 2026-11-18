@@ -89,6 +89,14 @@ class Mux:
         """The share of its context window the agent `name` has used (0 to 1; 1 once it compacted), or None when the backend cannot say."""
         return None
 
+    def role_thread(self, name):
+        """The thread the agent `name` runs in, '' where roles are not threads of their own."""
+        return ''
+
+    def thread_cost(self, thread):
+        """What the thread has cost so far in dollars, or None when the backend cannot say."""
+        return None
+
     # The calling pane and where it lives.
     def require(self, what=None):
         """Ends with the caller's message (by default, that the command must run inside the multiplexer) when not inside it."""

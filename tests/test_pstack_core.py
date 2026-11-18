@@ -108,6 +108,18 @@ def inherited_env():
     }
 
 
+FAKE_HERDR_BIN = root / 'tests/pstack-pair/bin'
+
+
+def fake_herdr_on_path(test, **extra):
+    """Puts the fake herdr first on this process's PATH for the test, for code that runs `herdr` in process on a host that has none."""
+    patcher = mock.patch.dict(
+        os.environ, {'PATH': f'{FAKE_HERDR_BIN}:{os.environ["PATH"]}', **extra}
+    )
+    patcher.start()
+    test.addCleanup(patcher.stop)
+
+
 def watch_jq(test, env):
     """Puts the failing jq of tests/run.py first on env's PATH, logging each call's arguments; when the test ends, any call fails it."""
     directory = Path(test.tmp.name) / 'jq-tripwire'
@@ -324,6 +336,7 @@ class CoreTests(unittest.TestCase):
         )
 
     def test_die_with_a_code_exits_with_it_and_prints_only_the_message(self):
+        fake_herdr_on_path(self)
         err = tempfile.TemporaryFile('w+')
         self.addCleanup(err.close)
 
@@ -339,6 +352,8 @@ class CoreTests(unittest.TestCase):
         self.assertEqual((code, err.read()), (7, 'pair.sh: x\n'))
 
     def test_main_leaves_a_stdout_that_cannot_reconfigure_alone(self):
+        fake_herdr_on_path(self)
+
         def noop(ctx, args):
             return 0
 
@@ -892,6 +907,7 @@ class CoreTests(unittest.TestCase):
                 'resume',
                 str(store),
             ],
+            env=self.env,
             capture_output=True,
             text=True,
             check=False,
@@ -4991,6 +5007,11 @@ class CoreTests(unittest.TestCase):
                     'queue': '{st}/briefs/003-z.md\n',
                     'briefs/003-z.md': '# B\n',
                 },
+                # the newest verdict by mtime is the unit's current one; a filesystem that stamps back-to-back writes alike would tie them
+                mtimes={
+                    'verdicts/002-y-v1.md': 1_000_000_000,
+                    'verdicts/002-y-v2.md': 1_000_000_100,
+                },
                 pair=pair,
             ),
             'a store with briefs only': dict(
@@ -8136,7 +8157,7 @@ class CoreTests(unittest.TestCase):
                         'x',
                         text,
                     ],
-                    env={**self.env, 'LC_ALL': 'en_US.UTF-8'},
+                    env={**self.env, 'LC_ALL': self.utf8_locale()},
                     capture_output=True,
                     check=True,
                     timeout=120,
@@ -8147,6 +8168,16 @@ class CoreTests(unittest.TestCase):
                     r.stdout,
                     (text, before, after),
                 )
+
+    def utf8_locale(self):
+        """A UTF-8 locale this host has: en_US.UTF-8 where installed (macOS, most Linux), else C.UTF-8, so grep reads `é` as one character."""
+        have = subprocess.run(
+            ['locale', '-a'], capture_output=True, text=True, check=False, timeout=60
+        ).stdout.split()
+        for name in ('en_US.UTF-8', 'en_US.utf8', 'C.UTF-8', 'C.utf8'):
+            if name in have:
+                return name
+        return 'en_US.UTF-8'
 
     def provider_re_line(self):
         return f"provider_error_re='{providers.PROVIDER_ERROR_RE}'"
@@ -18232,7 +18263,11 @@ class GuidedCommandTests(unittest.TestCase):
         self.refs = root / 'skills/pstack-pair-guided/references'
 
     def run_guided(self, *args):
-        env = dict(inherited_env(), XDG_STATE_HOME=str(self.dir / 'state'))
+        env = dict(
+            inherited_env(),
+            XDG_STATE_HOME=str(self.dir / 'state'),
+            PATH=f'{FAKE_HERDR_BIN}:{os.environ["PATH"]}',
+        )
         return subprocess.run(
             [str(root / 'skills/pstack-pair-guided/scripts/pair.sh'), *args],
             capture_output=True,
@@ -20230,6 +20265,10 @@ class WaitSeamTests(DispatchedStore):
 
     kitchen_core_module = CoreTests.kitchen_core_module
 
+    def setUp(self):
+        super().setUp()
+        fake_herdr_on_path(self, FAKE=str(self.path / 'fake'))
+
     def events(self):
         path = self.store / 'events.tsv'
         return (
@@ -20691,3 +20730,25 @@ class TrioAmpDiversityTests(unittest.TestCase):
         )
         with self.assertRaises(NoDiverseKinds):
             trio.require_diverse_kinds('amp x/y', 'amp x/y', 'amp x/y')
+
+    def test_a_hosted_model_ends_the_label(self):
+        trio = load_module(
+            str(root / 'skills/pstack-trio/scripts/variant.py'), 'trio_hosted_labels'
+        )
+        cases = [
+            (
+                ['--mode', 'claude-code', '--features', 'model:claude-sonnet-5-5'],
+                'amp claude-code claude-sonnet-5-5',
+            ),
+            (
+                ['--mode', 'claude-code', '--features', 'fast,model:claude-sonnet-5-5'],
+                'amp claude-code claude-sonnet-5-5',
+            ),
+            (['--mode', 'claude-code', '--features', 'fast'], 'amp claude-code'),
+            (['--model', 'zhipuai/glm-5.3'], 'amp zhipuai/glm-5.3'),
+            ([], 'amp'),
+        ]
+        for args, label in cases:
+            with self.subTest(args=args):
+                self.assertEqual(agents.model_label('amp', args), label)
+                self.assertEqual(trio.diversity_label('amp', args), label)

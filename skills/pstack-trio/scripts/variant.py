@@ -3,6 +3,7 @@ import os
 import sys
 
 from pstack_core import mux
+from pstack_core.agents import model_label
 from pstack_core.argv import Spec, read
 from pstack_core.commands.status import latest
 from pstack_core.commands.stop import clear_queue, stop_role
@@ -92,14 +93,7 @@ def require_diverse_kinds(master, sidekick, consultant):
 def diversity_label(kind, args):
     """What the diversity check compares for a role: its kind, and for an Amp role the model its arguments name, since every Amp role is the
     same program on a model of its choosing."""
-    if kind != 'amp':
-        return kind
-    parsed = read(
-        list(args),
-        Spec(valued=('--model', '-m', '--mode'), unknown='collect', dangling='drop'),
-    )
-    model = parsed.last('--model') or parsed.last('-m') or parsed.last('--mode') or ''
-    return f'amp {model}'.strip()
+    return model_label(kind, args) if kind == 'amp' else kind
 
 
 def master_label(kind):

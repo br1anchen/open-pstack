@@ -266,6 +266,15 @@ class Amp(Subagents):
             return None
         return 1.0 if compacted else used / limit
 
+    def role_thread(self, name):
+        found = self.entry(name)
+        return (found[1].get('thread') or '') if found else ''
+
+    def thread_cost(self, thread):
+        r = run(['amp', 'threads', 'usage', thread])
+        m = re.search(r'^Cost: \$([0-9]+(?:\.[0-9]+)?)', r.stdout, re.M)
+        return float(m.group(1)) if r.returncode == 0 and m else None
+
     def require(self, what=None):
         if not own_thread():
             from ..errors import NotInMux

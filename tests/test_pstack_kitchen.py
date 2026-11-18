@@ -35,6 +35,7 @@ import kitchen
 
 sys.path.insert(0, str(root / 'tests'))
 sys.path.insert(0, str(root / 'skills/pstack-pair/scripts'))
+from pstack_core import agents  # noqa: E402
 from pstack_core.store import Context  # noqa: E402
 
 BARE_CTX = Context('pstack-kitchen', '/x', '/s', 'Kitchen', (), (), 20, '')
@@ -522,10 +523,32 @@ class ClassifyTests(KitchenTests):
                 'kind': 'pi',
                 'args': ['--model', 'devin/swe-2'],
                 'fallback': {'kind': 'devin', 'args': []},
+                'alternate': [],
             },
         )
         self.assertEqual(r['consultant']['kind'], 'codex')
         self.assertIn('pstack/kitchen/repos/repo-', self.run_kitchen('statedir'))
+
+    def test_roster_alternate_entries_print_by_kind_and_exclude_a_sidekick_kind(self):
+        roster = Path(self.tmp.name) / 'roster.toml'
+        roster.write_text(
+            '[[sidekick.alternate]]\nkind = "amp"\nargs = ["--model", "m/a"]\n'
+            '[[sidekick.alternate]]\nkind = "amp"\nargs = ["--model", "m/b"]\n'
+        )
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        self.assertEqual(
+            self.data('roster')['sidekick']['alternate'],
+            [
+                {'kind': 'amp', 'args': ['--model', 'm/a']},
+                {'kind': 'amp', 'args': ['--model', 'm/b']},
+            ],
+        )
+        self.assertIn('sidekick alternate amp/amp', self.run_kitchen('roster'))
+        roster.write_text(
+            '[sidekick]\nkind = "pi"\n[[sidekick.alternate]]\nkind = "amp"\n'
+        )
+        out = self.run_kitchen('roster', code=1)
+        self.assertIn('[sidekick] sets a kind and [[sidekick.alternate]] entries', out)
 
     def test_roster_verifier_defaults(self):
         roster = Path(self.tmp.name) / 'roster.toml'
@@ -3116,6 +3139,76 @@ class LibraryTests(KitchenTests):
         )
         self.silent()
 
+    def alternate_runs(self, *labels):
+        """A runs directory with one earlier store per label, each recording that label as its sidekick choice."""
+        runs = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        for i, label in enumerate(labels):
+            (runs / f'earlier-{i}').mkdir()
+            (runs / f'earlier-{i}/pair.json').write_text(
+                json.dumps({'sidekick_choice': {'label': label}})
+            )
+        return runs
+
+    def alternate_entries(self, count):
+        return [{'kind': 'amp', 'args': ['--model', f'm/{c}']} for c in 'abc'[:count]]
+
+    def test_the_local_model_label_agrees_with_the_pair_core_s(self):
+        cases = [
+            (
+                ['--mode', 'claude-code', '--features', 'fast,model:claude-sonnet-5-5'],
+                'amp claude-code claude-sonnet-5-5',
+            ),
+            (['--mode', 'claude-code'], 'amp claude-code'),
+            (['-m', 'zhipuai/glm-5.3'], 'amp zhipuai/glm-5.3'),
+            (['--model', 'a', '--model', 'b', '--effort', 'high'], 'amp b'),
+            (['--features', 'fast'], 'amp'),
+        ]
+        for args, label in cases:
+            with self.subTest(args=args):
+                self.assertEqual(kitchen.model_label('amp', args), label)
+                self.assertEqual(agents.model_label('amp', args), label)
+
+    def test_pick_alternate_takes_the_entry_the_fewest_earlier_runs_used(self):
+        self.library()
+        used_first = self.alternate_runs('amp m/a')
+        for run in ('r1', 'demo'):
+            self.assertEqual(
+                kitchen.pick_alternate(self.alternate_entries(2), used_first, run), 1
+            )
+        a_a_b = self.alternate_runs('amp m/a', 'amp m/a', 'amp m/b')
+        for run in ('r1', 'demo'):
+            self.assertEqual(
+                kitchen.pick_alternate(self.alternate_entries(3), a_a_b, run), 2
+            )
+        self.silent()
+
+    def test_pick_alternate_with_no_earlier_runs_hashes_the_run_name_among_the_ties(
+        self,
+    ):
+        self.library()
+        empty = self.alternate_runs()
+        # zlib.crc32 of 'demo' is 3594706848 (even) and of 'r1' is 219023793 (odd).
+        self.assertEqual(
+            kitchen.pick_alternate(self.alternate_entries(2), empty, 'demo'), 0
+        )
+        self.assertEqual(
+            kitchen.pick_alternate(self.alternate_entries(2), empty, 'r1'), 1
+        )
+        self.silent()
+
+    def test_pick_alternate_ignores_the_run_s_own_store_and_unreadable_ones(self):
+        self.library()
+        runs = self.alternate_runs('amp m/a')
+        (runs / 'earlier-0').rename(runs / 'demo')
+        (runs / 'broken').mkdir()
+        (runs / 'broken/pair.json').write_text('{')
+        (runs / 'bare').mkdir()
+        # The run's own earlier record of m/a does not count, so both entries are unused and crc32('demo') picks entry 0.
+        self.assertEqual(
+            kitchen.pick_alternate(self.alternate_entries(2), runs, 'demo'), 0
+        )
+        self.silent()
+
     def test_a_roster_that_does_not_parse_raises_what_the_command_prints(self):
         roster = Path(self.tmp.name) / 'host-roster.toml'
         roster.write_text('x = [\n')
@@ -3223,6 +3316,61 @@ class LibraryTests(KitchenTests):
         self.silent()
 
 
+SIDEKICK_T0 = 1_800_000_000
+
+
+def write_sidekick_store(d, models, events, steers=(), fixes=(), verdicts=()):
+    """A run store holding pair.json .sidekick_models and hand-written events (epoch, actor, event, unit, detail), steer files, review-fix
+    briefs by stem and verdicts (name, status, units), added to whatever the store already has."""
+    for sub in ('briefs', 'reports', 'verdicts', 'steers'):
+        (d / sub).mkdir(parents=True, exist_ok=True)
+    pair = (
+        json.loads((d / 'pair.json').read_text()) if (d / 'pair.json').exists() else {}
+    )
+    (d / 'pair.json').write_text(json.dumps({**pair, 'sidekick_models': models}))
+    with open(d / 'events.tsv', 'a') as f:
+        for e, a, v, u, det in events:
+            f.write(f'x\t{e}\t{a}\t{v}\t{u}\t{det}\n')
+    for stem in steers:
+        (d / 'steers' / f'{stem}.md').write_text('# Steer\n')
+    for stem in fixes:
+        (d / 'briefs' / f'{stem}.md').write_text('# Brief\n\nplaybook: review-fix\n')
+    for verdict, status, units in verdicts:
+        (d / 'verdicts' / f'{verdict}.md').write_text(
+            f'# Verdict\n\nstatus: {status}\nunits: {units}\n'
+        )
+    return d
+
+
+def two_model_run():
+    """The arguments of write_sidekick_store for two units on two models: unit 001 on amp m/one (two wakes, one failed gate, one steer, clean first
+    time, accepted 10 minutes after dispatch) and unit 002 on amp m/two (one wake, one blocking note, a review-fix brief, rejected then clean,
+    accepted 20 minutes after the review that rejected it)."""
+    t0, t1 = SIDEKICK_T0, SIDEKICK_T0 + 1800
+    return (
+        {'001-a': 'amp m/one', '002-b': 'amp m/two', '002-b-a2': 'amp m/two'},
+        [
+            (t0, 'master', 'send-brief', '001-a', ''),
+            (t0 + 60, 'master', 'wake', '-', 'x'),
+            (t0 + 90, 'master', 'wake', '-', 'y'),
+            (t0 + 120, 'sidekick', 'gate-fail', '001-a', 'pstack'),
+            (t0 + 600, 'master', 'log', '-', 'review: accept 001'),
+            (t1, 'master', 'send-brief', '002-b', ''),
+            (t1 + 60, 'master', 'wake', '-', 'z'),
+            (t1 + 120, 'master', 'note', '002-b', '1:blocking'),
+            (t1 + 600, 'master', 'log', '-', 'review: reject'),
+            (t1 + 1200, 'master', 'log', '-', 'review: accepted'),
+        ],
+        ['001-a-s1'],
+        ['002-b-a2'],
+        [
+            ('002-b-v1', 'reject', '002-b'),
+            ('002-b-v2', 'clean', '002-b'),
+            ('001-a-v1', 'clean', '001-a'),
+        ],
+    )
+
+
 class FleetTests(unittest.TestCase):
     """kitchen.py fleet and counters over fixture run stores."""
 
@@ -3275,6 +3423,121 @@ class FleetTests(unittest.TestCase):
         return {x['run']: x for x in out['runs']}, {
             x['build']: x for x in out['builds']
         }
+
+    T0 = SIDEKICK_T0
+
+    def sidekick_store(self, name, models, events, **files):
+        return write_sidekick_store(self.runs / name, models, events, **files)
+
+    def two_model_store(self, name='a'):
+        return write_sidekick_store(self.runs / name, *two_model_run())
+
+    ONE = {
+        'sidekick': 'amp m/one',
+        'units': 1,
+        'wakes': 2,
+        'failed_gates': 1,
+        'steers_and_fixes': 1,
+        'rejections': 0,
+        'findings': 0,
+        'accept_minutes': [10.0],
+        'first_pass': '1/1',
+        'median_accept_minutes': 10.0,
+    }
+    TWO = {
+        'sidekick': 'amp m/two',
+        'units': 1,
+        'wakes': 1,
+        'failed_gates': 0,
+        'steers_and_fixes': 1,
+        'rejections': 1,
+        'findings': 1,
+        'accept_minutes': [20.0],
+        'first_pass': '0/1',
+        'median_accept_minutes': 20.0,
+    }
+
+    def test_a_run_is_split_by_the_sidekick_model_each_unit_was_dispatched_to(self):
+        store = self.two_model_store()
+        self.assertEqual(
+            kitchen.run_counters(store)['by_sidekick'], [self.ONE, self.TWO]
+        )
+
+    def test_a_store_without_the_sidekick_model_record_has_no_split(self):
+        store = self.store('old', pair={}, events=[(100, 'master', 'wake', 'x')])
+        self.assertEqual(kitchen.run_counters(store)['by_sidekick'], [])
+        (store / 'pair.json').write_text(json.dumps({'sidekick_models': {}}))
+        self.assertEqual(kitchen.run_counters(store)['by_sidekick'], [])
+
+    def fleet_command(self, *args):
+        return subprocess.run(
+            [sys.executable, str(script), *args, 'fleet', '--runs', str(self.runs)],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout
+
+    def test_the_fleet_sums_each_sidekick_model_over_its_runs(self):
+        self.two_model_store('a')
+        t0 = self.T0
+        self.sidekick_store(
+            'b',
+            {'001-a': 'amp m/one'},
+            [
+                (t0, 'master', 'send-brief', '001-a', ''),
+                (t0 + 60, 'master', 'wake', '-', 'x'),
+                (t0 + 1800, 'master', 'log', '-', 'review: accept 001'),
+            ],
+            verdicts=[('001-a-v1', 'reject', '001-a'), ('001-a-v2', 'clean', '001-a')],
+        )
+        totals = json.loads(self.fleet_command('--json'))['sidekicks']
+        self.assertEqual(
+            totals,
+            [
+                {
+                    'sidekick': 'amp m/one',
+                    'runs': 2,
+                    'units': 2,
+                    'wakes': 3,
+                    'failed_gates': 1,
+                    'steers_and_fixes': 1,
+                    'rejections': 1,
+                    'findings': 0,
+                    'first_pass': '1/2',
+                    'median_accept_minutes': 20.0,
+                },
+                {
+                    'sidekick': 'amp m/two',
+                    'runs': 1,
+                    'units': 1,
+                    'wakes': 1,
+                    'failed_gates': 0,
+                    'steers_and_fixes': 1,
+                    'rejections': 1,
+                    'findings': 1,
+                    'first_pass': '0/1',
+                    'median_accept_minutes': 20.0,
+                },
+            ],
+        )
+        lines = self.fleet_command().splitlines()
+        [head] = [line for line in lines if line.startswith('sidekick model')]
+        self.assertEqual(head.split()[2], 'runs')
+        rows = [line.split() for line in lines[lines.index(head) + 1 :]]
+        self.assertEqual(
+            rows,
+            [
+                ['amp', 'm/one', '2', '2', '3', '1', '1', '1', '1/2', '0', '20.0'],
+                ['amp', 'm/two', '1', '1', '1', '0', '1', '1', '0/1', '1', '20.0'],
+            ],
+        )
+
+    def test_the_fleet_prints_no_sidekick_table_without_the_model_record(self):
+        self.store('old', pair={}, events=[(100, 'master', 'wake', 'x')])
+        self.assertEqual(json.loads(self.fleet_command('--json'))['sidekicks'], [])
+        self.assertNotIn('sidekick model', self.fleet_command())
 
     def test_verified_units_are_the_union_over_clean_non_landing_verdicts(self):
         self.store(
@@ -3742,6 +4005,28 @@ esac
     def done(self, brief, head):
         (self.store / 'reports' / brief.name).write_text(
             f'# Report\n\nstatus: done\nhead: {head}\n'
+        )
+
+    def test_a_dispatch_records_the_units_sidekick_model(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        state = self.state()
+        self.assertEqual(state['dispatch']['sidekick'], 'pi devin/swe-2')
+        self.assertEqual(state['sidekick_models'], {'001-util': 'pi devin/swe-2'})
+
+    def test_a_failover_changes_the_label_of_the_next_unit_only(self):
+        first = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(first)
+        self.run_sh('failover', str(self.store), '--reason', 'provider-error')
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        self.assertEqual(self.state()['sidekick']['kind'], 'devin')
+        second = self.brief('002', 'more', ['src/**', 'tests/**'])
+        self.dispatch(second)
+        state = self.state()
+        self.assertEqual(state['dispatch']['sidekick'], 'devin')
+        self.assertEqual(
+            state['sidekick_models'],
+            {'001-util': 'pi devin/swe-2', '002-more': 'devin'},
         )
 
     def kitchen_variant(self):
@@ -11483,6 +11768,10 @@ esac
         prog.write_text('- started\n')
         old = time.time() - 600
         os.utime(prog, (old, old))
+        # The sleep below must start after the dispatch by more than the whole seconds /proc and the dispatch time are read in.
+        pair = self.state()
+        pair['dispatch']['at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(old))
+        (self.store / 'pair.json').write_text(json.dumps(pair))
         out = self.run_sh(
             'wait', str(self.store), '--timeout', '1', '--max', '0', code=4
         )
@@ -13758,6 +14047,125 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertFalse([n for n in names if '__pycache__' in n])
         self.assertEqual(self.state()['master']['pane_id'], f'amp:{AMP_MASTER}')
+
+    def alternate_roster(self):
+        roster = Path(self.tmp.name) / 'alternate-roster.toml'
+        roster.write_text(
+            '[[sidekick.alternate]]\nkind = "amp"\nargs = ["--model", "m/a"]\n'
+            '[[sidekick.alternate]]\nkind = "amp"\nargs = ["--model", "m/b"]\n'
+            '[sidekick.fallback]\nkind = "amp"\nargs = ["--model", "m/fb"]\n'
+        )
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+
+    def alternate_choice(self, slug):
+        path = self.store.parent / slug / 'pair.json'
+        return json.loads(path.read_text()).get('sidekick_choice')
+
+    def test_init_picks_a_different_alternate_sidekick_for_each_run_and_keeps_it(self):
+        self.alternate_roster()
+        first = self.run_sh('init', 'alt-one')
+        second = self.run_sh('init', 'alt-two')
+        one, two = self.alternate_choice('alt-one'), self.alternate_choice('alt-two')
+        self.assertEqual({one['label'], two['label']}, {'amp m/a', 'amp m/b'})
+        self.assertEqual(
+            two,
+            {
+                'policy': 'alternate',
+                'index': 1 - one['index'],
+                'kind': 'amp',
+                'args': ['--model', two['label'].split()[1]],
+                'label': two['label'],
+            },
+        )
+        for out, choice in ((first, one), (second, two)):
+            self.assertIn(
+                f'sidekick: alternate picks {choice["label"]} (entry {choice["index"] + 1} of 2)\n',
+                out,
+            )
+        # A second init of the same store keeps the recorded choice, though the other runs now differ.
+        again = self.run_sh('init', 'alt-one')
+        self.assertEqual(self.alternate_choice('alt-one'), one)
+        self.assertIn(
+            f'sidekick: alternate picks {one["label"]} (entry {one["index"] + 1} of 2)\n',
+            again,
+        )
+
+    def test_a_roster_without_alternate_entries_records_no_sidekick_choice(self):
+        out = self.run_sh('init', 'plain')
+        self.assertNotIn('alternate picks', out)
+        self.assertIsNone(self.alternate_choice('plain'))
+
+    def test_spawn_with_no_kind_starts_the_recorded_alternate_sidekick(self):
+        self.alternate_roster()
+        self.run_sh('init', 'alt-one')
+        choice = self.alternate_choice('alt-one')
+        self.run_sh('spawn', str(self.store.parent / 'alt-one'), code=4)
+        log = (self.fake / 'amp.log').read_text()
+        started = [
+            line for line in log.splitlines() if '--title alt-one-sidekick' in line
+        ]
+        self.assertEqual(len(started), 1, log)
+        self.assertIn(f'--model {choice["args"][1]} ', started[0])
+        self.assertNotIn('--model m/fb', started[0])
+        fallback = json.loads((self.store.parent / 'alt-one/pair.json').read_text())[
+            'sidekick'
+        ]['fallback']
+        self.assertEqual(fallback, {'kind': 'amp', 'args': ['--model', 'm/fb']})
+
+    def test_a_dispatch_records_the_sidekick_thread_under_its_model_once(self):
+        sidekick = amp_thread(1)
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.assertEqual(
+            self.state()['sidekick_threads'], {'amp zhipuai/glm-5.3': [sidekick]}
+        )
+        self.dispatch(self.brief('002', 'more', ['src/**', 'tests/**']))
+        state = self.state()
+        self.assertEqual(state['sidekick_threads'], {'amp zhipuai/glm-5.3': [sidekick]})
+        self.assertEqual(
+            state['sidekick_models'],
+            {'001-util': 'amp zhipuai/glm-5.3', '002-more': 'amp zhipuai/glm-5.3'},
+        )
+
+    def test_retro_prints_the_sidekick_model_table_and_each_models_thread_cost(self):
+        write_sidekick_store(self.store, *two_model_run())
+        pair = self.state()
+        pair['sidekick_threads'] = {
+            'amp m/one': ['T-aaaa1', 'T-aaaa2'],
+            'amp m/two': ['T-bbbb1'],
+            'amp m/three': ['T-cccc1', 'T-cccc2'],
+        }
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        costs = self.fake / 'amp-cost'
+        costs.mkdir()
+        for thread, cost in {
+            'T-aaaa1': '1.25',
+            'T-aaaa2': '0.50',
+            'T-bbbb1': 'none',
+            'T-cccc1': '0.50',
+            'T-cccc2': 'none',
+        }.items():
+            (costs / thread).write_text(cost)
+        lines = self.run_sh('retro', str(self.store)).splitlines()
+        [start] = [n for n, line in enumerate(lines) if line == 'by sidekick model:']
+        [head, one, two] = [line.split() for line in lines[start + 1 : start + 4]]
+        self.assertEqual(head[:2], ['sidekick', 'model'])
+        self.assertEqual(
+            one, ['amp', 'm/one', '1', '2', '1', '1', '0', '1/1', '0', '10.0']
+        )
+        self.assertEqual(
+            two, ['amp', 'm/two', '1', '1', '0', '1', '1', '0/1', '1', '20.0']
+        )
+        self.assertEqual(
+            lines[start + 4 : start + 7],
+            [
+                '  sidekick cost amp m/one: $1.75 over 2 threads: T-aaaa1 T-aaaa2',
+                '  sidekick cost amp m/three: $0.50 (1 unknown) over 2 threads: T-cccc1 T-cccc2',
+                '  sidekick cost amp m/two: unknown over 1 thread: T-bbbb1',
+            ],
+        )
+
+    def test_retro_prints_no_sidekick_section_without_the_model_record(self):
+        self.assertNotIn('by sidekick model', self.run_sh('retro', str(self.store)))
 
     def test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master(
         self,
