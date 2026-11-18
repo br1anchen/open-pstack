@@ -83,10 +83,41 @@ def check_steer_file(ctx, steer_path):
         )
 
 
-def steer_working(store, name, steer_path, message, interrupt):
+def relay_steer(prog, store, name, steer_path, message):
+    """A steer for a thread in a turn, where a message sent by the command would only queue behind it (Amp): the master sends it with its own tools. This
+    writes the relay (once; the same steer again names the one still pending) and prints the three calls the master makes. Whether it was relayed."""
+    record, how = mux.get().relay(name, message, store, steer_path)
+    if record is None:
+        return False
+    rid, thread = record['id'], record['thread']
+    if how == 'delivered':
+        print(
+            f'relayed: {rid} for {name} ({thread}) (already relayed; the thread has not ended a turn since, so it is not relayed again)'
+        )
+        return True
+    if how == 'made':
+        event(store, 'master', 'send-steer', steer_path, 'relay-pending')
+    again = '' if how == 'made' else ' (already pending; not made again)'
+    print(
+        f'relay-pending: {rid} for {name} ({thread}){again}\n'
+        f'relay: upload_thread_file path={record["bundle"]} destination={record["upload_to"]} thread={thread}\n'
+        f'relay: send_thread_message to {thread} with the text of {record["message"]}\n'
+        f'relay: then run {prog} relay-done {store} {rid}'
+    )
+    return True
+
+
+def steer_working(store, name, steer_path, message, interrupt, prog):
     """A steer for a sidekick in the middle of a turn: handed over between its tool calls, after an Esc with --interrupt. Devin parks a message sent
     mid-turn as queued and the Enter that would deliver it cancels the running command, so its steer stays in the store for its next pair.sh
-    step, notes or progress; Prime queues it through its daemon."""
+    step, notes or progress; Prime queues it through its daemon. Where a message reaches a thread only after its turn (Amp), the master relays it,
+    --interrupt or not: there is no Esc."""
+    if (
+        not mux.get().steers_running
+        and mux.get().relays
+        and relay_steer(prog, store, name, steer_path, message)
+    ):
+        return
     if interrupt:
         # Esc cancels the running tool call so the steer is read now, not after it.
         if not mux.get().key(name, 'esc', stderr=None):
@@ -277,7 +308,7 @@ def steer(ctx, args):
     status = agent_status(name)
     message = f'{ctx.skill} STEER {steer_path}'
     if status == 'working':
-        steer_working(store, name, steer_path, message, interrupt)
+        steer_working(store, name, steer_path, message, interrupt, ctx.prog)
     elif status in ('idle', 'done'):
         route = settled_route(ctx, store, name, status, steer_path)
         if route == 'resume':
@@ -285,7 +316,7 @@ def steer(ctx, args):
         if route == 'deliver':
             if sidekick_busy(store, status, time.time()):
                 # the harness reports idle while a command it started since the dispatch still runs
-                steer_working(store, name, steer_path, message, interrupt)
+                steer_working(store, name, steer_path, message, interrupt, ctx.prog)
                 return 0
             event(store, 'master', 'send-steer', steer_path, 'idle')
             prompt_sidekick(name, message)

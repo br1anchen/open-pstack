@@ -15229,17 +15229,54 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn('demo-sidekick is working', out)
         self.assertEqual(self.briefs_in(sidekick), [])
 
-    def test_a_steer_to_a_working_thread_queues_once_and_is_not_sent_again_while_it_runs(
-        self,
-    ):
-        sidekick = amp_thread(1)
+    def working_sidekick_steer(self):
+        """The path of a steer for the sidekick, whose thread is in a turn."""
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
-        self.set_state(sidekick, 'tool_use', '2026-01-01T00:00:00.000Z')
+        self.set_state(amp_thread(1), 'tool_use', '2026-01-01T00:00:00.000Z')
         steer = self.store / 'steers/001-util-s1.md'
         steer.parent.mkdir(exist_ok=True)
         steer.write_text(
             '# Steer 001-s1: util\n\nbrief: x\nsupersedes: none\nkind: scope\nscope effect: none\n\n## Direction\n\nDo it.\n'
         )
+        return steer
+
+    def test_a_steer_to_a_working_thread_is_relayed_through_the_master_once(self):
+        sidekick = amp_thread(1)
+        steer = self.working_sidekick_steer()
+        before = self.thread_messages(sidekick)
+        for flags in ([], ['--interrupt']):
+            with self.subTest(flags=flags):
+                out = self.run_sh('steer', str(self.store), str(steer), *flags)
+                [record_file] = self.relays_dir().glob('*.json')
+                record = json.loads(record_file.read_text())
+                rid = record['id']
+                self.assertEqual(record['state'], 'relay-pending')
+                first = f'relay-pending: {rid} for demo-sidekick ({sidekick})'
+                lines = out.splitlines()
+                self.assertEqual(
+                    lines[-4:],
+                    [
+                        first + (' (already pending; not made again)' if flags else ''),
+                        f'relay: upload_thread_file path={self.repo}/.git/pstack-relay/{rid}.tgz destination=.git/pstack-relay-{rid}.tgz thread={sidekick}',
+                        f'relay: send_thread_message to {sidekick} with the text of {self.relays_dir()}/{rid}.md',
+                        f'relay: then run kitchen.sh relay-done {self.store} {rid}',
+                    ],
+                )
+                self.assertIn(
+                    f'pstack-kitchen STEER {steer}', Path(record['message']).read_text()
+                )
+                # Nothing went through the CLI, and the steer is logged once.
+                self.assertEqual(self.thread_messages(sidekick), before)
+        events = (self.store / 'events.tsv').read_text()
+        self.assertEqual(events.count('send-steer\t001-util-s1\trelay-pending'), 1)
+
+    def test_a_steer_that_cannot_be_relayed_queues_behind_the_turn_once(self):
+        sidekick = amp_thread(1)
+        steer = self.working_sidekick_steer()
+        # A run whose checkout has no .git has nowhere to put the bundle for upload_thread_file.
+        state = self.state()
+        state['git_root'] = state['cwd'] = str(Path(self.tmp.name))
+        (self.store / 'pair.json').write_text(json.dumps(state))
         out = self.run_sh('steer', str(self.store), str(steer))
         self.assertIn(f'queued {steer} for demo-sidekick: Amp threads deliver', out)
         self.assertNotIn('steered ', out)
@@ -15253,6 +15290,7 @@ class AmpKitchenTests(KitchenScriptTests):
             for m in self.thread_messages(sidekick)
         }
         self.assertEqual(len(ids), len(self.thread_messages(sidekick)))
+        self.assertEqual(list(self.relays_dir().glob('*.json')), [])
 
     def test_a_send_whose_upload_broke_off_is_retried_and_delivered_once(self):
         sidekick = amp_thread(1)

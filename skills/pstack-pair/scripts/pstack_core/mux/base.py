@@ -84,6 +84,12 @@ class Mux:
     reuses_sessions = False
     # Whether a message to an agent in the middle of a turn reaches it between tool calls (a steer) rather than after the turn.
     steers_running = True
+    # Whether a steer for an agent in a turn is relayed by the master (relay), because a message to it would only queue behind the turn.
+    relays = False
+
+    def relay(self, name, text, store, steer=''):
+        """(record, how) of the relay of text to the agent `name` for the master to send, (None, '') where there is none."""
+        return None, ''
 
     def context_used(self, name):
         """The share of its context window the agent `name` has used (0 to 1; 1 once it compacted), or None when the backend cannot say."""
