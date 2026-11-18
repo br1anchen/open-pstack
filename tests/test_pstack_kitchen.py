@@ -15393,6 +15393,59 @@ class AmpKitchenTests(KitchenScriptTests):
                     },
                 )
 
+    def test_a_new_pane_is_never_one_the_registry_already_holds(self):
+        """A rotated master's orb has a fresh counter, and a sync teaches it the panes of roles started in other orbs."""
+        reg = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp'
+        sidekick = {
+            'kind': 'amp',
+            'args': [],
+            'pane': 'amp:2',
+            'thread': amp_thread(1),
+        }
+        (reg / 'registry.json').write_text(
+            json.dumps(
+                {
+                    'next': 1,
+                    'panes': ['amp:2', 'amp:2', 'amp:T-x'],
+                    'agents': {
+                        'demo-sidekick': sidekick,
+                        'demo-helper': {**sidekick, 'pane': 'amp:5'},
+                    },
+                }
+            )
+        )
+        code = (
+            'import sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core.mux.amp import Amp\n'
+            'print(Amp().new(), Amp().new())\n'
+        )
+        out = subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            env={**self.env, 'AMP_THREAD_ID': AMP_MASTER},
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+        self.assertEqual(out.split(), ['amp:6', 'amp:7'])
+
+    def test_verifying_after_a_fresh_counter_leaves_the_live_sidekick_in_place(self):
+        """The registry of a rotated master's orb starts its counter at 1 and holds the sidekick under amp:1, the pane the verifier started in
+        before new() skipped the panes it knew."""
+        reg = self.registry()
+        doc = json.loads(reg.read_text())
+        doc['next'] = 1
+        reg.write_text(json.dumps(doc))
+        sidekick = json.loads(reg.read_text())['agents']['demo-sidekick']
+        self.assertEqual(sidekick['pane'], 'amp:1')
+        self.verify_started('--landing')
+        agents = json.loads(reg.read_text())['agents']
+        self.assertEqual(agents['demo-sidekick'], sidekick)
+        self.assertNotEqual(agents['demo-verifier']['pane'], sidekick['pane'])
+        self.assertNotIn('at', self.threads_json().get(amp_thread(1), {}))
+        self.assertFalse((self.fake / 'amp-archived').exists())
+
     def test_the_old_master_thread_is_archived_by_take_master_and_not_before(self):
         self.filled_handoff()
         self.run_sh('rotate-master', str(self.store))

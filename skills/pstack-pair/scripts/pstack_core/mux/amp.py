@@ -661,8 +661,7 @@ class Amp(Subagents):
 
     def new(self):
         def add(doc):
-            pane = f'amp:{doc["next"]}'
-            doc['next'] += 1
+            pane = subagents.next_pane(doc, 'amp')
             doc['panes'].append(pane)
             return pane
 

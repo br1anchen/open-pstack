@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import sys
 from collections.abc import Callable
 
@@ -102,6 +103,20 @@ def load(path=None):
     }
 
 
+def next_pane(doc, prefix):
+    """A `<prefix>:<n>` pane no pane of the registry and no agent entry holds: the counter, moved above every number the registry knows. A registry
+    learns the panes of roles other orbs started (sync), so this orb's own counter alone can hand out a pane that a live role holds elsewhere."""
+    known = [*doc['panes'], *(e['pane'] for e in doc['agents'].values())]
+    taken = {
+        int(m.group(1))
+        for pane in known
+        if (m := re.fullmatch(rf'{prefix}:([0-9]+)', pane))
+    }
+    n = max([doc['next'] - 1, *taken]) + 1
+    doc['next'] = n + 1
+    return f'{prefix}:{n}'
+
+
 # Called with (path, lost) after a registry write dropped agent entries or moved them to another thread: lost is [(name, entry)] of each entry
 # whose thread no entry holds any more. The Amp backend sets it, so a thread that leaves its registry is retired wherever the write came from.
 on_threads_lost: Callable[[str, list, str], None] | None = None
@@ -186,8 +201,7 @@ class Subagents(Mux):
 
     def new(self):
         def add(doc):
-            pane = f'subagent:{doc["next"]}'
-            doc['next'] += 1
+            pane = next_pane(doc, 'subagent')
             doc['panes'].append(pane)
             return pane
 
