@@ -522,7 +522,7 @@ def finish_and_notice(ctx, args):
     """The pair's finish of a report for one store, then the rotation line when the master's thread is due; the status stays the report's."""
     status = core_report.finish(ctx, args)
     if status == 0:
-        sys.stdout.write(rotate_notice(args[0]))
+        sys.stdout.write(rotate_notice(args[0], audience='sidekick'))
     return status
 
 

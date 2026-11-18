@@ -93,23 +93,27 @@ def note_rotate_due(store, reason):
     event(store, 'master', 'rotate-due', '-', reason)
 
 
-def rotate_notice(store, record=False):
-    """The line that tells the master to rotate, or '' when it need not; with record, the due state is logged too (note_rotate_due)."""
+def rotate_notice(store, record=False, audience='master'):
+    """The line about the master's rotation, or '' when it need not rotate; with record, the due state is logged too (note_rotate_due). audience is
+    who reads it: the master, whose thread runs the command, or a role, whose thread runs a command that only reports it."""
     reason = master_rotate_reason(store)
     if not reason:
         return ''
     if record:
         note_rotate_due(store, reason)
-    return rotate_line(reason, store)
+    return rotate_line(reason, store, audience)
 
 
-def rotate_line(reason, store):
-    """The line the kitchen says when the master is due: what happened to its thread, and the rotation commands."""
+def rotate_line(reason, store, audience='master'):
+    """The line the kitchen says when the master is due: what happened to its thread and, for the master, the rotation commands; a role is told only
+    that the note is for the master."""
     what = (
         'has compacted'
         if reason == 'compacted'
         else f'has used {reason.removeprefix("context:")} of its context'
     )
+    if audience != 'master':
+        return f"note for the master (the {audience} does nothing): the master's thread {what}; its next dispatch is refused until it rotates\n"
     return (
         f'master: your thread {what}; rotate before dispatching: kitchen.sh new-handoff {store}, fill it, '
         f'kitchen.sh rotate-master {store} [--model <provider/model>]\n'

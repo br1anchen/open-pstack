@@ -14746,7 +14746,13 @@ class AmpKitchenTests(KitchenScriptTests):
             str(self.store),
             str(self.store / 'reports' / b.name),
         )
-        self.assertIn(self.ROTATE_LINE, out)
+        self.assertIn(
+            "note for the master (the sidekick does nothing): the master's thread has used 61% of its context; its next dispatch is refused until it rotates",
+            out,
+        )
+        self.assertNotIn('rotate-master', out)
+        self.assertNotIn('new-handoff', out)
+        self.assertNotIn('rotate before dispatching', out)
         code = (
             'import sys\n'
             f'sys.path[:0] = [{str(skill / "scripts")!r}, {str(root / "skills/pstack-pair/scripts")!r}]\n'
