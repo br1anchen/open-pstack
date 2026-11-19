@@ -119,6 +119,7 @@ def write_relay(record):
     with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
         json.dump(record, f, indent=1, sort_keys=True)
     os.replace(f'{path}.tmp', path)
+    amp_routing.mirror_relay(record)
 
 
 def thread_context(thread):
@@ -511,6 +512,8 @@ def assess(thread, store, role, idle_roles=False):
         return 'unknown', 'state unknown (export failed or gave none)'
     if state not in SETTLED:
         return state, f'working ({state}): it is in a turn'
+    if why := amp_routing.kept_by_branch(store, thread, role):
+        return state, why
     sent = load_json(outbox_path()).get(thread)
     if isinstance(sent, dict) and not since >= int(sent.get('at') or 0):
         return state, 'a message to it is still pending (its turn has not ended since)'

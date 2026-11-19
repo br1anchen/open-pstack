@@ -22,6 +22,7 @@ from pstack_core.errors import (
     RotateRefused,
 )
 from pstack_core.exits import end_agent, exit_deadline, stop_prime_role
+from pstack_core.mux import amp_routing
 from pstack_core.numbers import env_float, env_int
 from pstack_core.panes import (
     agent_kind,
@@ -626,6 +627,7 @@ def take_master(ctx, args):
     store = args[0]
     pair_file(store)
     gitstore.refreshed(store)
+    amp_routing.routing(store)
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')
     prev = read(store, 'master.previous.name')

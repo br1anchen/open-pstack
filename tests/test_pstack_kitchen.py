@@ -17700,6 +17700,84 @@ class AmpGitKitchenTests(AmpKitchenTests):
         [request] = self.requests_of(thread)
         self.assertEqual(request['state'], 'sent')
 
+    def send_to_thread(self, thread, text, name='demo-sidekick'):
+        """Amp.send of a text to an existing thread, from the master's own process: (exit code, output)."""
+        code = (
+            'import sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core.mux import amp\n'
+            f'print(amp.Amp().send({name!r}, {text!r}, {thread!r}, [], {str(self.store)!r}))\n'
+        )
+        env = {**self.env, 'AMP_THREAD_ID': AMP_MASTER}
+        env.pop('PSTACK_MUX')
+        result = subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+    def test_a_relay_and_a_request_are_pending_in_the_branch_records_and_take_master_in_a_fresh_clone_rebuilds_the_threads(
+        self,
+    ):
+        self.rotated_run()
+        old, new = amp_thread(1), amp_thread(2)
+        self.set_state(new, 'tool_use')
+        record, how = self.relay_of('STEER one')
+        self.assertEqual(how, 'made')
+        [relayed] = json.loads(
+            self.remote_git('show', f'kitchen/demo:threads/{new}.json')
+        )['relays']
+        self.assertEqual((relayed['id'], relayed['state']), (record['id'], 'pending'))
+        self.set_state(new, 'idle')
+        (self.fake / 'amp-kill-after-delivery').write_text('')
+        self.send_to_thread(new, 'pstack-kitchen NOTE x')
+        self.assertFalse((self.fake / 'amp-kill-after-delivery').exists())
+        self.filled_handoff()
+        out = self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(3)
+        self.assertIn(f'in thread {master2}', out)
+        clone, taken = self.fresh_orb('master2-orb')
+        state = Path(self.orb_env['XDG_STATE_HOME']) / 'pstack/amp'
+        self.assertFalse(state.exists())
+        self.as_orb(
+            clone, 'sync', '--branch', str(taken), 'kitchen/demo', thread=master2
+        )
+        for cache in ('threads.json', 'outbox.json'):
+            (state / cache).unlink(missing_ok=True)
+        out = self.as_orb(clone, 'take-master', str(taken), thread=master2)
+        self.assertIn(f'master: demo-master in amp:{master2}', out)
+        known = json.loads((state / 'threads.json').read_text())
+        self.assertEqual(
+            (known[old]['role'], known[new]['role']), ('sidekick', 'sidekick')
+        )
+        self.assertTrue(known[old]['at'])
+        registry = json.loads((state / 'registry.json').read_text())
+        self.assertEqual(registry['agents']['demo-sidekick']['thread'], new)
+        record_in_clone = json.loads((taken / 'threads' / f'{new}.json').read_text())
+        self.assertEqual([r['state'] for r in record_in_clone['relays']], ['pending'])
+        self.assertEqual(
+            [r['state'] for r in record_in_clone['requests']][-1], 'pending'
+        )
+        out = self.as_orb(clone, 'threads', str(taken), thread=master2)
+        self.assertRegex(out, rf'(?m)^{old}  sidekick  ')
+        self.assertRegex(out, rf'(?m)^{new}  sidekick  ')
+        # The relay's bundle is on the other orb: here it is never delivered, so relay-done finds nothing to settle.
+        out = self.as_orb(
+            clone, 'relay-done', str(taken), record['id'], thread=master2, code=5
+        )
+        self.assertIn(f'no relay {record["id"]}', out)
+        self.assertEqual(
+            json.loads(self.remote_git('show', f'kitchen/demo:threads/{new}.json'))[
+                'relays'
+            ][0]['state'],
+            'pending',
+        )
+
     def test_a_rotation_whose_spawn_dies_still_publishes_its_rotate_event(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

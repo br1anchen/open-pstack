@@ -9,7 +9,7 @@ import tempfile
 
 from .. import bundle, git, gitstore
 from ..errors import BundleUnreadable, Die
-from ..mux import amp
+from ..mux import amp, amp_routing
 from ..mux.subagents import change, load
 from ..store import TEXT
 
@@ -92,6 +92,7 @@ def sync_branch(store, branch=''):
         gitstore.attach(store, repo, branch)
     fresh = gitstore.refresh(store)
     fetched = gitstore.fetch_code(store)
+    amp_routing.routing(store)
     print(f'store: {gitstore.branch_of(store)} at {gitstore.head_of(store)[:9]}')
     if not (fresh and fetched):
         print(

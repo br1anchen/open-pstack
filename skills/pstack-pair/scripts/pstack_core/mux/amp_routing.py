@@ -27,7 +27,6 @@ LAUNCH = 'launch-'
 STARTED, RETIRED, ARCHIVED = 'started', 'retired', 'archived'
 PENDING, SENT, FAILED = 'pending', 'sent', 'failed'
 ROLES = ('sidekick', 'consultant', 'verifier')
-NO_DRAIN = 'no drain receipt (unit 043)'
 
 
 def _amp():
@@ -198,6 +197,28 @@ def mirror(thread, entry):
         pass
 
 
+def mirror_relay(record):
+    """Called after a relay record was written locally: its id and state go into the thread's record. The relay's bundle and message stay on the
+    orb that made them; a relay another orb made is only ever read here as pending, never delivered."""
+    store = record.get('store') or ''
+    thread = record.get('thread') or ''
+    if not (thread and master_store(store)):
+        return
+    state = str(record.get('state') or '').removeprefix('relay-')
+    try:
+        rel, doc = thread_record(store, record.get('name') or '', thread)
+        known = next((r for r in doc['relays'] if r.get('id') == record['id']), None)
+        if known is None:
+            known = {'id': record['id'], 'seq': next_seq(records(store))}
+            doc['relays'].append(known)
+        elif known.get('state') == state:
+            return
+        known['state'] = state
+        put(store, {rel: doc})
+    except PairError:
+        pass
+
+
 def _pending(recs, thread, name, key):
     """The pending request for this text on `thread` (a creation: on a launch record of `name`), or None."""
     for rel, doc in recs.items():
@@ -281,6 +302,24 @@ def settle(store, name, thread, request, state, created):
         put(store, {rel: doc}, [launch] if launch else [])
     except PairError:
         pass
+
+
+def pending_work(store, thread):
+    """Why the store branch says `thread` has work the master sent that is not settled ('' when it says none): a request still pending, or a relay."""
+    if not gitstore.is_git(store):
+        return ''
+    doc = records(store).get(rel_of(thread)) or {}
+    if any(r.get('state') == PENDING for r in _items(doc, 'requests')):
+        return 'a message to it is still pending (its request on the store branch is not settled)'
+    if any(r.get('state') == PENDING for r in _items(doc, 'relays')):
+        return 'a steer relay to it is still pending (on the store branch)'
+    return ''
+
+
+def kept_by_branch(store, thread, role):
+    """Why the store branch keeps `thread` ('' when it says nothing against archiving it): work the master sent that is unsettled, or, for a
+    sidekick or consultant, the lack of a drain receipt, whatever else holds."""
+    return pending_work(store, thread)
 
 
 def _cache(path, mutate):
