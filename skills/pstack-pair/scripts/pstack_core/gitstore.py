@@ -836,26 +836,12 @@ def _on_run_code_ref(store, full):
     )
 
 
-def _trunk(store):
-    """The remote-tracking branch of origin's default branch this checkout holds: the target of origin/HEAD, else origin/main, else origin/master.
-    Empty when none resolves."""
-    head = git.out(store, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') or ''
-    if head and git.ok(store, 'rev-parse', '--verify', '--quiet', head):
-        return head
-    for name in ('main', 'master'):
-        ref = _remote_ref(name)
-        if git.ok(store, 'rev-parse', '--verify', '--quiet', ref):
-            return ref
-    return ''
-
-
-def _bundle_head(store, full, path):
-    """Cuts the head into a bundle less the run's code refs, the refs the master fetches, and origin's default branch, which fetch_code fetches
-    too, so a bundle never carries trunk's history when origin refused the code ref. A cut less every remote-tracking ref could rest on a commit
-    that sits only on another origin branch, which the master never fetches. False when there is nothing to carry."""
+def _bundle_head(store, full, path, trunk):
+    """Cuts the head into a bundle less the run's code refs, the refs the master fetches, and trunk (origin's default branch, which fetch_code
+    fetches too), so a bundle never carries trunk's history when origin refused the code ref. A cut less every remote-tracking ref could rest on
+    a commit that sits only on another origin branch, which the master never fetches. False when there is nothing to carry."""
     out = f'{bundle.OUT}/code'
     git.ok(store, 'update-ref', out, full)
-    trunk = _trunk(store)
     try:
         return git.ok(
             store,
@@ -884,14 +870,23 @@ def publish_code(store, writer, head):
     ref = code_ref(store, writer)
     pushed = _run(store, 'push', '--force', 'origin', f'{full}:refs/heads/{ref}')
     rel = code_bundle(writer)
-    if pushed.returncode == 0 or _on_run_code_ref(store, full):
-        # A head already on one of the run's code refs is fetched from there, so a refused ref (and a bundle with nothing to carry) is no reason
-        # to hold the report, and an older bundle has nothing left to carry either.
+    published = pushed.returncode == 0 or _on_run_code_ref(store, full)
+    trunk = ''
+    if not published:
+        trunk = _fetch_trunk(store)
+        published = bool(trunk) and git.ok(
+            store, 'merge-base', '--is-ancestor', full, trunk
+        )
+    if published:
+        # A head already on one of the run's code refs or on origin's default branch is fetched from there, so a refused ref (and a bundle with
+        # nothing to carry) is no reason to hold the report, and an older bundle has nothing left to carry either.
         if os.path.exists(f'{store}/{rel}'):
             os.unlink(f'{store}/{rel}')
         return []
     os.makedirs(f'{store}/code', exist_ok=True)
-    if env_int('PSTACK_CODE_BUNDLE', 1) and _bundle_head(store, full, f'{store}/{rel}'):
+    if env_int('PSTACK_CODE_BUNDLE', 1) and _bundle_head(
+        store, full, f'{store}/{rel}', trunk
+    ):
         return [rel]
     raise CodePending(
         f'{head[:9]} was not pushed to {ref} ({pushed.stderr.strip() or pushed.stdout.strip()}) and no bundle was made; '
@@ -911,22 +906,20 @@ def publish_report(store, role, file):
 
 
 def _fetch_trunk(store):
-    """Fetches origin's default branch into its remote-tracking ref, so a bundle cut less that branch finds its prerequisites. A failure is left to
-    the bundle fetch, which names what it lacks."""
+    """Fetches origin's default branch (the target of origin/HEAD, else origin's main, else master) into its remote-tracking ref and returns that
+    ref, so the writer's cut and the master's fetch rest on the same trunk and a stale ref counts for nothing. Empty when none resolves or origin
+    cannot be read."""
     head = git.out(store, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') or ''
     branch = head.removeprefix('refs/remotes/origin/')
     if not branch:
         heads = git.out(store, 'ls-remote', '--heads', 'origin', 'main', 'master') or ''
         held = {line.split('refs/heads/')[-1] for line in heads.splitlines()}
         branch = next((name for name in ('main', 'master') if name in held), '')
-    if branch:
-        _run(
-            store,
-            'fetch',
-            '--quiet',
-            'origin',
-            f'+refs/heads/{branch}:{_remote_ref(branch)}',
-        )
+    if not branch:
+        return ''
+    ref = _remote_ref(branch)
+    fetched = _run(store, 'fetch', '--quiet', 'origin', f'+refs/heads/{branch}:{ref}')
+    return ref if fetched.returncode == 0 else ''
 
 
 def fetch_code(store):

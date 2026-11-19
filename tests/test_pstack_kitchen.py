@@ -17726,6 +17726,22 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.master_fetches_the_announced_code()
         self.assertTrue(self.master_has(head))
 
+    def test_a_head_that_is_origins_default_branch_head_sends_the_report_with_no_bundle_when_the_code_ref_push_is_refused(
+        self,
+    ):
+        self.reject_code_pushes()
+        clone, orb_store = self.role_orb()
+        self.on_trunk(clone)
+        head = self.commit_in(clone, 'work')
+        self.assertEqual(self.push_trunk(clone), head)
+        self.assertFalse(self.master_has(head))
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertIn('reports/001-util.md', self.branch_tree())
+        self.assertNotIn('code/sidekick-g1.bundle', self.branch_tree())
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(head))
+
     def test_a_bundle_cut_less_trunk_applies_after_trunk_moved_on_origin_past_the_masters_clone(
         self,
     ):
