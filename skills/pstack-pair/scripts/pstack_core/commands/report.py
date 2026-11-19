@@ -97,7 +97,7 @@ def notify(ctx, args):
         header_field(file, 'status'),
     )
     if on_git and role:
-        gitstore.publish_role(store, role, [file])
+        gitstore.publish_report(store, role, file)
     master = field(store, 'master', 'name')
     status = agent_status(master)
     if mux.get().remote_roles:

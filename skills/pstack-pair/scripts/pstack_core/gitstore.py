@@ -15,12 +15,13 @@ import sys
 import time
 from typing import NamedTuple
 
-from . import git, secrets
+from . import bundle, git, secrets
 from .errors import PairError, SecretFound
 from .numbers import env_float, env_int
-from .store import acquire_lock, event
+from .store import acquire_lock, event, header_field
 
 BRANCH_PREFIX = 'kitchen/'
+CODE_PREFIX = 'kitchen-code/'
 LOCK = '.publish.lock'
 UNPUBLISHED = 1 << 62
 LOCAL, MASTER, ROLE, SHARED = 'local', 'master', 'role', 'shared-append'
@@ -40,6 +41,10 @@ class PublishFailed(PairError):
 
 class StoreSetupError(PairError):
     """The store branch cannot be created or reached."""
+
+
+class CodePending(PairError):
+    """The commit a report names is on no ref of origin and in no bundle: the publication stays pending and nothing is sent."""
 
 
 class StoreDiverged(PairError):
@@ -84,6 +89,11 @@ RULES = (
     _rule(
         'per-writer-generation append files',
         r'(?P<dir>events|gates|acks)/(?P<role>[a-z]+)-g(?P<gen>\d+)\.tsv',
+        SHARED,
+    ),
+    _rule(
+        'code bundles of one writer generation',
+        r'(?P<dir>code)/(?P<role>[a-z]+)-g(?P<gen>\d+)\.bundle',
         SHARED,
     ),
     _rule(
@@ -145,7 +155,7 @@ def check_owned(rel, writer):
         if found['role'] != writer.role or writer.generation != generation:
             mine = f'{writer.role}-g{writer.generation}'
             raise OwnershipError(
-                f'{rel}: each writer appends to {found["dir"]}/{mine}.tsv only'
+                f'{rel}: each writer appends to {found["dir"]}/{mine}{posixpath.splitext(rel)[1]} only'
             )
     elif writer.role not in rule.roles:
         raise OwnershipError(
@@ -788,6 +798,79 @@ def publish_role(store, role, files=(), message='', sleep=time.sleep):
         writer,
         sleep,
     )
+
+
+def slug_of(store):
+    return branch_of(store).removeprefix(BRANCH_PREFIX)
+
+
+def code_ref(store, writer):
+    """The branch of origin a writer's code goes to: kitchen-code/<slug>/<role>-g<generation>."""
+    return f'{CODE_PREFIX}{slug_of(store)}/{writer.role}-g{writer.generation}'
+
+
+def code_bundle(writer):
+    """The store-relative path of the git bundle that stands in for the code ref when origin refuses it."""
+    return f'code/{writer.role}-g{writer.generation}.bundle'
+
+
+def publish_code(store, writer, head):
+    """Makes a commit fetchable before the report that names it is announced (A5): pushed to the writer's code ref, else, when origin refuses
+    that (a protected namespace, no permission), cut into a git bundle in the store. The store-relative paths to publish with the report: none for
+    a push, the bundle for the fallback (PSTACK_CODE_BUNDLE=0 turns the fallback off). CodePending when neither works, which sends nothing."""
+    full = git.out(store, 'rev-parse', '--verify', '--quiet', f'{head}^{{commit}}')
+    if not full:
+        raise CodePending(
+            f'{head} is not a commit in this checkout, so it cannot be published; the report stays pending and nothing is sent'
+        )
+    ref = code_ref(store, writer)
+    pushed = _run(store, 'push', '--force', 'origin', f'{full}:refs/heads/{ref}')
+    rel = code_bundle(writer)
+    if pushed.returncode == 0:
+        if os.path.exists(f'{store}/{rel}'):
+            os.unlink(f'{store}/{rel}')
+        return []
+    os.makedirs(f'{store}/code', exist_ok=True)
+    if env_int('PSTACK_CODE_BUNDLE', 1) and bundle.git_bundle(
+        store, {'code': full}, f'{store}/{rel}'
+    ):
+        return [rel]
+    raise CodePending(
+        f'{head[:9]} was not pushed to {ref} ({pushed.stderr.strip() or pushed.stdout.strip()}) and no bundle was made; '
+        'the report stays pending and nothing is sent'
+    )
+
+
+def publish_report(store, role, file):
+    """A role's report or verdict, published code first: the commit its head: names is pushed (or bundled) before the file goes out."""
+    head = header_field(file, 'head')
+    extra = (
+        publish_code(store, writer_of(store, role), head)
+        if re.fullmatch(r'[0-9a-f]{7,40}', head)
+        else []
+    )
+    return publish_role(store, role, [file, *extra])
+
+
+def fetch_code(store):
+    """Brings the commits the writers announced into this checkout: every code ref of the run, and each bundle in the store. False when origin
+    could not be read."""
+    slug = slug_of(store)
+    spec = (
+        f'+refs/heads/{CODE_PREFIX}{slug}/*:refs/remotes/origin/{CODE_PREFIX}{slug}/*'
+    )
+    ok = _run(store, 'fetch', '--quiet', 'origin', spec).returncode == 0
+    for name in (
+        sorted(os.listdir(f'{store}/code')) if os.path.isdir(f'{store}/code') else []
+    ):
+        _run(
+            store,
+            'fetch',
+            '--quiet',
+            f'{store}/code/{name}',
+            f'refs/pstack/out/code:refs/pstack/code/{name}',
+        )
+    return ok
 
 
 def _changed(store, rels):

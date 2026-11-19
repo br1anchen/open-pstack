@@ -17289,6 +17289,77 @@ class AmpGitKitchenTests(AmpKitchenTests):
             self.remote_git('show', 'kitchen/demo:pair.json'),
         )
 
+    def reject_code_pushes(self):
+        hook = self.remote / 'hooks/pre-receive'
+        hook.write_text(
+            '#!/bin/sh\nwhile read old new ref; do\n'
+            '  case "$ref" in refs/heads/kitchen-code/*) echo protected namespace >&2; exit 1;; esac\n'
+            'done\n'
+        )
+        hook.chmod(0o755)
+
+    def master_has(self, sha):
+        return (
+            subprocess.run(
+                ['git', 'cat-file', '-e', f'{sha}^{{commit}}'],
+                cwd=self.repo,
+                capture_output=True,
+                timeout=60,
+            ).returncode
+            == 0
+        )
+
+    def master_fetches_the_announced_code(self):
+        from pstack_core import gitstore
+
+        self.assertTrue(gitstore.refresh(str(self.store)))
+        self.assertTrue(gitstore.fetch_code(str(self.store)))
+
+    def announced(self):
+        return len(list((self.fake / 'amp-threads').glob(f'{AMP_MASTER}/*.txt')))
+
+    def test_a_reports_head_is_pushed_to_the_roles_code_ref_before_the_report_goes_out(
+        self,
+    ):
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.assertFalse(self.master_has(head))
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertEqual(
+            self.remote_git('rev-parse', 'kitchen-code/demo/sidekick-g1').strip(), head
+        )
+        self.assertNotIn('code/sidekick-g1.bundle', self.branch_tree())
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(head))
+
+    def test_a_code_ref_origin_refuses_gives_a_bundle_the_master_fetches_instead(self):
+        self.reject_code_pushes()
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertIn('code/sidekick-g1.bundle', self.branch_tree())
+        self.assertIn('reports/001-util.md', self.branch_tree())
+        self.assertFalse(self.master_has(head))
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(head))
+
+    def test_with_the_code_push_refused_and_no_bundle_the_report_stays_pending_and_nothing_is_sent(
+        self,
+    ):
+        self.reject_code_pushes()
+        clone, orb_store = self.role_orb()
+        self.orb_env['PSTACK_CODE_BUNDLE'] = '0'
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        tip, sent = self.remote_git('rev-parse', 'kitchen/demo'), self.announced()
+        out = self.as_orb(clone, 'finish', str(orb_store), str(report), code=1)
+        self.assertIn('the report stays pending and nothing is sent', out)
+        self.assertEqual(self.remote_git('rev-parse', 'kitchen/demo'), tip)
+        self.assertEqual(self.announced(), sent)
+        self.assertNotIn('reports/001-util.md', self.branch_tree())
+
 
 for _name in dir(AmpKitchenTests):
     if _name.startswith('test_') and _name not in vars(AmpGitKitchenTests):

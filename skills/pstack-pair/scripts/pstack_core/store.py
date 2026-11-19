@@ -140,6 +140,17 @@ def events(store):
         return []
 
 
+def spawn_event(store, role, detail):
+    """The spawn row of a role the master started or settled. Under git the master writes it, in its own events file, with the role named in the
+    detail: the role's file is the role's to write, and a copy of it in the master's store would collide with the one the role publishes."""
+    from . import gitstore
+
+    if gitstore.is_git(store):
+        event(store, 'master', 'spawn', '-', f'{role}:{detail}')
+    else:
+        event(store, role, 'spawn', '-', detail)
+
+
 def wake(ctx, store, unit, detail):
     """The row for a master wake, written once when the variant dedupes them (the kitchen's event_dedupe)."""
     event(store, 'master', 'wake', unit, detail, dedupe=ctx.event_dedupe)
@@ -618,4 +629,4 @@ def mark_ready(store, role):
 def settle_ready(store, role):
     """A role's bootstrap is over: its flags are cleared and the spawn event says it was ready."""
     mark_ready(store, role)
-    event(store, role, 'spawn', '-', f'{field(store, role, "kind")}:ready')
+    spawn_event(store, role, f'{field(store, role, "kind")}:ready')
