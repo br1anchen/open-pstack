@@ -18073,18 +18073,145 @@ class AmpGitKitchenTests(AmpKitchenTests):
             'pending',
         )
 
-    def test_under_git_an_idle_sidekick_thread_is_kept_for_want_of_a_drain_receipt_and_a_retired_verifier_thread_is_archived_as_before(
+    @contextlib.contextmanager
+    def tampered(self, edit):
+        """origin's store branch with `edit(clone dir)` committed on top of it, then reverted by a commit of its own when the block ends: the tip
+        only moves forward, so the master's checkout, which a command fast-forwards, never holds a commit origin dropped."""
+        clone = Path(self.tmp.name) / 'tamper'
+        shutil.rmtree(clone, ignore_errors=True)
+        self.git_in(
+            Path(self.tmp.name),
+            'clone',
+            '-q',
+            '-b',
+            'kitchen/demo',
+            str(self.remote),
+            str(clone),
+        )
+        edit(clone)
+        self.git_in(clone, 'add', '-A')
+        self.git_in(clone, 'commit', '-q', '-m', 'tamper')
+        self.git_in(clone, 'push', '-q', 'origin', 'HEAD:refs/heads/kitchen/demo')
+        try:
+            yield
+        finally:
+            self.git_in(clone, 'revert', '--no-edit', 'HEAD')
+            self.git_in(clone, 'push', '-q', 'origin', 'HEAD:refs/heads/kitchen/demo')
+
+    def git_in(self, where, *args):
+        return subprocess.run(
+            ['git', '-c', 'user.name=t', '-c', 'user.email=t@localhost', *args],
+            cwd=where,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+
+    def drained_old_thread(self):
+        """A rotated run whose old sidekick thread (g1) drained every request it was sent and is idle, and whose successor (g2) has sent READY.
+        Returns (the old thread, its receipts' paths on the branch)."""
+        self.rotated_run()
+        self.role_ready('second-orb', amp_thread(2), 2)
+        self.run_sh('sync', '--branch', str(self.store))
+        self.run_sh('spawn', str(self.store))
+        old = amp_thread(1)
+        self.set_state(old, 'idle', '2999-01-01T00:00:00.000Z')
+        return old, [p for p in self.drain_paths() if 'sidekick-g1/' in p]
+
+    def listed(self, thread):
+        """How `threads` lists the thread: what follows its role and state."""
+        out = self.run_sh('threads', str(self.store))
+        [line] = [ln for ln in out.splitlines() if ln.startswith(thread)]
+        return line.split('  ', 2)[2]
+
+    def test_under_git_a_sidekick_thread_is_archivable_only_on_drain_receipts_that_origin_holds(
+        self,
+    ):
+        old, receipts = self.drained_old_thread()
+        self.assertTrue(receipts)
+        self.assertEqual(self.listed(old), 'idle  archivable')
+
+        def remove_last(clone):
+            (clone / receipts[-1]).unlink()
+
+        def edit_receipts(change):
+            def edit(clone):
+                for rel in receipts:
+                    doc = json.loads((clone / rel).read_text())
+                    change(doc)
+                    (clone / rel).write_text(json.dumps(doc))
+
+            return edit
+
+        def move_to_g2(clone):
+            for rel in receipts:
+                target = clone / rel.replace('sidekick-g1', 'sidekick-g2')
+                target.parent.mkdir(parents=True, exist_ok=True)
+                (clone / rel).rename(target)
+
+        def only_acks(clone):
+            for rel in receipts:
+                (clone / rel).unlink()
+            (clone / 'acks').mkdir(exist_ok=True)
+            (clone / 'acks/sidekick-g1.tsv').write_text('reports/001-util.md\n')
+
+        def other_output(clone):
+            [out] = json.loads((clone / receipts[-1]).read_text())['outputs']
+            (clone / out['path']).write_text('edited after the receipt\n')
+
+        cases = [
+            ('the last request has no receipt (its report push failed)', remove_last),
+            (
+                'a receipt of another thread',
+                edit_receipts(lambda d: d.update(thread=amp_thread(9))),
+            ),
+            (
+                'a receipt of another generation',
+                edit_receipts(lambda d: d.update(generation=2)),
+            ),
+            ("receipts in the other generation's directory", move_to_g2),
+            ('an output that no longer matches its sha256', other_output),
+            ('a parked-note ack and no receipt', only_acks),
+        ]
+        for label, edit in cases:
+            with self.subTest(label), self.tampered(edit):
+                self.assertRegex(self.listed(old), r'^idle  kept: no drain receipt')
+        self.assertEqual(self.listed(old), 'idle  archivable')
+        real = subprocess.run(
+            ['git', 'remote', 'get-url', 'origin'],
+            cwd=self.repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout.strip()
+        self.git('remote', 'set-url', 'origin', str(self.remote) + '-gone')
+        try:
+            self.assertRegex(self.listed(old), r'^idle  kept: freshness unknown')
+        finally:
+            self.git('remote', 'set-url', 'origin', real)
+        code, out = self.send_to_thread(
+            old, 'pstack-kitchen NOTE after the last receipt'
+        )
+        self.assertEqual(code, 0, out)
+        [newest] = [
+            r
+            for r in self.requests_of(old)
+            if r['id'] not in {Path(p).stem for p in receipts}
+        ]
+        self.assertEqual(
+            self.listed(old), f'idle  kept: no drain receipt for request {newest["id"]}'
+        )
+        self.assertEqual(self.dirty_role_files(), [])
+
+    def test_under_git_a_retired_verifier_thread_is_archived_with_no_drain_receipt(
         self,
     ):
         self.rotated_run()
-        old = amp_thread(1)
-        self.set_state(old, 'idle', '2999-01-01T00:00:00.000Z')
-        out = self.run_sh('threads', str(self.store))
-        self.assertIn(f'{old}  sidekick  idle  kept: no drain receipt (unit 043)', out)
-        out = self.run_sh('threads', str(self.store), '--archive')
-        self.assertIn(f'kept {old}: no drain receipt (unit 043)', out)
         archived = self.fake / 'amp-archived'
-        self.assertNotIn(old, archived.read_text() if archived.exists() else '')
         verifier = amp_thread(7)
         self.retire_threads(
             {verifier: {'name': 'demo-verifier', 'store': str(self.store)}}

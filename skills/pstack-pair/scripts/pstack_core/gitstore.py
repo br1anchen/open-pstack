@@ -997,6 +997,63 @@ def write_drains(store, writer, run, thread, requests, outputs, code):
     return written
 
 
+def fetch_tip(store):
+    """The commit origin's store branch holds now, fetched without touching the worktree; '' when origin cannot be read or has no such branch."""
+    branch = branch_of(store)
+    remote = _remote_ref(branch)
+    try:
+        lock = acquire_lock(store, LOCK)
+    except PairError:
+        return ''
+    try:
+        fetched = _run(
+            store, 'fetch', '--quiet', 'origin', f'+refs/heads/{branch}:{remote}'
+        )
+        if fetched.returncode != 0:
+            return ''
+        return git.out(store, 'rev-parse', '--verify', '--quiet', remote) or ''
+    finally:
+        try:
+            os.rmdir(lock)
+        except OSError:
+            pass
+
+
+def _blob(store, tip, rel):
+    """The bytes of a path of the tree at tip, None when it is not there."""
+    got = git.run(store, 'show', f'{tip}:{rel}', quiet=True, binary=True)
+    return got.stdout if got.returncode == 0 else None
+
+
+def drained(store, tip, record, request):
+    """Whether the tree at `tip` (a fetched tip of origin's store branch) holds a valid drain receipt for the request of a thread's control record:
+    from the record's role and generation, naming the record's run and thread, with each listed output at the tip matching its sha256. Reading it
+    from the tip is what makes it reachable from the remote: a receipt that only a role's local commit holds is not there."""
+    role, generation = record.get('role'), record.get('generation')
+    if not (isinstance(role, str) and isinstance(generation, int) and generation > 0):
+        return False
+    text = _blob(store, tip, f'drains/{role}-g{generation}/{request}.json')
+    try:
+        doc = json.loads(text) if text is not None else None
+    except ValueError:
+        return False
+    if not isinstance(doc, dict) or any(
+        doc.get(k) != record.get(k) for k in ('run', 'role', 'generation', 'thread')
+    ):
+        return False
+    outputs = doc.get('outputs')
+    if doc.get('request') != request or not isinstance(outputs, list) or not outputs:
+        return False
+    for out in outputs:
+        path = out.get('path') if isinstance(out, dict) else None
+        if not isinstance(path, str) or path.startswith('/') or '..' in path.split('/'):
+            return False
+        blob = _blob(store, tip, path)
+        if blob is None or hashlib.sha256(blob).hexdigest() != out.get('sha256'):
+            return False
+    return True
+
+
 def _fetch_trunk(store):
     """Fetches origin's default branch (the target of origin/HEAD, else origin's main, else master) into its remote-tracking ref and returns that
     ref, so the writer's cut and the master's fetch rest on the same trunk and a stale ref counts for nothing. Empty when none resolves or origin

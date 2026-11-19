@@ -32,7 +32,7 @@ PENDING, SENT, FAILED = 'pending', 'sent', 'failed'
 ROLES = ('sidekick', 'consultant', 'verifier')
 DRAINED = ('sidekick', 'consultant')
 REQUEST = 'pstack-request:'
-NO_DRAIN = 'no drain receipt (unit 043)'
+NO_DRAIN = 'no drain receipt'
 
 
 def _amp():
@@ -445,18 +445,32 @@ def drain(store, role, file, extra, code):
 
 
 def kept_by_branch(store, thread, role):
-    """Why the store branch keeps `thread` ('' when it says nothing against archiving it): every git-store sidekick and consultant thread, for want
-    of a drain receipt (unit 043), and any thread with work the master sent that is unsettled."""
-    return no_drain(store, role) or pending_work(store, thread)
+    """Why the store branch keeps `thread` ('' when it says nothing against archiving it): work the master sent that is unsettled, and, for a
+    sidekick or consultant, a request with no drain receipt."""
+    return pending_work(store, thread) or undrained(store, thread, role)
 
 
-def no_drain(store, role):
-    """Why the git store keeps a sidekick or consultant thread whatever else holds: nothing yet proves it published its last output."""
-    return (
-        NO_DRAIN
-        if gitstore.is_git(store) and role in ('sidekick', 'consultant')
-        else ''
-    )
+def undrained(store, thread, role):
+    """Why a git-store sidekick or consultant thread is kept for want of its drain receipts: every request of its record (pending or sent) needs a
+    receipt of its own generation that is on origin's store branch as fetched now. A request newer than the last receipt keeps it; so does
+    a fetch that fails (freshness unknown)."""
+    if not (gitstore.is_git(store) and role in DRAINED):
+        return ''
+    record = records(store).get(rel_of(thread)) or {}
+    requests = [
+        str(r.get('id'))
+        for r in _items(record, 'requests')
+        if r.get('state') in (PENDING, SENT)
+    ]
+    if not requests:
+        return f'{NO_DRAIN} (the store branch records no request to it)'
+    tip = gitstore.fetch_tip(store)
+    if not tip:
+        return "freshness unknown (origin's store branch could not be fetched)"
+    for request in requests:
+        if not gitstore.drained(store, tip, record, request):
+            return f'{NO_DRAIN} for request {request}'
+    return ''
 
 
 def _cache(path, mutate):
