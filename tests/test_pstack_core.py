@@ -22121,6 +22121,24 @@ class SecretScanTests(unittest.TestCase):
         )
         self.assertEqual(listed, ['./b.md', './reports/a.md'])
 
+    def test_secret_scan_a_marker_counts_lines_as_gitleaks_does_and_exempts_only_its_own(
+        self,
+    ):
+        text = 'a\u2028b\nc pstack-allow-secret: a fixture\nd\n'
+        with pinned_path(gitleaks=('a.md', 2)):
+            exempt = []
+            found = secrets.scan([('a.md', text)], exempt=exempt)
+        self.assertEqual(found, [])
+        self.assertEqual(
+            exempt,
+            [secrets.Exemption('a.md', 2, 'gitleaks-generic-api-key', 'a fixture')],
+        )
+        with pinned_path(gitleaks=('a.md', 3)):
+            found = secrets.scan([('a.md', text)])
+        self.assertEqual(
+            found, [secrets.Finding('a.md', 3, 'gitleaks-generic-api-key')]
+        )
+
     def test_secret_scan_the_allow_marker_exempts_a_line_only_gitleaks_flags(self):
         exempt = []
         with pinned_path(gitleaks=('a.md', 2)):

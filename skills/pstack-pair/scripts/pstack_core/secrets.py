@@ -239,7 +239,8 @@ def scan(items, root=None, exempt=None):
         if text is None:
             continue
         texts.append((label, text))
-        for number, line in enumerate(text.splitlines(), 1):
+        # gitleaks counts a line by its `\n`, so the markers and the built-in findings are numbered the same way; `splitlines` also splits on \x0c, \u2028 and others.
+        for number, line in enumerate(text.split('\n'), 1):
             marker = ALLOW.search(line)
             if marker:
                 marked[label, number] = marker[1].strip()
