@@ -7,6 +7,7 @@ findings are merged in. `scan_store` walks a whole store, for `store-to-git` (pl
 
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -128,14 +129,23 @@ def _read(root, path):
         return None
 
 
-def _gitleaks(root, labels):
-    """gitleaks' findings in the files named by labels (paths relative to root), or [] without gitleaks or when it fails: the built-in rules stay the check."""
+def _gitleaks(texts):
+    """gitleaks' findings in texts, a list of (label, text) with store-relative labels, or [] without gitleaks or when it fails: the built-in rules
+    stay the check. The texts are written under their labels to a directory of their own and only that directory is scanned, so a finding names
+    exactly a text that was passed in."""
     exe = shutil.which('gitleaks')
-    if not exe or not root or not labels:
+    if not exe or not texts:
         return []
-    wanted = set(labels)
     with tempfile.TemporaryDirectory() as tmp:
-        report = f'{tmp}/report.json'
+        source, report = os.path.join(tmp, 'src'), os.path.join(tmp, 'report.json')
+        names = {}
+        for label, text in texts:
+            name = posixpath.normpath('/' + label).lstrip('/')
+            full = os.path.join(source, name)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, 'w', encoding='utf-8') as f:
+                f.write(text)
+            names[name] = label
         try:
             subprocess.run(
                 [
@@ -144,7 +154,7 @@ def _gitleaks(root, labels):
                     '--no-git',
                     '--no-banner',
                     '--source',
-                    root,
+                    source,
                     '--report-format',
                     'json',
                     '--report-path',
@@ -164,11 +174,11 @@ def _gitleaks(root, labels):
     for item in data if isinstance(data, list) else []:
         if not isinstance(item, dict):
             continue
-        rel = os.path.relpath(str(item.get('File', '')), root)
-        if rel in wanted:
+        label = names.get(os.path.relpath(str(item.get('File', '')), source))
+        if label is not None:
             found.append(
                 Finding(
-                    rel,
+                    label,
                     int(item.get('StartLine') or 0),
                     f'gitleaks-{item.get("RuleID", "secret")}',
                 )
@@ -178,33 +188,30 @@ def _gitleaks(root, labels):
 
 def scan(items, root=None, exempt=None):
     """The Findings in items, in the order the items and their lines come. An item is a path (relative to root when root is given) or a
-    (label, text) pair. A line holding `pstack-allow-secret: <reason>` is exempt; each exemption is appended to the list `exempt` when one is
-    given, and the review reads them. With gitleaks on PATH and a root, its findings in the same files are merged in."""
-    found, allowed, labels = [], set(), []
+    (label, text) pair. A line holding `pstack-allow-secret: <reason>` is exempt, whoever flagged it; each exemption is appended to the list
+    `exempt` when one is given, and the review reads them. With gitleaks on PATH, its findings in the same texts are merged in."""
+    found, texts, marked = [], [], {}
     for item in items:
         label, text = item if isinstance(item, tuple) else (item, _read(root, item))
         if text is None:
             continue
-        labels.append(label)
+        texts.append((label, text))
         for number, line in enumerate(text.splitlines(), 1):
-            kinds = _kinds(line)
             marker = ALLOW.search(line)
-            if kinds and marker:
-                allowed.add((label, number))
-                if exempt is not None:
-                    exempt.extend(
-                        Exemption(label, number, kind, marker[1].strip())
-                        for kind in kinds
-                    )
-            else:
-                found.extend(Finding(label, number, kind) for kind in kinds)
-    seen = {(f.path, f.line) for f in found}
-    found.extend(
-        f
-        for f in _gitleaks(root, labels)
-        if (f.path, f.line) not in seen and (f.path, f.line) not in allowed
-    )
-    return found
+            if marker:
+                marked[label, number] = marker[1].strip()
+            for kind in _kinds(line):
+                found.append(Finding(label, number, kind))
+    flagged = {(f.path, f.line) for f in found}
+    found.extend(f for f in _gitleaks(texts) if (f.path, f.line) not in flagged)
+    kept = []
+    for f in found:
+        reason = marked.get((f.path, f.line))
+        if reason is None:
+            kept.append(f)
+        elif exempt is not None:
+            exempt.append(Exemption(f.path, f.line, f.kind, reason))
+    return kept
 
 
 def scan_store(store, exempt=None):

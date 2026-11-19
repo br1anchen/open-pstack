@@ -20782,6 +20782,14 @@ class GitStoreTests(unittest.TestCase):
         ).stdout
 
     def setUp(self):
+        which = shutil.which
+        patcher = mock.patch.object(
+            shutil,
+            'which',
+            lambda name, *a, **k: None if name == 'gitleaks' else which(name, *a, **k),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(os.path.realpath(self.tmp.name))
@@ -21767,6 +21775,40 @@ def _fake(*parts):
     return ''.join(parts)
 
 
+GIT = shutil.which('git') or 'git'
+FAKE_GITLEAKS = """#!/bin/sh
+PATH=/usr/bin:/bin
+while [ $# -gt 0 ]; do
+  [ "$1" = --report-path ] && out=$2
+  [ "$1" = --source ] && src=$2
+  shift
+done
+[ -n "$FAKE_GITLEAKS_SEEN" ] && (cd "$src" && find . -type f | sort) > "$FAKE_GITLEAKS_SEEN"
+printf '[{"File":"%s/%s","StartLine":%s,"RuleID":"generic-api-key"},{"File":"%s/other.md","StartLine":1,"RuleID":"x"}]' \
+  "$src" "$FAKE_GITLEAKS_FILE" "$FAKE_GITLEAKS_LINE" "$src" > "$out"
+"""
+
+
+@contextlib.contextmanager
+def pinned_path(gitleaks=None, seen=None):
+    """PATH that holds git and, with gitleaks=(file, line), a fake gitleaks that reports that finding, so a gitleaks on the host changes no
+    result. seen is a file the fake writes the names of the files it was asked to scan to."""
+    with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp, 'git').symlink_to(GIT)
+        env = {'PATH': tmp}
+        if gitleaks:
+            fake = Path(tmp, 'gitleaks')
+            fake.write_text(FAKE_GITLEAKS)
+            fake.chmod(0o755)
+            env |= {
+                'FAKE_GITLEAKS_FILE': gitleaks[0],
+                'FAKE_GITLEAKS_LINE': str(gitleaks[1]),
+                'FAKE_GITLEAKS_SEEN': str(seen or ''),
+            }
+        with mock.patch.dict(os.environ, env):
+            yield
+
+
 # (kind, a line template whose {} is the credential or its placeholder, the credential): every rule of pstack_core.secrets.
 SECRET_ROWS = (
     ('private-key', _fake('-----BEGIN ', 'OPENSSH ', 'PRIVATE KEY-----{}'), ''),
@@ -21814,6 +21856,11 @@ SECRET_PLACEHOLDERS = (
 
 class SecretScanTests(unittest.TestCase):
     """The scanner behind the git store's write path: each rule finds its credential, each placeholder form and the allow marker pass."""
+
+    def setUp(self):
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(pinned_path())
 
     def test_secret_scan_each_rule_finds_its_credential_and_never_carries_it(self):
         for kind, template, real in SECRET_ROWS:
@@ -21906,21 +21953,36 @@ class SecretScanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'a.md').write_text('one\ntwo\nthree\n')
             Path(tmp, 'b.md').write_text('clean\n')
-            bin_dir = Path(tmp, 'bin')
-            bin_dir.mkdir()
-            fake = bin_dir / 'gitleaks'
-            fake.write_text(
-                '#!/bin/sh\nwhile [ $# -gt 0 ]; do\n'
-                '  [ "$1" = --report-path ] && out=$2\n'
-                '  [ "$1" = --source ] && src=$2\n  shift\ndone\n'
-                'printf \'[{"File":"%s/a.md","StartLine":2,"RuleID":"generic-api-key"},'
-                '{"File":"%s/other.md","StartLine":1,"RuleID":"x"}]\' "$src" "$src" > "$out"\n'
-            )
-            fake.chmod(0o755)
-            with mock.patch.dict(
-                os.environ, {'PATH': f'{bin_dir}:{os.environ["PATH"]}'}
-            ):
+            with pinned_path(gitleaks=('a.md', 2)):
                 found = secrets.scan(['a.md', 'b.md'], root=tmp)
         self.assertEqual(
             found, [secrets.Finding('a.md', 2, 'gitleaks-generic-api-key')]
+        )
+
+    def test_secret_scan_gitleaks_reads_only_the_texts_it_was_given_under_their_labels(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'decoy.md').write_text('not scanned\n')
+            seen = Path(tmp, 'seen.txt')
+            with pinned_path(gitleaks=('reports/a.md', 2), seen=seen):
+                found = secrets.scan(
+                    [('reports/a.md', 'one\ntwo\n'), ('b.md', 'clean\n')]
+                )
+            listed = seen.read_text().split()
+        self.assertEqual(
+            found, [secrets.Finding('reports/a.md', 2, 'gitleaks-generic-api-key')]
+        )
+        self.assertEqual(listed, ['./b.md', './reports/a.md'])
+
+    def test_secret_scan_the_allow_marker_exempts_a_line_only_gitleaks_flags(self):
+        exempt = []
+        with pinned_path(gitleaks=('a.md', 2)):
+            found = secrets.scan(
+                [('a.md', 'one\ntwo pstack-allow-secret: a fixture\n')], exempt=exempt
+            )
+        self.assertEqual(found, [])
+        self.assertEqual(
+            exempt,
+            [secrets.Exemption('a.md', 2, 'gitleaks-generic-api-key', 'a fixture')],
         )
