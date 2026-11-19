@@ -14365,6 +14365,93 @@ class AmpKitchenTests(KitchenScriptTests):
     def test_init_records_the_masters_own_thread_as_the_runs_anchor(self):
         self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
 
+    def drop_anchor(self):
+        """The store as an older build left it: no anchor in pair.json."""
+        pair = self.state()
+        del pair['anchor']
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+
+    def record_master_threads(self, **started):
+        """threads.json as the kitchen keeps it: the master threads it started for this run, each by its start time."""
+        path = Path(self.tmp.name) / 'state/pstack/amp/threads.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    thread: {
+                        'name': 'demo-master',
+                        'role': 'master',
+                        'store': os.path.realpath(self.store),
+                        'started': at,
+                    }
+                    for thread, at in started.items()
+                }
+            )
+        )
+
+    def test_a_store_without_an_anchor_takes_the_oldest_master_thread_recorded_for_it(
+        self,
+    ):
+        self.drop_anchor()
+        self.record_master_threads(T_LATER=200, T_OLDEST=100, T_MIDDLE=150)
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        self.assertEqual(self.state()['anchor'], {'thread': 'T_OLDEST'})
+
+    def test_a_store_without_an_anchor_or_a_recorded_master_takes_the_current_master(
+        self,
+    ):
+        self.drop_anchor()
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
+
+    def nest_rows(self):
+        """(thread, role, anchor, state) of each row of nest-pending.tsv."""
+        path = self.store / 'nest-pending.tsv'
+        return [tuple(line.split('\t')[1:]) for line in path.read_text().splitlines()]
+
+    def test_every_thread_the_kitchen_starts_is_nest_pending_under_the_one_anchor(self):
+        self.verify_started('001')
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        self.assertEqual(
+            self.nest_rows(),
+            [
+                (amp_thread(1), 'sidekick', AMP_MASTER, 'pending'),
+                (amp_thread(2), 'verifier', AMP_MASTER, 'pending'),
+                (amp_thread(3), 'consultant', AMP_MASTER, 'pending'),
+                (amp_thread(4), 'master', AMP_MASTER, 'pending'),
+            ],
+        )
+        events = [
+            line.split('\t')[3:]
+            for line in (self.store / 'events.tsv').read_text().splitlines()
+            if '\tnest-pending\t' in line
+        ]
+        self.assertEqual(
+            events,
+            [
+                ['nest-pending', '-', f'{amp_thread(n)} under {AMP_MASTER}']
+                for n in (1, 2, 3, 4)
+            ],
+        )
+
+    def test_a_message_to_a_thread_that_has_a_row_or_is_the_anchor_adds_none(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.dispatch(self.brief('002', 'more', ['src/**', 'tests/**']))
+        self.assertEqual(
+            self.nest_rows(), [(amp_thread(1), 'sidekick', AMP_MASTER, 'pending')]
+        )
+
     def test_a_rotation_keeps_the_anchor_through_every_generation(self):
         self.filled_handoff()
         self.run_sh('rotate-master', str(self.store))

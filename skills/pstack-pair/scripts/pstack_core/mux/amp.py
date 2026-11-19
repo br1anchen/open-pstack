@@ -284,6 +284,10 @@ def record_started(thread, name, store, created):
     for current_threads reads the newest `started` as the role's thread."""
     if not (created and store):
         return
+    # Before record_thread, so the anchor a store from before anchors gets (the oldest master thread recorded) never names this new thread.
+    from ..commands import nest
+
+    nest.record_pending(store, thread, role_of(name))
     record_thread(
         thread,
         {
