@@ -304,7 +304,7 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   `archive` event) with its thread id: a replaced sidekick or consultant once
   the new one's READY is in the store, a verifier once `verify --wait` has
   recorded its verdict, the old master once `take-master` has run, and every
-  remaining role at `close`. A thread is kept (`kept <thread>: <reason>`) while
+  remaining role at `close`. `kitchen.sh threads --archive` (and `close`) archive an idle role whose work is done (a sidekick whose last unit is done with nothing queued, a consultant with every consult answered); its next prompt starts a fresh thread. A thread is kept (`kept <thread>: <reason>`) while
   it is in a turn, a message or steer relay to it is pending, it sent the master
   a file the master's store does not hold yet, its report's `head:` is not in the
   master's checkout, or its replacement has not sent READY. `kitchen.sh threads
