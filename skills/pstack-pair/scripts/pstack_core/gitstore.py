@@ -105,7 +105,7 @@ RULES = (
     ),
     _rule(
         "the master's directories",
-        r'(?:briefs|plans|consults|steers|reviews|compositions|sessions|notes|answers|kitchens)/.+',
+        r'(?:briefs|plans|consults|steers|reviews|compositions|sessions|notes|answers|kitchens|threads)/.+',
         MASTER,
         ['master'],
     ),

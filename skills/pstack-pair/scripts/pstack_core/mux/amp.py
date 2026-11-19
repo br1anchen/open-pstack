@@ -26,8 +26,8 @@ from ..argv import Spec, read
 from ..errors import PairError
 from ..numbers import env_int
 from ..secrets import REDACT_RULE
+from . import amp_routing, subagents
 from ..store import TEXT, expected_report, header_field, ready_file, revisions
-from . import subagents
 from .base import DEVNULL, PIPE, Agent, Reply, ThreadRow
 from .subagents import EXITS, NOT_FOUND, Subagents, change, load
 
@@ -284,6 +284,7 @@ def record_thread(thread, update):
         with open(f'{path}.tmp', 'w', encoding='utf-8') as f:
             json.dump(doc, f, indent=1, sort_keys=True)
         os.replace(f'{path}.tmp', path)
+    amp_routing.mirror(thread, doc[thread])
 
 
 def keep_sent_bundle(thread, attach):
@@ -825,6 +826,7 @@ class Amp(Subagents):
         )
         if not own_thread() or own_thread() != mine:
             return []
+        amp_routing.routing(store)
         here = os.path.realpath(store)
         known = load_json(threads_path())
         found, unscoped = {}, []

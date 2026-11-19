@@ -17516,6 +17516,63 @@ class AmpGitKitchenTests(AmpKitchenTests):
             ],
         )
 
+    def rotated_run(self):
+        """A run whose sidekick was rotated: thread 1 retired, thread 2 current. Every record is on the branch."""
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.store / 'reports/000-ready-g1.md').unlink()
+        self.role_ready('first-orb', amp_thread(1), 1, report=b.name)
+        self.run_sh('sync', '--branch', str(self.store))
+        self.run_sh('rotate', str(self.store), code=4)
+
+    def fresh_master(self, name):
+        """The master in a clone that holds nothing: no registry, threads or outbox, and a store path no other orb has. (clone, store)"""
+        clone, taken = self.fresh_orb(name)
+        self.as_orb(
+            clone, 'sync', '--branch', str(taken), 'kitchen/demo', thread=AMP_MASTER
+        )
+        return clone, taken
+
+    def test_a_master_in_a_fresh_clone_rebuilds_the_role_threads_from_the_branch_records_of_its_run_only(
+        self,
+    ):
+        self.rotated_run()
+        old, new = amp_thread(1), amp_thread(2)
+        self.assertLessEqual(
+            {f'threads/{old}.json', f'threads/{new}.json'}, self.branch_tree()
+        )
+        record = json.loads(self.remote_git('show', f'kitchen/demo:threads/{old}.json'))
+        self.assertEqual(
+            (record['role'], record['name'], record['state']),
+            ('sidekick', 'demo-sidekick', 'retired'),
+        )
+        self.assertEqual(record['run'], self.state()['run_id'])
+        self.assertNotIn(str(self.store), json.dumps(record))
+        clone, taken = self.fresh_master('master-orb')
+        (taken / 'threads' / f'{amp_thread(9)}.json').write_text(
+            json.dumps(
+                {
+                    'run': 'another-run-of-the-same-slug',
+                    'role': 'sidekick',
+                    'thread': amp_thread(9),
+                    'name': 'demo-sidekick',
+                    'state': 'started',
+                }
+            )
+        )
+        out = self.as_orb(clone, 'threads', str(taken), thread=AMP_MASTER)
+        self.assertRegex(out, rf'(?m)^{old}  sidekick  ')
+        self.assertRegex(out, rf'(?m)^{new}  sidekick  ')
+        self.assertNotIn(amp_thread(9), out)
+        state = Path(self.orb_env['XDG_STATE_HOME']) / 'pstack/amp'
+        known = json.loads((state / 'threads.json').read_text())
+        self.assertEqual(known[old]['role'], 'sidekick')
+        self.assertTrue(known[old]['at'])
+        self.assertEqual(known[new]['store'], str(taken))
+        registry = json.loads((state / 'registry.json').read_text())
+        self.assertEqual(registry['agents']['demo-sidekick']['thread'], new)
+        self.assertEqual(self.dirty_role_files(), [])
+
     def test_a_rotation_whose_spawn_dies_still_publishes_its_rotate_event(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
@@ -17676,9 +17733,18 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertEqual(
             [n for n in sent if n.endswith('.tgz')], ['1-pstack-build.tgz']
         )
-        tip = self.remote_git('rev-parse', 'kitchen/demo').strip()
         message = self.thread_messages(sidekick)[-1]
-        self.assertIn(f'store: kitchen/demo at {tip}', message)
+        found = re.search(r'store: kitchen/demo at ([0-9a-f]{40})', message)
+        assert found is not None, message
+        announced = found[1]
+        # The master records the send's result after the message went out: the branch moved on from the announced commit by routing records only.
+        self.remote_git('merge-base', '--is-ancestor', announced, 'kitchen/demo')
+        moved = self.remote_git('diff', '--name-only', announced, 'kitchen/demo')
+        self.assertEqual([p for p in moved.split() if not p.startswith('threads/')], [])
+        self.assertIn(
+            'briefs/001-util.md',
+            self.remote_git('ls-tree', '-r', '--name-only', announced),
+        )
         self.assertIn(f'pair.sh sync --branch {self.store} kitchen/demo`', message)
         self.assertNotIn('attachment URL below>', message)
         self.assertIn('briefs/001-util.md', self.branch_tree())
