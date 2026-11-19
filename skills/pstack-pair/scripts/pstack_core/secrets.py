@@ -84,7 +84,7 @@ RULES = (
 # A value that is not a credential: a redaction, an angle-bracket or shell placeholder, a mask, or nothing.
 _PLACEHOLDER = re.compile(r'(?:\[REDACTED|<|\$|\*\*\*|xxx)', re.I)
 _WORD = re.compile(
-    r'value|secret|token|password|key|changeme|example|redacted|none|null|true|false',
+    r'value|secret|token|password|pass|key|changeme|example|redacted|none|null|true|false',
     re.I,
 )
 _MASK = re.compile(r'[x*.-]*', re.I)

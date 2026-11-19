@@ -21794,6 +21794,34 @@ class SecretScanTests(unittest.TestCase):
             found = secrets.scan(['d/f.md', 'gone.md'], root=tmp)
         self.assertEqual(found, [secrets.Finding('d/f.md', 2, 'env-secret')])
 
+    def test_secret_scan_store_scans_the_files_a_publish_would_send_and_skips_local_ones(
+        self,
+    ):
+        token = _fake('gh', 'p_', 'a1' * 18)
+        with tempfile.TemporaryDirectory() as tmp:
+            for rel in (
+                'notes/001-n1.md',
+                'scratch/001-x/f.txt',
+                '.git/x',
+                'steps/jobs/a/out',
+            ):
+                Path(tmp, rel).parent.mkdir(parents=True, exist_ok=True)
+                Path(tmp, rel).write_text(f'ok\n{token}\n')
+            Path(tmp, 'reports').mkdir()
+            Path(tmp, 'reports/001-x.md').write_text('[REDACTED: github-token]\n')
+            found = secrets.scan_store(tmp)
+        self.assertEqual(found, [secrets.Finding('notes/001-n1.md', 2, 'github-token')])
+
+    def test_secret_scan_no_tracked_file_under_skills_or_tests_holds_a_credential(self):
+        files = subprocess.run(
+            ['git', 'ls-files', 'skills', 'tests'],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split('\n')
+        self.assertEqual(secrets.scan([f for f in files if f], root=str(root)), [])
+
     def test_secret_scan_merges_gitleaks_findings_when_it_is_on_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'a.md').write_text('one\ntwo\nthree\n')
