@@ -6,7 +6,7 @@ import sys
 import time
 from dataclasses import replace
 
-from .. import mux
+from .. import gitstore, mux
 from ..agents import current_no_mcp, model_label
 from ..argv import Spec, read
 from ..checkin import sidekick_busy
@@ -51,7 +51,18 @@ from .status import log
 
 
 def rotate(ctx, args):
-    """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session."""
+    """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session.
+    Under git the store is refreshed before pair.json is read, and the master's changes are published when the rotation is over."""
+    on_git = len(args) == 1 and is_git(args[0])
+    if on_git:
+        gitstore.refreshed(args[0])
+    code = rotate_sidekick(ctx, args)
+    if on_git:
+        gitstore.publish_role(args[0], 'master')
+    return code
+
+
+def rotate_sidekick(ctx, args):
     end_with_parent()
     require_mux()
     if len(args) != 1:
@@ -296,6 +307,7 @@ def rotate_if_due(ctx, store, what, brief=''):
     while its context has room (keeps_session)."""
     if not os.path.isfile(f'{store}/pair.json'):
         return
+    gitstore.refreshed(store)
     archive_retired(ctx, store, f'a {what} is being sent')
     if not rotation_required(store):
         return
@@ -305,6 +317,8 @@ def rotate_if_due(ctx, store, what, brief=''):
     kept = '' if failed_over else keeps_session(store, brief) if what == 'brief' else ''
     if kept:
         clear_rotation(store)
+        if is_git(store):
+            gitstore.publish_role(store, 'master')
         if is_git(store):
             event(store, 'master', 'reuse', brief, f'sidekick: {kept}')
         else:

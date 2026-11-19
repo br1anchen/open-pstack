@@ -17471,6 +17471,60 @@ class AmpGitKitchenTests(AmpKitchenTests):
             ],
         )
 
+    def test_a_master_rotated_on_the_branch_is_taken_over_in_a_clone_that_holds_nothing_and_a_role_there_learns_the_new_master(
+        self,
+    ):
+        self.ready_path().unlink()
+        self.filled_handoff()
+        out = self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        self.assertIn(f'(generation 2) in thread {master2}', out)
+        self.assertEqual(self.dirty_role_files(), [])
+        self.assertEqual(
+            subprocess.run(
+                ['git', 'status', '--porcelain', '--untracked-files=all'],
+                cwd=self.store,
+                env=self.env,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=60,
+            ).stdout,
+            '',
+        )
+        on_branch = json.loads(self.remote_git('show', 'kitchen/demo:pair.json'))
+        self.assertEqual(
+            (
+                on_branch['master']['generation'],
+                on_branch['master']['pane_id'],
+                on_branch['master']['previous']['name'],
+            ),
+            (2, f'amp:{master2}', 'demo-master'),
+        )
+        self.assertIn('sessions/master-1-handoff.md', self.branch_tree())
+        clone, taken = self.fresh_orb('master2-orb')
+        self.as_orb(
+            clone,
+            'sync',
+            '--branch',
+            str(taken),
+            'kitchen/demo',
+            thread=master2,
+        )
+        out = self.as_orb(clone, 'take-master', str(taken), thread=master2)
+        self.assertIn(f'master: demo-master in amp:{master2} (generation 2)', out)
+        on_branch = json.loads(self.remote_git('show', 'kitchen/demo:pair.json'))
+        self.assertNotIn('previous', on_branch['master'])
+        self.assertEqual(on_branch['master']['name'], 'demo-master')
+        clone, role_store = self.fresh_orb('role-orb')
+        self.as_orb(clone, 'sync', '--branch', str(role_store), 'kitchen/demo')
+        registry = json.loads(
+            (
+                Path(self.orb_env['XDG_STATE_HOME']) / 'pstack/amp/registry.json'
+            ).read_text()
+        )
+        self.assertEqual(registry['agents']['demo-master']['thread'], master2)
+
     def test_a_message_to_a_role_announces_the_store_commit_and_carries_no_store_bundle(
         self,
     ):

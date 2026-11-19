@@ -7,7 +7,7 @@ import shutil
 import sys
 import time
 
-from pstack_core import mux, procinfo
+from pstack_core import gitstore, mux, procinfo
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
@@ -18,6 +18,7 @@ from pstack_core.errors import (
     Exit,
     HandoffNotReady,
     NextMasterNotStarted,
+    PairError,
     RotateRefused,
 )
 from pstack_core.exits import end_agent, exit_deadline, stop_prime_role
@@ -467,11 +468,19 @@ def next_master_model(store, model):
     return args_model(chain[index]['args'])
 
 
+def publish_master(store):
+    """Under git, what the master wrote since its last publication goes to the branch, so a master or role in a clone with an empty state home
+    reads the hand-over from there. Nothing under another backend."""
+    if gitstore.is_git(store):
+        gitstore.publish_role(store, 'master')
+
+
 def hand_to_next_thread(ctx, store, handoff, model):
     """The rotation when every role is a thread of its own (Amp): the next master starts as a new thread, on --model or this thread's own
     mode, with the store's bundle and the master prompt; its take-master takes the run over there. The hand-over is recorded before the bundle
     is packed, so the new thread reads it, and put back when the thread does not start. This name then means the new master: a role's reply that
     still reaches this thread is forwarded to it."""
+    gitstore.refreshed(store)
     if read(store, 'master.previous.name'):
         raise RotateRefused(
             f'a hand-over is open: generation {field(store, "master", "generation")} has not taken over yet; '
@@ -485,15 +494,18 @@ def hand_to_next_thread(ctx, store, handoff, model):
     gen_n = master_generation(store, '')
     next_gen = gen_n + 1
     temp = f'{read(store, "slug")}-master-g{next_gen}'
+    # The events this master wrote so far are in the file of its generation, which it may publish only until the hand-over changes it.
+    publish_master(store)
     before = read_text(f'{store}/pair.json')
     new_pane_id = m.new_master(temp)
     copy = record_handover(store, handoff, gen_n, '', (name, pane), (temp, new_pane_id))
     try:
+        publish_master(store)
         as_file = m.mode_reads_skill_file(model or m.thread_mode())
         thread = m.launch_master(
             store, temp, master_prompt(ctx, store, next_gen, as_file), model
         )
-    except NextMasterNotStarted:
+    except (NextMasterNotStarted, PairError):
         with open(f'{store}/pair.json', 'w') as f:
             f.write(before)
         event(store, 'master', 'rotate-failed', '-', f'generation:{next_gen}')
@@ -506,6 +518,7 @@ def hand_to_next_thread(ctx, store, handoff, model):
     m.hand_over(name, temp)
     event(store, 'master', 'handoff', '-', f'generation:{gen_n}')
     event(store, 'master', 'spawn', '-', f'amp:generation:{next_gen}')
+    publish_master(store)
     out = sys.stdout
     out.write(f'handoff recorded: {copy} (generation {gen_n})\n')
     out.write(
@@ -610,6 +623,7 @@ def take_master(ctx, args):
         raise Die('usage: kitchen.sh take-master <store>')
     store = args[0]
     pair_file(store)
+    gitstore.refreshed(store)
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')
     prev = read(store, 'master.previous.name')
@@ -680,5 +694,6 @@ def take_master(ctx, args):
         f'master: {name} in {pane} (generation {field(store, "master", "generation")})\n'
     )
     out.flush()
+    publish_master(store)
     warn_unreviewed(store)
     return 0
