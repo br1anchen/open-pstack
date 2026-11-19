@@ -17571,6 +17571,36 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertIn(f'verdict: {self.store}/verdicts/001-util-v1.md', out)
         self.assertNotIn('freshness: unknown', out)
 
+    def test_verify_wait_stops_retrying_the_fetch_once_another_call_closed_the_verification(
+        self,
+    ):
+        self.verify_started('001')
+        pair = self.store / 'pair.json'
+        count = Path(self.tmp.name) / 'fetches'
+        shim = Path(self.tmp.name) / 'shim'
+        shim.mkdir()
+        close = Path(self.tmp.name) / 'close.py'
+        close.write_text(
+            'import json, sys\n'
+            'doc = json.load(open(sys.argv[1]))\n'
+            "doc['verifying']['verdict'] += '.other'\n"
+            'json.dump(doc, open(sys.argv[1], "w"))\n'
+        )
+        (shim / 'git').write_text(
+            '#!/bin/sh\n'
+            'case " $* " in *" fetch "*)\n'
+            f'  n=$(cat {count} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {count}\n'
+            f'  if [ $n -eq 1 ]; then python3 {close} {pair}; fi\n'
+            '  if [ $n -le 40 ]; then echo refused >&2; exit 1; fi;;\n'
+            'esac\n'
+            f'exec {shutil.which("git")} "$@"\n'
+        )
+        (shim / 'git').chmod(0o755)
+        self.env['PATH'] = f'{shim}:{self.env["PATH"]}'
+        self.env['KITCHEN_VERIFY_POLL_S'] = '0'
+        self.run_sh('verify', str(self.store), '--wait', '--every', '5', code=None)
+        self.assertLess(int(count.read_text()), 10)
+
     def test_a_diverged_store_branch_ends_the_reading_command_with_its_own_message(
         self,
     ):

@@ -406,9 +406,11 @@ class Waiter:
         state = ''
         while True:
             fresh = gitstore.refreshed(store)
-            # An unreadable branch may hold the verdict: the fetch is retried until the interval ends, so one failure judges nothing.
+            # An unreadable branch may hold the verdict: the fetch is retried until the interval ends, so one failure judges nothing. A call that
+            # closed the verification meanwhile ends the retry; the Amp backend does not wait, yet it is the one whose git store needs this retry.
             while not fresh and now_s() < v.until:
                 self.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
+                vs.verification_still_open(store, verdict)
                 fresh = gitstore.refreshed(store)
             if os.path.isfile(verdict) and header_field(verdict, 'status'):
                 break
