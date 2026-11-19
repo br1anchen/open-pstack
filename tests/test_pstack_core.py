@@ -21881,6 +21881,39 @@ class SecretScanTests(unittest.TestCase):
                 with self.subTest(kind=kind, placeholder=placeholder):
                     self.assertEqual(secrets.scan([('a.md', line)]), [], line)
 
+    def test_secret_scan_a_placeholder_passes_only_as_a_whole_value_and_keys_match_in_any_case(
+        self,
+    ):
+        findings = (
+            _fake('DB_', 'PASSWORD=', '$Ab9x7real'),
+            _fake('DB_', 'PASSWORD=', 'xxxRealValue'),
+            _fake('api_', 'key=', 'abc123real'),
+            _fake('export Api', 'Key="', 'abc123real"'),
+            _fake('"api_', 'key": "', 'abcdefghij"'),
+            _fake('password', ': ', 'hunter22x'),
+            _fake('client-', 'secret: ', 'abc123def4'),
+        )
+        passes = (
+            _fake('password', ': "[REDACTED: password]"'),
+            _fake('api_', 'key=', '[REDACTED: api-key]'),
+            _fake('api_', 'key=', '$API_KEY'),
+            _fake('api_', 'key=', '${VAULT_VALUE}'),
+            _fake('KEY=', '"$2" VAL="$3"'),
+            _fake('API_', 'KEY=', 'xxxxxxxx'),
+            _fake('secret: ', 'reports/001-x.md:3: github-token; redact it'),
+            _fake('sorted(a, ', 'key=len)'),
+            _fake('{key: ', 'store.header_field(f)}'),
+            _fake("{'to", "ken': 'testhost:1:7'}"),
+        )
+        for line in findings:
+            with self.subTest(finding=line[:12]):
+                self.assertEqual(
+                    [f.kind for f in secrets.scan([('a.md', line)])], ['env-secret']
+                )
+        for line in passes:
+            with self.subTest(passes=line[:12]):
+                self.assertEqual(secrets.scan([('a.md', line)]), [], line)
+
     def test_secret_scan_prose_and_code_that_name_a_credential_pass(self):
         for line in (
             'never paste credentials, tokens, private keys, Authorization headers or .env content',

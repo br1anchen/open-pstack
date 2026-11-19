@@ -50,7 +50,16 @@ def _rule(kind, regex):
 
 
 _VALUE = r'(?P<v>[^\s\'"`<>(){}\[\],;]*)'
-_KEY_NAME = r'(?<![A-Za-z0-9_])(?:[A-Z][A-Z0-9]*_)*(?:KEY|TOKEN|SECRET|PASSWORD)'
+_KEY_UPPER = r'(?<![A-Za-z0-9_])(?:[A-Z][A-Z0-9]*_)*(?:KEY|TOKEN|SECRET|PASSWORD)'
+# A key name in any case: `api_key`, `Password`, `apiKey`, `"client-secret"`. Lower-case code such as `key = len` or `{'token': 'x'}` and our own `secret: path:3:`
+# lines are common, so the lower-case forms need a value of eight characters or more and an exact shape: `key=value` holding a digit, `key: "value"` in
+# double quotes, or `key: value` holding a digit and no `/` or `:`.
+_KEY_ANY = (
+    r'(?<![A-Za-z0-9_])(?:(?i:(?:[A-Za-z][A-Za-z0-9]*[_-])*(?:key|token|secret|password))'
+    r'|[A-Za-z0-9]*(?:Key|Token|Secret|Password))'
+)
+_PLAIN = r'[^\s\'"`<>(){}\[\],;'
+_HAS_DIGIT = r'(?=' + _PLAIN + r']*\d)'
 
 RULES = (
     _rule('private-key', r'-----BEGIN [A-Z ]*PRIVATE KEY-----'),
@@ -78,12 +87,25 @@ RULES = (
     _rule('url-credentials', r'\b[a-z][a-z0-9+.-]*://[^\s/:@<>$]+:(?P<v>[^\s/@]+)@'),
     # `KEY=value` as a .env file writes it; with spaces around the `=` or a colon, only a quoted value counts, so code like `TOKEN = re.compile(...)` passes.
     _rule(
-        'env-secret', _KEY_NAME + r'(?:=\s*[\'"]?|\s+=\s*[\'"]|\s*:\s*[\'"])' + _VALUE
+        'env-secret',
+        _KEY_UPPER + r'(?:=\s*[\'"]?|\s+=\s*[\'"]|\s*:\s*[\'"])' + _VALUE,
+    ),
+    _rule(
+        'env-secret',
+        _KEY_ANY + r'[\'"]?=[\'"]?' + _HAS_DIGIT + r'(?P<v>' + _PLAIN + r']{8,})',
+    ),
+    _rule('env-secret', _KEY_ANY + r'"?\s*:\s*[\'"](?P<v>' + _PLAIN + r']{8,})'),
+    _rule(
+        'env-secret',
+        _KEY_ANY + r'"?\s*:\s*' + _HAS_DIGIT + r'(?P<v>' + _PLAIN + r'/:]{8,})(?![/:])',
     ),
 )
 
-# A value that is not a credential: a redaction, an angle-bracket or shell placeholder, a mask, or nothing.
-_PLACEHOLDER = re.compile(r'(?:\[REDACTED|<|\$|\*\*\*|xxx)', re.I)
+# A value that is not a credential: nothing, a mask, a bare word, or a whole redaction, angle-bracket or shell-variable placeholder. Only a whole
+# value counts, so a real one that merely starts like a placeholder (`$Ab9...`, `xxxRealValue`) is still a finding.
+_WHOLE = re.compile(
+    r'(?:\$[A-Z_][A-Z0-9_]*|\$\{[^{}]+\}|\$[0-9@*#?]|(?i:x{3,})|\*{3,}|<[^<>]*>|(?i:\[REDACTED)[^\]]*\])(?!\w)'
+)
 _WORD = re.compile(
     r'value|secret|token|password|pass|key|changeme|example|redacted|none|null|true|false',
     re.I,
@@ -94,11 +116,12 @@ _MASK = re.compile(r'[x*.-]*', re.I)
 _NEEDS_DIGIT = {'authorization-header', 'bearer-token'}
 
 
-def _placeholder(value):
-    value = value.strip().strip('\'"`')
+def _placeholder(value, rest):
+    """Whether the value a rule matched is no credential. rest is the line from the value's start, for the placeholders that hold characters a
+    value never does (`${VAR}`, `<token>`, `[REDACTED: kind]`)."""
     return (
         not value
-        or bool(_PLACEHOLDER.match(value))
+        or bool(_WHOLE.match(rest))
         or bool(_MASK.fullmatch(value))
         or bool(_WORD.fullmatch(value))
     )
@@ -110,7 +133,7 @@ def _kinds(line):
     for rule in RULES:
         for match in rule.pattern.finditer(line):
             value = match.groupdict().get('v')
-            if value is not None and _placeholder(value):
+            if value is not None and _placeholder(value, line[match.start('v') :]):
                 continue
             if rule.kind in _NEEDS_DIGIT and not re.search(r'\d', value or ''):
                 continue
