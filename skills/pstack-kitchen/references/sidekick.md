@@ -76,6 +76,10 @@ differ:
 - **Before done,** run the review skills the standing orders name (from the
   kitchen's `review.self`) on your diff, and fix what they find in a commit
   of its own.
+- **`finish` and `notify` are the last store write of a turn.** Under the git store they publish your report, its event row and your drain
+  receipts (one for each request your thread holds) in a single commit after your code is pushed, and the master archives your thread only
+  on those receipts. Write nothing to the store after them: a later progress line, step or note edit belongs to the next request. A
+  refused push leaves no receipt; run the same command again.
 - **`finish` reruns the brief's Verify commands.** For a done report it runs
   every command in the brief's Verify block exactly as written, each on its
   own from the repo root, at the report's `head:`. The checkout must be at

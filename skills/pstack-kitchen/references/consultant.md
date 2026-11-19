@@ -24,6 +24,12 @@ on a unit with no composition has no such section. The kitchen writes both
 sections; read them as part of the question and never edit them.
 
 
+## Advice is your last store write of a turn
+
+Under the git store `kitchen.sh notify` publishes your advice, its event row and your drain receipts (one for each request your thread holds) in
+a single commit, and the master archives your thread only on those receipts. Write nothing to the store after it; a refused push leaves no
+receipt, so run the same command again.
+
 ## Delegation
 
 The shared rules are in [the skill](../SKILL.md#delegation). Children

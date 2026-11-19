@@ -322,6 +322,21 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   the run (by its path or its `<slug>-` title) on a store started on an older
   build; add `--archive` to archive what is safe. Every command that sweeps ends
   its output with one line, `archive: <a> archived, <k> kept, <u> in use`.
+  Under the git store (`PSTACK_STORE=git`) a sidekick or consultant thread is
+  archived only on its drain receipts. A role's `finish` and `notify` publish its
+  report or advice, its event row and a receipt for each request its thread
+  holds (`drains/<role>-g<n>/<request>.json`, naming the run, thread, request,
+  the outputs with their sha256 and the code heads) as one commit, after the
+  code is durable; the master's messages carry a `pstack-request: <id>` line for
+  that. The master archives a thread only when, for every request of its record
+  (pending or sent), a receipt of the thread's own generation is on origin's
+  store branch as fetched at that moment and its outputs match. A request newer
+  than the last receipt, a failed fetch (`freshness unknown`), a receipt of
+  another thread or generation and an ack alone keep the thread; so does a
+  replaced generation that never drained, since nothing lets it write as its
+  successor. The guarantee holds for cooperating role clients, which write
+  nothing to the store after their receipt; it is not an invariant against a
+  client that does. Under the local backend nothing changes.
 - A message sent by the CLI reaches a role's thread only after its current
   turn ends: `amp threads continue -ox` queues it, and the CLI has no way to
   steer a running turn. So a role whose thread is in a turn reads `working`
