@@ -15040,6 +15040,26 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual((self.fake / 'amp-archived').read_text(), f'{named}\n')
         self.assertRegex(self.last_line(out), r'^archive: 1 archived, 0 kept, ')
 
+    def test_a_dispatch_sweep_archives_a_retired_thread_with_no_store_that_the_store_names(
+        self,
+    ):
+        """A thread retired with no store recorded was listed as archivable by `threads`, yet no automatic sweep archived it."""
+        named, stranger = amp_thread(11), amp_thread(12)
+        self.retire_threads(
+            {
+                named: {'name': 'demo-sidekick', 'role': 'sidekick'},
+                stranger: {'name': 'demo-sidekick', 'role': 'sidekick'},
+            }
+        )
+        pair = self.state()
+        pair['sidekick_threads'] = {'amp m/one': [named]}
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        self.set_state(named, 'idle', '2999-01-01T00:00:00.000Z')
+        b = self.brief('001', 'one', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn(f'archived {named} (sidekick)', out)
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{named}\n')
+
     def test_a_sweep_archives_only_the_threads_of_its_own_store_and_never_one_with_no_store(
         self,
     ):

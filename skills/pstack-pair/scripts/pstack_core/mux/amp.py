@@ -805,16 +805,21 @@ class Amp(Subagents):
                 )
             elif os.path.realpath(e['store']) == here:
                 found[t] = e.get('role') or role_of(e.get('name') or '')
-        if not retired_only:
-            for e in (doc.get('sidekick_threads') or {}).values():
-                found.update({t: 'sidekick' for t in e if isinstance(t, str)})
-            for e in master.get('sessions') or []:
-                if isinstance(e, dict) and (e.get('session') or '').startswith('T-'):
-                    found.setdefault(e['session'], 'master')
-            ours = run_titles(doc.get('slug'))
-            for name, e in agents.items():
-                if e.get('thread') and ours.fullmatch(name):
-                    found.setdefault(e['thread'], role_of(name))
+        named = {}
+        for e in (doc.get('sidekick_threads') or {}).values():
+            named.update({t: 'sidekick' for t in e if isinstance(t, str)})
+        for e in master.get('sessions') or []:
+            if isinstance(e, dict) and (e.get('session') or '').startswith('T-'):
+                named.setdefault(e['session'], 'master')
+        ours = run_titles(doc.get('slug'))
+        for name, e in agents.items():
+            if e.get('thread') and ours.fullmatch(name):
+                named.setdefault(e['thread'], role_of(name))
+        # A thread recorded with no store, which this store's own records name, is this store's in every sweep.
+        unrecorded = {u.thread for u in unscoped}
+        found.update(
+            {t: r for t, r in named.items() if not retired_only or t in unrecorded}
+        )
         rows = [
             ThreadRow(thread, role, *assess(thread, store, role, not retired_only))
             for thread, role in found.items()
