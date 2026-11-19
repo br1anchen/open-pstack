@@ -17682,6 +17682,66 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.master_fetches_the_announced_code()
         self.assertTrue(self.master_has(head))
 
+    def bundle_prerequisites(self, store):
+        header = (
+            (Path(store) / 'code/sidekick-g1.bundle').read_bytes().split(b'\n\n')[0]
+        )
+        return [
+            line[1:41].decode() for line in header.splitlines() if line.startswith(b'-')
+        ]
+
+    def on_trunk(self, clone):
+        subprocess.run(
+            ['git', 'checkout', '-q', '-B', 'main', 'origin/main'],
+            cwd=clone,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+
+    def push_trunk(self, clone):
+        self.push_head(clone, 'main')
+        return subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            cwd=clone,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout.strip()
+
+    def test_a_head_one_commit_past_origins_default_branch_is_bundled_with_only_that_commit_when_the_code_ref_push_is_refused(
+        self,
+    ):
+        self.reject_code_pushes()
+        clone, orb_store = self.role_orb()
+        self.on_trunk(clone)
+        trunk = self.remote_git('rev-parse', 'main').strip()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertEqual(self.bundle_prerequisites(orb_store), [trunk])
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(head))
+
+    def test_a_bundle_cut_less_trunk_applies_after_trunk_moved_on_origin_past_the_masters_clone(
+        self,
+    ):
+        self.reject_code_pushes()
+        clone, orb_store = self.role_orb()
+        self.on_trunk(clone)
+        moved = self.commit_in(clone, 'trunk-moved')
+        self.assertEqual(self.push_trunk(clone), moved)
+        self.assertFalse(self.master_has(moved))
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertEqual(self.bundle_prerequisites(orb_store), [moved])
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(head))
+
     def test_a_stale_tracking_ref_origin_no_longer_holds_does_not_stand_for_the_head(
         self,
     ):

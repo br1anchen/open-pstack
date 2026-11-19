@@ -836,11 +836,26 @@ def _on_run_code_ref(store, full):
     )
 
 
+def _trunk(store):
+    """The remote-tracking branch of origin's default branch this checkout holds: the target of origin/HEAD, else origin/main, else origin/master.
+    Empty when none resolves."""
+    head = git.out(store, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') or ''
+    if head and git.ok(store, 'rev-parse', '--verify', '--quiet', head):
+        return head
+    for name in ('main', 'master'):
+        ref = _remote_ref(name)
+        if git.ok(store, 'rev-parse', '--verify', '--quiet', ref):
+            return ref
+    return ''
+
+
 def _bundle_head(store, full, path):
-    """Cuts the head into a bundle less only the run's code refs, the refs the master fetches: a cut less every remote-tracking ref could rest on
-    a commit that sits only on another origin branch, which the master never fetches. False when there is nothing to carry."""
+    """Cuts the head into a bundle less the run's code refs, the refs the master fetches, and origin's default branch, which fetch_code fetches
+    too, so a bundle never carries trunk's history when origin refused the code ref. A cut less every remote-tracking ref could rest on a commit
+    that sits only on another origin branch, which the master never fetches. False when there is nothing to carry."""
     out = f'{bundle.OUT}/code'
     git.ok(store, 'update-ref', out, full)
+    trunk = _trunk(store)
     try:
         return git.ok(
             store,
@@ -851,6 +866,7 @@ def _bundle_head(store, full, path):
             out,
             '--not',
             f'--remotes=origin/{CODE_PREFIX}{slug_of(store)}/*',
+            *([trunk] if trunk else []),
         )
     finally:
         git.ok(store, 'update-ref', '-d', out)
@@ -894,6 +910,25 @@ def publish_report(store, role, file):
     return publish_role(store, role, [file, *extra])
 
 
+def _fetch_trunk(store):
+    """Fetches origin's default branch into its remote-tracking ref, so a bundle cut less that branch finds its prerequisites. A failure is left to
+    the bundle fetch, which names what it lacks."""
+    head = git.out(store, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') or ''
+    branch = head.removeprefix('refs/remotes/origin/')
+    if not branch:
+        heads = git.out(store, 'ls-remote', '--heads', 'origin', 'main', 'master') or ''
+        held = {line.split('refs/heads/')[-1] for line in heads.splitlines()}
+        branch = next((name for name in ('main', 'master') if name in held), '')
+    if branch:
+        _run(
+            store,
+            'fetch',
+            '--quiet',
+            'origin',
+            f'+refs/heads/{branch}:{_remote_ref(branch)}',
+        )
+
+
 def fetch_code(store):
     """Brings the commits the writers announced into this checkout: every code ref of the run, and each bundle in the store. False when origin
     could not be read or a bundle could not be fetched (said on stderr)."""
@@ -902,6 +937,7 @@ def fetch_code(store):
         f'+refs/heads/{CODE_PREFIX}{slug}/*:refs/remotes/origin/{CODE_PREFIX}{slug}/*'
     )
     ok = _run(store, 'fetch', '--quiet', 'origin', spec).returncode == 0
+    _fetch_trunk(store)
     for name in (
         sorted(os.listdir(f'{store}/code')) if os.path.isdir(f'{store}/code') else []
     ):
