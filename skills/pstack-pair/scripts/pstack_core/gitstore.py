@@ -873,6 +873,30 @@ def fetch_code(store):
     return ok
 
 
+UNKNOWN_FRESHNESS = 'freshness: unknown; origin could not be read, so a report may be on the branch that this store does not hold yet (not a missing report)\n'
+
+
+def refreshed(store):
+    """What a reader calls before it judges the files of a store: the branch is fetched and the checkout brought up to it (under the publish lock,
+    so no publish of this checkout is half done). True when it is fresh or the store is not git-backed. False when freshness is unknown: origin
+    cannot be read, the checkout cannot be advanced or the lock stays held. A reader says that, and never reports it as a missing file."""
+    if not is_git(store):
+        return True
+    try:
+        lock = acquire_lock(store, LOCK)
+    except PairError:
+        return False
+    try:
+        return refresh(store)
+    except PairError:
+        return False
+    finally:
+        try:
+            os.rmdir(lock)
+        except OSError:
+            pass
+
+
 def _changed(store, rels):
     """Whether any of these paths differs from HEAD (modified, new or removed)."""
     return bool(rels) and bool(git.out(store, 'status', '--porcelain', '--', *rels))

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 
+from .. import gitstore
 from ..errors import Die, MissingStore, reason, translate
 from ..mux import amp
 from ..panes import agent_status
@@ -120,9 +121,12 @@ def lines(ctx, store, out):
     out.write(f'generated: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\n')
     if not os.path.isfile(f'{store}/pair.json'):
         raise MissingStore(store)
+    fresh = gitstore.refreshed(store)
     pair = load(store)
     master = peek(pair, 'master')
     name = text_at(master, 'name')
+    if not fresh:
+        out.write(gitstore.UNKNOWN_FRESHNESS)
     out.write(f'master: {name} ({text_at(master, "pane_id")}) {agent_status(name)}\n')
     for role in ctx.roles:
         name = text_at(peek(pair, role), 'name')

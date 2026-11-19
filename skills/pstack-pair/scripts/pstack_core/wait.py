@@ -8,7 +8,7 @@ import sys
 import time
 from dataclasses import dataclass, replace
 
-from . import git, mux, procinfo
+from . import git, gitstore, mux, procinfo
 from .argv import Spec, read
 from .checkin import CheckIn, checkin, sidekick_activity
 from .errors import BadStepRow, Die, MissingStore, PairError, refuse_as
@@ -63,7 +63,16 @@ def status_now(name):
 class WaitResult:
     """How the agent wait ended: its exit code, the agent status it carries, its error text and error word (see mux), and what the store held."""
 
-    __slots__ = ('code', 'status', 'err', 'ready', 'steps_due', 'superseded', 'error')
+    __slots__ = (
+        'code',
+        'status',
+        'err',
+        'ready',
+        'steps_due',
+        'superseded',
+        'error',
+        'stale',
+    )
 
     def __init__(
         self,
@@ -76,6 +85,7 @@ class WaitResult:
         error='',
     ):
         self.superseded = superseded
+        self.stale = False
         self.code = code
         self.status = status
         self.err = err
@@ -271,6 +281,10 @@ def finish_wait(
     running = dispatched(store)
     if mode == 'steps':
         return steps_returned(ctx, store, running, paused, write)
+    if result.stale:
+        write(gitstore.UNKNOWN_FRESHNESS)
+        wake(ctx, store, running, 'freshness-unknown')
+        return WaitOutcome(4, 'unknown', paused=paused)
     withheld = withheld_report(ctx, store)
     activity = sidekick_activity(store, clock())
     shown = seen_reply(store)
@@ -409,6 +423,7 @@ def wait_for_reply(ctx, store, name, timeout, now=None, token=None):
         if token is not None and superseded(store, token):
             result.superseded = True
             return result
+        result.stale = not gitstore.refreshed(store)
         ready = pending_report(ctx, store) or fresh_reply(ctx, store)
         if ready:
             result.ready, result.code, result.err = ready, 0, ''

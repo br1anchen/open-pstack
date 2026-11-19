@@ -46,6 +46,7 @@ from pstack_core import (
     permission,
     procinfo,
     providers,
+    replies,
     review,
     secrets,
     send,
@@ -21920,6 +21921,32 @@ class GitStoreTests(unittest.TestCase):
         self.assertEqual(len(reuse), 1)
         self.assertEqual(reuse[0][2], 'master')
         self.assertIn('sidekick', reuse[0][-1])
+
+    def test_gitstore_a_fresh_clone_holding_an_old_report_is_not_satisfied_by_it_after_a_redispatch_in_the_same_second(
+        self,
+    ):
+        brief = f'{self.store}/briefs/001-x.md'
+        self.write(self.store, 'reports/001-x.md', 'status: partial\n')
+        self.publish(self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1))
+        stamp = store.revision(f'{self.store}/reports/001-x.md').stamp
+        send.record_dispatch(self.store, brief, now=stamp)
+        self.publish(self.store, ['pair.json'], gitstore.Writer('master', 1))
+        other = self.other_store('clone')
+        ctx = Context(
+            'pstack-pair',
+            str(root / 'skills/pstack-pair'),
+            other,
+            'Pair',
+            (),
+            (),
+            21,
+            '',
+        )
+        self.assertTrue(os.path.isfile(f'{other}/reports/001-x.md'))
+        self.assertIsNone(replies.fresh_reply(ctx, other))
+        self.write(other, 'reports/001-x.md', 'status: partial\nagain\n')
+        self.publish(other, ['reports/001-x.md'], gitstore.Writer('sidekick', 1))
+        self.assertEqual(replies.fresh_reply(ctx, other), f'{other}/reports/001-x.md')
 
     def test_gitstore_a_parked_note_is_printed_once_without_touching_pair_json(self):
         note = f'{self.store}/notes/001-n1.md'

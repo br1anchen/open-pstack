@@ -17426,6 +17426,60 @@ class AmpGitKitchenTests(AmpKitchenTests):
         )
         self.assertNotIn('report: missing', out)
 
+    def test_a_dropped_message_still_leaves_the_report_for_the_masters_wait_after_a_refresh(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, b.name, 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        for message in (self.fake / 'amp-threads' / AMP_MASTER).glob('*.txt'):
+            message.unlink()
+        self.assertFalse((self.store / 'reports' / b.name).exists())
+        out = self.run_sh('wait', str(self.store), code=None)
+        self.assertIn(f'report: {self.store}/reports/{b.name}', out)
+        self.assertIn('report_status: partial', out)
+
+    def test_a_verdict_on_the_branch_past_the_deadline_gives_the_verdict_not_a_deadline(
+        self,
+    ):
+        self.verify_started('001')
+        clone, orb_store = self.role_orb('verifier')
+        verdict = Path(orb_store) / 'verdicts/001-util-v1.md'
+        verdict.parent.mkdir(exist_ok=True)
+        verdict.write_text('# Verdict\n\nstatus: clean\nunits: 001-util\n')
+        self.as_orb(clone, 'notify', str(orb_store), str(verdict), thread=amp_thread(2))
+        self.set_state(amp_thread(2), 'idle', '2026-01-01T00:00:00.000Z')
+        state = self.state()
+        state['verifying']['deadline'] = 1
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.assertFalse((self.store / 'verdicts/001-util-v1.md').exists())
+        out = self.run_sh('verify', str(self.store), '--wait', code=None)
+        self.assertIn(f'verdict: {self.store}/verdicts/001-util-v1.md', out)
+        self.assertNotIn('past its deadline', out)
+        self.assertNotIn('no verdict at', out)
+
+    def test_with_origin_unreachable_wait_and_verify_say_freshness_is_unknown_and_declare_nothing(
+        self,
+    ):
+        self.verify_started('001')
+        self.remote.rename(self.remote.with_name('gone.git'))
+        out = self.run_sh('wait', str(self.store), code=4)
+        self.assertIn('freshness: unknown', out)
+        self.assertNotIn('report: missing', out)
+        self.assertNotIn('stall', out)
+        state = self.state()
+        state['verifying']['deadline'] = 1
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        out = self.run_sh('verify', str(self.store), '--wait', code=4)
+        self.assertIn('freshness: unknown', out)
+        self.assertNotIn('past its deadline', out)
+        self.assertNotIn('no verdict at', out)
+        status = self.run_sh('status', str(self.store))
+        self.assertIn('freshness: unknown', status)
+
 
 for _name in dir(AmpKitchenTests):
     if _name.startswith('test_') and _name not in vars(AmpGitKitchenTests):

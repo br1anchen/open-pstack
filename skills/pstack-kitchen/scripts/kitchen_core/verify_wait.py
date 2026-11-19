@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-from pstack_core import mux
+from pstack_core import gitstore, mux
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
 from pstack_core.checkin import busy
@@ -405,6 +405,7 @@ class Waiter:
         store, verdict, name = self.store, v.verdict, v.name
         state = ''
         while True:
+            fresh = gitstore.refreshed(store)
             if os.path.isfile(verdict) and header_field(verdict, 'status'):
                 break
             state = agent_status(name)
@@ -412,13 +413,18 @@ class Waiter:
             now = now_s()
             deadline = read_int(store, 'verifying.deadline')
             sent = self.verdict_sent_at(v)
-            if sent is None and not (
-                state != 'absent' and deadline is not None and now < deadline
+            # A store whose freshness is unknown declares no deadline: the verdict may be on the branch.
+            if (
+                fresh
+                and sent is None
+                and not (state != 'absent' and deadline is not None and now < deadline)
             ):
                 break
-            if sent is not None or now >= v.until or not mux.get().waits:
+            if sent is not None or not fresh or now >= v.until or not mux.get().waits:
                 if sent is not None:
                     self.say(pending_line('verifier', v.verdict, sent))
+                elif not fresh:
+                    self.say(gitstore.UNKNOWN_FRESHNESS)
                 else:
                     started = read_int(store, 'verifying.started')
                     self.say(

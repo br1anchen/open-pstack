@@ -20,6 +20,7 @@ from .store import (
     revision,
     revisions,
     suffix_number,
+    text_at,
     unit_name,
     update,
 )
@@ -28,6 +29,18 @@ from .store import (
 def file_mtime(path):
     """stat -c %Y: whole seconds, of a symlink itself (stat does not follow it); under a git-backed store, the commit time of a published file."""
     return revision(path).stamp
+
+
+def predates_dispatch(store, sent, report, found):
+    """Whether `report` is the one a dispatch found already published (the dispatch records its order in .dispatch.report_order): a later dispatch of
+    the same unit is not answered by it, even when both were written in one second. Only a git-backed store orders reports by commit."""
+    dispatch = peek(load(store), 'dispatch')
+    return bool(
+        found.commit
+        and sent_field(store, 'kind') == 'BRIEF'
+        and report == expected_report(store, text_at(dispatch, 'brief'))
+        and found.order <= count(dispatch, 'report_order')
+    )
 
 
 def latest_report(store, want=''):
@@ -124,7 +137,7 @@ def fresh_reply(ctx, store):
     stamps = revisions(written)
     for f in written:
         t = stamps[f].stamp
-        if t < floor:
+        if t < floor or predates_dispatch(store, sent, f, stamps[f]):
             continue
         if not ctx.variant.report_ready(ctx, store, f).ready:
             continue
