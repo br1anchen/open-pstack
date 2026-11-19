@@ -21,7 +21,7 @@ import tempfile
 import time
 import uuid
 
-from .. import bundle, git
+from .. import bundle, git, gitstore
 from ..argv import Spec, read
 from ..errors import PairError
 from ..numbers import env_int
@@ -1034,6 +1034,9 @@ class Amp(Subagents):
         if store:
             self.remember_store(name, store)
         message = text
+        # A message to a role is the master's: what the master wrote since its last publication is on the branch before the role is told of it.
+        if store and gitstore.is_git(store) and not MASTER_RE.search(name):
+            gitstore.publish_role(store, 'master')
         # What this thread was already given: a message to it carries the build, the send-back rules and the re-orientation only when it needs them.
         seen = load_json(delivered_path()).get(thread) if thread else None
         compactions = thread_compactions(thread) if thread else None

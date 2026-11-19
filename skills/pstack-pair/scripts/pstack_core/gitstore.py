@@ -153,6 +153,21 @@ def check_owned(rel, writer):
         )
 
 
+def owns(rel, writer):
+    """Whether the writer may publish rel (check_owned without the refusal)."""
+    try:
+        check_owned(rel, writer)
+    except OwnershipError:
+        return False
+    return True
+
+
+def owner_role(rel):
+    """The role that writes rel: the first role of its rule ('' for a path no rule covers, a local file or a shared-append file of any writer)."""
+    rule = classify(rel)
+    return rule.roles[0] if rule and rule.roles else ''
+
+
 def is_git(store):
     return os.path.exists(f'{store}/.git')
 
@@ -261,7 +276,13 @@ def history(root):
 def dirty(root):
     """The store-relative paths with changes not yet committed (modified or new, ignored files left out)."""
     text = git.out(
-        root, '-c', 'core.quotepath=off', 'status', '--porcelain=v1', '--no-renames'
+        root,
+        '-c',
+        'core.quotepath=off',
+        'status',
+        '--porcelain=v1',
+        '--no-renames',
+        '--untracked-files=all',
     )
     return {line[3:] for line in (text or '').splitlines() if len(line) > 3}
 
@@ -746,6 +767,27 @@ def publish(store, paths, message, writer, sleep=time.sleep):
             os.rmdir(lock)
         except OSError:
             pass
+
+
+def owned_dirty(store, writer):
+    """The store-relative paths with changes not yet committed that the writer owns: what its command wrote since its last publication."""
+    return sorted(rel for rel in dirty(store) if owns(rel, writer))
+
+
+def publish_role(store, role, files=(), message='', sleep=time.sleep):
+    """The one publication of a role's command: the files it names and every other path of the role with changes not yet committed (its events,
+    progress and step logs; for the master its briefs, steers, reviews and pair.json), as the generation pair.json holds for the role."""
+    writer = writer_of(store, role)
+    rels = sorted(
+        {checked_rel(store, f) for f in files} | set(owned_dirty(store, writer))
+    )
+    return publish(
+        store,
+        rels,
+        message or f'kitchen: {role} publishes {len(rels)} files',
+        writer,
+        sleep,
+    )
 
 
 def _changed(store, rels):

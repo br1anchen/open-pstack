@@ -87,13 +87,17 @@ def notify(ctx, args):
         raise Die(f'file not found: {file}')
     word = 'ADVICE' if file.startswith(f'{store}/advice/') else 'REPORT'
     require_pair(ctx, store)
+    on_git = gitstore.is_git(store)
+    role = gitstore.owner_role(os.path.relpath(file, store)) if on_git else ''
     event(
         store,
-        'consultant' if word == 'ADVICE' else 'sidekick',
+        role or ('consultant' if word == 'ADVICE' else 'sidekick'),
         word.lower(),
         file,
         header_field(file, 'status'),
     )
+    if on_git and role:
+        gitstore.publish_role(store, role, [file])
     master = field(store, 'master', 'name')
     status = agent_status(master)
     if mux.get().remote_roles:

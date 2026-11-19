@@ -17129,3 +17129,167 @@ class AmpKitchenTests(KitchenScriptTests):
 for _name in dir(KitchenScriptTests):
     if _name.startswith('test_') and _name not in vars(AmpKitchenTests):
         setattr(AmpKitchenTests, _name, None)
+
+
+class AmpGitKitchenTests(AmpKitchenTests):
+    """The kitchen with PSTACK_MUX=amp and PSTACK_STORE=git: the store is the branch kitchen/demo of the repository's origin, a bare repository
+    here. The master works in self.repo and self.store; a role works in a clone and a store of its own, as an orb does, and what it writes
+    reaches the master only through the branch (and, for its code, a ref of origin)."""
+
+    def mux_env(self):
+        self.remote = Path(self.tmp.name) / 'remote.git'
+        subprocess.run(
+            ['git', 'init', '-q', '--bare', str(self.remote)], check=True, timeout=60
+        )
+        return {
+            **super().mux_env(),
+            'PSTACK_STORE': 'git',
+            'PSTACK_STORE_PUSH_BACKOFF_S': '0',
+        }
+
+    def git(self, *args):
+        out = super().git(*args)
+        if args == ('init', '-q'):
+            super().git('remote', 'add', 'origin', str(self.remote))
+        return out
+
+    def remote_git(self, *args):
+        return subprocess.run(
+            ['git', '--git-dir', str(self.remote), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+
+    def role_orb(self, name='sidekick'):
+        """A role's orb: a clone of the work repository at the master's commit, a state home of its own and the store worktree synced there.
+        Returns (clone, store)."""
+        self.git('push', '-q', 'origin', 'HEAD:refs/heads/main')
+        orb = Path(self.tmp.name) / f'{name}-orb'
+        clone = orb / 'work'
+        subprocess.run(
+            ['git', 'clone', '-q', str(self.remote), str(clone)],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        store = orb / 'store'
+        self.orb_env = {
+            'HOME': str(orb / 'home'),
+            'XDG_STATE_HOME': str(orb / 'state'),
+        }
+        from pstack_core import gitstore
+
+        gitstore.attach(str(store), str(clone), 'kitchen/demo')
+        registry = orb / 'state/pstack/amp/registry.json'
+        registry.parent.mkdir(parents=True)
+        registry.write_text(
+            json.dumps(
+                {
+                    'agents': {
+                        'demo-master': {
+                            'pane': f'amp:{AMP_MASTER}',
+                            'kind': 'amp',
+                            'args': [],
+                            'thread': AMP_MASTER,
+                        }
+                    },
+                    'panes': [],
+                    'next': 1,
+                }
+            )
+        )
+        return clone, store
+
+    def as_orb(self, clone, *args, thread=None, code=0):
+        thread = thread or amp_thread(1)
+        return self.as_thread(
+            thread, *args, code=code, env=self.orb_env, cwd=clone, mux='amp'
+        )
+
+    def commit_in(self, clone, name):
+        (clone / f'{name}.txt').write_text(f'{name}\n')
+        for args in (['add', '-A'], ['commit', '-q', '-m', name]):
+            subprocess.run(
+                ['git', *args],
+                cwd=clone,
+                env=self.env,
+                check=True,
+                capture_output=True,
+                timeout=60,
+            )
+        return subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            cwd=clone,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout.strip()
+
+    def write_report(self, store, name, status, head):
+        path = Path(store) / 'reports' / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(f'# Report\n\nstatus: {status}\nhead: {head}\n')
+        return path
+
+    def branch_tree(self):
+        return set(
+            self.remote_git('ls-tree', '-r', '--name-only', 'kitchen/demo').split()
+        )
+
+    def test_a_role_publishes_its_report_before_the_message_and_a_secret_stops_both(
+        self,
+    ):
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        token = 'gh' + 'p_' + 'a1' * 18
+        report.write_text(report.read_text() + f'\nthe token is {token}\n')
+        tip = self.remote_git('rev-parse', 'kitchen/demo')
+        messages = len(list((self.fake / 'amp-threads').glob(f'{AMP_MASTER}/*.txt')))
+        out = self.as_orb(clone, 'finish', str(orb_store), str(report), code=1)
+        self.assertIn(
+            'secret: reports/001-util.md:6: github-token; redact it (write [REDACTED: github-token]) and run the command again',
+            out,
+        )
+        self.assertNotIn(token, out)
+        self.assertEqual(self.remote_git('rev-parse', 'kitchen/demo'), tip)
+        self.assertEqual(
+            len(list((self.fake / 'amp-threads').glob(f'{AMP_MASTER}/*.txt'))), messages
+        )
+        report.write_text(
+            f'# Report\n\nstatus: partial\nhead: {head}\n\nthe token is [REDACTED: github-token]\n'
+        )
+        out = self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertIn('reports/001-util.md', self.branch_tree())
+        self.assertIn('events/sidekick-g1.tsv', self.branch_tree())
+        self.assertEqual(
+            len(list((self.fake / 'amp-threads').glob(f'{AMP_MASTER}/*.txt'))),
+            messages + 1,
+        )
+        self.assertIn(
+            f'pstack-kitchen REPORT {report}',
+            out + ''.join(self.thread_messages(AMP_MASTER)),
+        )
+
+    def test_a_dispatch_publishes_the_masters_brief_and_pair_json_before_the_message(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.assertLessEqual(
+            {'briefs/001-util.md', 'pair.json', 'standing-orders.md'},
+            self.branch_tree(),
+        )
+        self.assertIn(
+            '"brief": "' + str(b) + '"',
+            self.remote_git('show', 'kitchen/demo:pair.json'),
+        )
+
+
+for _name in dir(AmpKitchenTests):
+    if _name.startswith('test_') and _name not in vars(AmpGitKitchenTests):
+        setattr(AmpGitKitchenTests, _name, None)
