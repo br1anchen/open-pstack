@@ -17645,12 +17645,13 @@ class AmpGitKitchenTests(AmpKitchenTests):
         ).stdout
         self.assertEqual(status, '')
 
-    def send_as_master(self, text, name='demo-sidekick'):
-        """Amp.send of a text to a new thread of `name`, from the master's own process: (exit code, output)."""
+    def send_as_master(self, text, name='demo-sidekick', before=''):
+        """Amp.send of a text to a new thread of `name`, from the master's own process, after running the Python `before`: (exit code, output)."""
         code = (
             'import sys\n'
             f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
             'from pstack_core.mux import amp\n'
+            f'{before}\n'
             f'print(amp.Amp().send({name!r}, {text!r}, "", ["-m", "x/y"], {str(self.store)!r}))\n'
         )
         env = {**self.env, 'AMP_THREAD_ID': AMP_MASTER}
@@ -17685,6 +17686,31 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertEqual(code, 0, out)
         self.assertIn(f'earlier launch of demo-sidekick (request {request["id"]})', out)
         self.assertEqual(len(list((self.fake / 'amp-threads').iterdir())), started)
+
+    def test_a_launch_that_raised_before_the_amp_call_is_failed_and_the_role_launches_again(
+        self,
+    ):
+        before = (
+            'def broken(path):\n'
+            '    raise OSError("no space left")\n'
+            'amp.pack_build = broken'
+        )
+        started = list((self.fake / 'amp-threads').iterdir())
+        code, out = self.send_as_master('pstack-kitchen BRIEF x', before=before)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn('no space left', out)
+        self.assertEqual(list((self.fake / 'amp-threads').iterdir()), started)
+        [launch] = [p for p in self.branch_tree() if p.startswith('threads/launch-')]
+        [request] = json.loads(self.remote_git('show', f'kitchen/demo:{launch}'))[
+            'requests'
+        ]
+        self.assertEqual(request['state'], 'failed')
+        code, out = self.send_as_master('pstack-kitchen BRIEF x')
+        self.assertEqual(code, 0, out)
+        self.assertNotIn('earlier launch', out)
+        found = re.search(r'T-[0-9a-f-]{36}', out)
+        assert found is not None, out
+        self.assertEqual({r['state'] for r in self.requests_of(found[0])}, {'sent'})
 
     def test_a_launch_that_succeeds_replaces_its_launch_record_with_the_threads_own(
         self,

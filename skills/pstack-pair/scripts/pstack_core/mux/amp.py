@@ -1127,21 +1127,31 @@ class Amp(Subagents):
             record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
             self.skipped = thread
             return thread, ''
-        build, carried = '', False
+        build, carried, called = '', False, False
         with tempfile.TemporaryDirectory() as tmp:
             attach = []
-            if store and os.path.isfile(os.path.join(store, 'pair.json')):
-                carried = True
-                attach, message, build = self.with_bundle(
-                    name, text, store, thread, seen, full_rules, tmp
+            try:
+                if store and os.path.isfile(os.path.join(store, 'pair.json')):
+                    carried = True
+                    attach, message, build = self.with_bundle(
+                        name, text, store, thread, seen, full_rules, tmp
+                    )
+                if compacted or created:
+                    message = (
+                        reorientation(name, text, store, created) + message
+                    )
+                cwd = (bundle.repo_of(store) if store else '') or None
+                message = f'{message}\n\n{MSG_ID} {msg_id}'
+                called = True
+                thread, err = deliver(
+                    thread, flags, title or name, attach, message, cwd, msg_id
                 )
-            if compacted or created:
-                message = reorientation(name, text, store, created) + message
-            cwd = (bundle.repo_of(store) if store else '') or None
-            message = f'{message}\n\n{MSG_ID} {msg_id}'
-            thread, err = deliver(
-                thread, flags, title or name, attach, message, cwd, msg_id
-            )
+            finally:
+                # No `amp` call was made, so the request cannot have reached the thread: left pending it would block every relaunch of the role.
+                if not called:
+                    amp_routing.settle(
+                        store, name, thread, msg_id, amp_routing.FAILED, False
+                    )
             if err:
                 amp_routing.settle(
                     store, name, thread, msg_id, amp_routing.FAILED, False
