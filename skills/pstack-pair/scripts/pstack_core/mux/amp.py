@@ -708,7 +708,9 @@ class Amp(Subagents):
         if root:
             # Under git the message announces a commit of the store branch; the report is here once that commit is.
             at = re.search(r'store: \S+ at ([0-9a-f]{40})', text)
-            held = at and git.ok(root, 'cat-file', '-e', f'{at.group(1)}^{{commit}}')
+            held = at and git.ok(
+                root, 'merge-base', '--is-ancestor', at.group(1), 'HEAD'
+            )
             return (
                 f'announced {at.group(1)[:9]} not yet fetched'
                 if at and not held
@@ -1047,8 +1049,9 @@ class Amp(Subagents):
             build = ''
         rules = RETURN if full_rules else RETURN_SHORT
         if on_branch:
-            announce = f'\n\nstore: {gitstore.BRANCH_PREFIX}{gitstore.slug_of(store)} at {gitstore.head_of(store)}'
-            sync = f'{SYNC} --branch {store}`: it refreshes the store branch and fetches the code it announces.'
+            branch = f'{gitstore.BRANCH_PREFIX}{gitstore.slug_of(store)}'
+            announce = f'\n\nstore: {branch} at {gitstore.head_of(store)}'
+            sync = f'{SYNC} --branch {store} {branch}`: it refreshes the store branch and fetches the code it announces.'
         else:
             announce = ''
             sync = f'{SYNC} <the pstack-{name}.tgz attachment URL below>`: it merges the {store} store and its commits into your orb.'

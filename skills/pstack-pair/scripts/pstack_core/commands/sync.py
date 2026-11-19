@@ -79,14 +79,17 @@ def learn(manifest):
     return elsewhere
 
 
-def sync_branch(store):
+def sync_branch(store, branch=''):
     """The sync of a git-backed store, with no bundle: the store worktree is checked out from origin when this orb has none (the first prompt), then
-    refreshed, and the code the writers announced is fetched. The master is registered from pair.json, so the role can send it files."""
+    refreshed, and the code the writers announced is fetched. The branch is the one the message announced (`store: kitchen/<slug> at <sha>`); a
+    store that is already checked out keeps its own. The master is registered from pair.json, so the role can send it files."""
     if not gitstore.is_git(store):
+        if not branch.startswith(gitstore.BRANCH_PREFIX):
+            raise Die(
+                f'{store} is not checked out here, so name the branch the message announced: sync --branch {store} {gitstore.BRANCH_PREFIX}<slug>'
+            )
         repo = git.out(os.getcwd(), 'rev-parse', '--show-toplevel') or ''
-        gitstore.attach(
-            store, repo, f'{gitstore.BRANCH_PREFIX}{os.path.basename(store)}'
-        )
+        gitstore.attach(store, repo, branch)
     fresh = gitstore.refresh(store)
     fetched = gitstore.fetch_code(store)
     print(f'store: {gitstore.branch_of(store)} at {gitstore.head_of(store)[:9]}')
@@ -119,11 +122,11 @@ def learn_master(store):
 
 
 def sync(ctx, args):
-    if len(args) == 2 and args[0] == '--branch':
-        return sync_branch(os.path.realpath(args[1]))
+    if len(args) in (2, 3) and args[0] == '--branch':
+        return sync_branch(os.path.realpath(args[1]), *args[2:])
     if len(args) != 1:
         raise Die(
-            f'usage: {ctx.prog} sync <bundle-path-or-attachment-url> | sync --branch <store>'
+            f'usage: {ctx.prog} sync <bundle-path-or-attachment-url> | sync --branch <store> kitchen/<slug>'
         )
     with tempfile.TemporaryDirectory() as tmp:
         path = fetch(args[0], tmp)
