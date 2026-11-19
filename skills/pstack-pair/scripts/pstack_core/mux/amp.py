@@ -25,7 +25,7 @@ from .. import bundle, git
 from ..argv import Spec, read
 from ..errors import PairError
 from ..numbers import env_int
-from ..store import TEXT
+from ..store import TEXT, expected_report, header_field
 from . import subagents
 from .base import DEVNULL, PIPE, Agent, Reply, ThreadRow
 from .subagents import EXITS, NOT_FOUND, Subagents, change, load
@@ -446,14 +446,19 @@ def open_consults(store):
 
 
 def role_is_idle(store, doc, role):
-    """Whether the live sidekick or consultant has nothing open in this run: the sidekick's last unit is done (rotation_required) and no brief is
-    queued for it; the consultant has no consult or plan round waiting on its advice."""
+    """Whether the live sidekick or consultant has nothing open in this run: the sidekick's last unit is done (rotation_required, and the report of
+    the brief dispatched to it says done, so an open dispatch stays) and no brief is queued for it; the consultant has no consult or plan round
+    waiting on its advice."""
     if role == 'sidekick':
         queue = os.path.join(store, 'queue')
         queued = os.path.isfile(queue) and os.path.getsize(queue) > 0
-        return (doc.get('sidekick') or {}).get(
-            'rotation_required'
-        ) is True and not queued
+        brief = (doc.get('dispatch') or {}).get('brief') or ''
+        return (
+            (doc.get('sidekick') or {}).get('rotation_required') is True
+            and not queued
+            and bool(brief)
+            and header_field(expected_report(store, brief), 'status') == 'done'
+        )
     return role == 'consultant' and not open_consults(store)
 
 
