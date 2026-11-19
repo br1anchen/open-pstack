@@ -17630,6 +17630,7 @@ class AmpGitKitchenTests(AmpKitchenTests):
         )
         self.assertIn('OwnershipError', out)
         self.assertEqual((orb_store / 'pair.json').read_bytes(), before)
+        self.assertFalse((orb_store / '.pair.lock').exists())
         code, out = self.update_as(AMP_MASTER, self.store)
         self.assertEqual(code, 0, out)
         self.assertEqual(self.state()['probe'], 1)

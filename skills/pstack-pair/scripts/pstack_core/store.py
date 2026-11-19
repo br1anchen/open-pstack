@@ -529,9 +529,9 @@ def update(store, mutate):
     PAIR_LOCK_POLL_S exist so tests can shorten the 10 s wait."""
     from . import gitstore
 
-    gitstore.require_master(store)
     lock = acquire_lock(store)
     try:
+        gitstore.require_master(store)
         doc = load(store)
         mutate(doc)
         text = _dumps(doc)
