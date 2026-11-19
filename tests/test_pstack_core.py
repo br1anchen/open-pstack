@@ -20845,6 +20845,24 @@ class GitStoreTests(unittest.TestCase):
     def publish(self, store, rels, writer, message='m'):
         return gitstore.publish(store, rels, message, writer, sleep=lambda s: None)
 
+    def commit_by_hand(self, rel, text):
+        """A commit made outside publish, as a role's own `git commit` would; returns its short id."""
+        self.write(self.store, rel, text)
+        self.sh('git', 'add', rel, cwd=self.store)
+        self.sh(
+            'git',
+            '-c',
+            'user.name=t',
+            '-c',
+            'user.email=t@t',
+            'commit',
+            '-q',
+            '-m',
+            'by hand',
+            cwd=self.store,
+        )
+        return self.sh('git', 'rev-parse', 'HEAD', cwd=self.store).strip()[:7]
+
     def remote_files(self):
         out = self.sh(
             'git',
@@ -21520,20 +21538,7 @@ class GitStoreTests(unittest.TestCase):
         self,
     ):
         token = _fake('gh', 'p_', 'a1' * 18)
-        self.write(self.store, 'reports/002-y.md', f'oops\n{token}\n')
-        self.sh('git', 'add', 'reports/002-y.md', cwd=self.store)
-        self.sh(
-            'git',
-            '-c',
-            'user.name=t',
-            '-c',
-            'user.email=t@t',
-            'commit',
-            '-q',
-            '-m',
-            'by hand',
-            cwd=self.store,
-        )
+        commit = self.commit_by_hand('reports/002-y.md', f'oops\n{token}\n')
         self.write(self.store, 'progress/001-x.md', 'clean\n')
         remote = self.remote_commits()
         with self.assertRaises(errors.SecretFound) as caught:
@@ -21542,10 +21547,30 @@ class GitStoreTests(unittest.TestCase):
             )
         self.assertEqual(
             caught.exception.message,
-            'secret: reports/002-y.md:2: github-token; redact it (write [REDACTED: github-token]) and run the command again',
+            f'secret: reports/002-y.md@{commit}:2: github-token; redact it (write [REDACTED: github-token]) and run the command again',
         )
         self.assertEqual(self.remote_commits(), remote)
         self.assertNotIn('progress/001-x.md', self.remote_files())
+
+    def test_gitstore_two_unpushed_versions_of_one_path_are_scanned_under_labels_of_their_own(
+        self,
+    ):
+        allowed = _fake('gh', 'p_', 'a1' * 18)
+        real = _fake('gh', 'p_', 'b2' * 18)
+        self.commit_by_hand(
+            'reports/002-y.md',
+            f'ok\n{allowed} pstack-allow-secret: a fixture the test reads\n',
+        )
+        second = self.commit_by_hand('reports/002-y.md', f'ok\n{real}\n')
+        self.write(self.store, 'progress/001-x.md', 'clean\n')
+        with self.assertRaises(errors.SecretFound) as caught:
+            self.publish(
+                self.store, ['progress/001-x.md'], gitstore.Writer('sidekick', 1)
+            )
+        self.assertEqual(
+            [(f.path, f.line) for f in caught.exception.findings],
+            [(f'reports/002-y.md@{second}', 2)],
+        )
 
     def test_gitstore_a_crash_after_the_commit_leaves_it_for_the_next_publish(self):
         self.write(self.store, 'reports/001-x.md')

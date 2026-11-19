@@ -594,8 +594,9 @@ def _commit(store, rels, message, writer):
 
 
 def _unsent_texts(store, branch):
-    """(path, text) of every blob a push of HEAD would send that the remote branch lacks: the blobs of all the commits not on it, the ones a later
-    commit removed again included. PublishFailed when git cannot list or read one."""
+    """(label, text) of every blob a push of HEAD would send that the remote branch lacks: the blobs of all the commits not on it, the ones a later
+    commit removed again included. A label is `<path>@<short commit>`, the first commit that holds the blob, so two versions of one path never
+    share a label (the scan keys its allow markers on it and gitleaks writes a file under it). PublishFailed when git cannot list or read one."""
     remote = _remote_ref(branch)
     spec = (
         f'{remote}..HEAD'
@@ -610,7 +611,20 @@ def _unsent_texts(store, branch):
         stdin=listed.stdout,
         quiet=True,
     )
-    if listed.returncode != 0 or typed.returncode != 0:
+    history = git.run(
+        store,
+        'log',
+        '--reverse',
+        '--raw',
+        '--no-abbrev',
+        '--no-renames',
+        '-m',
+        '--root',
+        '--format=commit %H',
+        spec,
+        quiet=True,
+    )
+    if listed.returncode != 0 or typed.returncode != 0 or history.returncode != 0:
         raise PublishFailed(
             f'cannot list what a push of {branch} would send; nothing is pushed'
         )
@@ -619,12 +633,23 @@ def _unsent_texts(store, branch):
         kind, sha, path = (line.split(' ', 2) + ['', ''])[:3]
         if kind == 'blob':
             blobs.setdefault(sha, path or sha)
-    items = []
+    introduced, commit = {}, ''
+    for line in history.stdout.splitlines():
+        if line.startswith('commit '):
+            commit = line[7:14]
+        elif line.startswith(':'):
+            sha = line.split('\t')[0].split()[3]
+            introduced.setdefault(sha, commit)
+    items, labels = [], set()
     for sha, path in blobs.items():
         shown = git.run(store, 'cat-file', 'blob', sha, quiet=True)
         if shown.returncode != 0:
             raise PublishFailed(f'cannot read {path} to scan it; nothing is pushed')
-        items.append((path, shown.stdout))
+        label = f'{path}@{introduced.get(sha, sha[:7])}'
+        if label in labels:
+            label = f'{label}:{sha[:7]}'
+        labels.add(label)
+        items.append((label, shown.stdout))
     return items
 
 
