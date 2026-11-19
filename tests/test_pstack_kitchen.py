@@ -17564,6 +17564,28 @@ class AmpGitKitchenTests(AmpKitchenTests):
         )
         self.assertEqual(registry['agents']['demo-master']['thread'], master2)
 
+    def test_a_master_thread_that_does_not_start_leaves_no_hand_over_on_the_branch(
+        self,
+    ):
+        self.ready_path().unlink()
+        self.filled_handoff()
+        (self.fake / 'amp-ox-fail').write_text('Unknown model provider\n')
+        out = self.run_sh('rotate-master', str(self.store), '--model', 'nope/x', code=2)
+        self.assertIn(
+            'the next master thread did not start: Unknown model provider', out
+        )
+        self.assertEqual(self.dirty_role_files(), [])
+        on_branch = json.loads(self.remote_git('show', 'kitchen/demo:pair.json'))
+        self.assertNotIn('previous', on_branch['master'])
+        self.assertEqual(on_branch['master'].get('generation', 1), 1)
+        clone, taken = self.fresh_orb('master2-orb')
+        self.as_orb(
+            clone, 'sync', '--branch', str(taken), 'kitchen/demo', thread=amp_thread(2)
+        )
+        fresh = json.loads((taken / 'pair.json').read_text())
+        self.assertNotIn('previous', fresh['master'])
+        self.assertEqual(fresh['master'].get('generation', 1), 1)
+
     def test_a_role_thread_cannot_write_pair_json_under_git_and_the_master_and_the_handing_over_master_can(
         self,
     ):

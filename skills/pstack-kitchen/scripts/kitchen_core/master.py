@@ -505,10 +505,12 @@ def hand_to_next_thread(ctx, store, handoff, model):
         thread = m.launch_master(
             store, temp, master_prompt(ctx, store, next_gen, as_file), model
         )
-    except (NextMasterNotStarted, PairError):
+    except PairError:
         with open(f'{store}/pair.json', 'w') as f:
             f.write(before)
         event(store, 'master', 'rotate-failed', '-', f'generation:{next_gen}')
+        # The hand-over went out before the launch; the branch must not keep one that did not happen.
+        publish_master(store)
         raise
     # The pane the next master was given before its thread existed is an orb-local counter; every orb knows the thread's own pane.
     update(
