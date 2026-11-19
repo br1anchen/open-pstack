@@ -531,31 +531,39 @@ def checked_rel(store, path):
     )
 
 
-def _refuse_secrets(store, rels, writer):
-    """Raises SecretFound, with nothing left staged, when a staged file of rels holds a credential. A line a `pstack-allow-secret: <reason>` marker
-    exempts goes through and is logged: a line on stderr and an event of the writer, which the review reads."""
-    staged = (
-        git.out(
-            store,
-            '-c',
-            'core.quotepath=off',
-            'diff',
-            '--cached',
-            '--name-only',
-            '--diff-filter=d',
-            '--',
-            *rels,
-        )
-        or ''
-    ).splitlines()
-    exempt = []
-    found = secrets.scan(
-        [(rel, git.out(store, 'show', f':{rel}') or '') for rel in staged],
-        root=store,
-        exempt=exempt,
+def _staged_texts(store):
+    """(path, text) of every file staged for the commit (a deletion needs no scan), read from the index, so the scan sees exactly the blobs the commit will hold.
+    PublishFailed when git cannot list or read one: a file that cannot be read is never taken for a clean one."""
+    listed = git.run(
+        store, 'diff', '--cached', '--name-only', '-z', '--diff-filter=d', quiet=True
     )
+    if listed.returncode != 0:
+        raise PublishFailed(
+            f'cannot list the staged files in {store}; nothing is committed'
+        )
+    items = []
+    for rel in filter(None, listed.stdout.split('\0')):
+        shown = git.run(store, 'show', f':{rel}', quiet=True)
+        if shown.returncode != 0:
+            raise PublishFailed(
+                f'cannot read the staged {rel} to scan it; nothing is committed'
+            )
+        items.append((rel, shown.stdout))
+    return items
+
+
+def _refuse_secrets(store, writer):
+    """Raises SecretFound, with nothing left staged, when a staged file holds a credential, and PublishFailed, likewise, when one cannot be read.
+    A line a `pstack-allow-secret: <reason>` marker exempts goes through and is logged: a line on stderr and an event of the writer, which the
+    review reads."""
+    exempt = []
+    try:
+        found = secrets.scan(_staged_texts(store), root=store, exempt=exempt)
+    except PublishFailed:
+        _run(store, 'reset', '--quiet')
+        raise
     if found:
-        _run(store, 'reset', '--quiet', '--', *rels)
+        _run(store, 'reset', '--quiet')
         raise SecretFound(found)
     for e in exempt:
         sys.stderr.write(
@@ -571,13 +579,15 @@ def _refuse_secrets(store, rels, writer):
 
 
 def _commit(store, rels, message, writer):
-    """One commit of exactly these paths; 0 when nothing in them changed. SecretFound, with the paths unstaged and nothing committed, when a
-    changed file holds a credential."""
+    """One commit of exactly these paths, as the scan read them from the index; 0 when nothing in them changed. SecretFound, with the paths
+    unstaged and nothing committed, when a changed file holds a credential. The commit takes the index and never rereads the working tree, so
+    a file edited after the scan cannot land unscanned."""
+    _run(store, 'reset', '--quiet')
     _run(store, 'add', '-A', '--', *rels)
-    if _run(store, 'diff', '--cached', '--quiet', '--', *rels).returncode == 0:
+    if _run(store, 'diff', '--cached', '--quiet').returncode == 0:
         return 0
-    _refuse_secrets(store, rels, writer)
-    done = _run(store, 'commit', '-m', message, '--', *rels)
+    _refuse_secrets(store, writer)
+    done = _run(store, 'commit', '-m', message)
     if done.returncode != 0:
         raise PublishFailed(f'cannot commit in {store}: {done.stderr.strip()}')
     return 1

@@ -21460,6 +21460,54 @@ class GitStoreTests(unittest.TestCase):
         self.assertEqual(len(logged), 1, logged)
         self.assertIn('a fixture the test reads', logged[0])
 
+    def test_gitstore_a_file_edited_after_the_scan_never_lands_unscanned(self):
+        token = _fake('gh', 'p_', 'a1' * 18)
+        self.write(self.store, 'reports/001-x.md', 'status: done\n')
+        scan = secrets.scan
+
+        def edit_after_the_scan(*args, **kwargs):
+            found = scan(*args, **kwargs)
+            self.write(self.store, 'reports/001-x.md', f'late edit {token}\n')
+            return found
+
+        with mock.patch.object(secrets, 'scan', side_effect=edit_after_the_scan):
+            self.publish(
+                self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+            )
+        pushed = self.sh(
+            'git',
+            '--git-dir',
+            str(self.remote),
+            'show',
+            f'{self.BRANCH}:reports/001-x.md',
+        )
+        self.assertEqual(pushed, 'status: done\n')
+
+    def test_gitstore_a_staged_file_that_cannot_be_read_refuses_the_publish(self):
+        self.write(self.store, 'reports/001-x.md', 'status: done\n')
+        head, remote = gitstore.head_of(self.store), self.remote_commits()
+        real = git.run
+        for label, broken in (('read', 'show'), ('list', '--name-only')):
+
+            def failing(root, *args, broken=broken, **kwargs):
+                if broken in args:
+                    return subprocess.CompletedProcess(args, 128, stdout='', stderr='')
+                return real(root, *args, **kwargs)
+
+            with (
+                self.subTest(label),
+                mock.patch.object(git, 'run', side_effect=failing),
+            ):
+                with self.assertRaises(gitstore.PublishFailed):
+                    self.publish(
+                        self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+                    )
+            self.assertEqual(gitstore.head_of(self.store), head)
+            self.assertEqual(self.remote_commits(), remote)
+            self.assertEqual(
+                self.sh('git', 'diff', '--cached', '--name-only', cwd=self.store), ''
+            )
+
     def test_gitstore_a_crash_after_the_commit_leaves_it_for_the_next_publish(self):
         self.write(self.store, 'reports/001-x.md')
         with mock.patch.object(gitstore, 'push', side_effect=RuntimeError('killed')):
