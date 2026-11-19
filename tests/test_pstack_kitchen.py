@@ -14975,7 +14975,9 @@ class AmpKitchenTests(KitchenScriptTests):
         self.run_sh('threads', str(self.store), '--archive')
         self.assertIn(old, (self.fake / 'amp-archived').read_text().split())
         before = len(self.thread_messages(old))
-        (self.store / 'advice/001-one-c1.md').unlink()  # consultant_with's advice has the name this consult takes
+        (
+            self.store / 'advice/001-one-c1.md'
+        ).unlink()  # consultant_with's advice has the name this consult takes
         consult = self.consult_file([])
         out = self.send_consult(consult)
         self.assertNotIn('not live', out)
