@@ -156,6 +156,20 @@ def record_delivered(thread, update):
         os.replace(f'{path}.tmp', path)
 
 
+def record_given(thread, compactions, build, rules):
+    """Only what a message carried is recorded as given to the thread: its compaction count (a new thread's is read now), the build when it was
+    attached, and the full send-back rules when they went in it."""
+    if compactions is None:
+        compactions = thread_compactions(thread)
+    gave = {} if compactions is None else {'compactions': compactions}
+    if build:
+        gave['build'] = build
+    if rules:
+        gave['rules'] = True
+    if gave:
+        record_delivered(thread, gave)
+
+
 SKILL_RE = re.compile(r'^(pstack-[a-z-]+) [A-Z]+\b')
 
 
@@ -1097,17 +1111,12 @@ class Amp(Subagents):
                 time.sleep(env_int('PSTACK_AMP_RETRY_S', 10))
             record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
             record_started(thread, name, store, created)
-            # Only what this message carried is recorded: the thread's compaction count (a new thread's is read now), the build when it was
-            # attached, and the full send-back rules when they went in it.
-            if compactions is None:
-                compactions = thread_compactions(thread)
-            gave = {} if compactions is None else {'compactions': compactions}
-            if build:
-                gave['build'] = build
-            if attach and full_rules and not MASTER_RE.search(name):
-                gave['rules'] = True
-            if gave:
-                record_delivered(thread, gave)
+            record_given(
+                thread,
+                compactions,
+                build,
+                bool(attach) and full_rules and not MASTER_RE.search(name),
+            )
             keep_sent_bundle(thread, attach)
         return thread, ''
 
