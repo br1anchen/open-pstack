@@ -65,6 +65,8 @@ usage: pair.sh <command> [args]
                                             (why); --archive archives the archivable ones and logs each
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
+  scan-secrets <store>                      exit 0 when no file of the store looks like a credential, else 1 with one
+                                            `secret: <path>:<line>: <kind>` line per finding; the git store runs the same scan on every publish
 
 exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
 [exit 0]
@@ -1057,6 +1059,8 @@ usage: pair.sh <command> [args]
                                             (why); --archive archives the archivable ones and logs each
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
+  scan-secrets <store>                      exit 0 when no file of the store looks like a credential, else 1 with one
+                                            `secret: <path>:<line>: <kind>` line per finding; the git store runs the same scan on every publish
 
 exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
 pair.sh: unknown command: bogus
