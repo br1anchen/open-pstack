@@ -17275,6 +17275,22 @@ class AmpGitKitchenTests(AmpKitchenTests):
             out + ''.join(self.thread_messages(AMP_MASTER)),
         )
 
+    def test_a_second_finish_of_an_unchanged_report_is_not_sent_again_and_a_changed_one_is(
+        self,
+    ):
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.set_state(AMP_MASTER, 'tool_use')
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertEqual(self.announced(), 1)
+        out = self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertIn('not sent again', out)
+        self.assertEqual(self.announced(), 1)
+        self.write_report(orb_store, '001-util.md', 'partial', head + '\n# changed')
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertEqual(self.announced(), 2)
+
     def test_a_dispatch_publishes_the_masters_brief_and_pair_json_before_the_message(
         self,
     ):

@@ -63,8 +63,6 @@ def send_to_master(ctx, store, word, file, master, status):
     """A backend whose roles keep copies of the store sends every file as a message to the master's thread, where it queues behind a turn: a
     file only left in the sender's copy never reaches the master."""
     text = f'{ctx.skill} {word} {file}\n{quoted_header(file)}'
-    if gitstore.is_git(store):
-        text += f'\nstore: {gitstore.branch_of(store)} at {gitstore.head_of(store)}'
     reply = mux.get().prompt(master, text, stdout=DEVNULL, stderr=None)
     if reply.code:
         return reply.code
