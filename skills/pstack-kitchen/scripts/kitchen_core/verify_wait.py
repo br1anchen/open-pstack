@@ -406,6 +406,10 @@ class Waiter:
         state = ''
         while True:
             fresh = gitstore.refreshed(store)
+            # An unreadable branch may hold the verdict: the fetch is retried until the interval ends, so one failure judges nothing.
+            while not fresh and now_s() < v.until:
+                self.sleep(env_float('KITCHEN_VERIFY_POLL_S', 10))
+                fresh = gitstore.refreshed(store)
             if os.path.isfile(verdict) and header_field(verdict, 'status'):
                 break
             state = agent_status(name)

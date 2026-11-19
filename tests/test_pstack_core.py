@@ -20295,9 +20295,12 @@ class WaitSeamTests(DispatchedStore):
         mode='reply',
         quiet=False,
         activity='',
+        stale=False,
     ):
         """finish_wait on the store; what it streamed to `out` is in self.printed."""
         self.printed = []
+        got = wait.WaitResult(0, state, '', report)
+        got.stale = stale
         with (
             mock.patch.object(wait, 'agent_status', return_value=agent),
             mock.patch.object(wait, 'sidekick_activity', return_value=activity),
@@ -20307,7 +20310,7 @@ class WaitSeamTests(DispatchedStore):
                 self.ctx,
                 str(self.store),
                 9,
-                wait.WaitResult(0, state, '', report),
+                got,
                 mode,
                 self.EPOCH + 60,
                 quiet,
@@ -20352,6 +20355,17 @@ class WaitSeamTests(DispatchedStore):
         self.assertEqual((got.status, got.kind), (3, 'blocked'))
         self.assertEqual(self.printed[:2], ['state: blocked\n', 'report: missing\n'])
         self.assertEqual(self.events(), [['master', 'wake', '001-x', 'blocked']])
+
+    def test_a_blocked_sidekick_ends_a_wait_whose_fetch_failed_blocked_not_unknown(
+        self,
+    ):
+        got = self.finish('blocked', state='blocked', stale=True)
+        self.assertEqual((got.status, got.kind), (3, 'blocked'))
+        self.assertIn(gitstore.UNKNOWN_FRESHNESS, self.printed)
+        self.assertNotIn('report: missing\n', self.printed)
+        self.assertEqual(self.events(), [['master', 'wake', '001-x', 'blocked']])
+        got = self.finish('idle', state='settled', stale=True)
+        self.assertEqual((got.status, got.kind), (4, 'unknown'))
 
     def test_a_ready_report_ends_the_wait_with_the_report(self):
         report = self.store / 'reports/001-x.md'

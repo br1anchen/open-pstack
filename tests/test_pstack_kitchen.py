@@ -17538,12 +17538,81 @@ class AmpGitKitchenTests(AmpKitchenTests):
         state = self.state()
         state['verifying']['deadline'] = 1
         (self.store / 'pair.json').write_text(json.dumps(state))
-        out = self.run_sh('verify', str(self.store), '--wait', code=4)
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', code=4)
         self.assertIn('freshness: unknown', out)
         self.assertNotIn('past its deadline', out)
         self.assertNotIn('no verdict at', out)
         status = self.run_sh('status', str(self.store))
         self.assertIn('freshness: unknown', status)
+
+    def test_verify_wait_retries_a_failed_fetch_and_returns_the_verdict_the_next_fetch_finds(
+        self,
+    ):
+        self.verify_started('001')
+        clone, orb_store = self.role_orb('verifier')
+        verdict = Path(orb_store) / 'verdicts/001-util-v1.md'
+        verdict.parent.mkdir(exist_ok=True)
+        verdict.write_text('# Verdict\n\nstatus: clean\nunits: 001-util\n')
+        self.as_orb(clone, 'notify', str(orb_store), str(verdict), thread=amp_thread(2))
+        self.set_state(amp_thread(2), 'idle', '2026-01-01T00:00:00.000Z')
+        shim = Path(self.tmp.name) / 'shim'
+        shim.mkdir()
+        failed = Path(self.tmp.name) / 'fetch-failed'
+        (shim / 'git').write_text(
+            '#!/bin/sh\n'
+            f'case " $* " in *" fetch "*) if [ ! -e {failed} ]; then : > {failed}; echo refused >&2; exit 1; fi;; esac\n'
+            f'exec {shutil.which("git")} "$@"\n'
+        )
+        (shim / 'git').chmod(0o755)
+        self.env['PATH'] = f'{shim}:{self.env["PATH"]}'
+        self.env['KITCHEN_VERIFY_POLL_S'] = '0'
+        out = self.run_sh('verify', str(self.store), '--wait', code=None)
+        self.assertTrue(failed.exists())
+        self.assertIn(f'verdict: {self.store}/verdicts/001-util-v1.md', out)
+        self.assertNotIn('freshness: unknown', out)
+
+    def test_a_diverged_store_branch_ends_the_reading_command_with_its_own_message(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(
+            clone,
+            'finish',
+            str(orb_store),
+            str(Path(orb_store) / 'reports/001-util.md'),
+        )
+        mine = self.write_report(self.store, '001-util.md', 'done', 'abc')
+        mine.write_text(mine.read_text() + 'a different report\n')
+        subprocess.run(
+            ['git', 'add', 'reports/001-util.md'],
+            cwd=self.store,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        subprocess.run(
+            [
+                'git',
+                'commit',
+                '-q',
+                '-m',
+                'a writer wrote a report that is not its own',
+            ],
+            cwd=self.store,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        for command in (('wait', str(self.store)), ('status', str(self.store))):
+            out = self.run_sh(*command, code=1)
+            self.assertIn('do not combine', out)
+            self.assertNotIn('freshness: unknown', out)
 
 
 for _name in dir(AmpKitchenTests):

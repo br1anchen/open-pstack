@@ -882,7 +882,8 @@ UNKNOWN_FRESHNESS = 'freshness: unknown; origin could not be read, so a report m
 def refreshed(store):
     """What a reader calls before it judges the files of a store: the branch is fetched and the checkout brought up to it (under the publish lock,
     so no publish of this checkout is half done). True when it is fresh or the store is not git-backed. False when freshness is unknown: origin
-    cannot be read, the checkout cannot be advanced or the lock stays held. A reader says that, and never reports it as a missing file."""
+    cannot be read or the lock stays held. A reader says that, and never reports it as a missing file. A branch that diverged (StoreDiverged) is a real
+    ownership conflict, not an unknown: it propagates and ends the reading command."""
     if not is_git(store):
         return True
     try:
@@ -891,6 +892,8 @@ def refreshed(store):
         return False
     try:
         return refresh(store)
+    except StoreDiverged:
+        raise
     except PairError:
         return False
     finally:

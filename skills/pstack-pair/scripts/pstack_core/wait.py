@@ -281,8 +281,9 @@ def finish_wait(
     running = dispatched(store)
     if mode == 'steps':
         return steps_returned(ctx, store, running, paused, write)
-    if result.stale:
+    if result.stale and state != 'blocked':
         write(gitstore.UNKNOWN_FRESHNESS)
+        write(provider_hint(store))
         wake(ctx, store, running, 'freshness-unknown')
         return WaitOutcome(4, 'unknown', paused=paused)
     withheld = withheld_report(ctx, store)
@@ -296,7 +297,8 @@ def finish_wait(
         and agent_status(name()) != 'working'
     ):
         return idle_returned(ctx, store, shown, paused, write)
-    why, missing = '', 'report: missing\n'
+    why = ''
+    missing = gitstore.UNKNOWN_FRESHNESS if result.stale else 'report: missing\n'
     if withheld:
         write(f'report: {withheld[0]} written but not ready: {withheld[1]}\n')
         why, missing = 'report:unready', ''
