@@ -85,7 +85,7 @@ def sync_branch(store, branch=''):
     store that is already checked out keeps its own. The master is registered from pair.json, so the role can send it files."""
     if not gitstore.is_git(store):
         if not branch.startswith(gitstore.BRANCH_PREFIX):
-            raise Die(
+            raise gitstore.StoreSetupError(
                 f'{store} is not checked out here, so name the branch the message announced: sync --branch {store} {gitstore.BRANCH_PREFIX}<slug>'
             )
         repo = git.out(os.getcwd(), 'rev-parse', '--show-toplevel') or ''
