@@ -50,10 +50,9 @@ def pending(store):
     return list(todo.values())
 
 
-def anchor(store):
-    """The run's anchor thread, `pair.json` `.anchor.thread`: `init` records the first master's own thread. A store from before that takes, the first
-    time it needs one, the oldest master thread the kitchen started for the run (threads.json), else the master's own thread, and records it.
-    Once set it never changes."""
+def anchor(store, besides=''):
+    """The run's anchor thread, `pair.json` `.anchor.thread`, set once and never changed. `init` records the first master's own thread; a store from
+    before that takes the oldest master thread recorded for the run other than `besides`, else the master's own thread."""
     found = text_at(peek(load(store), 'anchor'), 'thread')
     if found:
         return found
@@ -63,7 +62,10 @@ def anchor(store):
     started = sorted(
         (int(e.get('started') or 0), t)
         for t, e in amp.load_json(amp.threads_path()).items()
-        if e.get('role') == 'master' and e.get('store') == path and e.get('started')
+        if e.get('role') == 'master'
+        and e.get('store') == path
+        and e.get('started')
+        and t != besides
     )
     thread = started[0][1] if started else amp.own_thread()
     if not thread:
@@ -87,7 +89,7 @@ def record_pending(store, thread, role):
     """A thread the kitchen started for the run: one pending row and a `nest-pending` event, unless it is the anchor or already has a row."""
     if not os.path.isfile(f'{store}/pair.json'):
         return
-    here = anchor(store)
+    here = anchor(store, thread)
     if not here or thread == here or any(r.thread == thread for r in rows(store)):
         return
     with open(f'{store}/{TSV}', 'a', encoding='utf-8') as f:

@@ -14529,6 +14529,17 @@ class AmpKitchenTests(KitchenScriptTests):
         out = self.run_sh('nest', str(self.store), '--done', 'T-nope', code=1)
         self.assertIn('not recorded for nesting: T-nope', out)
 
+    def test_the_first_rotation_of_a_store_without_an_anchor_anchors_on_the_old_master(
+        self,
+    ):
+        self.drop_anchor()
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
+        self.assertIn(
+            (amp_thread(2), 'master', AMP_MASTER, 'pending'), self.nest_rows()
+        )
+
     def test_a_rotation_keeps_the_anchor_through_every_generation(self):
         self.filled_handoff()
         self.run_sh('rotate-master', str(self.store))
