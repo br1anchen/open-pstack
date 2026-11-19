@@ -3981,6 +3981,17 @@ esac
     def state(self):
         return json.loads((self.store / 'pair.json').read_text())
 
+    def test_nest_writes_nothing_outside_amp_threads(self):
+        if self.mux_env().get('PSTACK_MUX') == 'amp':
+            self.skipTest('Amp threads nest; every other backend records nothing')
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.assertEqual(
+            self.run_sh('nest', str(self.store)), 'nest: nothing pending\n'
+        )
+        self.assertFalse((self.store / 'nest-pending.tsv').exists())
+        self.assertNotIn('anchor', self.state())
+        self.assertNotIn('nest-pending', self.run_sh('status', str(self.store)))
+
     def brief(
         self,
         seq,
@@ -14451,6 +14462,72 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(
             self.nest_rows(), [(amp_thread(1), 'sidekick', AMP_MASTER, 'pending')]
         )
+
+    def three_pending(self):
+        """A sidekick (spawned by setUp), a verifier and a consultant, all nest-pending under the master."""
+        self.verify_started('001')
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        return [amp_thread(n) for n in (1, 2, 3)]
+
+    def test_nest_lists_exactly_the_pending_rows_and_says_to_call_update_thread(self):
+        threads = self.three_pending()
+        out = self.run_sh('nest', str(self.store))
+        self.assertEqual(
+            out.splitlines(),
+            [
+                f'nest-pending: {threads[0]} (sidekick) under {AMP_MASTER}',
+                f'nest-pending: {threads[1]} (verifier) under {AMP_MASTER}',
+                f'nest-pending: {threads[2]} (consultant) under {AMP_MASTER}',
+                'nest: call update_thread(thread=<T>, parent_thread=<anchor>) for each, '
+                f'then kitchen.sh nest {self.store} --done <thread>...',
+            ],
+        )
+
+    def test_nest_asks_the_named_thread_when_nest_via_is_set(self):
+        self.three_pending()
+        self.env['PSTACK_NEST_VIA'] = 'T-via'
+        last = self.run_sh('nest', str(self.store)).splitlines()[-1]
+        self.assertEqual(
+            last,
+            'nest: ask T-via to call update_thread(thread=<T>, parent_thread=<anchor>) for each, '
+            f'then kitchen.sh nest {self.store} --done <thread>...',
+        )
+
+    def test_nest_done_on_two_of_three_leaves_one_and_status_counts_it(self):
+        one, two, three = self.three_pending()
+        self.assertIn(
+            'nest-pending: 3 threads\n', self.run_sh('status', str(self.store))
+        )
+        out = self.run_sh('nest', str(self.store), '--done', one, three)
+        self.assertEqual(
+            out.splitlines(),
+            [
+                f'nested: {one} under {AMP_MASTER}',
+                f'nested: {three} under {AMP_MASTER}',
+            ],
+        )
+        self.assertEqual(
+            self.run_sh('nest', str(self.store)).splitlines()[0],
+            f'nest-pending: {two} (verifier) under {AMP_MASTER}',
+        )
+        self.assertIn(
+            'nest-pending: 1 thread\n', self.run_sh('status', str(self.store))
+        )
+        events = (self.store / 'events.tsv').read_text()
+        self.assertIn(f'\tnest\t-\t{one} under {AMP_MASTER}\n', events)
+        self.run_sh('nest', str(self.store), '--done', two)
+        self.assertEqual(
+            self.run_sh('nest', str(self.store)), 'nest: nothing pending\n'
+        )
+        self.assertNotIn('nest-pending', self.run_sh('status', str(self.store)))
+
+    def test_nest_done_refuses_a_thread_the_run_never_recorded(self):
+        self.three_pending()
+        out = self.run_sh('nest', str(self.store), '--done', 'T-nope', code=1)
+        self.assertIn('not recorded for nesting: T-nope', out)
 
     def test_a_rotation_keeps_the_anchor_through_every_generation(self):
         self.filled_handoff()

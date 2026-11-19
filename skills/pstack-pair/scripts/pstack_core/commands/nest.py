@@ -3,13 +3,17 @@ master generation is a child of it, never of the previous generation. The amp CL
 starts as nest-pending, and the master sets the parents with its own Amp thread tool (`nest`)."""
 
 import os
+import sys
 import time
 from dataclasses import dataclass
 
-from ..store import event, load, peek, text_at, update
+from ..errors import Die
+from ..store import event, load, pair_file, peek, text_at, update
 
 TSV = 'nest-pending.tsv'
 PENDING, NESTED = 'pending', 'nested'
+# Set to a thread id, `nest` tells the master to ask that thread to set the parents instead of calling update_thread itself.
+VIA = 'PSTACK_NEST_VIA'
 
 
 @dataclass(frozen=True)
@@ -89,3 +93,53 @@ def record_pending(store, thread, role):
     with open(f'{store}/{TSV}', 'a', encoding='utf-8') as f:
         f.write(f'{stamp()}\t{thread}\t{role}\t{here}\t{PENDING}\n')
     event(store, 'master', 'nest-pending', '-', f'{thread} under {here}')
+
+
+def status_line(store):
+    """`nest-pending: N threads` for status, '' when none waits."""
+    count = len(pending(store))
+    return f'nest-pending: {count} thread{"" if count == 1 else "s"}\n' if count else ''
+
+
+def nest(ctx, args):
+    """nest <store> [--done <thread>...]: the threads waiting for a parent and how to set it; --done marks threads nested."""
+    usage = f'usage: {ctx.prog} nest <store> [--done <thread>...]'
+    if not args:
+        raise Die(usage)
+    store, rest = args[0], args[1:]
+    pair_file(store)
+    if rest and rest[0] == '--done' and len(rest) > 1:
+        return done(store, rest[1:])
+    if rest:
+        raise Die(usage)
+    todo = pending(store)
+    if not todo:
+        sys.stdout.write('nest: nothing pending\n')
+        return 0
+    for r in todo:
+        sys.stdout.write(f'nest-pending: {r.thread} ({r.role}) under {r.anchor}\n')
+    who = f'ask {os.environ[VIA]} to ' if os.environ.get(VIA) else ''
+    sys.stdout.write(
+        f'nest: {who}call update_thread(thread=<T>, parent_thread=<anchor>) for each, then {ctx.prog} nest {store} --done <thread>...\n'
+    )
+    return 0
+
+
+def done(store, threads):
+    """Marks each thread nested; a thread that is nested already is left as it is, one the run never recorded is an error."""
+    every = rows(store)
+    known = {r.thread: r for r in every}
+    unknown = [t for t in threads if t not in known]
+    if unknown:
+        raise Die(f'not recorded for nesting: {" ".join(unknown)}')
+    waiting = {r.thread for r in pending(store)}
+    for thread in dict.fromkeys(threads):
+        r = known[thread]
+        if thread not in waiting:
+            sys.stdout.write(f'nested: {thread} (already)\n')
+            continue
+        with open(f'{store}/{TSV}', 'a', encoding='utf-8') as f:
+            f.write(f'{stamp()}\t{thread}\t{r.role}\t{r.anchor}\t{NESTED}\n')
+        event(store, 'master', 'nest', '-', f'{thread} under {r.anchor}')
+        sys.stdout.write(f'nested: {thread} under {r.anchor}\n')
+    return 0

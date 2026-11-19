@@ -8,6 +8,7 @@ from . import gates, mux, permission, send, spawn, wait
 from .commands import (
     init,
     metrics,
+    nest,
     notes,
     relay,
     report,
@@ -56,6 +57,7 @@ COMMANDS = {
     'sync': sync.sync,
     'relay-done': relay.relay_done,
     'threads': rotate.threads,
+    'nest': nest.nest,
 }
 
 # The commands a variant may replace whole. Only these names, and a name the core lacks, ask the variant, so every other command is the core's.
