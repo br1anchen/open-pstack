@@ -2,11 +2,12 @@
 orb: the store's files, the sender's commits and the scratch worktrees the store links, and the agents the sender knows. A prompt for an agent
 whose name now means another thread (a master that handed over) is forwarded there."""
 
+import json
 import os
 import subprocess
 import tempfile
 
-from .. import bundle
+from .. import bundle, git, gitstore
 from ..errors import BundleUnreadable, Die
 from ..mux import amp
 from ..mux.subagents import change, load
@@ -78,9 +79,52 @@ def learn(manifest):
     return elsewhere
 
 
+def sync_branch(store):
+    """The sync of a git-backed store, with no bundle: the store worktree is checked out from origin when this orb has none (the first prompt), then
+    refreshed, and the code the writers announced is fetched. The master is registered from pair.json, so the role can send it files."""
+    if not gitstore.is_git(store):
+        repo = git.out(os.getcwd(), 'rev-parse', '--show-toplevel') or ''
+        gitstore.attach(
+            store, repo, f'{gitstore.BRANCH_PREFIX}{os.path.basename(store)}'
+        )
+    fresh = gitstore.refresh(store)
+    fetched = gitstore.fetch_code(store)
+    print(f'store: {gitstore.branch_of(store)} at {gitstore.head_of(store)[:9]}')
+    if not (fresh and fetched):
+        print(
+            'warning: origin could not be read; what this orb holds may be older than the branch'
+        )
+    learn_master(store)
+    return 0
+
+
+def learn_master(store):
+    """The master's name and thread from the store's pair.json into this orb's registry, when the master is an Amp thread."""
+    try:
+        with open(f'{store}/pair.json', encoding='utf-8') as f:
+            master = (json.load(f).get('master')) or {}
+    except (OSError, ValueError):
+        return
+    pane, name = master.get('pane_id') or '', master.get('name') or ''
+    if not (name and pane.startswith('amp:T-')):
+        return
+
+    def add(doc):
+        doc['agents'].setdefault(name, {'kind': 'amp', 'args': []}).update(
+            pane=pane, thread=pane[len('amp:') :]
+        )
+        doc['store'] = store
+
+    change(add, amp.registry_path())
+
+
 def sync(ctx, args):
+    if len(args) == 2 and args[0] == '--branch':
+        return sync_branch(os.path.realpath(args[1]))
     if len(args) != 1:
-        raise Die(f'usage: {ctx.prog} sync <bundle-path-or-attachment-url>')
+        raise Die(
+            f'usage: {ctx.prog} sync <bundle-path-or-attachment-url> | sync --branch <store>'
+        )
     with tempfile.TemporaryDirectory() as tmp:
         path = fetch(args[0], tmp)
         try:

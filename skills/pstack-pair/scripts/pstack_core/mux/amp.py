@@ -704,6 +704,16 @@ class Amp(Subagents):
             return None
         made, text = latest
         quoted = re.search(r'sha256: ([0-9a-f]{12})', text.split(announce, 1)[1])
+        root = gitstore.root_of(path)
+        if root:
+            # Under git the message announces a commit of the store branch; the report is here once that commit is.
+            at = re.search(r'store: \S+ at ([0-9a-f]{40})', text)
+            held = at and git.ok(root, 'cat-file', '-e', f'{at.group(1)}^{{commit}}')
+            return (
+                f'announced {at.group(1)[:9]} not yet fetched'
+                if at and not held
+                else None
+            )
         if quoted and file_digest(path) == quoted.group(1):
             return None
         return made or 'an unknown time'
@@ -1012,17 +1022,20 @@ class Amp(Subagents):
         """(attachments, message, build) of a message to `name`: the store's bundle always, and the pstack build with the line that installs it
         when `seen` (what the thread was already given) lacks this build, as the message text after `text`. build is the id to record, '' when
         none was attached; full_rules gives the send-back rules in full."""
-        path = os.path.join(tmp, f'pstack-{name}.tgz')
-        pane = (self.entry(name) or (name, {'pane': ''}))[1]['pane']
-        bundle.pack(
-            store,
-            path,
-            self.sender(),
-            {'name': name, 'pane': pane},
-            self.agents(),
-            text,
-        )
-        attach = ['--attach', path]
+        on_branch = gitstore.is_git(store)
+        attach = []
+        if not on_branch:
+            path = os.path.join(tmp, f'pstack-{name}.tgz')
+            pane = (self.entry(name) or (name, {'pane': ''}))[1]['pane']
+            bundle.pack(
+                store,
+                path,
+                self.sender(),
+                {'name': name, 'pane': pane},
+                self.agents(),
+                text,
+            )
+            attach = ['--attach', path]
         build_path = os.path.join(tmp, 'pstack-build.tgz')
         # The master's build is the run's: a reply to its thread carries none, a new master's thread gets this one.
         build = '' if thread and MASTER_RE.search(name) else pack_build(build_path)
@@ -1033,9 +1046,14 @@ class Amp(Subagents):
         else:
             build = ''
         rules = RETURN if full_rules else RETURN_SHORT
+        if on_branch:
+            announce = f'\n\nstore: {gitstore.BRANCH_PREFIX}{gitstore.slug_of(store)} at {gitstore.head_of(store)}'
+            sync = f'{SYNC} --branch {store}`: it refreshes the store branch and fetches the code it announces.'
+        else:
+            announce = ''
+            sync = f'{SYNC} <the pstack-{name}.tgz attachment URL below>`: it merges the {store} store and its commits into your orb.'
         message = (
-            f'{text}\n\npstack: before you act on this message, run {install}`{SYNC} <the pstack-{name}.tgz attachment URL below>`: '
-            f'it merges the {store} store and its commits into your orb.'
+            f'{text}{announce}\n\npstack: before you act on this message, run {install}`{sync}'
             + ('' if MASTER_RE.search(name) else rules)
         )
         return attach, message, build
@@ -1061,10 +1079,11 @@ class Amp(Subagents):
         )
         # The send-back rules go in full until a message that carried them has been sent, and again after a compaction.
         full_rules = not (seen and seen.get('rules')) or compacted
-        build = ''
+        build, carried = '', False
         with tempfile.TemporaryDirectory() as tmp:
             attach = []
             if store and os.path.isfile(os.path.join(store, 'pair.json')):
+                carried = True
                 attach, message, build = self.with_bundle(
                     name, text, store, thread, seen, full_rules, tmp
                 )
@@ -1115,9 +1134,9 @@ class Amp(Subagents):
                 thread,
                 compactions,
                 build,
-                bool(attach) and full_rules and not MASTER_RE.search(name),
+                carried and full_rules and not MASTER_RE.search(name),
             )
-            keep_sent_bundle(thread, attach)
+            keep_sent_bundle(thread, attach if not gitstore.is_git(store or '') else [])
         return thread, ''
 
     def pending(self, thread, digest):

@@ -46,6 +46,7 @@ from pstack_core.store import (
     read_text,
     wake,
 )
+from pstack_core.wait import pending_line
 
 from . import verify_state as vs
 from .landing import accepted_units, engine_met, review_engine, unit_engine
@@ -417,9 +418,7 @@ class Waiter:
                 break
             if sent is not None or now >= v.until or not mux.get().waits:
                 if sent is not None:
-                    self.say(
-                        f'pending sync: verifier sent {v.verdict} at {sent}; run pair.sh sync from that message\n'
-                    )
+                    self.say(pending_line('verifier', v.verdict, sent))
                 else:
                     started = read_int(store, 'verifying.started')
                     self.say(

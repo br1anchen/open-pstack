@@ -17360,6 +17360,72 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertEqual(self.announced(), sent)
         self.assertNotIn('reports/001-util.md', self.branch_tree())
 
+    def test_a_message_to_a_role_announces_the_store_commit_and_carries_no_store_bundle(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        sidekick = amp_thread(1)
+        sent = sorted(p.name for p in (self.fake / 'amp-threads' / sidekick).iterdir())
+        self.assertEqual(
+            [n for n in sent if n.endswith('.tgz')], ['1-pstack-build.tgz']
+        )
+        tip = self.remote_git('rev-parse', 'kitchen/demo').strip()
+        message = self.thread_messages(sidekick)[-1]
+        self.assertIn(f'store: kitchen/demo at {tip}', message)
+        self.assertIn(f'pair.sh sync --branch {self.store}`', message)
+        self.assertNotIn('attachment URL below>', message)
+        self.assertIn('briefs/001-util.md', self.branch_tree())
+
+    def test_sync_branch_checks_the_store_out_in_a_fresh_orb_and_the_master_fetches_announced_code(
+        self,
+    ):
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        out = self.as_thread(
+            AMP_MASTER, 'sync', '--branch', str(self.store), cwd=self.repo
+        )
+        self.assertIn('store: kitchen/demo at ', out)
+        self.assertTrue((self.store / 'reports/001-util.md').is_file())
+        self.assertTrue(self.master_has(head))
+        orb = Path(self.tmp.name) / 'late-orb'
+        self.orb_env = {'HOME': str(orb / 'home'), 'XDG_STATE_HOME': str(orb / 'state')}
+        late = orb / 'runs/demo'
+        subprocess.run(
+            ['git', 'clone', '-q', str(self.remote), str(orb / 'work')],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        out = self.as_orb(orb / 'work', 'sync', '--branch', str(late))
+        self.assertIn('store: kitchen/demo at ', out)
+        self.assertTrue(
+            (late / 'briefs').is_dir() or (late / 'reports/001-util.md').is_file()
+        )
+        registry = json.loads((orb / 'state/pstack/amp/registry.json').read_text())
+        self.assertEqual(registry['agents']['demo-master']['thread'], AMP_MASTER)
+
+    def test_a_message_announcing_a_commit_the_store_lacks_reads_as_not_yet_fetched(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        report = self.store / 'reports' / b.name
+        unknown = 'a' * 40
+        thread = self.fake / 'amp-threads' / AMP_MASTER
+        thread.mkdir(parents=True)
+        (thread / '1.txt').write_text(
+            f'pstack-kitchen REPORT {report}\nstatus: done\nsha256: 0123456789ab\nstore: kitchen/demo at {unknown}\n'
+        )
+        out = self.run_sh('wait', str(self.store), code=4)
+        self.assertIn(
+            f'announced {unknown[:9]} not yet fetched (sidekick sent {report}); run pair.sh sync --branch <store>',
+            out,
+        )
+        self.assertNotIn('report: missing', out)
+
 
 for _name in dir(AmpKitchenTests):
     if _name.startswith('test_') and _name not in vars(AmpGitKitchenTests):

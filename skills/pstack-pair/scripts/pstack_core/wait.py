@@ -47,6 +47,13 @@ from .store import (
 )
 
 
+def pending_line(role, file, sent):
+    """The line for a file its role messaged to the master that the master's store does not hold yet: under git `sent` names the announced commit."""
+    if sent.startswith('announced '):
+        return f'{sent} ({role} sent {file}); run pair.sh sync --branch <store>\n'
+    return f'pending sync: {role} sent {file} at {sent}; run pair.sh sync from that message\n'
+
+
 def status_now(name):
     """The agent's status as the multiplexer reports it, '' when it has none."""
     agent = mux.get().agent(name)
