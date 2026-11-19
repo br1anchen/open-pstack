@@ -59,7 +59,8 @@ def rotate(ctx, args):
         raise Die(f'usage: {ctx.prog} rotate <store>')
     store = args[0]
     pair_file(store)
-    gitstore.refreshed(store)
+    if not gitstore.refreshed(store):
+        sys.stderr.write(gitstore.UNKNOWN_FRESHNESS)
     require_not_paused(store)
     kind = field(store, 'sidekick', 'kind')
     sidekick = peek(load(store), 'sidekick')
@@ -96,31 +97,33 @@ def rotate(ctx, args):
             5,
         )
     start_args = current_no_mcp(names(sidekick, 'start_args'))
-    event(
-        store,
-        'master',
-        'rotate',
-        '-',
-        f'generation:{field(store, "sidekick", "generation")}',
-    )
-    request = SpawnRequest(
-        kind,
-        'none',
-        field(store, 'master', 'pane_id'),
-        pane=field(store, 'sidekick', 'pane_id'),
-        args=tuple(start_args),
-    )
-    chain, index = sidekick_chain(
-        sidekick, model_label(kind, names(sidekick, 'start_args'))
-    )
-    code = (
-        spawn_role(ctx, store, 'sidekick', request)
-        if index == 0
-        else fail_back(ctx, store, request, chain, index)
-    )
-    if is_git(store):
-        gitstore.publish_role(store, 'master')
-    return code
+    try:
+        event(
+            store,
+            'master',
+            'rotate',
+            '-',
+            f'generation:{field(store, "sidekick", "generation")}',
+        )
+        request = SpawnRequest(
+            kind,
+            'none',
+            field(store, 'master', 'pane_id'),
+            pane=field(store, 'sidekick', 'pane_id'),
+            args=tuple(start_args),
+        )
+        chain, index = sidekick_chain(
+            sidekick, model_label(kind, names(sidekick, 'start_args'))
+        )
+        return (
+            spawn_role(ctx, store, 'sidekick', request)
+            if index == 0
+            else fail_back(ctx, store, request, chain, index)
+        )
+    finally:
+        # A spawn that dies still leaves the rotate event, which the branch must hold.
+        if is_git(store):
+            gitstore.publish_role(store, 'master')
 
 
 def fail_back(ctx, store, request, chain, index):
@@ -314,9 +317,8 @@ def rotate_if_due(ctx, store, what, brief=''):
     if kept:
         clear_rotation(store)
         if is_git(store):
-            gitstore.publish_role(store, 'master')
-        if is_git(store):
             event(store, 'master', 'reuse', brief, f'sidekick: {kept}')
+            gitstore.publish_role(store, 'master')
         else:
             event(store, 'sidekick', 'reuse', brief, kept)
         sys.stdout.write(

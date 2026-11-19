@@ -17516,6 +17516,28 @@ class AmpGitKitchenTests(AmpKitchenTests):
             ],
         )
 
+    def test_a_rotation_whose_spawn_dies_still_publishes_its_rotate_event(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.store / 'reports/000-ready-g1.md').unlink()
+        self.role_ready('first-orb', amp_thread(1), 1, report=b.name)
+        self.run_sh('sync', '--branch', str(self.store))
+        doc = self.state()
+        doc['sidekick']['chain'] = [
+            {'kind': 'amp', 'args': ['--model', 'x/one']},
+            {'kind': 'amp', 'args': ['--model', 'y/two']},
+        ]
+        doc['sidekick']['chain_index'] = 1
+        (self.store / 'pair.json').write_text(json.dumps(doc))
+        (self.fake / 'amp-preflight-fail').write_text('x/one\ny/two\n')
+        out = self.run_sh('rotate', str(self.store), code=None)
+        self.assertIn('every agent of the sidekick chain failed its preflight', out)
+        self.assertEqual(self.dirty_role_files(), [])
+        self.assertIn(
+            '\trotate\t',
+            self.remote_git('show', 'kitchen/demo:events/master-g0.tsv'),
+        )
+
     def test_a_master_rotated_on_the_branch_is_taken_over_in_a_clone_that_holds_nothing_and_a_role_there_learns_the_new_master(
         self,
     ):
