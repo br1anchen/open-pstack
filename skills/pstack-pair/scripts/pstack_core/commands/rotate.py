@@ -53,22 +53,13 @@ from .status import log
 def rotate(ctx, args):
     """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session.
     Under git the store is refreshed before pair.json is read, and the master's changes are published when the rotation is over."""
-    on_git = len(args) == 1 and is_git(args[0])
-    if on_git:
-        gitstore.refreshed(args[0])
-    code = rotate_sidekick(ctx, args)
-    if on_git:
-        gitstore.publish_role(args[0], 'master')
-    return code
-
-
-def rotate_sidekick(ctx, args):
     end_with_parent()
     require_mux()
     if len(args) != 1:
         raise Die(f'usage: {ctx.prog} rotate <store>')
     store = args[0]
     pair_file(store)
+    gitstore.refreshed(store)
     require_not_paused(store)
     kind = field(store, 'sidekick', 'kind')
     sidekick = peek(load(store), 'sidekick')
@@ -122,9 +113,14 @@ def rotate_sidekick(ctx, args):
     chain, index = sidekick_chain(
         sidekick, model_label(kind, names(sidekick, 'start_args'))
     )
-    if index == 0:
-        return spawn_role(ctx, store, 'sidekick', request)
-    return fail_back(ctx, store, request, chain, index)
+    code = (
+        spawn_role(ctx, store, 'sidekick', request)
+        if index == 0
+        else fail_back(ctx, store, request, chain, index)
+    )
+    if is_git(store):
+        gitstore.publish_role(store, 'master')
+    return code
 
 
 def fail_back(ctx, store, request, chain, index):
