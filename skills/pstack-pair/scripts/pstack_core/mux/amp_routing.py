@@ -27,6 +27,7 @@ LAUNCH = 'launch-'
 STARTED, RETIRED, ARCHIVED = 'started', 'retired', 'archived'
 PENDING, SENT, FAILED = 'pending', 'sent', 'failed'
 ROLES = ('sidekick', 'consultant', 'verifier')
+NO_DRAIN = 'no drain receipt (unit 043)'
 
 
 def _amp():
@@ -319,7 +320,16 @@ def pending_work(store, thread):
 def kept_by_branch(store, thread, role):
     """Why the store branch keeps `thread` ('' when it says nothing against archiving it): work the master sent that is unsettled, or, for a
     sidekick or consultant, the lack of a drain receipt, whatever else holds."""
-    return pending_work(store, thread)
+    return no_drain(store, role) or pending_work(store, thread)
+
+
+def no_drain(store, role):
+    """Why the git store keeps a sidekick or consultant thread whatever else holds: nothing yet proves it published its last output."""
+    return (
+        NO_DRAIN
+        if gitstore.is_git(store) and role in ('sidekick', 'consultant')
+        else ''
+    )
 
 
 def _cache(path, mutate):

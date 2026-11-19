@@ -17778,6 +17778,27 @@ class AmpGitKitchenTests(AmpKitchenTests):
             'pending',
         )
 
+    def test_under_git_an_idle_sidekick_thread_is_kept_for_want_of_a_drain_receipt_and_a_retired_verifier_thread_is_archived_as_before(
+        self,
+    ):
+        self.rotated_run()
+        old = amp_thread(1)
+        self.set_state(old, 'idle', '2999-01-01T00:00:00.000Z')
+        out = self.run_sh('threads', str(self.store))
+        self.assertIn(f'{old}  sidekick  idle  kept: no drain receipt (unit 043)', out)
+        out = self.run_sh('threads', str(self.store), '--archive')
+        self.assertIn(f'kept {old}: no drain receipt (unit 043)', out)
+        archived = self.fake / 'amp-archived'
+        self.assertNotIn(old, archived.read_text() if archived.exists() else '')
+        verifier = amp_thread(7)
+        self.retire_threads(
+            {verifier: {'name': 'demo-verifier', 'store': str(self.store)}}
+        )
+        out = self.run_sh('threads', str(self.store), '--archive')
+        self.assertIn(f'archived {verifier} (verifier)', out)
+        self.assertEqual(archived.read_text().split(), [verifier])
+        self.assertEqual(self.dirty_role_files(), [])
+
     def test_a_rotation_whose_spawn_dies_still_publishes_its_rotate_event(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
