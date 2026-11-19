@@ -817,6 +817,47 @@ def code_bundle(writer):
     return f'code/{writer.role}-g{writer.generation}.bundle'
 
 
+def _on_run_code_ref(store, full):
+    """Whether origin holds the commit on a code ref of this run, the refs fetch_code brings in. Origin is asked now and refs it dropped are
+    pruned, so a stale remote-tracking ref counts for nothing; false when origin cannot be read."""
+    prefix = f'{CODE_PREFIX}{slug_of(store)}/'
+    fetched = _run(
+        store,
+        'fetch',
+        '--quiet',
+        '--prune',
+        'origin',
+        f'+refs/heads/{prefix}*:refs/remotes/origin/{prefix}*',
+    )
+    return fetched.returncode == 0 and bool(
+        git.out(
+            store, 'branch', '-r', '--contains', full, '--list', f'origin/{prefix}*'
+        )
+    )
+
+
+def _bundle_head(store, full, path):
+    """Cuts the head into a bundle. A head some remote-tracking ref holds has nothing to carry less every remote, yet the master fetches only
+    the run's code refs, so the bundle is cut again less those alone."""
+    if bundle.git_bundle(store, {'code': full}, path):
+        return True
+    out = f'{bundle.OUT}/code'
+    git.ok(store, 'update-ref', out, full)
+    try:
+        return git.ok(
+            store,
+            'bundle',
+            'create',
+            '-q',
+            path,
+            out,
+            '--not',
+            f'--remotes=origin/{CODE_PREFIX}{slug_of(store)}/*',
+        )
+    finally:
+        git.ok(store, 'update-ref', '-d', out)
+
+
 def publish_code(store, writer, head):
     """Makes a commit fetchable before the report that names it is announced (A5): pushed to the writer's code ref, else, when origin refuses
     that (a protected namespace, no permission), cut into a git bundle in the store. The store-relative paths to publish with the report: none for
@@ -829,18 +870,14 @@ def publish_code(store, writer, head):
     ref = code_ref(store, writer)
     pushed = _run(store, 'push', '--force', 'origin', f'{full}:refs/heads/{ref}')
     rel = code_bundle(writer)
-    if pushed.returncode == 0:
+    if pushed.returncode == 0 or _on_run_code_ref(store, full):
+        # A head already on one of the run's code refs is fetched from there, so a refused ref (and a bundle with nothing to carry) is no reason
+        # to hold the report, and an older bundle has nothing left to carry either.
         if os.path.exists(f'{store}/{rel}'):
             os.unlink(f'{store}/{rel}')
         return []
-    if git.out(store, 'branch', '-r', '--contains', full):
-        # The head is already on origin under another ref, where the master fetches it from; a refused code ref (and a bundle with nothing to
-        # carry) is no reason to hold the report.
-        return []
     os.makedirs(f'{store}/code', exist_ok=True)
-    if env_int('PSTACK_CODE_BUNDLE', 1) and bundle.git_bundle(
-        store, {'code': full}, f'{store}/{rel}'
-    ):
+    if env_int('PSTACK_CODE_BUNDLE', 1) and _bundle_head(store, full, f'{store}/{rel}'):
         return [rel]
     raise CodePending(
         f'{head[:9]} was not pushed to {ref} ({pushed.stderr.strip() or pushed.stdout.strip()}) and no bundle was made; '

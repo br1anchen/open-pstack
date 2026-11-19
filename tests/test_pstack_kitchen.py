@@ -17305,11 +17305,11 @@ class AmpGitKitchenTests(AmpKitchenTests):
             self.remote_git('show', 'kitchen/demo:pair.json'),
         )
 
-    def reject_code_pushes(self):
+    def reject_code_pushes(self, only='*'):
         hook = self.remote / 'hooks/pre-receive'
         hook.write_text(
             '#!/bin/sh\nwhile read old new ref; do\n'
-            '  case "$ref" in refs/heads/kitchen-code/*) echo protected namespace >&2; exit 1;; esac\n'
+            f'  case "$ref" in refs/heads/kitchen-code/{only}) echo protected namespace >&2; exit 1;; esac\n'
             'done\n'
         )
         hook.chmod(0o755)
@@ -17614,26 +17614,70 @@ class AmpGitKitchenTests(AmpKitchenTests):
             self.assertIn('do not combine', out)
             self.assertNotIn('freshness: unknown', out)
 
-    def test_a_head_already_on_origin_sends_the_report_though_the_code_ref_push_is_refused(
-        self,
-    ):
-        self.reject_code_pushes()
-        clone, orb_store = self.role_orb()
-        head = self.commit_in(clone, 'work')
+    def push_head(self, clone, ref):
         subprocess.run(
-            ['git', 'push', '-q', 'origin', 'HEAD:refs/heads/feature'],
+            ['git', 'push', '-q', 'origin', f'HEAD:refs/heads/{ref}'],
             cwd=clone,
             env=self.env,
             check=True,
             capture_output=True,
             timeout=60,
         )
+
+    def test_a_head_only_on_an_unrelated_origin_branch_is_bundled_for_the_master_when_the_code_ref_push_is_refused(
+        self,
+    ):
+        self.reject_code_pushes()
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        self.push_head(clone, 'feature')
         report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertIn('code/sidekick-g1.bundle', self.branch_tree())
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(head))
+
+    def test_a_stale_tracking_ref_origin_no_longer_holds_does_not_stand_for_the_head(
+        self,
+    ):
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        self.push_head(clone, 'kitchen-code/demo/old-g1')
+        subprocess.run(
+            ['git', 'fetch', '-q', 'origin'],
+            cwd=clone,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        self.remote_git('update-ref', '-d', 'refs/heads/kitchen-code/demo/old-g1')
+        self.reject_code_pushes()
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertIn('code/sidekick-g1.bundle', self.branch_tree())
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(head))
+
+    def test_a_head_on_another_code_ref_of_the_run_sends_the_report_and_drops_the_older_bundle(
+        self,
+    ):
+        self.reject_code_pushes('demo/sidekick-*')
+        clone, orb_store = self.role_orb()
+        first = self.commit_in(clone, 'first')
+        report = self.write_report(orb_store, '001-util.md', 'partial', first)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertIn('code/sidekick-g1.bundle', self.branch_tree())
+        second = self.commit_in(clone, 'second')
+        self.push_head(clone, 'kitchen-code/demo/other-g1')
+        self.write_report(orb_store, '001-util.md', 'partial', second)
         sent = self.announced()
         self.as_orb(clone, 'finish', str(orb_store), str(report))
         self.assertIn('reports/001-util.md', self.branch_tree())
         self.assertNotIn('code/sidekick-g1.bundle', self.branch_tree())
         self.assertEqual(self.announced(), sent + 1)
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(second))
 
     def test_a_rewritten_head_is_fetched_from_the_bundle_that_replaces_the_old_one(
         self,
