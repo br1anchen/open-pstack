@@ -21552,6 +21552,46 @@ class GitStoreTests(unittest.TestCase):
         self.assertEqual(self.remote_commits(), remote)
         self.assertNotIn('progress/001-x.md', self.remote_files())
 
+    def test_gitstore_a_credential_in_an_unpushed_commit_is_cleared_by_redacting_the_file_and_never_reaches_the_remote(
+        self,
+    ):
+        token = _fake('gh', 'p_', 'a1' * 18)
+        self.commit_by_hand('reports/002-y.md', f'oops\n{token}\n')
+        self.commit_by_hand('notes/001-gone.md', f'{token}\n')
+        self.sh('git', 'rm', '-q', 'notes/001-gone.md', cwd=self.store)
+        self.sh('git', 'commit', '-qm', 'drop', cwd=self.store)
+        self.commit_by_hand('plans/001-p.md', 'a plan\n')
+        self.write(self.store, 'progress/001-x.md', 'clean\n')
+        remote = self.remote_commits()
+        writer = gitstore.Writer('sidekick', 1)
+        with self.assertRaises(errors.SecretFound):
+            self.publish(self.store, ['progress/001-x.md'], writer)
+        self.assertEqual(self.remote_commits(), remote)
+        self.write(self.store, 'reports/002-y.md', 'oops\n[REDACTED: github-token]\n')
+        self.publish(self.store, ['progress/001-x.md'], writer)
+        self.assertEqual(self.remote_commits(), remote + 1)
+        self.assertTrue(
+            {'reports/002-y.md', 'plans/001-p.md', 'progress/001-x.md'}
+            <= self.remote_files()
+        )
+        self.assertNotIn('notes/001-gone.md', self.remote_files())
+        every_object = subprocess.run(
+            [
+                GIT,
+                '--git-dir',
+                str(self.remote),
+                'cat-file',
+                '--batch-all-objects',
+                '--batch',
+            ],
+            capture_output=True,
+            check=True,
+            timeout=60,
+        ).stdout
+        self.assertIn(b'a plan', every_object)
+        self.assertNotIn(token.encode(), every_object)
+        self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 0)
+
     def test_gitstore_two_unpushed_versions_of_one_path_are_scanned_under_labels_of_their_own(
         self,
     ):
