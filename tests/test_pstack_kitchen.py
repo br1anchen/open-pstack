@@ -17667,6 +17667,21 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.master_fetches_the_announced_code()
         self.assertTrue(self.master_has(head))
 
+    def test_a_head_whose_parent_sits_only_on_an_unrelated_origin_branch_is_bundled_with_that_parent_when_the_code_ref_push_is_refused(
+        self,
+    ):
+        self.reject_code_pushes()
+        clone, orb_store = self.role_orb()
+        parent = self.commit_in(clone, 'parent')
+        self.push_head(clone, 'feature')
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertIn('code/sidekick-g1.bundle', self.branch_tree())
+        self.assertFalse(self.master_has(parent))
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(head))
+
     def test_a_stale_tracking_ref_origin_no_longer_holds_does_not_stand_for_the_head(
         self,
     ):

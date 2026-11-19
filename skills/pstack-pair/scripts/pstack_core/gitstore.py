@@ -837,10 +837,8 @@ def _on_run_code_ref(store, full):
 
 
 def _bundle_head(store, full, path):
-    """Cuts the head into a bundle. A head some remote-tracking ref holds has nothing to carry less every remote, yet the master fetches only
-    the run's code refs, so the bundle is cut again less those alone."""
-    if bundle.git_bundle(store, {'code': full}, path):
-        return True
+    """Cuts the head into a bundle less only the run's code refs, the refs the master fetches: a cut less every remote-tracking ref could rest on
+    a commit that sits only on another origin branch, which the master never fetches. False when there is nothing to carry."""
     out = f'{bundle.OUT}/code'
     git.ok(store, 'update-ref', out, full)
     try:
