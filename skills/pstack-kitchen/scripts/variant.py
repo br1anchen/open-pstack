@@ -98,7 +98,7 @@ USAGE = """usage: kitchen.sh <command> [args]
 
 The pair's commands (pstack-pair's pair.sh help) work unchanged: init, rotate, failover, permission,
 new-plan, new-brief, wait, queue, notes, new-note, note, finish, next, progress, new-steer, steer,
-report, notify, stop, scratch, pause, resume, status, log, metrics, and the consultant's new-consult,
+report, notify, stop, scratch, pause, resume, status, log, metrics, scan-secrets, and the consultant's new-consult,
 consult, advice. These differ or are new:
 
   log <store> <phase> <decision> <why> <evidence> <result>

@@ -122,6 +122,8 @@ PAIR_COMMANDS = {
                                             (why); --archive archives the archivable ones and logs each"""),
     'metrics': _entry("""  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts"""),
+    'scan-secrets': _entry("""  scan-secrets <store>                      exit 0 when no file of the store looks like a credential, else 1 with one
+                                            `secret: <path>:<line>: <kind>` line per finding; the git store runs the same scan on every publish"""),
 }
 
 

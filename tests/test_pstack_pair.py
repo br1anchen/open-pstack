@@ -2381,6 +2381,8 @@ HELP = {
                                             (why); --archive archives the archivable ones and logs each
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
+  scan-secrets <store>                      exit 0 when no file of the store looks like a credential, else 1 with one
+                                            `secret: <path>:<line>: <kind>` line per finding; the git store runs the same scan on every publish
 
 exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
 """,
@@ -2452,6 +2454,8 @@ exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick block
                                             (why); --archive archives the archivable ones and logs each
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
+  scan-secrets <store>                      exit 0 when no file of the store looks like a credential, else 1 with one
+                                            `secret: <path>:<line>: <kind>` line per finding; the git store runs the same scan on every publish
 
 exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed or not approved, 7 ask or steer cap reached
 """,
@@ -2531,6 +2535,8 @@ exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 sidekick block
                                             (why); --archive archives the archivable ones and logs each
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
+  scan-secrets <store>                      exit 0 when no file of the store looks like a credential, else 1 with one
+                                            `secret: <path>:<line>: <kind>` line per finding; the git store runs the same scan on every publish
 
 exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 agent blocked, 4 no report or advice yet or queue empty,
             5 agent in the wrong state or queue taken, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,
@@ -2540,7 +2546,7 @@ exit codes: 0 ok, 1 usage or precondition, 2 multiplexer error, 3 agent blocked,
 
 The pair's commands (pstack-pair's pair.sh help) work unchanged: init, rotate, failover, permission,
 new-plan, new-brief, wait, queue, notes, new-note, note, finish, next, progress, new-steer, steer,
-report, notify, stop, scratch, pause, resume, status, log, metrics, and the consultant's new-consult,
+report, notify, stop, scratch, pause, resume, status, log, metrics, scan-secrets, and the consultant's new-consult,
 consult, advice. These differ or are new:
 
   log <store> <phase> <decision> <why> <evidence> <result>

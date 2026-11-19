@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at a0b93a9 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 060347d by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -30,13 +30,13 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 
 | section | tested | A/B only | missing | decided | not a contract |
 | --- | --- | --- | --- | --- | --- |
-| Commands | 154 | 0 | 0 | 0 | 0 |
+| Commands | 157 | 0 | 0 | 0 | 0 |
 | Exit codes | 145 | 0 | 0 | 0 | 5 |
 | Messages | 31 | 0 | 0 | 0 | 0 |
 | Store files | 28 | 0 | 0 | 0 | 0 |
 | pair.json fields | 54 | 0 | 0 | 0 | 0 |
 | Decided | 10 | 0 | 0 | 3 | 0 |
-| total | 422 | 0 | 0 | 3 | 5 |
+| total | 425 | 0 | 0 | 3 | 5 |
 
 ## Commands
 
@@ -72,6 +72,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - `pair.sh relay-done <store> <id>` — skills/pstack-pair/scripts/pair.sh help:60 — test_pstack_kitchen.AmpKitchenTests.test_a_steer_to_a_working_thread_is_relayed_through_the_master_once
 - `pair.sh threads <store> [--archive]` — skills/pstack-pair/scripts/pair.sh help:62 — test_pstack_kitchen.AmpKitchenTests.test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master
 - `pair.sh metrics <store>` — skills/pstack-pair/scripts/pair.sh help:64 — test_pstack_pair.PairScriptTests.test_pair
+- `pair.sh scan-secrets <store>` — skills/pstack-pair/scripts/pair.sh help:66 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_scan_secrets_exits_1_naming_the_file_and_line_and_0_on_a_clean_store
 - `pair.sh (guided) init <slug> [--store DIR]` — skills/pstack-pair-guided/scripts/pair.sh help:3 — test_pstack_pair.PairScriptTests.test_guided
 - `pair.sh (guided) spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]` — skills/pstack-pair-guided/scripts/pair.sh help:4 — test_pstack_pair.PairScriptTests.test_guided
 - `pair.sh (guided) failover <store> [--reason TEXT] [--force]` — skills/pstack-pair-guided/scripts/pair.sh help:10 — test_pstack_core.CoreTests.test_a_wrong_typed_value_is_damage_through_a_real_read_command_and_a_real_write_command
@@ -106,6 +107,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - `pair.sh (guided) relay-done <store> <id>` — skills/pstack-pair-guided/scripts/pair.sh help:63 — test_pstack_kitchen.AmpKitchenTests.test_a_steer_to_a_working_thread_is_relayed_through_the_master_once
 - `pair.sh (guided) threads <store> [--archive]` — skills/pstack-pair-guided/scripts/pair.sh help:65 — test_pstack_kitchen.AmpKitchenTests.test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master
 - `pair.sh (guided) metrics <store>` — skills/pstack-pair-guided/scripts/pair.sh help:67 — test_pstack_pair.PairScriptTests.test_guided
+- `pair.sh (guided) scan-secrets <store>` — skills/pstack-pair-guided/scripts/pair.sh help:69 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_scan_secrets_exits_1_naming_the_file_and_line_and_0_on_a_clean_store
 - `pair.sh (trio) init <slug> [--store DIR]` — skills/pstack-trio/scripts/pair.sh help:3 — test_pstack_pair.PairScriptTests.test_trio
 - `pair.sh (trio) spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]` — skills/pstack-trio/scripts/pair.sh help:4 — test_pstack_pair.PairScriptTests.test_trio
 - `pair.sh (trio) rotate <store>` — skills/pstack-trio/scripts/pair.sh help:11 — test_pstack_pair.PairScriptTests.test_trio
@@ -141,6 +143,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - `pair.sh (trio) relay-done <store> <id>` — skills/pstack-trio/scripts/pair.sh help:71 — test_pstack_kitchen.AmpKitchenTests.test_a_steer_to_a_working_thread_is_relayed_through_the_master_once
 - `pair.sh (trio) threads <store> [--archive]` — skills/pstack-trio/scripts/pair.sh help:73 — test_pstack_kitchen.AmpKitchenTests.test_a_dispatch_continues_the_sidekick_thread_and_its_finish_messages_the_master
 - `pair.sh (trio) metrics <store>` — skills/pstack-trio/scripts/pair.sh help:75 — test_pstack_pair.PairScriptTests.test_trio
+- `pair.sh (trio) scan-secrets <store>` — skills/pstack-trio/scripts/pair.sh help:77 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_scan_secrets_exits_1_naming_the_file_and_line_and_0_on_a_clean_store
 - `kitchen.sh log <store> <phase> <decision> <why> <evidence> <result>` — skills/pstack-kitchen/scripts/kitchen.sh help:8 — test_pstack_kitchen.KitchenScriptTests.test_kitchen_log_records_the_decision_and_a_master_log_event
 - `kitchen.sh spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--permission MODE|none] [-- args...]` — skills/pstack-kitchen/scripts/kitchen.sh help:11 — test_pstack_core.CoreTests.test_spawn_behaviour
 - `kitchen.sh consultant <store> --reason TEXT [--kind KIND] [-- args...]` — skills/pstack-kitchen/scripts/kitchen.sh help:15 — test_pstack_core.CoreTests.test_consultant_behaviour
@@ -401,7 +404,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `decisions.tsv` written by master via `pair.sh log`: the show-me-your-work trail — skills/pstack-pair/SKILL.md:70 — test_pstack_pair.PairScriptTests.test_trio (+6)
 - `status.md` written by `pair.sh status`: derived table; never hand-edited — skills/pstack-pair/SKILL.md:71 — test_pstack_pair.PairScriptTests.test_trio (+4)
 - `steps/NNN-<slug>.tsv` written by sidekick via `pair.sh step`: one row per committed step: number, commit, time, notes it resolves, summary — skills/pstack-pair/SKILL.md:73 — test_pstack_pair.PairScriptTests.test_trio (+45)
-- `notes/NNN-<slug>-n<k>.md` written by master via `pair.sh new-note` and `note`: review of the unit's steps through step k, from [the note template](references/note-template.md): blocking ite — skills/pstack-pair/SKILL.md:74 — test_pstack_pair.PairScriptTests.test_trio (+74)
+- `notes/NNN-<slug>-n<k>.md` written by master via `pair.sh new-note` and `note`: review of the unit's steps through step k, from [the note template](references/note-template.md): blocking ite — skills/pstack-pair/SKILL.md:74 — test_pstack_pair.PairScriptTests.test_trio (+75)
 - `followups.md` written by master via `pair.sh note`: follow-ups from every note, for a later brief or an issue — skills/pstack-pair/SKILL.md:75 — test_pstack_pair.PairScriptTests.test_trio (+6)
 - `session-handoff.md` written by master: compact recovery and next-task context, read at bootstrap — skills/pstack-pair/SKILL.md:76 — test_pstack_core.CoreTests.test_new_handoff_behaviour (+4)
 - `sessions/` written by `pair.sh spawn` / `rotate`: prior ready reports; retained session exports and timing evidence — skills/pstack-pair/SKILL.md:77 — test_pstack_pair.PairScriptTests.test_trio (+31)

@@ -4775,6 +4775,21 @@ esac
         )
         self.assertIn('verdicts: accept 1', out)
 
+    def test_kitchen_scan_secrets_exits_1_naming_the_file_and_line_and_0_on_a_clean_store(
+        self,
+    ):
+        clean = self.run_sh('scan-secrets', str(self.store))
+        self.assertEqual(clean, f'no secrets in {self.store}\n')
+        key = '-----BEGIN ' + 'OPENSSH PRIVATE KEY-----'
+        (self.store / 'notes').mkdir(exist_ok=True)
+        (self.store / 'notes/001-n1.md').write_text(f'fine\n{key}\n')
+        out = self.run_sh('scan-secrets', str(self.store), code=1)
+        self.assertEqual(
+            out,
+            'secret: notes/001-n1.md:2: private-key; redact it (write [REDACTED: private-key]) and run the command again\n',
+        )
+        self.assertNotIn(key, out)
+
     def test_init_puts_the_kitchen_in_the_standing_orders(self):
         orders = (self.store / 'standing-orders.md').read_text()
         self.assertIn(
