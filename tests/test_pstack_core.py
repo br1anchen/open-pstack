@@ -21819,6 +21819,7 @@ class SecretScanTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         ).stdout.split('\n')
         self.assertEqual(secrets.scan([f for f in files if f], root=str(root)), [])
 
