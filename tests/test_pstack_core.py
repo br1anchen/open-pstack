@@ -21957,6 +21957,10 @@ class SecretScanTests(unittest.TestCase):
             _fake('"api_', 'key": "', 'abcdefghij"'),
             _fake('password', ': ', 'hunter22x'),
             _fake('client-', 'secret: ', 'abc123def4'),
+            _fake('DB_', 'PASSWORD=', 'xxx-real123'),
+            _fake('DB_', 'PASSWORD=', '***.s3cr3t'),
+            _fake('DB_', 'PASSWORD=', '$API_KEY-realvalue'),
+            _fake("'api_", "key': 'sk", "abcdef123456'"),
         )
         passes = (
             _fake('password', ': "[REDACTED: password]"'),
@@ -21969,6 +21973,10 @@ class SecretScanTests(unittest.TestCase):
             _fake('sorted(a, ', 'key=len)'),
             _fake('{key: ', 'store.header_field(f)}'),
             _fake("{'to", "ken': 'testhost:1:7'}"),
+            _fake('api_', 'key: ', 'localhost1:8080'),
+            _fake('secret: ', 'https://example.com/path1'),
+            _fake('password: ', '12:30'),
+            _fake("{'api", "Key': 'local-smoke'}"),
         )
         for line in findings:
             with self.subTest(finding=line[:12]):

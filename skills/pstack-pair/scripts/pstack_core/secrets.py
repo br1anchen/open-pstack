@@ -88,28 +88,45 @@ RULES = (
     # `KEY=value` as a .env file writes it; with spaces around the `=` or a colon, only a quoted value counts, so code like `TOKEN = re.compile(...)` passes.
     _rule(
         'env-secret',
-        _KEY_UPPER + r'(?:=\s*[\'"]?|\s+=\s*[\'"]|\s*:\s*[\'"])' + _VALUE,
+        _KEY_UPPER + r'(?:=\s*[\'"]?|\s+=\s*[\'"]|[\'"]?\s*:\s*[\'"])' + _VALUE,
     ),
     _rule(
         'env-secret',
         _KEY_ANY + r'[\'"]?=[\'"]?' + _HAS_DIGIT + r'(?P<v>' + _PLAIN + r']{8,})',
     ),
     _rule('env-secret', _KEY_ANY + r'"?\s*:\s*[\'"](?P<v>' + _PLAIN + r']{8,})'),
+    # A single-quoted key, as a Python dict writes it, takes a value that holds a digit and ends at its closing quote with no `:` or `/` in it, so
+    # `{'token': 'host:1:7'}` and `{'apiKey': 'local-smoke'}` pass.
     _rule(
         'env-secret',
-        _KEY_ANY + r'"?\s*:\s*' + _HAS_DIGIT + r'(?P<v>' + _PLAIN + r'/:]{8,})(?![/:])',
+        _KEY_ANY
+        + r"'\s*:\s*[\'\"]"
+        + _HAS_DIGIT
+        + r'(?P<v>'
+        + _PLAIN
+        + r'/:]{8,}+)(?=[\'\"])',
+    ),
+    _rule(
+        'env-secret',
+        _KEY_ANY
+        + r'[\'"]?\s*:\s*'
+        + _HAS_DIGIT
+        + r'(?P<v>'
+        + _PLAIN
+        + r'/:]{8,}+)(?![/:])',
     ),
 )
 
 # A value that is not a credential: nothing, a mask, a bare word, or a whole redaction, angle-bracket or shell-variable placeholder. Only a whole
 # value counts, so a real one that merely starts like a placeholder (`$Ab9...`, `xxxRealValue`) is still a finding.
 _WHOLE = re.compile(
-    r'(?:\$[A-Z_][A-Z0-9_]*|\$\{[^{}]+\}|\$[0-9@*#?]|(?i:x{3,})|\*{3,}|<[^<>]*>|(?i:\[REDACTED)[^\]]*\])(?!\w)'
+    r'(?:\$[A-Z_][A-Z0-9_]*|\$\{[^{}]+\}|\$[0-9@*#?]|(?i:x{3,})|\*{3,}|<[^<>]*>|(?i:\[REDACTED)[^\]]*\])'
 )
 _WORD = re.compile(
     r'value|secret|token|password|pass|key|changeme|example|redacted|none|null|true|false',
     re.I,
 )
+_VALUE_CHAR = re.compile(r'[^\s\'"`<>(){}\[\],;]')
 _MASK = re.compile(r'[x*.-]*', re.I)
 
 # Rules whose value is not a credential unless it carries a digit (a word like `Bearer authentication` is prose).
@@ -118,13 +135,16 @@ _NEEDS_DIGIT = {'authorization-header', 'bearer-token'}
 
 def _placeholder(value, rest):
     """Whether the value a rule matched is no credential. rest is the line from the value's start, for the placeholders that hold characters a
-    value never does (`${VAR}`, `<token>`, `[REDACTED: kind]`)."""
-    return (
-        not value
-        or bool(_WHOLE.match(rest))
-        or bool(_MASK.fullmatch(value))
-        or bool(_WORD.fullmatch(value))
-    )
+    value never does (`${VAR}`, `<token>`, `[REDACTED: kind]`). A placeholder counts only as the whole value: it ends where the value does or,
+    when it holds characters the rule's value stops at, where the value would have ended anyway, at a delimiter or the end of the line."""
+    whole = _WHOLE.match(rest)
+    if whole and (
+        whole.end() == len(value)
+        or whole.end() > len(value)
+        and not _VALUE_CHAR.match(rest, whole.end())
+    ):
+        return True
+    return not value or bool(_MASK.fullmatch(value)) or bool(_WORD.fullmatch(value))
 
 
 def _kinds(line):
