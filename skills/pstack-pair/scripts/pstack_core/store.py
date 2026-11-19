@@ -95,6 +95,10 @@ def event(store, actor, name, unit, detail='', dedupe=False):
 
     With dedupe a master wake row identical to the last row in epoch, actor,
     event, unit and detail is not written twice."""
+    if name == 'spawn' and actor != 'master' and is_git_store(store):
+        # The master starts and settles every role, so under git the row is its own, with the role named in the detail: the role's events file is
+        # the role's to write, and a copy of it here would collide with the one the role publishes.
+        actor, detail = 'master', f'{actor}:{detail}'
     unit = os.path.basename(unit or '-')
     if unit.endswith('.md') and unit != '.md':
         unit = unit[:-3]
@@ -115,6 +119,12 @@ def event(store, actor, name, unit, detail='', dedupe=False):
             f.write(text)
     except OSError:
         pass
+
+
+def is_git_store(store):
+    from . import gitstore
+
+    return gitstore.is_git(store)
 
 
 def event_log(store, actor):
@@ -138,17 +148,6 @@ def events(store):
         return read_text(f'{store}/events.tsv').splitlines()
     except OSError:
         return []
-
-
-def spawn_event(store, role, detail):
-    """The spawn row of a role the master started or settled. Under git the master writes it, in its own events file, with the role named in the
-    detail: the role's file is the role's to write, and a copy of it in the master's store would collide with the one the role publishes."""
-    from . import gitstore
-
-    if gitstore.is_git(store):
-        event(store, 'master', 'spawn', '-', f'{role}:{detail}')
-    else:
-        event(store, role, 'spawn', '-', detail)
 
 
 def wake(ctx, store, unit, detail):
@@ -629,4 +628,4 @@ def mark_ready(store, role):
 def settle_ready(store, role):
     """A role's bootstrap is over: its flags are cleared and the spawn event says it was ready."""
     mark_ready(store, role)
-    spawn_event(store, role, f'{field(store, role, "kind")}:ready')
+    event(store, role, 'spawn', '-', f'{field(store, role, "kind")}:ready')

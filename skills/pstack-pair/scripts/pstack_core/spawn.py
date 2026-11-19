@@ -44,7 +44,6 @@ from .store import (
     pair_file,
     peek,
     settle_ready,
-    spawn_event,
     text_at,
     update,
     update_role,
@@ -287,14 +286,14 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
     if code != 0:
         stderr_of(f'{role} bootstrap did not settle: {err}\n')
         stderr_of(f'inspect: {mux.get().inspect_agent(name, 60)}\n')
-        spawn_event(store, role, f'{kind}:failed')
+        event(store, role, 'spawn', '-', f'{kind}:failed')
         if role == 'sidekick' and kind == 'prime-agent':
             stderr_of(provider_hint(store, 'bootstrap'))
         return 3
     if os.path.isfile(f'{store}/{ready}'):
         mark_ready(store, role)
         print(f'ready: {store}/{ready}')
-        spawn_event(store, role, f'{kind}:ready')
+        event(store, role, 'spawn', '-', f'{kind}:ready')
         return 0
     if not mux.get().waits:
         return handed_off(store, role, kind)
@@ -306,13 +305,13 @@ def bootstrap_role(ctx, store, role, kind, name, pane, ready):
     # A provider stop (a rate limit) is the usual cause, and it shows only in the pane or the agent's session log.
     if role == 'sidekick':
         stderr_of(provider_hint(store, 'bootstrap'))
-    spawn_event(store, role, f'{kind}:unready')
+    event(store, role, 'spawn', '-', f'{kind}:unready')
     return 4
 
 
 def handed_off(store, role, kind):
     """A bootstrap prompt a subagent or an Amp thread carries out after spawn returns: 4 until its ready file is on file."""
-    spawn_event(store, role, f'{kind}:handed-off')
+    event(store, role, 'spawn', '-', f'{kind}:handed-off')
     stderr_of(mux.get().handoff_next)
     return 4
 
