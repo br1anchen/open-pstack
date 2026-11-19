@@ -393,6 +393,25 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   minutes and costs nothing while paused, and a start costs about a cent at
   a1.medium. Never skip joo on a role orb to start faster; the review step
   needs it.
+- A run reads as one tree in the thread list, laid out around a run anchor.
+  The run's first master thread is the anchor (`pair.json` `.anchor.thread`,
+  recorded by `init`; a store from before that takes the oldest master thread
+  it started, else the current master's, the first time it needs one, and it
+  never changes after). Every role thread and every later master generation is
+  meant to be a child of the anchor, not of the previous generation, because
+  runs reach generation 14 and a chain would be that deep. Only the grouping
+  changes: orbs, models, rotation and billing stay as they are. The amp CLI
+  cannot set a parent (`amp -x`, `amp -ox` and `amp threads new` have no parent
+  option, and `amp threads export` has no parent field), so each thread the
+  kitchen starts is recorded as nest-pending in `nest-pending.tsv` (and a
+  `nest-pending` event), and the master nests it itself with its Amp thread
+  tool: `kitchen.sh nest <store>` lists the pending threads and prints the
+  `update_thread(thread=<T>, parent_thread=<anchor>)` call to make for each,
+  and `kitchen.sh nest <store> --done <thread>...` marks them nested.
+  `status` prints `nest-pending: N threads` while any is pending. Setting
+  `PSTACK_NEST_VIA=<thread-id>` (optional, unset by default) makes `nest` say
+  to ask that thread to set the parents instead. Under Herdr, Rex, subagents
+  and the local store nothing is recorded.
 - `prime-agent` cannot run here.
 
 ## Roles and quota

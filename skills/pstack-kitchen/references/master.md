@@ -80,7 +80,12 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `send_thread_message` to the thread with the text of the message file the
    third line names, then `kitchen.sh relay-done <store> <id>`. A
    `relay-pending:` line in `kitchen.sh status` is a relay you have not
-   finished; the sidekick reads nothing until you send it. Under Amp threads a kept sidekick session
+   finished; the sidekick reads nothing until you send it. A `nest-pending:
+   N threads` line in `kitchen.sh status` means threads wait for a parent under
+   the run's anchor: run `kitchen.sh nest <store>`, call `update_thread` for
+   each thread it lists (amp module, through code_exec, `{thread,
+   parent_thread: <anchor>}`), then `kitchen.sh nest <store> --done
+   <thread>...`. Under Amp threads a kept sidekick session
    gets a brief's playbook and report sections as a pointer to the brief that
    carried them (`Unchanged from briefs/...`); there is nothing to do about it,
    and a rotation, a changed composition or a compaction brings them back in
