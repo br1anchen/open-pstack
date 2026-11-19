@@ -833,6 +833,10 @@ def publish_code(store, writer, head):
         if os.path.exists(f'{store}/{rel}'):
             os.unlink(f'{store}/{rel}')
         return []
+    if git.out(store, 'branch', '-r', '--contains', full):
+        # The head is already on origin under another ref, where the master fetches it from; a refused code ref (and a bundle with nothing to
+        # carry) is no reason to hold the report.
+        return []
     os.makedirs(f'{store}/code', exist_ok=True)
     if env_int('PSTACK_CODE_BUNDLE', 1) and bundle.git_bundle(
         store, {'code': full}, f'{store}/{rel}'
@@ -857,7 +861,7 @@ def publish_report(store, role, file):
 
 def fetch_code(store):
     """Brings the commits the writers announced into this checkout: every code ref of the run, and each bundle in the store. False when origin
-    could not be read."""
+    could not be read or a bundle could not be fetched (said on stderr)."""
     slug = slug_of(store)
     spec = (
         f'+refs/heads/{CODE_PREFIX}{slug}/*:refs/remotes/origin/{CODE_PREFIX}{slug}/*'
@@ -866,13 +870,19 @@ def fetch_code(store):
     for name in (
         sorted(os.listdir(f'{store}/code')) if os.path.isdir(f'{store}/code') else []
     ):
-        _run(
+        # Forced: a role that amended its head rewrites the bundle, and the new head does not descend from the old one.
+        got = _run(
             store,
             'fetch',
             '--quiet',
             f'{store}/code/{name}',
-            f'refs/pstack/out/code:refs/pstack/code/{name}',
+            f'+refs/pstack/out/code:refs/pstack/code/{name}',
         )
+        if got.returncode != 0:
+            sys.stderr.write(
+                f'warning: code/{name} could not be fetched: {got.stderr.strip()}\n'
+            )
+            ok = False
     return ok
 
 

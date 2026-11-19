@@ -17614,6 +17614,64 @@ class AmpGitKitchenTests(AmpKitchenTests):
             self.assertIn('do not combine', out)
             self.assertNotIn('freshness: unknown', out)
 
+    def test_a_head_already_on_origin_sends_the_report_though_the_code_ref_push_is_refused(
+        self,
+    ):
+        self.reject_code_pushes()
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        subprocess.run(
+            ['git', 'push', '-q', 'origin', 'HEAD:refs/heads/feature'],
+            cwd=clone,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        sent = self.announced()
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertIn('reports/001-util.md', self.branch_tree())
+        self.assertNotIn('code/sidekick-g1.bundle', self.branch_tree())
+        self.assertEqual(self.announced(), sent + 1)
+
+    def test_a_rewritten_head_is_fetched_from_the_bundle_that_replaces_the_old_one(
+        self,
+    ):
+        self.reject_code_pushes()
+        clone, orb_store = self.role_orb()
+        first = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', first)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(first))
+        (clone / 'work.txt').write_text('rewritten\n')
+        subprocess.run(
+            ['git', 'commit', '-q', '--amend', '-a', '-m', 'work again'],
+            cwd=clone,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        second = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            cwd=clone,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout.strip()
+        self.assertNotEqual(first, second)
+        self.write_report(orb_store, '001-util.md', 'partial', second)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.master_fetches_the_announced_code()
+        self.assertTrue(self.master_has(second))
+        self.assertEqual(
+            self.git('rev-parse', 'refs/pstack/code/sidekick-g1.bundle'), second
+        )
+
 
 for _name in dir(AmpKitchenTests):
     if _name.startswith('test_') and _name not in vars(AmpGitKitchenTests):

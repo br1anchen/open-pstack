@@ -95,7 +95,7 @@ def sync_branch(store, branch=''):
     print(f'store: {gitstore.branch_of(store)} at {gitstore.head_of(store)[:9]}')
     if not (fresh and fetched):
         print(
-            'warning: origin could not be read; what this orb holds may be older than the branch'
+            'warning: origin or a published bundle could not be read; what this orb holds may be older than the branch'
         )
     learn_master(store)
     return 0
