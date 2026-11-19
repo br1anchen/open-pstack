@@ -158,16 +158,22 @@ def record_delivered(thread, update):
 SKILL_RE = re.compile(r'^(pstack-[a-z-]+) [A-Z]+\b')
 
 
-def reorientation(name, text, store):
-    """What a role that compacted since its last message reads first: its role's skill file and the store, which its summary may have lost.
-    '' when the message names no skill (it is no message to a role)."""
+def reorientation(name, text, store, fresh=False):
+    """What a role that compacted since its last message reads first: its role's skill file and the store, which its summary may have lost; a fresh
+    thread that is sent a bare `pstack-<skill> VERB` message (a consult after its consultant was archived) has no bootstrap, so it reads the same
+    and is told it is new. '' when the message names no skill (it is no message to a role)."""
     found = SKILL_RE.match(text)
     if not found or MASTER_RE.search(name):
         return ''
     skill, role = found.group(1), name.rsplit('-', 1)[-1]
     held = f', the store {store} (standing-orders.md, pair.json),' if store else ''
+    lead = (
+        'You are a new thread for this role. Read'
+        if fresh
+        else 'You compacted since the last message. Re-read'
+    )
     return (
-        f'You compacted since the last message. Re-read ~/.agents/skills/{skill}/SKILL.md (your role: {role}){held} '
+        f'{lead} ~/.agents/skills/{skill}/SKILL.md (your role: {role}){held} '
         'and the file this message names before you act.\n\n'
     )
 
@@ -896,10 +902,17 @@ class Amp(Subagents):
         if run(['amp', 'threads', 'archive', row.thread]).returncode:
             return False
         record_thread(row.thread, {'role': row.role, 'archived': int(time.time())})
-        # A role's thread that is archived must not take its next prompt: the name leaves the registry, so that prompt starts a fresh thread.
+        # A role's thread that is archived must not take its next prompt, so that prompt starts a fresh thread. The consultant's entry stays with its
+        # model flags and an empty thread (as right after start), since a consult and a plan round need it live; another role's name leaves.
         for name, e in load(self.path())['agents'].items():
             if e.get('thread') == row.thread:
-                self.end(name)
+                if role_of(name) == 'consultant':
+                    change(
+                        lambda doc, n=name: doc['agents'][n].__setitem__('thread', ''),
+                        self.path(),
+                    )
+                else:
+                    self.end(name)
         return True
 
     def rename(self, target, name):
@@ -1032,8 +1045,8 @@ class Amp(Subagents):
                 attach, message, build = self.with_bundle(
                     name, text, store, thread, seen, full_rules, tmp
                 )
-            if compacted:
-                message = reorientation(name, text, store) + message
+            if compacted or created:
+                message = reorientation(name, text, store, created) + message
             cwd = (bundle.repo_of(store) if store else '') or None
             digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
             if thread and self.pending(thread, digest):

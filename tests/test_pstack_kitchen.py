@@ -14965,6 +14965,42 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertEqual(len(self.thread_messages(old)), before)
 
+    def test_the_next_consult_starts_a_new_thread_on_the_same_model_after_an_idle_consultant_was_archived(
+        self,
+    ):
+        """`threads --archive` ended the consultant's registry entry, so its next consult stopped with 'not live; run: pair.sh spawn' and its model
+        flags were lost."""
+        self.sidekick_done_idle()
+        old = self.consultant_with(True)
+        self.run_sh('threads', str(self.store), '--archive')
+        self.assertIn(old, (self.fake / 'amp-archived').read_text().split())
+        before = len(self.thread_messages(old))
+        (self.store / 'advice/001-one-c1.md').unlink()  # consultant_with's advice has the name this consult takes
+        consult = self.consult_file([])
+        out = self.send_consult(consult)
+        self.assertNotIn('not live', out)
+        self.assertEqual(len(self.thread_messages(old)), before)
+        new = next(
+            t
+            for t in (amp_thread(n) for n in range(3, 9))
+            if (self.fake / 'amp-threads' / t).exists()
+        )
+        message = self.thread_messages(new)[0]
+        self.assertIn(f'pstack-kitchen CONSULT {consult}', message)
+        self.assertTrue(
+            message.startswith(
+                'You are a new thread for this role. Read ~/.agents/skills/pstack-kitchen/SKILL.md (your role: consultant)'
+            ),
+            message,
+        )
+        starts = [
+            line
+            for line in (self.fake / 'amp.log').read_text().splitlines()
+            if '--title demo-consultant' in line
+        ]
+        self.assertEqual(len(starts), 2, starts)
+        self.assertIn('--model c/one', starts[-1])
+
     def retire_threads(self, entries):
         """threads.json of the amp state dir as the build writes it: {thread: {name, role, at, store}}; each thread is idle."""
         path = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/threads.json'
