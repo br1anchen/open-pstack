@@ -21508,6 +21508,37 @@ class GitStoreTests(unittest.TestCase):
                 self.sh('git', 'diff', '--cached', '--name-only', cwd=self.store), ''
             )
 
+    def test_gitstore_a_commit_made_outside_publish_is_scanned_before_it_is_pushed(
+        self,
+    ):
+        token = _fake('gh', 'p_', 'a1' * 18)
+        self.write(self.store, 'reports/002-y.md', f'oops\n{token}\n')
+        self.sh('git', 'add', 'reports/002-y.md', cwd=self.store)
+        self.sh(
+            'git',
+            '-c',
+            'user.name=t',
+            '-c',
+            'user.email=t@t',
+            'commit',
+            '-q',
+            '-m',
+            'by hand',
+            cwd=self.store,
+        )
+        self.write(self.store, 'progress/001-x.md', 'clean\n')
+        remote = self.remote_commits()
+        with self.assertRaises(errors.SecretFound) as caught:
+            self.publish(
+                self.store, ['progress/001-x.md'], gitstore.Writer('sidekick', 1)
+            )
+        self.assertEqual(
+            caught.exception.message,
+            'secret: reports/002-y.md:2: github-token; redact it (write [REDACTED: github-token]) and run the command again',
+        )
+        self.assertEqual(self.remote_commits(), remote)
+        self.assertNotIn('progress/001-x.md', self.remote_files())
+
     def test_gitstore_a_crash_after_the_commit_leaves_it_for_the_next_publish(self):
         self.write(self.store, 'reports/001-x.md')
         with mock.patch.object(gitstore, 'push', side_effect=RuntimeError('killed')):

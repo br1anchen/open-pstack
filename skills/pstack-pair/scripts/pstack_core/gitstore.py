@@ -593,6 +593,50 @@ def _commit(store, rels, message, writer):
     return 1
 
 
+def _unsent_texts(store, branch):
+    """(path, text) of every blob a push of HEAD would send that the remote branch lacks: the blobs of all the commits not on it, the ones a later
+    commit removed again included. PublishFailed when git cannot list or read one."""
+    remote = _remote_ref(branch)
+    spec = (
+        f'{remote}..HEAD'
+        if git.ok(store, 'show-ref', '--verify', '--quiet', remote)
+        else 'HEAD'
+    )
+    listed = git.run(store, 'rev-list', '--objects', spec, quiet=True)
+    typed = git.run(
+        store,
+        'cat-file',
+        '--batch-check=%(objecttype) %(objectname) %(rest)',
+        stdin=listed.stdout,
+        quiet=True,
+    )
+    if listed.returncode != 0 or typed.returncode != 0:
+        raise PublishFailed(
+            f'cannot list what a push of {branch} would send; nothing is pushed'
+        )
+    blobs = {}
+    for line in typed.stdout.splitlines():
+        kind, sha, path = (line.split(' ', 2) + ['', ''])[:3]
+        if kind == 'blob':
+            blobs.setdefault(sha, path or sha)
+    items = []
+    for sha, path in blobs.items():
+        shown = git.run(store, 'cat-file', 'blob', sha, quiet=True)
+        if shown.returncode != 0:
+            raise PublishFailed(f'cannot read {path} to scan it; nothing is pushed')
+        items.append((path, shown.stdout))
+    return items
+
+
+def _refuse_unsent_secrets(store, branch):
+    """Raises SecretFound, with nothing pushed, when a blob the push would send holds a credential: a commit made here outside publish, or one an
+    earlier publish refused to push, is scanned as the files of this publish are. A line a `pstack-allow-secret:` marker exempts goes through
+    (publish logged it when it made the commit)."""
+    found = secrets.scan(_unsent_texts(store, branch), root=store)
+    if found:
+        raise SecretFound(found)
+
+
 def _on_remote(store, branch):
     """Whether HEAD is on the remote branch, after a reply that did not say: the answer to an ambiguous push."""
     if not refresh(store):
@@ -646,6 +690,7 @@ def _publish(store, rels, message, writer, sleep):
             )
         if not made and unpublished(store, branch) == 0:
             return ''
+        _refuse_unsent_secrets(store, branch)
         pushed = push(store, branch)
         if pushed.status == 'ok':
             return head_of(store)
