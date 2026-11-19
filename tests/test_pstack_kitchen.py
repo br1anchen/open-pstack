@@ -2,6 +2,7 @@
 gate, policy, and doctor, end to end through the command line."""
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -17789,6 +17790,128 @@ class AmpGitKitchenTests(AmpKitchenTests):
             timeout=60,
         ).stdout
         self.assertEqual(status, '')
+
+    def drain_paths(self):
+        return sorted(p for p in self.branch_tree() if p.startswith('drains/'))
+
+    def sent_requests(self, thread):
+        return [r['id'] for r in self.requests_of(thread) if r['state'] == 'sent']
+
+    def test_a_masters_message_names_its_request_beside_its_message_id(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        sidekick = amp_thread(1)
+        for request in self.sent_requests(sidekick):
+            self.assertTrue(
+                any(
+                    f'pstack-msg: {request}\npstack-request: {request}' in m
+                    for m in self.thread_messages(sidekick)
+                ),
+                request,
+            )
+
+    def test_a_sidekicks_finish_publishes_its_report_event_and_receipts_in_one_commit(
+        self,
+    ):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        sidekick = amp_thread(1)
+        requests = self.sent_requests(sidekick)
+        self.assertTrue(requests)
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        before = self.remote_git('rev-parse', 'kitchen/demo').strip()
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        [commit] = self.remote_git('rev-list', f'{before}..kitchen/demo').split()
+        changed = set(
+            self.remote_git('show', '--name-only', '--format=', commit).split()
+        )
+        self.assertEqual(
+            changed,
+            {
+                'reports/001-util.md',
+                'events/sidekick-g1.tsv',
+                *(f'drains/sidekick-g1/{r}.json' for r in requests),
+            },
+        )
+        receipt = json.loads(
+            self.remote_git(
+                'show', f'kitchen/demo:drains/sidekick-g1/{requests[-1]}.json'
+            )
+        )
+        self.assertEqual(
+            receipt,
+            {
+                'run': self.state()['run_id'],
+                'role': 'sidekick',
+                'generation': 1,
+                'thread': sidekick,
+                'request': requests[-1],
+                'outputs': [
+                    {
+                        'path': 'reports/001-util.md',
+                        'sha256': hashlib.sha256(report.read_bytes()).hexdigest(),
+                    }
+                ],
+                'code': [head],
+            },
+        )
+
+    def test_a_finish_whose_push_is_refused_leaves_no_receipt_on_origin_and_a_retry_publishes_it(
+        self,
+    ):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        requests = self.sent_requests(amp_thread(1))
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        hook = self.remote / 'hooks/pre-receive'
+        hook.write_text(
+            '#!/bin/sh\nwhile read old new ref; do\n'
+            '  [ "$ref" = refs/heads/kitchen/demo ] && exit 1\n'
+            'done\nexit 0\n'
+        )
+        hook.chmod(0o755)
+        tip = self.remote_git('rev-parse', 'kitchen/demo').strip()
+        messages = len(list((self.fake / 'amp-threads').glob(f'{AMP_MASTER}/*.txt')))
+        self.as_orb(clone, 'finish', str(orb_store), str(report), code=1)
+        self.assertEqual(self.remote_git('rev-parse', 'kitchen/demo').strip(), tip)
+        self.assertEqual(self.drain_paths(), [])
+        self.assertEqual(
+            len(list((self.fake / 'amp-threads').glob(f'{AMP_MASTER}/*.txt'))), messages
+        )
+        hook.unlink()
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertEqual(
+            self.drain_paths(),
+            [f'drains/sidekick-g1/{r}.json' for r in sorted(requests)],
+        )
+
+    def test_a_notify_after_a_receipt_for_an_older_request_writes_one_for_the_new_request_and_keeps_the_old(
+        self,
+    ):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        sidekick = amp_thread(1)
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'notify', str(orb_store), str(report))
+        first = self.drain_paths()
+        self.assertTrue(first)
+        code, out = self.send_to_thread(sidekick, 'pstack-kitchen NOTE x')
+        self.assertEqual(code, 0, out)
+        [new] = set(self.sent_requests(sidekick)) - {Path(p).stem for p in first}
+        later = self.write_report(orb_store, '002-more.md', 'done', head)
+        self.as_orb(clone, 'notify', str(orb_store), str(later))
+        self.assertEqual(
+            self.drain_paths(),
+            sorted([*first, f'drains/sidekick-g1/{new}.json']),
+        )
+        receipt = json.loads(
+            self.remote_git('show', f'kitchen/demo:drains/sidekick-g1/{new}.json')
+        )
+        self.assertEqual(receipt['outputs'][0]['path'], 'reports/002-more.md')
+        old = json.loads(self.remote_git('show', f'kitchen/demo:{first[0]}'))
+        self.assertEqual(old['outputs'][0]['path'], 'reports/001-util.md')
 
     def send_as_master(self, text, name='demo-sidekick', before=''):
         """Amp.send of a text to a new thread of `name`, from the master's own process, after running the Python `before`: (exit code, output)."""

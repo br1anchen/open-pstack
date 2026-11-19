@@ -20957,6 +20957,7 @@ class GitStoreTests(unittest.TestCase):
             'events/master-g1.tsv',
             'gates/sidekick-g2.tsv',
             'acks/sidekick-g1.tsv',
+            'drains/sidekick-g1/0a1b2c.json',
             'reports/000-ready-g3.md',
             *self.LOCAL_PATHS,
             *(f'{d}/001-x.md' for d in ctx.variant.store_dirs if d != 'scratch'),
@@ -20998,6 +20999,8 @@ class GitStoreTests(unittest.TestCase):
             ('verdicts/001-x-v1-packet.md', gitstore.Writer('verifier', 1)),
             ('events/master-g1.tsv', sidekick),
             ('events/sidekick-g2.tsv', sidekick),
+            ('drains/sidekick-g2/0a1b2c.json', sidekick),
+            ('drains/consultant-g1/0a1b2c.json', sidekick),
             ('mystery.txt', gitstore.Writer('master', 1)),
             ('wait.pid', gitstore.Writer('master', 1)),
         ]
@@ -21011,6 +21014,9 @@ class GitStoreTests(unittest.TestCase):
         self.write(self.store, 'events/sidekick-g1.tsv')
         self.publish(self.store, ['events/sidekick-g1.tsv'], sidekick)
         self.assertIn('events/sidekick-g1.tsv', self.remote_files())
+        self.write(self.store, 'drains/sidekick-g1/0a1b2c.json')
+        self.publish(self.store, ['drains/sidekick-g1/0a1b2c.json'], sidekick)
+        self.assertIn('drains/sidekick-g1/0a1b2c.json', self.remote_files())
 
     def test_gitstore_refuses_paths_that_leave_the_store_or_are_links_or_directories(
         self,

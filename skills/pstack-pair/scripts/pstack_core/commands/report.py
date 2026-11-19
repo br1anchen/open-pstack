@@ -3,7 +3,7 @@ import os
 
 from .. import gitstore, mux, procinfo
 from ..errors import Die, MissingStore, refuse_as
-from ..mux import DEVNULL
+from ..mux import DEVNULL, amp_routing
 from ..panes import agent_status, require_mux
 from ..store import (
     event,
@@ -97,13 +97,7 @@ def notify(ctx, args):
         header_field(file, 'status'),
     )
     if on_git and role:
-        # The row says the report is out: written only once the publish held, so a refused or pending one leaves none and its retry writes one.
-        gitstore.publish_report(store, role, file)
-        sent()
-        try:
-            gitstore.publish_role(store, role)
-        except gitstore.PublishFailed as e:
-            print(f'warning: {e}')
+        publish_terminal(store, role, file, sent)
     else:
         sent()
     master = field(store, 'master', 'name')
@@ -133,6 +127,28 @@ def notify(ctx, args):
             f'master {master} is {status}; left {file} for its next wait or status check'
         )
     return 0
+
+
+def publish_terminal(store, role, file, sent):
+    """The terminal publication of a role's report or advice under git (A7): its code first (A5), then the file, its event row and the drain
+    receipts in one commit, and no store write after it. A refused publication leaves no receipt on the remote and no row for the retry to repeat."""
+    extra, code = gitstore.report_code(store, role, file)
+    log = gitstore.event_file(store, role)
+    before = open(log, 'rb').read() if os.path.exists(log) else None
+    sent()
+    try:
+        receipts = amp_routing.drain(store, role, file, extra, code)
+        gitstore.publish_role(store, role, [file, *extra, *receipts])
+    except gitstore.PublishFailed:
+        raise
+    except Exception:
+        if os.path.relpath(log, store) in gitstore.dirty(store):
+            if before is None:
+                os.unlink(log)
+            else:
+                with open(log, 'wb') as f:
+                    f.write(before)
+        raise
 
 
 def next_brief(ctx, args):

@@ -92,6 +92,11 @@ RULES = (
         SHARED,
     ),
     _rule(
+        'drain receipts of one writer generation (one file for each request it drained)',
+        r'(?P<dir>drains)/(?P<role>[a-z]+)-g(?P<gen>\d+)/(?P<request>[0-9a-f]+)\.json',
+        SHARED,
+    ),
+    _rule(
         'code bundles of one writer generation',
         r'(?P<dir>code)/(?P<role>[a-z]+)-g(?P<gen>\d+)\.bundle',
         SHARED,
@@ -154,9 +159,10 @@ def check_owned(rel, writer):
         generation = int(found['gen'])
         if found['role'] != writer.role or writer.generation != generation:
             mine = f'{writer.role}-g{writer.generation}'
-            raise OwnershipError(
-                f'{rel}: each writer appends to {found["dir"]}/{mine}{posixpath.splitext(rel)[1]} only'
+            home = f'{found["dir"]}/{mine}' + (
+                '/' if rel.count('/') > 1 else posixpath.splitext(rel)[1]
             )
+            raise OwnershipError(f'{rel}: each writer appends to {home} only')
     elif writer.role not in rule.roles:
         raise OwnershipError(
             f'{rel}: {rule.label} belong to {" or ".join(rule.roles)}, not to {writer.role}'
@@ -929,15 +935,66 @@ def publish_code(store, writer, head):
     )
 
 
-def publish_report(store, role, file):
-    """A role's report or verdict, published code first: the commit its head: names is pushed (or bundled) before the file goes out."""
+def report_code(store, role, file):
+    """The code of a role's report or verdict, published before the file goes out (A5): the commit its head: names is pushed (or bundled).
+    (the store-relative paths to publish with the report, the full shas of the commits it published)."""
     head = header_field(file, 'head')
-    extra = (
-        publish_code(store, writer_of(store, role), head)
-        if re.fullmatch(r'[0-9a-f]{7,40}', head)
-        else []
-    )
-    return publish_role(store, role, [file, *extra])
+    if not re.fullmatch(r'[0-9a-f]{7,40}', head):
+        return [], []
+    extra = publish_code(store, writer_of(store, role), head)
+    return extra, [
+        git.out(store, 'rev-parse', '--verify', f'{head}^{{commit}}') or head
+    ]
+
+
+def sha256_of(path):
+    """The full sha256 of a file's bytes, '' when it cannot be read."""
+    try:
+        with open(path, 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return ''
+
+
+def write_drains(store, writer, run, thread, requests, outputs, code):
+    """A drain receipt (A7) for each request of `requests` that has no valid one yet: drains/<role>-g<generation>/<request>.json, which names the
+    outputs (store-relative path and sha256) and code heads of the terminal publication it goes out with. A receipt whose outputs still match the
+    files here is kept as it is; one whose output changed is written again. The store-relative paths written."""
+    sums = [{'path': o, 'sha256': sha256_of(f'{store}/{o}')} for o in outputs]
+    written = []
+    for request in requests:
+        rel = f'drains/{writer.role}-g{writer.generation}/{request}.json'
+        path = f'{store}/{rel}'
+        doc = {
+            'run': run,
+            'role': writer.role,
+            'generation': writer.generation,
+            'thread': thread,
+            'request': request,
+            'outputs': sums,
+            'code': list(code),
+        }
+        try:
+            with open(path, encoding='utf-8') as f:
+                have = json.load(f)
+        except (OSError, ValueError):
+            have = None
+        if (
+            isinstance(have, dict)
+            and have.get('thread') == thread
+            and all(
+                isinstance(o, dict)
+                and sha256_of(f'{store}/{o.get("path")}') == o.get('sha256')
+                for o in have.get('outputs') or []
+            )
+        ):
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(doc, f, indent=1, sort_keys=True)
+            f.write('\n')
+        written.append(rel)
+    return written
 
 
 def _fetch_trunk(store):

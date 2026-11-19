@@ -14,6 +14,7 @@ and relays are ordered by it, never by the clock. Only the master writes records
 import fcntl
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -29,6 +30,8 @@ STARTED, RETIRED, ARCHIVED = 'started', 'retired', 'archived'
 ORDER = {STARTED: 0, RETIRED: 1, ARCHIVED: 2}
 PENDING, SENT, FAILED = 'pending', 'sent', 'failed'
 ROLES = ('sidekick', 'consultant', 'verifier')
+DRAINED = ('sidekick', 'consultant')
+REQUEST = 'pstack-request:'
 NO_DRAIN = 'no drain receipt (unit 043)'
 
 
@@ -395,6 +398,50 @@ def reconcile(store, thread, exported):
             put(store, {rel_of(thread): doc})
         except PairError:
             pass
+
+
+def request_line(store, request):
+    """The line a master's message carries beside its `pstack-msg:` id, so the role can name the request it answers in its drain receipt. A send
+    that is not a record of the master's (a role's, or any under the local backend) has none."""
+    return f'\n{REQUEST} {request}' if master_store(store) else ''
+
+
+def held_requests(thread):
+    """The ids of the requests the master sent the thread, oldest first, read from the thread itself: what a role drains."""
+    found = []
+    for message in _amp().export(thread).get('messages') or []:
+        if isinstance(message, dict) and message.get('role') == 'user':
+            for request in re.findall(f'{REQUEST} ([0-9a-f]+)', json.dumps(message)):
+                if request not in found:
+                    found.append(request)
+    return found
+
+
+def drain(store, role, file, extra, code):
+    """The drain receipts (A7) that go out in the terminal publication of a sidekick's or consultant's report or advice (`file`, with the `extra`
+    store-relative paths published with it and the `code` heads already published): one for each request its thread holds. The store-relative
+    paths written. None when the thread is not the one the master's record names for this generation, which never writes a receipt as another
+    generation, or when the thread cannot be read."""
+    thread = _amp().own_thread()
+    if not (thread and role in DRAINED):
+        return []
+    writer = gitstore.writer_of(store, role)
+    held = _read(f'{store}/{rel_of(thread)}')
+    if held and _num(held, 'generation') != writer.generation:
+        print(
+            f'drain: generation {_num(held, "generation")} wrote nothing as generation {writer.generation}',
+            file=sys.stderr,
+        )
+        return []
+    return gitstore.write_drains(
+        store,
+        writer,
+        run_identity(store),
+        thread,
+        held_requests(thread),
+        [os.path.relpath(file, store), *extra],
+        code,
+    )
 
 
 def kept_by_branch(store, thread, role):

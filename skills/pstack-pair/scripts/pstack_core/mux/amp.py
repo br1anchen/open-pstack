@@ -1157,7 +1157,7 @@ class Amp(Subagents):
                         reorientation(name, text, store, created) + message
                     )
                 cwd = (bundle.repo_of(store) if store else '') or None
-                message = f'{message}\n\n{MSG_ID} {msg_id}'
+                message = f'{message}\n\n{MSG_ID} {msg_id}{amp_routing.request_line(store, msg_id)}'
                 called = True
                 thread, err = deliver(
                     thread, flags, title or name, attach, message, cwd, msg_id
