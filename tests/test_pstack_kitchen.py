@@ -17672,6 +17672,33 @@ class AmpGitKitchenTests(AmpKitchenTests):
             self.git('rev-parse', 'refs/pstack/code/sidekick-g1.bundle'), second
         )
 
+    def sidekick_events(self):
+        return [
+            row
+            for row in self.remote_git(
+                'show', 'kitchen/demo:events/sidekick-g1.tsv'
+            ).splitlines()
+            if '\treport\t' in row
+        ]
+
+    def test_a_refused_publish_leaves_no_report_row_and_the_retry_writes_exactly_one(
+        self,
+    ):
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        token = 'gh' + 'p_' + 'a1' * 18
+        report.write_text(report.read_text() + f'\nthe token is {token}\n')
+        self.as_orb(clone, 'finish', str(orb_store), str(report), code=1)
+        local = Path(orb_store) / 'events/sidekick-g1.tsv'
+        rows = local.read_text() if local.exists() else ''
+        self.assertNotIn('\treport\t', rows)
+        report.write_text(
+            f'# Report\n\nstatus: partial\nhead: {head}\n\nthe token is [REDACTED: github-token]\n'
+        )
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertEqual(len(self.sidekick_events()), 1)
+
 
 for _name in dir(AmpKitchenTests):
     if _name.startswith('test_') and _name not in vars(AmpGitKitchenTests):

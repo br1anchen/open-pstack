@@ -21733,6 +21733,32 @@ class GitStoreTests(unittest.TestCase):
         self.assertIn('reports/003-z.md', self.remote_files())
         self.assertNotIn(token.encode(), self.remote_objects())
 
+    def test_gitstore_a_flagged_verdict_names_the_verifier_only_to_a_writer_that_may_not_write_it(
+        self,
+    ):
+        token = _fake('gh', 'p_', 'a1' * 18)
+        commit = self.commit_by_hand('verdicts/003-z-v1.md', f'oops\n{token}\n')
+        self.write(self.store, 'decisions.tsv', 'row\n')
+        self.write(
+            self.store, 'verdicts/003-z-v1.md', 'oops\n[REDACTED: github-token]\n'
+        )
+        label = f'verdicts/003-z-v1.md@{commit}'
+        with self.assertRaises(gitstore.PublishFailed) as caught:
+            self.publish(self.store, ['decisions.tsv'], gitstore.Writer('master', 1))
+        self.assertEqual(
+            str(caught.exception),
+            f'secret: {label} is in an unpushed commit; redact it and publish that path (it is not part of this publish)',
+        )
+        self.write(self.store, 'reports/003-r.md', 'r\n')
+        with self.assertRaises(gitstore.PublishFailed) as caught:
+            self.publish(
+                self.store, ['reports/003-r.md'], gitstore.Writer('sidekick', 1)
+            )
+        self.assertEqual(
+            str(caught.exception),
+            f"secret: {label} is in an unpushed commit; verdicts/003-z-v1.md is verifier's; it must publish it",
+        )
+
     def test_gitstore_two_unpushed_versions_of_one_path_are_scanned_under_labels_of_their_own(
         self,
     ):

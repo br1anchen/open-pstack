@@ -692,7 +692,7 @@ def _unsent_texts(store, branch):
 def _refusal(label, rel, writer):
     """The line for a flagged path an unpushed commit holds that this publish does not name: another role's file is that role's to publish."""
     owner = owner_role(rel)
-    if owner and owner != writer.role:
+    if owner and not owns(rel, writer):
         return f"secret: {label} is in an unpushed commit; {rel} is {owner}'s; it must publish it"
     return f'secret: {label} is in an unpushed commit; redact it and publish that path (it is not part of this publish)'
 

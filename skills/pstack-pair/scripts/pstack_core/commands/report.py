@@ -89,7 +89,7 @@ def notify(ctx, args):
     require_pair(ctx, store)
     on_git = gitstore.is_git(store)
     role = gitstore.owner_role(os.path.relpath(file, store)) if on_git else ''
-    event(
+    sent = lambda: event(
         store,
         role or ('consultant' if word == 'ADVICE' else 'sidekick'),
         word.lower(),
@@ -97,7 +97,15 @@ def notify(ctx, args):
         header_field(file, 'status'),
     )
     if on_git and role:
+        # The row says the report is out: written only once the publish held, so a refused or pending one leaves none and its retry writes one.
         gitstore.publish_report(store, role, file)
+        sent()
+        try:
+            gitstore.publish_role(store, role)
+        except gitstore.PublishFailed as e:
+            print(f'warning: {e}')
+    else:
+        sent()
     master = field(store, 'master', 'name')
     status = agent_status(master)
     if mux.get().remote_roles:
