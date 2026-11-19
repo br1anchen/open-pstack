@@ -475,17 +475,18 @@ def assess(thread, store, role, idle_roles=False):
     idle_roles says the sweep may take one that is settled and has nothing open (role_is_idle)."""
     doc = load_json(os.path.join(store, 'pair.json'))
     live = live_threads(doc)
-    state, since = thread_state(export(thread))
-    if thread == own_thread() or (
-        thread in live
-        and not (
-            idle_roles
-            and state in SETTLED
-            and role in ('sidekick', 'consultant')
-            and role_is_idle(store, doc, role)
-        )
+    in_use = ('in use', f'in use by {live.get(thread) or "this master"}')
+    if thread == own_thread():
+        return in_use
+    if thread in live and not (
+        idle_roles
+        and role in ('sidekick', 'consultant')
+        and role_is_idle(store, doc, role)
     ):
-        return 'in use', f'in use by {live.get(thread) or "this master"}'
+        return in_use
+    state, since = thread_state(export(thread))
+    if thread in live and state not in SETTLED:
+        return in_use
     if state == '':
         return 'unknown', 'state unknown (export failed or gave none)'
     if state not in SETTLED:
