@@ -17573,6 +17573,133 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertEqual(registry['agents']['demo-sidekick']['thread'], new)
         self.assertEqual(self.dirty_role_files(), [])
 
+    def requests_of(self, thread):
+        record = json.loads(
+            self.remote_git('show', f'kitchen/demo:threads/{thread}.json')
+        )
+        return record['requests']
+
+    def test_a_send_that_was_delivered_and_never_recorded_stays_pending_on_the_branch_and_is_not_sent_again_under_a_new_id(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.ready_path().unlink()
+        self.role_ready('first-orb', sidekick, 1)
+        self.run_sh('sync', '--branch', str(self.store))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        (self.fake / 'amp-kill-after-delivery').write_text('')
+        out = self.run_sh(
+            'dispatch', str(self.store), str(b), '--timeout', '1', code=None
+        )
+        self.assertFalse((self.fake / 'amp-kill-after-delivery').exists(), out)
+        delivered = len(self.briefs_in(sidekick))
+        self.assertEqual(delivered, 1)
+        [pending] = [r for r in self.requests_of(sidekick) if r['state'] == 'pending']
+        self.assertIn(f'pstack-msg: {pending["id"]}', self.briefs_in(sidekick)[0])
+        # A master in a fresh clone reads the request as pending from the branch alone.
+        clone, taken = self.fresh_master('master-orb')
+        record = json.loads((taken / 'threads' / f'{sidekick}.json').read_text())
+        self.assertEqual(
+            [(r['id'], r['state']) for r in record['requests']][-1:],
+            [(pending['id'], 'pending')],
+        )
+        self.dispatch(b)
+        self.assertEqual(len(self.briefs_in(sidekick)), delivered)
+        [settled] = [r for r in self.requests_of(sidekick) if r['id'] == pending['id']]
+        self.assertEqual({r['state'] for r in self.requests_of(sidekick)}, {'sent'})
+        self.assertEqual((settled['id'], settled['state']), (pending['id'], 'sent'))
+        self.assertEqual(settled['seq'], pending['seq'])
+        self.assertEqual(self.dirty_role_files(), [])
+
+    def test_requests_are_ordered_by_a_sequence_that_counts_across_the_run_not_by_the_clock(
+        self,
+    ):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.dispatch(self.brief('002', 'more', ['src/**', 'tests/**']))
+        seqs = [r['seq'] for r in self.requests_of(amp_thread(1))]
+        self.assertEqual(seqs, sorted(set(seqs)))
+        self.assertGreaterEqual(len(seqs), 2)
+        self.assertEqual(
+            {r['state'] for r in self.requests_of(amp_thread(1))}, {'sent'}
+        )
+
+    def test_a_roles_notify_leaves_the_masters_thread_records_untouched(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        before = self.remote_git('rev-parse', 'kitchen/demo:threads').strip()
+        self.as_orb(clone, 'notify', str(orb_store), str(report))
+        self.assertIn('reports/001-util.md', self.branch_tree())
+        self.assertEqual(
+            self.remote_git('rev-parse', 'kitchen/demo:threads').strip(), before
+        )
+        status = subprocess.run(
+            ['git', 'status', '--porcelain', '--untracked-files=all', '--', 'threads'],
+            cwd=orb_store,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+        self.assertEqual(status, '')
+
+    def send_as_master(self, text, name='demo-sidekick'):
+        """Amp.send of a text to a new thread of `name`, from the master's own process: (exit code, output)."""
+        code = (
+            'import sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core.mux import amp\n'
+            f'print(amp.Amp().send({name!r}, {text!r}, "", ["-m", "x/y"], {str(self.store)!r}))\n'
+        )
+        env = {**self.env, 'AMP_THREAD_ID': AMP_MASTER}
+        env.pop('PSTACK_MUX')
+        result = subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+    def test_a_launch_that_was_delivered_and_never_recorded_is_a_pending_launch_record_and_is_not_launched_again(
+        self,
+    ):
+        (self.fake / 'amp-kill-after-delivery').write_text('')
+        self.send_as_master('pstack-kitchen BRIEF x')
+        self.assertFalse((self.fake / 'amp-kill-after-delivery').exists())
+        launches = [p for p in self.branch_tree() if p.startswith('threads/launch-')]
+        self.assertEqual(len(launches), 1)
+        launch = json.loads(self.remote_git('show', f'kitchen/demo:{launches[0]}'))
+        [request] = launch['requests']
+        self.assertEqual(
+            (launch['name'], launch['role'], request['state']),
+            ('demo-sidekick', 'sidekick', 'pending'),
+        )
+        started = len(list((self.fake / 'amp-threads').iterdir()))
+        code, out = self.send_as_master('pstack-kitchen BRIEF x')
+        self.assertEqual(code, 0, out)
+        self.assertIn(f'earlier launch of demo-sidekick (request {request["id"]})', out)
+        self.assertEqual(len(list((self.fake / 'amp-threads').iterdir())), started)
+
+    def test_a_launch_that_succeeds_replaces_its_launch_record_with_the_threads_own(
+        self,
+    ):
+        code, out = self.send_as_master('pstack-kitchen BRIEF y')
+        self.assertEqual(code, 0, out)
+        found = re.search(r'T-[0-9a-f-]{36}', out)
+        assert found is not None, out
+        thread = found[0]
+        tree = self.branch_tree()
+        self.assertIn(f'threads/{thread}.json', tree)
+        self.assertEqual([p for p in tree if p.startswith('threads/launch-')], [])
+        [request] = self.requests_of(thread)
+        self.assertEqual(request['state'], 'sent')
+
     def test_a_rotation_whose_spawn_dies_still_publishes_its_rotate_event(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

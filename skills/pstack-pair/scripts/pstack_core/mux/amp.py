@@ -628,6 +628,31 @@ def run(argv, cwd=None):
     )
 
 
+def deliver(thread, flags, title, attach, message, cwd, msg_id):
+    """(thread, error text) of one message sent by the CLI: to `thread`, or, with none, to a new thread on `flags`. An upload that breaks off is
+    retried (PSTACK_AMP_SEND_TRIES) unless the thread already holds the message's id."""
+    tries = max(1, env_int('PSTACK_AMP_SEND_TRIES', 3))
+    for attempt in range(tries):
+        if thread:
+            # -x reads its message from the token right after it, so `-ox MESSAGE` comes last.
+            r = run(
+                ['amp', 'threads', 'continue', thread, *attach, '-ox', message], cwd
+            )
+        else:
+            r = run(['amp', *flags, '--title', title, *attach, '-ox', message], cwd)
+        found = THREAD_RE.search(r.stdout or '')
+        if r.returncode == 0 and found:
+            return found.group(0), ''
+        err = (r.stderr or r.stdout or f'amp exited {r.returncode}').strip()
+        # A failed send may still have reached the thread: a retry that resent it would deliver it twice.
+        if thread and holds(export(thread), msg_id):
+            return thread, ''
+        if UPLOAD_FAILED not in err or attempt + 1 == tries:
+            return thread, err
+        time.sleep(env_int('PSTACK_AMP_RETRY_S', 10))
+    return thread, 'no attempt was made'
+
+
 class Amp(Subagents):
     program = 'amp'
     label = 'Amp threads'
@@ -1083,6 +1108,22 @@ class Amp(Subagents):
         )
         # The send-back rules go in full until a message that carried them has been sent, and again after a compaction.
         full_rules = not (seen and seen.get('rules')) or compacted
+        digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
+        if thread and self.pending(thread, digest):
+            self.skipped = thread
+            return thread, ''
+        # Under git the master publishes the request before the external send, and a pending one left by a master that died is reused.
+        msg_id, resumed = amp_routing.intend(store, name, thread, digest)
+        if resumed and not thread:
+            return '', (
+                f'an earlier launch of {name} (request {msg_id}) was published and never settled, so it may have started a thread; '
+                f'find that thread, or remove {amp_routing.launch_rel(msg_id)} from the store branch to launch again'
+            )
+        if resumed and thread and holds(export(thread), msg_id):
+            amp_routing.settle(store, name, thread, msg_id, amp_routing.SENT, False)
+            record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
+            self.skipped = thread
+            return thread, ''
         build, carried = '', False
         with tempfile.TemporaryDirectory() as tmp:
             attach = []
@@ -1094,46 +1135,18 @@ class Amp(Subagents):
             if compacted or created:
                 message = reorientation(name, text, store, created) + message
             cwd = (bundle.repo_of(store) if store else '') or None
-            digest = hashlib.sha256(f'{name}\n{text}'.encode()).hexdigest()
-            if thread and self.pending(thread, digest):
-                self.skipped = thread
-                return thread, ''
-            msg_id = uuid.uuid4().hex[:12]
             message = f'{message}\n\n{MSG_ID} {msg_id}'
-            tries = max(1, env_int('PSTACK_AMP_SEND_TRIES', 3))
-            for attempt in range(tries):
-                if thread:
-                    # -x reads its message from the token right after it, so `-ox MESSAGE` comes last.
-                    r = run(
-                        ['amp', 'threads', 'continue', thread, *attach, '-ox', message],
-                        cwd,
-                    )
-                else:
-                    r = run(
-                        [
-                            'amp',
-                            *flags,
-                            '--title',
-                            title or name,
-                            *attach,
-                            '-ox',
-                            message,
-                        ],
-                        cwd,
-                    )
-                found = THREAD_RE.search(r.stdout or '')
-                if r.returncode == 0 and found:
-                    thread = found.group(0)
-                    break
-                err = (r.stderr or r.stdout or f'amp exited {r.returncode}').strip()
-                # A failed send may still have reached the thread: a retry that resent it would deliver it twice.
-                if thread and holds(export(thread), msg_id):
-                    break
-                if UPLOAD_FAILED not in err or attempt + 1 == tries:
-                    return '', err
-                time.sleep(env_int('PSTACK_AMP_RETRY_S', 10))
+            thread, err = deliver(
+                thread, flags, title or name, attach, message, cwd, msg_id
+            )
+            if err:
+                amp_routing.settle(
+                    store, name, thread, msg_id, amp_routing.FAILED, False
+                )
+                return '', err
             record_sent(thread, {'hash': digest, 'id': msg_id, 'at': int(time.time())})
             record_started(thread, name, store, created)
+            amp_routing.settle(store, name, thread, msg_id, amp_routing.SENT, created)
             record_given(
                 thread,
                 compactions,

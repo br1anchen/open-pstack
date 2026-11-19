@@ -14,6 +14,7 @@ and relays are ordered by it, never by the clock. Only the master writes records
 import fcntl
 import json
 import os
+import time
 import uuid
 from typing import Any
 
@@ -24,7 +25,9 @@ from ..store import update
 DIR = 'threads'
 LAUNCH = 'launch-'
 STARTED, RETIRED, ARCHIVED = 'started', 'retired', 'archived'
+PENDING, SENT, FAILED = 'pending', 'sent', 'failed'
 ROLES = ('sidekick', 'consultant', 'verifier')
+NO_DRAIN = 'no drain receipt (unit 043)'
 
 
 def _amp():
@@ -195,6 +198,91 @@ def mirror(thread, entry):
         pass
 
 
+def _pending(recs, thread, name, key):
+    """The pending request for this text on `thread` (a creation: on a launch record of `name`), or None."""
+    for rel, doc in recs.items():
+        mine = (
+            doc.get('thread') == thread
+            if thread
+            else rel.startswith(f'{DIR}/{LAUNCH}') and doc.get('name') == name
+        )
+        for request in _items(doc, 'requests') if mine else []:
+            if request.get('state') == PENDING and request.get('hash') == key:
+                return request
+    return None
+
+
+def intend(store, name, thread, digest):
+    """(request id, resumed) of a send of the text with this digest to `thread` ('' for a creation). The master publishes the request pending
+    before the external send, so a send whose result was never recorded is found again: the same text sent again takes that request's id and
+    `resumed` is true (the caller asks the thread whether it holds it). A role's send, or none under the local backend, only gets an id."""
+    if not master_store(store):
+        return uuid.uuid4().hex[:12], False
+    recs = records(store)
+    found = _pending(recs, thread, name, digest)
+    if found:
+        return found['id'], True
+    request = {
+        'id': uuid.uuid4().hex[:12],
+        'seq': next_seq(recs),
+        'at': int(time.time()),
+        'hash': digest,
+        'state': PENDING,
+    }
+    if thread:
+        rel, doc = thread_record(store, name, thread)
+    else:
+        rel, doc = (
+            launch_rel(request['id']),
+            skeleton(store, ensure_run(store), name, ''),
+        )
+    doc['requests'].append(request)
+    put(store, {rel: doc})
+    return request['id'], False
+
+
+def settle(store, name, thread, request, state, created):
+    """The result of a request: in the thread's record, made now when the send started the thread (the launch record of a creation is removed
+    then), else in the launch record. Nothing when the master did not make the request."""
+    if not master_store(store):
+        return
+    try:
+        recs = records(store)
+        launch = next(
+            (
+                rel
+                for rel, d in recs.items()
+                if rel.startswith(f'{DIR}/{LAUNCH}')
+                and any(r.get('id') == request for r in _items(d, 'requests'))
+            ),
+            '',
+        )
+        if not thread:
+            doc = recs.get(launch)
+            if doc:
+                _items(doc, 'requests')[0]['state'] = state
+                put(store, {launch: doc})
+            return
+        rel, doc = thread_record(store, name, thread)
+        if created and not doc.get('started'):
+            doc['started'] = int(time.time())
+        mine = next((r for r in doc['requests'] if r.get('id') == request), None)
+        if mine is None:
+            mine = next(
+                (
+                    r
+                    for r in _items(recs.get(launch) or {}, 'requests')
+                    if r.get('id') == request
+                ),
+                {'id': request, 'seq': next_seq(recs)},
+            )
+            doc['requests'].append(mine)
+        mine['state'] = state
+        put(store, {rel: doc}, [launch] if launch else [])
+    except PairError:
+        pass
+
+
 def _cache(path, mutate):
     """Applies mutate(doc) to the JSON cache at path under its lock, as the amp state files are written."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -266,6 +354,28 @@ def _fill_registry(store, found):
         amp.change(add, amp.registry_path())
 
 
+def _fill_outbox(found):
+    """What was last sent to each thread that this orb's outbox lacks, from the settled requests: the same text is not sent to a thread in a turn."""
+    amp = _amp()
+    have = amp.load_json(amp.outbox_path())
+    for thread, rec in found.items():
+        sent = [
+            r
+            for r in _items(rec, 'requests')
+            if r.get('state') == SENT and r.get('hash')
+        ]
+        if sent and thread not in have:
+            last = max(sent, key=lambda r: r.get('seq') or 0)
+            amp.record_sent(
+                thread,
+                {
+                    'hash': last['hash'],
+                    'id': last['id'],
+                    'at': int(last.get('at') or 0),
+                },
+            )
+
+
 def routing(store):
     """The routing caches of this orb ({threads, outbox}), rebuilt first from the store's control records when it is git-backed: a fresh clone with
     an empty state home gets the active role-to-thread mapping, the retired threads and what was sent to each, of this run identity, whatever its
@@ -277,6 +387,7 @@ def routing(store):
         if found:
             _fill_threads(store, found)
             _fill_registry(store, found)
+            _fill_outbox(found)
     return {
         'threads': amp.load_json(amp.threads_path()),
         'outbox': amp.load_json(amp.outbox_path()),

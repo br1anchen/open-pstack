@@ -10,6 +10,7 @@
 #   ($FAKE/amp-cost/T is the dollar figure it reports, $0.00 by default; `none` there prints no Cost line). The export reports
 #   $FAKE/amp-state/<T> as lastKnownAgentState (state and updatedAt on one line; none when absent) and the thread's delivered messages.
 # - $FAKE/amp-preflight-fail: model names, one per line; the headless preflight (`amp ... -x`) fails with a usage-limit error for a --model listed there.
+# - $FAKE/amp-kill-after-delivery: once, kills the calling process right after a message was delivered (the result is never recorded).
 # - $FAKE/amp-upload-fail: how many more sends end in the upload error; with $FAKE/amp-upload-fail-after-delivery the message is
 #   delivered first, as when the CLI loses the reply.
 set -u
@@ -31,6 +32,8 @@ deliver() {
 	done
 	printf '%s\n' "$message" >"$dir/$n.txt"
 	printf 'https://ampcode.com/threads/%s\n' "$thread"
+	# $FAKE/amp-kill-after-delivery: the message is delivered and the process that ran this CLI dies before it records the result (once).
+	if [ -e "$FAKE/amp-kill-after-delivery" ]; then rm -f "$FAKE/amp-kill-after-delivery"; kill -9 "$PPID"; fi
 }
 case "${1:-} ${2:-}" in
 "threads continue")
