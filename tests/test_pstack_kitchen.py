@@ -16667,6 +16667,32 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn('needs a fresh session', out)
         self.assertEqual(len(self.briefs_in(amp_thread(2))), 1)
 
+    def update_as(self, thread, store, cwd=None, env=None, mux='amp'):
+        """Runs store.update from the thread's own process, setting .probe in pair.json: (exit code, output)."""
+        code = (
+            'import sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core import store\n'
+            f'store.update({str(store)!r}, lambda doc: doc.__setitem__("probe", 1))\n'
+        )
+        env = {**self.env, **(env or {}), 'AMP_THREAD_ID': thread}
+        env.pop('PSTACK_MUX')
+        result = subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            cwd=cwd or self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+    def test_a_role_thread_may_write_pair_json_under_the_local_backend(self):
+        code, out = self.update_as(amp_thread(1), self.store)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.state()['probe'], 1)
+
     def set_state(self, thread, state, at='2026-01-01T00:00:00.000Z'):
         """The lastKnownAgentState `amp threads export` reports for thread."""
         (self.fake / 'amp-state').mkdir(exist_ok=True)
@@ -17537,6 +17563,57 @@ class AmpGitKitchenTests(AmpKitchenTests):
             ).read_text()
         )
         self.assertEqual(registry['agents']['demo-master']['thread'], master2)
+
+    def test_a_role_thread_cannot_write_pair_json_under_git_and_the_master_and_the_handing_over_master_can(
+        self,
+    ):
+        self.ready_path().unlink()
+        clone, orb_store = self.role_orb()
+        before = (orb_store / 'pair.json').read_bytes()
+        code, out = self.update_as(
+            amp_thread(1), orb_store, cwd=clone, env=self.orb_env
+        )
+        self.assertNotEqual(code, 0)
+        self.assertIn(
+            f'pair.json: belongs to the master (amp:{AMP_MASTER}), not to this thread (amp:{amp_thread(1)})',
+            out,
+        )
+        self.assertIn('OwnershipError', out)
+        self.assertEqual((orb_store / 'pair.json').read_bytes(), before)
+        code, out = self.update_as(AMP_MASTER, self.store)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.state()['probe'], 1)
+        self.assertEqual(self.dirty_role_files(), [])
+        # The master handing over still writes until the next one takes over; the next master is the master itself.
+        doc = self.state()
+        doc['master']['previous'] = {'name': 'old', 'pane_id': f'amp:{amp_thread(4)}'}
+        (self.store / 'pair.json').write_text(json.dumps(doc))
+        code, out = self.update_as(amp_thread(4), self.store)
+        self.assertEqual(code, 0, out)
+
+    def test_a_verifier_threads_scratch_under_git_makes_and_removes_its_worktree_and_leaves_pair_json_alone(
+        self,
+    ):
+        clone, orb_store = self.role_orb('verifier')
+        before = (orb_store / 'pair.json').read_bytes()
+        verifier = amp_thread(3)
+        out = self.as_orb(
+            clone, 'scratch', str(orb_store), '001-util-verify', thread=verifier
+        )
+        path = out.strip().splitlines()[0]
+        self.assertTrue(Path(path).is_dir(), out)
+        self.assertEqual((orb_store / 'pair.json').read_bytes(), before)
+        self.as_orb(
+            clone,
+            'scratch',
+            str(orb_store),
+            '001-util-verify',
+            '--remove',
+            thread=verifier,
+        )
+        self.assertFalse(Path(path).exists())
+        self.assertEqual((orb_store / 'pair.json').read_bytes(), before)
+        self.assertNotIn('OwnershipError', out)
 
     def test_a_message_to_a_role_announces_the_store_commit_and_carries_no_store_bundle(
         self,

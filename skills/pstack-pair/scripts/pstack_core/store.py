@@ -527,6 +527,9 @@ def update(store, mutate):
     for a value of the wrong type; any other exception is the mutate's own bug and propagates. A mutate that raises, or a pair.json that does not parse,
     leaves pair.json and pair.json.tmp as they were and frees the lock. PAIR_LOCK_TRIES and
     PAIR_LOCK_POLL_S exist so tests can shorten the 10 s wait."""
+    from . import gitstore
+
+    gitstore.require_master(store)
     lock = acquire_lock(store)
     try:
         doc = load(store)

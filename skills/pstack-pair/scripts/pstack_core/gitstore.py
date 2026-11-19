@@ -211,6 +211,41 @@ def writer_of(store, role):
     return Writer(role, generation_of(store, role) or 0)
 
 
+def caller_is_master(store):
+    """Whether this process may write the master's files. A thread that pair.json does not name as the master, or as the master handing over
+    (.master.previous, which still writes until the next one takes over), is a role's; with no thread, or a master pane that is not a thread's
+    yet (a counter pane, before the next master's thread started), nothing says it is not the master."""
+    from .mux.amp import own_thread
+
+    thread = own_thread()
+    try:
+        with open(f'{store}/pair.json', encoding='utf-8') as f:
+            master = json.load(f).get('master')
+    except (OSError, ValueError, AttributeError):
+        return True
+    if not (thread and isinstance(master, dict)):
+        return True
+    previous = master.get('previous')
+    panes = [master.get('pane_id')] + [
+        previous.get('pane_id') if isinstance(previous, dict) else None
+    ]
+    if not str(panes[0] or '').startswith('amp:T-'):
+        return True
+    return f'amp:{thread}' in panes
+
+
+def require_master(store):
+    """Under git pair.json is the master's alone: raises OwnershipError for a role's thread. Nothing under another backend."""
+    if is_git(store) and not caller_is_master(store):
+        from .mux.amp import own_thread
+
+        with open(f'{store}/pair.json', encoding='utf-8') as f:
+            owner = json.load(f)['master'].get('pane_id')
+        raise OwnershipError(
+            f'pair.json: belongs to the master ({owner}), not to this thread (amp:{own_thread()})'
+        )
+
+
 def event_file(store, actor):
     """The file the actor's events go to under git: events/<actor>-g<generation>.tsv."""
     os.makedirs(f'{store}/events', exist_ok=True)

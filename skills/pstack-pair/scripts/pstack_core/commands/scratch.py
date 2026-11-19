@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import sys
 
-from .. import git
+from .. import git, gitstore
 from ..argv import Spec, read
 from ..errors import BadScratch, Die, FileFailed, ScratchNotMade
 from ..store import basename, load, names, pair_file, text_at, update
@@ -86,13 +86,20 @@ def remove_scratch(ctx, store, ident):
         os.rmdir(parent_dir(path))
     except OSError:
         pass
-    update(
+    record_scratch(
         store,
         lambda doc: doc.update(
             scratch=[x for x in names(doc, 'scratch') if x != ident]
         ),
     )
     return path
+
+
+def record_scratch(store, mutate):
+    """The master's pair.json lists its scratch worktrees. Under git a role's worktree is local to its orb and the master never reads the list from
+    the branch, so a role records nothing."""
+    if not gitstore.is_git(store) or gitstore.caller_is_master(store):
+        update(store, mutate)
 
 
 def copy_live_changes(cwd, path):
@@ -235,7 +242,7 @@ def make_scratch(ctx, store, ident, *, at=''):
         raise ScratchNotMade('git worktree add failed')
     if not at and not jj:
         copy_live_changes(cwd, path)
-    update(
+    record_scratch(
         store, lambda doc: doc.update(scratch=sorted({*names(doc, 'scratch'), ident}))
     )
     return path
