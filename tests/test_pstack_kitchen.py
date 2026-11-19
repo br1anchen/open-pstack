@@ -17682,6 +17682,80 @@ class AmpGitKitchenTests(AmpKitchenTests):
             [(r['id'], r['state']) for r in relays()], [(record['id'], 'stale')]
         )
 
+    def as_master_py(self, body):
+        """Runs the Python `body` in the master's own process with amp and amp_routing imported: (exit code, output)."""
+        code = (
+            'import sys\n'
+            f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
+            'from pstack_core.mux import amp, amp_routing\n'
+            f'store = {str(self.store)!r}\n{body}\n'
+        )
+        env = {**self.env, 'AMP_THREAD_ID': AMP_MASTER}
+        env.pop('PSTACK_MUX')
+        result = subprocess.run(
+            [sys.executable, '-I', '-c', code],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+    def record_on_branch(self, thread):
+        return json.loads(
+            self.remote_git('show', f'kitchen/demo:threads/{thread}.json')
+        )
+
+    def test_a_thread_record_keeps_its_first_attributes_never_moves_back_and_skips_a_non_numeric_field(
+        self,
+    ):
+        self.rotated_run()
+        old, new, late, bad = amp_thread(1), amp_thread(2), amp_thread(7), amp_thread(8)
+        code, out = self.as_master_py(
+            f'amp.record_thread({late!r}, {{"name": "demo-sidekick", "role": "sidekick", '
+            f'"store": store, "at": 123}})'
+        )
+        self.assertEqual(code, 0, out)
+        # A record first written at retire time is not the current thread's: it takes none of the registry's attributes for the name.
+        first = self.record_on_branch(late)
+        self.assertEqual(
+            (
+                first['state'],
+                first['pane'],
+                first['kind'],
+                first['args'],
+                first['generation'],
+            ),
+            ('retired', '', '', [], 0),
+        )
+        self.assertNotEqual(self.record_on_branch(new)['pane'], '')
+        # A stale threads.json entry (no archive in it) does not take an archived record back to retired.
+        code, out = self.as_master_py(
+            f'amp.record_thread({old!r}, {{"archived": 5}})\n'
+            f'amp_routing.lifecycle(store, {old!r}, {{"name": "demo-sidekick", "role": "sidekick", "at": 9}})'
+        )
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.record_on_branch(old)['state'], 'archived')
+        # A value on the branch that is no number is skipped with a warning, and the rest of the records are still read.
+        (self.store / 'threads' / f'{bad}.json').write_text(
+            json.dumps(
+                {
+                    'run': self.state()['run_id'],
+                    'role': 'sidekick',
+                    'thread': bad,
+                    'name': 'demo-sidekick',
+                    'state': 'started',
+                    'started': 'soon',
+                }
+            )
+        )
+        out = self.run_sh('threads', str(self.store))
+        self.assertIn('skipping non-numeric started', out)
+        self.assertRegex(out, rf'(?m)^{new}  sidekick  ')
+        self.assertNotIn('Traceback', out)
+
     def test_requests_are_ordered_by_a_sequence_that_counts_across_the_run_not_by_the_clock(
         self,
     ):

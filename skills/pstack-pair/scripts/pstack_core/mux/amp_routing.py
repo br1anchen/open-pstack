@@ -14,6 +14,7 @@ and relays are ordered by it, never by the clock. Only the master writes records
 import fcntl
 import json
 import os
+import sys
 import time
 import uuid
 from typing import Any
@@ -25,6 +26,7 @@ from ..store import update
 DIR = 'threads'
 LAUNCH = 'launch-'
 STARTED, RETIRED, ARCHIVED = 'started', 'retired', 'archived'
+ORDER = {STARTED: 0, RETIRED: 1, ARCHIVED: 2}
 PENDING, SENT, FAILED = 'pending', 'sent', 'failed'
 ROLES = ('sidekick', 'consultant', 'verifier')
 NO_DRAIN = 'no drain receipt (unit 043)'
@@ -62,6 +64,23 @@ def _write(path, doc):
         json.dump(doc, f, indent=1, sort_keys=True)
         f.write('\n')
     os.replace(f'{path}.tmp', path)
+
+
+def _num(rec, key):
+    """rec[key] as a whole number, 0 when it is absent. A value on the branch that is not a number is skipped with a warning, not a crash: any
+    clone can write the branch, and one bad field must not stop the master from reading the rest."""
+    value = rec.get(key)
+    if value in (None, '', False):
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        who = rec.get('thread') or rec.get('id') or '?'
+        print(
+            f'routing: skipping non-numeric {key} {value!r} in the record of {who}',
+            file=sys.stderr,
+        )
+        return 0
 
 
 def _items(doc, key):
@@ -134,16 +153,17 @@ def put(store, writes, drop=()):
     )
 
 
-def skeleton(store, run, name, thread):
+def skeleton(store, run, name, thread, current=True):
     """A new record for `name` on `thread`: its role, the generation pair.json holds for it now and what the registry knows of its pane, kind and
-    arguments, so a master that rebuilds its registry from the branch has them."""
+    arguments, so a master that rebuilds its registry from the branch has them. Those describe the thread the name holds now: a record made for a
+    thread that is already retired (`current` false) takes none of them, for they would be its replacement's."""
     amp = _amp()
     role = amp.role_of(name)
-    entry = amp.load(amp.registry_path())['agents'].get(name) or {}
+    entry = (amp.load(amp.registry_path())['agents'].get(name) or {}) if current else {}
     return {
         'run': run,
         'role': role,
-        'generation': gitstore.generation_of(store, role) or 0,
+        'generation': (gitstore.generation_of(store, role) or 0) if current else 0,
         'thread': thread,
         'name': name,
         'state': STARTED,
@@ -155,26 +175,31 @@ def skeleton(store, run, name, thread):
     }
 
 
-def thread_record(store, name, thread):
+def thread_record(store, name, thread, current=True):
     """(rel, the thread's record as it is on disk, or a new one)."""
     run = ensure_run(store)
     rel = rel_of(thread)
     doc = _read(f'{store}/{rel}')
     if doc.get('run') != run:
-        doc = skeleton(store, run, name, thread)
+        doc = skeleton(store, run, name, thread, current)
     doc['requests'], doc['relays'] = _items(doc, 'requests'), _items(doc, 'relays')
     return rel, doc
 
 
 def lifecycle(store, thread, entry):
-    """The thread's record follows the lifecycle threads.json holds for it (started, retired, archived): published only when it differs."""
-    rel, doc = thread_record(store, entry.get('name') or '', thread)
+    """The thread's record follows the lifecycle threads.json holds for it (started, retired, archived): published only when it differs. The state
+    only moves forward, so a stale entry never takes a record back; a record first written once the thread is retired has no pane, kind, args or
+    generation of its own to take from the registry."""
+    state = (
+        ARCHIVED if entry.get('archived') else RETIRED if entry.get('at') else STARTED
+    )
+    rel, doc = thread_record(
+        store, entry.get('name') or '', thread, current=state == STARTED
+    )
     want: dict[str, Any] = {
-        'state': ARCHIVED
-        if entry.get('archived')
-        else RETIRED
-        if entry.get('at')
-        else STARTED
+        'state': max(
+            (state, doc.get('state') or STARTED), key=lambda s: ORDER.get(s, 0)
+        )
     }
     want.update({k: entry[k] for k in ('at', 'archived', 'role') if entry.get(k)})
     if entry.get('started') and not doc.get('started'):
@@ -340,18 +365,18 @@ def reconcile(store, thread, exported):
             continue
         if amp.holds(exported, str(request.get('id'))):
             request['state'] = SENT
-            if (amp.load_json(amp.outbox_path()).get(thread) or {}).get('at', 0) < int(
-                request.get('at') or 0
+            if _num(amp.load_json(amp.outbox_path()).get(thread) or {}, 'at') < _num(
+                request, 'at'
             ):
                 amp.record_sent(
                     thread,
                     {
                         'hash': request.get('hash') or '',
                         'id': request['id'],
-                        'at': int(request.get('at') or 0),
+                        'at': _num(request, 'at'),
                     },
                 )
-        elif ended and since >= int(request.get('at') or 0):
+        elif ended and since >= _num(request, 'at'):
             request['state'] = FAILED
         else:
             continue
@@ -373,8 +398,8 @@ def reconcile(store, thread, exported):
 
 
 def kept_by_branch(store, thread, role):
-    """Why the store branch keeps `thread` ('' when it says nothing against archiving it): work the master sent that is unsettled, or, for a
-    sidekick or consultant, the lack of a drain receipt, whatever else holds."""
+    """Why the store branch keeps `thread` ('' when it says nothing against archiving it): every git-store sidekick and consultant thread, for want
+    of a drain receipt (unit 043), and any thread with work the master sent that is unsettled."""
     return no_drain(store, role) or pending_work(store, thread)
 
 
@@ -410,7 +435,7 @@ def _fill_threads(store, found):
                 'store': have.get('store') or here,
             }
             for key in ('started', 'at', 'archived'):
-                value = max(int(rec.get(key) or 0), int(have.get(key) or 0))
+                value = max(_num(rec, key), _num(have, key))
                 if value:
                     merged[key] = value
             doc[thread] = merged
@@ -430,7 +455,7 @@ def _fill_registry(store, found):
     newest = {}
     for thread, rec in found.items():
         name = rec.get('name')
-        started = int(rec.get('started') or 0)
+        started = _num(rec, 'started')
         if (
             name in want
             and rec.get('state') == STARTED
@@ -469,13 +494,13 @@ def _fill_outbox(found):
             if r.get('state') == SENT and r.get('hash')
         ]
         if sent and thread not in have:
-            last = max(sent, key=lambda r: r.get('seq') or 0)
+            last = max(sent, key=lambda r: _num(r, 'seq'))
             amp.record_sent(
                 thread,
                 {
                     'hash': last['hash'],
                     'id': last['id'],
-                    'at': int(last.get('at') or 0),
+                    'at': _num(last, 'at'),
                 },
             )
 
