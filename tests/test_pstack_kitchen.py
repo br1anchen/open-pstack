@@ -18207,6 +18207,33 @@ class AmpGitKitchenTests(AmpKitchenTests):
         )
         self.assertEqual(self.dirty_role_files(), [])
 
+    def test_a_rotated_sidekick_thread_is_archived_on_its_own_generations_receipts_and_kept_without_them(
+        self,
+    ):
+        old, receipts = self.drained_old_thread()
+        clone, orb_store = self.fresh_orb('old-orb')
+        self.as_orb(
+            clone, 'sync', '--branch', str(orb_store), 'kitchen/demo', thread=old
+        )
+        head = self.commit_in(clone, 'late')
+        late = self.write_report(orb_store, '003-late.md', 'partial', head)
+        out = self.as_orb(clone, 'notify', str(orb_store), str(late), thread=old)
+        self.assertIn('drain: generation 1 wrote nothing as generation 2', out)
+        written = [p for p in self.drain_paths() if 'sidekick-g2/' in p]
+        self.assertTrue(written)
+        for rel in written:
+            receipt = json.loads(self.remote_git('show', f'kitchen/demo:{rel}'))
+            self.assertEqual(receipt['thread'], amp_thread(2))
+        archived = self.fake / 'amp-archived'
+        with self.tampered(lambda c: (c / receipts[-1]).unlink()):
+            out = self.run_sh('threads', str(self.store), '--archive')
+            self.assertIn(f'kept {old}: no drain receipt for request', out)
+        self.assertNotIn(old, archived.read_text() if archived.exists() else '')
+        out = self.run_sh('threads', str(self.store), '--archive')
+        self.assertIn(f'archived {old} (sidekick)', out)
+        self.assertEqual(archived.read_text().split(), [old])
+        self.assertEqual(self.dirty_role_files(), [])
+
     def test_under_git_a_retired_verifier_thread_is_archived_with_no_drain_receipt(
         self,
     ):
