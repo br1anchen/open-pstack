@@ -36,6 +36,7 @@ from .store import (
     count,
     event,
     field,
+    is_git_store,
     listing,
     load,
     mark_ready,
@@ -43,6 +44,7 @@ from .store import (
     names,
     pair_file,
     peek,
+    ready_file,
     settle_ready,
     text_at,
     update,
@@ -253,9 +255,9 @@ def load_skill(skill, as_file):
 
 def bootstrap_role(ctx, store, role, kind, name, pane, ready):
     """Sends the bootstrap prompt and waits for the ready file: 0 once it is there, 3 when the prompt never settled and 4 when it settled without it. A
-    ready file left by the generation before is kept aside first."""
+    ready file left by the generation before is kept aside first (under git the generation is in the file's name, so nothing is moved)."""
     generation = field(store, role, 'generation')
-    if os.path.isfile(f'{store}/{ready}'):
+    if not is_git_store(store) and os.path.isfile(f'{store}/{ready}'):
         os.makedirs(f'{store}/sessions', exist_ok=True)
         os.replace(
             f'{store}/{ready}',
@@ -333,12 +335,11 @@ def spawn_role(ctx, store, role, request):
     )
     cwd = text_at(load(store), 'cwd')
     args = start_arguments(kind, flags, list(request.args), cwd)
-    ready = 'advice/000-ready.md' if role == 'consultant' else 'reports/000-ready.md'
     name = field(store, role, 'name')
     require_kind_runs(kind)
     status = agent_status(name)
     if status != 'absent':
-        return report_live(store, role, name, status, ready)
+        return report_live(store, role, name, status, ready_file(store, role))
     pane, prime_start_failed = start_agent(store, role, name, request, args, cwd)
     record_started(store, role, kind, pane, args, permission, master_mode)
     if kind == 'prime-agent':
@@ -346,7 +347,7 @@ def spawn_role(ctx, store, role, request):
     print(
         f'{role} {name} ({kind}) started in {pane} with permission {permission} (master: {master_mode})'
     )
-    return bootstrap_role(ctx, store, role, kind, name, pane, ready)
+    return bootstrap_role(ctx, store, role, kind, name, pane, ready_file(store, role))
 
 
 def set_placement(store, want=''):

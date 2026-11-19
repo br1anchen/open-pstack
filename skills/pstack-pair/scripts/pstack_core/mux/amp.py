@@ -26,7 +26,7 @@ from ..argv import Spec, read
 from ..errors import PairError
 from ..numbers import env_int
 from ..secrets import REDACT_RULE
-from ..store import TEXT, expected_report, header_field, revisions
+from ..store import TEXT, expected_report, header_field, ready_file, revisions
 from . import subagents
 from .base import DEVNULL, PIPE, Agent, Reply, ThreadRow
 from .subagents import EXITS, NOT_FOUND, Subagents, change, load
@@ -526,11 +526,10 @@ def assess(thread, store, role, idle_roles=False):
     if role == 'sidekick' and (head := head_missing(store)):
         return state, f'its report head {head[:9]} is not in the master checkout'
     role_doc = doc.get(role) if isinstance(doc.get(role), dict) else {}
-    ready = 'advice' if role == 'consultant' else 'reports'
     if (
         role in ('sidekick', 'consultant')
         and role_doc.get('bootstrap_pending') is True
-        and not os.path.isfile(os.path.join(store, ready, '000-ready.md'))
+        and not os.path.isfile(os.path.join(store, ready_file(store, role)))
     ):
         return state, f'the new {role} has not sent READY yet'
     if role == 'master' and (doc.get('master') or {}).get('previous'):

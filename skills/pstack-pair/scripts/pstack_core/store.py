@@ -621,6 +621,16 @@ def clear_rotation(store):
         update_role(store, 'sidekick', {'rotation_required': False})
 
 
+def ready_file(store, role):
+    """The store-relative file a role writes when its bootstrap is done: reports/000-ready.md (advice/ for the consultant). Under git the name carries
+    the generation pair.json holds for the role, so a replacement's READY is its own file and the one the generation before published stays on the
+    branch, never counted for the new generation and never taken from the master's tree."""
+    directory = 'advice' if role == 'consultant' else 'reports'
+    if not is_git_store(store):
+        return f'{directory}/000-ready.md'
+    return f'{directory}/000-ready-g{field(store, role, "generation", "0")}.md'
+
+
 def mark_ready(store, role):
     update_role(store, role, {'rotation_required': False, 'bootstrap_pending': False})
 

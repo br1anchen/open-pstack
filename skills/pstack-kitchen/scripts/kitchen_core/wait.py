@@ -15,7 +15,7 @@ from pstack_core import mux
 from pstack_core.argv import Spec, read
 from pstack_core.errors import BadNumber, Die, PathFailed, translate
 from pstack_core.numbers import env_float, env_int, int_or_none, whole_number
-from pstack_core.store import expected_report, field, read_text, wake
+from pstack_core.store import expected_report, field, read_text, ready_file, wake
 from pstack_core.wait import (
     WaitOwner,
     default_signals,
@@ -76,7 +76,11 @@ def report_sent_at(ctx, store):
     brief = (
         field(store, 'sent', 'file') if field(store, 'sent', 'kind') == 'BRIEF' else ''
     )
-    report = expected_report(store, brief) if brief else f'{store}/reports/000-ready.md'
+    report = (
+        expected_report(store, brief)
+        if brief
+        else f'{store}/{ready_file(store, "sidekick")}'
+    )
     since = int_or_none(field(store, 'sent', 'epoch')) or 0
     return report, mux.get().sent_to_master(ctx.skill, report, since)
 

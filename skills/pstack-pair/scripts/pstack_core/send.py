@@ -37,6 +37,7 @@ from .store import (
     member,
     names,
     peek,
+    ready_file,
     revision,
     rotation_required,
     settle_ready,
@@ -91,7 +92,7 @@ def require_fresh_session(store):
     if (
         sidekick.get('bootstrap_pending') is True
         and not rotation_required(store)
-        and os.path.isfile(f'{store}/reports/000-ready.md')
+        and os.path.isfile(f'{store}/{ready_file(store, "sidekick")}')
         and agent_status(text_at(sidekick, 'name')) != 'absent'
     ):
         settle_ready(store, 'sidekick')

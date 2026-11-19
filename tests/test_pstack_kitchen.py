@@ -14172,7 +14172,19 @@ class AmpKitchenTests(KitchenScriptTests):
             code=4,
         )
         self.spawn_out = out
-        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        self.ready_path().write_text('status: done\n')
+
+    def ready_path(self, store=None, role='sidekick'):
+        """Where the role of generation pair.json holds writes READY: reports/000-ready.md (advice/ for the consultant), under git with its generation."""
+        store = Path(store or self.store)
+        directory = 'advice' if role == 'consultant' else 'reports'
+        suffix = ''
+        if self.env.get('PSTACK_STORE') == 'git':
+            generation = json.loads((store / 'pair.json').read_text())[role][
+                'generation'
+            ]
+            suffix = f'-g{generation}'
+        return store / directory / f'000-ready{suffix}.md'
 
     def thread_messages(self, thread):
         d = self.fake / 'amp-threads' / thread
@@ -17131,6 +17143,9 @@ for _name in dir(KitchenScriptTests):
         setattr(AmpKitchenTests, _name, None)
 
 
+ROLE_DIRS = ('reports', 'advice', 'verdicts', 'steps', 'progress')
+
+
 class AmpGitKitchenTests(AmpKitchenTests):
     """The kitchen with PSTACK_MUX=amp and PSTACK_STORE=git: the store is the branch kitchen/demo of the repository's origin, a bare repository
     here. The master works in self.repo and self.store; a role works in a clone and a store of its own, as an orb does, and what it writes
@@ -17375,6 +17390,86 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertEqual(self.remote_git('rev-parse', 'kitchen/demo'), tip)
         self.assertEqual(self.announced(), sent)
         self.assertNotIn('reports/001-util.md', self.branch_tree())
+
+    def fresh_orb(self, name):
+        """A role's orb that holds nothing yet: a clone of the work repository and a state home of its own, with no store and no registry, as a
+        thread's first orb is. Returns (clone, the path its store goes to)."""
+        self.git('push', '-q', 'origin', 'HEAD:refs/heads/main')
+        orb = Path(self.tmp.name) / name
+        subprocess.run(
+            ['git', 'clone', '-q', str(self.remote), str(orb / 'work')],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        self.orb_env = {'HOME': str(orb / 'home'), 'XDG_STATE_HOME': str(orb / 'state')}
+        return orb / 'work', orb / 'runs/demo'
+
+    def role_ready(self, name, thread, generation, report=None):
+        """A role of this generation, in a fresh orb, syncs the branch, writes its READY file and sends it, then sends report (a done report of
+        the dispatched brief) when one is named."""
+        clone, orb_store = self.fresh_orb(name)
+        self.as_orb(
+            clone, 'sync', '--branch', str(orb_store), 'kitchen/demo', thread=thread
+        )
+        files = [orb_store / 'reports' / f'000-ready-g{generation}.md']
+        files[0].parent.mkdir(exist_ok=True)
+        files[0].write_text('status: done\n')
+        if report:
+            head = self.commit_in(clone, 'work')
+            files.append(self.write_report(orb_store, report, 'done', head))
+        for file in files:
+            self.as_orb(clone, 'notify', str(orb_store), str(file), thread=thread)
+
+    def dirty_role_files(self):
+        """The paths of the master's store worktree with changes not on the branch that a role owns: a master command leaves none."""
+        status = subprocess.run(
+            ['git', 'status', '--porcelain', '--untracked-files=all'],
+            cwd=self.store,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+        paths = [line[3:] for line in status.splitlines()]
+        return [p for p in paths if p.split('/')[0] in ROLE_DIRS]
+
+    def test_a_replacement_sidekicks_ready_is_its_own_file_and_the_generation_before_is_never_counted_for_it(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.store / 'reports/000-ready-g1.md').unlink()
+        self.role_ready('first-orb', amp_thread(1), 1, report=b.name)
+        self.run_sh('sync', '--branch', str(self.store))
+        self.run_sh('rotate', str(self.store), code=4)
+        self.assertEqual(self.state()['sidekick']['generation'], 2)
+        bootstrap = self.thread_messages(amp_thread(2))[0]
+        self.assertIn('write reports/000-ready-g2.md', bootstrap)
+        out = self.run_sh('spawn', str(self.store), code=4)
+        self.assertIn(
+            'sidekick bootstrap still pending: reports/000-ready-g2.md is missing', out
+        )
+        self.assertTrue((self.store / 'reports/000-ready-g1.md').is_file())
+        self.assertFalse(list((self.store / 'sessions').glob('sidekick-*-ready.md')))
+        self.assertEqual(self.dirty_role_files(), [])
+        self.role_ready('second-orb', amp_thread(2), 2)
+        self.run_sh('sync', '--branch', str(self.store))
+        out = self.run_sh('spawn', str(self.store))
+        self.assertIn('000-ready-g2.md', out)
+        self.assertIs(self.state()['sidekick']['bootstrap_pending'], False)
+        self.assertEqual(self.dirty_role_files(), [])
+        self.assertEqual(
+            self.remote_git(
+                'ls-tree', '--name-only', 'kitchen/demo', 'reports/'
+            ).split(),
+            [
+                'reports/000-ready-g1.md',
+                'reports/000-ready-g2.md',
+                'reports/001-util.md',
+            ],
+        )
 
     def test_a_message_to_a_role_announces_the_store_commit_and_carries_no_store_bundle(
         self,
