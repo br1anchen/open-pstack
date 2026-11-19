@@ -658,15 +658,28 @@ def _unsent_texts(store, branch):
     return items
 
 
-def _fold_unsent(store, branch, message, found):
-    """Replaces the unpushed commits with one commit of the current files, when every file a finding names is clean in the working tree: the
-    redaction a SecretFound asked for, made after the secret was committed. The commit has the remote tip as its parent (none when the branch is
-    new) and the tree of HEAD with the flagged paths restaged from the working tree, so no blob that held the secret is in it and the commits
-    that did stay only in the reflog. Returns the previous HEAD, or '' when a flagged file is still dirty and nothing was changed. PublishFailed,
-    with HEAD and the index as they were, when git cannot do it."""
-    paths = sorted({f.path.rsplit('@', 1)[0] for f in found})
-    if secrets.scan(paths, root=store):
+def _fold_unsent(store, branch, message, found, rels):
+    """Replaces the unpushed commits with one commit of the committed files, when every file a finding names that HEAD still holds is a path of this
+    publish (`rels`, which publish has already checked the writer owns) and is clean in the working tree: the redaction a SecretFound asked for,
+    made after the secret was committed. The commit has the remote tip as its parent (none when the branch is new) and the tree of HEAD with only
+    those paths restaged from the working tree, so every other path keeps its committed blob (a half-written edit of it is not published), no blob
+    that held the secret is in it and the commits that did stay only in the reflog. A flagged path HEAD no longer holds needs nothing: the fold
+    drops it. Returns '' when a flagged path is still dirty in the working tree, and nothing was changed. A flagged path HEAD holds outside `rels` is
+    refused once it is clean, one line per path and nothing changed: PublishFailed. Returns the previous HEAD otherwise. PublishFailed, with HEAD and the index as they were, when git cannot do it."""
+    labels = {}
+    for f in found:
+        labels.setdefault(f.path.rsplit('@', 1)[0], f.path)
+    held = [p for p in labels if git.ok(store, 'cat-file', '-e', f'HEAD:{p}')]
+    if secrets.scan(held, root=store):
         return ''
+    refused = [p for p in held if p not in rels]
+    if refused:
+        raise PublishFailed(
+            '\n'.join(
+                f'secret: {labels[p]} is in an unpushed commit; redact it and publish that path (it is not part of this publish)'
+                for p in refused
+            )
+        )
     old = head_of(store)
     remote = _remote_ref(branch)
     parent = (
@@ -674,8 +687,6 @@ def _fold_unsent(store, branch, message, found):
         if git.ok(store, 'show-ref', '--verify', '--quiet', remote)
         else []
     )
-    here = [p for p in paths if os.path.lexists(os.path.join(store, p))]
-    gone = [p for p in paths if p not in here]
 
     def go(*args):
         done = _run(store, *args)
@@ -687,25 +698,23 @@ def _fold_unsent(store, branch, message, found):
         return done.stdout.strip()
 
     go('reset', '--quiet')
-    if here:
-        go('add', '-A', '--', *here)
-    if gone:
-        go('rm', '-q', '--cached', '--ignore-unmatch', '--', *gone)
+    if held:
+        go('add', '-A', '--', *held)
     tree = go('write-tree')
     go('reset', '--soft', go('commit-tree', tree, *parent, '-m', message))
     return old
 
 
-def _refuse_unsent_secrets(store, branch, message):
+def _refuse_unsent_secrets(store, branch, message, rels):
     """Raises SecretFound, with nothing pushed, when a blob the push would send holds a credential: a commit made here outside publish, or one an
     earlier publish refused to push, is scanned as the files of this publish are. The finding names the commit; once every flagged file is clean
-    in the working tree, the unpushed commits are folded into one new commit of the current files and scanned again, so redacting the file and
-    running the command again clears the refusal and no blob that held the secret reaches the remote. A line a `pstack-allow-secret:` marker
+    in the working tree and part of this publish, the unpushed commits are folded into one new commit and scanned again, so redacting the file
+    and publishing it clears the refusal and no blob that held the secret reaches the remote. A line a `pstack-allow-secret:` marker
     exempts goes through (publish logged it when it made the commit)."""
     found = secrets.scan(_unsent_texts(store, branch), root=store)
     if not found:
         return
-    old = _fold_unsent(store, branch, message, found)
+    old = _fold_unsent(store, branch, message, found, rels)
     if not old:
         raise SecretFound(found)
     again = secrets.scan(_unsent_texts(store, branch), root=store)
@@ -767,7 +776,7 @@ def _publish(store, rels, message, writer, sleep):
             )
         if not made and unpublished(store, branch) == 0:
             return ''
-        _refuse_unsent_secrets(store, branch, message)
+        _refuse_unsent_secrets(store, branch, message, rels)
         pushed = push(store, branch)
         if pushed.status == 'ok':
             return head_of(store)

@@ -20875,6 +20875,21 @@ class GitStoreTests(unittest.TestCase):
         )
         return set(out.split())
 
+    def remote_objects(self):
+        return subprocess.run(
+            [
+                GIT,
+                '--git-dir',
+                str(self.remote),
+                'cat-file',
+                '--batch-all-objects',
+                '--batch',
+            ],
+            capture_output=True,
+            check=True,
+            timeout=60,
+        ).stdout
+
     def remote_commits(self):
         return len(
             self.sh(
@@ -21588,7 +21603,7 @@ class GitStoreTests(unittest.TestCase):
             self.publish(self.store, ['progress/001-x.md'], writer)
         self.assertEqual(self.remote_commits(), remote)
         self.write(self.store, 'reports/002-y.md', 'oops\n[REDACTED: github-token]\n')
-        self.publish(self.store, ['progress/001-x.md'], writer)
+        self.publish(self.store, ['progress/001-x.md', 'reports/002-y.md'], writer)
         self.assertEqual(self.remote_commits(), remote + 1)
         self.assertTrue(
             {'reports/002-y.md', 'plans/001-p.md', 'progress/001-x.md'}
@@ -21611,6 +21626,77 @@ class GitStoreTests(unittest.TestCase):
         self.assertIn(b'a plan', every_object)
         self.assertNotIn(token.encode(), every_object)
         self.assertEqual(gitstore.unpublished(self.store, self.BRANCH), 0)
+
+    def test_gitstore_the_fold_restages_only_a_flagged_path_this_publish_names(self):
+        token = _fake('gh', 'p_', 'a1' * 18)
+        redacted = 'oops\n[REDACTED: github-token]\n'
+        sidekick = gitstore.Writer('sidekick', 1)
+        flagged = 'reports/002-y.md'
+        other = ['progress/001-x.md']
+        rows = {
+            'a flagged path of the publish, redacted, lands': (
+                [flagged],
+                redacted,
+                None,
+            ),
+            'a flagged path of the publish, deleted, lands as its deletion': (
+                [flagged],
+                None,
+                None,
+            ),
+            'a flagged path outside the publish is refused': (other, redacted, True),
+            'a flagged path deleted from disk and outside the publish is refused': (
+                other,
+                None,
+                True,
+            ),
+        }
+        for k, (name, (rels, on_disk, refused)) in enumerate(rows.items()):
+            with self.subTest(name):
+                self.sh(
+                    'git',
+                    'reset',
+                    '-q',
+                    '--hard',
+                    f'origin/{self.BRANCH}',
+                    cwd=self.store,
+                )
+                self.sh('git', 'clean', '-fdq', cwd=self.store)
+                remote = self.remote_commits()
+                commit = self.commit_by_hand(flagged, f'oops\n{token}\n')
+                self.commit_by_hand(f'notes/002-n{k}.md', 'committed\n')
+                self.write(self.store, 'progress/001-x.md', f'clean {k}\n')
+                self.write(self.store, f'notes/002-n{k}.md', 'half written\n')
+                if on_disk is None:
+                    Path(self.store, flagged).unlink()
+                else:
+                    self.write(self.store, flagged, on_disk)
+                if not refused:
+                    self.publish(self.store, rels, sidekick)
+                    self.assertEqual(self.remote_commits(), remote + 1)
+                    self.assertEqual(
+                        self.sh(
+                            'git',
+                            '--git-dir',
+                            str(self.remote),
+                            'show',
+                            f'{self.BRANCH}:notes/002-n{k}.md',
+                        ),
+                        'committed\n',
+                    )
+                    self.assertEqual(
+                        flagged in self.remote_files(), on_disk is not None
+                    )
+                else:
+                    with self.assertRaises(gitstore.PublishFailed) as caught:
+                        self.publish(self.store, rels, sidekick)
+                    self.assertEqual(
+                        str(caught.exception),
+                        f'secret: {flagged}@{commit} is in an unpushed commit; redact it and publish that path (it is not part of this publish)',
+                    )
+                    self.assertEqual(self.remote_commits(), remote)
+                    self.assertNotIn(flagged, self.remote_files())
+                self.assertNotIn(token.encode(), self.remote_objects())
 
     def test_gitstore_two_unpushed_versions_of_one_path_are_scanned_under_labels_of_their_own(
         self,
