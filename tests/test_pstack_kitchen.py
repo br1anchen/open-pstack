@@ -17611,6 +17611,77 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertEqual(settled['seq'], pending['seq'])
         self.assertEqual(self.dirty_role_files(), [])
 
+    def test_threads_settles_a_pending_request_from_the_threads_own_export(self):
+        sidekick = amp_thread(1)
+        self.ready_path().unlink()
+        self.role_ready('first-orb', sidekick, 1)
+        self.run_sh('sync', '--branch', str(self.store))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        (self.fake / 'amp-kill-after-delivery').write_text('')
+        self.run_sh('dispatch', str(self.store), str(b), '--timeout', '1', code=None)
+        [pending] = [r for r in self.requests_of(sidekick) if r['state'] == 'pending']
+        self.assertEqual(len(self.briefs_in(sidekick)), 1)
+        # The next listing finds the request's id in the thread and settles it, with nothing sent again.
+        self.run_sh('threads', str(self.store))
+        [settled] = [r for r in self.requests_of(sidekick) if r['id'] == pending['id']]
+        self.assertEqual(settled['state'], 'sent')
+        self.assertEqual(len(self.briefs_in(sidekick)), 1)
+
+    def test_threads_fails_a_pending_request_the_thread_never_received_once_it_ended_a_turn(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.ready_path().unlink()
+        self.role_ready('first-orb', sidekick, 1)
+        self.run_sh('sync', '--branch', str(self.store))
+        died = 'import os\namp.deliver = lambda *a: os._exit(9)'
+        code, out = self.send_to_thread(sidekick, 'pstack-kitchen BRIEF z', before=died)
+        self.assertEqual(code, 9, out)
+        [pending] = [r for r in self.requests_of(sidekick) if r['state'] == 'pending']
+        self.assertEqual(self.briefs_in(sidekick), [])
+        # The last turn ended before the request was made: the message may yet arrive.
+        self.set_state(sidekick, 'idle', '2020-01-01T00:00:00.000Z')
+        self.run_sh('threads', str(self.store))
+        self.assertEqual(
+            [
+                r['state']
+                for r in self.requests_of(sidekick)
+                if r['id'] == pending['id']
+            ],
+            ['pending'],
+        )
+        self.set_state(sidekick, 'idle', '2999-01-01T00:00:00.000Z')
+        self.run_sh('threads', str(self.store))
+        self.assertEqual(
+            [
+                r['state']
+                for r in self.requests_of(sidekick)
+                if r['id'] == pending['id']
+            ],
+            ['failed'],
+        )
+
+    def test_threads_marks_a_pending_relay_on_the_branch_stale_once_the_thread_ended_a_turn(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        self.set_state(sidekick, 'tool_use')
+        record, how = self.relay_of('STEER one')
+        self.assertEqual(how, 'made')
+
+        def relays():
+            return json.loads(
+                self.remote_git('show', f'kitchen/demo:threads/{sidekick}.json')
+            )['relays']
+
+        self.run_sh('threads', str(self.store))
+        self.assertEqual([r['state'] for r in relays()], ['pending'])
+        self.set_state(sidekick, 'idle', '2999-01-01T00:00:00.000Z')
+        self.run_sh('threads', str(self.store))
+        self.assertEqual(
+            [(r['id'], r['state']) for r in relays()], [(record['id'], 'stale')]
+        )
+
     def test_requests_are_ordered_by_a_sequence_that_counts_across_the_run_not_by_the_clock(
         self,
     ):
@@ -17726,12 +17797,13 @@ class AmpGitKitchenTests(AmpKitchenTests):
         [request] = self.requests_of(thread)
         self.assertEqual(request['state'], 'sent')
 
-    def send_to_thread(self, thread, text, name='demo-sidekick'):
-        """Amp.send of a text to an existing thread, from the master's own process: (exit code, output)."""
+    def send_to_thread(self, thread, text, name='demo-sidekick', before=''):
+        """Amp.send of a text to an existing thread, from the master's own process, after running the Python `before`: (exit code, output)."""
         code = (
             'import sys\n'
             f'sys.path[:0] = [{str(root / "skills/pstack-pair/scripts")!r}]\n'
             'from pstack_core.mux import amp\n'
+            f'{before}\n'
             f'print(amp.Amp().send({name!r}, {text!r}, {thread!r}, [], {str(self.store)!r}))\n'
         )
         env = {**self.env, 'AMP_THREAD_ID': AMP_MASTER}

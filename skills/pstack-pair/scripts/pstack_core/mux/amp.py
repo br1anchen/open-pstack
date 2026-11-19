@@ -489,13 +489,22 @@ def role_is_idle(store, doc, role):
     return role == 'consultant' and not open_consults(store)
 
 
-def assess(thread, store, role, idle_roles=False):
-    """(the thread's state, why it must not be archived yet): '' when the store no longer uses it and nothing it did is unread. A thread in a turn,
+def assess(thread, store, role, idle_roles=False, reconcile=False):
+    """(the thread's state, why it must not be archived yet; with `reconcile`, the master first settles the store branch's pending requests and
+    relays for the thread against its export, amp_routing.reconcile): '' when the store no longer uses it and nothing it did is unread. A thread in a turn,
     one with a message or steer relay still pending to it, one whose file the master's store lacks, one holding commits the master lacks, one
     whose replacement has not sent READY and an old master whose hand-over is open each stay. A live sidekick or consultant is in use, unless
     idle_roles says the sweep may take one that is settled and has nothing open (role_is_idle)."""
     doc = load_json(os.path.join(store, 'pair.json'))
     live = live_threads(doc)
+    exported = None
+    if (
+        reconcile
+        and amp_routing.master_store(store)
+        and amp_routing.pending_work(store, thread)
+    ):
+        exported = export(thread)
+        amp_routing.reconcile(store, thread, exported)
     in_use = ('in use', f'in use by {live.get(thread) or "this master"}')
     if thread == own_thread():
         return in_use
@@ -505,7 +514,7 @@ def assess(thread, store, role, idle_roles=False):
         and role_is_idle(store, doc, role)
     ):
         return in_use
-    state, since = thread_state(export(thread))
+    state, since = thread_state(export(thread) if exported is None else exported)
     if thread in live and state not in SETTLED:
         return in_use
     if state == '':
@@ -888,7 +897,14 @@ class Amp(Subagents):
             {t: r for t, r in named.items() if not retired_only or t in unrecorded}
         )
         rows = [
-            ThreadRow(thread, role, *assess(thread, store, role, not retired_only))
+            ThreadRow(thread, role, *assess(
+                    thread,
+                    store,
+                    role,
+                    idle_roles=not retired_only,
+                    reconcile=not retired_only,
+                )
+            )
             for thread, role in found.items()
             if not (known.get(thread) or {}).get('archived')
         ]

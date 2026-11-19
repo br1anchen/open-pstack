@@ -4,8 +4,8 @@ caches from them (`routing`). Under the local backend nothing here writes and `r
 
 A record is {run, role, generation, thread, name, state (started | retired | archived), started, at, archived, pane, kind, args, requests, relays}.
 `requests` are the sends the master made to the thread, {id, seq, at, hash, state (pending | sent | failed)}; `relays` are its steer relays,
-{id, seq, state (pending | done | stale)}. A request is published pending before the external send and settled after it, so a master that died
-in between leaves a pending request that the next send of the same text reconciles by its id. A creation has no thread yet: its request sits in
+{id, seq, at, state (pending | done | stale)}. A request is published pending before the external send and settled after it, so a master that died
+in between leaves a pending request that `reconcile` settles against the thread's own export (the message carries the request's id). A creation has no thread yet: its request sits in
 `threads/launch-<request id>.json` until the thread's own record takes it over. `run` is the run identity in pair.json (`run_id`), never the slug
 or an absolute path, so records an earlier run of the same name left on a branch are not imported. `seq` counts across the whole run: requests
 and relays are ordered by it, never by the clock. Only the master writes records (`master_store`); a role's notify touches none.
@@ -210,7 +210,11 @@ def mirror_relay(record):
         rel, doc = thread_record(store, record.get('name') or '', thread)
         known = next((r for r in doc['relays'] if r.get('id') == record['id']), None)
         if known is None:
-            known = {'id': record['id'], 'seq': next_seq(records(store))}
+            known = {
+                'id': record['id'],
+                'seq': next_seq(records(store)),
+                'at': int(record.get('at') or 0),
+            }
             doc['relays'].append(known)
         elif known.get('state') == state:
             return
@@ -315,6 +319,57 @@ def pending_work(store, thread):
     if any(r.get('state') == PENDING for r in _items(doc, 'relays')):
         return 'a steer relay to it is still pending (on the store branch)'
     return ''
+
+
+def reconcile(store, thread, exported):
+    """Settles what the store branch holds as pending for `thread` against the thread itself (`exported`, its `amp threads export`): a request
+    whose `pstack-msg:` id the thread holds is sent; one it does not hold, when the thread has ended a turn since the request was made, never
+    arrived and is failed; a relay the thread has ended a turn since is stale, as under the local backend. A thread still in a turn, or one the
+    export could not read, settles nothing. Nothing is written unless the master made the records."""
+    if not (master_store(store) and exported):
+        return
+    amp = _amp()
+    doc = records(store).get(rel_of(thread))
+    if not doc:
+        return
+    state, since = amp.thread_state(exported)
+    ended = state in amp.SETTLED
+    changed = False
+    for request in _items(doc, 'requests'):
+        if request.get('state') != PENDING:
+            continue
+        if amp.holds(exported, str(request.get('id'))):
+            request['state'] = SENT
+            if (amp.load_json(amp.outbox_path()).get(thread) or {}).get('at', 0) < int(
+                request.get('at') or 0
+            ):
+                amp.record_sent(
+                    thread,
+                    {
+                        'hash': request.get('hash') or '',
+                        'id': request['id'],
+                        'at': int(request.get('at') or 0),
+                    },
+                )
+        elif ended and since >= int(request.get('at') or 0):
+            request['state'] = FAILED
+        else:
+            continue
+        changed = True
+    for relay in _items(doc, 'relays'):
+        if (
+            relay.get('state') == PENDING
+            and isinstance(relay.get('at'), int)
+            and ended
+            and since >= relay['at']
+        ):
+            relay['state'] = 'stale'
+            changed = True
+    if changed:
+        try:
+            put(store, {rel_of(thread): doc})
+        except PairError:
+            pass
 
 
 def kept_by_branch(store, thread, role):
