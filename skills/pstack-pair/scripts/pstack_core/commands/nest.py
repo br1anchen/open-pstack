@@ -109,6 +109,9 @@ def nest(ctx, args):
     store, rest = args[0], args[1:]
     pair_file(store)
     if rest and rest[0] == '--done' and len(rest) > 1:
+        unknown = [t for t in rest[1:] if t not in {r.thread for r in rows(store)}]
+        if unknown:
+            raise Die(f'not recorded for nesting: {" ".join(unknown)}')
         return done(store, rest[1:])
     if rest:
         raise Die(usage)
@@ -126,12 +129,8 @@ def nest(ctx, args):
 
 
 def done(store, threads):
-    """Marks each thread nested; a thread that is nested already is left as it is, one the run never recorded is an error."""
-    every = rows(store)
-    known = {r.thread: r for r in every}
-    unknown = [t for t in threads if t not in known]
-    if unknown:
-        raise Die(f'not recorded for nesting: {" ".join(unknown)}')
+    """Marks each of threads (all recorded for the run) nested; one that is nested already is left as it is."""
+    known = {r.thread: r for r in rows(store)}
     waiting = {r.thread for r in pending(store)}
     for thread in dict.fromkeys(threads):
         r = known[thread]

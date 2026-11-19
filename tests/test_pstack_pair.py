@@ -2556,6 +2556,8 @@ consult, advice. These differ or are new:
                                             stamp risk:, profiles:, verify: into its header
   threads <store> [--archive]               Amp threads: every thread the store named, with its role, state and in use,
                                             archivable or kept (why); --archive archives the archivable ones and logs each
+  nest <store> [--done <thread>...]         Amp threads: the threads waiting for a parent under the run's anchor, and how to
+                                            set it (update_thread); --done marks threads nested
   playbook-part <store> <NNN> <role> <part-id>
                                             print one stored part of the unit's playbook composition and where
                                             it came from (a Pending read in the brief's Playbook section)
