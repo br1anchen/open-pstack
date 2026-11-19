@@ -136,7 +136,8 @@ _NEEDS_DIGIT = {'authorization-header', 'bearer-token'}
 def _placeholder(value, rest):
     """Whether the value a rule matched is no credential. rest is the line from the value's start, for the placeholders that hold characters a
     value never does (`${VAR}`, `<token>`, `[REDACTED: kind]`). A placeholder counts only as the whole value: it ends where the value does or,
-    when it holds characters the rule's value stops at, where the value would have ended anyway, at a delimiter or the end of the line."""
+    when it holds characters the rule's value stops at, where the value would have ended anyway, at a delimiter or the end of the line. An empty
+    value at a `<` or `[` is a placeholder only when the whole placeholder is there and no value character follows it."""
     whole = _WHOLE.match(rest)
     if whole and (
         whole.end() == len(value)
@@ -144,6 +145,8 @@ def _placeholder(value, rest):
         and not _VALUE_CHAR.match(rest, whole.end())
     ):
         return True
+    if not value and rest[:1] in ('<', '['):
+        return False
     return not value or bool(_MASK.fullmatch(value)) or bool(_WORD.fullmatch(value))
 
 

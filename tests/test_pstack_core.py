@@ -22067,8 +22067,12 @@ class SecretScanTests(unittest.TestCase):
             _fake('DB_', 'PASSWORD=', '***.s3cr3t'),
             _fake('DB_', 'PASSWORD=', '$API_KEY-realvalue'),
             _fake("'api_", "key': 'sk", "abcdef123456'"),
+            _fake('API_', 'TOKEN=', '<token>', 'Ab9x7q2Zp4' * 2),
+            _fake('API_', 'TOKEN=', '[REDACTED: x]', 'Ab9x7q2Zp4' * 2),
         )
         passes = (
+            _fake('API_', 'TOKEN=', '<token>'),
+            _fake('API_', 'TOKEN=', '[REDACTED: x]'),
             _fake('password', ': "[REDACTED: password]"'),
             _fake('api_', 'key=', '[REDACTED: api-key]'),
             _fake('api_', 'key=', '$API_KEY'),
