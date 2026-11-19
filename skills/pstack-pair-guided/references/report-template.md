@@ -40,3 +40,5 @@ would pick without an answer>
 ## Follow-ups
 
 <out-of-scope findings, one line each, or "none">
+
+Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.

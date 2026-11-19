@@ -21973,14 +21973,34 @@ class SecretScanTests(unittest.TestCase):
 
     def test_secret_scan_no_tracked_file_under_skills_or_tests_holds_a_credential(self):
         files = subprocess.run(
-            ['git', 'ls-files', 'skills', 'tests'],
+            ['git', 'ls-files', '-z', 'skills', 'tests'],
             cwd=root,
             capture_output=True,
             text=True,
             check=True,
             timeout=60,
-        ).stdout.split('\n')
+        ).stdout.split('\0')
         self.assertEqual(secrets.scan([f for f in files if f], root=str(root)), [])
+
+    def test_secret_scan_every_standing_orders_and_report_template_and_every_reference_that_names_the_rule_holds_it_verbatim(
+        self,
+    ):
+        templates = [
+            f'skills/{skill}/references/{name}'
+            for skill in ('pstack-pair', 'pstack-pair-guided', 'pstack-trio')
+            for name in ('standing-orders-template.md', 'report-template.md')
+        ] + ['skills/pstack-kitchen/references/standing-orders-template.md']
+        naming = [
+            str(path.relative_to(root))
+            for path in sorted(root.glob('skills/*/references/*.md'))
+            if 'Never paste credentials' in path.read_text(encoding='utf-8')
+        ]
+        self.assertTrue(set(templates) <= set(naming), set(templates) - set(naming))
+        for rel in naming:
+            with self.subTest(rel):
+                self.assertIn(
+                    secrets.REDACT_RULE, (root / rel).read_text(encoding='utf-8')
+                )
 
     def test_secret_scan_merges_gitleaks_findings_when_it_is_on_path(self):
         with tempfile.TemporaryDirectory() as tmp:
