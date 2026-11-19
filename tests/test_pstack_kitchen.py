@@ -14879,6 +14879,83 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn(f'kept {old}: a message to it is still pending', out)
         self.assertFalse((self.fake / 'amp-archived').exists())
 
+    def sidekick_done_idle(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.set_state(amp_thread(1), 'idle', '2999-01-01T00:00:00.000Z')
+        return amp_thread(1)
+
+    def sidekick_in_a_turn(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.set_state(amp_thread(1), 'tool_use')
+
+    def sidekick_partial(self):
+        b = self.brief('001', 'one', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(b), code=None)
+        (self.store / 'reports' / b.name).write_text(
+            '# Report\n\nstatus: partial\nhead: abc1234\n'
+        )
+        self.set_state(amp_thread(1), 'idle', '2999-01-01T00:00:00.000Z')
+
+    def consultant_with(self, advised):
+        """A started consultant, idle, with one consult sent to it; `advised` is whether its advice is on file. The sidekick is in a turn."""
+        self.run_sh(
+            'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
+            '--', '--model', 'c/one', code=4,
+        )  # fmt: skip
+        (self.store / 'advice').mkdir(exist_ok=True)
+        (self.store / 'advice/000-ready.md').write_text('status: done\n')
+        with open(self.store / 'events.tsv', 'a') as f:
+            f.write('1\tmaster\tsend-consult\t001-one-c1\tdesign\n')
+        if advised:
+            (self.store / 'advice/001-one-c1.md').write_text('status: agree\n')
+        self.set_state(amp_thread(1), 'tool_use')
+        self.set_state(amp_thread(2), 'idle', '2999-01-01T00:00:00.000Z')
+        return amp_thread(2)
+
+    def test_threads_archive_archives_an_idle_role_with_no_open_work_and_keeps_the_rest_in_use(
+        self,
+    ):
+        """A live sidekick or consultant counted as in use until close, however long it had sat idle. It is archivable once its thread is
+        settled and the run holds nothing open for it: the sidekick's last unit is done and nothing is queued, every consult has its advice."""
+        rows = (
+            ('a done sidekick, idle', self.sidekick_done_idle, True, 1),
+            ('a sidekick in a turn', self.sidekick_in_a_turn, False, 2),
+            ('a sidekick with a partial report', self.sidekick_partial, False, 2),
+            ('a consultant, all advice answered', lambda: self.consultant_with(True), True, 2),
+            ('a consultant with an open consult', lambda: self.consultant_with(False), False, 3),
+        )  # fmt: skip
+        for n, (label, setup, archives, in_use) in enumerate(rows):
+            with self.subTest(label):
+                if n:
+                    self.setUp()
+                thread = setup()
+                archived = self.fake / 'amp-archived'
+                summary = f'archive: {int(archives)} archived, 0 kept, {in_use} in use'
+                out = self.merged('threads', str(self.store), '--archive')
+                self.assertEqual(self.last_line(out), summary, out)
+                if archives:
+                    self.assertEqual(archived.read_text(), f'{thread}\n', out)
+                else:
+                    self.assertFalse(archived.exists(), out)
+
+    def test_the_next_dispatch_starts_a_new_thread_after_an_idle_sidekick_was_archived(
+        self,
+    ):
+        old = self.sidekick_done_idle()
+        self.run_sh('threads', str(self.store), '--archive')
+        self.assertEqual((self.fake / 'amp-archived').read_text(), f'{old}\n')
+        registry = json.loads(
+            (Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/registry.json').read_text()
+        )
+        self.assertNotIn('demo-sidekick', registry['agents'])
+        before = len(self.thread_messages(old))
+        b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertIn(
+            f'amp demo-sidekick ({amp_thread(2)}): Load the pstack-kitchen skill', out
+        )
+        self.assertEqual(len(self.thread_messages(old)), before)
+
     def retire_threads(self, entries):
         """threads.json of the amp state dir as the build writes it: {thread: {name, role, at, store}}; each thread is idle."""
         path = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/threads.json'

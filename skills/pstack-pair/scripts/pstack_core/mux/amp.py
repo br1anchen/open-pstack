@@ -424,15 +424,57 @@ def current_threads(doc):
     }
 
 
-def assess(thread, store, role):
+def open_consults(store):
+    """The consults and plan rounds the master sent the consultant that have no advice file yet: the units (NNN-slug[-cK]) of its send-consult and
+    send-plan events whose advice/<unit>.md is missing."""
+    try:
+        with open(os.path.join(store, 'events.tsv'), encoding='utf-8') as f:
+            rows = [line.rstrip('\n').split('\t') for line in f]
+    except OSError:
+        return []
+    units = [
+        row[3]
+        for row in rows
+        if len(row) >= 5
+        and (
+            row[2] == 'send-consult' or (row[2], row[4]) == ('send-plan', 'consultant')
+        )
+    ]
+    return [
+        u for u in units if not os.path.isfile(os.path.join(store, 'advice', f'{u}.md'))
+    ]
+
+
+def role_is_idle(store, doc, role):
+    """Whether the live sidekick or consultant has nothing open in this run: the sidekick's last unit is done (rotation_required) and no brief is
+    queued for it; the consultant has no consult or plan round waiting on its advice."""
+    if role == 'sidekick':
+        queue = os.path.join(store, 'queue')
+        queued = os.path.isfile(queue) and os.path.getsize(queue) > 0
+        return (doc.get('sidekick') or {}).get(
+            'rotation_required'
+        ) is True and not queued
+    return role == 'consultant' and not open_consults(store)
+
+
+def assess(thread, store, role, idle_roles=False):
     """(the thread's state, why it must not be archived yet): '' when the store no longer uses it and nothing it did is unread. A thread in a turn,
     one with a message or steer relay still pending to it, one whose file the master's store lacks, one holding commits the master lacks, one
-    whose replacement has not sent READY and an old master whose hand-over is open each stay."""
+    whose replacement has not sent READY and an old master whose hand-over is open each stay. A live sidekick or consultant is in use, unless
+    idle_roles says the sweep may take one that is settled and has nothing open (role_is_idle)."""
     doc = load_json(os.path.join(store, 'pair.json'))
     live = live_threads(doc)
-    if thread == own_thread() or thread in live:
-        return 'in use', f'in use by {live.get(thread) or "this master"}'
     state, since = thread_state(export(thread))
+    if thread == own_thread() or (
+        thread in live
+        and not (
+            idle_roles
+            and state in SETTLED
+            and role in ('sidekick', 'consultant')
+            and role_is_idle(store, doc, role)
+        )
+    ):
+        return 'in use', f'in use by {live.get(thread) or "this master"}'
     if state == '':
         return 'unknown', 'state unknown (export failed or gave none)'
     if state not in SETTLED:
@@ -769,7 +811,7 @@ class Amp(Subagents):
                 if e.get('thread') and ours.fullmatch(name):
                     found.setdefault(e['thread'], role_of(name))
         rows = [
-            ThreadRow(thread, role, *assess(thread, store, role))
+            ThreadRow(thread, role, *assess(thread, store, role, not retired_only))
             for thread, role in found.items()
             if not (known.get(thread) or {}).get('archived')
         ]
@@ -844,6 +886,10 @@ class Amp(Subagents):
         if run(['amp', 'threads', 'archive', row.thread]).returncode:
             return False
         record_thread(row.thread, {'role': row.role, 'archived': int(time.time())})
+        # A role's thread that is archived must not take its next prompt: the name leaves the registry, so that prompt starts a fresh thread.
+        for name, e in load(self.path())['agents'].items():
+            if e.get('thread') == row.thread:
+                self.end(name)
         return True
 
     def rename(self, target, name):
