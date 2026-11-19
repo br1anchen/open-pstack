@@ -17147,6 +17147,12 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn(f'master: demo-master in amp:{master2} (generation 2)', out)
         self.assertNotIn('previous', self.state()['master'])
 
+    def test_the_sidekicks_bootstrap_prompt_names_the_exact_ready_file_of_the_store(
+        self,
+    ):
+        ready = self.ready_path().relative_to(self.store)
+        self.assertIn(f'write {ready},', self.thread_messages(amp_thread(1))[0])
+
     def test_a_master_thread_that_does_not_start_leaves_the_run_where_it_was(self):
         self.filled_handoff()
         before = self.state()['master']

@@ -36,7 +36,8 @@ are two: advice files, and a scratch worktree from `pair.sh scratch`.
 3. Open poteto-mode (`../poteto-mode/SKILL.md`) once here for its
    Non-negotiables and Writing the reply sections. Open `how`, `why`,
    `architect`, `interrogate`, and `blast-radius` as the consult needs them.
-4. Write `advice/000-ready.md` with status `answered`, your runtime and model
+4. Write the ready file your bootstrap prompt names (`advice/000-ready.md` under the
+   local store) with status `answered`, your runtime and model
    if you know them, the permission mode from `pair.json`
    `.consultant.permission_mode`, cwd, branch, head, and tree state, following
    the advice template's header. Reply `READY` and end the turn.

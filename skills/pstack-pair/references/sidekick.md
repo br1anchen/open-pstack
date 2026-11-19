@@ -39,7 +39,8 @@ Never paste credentials, tokens, private keys, `.env` content, env dumps, Author
    roster's model and effort override upstream role defaults and runtime.md's
    per-runtime preferences for a pair, trio or kitchen role, as far as the
    host supports them.
-4. Write `reports/000-ready.md` with status `done`, your runtime and model if
+4. Write the ready file your bootstrap prompt names (`reports/000-ready.md` under the
+   local store) with status `done`, your runtime and model if
    you know them, the permission mode from `pair.json`
    `.sidekick.permission_mode`, cwd, branch, head, and tree state, following
    the report template. Include `.sidekick.generation`, the native session ID
