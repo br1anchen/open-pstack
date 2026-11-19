@@ -215,6 +215,9 @@ def init_store(ctx, request, out=None):
             }
         if 'consultant' in doc:
             doc['scratch'] = []
+        # Under Amp threads the run's first master thread anchors the thread tree (nest).
+        if anchor := mux.get().own_thread():
+            doc['anchor'] = {'thread': anchor}
         write_new(f'{store}/pair.json', _dumps(doc))
         write(f'store: {store} (master {master} in {pane})\n')
     event(store, 'master', 'init', '-', ctx.skill)
