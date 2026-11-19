@@ -21486,6 +21486,26 @@ class GitStoreTests(unittest.TestCase):
         self.assertEqual(len(logged), 1, logged)
         self.assertIn('a fixture the test reads', logged[0])
 
+    def test_gitstore_a_failing_git_add_refuses_the_publish_and_commits_nothing(self):
+        real = gitstore._run
+
+        def fail_add(store, *args):
+            if args and args[0] == 'add':
+                return subprocess.CompletedProcess(args, 128, '', 'fatal: injected')
+            return real(store, *args)
+
+        self.write(self.store, 'reports/001-x.md', 'status: done\n')
+        head, remote = gitstore.head_of(self.store), self.remote_commits()
+        with mock.patch.object(gitstore, '_run', fail_add):
+            with self.assertRaises(gitstore.PublishFailed) as caught:
+                self.publish(
+                    self.store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1)
+                )
+        self.assertIn('injected', str(caught.exception))
+        self.assertEqual(gitstore.head_of(self.store), head)
+        self.assertEqual(self.remote_commits(), remote)
+        self.assertNotIn('reports/001-x.md', self.remote_files())
+
     def test_gitstore_a_file_edited_after_the_scan_never_lands_unscanned(self):
         token = _fake('gh', 'p_', 'a1' * 18)
         self.write(self.store, 'reports/001-x.md', 'status: done\n')

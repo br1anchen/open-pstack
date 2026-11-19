@@ -582,8 +582,13 @@ def _commit(store, rels, message, writer):
     """One commit of exactly these paths, as the scan read them from the index; 0 when nothing in them changed. SecretFound, with the paths
     unstaged and nothing committed, when a changed file holds a credential. The commit takes the index and never rereads the working tree, so
     a file edited after the scan cannot land unscanned."""
-    _run(store, 'reset', '--quiet')
-    _run(store, 'add', '-A', '--', *rels)
+    reset = _run(store, 'reset', '--quiet')
+    added = _run(store, 'add', '-A', '--', *rels) if reset.returncode == 0 else reset
+    if added.returncode != 0:
+        _run(store, 'reset', '--quiet')
+        raise PublishFailed(
+            f'cannot stage {", ".join(rels)} in {store}: {added.stderr.strip()}; nothing is committed'
+        )
     if _run(store, 'diff', '--cached', '--quiet').returncode == 0:
         return 0
     _refuse_secrets(store, writer)
