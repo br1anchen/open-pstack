@@ -21699,6 +21699,26 @@ class GitStoreTests(unittest.TestCase):
                     self.assertNotIn(flagged, self.remote_files())
                 self.assertNotIn(token.encode(), self.remote_objects())
 
+    def test_gitstore_a_flagged_path_another_role_owns_is_refused_naming_that_role_and_file(
+        self,
+    ):
+        token = _fake('gh', 'p_', 'a1' * 18)
+        remote = self.remote_commits()
+        commit = self.commit_by_hand('reports/003-z.md', f'oops\n{token}\n')
+        self.write(self.store, 'decisions.tsv', 'row\n')
+        redacted = 'oops\n[REDACTED: github-token]\n'
+        self.write(self.store, 'reports/003-z.md', redacted)
+        with self.assertRaises(gitstore.PublishFailed) as caught:
+            self.publish(self.store, ['decisions.tsv'], gitstore.Writer('master', 1))
+        self.assertEqual(
+            str(caught.exception),
+            f"secret: reports/003-z.md@{commit} is in an unpushed commit; reports/003-z.md is sidekick's; it must publish it",
+        )
+        self.assertEqual(self.remote_commits(), remote)
+        self.publish(self.store, ['reports/003-z.md'], gitstore.Writer('sidekick', 1))
+        self.assertIn('reports/003-z.md', self.remote_files())
+        self.assertNotIn(token.encode(), self.remote_objects())
+
     def test_gitstore_two_unpushed_versions_of_one_path_are_scanned_under_labels_of_their_own(
         self,
     ):

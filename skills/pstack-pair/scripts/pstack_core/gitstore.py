@@ -689,7 +689,15 @@ def _unsent_texts(store, branch):
     return items
 
 
-def _fold_unsent(store, branch, message, found, rels):
+def _refusal(label, rel, writer):
+    """The line for a flagged path an unpushed commit holds that this publish does not name: another role's file is that role's to publish."""
+    owner = owner_role(rel)
+    if owner and owner != writer.role:
+        return f"secret: {label} is in an unpushed commit; {rel} is {owner}'s; it must publish it"
+    return f'secret: {label} is in an unpushed commit; redact it and publish that path (it is not part of this publish)'
+
+
+def _fold_unsent(store, branch, message, found, rels, writer):
     """Replaces the unpushed commits with one commit of the committed files, when every file a finding names that HEAD still holds is a path of this
     publish (`rels`, which publish has already checked the writer owns) and is clean in the working tree: the redaction a SecretFound asked for,
     made after the secret was committed. The commit has the remote tip as its parent (none when the branch is new) and the tree of HEAD with only
@@ -705,12 +713,7 @@ def _fold_unsent(store, branch, message, found, rels):
         return ''
     refused = [p for p in held if p not in rels]
     if refused:
-        raise PublishFailed(
-            '\n'.join(
-                f'secret: {labels[p]} is in an unpushed commit; redact it and publish that path (it is not part of this publish)'
-                for p in refused
-            )
-        )
+        raise PublishFailed('\n'.join(_refusal(labels[p], p, writer) for p in refused))
     old = head_of(store)
     remote = _remote_ref(branch)
     parent = (
@@ -736,7 +739,7 @@ def _fold_unsent(store, branch, message, found, rels):
     return old
 
 
-def _refuse_unsent_secrets(store, branch, message, rels):
+def _refuse_unsent_secrets(store, branch, message, rels, writer):
     """Raises SecretFound, with nothing pushed, when a blob the push would send holds a credential: a commit made here outside publish, or one an
     earlier publish refused to push, is scanned as the files of this publish are. The finding names the commit; once every flagged file is clean
     in the working tree and part of this publish, the unpushed commits are folded into one new commit and scanned again, so redacting the file
@@ -745,7 +748,7 @@ def _refuse_unsent_secrets(store, branch, message, rels):
     found = secrets.scan(_unsent_texts(store, branch), root=store)
     if not found:
         return
-    old = _fold_unsent(store, branch, message, found, rels)
+    old = _fold_unsent(store, branch, message, found, rels, writer)
     if not old:
         raise SecretFound(found)
     again = secrets.scan(_unsent_texts(store, branch), root=store)
@@ -925,7 +928,7 @@ def _publish(store, rels, message, writer, sleep):
             )
         if not made and unpublished(store, branch) == 0:
             return ''
-        _refuse_unsent_secrets(store, branch, message, rels)
+        _refuse_unsent_secrets(store, branch, message, rels, writer)
         pushed = push(store, branch)
         if pushed.status == 'ok':
             return head_of(store)

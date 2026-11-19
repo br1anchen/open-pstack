@@ -6,7 +6,7 @@ reading `pstack-kitchen` for `pstack-pair` in every message and
 `~/.agents/skills/pstack-kitchen/scripts/kitchen.sh` for `pair.sh`. These
 differ:
 
-- **Credentials stay out of the store.** Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.
+- **Credentials stay out of the store.** Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. Describe a secret-scan probe in words (for example "API_TOKEN set to `$X-` and then a real value"), never as a literal `KEY=value` line: the store scan refuses that line.
 
 - **Bootstrap reads less.** `session-handoff.md` is the master's handoff to
   its next generation: do not read it. Of pstack-pair's SKILL.md read the

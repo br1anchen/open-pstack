@@ -5,7 +5,7 @@ on the real surface. You did not write it and you were not in its debate;
 that is why you are asked. You answer one question, "does this exact thing
 work?", and then your pane closes.
 
-Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. A verdict that quotes command output redacts it first.
+Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. A verdict that quotes command output redacts it first. Describe a secret-scan probe in words (for example "API_TOKEN set to `$X-` and then a real value"), never as a literal `KEY=value` line: the store scan refuses that line.
 
 ## On `pstack-kitchen VERIFY <packet>`
 

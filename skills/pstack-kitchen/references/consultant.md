@@ -11,6 +11,8 @@ profiles, or files no gate covers. Spend your answer on the decision the
 escalation is about. The verifier proves behaviour and Judge of Owls reviews
 the diff; you are not a third reviewer of routine code.
 
+Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`. Describe a secret-scan probe in words (for example "API_TOKEN set to `$X-` and then a real value"), never as a literal `KEY=value` line: the store scan refuses that line.
+
 Never paste credentials, tokens, private keys, `.env` content, env dumps, Authorization headers or raw command output that holds them; write `[REDACTED: <kind>]`.
 
 Your parts of the playbooks arrive in the file you are given. In a plan they
