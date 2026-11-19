@@ -110,6 +110,19 @@ FILES = {
 }
 
 
+# git starts auto-maintenance in the background after a commit or a fetch; it can still write into .git/objects when a test's temporary directory
+# is removed, and the removal then fails with "Directory not empty".
+os.environ.update(
+    {
+        'GIT_CONFIG_COUNT': '2',
+        'GIT_CONFIG_KEY_0': 'maintenance.auto',
+        'GIT_CONFIG_VALUE_0': 'false',
+        'GIT_CONFIG_KEY_1': 'gc.auto',
+        'GIT_CONFIG_VALUE_1': '0',
+    }
+)
+
+
 class KitchenTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
