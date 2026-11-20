@@ -389,6 +389,7 @@ def landing_sections(p, parts):
             + '\n'.join(section_lines(b, r'^## Acceptance', False)).strip('\n')
             + '\n\n'
         )
+        parts.append(accepted_amendments(p.store, b))
     parts.append(landing_playbook_section(p, stacked))
     parts.append(plan_sections(p))
     parts.append(inputs_section(p.store, stacked))

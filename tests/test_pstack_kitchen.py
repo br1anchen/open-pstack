@@ -10216,9 +10216,16 @@ esac
     )
 
     def landing_world(
-        self, units, plan_text=None, verified=(), statuses=(), with_plan=True
+        self,
+        units,
+        plan_text=None,
+        verified=(),
+        statuses=(),
+        with_plan=True,
+        reviews=(),
     ):
-        """A landing over units (seq, slug, goal, acceptance) of briefs that name plans/900-demo.md; returns the landing packet's text."""
+        """A landing over units (seq, slug, goal, acceptance) of briefs that name plans/900-demo.md, with reviews as (unit name, text) notes
+        written before the packet is made; returns the landing packet's text."""
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)
         plan = self.store / 'plans/900-demo.md'
@@ -10257,6 +10264,8 @@ esac
             (self.store / f'verdicts/{seq}-v1.md').write_text(
                 f'# Verdict\n\nstatus: {status}\nunits: {seq}\n\n## Evidence\n\n```\n$ true\n```\n'
             )
+        for name, text in reviews:
+            (self.store / f'reviews/{name}.md').write_text(text)
         self.run_sh(
             'verify', str(self.store), '--timeout', '60', '--landing', '--every', '0'
         )
@@ -10419,6 +10428,36 @@ esac
             ['Acceptance two holds.'],
         )
         self.assertNotIn('Acceptance one holds.', packet)
+
+    def test_a_landing_packet_gives_each_folded_unit_its_accepted_amendments(self):
+        note = '# Review {n}\n\nverdict: accept\n\n## Amendments\n\n{text}\n\n## Checked\n\nread it\n'
+        packet = self.landing_world(
+            [
+                ('001', 'util', 'g1', 'Acceptance one holds.'),
+                ('002', 'next', 'g2', 'Acceptance two holds.'),
+                ('003', 'last', 'g3', 'Acceptance three holds.'),
+            ],
+            verified=('003',),
+            reviews=[
+                (
+                    '001-util',
+                    note.format(n='001', text='the CLI keeps --old: accepted.'),
+                ),
+                ('002-next', note.format(n='002', text='none')),
+                ('003-last', note.format(n='003', text='verified unit amendment')),
+            ],
+        )
+        one = packet.split('## Acceptance: unit 001-util')[1].split('\n## ')[0]
+        two = packet.split('## Acceptance: unit 002-next')[1].split('\n## ')[0]
+        self.assertIn(
+            '\n\nAcceptance one holds.\n\nAccepted by the master (reviews/001-util.md), whatever the Acceptance above says',
+            one,
+        )
+        self.assertTrue(one.rstrip('\n').endswith('the CLI keeps --old: accepted.'))
+        self.assertNotIn('Accepted by the master', two)
+        # A unit with a verdict of its own is not folded, so its amendments are not part of the landing's Acceptance.
+        self.assertNotIn('verified unit amendment', packet)
+        self.assertEqual(packet.count('Accepted by the master'), 1)
 
     def test_a_unit_whose_only_verdict_is_a_reject_or_inconclusive_is_folded_with_its_acceptance(
         self,
