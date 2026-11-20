@@ -96,7 +96,7 @@ def rotate(ctx, args):
             5,
         )
     start_args = current_no_mcp(names(sidekick, 'start_args'))
-    spawned = False
+    code = None
     try:
         event(
             store,
@@ -120,24 +120,25 @@ def rotate(ctx, args):
             if index == 0
             else fail_back(ctx, store, request, chain, index)
         )
-        spawned = True
         return code
     finally:
         # A spawn that dies still leaves the rotate event, which the branch must hold.
-        publish_rotation(store, spawned)
+        publish_rotation(store, code)
 
 
-def publish_rotation(store, spawned):
-    """Under git, the master's changes (the rotate event) go to the branch when a rotation is over. A failing publish raises after a spawn that
-    worked; after a spawn that failed it is a warning, so the spawn's error is the one the command ends with."""
+def publish_rotation(store, code):
+    """Under git, the master's changes (the rotate event) go to the branch when a rotation is over. `code` is what the spawn returned, None when
+    it raised. A failing publish raises after a spawn that worked (0); after one that raised or returned a failure it is a warning, so the
+    spawn's error or exit code is the one the command ends with."""
     if not is_git(store):
         return
     try:
         gitstore.publish_role(store, 'master')
     except PairError as err:
-        if spawned:
+        if code == 0:
             raise
-        sys.stderr.write(f'warning: the rollback could not be published: {err}\n')
+        what = 'rollback' if code is None else 'rotation'
+        sys.stderr.write(f'warning: the {what} could not be published: {err}\n')
 
 
 def fail_back(ctx, store, request, chain, index):

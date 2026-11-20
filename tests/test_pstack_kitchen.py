@@ -18788,7 +18788,7 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertIn('every agent of the sidekick chain failed its preflight', out)
         self.assertIn('warning: the rollback could not be published:', out)
 
-    def test_a_rotation_that_spawned_still_raises_the_error_of_its_final_publish(self):
+    def rotate_with_the_final_publish_refused(self, code, ready=False):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         (self.store / 'reports/000-ready-g1.md').unlink()
@@ -18798,9 +18798,21 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.refuse_master_pushes_where(
             'git diff --name-only "$old" "$new" | grep -q nest-pending.tsv'
         )
-        out = self.run_sh('rotate', str(self.store), code=None)
+        if ready:
+            (self.store / 'reports/000-ready-g2.md').write_text('status: done\n')
+        return self.run_sh('rotate', str(self.store), code=code)
+
+    def test_a_rotation_whose_spawn_returned_4_keeps_that_exit_code_when_its_final_publish_fails(
+        self,
+    ):
+        out = self.rotate_with_the_final_publish_refused(4)
+        self.assertIn('warning: the rotation could not be published:', out)
         self.assertIn('was not pushed', out)
-        self.assertNotIn('the rollback could not be published', out)
+
+    def test_a_rotation_that_spawned_still_raises_the_error_of_its_final_publish(self):
+        out = self.rotate_with_the_final_publish_refused(1, ready=True)
+        self.assertIn('was not pushed', out)
+        self.assertNotIn('could not be published', out)
 
     def test_a_rotation_whose_spawn_dies_still_publishes_its_rotate_event(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
