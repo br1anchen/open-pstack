@@ -16,3 +16,9 @@
 2026-11-20T17:34:33Z	1795196073	master	wake	002-amp-idle-and-stop	verify:inconclusive
 2026-11-20T17:35:03Z	1795196103	master	log	-	gap: store-to-git published no code: the master's unpushed main (units 001-002, from local bundles) had no kitchen-code ref, so verifier 002-v1 was inconclusive
 2026-11-20T17:35:11Z	1795196111	master	send-verify	002-amp-idle-and-stop	amp:002
+2026-11-20T17:35:23Z	1795196123	master	nest-pending	-	T-01a1fa06-e703-7466-b35f-058e3095918b under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T17:35:31Z	1795196131	master	wake	002-amp-idle-and-stop	verify:progress
+2026-11-20T17:35:39Z	1795196139	master	nest	-	T-01a1fa06-e703-7466-b35f-058e3095918b under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T17:36:12Z	1795196172	master	log	-	review-002: joo on 002 (run 2026-11-20T17-31-45-056Z-4868ce51): 1 medium (amp.py in_turn_at duplicates relays within one turn), 1 low (send-stop row lacks the role); fix brief 018 --covers 002
+2026-11-20T17:36:43Z	1795196203	master	spawn	-	sidekick:amp:ready
+2026-11-20T17:36:44Z	1795196204	master	send-brief	003-packet-accepted-deviations	

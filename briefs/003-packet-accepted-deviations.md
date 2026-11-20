@@ -44,6 +44,7 @@ must not write:
 
 ## Context
 
+- Start from 6ac18e8 (units 001 and 002), which this orb may not hold: `git fetch origin kitchen-code/kitchen-followups/master-g1` and move `main` to it (`git checkout main && git merge --ff-only FETCH_HEAD`; your checkout is at a90bb41 with no commits of its own). Report the head you started from.
 - Gap 7 of run sidekick-ab2 (`notes/kitchen-gaps.md` in this store): verdicts 041-v1 and 045-v1 rejected solely on Acceptance lines whose premise the master's review had already corrected; the only paths were revise or an overrule.
 - The review template's `## Amendments` holds objections the master adopted (`agreed` only); it is the record of an accepted change to a unit. Do not add a section to the template.
 
@@ -64,6 +65,37 @@ python3 tests/spec_gen.py --check
 ## Forbidden
 
 - Do not include the report's `## Deviations` in the packet; only the master's review decides what is accepted.
+
+## Playbook: review-fix (your parts)
+
+You own the working tree.
+
+Your parts:
+- review-fix.intro-1: **Fix the findings the brief lists, inside its Scope, and nothing else.** A review, a rejected verdi
+- review-fix.step-1: 1. Read each finding, the code it names, and the parent unit's brief and report. A finding you canno
+- review-fix.step-2: Fix one finding at a time, the smallest change that answers it. Each finding is one commit with the 
+- review-fix.step-3: 3. Run the brief's Verify commands and the checks each finding names. Nothing in this workflow asks 
+- review-fix.reply: In the report, under Ran and the sections the template names: each finding with its commit, the test
+
+### review-fix.intro-1
+
+**Fix the findings the brief lists, inside its Scope, and nothing else.** A review, a rejected verdict or a landing review already found each one; the unit that raised them already settled the design.
+
+### review-fix.step-1
+
+1. Read each finding, the code it names, and the parent unit's brief and report. A finding you cannot place, or one whose fix would change the parent's design, goes in the report under Questions; do not redesign around it.
+
+### review-fix.step-2
+
+Fix one finding at a time, the smallest change that answers it. Each finding is one commit with the test that pins it, in the same commit, recorded with kitchen.sh step. A finding with no testable behaviour (a comment, a name, a log line) says so in its commit message.
+
+### review-fix.step-3
+
+3. Run the brief's Verify commands and the checks each finding names. Nothing in this workflow asks for a failing test committed before its fix.
+
+### review-fix.reply
+
+In the report, under Ran and the sections the template names: each finding with its commit, the test that pins it, and the command output that shows it fixed. A finding left open says why. Every claim carries its command output or a file pointer.
 
 ## Report
 
