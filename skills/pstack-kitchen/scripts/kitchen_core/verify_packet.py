@@ -395,6 +395,23 @@ def landing_sections(p, parts):
 
 
 CONTEXT_RULE = "These are decisions a review accepted; do not judge them again. Judge only the named units' Acceptance."
+ACCEPTED_RULE = 'Accepted by the master ({review}), whatever the Acceptance above says: prove the Acceptance as these amend it, and do not reject on a departure listed here.'
+
+
+def review_amendments(review):
+    """The `## Amendments` lines of a review note, '' when the note is missing or the section is empty."""
+    return '\n'.join(section_lines(review, r'^## Amendments', False)).strip('\n')
+
+
+def accepted_amendments(store, brief):
+    """The block a named unit's packet section ends with: the amendments its review note holds, under ACCEPTED_RULE. '' when the unit has
+    no review note or its Amendments are empty or `none`."""
+    name = os.path.basename(brief)[:-3]
+    review = f'{store}/reviews/{name}.md'
+    text = review_amendments(review)
+    if text.strip().lower() in ('', 'none'):
+        return ''
+    return f'{ACCEPTED_RULE.format(review=f"reviews/{name}.md")}\n\n{text}\n\n'
 
 
 def units_between(p):
@@ -423,10 +440,7 @@ def context_section(p):
         if header_field(review, 'verdict') != 'accept':
             text += f'unit {name}: no accepted review\n\n'
             continue
-        amendments = (
-            '\n'.join(section_lines(review, r'^## Amendments', False)).strip('\n')
-            or 'none'
-        )
+        amendments = review_amendments(review) or 'none'
         text += f'unit {name}: accepted (reviews/{name}.md)\n\nAmendments:\n\n{amendments}\n\n'
     return text
 
@@ -451,6 +465,7 @@ def unit_sections(p, parts):
             line + '\n' for line in section_lines(b, r'^## (Goal|Acceptance)', True)
         ]
         parts.append('\n')
+        parts.append(accepted_amendments(p.store, b))
         parts.append(unit_playbook_section(p.store, b, u, shown))
         parts.append(brief_commands(p.store, p.root, b, u))
     if p.covered:
