@@ -16786,12 +16786,17 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(self.thread_messages(sidekick)[1:], [])
         self.assertEqual(self.relay_of('STEER one'), [record, 'pending'])
         self.assertEqual(len(list(self.relays_dir().glob('*.json'))), 1)
-        # Once the master has sent it, the same text waits for the thread's next turn end; a new text is its own relay.
+        # Once the master has sent it, the same text waits in the turn it was sent into; a new text is its own relay.
         done = {**record, 'state': 'relay-done', 'done_at': 1790000000}
         (self.relays_dir() / f'{rid}.json').write_text(json.dumps(done))
-        self.set_state(sidekick, 'tool_use', '2026-11-18T00:00:00.000Z')
+        self.set_state(sidekick, 'tool_use', '2026-09-01T00:00:00.000Z')
         self.assertEqual(self.relay_of('STEER one'), [done, 'delivered'])
         self.assertEqual(self.relay_of('STEER two')[1], 'made')
+        # A turn that began after the send already read the relay when it started; the same text is its own new relay.
+        self.set_state(sidekick, 'tool_use', '2026-11-18T00:00:00.000Z')
+        fresh, how = self.relay_of('STEER one')
+        self.assertEqual(how, 'made')
+        self.assertNotEqual(fresh['id'], rid)
         self.set_state(sidekick, 'idle', '2999-01-01T00:00:00.000Z')
         again, how = self.relay_of('STEER one')
         self.assertEqual(how, 'made')

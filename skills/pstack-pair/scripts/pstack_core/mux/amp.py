@@ -1202,6 +1202,13 @@ class Amp(Subagents):
             return False
         return state != ''
 
+    def in_turn_at(self, thread, at):
+        """Whether the thread is still in the turn it was in at `at`, so a message sent then is still queued in it: the turn it is in began
+        before `at`. A turn that began after `at` was started by the message's reader at the earlier turn's end, and a settled thread has
+        left that turn and read it at the end."""
+        state, since = thread_state(export(thread))
+        return state != '' and state not in SETTLED and since <= at
+
     def turn_ended_since(self, thread, at):
         """Whether the thread has ended a turn since `at` (an unknown state is not an end)."""
         state, since = thread_state(export(thread))
@@ -1217,7 +1224,7 @@ class Amp(Subagents):
         """A steer for the thread of role `name`, which is in a turn, as a relay the master sends with its own tools (a CLI message would only queue
         behind the turn): the bundle is packed under the master's .git, where upload_thread_file reaches it and no store bundle carries it, and the
         message and the record are written under relays/. (record, how) with how 'made', 'pending' (the same text is still waiting to be relayed) or
-        'delivered' (it was relayed and the thread has not ended a turn since). A pending relay whose thread has ended a turn since is marked stale and
+        'delivered' (it was relayed into the turn the thread is still in, and waits in it). A pending relay whose thread has ended a turn since is marked stale and
         made anew. ({'size': bytes}, 'too-large') when the bundle is over upload_thread_file's limit; (None, '') when there is nothing to relay with."""
         found = self.entry(name)
         thread = (found[1].get('thread') or '') if found else ''
@@ -1239,7 +1246,7 @@ class Amp(Subagents):
                     return same, 'pending'
                 write_relay({**same, 'state': STALE})
                 same = None
-            if same and self.in_turn_since(thread, int(same.get('done_at') or 0)):
+            if same and self.in_turn_at(thread, int(same.get('done_at') or 0)):
                 return same, 'delivered'
             msg_id = uuid.uuid4().hex[:12]
             path = os.path.join(repo, '.git', 'pstack-relay', f'{msg_id}.tgz')

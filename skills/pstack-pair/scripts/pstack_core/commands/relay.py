@@ -25,7 +25,7 @@ def print_relay(prog, store, name, record, how, kind, arg):
     rid, thread = record['id'], record['thread']
     if how == 'delivered':
         print(
-            f'relayed: {rid} for {name} ({thread}) (already relayed; the thread has not ended a turn since, so it is not relayed again)'
+            f'relayed: {rid} for {name} ({thread}) (already relayed into the turn the thread is still in; not relayed again)'
         )
         return True
     if how == 'made':
