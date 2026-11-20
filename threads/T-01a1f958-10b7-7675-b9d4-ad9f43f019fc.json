@@ -1,0 +1,26 @@
+{
+ "args": [
+  "--model",
+  "openai/gpt-6-astra",
+  "--effort",
+  "high"
+ ],
+ "generation": 1,
+ "kind": "amp",
+ "name": "kitchen-followups-consultant",
+ "pane": "amp:2",
+ "relays": [],
+ "requests": [
+  {
+   "at": 1795203763,
+   "hash": "1a9617f38f35e84eba3bd7546dc740f2c496ac8f7ad4120a60dc31d8a630be41",
+   "id": "14ee938f4f06",
+   "seq": 15,
+   "state": "pending"
+  }
+ ],
+ "role": "consultant",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "state": "started",
+ "thread": "T-01a1f958-10b7-7675-b9d4-ad9f43f019fc"
+}
