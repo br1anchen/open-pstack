@@ -56,7 +56,9 @@ def final(store, name):
     tip = gitstore.head_of(store)
 
     def mutate(doc):
-        member(member(doc, 'store_backend'), 'close')['tip'] = tip
+        close = member(member(doc, 'store_backend'), 'close')
+        close['tip'] = tip
+        close['tag'] = name
 
     update(store, mutate)
 

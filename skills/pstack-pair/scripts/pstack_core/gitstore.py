@@ -654,9 +654,19 @@ def backend_record(store):
 
 
 def fence(store, writer):
-    """Raises StoreClosing for a writer other than the master while `close` has the store fenced (pair.json `.store_backend.closing`), and
-    FencedWriter unless the writer's generation is the active one in the store's pair.json as it is now."""
-    if writer.role != 'master' and backend_record(store).get('closing') is True:
+    """Raises StoreClosing for every writer, the master included, once `close` has deleted the branch (pair.json `.store_backend.close.done`
+    holds `delete`), since a publish would put the branch back on origin; for a writer other than the master while `close` has the store
+    fenced (`.store_backend.closing`); and FencedWriter unless the writer's generation is the active one in the store's pair.json as it is now."""
+    record = backend_record(store)
+    close = record.get('close')
+    if isinstance(close, dict) and 'delete' in (close.get('done') or []):
+        archive = close.get('tag')
+        raise StoreClosing(
+            f'{BRANCH_PREFIX}{slug_of(store)} is closed and deleted on origin'
+            + (f' (archived as {archive})' if archive else '')
+            + '; nothing is published'
+        )
+    if writer.role != 'master' and record.get('closing') is True:
         raise StoreClosing(
             f'the run is being closed (kitchen.sh close fenced {BRANCH_PREFIX}{slug_of(store)}); nothing is published'
         )

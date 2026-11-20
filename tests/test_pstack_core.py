@@ -22151,6 +22151,18 @@ class GitStoreTests(unittest.TestCase):
         self.write(store, 'status.md', 'closing\n')
         self.publish(store, ['status.md'], gitstore.Writer('master', 1))
 
+    def test_gitstore_close_refuses_every_publish_once_the_branch_is_deleted(self):
+        store, branch = self.archived_run('deleted')
+        with contextlib.redirect_stdout(io.StringIO()):
+            close_commands.archive(store)
+        tag = close_commands.tag_of(store)
+        self.assertEqual(self.remote_ref(f'refs/heads/{branch}'), '')
+        self.write(store, 'status.md', 'after the close\n')
+        with self.assertRaises(gitstore.StoreClosing) as caught:
+            self.publish(store, ['status.md'], gitstore.Writer('master', 1))
+        self.assertIn(tag, str(caught.exception))
+        self.assertEqual(self.remote_ref(f'refs/heads/{branch}'), '')
+
     def local_store(self, slug='mig'):
         """A running local store: pair.json with two roles, events, a verdict, a report, and files that stay on one machine."""
         store = self.path / f'local-{slug}'
