@@ -1,0 +1,19 @@
+{
+ "args": [
+  "--model",
+  "anthropic/claude-opus-5-5",
+  "--orb-size",
+  "a1.large"
+ ],
+ "generation": 0,
+ "kind": "amp",
+ "name": "kitchen-followups-verifier",
+ "pane": "amp:10",
+ "relays": [],
+ "requests": [],
+ "role": "verifier",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "started": 1795213484,
+ "state": "started",
+ "thread": "T-01a1fb0f-db30-7679-b789-1fe2224144eb"
+}
