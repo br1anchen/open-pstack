@@ -18426,6 +18426,69 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertEqual(archived.read_text().split(), [verifier])
         self.assertEqual(self.dirty_role_files(), [])
 
+    def refuse_master_pushes_where(self, condition):
+        """origin refuses a push to kitchen/* while `condition` (a shell test over $old and $new, the tips) holds."""
+        hook = self.remote / 'hooks/pre-receive'
+        hook.write_text(
+            '#!/bin/sh\nwhile read old new ref; do\n'
+            '  case "$ref" in refs/heads/kitchen/*)\n'
+            f'    if {condition}; then echo refused >&2; exit 1; fi;;\n'
+            '  esac\ndone\n'
+        )
+        hook.chmod(0o755)
+
+    def test_a_master_rollback_that_cannot_be_published_leaves_the_launch_error_standing(
+        self,
+    ):
+        self.filled_handoff()
+        (self.fake / 'amp-ox-fail').write_text('boom launch\n')
+        # Only the rollback push is refused: the tip it replaces holds the hand-over and the new tree does not.
+        self.refuse_master_pushes_where(
+            'git show "$old:pair.json" 2>/dev/null | grep -q \'"previous"\''
+            ' && ! git show "$new:pair.json" | grep -q \'"previous"\''
+        )
+        out = self.run_sh('rotate-master', str(self.store), code=None)
+        self.assertIn('the next master thread did not start: boom launch', out)
+        self.assertIn('warning: the rollback could not be published:', out)
+        self.assertNotIn('Traceback', out)
+
+    def test_a_sidekick_rotation_rollback_that_cannot_be_published_leaves_the_spawn_error_standing(
+        self,
+    ):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.store / 'reports/000-ready-g1.md').unlink()
+        self.role_ready('first-orb', amp_thread(1), 1, report=b.name)
+        self.run_sh('sync', '--branch', str(self.store))
+        doc = self.state()
+        doc['sidekick']['chain'] = [
+            {'kind': 'amp', 'args': ['--model', 'x/one']},
+            {'kind': 'amp', 'args': ['--model', 'y/two']},
+        ]
+        doc['sidekick']['chain_index'] = 1
+        (self.store / 'pair.json').write_text(json.dumps(doc))
+        (self.fake / 'amp-preflight-fail').write_text('x/one\ny/two\n')
+        self.refuse_master_pushes_where(
+            'git show "$new:events/master-g0.tsv" 2>/dev/null | grep -q "$(printf \'\\trotate\\t\')"'
+        )
+        out = self.run_sh('rotate', str(self.store), code=None)
+        self.assertIn('every agent of the sidekick chain failed its preflight', out)
+        self.assertIn('warning: the rollback could not be published:', out)
+
+    def test_a_rotation_that_spawned_still_raises_the_error_of_its_final_publish(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.store / 'reports/000-ready-g1.md').unlink()
+        self.role_ready('first-orb', amp_thread(1), 1, report=b.name)
+        self.run_sh('sync', '--branch', str(self.store))
+        # The spawn's own publishes go through; the last push of a rotation is the one that carries nest-pending.tsv.
+        self.refuse_master_pushes_where(
+            'git diff --name-only "$old" "$new" | grep -q nest-pending.tsv'
+        )
+        out = self.run_sh('rotate', str(self.store), code=None)
+        self.assertIn('was not pushed', out)
+        self.assertNotIn('the rollback could not be published', out)
+
     def test_a_rotation_whose_spawn_dies_still_publishes_its_rotate_event(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

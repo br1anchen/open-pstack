@@ -513,8 +513,11 @@ def hand_to_next_thread(ctx, store, handoff, model):
         with open(f'{store}/pair.json', 'w') as f:
             f.write(before)
         event(store, 'master', 'rotate-failed', '-', f'generation:{next_gen}')
-        # The hand-over went out before the launch; the branch must not keep one that did not happen.
-        publish_master(store)
+        # The hand-over went out before the launch; the branch must not keep one that did not happen. A failed publish must not hide the launch error.
+        try:
+            publish_master(store)
+        except PairError as err:
+            sys.stderr.write(f'warning: the rollback could not be published: {err}\n')
         raise
     # The pane the next master was given before its thread existed is an orb-local counter; every orb knows the thread's own pane.
     update(
