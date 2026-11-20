@@ -252,15 +252,28 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   later prompts continue it (`amp threads continue <T> -ox`). A role of any
   other kind runs on Amp's default mode, with a warning. Each prompt prints
   `amp NAME (THREAD): TEXT`.
-- Every orb has its own checkout and its own copy of the store. Each prompt
-  attaches a bundle: the store's files, a git bundle of HEAD and of each
+- The store has two backends under Amp threads. The local store is the
+  default: every orb holds its own copy of the store, and what one orb writes
+  reaches another only as a bundle attached to a message (the bullets below
+  say so where it matters). The git store is opt-in: set `PSTACK_STORE=git` at
+  `init`, or move a running run with `kitchen.sh store-to-git`. The run store
+  is then a worktree of the work repository on the branch `kitchen/<slug>` of
+  origin, every role publishes by commit and push, and a message only says
+  `store: kitchen/<slug> at <sha>`, so a lost message delays the master and
+  never strands a report. A `kitchen/*` branch is published content (see
+  Store additions). The bullets after this one describe the local store
+  unless they name the git store.
+- Under the local store every orb has its own checkout and its own copy of
+  the store. Each prompt attaches a bundle: the store's files, a git bundle of HEAD and of each
   scratch worktree the store links (less what the remote holds), and the
   agents this side knows. A prompt to a role also attaches the master's
   skills build and the line that installs it under
   `~/.local/share/pstack-builds/`, so every orb runs the run's build. The
   receiving thread's first move is
   `PSTACK_MUX=amp ~/.agents/skills/pstack-pair/scripts/pair.sh sync <URL>`,
-  which the prompt names. It merges the store three-way against the bundle
+  which the prompt names. Under the git store the prompt attaches no store
+  bundle, and the first move is `pair.sh sync --branch <store> kitchen/<slug>`,
+  which refreshes the store branch and fetches the code the message announces. It merges the store three-way against the bundle
   it last sent that thread (a file only one side changed keeps that side's
   copy; one both changed takes the sender's and is named; `pair.json` merges
   key by key; `.tsv` files take the union of their lines), fetches the
@@ -291,7 +304,8 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   bundle, and the master runs that sync, then the next command.
 - A role's `finish` and `notify` always send the file as a message to the
   master's thread, whatever the master is doing: the message queues behind its
-  turn, carries the store bundle with the file, and quotes the file's header
+  turn, carries the store bundle with the file (under the git store the file
+  is published to the branch first and the message names the commit), and quotes the file's header
   (status, brief, head, units) and a digest of its content, so a file rewritten
   under the same path is sent again and an unchanged one is not sent twice. The
   master reads it when its turn ends, after the sync the message names. Before
@@ -352,7 +366,7 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   tip. A rerun after a crash continues with the first phase not recorded and never
   deletes the branch before the tag is verified; a branch that moved after the
   tag is kept and the close says so.
-- `kitchen.sh store-to-git <store>` (master only) moves a running local store to
+- `kitchen.sh store-to-git <store>` (master only, opt-in) moves a running local store to
   `kitchen/<slug>`: it scans the store for credentials first and stops on a match
   (file and kind named, nothing pushed), pushes a snapshot of the store minus its
   local-only files, checks origin lists it, turns the store directory into the
@@ -452,8 +466,10 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   and `kitchen.sh nest <store> --done <thread>...` marks them nested.
   `status` prints `nest-pending: N threads` while any is pending. Setting
   `PSTACK_NEST_VIA=<thread-id>` (optional, unset by default) makes `nest` say
-  to ask that thread to set the parents instead. Under Herdr, Rex, subagents
-  and the local store nothing is recorded.
+  to ask that thread to set the parents instead. Under Herdr, Rex and
+  subagents nothing is recorded; under Amp threads it is recorded with either
+  store backend, and under the git store `nest-pending.tsv` is published as one
+  of the master's files.
 - `prime-agent` cannot run here.
 
 ## Roles and quota
@@ -604,6 +620,31 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `pair.json` `.sidekick_choice` | `kitchen.sh init` | the `[[sidekick.alternate]]` entry this run starts, with its label |
 | `pair.json` `.dispatch.sidekick`, `.sidekick_models` | `kitchen.sh dispatch` | each brief's sidekick as `<kind> <model>`; `.sidekick_models` keeps it per unit |
 | `pair.json` `.sidekick_threads` | `kitchen.sh dispatch`, under Amp threads | the threads each sidekick model ran in |
+| `pair.json` `.anchor.thread` | `init`, under Amp threads | the run's first master thread, the parent of every later thread (`nest`) |
+| `nest-pending.tsv` | `kitchen.sh` starts, `kitchen.sh nest` | one row per thread waiting for its parent; a later `nested` row closes it |
+
+The git store (Amp threads, `PSTACK_STORE=git`; opt-in) adds, on the branch `kitchen/<slug>`:
+
+| Path | Writer | Content |
+| --- | --- | --- |
+| `pair.json` `.store_backend` | `init` or `kitchen.sh store-to-git`, `close` | `{backend: git, branch}`, and under `.close` the archive phases done so far |
+| `events/<role>-g<n>.tsv`, `acks/<role>-g<n>.tsv` | the role generation `n` | its own events and its acknowledged notes; `events.tsv` is read as the union of every writer's file |
+| `drains/<role>-g<n>/<request>.json` | a sidekick or consultant at `finish` or `notify` | the receipt for one request: thread, request, outputs with sha256, code heads |
+| `code/<role>-g<n>.bundle` | a role, when origin refuses its code ref | the commits of a report, in place of the push to `kitchen-code/<slug>/<role>-g<n>` |
+| `threads/<thread-id>.json` | master | which thread plays which role, and the requests and steer relays sent to it, so a master in a fresh clone rebuilds its routing |
+
+`store-to-git` also keeps `.store-to-git.json` in the store directory, on this machine only: the snapshot commit it last
+pushed, so a rerun takes the branch for its own.
+
+One table, `RULES` in `skills/pstack-pair/scripts/pstack_core/gitstore.py`, decides who may publish which path. The
+master's files and directories (`pair.json`, `standing-orders.md`, `briefs/`, `plans/`, `steers/`, `reviews/`,
+`threads/`, `nest-pending.tsv` and the rest) belong to the master. Reports, step logs, progress, advice and
+verifiers' verdicts belong to their role. The per-generation files above belong to the one writer generation named in
+the path. Locks, pid files, bundles, scratch worktrees and gate job logs stay on one machine and are listed in the
+branch's `.gitignore`. A publish of a path the writer does not own is refused with an `OwnershipError`, so two writers
+never touch one file. `close` archives the branch as a tag and deletes it, so a finished run leaves no `kitchen/*`
+branch on origin. A `kitchen/*` branch publishes the run's briefs, reports, thread ids and decisions to anyone who can
+read the repository: use the git store only where that is acceptable.
 
 Each store's `pair.json` `.skill_builds` lists the skills directories its commands ran from, stamped
 at `init`; a run from before stamps has none and counts as `unknown`. `pstack/builds.tsv`, which an install

@@ -80,6 +80,22 @@ Sidekick: [references/sidekick.md](references/sidekick.md).
 `NNN` is a zero-padded sequence shared by plan or brief, report, and review, so
 the files for one unit sort together.
 
+### Store backends
+
+The store has two backends. The local one is the default: a directory under
+`${XDG_STATE_HOME:-$HOME/.local/state}/pstack/`, which Herdr, Rex, subagents and
+Amp threads all use, and which Amp threads copy between orbs as attached bundles.
+The git store is opt-in and only for Amp threads: run `pair.sh init` or
+`kitchen.sh init` with `PSTACK_STORE=git`, or move a running run with
+`kitchen.sh store-to-git`. The store directory is then a worktree of the work
+repository on the branch `kitchen/<slug>` of origin. Commands still read files
+from the directory. Each role publishes what it owns by commit and push, and the
+owner of each path is fixed by one table (`RULES` in
+`scripts/pstack_core/gitstore.py`), so no two writers touch one file. The branch
+publishes the run's briefs, reports, thread ids and decisions to everyone who can
+read the repository, so choose it only where that is acceptable. The kitchen's
+[Store additions](../pstack-kitchen/SKILL.md#store-additions) list the files it adds.
+
 ## Messages
 
 | Prompt text | Direction | Sender's helper | Receiver's move |

@@ -219,7 +219,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
 
 ## Git store: migrating and closing
 
-`kitchen.sh store-to-git <store>` moves a running local store to the branch
+The git store is opt-in: a run uses it only when `init` ran with
+`PSTACK_STORE=git` or the master ran `store-to-git`, and every other run keeps the
+local store. `kitchen.sh store-to-git <store>` moves a running local store to the branch
 `kitchen/<slug>` of the work repository's origin (Amp, `PSTACK_STORE=git`). It
 must run from the master, scans the store for credentials before the first push
 and stops on a match. Tell the owner (or the thread they named in
