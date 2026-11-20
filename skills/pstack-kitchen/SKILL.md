@@ -279,7 +279,18 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   key by key; `.tsv` files take the union of their lines), fetches the
   commits, moves a clean checkout to the sender's HEAD when that loses no
   commit, and adds the scratch worktrees. Files over 1 MiB, locks and pid
-  files stay home.
+  files stay home. A role's reply to the master never changes what the master
+  owns, since it is merged against the bundle the master sent that role last,
+  which can be newer than the snapshot the role worked from: the master's
+  `pair.json` is kept whole, except that the current sidekick's completion
+  (`sidekick.rotation_required` true, with the same sidekick generation, brief
+  and dispatch generation on both sides) is taken; the master's other files
+  (`standing-orders.md`, `briefs/`, `decisions.tsv`, `sessions/` and the rest of
+  the master's paths in `RULES`) stay as they are, and the sync line names each
+  one it kept; only the shared append logs `events.tsv` and `gates.tsv` take
+  the union of their lines, and a reply that lacks one deletes nothing. A
+  bundle from the master, or from the master it took over from, is merged as
+  before.
 - A role gets its setup once. Its first message (the bootstrap at spawn or
   rotation) carries the build, the line that installs it and the full rules for
   sending files back to the master; a later message to the same thread carries
@@ -423,7 +434,14 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
     session for this routine unit (<profiles>, context N%)`. It rotates when
     the next unit is escalated, its profiles differ, or the thread has used
     `PAIR_REUSE_CONTEXT_PCT` (50) percent of its context window or compacted
-    (`amp threads context`). A rotation or failover archives the role's
+    (`amp threads context`). Every rotation says why before it starts,
+    `rotate: <reason>` (`previous brief missing`, `risk <prev>/<next>`,
+    `profiles <a> vs <b>`, `context unreadable`, `context N% >= 50%`,
+    `compacted`, `failed over`, or `plan`), and the `rotate` event's detail
+    carries it (`generation:N reason:<reason>`); Herdr and Rex rotate every
+    time and print nothing. A new sidekick generation starts with
+    `rotation_required` cleared, so the next dispatch is sent once its READY is
+    in. A rotation or failover archives the role's
     thread; its next prompt starts a fresh one.
   - The verifier stays fresh: each verification starts a new verifier
     thread, which sends its verdict back with `kitchen.sh notify`; run
