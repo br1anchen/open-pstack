@@ -1,0 +1,1 @@
+- 002 audit low: commands/stop.py:173 the pair's own stop no-thread path (an Amp.start entry before its first prompt) has no test.
