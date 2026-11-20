@@ -1187,7 +1187,8 @@ def fetch_code(store):
         f'+refs/heads/{CODE_PREFIX}{slug}/*:refs/remotes/origin/{CODE_PREFIX}{slug}/*'
     )
     ok = _run(store, 'fetch', '--quiet', 'origin', spec).returncode == 0
-    _fetch_trunk(store)
+    if not _fetch_trunk(store):
+        ok = False
     for name in (
         sorted(os.listdir(f'{store}/code')) if os.path.isdir(f'{store}/code') else []
     ):

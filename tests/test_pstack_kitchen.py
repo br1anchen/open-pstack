@@ -17466,6 +17466,27 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.master_fetches_the_announced_code()
         self.assertTrue(self.master_has(head))
 
+    def test_fetch_code_is_false_and_sync_warns_when_origins_trunk_cannot_be_fetched(
+        self,
+    ):
+        from pstack_core import gitstore
+
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.master_fetches_the_announced_code()
+        self.assertNotIn(
+            'could not be read', self.run_sh('sync', '--branch', str(self.store))
+        )
+        self.remote_git('update-ref', '-d', 'refs/heads/main')
+        self.assertEqual(
+            self.remote_git('rev-parse', 'kitchen-code/demo/sidekick-g1').strip(), head
+        )
+        self.assertFalse(gitstore.fetch_code(str(self.store)))
+        out = self.run_sh('sync', '--branch', str(self.store))
+        self.assertIn('warning: origin or a published bundle could not be read', out)
+
     def test_a_code_ref_origin_refuses_gives_a_bundle_the_master_fetches_instead(self):
         self.reject_code_pushes()
         clone, orb_store = self.role_orb()
