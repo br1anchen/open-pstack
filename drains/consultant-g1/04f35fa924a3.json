@@ -1,0 +1,14 @@
+{
+ "code": [],
+ "generation": 1,
+ "outputs": [
+  {
+   "path": "advice/021-kept-sidekick-session-r2.md",
+   "sha256": "ebff7c24dc3844d2a1d22feec054f40b73f77feca9073b4b773147c1b2defd7e"
+  }
+ ],
+ "request": "04f35fa924a3",
+ "role": "consultant",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1f958-10b7-7675-b9d4-ad9f43f019fc"
+}
