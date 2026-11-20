@@ -83,3 +83,13 @@
 2026-11-20T19:48:28Z	1795204108	master	log	-	plan-round: plan 008 round 2 as plans/021: allowlist pair.json role facts, RULES file guard, new generation clears flag, rotation_reason
 2026-11-20T19:49:53Z	1795204193	master	log	-	plan-round: sidekick agrees to plan 021; adopt its two refinements as amendments (accepted rotation_required needs from_name == .sidekick.name; compaction via a separate mux accessor)
 2026-11-20T19:51:40Z	1795204300	master	send-brief	005-kept-sidekick-session	
+2026-11-20T19:51:53Z	1795204313	master	log	-	plan-agreed: plan 021 agreed with amendments A1-A5; brief 005 implements it
+2026-11-20T20:30:02Z	1795206602	master	archive	-	verifier:T-01a1fa77-9d04-7711-9cb6-bf1b1a2ccd46
+2026-11-20T20:30:02Z	1795206602	master	log	-	archive: archive verifier T-01a1fa77-9d04-7711-9cb6-bf1b1a2ccd46
+2026-11-20T20:30:02Z	1795206602	master	verify	020-landing-packet-amendments	clean
+2026-11-20T20:30:02Z	1795206602	master	wake	020-landing-packet-amendments	verify:clean
+2026-11-20T20:30:19Z	1795206619	master	log	-	rotate-advice: ignored '6 units verified; rotate' advice
+2026-11-20T20:30:21Z	1795206621	master	queue	004-master-bundle-branches	
+2026-11-20T21:00:33Z	1795208433	master	log	-	plan: added 022 (s4 issues 1+2), 023 (issue 4), 024 (issue 5), 025 (issue 3 residual: master .seen marker in progress/); 005 covers the steer deletion
+2026-11-20T22:16:48Z	1795213008	master	log	-	order: after 005: 023, 025, then 004
+2026-11-20T22:17:16Z	1795213036	master	send-steer	005-kept-sidekick-session-s1	idle
