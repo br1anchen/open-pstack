@@ -79,6 +79,11 @@ def learn(manifest):
     return elsewhere
 
 
+def recorded_thread(name):
+    """The thread this orb's registry holds for the agent `name`, '' when it holds none."""
+    return (load(amp.registry_path())['agents'].get(name) or {}).get('thread') or ''
+
+
 def sync_branch(store, branch=''):
     """The sync of a git-backed store, with no bundle: the store worktree is checked out from origin when this orb has none (the first prompt), then
     refreshed, and the code the writers announced is fetched. The branch is the one the message announced (`store: kitchen/<slug> at <sha>`); a
@@ -134,7 +139,8 @@ def sync(ctx, args):
         try:
             manifest = bundle.read_bundle(path)[0]
             sent = amp.sent_path(manifest.get('from') or '')
-            manifest, lines = bundle.apply(path, sent)
+            reply = bundle.role_reply(manifest, recorded_thread)
+            manifest, lines = bundle.apply(path, sent, reply)
         except (OSError, ValueError, KeyError) as e:
             raise Die(f'{args[0]}: {e}') from None
     for line in lines:

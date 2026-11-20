@@ -20735,6 +20735,321 @@ class BundleMergeTests(unittest.TestCase):
         self.assertEqual(self.read('reports/002-new.md'), 'mine\n')
 
 
+class RoleReplyMergeTests(unittest.TestCase):
+    """A role's reply is merged against the bundle the master sent that role last, which can be newer than the snapshot the role worked from: it
+    must never roll back or delete what the master owns, and a master's hand-over to the next master and a message to a role merge as always."""
+
+    MASTER_STATE = {
+        'master': {'name': 'm', 'generation': 1},
+        'sidekick': {'name': 'sk', 'generation': 2, 'rotation_required': False},
+        'dispatch': {'brief': 'briefs/002-b.md', 'generation': 2},
+        'consult': {'file': 'consults/004.md'},
+        'added_later': 'kept',
+    }
+    STALE_STATE = {
+        'master': {'name': 'm', 'generation': 1},
+        'sidekick': {'name': 'sk', 'generation': 1, 'rotation_required': False},
+        'dispatch': {'brief': 'briefs/001-a.md', 'generation': 1},
+        'consult': {'file': 'consults/003.md'},
+    }
+
+    def setUp(self):
+        from pstack_core import bundle
+
+        self.bundle = bundle
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = Path(self.tmp.name) / 'store'
+        self.threads = {'sk': 'T-sk'}
+        self.set_pair(self.MASTER_STATE)
+        self.write('standing-orders.md', '1. first\n2. second\n')
+        self.write('briefs/001-a.md', 'a\n')
+        self.write('briefs/002-b.md', 'b\n')
+        self.write('decisions.tsv', 'd1\nd2\n')
+        self.write('sessions/inventory.tsv', 's1\n')
+        self.write('events.tsv', 'e1\n')
+        self.write('gates.tsv', 'g1\n')
+        self.write('reports/001-a.md', 'old report\n')
+
+    def write(self, rel, text):
+        path = self.store / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def read(self, rel):
+        return (self.store / rel).read_text()
+
+    def set_pair(self, doc):
+        self.write('pair.json', json.dumps(doc))
+
+    def pair(self):
+        return json.loads(self.read('pair.json'))
+
+    def pack(self, name, sender='m', thread='T-m', to='sk'):
+        path = Path(self.tmp.name) / name
+        self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': sender, 'thread': thread},
+            {'name': to, 'pane': 'amp:1'},
+            {},
+        )
+        return str(path)
+
+    def reply(self, edit, sender='sk', thread='T-sk', to='m'):
+        """The bundle a role sends back: the store as `edit` leaves it, the store itself put back afterwards."""
+        keep = Path(self.tmp.name) / 'keep'
+        shutil.copytree(self.store, keep)
+        try:
+            edit()
+            return self.pack('reply.tgz', sender, thread, to)
+        finally:
+            shutil.rmtree(self.store)
+            shutil.move(str(keep), str(self.store))
+
+    def deliver(self, incoming, base=None):
+        manifest = self.bundle.read_bundle(incoming)[0]
+        reply = self.bundle.role_reply(
+            manifest, lambda name: self.threads.get(name, '')
+        )
+        return self.bundle.apply(incoming, base, reply)[1]
+
+    def stale_edit(self, **sidekick):
+        """What the role's older copy of the store holds: the master's state of one message ago, plus its own writes."""
+
+        def edit():
+            state = json.loads(json.dumps(self.STALE_STATE))
+            state['sidekick'].update(sidekick)
+            self.set_pair(state)
+            self.write('standing-orders.md', '1. first\n')
+            (self.store / 'briefs/002-b.md').unlink()
+            self.write('decisions.tsv', 'd1\n')
+            (self.store / 'sessions/inventory.tsv').unlink()
+            self.write('reports/001-a.md', 'new report\n')
+            self.write('events.tsv', 'e1\nfrom-role\n')
+
+        return edit
+
+    def test_a_late_reply_changes_nothing_the_master_owns_and_delivers_what_the_role_wrote(
+        self,
+    ):
+        base = self.pack('newer-than-the-reply.tgz')
+        lines = self.deliver(self.reply(self.stale_edit()), base)
+        self.assertEqual(self.pair(), self.MASTER_STATE)
+        self.assertEqual(self.read('standing-orders.md'), '1. first\n2. second\n')
+        self.assertEqual(self.read('briefs/002-b.md'), 'b\n')
+        self.assertEqual(self.read('decisions.tsv'), 'd1\nd2\n')
+        self.assertEqual(self.read('sessions/inventory.tsv'), 's1\n')
+        self.assertEqual(self.read('reports/001-a.md'), 'new report\n')
+        self.assertEqual(self.read('events.tsv'), 'e1\nfrom-role\n')
+        self.assertEqual(
+            lines,
+            [
+                "store: 2 updated, 0 removed; kept the master's copy of: briefs/002-b.md, decisions.tsv, "
+                'sessions/inventory.tsv, standing-orders.md'
+            ],
+        )
+
+    def test_a_reply_without_a_base_keeps_the_masters_pair_json_and_files(self):
+        self.deliver(self.reply(self.stale_edit()))
+        self.assertEqual(self.pair(), self.MASTER_STATE)
+        self.assertEqual(self.read('standing-orders.md'), '1. first\n2. second\n')
+        self.assertTrue((self.store / 'briefs/002-b.md').exists())
+
+    def test_a_master_file_the_master_removed_is_not_brought_back_by_a_reply(self):
+        base = self.pack('base.tgz')
+        (self.store / 'briefs/001-a.md').unlink()
+        self.deliver(self.reply(lambda: self.write('briefs/001-a.md', 'a\n')), base)
+        self.assertFalse((self.store / 'briefs/001-a.md').exists())
+
+    def test_the_shared_logs_take_the_union_and_a_reply_without_them_deletes_nothing(
+        self,
+    ):
+        base = self.pack('base.tgz')
+
+        def edit():
+            self.write('events.tsv', 'e1\nfrom-role\n')
+            (self.store / 'gates.tsv').unlink()
+
+        self.write('events.tsv', 'e1\nfrom-master\n')
+        self.deliver(self.reply(edit), base)
+        self.assertEqual(self.read('events.tsv'), 'e1\nfrom-master\nfrom-role\n')
+        self.assertEqual(self.read('gates.tsv'), 'g1\n')
+
+    def test_a_master_owned_log_gets_no_rows_from_a_reply(self):
+        base = self.pack('base.tgz')
+        self.deliver(
+            self.reply(lambda: self.write('decisions.tsv', 'd1\nd2\nfrom-role\n')), base
+        )
+        self.assertEqual(self.read('decisions.tsv'), 'd1\nd2\n')
+
+    def completion(self, sender='sk', thread='T-sk', edit_local=None, **incoming):
+        """A reply carrying the sidekick's completion (the master's state with rotation_required set, plus `incoming` changes to its pair.json
+        sections); the sidekick's flag in the master's pair.json afterwards."""
+        state = json.loads(json.dumps(self.MASTER_STATE))
+        if edit_local:
+            edit_local(state)
+            self.set_pair(state)
+        theirs = json.loads(json.dumps(state))
+        theirs['sidekick']['rotation_required'] = True
+        for section, values in incoming.items():
+            theirs.setdefault(section, {}).update(values)
+        base = self.pack('base.tgz')
+        self.deliver(self.reply(lambda: self.set_pair(theirs), sender, thread), base)
+        return self.pair()['sidekick'].get('rotation_required')
+
+    def test_the_current_sidekicks_completion_is_taken_and_nothing_else_from_its_pair_json(
+        self,
+    ):
+        self.assertIs(
+            self.completion(
+                consult={'file': 'consults/001.md'}, added_in_reply={'k': 1}
+            ),
+            True,
+        )
+        expected = json.loads(json.dumps(self.MASTER_STATE))
+        expected['sidekick']['rotation_required'] = True
+        self.assertEqual(
+            self.pair(),
+            expected,
+        )
+
+    def test_a_completion_is_refused_unless_the_current_sidekick_sends_it_for_the_current_dispatch(
+        self,
+    ):
+        def local_without(section, key):
+            return lambda state: state[section].pop(key)
+
+        cases = {
+            'an older sidekick generation': dict(sidekick={'generation': 1}),
+            'an older dispatch generation': dict(dispatch={'generation': 1}),
+            'another brief': dict(dispatch={'brief': 'briefs/001-a.md'}),
+            "a verifier's copy": dict(sender='verifier', thread='T-v'),
+            'a sender with no name (an old build)': dict(sender=''),
+            "another thread for the sidekick's name": dict(thread='T-other'),
+            'no dispatch generation in the reply': dict(dispatch={'generation': None}),
+            'no dispatch generation here': dict(
+                edit_local=local_without('dispatch', 'generation')
+            ),
+            'no sidekick generation here': dict(
+                edit_local=local_without('sidekick', 'generation')
+            ),
+            'no brief here': dict(edit_local=local_without('dispatch', 'brief')),
+        }
+        for name, case in cases.items():
+            with self.subTest(name):
+                self.setUp()
+                self.assertIs(self.completion(**case), False)
+
+    def test_a_false_or_absent_flag_in_a_reply_leaves_the_masters_flag(self):
+        for held in (True, False):
+            with self.subTest(held=held):
+                self.setUp()
+                state = json.loads(json.dumps(self.MASTER_STATE))
+                state['sidekick']['rotation_required'] = held
+                self.set_pair(state)
+                base = self.pack('base.tgz')
+
+                theirs = json.loads(json.dumps(state))
+                theirs['sidekick']['rotation_required'] = False
+                self.deliver(self.reply(functools.partial(self.set_pair, theirs)), base)
+                self.assertIs(self.pair()['sidekick']['rotation_required'], held)
+
+    def test_a_completion_with_no_generations_anywhere_is_ignored(self):
+        bare = {'master': {'name': 'm'}, 'sidekick': {'name': 'sk'}}
+        self.set_pair(bare)
+        base = self.pack('base.tgz')
+        theirs = {**bare, 'sidekick': {'name': 'sk', 'rotation_required': True}}
+        self.deliver(self.reply(lambda: self.set_pair(theirs)), base)
+        self.assertEqual(self.pair(), bare)
+
+    def test_a_message_to_a_role_and_a_first_sync_merge_as_they_always_did(self):
+        # The role's own store: its pair.json names the master 'm', and the bundle is addressed to the role, from the master.
+        base = self.pack('base.tgz', to='sk')
+        incoming = self.reply(
+            lambda: self.set_pair({**self.MASTER_STATE, 'fresh': 'from-master'}),
+            sender='m',
+            thread='T-m',
+            to='sk',
+        )
+        self.deliver(incoming, base)
+        self.assertEqual(self.pair()['fresh'], 'from-master')
+        # A store this side lacks: the first message of a role's orb installs the sender's files, pair.json and master files included.
+        incoming = self.pack('first.tgz', to='sk')
+        shutil.rmtree(self.store)
+        self.deliver(incoming)
+        self.assertEqual(self.pair(), {**self.MASTER_STATE, 'fresh': 'from-master'})
+        self.assertEqual(self.read('standing-orders.md'), '1. first\n2. second\n')
+
+    def next_master_state(self, master_thread_recorded=True):
+        """The store the next master's orb holds after its first sync of a real hand-over: .master is the new generation, .previous the old."""
+        state = json.loads(json.dumps(self.MASTER_STATE))
+        state['master'] = {
+            'name': 'm-g2',
+            'generation': 2,
+            'previous': {
+                'name': 'm',
+                'pane_id': 'amp:T-m' if master_thread_recorded else 'amp:1',
+            },
+        }
+        return state
+
+    def test_a_hand_over_bundle_is_the_old_masters_whole_store_at_the_first_sync_and_after_it(
+        self,
+    ):
+        """A rotate-master bundle is from the old master (`m`) to the generation's own name (`m-g2`)."""
+        newer = self.next_master_state()
+        self.set_pair(newer)
+        base = self.pack('base.tgz', to='m-g2')
+        old_store = Path(self.tmp.name) / 'old-master-store'
+        shutil.copytree(self.store, old_store)
+        for label, receiving in (
+            ('first sync', None),
+            ('with the hand-over pending', newer),
+        ):
+            with self.subTest(label):
+                shutil.rmtree(self.store)
+                shutil.copytree(old_store, self.store)
+                self.write('standing-orders.md', 'the old master moved on\n')
+                incoming = self.pack('handover.tgz', 'm', 'T-m', 'm-g2')
+                shutil.rmtree(self.store)
+                if receiving is not None:
+                    shutil.copytree(old_store, self.store)
+                    self.write('standing-orders.md', '1. first\n')
+                    self.set_pair(receiving)
+                self.deliver(incoming, None if receiving is None else base)
+                self.assertEqual(
+                    self.read('standing-orders.md'), 'the old master moved on\n'
+                )
+
+    def test_a_hand_over_from_another_thread_than_the_recorded_old_master_is_a_reply(
+        self,
+    ):
+        self.set_pair(self.next_master_state())
+        incoming = self.reply(
+            lambda: self.write('standing-orders.md', 'changed\n'),
+            sender='m',
+            thread='T-impostor',
+            to='m-g2',
+        )
+        self.deliver(incoming)
+        self.assertEqual(self.read('standing-orders.md'), '1. first\n2. second\n')
+
+    def test_a_role_reply_to_the_name_the_new_master_is_handed_over_from_is_protected(
+        self,
+    ):
+        self.set_pair(self.next_master_state())
+        base = self.pack('base.tgz', to='sk')
+        incoming = self.reply(
+            lambda: self.write('standing-orders.md', 'changed\n'),
+            sender='sk',
+            thread='T-sk',
+            to='m',
+        )
+        self.deliver(incoming, base)
+        self.assertEqual(self.read('standing-orders.md'), '1. first\n2. second\n')
+
+
 class TrioAmpDiversityTests(unittest.TestCase):
     """Every Amp role is the same program, so the trio's diversity check tells Amp roles apart by the model their arguments name."""
 
