@@ -64,3 +64,7 @@ The regression test fails on a90bb41 and passes at the head; the full suite pass
 ## Disagreements resolved
 
 none
+
+## Master note (after unit 002)
+
+A second cause seen live: `kitchen.sh rotate` (pstack_core/commands/rotate.py `rotate`) leaves `.sidekick.rotation_required` true after starting the new generation (generations 2 and 3 of this run, both right after rotate). `require_fresh_session` (send.py about L87-104) then refuses the next dispatch with FreshSessionRequired even after READY, because it settles a pending bootstrap only when rotation is not required. The master cleared it by hand (decisions.tsv `incident`). Step 1 adds a regression row: after `rotate` and READY, `dispatch` of the next brief is sent; and the fix clears rotation_required when a new generation starts.

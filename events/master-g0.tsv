@@ -7,3 +7,12 @@
 2026-11-20T17:32:02Z	1795195922	master	rotate	-	generation:2
 2026-11-20T17:32:11Z	1795195931	master	nest-pending	-	T-01a1fa04-0358-74ba-bf70-0d0d9db5a602 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
 2026-11-20T17:32:18Z	1795195938	master	spawn	-	sidekick:amp:handed-off
+2026-11-20T17:32:30Z	1795195950	master	nest	-	T-01a1fa04-0358-74ba-bf70-0d0d9db5a602 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T17:32:30Z	1795195950	master	log	-	ab-switch: sidekick g3 on Sonnet 5.5 via --mode claude-code for unit 003
+2026-11-20T17:32:40Z	1795195960	master	log	-	finding: manual kitchen.sh rotate leaves sidekick.rotation_required true; next dispatch refuses after READY
+2026-11-20T17:34:33Z	1795196073	master	archive	-	verifier:T-01a1fa03-5850-7009-8c33-be08f240c366
+2026-11-20T17:34:33Z	1795196073	master	log	-	archive: archive verifier T-01a1fa03-5850-7009-8c33-be08f240c366
+2026-11-20T17:34:33Z	1795196073	master	verify	002-amp-idle-and-stop	inconclusive
+2026-11-20T17:34:33Z	1795196073	master	wake	002-amp-idle-and-stop	verify:inconclusive
+2026-11-20T17:35:03Z	1795196103	master	log	-	gap: store-to-git published no code: the master's unpushed main (units 001-002, from local bundles) had no kitchen-code ref, so verifier 002-v1 was inconclusive
+2026-11-20T17:35:11Z	1795196111	master	send-verify	002-amp-idle-and-stop	amp:002
