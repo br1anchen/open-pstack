@@ -1,3 +1,7 @@
 2026-11-20T17:30:55Z	1795195855	master	store-to-git	-	kitchen/kitchen-followups
 2026-11-20T17:31:07Z	1795195867	master	log	-	decision: store moved to the git store (kitchen/kitchen-followups on origin)
 2026-11-20T17:31:18Z	1795195878	master	send-verify	002-amp-idle-and-stop	amp:002
+2026-11-20T17:31:28Z	1795195888	master	nest-pending	-	T-01a1fa03-5850-7009-8c33-be08f240c366 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T17:31:35Z	1795195895	master	wake	002-amp-idle-and-stop	verify:progress
+2026-11-20T17:31:44Z	1795195904	master	nest	-	T-01a1fa03-5850-7009-8c33-be08f240c366 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T17:32:02Z	1795195922	master	rotate	-	generation:2
