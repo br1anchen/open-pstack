@@ -6,7 +6,7 @@ from pstack_core import mux
 from pstack_core.agents import model_label
 from pstack_core.argv import Spec, read
 from pstack_core.commands.status import latest
-from pstack_core.commands.stop import clear_queue, stop_role
+from pstack_core.commands.stop import clear_queue, relay_stop, stop_role
 from pstack_core.consult import (
     advice,
     advice_is_stop,
@@ -33,7 +33,8 @@ def stop(ctx, args):
     """STOP to each of the run's roles in turn (--only names one): the trio's stop, which the kitchen runs too. It loops over
     ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, one whose entry holds no thread is
     named and skipped (a backend that starts threads on prompt would start one just to be told STOP), a blocked one sets the exit status
-    to 3, and the newest report and advice are shown at the end."""
+    to 3, a working one whose messages reach its thread only after its turn (Amp) gets its STOP relayed by the master with its own tools
+    as a steer is, and the newest report and advice are shown at the end."""
     require_mux()
     end_with_parent()
     if not args:
@@ -62,6 +63,10 @@ def stop(ctx, args):
                 f'{who(role, name)} is blocked; inspect it before stopping\n'
             )
             rc = 3
+            continue
+        if status == 'working' and relay_stop(ctx, store, role):
+            # The relay ends this role's stop: the master must upload and send it before the role reads it, so there is nothing to wait for.
+            print(f'{role}_state: working')
             continue
         result = stop_role(ctx, store, role, timeout)
         status = agent_status(name) if result.code != 0 else result.status or 'settled'
