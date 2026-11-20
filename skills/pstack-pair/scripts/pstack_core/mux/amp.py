@@ -736,6 +736,12 @@ class Amp(Subagents):
             return None
         return 1.0 if compacted else used / limit
 
+    def compacted(self, name):
+        found = self.entry(name)
+        thread = found[1].get('thread') if found else ''
+        doc = thread_context(thread) if thread else None
+        return bool(doc and doc.get('compactionCount'))
+
     def mode_reads_skill_file(self, mode):
         return mode == 'claude-code'
 

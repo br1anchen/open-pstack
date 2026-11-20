@@ -21050,6 +21050,72 @@ class RoleReplyMergeTests(unittest.TestCase):
         self.assertEqual(self.read('standing-orders.md'), '1. first\n2. second\n')
 
 
+class RotationReasonTests(unittest.TestCase):
+    """rotate_if_due says why the sidekick starts fresh, only where a fresh session costs minutes."""
+
+    def reason(self, reuses, what, failed_over, reasons):
+        with mock.patch.object(
+            rotate_commands.mux,
+            'get',
+            return_value=SimpleNamespace(reuses_sessions=reuses),
+        ):
+            return rotate_commands.rotation_reason(what, failed_over, reasons)
+
+    def test_the_reason_is_the_one_the_decision_gave_a_failover_or_a_plan(self):
+        cases = [
+            (True, 'brief', False, ['compacted'], 'compacted'),
+            (True, 'brief', True, ['compacted'], 'failed over'),
+            (True, 'plan', False, [], 'plan'),
+            (False, 'brief', False, ['compacted'], ''),
+            (False, 'plan', True, [], ''),
+        ]
+        for case in cases:
+            with self.subTest(case=case):
+                *args, expected = case
+                self.assertEqual(self.reason(*args), expected)
+
+    def test_a_decision_reads_the_context_once_and_says_nothing_where_sessions_are_not_reused(
+        self,
+    ):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = Path(tmp.name)
+        briefs = store / 'briefs'
+        briefs.mkdir()
+        for name in ('001-a.md', '002-b.md'):
+            (briefs / name).write_text('risk: routine\nprofiles: app\n')
+        (store / 'pair.json').write_text(
+            json.dumps(
+                {
+                    'sidekick': {'name': 'sk'},
+                    'dispatch': {'brief': str(briefs / '001-a.md')},
+                }
+            )
+        )
+        fake = mock.Mock(reuses_sessions=True)
+        fake.compacted.return_value = False
+        fake.context_used.return_value = 0.1
+        with mock.patch.object(rotate_commands.mux, 'get', return_value=fake):
+            reasons = []
+            kept = rotate_commands.keeps_session(
+                store, str(briefs / '002-b.md'), reasons
+            )
+            self.assertEqual((kept, reasons), ('app, context 10%', []))
+            fake.context_used.return_value = 0.5
+            self.assertEqual(
+                rotate_commands.keeps_session(store, str(briefs / '002-b.md'), reasons),
+                '',
+            )
+            self.assertEqual(reasons, ['context 50% >= 50%'])
+        self.assertEqual(fake.context_used.call_count, 2)
+        fake.reuses_sessions = False
+        with mock.patch.object(rotate_commands.mux, 'get', return_value=fake):
+            self.assertEqual(
+                rotate_commands.session_decision(store, str(briefs / '002-b.md')),
+                ('', ''),
+            )
+
+
 class TrioAmpDiversityTests(unittest.TestCase):
     """Every Amp role is the same program, so the trio's diversity check tells Amp roles apart by the model their arguments name."""
 

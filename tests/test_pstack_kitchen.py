@@ -16702,6 +16702,67 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.next_unit_rotates('002', 'two', ['src/**', 'tests/**'])
 
+    def rotate_events(self):
+        return [
+            line.split('\t')[5]
+            for line in (self.store / 'events.tsv').read_text().splitlines()
+            if '\tmaster\trotate\t' in line
+        ]
+
+    def test_every_rotation_under_amp_says_why_in_a_line_and_in_the_rotate_event(self):
+        context = lambda total, compactions: (
+            f'{{"totalTokens": {total}, "maxContextTokens": 100000, "compactionCount": {compactions}}}\n'
+        )
+
+        def set_context(text):
+            (self.fake / f'amp-context-{amp_thread(1)}').write_text(text)
+
+        def previous_brief_header(old, new):
+            path = self.store / 'briefs/001-one.md'
+            path.write_text(path.read_text().replace(old, new))
+
+        def previous_brief_gone():
+            (self.store / 'briefs/001-one.md').unlink()
+
+        src = ['src/**', 'tests/**']
+        cases = [
+            ('profiles app vs docs', ['docs/**'], lambda: None),
+            ('context 50% >= 50%', src, lambda: set_context(context(50000, 0))),
+            ('compacted', src, lambda: set_context(context(1000, 1))),
+            ('context unreadable', src, lambda: set_context('not json\n')),
+            ('previous brief missing', src, previous_brief_gone),
+            (
+                'risk escalated/routine',
+                src,
+                lambda: previous_brief_header('risk: routine', 'risk: escalated'),
+            ),
+        ]
+        for reason, scope, setup in cases:
+            with self.subTest(reason):
+                self.setUp()
+                self.finish_unit('001', 'one', src, 'src/one.py')
+                setup()
+                b = self.brief('002', 'two', scope, verify=['python3 -c 1'])
+                out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+                self.assertIn(f'rotate: {reason}\n', out)
+                self.assertLess(out.index('rotate: '), out.index('rotated: '))
+                self.assertEqual(
+                    self.rotate_events(), [f'generation:1 reason:{reason}']
+                )
+
+    def test_a_failed_over_sidekick_rotates_with_that_reason(self):
+        self.sidekick_on_second_entry_with_a_unit_done()
+        b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertIn('rotate: failed over\n', out)
+        self.assertEqual(self.rotate_events(), ['generation:2 reason:failed over'])
+
+    def test_a_kept_session_prints_no_rotate_line(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        out = self.finish_unit('002', 'two', ['src/**', 'tests/**'], 'src/two.py')
+        self.assertNotIn('rotate:', out)
+        self.assertEqual(self.rotate_events(), [])
+
     def set_master_context(self, percent, compacted=0):
         """What `amp threads context` reports for the master's thread: percent of its window used and its compaction count."""
         (self.fake / f'amp-context-{AMP_MASTER}').write_text(
