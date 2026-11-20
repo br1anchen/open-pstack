@@ -1,10 +1,12 @@
 {
+ "archived": 1795201714,
  "args": [
   "--model",
   "anthropic/claude-opus-5-5",
   "--orb-size",
   "a1.large"
  ],
+ "at": 1795200004,
  "generation": 0,
  "kind": "amp",
  "name": "kitchen-followups-verifier",
@@ -22,6 +24,6 @@
  "role": "verifier",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795199070,
- "state": "started",
+ "state": "archived",
  "thread": "T-01a1fa33-e8f7-734a-936b-e7bdba557673"
 }
