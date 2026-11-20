@@ -684,6 +684,8 @@ class Amp(Subagents):
     steers_running = False
     # A steer for a thread in a turn is handed to the master to send with its own tools (relay).
     relays = True
+    # An entry whose thread is not started yet (an archived consultant keeps one) is started by its next prompt.
+    starts_on_prompt = True
     remote_roles = True
 
     def path(self):

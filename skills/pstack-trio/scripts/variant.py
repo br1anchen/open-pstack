@@ -16,7 +16,7 @@ from pstack_core.consult import (
 )
 from pstack_core.errors import Die, MasterKindUnknown, NoDiverseKinds, PlanNotAgreed
 from pstack_core.numbers import whole_number
-from pstack_core.panes import agent_kind, agent_status, require_mux
+from pstack_core.panes import agent_kind, agent_session, agent_status, require_mux
 from pstack_core.spawn import (
     SpawnRequest,
     record_fallback,
@@ -31,7 +31,8 @@ from pstack_core.wait import end_with_parent, timeout_ms
 
 def stop(ctx, args):
     """STOP to each of the run's roles in turn (--only names one): the trio's stop, which the kitchen runs too. It loops over
-    ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, a blocked one sets the exit status
+    ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, one whose entry holds no thread is
+    named and skipped (a backend that starts threads on prompt would start one just to be told STOP), a blocked one sets the exit status
     to 3, and the newest report and advice are shown at the end."""
     require_mux()
     end_with_parent()
@@ -51,6 +52,10 @@ def stop(ctx, args):
         status = agent_status(name)
         if status == 'absent':
             print(f'{who(role, name)} is not live')
+            continue
+        if mux.get().starts_on_prompt and not agent_session(mux.get().agent(name)):
+            # An entry that holds no thread (an archived consultant keeps one) would be started by the STOP itself.
+            print(f'stop: {name} has no thread; nothing to stop')
             continue
         if status == 'blocked':
             sys.stderr.write(

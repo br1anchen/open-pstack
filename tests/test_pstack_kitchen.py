@@ -15252,6 +15252,19 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(len(starts), 2, starts)
         self.assertIn('--model c/one', starts[-1])
 
+    def test_stop_names_a_role_whose_entry_holds_no_thread_and_starts_no_new_one(self):
+        """`threads --archive` ended the consultant's thread but kept its registry entry (thread ''), so stop would have prompted it: under Amp a
+        prompt is what starts a thread, one started only to be told STOP. It names the role and starts nothing."""
+        self.sidekick_done_idle()
+        old = self.consultant_with(True)
+        self.set_state(amp_thread(1), 'idle', '2999-01-01T00:00:00.000Z')
+        self.run_sh('threads', str(self.store), '--archive')
+        self.assertIn(old, (self.fake / 'amp-archived').read_text().split())
+        before = (self.fake / 'amp.log').read_text().splitlines()
+        out = self.run_sh('stop', str(self.store))
+        self.assertIn('stop: demo-consultant has no thread; nothing to stop', out)
+        self.assertEqual((self.fake / 'amp.log').read_text().splitlines(), before)
+
     def retire_threads(self, entries):
         """threads.json of the amp state dir as the build writes it: {thread: {name, role, at, store}}; each thread is idle."""
         path = Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/threads.json'
