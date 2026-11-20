@@ -17014,6 +17014,37 @@ class AmpKitchenTests(KitchenScriptTests):
         events = (self.store / 'events.tsv').read_text()
         self.assertEqual(events.count('send-steer\t001-util-s1\trelay-pending'), 1)
 
+    def test_a_stop_to_a_working_thread_is_relayed_through_the_master_once(self):
+        """stop to a sidekick whose Amp thread is in a turn would only queue behind it; like a steer, the master relays the STOP with its own
+        tools, so stop prints the relay lines, names the role working and queues nothing through the CLI."""
+        sidekick = amp_thread(1)
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.set_state(amp_thread(1), 'tool_use', '2026-01-01T00:00:00.000Z')
+        before = self.thread_messages(sidekick)
+        out = self.run_sh('stop', str(self.store))
+        [record_file] = self.relays_dir().glob('*.json')
+        record = json.loads(record_file.read_text())
+        rid = record['id']
+        self.assertEqual(record['state'], 'relay-pending')
+        self.assertIn(f'relay-pending: {rid} for demo-sidekick ({sidekick})', out)
+        self.assertIn(
+            f'relay: upload_thread_file path={self.repo}/.git/pstack-relay/{rid}.tgz destination=.git/pstack-relay-{rid}.tgz thread={sidekick}',
+            out,
+        )
+        self.assertIn(
+            f'relay: send_thread_message to {sidekick} with the text of {self.relays_dir()}/{rid}.md',
+            out,
+        )
+        self.assertIn(f'relay: then run kitchen.sh relay-done {self.store} {rid}', out)
+        self.assertIn('sidekick_state: working', out)
+        self.assertIn(
+            f'pstack-kitchen STOP {self.store}', Path(record['message']).read_text()
+        )
+        # Nothing went through the CLI, and the stop relay is logged once.
+        self.assertEqual(self.thread_messages(sidekick), before)
+        events = (self.store / 'events.tsv').read_text()
+        self.assertEqual(events.count('send-stop\t-\trelay-pending'), 1)
+
     def test_relay_done_marks_the_relay_sent_and_the_same_steer_waits_for_the_threads_next_turn_end(
         self,
     ):
