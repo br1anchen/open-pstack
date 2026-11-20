@@ -18735,6 +18735,24 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertNotIn('past its deadline', out)
         self.assertNotIn('no verdict at', out)
 
+    def test_rotate_master_take_master_and_a_dispatch_say_when_freshness_is_unknown(
+        self,
+    ):
+        from pstack_core import gitstore
+
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.filled_handoff()
+        self.remote.rename(self.remote.with_name('gone.git'))
+        commands = {
+            'a dispatch (rotate_if_due)': ('dispatch', str(self.store), str(b)),
+            'take-master': ('take-master', str(self.store)),
+            'rotate-master': ('rotate-master', str(self.store)),
+        }
+        for label, args in commands.items():
+            with self.subTest(label):
+                out = self.run_sh(*args, code=None)
+                self.assertIn(gitstore.UNKNOWN_FRESHNESS, out)
+
     def test_with_origin_unreachable_wait_and_verify_say_freshness_is_unknown_and_declare_nothing(
         self,
     ):

@@ -306,7 +306,8 @@ def rotate_if_due(ctx, store, what, brief=''):
     while its context has room (keeps_session)."""
     if not os.path.isfile(f'{store}/pair.json'):
         return
-    gitstore.refreshed(store)
+    if not gitstore.refreshed(store):
+        sys.stderr.write(gitstore.UNKNOWN_FRESHNESS)
     archive_retired(ctx, store, f'a {what} is being sent')
     if not rotation_required(store):
         return
