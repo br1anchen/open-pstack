@@ -8,6 +8,7 @@ role's bundle the same way, and the master acts on it in its next turn."""
 import calendar
 import contextlib
 import fcntl
+import functools
 import glob
 import hashlib
 import json
@@ -489,7 +490,7 @@ def role_is_idle(store, doc, role):
     return role == 'consultant' and not open_consults(store)
 
 
-def assess(thread, store, role, idle_roles=False, reconcile=False):
+def assess(thread, store, role, idle_roles=False, reconcile=False, tip=None):
     """(the thread's state, why it must not be archived yet; with `reconcile`, the master first settles the store branch's pending requests and
     relays for the thread against its export, amp_routing.reconcile): '' when the store no longer uses it and nothing it did is unread. A thread in a turn,
     one with a message or steer relay still pending to it, one whose file the master's store lacks, one holding commits the master lacks, one
@@ -521,7 +522,7 @@ def assess(thread, store, role, idle_roles=False, reconcile=False):
         return 'unknown', 'state unknown (export failed or gave none)'
     if state not in SETTLED:
         return state, f'working ({state}): it is in a turn'
-    if why := amp_routing.kept_by_branch(store, thread, role):
+    if why := amp_routing.kept_by_branch(store, thread, role, tip):
         return state, why
     sent = load_json(outbox_path()).get(thread)
     if isinstance(sent, dict) and not since >= int(sent.get('at') or 0):
@@ -896,14 +897,19 @@ class Amp(Subagents):
         found.update(
             {t: r for t, r in named.items() if not retired_only or t in unrecorded}
         )
+        tip = functools.cache(lambda: gitstore.fetch_tip(store))
         rows = [
-            ThreadRow(thread, role, *assess(
+            ThreadRow(
+                thread,
+                role,
+                *assess(
                     thread,
                     store,
                     role,
                     idle_roles=not retired_only,
                     reconcile=not retired_only,
-                )
+                    tip=tip,
+                ),
             )
             for thread, role in found.items()
             if not (known.get(thread) or {}).get('archived')

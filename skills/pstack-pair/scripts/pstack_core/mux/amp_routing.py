@@ -444,16 +444,17 @@ def drain(store, role, file, extra, code):
     )
 
 
-def kept_by_branch(store, thread, role):
+def kept_by_branch(store, thread, role, tip=None):
     """Why the store branch keeps `thread` ('' when it says nothing against archiving it): work the master sent that is unsettled, and, for a
-    sidekick or consultant, a request with no drain receipt."""
-    return pending_work(store, thread) or undrained(store, thread, role)
+    sidekick or consultant, a request with no drain receipt. `tip` is a callable giving the fetched tip of origin's store branch, which a pass
+    over many threads shares so origin is fetched once."""
+    return pending_work(store, thread) or undrained(store, thread, role, tip)
 
 
-def undrained(store, thread, role):
+def undrained(store, thread, role, tip=None):
     """Why a git-store sidekick or consultant thread is kept for want of its drain receipts: every request of its record (pending or sent) needs a
     receipt of its own generation that is on origin's store branch as fetched now. A request newer than the last receipt keeps it; so does
-    a fetch that fails (freshness unknown)."""
+    a fetch that fails (freshness unknown) keeps it too."""
     if not (gitstore.is_git(store) and role in DRAINED):
         return ''
     record = records(store).get(rel_of(thread)) or {}
@@ -464,7 +465,7 @@ def undrained(store, thread, role):
     ]
     if not requests:
         return f'{NO_DRAIN} (the store branch records no request to it)'
-    tip = gitstore.fetch_tip(store)
+    tip = (tip or (lambda: gitstore.fetch_tip(store)))()
     if not tip:
         return "freshness unknown (origin's store branch could not be fetched)"
     for request in requests:
