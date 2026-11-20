@@ -79,3 +79,7 @@
 2026-11-20T19:42:52Z	1795203772	master	send-plan	008-kept-sidekick-session	consultant
 2026-11-20T19:42:57Z	1795203777	master	log	-	main-moved: origin/main moved a90bb41 -> 7218f31 (fix(agents): rebuild joo when main moves), not by this run
 2026-11-20T19:48:15Z	1795204095	master	send-plan	021-kept-sidekick-session-r2	sidekick
+2026-11-20T19:48:28Z	1795204108	master	send-plan	021-kept-sidekick-session-r2	consultant
+2026-11-20T19:48:28Z	1795204108	master	log	-	plan-round: plan 008 round 2 as plans/021: allowlist pair.json role facts, RULES file guard, new generation clears flag, rotation_reason
+2026-11-20T19:49:53Z	1795204193	master	log	-	plan-round: sidekick agrees to plan 021; adopt its two refinements as amendments (accepted rotation_required needs from_name == .sidekick.name; compaction via a separate mux accessor)
+2026-11-20T19:51:40Z	1795204300	master	send-brief	005-kept-sidekick-session	
