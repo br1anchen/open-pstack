@@ -5,3 +5,5 @@
 2026-11-20T17:31:35Z	1795195895	master	wake	002-amp-idle-and-stop	verify:progress
 2026-11-20T17:31:44Z	1795195904	master	nest	-	T-01a1fa03-5850-7009-8c33-be08f240c366 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
 2026-11-20T17:32:02Z	1795195922	master	rotate	-	generation:2
+2026-11-20T17:32:11Z	1795195931	master	nest-pending	-	T-01a1fa04-0358-74ba-bf70-0d0d9db5a602 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T17:32:18Z	1795195938	master	spawn	-	sidekick:amp:handed-off
