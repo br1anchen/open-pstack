@@ -61,7 +61,8 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "020-landing-packet-amendments",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/020-landing-packet-amendments.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -85,9 +86,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "018-amp-idle-and-stop-fix-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce"
   },
@@ -198,55 +197,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/018-amp-idle-and-stop-fix-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/018-amp-idle-and-stop-fix-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/018-amp-idle-and-stop-fix.md",
-    "scratch": "018-amp-idle-and-stop-fix-verify",
-    "units": "002 018",
-    "risk": "routine",
-    "sample": 0.2,
-    "unit": "018-amp-idle-and-stop-fix",
-    "started": 1795201748,
-    "deadline": 1795204448,
-    "class": "routine",
-    "entry": {
-      "kind": "amp",
-      "args": [
-        "--model",
-        "anthropic/claude-sonnet-5-5",
-        "--orb-size",
-        "a1.small"
-      ],
-      "fallback": {
-        "kind": "amp",
-        "args": [
-          "--model",
-          "openai/gpt-6.1-sol",
-          "--orb-size",
-          "a1.small"
-        ]
-      },
-      "fallbacks": [
-        {
-          "kind": "amp",
-          "args": [
-            "--model",
-            "openai/gpt-6.1-sol",
-            "--orb-size",
-            "a1.small"
-          ]
-        }
-      ],
-      "source": "roster"
-    },
-    "retried": false,
-    "argv": [
-      "018",
-      "--covers",
-      "002"
-    ],
-    "delivered": true
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
