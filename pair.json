@@ -50,11 +50,11 @@
       "--features",
       "model:claude-sonnet-5-5"
     ],
-    "generation": 5,
-    "bootstrap_pending": true,
+    "generation": 4,
+    "bootstrap_pending": false,
     "permission_mode": "native-args",
     "closed": false,
-    "rotation_required": false,
+    "rotation_required": true,
     "delivered": {
       "generation": "4",
       "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
