@@ -341,6 +341,28 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   successor. The guarantee holds for cooperating role clients, which write
   nothing to the store after their receipt; it is not an invariant against a
   client that does. Under the local backend nothing changes.
+- Under the git store `close` ends the roles as it does everywhere, then archives
+  the branch in phases recorded in pair.json `.store_backend.close` (`fence`,
+  `final`, `tag`, `verify`, `delete`): it fences new writers (a role's publish is
+  refused with an error naming the close), publishes the final state with a
+  `close` event, pushes the annotated tag `kitchen-archive/<slug>-<run id>` at
+  that tip, checks that origin lists the tag at the tip, and only then deletes
+  `kitchen/<slug>` on origin, and only while the branch is still at the tagged
+  tip. A rerun after a crash continues with the first phase not recorded and never
+  deletes the branch before the tag is verified; a branch that moved after the
+  tag is kept and the close says so.
+- `kitchen.sh store-to-git <store>` (master only) moves a running local store to
+  `kitchen/<slug>`: it scans the store for credentials first and stops on a match
+  (file and kind named, nothing pushed), pushes a snapshot of the store minus its
+  local-only files, checks origin lists it, turns the store directory into the
+  branch's worktree, records `.store_backend = git` in pair.json and publishes it.
+  The old files stay as they were until origin holds the branch. It prints one
+  line per live role telling the master to send that role
+  `pair.sh sync --branch <store> kitchen/<slug>`. Each remote write is a resumable
+  phase and a second run changes nothing. A `kitchen/*` branch is published
+  content: in a public repository it publishes the run's briefs, reports, thread
+  ids and decisions to anyone, so migrate or init under git only where that is
+  acceptable.
 - A message sent by the CLI reaches a role's thread only after its current
   turn ends: `amp threads continue -ox` queues it, and the CLI has no way to
   steer a running turn. So a role whose thread is in a turn reads `working`

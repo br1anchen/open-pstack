@@ -217,6 +217,22 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    landed and whether a maintainer session or the human was told. Repo
    classes stay with pstack-kitchen-setup's maintain path.
 
+## Git store: migrating and closing
+
+`kitchen.sh store-to-git <store>` moves a running local store to the branch
+`kitchen/<slug>` of the work repository's origin (Amp, `PSTACK_STORE=git`). It
+must run from the master, scans the store for credentials before the first push
+and stops on a match. Tell Puck (T-01a1ede9) before migrating any running
+kitchen, and migrate only when the owner says so. The branch is published
+content: in a public repository anyone can read it. After it runs, send each
+live role the `pair.sh sync --branch <store> kitchen/<slug>` line it prints.
+
+Under the git store `kitchen.sh close <store>` ends the roles, then archives the
+branch as the tag `kitchen-archive/<slug>-<run id>` and deletes the branch on
+origin, in resumable phases (fence, final, tag, verify, delete). After a crash,
+run `close` again; it continues from the phase pair.json `.store_backend.close`
+records. A role's publish after the fence is refused.
+
 ## Rotate yourself
 
 Your session is the run's largest cost. Every model call re-reads all of
