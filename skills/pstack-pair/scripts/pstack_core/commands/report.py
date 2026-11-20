@@ -89,17 +89,16 @@ def notify(ctx, args):
     require_pair(ctx, store)
     on_git = gitstore.is_git(store)
     role = gitstore.owner_role(os.path.relpath(file, store)) if on_git else ''
-    sent = lambda: event(
-        store,
-        role or ('consultant' if word == 'ADVICE' else 'sidekick'),
-        word.lower(),
-        file,
-        header_field(file, 'status'),
-    )
     if on_git and role:
-        publish_terminal(store, role, file, sent)
+        publish_terminal(store, role, file, word.lower(), header_field(file, 'status'))
     else:
-        sent()
+        event(
+            store,
+            'consultant' if word == 'ADVICE' else 'sidekick',
+            word.lower(),
+            file,
+            header_field(file, 'status'),
+        )
     master = field(store, 'master', 'name')
     status = agent_status(master)
     if mux.get().remote_roles:
@@ -129,22 +128,22 @@ def notify(ctx, args):
     return 0
 
 
-def publish_terminal(store, role, file, sent):
+def publish_terminal(store, role, file, name, status):
     """The terminal publication of a role's report or advice under git (A7): its code first (A5), then the file, its event row and the drain
-    receipts in one commit, and no store write after it. A refused publication leaves no receipt on the remote, no receipt that only waits in the
-    tree for another command to publish, and no row for the retry to repeat."""
+    receipts in one commit, and no store write after it. A refused publication leaves no receipt on the remote and no receipt that only waits in
+    the tree for another command to publish. A push the remote refused keeps the commit with the row, so the retry writes no row again and the
+    tree never deletes one against HEAD; a row no commit holds is taken back."""
     extra, code = gitstore.report_code(store, role, file)
     log = gitstore.event_file(store, role)
     before = open(log, 'rb').read() if os.path.exists(log) else None
-    sent()
+    if not gitstore.holds_event_row(store, role, name, file, status):
+        event(store, role, name, file, status)
     receipts = []
     try:
         receipts = amp_routing.drain(store, role, file, extra, code)
         gitstore.publish_role(store, role, [file, *extra, *receipts])
-    except Exception as failure:
-        # A refused push keeps the commit here, which holds the row and the receipts; the retry sends it and writes the row again.
-        kept = isinstance(failure, gitstore.PublishFailed)
-        if kept or os.path.relpath(log, store) in gitstore.dirty(store):
+    except Exception:
+        if os.path.relpath(log, store) in gitstore.dirty(store):
             if before is None:
                 if os.path.exists(log):
                     os.unlink(log)

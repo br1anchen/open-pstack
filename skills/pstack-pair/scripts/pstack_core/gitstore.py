@@ -536,6 +536,32 @@ def unpublished(store, branch):
     return _count(store, 'HEAD')
 
 
+def holds_event_row(store, actor, name, file, detail):
+    """Whether the commit that last changed this file, or one after it, already holds the event row `event()` would write for it, and the file is
+    still what HEAD holds. A refused push kept that commit, so the retry has nothing to write again, whether or not another publication has sent
+    it since. A file rewritten after its row was written is a new send and gets its own row."""
+    rel = checked_rel(store, file)
+    if not git.ok(store, 'cat-file', '-e', f'HEAD:{rel}') or not git.ok(
+        store, 'diff', '--quiet', 'HEAD', '--', rel
+    ):
+        return False
+    last = git.out(store, 'log', '-1', '--format=%H', '--', rel)
+    if not last:
+        return False
+    span = (
+        f'{last}^..HEAD'
+        if git.ok(store, 'rev-parse', '--quiet', '--verify', f'{last}^')
+        else 'HEAD'
+    )
+    unit = os.path.basename(file).removesuffix('.md')
+    log = os.path.relpath(event_file(store, actor), store)
+    added = git.out(store, 'log', '-p', '--format=', '--no-color', span, '--', log)
+    return any(
+        line.startswith('+') and line[1:].split('\t')[2:] == [actor, name, unit, detail]
+        for line in (added or '').splitlines()
+    )
+
+
 def refresh(store):
     """Fetches the branch and brings the checkout up to it: a fast-forward, or the commits here put on top of it. False when the remote cannot
     be read, which means the files may be stale and is not a statement about what is missing. A branch origin does not have yet (a store whose

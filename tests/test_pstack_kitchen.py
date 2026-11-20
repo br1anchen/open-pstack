@@ -17222,6 +17222,15 @@ class AmpGitKitchenTests(AmpKitchenTests):
             timeout=60,
         ).stdout
 
+    def store_git(self, store, *args):
+        return subprocess.run(
+            ['git', '-C', str(store), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout.strip()
+
     def role_orb(self, name='sidekick'):
         """A role's orb: a clone of the work repository at the master's commit, a state home of its own and the store worktree synced there.
         Returns (clone, store)."""
@@ -17915,6 +17924,43 @@ class AmpGitKitchenTests(AmpKitchenTests):
             self.drain_paths(),
             [f'drains/sidekick-g1/{r}.json' for r in sorted(requests)],
         )
+
+    def test_a_publication_between_a_refused_finish_and_its_retry_leaves_one_report_row_and_a_clean_store(
+        self,
+    ):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        requests = self.sent_requests(amp_thread(1))
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        hook = self.remote / 'hooks/pre-receive'
+        hook.write_text(
+            '#!/bin/sh\nwhile read old new ref; do\n'
+            '  [ "$ref" = refs/heads/kitchen/demo ] && exit 1\n'
+            'done\nexit 0\n'
+        )
+        hook.chmod(0o755)
+        self.as_orb(clone, 'finish', str(orb_store), str(report), code=1)
+        self.assertEqual(
+            self.store_git(orb_store, 'status', '--porcelain', '--', 'events'), ''
+        )
+        hook.unlink()
+        other = self.write_report(orb_store, '002-more.md', 'done', head)
+        self.as_orb(clone, 'notify', str(orb_store), str(other))
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        rows = [
+            line.split('\t')[3:5]
+            for line in self.remote_git(
+                'show', 'kitchen/demo:events/sidekick-g1.tsv'
+            ).splitlines()
+            if '\treport\t' in line
+        ]
+        self.assertEqual(sorted(rows), [['report', '001-util'], ['report', '002-more']])
+        self.assertEqual(
+            self.drain_paths(),
+            [f'drains/sidekick-g1/{r}.json' for r in sorted(requests)],
+        )
+        self.assertEqual(self.store_git(orb_store, 'status', '--porcelain'), '')
 
     def test_a_notify_after_a_receipt_for_an_older_request_writes_one_for_the_new_request_and_keeps_the_old(
         self,
