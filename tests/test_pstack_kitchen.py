@@ -17040,9 +17040,49 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn(
             f'pstack-kitchen STOP {self.store}', Path(record['message']).read_text()
         )
-        # Nothing went through the CLI, and the stop relay is logged once.
+        # Nothing went through the CLI, and the stop relay is logged once; the role was never sent the STOP by the CLI either.
         self.assertEqual(self.thread_messages(sidekick), before)
         events = (self.store / 'events.tsv').read_text()
+        self.assertEqual(events.count('send-stop'), 1)
+        self.assertEqual(events.count('send-stop\t-\trelay-pending'), 1)
+
+    def test_pair_stop_relays_a_working_sidekick_without_the_wait_report_fallback(self):
+        """The pair's own stop relays a working Amp sidekick's STOP like the trio's stop and ends at its state line: the wait's report
+        fallback would name an older report, and a relay the sidekick has not answered is not one."""
+        sidekick = amp_thread(1)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.done(b, self.commit('util'))
+        self.set_state(amp_thread(1), 'tool_use', '2026-01-01T00:00:00.000Z')
+        before = self.thread_messages(sidekick)
+        pair = skill.parent / 'pstack-pair/scripts/pair.sh'
+        r = subprocess.run(
+            [str(pair), 'stop', str(self.store)],
+            cwd=self.repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = r.stdout
+        [record_file] = self.relays_dir().glob('*.json')
+        record = json.loads(record_file.read_text())
+        rid = record['id']
+        self.assertEqual(record['state'], 'relay-pending')
+        self.assertIn(f'relay-pending: {rid} for demo-sidekick ({sidekick})', out)
+        self.assertIn(f'relay: then run pair.sh relay-done {self.store} {rid}', out)
+        self.assertIn(
+            f'pstack-pair STOP {self.store}', Path(record['message']).read_text()
+        )
+        self.assertIn('state: working', out)
+        # An older report is in the store, but the relay is not the sidekick's answer to it: none is printed.
+        self.assertNotIn('report:', out)
+        self.assertEqual(self.thread_messages(sidekick), before)
+        events = (self.store / 'events.tsv').read_text()
+        self.assertEqual(events.count('send-stop'), 1)
         self.assertEqual(events.count('send-stop\t-\trelay-pending'), 1)
 
     def test_relay_done_marks_the_relay_sent_and_the_same_steer_waits_for_the_threads_next_turn_end(

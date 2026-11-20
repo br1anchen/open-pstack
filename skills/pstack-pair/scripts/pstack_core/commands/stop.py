@@ -18,6 +18,7 @@ from ..wait import (
     end_with_parent,
     finish_wait,
     print_outcome,
+    state_line,
     status_now,
     timeout_ms,
 )
@@ -99,23 +100,28 @@ def devin_send_now(store, role, name, text, before, deadline):
     return True
 
 
+def relay_stop(ctx, store, role):
+    """Relay the STOP for a working role whose messages reach its thread only after its turn ends (Amp: a CLI send would only queue behind
+    the turn), as a steer is relayed, and print what the master must do: it has to upload and send before the role reads it, so there is
+    nothing for the stop to wait for yet. Whether the master carries the send: False when no relay can be made, and the caller falls back to
+    the queued send."""
+    if mux.get().steers_running or not mux.get().relays:
+        return False
+    name = field(store, role, 'name')
+    record, how = mux.get().relay(name, f'{ctx.skill} STOP {store}', store)
+    return print_relay(ctx.prog, store, name, record, how, 'send-stop', '-')
+
+
 def stop_role(ctx, store, role, timeout):
     """STOP for one role: the WaitResult of its turn. An idle agent gets it with a wait. A working one may settle its current turn before it reads STOP,
     so the wait ends on its stop report or advice written after the send, not on a settle. A working Devin parks a mid-turn message as queued
-    until Enter is pressed, so Enter follows. Where a message reaches a thread only after its turn (Amp), the working one's STOP is relayed by
-    the master with its own tools, as a steer is, and the wait ends on the relay (a relay that cannot be made falls back to the queued send)."""
+    until Enter is pressed, so Enter follows."""
     name = field(store, role, 'name')
     event(store, 'master', 'send-stop', '-', role)
     text = f'{ctx.skill} STOP {store}'
     if agent_status(name) == 'working':
         epoch = int(time.time())
         before = stop_candidates(store, role)
-        if not mux.get().steers_running and mux.get().relays:
-            # A CLI STOP would only queue behind the turn; the master relays it with its own tools (as steer does), and must upload and send
-            # before the role reads it, so there is nothing to poll for yet.
-            record, how = mux.get().relay(name, text, store)
-            if print_relay(ctx.prog, store, name, record, how, 'send-stop', '-'):
-                return WaitResult(0, 'working')
         r = mux.get().prompt(name, text, stdout=DEVNULL)
         if not r.ok:
             return WaitResult(2, '', r.err.rstrip('\n'), error=r.error)
@@ -167,6 +173,11 @@ def stop(ctx, args):
     if mux.get().starts_on_prompt and not agent_session(mux.get().agent(name)):
         # An entry that holds no thread (Amp.start leaves one before the first prompt) would be started by the STOP itself.
         print(f'stop: {name} has no thread; nothing to stop')
+        return 0
+    if status == 'working' and relay_stop(ctx, store, 'sidekick'):
+        # The relay ends the stop here: nothing was sent or written yet, and the wait's report fallback would name an older report
+        # (a relay the sidekick has not answered is not a report).
+        state_line(store, WaitResult(0, 'working'), sys.stdout.write)
         return 0
     result = stop_role(ctx, store, 'sidekick', timeout)
     return print_outcome(finish_wait(ctx, store, interval, result, 'any'))

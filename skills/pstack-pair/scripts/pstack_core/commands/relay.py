@@ -1,5 +1,5 @@
 """The relay the master sends with its own tools (mux/amp.py Amp.relay): what both a relayed steer (commands/steer.py relay_steer) and a relayed
-STOP (commands/stop.py stop_role) print, and relay-done, which the master runs once it has sent one."""
+STOP (commands/stop.py relay_stop) print, and relay-done, which the master runs once it has sent one."""
 
 import os
 import re
