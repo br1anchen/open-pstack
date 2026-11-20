@@ -1,0 +1,16 @@
+{
+ "code": [
+  "7218f3112db91d4448b20d708b5c92117b6543db"
+ ],
+ "generation": 6,
+ "outputs": [
+  {
+   "path": "reports/000-ready-g6.md",
+   "sha256": "921f8534a493a432106ffd5d66e2591cdd759c8aa296fb65fef97ba94c1c2cfa"
+  }
+ ],
+ "request": "a1ef6fed2481",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fb29-d3a6-77ce-99fe-6741609db301"
+}
