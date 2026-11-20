@@ -1,2 +1,8 @@
 2026-11-20T17:34:25Z	1795196065	sidekick	report	000-ready-g3	done
 2026-11-20T17:34:40Z	1795196080	sidekick	report	000-ready-g3	done
+2026-11-20T17:48:05Z	1795196885	sidekick	step	003-packet-accepted-deviations	1:e57fe3955
+2026-11-20T17:48:24Z	1795196904	sidekick	progress	003-packet-accepted-deviations	
+2026-11-20T17:56:43Z	1795197403	sidekick	step	003-packet-accepted-deviations	2:ff654763b
+2026-11-20T17:58:49Z	1795197529	sidekick	finish-verify-pass	003-packet-accepted-deviations	ff654763b
+2026-11-20T17:58:49Z	1795197529	sidekick	rotation-required	003-packet-accepted-deviations	generation:3 sha256:75e0097d379c
+2026-11-20T17:58:51Z	1795197531	sidekick	report	003-packet-accepted-deviations	done
