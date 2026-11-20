@@ -78,3 +78,4 @@
 2026-11-20T19:42:37Z	1795203757	master	send-plan	008-kept-sidekick-session	sidekick
 2026-11-20T19:42:52Z	1795203772	master	send-plan	008-kept-sidekick-session	consultant
 2026-11-20T19:42:57Z	1795203777	master	log	-	main-moved: origin/main moved a90bb41 -> 7218f31 (fix(agents): rebuild joo when main moves), not by this run
+2026-11-20T19:48:15Z	1795204095	master	send-plan	021-kept-sidekick-session-r2	sidekick
