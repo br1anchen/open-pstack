@@ -1,0 +1,87 @@
+# Brief 011: git-store-default-on
+
+playbook: {{one of: investigation | bug-fix | review-fix | feature | refactoring | docs | prototype | runtime-forensics | trace-forensics | perf-issue | pstack-tdd | session-pickup | pause-safely | opening-a-pr | shipping; optional `with: <id>, <id>` and `without: <id> — <reason>` header lines may follow, see kitchen-toml.md}}
+timebox: {{minutes}}
+commit: {{yes, one commit per step, each recorded with kitchen.sh step | no, and why}}
+plan: {{path of the agreed plan under /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/plans/; required when risk is escalated, else none}}
+risk: set by kitchen.sh classify at dispatch; an escalated plan, or `escalated` written here, keeps it escalated
+profiles: set by kitchen.sh classify at dispatch
+verify: set by kitchen.sh classify at dispatch
+review-engine: set by kitchen.sh classify at dispatch
+steps: set by kitchen.sh classify at dispatch (none for a routine unit); write master here to read every step of a unit escalated only by its plan
+standing: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/standing-orders.md
+report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/011-git-store-default-on.md
+
+## Goal
+
+{{One sentence. The outcome, executable by a stranger with no chat access.}}
+
+## Scope
+
+may write:
+- {{one repo-relative path or glob per line, in full (never relative to the line above); `quote` a path that contains a comma; a note may follow after " — ". The kitchen classifies the unit from these lines.}}
+
+must not write:
+- {{path or glob}}
+
+## Steps
+
+{{Commit-sized steps in order, fifteen to thirty minutes each. Name the files
+and functions each one changes and the targeted check that proves it; the
+sidekick may run on a cheaper model, so leave it no design decision the plan
+did not make.}}
+
+1. {{step}}
+
+## Context
+
+- {{pointers to files, commits, prior reviews or verdicts under /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/, upstream reports pasted in full when this unit depends on them}}
+
+## Acceptance
+
+- {{checkable criterion, one per line; the verifier proves these and nothing else}}
+
+## Verify
+
+```bash
+{{extra commands beyond the profiles' fast gates, which kitchen.sh step runs at
+every step anyway: the targeted tests for what this unit changes, or "none".
+kitchen.sh finish reruns each one exactly as written, on its own from the repo
+root at the report's head:, and refuses done unless every one exits 0. Verify
+commands run from the repo root with relative paths. Mark a command that
+needs the store or the main checkout (a kitchen.sh command, an absolute path)
+with `# master-only`, on its last line or, for a heredoc, its first: finish
+still reruns it, but the verifier's packet leaves it out and lists it under
+`not for the verifier:` (a command naming the main checkout or the store, by
+absolute path, `~/` or `$HOME/`, is listed the same way even unmarked).
+kitchen.sh classify runs the read-only lines (searches and file tests) once at
+the current tree and prints `probe: passes now` or `probe: fails now` for each}}
+```
+
+## Forbidden
+
+- {{unit-specific bans beyond the standing orders and the repo's policy rules}}
+- {{when the unit writes a test fixture that must contain text a repo policy rule forbids (the checker's own tests, for example), say so here: the fixture line carries `kitchen-allow: <id>` and the reason}}
+
+## Report
+
+Work the Steps in order. End each in a commit and record it with
+`kitchen.sh step /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups <sha> "<what it does>"`: it runs the touched
+profiles' fast gates and the repo's policy check, and records the step only
+when they pass. When it exits 4 with `gates: still running`, the step is not
+recorded: run the same command again at once, in the foreground, and keep
+going until it records; never end your turn on it. On a failure, fix it in a
+new commit and run `kitchen.sh step` again with that commit; it tells you when
+two failures in a row make this a blocked report. At each step boundary run `kitchen.sh notes /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`kitchen.sh progress /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups "<line>"`. When any `kitchen.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Before reporting done, run the review skills the
+kitchen's `review.self` names on your diff. Write the report file named above
+using the pstack-pair report template, then run
+`~/.agents/skills/pstack-kitchen/scripts/kitchen.sh finish /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups <report path>`
+and do what it prints. For a done report, finish first reruns the Verify
+commands above at the report's head:, with the checkout at that commit and
+nothing uncommitted, and sends the report only when every one exits 0; exit 4
+means they are still running, so run the same finish again at once.

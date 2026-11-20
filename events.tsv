@@ -1,0 +1,81 @@
+2026-11-20T14:08:29Z	1795183709	master	init	-	pstack-kitchen
+2026-11-20T14:09:08Z	1795183748	master	nest-pending	-	T-01a1f94a-1987-7011-b140-ea5f38a599b8 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T14:09:10Z	1795183750	sidekick	spawn	-	amp:handed-off
+2026-11-20T14:09:53Z	1795183793	master	nest	-	T-01a1f94a-1987-7011-b140-ea5f38a599b8 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T14:24:23Z	1795184663	master	nest-pending	-	T-01a1f958-10b7-7675-b9d4-ad9f43f019fc under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T14:24:25Z	1795184665	consultant	spawn	-	amp:handed-off
+2026-11-20T14:24:39Z	1795184679	master	nest	-	T-01a1f958-10b7-7675-b9d4-ad9f43f019fc under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T14:27:27Z	1795184847	master	log	-	plan: units: 001 items 8,9,11; 002 items 7,10; 003 item 6; 004 items 1,2,4 (bundle/sync, consult c1); 005 item 3 (consult c1, root cause); 006 item 5 (consult c1)
+2026-11-20T14:27:28Z	1795184848	master	log	-	dispatch-order: 001, 002, 003 back to back on one sidekick session
+2026-11-20T14:10:27Z	1795183827	sidekick	report	000-ready	done
+2026-11-20T14:28:08Z	1795184888	sidekick	spawn	-	amp:ready
+2026-11-20T14:28:09Z	1795184889	master	send-brief	001-swallowed-failures	
+2026-11-20T14:28:26Z	1795184906	master	queue	002-amp-idle-and-stop	
+2026-11-20T14:25:38Z	1795184738	consultant	advice	000-ready	answered
+2026-11-20T14:29:01Z	1795184941	master	send-consult	005-kept-sidekick-session-c1	design
+2026-11-20T14:42:03Z	1795185723	master	log	-	decision: move this run to the git store at the next idle boundary; brief 007 documents it as the repo default
+2026-11-20T14:42:03Z	1795185723	master	log	-	decision: sidekick A/B: 001 amp Sonnet (already running), 002 GLM-5.3, 003 Sonnet on Claude Code; at most one more GLM routine unit; escalated on Sonnet CC
+2026-11-20T14:46:28Z	1795185988	consultant	advice	005-kept-sidekick-session-c1-probe.py	
+2026-11-20T14:47:10Z	1795186030	master	send-consult	004-master-bundle-branches-c1	design
+2026-11-20T14:47:16Z	1795186036	master	log	-	consult-005: adopt the scoped fix: master-owned scheduling metadata (dispatch, sidekick identity/generation/start fields) stays authoritative on role-to-master sync; add a printed+recorded rotation reason
+2026-11-20T14:46:52Z	1795186012	consultant	advice	005-kept-sidekick-session-c1	answered
+2026-11-20T14:49:17Z	1795186157	master	log	-	incident: a delayed consultant reply (005 advice) synced after consult 004 was sent rolled pair.json .consult back to 005 and removed briefs/007-git-store-default.md; standing orders 25-26 reverted
+2026-11-20T14:51:20Z	1795186280	consultant	advice	004-master-bundle-branches-c1-probe.py	
+2026-11-20T14:52:19Z	1795186339	master	send-consult	006-land-check-gone-head-c1	design
+2026-11-20T14:53:24Z	1795186404	master	log	-	consult-004: adopt c1 in full: 004 carries all local heads on master hand-over only, applies refs conservatively, prints a guarded recovery recipe on divergence (no patch-id reset); roster hand-over split into 010
+2026-11-20T14:51:33Z	1795186293	consultant	advice	004-master-bundle-branches-c1	answered
+2026-11-20T14:54:02Z	1795186442	master	log	-	incident: second stale consultant reply (004 advice after consult 006 sent) reverted .consult and removed briefs/009, plans/008, consults/004
+2026-11-20T14:58:32Z	1795186712	consultant	advice	006-land-check-gone-head-c1-probe.py	
+2026-11-20T14:59:33Z	1795186773	master	log	-	consult-006: adopt (c): immutable keep refs pinned at step/finish/verify, carried on every send, plus a missing-evidence diagnostic with a working --covers recovery; git-store durability and a final-tip landing invariant become follow-ups
+2026-11-20T14:58:40Z	1795186720	consultant	advice	006-land-check-gone-head-c1	answered
+2026-11-20T15:04:07Z	1795187047	master	send-consult	011-git-store-default-on-c1	design
+2026-11-20T15:04:28Z	1795187068	master	log	-	plan: add units 011 git store default (bundle opt-out), 012 pinned-commit build install (tarball fallback), 013 git-store hand-over carries notes and scripts only; 009 likely folds into 011
+2026-11-20T15:18:31Z	1795187911	consultant	advice	011-git-store-default-on-c1	answered
+2026-11-20T15:20:10Z	1795188010	master	log	-	consult-011: adopt c1: order 001,002,003, then 008,004,006,010, then 014 (build pin), 015 (git hand-over), 016 (git default, folds 009); all three new ones escalated with plan rounds
+2026-11-20T14:31:08Z	1795185068	sidekick	progress	001-swallowed-failures	
+2026-11-20T14:40:59Z	1795185659	sidekick	step	001-swallowed-failures	1:8c739eb75
+2026-11-20T14:43:28Z	1795185808	sidekick	progress	001-swallowed-failures	
+2026-11-20T14:53:01Z	1795186381	sidekick	gate-fail	001-swallowed-failures	508e33670 /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/001-swallowed-failures-508e33670b61/out.1
+2026-11-20T14:54:37Z	1795186477	sidekick	progress	001-swallowed-failures	
+2026-11-20T15:03:49Z	1795187029	sidekick	step	001-swallowed-failures	2:5a7fd20fa
+2026-11-20T15:06:58Z	1795187218	sidekick	progress	001-swallowed-failures	
+2026-11-20T15:16:11Z	1795187771	sidekick	step	001-swallowed-failures	3:512071338
+2026-11-20T15:16:39Z	1795187799	sidekick	progress	001-swallowed-failures	
+2026-11-20T15:25:42Z	1795188342	sidekick	step	001-swallowed-failures	4:b1eb2e29e
+2026-11-20T15:29:46Z	1795188586	sidekick	progress	001-swallowed-failures	
+2026-11-20T15:38:42Z	1795189122	sidekick	step	001-swallowed-failures	5:7fca27105
+2026-11-20T15:38:55Z	1795189135	sidekick	finish-verify-pass	001-swallowed-failures	7fca27105
+2026-11-20T15:38:55Z	1795189135	sidekick	rotation-required	001-swallowed-failures	generation:1
+2026-11-20T15:38:55Z	1795189135	sidekick	report	001-swallowed-failures	done
+2026-11-20T15:39:43Z	1795189183	master	send-verify	001-swallowed-failures	amp:001
+2026-11-20T15:39:48Z	1795189188	master	nest-pending	-	T-01a1f99d-1b40-735d-a37c-fbd24ef14d11 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T15:39:50Z	1795189190	master	wake	001-swallowed-failures	verify:progress
+2026-11-20T15:40:04Z	1795189204	master	nest	-	T-01a1f99d-1b40-735d-a37c-fbd24ef14d11 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T15:40:23Z	1795189223	master	rotate	-	generation:1
+2026-11-20T15:40:28Z	1795189228	master	nest-pending	-	T-01a1f99d-ba1f-7063-b6e6-adc0858249f6 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T15:40:29Z	1795189229	sidekick	spawn	-	amp:handed-off
+2026-11-20T15:40:40Z	1795189240	master	nest	-	T-01a1f99d-ba1f-7063-b6e6-adc0858249f6 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T15:40:41Z	1795189241	master	log	-	ab-switch: sidekick g2 on zhipuai/glm-5.3 for unit 002
+2026-11-20T15:42:10Z	1795189330	master	log	-	review-001: joo on 001 (run 2026-11-20T15-40-05-442Z-ed38616e): 2 lows, both actionable; fold into fix brief 017, verified with --covers 001
+2026-11-20T15:42:34Z	1795189354	sidekick	report	000-ready	done
+2026-11-20T15:43:00Z	1795189380	master	archive	-	sidekick:T-01a1f94a-1987-7011-b140-ea5f38a599b8
+2026-11-20T15:43:00Z	1795189380	master	log	-	archive: archive sidekick T-01a1f94a-1987-7011-b140-ea5f38a599b8
+2026-11-20T15:43:31Z	1795189411	master	log	-	incident: after the g2 rotation and READY, pair.json held sidekick.rotation_required=true with bootstrap_pending=true, so dispatch refused 002 (FreshSessionRequired)
+2026-11-20T15:43:33Z	1795189413	sidekick	spawn	-	amp:ready
+2026-11-20T15:43:34Z	1795189414	master	send-brief	002-amp-idle-and-stop	
+2026-11-20T16:01:49Z	1795190509	sidekick	report	001-swallowed-failures-v1	clean
+2026-11-20T16:02:15Z	1795190535	master	archive	-	verifier:T-01a1f99d-1b40-735d-a37c-fbd24ef14d11
+2026-11-20T16:02:15Z	1795190535	master	log	-	archive: archive verifier T-01a1f99d-1b40-735d-a37c-fbd24ef14d11
+2026-11-20T16:02:15Z	1795190535	master	verify	001-swallowed-failures	clean
+2026-11-20T16:02:15Z	1795190535	master	wake	001-swallowed-failures	verify:clean
+2026-11-20T16:01:43Z	1795190503	sidekick	step	002-amp-idle-and-stop	1:37c06a9ad
+2026-11-20T16:15:15Z	1795191315	sidekick	step	002-amp-idle-and-stop	2:92761886c
+2026-11-20T16:28:14Z	1795192094	sidekick	step	002-amp-idle-and-stop	3:78e3286b3
+2026-11-20T16:43:28Z	1795193008	sidekick	progress	002-amp-idle-and-stop	
+2026-11-20T16:58:38Z	1795193918	sidekick	step	002-amp-idle-and-stop	4:1228c1a16
+2026-11-20T17:10:44Z	1795194644	sidekick	step	002-amp-idle-and-stop	5:726085474
+2026-11-20T17:13:56Z	1795194836	sidekick	progress	002-amp-idle-and-stop	
+2026-11-20T17:27:59Z	1795195679	sidekick	step	002-amp-idle-and-stop	6:6ac18e8e5
+2026-11-20T17:30:18Z	1795195818	sidekick	finish-verify-pass	002-amp-idle-and-stop	6ac18e8e5
+2026-11-20T17:30:18Z	1795195818	sidekick	rotation-required	002-amp-idle-and-stop	generation:2
+2026-11-20T17:30:18Z	1795195818	sidekick	report	002-amp-idle-and-stop	done

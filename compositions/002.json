@@ -1,0 +1,168 @@
+{
+  "overlays": {
+    "excluded": [
+      {
+        "id": "pstack-code",
+        "reason": "inapplicable: combines only with feature, bug-fix, refactoring, pstack-tdd, not review-fix"
+      }
+    ],
+    "selected": []
+  },
+  "roles": {
+    "consultant": [],
+    "master": [
+      {
+        "from": [
+          {
+            "by": "workflow:review-fix",
+            "part": "review-fix.intro-1"
+          }
+        ],
+        "id": "review-fix.intro-1",
+        "source": {
+          "digest": "ed5060cf2bab",
+          "path": "pstack-kitchen/references/review-fix.md",
+          "root": "skills",
+          "select": "intro:1"
+        },
+        "text": "List each finding in the brief with where it is; the parent unit settled the design. Use this workflow for every fix brief that answers a review, a rejected verdict or a landing review, in place of the parent's workflow."
+      }
+    ],
+    "sidekick": [
+      {
+        "from": [
+          {
+            "by": "workflow:review-fix",
+            "part": "review-fix.intro-1"
+          }
+        ],
+        "id": "review-fix.intro-1",
+        "source": {
+          "digest": "ed5060cf2bab",
+          "path": "pstack-kitchen/references/review-fix.md",
+          "root": "skills",
+          "select": "intro:1"
+        },
+        "text": "**Fix the findings the brief lists, inside its Scope, and nothing else.** A review, a rejected verdict or a landing review already found each one; the unit that raised them already settled the design."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:review-fix",
+            "part": "review-fix.step-1"
+          }
+        ],
+        "id": "review-fix.step-1",
+        "source": {
+          "digest": "1e80c08a5202",
+          "path": "pstack-kitchen/references/review-fix.md",
+          "root": "skills",
+          "select": "step:1"
+        },
+        "text": "1. Read each finding, the code it names, and the parent unit's brief and report. A finding you cannot place, or one whose fix would change the parent's design, goes in the report under Questions; do not redesign around it."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:review-fix",
+            "part": "review-fix.step-2"
+          }
+        ],
+        "id": "review-fix.step-2",
+        "source": {
+          "digest": "433ae2931bf7",
+          "path": "pstack-kitchen/references/review-fix.md",
+          "root": "skills",
+          "select": "step:2"
+        },
+        "text": "Fix one finding at a time, the smallest change that answers it. Each finding is one commit with the test that pins it, in the same commit, recorded with kitchen.sh step. A finding with no testable behaviour (a comment, a name, a log line) says so in its commit message."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:review-fix",
+            "part": "review-fix.step-3"
+          }
+        ],
+        "id": "review-fix.step-3",
+        "source": {
+          "digest": "358aeab362f7",
+          "path": "pstack-kitchen/references/review-fix.md",
+          "root": "skills",
+          "select": "step:3"
+        },
+        "text": "3. Run the brief's Verify commands and the checks each finding names. Nothing in this workflow asks for a failing test committed before its fix."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:review-fix",
+            "part": "review-fix.reply"
+          }
+        ],
+        "id": "review-fix.reply",
+        "source": {
+          "digest": "bfd6669fe262",
+          "path": "pstack-kitchen/references/review-fix.md",
+          "root": "skills",
+          "select": "reply"
+        },
+        "text": "In the report, under Ran and the sections the template names: each finding with its commit, the test that pins it, and the command output that shows it fixed. A finding left open says why. Every claim carries its command output or a file pointer."
+      }
+    ],
+    "verifier": [
+      {
+        "from": [
+          {
+            "by": "workflow:review-fix",
+            "part": "review-fix.intro-1"
+          }
+        ],
+        "id": "review-fix.intro-1",
+        "source": {
+          "digest": "ed5060cf2bab",
+          "path": "pstack-kitchen/references/review-fix.md",
+          "root": "skills",
+          "select": "intro:1"
+        },
+        "text": "You own the proof, not the fixes. Prove the brief's Acceptance, finding by finding, on the real surface at the unit's head."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:review-fix",
+            "part": "review-fix.step-2"
+          }
+        ],
+        "id": "review-fix.step-2",
+        "source": {
+          "digest": "433ae2931bf7",
+          "path": "pstack-kitchen/references/review-fix.md",
+          "root": "skills",
+          "select": "step:2"
+        },
+        "text": "Check from the unit's commit range that each listed finding has its commit and the test that pins it, or a commit message saying it has no testable behaviour. A fix brief has no repro-first rule: a test in the same commit as its fix is no finding. Do not write or edit commits."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:review-fix",
+            "part": "review-fix.reply"
+          }
+        ],
+        "id": "review-fix.reply",
+        "source": {
+          "digest": "bfd6669fe262",
+          "path": "pstack-kitchen/references/review-fix.md",
+          "root": "skills",
+          "select": "reply"
+        },
+        "text": "The evidence standard for the brief's Acceptance, not new criteria: per finding, the command output that shows it fixed at the unit's head. A verdict line cites that output."
+      }
+    ]
+  },
+  "version": 1,
+  "with": [],
+  "without": [],
+  "workflow": "review-fix"
+}

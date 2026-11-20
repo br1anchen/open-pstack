@@ -1,0 +1,259 @@
+{
+  "overlays": {
+    "excluded": [],
+    "selected": []
+  },
+  "roles": {
+    "consultant": [],
+    "master": [
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.intro-1"
+          }
+        ],
+        "id": "docs.intro-1",
+        "source": {
+          "digest": "694c359c0a74",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "intro:1"
+        },
+        "text": "**You own the prose. Say what holds, and show where it holds.**"
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.intro-2"
+          }
+        ],
+        "id": "docs.intro-2",
+        "source": {
+          "digest": "0feadad62555",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "intro:2"
+        },
+        "text": "A docs change edits prose only: a README, a guide, a reference page, an ADR's wording. It changes no behavior, so it needs no plan round and no new test."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.step-2"
+          }
+        ],
+        "id": "docs.step-2",
+        "source": {
+          "digest": "179e3f207620",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "step:2"
+        },
+        "text": "A code change the text needs comes back as a Question; route it through a new brief."
+      }
+    ],
+    "sidekick": [
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.intro-1"
+          }
+        ],
+        "id": "docs.intro-1",
+        "source": {
+          "digest": "694c359c0a74",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "intro:1"
+        },
+        "text": "**You own the prose. Say what holds, and show where it holds.**"
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.intro-2"
+          }
+        ],
+        "id": "docs.intro-2",
+        "source": {
+          "digest": "0feadad62555",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "intro:2"
+        },
+        "text": "A docs change edits prose only: a README, a guide, a reference page, an ADR's wording. It changes no behavior, so it needs no plan round and no new test."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.step-1"
+          }
+        ],
+        "id": "docs.step-1",
+        "source": {
+          "digest": "6296639e7be6",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "step:1"
+        },
+        "text": "1. Read the code, command or decision the text describes, at the unit's base, and list each claim the text will make with the file or command that shows it."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.step-2"
+          }
+        ],
+        "id": "docs.step-2",
+        "source": {
+          "digest": "179e3f207620",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "step:2"
+        },
+        "text": "Write the change inside the brief's Scope. A code change the text turns out to need goes in the report under Questions with status blocked; the master routes it through a new brief."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.step-3"
+          }
+        ],
+        "id": "docs.step-3",
+        "source": {
+          "digest": "b581740ec541",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "step:3"
+        },
+        "text": "3. Check every path, link, command and flag the text names against the repo: open the file, or run the command and keep its output."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.step-4"
+          }
+        ],
+        "id": "docs.step-4",
+        "source": {
+          "digest": "5f7e20675dc9",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "step:4"
+        },
+        "text": "4. Apply the **unslop** skill to the new text."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.reply"
+          }
+        ],
+        "id": "docs.reply",
+        "source": {
+          "digest": "09278083003b",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "reply"
+        },
+        "text": "In the report, under Ran and the sections the template names: what changed, and for each claim the file or command output that backs it."
+      }
+    ],
+    "verifier": [
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.intro-1"
+          }
+        ],
+        "id": "docs.intro-1",
+        "source": {
+          "digest": "694c359c0a74",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "intro:1"
+        },
+        "text": "**You own the prose. Say what holds, and show where it holds.**"
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.intro-2"
+          }
+        ],
+        "id": "docs.intro-2",
+        "source": {
+          "digest": "0feadad62555",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "intro:2"
+        },
+        "text": "A docs change edits prose only: a README, a guide, a reference page, an ADR's wording. It changes no behavior, so it needs no plan round and no new test."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.step-1"
+          }
+        ],
+        "id": "docs.step-1",
+        "source": {
+          "digest": "6296639e7be6",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "step:1"
+        },
+        "text": "1. Read the code, command or decision the text describes, at the unit's base, and list each claim the text will make with the file or command that shows it."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.step-3"
+          }
+        ],
+        "id": "docs.step-3",
+        "source": {
+          "digest": "b581740ec541",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "step:3"
+        },
+        "text": "3. Check every path, link, command and flag the text names against the repo: open the file, or run the command and keep its output."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:docs",
+            "part": "docs.reply"
+          }
+        ],
+        "id": "docs.reply",
+        "source": {
+          "digest": "09278083003b",
+          "path": "pstack-kitchen/references/playbooks/docs.md",
+          "root": "skills",
+          "select": "reply"
+        },
+        "text": "The evidence standard for the brief's Acceptance, not new criteria: each claim the changed text makes holds at the unit's head, shown by the file or command output it names. A verdict line cites the command output that shows it."
+      }
+    ]
+  },
+  "version": 1,
+  "with": [],
+  "without": [],
+  "workflow": "docs"
+}

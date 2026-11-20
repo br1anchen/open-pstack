@@ -1,0 +1,5 @@
+1	8c739eb75b19b72eb6e5e7b3e54db9448a26bed7	1795185659		fetch_code reports a failed trunk fetch
+2	5a7fd20fac939d96d7742ccfb3e815167fee14cd	1795187029		master hand-over and rotate_if_due say when freshness is unknown
+3	512071338c280b10ccc713bfca6ef8971fce77d0	1795187771		a failed rollback publish never hides the launch or spawn error
+4	b1eb2e29edd5a7501a93ccf1a54e4fb839e1fc16	1795188342		tests/run.py -k fails on an import error
+5	7fca27105380693abb8741e0af8347d63c413f10	1795189122		fetch_code fails only when a resolved trunk cannot be fetched (joo)

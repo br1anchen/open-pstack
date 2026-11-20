@@ -1,0 +1,46 @@
+# Host roster for sidekick-ab2 (master g3 orb). Subscription-first chains:
+# Claude subscription, ChatGPT subscription, then Amp-billed.
+
+[master]
+kind = "amp"
+args = ["--model", "anthropic/claude-opus-5-5"]
+[[master.fallback]]
+kind = "amp"
+args = ["--model", "openai/gpt-6-astra"]
+
+# Brian (2026-11-20): A/B of sidekick models on routine units of similar size in
+# kitchen-followups: Sonnet 5.5 on Claude Code (Claude subscription) and GLM-5.3
+# (Amp-billed, approved for a small number of units). Escalated units stay on Sonnet.
+[[sidekick.alternate]]
+kind = "amp"
+args = ["--mode", "claude-code", "--features", "model:claude-sonnet-5-5"]
+[[sidekick.alternate]]
+kind = "amp"
+args = ["--model", "zhipuai/glm-5.3"]
+[[sidekick.fallback]]
+kind = "amp"
+args = ["--model", "openai/gpt-6.1-sol"]
+
+# Brian (2026-11-19): Astra at high effort on the ChatGPT subscription; Fable 5.2
+# only when that subscription hits its usage limit or the model routes to Amp,
+# logged as a failover event.
+[consultant]
+kind = "amp"
+args = ["--model", "openai/gpt-6-astra", "--effort", "high"]
+[[consultant.fallback]]
+kind = "amp"
+args = ["--model", "anthropic/claude-fable-5-2"]
+
+[verifier]
+kind = "amp"
+args = ["--model", "anthropic/claude-sonnet-5-5", "--orb-size", "a1.small"]
+[[verifier.fallback]]
+kind = "amp"
+args = ["--model", "openai/gpt-6.1-sol", "--orb-size", "a1.small"]
+
+[verifier.escalated]
+kind = "amp"
+args = ["--model", "anthropic/claude-opus-5-5", "--orb-size", "a1.large"]
+[[verifier.escalated.fallback]]
+kind = "amp"
+args = ["--model", "openai/gpt-6-astra", "--orb-size", "a1.large"]

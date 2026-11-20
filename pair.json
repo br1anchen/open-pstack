@@ -1,0 +1,179 @@
+{
+  "slug": "kitchen-followups",
+  "store": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups",
+  "created_at": "2026-11-20T14:08:29Z",
+  "cwd": "/home/user/workspace/repo",
+  "git_root": "/home/user/workspace/repo",
+  "master": {
+    "name": "kitchen-followups-master",
+    "pane_id": "amp:T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce",
+    "workspace_id": "",
+    "tab_id": "",
+    "registered_at": "2026-11-20T14:08:29Z",
+    "permission_mode": "auto",
+    "units_since_handoff": 1
+  },
+  "sidekick": {
+    "name": "kitchen-followups-sidekick",
+    "pane_id": "amp:1",
+    "kind": "amp",
+    "started_at": "2026-11-20T15:40:23Z",
+    "fallback": {
+      "kind": "amp",
+      "args": [
+        "--mode",
+        "claude-code",
+        "--features",
+        "model:claude-sonnet-5-5"
+      ]
+    },
+    "chain": [
+      {
+        "kind": "amp",
+        "args": [
+          "--model",
+          "zhipuai/glm-5.3"
+        ]
+      },
+      {
+        "kind": "amp",
+        "args": [
+          "--mode",
+          "claude-code",
+          "--features",
+          "model:claude-sonnet-5-5"
+        ]
+      }
+    ],
+    "chain_index": 0,
+    "start_args": [
+      "--model",
+      "zhipuai/glm-5.3"
+    ],
+    "generation": 2,
+    "bootstrap_pending": false,
+    "permission_mode": "native-args",
+    "closed": false,
+    "rotation_required": true,
+    "delivered": {
+      "generation": "2",
+      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
+      "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
+      "brief": "002-amp-idle-and-stop",
+      "compactions": 0
+    }
+  },
+  "verifier": {
+    "name": "kitchen-followups-verifier",
+    "pane_id": "amp:3",
+    "kind": "amp",
+    "started_at": null
+  },
+  "consultant": {
+    "name": "kitchen-followups-consultant",
+    "pane_id": "amp:2",
+    "kind": "amp",
+    "started_at": "2026-11-20T14:24:17Z",
+    "start_args": [
+      "--model",
+      "openai/gpt-6-astra",
+      "--effort",
+      "high"
+    ],
+    "generation": 1,
+    "bootstrap_pending": true,
+    "permission_mode": "auto",
+    "closed": false
+  },
+  "scratch": [],
+  "anchor": {
+    "thread": "T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce"
+  },
+  "skill_builds": [
+    {
+      "path": "/home/user/workspace/repo/skills",
+      "at": "2026-11-20T14:08:29Z"
+    },
+    {
+      "path": "/home/user/.local/share/pstack-builds/6aaa6770ea89df2b/skills",
+      "at": "2026-11-20T14:10:27Z"
+    },
+    {
+      "path": "/home/user/workspace/repo/skills",
+      "at": "2026-11-20T14:28:04Z"
+    },
+    {
+      "path": "/home/user/.local/share/pstack-builds/6aaa6770ea89df2b/skills",
+      "at": "2026-11-20T14:31:08Z"
+    },
+    {
+      "path": "/home/user/workspace/repo/skills",
+      "at": "2026-11-20T15:10:27Z"
+    },
+    {
+      "path": "/home/user/.local/share/pstack-builds/895a3b3b1dbc02c6/skills",
+      "at": "2026-11-20T15:42:34Z"
+    },
+    {
+      "path": "/home/user/workspace/repo/skills",
+      "at": "2026-11-20T15:42:56Z"
+    },
+    {
+      "path": "/home/user/.local/share/pstack-builds/895a3b3b1dbc02c6/skills",
+      "at": "2026-11-20T15:50:04Z"
+    },
+    {
+      "path": "/home/user/workspace/repo/skills",
+      "at": "2026-11-20T16:10:43Z"
+    }
+  ],
+  "placement": "split",
+  "pending": [
+    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/002-amp-idle-and-stop.md"
+  ],
+  "dispatch": {
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/002-amp-idle-and-stop.md",
+    "at": "2026-11-20T15:43:34Z",
+    "head": "7fca27105380693abb8741e0af8347d63c413f10",
+    "generation": 2,
+    "sidekick": "amp zhipuai/glm-5.3"
+  },
+  "sent": {
+    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/002-amp-idle-and-stop.md",
+    "kind": "BRIEF",
+    "at": "2026-11-20T15:43:34Z",
+    "epoch": 1795189414
+  },
+  "heads": {
+    "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
+    "002-amp-idle-and-stop": "7fca27105380693abb8741e0af8347d63c413f10"
+  },
+  "sidekick_models": {
+    "001-swallowed-failures": "amp anthropic/claude-sonnet-5-5",
+    "002-amp-idle-and-stop": "amp zhipuai/glm-5.3"
+  },
+  "sidekick_threads": {
+    "amp anthropic/claude-sonnet-5-5": [
+      "T-01a1f94a-1987-7011-b140-ea5f38a599b8"
+    ],
+    "amp zhipuai/glm-5.3": [
+      "T-01a1f99d-ba1f-7063-b6e6-adc0858249f6"
+    ]
+  },
+  "consult": {
+    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/consults/011-git-store-default-on-c1.md",
+    "at": "2026-11-20T15:04:07Z",
+    "head": "a90bb4130393b864176dbeded9bb216fcb5f255c",
+    "sidekick_state": "working"
+  },
+  "sidekick_choice": {
+    "kind": "amp",
+    "args": [
+      "--model",
+      "zhipuai/glm-5.3"
+    ],
+    "label": "amp zhipuai/glm-5.3",
+    "index": 1,
+    "policy": "per-unit A/B (master)"
+  }
+}

@@ -1,0 +1,8 @@
+.*
+!.gitignore
+*.pid
+*.tmp
+*.lock
+*.tgz
+scratch/
+steps/jobs/

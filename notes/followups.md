@@ -1,0 +1,40 @@
+- 015 joo (5c0421ee), low: dispatch.py:114. If dispatch_brief's wait raises after the send, no delivered record is written and the next brief goes out in full, which errs safe. master.py:490 looks up thread_mode twice. base.py:98 has an unused mode_reads_skill_file default. 014 joo low: steer.py:90 and amp.py:652 have redundant guards.
+- 015 verdict observations: a stale relay's bundle is never removed; a stale same-hash record can read as delivered (unreachable via steer); relay-done compares whole seconds.
+- 016 joo low: redundant remote_roles guard in wait.py (folded into 017 s1)
+- 018 joo low (aafa0a89): threads may list an unscoped thread twice; rename()/start() drop the remembered store, so a renamed role's retired thread is kept as unscoped (errs safe).
+- threads --archive misses role threads of a store started on an older build (no threads.json entries, no sidekick_threads): untangle-b15 archived 7 by hand. Option: discover candidates from amp threads list by the store's slug in thread titles or the bootstrap text, listed as 'kept: unverified' for manual review.
+
+- 023 joo lows: gitstore.py:225 unused role param in acknowledge/ack_file; gitstore.py:303 Revision.digest unused (drop digest_of); replies.py:126 use stamps[reply].stamp; init.py:172 first publish with no standing-orders.md commits nothing silently.
+- 024-026 landing-v4: tests/pstack-pair/bin/amp threads search drops archived:false and repo: without a comment saying why.
+- 024 landing-v2 N2: no test covers assess's pending-relay, unsynced-file and report-head-missing guards.
+- 023 verdict observation: under git, rerunning init on a store that already has pair.json re-registers the master but publishes nothing; the updated pair.json waits for the next publish (plan 021 block 2 adds the publishes).
+- 028 joo lows: gitstore.py:365 redundant branch recheck in create(); send.py:245 compute `seen` after the refresh (block 2 rewrites this path).
+- Block 2 brief must include: finish refuses a report holding a fake token (secret: reports/...:<line>: github-token) and the remote branch is unchanged; the redacted report lands (deferred from 027).
+- 027 joo lows: errors.py:363 unused SecretFound.findings; spawn.py:266 verifier and master prompts lack REDACT_RULE outside Amp.
+- 027 verdict: when init's first publish is refused for a secret, the remote branch holds only .gitignore and init exits 1; rerunning init after redacting is the recovery but is not tested. gitstore.create's .gitignore commit is unscanned (generated text only).
+- 029 joo lows: unused root=store in gitstore scan calls; secrets._gitleaks temp-file write errors and collisions; REDACT_RULE test lists six templates by name instead of discovering them.
+- Evidence that quotes probe shapes (a key assigned a placeholder then a value) trips the secret scan in verdicts and reports. Block 2 brief and the verifier/sidekick references should say how to describe a probe without a KEY=value shape, so roles do not write files the store then refuses.
+- 031 joo low: secrets.py:148 flags a placeholder followed by punctuation and values like [] (false positive; fails closed).
+- 032 joo lows: gitstore.py:829-834 stale bundle unlink not published; replies.py:34 unused sent param; consultant.md:14 duplicate credentials paragraph; test_pstack_kitchen.py:17075 loose assertion. 032 Deviations: report seen mark is path:stamp not digest, a same-second rewrite reads as seen (A2 gap).
+- 033 joo lows: report.py:104 second publish catches only PublishFailed; sync.py:86 warn on a store branch that differs from the announced one; sync.py:88 test the missing-branch error.
+
+## From review 037
+- low: kitchen.sh stop after threads --archive starts a fresh consultant thread only to send it STOP (amp.py Amp.archive keeps the entry with thread ''; trio variant.py stop -> stop_role -> prompt). Skip STOP when the consultant entry has an empty thread. (joo 037)
+- low: amp.py reorientation(): make `fresh` required. (joo 037)
+- low: amp.py role_is_idle: a sidekick whose unit is still under verification (pair.json verifying) counts as idle, so threads --archive can archive it before a fix brief. (joo 035 stack run)
+- low: amp.py assess: `role in ('sidekick','consultant')` duplicates role_is_idle. (joo 035 stack run)
+- low: gitstore.py fetch_code: a failed trunk fetch is ignored (returns True) though a head on trunk now ships with no bundle. (joo 039)
+- low: kitchen_core/master.py hand_to_next_thread: the old master's final publish runs after launch_master; the new master's take-master also writes pair.json, so two master commits can conflict in replay (StoreDiverged). (040 report)
+- low: gitstore.caller_is_master passes any thread while .master.pane_id is still a counter pane (window before the next master's thread exists). (040 report)
+- low: tests/test_pstack_kitchen.py:115 replaces inherited GIT_CONFIG_COUNT instead of appending. (joo 040)
+- low: kitchen_core/master.py hand_to_next_thread and take_master ignore a False from gitstore.refreshed (041 handles rotate only). (verdict 040 note 3)
+- low: master.py:513 / rotate.py:124-126: a failing publish in the rollback or finally hides the launch or spawn error. (joo 041)
+- low: tests/run.py does not run inherited AmpKitchenTests methods in AmpGitKitchenTests. (041 report)
+- low: amp_routing.routing() returns an unused dict (two file reads per call); amp.py:122 mirror_relay publishes inside relay_lock. (joo 042)
+- low: 044 nest: SKILL.md:409/414 wording; a record_pending failure can skip record_thread (amp.py:290); init vs anchor() master-thread source under subagents; --done edge tests; the besides test does not pin it; nest<->mux.amp circular import. (joo 044)
+- low: amp.py:455 master_store checked in assess and again in reconcile; amp_routing.py:381 use a strict comparison for the turn-end time. (joo 045)
+- low: six AmpGit tests (042/045) leave the fixture's reports/000-ready-g1.md untracked; unlink it and end with dirty_role_files()==[] (verdict 045-v1).
+- low: gitstore.py:946 unreachable 'or head'; pin the drain set before/after the late g1 notify (test_pstack_kitchen.py:17892). (joo 043)
+- low: gitstore.py:548 unreachable 'if not last' guard in holds_event_row. (joo 047)
+- low: close.py:31 missing-tip error advises a rerun that skips final and fails again. (joo 049)
+- low: tests/run.py -k <text> prints '0 tests, 0 failed' and exits 0 when the test module fails to import (verdict 049-v1); make it exit non-zero on an import error.
