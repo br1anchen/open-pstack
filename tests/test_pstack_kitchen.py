@@ -8832,6 +8832,33 @@ esac
             ['## Unit 001', '## Unit 003'],
         )
 
+    def test_a_covers_packet_gives_a_named_unit_its_accepted_amendments(self):
+        rule = 'Accepted by the master (reviews/001-u1.md), whatever the Acceptance above says'
+        cases = [
+            ('an amendment', '## Amendments\n\nthe CLI keeps --old: accepted.\n', True),
+            ('none', '## Amendments\n\nnone\n', False),
+            ('no review note', None, False),
+        ]
+        self.three_units()
+        for version, (label, review, shown) in enumerate(cases, 1):
+            with self.subTest(label):
+                note = self.store / 'reviews/001-u1.md'
+                note.unlink(missing_ok=True)
+                if review is not None:
+                    note.write_text(
+                        f'# Review 001\n\nverdict: accept\n\n{review}\n## Checked\n\nread it\n'
+                    )
+                self.run_sh('verify', str(self.store), '003', '--covers', '001')
+                packet = (
+                    self.store / f'verdicts/003-u3-v{version}-packet.md'
+                ).read_text()
+                unit = packet.split('## Unit 001')[1].split('\n## Unit ')[0]
+                self.assertEqual(rule in unit, shown)
+                self.assertEqual('the CLI keeps --old: accepted.' in unit, shown)
+                self.assertNotIn(
+                    'Accepted by the master', packet.split('## Unit 003')[1]
+                )
+
     def test_a_covers_packet_says_a_unit_between_has_no_accepted_review(self):
         self.three_units()
         (self.store / 'reviews/002-u2.md').write_text(
