@@ -50,3 +50,4 @@ none
 ## Follow-ups
 
 this checkout is at origin/main a90bb41 and does not hold the gen-2 commits through 6ac18e8 (unit 001 and 002 work, unpushed in the master's or gen 2's orb). A brief that builds on them needs the master to push them to a branch or send them with the dispatch.
+- git-store bug: under `PSTACK_STORE=git` a role thread cannot run any `kitchen.sh <cmd> <store>` (finish, notify): the variant's `startup` hook calls `record_skill_build` -> `update(pair.json)`, which `require_master` refuses (`pair.json: belongs to the master`) whenever the role's skills dir differs from the last `skill_builds` row. I sent this report with a scratch wrapper (`.amp/in/orb-backup/kitchen-nostamp.py`) that runs `pair.py` with that startup stamp skipped; the send itself worked. Fix candidate: `record_skill_build` should skip, not raise, for a non-master caller under git (`caller_is_master`).
