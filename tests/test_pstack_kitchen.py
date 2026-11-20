@@ -17188,6 +17188,43 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn('needs a fresh session', out)
         self.assertEqual(len(self.briefs_in(amp_thread(2))), 1)
 
+    def test_the_first_send_only_dispatch_after_ready_waits_out_the_ready_turn_and_sends(
+        self,
+    ):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        b = self.brief('002', 'guide', ['docs/**'], verify=['python3 -c 1'])
+        self.run_sh('dispatch', str(self.store), str(b), code=4)
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        self.set_state(amp_thread(1), 'idle', '2999-01-01T00:00:00.000Z')
+        # The new thread's turn that wrote READY has not ended: the fake reports it idle from its Nth export on.
+        self.set_state(amp_thread(2), 'working', '2999-01-01T00:00:00.000Z')
+        shim = self.fake / 'shim'
+        shim.mkdir()
+        (shim / 'amp').write_text(
+            '#!/bin/bash\n'
+            f'if [ "$1 $2 $3" = "threads export {amp_thread(2)}" ]; then\n'
+            f'  echo >>"$FAKE/exports"; [ "$(wc -l <"$FAKE/exports")" -ge $FLIP_AT ] && echo "idle 2999-01-01T00:00:00.000Z" >"$FAKE/amp-state/{amp_thread(2)}"\n'
+            'fi\n'
+            f'exec {root / "tests/pstack-pair/bin/amp"} "$@"\n'
+        )
+        (shim / 'amp').chmod(0o755)
+        self.env.update(
+            PATH=f'{shim}:{self.env["PATH"]}',
+            FLIP_AT='1000',
+            PAIR_READY_POLL_S='0',
+            PAIR_ROTATE_READY_S='0',
+        )
+        out = self.run_sh('dispatch', str(self.store), str(b), '--send-only', code=5)
+        self.assertIn('sidekick demo-sidekick is working', out)
+        self.assertNotIn('sent: BRIEF', out)
+        self.assertEqual(self.briefs_in(amp_thread(2)), [])
+        (self.fake / 'exports').unlink()
+        self.env.update(FLIP_AT='6', PAIR_ROTATE_READY_S='30')
+        out = self.run_sh('dispatch', str(self.store), str(b), '--send-only', code=0)
+        self.assertIn(f'sent: BRIEF {b}', out)
+        self.assertEqual(self.state()['dispatch']['brief'], str(b))
+        self.assertEqual(len(self.briefs_in(amp_thread(2))), 1)
+
     def update_as(self, thread, store, cwd=None, env=None, mux='amp'):
         """Runs store.update from the thread's own process, setting .probe in pair.json: (exit code, output)."""
         code = (
