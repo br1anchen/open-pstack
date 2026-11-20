@@ -1,4 +1,5 @@
 {
+ "archived": 1795203738,
  "args": [
   "--mode",
   "claude-code",
@@ -58,6 +59,6 @@
  "role": "sidekick",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795195931,
- "state": "retired",
+ "state": "archived",
  "thread": "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602"
 }
