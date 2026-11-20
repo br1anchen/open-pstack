@@ -21,20 +21,11 @@
     "fallback": {
       "kind": "amp",
       "args": [
-        "--mode",
-        "claude-code",
-        "--features",
-        "model:claude-sonnet-5-5"
+        "--model",
+        "openai/gpt-6.1-sol"
       ]
     },
     "chain": [
-      {
-        "kind": "amp",
-        "args": [
-          "--model",
-          "zhipuai/glm-5.3"
-        ]
-      },
       {
         "kind": "amp",
         "args": [
@@ -43,12 +34,21 @@
           "--features",
           "model:claude-sonnet-5-5"
         ]
+      },
+      {
+        "kind": "amp",
+        "args": [
+          "--model",
+          "openai/gpt-6.1-sol"
+        ]
       }
     ],
     "chain_index": 0,
     "start_args": [
-      "--model",
-      "zhipuai/glm-5.3"
+      "--mode",
+      "claude-code",
+      "--features",
+      "model:claude-sonnet-5-5"
     ],
     "generation": 2,
     "bootstrap_pending": false,
@@ -171,11 +171,13 @@
   "sidekick_choice": {
     "kind": "amp",
     "args": [
-      "--model",
-      "zhipuai/glm-5.3"
+      "--mode",
+      "claude-code",
+      "--features",
+      "model:claude-sonnet-5-5"
     ],
-    "label": "amp zhipuai/glm-5.3",
-    "index": 1,
+    "label": "amp claude-code model:claude-sonnet-5-5",
+    "index": 0,
     "policy": "per-unit A/B (master)"
   },
   "store_backend": {
@@ -228,7 +230,7 @@
     "argv": [
       "002"
     ],
-    "delivered": false
+    "delivered": true
   },
   "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
