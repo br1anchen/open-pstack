@@ -1164,8 +1164,9 @@ def drained(store, tip, record, request):
 
 def _fetch_trunk(store):
     """Fetches origin's default branch (the target of origin/HEAD, else origin's main, else master) into its remote-tracking ref and returns that
-    ref, so the writer's cut and the master's fetch rest on the same trunk and a stale ref counts for nothing. Empty when none resolves or origin
-    cannot be read."""
+    ref, so the writer's cut and the master's fetch rest on the same trunk and a stale ref counts for nothing. Empty when the fetch of a trunk
+    that resolved failed; None when no trunk resolves (a repository with no origin/HEAD whose trunk is neither main nor master, or an origin that
+    cannot be listed)."""
     head = git.out(store, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') or ''
     branch = head.removeprefix('refs/remotes/origin/')
     if not branch:
@@ -1173,7 +1174,7 @@ def _fetch_trunk(store):
         held = {line.split('refs/heads/')[-1] for line in heads.splitlines()}
         branch = next((name for name in ('main', 'master') if name in held), '')
     if not branch:
-        return ''
+        return None
     ref = _remote_ref(branch)
     fetched = _run(store, 'fetch', '--quiet', 'origin', f'+refs/heads/{branch}:{ref}')
     return ref if fetched.returncode == 0 else ''
@@ -1187,7 +1188,7 @@ def fetch_code(store):
         f'+refs/heads/{CODE_PREFIX}{slug}/*:refs/remotes/origin/{CODE_PREFIX}{slug}/*'
     )
     ok = _run(store, 'fetch', '--quiet', 'origin', spec).returncode == 0
-    if not _fetch_trunk(store):
+    if _fetch_trunk(store) == '':
         ok = False
     for name in (
         sorted(os.listdir(f'{store}/code')) if os.path.isdir(f'{store}/code') else []
