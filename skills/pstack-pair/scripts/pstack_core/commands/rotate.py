@@ -59,8 +59,7 @@ def rotate(ctx, args):
         raise Die(f'usage: {ctx.prog} rotate <store>')
     store = args[0]
     pair_file(store)
-    if not gitstore.refreshed(store):
-        sys.stderr.write(gitstore.UNKNOWN_FRESHNESS)
+    gitstore.refresh_saying_when_unknown(store)
     require_not_paused(store)
     kind = field(store, 'sidekick', 'kind')
     sidekick = peek(load(store), 'sidekick')
@@ -306,8 +305,7 @@ def rotate_if_due(ctx, store, what, brief=''):
     while its context has room (keeps_session)."""
     if not os.path.isfile(f'{store}/pair.json'):
         return
-    if not gitstore.refreshed(store):
-        sys.stderr.write(gitstore.UNKNOWN_FRESHNESS)
+    gitstore.refresh_saying_when_unknown(store)
     archive_retired(ctx, store, f'a {what} is being sent')
     if not rotation_required(store):
         return
