@@ -56,12 +56,13 @@
     "closed": false,
     "rotation_required": false,
     "delivered": {
-      "generation": "2",
+      "generation": "3",
       "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "002-amp-idle-and-stop",
+      "brief": "003-packet-accepted-deviations",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/003-packet-accepted-deviations.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -163,6 +164,9 @@
     ],
     "amp zhipuai/glm-5.3": [
       "T-01a1f99d-ba1f-7063-b6e6-adc0858249f6"
+    ],
+    "amp claude-code claude-sonnet-5-5": [
+      "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602"
     ]
   },
   "consult": {

@@ -22,3 +22,5 @@
 2026-11-20T17:36:12Z	1795196172	master	log	-	review-002: joo on 002 (run 2026-11-20T17-31-45-056Z-4868ce51): 1 medium (amp.py in_turn_at duplicates relays within one turn), 1 low (send-stop row lacks the role); fix brief 018 --covers 002
 2026-11-20T17:36:43Z	1795196203	master	spawn	-	sidekick:amp:ready
 2026-11-20T17:36:44Z	1795196204	master	send-brief	003-packet-accepted-deviations	
+2026-11-20T17:37:12Z	1795196232	master	log	-	archive: archived GLM sidekick g2 T-01a1f99d-ba1f by hand
+2026-11-20T17:59:52Z	1795197592	master	reuse	017-swallowed-failures-fix	sidekick: pstack, pstack-docs, context 13%
