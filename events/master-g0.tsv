@@ -95,3 +95,7 @@
 2026-11-20T22:17:16Z	1795213036	master	send-steer	005-kept-sidekick-session-s1	idle
 2026-11-20T22:17:38Z	1795213058	master	queue	023-dispatch-after-ready-sends	
 2026-11-20T22:21:09Z	1795213269	master	rotate	-	generation:4
+2026-11-20T22:22:37Z	1795213357	master	log	-	incident: dispatch of 023 recorded sidekick generation 5 but never sent its bootstrap: the store push was rejected by GitHub ([remote rejected] (failed)) inside the rotation
+2026-11-20T22:22:45Z	1795213365	master	archive	-	sidekick:T-01a1fa73-ba4a-759f-a82d-fddaa66f726f
+2026-11-20T22:22:45Z	1795213365	master	log	-	archive: archive sidekick T-01a1fa73-ba4a-759f-a82d-fddaa66f726f
+2026-11-20T22:22:45Z	1795213365	master	rotate	-	generation:4
