@@ -65,7 +65,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:3",
+    "pane_id": "amp:4",
     "kind": "amp",
     "started_at": null
   },
@@ -85,7 +85,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "002-amp-idle-and-stop-verify"
+  ],
   "anchor": {
     "thread": "T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce"
   },
@@ -179,5 +181,53 @@
   "store_backend": {
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
+  },
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/002-amp-idle-and-stop-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/002-amp-idle-and-stop-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/002-amp-idle-and-stop.md",
+    "scratch": "002-amp-idle-and-stop-verify",
+    "units": "002",
+    "risk": "routine",
+    "sample": 0.2,
+    "unit": "002-amp-idle-and-stop",
+    "started": 1795195878,
+    "deadline": 1795198578,
+    "class": "routine",
+    "entry": {
+      "kind": "amp",
+      "args": [
+        "--model",
+        "anthropic/claude-sonnet-5-5",
+        "--orb-size",
+        "a1.small"
+      ],
+      "fallback": {
+        "kind": "amp",
+        "args": [
+          "--model",
+          "openai/gpt-6.1-sol",
+          "--orb-size",
+          "a1.small"
+        ]
+      },
+      "fallbacks": [
+        {
+          "kind": "amp",
+          "args": [
+            "--model",
+            "openai/gpt-6.1-sol",
+            "--orb-size",
+            "a1.small"
+          ]
+        }
+      ],
+      "source": "roster"
+    },
+    "retried": false,
+    "argv": [
+      "002"
+    ],
+    "delivered": false
   }
 }

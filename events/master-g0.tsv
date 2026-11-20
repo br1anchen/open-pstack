@@ -1,1 +1,3 @@
 2026-11-20T17:30:55Z	1795195855	master	store-to-git	-	kitchen/kitchen-followups
+2026-11-20T17:31:07Z	1795195867	master	log	-	decision: store moved to the git store (kitchen/kitchen-followups on origin)
+2026-11-20T17:31:18Z	1795195878	master	send-verify	002-amp-idle-and-stop	amp:002
