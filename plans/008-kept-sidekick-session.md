@@ -46,6 +46,38 @@ The ownership fix removes the demonstrated failure at its root (the merge accept
    playbook: bug-fix
    - `keeps_session` returns (kept, reason); `rotate_if_due` prints `rotate: <reason>` and puts it in the `rotate` event detail. One table-driven test over the reasons, extending `test_half_a_context_window_rotates_the_sidekick_even_in_the_same_area` (about L16281) and `test_a_compacted_sidekick_rotates_even_in_the_same_area` (L16288). Goldens change only if a golden transcript covers a rotation; regenerate only those, with `PSTACK_PAIR_UPDATE=1`, and name them in the report.
 
+## Playbook (plan blocks)
+
+Written by `kitchen.sh` from each Steps block's `playbook:` and `with:`; edit those lines, not this section.
+
+### Block 1: bug-fix
+
+#### bug-fix.intro-1 (master)
+
+You own the plan and the review. Hand the investigation and the fix to the sidekick through the brief, and stay in the lead: plan, review, verify.
+
+#### bug-fix.intro-2 (master)
+
+Be scientific. Every shipped line traces to runtime evidence. Belt-and-suspenders that "might help" is a hypothesis, not a fix. It does not ship. When evidence refutes a hypothesis, revert what it motivated. The smallest change the evidence justifies ships, nothing more.
+
+#### bug-fix.step-6 (master)
+
+Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode.
+
+### Block 2: bug-fix
+
+#### bug-fix.intro-1 (master)
+
+You own the plan and the review. Hand the investigation and the fix to the sidekick through the brief, and stay in the lead: plan, review, verify.
+
+#### bug-fix.intro-2 (master)
+
+Be scientific. Every shipped line traces to runtime evidence. Belt-and-suspenders that "might help" is a hypothesis, not a fix. It does not ship. When evidence refutes a hypothesis, revert what it motivated. The smallest change the evidence justifies ships, nothing more.
+
+#### bug-fix.step-6 (master)
+
+Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode.
+
 ## Verification
 
 The regression test fails on a90bb41 and passes at the head; the full suite passes; a real kept dispatch in this run (units 002 then 003 are routine, same profiles) prints `kept:` or a `rotate: <reason>` that names a model switch the master made on purpose.
@@ -54,7 +86,7 @@ The regression test fails on a90bb41 and passes at the head; the full suite pass
 
 - A master-owned path that a role legitimately writes would stop reaching the master. The sidekick's report sets `rotation_required` (handled); check whether a sidekick or verifier writes any other listed path (`verifying` is written by the master's `verify`, cleared by `verify --wait` on the master). The sidekick should list every writer it finds of each path.
 - Old builds on role orbs send bundles without a role name in the manifest: treat an unknown sender as a role when the receiver is the master.
-- Under the git store this merge is not used; the git store has its own ownership table. No change there.
+- Under the git store ordinary messages do not use this merge, but a busy-thread relay (`Amp.relay`) still packs a store snapshot (advice 011-c1, P5); plan 015 removes that. This unit fixes the merge itself, which the bundle opt-out keeps.
 
 ## Open questions
 
