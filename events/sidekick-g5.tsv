@@ -1,1 +1,5 @@
 2026-11-20T22:30:05Z	1795213805	sidekick	report	000-ready-g5	done
+2026-11-20T22:50:27Z	1795215027	sidekick	step	023-dispatch-after-ready-sends	1:4bca7862a
+2026-11-20T22:52:14Z	1795215134	sidekick	finish-verify-pass	023-dispatch-after-ready-sends	4bca7862a
+2026-11-20T22:52:14Z	1795215134	sidekick	rotation-required	023-dispatch-after-ready-sends	generation:5 sha256:faaa527e760e
+2026-11-20T22:52:17Z	1795215137	sidekick	report	023-dispatch-after-ready-sends	done

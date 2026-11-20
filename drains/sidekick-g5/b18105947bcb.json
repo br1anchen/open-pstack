@@ -1,0 +1,16 @@
+{
+ "code": [
+  "4bca7862ab6374879d0d0bc6d946448118446d36"
+ ],
+ "generation": 5,
+ "outputs": [
+  {
+   "path": "reports/023-dispatch-after-ready-sends.md",
+   "sha256": "faaa527e760e6a8896cc7e53318d82c90f32a0f35ea9275d1d1cdd0e612869c9"
+  }
+ ],
+ "request": "b18105947bcb",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fb0e-2be9-74c4-a19a-7e5b11d8af62"
+}
