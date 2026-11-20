@@ -9,7 +9,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from pstack_core import git, mux
+from pstack_core import git, gitstore, mux
 from pstack_core import spawn as pair_spawn
 from pstack_core.argv import Spec, read
 from pstack_core.commands import init as core_init
@@ -47,9 +47,11 @@ def last_build_path(builds):
 
 def record_skill_build(ctx, store):
     """A run stamped at init lists the skills directories its commands ran from; a command from a different one adds a row. A run from before
-    stamps stays unstamped."""
+    stamps stays unstamped. Under the git store pair.json is the master's alone, so a role's command leaves the list as it is."""
     skills_dir = os.path.dirname(ctx.skill_root)
     if not has_pair(store):
+        return
+    if gitstore.is_git(store) and not gitstore.caller_is_master(store):
         return
     raw = load(store).get('skill_builds')
     if raw is None or raw is False:
