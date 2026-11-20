@@ -43,3 +43,11 @@
 2026-11-20T18:23:46Z	1795199026	master	send-brief	018-amp-idle-and-stop-fix	
 2026-11-20T18:24:09Z	1795199049	master	queue	019-role-stamp-under-git	
 2026-11-20T18:24:19Z	1795199059	master	send-verify	017-swallowed-failures-fix	amp:001 017
+2026-11-20T18:24:30Z	1795199070	master	nest-pending	-	T-01a1fa33-e8f7-734a-936b-e7bdba557673 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T18:24:38Z	1795199078	master	wake	017-swallowed-failures-fix	verify:progress
+2026-11-20T18:24:56Z	1795199096	master	nest	-	T-01a1fa33-e8f7-734a-936b-e7bdba557673 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T18:40:06Z	1795200006	master	verify	017-swallowed-failures-fix	clean
+2026-11-20T18:40:06Z	1795200006	master	wake	017-swallowed-failures-fix	verify:clean
+2026-11-20T19:08:36Z	1795201716	master	archive	-	verifier:T-01a1fa33-e8f7-734a-936b-e7bdba557673
+2026-11-20T19:08:36Z	1795201716	master	log	-	archive: archive verifier T-01a1fa33-e8f7-734a-936b-e7bdba557673
+2026-11-20T19:08:38Z	1795201718	master	reuse	019-role-stamp-under-git	sidekick: pstack, pstack-docs, context 22%

@@ -25,3 +25,4 @@ ts	phase	decision	why	evidence	result
 2026-11-20T18:00:21Z	finding	first kept-session dispatch of the run: 017 after 003 on the Sonnet CC sidekick, context 13%	under the git store no bundle merge touches pair.json, consistent with plan 008's stale-merge cause	dispatch output	noted for 008's verification
 2026-11-20T18:00:56Z	archive	archive verifier T-01a1fa06-e703-7466-b35f-058e3095918b	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fa06-e703-7466-b35f-058e3095918b	archived
 2026-11-20T18:06:24Z	archive	archive verifier T-01a1fa1e-ae15-70a3-be1b-979d539b0261	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fa1e-ae15-70a3-be1b-979d539b0261	archived
+2026-11-20T19:08:36Z	archive	archive verifier T-01a1fa33-e8f7-734a-936b-e7bdba557673	no longer used by the store; a brief is being sent	amp threads archive T-01a1fa33-e8f7-734a-936b-e7bdba557673	archived
