@@ -330,9 +330,13 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   code is durable; the master's messages carry a `pstack-request: <id>` line for
   that. The master archives a thread only when, for every request of its record
   (pending or sent), a receipt of the thread's own generation is on origin's
-  store branch as fetched at that moment and its outputs match. A request newer
-  than the last receipt, a failed fetch (`freshness unknown`), a receipt of
-  another thread or generation and an ack alone keep the thread; so does a
+  store branch as fetched at that moment (once for a listing or archive pass)
+  and its outputs match the receipt in the commit that wrote it, so a later
+  rewrite of the same path does not undo it. A sidekick or consultant thread
+  whose record holds no request is kept (`no drain receipt (the store branch
+  records no request to it)`). A request newer than the last receipt, a failed
+  fetch (`freshness unknown`), a receipt of another thread or generation and an
+  ack alone keep the thread; so does a
   replaced generation that never drained, since nothing lets it write as its
   successor. The guarantee holds for cooperating role clients, which write
   nothing to the store after their receipt; it is not an invariant against a
