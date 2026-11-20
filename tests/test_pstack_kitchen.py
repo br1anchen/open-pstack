@@ -17189,7 +17189,7 @@ for _name in dir(KitchenScriptTests):
         setattr(AmpKitchenTests, _name, None)
 
 
-ROLE_DIRS = ('reports', 'advice', 'verdicts', 'steps', 'progress')
+ROLE_DIRS = ('reports', 'advice', 'verdicts', 'steps', 'progress', 'drains')
 
 
 class AmpGitKitchenTests(AmpKitchenTests):
