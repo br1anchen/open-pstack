@@ -108,3 +108,11 @@
 2026-11-20T22:25:00Z	1795213500	master	nest	-	T-01a1fb0f-db30-7679-b789-1fe2224144eb under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
 2026-11-20T22:30:51Z	1795213851	master	spawn	-	sidekick:amp:ready
 2026-11-20T22:30:52Z	1795213852	master	send-brief	023-dispatch-after-ready-sends	
+2026-11-20T22:31:07Z	1795213867	master	queue	025-reply-deletes-no-master-state	
+2026-11-20T22:31:07Z	1795213867	master	log	-	incident: g5 READY synced with rotation_required true and bootstrap_pending true; cleared by hand before dispatching 023
+2026-11-20T22:40:31Z	1795214431	master	verify	005-kept-sidekick-session	clean
+2026-11-20T22:40:31Z	1795214431	master	wake	005-kept-sidekick-session	verify:clean
+2026-11-20T22:42:45Z	1795214565	master	log	-	review-005: 005 revise: joo high (stale reply deletes/rolls back other roles' files), medium (regression doesn't assert them); folded with lows into brief 025, verified --covers 005
+2026-11-20T22:52:54Z	1795215174	master	archive	-	verifier:T-01a1fb0f-db30-7679-b789-1fe2224144eb
+2026-11-20T22:52:54Z	1795215174	master	log	-	archive: archive verifier T-01a1fb0f-db30-7679-b789-1fe2224144eb
+2026-11-20T22:52:57Z	1795215177	master	rotate	-	generation:5
