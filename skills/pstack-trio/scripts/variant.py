@@ -34,7 +34,8 @@ def stop(ctx, args):
     ctx.roles, so the kitchen's verifier gets its STOP too. A role that is not live is named and skipped, one whose entry holds no thread is
     named and skipped (a backend that starts threads on prompt would start one just to be told STOP), a blocked one sets the exit status
     to 3, a working one whose messages reach its thread only after its turn (Amp) gets its STOP relayed by the master with its own tools
-    as a steer is, and the newest report and advice are shown at the end."""
+    as a steer is, and the newest report and advice are shown at the end, except a relayed role's: its newest is older than the stop it
+    has not read."""
     require_mux()
     end_with_parent()
     if not args:
@@ -46,6 +47,7 @@ def stop(ctx, args):
     timeout, only = timeout_ms(opts, 300000), opts.last('--only', '')
     clear_queue(store)
     rc = 0
+    relayed = set()
     for role in ctx.roles:
         if only and only != role:
             continue
@@ -66,6 +68,7 @@ def stop(ctx, args):
             continue
         if status == 'working' and relay_stop(ctx, store, role):
             # The relay ends this role's stop: the master must upload and send it before the role reads it, so there is nothing to wait for.
+            relayed.add(role)
             print(f'{role}_state: working')
             continue
         result = stop_role(ctx, store, role, timeout)
@@ -74,10 +77,11 @@ def stop(ctx, args):
         if status == 'blocked':
             rc = 3
     report = latest(store, 'reports')
-    if report:
+    if report and 'sidekick' not in relayed:
+        # The sidekick's line is not an answer to the stop when its STOP went as a relay it has not read yet.
         print(f'report: {report} ({header_field(report, "status")})')
     advice = latest(store, 'advice')
-    if advice:
+    if advice and 'consultant' not in relayed:
         print(f'advice: {advice} ({header_field(advice, "status")})')
     return rc
 
