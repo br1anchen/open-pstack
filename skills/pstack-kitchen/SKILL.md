@@ -342,8 +342,9 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   nothing to the store after their receipt; it is not an invariant against a
   client that does. Under the local backend nothing changes.
 - Under the git store `close` ends the roles as it does everywhere, then archives
-  the branch in phases recorded in pair.json `.store_backend.close` (`fence`,
-  `final`, `tag`, `verify`, `delete`): it fences new writers (a role's publish is
+  the branch; when a role fails to close, `close` exits 5 first and archiving does
+  not start, so run it again once the role is closed. The archive runs in phases
+  recorded in pair.json `.store_backend.close` (`fence`, `final`, `tag`, `verify`, `delete`): it fences new writers (a role's publish is
   refused with an error naming the close), publishes the final state with a
   `close` event, pushes the annotated tag `kitchen-archive/<slug>-<run id>` at
   that tip, checks that origin lists the tag at the tip, and only then deletes
