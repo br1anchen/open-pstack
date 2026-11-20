@@ -56,10 +56,10 @@
     "closed": false,
     "rotation_required": false,
     "delivered": {
-      "generation": "3",
-      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
+      "generation": "4",
+      "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "020-landing-packet-amendments",
+      "brief": "005-kept-sidekick-session",
       "compactions": 0
     }
   },
@@ -85,9 +85,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "020-landing-packet-amendments-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce"
   },
@@ -175,7 +173,8 @@
       "T-01a1f99d-ba1f-7063-b6e6-adc0858249f6"
     ],
     "amp claude-code claude-sonnet-5-5": [
-      "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602"
+      "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602",
+      "T-01a1fa73-ba4a-759f-a82d-fddaa66f726f"
     ]
   },
   "consult": {
@@ -200,56 +199,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/020-landing-packet-amendments-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/020-landing-packet-amendments-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/020-landing-packet-amendments.md",
-    "scratch": "020-landing-packet-amendments-verify",
-    "units": "003 019 020",
-    "risk": "routine",
-    "sample": 0.2,
-    "unit": "020-landing-packet-amendments",
-    "started": 1795203497,
-    "deadline": 1795206197,
-    "class": "routine",
-    "entry": {
-      "kind": "amp",
-      "args": [
-        "--model",
-        "anthropic/claude-sonnet-5-5",
-        "--orb-size",
-        "a1.small"
-      ],
-      "fallback": {
-        "kind": "amp",
-        "args": [
-          "--model",
-          "openai/gpt-6.1-sol",
-          "--orb-size",
-          "a1.small"
-        ]
-      },
-      "fallbacks": [
-        {
-          "kind": "amp",
-          "args": [
-            "--model",
-            "openai/gpt-6.1-sol",
-            "--orb-size",
-            "a1.small"
-          ]
-        }
-      ],
-      "source": "roster"
-    },
-    "retried": false,
-    "argv": [
-      "019",
-      "020",
-      "--covers",
-      "003"
-    ],
-    "delivered": true
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
