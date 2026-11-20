@@ -64,6 +64,9 @@ The detail behind step 6 of [master.md](master.md).
      read the fix brief (it runs the `review-fix` workflow), dispatch it, and verify the fix together with the
      unit it fixes (`kitchen.sh verify <store> 007 --covers 003`): one
      verdict at the fix's head covers both, and land-check accepts it. A
+     deviation you accept goes in the unit's review note under `## Amendments`
+     before the fix or the re-verification is sent; the packet then gives it
+     to the verifier as accepted. A
      rejected landing verdict gets one fix brief from the same `revise`, over
      the units the verdict's `units:` line names, else those its `range:`
      holds. Its Acceptance is one line per finding plus one line that the
@@ -105,6 +108,9 @@ The detail behind step 6 of [master.md](master.md).
      `--base` wins. The packet lists each unit inside the range that is not
      named under `## Context: units between`, with its review path and the
      review's Amendments, for the verifier to read and not judge.
+     A named unit's own section carries its review's Amendments too, after
+     its Goal and Acceptance, under `Accepted by the master (reviews/<unit>.md)`;
+     a unit with no review note, or Amendments `none`, gets no such block.
    - A verifier that hits its provider (a rate limit, an outage) writes no
      verdict. `verify` reports `inconclusive` with the provider's error,
      including when the limit resets, and a routine unit verifies again on

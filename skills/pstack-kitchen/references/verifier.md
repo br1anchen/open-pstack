@@ -102,6 +102,9 @@ Never paste credentials, tokens, private keys, `.env` content, env dumps, Author
    its second you check only now, after your own pass, so known trouble does
    not narrow what you look for. Mark each lesson held or hit in the
    verdict's Lessons section; a hit that breaks Acceptance is also a finding.
+   A unit's section may carry an `Accepted by the master` block: its review's
+   Amendments, which amend that unit's Acceptance. Prove the Acceptance as
+   amended and do not reject on a departure the block lists.
    A `--covers` packet may end its units with a `Context: units between`
    section: units inside the range that you were not asked to verify, each
    with the exceptions its review accepted. They are context, not Acceptance;
