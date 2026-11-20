@@ -11,7 +11,7 @@
     "tab_id": "",
     "registered_at": "2026-11-20T14:08:29Z",
     "permission_mode": "auto",
-    "units_since_handoff": 6
+    "units_since_handoff": 7
   },
   "sidekick": {
     "name": "kitchen-followups-sidekick",
@@ -56,10 +56,10 @@
     "closed": false,
     "rotation_required": false,
     "delivered": {
-      "generation": "4",
+      "generation": "5",
       "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "005-kept-sidekick-session",
+      "brief": "023-dispatch-after-ready-sends",
       "compactions": 0
     }
   },
@@ -85,9 +85,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "005-kept-sidekick-session-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce"
   },
@@ -178,7 +176,8 @@
     ],
     "amp claude-code claude-sonnet-5-5": [
       "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602",
-      "T-01a1fa73-ba4a-759f-a82d-fddaa66f726f"
+      "T-01a1fa73-ba4a-759f-a82d-fddaa66f726f",
+      "T-01a1fb0e-2be9-74c4-a19a-7e5b11d8af62"
     ]
   },
   "consult": {
@@ -203,53 +202,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/005-kept-sidekick-session-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/005-kept-sidekick-session-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/005-kept-sidekick-session.md",
-    "scratch": "005-kept-sidekick-session-verify",
-    "units": "005",
-    "risk": "escalated",
-    "sample": 1.0,
-    "unit": "005-kept-sidekick-session",
-    "started": 1795213474,
-    "deadline": 1795216174,
-    "class": "escalated",
-    "entry": {
-      "kind": "amp",
-      "args": [
-        "--model",
-        "anthropic/claude-opus-5-5",
-        "--orb-size",
-        "a1.large"
-      ],
-      "fallback": {
-        "kind": "amp",
-        "args": [
-          "--model",
-          "openai/gpt-6-astra",
-          "--orb-size",
-          "a1.large"
-        ]
-      },
-      "fallbacks": [
-        {
-          "kind": "amp",
-          "args": [
-            "--model",
-            "openai/gpt-6-astra",
-            "--orb-size",
-            "a1.large"
-          ]
-        }
-      ],
-      "source": "roster"
-    },
-    "retried": false,
-    "argv": [
-      "005"
-    ],
-    "delivered": true
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
