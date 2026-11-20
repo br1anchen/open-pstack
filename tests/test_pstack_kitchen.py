@@ -16758,6 +16758,11 @@ class AmpKitchenTests(KitchenScriptTests):
         (self.fake / 'amp-state').mkdir(exist_ok=True)
         (self.fake / 'amp-state' / thread).write_text(f'{state} {at}\n')
 
+    def set_turn_ends(self, thread, *times):
+        """The turn ends (ISO times) `amp threads export` reports for thread: assistant messages that stopped on end_turn."""
+        (self.fake / 'amp-turn-ends').mkdir(exist_ok=True)
+        (self.fake / 'amp-turn-ends' / thread).write_text('\n'.join(times) + '\n')
+
     def briefs_in(self, thread):
         return [m for m in self.thread_messages(thread) if 'pstack-kitchen BRIEF' in m]
 
@@ -16819,8 +16824,14 @@ class AmpKitchenTests(KitchenScriptTests):
         self.set_state(sidekick, 'tool_use', '2026-09-01T00:00:00.000Z')
         self.assertEqual(self.relay_of('STEER one'), [done, 'delivered'])
         self.assertEqual(self.relay_of('STEER two')[1], 'made')
-        # A turn that began after the send already read the relay when it started; the same text is its own new relay.
-        self.set_state(sidekick, 'tool_use', '2026-11-18T00:00:00.000Z')
+        # A state change after the send (a tool call, then streaming) is still the same turn: the relay is not made a second time.
+        self.set_state(sidekick, 'streaming', '2026-11-18T00:00:00.000Z')
+        self.set_turn_ends(sidekick, '2026-08-01T00:00:00.000Z')
+        self.assertEqual(self.relay_of('STEER one'), [done, 'delivered'])
+        # A turn that ended after the send read the relay at its end (or never will); the same text is its own new relay.
+        self.set_turn_ends(
+            sidekick, '2026-08-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z'
+        )
         fresh, how = self.relay_of('STEER one')
         self.assertEqual(how, 'made')
         self.assertNotEqual(fresh['id'], rid)

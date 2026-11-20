@@ -233,6 +233,20 @@ def thread_state(doc):
     return known['state'], iso_epoch(known.get('updatedAt') or '')
 
 
+def turn_end_epochs(doc):
+    """The epochs at which the exported thread ended a turn: an assistant message that completed with a stop reason other than tool_use (a
+    message that stopped for a tool call is mid-turn)."""
+    ends = []
+    for message in doc.get('messages') or []:
+        if not isinstance(message, dict) or message.get('role') != 'assistant':
+            continue
+        state = message.get('state')
+        stop = state.get('stopReason') if isinstance(state, dict) else None
+        if isinstance(stop, str) and stop != 'tool_use':
+            ends.append(iso_epoch(message.get('createdAt') or ''))
+    return ends
+
+
 def holds(doc, msg_id):
     """Whether the exported thread holds a message naming msg_id."""
     return f'{MSG_ID} {msg_id}' in json.dumps(doc.get('messages') or [])
@@ -1203,11 +1217,16 @@ class Amp(Subagents):
         return state != ''
 
     def in_turn_at(self, thread, at):
-        """Whether the thread is still in the turn it was in at `at`, so a message sent then is still queued in it: the turn it is in began
-        before `at`. A turn that began after `at` was started by the message's reader at the earlier turn's end, and a settled thread has
-        left that turn and read it at the end."""
-        state, since = thread_state(export(thread))
-        return state != '' and state not in SETTLED and since <= at
+        """Whether the thread is still in the turn it was in at `at`, so a message sent then is still queued in it: the thread is not settled
+        and no turn of it ended since. The state's own time is the latest change of state, not the start of the turn, so only the thread's
+        turn ends (turn_end_epochs) tell a later turn from a state change within the same one."""
+        doc = export(thread)
+        state, _ = thread_state(doc)
+        return (
+            state != ''
+            and state not in SETTLED
+            and not any(end >= at for end in turn_end_epochs(doc))
+        )
 
     def turn_ended_since(self, thread, at):
         """Whether the thread has ended a turn since `at` (an unknown state is not an end)."""
