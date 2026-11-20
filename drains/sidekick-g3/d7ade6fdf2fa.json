@@ -1,0 +1,16 @@
+{
+ "code": [
+  "a90bb4130393b864176dbeded9bb216fcb5f255c"
+ ],
+ "generation": 3,
+ "outputs": [
+  {
+   "path": "reports/000-ready-g3.md",
+   "sha256": "bce7059a2adaf7eb43f65d38e1a194d6c6ed249be587ea71fb32ef4286509976"
+  }
+ ],
+ "request": "d7ade6fdf2fa",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602"
+}
