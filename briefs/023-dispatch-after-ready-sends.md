@@ -35,6 +35,7 @@ must not write:
 
 ## Context
 
+- Your checkout is at origin/main 7218f31, which lacks this run's stack. First: `git fetch origin kitchen-code/kitchen-followups/sidekick-g4 && git checkout -B kitchen-followups FETCH_HEAD` (unit 005's head b1ca49f, on top of 001-003 and 017-020). Do not rebase onto origin/main.
 - `notes/s4-ledger-1252-issues.md` issue 4. This run cleared a stale `rotation_required` by hand twice before a dispatch after READY (decisions.tsv `incident`); unit 005 changes `spawn.record_started` to clear it. Start from 005's head b1ca49f so the fix is not duplicated, and say whether 005 alone fixes this case.
 
 ## Acceptance

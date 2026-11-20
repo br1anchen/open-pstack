@@ -103,3 +103,8 @@
 2026-11-20T22:23:01Z	1795213381	master	spawn	-	sidekick:amp:handed-off
 2026-11-20T22:23:18Z	1795213398	master	nest	-	T-01a1fb0e-2be9-74c4-a19a-7e5b11d8af62 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
 2026-11-20T22:24:34Z	1795213474	master	send-verify	005-kept-sidekick-session	amp:005
+2026-11-20T22:24:44Z	1795213484	master	nest-pending	-	T-01a1fb0f-db30-7679-b789-1fe2224144eb under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T22:24:52Z	1795213492	master	wake	005-kept-sidekick-session	verify:progress
+2026-11-20T22:25:00Z	1795213500	master	nest	-	T-01a1fb0f-db30-7679-b789-1fe2224144eb under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T22:30:51Z	1795213851	master	spawn	-	sidekick:amp:ready
+2026-11-20T22:30:52Z	1795213852	master	send-brief	023-dispatch-after-ready-sends	

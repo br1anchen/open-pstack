@@ -33,6 +33,7 @@ must not write:
 
 ## Context
 
+- Your checkout is at origin/main 7218f31, which lacks this run's stack. First: `git fetch origin kitchen-code/kitchen-followups/sidekick-g4 && git checkout -B kitchen-followups FETCH_HEAD` (unit 005's head b1ca49f, on top of 001-003 and 017-020). Do not rebase onto origin/main.
 - `notes/s4-ledger-1252-issues.md` issue 3 (seen on build 73e425b2aba71e5a): the sync deleted `steers/025-...-s2.md` (master-owned: 005 covers it) and `progress/025-...md.seen` (master-written in a role directory: 005 does not).
 
 ## Acceptance
