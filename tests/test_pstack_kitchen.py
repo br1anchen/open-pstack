@@ -15165,6 +15165,24 @@ class AmpKitchenTests(KitchenScriptTests):
         self.set_state(amp_thread(1), 'idle', '2999-01-01T00:00:00.000Z')
         return amp_thread(1)
 
+    def sidekick_under_verification(self):
+        """A sidekick whose last unit's report is done while a verifier still holds its verdict open (pair.json .verifying, set by
+        verify_launch and cleared by verify_state.drop_verifying)."""
+        thread = self.sidekick_done_idle()
+        pair = self.state()
+        pair['verifying'] = {
+            'verdict': 'verdicts/001-one-v1.md',
+            'packet': 'verify/001-one-v1.md',
+            'brief': '001-one',
+            'unit': '001-one',
+            'units': '001-one',
+            'started': 0,
+            'deadline': 45,
+            'delivered': False,
+        }
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        return thread
+
     def sidekick_in_a_turn(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         self.set_state(amp_thread(1), 'tool_use')
@@ -15205,9 +15223,11 @@ class AmpKitchenTests(KitchenScriptTests):
         self,
     ):
         """A live sidekick or consultant counted as in use until close, however long it had sat idle. It is archivable once its thread is
-        settled and the run holds nothing open for it: the sidekick's last unit is done and nothing is queued, every consult has its advice."""
+        settled and the run holds nothing open for it: the sidekick's last unit is done and nothing is queued, and no verifier is still
+        verifying it; every consult has its advice."""
         rows = (
             ('a done sidekick, idle', self.sidekick_done_idle, True, 1),
+            ('a sidekick under verification', self.sidekick_under_verification, False, 2),
             ('a sidekick in a turn', self.sidekick_in_a_turn, False, 2),
             ('a sidekick with a partial report', self.sidekick_partial, False, 2),
             ('a sidekick with an open dispatch', self.sidekick_with_an_open_dispatch, False, 2),
