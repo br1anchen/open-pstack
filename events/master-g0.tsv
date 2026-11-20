@@ -25,3 +25,10 @@
 2026-11-20T17:37:12Z	1795196232	master	log	-	archive: archived GLM sidekick g2 T-01a1f99d-ba1f by hand
 2026-11-20T17:59:52Z	1795197592	master	reuse	017-swallowed-failures-fix	sidekick: pstack, pstack-docs, context 13%
 2026-11-20T17:59:58Z	1795197598	master	send-brief	017-swallowed-failures-fix	
+2026-11-20T18:00:20Z	1795197620	master	queue	018-amp-idle-and-stop-fix	
+2026-11-20T18:00:21Z	1795197621	master	log	-	finding: first kept-session dispatch of the run: 017 after 003 on the Sonnet CC sidekick, context 13%
+2026-11-20T18:00:56Z	1795197656	master	archive	-	verifier:T-01a1fa06-e703-7466-b35f-058e3095918b
+2026-11-20T18:00:56Z	1795197656	master	log	-	archive: archive verifier T-01a1fa06-e703-7466-b35f-058e3095918b
+2026-11-20T18:00:56Z	1795197656	master	verify	002-amp-idle-and-stop	clean
+2026-11-20T18:00:56Z	1795197656	master	wake	002-amp-idle-and-stop	verify:clean
+2026-11-20T18:01:09Z	1795197669	master	send-verify	003-packet-accepted-deviations	amp:003
