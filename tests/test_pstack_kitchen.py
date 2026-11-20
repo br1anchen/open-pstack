@@ -16931,6 +16931,9 @@ class AmpKitchenTests(KitchenScriptTests):
     def briefs_in(self, thread):
         return [m for m in self.thread_messages(thread) if 'pstack-kitchen BRIEF' in m]
 
+    def stops_in(self, thread):
+        return [m for m in self.thread_messages(thread) if 'pstack-kitchen STOP' in m]
+
     def relays_dir(self):
         return Path(self.env['XDG_STATE_HOME']) / 'pstack/amp/relays'
 
@@ -17093,6 +17096,59 @@ class AmpKitchenTests(KitchenScriptTests):
         events = (self.store / 'events.tsv').read_text()
         self.assertEqual(events.count('send-stop'), 1)
         self.assertEqual(events.count('send-stop\t-\tsidekick relay-pending'), 1)
+        # A second stop while the relay waits makes no second relay and no second row.
+        again = self.run_sh('stop', str(self.store))
+        self.assertIn(
+            f'relay-pending: {rid} for demo-sidekick ({sidekick}) (already pending; not made again)',
+            again,
+        )
+        self.assertEqual(list(self.relays_dir().glob('*.json')), [record_file])
+        self.assertEqual((self.store / 'events.tsv').read_text(), events)
+        self.assertEqual(self.thread_messages(sidekick), before)
+
+    def test_a_stop_whose_relay_cannot_be_made_falls_back_to_the_queued_send(self):
+        """No .git to hold the bundle, or a bundle over upload_thread_file's limit: nothing is relayed, and the STOP goes to the thread through
+        the CLI, where it queues behind the turn."""
+        sidekick = amp_thread(1)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.done(b, self.commit('util'))
+        self.set_state(sidekick, 'tool_use', '2026-01-01T00:00:00.000Z')
+        self.env['PAIR_STOP_DEADLINE_S'] = '0'
+        pristine = self.state()
+
+        def no_git():
+            (self.store / 'pair.json').write_text(
+                json.dumps(
+                    {**pristine, 'git_root': self.tmp.name, 'cwd': self.tmp.name}
+                )
+            )
+
+        def too_large():
+            (self.store / 'pair.json').write_text(json.dumps(pristine))
+            (self.store / 'advice').mkdir(exist_ok=True)
+            for n in range(6):
+                (self.store / 'advice' / f'blob{n}.bin').write_bytes(
+                    os.urandom(900_000)
+                )
+
+        # (label, setup, what stop prints about the relay it could not make)
+        rows = (
+            ('no .git', no_git, ''),
+            ('too large', too_large, "over upload_thread_file's 4 MiB"),
+        )
+        for label, setup, said in rows:
+            with self.subTest(label):
+                setup()
+                out = self.run_sh(
+                    'stop', str(self.store), '--timeout', '1000', code=None
+                )
+                self.assertNotIn('relay-pending:', out)
+                self.assertIn(said, out)
+                self.assertEqual(list(self.relays_dir().glob('*.json')), [])
+                # The STOP went through the CLI once; the second row's identical text is still pending in the thread, so it is not queued twice.
+                self.assertEqual(len(self.stops_in(sidekick)), 1)
 
     def test_pair_stop_relays_a_working_sidekick_without_the_wait_report_fallback(self):
         """The pair's own stop relays a working Amp sidekick's STOP like the trio's stop and ends at its state line: the wait's report
