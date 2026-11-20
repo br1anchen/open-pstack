@@ -54,3 +54,7 @@
 2026-11-20T19:08:44Z	1795201724	master	send-brief	019-role-stamp-under-git	
 2026-11-20T19:09:01Z	1795201741	master	queue	020-landing-packet-amendments	
 2026-11-20T19:09:08Z	1795201748	master	send-verify	018-amp-idle-and-stop-fix	amp:002 018
+2026-11-20T19:09:18Z	1795201758	master	nest-pending	-	T-01a1fa5c-eb8d-734a-800c-51799b7947c2 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T19:09:26Z	1795201766	master	wake	018-amp-idle-and-stop-fix	verify:progress
+2026-11-20T19:09:37Z	1795201777	master	nest	-	T-01a1fa5c-eb8d-734a-800c-51799b7947c2 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T19:21:07Z	1795202467	master	reuse	020-landing-packet-amendments	sidekick: pstack, pstack-docs, context 23%

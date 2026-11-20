@@ -49,6 +49,37 @@ python3 tests/run.py -k packet
 
 - none beyond the standing orders.
 
+## Playbook: review-fix (your parts)
+
+You own the working tree.
+
+Your parts:
+- review-fix.intro-1: **Fix the findings the brief lists, inside its Scope, and nothing else.** A review, a rejected verdi
+- review-fix.step-1: 1. Read each finding, the code it names, and the parent unit's brief and report. A finding you canno
+- review-fix.step-2: Fix one finding at a time, the smallest change that answers it. Each finding is one commit with the 
+- review-fix.step-3: 3. Run the brief's Verify commands and the checks each finding names. Nothing in this workflow asks 
+- review-fix.reply: In the report, under Ran and the sections the template names: each finding with its commit, the test
+
+### review-fix.intro-1
+
+**Fix the findings the brief lists, inside its Scope, and nothing else.** A review, a rejected verdict or a landing review already found each one; the unit that raised them already settled the design.
+
+### review-fix.step-1
+
+1. Read each finding, the code it names, and the parent unit's brief and report. A finding you cannot place, or one whose fix would change the parent's design, goes in the report under Questions; do not redesign around it.
+
+### review-fix.step-2
+
+Fix one finding at a time, the smallest change that answers it. Each finding is one commit with the test that pins it, in the same commit, recorded with kitchen.sh step. A finding with no testable behaviour (a comment, a name, a log line) says so in its commit message.
+
+### review-fix.step-3
+
+3. Run the brief's Verify commands and the checks each finding names. Nothing in this workflow asks for a failing test committed before its fix.
+
+### review-fix.reply
+
+In the report, under Ran and the sections the template names: each finding with its commit, the test that pins it, and the command output that shows it fixed. A finding left open says why. Every claim carries its command output or a file pointer.
+
 ## Report
 
 Work the Steps in order. End each in a commit and record it with
