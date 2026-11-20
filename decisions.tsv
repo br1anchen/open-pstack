@@ -28,3 +28,4 @@ ts	phase	decision	why	evidence	result
 2026-11-20T19:08:36Z	archive	archive verifier T-01a1fa33-e8f7-734a-936b-e7bdba557673	no longer used by the store; a brief is being sent	amp threads archive T-01a1fa33-e8f7-734a-936b-e7bdba557673	archived
 2026-11-20T19:37:54Z	archive	archive verifier T-01a1fa5c-eb8d-734a-800c-51799b7947c2	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fa5c-eb8d-734a-800c-51799b7947c2	archived
 2026-11-20T19:38:09Z	rotate-advice	ignored '5 units verified; rotate' advice	standing order 20; context 23-30%, no compaction	verify --wait output	continue
+2026-11-20T19:42:20Z	archive	archive sidekick T-01a1fa04-0358-74ba-bf70-0d0d9db5a602	no longer used by the store; a plan is being sent	amp threads archive T-01a1fa04-0358-74ba-bf70-0d0d9db5a602	archived

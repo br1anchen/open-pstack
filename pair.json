@@ -51,7 +51,7 @@
       "model:claude-sonnet-5-5"
     ],
     "generation": 4,
-    "bootstrap_pending": true,
+    "bootstrap_pending": false,
     "permission_mode": "native-args",
     "closed": false,
     "rotation_required": false,

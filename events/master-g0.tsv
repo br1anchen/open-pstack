@@ -69,3 +69,9 @@
 2026-11-20T19:37:54Z	1795203474	master	wake	018-amp-idle-and-stop-fix	verify:clean
 2026-11-20T19:38:09Z	1795203489	master	log	-	rotate-advice: ignored '5 units verified; rotate' advice
 2026-11-20T19:38:17Z	1795203497	master	send-verify	020-landing-packet-amendments	amp:003 019 020
+2026-11-20T19:38:27Z	1795203507	master	nest-pending	-	T-01a1fa77-9d04-7711-9cb6-bf1b1a2ccd46 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T19:38:34Z	1795203514	master	wake	020-landing-packet-amendments	verify:progress
+2026-11-20T19:38:42Z	1795203522	master	nest	-	T-01a1fa77-9d04-7711-9cb6-bf1b1a2ccd46 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T19:42:20Z	1795203740	master	archive	-	sidekick:T-01a1fa04-0358-74ba-bf70-0d0d9db5a602
+2026-11-20T19:42:20Z	1795203740	master	log	-	archive: archive sidekick T-01a1fa04-0358-74ba-bf70-0d0d9db5a602
+2026-11-20T19:42:25Z	1795203745	master	spawn	-	sidekick:amp:ready

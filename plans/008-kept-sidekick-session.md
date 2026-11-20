@@ -88,6 +88,10 @@ The regression test fails on a90bb41 and passes at the head; the full suite pass
 - Old builds on role orbs send bundles without a role name in the manifest: treat an unknown sender as a role when the receiver is the master.
 - Under the git store ordinary messages do not use this merge, but a busy-thread relay (`Amp.relay`) still packs a store snapshot (advice 011-c1, P5); plan 015 removes that. This unit fixes the merge itself, which the bundle opt-out keeps.
 
+## Starting point
+
+The run's stack is at c5cf250 (units 001-003, 017-020) on origin's `kitchen-code/kitchen-followups/sidekick-g3`, built on a90bb41. origin/main has since moved to 7218f31 (an unrelated `.agents/` change). Work on top of c5cf250: `git fetch origin kitchen-code/kitchen-followups/sidekick-g3 && git checkout -B kitchen-followups FETCH_HEAD`; do not rebase onto origin/main (the landing does that).
+
 ## Open questions
 
 - Does the bundle manifest already carry the sender's role, or only its agent name? If only the name, how does the master map it to a role (registry)?
