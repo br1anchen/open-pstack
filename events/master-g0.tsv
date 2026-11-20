@@ -60,3 +60,5 @@
 2026-11-20T19:21:07Z	1795202467	master	reuse	020-landing-packet-amendments	sidekick: pstack, pstack-docs, context 23%
 2026-11-20T19:21:13Z	1795202473	master	send-brief	020-landing-packet-amendments	
 2026-11-20T19:34:03Z	1795203243	master	rotate	-	generation:3
+2026-11-20T19:34:12Z	1795203252	master	nest-pending	-	T-01a1fa73-ba4a-759f-a82d-fddaa66f726f under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T19:34:19Z	1795203259	master	spawn	-	sidekick:amp:handed-off
