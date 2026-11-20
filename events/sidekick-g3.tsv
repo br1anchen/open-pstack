@@ -22,3 +22,7 @@
 2026-11-20T19:20:25Z	1795202425	sidekick	finish-verify-pass	019-role-stamp-under-git	507870ac8
 2026-11-20T19:20:25Z	1795202425	sidekick	rotation-required	019-role-stamp-under-git	generation:3 sha256:e336f97284b9
 2026-11-20T19:20:27Z	1795202427	sidekick	report	019-role-stamp-under-git	done
+2026-11-20T19:31:06Z	1795203066	sidekick	step	020-landing-packet-amendments	1:c5cf25045
+2026-11-20T19:33:23Z	1795203203	sidekick	finish-verify-pass	020-landing-packet-amendments	c5cf25045
+2026-11-20T19:33:23Z	1795203203	sidekick	rotation-required	020-landing-packet-amendments	generation:3 sha256:10c9dbf9ef59
+2026-11-20T19:33:26Z	1795203206	sidekick	report	020-landing-packet-amendments	done
