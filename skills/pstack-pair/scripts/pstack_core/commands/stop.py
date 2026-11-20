@@ -9,7 +9,7 @@ from ..argv import read
 from ..errors import Die, FileFailed, PairJsonGone
 from ..mux import DEVNULL, TIMEOUT
 from ..numbers import env_float, env_int, tdiv
-from ..panes import agent_status, pane_text, require_mux
+from ..panes import agent_session, agent_status, pane_text, require_mux
 from ..replies import file_mtime
 from ..store import event, field, header_field, read_text, update, who
 from ..wait import (
@@ -156,5 +156,9 @@ def stop(ctx, args):
     if status == 'blocked':
         raise Die(f'{who("sidekick", name)} is blocked; inspect it before stopping', 3)
     clear_queue(store)
+    if mux.get().starts_on_prompt and not agent_session(mux.get().agent(name)):
+        # An entry that holds no thread (Amp.start leaves one before the first prompt) would be started by the STOP itself.
+        print(f'stop: {name} has no thread; nothing to stop')
+        return 0
     result = stop_role(ctx, store, 'sidekick', timeout)
     return print_outcome(finish_wait(ctx, store, interval, result, 'any'))

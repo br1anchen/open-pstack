@@ -107,6 +107,8 @@ class Mux:
     steers_running = True
     # Whether a steer for an agent in a turn is relayed by the master (relay), because a message to it would only queue behind the turn.
     relays = False
+    # Whether an agent's thread starts on its first prompt, so a send to a role with no thread would start one.
+    starts_on_prompt = False
     # Whether each role keeps its own copy of the store in an orb of its own, so a file it writes for the master reaches it only inside a message
     # (notify always sends it, whatever the master is doing, and a wait owner's pid in a synced store belongs to another machine).
     remote_roles = False
