@@ -24,3 +24,4 @@
 2026-11-20T17:36:44Z	1795196204	master	send-brief	003-packet-accepted-deviations	
 2026-11-20T17:37:12Z	1795196232	master	log	-	archive: archived GLM sidekick g2 T-01a1f99d-ba1f by hand
 2026-11-20T17:59:52Z	1795197592	master	reuse	017-swallowed-failures-fix	sidekick: pstack, pstack-docs, context 13%
+2026-11-20T17:59:58Z	1795197598	master	send-brief	017-swallowed-failures-fix	
