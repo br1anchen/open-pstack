@@ -1,10 +1,12 @@
 {
+ "archived": 1795197981,
  "args": [
   "--model",
   "anthropic/claude-sonnet-5-5",
   "--orb-size",
   "a1.small"
  ],
+ "at": 1795197978,
  "generation": 0,
  "kind": "amp",
  "name": "kitchen-followups-verifier",
@@ -22,6 +24,6 @@
  "role": "verifier",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795197678,
- "state": "started",
+ "state": "archived",
  "thread": "T-01a1fa1e-ae15-70a3-be1b-979d539b0261"
 }
