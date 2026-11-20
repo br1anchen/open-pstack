@@ -38,6 +38,14 @@ def recorded_tip(store):
     return tip if isinstance(tip, str) else ''
 
 
+def record_tip(store, branch, tip):
+    """The snapshot commit about to be pushed, written before the push: a crash between the push and anything after it leaves origin's branch at
+    a commit this store named, which a rerun takes for its own."""
+    with open(f'{store}/{RECORD}', 'w', encoding='utf-8') as f:
+        json.dump({'branch': branch, 'tip': tip}, f)
+        f.write('\n')
+
+
 def scan(store, rels):
     """Stops on a credential in any file the branch would hold, before anything is pushed: SecretFound names each file and kind."""
     exempt = []
@@ -73,14 +81,12 @@ def push_snapshot(store, repo, branch, rels):
                 f'cannot commit the snapshot of {store}: {(added.stderr + done.stderr).strip()}'
             )
         tip = gitstore.head_of(snap)
+        record_tip(store, branch, tip)
         pushed = gitstore.run_git(snap, 'push', url, f'{tip}:refs/heads/{branch}')
         if pushed.returncode != 0:
             raise gitstore.PublishFailed(
                 f'{branch} was not pushed ({pushed.stderr.strip()}); the store is unchanged, run store-to-git again'
             )
-    with open(f'{store}/{RECORD}', 'w', encoding='utf-8') as f:
-        json.dump({'branch': branch, 'tip': tip}, f)
-        f.write('\n')
     return tip
 
 

@@ -22312,6 +22312,34 @@ class GitStoreTests(unittest.TestCase):
         )
         self.assertEqual(gitstore.dirty(store), set())
 
+    def test_gitstore_store_to_git_finishes_after_a_crash_between_the_push_and_what_follows(
+        self,
+    ):
+        ctx, store = self.local_store()
+        real = gitstore.run_git
+
+        def killed_after_push(*args, **kwargs):
+            done = real(*args, **kwargs)
+            if args[1] == 'push':
+                raise self.Killed('push')
+            return done
+
+        with mock.patch.object(gitstore, 'run_git', killed_after_push):
+            with self.assertRaises(self.Killed):
+                store_to_git.migrate(ctx, store)
+        pushed = self.remote_ref('refs/heads/kitchen/mig')
+        self.assertTrue(pushed)
+        self.assertFalse(gitstore.is_git(store))
+        with contextlib.redirect_stdout(io.StringIO()):
+            store_to_git.migrate(ctx, store)
+        self.assertTrue(gitstore.is_git(store))
+        self.assertEqual(
+            self.sh(
+                'git', '--git-dir', str(self.remote), 'rev-parse', 'kitchen/mig~1'
+            ).strip(),
+            pushed,
+        )
+
     def remote_commits_of(self, branch):
         return len(
             self.sh('git', '--git-dir', str(self.remote), 'rev-list', branch).split()
