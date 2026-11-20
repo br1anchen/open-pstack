@@ -5,7 +5,13 @@ worktree the store links), and a manifest. apply() merges one into this machine 
 The merge is three-way, against the bundle this side last sent to the sender (base): a file the sender did not change since then keeps
 this side's copy, one only the sender changed takes the sender's, and one both changed takes the sender's and is named as a conflict.
 pair.json, which master and roles both update, merges key by key the same way; a .tsv file, which every command appends to, takes the
-union of its lines. Without a base (first contact) the sender's copy wins wherever the two differ."""
+union of its lines. Without a base (first contact) the sender's copy wins wherever the two differ.
+
+A role's reply to the master is merged against the bundle the master sent that role *last*, which can be newer than the snapshot the role worked
+from, so the three-way rule would take the role's older copy of anything the master changed in between. A reply therefore never changes
+what the master owns (role_reply, protected): the master's pair.json is kept whole, and only the current sidekick's completion
+(SIDEKICK_FACT) is taken from it; the master's other files (gitstore.RULES) are kept as they are, and only the shared append logs
+(SHARED_LOGS) take the union of their lines."""
 
 import io
 import json
@@ -14,6 +20,7 @@ import shutil
 import tarfile
 import tempfile
 import uuid
+from typing import NamedTuple
 
 from . import git
 
@@ -24,6 +31,15 @@ MAX_FILE = 1 << 20
 LINK = b'symlink:'
 OUT = 'refs/pstack/out'
 MISSING = object()
+# The one pair.json fact a role sets under the local store (commands/report.py record_rotation_required), and the append logs every role writes.
+SIDEKICK_FACT = 'rotation_required'
+SHARED_LOGS = ('events.tsv', 'gates.tsv')
+
+
+class Reply(NamedTuple):
+    """A transfer that is a role's reply to the master of an established run; from_sidekick is whether the role is the receiver's current sidekick."""
+
+    from_sidekick: bool
 
 
 def skipped(rel):
@@ -202,6 +218,105 @@ def merge_json(base, local, incoming):
     return incoming
 
 
+def object_at(doc, key):
+    value = doc.get(key) if isinstance(doc, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
+def local_pair(store):
+    try:
+        with open(os.path.join(store, 'pair.json'), encoding='utf-8') as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def sent_by(manifest, name, thread, recorded):
+    """Whether the bundle came from the agent called `name` at the receiver: the name matches, and so does the thread where one is recorded
+    (`thread`, else what the receiver's registry holds for the name: recorded(name))."""
+    sender, sent_from = manifest.get('from_name') or '', manifest.get('from') or ''
+    known = thread or recorded(name)
+    return bool(name) and sender == name and (not known or known == sent_from)
+
+
+def role_reply(manifest, recorded):
+    """The Reply this transfer is, or None when it is not a role's reply to an established master (and is merged as a store always was): the
+    first sync of a store this side lacks, a message to a role, and one master's hand-over to the next. The receiver is the master when it has
+    a pair.json and the bundle is addressed to that master's name or to the one it hands over from; a bundle from the master (or the previous
+    master, by name and recorded thread) is not a reply. Judged from this side's own store before the merge, never from the bundle's registry.
+    `recorded(name)` is the thread this side's registry holds for an agent name."""
+    pair = local_pair(manifest.get('store') or '')
+    master = object_at(pair, 'master')
+    previous = object_at(master, 'previous')
+    to = object_at(manifest, 'to').get('name') or ''
+    if not (pair and to and to in (master.get('name'), previous.get('name'))):
+        return None
+    pane = previous.get('pane_id') or ''
+    old_thread = pane[len('amp:') :] if pane.startswith('amp:T-') else ''
+    if sent_by(manifest, master.get('name') or '', '', recorded) or sent_by(
+        manifest, previous.get('name') or '', old_thread, recorded
+    ):
+        return None
+    return Reply(
+        sent_by(manifest, object_at(pair, 'sidekick').get('name') or '', '', recorded)
+    )
+
+
+def is_master_owned(rel):
+    """Whether the master owns the path (gitstore.RULES); only the shared append logs are not, though they are listed there too."""
+    from . import gitstore
+
+    rule = gitstore.classify(rel)
+    return rel not in SHARED_LOGS and rule is not None and rule.kind == gitstore.MASTER
+
+
+def completion(local, incoming):
+    """Whether the incoming pair.json holds the current sidekick's completion: rotation_required true, with the sidekick's generation, the
+    dispatched brief and the dispatch's generation present and equal on both sides."""
+    sides = []
+    for doc in (local, incoming):
+        sidekick, dispatch = object_at(doc, 'sidekick'), object_at(doc, 'dispatch')
+        sides.append(
+            (
+                sidekick.get('generation'),
+                dispatch.get('generation'),
+                dispatch.get('brief'),
+                sidekick.get(SIDEKICK_FACT),
+            )
+        )
+    (gen, dispatch_gen, brief, _), (got_gen, got_dispatch_gen, got_brief, fact) = sides
+    return (
+        fact is True
+        and brief
+        and isinstance(gen, int)
+        and not isinstance(gen, bool)
+        and (got_gen, got_dispatch_gen, got_brief) == (gen, gen, brief)
+        and dispatch_gen == gen
+    )
+
+
+def merge_reply_pair(local, incoming, reply):
+    """(pair.json to keep, whether the sidekick's completion was taken): the receiver's own document, with SIDEKICK_FACT set when a reply from the
+    current sidekick carries its completion."""
+    if local is None:
+        return None, False
+    try:
+        mine = json.loads(local)
+        theirs = json.loads(incoming) if incoming is not None else None
+    except ValueError:
+        return local, False
+    if not (
+        isinstance(mine, dict) and isinstance(theirs, dict) and reply.from_sidekick
+    ):
+        return local, False
+    sidekick = object_at(mine, 'sidekick')
+    if sidekick.get(SIDEKICK_FACT) is True or not completion(mine, theirs):
+        return local, False
+    sidekick[SIDEKICK_FACT] = True
+    return (json.dumps(mine, indent=2) + '\n').encode(), True
+
+
 def merge_file(rel, base, local, incoming):
     """(content to keep or None to delete, whether both sides changed it) of one file; base, local, incoming are bytes or None."""
     if local == incoming:
@@ -243,17 +358,28 @@ def write_file(path, data):
     os.replace(tmp, path)
 
 
-def merge_store(store, files, listed, base_files):
-    """Merges the sender's files into store; (lines to print)."""
+def merge_store(store, files, listed, base_files, reply=None):
+    """Merges the sender's files into store; (lines to print). A reply (role_reply) changes nothing the master owns: pair.json takes only the
+    sidekick's completion, a master-owned file stays as this side has it, and a shared log the reply lacks stays as it is."""
     local, _ = store_files(store)
-    changed, removed, conflicts = 0, 0, []
+    changed, removed, conflicts, refused, completed = 0, 0, [], [], False
     for rel in sorted(set(local) | set(files) | set(base_files)):
         path = os.path.join(store, rel)
         if rel not in files and rel in listed:
             continue  # the sender has it but kept it home (too big): leave ours alone
-        keep, conflict = merge_file(
-            rel, base_files.get(rel), local.get(rel), files.get(rel)
-        )
+        if reply is not None and rel == 'pair.json':
+            keep, completed = merge_reply_pair(local.get(rel), files.get(rel), reply)
+            conflict = False
+        elif reply is not None and is_master_owned(rel):
+            keep, conflict = local.get(rel), False
+            if files.get(rel) != keep:
+                refused.append(rel)
+        elif reply is not None and rel in SHARED_LOGS and rel not in files:
+            keep, conflict = local.get(rel), False
+        else:
+            keep, conflict = merge_file(
+                rel, base_files.get(rel), local.get(rel), files.get(rel)
+            )
         if conflict:
             conflicts.append(rel)
         if keep == local.get(rel):
@@ -266,10 +392,13 @@ def merge_store(store, files, listed, base_files):
         write_file(path, keep)
         changed += 1
     line = f'store: {changed} updated, {removed} removed'
-    return [
-        line
-        + (f'; conflicts, took theirs: {", ".join(conflicts)}' if conflicts else '')
-    ]
+    if conflicts:
+        line += f'; conflicts, took theirs: {", ".join(conflicts)}'
+    if refused:
+        line += f"; kept the master's copy of: {', '.join(refused)}"
+    if completed:
+        line += "; took the sidekick's completion"
+    return [line]
 
 
 def tag_of(thread):
@@ -360,9 +489,9 @@ def apply_git(manifest, gitdata, sender):
     return lines
 
 
-def apply(path, base=None):
-    """Merges the bundle at path into this machine, against the bundle this side last sent to its sender (base, a path or None).
-    (manifest, lines to print)."""
+def apply(path, base=None, reply=None):
+    """Merges the bundle at path into this machine, against the bundle this side last sent to its sender (base, a path or None), as a role's
+    reply to the master when `reply` (role_reply) says so. (manifest, lines to print)."""
     manifest, files, gitdata = read_bundle(path)
     base_files = read_bundle(base)[1] if base and os.path.isfile(base) else {}
     store = manifest.get('store') or ''
@@ -370,6 +499,8 @@ def apply(path, base=None):
         raise ValueError(f'{path}: the manifest names no store')
     os.makedirs(store, exist_ok=True)
     sender = manifest.get('from_name') or manifest.get('from') or 'the sender'
-    lines = merge_store(store, files, set(manifest.get('files') or ()), base_files)
+    lines = merge_store(
+        store, files, set(manifest.get('files') or ()), base_files, reply
+    )
     lines += apply_git(manifest, gitdata, sender)
     return manifest, lines

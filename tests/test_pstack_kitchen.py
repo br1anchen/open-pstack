@@ -16145,6 +16145,152 @@ class AmpKitchenTests(KitchenScriptTests):
             timeout=60,
         ).stdout.strip()
 
+    # Two orbs on one machine: each role's store is a directory of its own that is swapped in for self.store while that role runs, with a
+    # state home (the registry and the last bundle sent to each peer) of its own too.
+    def newest_bundle(self, thread, name):
+        return max(
+            (self.fake / 'amp-threads' / thread).glob(f'*-pstack-{name}.tgz'),
+            key=lambda p: int(p.name.split('-', 1)[0]),
+        )
+
+    def keep_store(self, key):
+        target = Path(self.tmp.name) / f'{key}-store'
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(self.store, target, symlinks=True)
+
+    def swap_in_store(self, key):
+        shutil.rmtree(self.store)
+        source = Path(self.tmp.name) / f'{key}-store'
+        if source.exists():
+            shutil.copytree(source, self.store, symlinks=True)
+        else:
+            self.store.mkdir(parents=True)
+
+    def on_orb(self, thread, *args, code=0):
+        return self.as_thread(
+            thread,
+            *args,
+            code=code,
+            mux='amp',
+            env={'XDG_STATE_HOME': str(Path(self.tmp.name) / f'state-{thread}')},
+        )
+
+    def sync_on_orb(self, thread, name):
+        """The master's newest message to `name` is synced on the role's orb, whose store starts empty the first time."""
+        bundle = self.newest_bundle(thread, name)
+        self.keep_store('master')
+        self.swap_in_store(f'orb-{thread}')
+        self.on_orb(thread, 'sync', str(bundle))
+
+    def reply_from_orb(self, thread, command, path):
+        """The role sends `path` to the master (command finish or notify) and the master syncs the reply."""
+        self.on_orb(thread, command, str(self.store), str(path))
+        reply = self.newest_bundle(AMP_MASTER, 'demo-master')
+        self.keep_store(f'orb-{thread}')
+        self.swap_in_store('master')
+        return self.run_sh('sync', str(reply))
+
+    def ready_on_orb(self, thread):
+        self.sync_on_orb(thread, 'demo-sidekick')
+        ready = self.store / 'reports/000-ready.md'
+        ready.parent.mkdir(exist_ok=True)
+        ready.write_text('status: done\n')
+        self.reply_from_orb(thread, 'notify', ready)
+
+    def unit_on_orb(self, seq, scope, path, thread=''):
+        """A routine unit dispatched to the sidekick on its own orb and finished there; the dispatch's output."""
+        thread = thread or amp_thread(1)
+        b = self.brief(seq, f'unit{seq}', scope, verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn('pstack-kitchen BRIEF', out)
+        self.sync_on_orb(thread, 'demo-sidekick')
+        self.write(path, f'unit {seq}\n')
+        self.done(b, self.commit(seq))
+        self.reply_from_orb(thread, 'finish', self.store / 'reports' / b.name)
+        return out
+
+    def edit_pair(self, **changes):
+        doc = self.state()
+        doc.update(changes)
+        (self.store / 'pair.json').write_text(json.dumps(doc, indent=2) + '\n')
+
+    def test_a_late_reply_after_a_newer_message_leaves_the_masters_state_alone(self):
+        thread = amp_thread(1)
+        self.ready_on_orb(thread)
+        self.unit_on_orb('001', ['src/**', 'tests/**'], 'src/one.py')
+        verifier = self.send_from_the_master(
+            'demo-verifier', f'pstack-kitchen NOTE {self.store}/standing-orders.md'
+        )
+        self.sync_on_orb(verifier, 'demo-verifier')
+        self.keep_store('orb-verifier')
+        self.swap_in_store('master')
+        # The master goes on: a docs unit rotates the sidekick to a new thread, which does it.
+        b = self.brief('002', 'unit002', ['docs/**'], verify=['python3 -c 1'])
+        self.assertIn(
+            'rotated:', self.run_sh('dispatch', str(self.store), str(b), code=4)
+        )
+        shutil.rmtree(Path(self.tmp.name) / f'orb-{thread}-store')
+        self.ready_on_orb(amp_thread(3))
+        self.unit_on_orb('002', ['docs/**'], 'docs/two.md', amp_thread(3))
+        orders = self.store / 'standing-orders.md'
+        orders.write_text(
+            orders.read_text()
+            + '99. appended after the verifier was sent its snapshot\n'
+        )
+        self.edit_pair(
+            consult={'file': 'consults/001-x.md', 'at': '2026-01-02T00:00:00Z'},
+            added_after_the_snapshot='kept',
+        )
+        # A newer message to the verifier replaces the base its reply is merged against.
+        self.send_from_the_master(
+            'demo-verifier',
+            f'pstack-kitchen NOTE {self.store}/briefs/002-unit002.md',
+            thread=verifier,
+        )
+        before = self.state()
+        self.keep_store('master')
+        self.swap_in_store('orb-verifier')
+        verdict = self.store / 'verdicts/001-probe.md'
+        verdict.parent.mkdir(exist_ok=True)
+        verdict.write_text('status: clean\nunits: 001\n')
+        self.on_orb(verifier, 'notify', str(self.store), str(verdict))
+        reply = self.newest_bundle(AMP_MASTER, 'demo-master')
+        self.swap_in_store('master')
+        self.run_sh('sync', str(reply))
+        after = self.state()
+        for key in ('dispatch', 'consult', 'added_after_the_snapshot'):
+            self.assertEqual(after[key], before[key], key)
+        self.assertEqual(
+            after['sidekick']['generation'], before['sidekick']['generation']
+        )
+        self.assertEqual(orders.read_text().splitlines()[-1][:3], '99.')
+        self.assertTrue((self.store / 'briefs/002-unit002.md').exists())
+        self.assertEqual(
+            (self.store / 'verdicts/001-probe.md').read_text(),
+            'status: clean\nunits: 001\n',
+        )
+        # The routine docs unit after the docs unit keeps the sidekick, as it did before the late reply.
+        b = self.brief('003', 'unit003', ['docs/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertIn('keeps its session', out)
+        self.assertNotIn('rotated:', out)
+
+    def test_a_sidekick_on_its_own_orb_keeps_its_thread_after_a_rotation(self):
+        first = amp_thread(1)
+        self.ready_on_orb(first)
+        self.unit_on_orb('001', ['src/**', 'tests/**'], 'src/one.py')
+        b = self.brief('002', 'unit002', ['docs/**'], verify=['python3 -c 1'])
+        self.assertIn(
+            'rotated:', self.run_sh('dispatch', str(self.store), str(b), code=4)
+        )
+        shutil.rmtree(Path(self.tmp.name) / f'orb-{first}-store')
+        second = amp_thread(2)
+        self.ready_on_orb(second)
+        self.unit_on_orb('002', ['docs/**'], 'docs/two.md', second)
+        out = self.unit_on_orb('003', ['docs/**'], 'docs/three.md', second)
+        self.assertIn('keeps its session', out)
+
     def set_compactions(self, thread, count):
         (self.fake / f'amp-context-{thread}').write_text(
             f'{{"totalTokens": 1000, "maxContextTokens": 100000, "compactionCount": {count}}}\n'
@@ -16553,6 +16699,27 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn(f'master: demo-master in amp:{master2} (generation 2)', out)
         self.assertEqual(self.state()['master']['pane_id'], f'amp:{master2}')
         self.assertNotIn('previous', self.state()['master'])
+
+    def test_the_old_masters_bundle_is_a_hand_over_at_the_first_sync_and_while_it_is_pending(
+        self,
+    ):
+        """The bundle is from `demo-master` to `demo-master-g2`; once the next master holds its pending hand-over, a store of its own, the
+        same bundle is still the old master's whole store, not a role's reply that must leave what the master owns alone."""
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        [bundle] = (self.fake / 'amp-threads' / master2).glob(
+            '1-pstack-demo-master-g2.tgz'
+        )
+        orders = self.store / 'standing-orders.md'
+        sent = orders.read_text()
+        for label in ('first sync', 'pending hand-over'):
+            with self.subTest(label):
+                orders.write_text('1. the new master edited this\n')
+                out = self.as_thread(master2, 'sync', str(bundle))
+                self.assertNotIn("kept the master's copy", out)
+                self.assertEqual(orders.read_text(), sent)
+        self.assertEqual(self.state()['master']['previous']['name'], 'demo-master')
 
     def test_take_master_from_another_thread_than_the_masters_pane_is_refused(self):
         self.filled_handoff()
