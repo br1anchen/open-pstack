@@ -345,7 +345,7 @@ def pending_work(store, thread):
     if any(r.get('state') == PENDING for r in _items(doc, 'requests')):
         return 'a message to it is still pending (its request on the store branch is not settled)'
     if any(r.get('state') == PENDING for r in _items(doc, 'relays')):
-        return 'a steer relay to it is still pending (on the store branch)'
+        return 'a relay to it is still pending (on the store branch)'
     return ''
 
 
