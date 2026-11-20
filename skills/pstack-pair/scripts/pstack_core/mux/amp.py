@@ -27,8 +27,8 @@ from ..argv import Spec, read
 from ..errors import PairError
 from ..numbers import env_int
 from ..secrets import REDACT_RULE
-from . import amp_routing, subagents
 from ..store import TEXT, expected_report, header_field, ready_file, revisions
+from . import amp_routing, subagents
 from .base import DEVNULL, PIPE, Agent, Reply, ThreadRow
 from .subagents import EXITS, NOT_FOUND, Subagents, change, load
 
@@ -1159,9 +1159,7 @@ class Amp(Subagents):
                         name, text, store, thread, seen, full_rules, tmp
                     )
                 if compacted or created:
-                    message = (
-                        reorientation(name, text, store, created) + message
-                    )
+                    message = reorientation(name, text, store, created) + message
                 cwd = (bundle.repo_of(store) if store else '') or None
                 message = f'{message}\n\n{MSG_ID} {msg_id}{amp_routing.request_line(store, msg_id)}'
                 called = True
