@@ -17824,6 +17824,40 @@ class AmpGitKitchenTests(AmpKitchenTests):
     def announced(self):
         return len(list((self.fake / 'amp-threads').glob(f'{AMP_MASTER}/*.txt')))
 
+    def test_a_role_from_another_skill_build_runs_kitchen_commands_and_a_master_still_stamps_its_build(
+        self,
+    ):
+        here = str(skill.parent.resolve())
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        # The role's skills directory is not the last one pair.json lists: the startup stamp must not write the master's file.
+        state = json.loads((orb_store / 'pair.json').read_text())
+        state['skill_builds'][-1]['path'] = '/old/skills'
+        (orb_store / 'pair.json').write_text(json.dumps(state))
+        before = self.remote_git('show', 'kitchen/demo:pair.json')
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertEqual(self.remote_git('show', 'kitchen/demo:pair.json'), before)
+        self.assertIn('reports/001-util.md', self.branch_tree())
+        self.assertEqual(
+            [
+                b['path']
+                for b in json.loads((orb_store / 'pair.json').read_text())[
+                    'skill_builds'
+                ]
+            ],
+            [b['path'] for b in state['skill_builds']],
+        )
+        # The master's own command from a new build still appends its row.
+        mstate = self.state()
+        mstate['skill_builds'][-1]['path'] = '/old/skills'
+        (self.store / 'pair.json').write_text(json.dumps(mstate))
+        self.run_sh('status', str(self.store))
+        self.assertEqual(
+            [b['path'] for b in self.state()['skill_builds']][-2:],
+            ['/old/skills', here],
+        )
+
     def test_a_reports_head_is_pushed_to_the_roles_code_ref_before_the_report_goes_out(
         self,
     ):
