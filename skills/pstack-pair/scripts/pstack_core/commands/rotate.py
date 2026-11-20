@@ -50,9 +50,10 @@ from ..wait import end_with_parent
 from .status import log
 
 
-def rotate(ctx, args):
+def rotate(ctx, args, reason=''):
     """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session.
-    Under git the store is refreshed before pair.json is read, and the master's changes are published when the rotation is over."""
+    Under git the store is refreshed before pair.json is read, and the master's changes are published when the rotation is over. `reason` is why
+    rotate_if_due rotates, which the rotate event records."""
     end_with_parent()
     require_mux()
     if len(args) != 1:
@@ -103,7 +104,8 @@ def rotate(ctx, args):
             'master',
             'rotate',
             '-',
-            f'generation:{field(store, "sidekick", "generation")}',
+            f'generation:{field(store, "sidekick", "generation")}'
+            + (f' reason:{reason}' if reason else ''),
         )
         request = SpawnRequest(
             kind,
@@ -165,23 +167,57 @@ def profiles_of(brief):
     return {p for p in re.split(r'[\s,]+', header_field(brief, 'profiles')) if p}
 
 
-def keeps_session(store, brief):
-    """Why the sidekick keeps its session for `brief` ('' when it rotates): only where a fresh session costs minutes (mux reuses_sessions,
-    Amp threads), and only when the unit it finished and this one are both routine, in the same profiles, and its context is under
-    PAIR_REUSE_CONTEXT_PCT (50) percent of the window and never compacted. A context the backend cannot read rotates."""
+def profiles_label(profiles):
+    return ', '.join(sorted(profiles)) or '-'
+
+
+def session_decision(store, brief):
+    """(kept, why) of the sidekick's session for `brief`: the profiles and context ('app, context 10%') it keeps for, or '' and the reason it rotates.
+    The session is kept only where a fresh one costs minutes (mux reuses_sessions, Amp threads), and only when the unit it finished and this one
+    are both routine, in the same profiles, and its context is under PAIR_REUSE_CONTEXT_PCT (50) percent of the window and never compacted. A
+    context the backend cannot read rotates. The context is read here once, so the reason and the action come from one observation."""
     m = mux.get()
+    if not m.reuses_sessions:
+        return '', ''
     previous = field(store, 'dispatch', 'brief')
-    if not (m.reuses_sessions and brief and previous and os.path.isfile(previous)):
+    if not (brief and previous and os.path.isfile(previous)):
+        return '', 'previous brief missing'
+    before, after = risk_of(previous), risk_of(brief)
+    if before != 'routine' or after != 'routine':
+        return '', f'risk {before}/{after}'
+    area, earlier = profiles_of(brief), profiles_of(previous)
+    if not area or area != earlier:
+        return '', f'profiles {profiles_label(earlier)} vs {profiles_label(area)}'
+    name = field(store, 'sidekick', 'name')
+    if m.compacted(name):
+        return '', 'compacted'
+    used = m.context_used(name)
+    if used is None:
+        return '', 'context unreadable'
+    limit = env_int('PAIR_REUSE_CONTEXT_PCT', 50)
+    if used * 100 >= limit:
+        return '', f'context {round(used * 100)}% >= {limit}%'
+    return f'{", ".join(sorted(area))}, context {round(used * 100)}%', ''
+
+
+def keeps_session(store, brief, reasons=None):
+    """Why the sidekick keeps its session for `brief` ('' when it rotates, and then session_decision's reason is appended to `reasons`)."""
+    kept, why = session_decision(store, brief)
+    if not kept and reasons is not None:
+        reasons.append(why)
+    return kept
+
+
+def rotation_reason(what, failed_over, reasons):
+    """Why the sidekick starts fresh, for the `rotate:` line and the rotate event: '' where a fresh session costs little (a mux that does not
+    reuse sessions rotates every time, so there is nothing to say). `reasons` is what keeps_session collected."""
+    if not mux.get().reuses_sessions:
         return ''
-    if risk_of(brief) != 'routine' or risk_of(previous) != 'routine':
-        return ''
-    area = profiles_of(brief)
-    if not area or area != profiles_of(previous):
-        return ''
-    used = m.context_used(field(store, 'sidekick', 'name'))
-    if used is None or used * 100 >= env_int('PAIR_REUSE_CONTEXT_PCT', 50):
-        return ''
-    return f'{", ".join(sorted(area))}, context {round(used * 100)}%'
+    if failed_over:
+        return 'failed over'
+    if what != 'brief':
+        return what
+    return reasons[0] if reasons else ''
 
 
 class Sweep:
@@ -328,7 +364,14 @@ def rotate_if_due(ctx, store, what, brief=''):
     if read_flag(store, 'sidekick.bootstrap_pending') is True:
         return
     failed_over = count(peek(load(store), 'sidekick'), 'chain_index') > 0
-    kept = '' if failed_over else keeps_session(store, brief) if what == 'brief' else ''
+    reasons = []
+    kept = (
+        ''
+        if failed_over
+        else keeps_session(store, brief, reasons)
+        if what == 'brief'
+        else ''
+    )
     if kept:
         clear_rotation(store)
         if is_git(store):
@@ -340,6 +383,9 @@ def rotate_if_due(ctx, store, what, brief=''):
             f'kept: the {field(store, "sidekick", "kind")} sidekick keeps its session for this routine unit ({kept})\n'
         )
         return
+    why = rotation_reason(what, failed_over, reasons)
+    if why:
+        sys.stdout.write(f'rotate: {why}\n')
     # The report lands a moment before the sidekick's turn ends.
     mux.get().wait(
         field(store, 'sidekick', 'name'),
@@ -352,7 +398,7 @@ def rotate_if_due(ctx, store, what, brief=''):
     code = 0
     with contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
         try:
-            code = rotate(ctx, [store])
+            code = rotate(ctx, [store], reason=why)
         except Exception as e:
             text, code = translate(e, ctx.prog)
             said.write(text)
