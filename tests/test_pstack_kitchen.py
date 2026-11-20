@@ -17360,6 +17360,54 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.as_orb(clone, 'finish', str(orb_store), str(report))
         self.assertEqual(self.announced(), 2)
 
+    def test_close_archives_the_branch_as_a_tag_and_deletes_it_and_a_rerun_changes_nothing(
+        self,
+    ):
+        self.git('push', '-q', 'origin', 'HEAD:refs/heads/main')
+        out = self.run_sh('close', str(self.store))
+        run_id = json.loads((self.store / 'pair.json').read_text())['run_id']
+        tag = f'kitchen-archive/demo-{run_id}'
+        self.assertIn(
+            f'close: kitchen/demo is archived as {tag} and deleted on origin', out
+        )
+        self.assertEqual(self.remote_git('for-each-ref', 'refs/heads/kitchen/demo'), '')
+        tip = self.remote_git('rev-parse', f'{tag}^{{}}').strip()
+        events = self.remote_git('ls-tree', '-r', '--name-only', tip)
+        self.assertIn('events/master-g0.tsv', events)
+        self.assertRegex(
+            self.remote_git('show', f'{tip}:events/master-g0.tsv'),
+            rf'\tclose\t-\tstore: archive {tag}\n',
+        )
+        again = self.run_sh('close', str(self.store))
+        self.assertIn(f'close: kitchen/demo is already archived as {tag}', again)
+        self.assertEqual(self.remote_git('rev-parse', f'{tag}^{{}}').strip(), tip)
+
+    def test_store_to_git_moves_a_local_store_to_its_branch_and_a_rerun_changes_nothing(
+        self,
+    ):
+        self.env.pop('PSTACK_STORE')
+        self.run_sh('init', 'loc')
+        local = self.store.parent / 'loc'
+        self.assertFalse((local / '.git').exists())
+        out = self.run_sh('store-to-git', str(local))
+        self.assertIn('store-to-git: kitchen/loc is on origin at', out)
+        self.assertTrue((local / '.git').exists())
+        self.assertEqual(
+            self.store_git(local, 'branch', '--show-current'), 'kitchen/loc'
+        )
+        tree = set(
+            self.remote_git('ls-tree', '-r', '--name-only', 'kitchen/loc').split()
+        )
+        self.assertLessEqual({'pair.json', 'standing-orders.md', '.gitignore'}, tree)
+        self.assertEqual(
+            json.loads((local / 'pair.json').read_text())['store_backend'],
+            {'backend': 'git', 'branch': 'kitchen/loc'},
+        )
+        tip = self.remote_git('rev-parse', 'kitchen/loc')
+        again = self.run_sh('store-to-git', str(local))
+        self.assertIn('already on kitchen/loc', again)
+        self.assertEqual(self.remote_git('rev-parse', 'kitchen/loc'), tip)
+
     def test_a_dispatch_publishes_the_masters_brief_and_pair_json_before_the_message(
         self,
     ):

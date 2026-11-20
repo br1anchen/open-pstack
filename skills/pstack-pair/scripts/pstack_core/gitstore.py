@@ -35,6 +35,10 @@ class FencedWriter(PairError):
     """The writer's generation is no longer the active one in the store's pair.json."""
 
 
+class StoreClosing(FencedWriter):
+    """The master is closing the run: pair.json marks the store closed to every writer but the master, so nothing a role writes is published."""
+
+
 class PublishFailed(PairError):
     """The write is committed here and is not on the remote; the next publish sends it."""
 
@@ -142,6 +146,23 @@ def gitignore_text():
     """The .gitignore of the branch: the ignore lines of every local rule, which keeps a local-only file out of `git add`."""
     lines = [line for rule in RULES for line in rule.ignore]
     return '\n'.join(dict.fromkeys(lines)) + '\n'
+
+
+def store_files(store):
+    """The store-relative path of every file of a local store that the branch holds: all but those that stay on one machine (the .git of a store
+    that is a worktree already included). A link is refused, as a publish refuses one."""
+    found = []
+    for directory, names, files in os.walk(store):
+        names[:] = sorted(n for n in names if n != '.git')
+        for name in sorted(files):
+            rel = posixpath.relpath(os.path.join(directory, name), store)
+            rule = classify(rel)
+            if rule is not None and rule.kind == LOCAL:
+                continue
+            if os.path.islink(os.path.join(store, rel)):
+                raise OwnershipError(f'{rel}: a link is never published')
+            found.append(rel)
+    return found
 
 
 def check_owned(rel, writer):
@@ -392,6 +413,9 @@ def _run(store, *args):
     return git.run(store, *_ident(store), *args, stderr=git.PIPE)
 
 
+run_git = _run  # the git call every module of the git store makes: committer filled in, stderr captured
+
+
 def git_version():
     text = git.out(None, '--version') or ''
     found = re.search(r'(\d+)\.(\d+)', text)
@@ -523,6 +547,19 @@ def push(store, branch):
     return Push('failed', text.strip())
 
 
+def remote_tip(root, ref):
+    """The object origin lists for ref (`refs/tags/<tag>^{}` asks for the commit an annotated tag points at): '' when origin lists none, None
+    when origin cannot be read."""
+    listed = _run(root, 'ls-remote', 'origin', ref)
+    if listed.returncode != 0:
+        return None
+    for line in listed.stdout.splitlines():
+        sha, _, name = line.partition('\t')
+        if name == ref:
+            return sha
+    return ''
+
+
 def _count(store, spec):
     out = git.out(store, 'rev-list', '--count', spec)
     return int(out) if out and out.isdigit() else 0
@@ -606,8 +643,23 @@ def replay(store, remote):
         )
 
 
+def backend_record(store):
+    """The `store_backend` object of pair.json ({} when it holds none or cannot be read): where a close or a migration keeps its phases."""
+    try:
+        with open(f'{store}/pair.json', encoding='utf-8') as f:
+            record = json.load(f).get('store_backend')
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return record if isinstance(record, dict) else {}
+
+
 def fence(store, writer):
-    """Raises FencedWriter unless the writer's generation is the active one in the store's pair.json as it is now."""
+    """Raises StoreClosing for a writer other than the master while `close` has the store fenced (pair.json `.store_backend.closing`), and
+    FencedWriter unless the writer's generation is the active one in the store's pair.json as it is now."""
+    if writer.role != 'master' and backend_record(store).get('closing') is True:
+        raise StoreClosing(
+            f'the run is being closed (kitchen.sh close fenced {BRANCH_PREFIX}{slug_of(store)}); nothing is published'
+        )
     active = generation_of(store, writer.role) or 0
     if active != writer.generation:
         raise FencedWriter(

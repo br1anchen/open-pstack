@@ -19,6 +19,7 @@ from .commands import (
     steer,
     step,
     stop,
+    store_to_git,
     sync,
 )
 from .errors import Die, translate
@@ -56,6 +57,7 @@ COMMANDS = {
     'rotate': rotate.rotate,
     'failover': rotate.failover,
     'stop': stop.stop,
+    'store-to-git': store_to_git.store_to_git,
     'sync': sync.sync,
     'relay-done': relay.relay_done,
     'threads': rotate.threads,

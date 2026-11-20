@@ -11,6 +11,7 @@ from pstack_core import gitstore, mux, procinfo
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
+from pstack_core.commands import close as close_store
 from pstack_core.commands.rotate import archive_retired
 from pstack_core.errors import (
     DamagedStore,
@@ -185,6 +186,8 @@ def close(ctx, args):
     archive_retired(ctx, store, 'the run is closed', retired_only=False)
     if failed:
         raise Exit(5)
+    if gitstore.is_git(store):
+        close_store.archive(store)
     return 0
 
 

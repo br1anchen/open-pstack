@@ -54,7 +54,11 @@ from pstack_core import (
     store,
     wait,
 )  # noqa: E402
-from pstack_core.commands import metrics  # noqa: E402
+from pstack_core.commands import close as close_commands  # noqa: E402
+from pstack_core.commands import (
+    metrics,  # noqa: E402
+    store_to_git,  # noqa: E402
+)
 from pstack_core.commands import report as report_commands  # noqa: E402
 from pstack_core.commands import rotate as rotate_commands  # noqa: E402
 from pstack_core.errors import (  # noqa: E402
@@ -79,6 +83,7 @@ from pstack_core.errors import (  # noqa: E402
     PairJsonGone,
     Paused,
     PlanNotAgreed,
+    SecretFound,
     StepLogUnreadable,
     StepRefused,
     ToolFailed,
@@ -20845,11 +20850,11 @@ class GitStoreTests(unittest.TestCase):
         self.sh('git', 'clone', '-q', str(self.remote), str(path))
         return path
 
-    def other_store(self, name='other'):
+    def other_store(self, name='other', branch=None):
         """The store of another orb: the same branch, checked out from its own clone of the work repository."""
         directory = self.path / name
         work = self.clone(f'{name}-work')
-        gitstore.attach(str(directory), str(work), self.BRANCH)
+        gitstore.attach(str(directory), str(work), branch or self.BRANCH)
         return str(directory)
 
     def write(self, store, rel, text='x\n'):
@@ -22032,6 +22037,293 @@ class GitStoreTests(unittest.TestCase):
             self.store, ['acks/sidekick-g1.tsv'], gitstore.Writer('sidekick', 1)
         )
         self.assertIn('acks/sidekick-g1.tsv', self.remote_files())
+
+    CLOSE_POINTS = [
+        f'{phase}:{moment}'
+        for phase in close_commands.PHASES
+        for moment in ('ran', 'marked')
+    ]
+
+    class Killed(Exception):
+        pass
+
+    def archived_run(self, name):
+        """A second run on the same remote, with a close event to find in its tag: the store, its branch and the tag a close of it makes."""
+        store = str(self.path / name)
+        branch = f'kitchen/{name}'
+        gitstore.create(store, str(self.work), branch)
+        self.write(
+            store,
+            'pair.json',
+            json.dumps({'master': {'generation': 1}, 'sidekick': {'generation': 1}}),
+        )
+        self.write(store, 'reports/001-x.md', 'status: done\n')
+        self.publish(store, ['pair.json'], gitstore.Writer('master', 1))
+        self.publish(store, ['reports/001-x.md'], gitstore.Writer('sidekick', 1))
+        return store, branch
+
+    def remote_ref(self, ref):
+        out = self.sh('git', '--git-dir', str(self.remote), 'for-each-ref', ref)
+        return out.split()[0] if out else ''
+
+    def crash_at(self, point):
+        def hook(reached):
+            if reached == point:
+                raise self.Killed(point)
+
+        return hook
+
+    def test_gitstore_close_resumes_after_a_crash_in_any_phase_and_never_deletes_the_branch_before_the_tag(
+        self,
+    ):
+        for n, point in enumerate(self.CLOSE_POINTS):
+            with self.subTest(point=point):
+                store, branch = self.archived_run(f'run{n}')
+                with self.assertRaises(self.Killed):
+                    close_commands.archive(store, crash=self.crash_at(point))
+                tag = close_commands.tag_of(store)
+                if not self.remote_ref(f'refs/tags/{tag}'):
+                    self.assertTrue(
+                        self.remote_ref(f'refs/heads/{branch}'),
+                        f'{branch} is gone and {tag} is not on origin after a crash at {point}',
+                    )
+                close_commands.archive(store)
+                tip = close_commands.record(store)['tip']
+                self.assertEqual(self.remote_ref(f'refs/heads/{branch}'), '')
+                self.assertEqual(
+                    self.sh(
+                        'git', '--git-dir', str(self.remote), 'rev-parse', f'{tag}^{{}}'
+                    ).strip(),
+                    tip,
+                )
+                events = self.sh(
+                    'git',
+                    '--git-dir',
+                    str(self.remote),
+                    'show',
+                    f'{tag}:events/master-g1.tsv',
+                )
+                self.assertIn(f'\tclose\t-\tstore: archive {tag}', events)
+
+    def test_gitstore_close_a_branch_that_moved_after_the_tag_is_kept(self):
+        store, branch = self.archived_run('moved')
+        with self.assertRaises(self.Killed):
+            close_commands.archive(store, crash=self.crash_at('verify:marked'))
+        other = self.other_store('late', branch)
+        self.write(other, 'reports/002-late.md')
+        late = gitstore.Writer('sidekick', 1)
+        with mock.patch.object(gitstore, 'fence'):
+            self.publish(other, ['reports/002-late.md'], late)
+        self.assertNotEqual(
+            self.remote_ref(f'refs/heads/{branch}'), close_commands.record(store)['tip']
+        )
+        with self.assertRaises(close_commands.ArchiveRefused):
+            close_commands.archive(store)
+        self.assertTrue(self.remote_ref(f'refs/heads/{branch}'))
+
+    def test_gitstore_close_refuses_a_role_publish_after_the_fence(self):
+        store, branch = self.archived_run('fenced')
+        with self.assertRaises(self.Killed):
+            close_commands.archive(store, crash=self.crash_at('fence:marked'))
+        self.assertTrue(self.remote_ref(f'refs/heads/{branch}'))
+        role = self.other_store('role', branch)
+        self.write(role, 'reports/002-y.md')
+        with self.assertRaises(gitstore.StoreClosing) as caught:
+            self.publish(
+                role,
+                ['reports/002-y.md'],
+                gitstore.Writer('sidekick', 1),
+            )
+        self.assertIn('being closed', str(caught.exception))
+        self.assertNotIn(
+            'reports/002-y.md',
+            self.sh(
+                'git',
+                '--git-dir',
+                str(self.remote),
+                'ls-tree',
+                '-r',
+                '--name-only',
+                branch,
+            ).split(),
+        )
+        # the master still writes: the final state goes out after the fence
+        self.write(store, 'status.md', 'closing\n')
+        self.publish(store, ['status.md'], gitstore.Writer('master', 1))
+
+    def local_store(self, slug='mig'):
+        """A running local store: pair.json with two roles, events, a verdict, a report, and files that stay on one machine."""
+        store = self.path / f'local-{slug}'
+        doc = {
+            'slug': slug,
+            'git_root': str(self.work),
+            'master': {'name': f'{slug}-master', 'pane_id': 'amp:T-1', 'generation': 1},
+            'sidekick': {
+                'name': f'{slug}-sidekick',
+                'pane_id': 'amp:2',
+                'generation': 3,
+            },
+            'verifier': {
+                'name': f'{slug}-verifier',
+                'pane_id': 'amp:3',
+                'closed': True,
+            },
+            'consultant': {'name': f'{slug}-consultant', 'pane_id': None},
+        }
+        for rel, text in {
+            'pair.json': json.dumps(doc),
+            'events.tsv': '2026-11-19T00:00:00Z\t1\tmaster\tinit\t-\tx\n',
+            'verdicts/001-x-v1.md': 'status: clean\n',
+            'reports/001-x.md': 'status: done\n',
+            'briefs/001-x.md': '# Brief\n',
+            'steps/jobs/001-x-abc/out': 'log\n',
+            'scratch/001-x/f.txt': 'x\n',
+            'wait.pid': '1\n',
+        }.items():
+            self.write(str(store), rel, text)
+        ctx = Context(
+            'pstack-kitchen',
+            str(root / 'skills/pstack-kitchen'),
+            str(self.path),
+            'Kitchen',
+            ('sidekick', 'verifier', 'consultant'),
+            (),
+            21,
+            '',
+        )
+        return ctx, str(store)
+
+    def migrated_tree(self, branch, rev=None):
+        return set(
+            self.sh(
+                'git',
+                '--git-dir',
+                str(self.remote),
+                'ls-tree',
+                '-r',
+                '--name-only',
+                rev or branch,
+            ).split()
+        )
+
+    def test_gitstore_store_to_git_publishes_the_store_minus_its_local_only_files(self):
+        ctx, store = self.local_store()
+        before = {
+            rel: Path(store, rel).read_bytes() for rel in gitstore.store_files(store)
+        }
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            store_to_git.migrate(ctx, store)
+        self.assertEqual(
+            set(before),
+            {
+                'pair.json',
+                'events.tsv',
+                'verdicts/001-x-v1.md',
+                'reports/001-x.md',
+                'briefs/001-x.md',
+            },
+        )
+        first = self.sh(
+            'git',
+            '--git-dir',
+            str(self.remote),
+            'rev-list',
+            '--max-parents=0',
+            'kitchen/mig',
+        ).strip()
+        self.assertEqual(
+            self.migrated_tree('kitchen/mig', first), set(before) | {'.gitignore'}
+        )
+        for rel, data in before.items():
+            if rel != 'pair.json':
+                shown = subprocess.run(
+                    [GIT, '--git-dir', str(self.remote), 'show', f'kitchen/mig:{rel}'],
+                    capture_output=True,
+                    check=True,
+                    timeout=60,
+                ).stdout
+                self.assertEqual(shown, data, rel)
+        tip_tree = self.migrated_tree('kitchen/mig')
+        self.assertEqual(
+            tip_tree - set(before) - {'.gitignore'}, {'events/master-g1.tsv'}
+        )
+        self.assertTrue(gitstore.is_git(store))
+        self.assertEqual(gitstore.branch_of(store), 'kitchen/mig')
+        self.assertEqual(gitstore.dirty(store), set())
+        self.assertTrue(os.path.isfile(f'{store}/steps/jobs/001-x-abc/out'))
+        self.assertEqual(
+            gitstore.backend_record(store), {'backend': 'git', 'branch': 'kitchen/mig'}
+        )
+        shown = self.sh(
+            'git', '--git-dir', str(self.remote), 'show', 'kitchen/mig:pair.json'
+        )
+        self.assertEqual(json.loads(shown)['store_backend']['backend'], 'git')
+        lines = out.getvalue().splitlines()
+        sync = 'pair.sh sync --branch ' + store + ' kitchen/mig'
+        self.assertEqual(
+            [l for l in lines if l.startswith('live ')],
+            [f'live sidekick mig-sidekick (amp:2): send it `{sync}`'],
+        )
+
+    def test_gitstore_store_to_git_stops_on_a_credential_before_any_push(self):
+        ctx, store = self.local_store()
+        token = _fake('gh', 'p_', 'a1' * 18)
+        self.write(store, 'reports/001-x.md', f'the token is {token}\n')
+        with self.assertRaises(SecretFound) as caught:
+            store_to_git.migrate(ctx, store)
+        self.assertIn('reports/001-x.md', str(caught.exception))
+        self.assertNotIn(token, str(caught.exception))
+        self.assertEqual(self.remote_ref('refs/heads/kitchen/mig'), '')
+        self.assertFalse(gitstore.is_git(store))
+        self.assertNotIn(
+            'store_backend', json.loads(Path(store, 'pair.json').read_text())
+        )
+
+    def test_gitstore_store_to_git_finishes_after_a_crash_following_the_push(self):
+        ctx, store = self.local_store()
+        with mock.patch.object(store_to_git, 'convert', side_effect=self.Killed):
+            with self.assertRaises(self.Killed):
+                store_to_git.migrate(ctx, store)
+        pushed = self.remote_ref('refs/heads/kitchen/mig')
+        self.assertTrue(pushed)
+        self.assertFalse(gitstore.is_git(store))
+        with contextlib.redirect_stdout(io.StringIO()):
+            store_to_git.migrate(ctx, store)
+        self.assertTrue(gitstore.is_git(store))
+        self.assertEqual(self.remote_commits_of('kitchen/mig'), 2)
+        self.assertEqual(
+            self.sh(
+                'git', '--git-dir', str(self.remote), 'rev-parse', 'kitchen/mig~1'
+            ).strip(),
+            pushed,
+        )
+        self.assertEqual(gitstore.dirty(store), set())
+
+    def remote_commits_of(self, branch):
+        return len(
+            self.sh('git', '--git-dir', str(self.remote), 'rev-list', branch).split()
+        )
+
+    def test_gitstore_store_to_git_a_second_run_changes_nothing(self):
+        ctx, store = self.local_store()
+        with contextlib.redirect_stdout(io.StringIO()):
+            store_to_git.migrate(ctx, store)
+        tip = self.sh('git', '--git-dir', str(self.remote), 'rev-parse', 'kitchen/mig')
+        pair = Path(store, 'pair.json').read_bytes()
+        events = Path(store, 'events/master-g1.tsv').read_bytes()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            store_to_git.migrate(ctx, store)
+        self.assertIn('already on kitchen/mig', out.getvalue())
+        self.assertNotIn('live ', out.getvalue())
+        self.assertEqual(
+            self.sh('git', '--git-dir', str(self.remote), 'rev-parse', 'kitchen/mig'),
+            tip,
+        )
+        self.assertEqual(Path(store, 'pair.json').read_bytes(), pair)
+        self.assertEqual(Path(store, 'events/master-g1.tsv').read_bytes(), events)
+        self.assertEqual(gitstore.dirty(store), set())
 
 
 def _fake(*parts):

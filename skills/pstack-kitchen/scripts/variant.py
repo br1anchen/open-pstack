@@ -170,7 +170,12 @@ consult, advice. These differ or are new:
                                             take back the run's master name
   close <store> [--force]                   end a finished run's sidekick, consultant and verifier and close
                                             their panes; refuses while a verification is open or the sidekick
-                                            works (--force overrides); the master's own pane stays
+                                            works (--force overrides); the master's own pane stays. A git store
+                                            is then archived: writers fenced, final state published, tag
+                                            kitchen-archive/<slug>-<run id> pushed and checked, branch deleted;
+                                            a rerun continues after a crash
+  store-to-git <store>                      move a running local store to the branch kitchen/<slug> of origin
+                                            (master only; secret scan first; a rerun changes nothing)
   retro <store>                             where the master was needed, and what repeated, from this run
                                             and the repo's ledger
   feedback <store> <file>                   file the master's kitchen gaps (see references/feedback-template.md)
