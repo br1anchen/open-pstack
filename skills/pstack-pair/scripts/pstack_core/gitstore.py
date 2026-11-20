@@ -154,6 +154,12 @@ def store_files(store):
     found = []
     for directory, names, files in os.walk(store):
         names[:] = sorted(n for n in names if n != '.git')
+        for name in names:
+            rel = posixpath.relpath(os.path.join(directory, name), store)
+            if os.path.islink(os.path.join(store, rel)):
+                rule = classify(rel)
+                if rule is None or rule.kind != LOCAL:
+                    raise OwnershipError(f'{rel}: a link is never published')
         for name in sorted(files):
             rel = posixpath.relpath(os.path.join(directory, name), store)
             rule = classify(rel)

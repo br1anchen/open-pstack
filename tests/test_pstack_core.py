@@ -22340,6 +22340,68 @@ class GitStoreTests(unittest.TestCase):
             pushed,
         )
 
+    def test_gitstore_close_and_migration_low_findings(self):
+        with self.subTest('a close with no recorded final tip verifies nothing'):
+            store, _ = self.archived_run('notip')
+            with self.assertRaises(gitstore.PublishFailed):
+                close_commands.verify(store, 'kitchen-archive/none')
+        with self.subTest('the snapshot is pushed to the push url of origin'):
+            ctx, store = self.local_store('pushurl')
+            via = self.path / 'push-link'
+            os.symlink(self.remote, via)
+            self.sh(
+                'git', '-C', str(self.work), 'config', 'remote.origin.pushurl', str(via)
+            )
+            real = gitstore.run_git
+            pushed = []
+
+            def spy(*args, **kwargs):
+                if args[1] == 'push':
+                    pushed.append(args[2])
+                return real(*args, **kwargs)
+
+            with mock.patch.object(gitstore, 'run_git', spy):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    store_to_git.migrate(ctx, store)
+            self.sh(
+                'git',
+                '-C',
+                str(self.work),
+                'config',
+                '--unset',
+                'remote.origin.pushurl',
+            )
+            self.assertEqual(pushed[:1], [str(via)])
+        with self.subTest('a rerun removes a leftover .migrating directory'):
+            ctx, store = self.local_store('leftover')
+            real_move = shutil.move
+
+            def moved_then_killed(*args, **kwargs):
+                real_move(*args, **kwargs)
+                raise self.Killed('move')
+
+            with mock.patch.object(store_to_git.shutil, 'move', moved_then_killed):
+                with self.assertRaises(self.Killed):
+                    store_to_git.migrate(ctx, store)
+            self.assertTrue(os.path.isdir(f'{store}.migrating'))
+            with contextlib.redirect_stdout(io.StringIO()):
+                store_to_git.migrate(ctx, store)
+            self.assertFalse(os.path.exists(f'{store}.migrating'))
+            self.assertTrue(gitstore.is_git(store))
+        with self.subTest('a symlinked directory is refused like a symlinked file'):
+            _, store = self.local_store('dirlink')
+            elsewhere = self.path / 'elsewhere'
+            os.makedirs(elsewhere)
+            Path(elsewhere, 'n.md').write_text('x\n')
+            os.symlink(elsewhere, f'{store}/notes')
+            with self.assertRaises(gitstore.OwnershipError) as caught:
+                gitstore.store_files(store)
+            self.assertIn('notes', str(caught.exception))
+            os.unlink(f'{store}/notes')
+            shutil.rmtree(f'{store}/scratch')
+            os.symlink(elsewhere, f'{store}/scratch')
+            self.assertNotIn('scratch/n.md', gitstore.store_files(store))
+
     def remote_commits_of(self, branch):
         return len(
             self.sh('git', '--git-dir', str(self.remote), 'rev-list', branch).split()

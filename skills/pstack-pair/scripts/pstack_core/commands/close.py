@@ -23,6 +23,16 @@ def record(store):
     return close if isinstance(close, dict) else {}
 
 
+def tip_of(store):
+    """The final tip the close recorded; a close that has none recorded has nothing to tag, verify or delete against."""
+    tip = record(store).get('tip')
+    if not tip:
+        raise gitstore.PublishFailed(
+            f'the close of {store} has no recorded final tip; run close again from the start of its phases'
+        )
+    return tip
+
+
 def tag_of(store):
     """The archive tag of this run: kitchen-archive/<slug>-<run id>."""
     return f'kitchen-archive/{gitstore.slug_of(store)}-{ensure_run(store)}'
@@ -65,7 +75,7 @@ def final(store, name):
 
 def tag(store, name):
     """The annotated tag at the final tip, here and on origin. A tag that exists at another commit is refused."""
-    tip = record(store).get('tip') or ''
+    tip = tip_of(store)
     have = git.out(
         store, 'rev-parse', '--verify', '--quiet', f'refs/tags/{name}^{{commit}}'
     )
@@ -96,7 +106,7 @@ def tag(store, name):
 
 def verify(store, name):
     """The tag origin lists resolves to the final tip: the branch is never deleted on the word of the push alone."""
-    tip = record(store).get('tip') or ''
+    tip = tip_of(store)
     listed = gitstore.remote_tip(store, f'refs/tags/{name}^{{}}')
     if listed is None:
         raise gitstore.PublishFailed(
@@ -113,7 +123,7 @@ def delete(store, name):
     tag keeps its commits (a writer that did not see the fence)."""
     verify(store, name)
     branch = gitstore.branch_of(store)
-    tip = record(store).get('tip') or ''
+    tip = tip_of(store)
     now = gitstore.remote_tip(store, f'refs/heads/{branch}')
     if now is None:
         raise gitstore.PublishFailed(

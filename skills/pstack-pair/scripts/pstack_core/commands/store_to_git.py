@@ -60,7 +60,7 @@ def scan(store, rels):
 
 def push_snapshot(store, repo, branch, rels):
     """One commit of the store's files (and the branch's .gitignore) in a repository made for it, pushed to origin as `branch`. Returns the commit."""
-    url = git.out(repo, 'remote', 'get-url', 'origin') or ''
+    url = git.out(repo, 'remote', 'get-url', '--push', 'origin') or ''
     if os.path.isdir(os.path.join(repo, url)):
         url = os.path.abspath(os.path.join(repo, url))
     with tempfile.TemporaryDirectory() as tmp:
@@ -139,6 +139,7 @@ def finish(ctx, store, repo, branch):
     """The store is on the branch: pair.json says so and is published, and each live role is told how to move over. A second run of it writes
     and publishes nothing."""
     settle_worktree(store, repo)
+    shutil.rmtree(f'{store}.migrating', ignore_errors=True)
     moved = gitstore.backend_record(store).get('backend') != 'git'
     if moved:
 
