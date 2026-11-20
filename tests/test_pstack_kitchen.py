@@ -16856,9 +16856,13 @@ class AmpKitchenTests(KitchenScriptTests):
 
     def test_a_stop_to_a_working_thread_is_relayed_through_the_master_once(self):
         """stop to a sidekick whose Amp thread is in a turn would only queue behind it; like a steer, the master relays the STOP with its own
-        tools, so stop prints the relay lines, names the role working and queues nothing through the CLI."""
+        tools, so stop prints the relay lines, names the role working and queues nothing through the CLI, and the trailing report line is
+        left out: the newest report in the store is older than the stop the sidekick has not read, not an answer to it."""
         sidekick = amp_thread(1)
-        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.done(b, self.commit('util'))
         self.set_state(amp_thread(1), 'tool_use', '2026-01-01T00:00:00.000Z')
         before = self.thread_messages(sidekick)
         out = self.run_sh('stop', str(self.store))
@@ -16877,6 +16881,7 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertIn(f'relay: then run kitchen.sh relay-done {self.store} {rid}', out)
         self.assertIn('sidekick_state: working', out)
+        self.assertNotIn('report:', out)
         self.assertIn(
             f'pstack-kitchen STOP {self.store}', Path(record['message']).read_text()
         )
