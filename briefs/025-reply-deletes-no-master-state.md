@@ -42,7 +42,7 @@ must not write:
 
 ## Context
 
-- Start from unit 005's head b1ca49f: `git fetch origin kitchen-code/kitchen-followups/sidekick-g4 && git checkout -B kitchen-followups FETCH_HEAD` (or on top of 023 if it has landed on the run's code ref; the master names it at dispatch). Do not rebase onto origin/main.
+- Start from unit 023's head 4bca786 (on top of 005's b1ca49f): `git fetch origin kitchen-code/kitchen-followups/sidekick-g5 && git checkout -B kitchen-followups FETCH_HEAD`. Do not rebase onto origin/main.
 - Review reviews/005-kept-sidekick-session.md; joo run in the master's orb `.amp/in/orb-backup/joo/005-run`.
 - `notes/s4-ledger-1252-issues.md` issue 3.
 
