@@ -40,3 +40,4 @@
 2026-11-20T18:06:24Z	1795197984	master	verify	003-packet-accepted-deviations	clean
 2026-11-20T18:06:24Z	1795197984	master	wake	003-packet-accepted-deviations	verify:clean
 2026-11-20T18:23:38Z	1795199018	master	reuse	018-amp-idle-and-stop-fix	sidekick: pstack, pstack-docs, context 16%
+2026-11-20T18:23:46Z	1795199026	master	send-brief	018-amp-idle-and-stop-fix	
