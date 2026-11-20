@@ -1162,11 +1162,26 @@ def drained(store, tip, record, request):
     return True
 
 
+def _fetch_branch(store, branch):
+    """Fetches origin's branch into its remote-tracking ref and returns that ref, '' when the fetch fails."""
+    ref = _remote_ref(branch)
+    fetched = _run(store, 'fetch', '--quiet', 'origin', f'+refs/heads/{branch}:{ref}')
+    return ref if fetched.returncode == 0 else ''
+
+
+def _origin_head_branch(store):
+    """The branch origin's HEAD names, read from origin itself; '' when origin cannot be read or names none."""
+    listing = git.out(store, 'ls-remote', '--symref', 'origin', 'HEAD') or ''
+    found = re.search(r'^ref: refs/heads/(\S+)\tHEAD$', listing, re.MULTILINE)
+    return found[1] if found else ''
+
+
 def _fetch_trunk(store):
     """Fetches origin's default branch (the target of origin/HEAD, else origin's main, else master) into its remote-tracking ref and returns that
-    ref, so the writer's cut and the master's fetch rest on the same trunk and a stale ref counts for nothing. Empty when the fetch of a trunk
-    that resolved failed; None when no trunk resolves (a repository with no origin/HEAD whose trunk is neither main nor master, or an origin that
-    cannot be listed)."""
+    ref, so the writer's cut and the master's fetch rest on the same trunk and a stale ref counts for nothing. A local origin/HEAD whose branch
+    origin no longer has is stale: origin's own HEAD is fetched instead. Empty when the fetch of a trunk that resolved failed (origin cannot be
+    read, or names no HEAD to fall back to); None when no trunk resolves (a repository with no origin/HEAD whose trunk is neither main nor master,
+    or an origin that cannot be listed)."""
     head = git.out(store, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') or ''
     branch = head.removeprefix('refs/remotes/origin/')
     if not branch:
@@ -1175,9 +1190,11 @@ def _fetch_trunk(store):
         branch = next((name for name in ('main', 'master') if name in held), '')
     if not branch:
         return None
-    ref = _remote_ref(branch)
-    fetched = _run(store, 'fetch', '--quiet', 'origin', f'+refs/heads/{branch}:{ref}')
-    return ref if fetched.returncode == 0 else ''
+    fetched = _fetch_branch(store, branch)
+    if fetched:
+        return fetched
+    actual = _origin_head_branch(store)
+    return _fetch_branch(store, actual) if actual and actual != branch else ''
 
 
 def fetch_code(store):

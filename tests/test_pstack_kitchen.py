@@ -17607,7 +17607,7 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.master_fetches_the_announced_code()
         self.assertTrue(self.master_has(head))
 
-    def test_fetch_code_is_false_and_sync_warns_when_a_trunk_that_resolves_cannot_be_fetched_but_not_when_none_resolves(
+    def test_fetch_code_is_false_and_sync_warns_when_a_trunk_that_resolves_cannot_be_fetched_but_not_when_none_resolves_or_origins_head_replaces_a_stale_one(
         self,
     ):
         from pstack_core import gitstore
@@ -17634,6 +17634,18 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertFalse(gitstore.fetch_code(str(self.store)))
         out = self.run_sh('sync', '--branch', str(self.store))
         self.assertIn('warning: origin or a published bundle could not be read', out)
+        # origin/HEAD is stale (it names a branch origin no longer has) but origin is readable and its own HEAD names a branch it has: that
+        # branch is the trunk, and nothing failed.
+        self.remote_git(
+            'update-ref',
+            'refs/heads/trunk',
+            self.remote_git('rev-parse', 'kitchen-code/demo/sidekick-g1').strip(),
+        )
+        self.remote_git('symbolic-ref', 'HEAD', 'refs/heads/trunk')
+        self.assertTrue(gitstore.fetch_code(str(self.store)))
+        self.assertNotIn(
+            'could not be read', self.run_sh('sync', '--branch', str(self.store))
+        )
 
     def test_a_code_ref_origin_refuses_gives_a_bundle_the_master_fetches_instead(self):
         self.reject_code_pushes()
