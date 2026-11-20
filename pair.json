@@ -61,8 +61,7 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "019-role-stamp-under-git",
       "compactions": 0
-    },
-    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/019-role-stamp-under-git.md"
+    }
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -132,21 +131,21 @@
   ],
   "placement": "split",
   "pending": [
-    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/019-role-stamp-under-git.md"
+    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/020-landing-packet-amendments.md"
   ],
   "dispatch": {
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/019-role-stamp-under-git.md",
-    "at": "2026-11-20T19:08:44Z",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/020-landing-packet-amendments.md",
+    "at": "2026-11-20T19:21:13Z",
     "head": "6ac18e8e557c12a97f8ff88524d57b4e19630bcd",
     "generation": 3,
     "sidekick": "amp claude-code claude-sonnet-5-5",
     "report_order": 0
   },
   "sent": {
-    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/019-role-stamp-under-git.md",
+    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/020-landing-packet-amendments.md",
     "kind": "BRIEF",
-    "at": "2026-11-20T19:08:44Z",
-    "epoch": 1795201724
+    "at": "2026-11-20T19:21:13Z",
+    "epoch": 1795202473
   },
   "heads": {
     "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
@@ -154,7 +153,8 @@
     "003-packet-accepted-deviations": "6ac18e8e557c12a97f8ff88524d57b4e19630bcd",
     "017-swallowed-failures-fix": "6ac18e8e557c12a97f8ff88524d57b4e19630bcd",
     "018-amp-idle-and-stop-fix": "6ac18e8e557c12a97f8ff88524d57b4e19630bcd",
-    "019-role-stamp-under-git": "6ac18e8e557c12a97f8ff88524d57b4e19630bcd"
+    "019-role-stamp-under-git": "6ac18e8e557c12a97f8ff88524d57b4e19630bcd",
+    "020-landing-packet-amendments": "6ac18e8e557c12a97f8ff88524d57b4e19630bcd"
   },
   "sidekick_models": {
     "001-swallowed-failures": "amp anthropic/claude-sonnet-5-5",
@@ -162,7 +162,8 @@
     "003-packet-accepted-deviations": "amp claude-code claude-sonnet-5-5",
     "017-swallowed-failures-fix": "amp claude-code claude-sonnet-5-5",
     "018-amp-idle-and-stop-fix": "amp claude-code claude-sonnet-5-5",
-    "019-role-stamp-under-git": "amp claude-code claude-sonnet-5-5"
+    "019-role-stamp-under-git": "amp claude-code claude-sonnet-5-5",
+    "020-landing-packet-amendments": "amp claude-code claude-sonnet-5-5"
   },
   "sidekick_threads": {
     "amp anthropic/claude-sonnet-5-5": [
