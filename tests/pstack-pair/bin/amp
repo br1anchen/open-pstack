@@ -9,7 +9,8 @@
 #   `amp threads archive T`, `amp threads export T` ($FAKE/amp-mode is the agentMode it reports) and `amp threads context T`
 #   ($FAKE/amp-context-<T>, else $FAKE/amp-context, is the JSON it prints; by default 10% of the window used, no compaction) and `amp threads usage T`
 #   ($FAKE/amp-cost/T is the dollar figure it reports, $0.00 by default; `none` there prints no Cost line). The export reports
-#   $FAKE/amp-state/<T> as lastKnownAgentState (state and updatedAt on one line; none when absent) and the thread's delivered messages.
+#   $FAKE/amp-state/<T> as lastKnownAgentState (state and updatedAt on one line; none when absent), the thread's delivered messages, and
+#   one assistant message ending a turn (stopReason end_turn, as the real export has) for each ISO time in $FAKE/amp-turn-ends/<T>.
 # - $FAKE/amp-preflight-fail: model names, one per line; the headless preflight (`amp ... -x`) fails with a usage-limit error for a --model listed there.
 # - $FAKE/amp-kill-after-delivery: once, kills the calling process right after a message was delivered (the result is never recorded).
 # - $FAKE/amp-upload-fail: how many more sends end in the upload error; with $FAKE/amp-upload-fail-after-delivery the message is
@@ -80,6 +81,11 @@ try:
     state, at = open(os.path.join(fake, 'amp-state', t)).read().split()
     meta['lastKnownAgentState'] = {'state': state, 'updatedAt': at}
 except (OSError, ValueError):
+    pass
+try:
+    for at in open(os.path.join(fake, 'amp-turn-ends', t)).read().split():
+        msgs.append({'role': 'assistant', 'state': {'type': 'complete', 'stopReason': 'end_turn'}, 'createdAt': at, 'content': []})
+except OSError:
     pass
 try:
     mode = open(os.path.join(fake, 'amp-mode')).read().strip()
