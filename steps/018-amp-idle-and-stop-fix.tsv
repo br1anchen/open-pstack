@@ -1,0 +1,4 @@
+1	598a0412a0a36a7c062456eee7f18f9da915ab26	1795199687		relay delivered means no turn ended since the send
+2	f38bb387b5fd680f1319dff897afaabb31ffdaa9	1795200278		relayed STOP event names its role
+3	03e9abde1a14f7d331a435a682df5034862f795f	1795200914		tests: stop relay second call and fallback rows
+4	7616b0e559437724fd528d85e35da3cd5610c36c	1795201546		docs: stop relay and .verifying keep; role-neutral relay messages

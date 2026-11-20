@@ -11,3 +11,10 @@
 2026-11-20T18:23:09Z	1795198989	sidekick	finish-verify-pass	017-swallowed-failures-fix	a9b913264
 2026-11-20T18:23:09Z	1795198989	sidekick	rotation-required	017-swallowed-failures-fix	generation:3 sha256:784192be40bb
 2026-11-20T18:23:11Z	1795198991	sidekick	report	017-swallowed-failures-fix	done
+2026-11-20T18:34:47Z	1795199687	sidekick	step	018-amp-idle-and-stop-fix	1:598a0412a
+2026-11-20T18:44:38Z	1795200278	sidekick	step	018-amp-idle-and-stop-fix	2:f38bb387b
+2026-11-20T18:55:14Z	1795200914	sidekick	step	018-amp-idle-and-stop-fix	3:03e9abde1
+2026-11-20T19:05:46Z	1795201546	sidekick	step	018-amp-idle-and-stop-fix	4:7616b0e55
+2026-11-20T19:08:05Z	1795201685	sidekick	finish-verify-pass	018-amp-idle-and-stop-fix	7616b0e55
+2026-11-20T19:08:05Z	1795201685	sidekick	rotation-required	018-amp-idle-and-stop-fix	generation:3 sha256:0de31f4cf4c5
+2026-11-20T19:08:07Z	1795201687	sidekick	report	018-amp-idle-and-stop-fix	done

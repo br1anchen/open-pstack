@@ -1,0 +1,16 @@
+{
+ "code": [
+  "7616b0e559437724fd528d85e35da3cd5610c36c"
+ ],
+ "generation": 3,
+ "outputs": [
+  {
+   "path": "reports/018-amp-idle-and-stop-fix.md",
+   "sha256": "0de31f4cf4c5a6a730a7dfa49e74039a62975cf7e9e9170fc6075872581f91b3"
+  }
+ ],
+ "request": "95f2224f7150",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602"
+}
