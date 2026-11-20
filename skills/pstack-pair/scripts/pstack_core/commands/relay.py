@@ -75,7 +75,7 @@ def relay_done(ctx, args):
             word = (
                 'done'
                 if record.get('state') == amp.DONE
-                else 'stale (its thread ended a turn and the steer was relayed again); nothing recorded'
+                else 'stale (its thread ended a turn and it was relayed again); nothing recorded'
             )
             print(f'relayed: {rid} already {word}')
             return 0

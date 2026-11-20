@@ -544,7 +544,7 @@ def assess(thread, store, role, idle_roles=False, reconcile=False, tip=None):
             and record.get('state') == PENDING
             and not (state in SETTLED and since >= int(record.get('at') or 0))
         ):
-            return state, 'a steer relay to it is still pending'
+            return state, 'a relay to it is still pending'
     files = unsynced_files(role)
     if files:
         return state, f'it sent {files[0]}, which the master store does not hold yet'

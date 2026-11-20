@@ -319,7 +319,7 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   the new one's READY is in the store, a verifier once `verify --wait` has
   recorded its verdict, the old master once `take-master` has run, and every
   remaining role at `close`. `kitchen.sh threads --archive` (and `close`) archive an idle role whose work is done (a sidekick whose last unit is done with nothing queued, a consultant with every consult answered); its next prompt starts a fresh thread. A thread is kept (`kept <thread>: <reason>`) while
-  it is in a turn, a message or steer relay to it is pending, it sent the master
+  it is in a turn, a message or relay to it is pending, its unit is under verification (`.verifying` in pair.json), it sent the master
   a file the master's store does not hold yet, its report's `head:` is not in the
   master's checkout, or its replacement has not sent READY. `kitchen.sh threads
   <store>` lists every thread the store named with its role, state and `in use`,
@@ -385,6 +385,7 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   round refuse it instead of queueing behind it. A `steer` for it (with
   `--interrupt` too, since there is no Esc) is a relay, because the master's
   own `send_thread_message` does reach a busy thread between tool calls.
+  `stop` to a working Amp role is relayed the same way and needs the same `relay-done`.
   `steer` packs the bundle under the master's `.git`, writes the message and
   records the relay as `relay-pending`, then prints four lines: `relay-pending:
   <id> for <name> (<thread>)`, `relay: upload_thread_file path=<bundle>
