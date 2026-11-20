@@ -76,3 +76,5 @@
 2026-11-20T19:42:20Z	1795203740	master	log	-	archive: archive sidekick T-01a1fa04-0358-74ba-bf70-0d0d9db5a602
 2026-11-20T19:42:25Z	1795203745	master	spawn	-	sidekick:amp:ready
 2026-11-20T19:42:37Z	1795203757	master	send-plan	008-kept-sidekick-session	sidekick
+2026-11-20T19:42:52Z	1795203772	master	send-plan	008-kept-sidekick-session	consultant
+2026-11-20T19:42:57Z	1795203777	master	log	-	main-moved: origin/main moved a90bb41 -> 7218f31 (fix(agents): rebuild joo when main moves), not by this run
