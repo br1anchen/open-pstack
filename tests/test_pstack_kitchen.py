@@ -16927,7 +16927,7 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(self.thread_messages(sidekick), before)
         events = (self.store / 'events.tsv').read_text()
         self.assertEqual(events.count('send-stop'), 1)
-        self.assertEqual(events.count('send-stop\t-\trelay-pending'), 1)
+        self.assertEqual(events.count('send-stop\t-\tsidekick relay-pending'), 1)
 
     def test_pair_stop_relays_a_working_sidekick_without_the_wait_report_fallback(self):
         """The pair's own stop relays a working Amp sidekick's STOP like the trio's stop and ends at its state line: the wait's report
@@ -16966,7 +16966,7 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(self.thread_messages(sidekick), before)
         events = (self.store / 'events.tsv').read_text()
         self.assertEqual(events.count('send-stop'), 1)
-        self.assertEqual(events.count('send-stop\t-\trelay-pending'), 1)
+        self.assertEqual(events.count('send-stop\t-\tsidekick relay-pending'), 1)
 
     def test_relay_done_marks_the_relay_sent_and_the_same_steer_waits_for_the_threads_next_turn_end(
         self,
