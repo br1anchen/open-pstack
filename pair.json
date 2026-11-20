@@ -61,11 +61,12 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "005-kept-sidekick-session",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/005-kept-sidekick-session.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:9",
+    "pane_id": "amp:10",
     "kind": "amp",
     "started_at": null
   },
@@ -85,7 +86,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "005-kept-sidekick-session-verify"
+  ],
   "anchor": {
     "thread": "T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce"
   },
@@ -199,5 +202,53 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/005-kept-sidekick-session-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/005-kept-sidekick-session-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/005-kept-sidekick-session.md",
+    "scratch": "005-kept-sidekick-session-verify",
+    "units": "005",
+    "risk": "escalated",
+    "sample": 1.0,
+    "unit": "005-kept-sidekick-session",
+    "started": 1795213474,
+    "deadline": 1795216174,
+    "class": "escalated",
+    "entry": {
+      "kind": "amp",
+      "args": [
+        "--model",
+        "anthropic/claude-opus-5-5",
+        "--orb-size",
+        "a1.large"
+      ],
+      "fallback": {
+        "kind": "amp",
+        "args": [
+          "--model",
+          "openai/gpt-6-astra",
+          "--orb-size",
+          "a1.large"
+        ]
+      },
+      "fallbacks": [
+        {
+          "kind": "amp",
+          "args": [
+            "--model",
+            "openai/gpt-6-astra",
+            "--orb-size",
+            "a1.large"
+          ]
+        }
+      ],
+      "source": "roster"
+    },
+    "retried": false,
+    "argv": [
+      "005"
+    ],
+    "delivered": false
+  }
 }

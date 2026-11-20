@@ -101,3 +101,5 @@
 2026-11-20T22:22:45Z	1795213365	master	rotate	-	generation:4
 2026-11-20T22:22:55Z	1795213375	master	nest-pending	-	T-01a1fb0e-2be9-74c4-a19a-7e5b11d8af62 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
 2026-11-20T22:23:01Z	1795213381	master	spawn	-	sidekick:amp:handed-off
+2026-11-20T22:23:18Z	1795213398	master	nest	-	T-01a1fb0e-2be9-74c4-a19a-7e5b11d8af62 under T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce
+2026-11-20T22:24:34Z	1795213474	master	send-verify	005-kept-sidekick-session	amp:005
