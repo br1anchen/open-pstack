@@ -12,9 +12,9 @@ from ..mux import amp
 from ..store import event, pair_file
 
 
-def print_relay(prog, store, name, record, how, kind, arg):
+def print_relay(prog, store, name, record, how, kind, arg, detail='relay-pending'):
     """What a relay the master must send with its own tools prints: the too-large fallback, and for a relay that was made, is still pending or was
-    already delivered, its id with the three calls the master makes, logging `kind` (arg) as relay-pending when the relay was made. Whether the
+    already delivered, its id with the three calls the master makes, logging `kind` (arg) with `detail` when the relay was made. Whether the
     master carries the send (a caller falls back to sending it through the CLI)."""
     if how == 'too-large':
         # relay returns 'too-large' only with the bundle's size; the None case is the next line's.
@@ -30,7 +30,7 @@ def print_relay(prog, store, name, record, how, kind, arg):
         )
         return True
     if how == 'made':
-        event(store, 'master', kind, arg, 'relay-pending')
+        event(store, 'master', kind, arg, detail)
     again = '' if how == 'made' else ' (already pending; not made again)'
     print(
         f'relay-pending: {rid} for {name} ({thread}){again}\n'

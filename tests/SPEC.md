@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at c72879ff by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at ca386f42 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -234,8 +234,8 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): … prompt failed for … — skills/pstack-pair/scripts/pstack_core/commands/steer.py:139 — test_pstack_core.CoreTests.test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line (+3)
 - exit 2 (herdr or gate failure): … prompt failed for … — skills/pstack-pair/scripts/pstack_core/commands/steer.py:323 — test_pstack_core.CoreTests.test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line (+3)
 - exit 2 (herdr or gate failure): sidekick … is not live — skills/pstack-pair/scripts/pstack_core/commands/steer.py:326 — test_pstack_core.CoreTests.test_commands_load_the_variant_they_need_and_no_kitchen_code_they_do_not (+4)
-- exit 2 (herdr or gate failure): pair.json is missing from … — skills/pstack-pair/scripts/pstack_core/commands/stop.py:151 — test_pstack_core.CoreTests.test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words
-- exit 2 (herdr or gate failure): sidekick … is not live — skills/pstack-pair/scripts/pstack_core/commands/stop.py:169 — test_pstack_core.CoreTests.test_commands_load_the_variant_they_need_and_no_kitchen_code_they_do_not (+4)
+- exit 2 (herdr or gate failure): pair.json is missing from … — skills/pstack-pair/scripts/pstack_core/commands/stop.py:153 — test_pstack_core.CoreTests.test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words
+- exit 2 (herdr or gate failure): sidekick … is not live — skills/pstack-pair/scripts/pstack_core/commands/stop.py:171 — test_pstack_core.CoreTests.test_commands_load_the_variant_they_need_and_no_kitchen_code_they_do_not (+4)
 - exit 2 (herdr or gate failure): … is now …, and forwarding to it failed: … — skills/pstack-pair/scripts/pstack_core/commands/sync.py:152 — test_pstack_kitchen.AmpKitchenTests.test_rotate_master_starts_the_next_master_as_a_thread_and_a_stale_reply_is_forwarded
 - exit 2 (herdr or gate failure): … prompt failed for … — skills/pstack-pair/scripts/pstack_core/consult.py:88 — test_pstack_core.CoreTests.test_a_blocking_note_for_prime_goes_through_prime_steer_and_a_failed_prompt_exits_2_after_the_published_line (+3)
 - exit 2 (herdr or gate failure): … … is not live; run: pair.sh spawn … --only … --… <kind> — skills/pstack-pair/scripts/pstack_core/consult.py:135 — test_pstack_core.CoreTests.test_discuss_behaviour (+2)
@@ -255,7 +255,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 3 (agent blocked): sidekick … is …; resolve that before queueing — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:442 — test_pstack_core.CoreTests.test_queue_accepts_a_sidekick_idle_on_a_background_command_and_refuses_a_blocked_or_quiet_one (+2)
 - exit 3 (agent blocked): sidekick … did not settle after esc; inspect: … — skills/pstack-pair/scripts/pstack_core/commands/steer.py:120 — test_pstack_pair.PairScriptTests.test_trio (+2)
 - exit 3 (agent blocked): sidekick … is blocked; inspect: … — skills/pstack-pair/scripts/pstack_core/commands/steer.py:328 — test_pstack_core.CoreTests.test_a_steer_to_a_blocked_agent_is_still_refused_even_with_a_command_in_its_pane (+5)
-- exit 3 (agent blocked): sidekick … is blocked; inspect it before stopping — skills/pstack-pair/scripts/pstack_core/commands/stop.py:171 — test_pstack_core.CoreTests.test_stop_of_a_blocked_sidekick_names_what_to_inspect
+- exit 3 (agent blocked): sidekick … is blocked; inspect it before stopping — skills/pstack-pair/scripts/pstack_core/commands/stop.py:173 — test_pstack_core.CoreTests.test_stop_of_a_blocked_sidekick_names_what_to_inspect
 - exit 3 (agent blocked): … … is blocked; inspect: … — skills/pstack-pair/scripts/pstack_core/consult.py:139 — test_pstack_core.CoreTests.test_a_steer_to_a_blocked_agent_is_still_refused_even_with_a_command_in_its_pane (+5)
 - exit 3 (agent blocked): consultant … is blocked; inspect: … — skills/pstack-pair/scripts/pstack_core/consult.py:344 — test_pstack_core.CoreTests.test_a_steer_to_a_blocked_agent_is_still_refused_even_with_a_command_in_its_pane (+5)
 - exit 3 (agent blocked): (returns 3 in consult()) — skills/pstack-pair/scripts/pstack_core/consult.py:412 — test_pstack_pair.PairScriptTests.test_trio (+3)

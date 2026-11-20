@@ -109,7 +109,9 @@ def relay_stop(ctx, store, role):
         return False
     name = field(store, role, 'name')
     record, how = mux.get().relay(name, f'{ctx.skill} STOP {store}', store)
-    return print_relay(ctx.prog, store, name, record, how, 'send-stop', '-')
+    return print_relay(
+        ctx.prog, store, name, record, how, 'send-stop', '-', f'{role} relay-pending'
+    )
 
 
 def stop_role(ctx, store, role, timeout):
