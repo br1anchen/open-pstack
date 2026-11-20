@@ -1,6 +1,6 @@
 # Review 002: amp-idle-and-stop
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/002-amp-idle-and-stop.md
 head: 6ac18e8e557c12a97f8ff88524d57b4e19630bcd
 engine: joo 2026-11-20T17-31-45-056Z-4868ce51
@@ -27,4 +27,4 @@ none
 
 ## Next
 
-Brief 018 fixes both, verified with --covers 002.
+Brief 018 fixed both (review 018, verdict 018-v1 clean covering 002); the blocking finding is resolved there, so 002 is accepted and lands with 018.

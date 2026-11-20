@@ -8,7 +8,7 @@ risk: routine
 units: 002 018
 verifier-agent: amp --model anthropic/claude-sonnet-5-5 --orb-size a1.small
 verifier-class: routine
-verifier-outcome: running
+verifier-outcome: clean
 deadline: 45m from now
 
 Write rule: you write only your verdict file and the scratch worktree you were given; work only in that worktree and write nothing else but the verdict.

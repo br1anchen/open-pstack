@@ -1,2 +1,3 @@
 - 002 audit low: commands/stop.py:173 the pair's own stop no-thread path (an Amp.start entry before its first prompt) has no test.
 - 017 joo lows: gitstore.py:1197 stale origin/HEAD never repaired after the fallback (extra fetch + ls-remote per sync); gitstore.py:1196 fallback also runs after a transient fetch failure of a trunk that still exists.
+- 020 joo low: verify_packet.py:392 accepted_amendments shows Amendments from a review whose verdict is revise or reject; context_section checks verdict == accept.
