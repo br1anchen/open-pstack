@@ -475,14 +475,15 @@ def open_consults(store):
 
 def role_is_idle(store, doc, role):
     """Whether the live sidekick or consultant has nothing open in this run: the sidekick's last unit is done (rotation_required, and the report of
-    the brief dispatched to it says done, so an open dispatch stays) and no brief is queued for it; the consultant has no consult or plan round
-    waiting on its advice."""
+    the brief dispatched to it says done, so an open dispatch stays) and no brief is queued for it, and no verifier is still verifying its unit
+    (pair.json .verifying); the consultant has no consult or plan round waiting on its advice."""
     if role == 'sidekick':
         queue = os.path.join(store, 'queue')
         queued = os.path.isfile(queue) and os.path.getsize(queue) > 0
         brief = (doc.get('dispatch') or {}).get('brief') or ''
         return (
             (doc.get('sidekick') or {}).get('rotation_required') is True
+            and not doc.get('verifying')
             and not queued
             and bool(brief)
             and header_field(expected_report(store, brief), 'status') == 'done'
@@ -509,11 +510,7 @@ def assess(thread, store, role, idle_roles=False, reconcile=False, tip=None):
     in_use = ('in use', f'in use by {live.get(thread) or "this master"}')
     if thread == own_thread():
         return in_use
-    if thread in live and not (
-        idle_roles
-        and role in ('sidekick', 'consultant')
-        and role_is_idle(store, doc, role)
-    ):
+    if thread in live and not (idle_roles and role_is_idle(store, doc, role)):
         return in_use
     state, since = thread_state(export(thread) if exported is None else exported)
     if thread in live and state not in SETTLED:
