@@ -16,7 +16,8 @@ def print_relay(prog, store, name, record, how, kind, arg):
     """What a relay the master must send with its own tools prints: the too-large fallback, and for a relay that was made, is still pending or was
     already delivered, its id with the three calls the master makes, logging `kind` (arg) as relay-pending when the relay was made. Whether the
     master carries the send (a caller falls back to sending it through the CLI)."""
-    if how == 'too-large' and record:
+    if how == 'too-large':
+        # relay returns 'too-large' only with the bundle's size; the None case is the next line's.
         print(
             f"relay: bundle is {record['size'] / 1048576:.1f} MiB, over upload_thread_file's 4 MiB; send it with the CLI after the turn instead"
         )
