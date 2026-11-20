@@ -17466,7 +17466,7 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.master_fetches_the_announced_code()
         self.assertTrue(self.master_has(head))
 
-    def test_fetch_code_is_false_and_sync_warns_when_origins_trunk_cannot_be_fetched(
+    def test_fetch_code_is_false_and_sync_warns_when_a_trunk_that_resolves_cannot_be_fetched_but_not_when_none_resolves(
         self,
     ):
         from pstack_core import gitstore
@@ -17479,7 +17479,14 @@ class AmpGitKitchenTests(AmpKitchenTests):
         self.assertNotIn(
             'could not be read', self.run_sh('sync', '--branch', str(self.store))
         )
+        # A repository whose origin has no main or master and which has no origin/HEAD has no trunk to fetch: nothing failed.
         self.remote_git('update-ref', '-d', 'refs/heads/main')
+        self.assertTrue(gitstore.fetch_code(str(self.store)))
+        self.assertNotIn(
+            'could not be read', self.run_sh('sync', '--branch', str(self.store))
+        )
+        # A trunk that resolves (origin/HEAD names it) but cannot be fetched is a failure the caller must hear of.
+        self.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/gone')
         self.assertEqual(
             self.remote_git('rev-parse', 'kitchen-code/demo/sidekick-g1').strip(), head
         )
