@@ -1,0 +1,2 @@
+1	36ffab68da249510e5bd34cd9fb39df834f98403	1795198304		rotation keeps the spawn's exit code when the final publish fails
+2	a9b9132645dcfbed28d4d68f7c936ec1e996a27b	1795198898		fetch_code falls back to origin's own HEAD when origin/HEAD is stale

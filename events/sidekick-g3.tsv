@@ -6,3 +6,8 @@
 2026-11-20T17:58:49Z	1795197529	sidekick	finish-verify-pass	003-packet-accepted-deviations	ff654763b
 2026-11-20T17:58:49Z	1795197529	sidekick	rotation-required	003-packet-accepted-deviations	generation:3 sha256:75e0097d379c
 2026-11-20T17:58:51Z	1795197531	sidekick	report	003-packet-accepted-deviations	done
+2026-11-20T18:11:44Z	1795198304	sidekick	step	017-swallowed-failures-fix	1:36ffab68d
+2026-11-20T18:21:38Z	1795198898	sidekick	step	017-swallowed-failures-fix	2:a9b913264
+2026-11-20T18:23:09Z	1795198989	sidekick	finish-verify-pass	017-swallowed-failures-fix	a9b913264
+2026-11-20T18:23:09Z	1795198989	sidekick	rotation-required	017-swallowed-failures-fix	generation:3 sha256:784192be40bb
+2026-11-20T18:23:11Z	1795198991	sidekick	report	017-swallowed-failures-fix	done

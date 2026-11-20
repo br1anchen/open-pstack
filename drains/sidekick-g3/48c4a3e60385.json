@@ -1,0 +1,16 @@
+{
+ "code": [
+  "a9b9132645dcfbed28d4d68f7c936ec1e996a27b"
+ ],
+ "generation": 3,
+ "outputs": [
+  {
+   "path": "reports/017-swallowed-failures-fix.md",
+   "sha256": "784192be40bb49ed58c78e102b1d1b9d929a431e6f87f97ca8c4ce28a3258275"
+  }
+ ],
+ "request": "48c4a3e60385",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602"
+}
