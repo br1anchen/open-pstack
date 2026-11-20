@@ -1,4 +1,5 @@
-"""relay-done: the master has sent a steer relay (mux/amp.py Amp.relay) with its own tools, so the steer counts as sent."""
+"""The relay the master sends with its own tools (mux/amp.py Amp.relay): what both a relayed steer (commands/steer.py relay_steer) and a relayed
+STOP (commands/stop.py stop_role) print, and relay-done, which the master runs once it has sent one."""
 
 import os
 import re
@@ -9,6 +10,34 @@ import time
 from ..errors import Die
 from ..mux import amp
 from ..store import event, pair_file
+
+
+def print_relay(prog, store, name, record, how, kind, arg):
+    """What a relay the master must send with its own tools prints: the too-large fallback, and for a relay that was made, is still pending or was
+    already delivered, its id with the three calls the master makes, logging `kind` (arg) as relay-pending when the relay was made. Whether the
+    master carries the send (a caller falls back to sending it through the CLI)."""
+    if how == 'too-large' and record:
+        print(
+            f"relay: bundle is {record['size'] / 1048576:.1f} MiB, over upload_thread_file's 4 MiB; send it with the CLI after the turn instead"
+        )
+    if record is None or how == 'too-large':
+        return False
+    rid, thread = record['id'], record['thread']
+    if how == 'delivered':
+        print(
+            f'relayed: {rid} for {name} ({thread}) (already relayed; the thread has not ended a turn since, so it is not relayed again)'
+        )
+        return True
+    if how == 'made':
+        event(store, 'master', kind, arg, 'relay-pending')
+    again = '' if how == 'made' else ' (already pending; not made again)'
+    print(
+        f'relay-pending: {rid} for {name} ({thread}){again}\n'
+        f'relay: upload_thread_file path={record["bundle"]} destination={record["upload_to"]} thread={thread}\n'
+        f'relay: send_thread_message to {thread} with the text of {record["message"]}\n'
+        f'relay: then run {prog} relay-done {store} {rid}'
+    )
+    return True
 
 
 def settle(record):

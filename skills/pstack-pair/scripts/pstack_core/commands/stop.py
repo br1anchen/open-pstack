@@ -21,6 +21,7 @@ from ..wait import (
     status_now,
     timeout_ms,
 )
+from .relay import print_relay
 from .report import require_pair
 
 DEFAULT_TIMEOUT = 300000
@@ -101,13 +102,20 @@ def devin_send_now(store, role, name, text, before, deadline):
 def stop_role(ctx, store, role, timeout):
     """STOP for one role: the WaitResult of its turn. An idle agent gets it with a wait. A working one may settle its current turn before it reads STOP,
     so the wait ends on its stop report or advice written after the send, not on a settle. A working Devin parks a mid-turn message as queued
-    until Enter is pressed, so Enter follows."""
+    until Enter is pressed, so Enter follows. Where a message reaches a thread only after its turn (Amp), the working one's STOP is relayed by
+    the master with its own tools, as a steer is, and the wait ends on the relay (a relay that cannot be made falls back to the queued send)."""
     name = field(store, role, 'name')
     event(store, 'master', 'send-stop', '-', role)
     text = f'{ctx.skill} STOP {store}'
     if agent_status(name) == 'working':
         epoch = int(time.time())
         before = stop_candidates(store, role)
+        if not mux.get().steers_running and mux.get().relays:
+            # A CLI STOP would only queue behind the turn; the master relays it with its own tools (as steer does), and must upload and send
+            # before the role reads it, so there is nothing to poll for yet.
+            record, how = mux.get().relay(name, text, store)
+            if print_relay(ctx.prog, store, name, record, how, 'send-stop', '-'):
+                return WaitResult(0, 'working')
         r = mux.get().prompt(name, text, stdout=DEVNULL)
         if not r.ok:
             return WaitResult(2, '', r.err.rstrip('\n'), error=r.error)

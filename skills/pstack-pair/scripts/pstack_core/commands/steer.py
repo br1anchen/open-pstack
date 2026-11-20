@@ -30,6 +30,7 @@ from ..store import (
     who,
 )
 from ..wait import TIMING, end_with_parent, print_outcome, timeout_ms, wait_for
+from .relay import print_relay
 from .report import require_pair
 
 
@@ -87,28 +88,7 @@ def relay_steer(prog, store, name, steer_path, message):
     """A steer for a thread in a turn, where a message sent by the command would only queue behind it (Amp): the master sends it with its own tools. This
     writes the relay (once; the same steer again names the one still pending) and prints the three calls the master makes. Whether it was relayed."""
     record, how = mux.get().relay(name, message, store, steer_path)
-    if how == 'too-large' and record:
-        print(
-            f"relay: bundle is {record['size'] / 1048576:.1f} MiB, over upload_thread_file's 4 MiB; send it with the CLI after the turn instead"
-        )
-    if record is None or how == 'too-large':
-        return False
-    rid, thread = record['id'], record['thread']
-    if how == 'delivered':
-        print(
-            f'relayed: {rid} for {name} ({thread}) (already relayed; the thread has not ended a turn since, so it is not relayed again)'
-        )
-        return True
-    if how == 'made':
-        event(store, 'master', 'send-steer', steer_path, 'relay-pending')
-    again = '' if how == 'made' else ' (already pending; not made again)'
-    print(
-        f'relay-pending: {rid} for {name} ({thread}){again}\n'
-        f'relay: upload_thread_file path={record["bundle"]} destination={record["upload_to"]} thread={thread}\n'
-        f'relay: send_thread_message to {thread} with the text of {record["message"]}\n'
-        f'relay: then run {prog} relay-done {store} {rid}'
-    )
-    return True
+    return print_relay(prog, store, name, record, how, 'send-steer', steer_path)
 
 
 def steer_working(store, name, steer_path, message, interrupt, prog):
