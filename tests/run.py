@@ -151,7 +151,10 @@ def main():
     )
     ap.add_argument('--slowest', type=int, default=8)
     args = ap.parse_args()
-    ids = [i for i in test_ids(args.suites) if args.keyword in i]
+    # A module that failed to import is a _FailedTest whatever the keyword, so it runs and fails instead of vanishing from the selection.
+    ids = [
+        i for i in test_ids(args.suites) if args.keyword in i or '._FailedTest.' in i
+    ]
     start = time.monotonic()
     failed, times = [], []
     with (
