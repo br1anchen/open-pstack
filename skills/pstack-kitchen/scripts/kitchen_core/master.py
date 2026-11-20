@@ -485,8 +485,7 @@ def hand_to_next_thread(ctx, store, handoff, model):
     mode, with the store's bundle and the master prompt; its take-master takes the run over there. The hand-over is recorded before the bundle
     is packed, so the new thread reads it, and put back when the thread does not start. This name then means the new master: a role's reply that
     still reaches this thread is forwarded to it."""
-    if not gitstore.refreshed(store):
-        sys.stderr.write(gitstore.UNKNOWN_FRESHNESS)
+    gitstore.refresh_saying_when_unknown(store)
     if read(store, 'master.previous.name'):
         raise RotateRefused(
             f'a hand-over is open: generation {field(store, "master", "generation")} has not taken over yet; '
@@ -660,8 +659,7 @@ def take_master(ctx, args):
         raise Die('usage: kitchen.sh take-master <store>')
     store = args[0]
     pair_file(store)
-    if not gitstore.refreshed(store):
-        sys.stderr.write(gitstore.UNKNOWN_FRESHNESS)
+    gitstore.refresh_saying_when_unknown(store)
     amp_routing.routing(store)
     name = field(store, 'master', 'name')
     pane = field(store, 'master', 'pane_id')

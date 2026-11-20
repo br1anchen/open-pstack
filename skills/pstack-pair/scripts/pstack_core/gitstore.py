@@ -1235,6 +1235,12 @@ def refreshed(store):
             pass
 
 
+def refresh_saying_when_unknown(store):
+    """refreshed, for a command that goes on whatever the answer: when freshness is unknown it says so on stderr (UNKNOWN_FRESHNESS)."""
+    if not refreshed(store):
+        sys.stderr.write(UNKNOWN_FRESHNESS)
+
+
 def _changed(store, rels):
     """Whether any of these paths differs from HEAD (modified, new or removed)."""
     return bool(rels) and bool(git.out(store, 'status', '--porcelain', '--', *rels))
