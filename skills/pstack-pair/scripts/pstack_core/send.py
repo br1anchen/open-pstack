@@ -147,6 +147,24 @@ def prompt_sidekick(name, text):
     )
 
 
+def took_a_brief(pair):
+    """Whether the current sidekick generation was dispatched a brief: a generation that was not is still in the turn that wrote its READY."""
+    return count(peek(pair, 'dispatch'), 'generation') == count(
+        peek(pair, 'sidekick'), 'generation'
+    )
+
+
+def wait_out_ready_turn(name):
+    """A replacement's READY reaches the store a moment before its turn ends, and a message sent in that moment waits behind the turn. Waits up
+    to PAIR_ROTATE_READY_S (60) for the turn to end, looking every PAIR_READY_POLL_S (2) seconds; the status it ended in."""
+    deadline = time.monotonic() + env_float('PAIR_ROTATE_READY_S', 60)
+    status = agent_status(name)
+    while status == 'working' and time.monotonic() < deadline:
+        time.sleep(env_float('PAIR_READY_POLL_S', 2))
+        status = agent_status(name)
+    return status
+
+
 def send_message(ctx, store, file, kind, now=None):
     """Refuse unfilled files and a sidekick that cannot take input, record the send and prompt the sidekick: its name."""
     require_filled(ctx, file)
@@ -160,6 +178,8 @@ def send_message(ctx, store, file, kind, now=None):
     require_fresh_session(store)
     name = text_at(peek(pair, 'sidekick'), 'name')
     status = agent_status(name)
+    if status == 'working' and not took_a_brief(pair):
+        status = wait_out_ready_turn(name)
     if status not in ('idle', 'done'):
         if status == 'absent':
             raise AgentNotLive(
