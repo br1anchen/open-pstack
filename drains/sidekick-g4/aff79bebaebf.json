@@ -1,0 +1,16 @@
+{
+ "code": [
+  "c5cf25045919b5390bebab589b40d39e79a036c0"
+ ],
+ "generation": 4,
+ "outputs": [
+  {
+   "path": "reports/008-kept-sidekick-session.md",
+   "sha256": "f43c48d71160ed5a6fe5ed7f2ee50d83386b98081abdc4e4f2526f93ae90c40c"
+  }
+ ],
+ "request": "aff79bebaebf",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fa73-ba4a-759f-a82d-fddaa66f726f"
+}
