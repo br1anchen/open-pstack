@@ -11996,7 +11996,6 @@ esac
             ['sleep', '30'], cwd=self.repo, env={**self.env, 'HERDR_PANE_ID': pane}
         )
         self.addCleanup(lambda: (test.kill(), test.wait()))
-        time.sleep(1.1)
         out = self.run_sh(
             'wait', str(self.store), '--timeout', '1', '--max', '0', code=4
         )
@@ -17881,6 +17880,37 @@ class AmpGitKitchenTests(AmpKitchenTests):
         )
         hook.unlink()
         self.as_orb(clone, 'finish', str(orb_store), str(report))
+        self.assertEqual(
+            self.drain_paths(),
+            [f'drains/sidekick-g1/{r}.json' for r in sorted(requests)],
+        )
+
+    def test_a_finish_whose_push_is_refused_once_leaves_one_report_row_and_one_receipt_per_request_on_origin(
+        self,
+    ):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        requests = self.sent_requests(amp_thread(1))
+        clone, orb_store = self.role_orb()
+        head = self.commit_in(clone, 'work')
+        report = self.write_report(orb_store, '001-util.md', 'partial', head)
+        hook = self.remote / 'hooks/pre-receive'
+        hook.write_text(
+            '#!/bin/sh\nwhile read old new ref; do\n'
+            '  [ "$ref" = refs/heads/kitchen/demo ] && exit 1\n'
+            'done\nexit 0\n'
+        )
+        hook.chmod(0o755)
+        self.as_orb(clone, 'finish', str(orb_store), str(report), code=1)
+        hook.unlink()
+        self.as_orb(clone, 'finish', str(orb_store), str(report))
+        rows = [
+            line.split('\t')
+            for line in self.remote_git(
+                'show', 'kitchen/demo:events/sidekick-g1.tsv'
+            ).splitlines()
+            if line.split('\t')[3:5] == ['report', '001-util']
+        ]
+        self.assertEqual(len(rows), 1, rows)
         self.assertEqual(
             self.drain_paths(),
             [f'drains/sidekick-g1/{r}.json' for r in sorted(requests)],

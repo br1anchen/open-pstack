@@ -131,23 +131,27 @@ def notify(ctx, args):
 
 def publish_terminal(store, role, file, sent):
     """The terminal publication of a role's report or advice under git (A7): its code first (A5), then the file, its event row and the drain
-    receipts in one commit, and no store write after it. A refused publication leaves no receipt on the remote and no row for the retry to repeat."""
+    receipts in one commit, and no store write after it. A refused publication leaves no receipt on the remote, no receipt that only waits in the
+    tree for another command to publish, and no row for the retry to repeat."""
     extra, code = gitstore.report_code(store, role, file)
     log = gitstore.event_file(store, role)
     before = open(log, 'rb').read() if os.path.exists(log) else None
     sent()
+    receipts = []
     try:
         receipts = amp_routing.drain(store, role, file, extra, code)
         gitstore.publish_role(store, role, [file, *extra, *receipts])
-    except gitstore.PublishFailed:
-        raise
-    except Exception:
-        if os.path.relpath(log, store) in gitstore.dirty(store):
+    except Exception as failure:
+        # A refused push keeps the commit here, which holds the row and the receipts; the retry sends it and writes the row again.
+        kept = isinstance(failure, gitstore.PublishFailed)
+        if kept or os.path.relpath(log, store) in gitstore.dirty(store):
             if before is None:
-                os.unlink(log)
+                if os.path.exists(log):
+                    os.unlink(log)
             else:
                 with open(log, 'wb') as f:
                     f.write(before)
+        gitstore.discard(store, [r for r in receipts if r in gitstore.dirty(store)])
         raise
 
 

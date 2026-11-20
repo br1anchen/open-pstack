@@ -823,6 +823,15 @@ def publish(store, paths, message, writer, sleep=time.sleep):
             pass
 
 
+def discard(store, rels):
+    """Puts each store-relative path back as HEAD holds it, or removes it when HEAD has none: a write that was never committed, undone."""
+    for rel in rels:
+        if git.ok(store, 'cat-file', '-e', f'HEAD:{rel}'):
+            git.ok(store, 'checkout', 'HEAD', '--', rel)
+        elif os.path.exists(f'{store}/{rel}'):
+            os.unlink(f'{store}/{rel}')
+
+
 def owned_dirty(store, writer):
     """The store-relative paths with changes not yet committed that the writer owns: what its command wrote since its last publication."""
     return sorted(rel for rel in dirty(store) if owns(rel, writer))
