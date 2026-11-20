@@ -1,0 +1,4 @@
+1	b5893cb7ae269b732ac3ccee936b5d3badfb110f	1795205919		role replies keep master-owned pair.json and files; completion and shared logs only
+2	d4a195eec7e93b1a4c8424832442f79c9f0f932e	1795207423		a new generation on a non-waiting backend clears rotation_required (rotate, failover)
+3	0f1913ec06ce20811ba42037563b42a93ccb0016	1795208197		rotation reason: rotate: line and rotate event detail
+4	b1ca49f1426ba03ccb493f8b1756e9edd4959b7b	1795213057		docs: role reply merge rule and the rotate: reason line
