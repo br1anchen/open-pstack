@@ -16917,6 +16917,35 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertEqual(self.state()['sidekick']['chain_index'], 1)
 
+    def test_a_dispatch_after_rotate_and_the_new_threads_ready_is_sent(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.assertIs(self.state()['sidekick']['rotation_required'], True)
+        self.run_sh('rotate', str(self.store), code=4)
+        self.assertIs(self.state()['sidekick']['rotation_required'], False)
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertNotIn('needs a fresh session', out)
+        self.assertEqual(len(self.briefs_in(amp_thread(2))), 1)
+
+    def test_a_dispatch_after_a_failover_that_followed_a_done_unit_is_sent_once_ready(
+        self,
+    ):
+        pair = self.state()
+        second = {'kind': 'amp', 'args': ['--model', 'b/two']}
+        pair['sidekick']['chain'] = [{'kind': 'amp', 'args': self.PRIMARY}, second]
+        pair['sidekick']['chain_index'] = 0
+        pair['sidekick']['fallback'] = second
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        self.run_sh('failover', str(self.store), '--reason', 'limit', code=4)
+        self.assertIs(self.state()['sidekick']['rotation_required'], False)
+        (self.store / 'reports/000-ready.md').write_text('status: done\n')
+        b = self.brief('002', 'two', ['src/**', 'tests/**'], verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=None)
+        self.assertNotIn('needs a fresh session', out)
+        self.assertEqual(len(self.briefs_in(amp_thread(2))), 1)
+
     def test_a_dispatch_after_a_rotation_is_sent_once_the_new_thread_is_ready(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         b = self.brief('002', 'guide', ['docs/**'], verify=['python3 -c 1'])

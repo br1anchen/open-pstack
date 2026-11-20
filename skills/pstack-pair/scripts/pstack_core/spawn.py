@@ -220,6 +220,10 @@ def record_started(store, role, kind, pane, args, permission, master_mode):
         )
         entry['generation'] = count(entry, 'generation') + 1
         entry['bootstrap_pending'] = True
+        # Where a spawn does not wait for READY (Amp threads, subagents) the replacement is what a finished unit asked for, so the flag goes with the
+        # generation it asked to replace; bootstrap_pending still keeps the next task away until READY. Where it waits, READY clears it (mark_ready).
+        if not mux.get().waits:
+            entry['rotation_required'] = False
         entry['permission_mode'] = permission
         entry['closed'] = False
         member(doc, 'master')['permission_mode'] = master_mode
