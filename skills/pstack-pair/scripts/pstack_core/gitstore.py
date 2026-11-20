@@ -1036,12 +1036,14 @@ def _blob(store, tip, rel):
 
 def drained(store, tip, record, request):
     """Whether the tree at `tip` (a fetched tip of origin's store branch) holds a valid drain receipt for the request of a thread's control record:
-    from the record's role and generation, naming the record's run and thread, with each listed output at the tip matching its sha256. Reading it
-    from the tip is what makes it reachable from the remote: a receipt that only a role's local commit holds is not there."""
+    from the record's role and generation, naming the record's run and thread, with each listed output matching its sha256 in the commit that last
+    wrote the receipt (a successor that rewrites the path later does not undo it). Reading the receipt from the tip is what makes it reachable from
+    the remote: a receipt that only a role's local commit holds is not there."""
     role, generation = record.get('role'), record.get('generation')
     if not (isinstance(role, str) and isinstance(generation, int) and generation > 0):
         return False
-    text = _blob(store, tip, f'drains/{role}-g{generation}/{request}.json')
+    rel = f'drains/{role}-g{generation}/{request}.json'
+    text = _blob(store, tip, rel)
     try:
         doc = json.loads(text) if text is not None else None
     except ValueError:
@@ -1053,11 +1055,14 @@ def drained(store, tip, record, request):
     outputs = doc.get('outputs')
     if doc.get('request') != request or not isinstance(outputs, list) or not outputs:
         return False
+    wrote = git.out(store, 'log', '-1', '--format=%H', tip, '--', rel)
+    if not wrote:
+        return False
     for out in outputs:
         path = out.get('path') if isinstance(out, dict) else None
         if not isinstance(path, str) or path.startswith('/') or '..' in path.split('/'):
             return False
-        blob = _blob(store, tip, path)
+        blob = _blob(store, wrote, path)
         if blob is None or hashlib.sha256(blob).hexdigest() != out.get('sha256'):
             return False
     return True

@@ -18187,9 +18187,10 @@ class AmpGitKitchenTests(AmpKitchenTests):
             (clone / 'acks').mkdir(exist_ok=True)
             (clone / 'acks/sidekick-g1.tsv').write_text('reports/001-util.md\n')
 
-        def other_output(clone):
-            [out] = json.loads((clone / receipts[-1]).read_text())['outputs']
-            (clone / out['path']).write_text('edited after the receipt\n')
+        def other_sha(clone):
+            doc = json.loads((clone / receipts[-1]).read_text())
+            doc['outputs'][0]['sha256'] = '0' * 64
+            (clone / receipts[-1]).write_text(json.dumps(doc))
 
         cases = [
             ('the last request has no receipt (its report push failed)', remove_last),
@@ -18202,7 +18203,7 @@ class AmpGitKitchenTests(AmpKitchenTests):
                 edit_receipts(lambda d: d.update(generation=2)),
             ),
             ("receipts in the other generation's directory", move_to_g2),
-            ('an output that no longer matches its sha256', other_output),
+            ("a receipt whose sha256 is not its output's at its commit", other_sha),
             ('a parked-note ack and no receipt', only_acks),
         ]
         for label, edit in cases:
@@ -18236,6 +18237,38 @@ class AmpGitKitchenTests(AmpKitchenTests):
             self.listed(old), f'idle  kept: no drain receipt for request {newest["id"]}'
         )
         self.assertEqual(self.dirty_role_files(), [])
+
+    def test_a_successor_rewriting_a_drained_output_does_not_keep_the_old_thread(
+        self,
+    ):
+        old, receipts = self.drained_old_thread()
+        self.assertEqual(self.listed(old), 'idle  archivable')
+        [out] = json.loads(self.remote_git('show', f'kitchen/demo:{receipts[-1]}'))[
+            'outputs'
+        ]
+        name = Path(out['path']).name
+        clone, orb_store = self.fresh_orb('g2-orb')
+        self.as_orb(
+            clone,
+            'sync',
+            '--branch',
+            str(orb_store),
+            'kitchen/demo',
+            thread=amp_thread(2),
+        )
+        head = self.commit_in(clone, 'rewrite')
+        rewrite = self.write_report(orb_store, name, 'done', head)
+        self.as_orb(clone, 'notify', str(orb_store), str(rewrite), thread=amp_thread(2))
+        self.assertNotEqual(
+            hashlib.sha256(rewrite.read_bytes()).hexdigest(), out['sha256']
+        )
+        self.assertEqual(
+            hashlib.sha256(
+                self.remote_git('show', f'kitchen/demo:{out["path"]}').encode()
+            ).hexdigest(),
+            hashlib.sha256(rewrite.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(self.listed(old), 'idle  archivable')
 
     def test_a_rotated_sidekick_thread_is_archived_on_its_own_generations_receipts_and_kept_without_them(
         self,
