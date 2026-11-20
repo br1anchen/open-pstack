@@ -29,7 +29,7 @@ must not write:
 
 ## Steps
 
-1. Start from unit 005's head (the master names it at dispatch). Under `protect`, a path absent from the incoming bundle and present locally is kept, whatever its owner: a role never deletes store files by omission (roles delete nothing in the store by design; confirm with a grep and list any role-side `os.unlink`/`remove` of store paths in the report, and keep deletion for those exact paths only). Add a `BundleMergeTests` row: the master's `progress/025-x.md.seen` and a new `steers/025-x-s2.md` survive a sidekick reply built before them, while the reply's own new progress lines arrive. Commit, `kitchen.sh step`.
+1. Start from unit 005's head b1ca49f (origin kitchen-code/kitchen-followups/sidekick-g4 or the run's code ref). Under `protect`, a path absent from the incoming bundle and present locally is kept, whatever its owner: a role never deletes store files by omission (roles delete nothing in the store by design; confirm with a grep and list any role-side `os.unlink`/`remove` of store paths in the report, and keep deletion for those exact paths only). Add a `BundleMergeTests` row: the master's `progress/025-x.md.seen` and a new `steers/025-x-s2.md` survive a sidekick reply built before them, while the reply's own new progress lines arrive. Commit, `kitchen.sh step`.
 
 ## Context
 

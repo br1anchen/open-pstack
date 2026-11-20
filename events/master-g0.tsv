@@ -93,3 +93,5 @@
 2026-11-20T21:00:33Z	1795208433	master	log	-	plan: added 022 (s4 issues 1+2), 023 (issue 4), 024 (issue 5), 025 (issue 3 residual: master .seen marker in progress/); 005 covers the steer deletion
 2026-11-20T22:16:48Z	1795213008	master	log	-	order: after 005: 023, 025, then 004
 2026-11-20T22:17:16Z	1795213036	master	send-steer	005-kept-sidekick-session-s1	idle
+2026-11-20T22:17:38Z	1795213058	master	queue	023-dispatch-after-ready-sends	
+2026-11-20T22:21:09Z	1795213269	master	rotate	-	generation:4
