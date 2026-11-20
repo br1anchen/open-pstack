@@ -28,23 +28,15 @@ install_dev_tools() {
 # runs with no user identity, so it cannot build joo from the private
 # br1anchen/judge_of_owls; .agents/resume starts that build in the thread
 # (.agents/joo-build). Setup installs what needs no identity: the Claude CLI
-# joo reviews through, joo's config, and a joo-dev stub that waits for the
-# build, or runs it, before each review; the build replaces the stub. None of
-# them holds a secret. A failure only warns.
+# joo reviews through, joo's config, and the joo-dev stub, which builds joo
+# or rebuilds it when main has moved before each review, then runs the build.
+# None of them holds a secret. A failure only warns.
 install_joo_stub() {
   command -v claude >/dev/null || npm install --global --silent @anthropic-ai/claude-code \
     || printf 'joo: warning: could not install the Claude CLI\n'
-  mkdir -p "$HOME/.joo" "$HOME/.local/bin"
+  mkdir -p "$HOME/.joo"
   [[ -f "$HOME/.joo/config.json" ]] || printf '{ "agentTiers": "claude:opus" }\n' > "$HOME/.joo/config.json"
-  [[ -f "$HOME/.local/bin/.joo-revision" ]] && return 0
-  # The stub is one compound command, which bash reads whole before running
-  # it, because the build overwrites this file while a review waits in it.
-  printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    '# joo-dev stub from .agents/setup; the joo build replaces it.' \
-    "{ \"$repo_root/.agents/joo-build\" wait >&2 && exec \"\$HOME/.local/bin/joo-dev\" \"\$@\"; exit; }" \
-    > "$HOME/.local/bin/joo-dev"
-  chmod +x "$HOME/.local/bin/joo-dev"
+  "$repo_root/.agents/joo-build" stub
   printf 'joo: stub installed; .agents/resume builds joo in the thread\n'
 }
 

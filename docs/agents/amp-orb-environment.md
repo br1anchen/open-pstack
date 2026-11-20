@@ -28,19 +28,24 @@ Amp orbs are the Debian 12 sandboxes Amp agents work in
 
 `.agents/resume` runs on every activation and wake. It reruns the skill sync,
 a no-op unless a snapshot came without the links, and runs
-`.agents/joo-build start`: when the token is set and joo is not built, that
-starts the build in the background, under a lock in `~/.cache`, so wakes
-that overlap never build twice, and logs to `~/.cache/joo-build.log`.
-Resume returns in well under a second.
+`.agents/joo-build start`: when the token is set, that starts a background
+check, under a lock in `~/.cache`, which builds joo from the head of
+`br1anchen/judge_of_owls` main when joo is not built or its build is behind
+main. Wakes that overlap never build twice, and the build logs to
+`~/.cache/joo-build.log`. Resume returns in well under a second.
 
-The stub runs `.agents/joo-build wait` before every `joo-dev` call. It
-returns at once when joo is built. Otherwise it reports the running build and
-waits for it, or builds now when none is running or the last one died with
-its process, then runs the real `joo-dev`, which the build wrote over the
-stub. A cold build takes about 2.5 minutes. Without the token it exits 1 and
-says so, and a failed build prints the log's last lines. `kitchen.py doctor`
-finds the stub on PATH, so it does not prove joo is built; `ls
-~/.local/bin/.joo-revision` does.
+`~/.local/bin/joo-dev` stays the stub: the build moves the real binary to
+`~/.local/bin/joo-dev-built`, next to the skills and `joo-codebase-index` it
+loads, and records its revision in `~/.local/bin/.joo-revision`. The stub
+runs `.agents/joo-build wait` before every `joo-dev` call, so every review
+runs the latest build of joo's main. `wait` waits for a running build, then
+compares the recorded revision with main (`git ls-remote`, about a second):
+when they match it returns, and otherwise it builds now. A cold build takes
+about 2.5 minutes. When main cannot be read, the token is unset or the
+rebuild fails, it warns and reviews with the previous build; with no build
+at all it exits 1 and says why, and a failed build prints the log's last
+lines. `kitchen.py doctor` finds the stub on PATH, so it does not prove joo
+is built; `cat ~/.local/bin/.joo-revision` shows the revision it built.
 
 Three Amp project environment variables (Settings, Secrets & Env Vars)
 configure the kitchen for orbs, because agent tools run `bash -c` and never

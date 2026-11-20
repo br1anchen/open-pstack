@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # Builds joo (Judge of Owls, the private br1anchen/judge_of_owls), the review
-# engine .agents/kitchen.toml names, into ~/.local/bin/joo-dev. Amp runs
+# engine .agents/kitchen.toml names, from the head of its main branch. Amp runs
 # project setup with no user identity, so setup can read neither that
 # repository nor the owner's Claude token, the personal Amp secret
 # CLAUDE_CODE_OAUTH_TOKEN. The build runs in the thread instead, after the
 # snapshot was taken, so no token or login reaches a snapshot.
 #
-#   joo-build start  start a build in the background, unless joo is built, a
-#                    build is running or the token is unset (.agents/resume
-#                    runs this on every activation and wake)
-#   joo-build wait   wait for a running build, or build now, and report it;
-#                    exits 0 once joo is built. The joo-dev stub that setup
-#                    installs runs this before every review.
+# ~/.local/bin/joo-dev is always the stub this script writes; the build moves
+# the real binary next to it as joo-dev-built, so the binary's skills and
+# joo-codebase-index stay in its directory. The stub runs `wait` before every
+# review, so every review runs the latest build of joo's main.
+#
+#   joo-build start  start a background build when joo is not built or its
+#                    build is behind main, unless a build is running or the
+#                    token is unset (.agents/resume runs this on every
+#                    activation and wake)
+#   joo-build wait   wait for a running build, or build now when joo is not
+#                    built or is behind main, and report it; exits 0 once joo
+#                    is built. When main cannot be read it keeps the current
+#                    build and warns.
+#   joo-build stub   write the joo-dev stub (.agents/setup runs this)
 #
 # One lock serialises the builds, so concurrent wakes never build twice, and a
 # build that died with its orb process frees the lock for the next caller.
@@ -20,6 +28,7 @@ set -euo pipefail
 
 bin="$HOME/.local/bin"
 built="$bin/.joo-revision"
+real="$bin/joo-dev-built"
 lock="$HOME/.cache/joo-build.lock"
 log="$HOME/.cache/joo-build.log"
 src="$HOME/.cache/judge_of_owls"
@@ -27,6 +36,43 @@ self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE
 
 stamp() {
   printf '%s joo: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
+}
+
+# The stub is one compound command, which bash reads whole before running it,
+# so rewriting this file never disturbs a review that waits in it.
+write_stub() {
+  mkdir -p "$bin"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    '# joo-dev stub from .agents/joo-build: builds or refreshes joo, then runs it.' \
+    "{ \"$self\" wait >&2 && exec \"$real\" \"\$@\"; exit; }" \
+    > "$bin/joo-dev.tmp"
+  chmod +x "$bin/joo-dev.tmp"
+  mv -f "$bin/joo-dev.tmp" "$bin/joo-dev"
+}
+
+# The head of joo's main, or nothing when it cannot be read (no clone yet, no
+# network, no GitHub login).
+main_head() {
+  if [[ -d "$src/.git" ]]; then
+    timeout 20 git -C "$src" ls-remote origin refs/heads/main 2> /dev/null | cut -f 1
+  else
+    timeout 20 gh api repos/br1anchen/judge_of_owls/commits/main --jq .sha 2> /dev/null
+  fi || true
+}
+
+# up-to-date, stale, unbuilt or unknown (built, but main cannot be read).
+state() {
+  [[ -f "$built" && -x "$real" ]] || { echo unbuilt; return; }
+  local head
+  head="$(main_head)"
+  if [[ -z "$head" ]]; then
+    echo unknown
+  elif [[ "$head" == "$(cat "$built")" ]]; then
+    echo up-to-date
+  else
+    echo stale
+  fi
 }
 
 # The build itself, with the lock held. Its output goes to the log. Callers
@@ -54,7 +100,11 @@ build() {
     gh repo clone br1anchen/judge_of_owls "$src" -- --quiet --depth 1
   fi
   mkdir -p "$bin"
+  # build:local writes ~/.local/bin/joo-dev over the stub; move it aside and
+  # put the stub back.
   (cd "$src" && nix develop --command bash -c 'bun install --frozen-lockfile && bun run build:local')
+  mv -f "$bin/joo-dev" "$real"
+  write_stub
   git -C "$src" rev-parse HEAD > "$built"
   stamp "built $(cut -c 1-12 "$built")"
 }
@@ -66,7 +116,9 @@ hold_lock() {
 
 case "${1:-}" in
   start)
-    [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" && ! -f "$built" ]] || exit 0
+    # The check against main reads the network, so it runs in the background
+    # too and resume returns at once.
+    [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] || exit 0
     mkdir -p "$(dirname "$log")"
     setsid -f "$self" background < /dev/null >> "$log" 2>&1
     ;;
@@ -76,34 +128,53 @@ case "${1:-}" in
   background)
     hold_lock
     flock -n 9 || exit 0
-    [[ -f "$built" ]] || "$self" build
+    case "$(state)" in up-to-date | unknown) exit 0 ;; esac
+    "$self" build
+    ;;
+  stub)
+    write_stub
     ;;
   wait)
-    [[ -f "$built" ]] && exit 0
     hold_lock
     if ! flock -n 9; then
       printf 'joo: a build is running (log %s); waiting for it. Last lines:\n' "$log"
       tail -n 3 "$log" 2> /dev/null || true
       flock 9
     fi
-    if [[ -f "$built" ]]; then
-      printf 'joo: built %s\n' "$(cut -c 1-12 "$built")"
-      exit 0
-    fi
+    now="$(state)"
+    case "$now" in
+      up-to-date) exit 0 ;;
+      unknown)
+        printf 'joo: warning: cannot read the head of br1anchen/judge_of_owls main; reviewing with build %s\n' "$(cut -c 1-12 "$built")"
+        exit 0
+        ;;
+    esac
     if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+      if [[ "$now" == stale ]]; then
+        printf 'joo: warning: build %s is behind main and CLAUDE_CODE_OAUTH_TOKEN (personal Amp secret) is not set, so it cannot be rebuilt; reviewing with it\n' "$(cut -c 1-12 "$built")"
+        exit 0
+      fi
       printf 'joo: not built, and CLAUDE_CODE_OAUTH_TOKEN (personal Amp secret) is not set, so joo cannot be built or run\n'
       exit 1
     fi
-    printf 'joo: not built yet; building now, about 2.5 minutes (log %s)\n' "$log"
+    if [[ "$now" == stale ]]; then
+      printf 'joo: build %s is behind main; rebuilding now (log %s)\n' "$(cut -c 1-12 "$built")" "$log"
+    else
+      printf 'joo: not built yet; building now, about 2.5 minutes (log %s)\n' "$log"
+    fi
     if ! "$self" build >> "$log" 2>&1; then
       printf 'joo: build failed; last lines of %s:\n' "$log"
       tail -n 20 "$log"
+      if [[ "$now" == stale ]]; then
+        printf 'joo: warning: reviewing with the previous build %s\n' "$(cut -c 1-12 "$built")"
+        exit 0
+      fi
       exit 1
     fi
     printf 'joo: built %s\n' "$(cut -c 1-12 "$built")"
     ;;
   *)
-    printf 'usage: joo-build start|wait\n' >&2
+    printf 'usage: joo-build start|wait|stub\n' >&2
     exit 2
     ;;
 esac
