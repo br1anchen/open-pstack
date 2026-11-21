@@ -67,9 +67,9 @@
     "rotation_required": false,
     "delivered": {
       "generation": "12",
-      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
+      "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "031-master-bundle-branches-fix",
+      "brief": "022-migrated-threads-archive-nest",
       "compactions": 0
     }
   },
@@ -95,9 +95,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "031-master-bundle-branches-fix-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -251,38 +249,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/031-master-bundle-branches-fix-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/031-master-bundle-branches-fix-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/031-master-bundle-branches-fix.md",
-    "scratch": "031-master-bundle-branches-fix-verify",
-    "units": "004 031",
-    "risk": "escalated",
-    "sample": 1.0,
-    "unit": "031-master-bundle-branches-fix",
-    "started": 1795244558,
-    "deadline": 1795247258,
-    "class": "escalated",
-    "entry": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "claude-opus-5-5"
-      ],
-      "fallback": null,
-      "fallbacks": [],
-      "source": "default"
-    },
-    "retried": false,
-    "argv": [
-      "031",
-      "--covers",
-      "004",
-      "--base",
-      "6a83f50"
-    ],
-    "delivered": true,
-    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-031-master-bundle-branches-fix-verify/T-01a1fcea-2d0f-7099-89ef-9831dafddd9a.jsonl"
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
