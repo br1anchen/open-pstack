@@ -23,6 +23,7 @@ from pstack_core.errors import (
     NextMasterNotStarted,
     PairError,
     RotateRefused,
+    ToolFailed,
 )
 from pstack_core.exits import end_agent, exit_deadline, stop_prime_role
 from pstack_core.mux import amp_routing
@@ -526,6 +527,8 @@ def snapshot_roster(store, next_gen):
 def restore_roster(store):
     """take-master on a thread hand-over: the roster the old master snapshotted is installed at this orb's roster path when nothing is there; a
     file that is there stays, and is reported when it differs. Contents are never printed. A store from before snapshots gets a notice."""
+    if not mux.get().master_threads:
+        return
     previous = peek(peek(load(store), 'master'), 'previous')
     out = sys.stdout
     if 'roster' not in previous:
@@ -538,8 +541,9 @@ def restore_roster(store):
     try:
         data = open(snapshot, 'rb').read()
     except OSError as err:
-        raise Die(
-            f'take-master: cannot read the roster snapshot {snapshot}: {err.strerror}'
+        raise ToolFailed(
+            1,
+            f'take-master: cannot read the roster snapshot {snapshot}: {err.strerror}',
         ) from None
     target = kpy.kitchen_py.roster_path()
     try:
@@ -547,8 +551,8 @@ def restore_roster(store):
     except FileNotFoundError:
         held = None
     except OSError as err:
-        raise Die(
-            f'take-master: cannot read the roster {target}: {err.strerror}'
+        raise ToolFailed(
+            1, f'take-master: cannot read the roster {target}: {err.strerror}'
         ) from None
     if held is None:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -561,8 +565,9 @@ def restore_roster(store):
             except FileExistsError:
                 held = target.read_bytes()
             except OSError as err:
-                raise Die(
-                    f'take-master: cannot install the roster at {target}: {err.strerror}'
+                raise ToolFailed(
+                    1,
+                    f'take-master: cannot install the roster at {target}: {err.strerror}',
                 ) from None
         finally:
             temp.unlink(missing_ok=True)
@@ -754,6 +759,13 @@ def close_old_pane(prev, prev_pane, pane):
     return 'kept', host
 
 
+def wait_for_old_master(prev):
+    """Gives the old master up to KITCHEN_TAKEOVER_WAIT_S to end its turn before its pane is closed."""
+    deadline = int(time.time()) + env_int('KITCHEN_TAKEOVER_WAIT_S', 30)
+    while agent_status(prev) == 'working' and int(time.time()) < deadline:
+        time.sleep(env_float('KITCHEN_ROTATE_POLL_S', 2))
+
+
 def take_master(ctx, args):
     require_mux()
     if len(args) != 1:
@@ -779,12 +791,9 @@ def take_master(ctx, args):
             f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}",
             5,
         )
-    if mux.get().master_threads:
-        restore_roster(store)
+    restore_roster(store)
     prev_pane = read(store, 'master.previous.pane_id')
-    deadline = int(time.time()) + env_int('KITCHEN_TAKEOVER_WAIT_S', 30)
-    while agent_status(prev) == 'working' and int(time.time()) < deadline:
-        time.sleep(env_float('KITCHEN_ROTATE_POLL_S', 2))
+    wait_for_old_master(prev)
     m = mux.get()
     closed, host = close_old_pane(prev, prev_pane, pane)
     base = f'{read(store, "slug")}-master'
