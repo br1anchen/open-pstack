@@ -89,7 +89,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:19",
+    "pane_id": "amp:3",
     "kind": "claude",
     "started_at": null
   },
@@ -109,7 +109,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "010-roster-handoff-verify"
+  ],
   "anchor": {
     "thread": "T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
     "title": "kitchen-followups master",
@@ -291,5 +293,33 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/010-roster-handoff-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/010-roster-handoff-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/010-roster-handoff.md",
+    "scratch": "010-roster-handoff-verify",
+    "units": "010",
+    "risk": "escalated",
+    "sample": 1.0,
+    "unit": "010-roster-handoff",
+    "started": 1795271417,
+    "deadline": 1795274117,
+    "class": "escalated",
+    "entry": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "claude-opus-5-5"
+      ],
+      "fallback": null,
+      "fallbacks": [],
+      "source": "default"
+    },
+    "retried": false,
+    "argv": [
+      "010"
+    ],
+    "delivered": false
+  }
 }

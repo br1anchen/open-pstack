@@ -12,3 +12,4 @@
 2026-11-21T14:28:45Z	1795271325	master	log	-	plan: GLM trial: Sonnet while Amp credits are out
 2026-11-21T14:29:54Z	1795271394	master	reuse	037-landing-rebase-2	sidekick: pstack, pstack-docs, context 18%
 2026-11-21T14:29:59Z	1795271399	master	send-brief	037-landing-rebase-2	
+2026-11-21T14:30:17Z	1795271417	master	send-verify	010-roster-handoff	claude:010
