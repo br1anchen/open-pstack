@@ -61,7 +61,7 @@
       "model:claude-sonnet-5-5"
     ],
     "generation": 10,
-    "bootstrap_pending": true,
+    "bootstrap_pending": false,
     "permission_mode": "native-args",
     "closed": false,
     "rotation_required": false,
@@ -71,8 +71,7 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "025-reply-deletes-no-master-state",
       "compactions": 0
-    },
-    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/025-reply-deletes-no-master-state.md"
+    }
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -154,21 +153,21 @@
   ],
   "placement": "split",
   "pending": [
-    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/025-reply-deletes-no-master-state.md"
+    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/004-master-bundle-branches.md"
   ],
   "dispatch": {
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/025-reply-deletes-no-master-state.md",
-    "at": "2026-11-21T03:10:23Z",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/004-master-bundle-branches.md",
+    "at": "2026-11-21T04:03:58Z",
     "head": "7218f3112db91d4448b20d708b5c92117b6543db",
-    "generation": 9,
+    "generation": 10,
     "sidekick": "amp claude-code claude-sonnet-5-5",
     "report_order": 0
   },
   "sent": {
-    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/025-reply-deletes-no-master-state.md",
+    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/004-master-bundle-branches.md",
     "kind": "BRIEF",
-    "at": "2026-11-21T03:10:23Z",
-    "epoch": 1795230623
+    "at": "2026-11-21T04:03:58Z",
+    "epoch": 1795233838
   },
   "heads": {
     "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
@@ -184,7 +183,8 @@
     "027-master-is-anchor": "7218f3112db91d4448b20d708b5c92117b6543db",
     "028-dispatch-after-ready-sends-fix": "7218f3112db91d4448b20d708b5c92117b6543db",
     "029-master-is-anchor-fix": "7218f3112db91d4448b20d708b5c92117b6543db",
-    "025-reply-deletes-no-master-state": "7218f3112db91d4448b20d708b5c92117b6543db"
+    "025-reply-deletes-no-master-state": "7218f3112db91d4448b20d708b5c92117b6543db",
+    "004-master-bundle-branches": "7218f3112db91d4448b20d708b5c92117b6543db"
   },
   "sidekick_models": {
     "001-swallowed-failures": "amp anthropic/claude-sonnet-5-5",
@@ -200,7 +200,8 @@
     "027-master-is-anchor": "amp claude-code claude-sonnet-5-5",
     "028-dispatch-after-ready-sends-fix": "amp claude-code claude-sonnet-5-5",
     "029-master-is-anchor-fix": "amp claude-code claude-sonnet-5-5",
-    "025-reply-deletes-no-master-state": "amp claude-code claude-sonnet-5-5"
+    "025-reply-deletes-no-master-state": "amp claude-code claude-sonnet-5-5",
+    "004-master-bundle-branches": "amp claude-code claude-sonnet-5-5"
   },
   "sidekick_threads": {
     "amp anthropic/claude-sonnet-5-5": [
