@@ -75,3 +75,9 @@
 2026-11-21T03:08:27Z	1795230507	master	rotate	-	generation:8
 2026-11-21T03:08:38Z	1795230518	master	nest-pending	-	T-01a1fc13-c1f9-7664-b9b5-5b7a64516c97 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
 2026-11-21T03:08:44Z	1795230524	master	spawn	-	sidekick:amp:handed-off
+2026-11-21T03:08:55Z	1795230535	master	nest	-	T-01a1fc13-4107-71b9-96ce-31e3d28b00b8 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T03:08:55Z	1795230535	master	nest	-	T-01a1fc13-c1f9-7664-b9b5-5b7a64516c97 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T03:10:20Z	1795230620	master	archive	-	sidekick:T-01a1fbdd-2049-7157-8e2a-33abfab79cff
+2026-11-21T03:10:20Z	1795230620	master	log	-	archive: archive sidekick T-01a1fbdd-2049-7157-8e2a-33abfab79cff
+2026-11-21T03:10:22Z	1795230622	master	spawn	-	sidekick:amp:ready
+2026-11-21T03:10:23Z	1795230623	master	send-brief	025-reply-deletes-no-master-state	
