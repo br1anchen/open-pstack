@@ -27,7 +27,7 @@
     "name": "kitchen-followups-sidekick",
     "pane_id": "amp:1",
     "kind": "amp",
-    "started_at": "2026-11-21T09:43:29Z",
+    "started_at": "2026-11-21T12:21:17Z",
     "fallback": {
       "kind": "amp",
       "args": [
@@ -58,8 +58,8 @@
       "--model",
       "zhipuai/glm-5.3"
     ],
-    "generation": 13,
-    "bootstrap_pending": false,
+    "generation": 14,
+    "bootstrap_pending": true,
     "permission_mode": "native-args",
     "closed": false,
     "rotation_required": false,

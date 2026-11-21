@@ -248,3 +248,7 @@
 2026-11-21T11:58:34Z	1795262314	master	queue	-	cleared
 2026-11-21T11:58:40Z	1795262320	master	reuse	035-branch-ahead-not-diverged	sidekick: pstack, pstack-docs, context 24%
 2026-11-21T11:58:47Z	1795262327	master	send-brief	035-branch-ahead-not-diverged	
+2026-11-21T11:58:59Z	1795262339	master	queue	010-roster-handoff	
+2026-11-21T11:59:05Z	1795262345	master	nest	-	T-01a1fdf8-d3cd-7737-917d-61765eabcde7 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T12:21:13Z	1795263673	master	log	-	model: 010 runs on GLM-5.3 (last GLM unit of the A/B, standing order 26); sidekick start_args switched, rotating
+2026-11-21T12:21:17Z	1795263677	master	rotate	-	generation:13
