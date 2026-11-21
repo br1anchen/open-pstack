@@ -23251,9 +23251,9 @@ class GitStoreTests(unittest.TestCase):
         self.assertEqual(gitstore.branch_of(store), 'kitchen/mig')
         self.assertEqual(gitstore.dirty(store), set())
         self.assertTrue(os.path.isfile(f'{store}/steps/jobs/001-x-abc/out'))
-        self.assertEqual(
-            gitstore.backend_record(store), {'backend': 'git', 'branch': 'kitchen/mig'}
-        )
+        record = gitstore.backend_record(store)
+        self.assertIsInstance(record.pop('migrated_at'), int)
+        self.assertEqual(record, {'backend': 'git', 'branch': 'kitchen/mig'})
         shown = self.sh(
             'git', '--git-dir', str(self.remote), 'show', 'kitchen/mig:pair.json'
         )

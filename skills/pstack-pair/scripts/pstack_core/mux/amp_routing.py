@@ -451,6 +451,15 @@ def kept_by_branch(store, thread, role, tip=None):
     return pending_work(store, thread) or undrained(store, thread, role, tip)
 
 
+def before_migration(store, thread):
+    """Whether `thread` began before the store moved to git (pair.json `.store_backend.migrated_at`): the master's requests to it were never on the
+    branch, so a missing receipt says nothing and the local-store checks decide. A thread with no recorded start or retirement time does not count."""
+    migrated = gitstore.backend_record(store).get('migrated_at')
+    entry = _amp().load_json(_amp().threads_path()).get(thread) or {}
+    began = _num(entry, 'started') or _num(entry, 'at')
+    return isinstance(migrated, int) and 0 < began < migrated
+
+
 def undrained(store, thread, role, tip=None):
     """Why a git-store sidekick or consultant thread is kept for want of its drain receipts: every request of its record (pending or sent) needs a
     receipt of its own generation that is on origin's store branch as fetched now. A request newer than the last receipt keeps it; so does
@@ -464,6 +473,8 @@ def undrained(store, thread, role, tip=None):
         if r.get('state') in (PENDING, SENT)
     ]
     if not requests:
+        if before_migration(store, thread):
+            return ''
         return f'{NO_DRAIN} (the store branch records no request to it)'
     tip = (tip or (lambda: gitstore.fetch_tip(store)))()
     if not tip:

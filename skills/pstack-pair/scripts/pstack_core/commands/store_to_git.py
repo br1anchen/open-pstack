@@ -8,6 +8,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 from .. import git, gitstore, secrets
 from ..errors import Die, PairError, SecretFound
@@ -147,6 +148,7 @@ def finish(ctx, store, repo, branch):
             record = member(doc, 'store_backend')
             record['backend'] = 'git'
             record['branch'] = branch
+            record['migrated_at'] = int(time.time())
 
         update(store, mutate)
         event(store, 'master', 'store-to-git', '-', branch)
