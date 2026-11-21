@@ -272,6 +272,7 @@
       "--base",
       "6a83f50"
     ],
-    "delivered": false
+    "delivered": true,
+    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-004-master-bundle-branches-verify/T-01a1fc7b-9233-7087-8395-5247ff7177e4.jsonl"
   }
 }
