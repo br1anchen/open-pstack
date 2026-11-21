@@ -552,13 +552,18 @@ def recovery_recipe(root, target, old, new):
     return f'cd {q(root)} && {here} && {at} && {clean} && {keep} && {move}'
 
 
-def diverged(root, sender, target, old, new, ref):
+def diverged(root, sender, target, kept, old, new, ref):
     """The lines for a checkout that kept its own commits: where each side is, where the incoming commit stays reachable, and the recovery
-    recipe. Nothing is moved here."""
+    recipe. `target` is the branch (or '' for the detached HEAD) that diverged, `old` its tip; `kept` is where this checkout stays. Nothing is
+    moved here."""
     on = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
-    whose = 'it' if target == on else f'branch {target} here'
+    whose = (
+        'it'
+        if target == on
+        else f'{on or "detached HEAD"} stays, and branch {target} here'
+    )
     return (
-        f'checkout: kept {old[:9]}: {whose} diverged from {sender} ({new[:9]})\n'
+        f'checkout: kept {kept[:9]}: {whose} diverged from {sender} ({new[:9]})\n'
         f'  {target or "detached HEAD"} is at {old}; {sender} is at {new} (kept as {ref})\n'
         f"  to take {sender}'s commits and keep this side's under kitchen-recovery/{old}, run (it changes nothing unless this checkout is still as described):\n"
         f'    {recovery_recipe(root, target, old, new)}'
@@ -568,8 +573,8 @@ def diverged(root, sender, target, old, new, ref):
 def move_checkout(root, head, branch, sender, ref):
     """Takes the sender's HEAD (kept at `ref`) into this checkout when that loses nothing: a clean tree whose commits the sender's head (or the
     remotes) already hold. The lines saying what happened; a checkout that diverged is left as it is, with a recipe to move it by hand. A checkout on
-    another branch than the sender's is never reset onto the sender's head: its own commits keep it where it is, and the sender's branch gets the
-    branch rules (a recipe of its own when it diverged here)."""
+    a branch other than the sender's (the sender's branch, or none when the sender is detached) is never reset onto the sender's head: its own
+    commits keep it where it is, and the sender's branch gets the branch rules (a recipe of its own when it diverged here)."""
     short = head[:9]
     local = git.out(root, 'rev-parse', 'HEAD') or ''
     if local == head:
@@ -582,19 +587,19 @@ def move_checkout(root, head, branch, sender, ref):
             f'checkout: kept {local[:9]}: tracked changes here; {sender} is at {short}'
         )
     on = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
-    elsewhere = bool(on and branch and on != branch)
+    elsewhere = bool(on) and branch != on
     own = bool(local) and own_commits(root, local, head)
     if own and not elsewhere:
-        return diverged(root, sender, on, local, head, ref)
+        return diverged(root, sender, on, local, local, head, ref)
     mine = f'refs/heads/{branch}'
     if branch and has_commit(root, mine) and own_commits(root, mine, head):
-        return diverged(
-            root, sender, branch, git.out(root, 'rev-parse', mine) or '', head, ref
-        )
+        old = git.out(root, 'rev-parse', mine) or ''
+        return diverged(root, sender, branch, local, old, head, ref)
     if own:
+        there = f'on {branch}' if branch else 'detached'
         return (
             f'checkout: kept {local[:9]}: {on} has commits here that {sender} lacks; '
-            f'{sender} is on {branch} at {short} (kept as {ref})'
+            f'{sender} is {there} at {short} (kept as {ref})'
         )
     moved = (
         git.ok(root, 'checkout', '-q', '-B', branch, head)

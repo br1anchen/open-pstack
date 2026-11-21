@@ -21030,6 +21030,11 @@ class BundleBranchApplyTests(BundleRepoCase):
             self.git('rev-parse', 'HEAD', 'refs/heads/X').split(), [x_tip] * 2
         )
         self.assertEqual(self.git('rev-parse', 'refs/heads/Y'), y_here)
+        self.assertIn(
+            f'checkout: kept {x_tip[:9]}: X stays, and branch Y here diverged from m',
+            text,
+        )
+        self.assertNotIn(f'checkout: kept {y_here[:9]}', text)
         self.assertIn(f'checkout -q -B Y {y_sent}', text)
         self.assertIn(f'kitchen-recovery/{y_here}', text)
         self.assertNotIn('reset --keep', text)
@@ -21159,6 +21164,27 @@ class BundleBranchApplyTests(BundleRepoCase):
             'for-each-ref', '--format=%(refname)', 'refs/pstack/in/T-m/'
         ).splitlines()
         self.assertEqual({ref.split('/')[4] for ref in refs}, {current, named})
+
+    def test_a_detached_sender_gets_no_reset_recipe_for_the_receivers_branch_and_the_line_names_the_incoming_ref(
+        self,
+    ):
+        self.git('checkout', '-q', '--detach', self.base)
+        head = self.commit('detached-work')
+        bundle = self.pack_and_prune()
+        self.git('checkout', '-q', '-B', 'X', self.base)
+        x_tip = self.commit('x-own')
+        self.prune()
+        _, lines = self.bundle.apply(str(bundle))
+        text = '\n'.join(lines)
+        self.assertEqual(
+            self.git('rev-parse', 'HEAD', 'refs/heads/X').split(), [x_tip] * 2
+        )
+        self.assertIn(
+            f'checkout: kept {x_tip[:9]}: X has commits here that m lacks', text
+        )
+        self.assertIn(f'm is detached at {head[:9]} (kept as refs/pstack/in/T-m/', text)
+        self.assertNotIn('reset --keep', text)
+        self.assertNotIn('kitchen-recovery', text)
 
 
 class BundleRebasedCheckoutTests(BundleRepoCase):
