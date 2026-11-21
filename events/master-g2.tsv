@@ -50,3 +50,8 @@
 2026-11-21T02:09:04Z	1795226944	master	spawn	-	sidekick:amp:handed-off
 2026-11-21T02:09:14Z	1795226954	master	send-verify	028-dispatch-after-ready-sends-fix	amp:026 023 028
 2026-11-21T02:09:37Z	1795226977	master	verify-redeliver	028-dispatch-after-ready-sends-fix	amp
+2026-11-21T02:09:41Z	1795226981	master	wake	028-dispatch-after-ready-sends-fix	verify:progress
+2026-11-21T02:09:55Z	1795226995	master	nest	-	T-01a1fbdd-2049-7157-8e2a-33abfab79cff under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T02:10:17Z	1795227017	master	wake	028-dispatch-after-ready-sends-fix	verify:progress
+2026-11-21T02:10:36Z	1795227036	master	verify-cancel	028-dispatch-after-ready-sends-fix	026 023 028
+2026-11-21T02:10:44Z	1795227044	master	send-verify	028-dispatch-after-ready-sends-fix	amp:026 023 028
