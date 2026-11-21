@@ -5,7 +5,7 @@
   "cwd": "/home/user/workspace/repo",
   "git_root": "/home/user/workspace/repo",
   "master": {
-    "name": "kitchen-followups-master-g3",
+    "name": "kitchen-followups-master",
     "pane_id": "amp:T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6",
     "workspace_id": "",
     "tab_id": "",
@@ -27,12 +27,7 @@
         "handoff": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/sessions/master-2-handoff.md",
         "at": "2026-11-21T14:22:42Z"
       }
-    ],
-    "previous": {
-      "name": "kitchen-followups-master",
-      "pane_id": "amp:T-01a1fb72-f256-7439-9c4a-d630b435d90d",
-      "session": ""
-    }
+    ]
   },
   "sidekick": {
     "name": "kitchen-followups-sidekick",
@@ -166,6 +161,10 @@
     {
       "path": "/home/user/workspace/repo/skills",
       "at": "2026-11-21T00:21:08Z"
+    },
+    {
+      "path": "/home/user/.local/share/pstack-builds/6aaa6770ea89df2b/skills",
+      "at": "2026-11-21T14:23:28Z"
     }
   ],
   "placement": "split",
