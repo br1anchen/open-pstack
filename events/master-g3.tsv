@@ -13,3 +13,16 @@
 2026-11-21T14:29:54Z	1795271394	master	reuse	037-landing-rebase-2	sidekick: pstack, pstack-docs, context 18%
 2026-11-21T14:29:59Z	1795271399	master	send-brief	037-landing-rebase-2	
 2026-11-21T14:30:17Z	1795271417	master	send-verify	010-roster-handoff	claude:010
+2026-11-21T14:30:27Z	1795271427	master	nest-pending	-	T-01a1fe83-fb64-74cf-af04-4046863194ac under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-21T14:30:34Z	1795271434	master	wake	010-roster-handoff	verify:progress
+2026-11-21T14:32:32Z	1795271552	master	log	-	plan: 038 redesigned: snooze when idle, wake before work
+2026-11-21T14:35:29Z	1795271729	master	queue	039-roster-handoff-fix	
+2026-11-21T14:35:29Z	1795271729	master	log	-	review-010: 010 revise: joo medium publishes the host roster under the git store (public repo); 3 lows
+2026-11-21T14:35:35Z	1795271735	master	wake	010-roster-handoff	verify:progress
+2026-11-21T14:35:52Z	1795271752	master	nest	-	T-01a1fe83-fb64-74cf-af04-4046863194ac under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-21T14:43:50Z	1795272230	master	archive	-	verifier:T-01a1fe83-fb64-74cf-af04-4046863194ac
+2026-11-21T14:43:50Z	1795272230	master	log	-	archive: archive verifier T-01a1fe83-fb64-74cf-af04-4046863194ac
+2026-11-21T14:43:50Z	1795272230	master	verify	010-roster-handoff	clean
+2026-11-21T14:43:50Z	1795272230	master	wake	010-roster-handoff	verify:clean
+2026-11-21T14:43:58Z	1795272238	master	log	-	verify-010: 010 verdict clean; review stays revise
+2026-11-21T15:04:14Z	1795273454	master	log	-	plan: Brian's store-default rule folds into plan 016 (unit 011)

@@ -5,7 +5,7 @@
       {
         "id": "pstack-code",
         "kind": "area",
-        "why": "applies skills/*/scripts/** matches skills/pstack-pair/scripts/pstack_core/commands/nest.py"
+        "why": "applies skills/*/scripts/** matches skills/pstack-pair/scripts/pstack_core/commands/snooze.py"
       }
     ]
   },

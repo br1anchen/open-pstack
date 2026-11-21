@@ -11,7 +11,7 @@
     "tab_id": "",
     "registered_at": "2026-11-21T14:22:42Z",
     "permission_mode": "auto",
-    "units_since_handoff": 0,
+    "units_since_handoff": 1,
     "generation": 3,
     "landed_since_handoff": false,
     "sessions": [
@@ -166,6 +166,10 @@
     {
       "path": "/home/user/.local/share/pstack-builds/6aaa6770ea89df2b/skills",
       "at": "2026-11-21T14:23:28Z"
+    },
+    {
+      "path": "/home/user/workspace/repo/skills",
+      "at": "2026-11-21T15:04:14Z"
     }
   ],
   "placement": "split",

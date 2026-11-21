@@ -1,7 +1,7 @@
 # Brief 038: snooze-role-threads
 
 playbook: feature
-timebox: 75
+timebox: 120
 commit: yes, one commit per step, each recorded with kitchen.sh step
 plan: none
 risk: routine
@@ -14,14 +14,15 @@ report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/
 
 ## Goal
 
-Under Amp threads, every role thread the kitchen starts (sidekick, consultant, verifier, helper) is snoozed indefinitely by the master in the same step that nests it under the run's anchor, so the human sees only master threads; master threads are never snoozed, and `PSTACK_SNOOZE_ROLES=0` turns the snooze off (on by default).
+Under Amp threads the master snoozes a role thread (sidekick, consultant, verifier, helper) only once it has no open work and its turn is settled, and unsnoozes it before the kitchen sends it new work, so Brian sees active role threads and master threads and nothing else; master threads and threads blocked on a question or an error are never snoozed, and `PSTACK_SNOOZE_ROLES=0` turns the snoozing off (on by default).
 
 ## Scope
 
 may write:
-- skills/pstack-pair/scripts/pstack_core/commands/nest.py
+- skills/pstack-pair/scripts/pstack_core/commands/snooze.py — new
+- skills/pstack-pair/scripts/pstack_core/cli.py — register `snooze` beside `nest`
 - skills/pstack-pair/scripts/pstack_core/commands/status.py
-- skills/pstack-pair/scripts/pstack_core/numbers.py
+- skills/pstack-pair/scripts/pstack_core/mux/amp.py — the wake check and the one helper step 1 extracts
 - skills/pstack-kitchen/SKILL.md
 - skills/pstack-kitchen/references/master.md
 - tests/test_pstack_kitchen.py
@@ -29,35 +30,40 @@ may write:
 - tests/pstack-pair/bin/amp
 
 must not write:
-- skills/pstack-pair/scripts/pstack_core/mux/amp.py (the CLI cannot snooze; the master's update_thread tool does it, as it does the nesting)
+- skills/pstack-pair/scripts/pstack_core/commands/nest.py (threads are not snoozed when they start; nesting is unchanged)
 - anything else
 
 ## Steps
 
-Start from the rebased stack 037 leaves (main be882968 plus the run's units); `nest.py` there holds `take_anchor`, `record_pending`, `add_pending`, `nest` and `done`.
+Start from the rebased stack 037 leaves (main be882968 plus the run's units). The amp CLI cannot snooze: the master does it with its own `update_thread` tool, as it does the nesting, and the kitchen records what it did, as `nest-pending.tsv` does.
 
-1. `nest.py`: snooze rides on the existing nest-pending rows; add no column to `nest-pending.tsv` (bundle merges and `rows()` read exactly 5 cells) and no second file. Add `SNOOZE = 'PSTACK_SNOOZE_ROLES'` beside `VIA`, and a function `snooze_roles()` that is True unless `os.environ.get(SNOOZE) == '0'`. A pending row is to be snoozed when `snooze_roles()` and `r.role != 'master'` (a `TOP_LEVEL` row is always a master). In `nest()`'s listing, a row to snooze prints `nest-pending: <T> (<role>) under <anchor>, snooze` (the existing line plus `, snooze`); the instruction line for rows with a parent becomes `nest: call update_thread(thread=<T>, parent_thread=<anchor>, snooze="indefinite") for each row marked snooze and update_thread(thread=<T>, parent_thread=<anchor>) for the rest, then ...` when any row is marked, and stays exactly as today when none is (so `PSTACK_SNOOZE_ROLES=0` gives today's output byte for byte). `--done` marks both: `done()` writes the same `nested` row, and for a row it snoozed it logs one more event, `snooze`, with `<T>` as detail, and prints `nested: <T> under <anchor>, snoozed`. Update the module docstring in one sentence. Test (step 1): extend the existing nest tests in `tests/test_pstack_kitchen.py` around `test_nest_lists_exactly_the_pending_rows_and_says_to_call_update_thread` with one parameterised table over (role, PSTACK_SNOOZE_ROLES unset / `1` / `0`) -> listed suffix and instruction line, covering sidekick, consultant, verifier, helper and a top-level master row; plus one test that `--done` on a sidekick and a master row writes a `snooze` event only for the sidekick. Targeted check: `python3 tests/run.py -k nest`.
-2. `status.py` (only through `nest.status_line` or one line beside its call at status.py:170): when any pending row is marked snooze, the status line reads `nest-pending: N threads (M to snooze)`. Also print, for each live role thread (`amp.live_threads`, role not master) whose recorded agent state is `error`, `needs-human: <role> <T> (error); the thread is snoozed, so relay it to the human from the master thread`. Read the state the same way `status` already reads role states (do not add new amp CLI calls); if status has no state for amp role threads at this point, skip the needs-human line and say so in the report instead of building it. Test: one test with the fake amp (`tests/pstack-pair/bin/amp`) giving a sidekick thread state `error`. Targeted check: `python3 tests/run.py -k status`.
-3. Docs. `skills/pstack-kitchen/SKILL.md`, the Amp threads bullet that describes nesting (search `nest-pending.tsv`): role threads are also snoozed indefinitely by the master in the same `update_thread` call, master threads never; `PSTACK_SNOOZE_ROLES=0` turns it off. `skills/pstack-kitchen/references/master.md`, the step 5 sentence about `nest-pending:` and the take-master paragraph: the call carries `snooze="indefinite"` for each row `nest` marks `snooze`; and one new sentence: a snoozed role is hidden from the human, so when one is blocked on a question for the human or errors in a way only the human can fix (a `needs-human:` line, a `blocked` report with Questions, an approval dialog), the master relays it to the human from the master thread. Regenerate `tests/SPEC.md` with `python3 tests/spec_gen.py`. Targeted check: `python3 scripts/check-pstack.py` and `python3 tests/spec_gen.py --check`.
+1. `commands/snooze.py`, modelled on `commands/nest.py` (its `rows()`, `stamp()`, `event()` use and its `nest`/`done` shape). A record `snooze.tsv` in the store, one row per change: `time, thread, role, state` with state `snoozed` or `awake`; the newest row of a thread is its state; append only, exactly 4 cells, so the `.tsv` union merge of bundles works. `SNOOZE = 'PSTACK_SNOOZE_ROLES'`; `enabled()` is True unless `os.environ.get(SNOOZE) == '0'`. `snoozable(store, thread, role)`, True only when all hold: role is not `master`; `amp.thread_state(amp.export(thread))[0] == 'idle'` (not working, not `error`, not `cancelled`, not unknown); no message or relay to it is pending — extract the outbox check and the relay check from `amp.assess` into one helper in mux/amp.py, `pending_to(store, thread, since)` returning the reason or '', and use it from both `assess` (unchanged behaviour) and `snoozable`; and, when the thread is a live role (`amp.live_threads`): the sidekick when `amp.role_is_idle(store, doc, 'sidekick')` and `reviews/<NNN-slug>.md` of the dispatched brief exists (accepted or rejected); the consultant when `amp.role_is_idle(store, doc, 'consultant')`; a verifier when `pair.json .verifying` is null. The candidates are the rows `kitchen.sh threads <store>` lists (the store's thread registry, the same function), not archived. Command `snooze <store>`: with `enabled()` false print `snooze: off (PSTACK_SNOOZE_ROLES=0)` and exit 0; else for each candidate that is snoozable and not recorded snoozed print `snooze: <T> (<role>)`, then one line `snooze: call update_thread(thread=<T>, snooze="indefinite") for each, then <prog> snooze <store> --done <thread>...`, or `snooze: nothing to snooze`. `--done <T>...` appends `snoozed` rows and a `snooze` event; `--wake <T>...` appends `awake` rows and a `wake` event; both refuse a thread the store's registry never named, as `nest --done` does. Tests: one parameterised table over the fake amp (state idle/working/error/cancelled x role sidekick-with-review/sidekick-without-review/consultant-with-open-consult/consultant-answered/verifier-verifying/verifier-done/master) -> listed or not; plus `PSTACK_SNOOZE_ROLES=0` lists nothing; plus `--done` then `--wake` leaves the thread awake and logs both events. Targeted check: `python3 tests/run.py -k snooze`.
+2. Wake before work, in mux/amp.py: `require_awake(store, thread)` raises a PairError subclass when `snooze.tsv` records the thread `snoozed`, with the message `snoozed: <T> is snoozed; call update_thread(thread=<T>, snooze="off"), then kitchen.sh snooze <store> --wake <T>, then run this again`. Call it where the kitchen continues an existing role thread (`Amp.with_bundle`, before anything is packed), and also wherever needed so that `dispatch`, `discuss`, `consult` and `steer` refuse before they record anything: a test dispatches to a snoozed sidekick and asserts the exit is non-zero, the message names `snooze="off"`, and `pair.json .dispatch` and the queue are unchanged; after `--wake` the same dispatch sends. The check applies whatever `PSTACK_SNOOZE_ROLES` says (a thread snoozed earlier still needs waking). A fresh thread (rotation, a new verifier) has no row and is never refused. Targeted check: `python3 tests/run.py -k snooze` and `python3 tests/run.py -k dispatch`.
+3. `status.py`, beside the `nest.status_line(store)` call: with `enabled()`, `snooze-due: N role threads; run kitchen.sh snooze <store>` when N > 0 threads are snoozable and not recorded snoozed; and for each live role thread whose state is `error`, `needs-human: <role> <T> (error); relay it to the human from the master thread` (whatever the switch says). Test: fake amp with one idle reviewed sidekick and one consultant in `error`. Targeted check: `python3 tests/run.py -k status`.
+4. Docs. `skills/pstack-kitchen/SKILL.md`, in the Amp threads section beside the nesting bullet: a new bullet for the snooze — when it happens (no open work, settled turn), never a master or a thread blocked on a question or error, `kitchen.sh snooze` and `--done`/`--wake`, the refusal that makes the master unsnooze first, `PSTACK_SNOOZE_ROLES=0`; add `snooze.tsv` to the Store additions table. `skills/pstack-kitchen/references/master.md` step 5: run `kitchen.sh snooze` at a `snooze-due:` line (after a review note, an answered consult, a verdict), unsnooze on the refusal, and a snoozed or not, a role blocked on a question for the human or in an error only the human can fix (`needs-human:`, a `blocked` report with Questions, an approval dialog) is relayed to the human from the master thread. Regenerate `tests/SPEC.md` (`python3 tests/spec_gen.py`). Targeted check: `python3 scripts/check-pstack.py` and `python3 tests/spec_gen.py --check`.
 
 ## Context
 
-- Brian's request (2026-11-21, relayed by Puck T-01a1eafa-f54b-71ff-890f-07428ab9c3e3): snooze every non-master kitchen thread by default; master threads (including rotated generations) stay unsnoozed; the master relays role blockers to him; a setting turns it off; fake-amp tests and docs.
-- Pattern to copy: `VIA = 'PSTACK_NEST_VIA'` in nest.py and its test `test_nest_asks_the_named_thread_when_nest_via_is_set`.
+- Brian's request (2026-11-21, relayed by Puck T-01a1eafa-f54b-71ff-890f-07428ab9c3e3), revised: do not snooze at start; active role threads stay visible so he can tell a run is stuck; snooze once there is no open work and the state is settled; unsnooze (`snooze="off"`) before new work; never snooze masters or threads blocked on a question or error; off switch, fake-amp tests, docs.
+- Patterns: `commands/nest.py` (record file, `--done`, refusal of unknown threads, `PSTACK_NEST_VIA` env knob) and its tests around `test_nest_lists_exactly_the_pending_rows_and_says_to_call_update_thread` in tests/test_pstack_kitchen.py; `amp.assess`, `amp.role_is_idle`, `amp.open_consults` in mux/amp.py.
 - Standing orders 24, 27, 29.
 
 ## Acceptance
 
-- With `PSTACK_SNOOZE_ROLES` unset, `kitchen.sh nest <store>` marks every pending non-master row `, snooze`, never a master row, and its instruction names `snooze="indefinite"`; with `PSTACK_SNOOZE_ROLES=0` its output equals today's.
-- `nest --done` on a snoozed row logs a `snooze` event and says `snoozed`; on a master row it logs none.
-- `kitchen.sh status` counts the rows to snooze, and names a role thread in state `error` with a `needs-human:` line (or the report says why that line was not built).
-- SKILL.md and master.md describe the snooze, the off switch and the relay duty; check-pstack and spec_gen --check pass.
+- `kitchen.sh snooze <store>` lists exactly the role threads that are idle with no open work (sidekick reviewed, consultant answered, verifier not verifying, nothing pending to it), and never a master, a working thread or a thread in `error`; `PSTACK_SNOOZE_ROLES=0` lists none.
+- `--done` and `--wake` record the state and log `snooze`/`wake` events; an unknown thread is refused.
+- A dispatch (and a discuss, consult or steer) to a thread recorded snoozed refuses before recording anything and names `update_thread(... snooze="off")`; after `--wake` it sends.
+- `kitchen.sh status` prints `snooze-due:` and `needs-human:` lines as step 3 says.
+- `amp.assess` behaves as before (the existing threads/archive tests pass unchanged).
+- SKILL.md and master.md describe the snooze, the wake, the off switch and the relay duty; check-pstack and spec_gen --check pass.
 
 ## Verify
 
 ```bash
-python3 tests/run.py -k nest
+python3 tests/run.py -k snooze
+python3 tests/run.py -k dispatch
 python3 tests/run.py -k status
+python3 tests/run.py -k archive
 python3 tests/run.py
 python3 scripts/check-pstack.py
 python3 tests/spec_gen.py --check
@@ -68,7 +74,8 @@ uv check --frozen
 
 ## Forbidden
 
-- No new amp CLI calls and no change to mux/amp.py.
+- No change to nest.py and no snooze at thread start.
+- No new amp CLI subcommand calls beyond the `export` the kitchen already makes.
 - No `time.sleep` in tests, and no elapsed-time asserts.
 - No push to main and no PR.
 
