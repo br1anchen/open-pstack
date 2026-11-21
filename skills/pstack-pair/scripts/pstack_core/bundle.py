@@ -603,7 +603,7 @@ def move_checkout(root, head, branch, sender, ref):
     remotes) already hold. (the line saying what happened, the sender's branch that line already reports, or ''). A checkout that diverged is left
     as it is, with a recipe to move it by hand. A checkout on a branch other than the sender's (the sender's branch, or none when the sender is
     detached) is never reset onto the sender's head: its own commits keep it where it is, and the sender's branch gets the branch rules (a recipe
-    of its own when it diverged here). A line that keeps the checkout for tracked changes names no branch."""
+    of its own when it diverged here, none when it is only ahead of the sender's head). A line that keeps the checkout for tracked changes names no branch."""
     short = head[:9]
     local = git.out(root, 'rev-parse', 'HEAD') or ''
     on = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
@@ -625,6 +625,11 @@ def move_checkout(root, head, branch, sender, ref):
         return line, on if on == branch else ''
     mine = f'refs/heads/{branch}'
     if branch and has_commit(root, mine) and own_commits(root, mine, head):
+        if git.ok(root, 'merge-base', '--is-ancestor', head, mine):
+            return (
+                f'checkout: kept {local[:9]}: {on or "detached HEAD"} stays, and branch {branch} here is ahead of {sender} ({short})',
+                branch,
+            )
         old = git.out(root, 'rev-parse', mine) or ''
         return diverged(root, sender, branch, local, old, head, ref), branch
     if own:
