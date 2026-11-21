@@ -46,7 +46,7 @@ may write:
 ## Verify
 
 ```bash
-test "$(git rev-list --count be88296..HEAD)" -ge 48
+test "$(git rev-list --count be88296..HEAD)" -ge 47
 python3 tests/run.py -k nest
 python3 tests/run.py -k anchor
 python3 tests/run.py

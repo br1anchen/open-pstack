@@ -173,22 +173,21 @@
     }
   ],
   "placement": "split",
-  "pending": [
-    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/037-landing-rebase-2.md"
-  ],
+  "pending": [],
   "dispatch": {
     "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/037-landing-rebase-2.md",
-    "at": "2026-11-21T14:29:59Z",
+    "at": "2026-11-21T15:08:26Z",
     "head": "be88296826fbc6e1c7ab0ebf8a1dc26467c573cf",
     "generation": 16,
     "sidekick": "amp claude-code claude-sonnet-5-5",
-    "report_order": 0
+    "report_order": 430
   },
   "sent": {
     "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/037-landing-rebase-2.md",
     "kind": "BRIEF",
-    "at": "2026-11-21T14:29:59Z",
-    "epoch": 1795271399
+    "at": "2026-11-21T15:08:26Z",
+    "epoch": 1795273706,
+    "seen": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/037-landing-rebase-2.md:1795273596"
   },
   "heads": {
     "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
