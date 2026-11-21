@@ -168,6 +168,18 @@ def local_branches(root):
     return found
 
 
+def keep_tips(root):
+    """{<run>/<full id>: full id} of every evidence ref this checkout holds (git.pin): the commits a run's steps, reports and verifications name."""
+    text = git.out(
+        root, 'for-each-ref', '--format=%(refname)%09%(objectname)', f'{git.KEEP}/'
+    )
+    found = {}
+    for line in (text or '').splitlines():
+        ref, _, oid = line.partition('\t')
+        found[ref[len(git.KEEP) + 1 :]] = oid
+    return found
+
+
 def origin_baseline(root):
     """The commit of origin's default branch that the receiver can fetch too: the one thing a hand-over's bundle may leave out. origin is fetched
     first, without a prompt and for at most PSTACK_BUNDLE_FETCH_TIMEOUT_S (30, 0 for no limit) seconds; when that fails or times out, the tracking ref the last
@@ -199,7 +211,8 @@ def pack(store, path, sender, to, agents, text='', branches=False):
     """Writes the bundle of store to path, from `sender` ({name, thread}) to the agent `to` ({name, pane}), carrying the agents this side
     knows ({name: {pane, thread}}) and the text of the message it travels with. Returns its manifest. A master's hand-over (`branches`) also
     carries every local branch: its name and tip in the manifest (git.branches), its commits in the same git bundle, cut only against
-    origin's default branch (git.baseline), never against the remotes this side happens to have."""
+    origin's default branch (git.baseline), never against the remotes this side happens to have. Every send also carries the run's evidence refs
+    (keep_tips) in the same git bundle, cut the same way."""
     files, listed = store_files(store)
     root = repo_of(store)
     head = git.out(root, 'rev-parse', 'HEAD') if root else None
@@ -225,11 +238,17 @@ def pack(store, path, sender, to, agents, text='', branches=False):
     }
     refs = {'head': head, **{f'wt{i}': t['commit'] for i, t in enumerate(trees)}}
     exclude = ('--remotes',)
+    keeps = keep_tips(root) if head else {}
     if branches and head:
         tips = local_branches(root)
-        baseline = origin_baseline(root)
-        manifest['git'].update(branches=tips, baseline=baseline)
+        manifest['git'].update(branches=tips)
         refs.update({f'br/{name}': oid for name, oid in tips.items()})
+    if keeps:
+        manifest['git'].update(keep=keeps)
+        refs.update({f'keep/{name}': oid for name, oid in keeps.items()})
+    if head and (branches or keeps):
+        baseline = origin_baseline(root)
+        manifest['git'].update(baseline=baseline)
         exclude = (baseline,) if baseline else ()
     with tempfile.TemporaryDirectory() as tmp:
         carried = bool(head) and git_bundle(
@@ -707,10 +726,41 @@ def prune_sets(root, side, printed='', keep=8):
                 git.ok(root, 'update-ref', '-d', ref)
 
 
+def valid_keep(root, name, oid):
+    """Whether an evidence entry (<run>/<full id>: id) is what git.pin writes: a full commit id that is also the last part of its own name, under
+    a run name that makes a ref."""
+    run, _, last = name.rpartition('/')
+    return (
+        isinstance(oid, str)
+        and re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', oid) is not None
+        and last == oid
+        and bool(run)
+        and git.ok(root, 'check-ref-format', f'{git.KEEP}/{name}')
+    )
+
+
+def evidence_of(root, info):
+    """{name: id} of the evidence entries of a bundle's git manifest that are well formed; others are not imported."""
+    keep = info.get('keep') if isinstance(info.get('keep'), dict) else {}
+    return {n: o for n, o in keep.items() if valid_keep(root, n, o)}
+
+
+def require_tips(root, tips):
+    """Raises ValueError for the first of tips ((label, full id) pairs) that is not a commit here once origin has been fetched (once)."""
+    fetched = False
+    for label, oid in tips:
+        if not has_commit(root, oid) and not fetched:
+            git.ok(root, 'fetch', '-q', 'origin')
+            fetched = True
+        if not has_commit(root, oid):
+            raise ValueError(f'{label}: {oid[:9]} was not carried and origin lacks it')
+
+
 def import_git(manifest, gitdata):
-    """The first half of taking a bundle's commits: brings them over and moves nothing (no branch, no checkout, no store file), so a hand-over
-    that cannot be taken whole changes nothing. (ready, lines): ready says whether move_git has something to move. A hand-over (git.branches)
-    raises ValueError when its git bundle did not apply or when HEAD or any branch tip it names is missing here and at origin."""
+    """The first half of taking a bundle's commits: brings them over and moves nothing (no branch, no checkout, no evidence ref, no store file), so
+    a bundle that cannot be taken whole changes nothing. (ready, lines): ready says whether move_git has something to move. A hand-over
+    (git.branches) or a bundle that carries evidence (git.keep) raises ValueError when its git bundle did not apply or when HEAD, any branch tip or
+    any evidence commit it names is missing here and at origin."""
     info = manifest.get('git') if isinstance(manifest.get('git'), dict) else {}
     root, head = info.get('root') or '', info.get('head') or ''
     if not head:
@@ -720,7 +770,8 @@ def import_git(manifest, gitdata):
             f'checkout: {root or "no checkout"} is not on this machine; commits not applied'
         ]
     branches = info.get('branches')
-    handover = isinstance(branches, dict)
+    keeps = evidence_of(root, info)
+    required = isinstance(branches, dict) or bool(keeps)
     lines = []
     if gitdata is not None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -728,7 +779,7 @@ def import_git(manifest, gitdata):
             with open(path, 'wb') as f:
                 f.write(gitdata)
             if not fetch(root, path, side_of(manifest)):
-                if handover:
+                if required:
                     raise ValueError(
                         'the git bundle did not apply: a commit it builds on is missing here and origin lacks it'
                     )
@@ -737,22 +788,29 @@ def import_git(manifest, gitdata):
         git.ok(root, 'fetch', '-q', 'origin')
     if not has_commit(root, head):
         lost = f'checkout: {head[:9]} was not carried and the remote lacks it'
-        if handover:
+        if required:
             raise ValueError(lost)
         return False, [*lines, lost]
-    if handover:
-        fetched = False
-        for name, oid in sorted(branches.items()):
-            if not valid_tip(root, name, oid):
-                continue
-            if not has_commit(root, oid) and not fetched:
-                git.ok(root, 'fetch', '-q', 'origin')
-                fetched = True
-            if not has_commit(root, oid):
-                raise ValueError(
-                    f'branch {name}: {oid[:9]} was not carried and origin lacks it'
-                )
+    tips = [
+        (f'branch {name}', oid)
+        for name, oid in sorted(
+            (branches if isinstance(branches, dict) else {}).items()
+        )
+        if valid_tip(root, name, oid)
+    ] + [('evidence', oid) for _, oid in sorted(keeps.items())]
+    require_tips(root, tips)
     return True, lines
+
+
+def keep_evidence(root, keeps):
+    """Takes the bundle's evidence into refs/pstack/keep under the names the sender gave it, create-only (an id already held is left alone and
+    nothing is ever deleted). A line saying how many were new, none when all were held."""
+    new = 0
+    for name, oid in sorted(keeps.items()):
+        have = git.out(root, 'rev-parse', '--verify', '-q', f'{git.KEEP}/{name}')
+        if have != oid and git.pin(root, name.rpartition('/')[0], oid):
+            new += 1
+    return [f'evidence: {new} commits kept under {git.KEEP}'] if new else []
 
 
 def move_git(manifest, sender, keep):
@@ -771,6 +829,7 @@ def move_git(manifest, sender, keep):
         lines += apply_branches(
             root, info['branches'], side, sender, current if current == here else ''
         )
+    lines += keep_evidence(root, evidence_of(root, info))
     for tree in info.get('worktrees') or []:
         path, commit = tree.get('path') or '', tree.get('commit') or ''
         if not path or os.path.exists(path):
