@@ -395,6 +395,7 @@ def landing_sections(p, parts):
     parts.append(inputs_section(p.store, stacked))
 
 
+REMEDY = 'name it with --covers, or verify --landing covers it'
 CONTEXT_RULE = "These are decisions a review accepted; do not judge them again. Judge only the named units' Acceptance."
 ACCEPTED_RULE = 'Accepted by the master ({review}), whatever the Acceptance above says: prove the Acceptance as these amend it, and do not reject on a departure listed here.'
 
@@ -429,6 +430,20 @@ def units_between(p):
     return found
 
 
+def not_accepted(p, name):
+    """Whether the intervening unit `name` has no review note with verdict accept: its Acceptance is not proved."""
+    return header_field(f'{p.store}/reviews/{name}.md', 'verdict') != 'accept'
+
+
+def excluded_notice(p):
+    """One line per intervening unit left out of a covers verification for want of an accepted review, naming both remedies."""
+    return ''.join(
+        f'excluded: unit {name[:3]} (in the range, no accepted review); {REMEDY}\n'
+        for name in units_between(p)
+        if not_accepted(p, name)
+    )
+
+
 def context_section(p):
     """The `## Context: units between` section of a covers packet: each intervening unit with its accepted review's Amendments, as context the
     verifier does not judge. '' when no unit lies between."""
@@ -438,8 +453,8 @@ def context_section(p):
     text = f'## Context: units between\n\n{CONTEXT_RULE}\n\n'
     for name in between:
         review = f'{p.store}/reviews/{name}.md'
-        if header_field(review, 'verdict') != 'accept':
-            text += f'unit {name}: no accepted review\n\n'
+        if not_accepted(p, name):
+            text += f'unit {name}: no accepted review; {REMEDY}\n\n'
             continue
         amendments = review_amendments(review) or 'none'
         text += f'unit {name}: accepted (reviews/{name}.md)\n\nAmendments:\n\n{amendments}\n\n'
@@ -570,3 +585,5 @@ def write_packet(path, packet):
         prove_section(p, parts)
     finally:
         write_text(path, ''.join(parts))
+    if p.covered:
+        sys.stdout.write(excluded_notice(p))
