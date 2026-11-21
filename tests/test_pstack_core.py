@@ -21061,6 +21061,50 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertNotIn('reset --keep', text)
         self.assertNotIn(f'rev-parse HEAD)" = {x_tip}', text)
 
+    def test_the_senders_branch_here_is_reported_once_as_ahead_diverged_or_fast_forwarded_by_where_it_stands(
+        self,
+    ):
+        """The checkout is on X with a commit of its own; the sender's branch Y is one commit past the base."""
+        cases = (
+            ('ahead', 'y-here', 'ahead of m', False),
+            ('diverged', 'y-mine', 'diverged from m', True),
+            ('behind', None, 'fast-forwarded', False),
+        )
+        for label, extra, says, recipe in cases:
+            with self.subTest(label):
+                self.setUp()
+                self.git('checkout', '-q', '-b', 'Y', self.base)
+                y_sent = self.commit('y-sent')
+                bundle = self.pack_and_prune()
+                self.git('checkout', '-q', '-B', 'X', self.base)
+                x_tip = self.commit('x-own')
+                self.git('branch', '-D', 'Y')
+                if label == 'ahead':
+                    self.git('branch', 'Y', y_sent)
+                    self.git('checkout', '-q', 'Y')
+                    y_here = self.commit(extra)
+                    self.git('checkout', '-q', 'X')
+                elif label == 'diverged':
+                    self.git('checkout', '-q', '-b', 'Y', self.base)
+                    y_here = self.commit(extra)
+                    self.git('checkout', '-q', 'X')
+                else:
+                    self.git('branch', 'Y', self.base)
+                    y_here = self.base
+                self.prune()
+                _, lines = self.bundle.apply(str(bundle))
+                text = '\n'.join(lines)
+                self.assertEqual(self.git('rev-parse', 'HEAD'), x_tip)
+                mentions = [line for line in lines if 'Y' in line.split('\n')[0]]
+                if label != 'behind':
+                    self.assertEqual(len(mentions), 1, text)
+                self.assertIn(says, text)
+                self.assertEqual('kitchen-recovery' in text, recipe)
+                self.assertEqual(
+                    self.git('rev-parse', 'refs/heads/Y'),
+                    y_sent if label == 'behind' else y_here,
+                )
+
     def unfetchable_origin_with_a_tracking_ref(self):
         """A repo whose origin cannot be fetched and whose last fetch left origin/main at the base commit, with a branch commit past it: (that
         commit, the base)."""
