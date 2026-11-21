@@ -18323,14 +18323,76 @@ class AmpGitKitchenTests(AmpKitchenTests):
             self.remote_git('ls-tree', '-r', '--name-only', 'kitchen/loc').split()
         )
         self.assertLessEqual({'pair.json', 'standing-orders.md', '.gitignore'}, tree)
-        self.assertEqual(
-            json.loads((local / 'pair.json').read_text())['store_backend'],
-            {'backend': 'git', 'branch': 'kitchen/loc'},
-        )
+        backend = json.loads((local / 'pair.json').read_text())['store_backend']
+        migrated_at = backend.pop('migrated_at')
+        self.assertEqual(backend, {'backend': 'git', 'branch': 'kitchen/loc'})
+        self.assertGreater(migrated_at, 1_700_000_000)
         tip = self.remote_git('rev-parse', 'kitchen/loc')
         again = self.run_sh('store-to-git', str(local))
         self.assertIn('already on kitchen/loc', again)
         self.assertEqual(self.remote_git('rev-parse', 'kitchen/loc'), tip)
+        self.assertEqual(
+            json.loads((local / 'pair.json').read_text())['store_backend'][
+                'migrated_at'
+            ],
+            migrated_at,
+        )
+
+    def test_after_store_to_git_a_thread_from_before_it_with_no_request_archives_by_the_local_rule_and_one_from_after_it_keeps_no_drain_receipt(
+        self,
+    ):
+        self.env.pop('PSTACK_STORE')
+        self.run_sh('init', 'loc')
+        local = self.store.parent / 'loc'
+        old_sidekick, consultant, busy = amp_thread(11), amp_thread(12), amp_thread(13)
+        self.retire_threads(
+            {
+                old_sidekick: {
+                    'name': 'loc-sidekick',
+                    'role': 'sidekick',
+                    'store': str(local),
+                    'started': 1,
+                },
+                consultant: {
+                    'name': 'loc-consultant',
+                    'role': 'consultant',
+                    'store': str(local),
+                    'started': 2,
+                },
+                busy: {
+                    'name': 'loc-sidekick',
+                    'role': 'sidekick',
+                    'store': str(local),
+                    'started': 3,
+                },
+            }
+        )
+        self.set_state(busy, 'tool_use')
+        self.run_sh('store-to-git', str(local))
+        migrated_at = json.loads((local / 'pair.json').read_text())['store_backend'][
+            'migrated_at'
+        ]
+        new_sidekick = amp_thread(14)
+        self.retire_threads(
+            {
+                new_sidekick: {
+                    'name': 'loc-sidekick',
+                    'role': 'sidekick',
+                    'store': str(local),
+                    'started': migrated_at + 1,
+                }
+            }
+        )
+        out = self.run_sh('threads', str(local), '--archive')
+        archived = (self.fake / 'amp-archived').read_text().split()
+        self.assertCountEqual(archived, [old_sidekick, consultant])
+        self.assertIn(f'archived {old_sidekick} (sidekick)', out)
+        self.assertIn(f'archived {consultant} (consultant)', out)
+        self.assertIn(
+            f'kept {new_sidekick}: no drain receipt (the store branch records no request to it)',
+            out,
+        )
+        self.assertRegex(out, rf'kept {busy}: working')
 
     def test_a_dispatch_publishes_the_masters_brief_and_pair_json_before_the_message(
         self,
