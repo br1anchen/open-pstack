@@ -50,10 +50,11 @@ from ..wait import end_with_parent
 from .status import log
 
 
-def rotate(ctx, args, reason=''):
+def rotate(ctx, args, reason=None):
     """Exits the idle sidekick and reuses its pane with the same native arguments. It preserves the store and never deletes a Devin session.
     Under git the store is refreshed before pair.json is read, and the master's changes are published when the rotation is over. `reason` is why
-    rotate_if_due rotates, which the rotate event records."""
+    rotate_if_due rotates, which the rotate event records; the command itself (None) is `manual`, said only where a fresh session costs minutes
+    (mux reuses_sessions), like every rotation reason."""
     end_with_parent()
     require_mux()
     if len(args) != 1:
@@ -97,6 +98,10 @@ def rotate(ctx, args, reason=''):
             5,
         )
     start_args = current_no_mcp(names(sidekick, 'start_args'))
+    if reason is None:
+        reason = 'manual' if mux.get().reuses_sessions else ''
+        if reason:
+            print(f'rotate: {reason}')
     code = None
     try:
         event(
@@ -189,9 +194,9 @@ def session_decision(store, brief):
     if not area or area != earlier:
         return '', f'profiles {profiles_label(earlier)} vs {profiles_label(area)}'
     name = field(store, 'sidekick', 'name')
-    if m.compacted(name):
+    used, compacted = m.context(name)
+    if compacted:
         return '', 'compacted'
-    used = m.context_used(name)
     if used is None:
         return '', 'context unreadable'
     limit = env_int('PAIR_REUSE_CONTEXT_PCT', 50)
@@ -200,10 +205,10 @@ def session_decision(store, brief):
     return f'{", ".join(sorted(area))}, context {round(used * 100)}%', ''
 
 
-def keeps_session(store, brief, reasons=None):
+def keeps_session(store, brief, reasons):
     """Why the sidekick keeps its session for `brief` ('' when it rotates, and then session_decision's reason is appended to `reasons`)."""
     kept, why = session_decision(store, brief)
-    if not kept and reasons is not None:
+    if not kept:
         reasons.append(why)
     return kept
 

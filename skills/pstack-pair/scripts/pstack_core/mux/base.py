@@ -152,9 +152,10 @@ class Mux:
         """The share of its context window the agent `name` has used (0 to 1; 1 once it compacted), or None when the backend cannot say."""
         return None
 
-    def compacted(self, name):
-        """Whether the agent `name` has compacted its context, False when the backend cannot say."""
-        return False
+    def context(self, name):
+        """(context_used, compacted) of the agent `name` from one observation: what context_used says, and whether it has compacted (False when the
+        backend cannot say). A decision that needs both reads them here, so the two come from the same moment."""
+        return self.context_used(name), False
 
     def mode_reads_skill_file(self, mode):
         """Whether an agent on this mode (an Amp --mode or -m value) may not load a skill by name."""
