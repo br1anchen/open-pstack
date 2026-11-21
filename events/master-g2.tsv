@@ -27,3 +27,11 @@
 2026-11-21T01:40:13Z	1795225213	master	nest-pending	-	T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
 2026-11-21T01:40:21Z	1795225221	master	spawn	-	sidekick:amp:handed-off
 2026-11-21T01:40:38Z	1795225238	master	send-verify	027-master-is-anchor	amp:027
+2026-11-21T01:40:50Z	1795225250	master	nest-pending	-	T-01a1fbc3-6006-7651-af95-dff8edbf8a66 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T01:41:00Z	1795225260	master	wake	027-master-is-anchor	verify:progress
+2026-11-21T01:41:09Z	1795225269	master	nest	-	T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T01:41:09Z	1795225269	master	nest	-	T-01a1fbc3-6006-7651-af95-dff8edbf8a66 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T01:48:35Z	1795225715	master	archive	-	sidekick:T-01a1fb29-d3a6-77ce-99fe-6741609db301
+2026-11-21T01:48:35Z	1795225715	master	log	-	archive: archive sidekick T-01a1fb29-d3a6-77ce-99fe-6741609db301
+2026-11-21T01:48:38Z	1795225718	master	spawn	-	sidekick:amp:ready
+2026-11-21T01:48:39Z	1795225719	master	send-brief	028-dispatch-after-ready-sends-fix	
