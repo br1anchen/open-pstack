@@ -109,3 +109,5 @@
 2026-11-21T05:02:00Z	1795237320	master	nest-pending	-	T-01a1fc7b-9233-7087-8395-5247ff7177e4 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
 2026-11-21T05:02:08Z	1795237328	master	wake	004-master-bundle-branches	verify:progress
 2026-11-21T05:02:15Z	1795237335	master	rotate	-	generation:10
+2026-11-21T05:02:24Z	1795237344	master	nest-pending	-	T-01a1fc7b-eba5-73ef-8b67-a0a0fd74248b under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T05:02:30Z	1795237350	master	spawn	-	sidekick:amp:handed-off
