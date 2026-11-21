@@ -10,3 +10,7 @@
 2026-11-21T14:54:23Z	1795272863	sidekick	step	037-landing-rebase-2	1:5cfcc1b05
 2026-11-21T15:05:21Z	1795273521	sidekick	step	037-landing-rebase-2	2:daf51dc09
 2026-11-21T15:06:34Z	1795273594	sidekick	report	037-landing-rebase-2	blocked
+2026-11-21T15:08:47Z	1795273727	sidekick	progress	037-landing-rebase-2	
+2026-11-21T15:19:37Z	1795274377	sidekick	finish-verify-pass	037-landing-rebase-2	daf51dc09
+2026-11-21T15:19:37Z	1795274377	sidekick	rotation-required	037-landing-rebase-2	generation:16 sha256:05a87b150a2a
+2026-11-21T15:19:39Z	1795274379	sidekick	report	037-landing-rebase-2	done

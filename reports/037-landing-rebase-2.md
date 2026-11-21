@@ -1,6 +1,6 @@
 # Report 037: landing-rebase-2
 
-status: blocked
+status: done
 brief: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/037-landing-rebase-2.md
 playbook: bug-fix
 branch: kitchen-followups-landing
@@ -41,12 +41,12 @@ gate: format, lint, typecheck pass
 
 ## Deviations
 
-- The brief's first Verify line, `test "$(git rev-list --count be88296..HEAD)" -ge 48`, fails: the count is 47. It assumes at least one step 3 commit, and the suite needed no fix. I did not add a commit to reach 48. `finish` would refuse a done report on that line, so this report is `blocked` on that line only.
+- Steer 037-s1 (info): the brief's first Verify line was wrong. 47 is the right count (46 rebased plus step 2; step 3 needed no fix), and the line now reads `-ge 47`. Applied: this report is done, no new commit.
 - Step 1 was recorded as one `kitchen.sh step` at 5cfcc1b0, naming old head 84ea957f and new head 5cfcc1b0.
 
 ## Questions
 
-Accept 47 commits (`-ge 47`) as the landing stack? I would. Everything else in Acceptance and Verify passes; if you want the line to stay at 48, say what step 3 commit you expect.
+none
 
 ## Follow-ups
 
