@@ -1,1 +1,6 @@
 2026-11-20T23:00:09Z	1795215609	sidekick	report	000-ready-g6	done
+2026-11-21T00:35:48Z	1795221348	sidekick	step	026-dispatch-after-ready-sends-fix	1:cd4e197e7
+2026-11-21T00:44:59Z	1795221899	sidekick	step	026-dispatch-after-ready-sends-fix	2:b6b68a410
+2026-11-21T00:47:57Z	1795222077	sidekick	finish-verify-pass	026-dispatch-after-ready-sends-fix	b6b68a410
+2026-11-21T00:47:57Z	1795222077	sidekick	rotation-required	026-dispatch-after-ready-sends-fix	generation:6 sha256:5dc1ee6d8fc4
+2026-11-21T00:47:59Z	1795222079	sidekick	report	026-dispatch-after-ready-sends-fix	done

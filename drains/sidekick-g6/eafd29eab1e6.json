@@ -1,0 +1,16 @@
+{
+ "code": [
+  "b6b68a410bae7153de115c72b752b1226b6331aa"
+ ],
+ "generation": 6,
+ "outputs": [
+  {
+   "path": "reports/026-dispatch-after-ready-sends-fix.md",
+   "sha256": "5dc1ee6d8fc4933bde50e91d5c4f711500b681cbfb5bff125c6b9e96b59098dc"
+  }
+ ],
+ "request": "eafd29eab1e6",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fb29-d3a6-77ce-99fe-6741609db301"
+}
