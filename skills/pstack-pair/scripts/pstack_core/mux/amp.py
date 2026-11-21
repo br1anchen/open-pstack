@@ -1086,7 +1086,9 @@ class Amp(Subagents):
             for n, e in load(self.path())['agents'].items()
         }
 
-    def with_bundle(self, name, text, store, thread, seen, full_rules, tmp):
+    def with_bundle(
+        self, name, text, store, thread, seen, full_rules, tmp, branches=False
+    ):
         """(attachments, message, build) of a message to `name`: the store's bundle always, and the pstack build with the line that installs it
         when `seen` (what the thread was already given) lacks this build, as the message text after `text`. build is the id to record, '' when
         none was attached; full_rules gives the send-back rules in full."""
@@ -1102,6 +1104,7 @@ class Amp(Subagents):
                 {'name': name, 'pane': pane},
                 self.agents(),
                 text,
+                branches,
             )
             attach = ['--attach', path]
         build_path = os.path.join(tmp, 'pstack-build.tgz')
@@ -1127,8 +1130,9 @@ class Amp(Subagents):
         )
         return attach, message, build
 
-    def send(self, name, text, thread='', flags=(), store='', title=''):
-        """Sends text to thread (a new thread on flags when ''), with the bundle of store attached. (thread, error text)."""
+    def send(self, name, text, thread='', flags=(), store='', title='', branches=False):
+        """Sends text to thread (a new thread on flags when ''), with the bundle of store attached; a master's hand-over (`branches`) carries every
+        local branch too. (thread, error text)."""
         self.skipped = ''
         created = not thread
         store = store or store_in(text) or load(self.path()).get('store') or ''
@@ -1171,7 +1175,7 @@ class Amp(Subagents):
                 if store and os.path.isfile(os.path.join(store, 'pair.json')):
                     carried = True
                     attach, message, build = self.with_bundle(
-                        name, text, store, thread, seen, full_rules, tmp
+                        name, text, store, thread, seen, full_rules, tmp, branches
                     )
                 if compacted or created:
                     message = reorientation(name, text, store, created) + message
@@ -1382,7 +1386,7 @@ class Amp(Subagents):
 
         model = model or self.thread_mode()
         thread, err = self.send(
-            name, prompt, '', ['-m', model] if model else [], store, name
+            name, prompt, '', ['-m', model] if model else [], store, name, True
         )
         if not thread:
             change(lambda doc: doc['agents'].pop(name, None), self.path())
