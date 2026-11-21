@@ -1,0 +1,5 @@
+1	b18310c866b0440382fed113c3fb9829fb44390f	1795240313		a hand-over imports every tip before it changes a ref, the checkout or the store
+2	6536f9ba3b95862a4cf0f96a954cef7a11e560bf	1795241126		a hand-over keeps the sender's working branch when the checkout cannot move
+3	8fa4fa15d343027da5928bf27c6bf1af0c185c28	1795241746		a checkout on another branch is never reset onto the sender's head
+4	5647fa09ddc815de16fc79b8b0cfaf52510e89ee	1795243112		a hand-over bundle stays small when origin is slow or down
+5	6dcc8e38a288ade2e10d725d007d811dbc7f201d	1795243763		apply prunes a sender's older bundle ref sets
