@@ -12852,62 +12852,73 @@ esac
         self.git('reflog', 'expire', '--expire=now', '--all')
         self.git('gc', '-q', '--prune=now')
 
-    def test_land_check_says_which_evidence_of_an_unverified_unit_is_missing_and_how_to_prove_it_again(
+    def test_land_check_names_only_the_landing_verdicts_and_carriers_that_could_cover_the_unit(
         self,
     ):
+        """Unit 002 is carried by 003 (built on it) and not by 004, the higher number; the landing verdict's packet lists 003 only."""
         init = self.git('rev-parse', 'HEAD')
         base = self.git('rev-parse', '--abbrev-ref', 'HEAD')
         gone_head = self.unit_on_a_branch(1, base)
         self.unit_on_a_branch(2, base)
-        self.unit_on_a_branch(3, base)
+        self.unit_on_a_branch(3, 'ub2')
+        self.git('checkout', '-q', base)
+        self.unit_on_a_branch(4, base)
         gone_base = self.dangling_commit('old base')
         gone_landing = self.dangling_commit('old landing head')
         state = self.state()
         state['heads']['002-u2'] = gone_base
         (self.store / 'pair.json').write_text(json.dumps(state))
         self.forget('ub1')
-        self.assertNotEqual(
-            subprocess.run(
-                ['git', 'cat-file', '-e', gone_head],
-                cwd=self.repo,
-                check=False,
-                timeout=60,
-            ).returncode,
-            0,
-        )
         store = self.store
-        prove = f'prove its Acceptance again with kitchen.sh verify {store}'
-        restore = 'restore it from the bundle that carried it, or'
+        again = f'prove its Acceptance again with kitchen.sh verify {store}'
+        restore = 'restore it from the bundle that carried it'
+        nothing = (
+            f"{restore}; no other accepted unit's head carries its change; "
+            f'prove its Acceptance again with a unit that does: kitchen.sh verify {store}'
+        )
+        no_verdict = lambda n: (
+            f'unverified: unit {n} has no clean verdict (kitchen.sh verify {store} {n})\n'
+        )
         cases = [
             (
-                'the unit head is gone',
+                'no landing verdict: the head of a unit is gone and nothing can be shown to carry it',
                 None,
-                f'unverified: unit 001: its evidence is missing (unit head: {gone_head}); {restore} {prove} 003 --covers 001 --base {init}\n',
+                [
+                    f'unverified: unit 001: its evidence is missing (unit head: {gone_head}); {nothing} <current-unit> --covers 001 --base <live-base>\n',
+                    f'unverified: unit 002: its evidence is missing (dispatch base: {gone_base}); {restore}, or {again} 003 --covers 002 --base {init}\n',
+                    no_verdict('003'),
+                    no_verdict('004'),
+                ],
+                [],
             ),
             (
-                'the dispatch base is gone',
-                None,
-                f'unverified: unit 002: its evidence is missing (dispatch base: {gone_base}); {restore} {prove} 003 --covers 002 --base {init}\n',
-            ),
-            (
-                'the heads are there and nothing verified the unit',
-                None,
-                f'unverified: unit 003 has no clean verdict (kitchen.sh verify {store} 003)\n',
-            ),
-            (
-                'a clean landing verdict names a head that is gone',
-                f'status: clean\nunits: landing\nrange: {init}..{gone_landing}\n\n## Evidence\n\n```\n$ true\n```\n',
-                f'unverified: unit 003: its evidence is missing (landing verdict head: {gone_landing}); {restore} {prove} 002 --covers 003 --base <live-base>\n',
+                'a landing verdict whose head is gone and whose packet lists unit 003 only',
+                'Unit 003',
+                [
+                    f'unverified: unit 003: its evidence is missing (landing verdict head: {gone_landing}); {nothing} <current-unit> --covers 003 --base <live-base>\n',
+                    no_verdict('004'),
+                ],
+                [
+                    f'landing verdict head: {gone_landing}); {restore}, or {again} 003 --covers 004'
+                ],
             ),
         ]
-        for label, landing, expected in cases:
+        for label, listed, expected, unexpected in cases:
             with self.subTest(label):
-                if landing:
+                if listed:
                     verdicts = store / 'verdicts'
                     verdicts.mkdir(exist_ok=True)
-                    (verdicts / 'landing-v1.md').write_text(f'# Verdict\n\n{landing}')
+                    (verdicts / 'landing-v1.md').write_text(
+                        f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init}..{gone_landing}\n\n## Evidence\n\n```\n$ true\n```\n'
+                    )
+                    (verdicts / 'landing-v1-packet.md').write_text(
+                        f'# Verify landing\n\n## Goals\n\n### {listed} u3\n\nx\n'
+                    )
                 out = self.land_check(2)
-                self.assertIn(expected, out)
+                for line in expected:
+                    self.assertIn(line, out)
+                for text in unexpected:
+                    self.assertNotIn(text, out)
                 self.assertNotIn('land-check: pass', out)
 
     def test_the_recovery_command_land_check_prints_proves_the_lost_unit_again_and_clears_it(
@@ -12915,16 +12926,21 @@ esac
     ):
         init = self.git('rev-parse', 'HEAD')
         base = self.git('rev-parse', '--abbrev-ref', 'HEAD')
-        gone = self.unit_on_a_branch(1, base)
-        self.unit_on_a_branch(2, base)
-        self.forget('ub1')
+        self.unit_on_a_branch(1, base)
+        self.unit_on_a_branch(2, 'ub1')
+        self.git('checkout', '-q', base)
+        gone_base = self.dangling_commit('old base')
+        state = self.state()
+        state['heads']['001-u1'] = gone_base
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.forget()
         out = self.land_check(2)
         [line] = [l for l in out.splitlines() if l.startswith('unverified: unit 001')]
         command = line.split('again with ')[1]
         self.assertEqual(
             command, f'kitchen.sh verify {self.store} 002 --covers 001 --base {init}'
         )
-        self.assertIn(f'unit head: {gone}', line)
+        self.assertIn(f'dispatch base: {gone_base}', line)
         proved = self.run_sh(*command.split()[1:])
         self.assertIn('status: clean', proved)
         cleared = self.land_check(0)
