@@ -38,3 +38,15 @@
 2026-11-21T08:52:16Z	1795251136	sidekick	finish-verify-pass	024-verify-names-excluded-fix	1e105784a
 2026-11-21T08:52:16Z	1795251136	sidekick	rotation-required	024-verify-names-excluded-fix	generation:12 sha256:13e7b01b7c05
 2026-11-21T08:52:18Z	1795251138	sidekick	report	024-verify-names-excluded-fix	done
+2026-11-21T08:56:19Z	1795251379	sidekick	progress	006-land-check-gone-head	
+2026-11-21T09:00:53Z	1795251653	sidekick	progress	006-land-check-gone-head	
+2026-11-21T09:07:55Z	1795252075	sidekick	gate-fail	006-land-check-gone-head	2e817eea3 /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/006-land-check-gone-head-2e817eea3c5b/out.1
+2026-11-21T09:08:50Z	1795252130	sidekick	progress	006-land-check-gone-head	
+2026-11-21T09:18:48Z	1795252728	sidekick	step	006-land-check-gone-head	1:78ecd2c98
+2026-11-21T09:19:33Z	1795252773	sidekick	progress	006-land-check-gone-head	
+2026-11-21T09:29:34Z	1795253374	sidekick	step	006-land-check-gone-head	2:0c21a3180
+2026-11-21T09:30:23Z	1795253423	sidekick	progress	006-land-check-gone-head	
+2026-11-21T09:40:34Z	1795254034	sidekick	step	006-land-check-gone-head	3:6921d9f08
+2026-11-21T09:42:26Z	1795254146	sidekick	finish-verify-pass	006-land-check-gone-head	6921d9f08
+2026-11-21T09:42:26Z	1795254146	sidekick	rotation-required	006-land-check-gone-head	generation:12 sha256:319f3ae62ea4
+2026-11-21T09:42:29Z	1795254149	sidekick	report	006-land-check-gone-head	done
