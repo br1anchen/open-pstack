@@ -7,3 +7,6 @@
 2026-11-21T14:28:05Z	1795271285	sidekick	rotation-required	010-roster-handoff	generation:16 sha256:610b22417117
 2026-11-21T14:28:07Z	1795271287	sidekick	report	010-roster-handoff	done
 2026-11-21T14:28:20Z	1795271300	sidekick	finish-verify-pass	010-roster-handoff	c40b7b0cd
+2026-11-21T14:54:23Z	1795272863	sidekick	step	037-landing-rebase-2	1:5cfcc1b05
+2026-11-21T15:05:21Z	1795273521	sidekick	step	037-landing-rebase-2	2:daf51dc09
+2026-11-21T15:06:34Z	1795273594	sidekick	report	037-landing-rebase-2	blocked

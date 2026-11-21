@@ -1,0 +1,2 @@
+1	5cfcc1b051c22e2413c62cf7ab990e7c8f64053e	1795272863		rebased the stack c5cf2504..84ea957f onto be882968: old head 84ea957f, new head 5cfcc1b051c22e2413c62cf7ab990e7c8f64053e
+2	daf51dc09eeffc59c136c169e371c8641fcf8a99	1795273521		nest --discover anchors at the current master, top-level
