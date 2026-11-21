@@ -8,3 +8,4 @@
 2026-11-20T23:10:29Z	1795216229	verifier	report	023-dispatch-after-ready-sends-v1	reject
 2026-11-21T01:04:50Z	1795223090	verifier	report	026-dispatch-after-ready-sends-fix-v1	reject
 2026-11-21T02:03:31Z	1795226611	verifier	report	027-master-is-anchor-v1	clean
+2026-11-21T02:19:08Z	1795227548	verifier	report	028-dispatch-after-ready-sends-fix-v2	clean
