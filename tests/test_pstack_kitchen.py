@@ -6911,11 +6911,15 @@ esac
         self.write('docs/guide.md', '# Guide\nmore\n')
         head = self.commit('docs')
         self.done(b, head)
+        base = self.git('rev-parse', 'HEAD~1')
         out = self.run_sh('verify', str(self.store), '001')
         self.assertIn('status: clean (gates only', out)
         self.assertNotIn(
             'agent start demo-verifier', (self.fake / 'calls.log').read_text()
         )
+        keep = f'refs/pstack/keep/{self.state()["slug"]}/'
+        for oid in (base, head):
+            self.assertEqual(self.git('rev-parse', f'{keep}{oid}'), oid)
 
     def verify_app_unit(self, mode, code, stall=False):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])

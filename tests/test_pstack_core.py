@@ -21311,6 +21311,18 @@ class BundleBranchApplyTests(BundleRepoCase):
             self.assertEqual(self.git('rev-parse', f'refs/pstack/keep/run1/{oid}'), oid)
             self.git('cat-file', '-e', f'{oid}^{{commit}}')
 
+    def test_a_pin_that_cannot_be_made_says_so_in_one_warn_line_and_a_good_one_is_silent(
+        self,
+    ):
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            self.assertTrue(git.pin(str(self.repo), 'run1', self.base))
+            self.assertFalse(git.pin(str(self.repo), 'bad..run', self.base))
+        self.assertEqual(
+            errors.getvalue(),
+            f'warn: could not keep {self.base} under refs/pstack/keep/bad..run/{self.base}\n',
+        )
+
     def test_an_ordinary_send_carries_only_its_own_runs_evidence_and_fetches_nothing(
         self,
     ):

@@ -54,7 +54,7 @@ from pstack_core.store import (
 
 from . import kpy
 from . import verify_state as vs
-from .units import NoBrief, RecordedUnit, unit_brief
+from .units import RecordedUnit, unit_brief
 
 
 def shell_word(word):
@@ -327,10 +327,7 @@ def pin_evidence(v):
     root, run = read(v.store, 'git_root'), read(v.store, 'slug')
     found = {v.base, v.head}
     for unit in v.units:
-        try:
-            recorded = RecordedUnit(v.store, unit_brief(v.store, unit))
-        except NoBrief:
-            continue
+        recorded = RecordedUnit(v.store, unit_brief(v.store, unit))
         found |= {recorded.head, recorded.base()}
     for oid in sorted(found - {''}):
         git.pin(root, run, oid)

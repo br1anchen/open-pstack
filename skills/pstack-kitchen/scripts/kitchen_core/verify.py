@@ -63,6 +63,7 @@ from .verify_launch import (
     choose_verifier,
     deliver_packet,
     launch_verifier,
+    pin_evidence,
     record_start,
     verifier_identity,
 )
@@ -265,6 +266,9 @@ def start_verification(ctx, store, argv, o, root, allunits, c):
     data = c.data
     last, brief, slug, verdict, packet = verdict_paths(store, o.landing, allunits)
     if c.mode == 'gates':
+        pin_evidence(
+            SimpleNamespace(store=store, base=c.base, head=c.head, units=allunits)
+        )
         gates_verdict(ctx, store, verdict, last, slug, allunits, c.base, c.head)
         event(store, 'master', 'verify', brief, 'gates:clean')
         wake(ctx, store, brief, 'verify:clean')
