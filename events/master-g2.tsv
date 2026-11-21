@@ -229,3 +229,4 @@
 2026-11-21T10:20:13Z	1795256413	master	wake	033-master-bundle-branches-fix	verify:progress
 2026-11-21T10:20:13Z	1795256413	master	queue	-	cleared
 2026-11-21T10:20:17Z	1795256417	master	reuse	034-land-check-gone-head-fix	sidekick: pstack, pstack-docs, context 13%
+2026-11-21T10:20:23Z	1795256423	master	send-brief	034-land-check-gone-head-fix	
