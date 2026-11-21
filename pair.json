@@ -11,7 +11,7 @@
     "tab_id": "",
     "registered_at": "2026-11-21T00:12:48Z",
     "permission_mode": "auto",
-    "units_since_handoff": 1,
+    "units_since_handoff": 2,
     "generation": 2,
     "landed_since_handoff": false,
     "sessions": [
@@ -75,7 +75,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:6",
+    "pane_id": "amp:7",
     "kind": "amp",
     "started_at": null
   },
@@ -95,7 +95,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "029-master-is-anchor-fix-verify"
+  ],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -235,5 +237,42 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/029-master-is-anchor-fix-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/029-master-is-anchor-fix-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/029-master-is-anchor-fix.md",
+    "scratch": "029-master-is-anchor-fix-verify",
+    "units": "027 029",
+    "risk": "routine",
+    "sample": 0.2,
+    "unit": "029-master-is-anchor-fix",
+    "started": 1795230474,
+    "deadline": 1795233174,
+    "class": "routine",
+    "entry": {
+      "kind": "amp",
+      "args": [
+        "--mode",
+        "claude-code",
+        "--features",
+        "model:claude-sonnet-5-5"
+      ],
+      "source": "sidekick",
+      "fallback": {
+        "kind": "amp",
+        "args": [
+          "--model",
+          "openai/gpt-6.1-sol"
+        ]
+      }
+    },
+    "retried": false,
+    "argv": [
+      "029",
+      "--covers",
+      "027"
+    ],
+    "delivered": false
+  }
 }

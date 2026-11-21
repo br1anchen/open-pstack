@@ -1,6 +1,6 @@
 # Review 023: dispatch-after-ready-sends
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/023-dispatch-after-ready-sends.md
 head: 4bca7862ab6374879d0d0bc6d946448118446d36
 engine: joo 2026-11-20T22-53-58-076Z-b7d407ef
@@ -21,3 +21,7 @@ none
 ## Follow-ups
 
 - send.py:181 took_a_brief keys on a brief, not on the READY turn (followups.md).
+
+## Accepted
+
+verdicts/028-dispatch-after-ready-sends-fix-v2.md is clean and covers this unit. Fix 028 resolved the one finding of verdict 026-v1.

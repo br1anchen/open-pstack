@@ -1,6 +1,6 @@
 # Review 026: dispatch-after-ready-sends-fix
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/026-dispatch-after-ready-sends-fix.md
 head: b6b68a410bae7153de115c72b752b1226b6331aa
 engine: joo 2026-11-21T00-48-55-529Z-3a36ff37
@@ -18,3 +18,7 @@ none
 ## Next
 
 Fix brief 028 splits the slow test into one process per case. It is verified with `--covers 026`, which covers 023 too. 023 and 026 are accepted on a clean verdict.
+
+## Accepted
+
+verdicts/028-dispatch-after-ready-sends-fix-v2.md is clean and covers this unit. Fix 028 resolved the one finding of verdict 026-v1.

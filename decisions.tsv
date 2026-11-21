@@ -58,3 +58,4 @@ ts	phase	decision	why	evidence	result
 2026-11-21T02:04:02Z	archive	archive verifier T-01a1fbc3-6006-7651-af95-dff8edbf8a66	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fbc3-6006-7651-af95-dff8edbf8a66	archived
 2026-11-21T02:11:12Z	incident	verify 028 lost its first send after a store publish was rejected; verify --wait 'redelivered' to a verifier with no thread; cancelled and restarted (v2)	pair.json .verifier.thread null, no thread in amp threads list	verdicts/028-*-v2-packet.md	kitchen gap to file
 2026-11-21T02:17:07Z	archive	archive sidekick T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1	no longer used by the store; a brief is being sent	amp threads archive T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1	archived
+2026-11-21T02:19:33Z	archive	archive verifier T-01a1fbde-e51a-778e-88a9-9554c739acf4	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fbde-e51a-778e-88a9-9554c739acf4	archived

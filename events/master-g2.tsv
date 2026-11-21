@@ -63,3 +63,9 @@
 2026-11-21T02:17:07Z	1795227427	master	log	-	archive: archive sidekick T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1
 2026-11-21T02:17:11Z	1795227431	master	spawn	-	sidekick:amp:ready
 2026-11-21T02:17:11Z	1795227431	master	send-brief	029-master-is-anchor-fix	
+2026-11-21T02:17:28Z	1795227448	master	queue	025-reply-deletes-no-master-state	
+2026-11-21T02:19:33Z	1795227573	master	archive	-	verifier:T-01a1fbde-e51a-778e-88a9-9554c739acf4
+2026-11-21T02:19:33Z	1795227573	master	log	-	archive: archive verifier T-01a1fbde-e51a-778e-88a9-9554c739acf4
+2026-11-21T02:19:33Z	1795227573	master	verify	028-dispatch-after-ready-sends-fix	clean
+2026-11-21T02:19:33Z	1795227573	master	wake	028-dispatch-after-ready-sends-fix	verify:clean
+2026-11-21T03:07:54Z	1795230474	master	send-verify	029-master-is-anchor-fix	amp:027 029
