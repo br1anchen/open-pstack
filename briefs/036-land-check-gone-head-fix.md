@@ -42,7 +42,7 @@ must not write:
 
 ## Context
 
-- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-010 && git checkout -B kitchen-followups FETCH_HEAD` (unit 010's head, which the master pushes when 010 reports; on top of 035's 875c871). Do not rebase onto origin/main. If unit-010 is not on origin, report blocked.
+- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-035 && git checkout -B kitchen-followups FETCH_HEAD` (unit 035's head 875c871, on top of 034's 70ed949). Do not rebase onto origin/main.
 - joo run 7ce4977c's five other lows (dead fallbacks and guards, a silent missing-packet case, carries_change cost) are follow-ups, not in this brief.
 - verdict: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/034-land-check-gone-head-fix-v1.md
 - original brief: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/034-land-check-gone-head-fix.md
@@ -69,6 +69,37 @@ uv check --frozen
 
 - No `time.sleep` in tests, and no elapsed-time asserts.
 - No push and no PR.
+
+## Playbook: review-fix (your parts)
+
+You own the working tree.
+
+Your parts:
+- review-fix.intro-1: **Fix the findings the brief lists, inside its Scope, and nothing else.** A review, a rejected verdi
+- review-fix.step-1: 1. Read each finding, the code it names, and the parent unit's brief and report. A finding you canno
+- review-fix.step-2: Fix one finding at a time, the smallest change that answers it. Each finding is one commit with the 
+- review-fix.step-3: 3. Run the brief's Verify commands and the checks each finding names. Nothing in this workflow asks 
+- review-fix.reply: In the report, under Ran and the sections the template names: each finding with its commit, the test
+
+### review-fix.intro-1
+
+**Fix the findings the brief lists, inside its Scope, and nothing else.** A review, a rejected verdict or a landing review already found each one; the unit that raised them already settled the design.
+
+### review-fix.step-1
+
+1. Read each finding, the code it names, and the parent unit's brief and report. A finding you cannot place, or one whose fix would change the parent's design, goes in the report under Questions; do not redesign around it.
+
+### review-fix.step-2
+
+Fix one finding at a time, the smallest change that answers it. Each finding is one commit with the test that pins it, in the same commit, recorded with kitchen.sh step. A finding with no testable behaviour (a comment, a name, a log line) says so in its commit message.
+
+### review-fix.step-3
+
+3. Run the brief's Verify commands and the checks each finding names. Nothing in this workflow asks for a failing test committed before its fix.
+
+### review-fix.reply
+
+In the report, under Ran and the sections the template names: each finding with its commit, the test that pins it, and the command output that shows it fixed. A finding left open says why. Every claim carries its command output or a file pointer.
 
 ## Report
 

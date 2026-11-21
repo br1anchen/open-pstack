@@ -59,7 +59,7 @@
       "openai/gpt-6.1-sol"
     ],
     "generation": 15,
-    "bootstrap_pending": true,
+    "bootstrap_pending": false,
     "permission_mode": "auto",
     "closed": false,
     "rotation_required": false,
@@ -158,20 +158,22 @@
     }
   ],
   "placement": "split",
-  "pending": [],
+  "pending": [
+    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/036-land-check-gone-head-fix.md"
+  ],
   "dispatch": {
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/035-branch-ahead-not-diverged.md",
-    "at": "2026-11-21T11:58:47Z",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/036-land-check-gone-head-fix.md",
+    "at": "2026-11-21T13:10:30Z",
     "head": "7218f3112db91d4448b20d708b5c92117b6543db",
-    "generation": 13,
-    "sidekick": "amp claude-code claude-sonnet-5-5",
+    "generation": 15,
+    "sidekick": "amp openai/gpt-6.1-sol",
     "report_order": 0
   },
   "sent": {
-    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/035-branch-ahead-not-diverged.md",
+    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/036-land-check-gone-head-fix.md",
     "kind": "BRIEF",
-    "at": "2026-11-21T11:58:47Z",
-    "epoch": 1795262327
+    "at": "2026-11-21T13:10:30Z",
+    "epoch": 1795266630
   },
   "heads": {
     "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
@@ -197,7 +199,8 @@
     "006-land-check-gone-head": "7218f3112db91d4448b20d708b5c92117b6543db",
     "033-master-bundle-branches-fix": "7218f3112db91d4448b20d708b5c92117b6543db",
     "034-land-check-gone-head-fix": "7218f3112db91d4448b20d708b5c92117b6543db",
-    "035-branch-ahead-not-diverged": "7218f3112db91d4448b20d708b5c92117b6543db"
+    "035-branch-ahead-not-diverged": "7218f3112db91d4448b20d708b5c92117b6543db",
+    "036-land-check-gone-head-fix": "7218f3112db91d4448b20d708b5c92117b6543db"
   },
   "sidekick_models": {
     "001-swallowed-failures": "amp anthropic/claude-sonnet-5-5",
@@ -223,7 +226,8 @@
     "006-land-check-gone-head": "amp claude-code claude-sonnet-5-5",
     "033-master-bundle-branches-fix": "amp claude-code claude-sonnet-5-5",
     "034-land-check-gone-head-fix": "amp claude-code claude-sonnet-5-5",
-    "035-branch-ahead-not-diverged": "amp claude-code claude-sonnet-5-5"
+    "035-branch-ahead-not-diverged": "amp claude-code claude-sonnet-5-5",
+    "036-land-check-gone-head-fix": "amp openai/gpt-6.1-sol"
   },
   "sidekick_threads": {
     "amp anthropic/claude-sonnet-5-5": [

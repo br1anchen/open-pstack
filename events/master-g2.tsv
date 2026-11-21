@@ -269,3 +269,11 @@
 2026-11-21T12:25:49Z	1795263949	master	spawn	-	sidekick:amp:handed-off
 2026-11-21T12:26:47Z	1795264007	master	log	-	incident: failover to gpt-6.1-sol started g15, which errored: Amp included usage at monthly limit, no paid credits (subscription-no-usage). No sidekick can start on an Amp-billed model; kitchen has no way back to Sonnet without a completed unit. Waiting on Brian
 2026-11-21T13:08:07Z	1795266487	master	send-verify	-	claude:landing
+2026-11-21T13:08:17Z	1795266497	master	nest-pending	-	T-01a1fe38-c47b-7197-94b5-e7f563ee97e1 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T13:08:26Z	1795266506	master	wake	-	verify:progress
+2026-11-21T13:08:36Z	1795266516	master	nest	-	T-01a1fe11-b0bf-7159-b82b-350daed39eb8 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T13:08:36Z	1795266516	master	nest	-	T-01a1fe38-c47b-7197-94b5-e7f563ee97e1 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T13:10:24Z	1795266624	master	archive	-	sidekick:T-01a1fd7d-661d-771a-8ca6-a91dc35eb807
+2026-11-21T13:10:24Z	1795266624	master	log	-	archive: archive sidekick T-01a1fd7d-661d-771a-8ca6-a91dc35eb807
+2026-11-21T13:10:29Z	1795266629	master	spawn	-	sidekick:amp:ready
+2026-11-21T13:10:30Z	1795266630	master	send-brief	036-land-check-gone-head-fix	
