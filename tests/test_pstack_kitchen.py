@@ -12877,7 +12877,7 @@ esac
         again = f'prove its Acceptance again with kitchen.sh verify {store}'
         restore = 'restore it from the bundle that carried it'
         nothing = (
-            f"{restore}; no other accepted unit's head carries its change; "
+            f"{restore}; no other accepted unit's head can be shown to carry its change; "
             f'prove its Acceptance again with a unit that does: kitchen.sh verify {store}'
         )
         no_verdict = lambda n: (

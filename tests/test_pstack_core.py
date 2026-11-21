@@ -21413,8 +21413,22 @@ class BundleBranchApplyTests(BundleRepoCase):
             self.bundle.add_bytes(tar, 'manifest.json', json.dumps(manifest).encode())
             self.bundle.add_bytes(tar, 'store/reports/001-new.md', b'from the sender\n')
         errors = io.StringIO()
-        with contextlib.redirect_stderr(errors):
+        real, fetches = subprocess.run, []
+
+        def recording(argv, *args, **kwargs):
+            if 'fetch' in argv:
+                fetches.append(kwargs)
+            return real(argv, *args, **kwargs)
+
+        with (
+            contextlib.redirect_stderr(errors),
+            mock.patch.dict(os.environ, {'PSTACK_BUNDLE_FETCH_TIMEOUT_S': '7'}),
+            mock.patch.object(subprocess, 'run', recording),
+        ):
             _, lines = self.bundle.apply(str(path))
+        [fetch] = fetches
+        self.assertEqual(fetch['timeout'], 7)
+        self.assertEqual(fetch['env']['GIT_TERMINAL_PROMPT'], '0')
         self.assertEqual(
             [line for line in lines if line.startswith('evidence:')],
             [

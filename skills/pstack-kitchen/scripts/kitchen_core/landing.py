@@ -601,7 +601,7 @@ def unverified_line(store, root, seq, brief):
     again = (
         f'prove its Acceptance again with {command}'
         if carried
-        else f"no other accepted unit's head carries its change; prove its Acceptance again with a unit that does: {command}"
+        else f"no other accepted unit's head can be shown to carry its change; prove its Acceptance again with a unit that does: {command}"
     )
     restore = 'restore it from the bundle that carried it' + (
         ', or ' if carried else '; '
