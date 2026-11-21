@@ -1,0 +1,4 @@
+1	0aa28ad5b0a4209c51944e046ce5a9de5bb9ce63	1795231441		a reply changes only its sender's role's paths, adds new files, deletes nothing by omission; two-orb regression asserts reports/002 and steps/002 survive
+2	18b77bdf60938e6e7ca05685c3911a42b89a1de0	1795232080		BundleMerge-style rows: stale sidekick and verifier replies, own updates merge, unknown sender add-only
+3	1f5722afaa005066b977c1ca495e39a747aa9816	1795232893		one mux.context read per rotation decision; manual rotate records reason:manual and prints rotate: manual; keeps_session drops reasons=None
+4	6a83f500bc5d5ed07276c49035859a9b8322e879	1795233537		docs: a reply changes only its own role's files; every rotation, manual included, says why
