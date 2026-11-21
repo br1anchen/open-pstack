@@ -12,6 +12,7 @@ from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
 from pstack_core.commands import close as close_store
+from pstack_core.commands import nest
 from pstack_core.commands.rotate import archive_retired
 from pstack_core.errors import (
     DamagedStore,
@@ -676,6 +677,11 @@ def take_master(ctx, args):
 
     update(store, mutate)
     m.retire(m.thread_of_pane(prev_pane), prev, store)
+    anchor_title = ''
+    if m.master_threads and m.own_thread():
+        anchor_title, warning = nest.take_anchor(store, m.own_thread())
+        if warning:
+            sys.stderr.write(f'warn: {warning}\n')
     archive_retired(ctx, store, 'take-master has run')
     event(
         store,
@@ -700,6 +706,10 @@ def take_master(ctx, args):
     out.write(
         f'master: {name} in {pane} (generation {field(store, "master", "generation")})\n'
     )
+    if m.master_threads and m.own_thread():
+        out.write(
+            f'anchor: {m.own_thread()} is the run\'s top-level anchor "{anchor_title}"; run kitchen.sh nest {store}\n'
+        )
     out.flush()
     publish_master(store)
     warn_unreviewed(store)

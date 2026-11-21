@@ -86,6 +86,51 @@ def anchor(store, besides=''):
     return text_at(peek(load(store), 'anchor'), 'thread')
 
 
+def anchor_title(store):
+    """The anchor thread's title, `pair.json` `.anchor.title`; a store without one reads it from the thread now and keeps it. '' when amp cannot say."""
+    holder = peek(load(store), 'anchor')
+    title = text_at(holder, 'title')
+    thread = text_at(holder, 'thread')
+    if title or not thread:
+        return title
+    from ..mux import amp
+
+    title = amp.thread_title(thread)
+    if title:
+        update(store, lambda doc: doc['anchor'].setdefault('title', title))
+    return title
+
+
+def take_anchor(store, thread):
+    """The next master `thread` takes over the run's anchor: `.anchor.thread` moves to it and the old anchor is added to `.anchor.previous`; the thread
+    is renamed to the anchor title and made top-level; each role thread the run still uses is nest-pending under it. (the title, '' when there is
+    none; the warning, '' when the rename worked.)"""
+    from ..mux import amp
+
+    old = anchor(store, thread)
+    title = anchor_title(store)
+
+    def move(doc):
+        holder = doc['anchor']
+        if holder.get('thread') != thread:
+            holder['previous'] = [*(holder.get('previous') or []), old]
+            holder['thread'] = thread
+
+    update(store, move)
+    warning = ''
+    if not title:
+        warning = f'the anchor has no title; {thread} was not renamed'
+    else:
+        renamed, why = amp.rename_thread(thread, title)
+        if not renamed:
+            warning = f'amp threads rename {thread} failed: {why}'
+    add_pending(store, thread, 'master', TOP_LEVEL)
+    for role_thread, name in amp.live_threads(load(store)).items():
+        if amp.role_of(name) != 'master' and role_thread != thread:
+            add_pending(store, role_thread, amp.role_of(name), thread)
+    return title, warning
+
+
 def stamp():
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
