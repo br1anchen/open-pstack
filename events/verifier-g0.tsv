@@ -6,3 +6,4 @@
 2026-11-20T20:29:26Z	1795206566	verifier	report	020-landing-packet-amendments-v1	clean
 2026-11-20T22:40:04Z	1795214404	verifier	report	005-kept-sidekick-session-v1	clean
 2026-11-20T23:10:29Z	1795216229	verifier	report	023-dispatch-after-ready-sends-v1	reject
+2026-11-21T01:04:50Z	1795223090	verifier	report	026-dispatch-after-ready-sends-fix-v1	reject
