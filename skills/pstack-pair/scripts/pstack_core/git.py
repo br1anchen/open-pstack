@@ -19,11 +19,14 @@ def run(
     stdout=PIPE,
     stderr=None,
     binary=False,
-    **popen,
+    **extra,
 ):
     """The CompletedProcess of `git -C root args` (no -C for a root of None). stdout is captured unless the caller sends it elsewhere; stderr is
-    left on the terminal, dropped when quiet, or sent where the caller says. stdin and the captured output are text, or bytes with binary. `popen`
-    (a timeout, an env) goes to subprocess.run; a call that outlives its timeout is killed and reports TIMED_OUT."""
+    left on the terminal, dropped when quiet, or sent where the caller says. stdin and the captured output are text, or bytes with binary. `extra`
+    holds only `timeout` (seconds; a call that outlives it is killed and reports TIMED_OUT) and `env`, which REPLACES git's whole environment, so
+    a caller that adds to it merges os.environ itself."""
+    if unknown := extra.keys() - {'timeout', 'env'}:
+        raise TypeError(f'git.run got unexpected keyword arguments {sorted(unknown)}')
     sys.stdout.flush()
     sys.stderr.flush()
     argv = ['git', *(['-C', root] if root is not None else []), *args]
@@ -34,16 +37,16 @@ def run(
             stdout=stdout,
             stderr=DEVNULL if quiet else stderr,
             check=False,
-            **popen,
+            **extra,
             **({} if binary else TEXT),
         )
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(argv, TIMED_OUT, b'' if binary else '')
 
 
-def ok(root, *args, stdout=DEVNULL, **popen):
-    """Whether git succeeded, with stderr dropped and stdout dropped or sent to the open file the caller gives; popen as in run."""
-    return run(root, *args, quiet=True, stdout=stdout, **popen).returncode == 0
+def ok(root, *args, stdout=DEVNULL, **extra):
+    """Whether git succeeded, with stderr dropped and stdout dropped or sent to the open file the caller gives; timeout and env as in run."""
+    return run(root, *args, quiet=True, stdout=stdout, **extra).returncode == 0
 
 
 def out(root, *args):

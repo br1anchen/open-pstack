@@ -170,14 +170,14 @@ def local_branches(root):
 
 def origin_baseline(root):
     """The commit of origin's default branch that the receiver can fetch too: the one thing a hand-over's bundle may leave out. origin is fetched
-    first, without a prompt and for at most PSTACK_BUNDLE_FETCH_TIMEOUT_S (30) seconds; when that fails or times out, the tracking ref the last
+    first, without a prompt and for at most PSTACK_BUNDLE_FETCH_TIMEOUT_S (30, 0 for no limit) seconds; when that fails or times out, the tracking ref the last
     fetch left (origin/HEAD, else origin/main, else origin/master) is the cut. '' when there is none, and the bundle then carries everything."""
     git.ok(
         root,
         'fetch',
         '-q',
         'origin',
-        timeout=env_int(FETCH_TIMEOUT_ENV, 30),
+        timeout=env_int(FETCH_TIMEOUT_ENV, 30) or None,
         env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'},
     )
     ref = git.out(root, 'symbolic-ref', '-q', 'refs/remotes/origin/HEAD')
@@ -631,11 +631,12 @@ def valid_tip(root, name, oid):
     )
 
 
-def apply_branches(root, branches, side, sender):
+def apply_branches(root, branches, side, sender, reported=''):
     """Takes the sender's local branches ({name: full commit id}, a master's hand-over, every tip already resolved by import_git) into this
     checkout without losing anything here: an absent branch is created, one whose tip is an ancestor of the incoming tip is fast-forwarded, and
     every other (ahead, diverged, or checked out in a worktree, which a ref update would leave with stale files) is kept and named with the
-    incoming tip, which stays reachable under `side`. Lines saying what happened."""
+    incoming tip, which stays reachable under `side`. The branch `reported` (the sender's, when move_checkout has put this checkout on it) has
+    its line from move_checkout and gets none here. Lines saying what happened."""
     held, lines = checked_out(root), []
     for name, oid in sorted(branches.items()):
         if not valid_tip(root, name, oid):
@@ -644,7 +645,7 @@ def apply_branches(root, branches, side, sender):
         ref = f'refs/pstack/in/{side}/br/{name}'
         git.ok(root, 'update-ref', ref, oid)
         local = git.out(root, 'rev-parse', '--verify', '-q', f'refs/heads/{name}')
-        if local == oid:
+        if local == oid or name == reported:
             continue
         kept = f'branch {name}: kept {(local or "")[:9] or "(unborn)"}'
         where = f'{sender} is at {oid} (kept as {ref})'
@@ -685,10 +686,10 @@ def set_age(bundle_id):
     return (1, clock) if clock.isdigit() and len(clock) == 20 else (0, bundle_id)
 
 
-def prune_sets(root, side, printed=''):
-    """Deletes the ref sets (refs/pstack/in/<sender>/<bundle id>/...) of the sender's older bundles, keeping PSTACK_BUNDLE_KEEP (8) sets in all:
+def prune_sets(root, side, printed='', keep=8):
+    """Deletes the ref sets (refs/pstack/in/<sender>/<bundle id>/...) of the sender's older bundles, keeping `keep` sets in all:
     the one just applied (`side`) and the newest others by set_age. A set that a line of this apply (`printed`) names stays too, since a
-    recovery recipe may need its ref."""
+    recovery recipe may need its ref. `keep` is the PSTACK_BUNDLE_KEEP the caller read."""
     sender, current = side.split('/')
     prefix = f'refs/pstack/in/{sender}/'
     sets = {}
@@ -697,7 +698,7 @@ def prune_sets(root, side, printed=''):
     ).splitlines():
         sets.setdefault(ref[len(prefix) :].split('/', 1)[0], []).append(ref)
     newest = sorted(sets.keys() - {current}, key=set_age, reverse=True)[
-        : max(env_int(KEEP_ENV, 8) - 1, 0)
+        : max(keep - 1, 0)
     ]
     for bundle_id, refs in sets.items():
         named = f'{prefix}{bundle_id}/' in printed
@@ -754,7 +755,7 @@ def import_git(manifest, gitdata):
     return True, lines
 
 
-def move_git(manifest, sender):
+def move_git(manifest, sender, keep):
     """The second half: lines saying how the sender's HEAD, local branches (a master's hand-over) and scratch worktrees came into this checkout.
     Each bundle's tips stay under refs/pstack/in/<sender>/<bundle id>/, so a later send does not replace the only ref to a commit a recovery
     needs."""
@@ -763,9 +764,13 @@ def move_git(manifest, sender):
     side = side_of(manifest)
     ref = f'refs/pstack/in/{side}/head'
     git.ok(root, 'update-ref', ref, head)
-    lines = [move_checkout(root, head, info.get('branch') or '', sender, ref)]
+    current = info.get('branch') or ''
+    lines = [move_checkout(root, head, current, sender, ref)]
     if isinstance(info.get('branches'), dict):
-        lines += apply_branches(root, info['branches'], side, sender)
+        here = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
+        lines += apply_branches(
+            root, info['branches'], side, sender, current if current == here else ''
+        )
     for tree in info.get('worktrees') or []:
         path, commit = tree.get('path') or '', tree.get('commit') or ''
         if not path or os.path.exists(path):
@@ -777,7 +782,7 @@ def move_git(manifest, sender):
             lines.append(f'worktree: {path} at {commit[:9]}')
         else:
             lines.append(f'worktree: {path}: {commit[:9]} could not be checked out')
-    prune_sets(root, side, '\n'.join(lines))
+    prune_sets(root, side, '\n'.join(lines), keep)
     return lines
 
 
@@ -785,6 +790,7 @@ def apply(path, base=None, reply=None):
     """Merges the bundle at path into this machine, against the bundle this side last sent to its sender (base, a path or None), as a role's
     reply to the master when `reply` (role_reply) says so. (manifest, lines to print). A hand-over's commits are imported before any store file or
     ref changes, so one that cannot be taken raises ValueError with this machine as it was."""
+    keep = env_int(KEEP_ENV, 8)
     manifest, files, gitdata = read_bundle(path)
     base_files = read_bundle(base)[1] if base and os.path.isfile(base) else {}
     store = manifest.get('store') or ''
@@ -798,5 +804,5 @@ def apply(path, base=None, reply=None):
     )
     lines += imported
     if ready:
-        lines += move_git(manifest, sender)
+        lines += move_git(manifest, sender, keep)
     return manifest, lines
