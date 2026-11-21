@@ -5637,6 +5637,37 @@ esac
             ),
         )
 
+    def test_evidence_commits_of_a_step_a_finish_and_a_verification_survive_a_rewrite_of_the_branch_and_gc(
+        self,
+    ):
+        base = self.git('rev-parse', 'HEAD')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, 'true')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        stepped = self.commit('one')
+        self.run_sh('step', str(self.store), stepped, 'one')
+        keep = f'refs/pstack/keep/{self.state()["slug"]}/'
+        self.assertEqual(self.git('rev-parse', f'{keep}{stepped}'), stepped)
+        self.write('src/util.py', 'X = 3\n')
+        last = self.commit('two')
+        self.done(b, last)
+        self.run_sh('finish', str(self.store), str(self.store / 'reports' / b.name))
+        self.assertEqual(self.git('rev-parse', f'{keep}{last}'), last)
+        self.assertNotIn(
+            f'{keep}{base}', self.git('for-each-ref', '--format=%(refname)')
+        )
+        (self.fake / 'verdict-mode').write_text('slow')
+        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        self.assertEqual(self.git('rev-parse', f'{keep}{base}'), base)
+        # The branch is rewritten and the reflog and loose objects go: only the keep refs hold the old commits.
+        self.git('reset', '-q', '--hard', base)
+        self.git('reflog', 'expire', '--expire=now', '--all')
+        self.git('gc', '-q', '--prune=now')
+        for oid in (stepped, last, base):
+            self.git('cat-file', '-e', f'{oid}^{{commit}}')
+
     def test_a_failing_gate_a_policy_failure_and_a_failing_verify_command_leave_rc_2(
         self,
     ):
@@ -17871,8 +17902,12 @@ class AmpKitchenTests(KitchenScriptTests):
         self.as_thread(
             sidekick, 'finish', str(self.store), str(self.store / 'reports' / b.name)
         )
-        # The master's orb never saw the commit: put its checkout back and drop the object.
+        # The master's orb never saw the commit: put its checkout back, drop the evidence ref finish pinned here, and drop the object.
         self.git('reset', '-q', '--hard', base)
+        for ref in self.git(
+            'for-each-ref', '--format=%(refname)', 'refs/pstack/keep'
+        ).split():
+            self.git('update-ref', '-d', ref)
         self.git('reflog', 'expire', '--expire=now', '--all')
         self.git('gc', '-q', '--prune=now')
         self.assertNotEqual(

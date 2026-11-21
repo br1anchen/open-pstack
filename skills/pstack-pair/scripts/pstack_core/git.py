@@ -65,6 +65,18 @@ def range_commits(root, base, tip):
     return [tuple(line.split('\t', 1)) for line in text.splitlines() if '\t' in line]
 
 
+KEEP = 'refs/pstack/keep'
+
+
+def pin(root, run, oid):
+    """Keeps the commit `oid` (a full id) reachable under the immutable ref refs/pstack/keep/<run>/<oid>: created only, so a ref that holds the same
+    id is left as it is and the evidence of an earlier head is never replaced by a later one. Whether the ref holds oid afterwards."""
+    ref = f'{KEEP}/{run}/{oid}'
+    if out(root, 'rev-parse', '--verify', '-q', ref) == oid:
+        return True
+    return ok(root, 'update-ref', ref, oid, '')
+
+
 def toplevel(path=None):
     """The top of the repository that holds path (the current directory without one), or '' outside a repository or without git."""
     try:
