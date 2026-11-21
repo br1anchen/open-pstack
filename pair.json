@@ -11,9 +11,9 @@
     "tab_id": "",
     "registered_at": "2026-11-21T00:12:48Z",
     "permission_mode": "auto",
-    "units_since_handoff": 10,
+    "units_since_handoff": 11,
     "generation": 2,
-    "landed_since_handoff": false,
+    "landed_since_handoff": true,
     "sessions": [
       {
         "generation": 1,
@@ -81,7 +81,7 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:18",
+    "pane_id": "amp:19",
     "kind": "claude",
     "started_at": null
   },
@@ -101,7 +101,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "036-land-check-gone-head-fix-verify"
+  ],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -273,5 +275,40 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/036-land-check-gone-head-fix-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/036-land-check-gone-head-fix-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/036-land-check-gone-head-fix.md",
+    "scratch": "036-land-check-gone-head-fix-verify",
+    "units": "034 006 035 036",
+    "risk": "escalated",
+    "sample": 1.0,
+    "unit": "036-land-check-gone-head-fix",
+    "started": 1795268592,
+    "deadline": 1795271292,
+    "class": "escalated",
+    "entry": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "claude-opus-5-5"
+      ],
+      "fallback": null,
+      "fallbacks": [],
+      "source": "default"
+    },
+    "retried": false,
+    "argv": [
+      "035",
+      "036",
+      "--covers",
+      "034",
+      "--covers",
+      "006",
+      "--base",
+      "1e10578"
+    ],
+    "delivered": false
+  }
 }

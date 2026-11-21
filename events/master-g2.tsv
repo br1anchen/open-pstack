@@ -277,3 +277,12 @@
 2026-11-21T13:10:24Z	1795266624	master	log	-	archive: archive sidekick T-01a1fd7d-661d-771a-8ca6-a91dc35eb807
 2026-11-21T13:10:29Z	1795266629	master	spawn	-	sidekick:amp:ready
 2026-11-21T13:10:30Z	1795266630	master	send-brief	036-land-check-gone-head-fix	
+2026-11-21T13:10:44Z	1795266644	master	queue	010-roster-handoff	
+2026-11-21T13:10:44Z	1795266644	master	log	-	order: g15 (gpt-6.1-sol, ChatGPT subscription) recovered; 036 dispatched to it from unit-035; 010 waits for Brian's GLM/Sonnet call and starts from unit-036
+2026-11-21T13:11:44Z	1795266704	master	log	-	model: Brian: 010 runs on Sonnet; after 036 reports, master resets the sidekick by hand to Sonnet (claude-code) and rotates before dispatching 010; GLM A/B ends at unit 002
+2026-11-21T13:25:18Z	1795267518	master	archive	-	verifier:T-01a1fe38-c47b-7197-94b5-e7f563ee97e1
+2026-11-21T13:25:18Z	1795267518	master	log	-	archive: archive verifier T-01a1fe38-c47b-7197-94b5-e7f563ee97e1
+2026-11-21T13:25:18Z	1795267518	master	verify	-	clean
+2026-11-21T13:25:18Z	1795267518	master	wake	-	verify:clean
+2026-11-21T13:25:53Z	1795267553	master	log	-	land: pushed be88296 to main (ff from b681abc): units 001,002,003,017,018,019,020 rebased; landing-v1 clean, suite 1948/0, land-check pass; reply to Puck sent
+2026-11-21T13:43:12Z	1795268592	master	send-verify	036-land-check-gone-head-fix	claude:034 006 035 036

@@ -8,7 +8,7 @@ risk: landing
 units: landing
 verifier-agent: claude --model claude-opus-5-5
 verifier-class: landing
-verifier-outcome: running
+verifier-outcome: clean
 deadline: 45m from now
 
 Write rule: you write only your verdict file and the scratch worktree you were given; work only in that worktree and write nothing else but the verdict.
