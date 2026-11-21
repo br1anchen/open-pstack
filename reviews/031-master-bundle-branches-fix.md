@@ -1,6 +1,6 @@
 # Review 031: master-bundle-branches-fix
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/031-master-bundle-branches-fix.md
 head: 6dcc8e38a288ade2e10d725d007d811dbc7f201d
 engine: joo 2026-11-21T07-02-41-670Z-3f3b8542
@@ -19,3 +19,7 @@ none
 ## Next
 
 Fix brief 032 on top of 022, verified with `--covers 031`. 004 and 031 are accepted on 032's clean verdict.
+
+## Accepted
+
+verdicts/033-master-bundle-branches-fix-v1.md is clean and covers this unit. Fixes 031, 032 and 033 resolved the findings above.

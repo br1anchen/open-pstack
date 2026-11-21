@@ -83,3 +83,6 @@ ts	phase	decision	why	evidence	result
 2026-11-21T09:46:03Z	archive	archive sidekick T-01a1fc96-a756-7134-b4a6-ebdd6834c821	no longer used by the store; a brief is being sent	amp threads archive T-01a1fc96-a756-7134-b4a6-ebdd6834c821	archived
 2026-11-21T10:14:30Z	archive	archive verifier T-01a1fd7d-083c-7599-9a8f-2ef012eadd66	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fd7d-083c-7599-9a8f-2ef012eadd66	archived
 2026-11-21T10:15:42Z	review-006	006 revise: verifier clean; joo 5 mediums (fetch + all-runs refs on every send, all-or-nothing ordinary sync, land-check blames/credits wrong units) + lows; fix 034 after 033, ahead of 010	joo 9a98e300; verdict 006-v1	reviews/006	034 queued; 010 now starts from unit-034
+2026-11-21T10:43:41Z	archive	archive verifier T-01a1fd9e-bdf0-70bb-8d74-2cd44eeab8fb	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fd9e-bdf0-70bb-8d74-2cd44eeab8fb	archived
+2026-11-21T10:43:59Z	review-033	004, 031, 032, 033 accepted on clean verdict 033-v1; 'ahead reported as diverged' observation and joo lows to followups	verdict 033-v1; joo a96a2864	reviews/033	034 in progress, 010 queued
+2026-11-21T11:07:32Z	order	035 branch-ahead-not-diverged written on Brian's request (fix before landing); queued after 034, ahead of 010	owner message	briefs/035	010 now starts from unit-035
