@@ -20736,9 +20736,9 @@ class BundleMergeTests(unittest.TestCase):
         self.assertEqual(self.read('reports/002-new.md'), 'mine\n')
 
 
-class BundleBranchApplyTests(unittest.TestCase):
-    """A master's hand-over carries every local branch; the receiver creates or fast-forwards them and keeps whatever it cannot move without
-    losing something. The receiver is the sender's own checkout with its objects pruned, as every orb has the checkout at the same path."""
+class BundleRepoCase(unittest.TestCase):
+    """A git checkout and a store that names it, as a bundle's sender and receiver both see them: the receiver is the sender's own checkout
+    with its objects pruned, as every orb has the checkout at the same path."""
 
     def setUp(self):
         from pstack_core import bundle
@@ -20807,6 +20807,11 @@ class BundleBranchApplyTests(unittest.TestCase):
     def prune(self):
         self.git('reflog', 'expire', '--expire=now', '--all')
         self.git('gc', '-q', '--prune=now')
+
+
+class BundleBranchApplyTests(BundleRepoCase):
+    """A master's hand-over carries every local branch; the receiver creates or fast-forwards them and keeps whatever it cannot move without
+    losing something."""
 
     def test_each_kind_of_receiver_branch_of_a_hand_over_bundle_is_created_moved_or_kept_and_a_second_apply_changes_nothing(
         self,
@@ -20926,6 +20931,100 @@ class BundleBranchApplyTests(unittest.TestCase):
             ).returncode
             == 0
         )
+
+
+class BundleRebasedCheckoutTests(BundleRepoCase):
+    """A role rebased the branch the master's checkout is on: the master's checkout and its branch stay where they are, and the output says how
+    to move them without losing the old head."""
+
+    def rebased(self):
+        """(old head, rebased head): main at the pre-rebase commit here, and the bundle from the role that holds the rebased one."""
+        self.git('checkout', '-q', '-b', 'old', self.base)
+        old = self.commit('work')
+        self.git('checkout', '-q', '-B', 'main', self.base)
+        self.commit('new-base')
+        new = self.commit('work')  # the same change on the new base: another commit
+        self.git('branch', '-D', 'old')
+        return old, new
+
+    def test_a_bundle_onto_a_diverged_checkout_leaves_it_and_its_recipe_moves_it_keeping_the_old_head(
+        self,
+    ):
+        old, new = self.rebased()
+        bundle = self.pack_and_prune()
+        self.git('reset', '-q', '--hard', old)
+        self.prune()
+        _, lines = self.bundle.apply(str(bundle))
+        text = '\n'.join(lines)
+        self.assertEqual(self.git('rev-parse', 'HEAD', 'main').split(), [old, old])
+        self.assertIn(f'checkout: kept {old[:9]}: it diverged from m ({new[:9]})', text)
+        self.assertIn(
+            f'main is at {old}; m is at {new} (kept as refs/pstack/in/T-m/', text
+        )
+        self.assertIn(f'kitchen-recovery/{old}', text)
+        self.assertEqual(
+            self.git(
+                'rev-parse',
+                self.git(
+                    'for-each-ref', '--format=%(refname)', 'refs/pstack/in/*/*/head'
+                ),
+            ),
+            new,
+        )
+        [recipe] = [
+            line.strip() for line in text.splitlines() if line.startswith('    ')
+        ]
+
+        def run(line):
+            return subprocess.run(
+                ['sh', '-c', line],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60,
+            )
+
+        # A tracked change here: the recipe refuses before it creates anything.
+        (self.repo / 'base.txt').write_text('edited')
+        self.assertNotEqual(run(recipe).returncode, 0)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), old)
+        self.assertEqual(self.git('branch', '--list', 'kitchen-recovery/*'), '')
+        self.git('checkout', '--', 'base.txt')
+        # Clean: the branch moves to the incoming commit and the old head stays on its recovery branch.
+        done = run(recipe)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.git('rev-parse', 'HEAD', 'main').split(), [new, new])
+        self.assertEqual(self.git('rev-parse', f'kitchen-recovery/{old}'), old)
+        # No longer at the old head: a second run changes nothing.
+        self.assertNotEqual(run(recipe).returncode, 0)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), new)
+
+    def test_a_bundle_onto_a_diverged_branch_that_is_not_checked_out_gets_a_recipe_that_checks_it_out_anew(
+        self,
+    ):
+        old, new = self.rebased()
+        bundle = self.pack_and_prune()
+        self.git('checkout', '-q', '-B', 'main', old)
+        self.git('checkout', '-q', '--detach', self.base)
+        self.prune()
+        _, lines = self.bundle.apply(str(bundle))
+        text = '\n'.join(lines)
+        self.assertIn(f'branch main here diverged from m ({new[:9]})', text)
+        self.assertEqual(self.git('rev-parse', 'main'), old)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.base)
+        [recipe] = [
+            line.strip() for line in text.splitlines() if line.startswith('    ')
+        ]
+        done = subprocess.run(
+            ['sh', '-c', recipe],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.git('rev-parse', 'HEAD', 'main').split(), [new, new])
+        self.assertEqual(self.git('rev-parse', f'kitchen-recovery/{old}'), old)
 
 
 class RoleReplyMergeTests(unittest.TestCase):

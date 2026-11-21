@@ -17,6 +17,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import tarfile
 import tempfile
@@ -499,9 +500,46 @@ def own_commits(root, rev, head):
     return bool(git.out(root, 'rev-list', '-n1', rev, '--not', '--remotes', head))
 
 
-def move_checkout(root, head, branch, sender):
-    """Takes the sender's HEAD into this checkout when that loses nothing: a clean tree whose commits the sender's head (or the remotes)
-    already hold. One line saying what happened."""
+def recovery_recipe(root, target, old, new):
+    """One shell line, for the person at the checkout, that moves `target` (a branch; '' is the detached HEAD) from `old` to `new` only if it is
+    still at `old` with no tracked changes, and only after a branch `kitchen-recovery/<old>` holds `old` (never forced, and kept when it is
+    already there). The branch the checkout is on is reset with --keep; another branch is checked out anew."""
+    q = shlex.quote
+    recovery = q(f'kitchen-recovery/{old}')
+    on = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
+    if target == on:
+        at = f'[ "$(git rev-parse HEAD)" = {old} ]'
+        here = (
+            f'[ "$(git symbolic-ref -q --short HEAD)" = {q(target)} ]'
+            if target
+            else '! git symbolic-ref -q HEAD >/dev/null'
+        )
+        move = f'git reset --keep {new}'
+    else:
+        at = f'[ "$(git rev-parse refs/heads/{q(target)})" = {old} ]'
+        here = 'true'
+        move = f'git checkout -q -B {q(target)} {new}'
+    clean = '[ -z "$(git status --porcelain --untracked-files=no)" ]'
+    keep = f'{{ git branch {recovery} {old} || [ "$(git rev-parse {recovery})" = {old} ]; }}'
+    return f'cd {q(root)} && {here} && {at} && {clean} && {keep} && {move}'
+
+
+def diverged(root, sender, target, old, new, ref):
+    """The lines for a checkout that kept its own commits: where each side is, where the incoming commit stays reachable, and the recovery
+    recipe. Nothing is moved here."""
+    on = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
+    whose = 'it' if target == on else f'branch {target} here'
+    return (
+        f'checkout: kept {old[:9]}: {whose} diverged from {sender} ({new[:9]})\n'
+        f'  {target or "detached HEAD"} is at {old}; {sender} is at {new} (kept as {ref})\n'
+        f"  to take {sender}'s commits and keep this side's under kitchen-recovery/{old}, run (it changes nothing unless this checkout is still as described):\n"
+        f'    {recovery_recipe(root, target, old, new)}'
+    )
+
+
+def move_checkout(root, head, branch, sender, ref):
+    """Takes the sender's HEAD (kept at `ref`) into this checkout when that loses nothing: a clean tree whose commits the sender's head (or the
+    remotes) already hold. The lines saying what happened; a checkout that diverged is left as it is, with a recipe to move it by hand."""
     short = head[:9]
     local = git.out(root, 'rev-parse', 'HEAD') or ''
     if local == head:
@@ -514,9 +552,18 @@ def move_checkout(root, head, branch, sender):
             f'checkout: kept {local[:9]}: tracked changes here; {sender} is at {short}'
         )
     if local and own_commits(root, local, head):
-        return f'checkout: kept {local[:9]}: it diverged from {sender} ({short})'
+        return diverged(
+            root,
+            sender,
+            git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or '',
+            local,
+            head,
+            ref,
+        )
     if branch and has_commit(root, branch) and own_commits(root, branch, head):
-        return f'checkout: kept {local[:9]}: branch {branch} here diverged from {sender} ({short})'
+        return diverged(
+            root, sender, branch, git.out(root, 'rev-parse', branch) or '', head, ref
+        )
     moved = (
         git.ok(root, 'checkout', '-q', '-B', branch, head)
         if branch
@@ -627,7 +674,9 @@ def apply_git(manifest, gitdata, sender):
         if handover:
             raise ValueError(lost)
         return [*lines, lost]
-    lines.append(move_checkout(root, head, info.get('branch') or '', sender))
+    ref = f'refs/pstack/in/{side}/head'
+    git.ok(root, 'update-ref', ref, head)
+    lines.append(move_checkout(root, head, info.get('branch') or '', sender, ref))
     if handover:
         lines += apply_branches(root, branches, side, info.get('branch') or '', sender)
     for tree in info.get('worktrees') or []:
