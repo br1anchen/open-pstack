@@ -35,7 +35,7 @@ must not write:
 
 ## Context
 
-- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-030 && git checkout -B kitchen-followups FETCH_HEAD` (unit 030's head, which the master pushes; on top of 004 and 025). Do not rebase onto origin/main, and leave the `master-is-anchor` branch (PR #13) alone.
+- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-031 && git checkout -B kitchen-followups FETCH_HEAD` (unit 031's head, which the master pushes; on top of 030, 004 and 025). Do not rebase onto origin/main, and leave the `master-is-anchor` branch (PR #13) alone.
 - `notes/s4-ledger-1252-issues.md` issue 5: fix unit 026 inside 025..027 was left out silently and waited for `verify --landing`.
 
 ## Acceptance

@@ -118,3 +118,11 @@
 2026-11-21T05:04:08Z	1795237448	master	log	-	archive: archive sidekick T-01a1fc44-ad32-76a1-af3b-97fbbd6c4b49
 2026-11-21T05:04:11Z	1795237451	master	spawn	-	sidekick:amp:ready
 2026-11-21T05:04:11Z	1795237451	master	send-brief	030-reply-deletes-no-master-state-fix	
+2026-11-21T05:04:23Z	1795237463	master	queue	022-migrated-threads-archive-nest	
+2026-11-21T05:22:16Z	1795238536	master	archive	-	verifier:T-01a1fc7b-9233-7087-8395-5247ff7177e4
+2026-11-21T05:22:16Z	1795238536	master	log	-	archive: archive verifier T-01a1fc7b-9233-7087-8395-5247ff7177e4
+2026-11-21T05:22:16Z	1795238536	master	verify	004-master-bundle-branches	clean
+2026-11-21T05:22:16Z	1795238536	master	wake	004-master-bundle-branches	verify:clean
+2026-11-21T05:23:05Z	1795238585	master	queue	031-master-bundle-branches-fix	
+2026-11-21T05:23:05Z	1795238585	master	log	-	review-004: 004 revise: verifier clean, joo 4 medium (partial hand-over, dropped current branch, recipe moves wrong branch, full-history bundle on fetch failure) + lows; fix brief 031 after 030, ahead of 022
+2026-11-21T05:31:00Z	1795239060	master	send-verify	030-reply-deletes-no-master-state-fix	claude:025 005 030

@@ -39,7 +39,7 @@ The design is the consultant's advice, `advice/004-master-bundle-branches-c1.md`
 
 ## Context
 
-- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-030 && git checkout -B kitchen-followups FETCH_HEAD` (unit 030's head, which the master pushes; on top of 004 and 025). Do not rebase onto origin/main, and leave the `master-is-anchor` branch (PR #13) alone.
+- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-031 && git checkout -B kitchen-followups FETCH_HEAD` (unit 031's head, which the master pushes; on top of 030, 004 and 025). Do not rebase onto origin/main, and leave the `master-is-anchor` branch (PR #13) alone.
 - Gap 2 of run sidekick-ab2: `notes/kitchen-gaps.md` in the store.
 - The roster is a kitchen concept: no pstack_core change.
 

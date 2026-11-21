@@ -45,7 +45,7 @@ The design is the consultant's advice, `advice/006-land-check-gone-head-c1.md` i
 
 ## Context
 
-- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-030 && git checkout -B kitchen-followups FETCH_HEAD` (unit 030's head, which the master pushes; on top of 004 and 025). Do not rebase onto origin/main, and leave the `master-is-anchor` branch (PR #13) alone.
+- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-031 && git checkout -B kitchen-followups FETCH_HEAD` (unit 031's head, which the master pushes; on top of 030, 004 and 025). Do not rebase onto origin/main, and leave the `master-is-anchor` branch (PR #13) alone.
 - Gap 5 of run sidekick-ab2: `notes/kitchen-gaps.md` in the store.
 - Consultant probe: `advice/006-land-check-gone-head-c1-probe.py` (its RETAINED REF, TRANSPORT GAP, EXPLICIT TRANSPORT and RECOVERY PATH cases model the tests).
 - Closest tests: tests/test_pstack_kitchen.py L12427-12645 and L12953-13040 (rebased coverage, revert checks, landed diagnostics); keep them unchanged.

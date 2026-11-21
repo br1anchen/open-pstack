@@ -5,3 +5,5 @@
 - (023, joo low) no test that a working sidekick whose generation already took a brief is refused at once without polling; a regression of `took_a_brief` to always-False would only add 60s waits.
 
 - 027/029 (joo, low): nest.take_anchor's `old != thread` check is redundant; guard against a non-dict `.anchor` in pair.json.
+
+- 004 (joo, low/note): move_checkout could pass whether the target is checked out instead of asking git again in diverged and recovery_recipe; make `exclude` a required argument of git_bundle.

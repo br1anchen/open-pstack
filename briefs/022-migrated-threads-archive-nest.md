@@ -39,7 +39,7 @@ must not write:
 
 ## Context
 
-- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-030 && git checkout -B kitchen-followups FETCH_HEAD` (unit 030's head, which the master pushes; on top of 004 and 025). Do not rebase onto origin/main, and leave the `master-is-anchor` branch (PR #13) alone.
+- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-031 && git checkout -B kitchen-followups FETCH_HEAD` (unit 031's head, which the master pushes; on top of 030, 004 and 025). Do not rebase onto origin/main, and leave the `master-is-anchor` branch (PR #13) alone.
 - Issues 1 and 2 in `notes/s4-ledger-1252-issues.md`. The same `no drain receipt` keep hit this run's GLM sidekick after store-to-git (decisions.tsv `archive`).
 
 ## Acceptance
