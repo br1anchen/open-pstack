@@ -3,3 +3,5 @@
 - 020 joo low: verify_packet.py:392 accepted_amendments shows Amendments from a review whose verdict is revise or reject; context_section checks verdict == accept.
 - (023, joo low) send.py:181 `took_a_brief` keys on a brief dispatched to the generation, so a new generation busy on a discuss PLAN makes a later send poll up to PAIR_ROTATE_READY_S before refusing.
 - (023, joo low) no test that a working sidekick whose generation already took a brief is refused at once without polling; a regression of `took_a_brief` to always-False would only add 60s waits.
+
+- 027/029 (joo, low): nest.take_anchor's `old != thread` check is redundant; guard against a non-dict `.anchor` in pair.json.

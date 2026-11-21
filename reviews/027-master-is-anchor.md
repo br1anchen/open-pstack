@@ -1,6 +1,6 @@
 # Review 027: master-is-anchor
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/027-master-is-anchor.md
 head: a0eb1b71ea08de94621e9df7936996335f3ffdf3
 engine: joo 2026-11-21T01-40-33-374Z-5da3f1dd
@@ -22,3 +22,7 @@ none
 ## Next
 
 Fix brief 029 on branch master-is-anchor. It gets its own verifier, with `--covers 027`. After a clean verdict, the master pushes the branch and opens the PR, then replies to T-01a1ea49.
+
+## Accepted
+
+verdicts/029-master-is-anchor-fix-v1.md is clean and covers 027. Fix 029 resolved every joo finding listed above.

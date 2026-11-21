@@ -60,3 +60,5 @@ ts	phase	decision	why	evidence	result
 2026-11-21T02:17:07Z	archive	archive sidekick T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1	no longer used by the store; a brief is being sent	amp threads archive T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1	archived
 2026-11-21T02:19:33Z	archive	archive verifier T-01a1fbde-e51a-778e-88a9-9554c739acf4	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fbde-e51a-778e-88a9-9554c739acf4	archived
 2026-11-21T03:10:20Z	archive	archive sidekick T-01a1fbdd-2049-7157-8e2a-33abfab79cff	no longer used by the store; a brief is being sent	amp threads archive T-01a1fbdd-2049-7157-8e2a-33abfab79cff	archived
+2026-11-21T03:24:44Z	archive	archive verifier T-01a1fc13-4107-71b9-96ce-31e3d28b00b8	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fc13-4107-71b9-96ce-31e3d28b00b8	archived
+2026-11-21T03:25:40Z	pr	027+029 opened as PR #13 (branch master-is-anchor off origin/main); reply sent to T-01a1ea49	Brian's request: stops at a PR	https://github.com/br1anchen/open-pstack/pull/13	Brian merges

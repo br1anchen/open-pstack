@@ -81,3 +81,9 @@
 2026-11-21T03:10:20Z	1795230620	master	log	-	archive: archive sidekick T-01a1fbdd-2049-7157-8e2a-33abfab79cff
 2026-11-21T03:10:22Z	1795230622	master	spawn	-	sidekick:amp:ready
 2026-11-21T03:10:23Z	1795230623	master	send-brief	025-reply-deletes-no-master-state	
+2026-11-21T03:24:44Z	1795231484	master	archive	-	verifier:T-01a1fc13-4107-71b9-96ce-31e3d28b00b8
+2026-11-21T03:24:44Z	1795231484	master	log	-	archive: archive verifier T-01a1fc13-4107-71b9-96ce-31e3d28b00b8
+2026-11-21T03:24:44Z	1795231484	master	verify	029-master-is-anchor-fix	clean
+2026-11-21T03:24:44Z	1795231484	master	wake	029-master-is-anchor-fix	verify:clean
+2026-11-21T03:25:40Z	1795231540	master	log	-	pr: 027+029 opened as PR #13 (branch master-is-anchor off origin/main); reply sent to T-01a1ea49
+2026-11-21T04:01:11Z	1795233671	master	send-verify	025-reply-deletes-no-master-state	claude:005 025
