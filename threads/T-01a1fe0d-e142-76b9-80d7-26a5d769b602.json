@@ -8,7 +8,15 @@
  "name": "kitchen-followups-sidekick",
  "pane": "amp:1",
  "relays": [],
- "requests": [],
+ "requests": [
+  {
+   "at": 1795263680,
+   "hash": "780469f41d5c89f46939bb88c2fc438134fc5e2c6cd35eaa5407169dbcc0e1f6",
+   "id": "a7a52ca857b7",
+   "seq": 65,
+   "state": "sent"
+  }
+ ],
  "role": "sidekick",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795263687,
