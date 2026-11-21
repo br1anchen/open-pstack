@@ -1,0 +1,346 @@
+{
+  "overlays": {
+    "excluded": [],
+    "selected": [
+      {
+        "id": "pstack-code",
+        "kind": "area",
+        "why": "applies skills/*/scripts/** matches skills/pstack-pair/scripts/pstack_core/commands/nest.py"
+      }
+    ]
+  },
+  "roles": {
+    "consultant": [
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-7"
+          }
+        ],
+        "id": "feature.step-7",
+        "source": {
+          "digest": "656671dcb730",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:7"
+        },
+        "text": "7. If the design is contested, `interrogate` before shipping."
+      }
+    ],
+    "master": [
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.intro-1"
+          }
+        ],
+        "id": "feature.intro-1",
+        "source": {
+          "digest": "a3d8b8ddc1d9",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "intro:1"
+        },
+        "text": "You own the design. Plan, review, verify. The sidekick implements under your brief. Stay in the lead."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-1"
+          }
+        ],
+        "id": "feature.step-1",
+        "source": {
+          "digest": "8918f20d52fc",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:1"
+        },
+        "text": "1. `how` over the affected subsystem."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-2"
+          }
+        ],
+        "id": "feature.step-2",
+        "source": {
+          "digest": "af77b1a3517b",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:2"
+        },
+        "text": "2. `architect` for parallel design exploration."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-3"
+          }
+        ],
+        "id": "feature.step-3",
+        "source": {
+          "digest": "353baa29538a",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:3"
+        },
+        "text": "3. Write the throughput checkpoint as four todo items. A dimension that genuinely does not apply (single file, no fan-out) keeps its item with `n/a: <reason>` rather than being dropped:\n   - **Blocking first steps.** Gates run before fan-out.\n   - **Independent workstreams.** Disjoint files, services, or layers parallelize. Shared writes serialize.\n   - **Shared mutable state.** Default to splitting the target (the **separate-before-serializing-shared-state** principle skill). Serialize only for real invariants.\n   - **Smallest safe decomposition.** If one worker is best, name why."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-4"
+          }
+        ],
+        "id": "feature.step-4",
+        "source": {
+          "digest": "0c3f4fb562ce",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:4"
+        },
+        "text": "Hand code-writing to the sidekick through the brief, with a specific scope: file paths, the named data shape and its organizing structure per **principle-model-the-domain**, and success criteria."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-7"
+          }
+        ],
+        "id": "feature.step-7",
+        "source": {
+          "digest": "656671dcb730",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:7"
+        },
+        "text": "7. If the design is contested, `interrogate` before shipping."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-8"
+          }
+        ],
+        "id": "feature.step-8",
+        "source": {
+          "digest": "dac759481293",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:8"
+        },
+        "text": "Open a PR only as far as the kitchen's [landing].mode allows, and only when the brief says so; the kitchen never merges, and the master stops at the mode."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.tail-1"
+          }
+        ],
+        "id": "feature.tail-1",
+        "source": {
+          "digest": "251a83f61201",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "tail:1"
+        },
+        "text": "Code-coupled work (one feature, one migration) goes to the sidekick as one unit with the checkpoint inline. Parallel units are for slices that produce independent artifacts. Rewrite the checkpoint at phase boundaries, and dispatch a fresh brief rather than chaining steers."
+      }
+    ],
+    "sidekick": [
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.intro-1"
+          }
+        ],
+        "id": "feature.intro-1",
+        "source": {
+          "digest": "a3d8b8ddc1d9",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "intro:1"
+        },
+        "text": "You own the implementation inside the brief's Scope; the master owns the design and the review. You may delegate to a subagent on your roster model, within your role's limits."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-1"
+          }
+        ],
+        "id": "feature.step-1",
+        "source": {
+          "digest": "8918f20d52fc",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:1"
+        },
+        "text": "Read the Scope's files and the code they call before you edit. The design is the brief's: a design question goes in the report under Questions, not into a design exploration of your own."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-4"
+          }
+        ],
+        "id": "feature.step-4",
+        "source": {
+          "digest": "0c3f4fb562ce",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:4"
+        },
+        "text": "Implement with a specific scope: file paths, the named data shape and its organizing structure per **principle-model-the-domain** (a state machine over scattered booleans, a table or registry over branching, a typed model over repeated shape assumptions), chosen before you write logic, and the brief's success criteria. You may delegate to a subagent on your roster model, within your role's limits, for disjoint scoped edits that you integrate serially. Comments per **Comments**. Surgical edits; re-ground against the source for upstream-derived files. Port shared-primitive improvements to all consumers and verify each. Commit liberally."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-5"
+          }
+        ],
+        "id": "feature.step-5",
+        "source": {
+          "digest": "763ff5742085",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:5"
+        },
+        "text": "5. Verify on the matching surface. \"Inconclusive\" or wrong-surface is not a pass. Flag it."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-6"
+          }
+        ],
+        "id": "feature.step-6",
+        "source": {
+          "digest": "66eb9034e61c",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:6"
+        },
+        "text": "Commit small, ordered units as new commits, each recorded with kitchen.sh step and green before the next. Never rebase or amend commits already recorded as steps unless the brief says so. Use the **sequence-verifiable-units** principle skill, building, verifying, and committing each small unit before the next."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.reply"
+          }
+        ],
+        "id": "feature.reply",
+        "source": {
+          "digest": "a4759e2087fa",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "reply"
+        },
+        "text": "In the report, under Ran and the sections the template names: what you built, what you chose and why, and open decisions. Tables for design alternatives. Every claim carries its command output or a file pointer."
+      },
+      {
+        "from": [
+          {
+            "by": "overlay:pstack-code",
+            "part": "testing"
+          }
+        ],
+        "id": "testing",
+        "source": {
+          "digest": "5be47ddb4e70",
+          "path": "AGENTS.md",
+          "root": "repo",
+          "select": "heading:Testing Guidelines"
+        },
+        "text": "## Testing Guidelines\n\n- `python3 scripts/check-pstack.py`, `python3 tests/run.py`, `uv lock --check`, `uv run --frozen ruff format --check`, `uv run --frozen ruff check` and `uv check --frozen` must pass before a commit; the suite runs once, on the host's `python3`. `tests/run.py` runs one process per test in parallel; `-k <text>` selects tests by id; `PSTACK_PAIR_UPDATE=1` regenerates the pair goldens, and a golden changes only when the transcript is meant to change.\n- Run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once per clone so `git blame` skips the format commit.\n- Commit a source change in the same commit as the test that pins it; the kitchen's `test-touch` policy refuses a step under `skills/pstack-pair` that changes source with no file under `tests/`.\n- `python3 tests/spec_gen.py --check` builds tests/SPEC.md without writing it and exits 1 when it is stale or a line has no test; a brief's Verify uses it in place of a regenerate.\n- Tests are deterministic: no sleeps and no elapsed-time asserts. Trigger a state change at a fixed point with the fake herdr hooks (`$FAKE/once/<subcommand>`, `$FAKE/report-after`) and assert on output.\n- Tests are hermetic: they scrub inherited `PSTACK_KITCHEN_*`, `KITCHEN_*`, `PAIR_*`, `HERDR_*`, `REX_*`, `PSTACK_MUX`, `AMP_THREAD_ID` and `AMP_CURRENT_THREAD_ID` variables, so a run inside a live kitchen gives the same result as one outside it.\n- Drive pair.sh and kitchen.sh by hand only against the fake herdr: put `tests/pstack-pair/bin` first on PATH and point XDG_STATE_HOME at a temp directory, as `tests/pstack-pair/scenario.sh` does (it unsets `PSTACK_KITCHEN_ROLE` and `PSTACK_KITCHEN_RUN`, which a verifier pane carries). `init`, `spawn`, `stop` and `close` against the real herdr register, rename or close the calling pane, so an agent that runs them there loses its own pane."
+      },
+      {
+        "from": [
+          {
+            "by": "overlay:pstack-code",
+            "part": "style"
+          }
+        ],
+        "id": "style",
+        "source": {
+          "digest": "9989a9702ca1",
+          "path": "AGENTS.md",
+          "root": "repo",
+          "select": "heading:Style"
+        },
+        "text": "## Style\n\n- The entry scripts stay one exec line and `bash -n` clean; Python is stdlib-only, Python 3.11 or later.\n- Python is formatted and linted with the pinned ruff (`uv run --frozen ruff format`, `uv run --frozen ruff check`) and type-checked with `uv check --frozen`, which needs uv 0.12.3 or later. The tools are dev-only, in `pyproject.toml`'s dev group and `uv.lock`; the shipped scripts stay stdlib-only and import nothing from them. The 3.11 floor is held by ruff's `target-version` and ty's `python-version`.\n- Skill text: say what holds, in plain sentences; link with relative paths that `check-pstack.py` can resolve.\n- Name commits with Conventional Commits and a scope naming the skill or area (`fix(skills/pstack-kitchen): ...`, `test(tests): ...`). Keep commits atomic."
+      }
+    ],
+    "verifier": [
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.step-5"
+          }
+        ],
+        "id": "feature.step-5",
+        "source": {
+          "digest": "763ff5742085",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "step:5"
+        },
+        "text": "5. Verify on the matching surface. \"Inconclusive\" or wrong-surface is not a pass. Flag it."
+      },
+      {
+        "from": [
+          {
+            "by": "workflow:feature",
+            "part": "feature.reply"
+          }
+        ],
+        "id": "feature.reply",
+        "source": {
+          "digest": "a4759e2087fa",
+          "path": "poteto-mode/playbooks/feature.md",
+          "root": "skills",
+          "select": "reply"
+        },
+        "text": "The evidence standard for the brief's Acceptance, not new criteria: the built behavior shown on the matching surface, with the output. A verdict line cites the command output that shows it."
+      },
+      {
+        "from": [
+          {
+            "by": "overlay:pstack-code",
+            "part": "testing"
+          }
+        ],
+        "id": "testing",
+        "source": {
+          "digest": "5be47ddb4e70",
+          "path": "AGENTS.md",
+          "root": "repo",
+          "select": "heading:Testing Guidelines"
+        },
+        "text": "Check the unit's tests against this: deterministic, with no sleep and no elapsed-time assert; hermetic of PSTACK_KITCHEN_*, KITCHEN_*, PAIR_*, HERDR_*, REX_*, PSTACK_MUX, AMP_THREAD_ID and AMP_CURRENT_THREAD_ID; each source change in the same commit as the test that pins it; every tests/SPEC.md line naming its test. This is the evidence standard for the verdict, not new Acceptance."
+      }
+    ]
+  },
+  "version": 1,
+  "with": [],
+  "without": [],
+  "workflow": "feature"
+}

@@ -4,3 +4,10 @@
 2026-11-21T14:23:40Z	1795271020	master	archive	-	master:T-01a1fb72-f256-7439-9c4a-d630b435d90d
 2026-11-21T14:23:40Z	1795271020	master	log	-	archive: archive master T-01a1fb72-f256-7439-9c4a-d630b435d90d
 2026-11-21T14:23:40Z	1795271020	master	takeover	-	generation:3
+2026-11-21T14:24:34Z	1795271074	master	nest	-	T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T14:24:40Z	1795271080	master	log	-	anchor: gen3 master is the anchor
+2026-11-21T14:24:42Z	1795271082	master	queue	037-landing-rebase-2	
+2026-11-21T14:25:00Z	1795271100	master	wake	010-roster-handoff	checkin
+2026-11-21T14:28:45Z	1795271325	master	log	-	plan: 038 snooze-role-threads queued after 037
+2026-11-21T14:28:45Z	1795271325	master	log	-	plan: GLM trial: Sonnet while Amp credits are out
+2026-11-21T14:29:54Z	1795271394	master	reuse	037-landing-rebase-2	sidekick: pstack, pstack-docs, context 18%
