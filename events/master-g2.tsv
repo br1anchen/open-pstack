@@ -298,3 +298,10 @@
 2026-11-21T13:45:31Z	1795268731	master	log	-	archive: archive sidekick T-01a1fe11-b0bf-7159-b82b-350daed39eb8
 2026-11-21T13:45:34Z	1795268734	master	spawn	-	sidekick:amp:ready
 2026-11-21T13:45:34Z	1795268734	master	send-brief	010-roster-handoff	
+2026-11-21T14:11:54Z	1795270314	master	archive	-	verifier:T-01a1fe58-e0f7-72a4-a291-463e9eeb0771
+2026-11-21T14:11:55Z	1795270315	master	log	-	archive: archive verifier T-01a1fe58-e0f7-72a4-a291-463e9eeb0771
+2026-11-21T14:11:55Z	1795270315	master	verify	036-land-check-gone-head-fix	clean
+2026-11-21T14:11:55Z	1795270315	master	wake	036-land-check-gone-head-fix	verify:clean
+2026-11-21T14:12:11Z	1795270331	master	log	-	review-036: 006, 034, 035, 036 accepted on clean verdict 036-v1; joo low to followups; every unit through 036 now accepted
+2026-11-21T14:22:07Z	1795270927	master	rotate-due	-	compacted
+2026-11-21T14:22:07Z	1795270927	master	log	-	land-2: second push blocked: rebase of c5cf2504..84ea957 onto be88296 conflicts at fe439aee (022 discover vs PR13 take_anchor in nest.py); brief 037 landing-rebase-2 queued after 010; discover's anchor default moves to the current master

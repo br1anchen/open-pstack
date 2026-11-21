@@ -1,6 +1,6 @@
 # Review 006: land-check-gone-head
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/006-land-check-gone-head.md
 head: 6921d9f0870a08ee19d9bac49a6c0c4696e13321
 engine: joo 2026-11-21T09-42-59-674Z-9a98e300
@@ -19,3 +19,7 @@ none
 ## Next
 
 Fix brief 034 on top of 033, verified with `--covers 006`. 006 is accepted on its clean verdict.
+
+## Accepted
+
+verdicts/036-land-check-gone-head-fix-v1.md is clean and covers this unit. Fixes 034 and 036 resolved the findings above.

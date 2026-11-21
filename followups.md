@@ -23,3 +23,6 @@
 - 033 (verifier obs. 2): with the checkout on X and the sender's Y only ahead here, [brief 035, Brian asked to fix before landing] the one Y line says 'diverged' with a recovery recipe. joo lows: make apply_branches' `reported` required; drop a redundant conditional in the branch-target helper.
 
 - 034 (joo, low): a missing landing packet silently drops the gone-head blame; carries_change builds a full StackIndex per accepted unit though only the newest carrier is used; dead `.md` fallback, rpartition filter and `lost and` guard in landing.py.
+
+- 035: the ahead line under a detached checkout has no test of its own.
+- 036 (joo, low): one helper for the bounded, no-prompt origin fetch, used also for the head fetch above it, which can still hang.
