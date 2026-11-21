@@ -66,10 +66,10 @@
     "closed": false,
     "rotation_required": false,
     "delivered": {
-      "generation": "11",
+      "generation": "12",
       "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "030-reply-deletes-no-master-state-fix",
+      "brief": "031-master-bundle-branches-fix",
       "compactions": 0
     }
   },
@@ -95,9 +95,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "030-reply-deletes-no-master-state-fix-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -223,7 +221,8 @@
       "T-01a1fbdd-2049-7157-8e2a-33abfab79cff",
       "T-01a1fc13-c1f9-7664-b9b5-5b7a64516c97",
       "T-01a1fc44-ad32-76a1-af3b-97fbbd6c4b49",
-      "T-01a1fc7b-eba5-73ef-8b67-a0a0fd74248b"
+      "T-01a1fc7b-eba5-73ef-8b67-a0a0fd74248b",
+      "T-01a1fc96-a756-7134-b4a6-ebdd6834c821"
     ]
   },
   "consult": {
@@ -248,40 +247,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/030-reply-deletes-no-master-state-fix-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/030-reply-deletes-no-master-state-fix-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/030-reply-deletes-no-master-state-fix.md",
-    "scratch": "030-reply-deletes-no-master-state-fix-verify",
-    "units": "025 005 030",
-    "risk": "escalated",
-    "sample": 1.0,
-    "unit": "030-reply-deletes-no-master-state-fix",
-    "started": 1795239060,
-    "deadline": 1795241760,
-    "class": "escalated",
-    "entry": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "claude-opus-5-5"
-      ],
-      "fallback": null,
-      "fallbacks": [],
-      "source": "default"
-    },
-    "retried": false,
-    "argv": [
-      "030",
-      "--covers",
-      "025",
-      "--covers",
-      "005",
-      "--base",
-      "c5cf250"
-    ],
-    "delivered": true,
-    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-030-reply-deletes-no-master-state-fix-verify/T-01a1fc96-4201-70d8-bc15-945d20a11366.jsonl"
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
