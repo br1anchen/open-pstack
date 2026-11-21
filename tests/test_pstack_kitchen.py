@@ -16419,6 +16419,13 @@ class AmpKitchenTests(KitchenScriptTests):
             thread=verifier,
         )
         before = self.state()
+        steps = self.store / 'steps/002-unit002.tsv'
+        steps.parent.mkdir(exist_ok=True)
+        steps.write_text('1\tabc123\ta step the sidekick recorded after the snapshot\n')
+        sidekick_files = {
+            rel: (self.store / rel).read_bytes()
+            for rel in ('reports/002-unit002.md', 'steps/002-unit002.tsv')
+        }
         self.keep_store('master')
         self.swap_in_store('orb-verifier')
         verdict = self.store / 'verdicts/001-probe.md'
@@ -16436,6 +16443,8 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertEqual(orders.read_text().splitlines()[-1][:3], '99.')
         self.assertTrue((self.store / 'briefs/002-unit002.md').exists())
+        for rel, kept in sidekick_files.items():
+            self.assertEqual((self.store / rel).read_bytes(), kept, rel)
         self.assertEqual(
             (self.store / 'verdicts/001-probe.md').read_text(),
             'status: clean\nunits: 001\n',

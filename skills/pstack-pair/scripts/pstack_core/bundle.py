@@ -9,9 +9,9 @@ union of its lines. Without a base (first contact) the sender's copy wins wherev
 
 A role's reply to the master is merged against the bundle the master sent that role *last*, which can be newer than the snapshot the role worked
 from, so the three-way rule would take the role's older copy of anything the master changed in between. A reply therefore never changes
-what the master owns (role_reply, protected): the master's pair.json is kept whole, and only the current sidekick's completion
-(SIDEKICK_FACT) is taken from it; the master's other files (gitstore.RULES) are kept as they are, and only the shared append logs
-(SHARED_LOGS) take the union of their lines."""
+what the master or another role owns (role_reply, owned_by): the master's pair.json is kept whole, and only the current sidekick's completion
+(SIDEKICK_FACT) is taken from it; every other file is kept as this side has it unless the sender's own role owns it (gitstore.RULES), a file
+this side lacks is added (a master-owned one is not), and only the shared append logs (SHARED_LOGS) take the union of their lines."""
 
 import io
 import json
@@ -34,12 +34,18 @@ MISSING = object()
 # The one pair.json fact a role sets under the local store (commands/report.py record_rotation_required), and the append logs every role writes.
 SIDEKICK_FACT = 'rotation_required'
 SHARED_LOGS = ('events.tsv', 'gates.tsv')
+ROLES = ('sidekick', 'consultant', 'verifier')
 
 
 class Reply(NamedTuple):
-    """A transfer that is a role's reply to the master of an established run; from_sidekick is whether the role is the receiver's current sidekick."""
+    """A transfer that is a role's reply to the master of an established run; role is the role the receiver's pair.json gives the sender's name
+    ('sidekick', 'consultant' or 'verifier'), or '' for a sender it does not name."""
 
-    from_sidekick: bool
+    role: str
+
+    @property
+    def from_sidekick(self):
+        return self.role == 'sidekick'
 
 
 def skipped(rel):
@@ -258,9 +264,11 @@ def role_reply(manifest, recorded):
         manifest, previous.get('name') or '', old_thread, recorded
     ):
         return None
-    return Reply(
-        sent_by(manifest, object_at(pair, 'sidekick').get('name') or '', '', recorded)
-    )
+    for role in ROLES:
+        name = object_at(pair, role).get('name') or ''
+        if sent_by(manifest, name, '', recorded):
+            return Reply(role)
+    return Reply('')
 
 
 def is_master_owned(rel):
@@ -269,6 +277,21 @@ def is_master_owned(rel):
 
     rule = gitstore.classify(rel)
     return rel not in SHARED_LOGS and rule is not None and rule.kind == gitstore.MASTER
+
+
+def owned_by(rel, role):
+    """Whether the role named by a reply owns the path (gitstore.RULES). A `.seen` marker is the master's even where progress/ is the sidekick's,
+    and a sender that is no role owns nothing."""
+    from . import gitstore
+
+    rule = gitstore.classify(rel)
+    return (
+        bool(role)
+        and not rel.endswith('.seen')
+        and rule is not None
+        and rule.kind == gitstore.ROLE
+        and role in rule.roles
+    )
 
 
 def completion(local, incoming):
@@ -359,8 +382,9 @@ def write_file(path, data):
 
 
 def merge_store(store, files, listed, base_files, reply=None):
-    """Merges the sender's files into store; (lines to print). A reply (role_reply) changes nothing the master owns: pair.json takes only the
-    sidekick's completion, a master-owned file stays as this side has it, and a shared log the reply lacks stays as it is."""
+    """Merges the sender's files into store; (lines to print). A reply (role_reply) changes only the paths its sender's role owns (owned_by): pair.json takes only the
+    sidekick's completion, any other file stays as this side has it (a file this side lacks is added, except a master-owned one), nothing is
+    deleted by omission, and a shared log the reply lacks stays as it is."""
     local, _ = store_files(store)
     changed, removed, conflicts, refused, completed = 0, 0, [], [], False
     for rel in sorted(set(local) | set(files) | set(base_files)):
@@ -376,6 +400,15 @@ def merge_store(store, files, listed, base_files, reply=None):
                 refused.append(rel)
         elif reply is not None and rel in SHARED_LOGS and rel not in files:
             keep, conflict = local.get(rel), False
+        elif (
+            reply is not None
+            and rel not in SHARED_LOGS
+            and not owned_by(rel, reply.role)
+        ):
+            # Another role's file, or the master's marker in a role's directory: this side's copy stays, a file it lacks is added, none is deleted.
+            keep, conflict = local.get(rel, files.get(rel)), False
+            if rel in local and rel in files and files[rel] != keep:
+                refused.append(rel)
         else:
             keep, conflict = merge_file(
                 rel, base_files.get(rel), local.get(rel), files.get(rel)
