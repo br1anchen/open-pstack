@@ -20988,6 +20988,53 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertEqual(self.git('rev-parse', 'refs/heads/feat/sender'), tip)
         self.assertEqual(self.git('rev-parse', 'HEAD'), self.base)
 
+    def other_branch_receiver(self, own_y=False):
+        """The sender's checkout is on Y; this checkout is on X with a commit of its own, and on Y with another when own_y. (X's tip, the Y tip
+        sent, Y's tip here or '', the bundle)."""
+        self.git('checkout', '-q', '-b', 'Y', self.base)
+        y_sent = self.commit('y-sent')
+        bundle = self.pack_and_prune()
+        self.git('checkout', '-q', '-B', 'X', self.base)
+        x_tip = self.commit('x-own')
+        self.git('branch', '-D', 'Y')
+        y_here = ''
+        if own_y:
+            self.git('checkout', '-q', '-b', 'Y', self.base)
+            y_here = self.commit('y-mine')
+            self.git('checkout', '-q', 'X')
+        self.prune()
+        return x_tip, y_sent, y_here, bundle
+
+    def test_a_checkout_on_another_branch_with_its_own_commits_stays_put_and_the_senders_branch_is_created(
+        self,
+    ):
+        x_tip, y_sent, _, bundle = self.other_branch_receiver()
+        _, lines = self.bundle.apply(str(bundle))
+        text = '\n'.join(lines)
+        self.assertEqual(
+            self.git('rev-parse', 'HEAD', 'refs/heads/X').split(), [x_tip] * 2
+        )
+        self.assertEqual(self.git('rev-parse', 'refs/heads/Y'), y_sent)
+        self.assertIn(f'branch Y: created at {y_sent[:9]}, as m', text)
+        self.assertIn(f'checkout: kept {x_tip[:9]}', text)
+        self.assertNotIn('reset --keep', text)
+        self.assertNotIn('kitchen-recovery', text)
+
+    def test_a_checkout_on_another_branch_gets_the_recipe_of_the_senders_branch_when_that_one_diverged_here(
+        self,
+    ):
+        x_tip, y_sent, y_here, bundle = self.other_branch_receiver(own_y=True)
+        _, lines = self.bundle.apply(str(bundle))
+        text = '\n'.join(lines)
+        self.assertEqual(
+            self.git('rev-parse', 'HEAD', 'refs/heads/X').split(), [x_tip] * 2
+        )
+        self.assertEqual(self.git('rev-parse', 'refs/heads/Y'), y_here)
+        self.assertIn(f'checkout -q -B Y {y_sent}', text)
+        self.assertIn(f'kitchen-recovery/{y_here}', text)
+        self.assertNotIn('reset --keep', text)
+        self.assertNotIn(f'rev-parse HEAD)" = {x_tip}', text)
+
 
 class BundleRebasedCheckoutTests(BundleRepoCase):
     """A role rebased the branch the master's checkout is on: the master's checkout and its branch stay where they are, and the output says how
