@@ -673,10 +673,17 @@ def side_of(manifest):
     )
 
 
-def prune_sets(root, side):
-    """Deletes the ref sets (refs/pstack/in/<sender>/<bundle id>/...) of the sender's older bundles, keeping PSTACK_BUNDLE_KEEP (8) sets in all: the
-    one just applied (`side`, whose refs the lines of this apply name) and the newest others. A bundle id starts with its sender's clock, so the
-    newest sort last."""
+def set_age(bundle_id):
+    """The order key of a bundle id, oldest first: an id that starts with its sender's clock (`<time_ns>-<hex>`) sorts by that clock; an id
+    without one (a bare uuid from before ids carried it) is older than every id that has one, whatever its characters."""
+    clock, _, _ = bundle_id.partition('-')
+    return (1, clock) if clock.isdigit() and len(clock) == 20 else (0, bundle_id)
+
+
+def prune_sets(root, side, printed=''):
+    """Deletes the ref sets (refs/pstack/in/<sender>/<bundle id>/...) of the sender's older bundles, keeping PSTACK_BUNDLE_KEEP (8) sets in all:
+    the one just applied (`side`) and the newest others by set_age. A set that a line of this apply (`printed`) names stays too, since a
+    recovery recipe may need its ref."""
     sender, current = side.split('/')
     prefix = f'refs/pstack/in/{sender}/'
     sets = {}
@@ -684,11 +691,12 @@ def prune_sets(root, side):
         git.out(root, 'for-each-ref', '--format=%(refname)', prefix) or ''
     ).splitlines():
         sets.setdefault(ref[len(prefix) :].split('/', 1)[0], []).append(ref)
-    newest = sorted(sets.keys() - {current}, reverse=True)[
+    newest = sorted(sets.keys() - {current}, key=set_age, reverse=True)[
         : max(env_int(KEEP_ENV, 8) - 1, 0)
     ]
     for bundle_id, refs in sets.items():
-        if bundle_id != current and bundle_id not in newest:
+        named = f'{prefix}{bundle_id}/' in printed
+        if bundle_id != current and bundle_id not in newest and not named:
             for ref in refs:
                 git.ok(root, 'update-ref', '-d', ref)
 
@@ -764,7 +772,7 @@ def move_git(manifest, sender):
             lines.append(f'worktree: {path} at {commit[:9]}')
         else:
             lines.append(f'worktree: {path}: {commit[:9]} could not be checked out')
-    prune_sets(root, side)
+    prune_sets(root, side, '\n'.join(lines))
     return lines
 
 

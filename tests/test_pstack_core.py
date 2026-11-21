@@ -21114,6 +21114,52 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertEqual({ref.split('/')[4] for ref in refs}, {ids[0], ids[3], ids[4]})
         self.assertIn(f'refs/pstack/in/T-m/{ids[0]}/head', refs)
 
+    def test_pruning_keeps_the_newest_sets_when_older_ids_are_bare_uuids_that_sort_above_the_new_ones(
+        self,
+    ):
+        legacy = [f'f{n:031x}' for n in range(3)]
+        for bundle_id in legacy:
+            self.git('update-ref', f'refs/pstack/in/T-m/{bundle_id}/head', self.base)
+        bundles, ids = [], []
+        for n in range(4):
+            self.commit(f'work-{n}')
+            path = Path(self.tmp.name) / f'bundle-{n}.tgz'
+            manifest = self.bundle.pack(
+                str(self.store),
+                str(path),
+                {'name': 'm', 'thread': 'T-m'},
+                {'name': 'm2', 'pane': 'amp:2'},
+                {},
+            )
+            bundles.append(path)
+            ids.append(manifest['id'])
+        with mock.patch.dict(os.environ, {'PSTACK_BUNDLE_KEEP': '3'}):
+            for path in bundles:
+                self.bundle.apply(str(path))
+        refs = self.git(
+            'for-each-ref', '--format=%(refname)', 'refs/pstack/in/T-m/'
+        ).splitlines()
+        self.assertEqual({ref.split('/')[4] for ref in refs}, set(ids[-3:]))
+
+    def test_pruning_keeps_a_set_that_a_line_of_the_apply_names(self):
+        for bundle_id in (
+            'a' * 32,
+            '1' * 20 + '-aaaaaaaaaaaa',
+            '2' * 20 + '-bbbbbbbbbbbb',
+        ):
+            self.git('update-ref', f'refs/pstack/in/T-m/{bundle_id}/head', self.base)
+        current = '3' * 20 + '-cccccccccccc'
+        self.git('update-ref', f'refs/pstack/in/T-m/{current}/head', self.base)
+        named = '1' * 20 + '-aaaaaaaaaaaa'
+        with mock.patch.dict(os.environ, {'PSTACK_BUNDLE_KEEP': '1'}):
+            self.bundle.prune_sets(
+                str(self.repo), f'T-m/{current}', f'run refs/pstack/in/T-m/{named}/head'
+            )
+        refs = self.git(
+            'for-each-ref', '--format=%(refname)', 'refs/pstack/in/T-m/'
+        ).splitlines()
+        self.assertEqual({ref.split('/')[4] for ref in refs}, {current, named})
+
 
 class BundleRebasedCheckoutTests(BundleRepoCase):
     """A role rebased the branch the master's checkout is on: the master's checkout and its branch stay where they are, and the output says how
