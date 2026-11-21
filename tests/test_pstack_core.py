@@ -21239,6 +21239,85 @@ class BundleBranchApplyTests(BundleRepoCase):
                 self.bundle.origin_baseline(str(self.repo))
             self.assertEqual(seen, [expected])
 
+    def send_evidence(self, name, run='run1'):
+        """Commits `name`, pins it as evidence of `run`, and packs an ordinary message of this repo: (commit, bundle path)."""
+        oid = self.commit(name)
+        git.pin(str(self.repo), run, oid)
+        path = Path(self.tmp.name) / f'{name}.tgz'
+        self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': 'm', 'thread': 'T-m'},
+            {'name': 'w', 'pane': 'amp:2'},
+            {},
+        )
+        return oid, path
+
+    def fresh_receiver(self):
+        """The sender's checkout as an orb that holds none of the evidence: no keep refs, no remotes, the branch at the base, no old objects."""
+        self.git('reset', '-q', '--hard', self.base)
+        for ref in self.git(
+            'for-each-ref', '--format=%(refname)', 'refs/pstack', 'refs/remotes'
+        ).split():
+            self.git('update-ref', '-d', ref)
+        self.prune()
+
+    def test_evidence_of_two_successive_messages_reaches_a_fresh_receiver_and_survives_its_gc(
+        self,
+    ):
+        first, one = self.send_evidence('ev-1')
+        # A remote only the sender has holds it too: the bundle must not be cut against it.
+        self.git('update-ref', 'refs/remotes/elsewhere/main', first)
+        self.git('reset', '-q', '--hard', self.base)  # the branch is rewritten ...
+        second, two = self.send_evidence(
+            'ev-2'
+        )  # ... and the next head is evidence too
+        self.fresh_receiver()
+        _, lines = self.bundle.apply(str(one))
+        self.assertIn('evidence: 1 commits kept under refs/pstack/keep', lines)
+        self.prune()
+        _, lines = self.bundle.apply(str(two))
+        self.assertIn('evidence: 1 commits kept under refs/pstack/keep', lines)
+        _, again = self.bundle.apply(str(two))
+        self.assertFalse([line for line in again if line.startswith('evidence:')])
+        for ref in self.git(
+            'for-each-ref', '--format=%(refname)', 'refs/pstack/in'
+        ).split():
+            self.git('update-ref', '-d', ref)
+        self.git('reset', '-q', '--hard', self.base)
+        self.prune()
+        for oid in (first, second):
+            self.assertEqual(self.git('rev-parse', f'refs/pstack/keep/run1/{oid}'), oid)
+            self.git('cat-file', '-e', f'{oid}^{{commit}}')
+
+    def test_a_message_whose_evidence_cannot_be_imported_raises_and_keeps_nothing(self):
+        oid, path = self.send_evidence('ev-1')
+        manifest = self.bundle.read_bundle(str(path))[0]
+        self.assertEqual(manifest['git']['keep'], {f'run1/{oid}': oid})
+        self.fresh_receiver()
+        # The same message without its git part: the commit exists nowhere here.
+        with tarfile.open(path, 'w:gz') as tar:
+            self.bundle.add_bytes(tar, 'manifest.json', json.dumps(manifest).encode())
+        before = self.refs()
+        with self.assertRaisesRegex(ValueError, 'was not carried'):
+            self.bundle.apply(str(path))
+        self.assertEqual(self.refs(), before)
+        self.assertEqual(self.git('for-each-ref', 'refs/pstack/keep'), '')
+
+    def test_an_evidence_entry_whose_name_is_not_its_own_id_is_not_imported(self):
+        oid, path = self.send_evidence('ev-1')
+        manifest = self.bundle.read_bundle(str(path))[0]
+        manifest['git']['keep'].update(
+            {f'run1/{self.base}': oid, 'x': oid, f'../y/{oid}': oid}
+        )
+        self.with_manifest(path, manifest)
+        self.fresh_receiver()
+        self.bundle.apply(str(path))
+        self.assertEqual(
+            self.git('for-each-ref', '--format=%(refname)', 'refs/pstack/keep'),
+            f'refs/pstack/keep/run1/{oid}',
+        )
+
 
 class BundleRebasedCheckoutTests(BundleRepoCase):
     """A role rebased the branch the master's checkout is on: the master's checkout and its branch stay where they are, and the output says how
