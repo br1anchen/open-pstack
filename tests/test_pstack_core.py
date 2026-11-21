@@ -20971,6 +20971,23 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertNotEqual(head, self.base)
         self.assertFalse((self.store / 'reports' / '001-new.md').exists())
 
+    def test_the_senders_working_branch_is_created_here_when_the_checkout_kept_its_own_state(
+        self,
+    ):
+        self.git('checkout', '-q', '-b', 'feat/sender', self.base)
+        tip = self.commit('sender-work')
+        bundle = self.pack_and_prune()
+        self.git('checkout', '-q', 'main')
+        self.git('branch', '-D', 'feat/sender')
+        (self.repo / 'base.txt').write_text('edited here')
+        self.prune()
+        _, lines = self.bundle.apply(str(bundle))
+        text = '\n'.join(lines)
+        self.assertIn(f'checkout: kept {self.base[:9]}: tracked changes here', text)
+        self.assertIn(f'branch feat/sender: created at {tip[:9]}, as m', text)
+        self.assertEqual(self.git('rev-parse', 'refs/heads/feat/sender'), tip)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.base)
+
 
 class BundleRebasedCheckoutTests(BundleRepoCase):
     """A role rebased the branch the master's checkout is on: the master's checkout and its branch stay where they are, and the output says how

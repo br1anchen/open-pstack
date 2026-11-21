@@ -611,11 +611,11 @@ def valid_tip(root, name, oid):
     )
 
 
-def apply_branches(root, branches, side, current, sender):
+def apply_branches(root, branches, side, sender):
     """Takes the sender's local branches ({name: full commit id}, a master's hand-over, every tip already resolved by import_git) into this
     checkout without losing anything here: an absent branch is created, one whose tip is an ancestor of the incoming tip is fast-forwarded, and
     every other (ahead, diverged, or checked out in a worktree, which a ref update would leave with stale files) is kept and named with the
-    incoming tip, which stays reachable under `side`. The branch the sender's checkout is on (`current`) is move_checkout's. Lines saying what happened."""
+    incoming tip, which stays reachable under `side`. Lines saying what happened."""
     held, lines = checked_out(root), []
     for name, oid in sorted(branches.items()):
         if not valid_tip(root, name, oid):
@@ -624,7 +624,7 @@ def apply_branches(root, branches, side, current, sender):
         ref = f'refs/pstack/in/{side}/br/{name}'
         git.ok(root, 'update-ref', ref, oid)
         local = git.out(root, 'rev-parse', '--verify', '-q', f'refs/heads/{name}')
-        if name == current or local == oid:
+        if local == oid:
             continue
         kept = f'branch {name}: kept {(local or "")[:9] or "(unborn)"}'
         where = f'{sender} is at {oid} (kept as {ref})'
@@ -717,9 +717,7 @@ def move_git(manifest, sender):
     git.ok(root, 'update-ref', ref, head)
     lines = [move_checkout(root, head, info.get('branch') or '', sender, ref)]
     if isinstance(info.get('branches'), dict):
-        lines += apply_branches(
-            root, info['branches'], side, info.get('branch') or '', sender
-        )
+        lines += apply_branches(root, info['branches'], side, sender)
     for tree in info.get('worktrees') or []:
         path, commit = tree.get('path') or '', tree.get('commit') or ''
         if not path or os.path.exists(path):
