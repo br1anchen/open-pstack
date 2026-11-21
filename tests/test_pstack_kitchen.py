@@ -16004,6 +16004,31 @@ class AmpKitchenTests(KitchenScriptTests):
         )
         self.assertIn('top-level anchor "Run anchor"', out)
 
+    def test_take_master_from_an_anchor_with_no_thread_records_no_empty_previous_anchor(
+        self,
+    ):
+        pair = self.state()
+        pair['anchor'] = {'thread': '', 'title': 'Run anchor'}
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        _, master2 = self.take_master_after_rotation()
+        self.assertEqual(
+            self.state()['anchor'], {'thread': master2, 'title': 'Run anchor'}
+        )
+
+    def test_a_master_thread_started_for_a_store_with_no_pair_json_is_only_recorded(
+        self,
+    ):
+        from pstack_core.mux import amp
+
+        bare = Path(self.tmp.name) / 'bare-store'
+        bare.mkdir()
+        state = Path(self.tmp.name) / 'bare-state'
+        with mock.patch.dict(os.environ, {'XDG_STATE_HOME': str(state)}):
+            amp.record_started('T-bare', 'demo-master', str(bare), True)
+            recorded = amp.load_json(amp.threads_path())
+        self.assertEqual(recorded['T-bare']['role'], 'master')
+        self.assertFalse((bare / 'nest-pending.tsv').exists())
+
     def test_take_master_whose_rename_fails_warns_and_still_takes_over(self):
         (self.fake / 'amp-rename-fail').write_text('')
         out, master2 = self.take_master_after_rotation()
