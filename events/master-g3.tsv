@@ -27,3 +27,7 @@
 2026-11-21T14:43:58Z	1795272238	master	log	-	verify-010: 010 verdict clean; review stays revise
 2026-11-21T15:04:14Z	1795273454	master	log	-	plan: Brian's store-default rule folds into plan 016 (unit 011)
 2026-11-21T15:08:26Z	1795273706	master	send-steer	037-landing-rebase-2-s1	resume
+2026-11-21T15:08:42Z	1795273722	master	wake	037-landing-rebase-2	checkin
+2026-11-21T15:11:07Z	1795273867	master	log	-	incident: sidekick g16 published a stale master pair.json (verifying 010 reopened, scratch) at 9d1867f9; master sync refused
+2026-11-21T15:11:08Z	1795273868	master	log	-	steer-037: 037 blocked on my Verify line (>=48); 47 is right
+2026-11-21T15:20:13Z	1795274413	master	send-verify	-	claude:landing
