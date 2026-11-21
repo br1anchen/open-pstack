@@ -1,0 +1,21 @@
+{
+ "args": [],
+ "generation": 0,
+ "kind": "claude",
+ "name": "kitchen-followups-verifier",
+ "pane": "amp:3",
+ "relays": [],
+ "requests": [
+  {
+   "at": 1795271420,
+   "hash": "eebef5fea1cf54e1a734089316b9022fc040afe8ebd30579e9e8c1121e1f84ee",
+   "id": "c2db18efaf7c",
+   "seq": 76,
+   "state": "pending"
+  }
+ ],
+ "role": "verifier",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "state": "started",
+ "thread": ""
+}
