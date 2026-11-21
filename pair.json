@@ -5,18 +5,13 @@
   "cwd": "/home/user/workspace/repo",
   "git_root": "/home/user/workspace/repo",
   "master": {
-    "name": "kitchen-followups-master-g2",
+    "name": "kitchen-followups-master",
     "pane_id": "amp:T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "workspace_id": "",
     "tab_id": "",
     "registered_at": "2026-11-21T00:12:48Z",
     "permission_mode": "auto",
     "units_since_handoff": 0,
-    "previous": {
-      "name": "kitchen-followups-master",
-      "pane_id": "amp:T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce",
-      "session": ""
-    },
     "generation": 2,
     "landed_since_handoff": false,
     "sessions": [
@@ -141,6 +136,10 @@
     {
       "path": "/home/user/workspace/repo/skills",
       "at": "2026-11-20T16:10:43Z"
+    },
+    {
+      "path": "/home/user/.local/share/pstack-builds/a68465145cf5c4dd/skills",
+      "at": "2026-11-21T00:19:52Z"
     }
   ],
   "placement": "split",
