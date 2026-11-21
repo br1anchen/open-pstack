@@ -69,3 +69,7 @@
 2026-11-21T02:19:33Z	1795227573	master	verify	028-dispatch-after-ready-sends-fix	clean
 2026-11-21T02:19:33Z	1795227573	master	wake	028-dispatch-after-ready-sends-fix	verify:clean
 2026-11-21T03:07:54Z	1795230474	master	send-verify	029-master-is-anchor-fix	amp:027 029
+2026-11-21T03:08:04Z	1795230484	master	nest-pending	-	T-01a1fc13-4107-71b9-96ce-31e3d28b00b8 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T03:08:12Z	1795230492	master	wake	029-master-is-anchor-fix	verify:progress
+2026-11-21T03:08:19Z	1795230499	master	queue	-	cleared
+2026-11-21T03:08:27Z	1795230507	master	rotate	-	generation:8
