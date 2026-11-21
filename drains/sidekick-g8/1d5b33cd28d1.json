@@ -1,0 +1,16 @@
+{
+ "code": [
+  "7df08b7b4826868f574f0601610638a4f2ae7aaa"
+ ],
+ "generation": 8,
+ "outputs": [
+  {
+   "path": "reports/029-master-is-anchor-fix.md",
+   "sha256": "98bb15cc6e448f6d04906adc907ff3c0c34342be7eaec1e42fa92d59944750f9"
+  }
+ ],
+ "request": "1d5b33cd28d1",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fbdd-2049-7157-8e2a-33abfab79cff"
+}

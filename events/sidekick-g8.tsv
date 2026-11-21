@@ -1,1 +1,9 @@
 2026-11-21T02:16:31Z	1795227391	sidekick	report	000-ready-g8	done
+2026-11-21T02:19:15Z	1795227555	sidekick	gate-fail	029-master-is-anchor-fix	b01651e7d /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/029-master-is-anchor-fix-b01651e7d55f/out.1
+2026-11-21T02:28:33Z	1795228113	sidekick	step	029-master-is-anchor-fix	1:56c089685
+2026-11-21T02:38:07Z	1795228687	sidekick	step	029-master-is-anchor-fix	2:2b4bf50bc
+2026-11-21T02:47:33Z	1795229253	sidekick	step	029-master-is-anchor-fix	3:7c2897e96
+2026-11-21T02:57:31Z	1795229851	sidekick	step	029-master-is-anchor-fix	4:7df08b7b4
+2026-11-21T03:07:18Z	1795230438	sidekick	finish-verify-pass	029-master-is-anchor-fix	7df08b7b4
+2026-11-21T03:07:18Z	1795230438	sidekick	rotation-required	029-master-is-anchor-fix	generation:8 sha256:98bb15cc6e44
+2026-11-21T03:07:20Z	1795230440	sidekick	report	029-master-is-anchor-fix	done

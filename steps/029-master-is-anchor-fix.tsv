@@ -1,0 +1,4 @@
+1	56c08968507fc18e1acd964c6f822aea17c1b1de	1795228113		anchor title is assigned, not setdefault'd
+2	2b4bf50bc3c05f43b81ee96f2067e2aaab895e67	1795228687		no empty previous anchor; pair.json check before the master anchor
+3	7c2897e9680d939ddaa9f3be8186488b60c1a7cb	1795229253		take-master's anchor line drops the title after a failed rename
+4	7df08b7b4826868f574f0601610638a4f2ae7aaa	1795229851		coverage: consultant re-nest, repeated take-master
