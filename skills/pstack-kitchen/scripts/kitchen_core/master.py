@@ -6,8 +6,9 @@ import shlex
 import shutil
 import sys
 import time
+import tomllib
 
-from pstack_core import gitstore, mux, procinfo
+from pstack_core import gitstore, mux, procinfo, secrets
 from pstack_core.agents import mcp_args, permission_args
 from pstack_core.argv import Spec
 from pstack_core.argv import read as read_options
@@ -342,9 +343,10 @@ def start_next_master(store, pane, temp, argv, gen_n):
     )
 
 
-def record_handover(store, handoff, gen_n, session, old, new):
+def record_handover(store, handoff, gen_n, session, old, new, roster=None):
     """Keeps the handoff under sessions/ and records the hand-over in pair.json: .master.previous is the old master (name, pane), .master the new
-    one at the next generation, and the closed generation joins .master.sessions. `old` and `new` are (name, pane) pairs. Returns the copy's path."""
+    one at the next generation, and the closed generation joins .master.sessions. `old` and `new` are (name, pane) pairs. `roster` is the store-relative
+    path of the roster snapshot the next master installs, '' when the old master had none; None records nothing. Returns the copy's path."""
     os.makedirs(f'{store}/sessions', exist_ok=True)
     copy = f'{store}/sessions/master-{gen_n}-handoff.md'
     shutil.copyfile(handoff, copy)
@@ -359,6 +361,8 @@ def record_handover(store, handoff, gen_n, session, old, new):
                 raise DamagedStore(f'sessions holds {json_type(each)}, not an object')
         kept = [e for e in listed if session == '' or e.get('session') != session]
         master['previous'] = {'name': old[0], 'pane_id': old[1], 'session': session}
+        if roster is not None:
+            master['previous']['roster'] = roster
         master['name'], master['pane_id'], master['registered_at'] = new[0], new[1], now
         master['generation'] = gen_n + 1
         master['units_since_handoff'] = 0
@@ -479,6 +483,45 @@ def publish_master(store):
         gitstore.publish_role(store, 'master')
 
 
+def snapshot_roster(store, next_gen):
+    """The old master's host roster, kept in the store for the next master's orb: its bytes go to sessions/master-g<next_gen>-roster.toml and
+    the store-relative path is returned, '' when this orb has no roster. A roster that cannot be read, does not parse or holds a credential-shaped
+    line refuses the rotation with its path and the kind, never its contents, and nothing is written."""
+    path = kpy.kitchen_py.roster_path()
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return ''
+    except OSError as err:
+        raise RotateRefused(
+            f'rotate-master: cannot read the roster {path}: {err.strerror}'
+        ) from None
+    try:
+        text = data.decode()
+    except UnicodeDecodeError:
+        raise RotateRefused(
+            f'rotate-master: the roster {path} is not UTF-8 text'
+        ) from None
+    found = secrets.scan([(str(path), text)])
+    if found:
+        kinds = ', '.join(sorted({f.kind for f in found}))
+        raise RotateRefused(
+            f'rotate-master: the roster {path} holds a credential-shaped line ({kinds}); nothing was snapshotted'
+        )
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError as err:
+        raise RotateRefused(
+            f'rotate-master: the roster {path} does not parse: {err}'
+        ) from None
+    rel = f'sessions/master-g{next_gen}-roster.toml'
+    os.makedirs(f'{store}/sessions', exist_ok=True)
+    with open(f'{store}/{rel}.tmp', 'wb') as f:
+        f.write(data)
+    os.replace(f'{store}/{rel}.tmp', f'{store}/{rel}')
+    return rel
+
+
 def hand_to_next_thread(ctx, store, handoff, model):
     """The rotation when every role is a thread of its own (Amp): the next master starts as a new thread, on --model or this thread's own
     mode, with the store's bundle and the master prompt; its take-master takes the run over there. The hand-over is recorded before the bundle
@@ -498,11 +541,14 @@ def hand_to_next_thread(ctx, store, handoff, model):
     gen_n = master_generation(store, '')
     next_gen = gen_n + 1
     temp = f'{read(store, "slug")}-master-g{next_gen}'
+    roster = snapshot_roster(store, next_gen)
     # The events this master wrote so far are in the file of its generation, which it may publish only until the hand-over changes it.
     publish_master(store)
     before = read_text(f'{store}/pair.json')
     new_pane_id = m.new_master(temp)
-    copy = record_handover(store, handoff, gen_n, '', (name, pane), (temp, new_pane_id))
+    copy = record_handover(
+        store, handoff, gen_n, '', (name, pane), (temp, new_pane_id), roster
+    )
     try:
         publish_master(store)
         as_file = m.mode_reads_skill_file(model or m.thread_mode())
@@ -513,6 +559,8 @@ def hand_to_next_thread(ctx, store, handoff, model):
         with open(f'{store}/pair.json', 'w') as f:
             f.write(before)
         event(store, 'master', 'rotate-failed', '-', f'generation:{next_gen}')
+        if roster:
+            os.unlink(f'{store}/{roster}')
         # The hand-over went out before the launch; the branch must not keep one that did not happen. A failed publish must not hide the launch error.
         try:
             publish_master(store)
