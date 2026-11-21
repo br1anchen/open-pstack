@@ -19,3 +19,6 @@
 2026-11-21T07:31:10Z	1795246270	sidekick	step	022-migrated-threads-archive-nest	2:9ececb639
 2026-11-21T07:31:28Z	1795246288	sidekick	progress	022-migrated-threads-archive-nest	
 2026-11-21T07:41:54Z	1795246914	sidekick	step	022-migrated-threads-archive-nest	3:ece578550
+2026-11-21T07:45:09Z	1795247109	sidekick	finish-verify-pass	022-migrated-threads-archive-nest	ece578550
+2026-11-21T07:45:09Z	1795247109	sidekick	rotation-required	022-migrated-threads-archive-nest	generation:12 sha256:ecd6ba02e94d
+2026-11-21T07:45:11Z	1795247111	sidekick	report	022-migrated-threads-archive-nest	done
