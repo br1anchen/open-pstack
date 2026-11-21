@@ -85,3 +85,7 @@ and do what it prints. For a done report, finish first reruns the Verify
 commands above at the report's head:, with the checkout at that commit and
 nothing uncommitted, and sends the report only when every one exits 0; exit 4
 means they are still running, so run the same finish again at once.
+
+## Added by the master (untangle report, 2026-11-21)
+
+- The master and the roles must run the run's build from one install path. Today install_pstack puts the master on ~/.local/share/open-pstack/skills while roles run ~/.local/share/pstack-builds/<id>/skills, so the skills-build stamp never matches (untangle kitchen, generations 17 and 18). The plan round decides which path both use; unit 019 (507870a) already stops a role from stamping pair.json under the git store.

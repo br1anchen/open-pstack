@@ -239,3 +239,7 @@
 2026-11-21T10:43:59Z	1795257839	master	log	-	review-033: 004, 031, 032, 033 accepted on clean verdict 033-v1; 'ahead reported as diverged' observation and joo lows to followups
 2026-11-21T11:07:32Z	1795259252	master	log	-	order: 035 branch-ahead-not-diverged written on Brian's request (fix before landing); queued after 034, ahead of 010
 2026-11-21T11:08:12Z	1795259292	master	send-steer	034-land-check-gone-head-fix-s1	idle
+2026-11-21T11:08:34Z	1795259314	master	queue	035-branch-ahead-not-diverged	
+2026-11-21T11:08:35Z	1795259315	master	log	-	incident: sidekick g13 ended its turn mid-034 with step 1's gate still running; steer s1 (info) resumes it
+2026-11-21T11:50:45Z	1795261845	master	log	-	intake: untangle bug (role commands fail 'pair.json: belongs to the master') is unit 019, 507870a, accepted; its test fails at 7218f31 setup.py and passes at 507870a; install-path point added to plan 014/brief 012
+2026-11-21T11:58:17Z	1795262297	master	send-verify	034-land-check-gone-head-fix	claude:006 034
