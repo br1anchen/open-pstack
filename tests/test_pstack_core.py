@@ -21156,10 +21156,9 @@ class BundleBranchApplyTests(BundleRepoCase):
         current = '3' * 20 + '-cccccccccccc'
         self.git('update-ref', f'refs/pstack/in/T-m/{current}/head', self.base)
         named = '1' * 20 + '-aaaaaaaaaaaa'
-        with mock.patch.dict(os.environ, {'PSTACK_BUNDLE_KEEP': '1'}):
-            self.bundle.prune_sets(
-                str(self.repo), f'T-m/{current}', f'run refs/pstack/in/T-m/{named}/head'
-            )
+        self.bundle.prune_sets(
+            str(self.repo), f'T-m/{current}', f'run refs/pstack/in/T-m/{named}/head', 1
+        )
         refs = self.git(
             'for-each-ref', '--format=%(refname)', 'refs/pstack/in/T-m/'
         ).splitlines()
@@ -21185,6 +21184,60 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertIn(f'm is detached at {head[:9]} (kept as refs/pstack/in/T-m/', text)
         self.assertNotIn('reset --keep', text)
         self.assertNotIn('kitchen-recovery', text)
+
+    def test_a_branch_the_checkout_is_on_is_reported_once_by_the_checkout_line(self):
+        self.git('checkout', '-q', '-b', 'Y', self.base)
+        y_sent = self.commit('y-sent')
+        bundle = self.pack_and_prune()
+        y_mine = self.commit(
+            'y-mine'
+        )  # this checkout is on Y, a commit past the sender's
+        self.prune()
+        _, lines = self.bundle.apply(str(bundle))
+        self.assertEqual(self.git('rev-parse', 'HEAD'), y_mine)
+        self.assertEqual(
+            [line for line in lines if line.startswith(('checkout:', 'branch Y'))],
+            [f'checkout: kept {y_mine[:9]}, ahead of m ({y_sent[:9]})'],
+        )
+
+    def test_the_bundle_settings_are_checked_before_apply_changes_anything_and_a_zero_timeout_is_no_timeout(
+        self,
+    ):
+        tip = self.branch_at('feat/a', self.base, 'a')
+        (self.store / 'reports').mkdir()
+        (self.store / 'reports' / '001-new.md').write_text('from the sender\n')
+        bundle = self.pack_and_prune()
+        self.git('branch', '-D', 'feat/a')
+        (self.store / 'reports' / '001-new.md').unlink()
+        self.prune()
+        before = self.refs()
+        with (
+            mock.patch.dict(os.environ, {'PSTACK_BUNDLE_KEEP': 'many'}),
+            self.assertRaisesRegex(
+                errors.BadNumber, 'PSTACK_BUNDLE_KEEP must be a whole'
+            ),
+        ):
+            self.bundle.apply(str(bundle))
+        self.assertEqual(self.refs(), before)
+        self.assertFalse((self.store / 'reports' / '001-new.md').exists())
+        self.assertNotEqual(tip, '')
+        self.git('remote', 'add', 'origin', str(Path(self.tmp.name) / 'no-such-origin'))
+        real, seen = subprocess.run, []
+
+        def recording(argv, *args, **kwargs):
+            if 'fetch' in argv:
+                seen.append(kwargs.get('timeout', 'absent'))
+            return real(argv, *args, **kwargs)
+
+        for setting, expected in (('0', None), ('7', 7)):
+            seen.clear()
+            with (
+                self.subTest(setting),
+                mock.patch.dict(os.environ, {'PSTACK_BUNDLE_FETCH_TIMEOUT_S': setting}),
+                mock.patch.object(subprocess, 'run', recording),
+            ):
+                self.bundle.origin_baseline(str(self.repo))
+            self.assertEqual(seen, [expected])
 
 
 class BundleRebasedCheckoutTests(BundleRepoCase):
