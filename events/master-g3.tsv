@@ -31,3 +31,8 @@
 2026-11-21T15:11:07Z	1795273867	master	log	-	incident: sidekick g16 published a stale master pair.json (verifying 010 reopened, scratch) at 9d1867f9; master sync refused
 2026-11-21T15:11:08Z	1795273868	master	log	-	steer-037: 037 blocked on my Verify line (>=48); 47 is right
 2026-11-21T15:20:13Z	1795274413	master	send-verify	-	claude:landing
+2026-11-21T15:20:25Z	1795274425	master	nest-pending	-	T-01a1feb1-b36c-74cc-a582-726a2f0c4c39 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-21T15:20:33Z	1795274433	master	wake	-	verify:progress
+2026-11-21T15:20:43Z	1795274443	master	nest	-	T-01a1feb1-b36c-74cc-a582-726a2f0c4c39 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
+2026-11-21T15:21:02Z	1795274462	master	log	-	review-037: joo on landing stack: 4 mediums in accepted units (bundle x3, spawn), lows; none blocks the approved landing; fix brief 040 after it
+2026-11-21T15:21:15Z	1795274475	master	reuse	039-roster-handoff-fix	sidekick: pstack, pstack-docs, context 23%

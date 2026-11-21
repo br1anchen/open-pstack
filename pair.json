@@ -85,7 +85,8 @@
         "reason": "Amp credit balance low: GLM sidekick g14 cannot run",
         "at": "2026-11-21T12:25:27Z"
       }
-    ]
+    ],
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/037-landing-rebase-2.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -331,6 +332,7 @@
       "--head",
       "daf51dc09eeffc59c136c169e371c8641fcf8a99"
     ],
-    "delivered": false
+    "delivered": true,
+    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-000-landing-verify/T-01a1feb1-b36c-74cc-a582-726a2f0c4c39.jsonl"
   }
 }

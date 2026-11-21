@@ -26,3 +26,11 @@
 
 - 035: the ahead line under a detached checkout has no test of its own.
 - 036 (joo, low): one helper for the bounded, no-prompt origin fetch, used also for the head fetch above it, which can still hang.
+
+## joo on the landing stack be882968..daf51dc0 (run 2026-11-21T15-08-59-362Z-0cf5d75c; 4 medium, 27 low) — fix brief 040 after the landing
+
+- bundle.py:379 (medium): a late reply still deletes a master-written file outside the MASTER class (gates-mode verdicts under verdicts/); a reply should never delete a file the sender did not write.
+- spawn.py:226 (medium, regression): record_started clears rotation_required before READY, so a replacement that never boots cannot be rotated again; dispatch and rotate refuse each other.
+- bundle.py:173 (medium, regression): with origin unreachable the bundle is cut at a stale origin ref instead of carrying every commit; the receiver's fallback `git fetch origin` (bundle.py:546) is unbounded.
+- bundle.py:258 (medium, regression): an ordinary send with evidence refs is cut against the sender's --remotes, which a receiver may lack, so local-only evidence is lost.
+- nest.py:175 / nest.py:194 (low): run_threads re-adds archived threads; discover's record_pending falls back to anchor()'s oldest master when current_master finds none.
