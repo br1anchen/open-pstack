@@ -15,3 +15,4 @@
 2026-11-21T05:51:26Z	1795240286	verifier	report	030-reply-deletes-no-master-state-fix-v1	clean
 2026-11-21T07:33:54Z	1795246434	verifier	report	031-master-bundle-branches-fix-v1	clean
 2026-11-21T08:03:35Z	1795248215	verifier	report	022-migrated-threads-archive-nest-v1	clean
+2026-11-21T09:10:27Z	1795252227	verifier	report	032-master-bundle-branches-fix2-v1	reject
