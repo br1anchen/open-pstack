@@ -14235,7 +14235,12 @@ class AmpKitchenTests(KitchenScriptTests):
     master's thread."""
 
     def mux_env(self):
-        return {'PSTACK_MUX': 'amp', 'AMP_THREAD_ID': AMP_MASTER}
+        # A dispatch to a working sidekick that never took a brief of its generation waits out its READY turn; no test inherits that wait.
+        return {
+            'PSTACK_MUX': 'amp',
+            'AMP_THREAD_ID': AMP_MASTER,
+            'PAIR_ROTATE_READY_S': '0',
+        }
 
     def spawn_roles(self):
         out = self.run_sh(
