@@ -55,8 +55,10 @@
     ],
     "chain_index": 0,
     "start_args": [
-      "--model",
-      "zhipuai/glm-5.3"
+      "--mode",
+      "claude-code",
+      "--features",
+      "model:claude-sonnet-5-5"
     ],
     "generation": 14,
     "bootstrap_pending": true,
@@ -148,9 +150,7 @@
     }
   ],
   "placement": "split",
-  "pending": [
-    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/035-branch-ahead-not-diverged.md"
-  ],
+  "pending": [],
   "dispatch": {
     "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/035-branch-ahead-not-diverged.md",
     "at": "2026-11-21T11:58:47Z",

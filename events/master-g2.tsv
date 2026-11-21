@@ -254,3 +254,12 @@
 2026-11-21T12:21:17Z	1795263677	master	rotate	-	generation:13
 2026-11-21T12:21:27Z	1795263687	master	nest-pending	-	T-01a1fe0d-e142-76b9-80d7-26a5d769b602 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
 2026-11-21T12:21:33Z	1795263693	master	spawn	-	sidekick:amp:handed-off
+2026-11-21T12:21:48Z	1795263708	master	nest	-	T-01a1fe0d-e142-76b9-80d7-26a5d769b602 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T12:22:56Z	1795263776	master	archive	-	verifier:T-01a1fdf8-d3cd-7737-917d-61765eabcde7
+2026-11-21T12:22:56Z	1795263776	master	log	-	archive: archive verifier T-01a1fdf8-d3cd-7737-917d-61765eabcde7
+2026-11-21T12:22:56Z	1795263776	master	verify	034-land-check-gone-head-fix	reject
+2026-11-21T12:22:56Z	1795263776	master	wake	034-land-check-gone-head-fix	verify:reject
+2026-11-21T12:23:16Z	1795263796	master	log	-	review-034: 034 revise: one finding (missing evidence prints a second warn line) + wording/fetch notes; fix 036 after 010
+2026-11-21T12:23:30Z	1795263810	master	failover	-	verifier:amp zhipuai/glm-5.3:amp openai/gpt-6.1-sol
+2026-11-21T12:23:52Z	1795263832	master	log	-	incident: Amp credit balance low: GLM sidekick g14 errored on its first request, routine verifier chain (glm, gpt-6.1-sol) failed preflight; sidekick back to Sonnet (Claude subscription), 010 runs on Sonnet, GLM A/B ends at 002
+2026-11-21T12:24:19Z	1795263859	master	send-stop	-	sidekick
