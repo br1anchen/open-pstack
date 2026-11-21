@@ -36,3 +36,4 @@
 2026-11-21T15:20:43Z	1795274443	master	nest	-	T-01a1feb1-b36c-74cc-a582-726a2f0c4c39 under T-01a1fe7d-0da7-76c6-b123-db5d0999b3d6
 2026-11-21T15:21:02Z	1795274462	master	log	-	review-037: joo on landing stack: 4 mediums in accepted units (bundle x3, spawn), lows; none blocks the approved landing; fix brief 040 after it
 2026-11-21T15:21:15Z	1795274475	master	reuse	039-roster-handoff-fix	sidekick: pstack, pstack-docs, context 23%
+2026-11-21T15:21:22Z	1795274482	master	send-brief	039-roster-handoff-fix	
