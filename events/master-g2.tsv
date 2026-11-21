@@ -265,3 +265,7 @@
 2026-11-21T12:24:19Z	1795263859	master	send-stop	-	sidekick
 2026-11-21T12:24:32Z	1795263872	master	send-stop	-	consultant
 2026-11-21T12:25:27Z	1795263927	master	failover	-	amp claude-code claude-sonnet-5-5:amp openai/gpt-6.1-sol
+2026-11-21T12:25:43Z	1795263943	master	nest-pending	-	T-01a1fe11-b0bf-7159-b82b-350daed39eb8 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T12:25:49Z	1795263949	master	spawn	-	sidekick:amp:handed-off
+2026-11-21T12:26:47Z	1795264007	master	log	-	incident: failover to gpt-6.1-sol started g15, which errored: Amp included usage at monthly limit, no paid credits (subscription-no-usage). No sidekick can start on an Amp-billed model; kitchen has no way back to Sonnet without a completed unit. Waiting on Brian
+2026-11-21T13:08:07Z	1795266487	master	send-verify	-	claude:landing
