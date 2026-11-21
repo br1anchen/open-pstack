@@ -624,6 +624,34 @@ def new_session_takes_run(store, here, pane):
     )
 
 
+def take_anchor(store):
+    """Under a mux whose masters are threads, the calling master takes the run's anchor (nest.take_anchor): the line telling it to run `nest`, ''
+    elsewhere. A rename that failed is a warning, never a failure."""
+    m = mux.get()
+    if not (m.master_threads and m.own_thread()):
+        return ''
+    title, warning = nest.take_anchor(store, m.own_thread())
+    if warning:
+        sys.stderr.write(f'warn: {warning}\n')
+    return f'anchor: {m.own_thread()} is the run\'s top-level anchor "{title}"; run kitchen.sh nest {store}\n'
+
+
+def close_old_pane(prev, prev_pane, pane):
+    """(what became of the old master's pane: closed, same, gone or kept, the agent that pane hosts now). The pane is closed only while it still
+    holds the old master, or nothing."""
+    m = mux.get()
+    hosted = m.agent(prev_pane)
+    host = hosted.name if hosted else ''
+    if prev_pane == pane:
+        # One session handed to the next in the same place (no multiplexer): there is no old pane to close.
+        return 'same', host
+    if not m.pane_exists(prev_pane):
+        return 'gone', host
+    if (not host or host == prev) and m.pane_close(prev_pane):
+        return 'closed', host
+    return 'kept', host
+
+
 def take_master(ctx, args):
     require_mux()
     if len(args) != 1:
@@ -653,19 +681,8 @@ def take_master(ctx, args):
     deadline = int(time.time()) + env_int('KITCHEN_TAKEOVER_WAIT_S', 30)
     while agent_status(prev) == 'working' and int(time.time()) < deadline:
         time.sleep(env_float('KITCHEN_ROTATE_POLL_S', 2))
-    # Close the pane only while it still holds the old master, or nothing.
     m = mux.get()
-    hosted = m.agent(prev_pane)
-    host = hosted.name if hosted else ''
-    closed = 'kept'
-    if prev_pane == pane:
-        # One session handed to the next in the same place (no multiplexer): there is no old pane to close.
-        closed = 'same'
-    elif not m.pane_exists(prev_pane):
-        closed = 'gone'
-    elif not host or host == prev:
-        if m.pane_close(prev_pane):
-            closed = 'closed'
+    closed, host = close_old_pane(prev, prev_pane, pane)
     base = f'{read(store, "slug")}-master'
     if (name != base or moved or adopted) and m.rename(pane, base):
         name = base
@@ -677,11 +694,7 @@ def take_master(ctx, args):
 
     update(store, mutate)
     m.retire(m.thread_of_pane(prev_pane), prev, store)
-    anchor_title = ''
-    if m.master_threads and m.own_thread():
-        anchor_title, warning = nest.take_anchor(store, m.own_thread())
-        if warning:
-            sys.stderr.write(f'warn: {warning}\n')
+    anchor_line = take_anchor(store)
     archive_retired(ctx, store, 'take-master has run')
     event(
         store,
@@ -706,10 +719,7 @@ def take_master(ctx, args):
     out.write(
         f'master: {name} in {pane} (generation {field(store, "master", "generation")})\n'
     )
-    if m.master_threads and m.own_thread():
-        out.write(
-            f'anchor: {m.own_thread()} is the run\'s top-level anchor "{anchor_title}"; run kitchen.sh nest {store}\n'
-        )
+    out.write(anchor_line)
     out.flush()
     publish_master(store)
     warn_unreviewed(store)

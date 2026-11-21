@@ -14635,13 +14635,13 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
         self.assertNotIn(amp_thread(2), [row[0] for row in self.nest_rows()])
 
-    def test_a_rotation_keeps_the_anchor_through_every_generation(self):
+    def test_a_rotation_moves_the_anchor_only_when_the_next_master_takes_over(self):
         self.filled_handoff()
         self.run_sh('rotate-master', str(self.store))
         self.assertEqual(self.state()['anchor']['thread'], AMP_MASTER)
         self.as_thread(amp_thread(2), 'take-master', str(self.store), mux='amp')
         self.assertEqual(self.state()['master']['generation'], 2)
-        self.assertEqual(self.state()['anchor']['thread'], AMP_MASTER)
+        self.assertEqual(self.state()['anchor']['thread'], amp_thread(2))
 
     def test_failover_moves_an_amp_sidekick_to_another_model_and_names_both(self):
         store = self.spawn_amp_sidekick('fo', 'a/one', 'b/two')
