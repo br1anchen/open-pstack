@@ -310,7 +310,11 @@ def record_started(thread, name, store, created):
         return
     from ..commands import nest
 
-    nest.record_pending(store, thread, role_of(name))
+    # A master is never nested under a master: it takes the anchor at take-master. A store with no anchor yet settles it on the old master now.
+    if role_of(name) == 'master':
+        nest.anchor(store, thread)
+    else:
+        nest.record_pending(store, thread, role_of(name))
     record_thread(
         thread,
         {

@@ -14472,7 +14472,9 @@ class AmpKitchenTests(KitchenScriptTests):
         path = self.store / 'nest-pending.tsv'
         return [tuple(line.split('\t')[1:]) for line in path.read_text().splitlines()]
 
-    def test_every_thread_the_kitchen_starts_is_nest_pending_under_the_one_anchor(self):
+    def test_every_role_thread_the_kitchen_starts_is_nest_pending_under_the_anchor_and_a_next_master_under_none(
+        self,
+    ):
         self.verify_started('001')
         self.run_sh(
             'consultant', str(self.store), '--reason', 'contract', '--kind', 'amp',
@@ -14486,7 +14488,6 @@ class AmpKitchenTests(KitchenScriptTests):
                 (amp_thread(1), 'sidekick', AMP_MASTER, 'pending'),
                 (amp_thread(2), 'verifier', AMP_MASTER, 'pending'),
                 (amp_thread(3), 'consultant', AMP_MASTER, 'pending'),
-                (amp_thread(4), 'master', AMP_MASTER, 'pending'),
             ],
         )
         events = [
@@ -14498,7 +14499,7 @@ class AmpKitchenTests(KitchenScriptTests):
             events,
             [
                 ['nest-pending', '-', f'{amp_thread(n)} under {AMP_MASTER}']
-                for n in (1, 2, 3, 4)
+                for n in (1, 2, 3)
             ],
         )
 
@@ -14632,9 +14633,7 @@ class AmpKitchenTests(KitchenScriptTests):
         self.filled_handoff()
         self.run_sh('rotate-master', str(self.store))
         self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
-        self.assertIn(
-            (amp_thread(2), 'master', AMP_MASTER, 'pending'), self.nest_rows()
-        )
+        self.assertNotIn(amp_thread(2), [row[0] for row in self.nest_rows()])
 
     def test_a_rotation_keeps_the_anchor_through_every_generation(self):
         self.filled_handoff()
