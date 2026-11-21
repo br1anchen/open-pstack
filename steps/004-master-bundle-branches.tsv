@@ -1,0 +1,3 @@
+1	f66ec5369b3278277219fee361207233ef322acb	1795234720		hand-over bundle carries every local branch
+2	58f2261fb5cb26c7dbbeb6eecbcefec4feab0e2b	1795236384		apply hand-over branches conservatively
+3	550a7d760223b1e44d1ba85bbd0ba2203be9f353	1795237220		diverged checkout gets a guarded recovery recipe
