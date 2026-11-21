@@ -41,7 +41,7 @@ must not write:
 
 ## Context
 
-- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-025 && git checkout -B kitchen-followups FETCH_HEAD` (025's head 6a83f50). Do not rebase onto origin/main. Unit 004 (same base) may sit in your checkout: commit or stash it first, and touch nothing outside Scope.
+- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-004 && git checkout -B kitchen-followups FETCH_HEAD` (004's head 550a7d7, on top of 025's 6a83f50). Do not rebase onto origin/main. 004 also changed bundle.py, sync.py and mux/amp.py, so build on what it left.
 - joo run on 025: 2026-11-21T04-01-13-643Z-e86be53c (two lows, both covered by step 2).
 - verdict: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/025-reply-deletes-no-master-state-v1.md
 - original brief: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/025-reply-deletes-no-master-state.md
