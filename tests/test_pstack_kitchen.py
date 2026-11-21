@@ -17230,6 +17230,37 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(self.state()['dispatch']['brief'], str(b))
         self.assertEqual(len(self.briefs_in(amp_thread(2))), 1)
 
+    def test_a_working_sidekick_that_already_took_a_brief_of_its_generation_is_refused_without_polling(
+        self,
+    ):
+        sidekick = amp_thread(1)
+        pair = self.state()
+        pair['dispatch'] = {'generation': pair['sidekick']['generation']}
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        self.set_state(sidekick, 'working', '2999-01-01T00:00:00.000Z')
+        # A thread that turns idle on its third export, which a wait for the turn to end would reach.
+        shim = self.fake / 'shim'
+        shim.mkdir()
+        (shim / 'amp').write_text(
+            '#!/bin/bash\n'
+            f'if [ "$1 $2 $3" = "threads export {sidekick}" ]; then\n'
+            f'  echo >>"$FAKE/exports"; [ "$(wc -l <"$FAKE/exports")" -ge 3 ] && echo "idle 2999-01-01T00:00:00.000Z" >"$FAKE/amp-state/{sidekick}"\n'
+            'fi\n'
+            f'exec {root / "tests/pstack-pair/bin/amp"} "$@"\n'
+        )
+        (shim / 'amp').chmod(0o755)
+        self.env.update(
+            PATH=f'{shim}:{self.env["PATH"]}',
+            PAIR_READY_POLL_S='0',
+            PAIR_ROTATE_READY_S='30',
+        )
+        b = self.brief('002', 'util', ['src/**', 'tests/**'])
+        out = self.run_sh('dispatch', str(self.store), str(b), '--send-only', code=5)
+        self.assertIn('demo-sidekick is working', out)
+        self.assertEqual(self.briefs_in(sidekick), [])
+        # The dispatch's own status reads are two; a poll would make a third and turn the thread idle.
+        self.assertLess(len((self.fake / 'exports').read_text().splitlines()), 3)
+
     def update_as(self, thread, store, cwd=None, env=None, mux='amp'):
         """Runs store.update from the thread's own process, setting .probe in pair.json: (exit code, output)."""
         code = (
