@@ -53,10 +53,12 @@
         ]
       }
     ],
-    "chain_index": 1,
+    "chain_index": 0,
     "start_args": [
-      "--model",
-      "openai/gpt-6.1-sol"
+      "--mode",
+      "claude-code",
+      "--features",
+      "model:claude-sonnet-5-5"
     ],
     "generation": 15,
     "bootstrap_pending": false,
@@ -309,6 +311,7 @@
       "--base",
       "1e10578"
     ],
-    "delivered": false
+    "delivered": true,
+    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-036-land-check-gone-head-fix-verify/T-01a1fe58-e0f7-72a4-a291-463e9eeb0771.jsonl"
   }
 }
