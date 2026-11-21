@@ -20742,6 +20742,7 @@ class RoleReplyMergeTests(unittest.TestCase):
     MASTER_STATE = {
         'master': {'name': 'm', 'generation': 1},
         'sidekick': {'name': 'sk', 'generation': 2, 'rotation_required': False},
+        'verifier': {'name': 'vf'},
         'dispatch': {'brief': 'briefs/002-b.md', 'generation': 2},
         'consult': {'file': 'consults/004.md'},
         'added_later': 'kept',
@@ -20760,7 +20761,7 @@ class RoleReplyMergeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.store = Path(self.tmp.name) / 'store'
-        self.threads = {'sk': 'T-sk'}
+        self.threads = {'sk': 'T-sk', 'vf': 'T-vf'}
         self.set_pair(self.MASTER_STATE)
         self.write('standing-orders.md', '1. first\n2. second\n')
         self.write('briefs/001-a.md', 'a\n')
@@ -20875,6 +20876,74 @@ class RoleReplyMergeTests(unittest.TestCase):
         self.deliver(self.reply(edit), base)
         self.assertEqual(self.read('events.tsv'), 'e1\nfrom-master\nfrom-role\n')
         self.assertEqual(self.read('gates.tsv'), 'g1\n')
+
+    def test_a_sidekick_reply_made_before_the_masters_marker_and_steer_keeps_both_and_brings_its_own_lines(
+        self,
+    ):
+        self.write('progress/025-x.md', 'l1\n')
+        self.write('progress/025-x.md.seen', '1\n')
+        self.write('steers/025-x-s2.md', 'steer\n')
+        base = self.pack('base.tgz')
+
+        def edit():
+            (self.store / 'progress/025-x.md.seen').unlink()
+            (self.store / 'steers/025-x-s2.md').unlink()
+            self.write('progress/025-x.md', 'l1\nl2\n')
+            self.write('reports/025-x.md', 'report\n')
+
+        self.deliver(self.reply(edit), base)
+        self.assertEqual(self.read('progress/025-x.md.seen'), '1\n')
+        self.assertEqual(self.read('steers/025-x-s2.md'), 'steer\n')
+        self.assertEqual(self.read('progress/025-x.md'), 'l1\nl2\n')
+        self.assertEqual(self.read('reports/025-x.md'), 'report\n')
+
+    def test_a_verifiers_stale_copy_neither_rolls_back_nor_deletes_the_sidekicks_files_and_its_own_verdict_arrives(
+        self,
+    ):
+        self.write('steps/001-a.tsv', '1\tabc\tstep\n')
+        self.write('progress/001-a.md', 'line\n')
+        base = self.pack('base.tgz', to='vf')
+
+        def edit():
+            self.write('reports/001-a.md', 'older report\n')
+            (self.store / 'steps/001-a.tsv').unlink()
+            (self.store / 'progress/001-a.md').unlink()
+            self.write('verdicts/001-a-v1.md', 'status: clean\n')
+
+        self.deliver(self.reply(edit, sender='vf', thread='T-vf'), base)
+        self.assertEqual(self.read('reports/001-a.md'), 'old report\n')
+        self.assertEqual(self.read('steps/001-a.tsv'), '1\tabc\tstep\n')
+        self.assertEqual(self.read('progress/001-a.md'), 'line\n')
+        self.assertEqual(self.read('verdicts/001-a-v1.md'), 'status: clean\n')
+
+    def test_a_sidekicks_own_report_and_step_log_updates_merge(self):
+        self.write('steps/001-a.tsv', '1\tabc\tfirst\n')
+        base = self.pack('base.tgz')
+
+        def edit():
+            self.write('reports/001-a.md', 'final report\n')
+            self.write('steps/001-a.tsv', '1\tabc\tfirst\n2\tdef\tsecond\n')
+
+        self.deliver(self.reply(edit), base)
+        self.assertEqual(self.read('reports/001-a.md'), 'final report\n')
+        self.assertEqual(
+            self.read('steps/001-a.tsv'), '1\tabc\tfirst\n2\tdef\tsecond\n'
+        )
+
+    def test_an_unknown_senders_new_file_is_added_and_its_omissions_delete_nothing(
+        self,
+    ):
+        base = self.pack('base.tgz', to='m')
+
+        def edit():
+            (self.store / 'reports/001-a.md').unlink()
+            self.write('reports/009-new.md', 'from the stranger\n')
+            self.write('briefs/009-new.md', 'a brief nobody dispatched\n')
+
+        self.deliver(self.reply(edit, sender='stranger', thread='T-x'), base)
+        self.assertEqual(self.read('reports/009-new.md'), 'from the stranger\n')
+        self.assertEqual(self.read('reports/001-a.md'), 'old report\n')
+        self.assertFalse((self.store / 'briefs/009-new.md').exists())
 
     def test_a_master_owned_log_gets_no_rows_from_a_reply(self):
         base = self.pack('base.tgz')
