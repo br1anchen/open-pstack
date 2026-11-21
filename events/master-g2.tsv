@@ -243,3 +243,7 @@
 2026-11-21T11:08:35Z	1795259315	master	log	-	incident: sidekick g13 ended its turn mid-034 with step 1's gate still running; steer s1 (info) resumes it
 2026-11-21T11:50:45Z	1795261845	master	log	-	intake: untangle bug (role commands fail 'pair.json: belongs to the master') is unit 019, 507870a, accepted; its test fails at 7218f31 setup.py and passes at 507870a; install-path point added to plan 014/brief 012
 2026-11-21T11:58:17Z	1795262297	master	send-verify	034-land-check-gone-head-fix	claude:006 034
+2026-11-21T11:58:26Z	1795262306	master	nest-pending	-	T-01a1fdf8-d3cd-7737-917d-61765eabcde7 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T11:58:34Z	1795262314	master	wake	034-land-check-gone-head-fix	verify:progress
+2026-11-21T11:58:34Z	1795262314	master	queue	-	cleared
+2026-11-21T11:58:40Z	1795262320	master	reuse	035-branch-ahead-not-diverged	sidekick: pstack, pstack-docs, context 24%

@@ -71,7 +71,8 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "033-master-bundle-branches-fix",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/034-land-check-gone-head-fix.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -293,6 +294,7 @@
       "--base",
       "1e10578"
     ],
-    "delivered": false
+    "delivered": true,
+    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-034-land-check-gone-head-fix-verify/T-01a1fdf8-d3cd-7737-917d-61765eabcde7.jsonl"
   }
 }
