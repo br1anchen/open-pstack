@@ -111,9 +111,10 @@ def take_anchor(store, thread):
     title = anchor_title(store)
 
     def move(doc):
-        holder = doc['anchor']
+        holder = doc.setdefault('anchor', {})
         if holder.get('thread') != thread:
-            holder['previous'] = [*(holder.get('previous') or []), old]
+            if old and old != thread:
+                holder['previous'] = [*(holder.get('previous') or []), old]
             holder['thread'] = thread
 
     update(store, move)
