@@ -556,7 +556,9 @@ def diverged(root, sender, target, old, new, ref):
 
 def move_checkout(root, head, branch, sender, ref):
     """Takes the sender's HEAD (kept at `ref`) into this checkout when that loses nothing: a clean tree whose commits the sender's head (or the
-    remotes) already hold. The lines saying what happened; a checkout that diverged is left as it is, with a recipe to move it by hand."""
+    remotes) already hold. The lines saying what happened; a checkout that diverged is left as it is, with a recipe to move it by hand. A checkout on
+    another branch than the sender's is never reset onto the sender's head: its own commits keep it where it is, and the sender's branch gets the
+    branch rules (a recipe of its own when it diverged here)."""
     short = head[:9]
     local = git.out(root, 'rev-parse', 'HEAD') or ''
     if local == head:
@@ -568,18 +570,20 @@ def move_checkout(root, head, branch, sender, ref):
         return (
             f'checkout: kept {local[:9]}: tracked changes here; {sender} is at {short}'
         )
-    if local and own_commits(root, local, head):
+    on = git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or ''
+    elsewhere = bool(on and branch and on != branch)
+    own = bool(local) and own_commits(root, local, head)
+    if own and not elsewhere:
+        return diverged(root, sender, on, local, head, ref)
+    mine = f'refs/heads/{branch}'
+    if branch and has_commit(root, mine) and own_commits(root, mine, head):
         return diverged(
-            root,
-            sender,
-            git.out(root, 'symbolic-ref', '-q', '--short', 'HEAD') or '',
-            local,
-            head,
-            ref,
+            root, sender, branch, git.out(root, 'rev-parse', mine) or '', head, ref
         )
-    if branch and has_commit(root, branch) and own_commits(root, branch, head):
-        return diverged(
-            root, sender, branch, git.out(root, 'rev-parse', branch) or '', head, ref
+    if own:
+        return (
+            f'checkout: kept {local[:9]}: {on} has commits here that {sender} lacks; '
+            f'{sender} is on {branch} at {short} (kept as {ref})'
         )
     moved = (
         git.ok(root, 'checkout', '-q', '-B', branch, head)
