@@ -168,15 +168,23 @@ def local_branches(root):
     return found
 
 
-def keep_tips(root):
-    """{<run>/<full id>: full id} of every evidence ref this checkout holds (git.pin): the commits a run's steps, reports and verifications name."""
+def keep_tips(root, run):
+    """{<run>/<full id>: full id} of the evidence refs of `run` this checkout holds (git.pin): the commits its steps, reports and verifications
+    name. The refs of other runs in the same checkout stay home; a store with no run name carries none."""
+    if not run:
+        return {}
     text = git.out(
-        root, 'for-each-ref', '--format=%(refname)%09%(objectname)', f'{git.KEEP}/'
+        root,
+        'for-each-ref',
+        '--format=%(refname)%09%(objectname)',
+        f'{git.KEEP}/{run}/',
     )
     found = {}
     for line in (text or '').splitlines():
         ref, _, oid = line.partition('\t')
-        found[ref[len(git.KEEP) + 1 :]] = oid
+        name = ref[len(git.KEEP) + 1 :]
+        if name.rpartition('/')[0] == run:
+            found[name] = oid
     return found
 
 
@@ -212,7 +220,8 @@ def pack(store, path, sender, to, agents, text='', branches=False):
     knows ({name: {pane, thread}}) and the text of the message it travels with. Returns its manifest. A master's hand-over (`branches`) also
     carries every local branch: its name and tip in the manifest (git.branches), its commits in the same git bundle, cut only against
     origin's default branch (git.baseline), never against the remotes this side happens to have. Every send also carries the run's evidence refs
-    (keep_tips) in the same git bundle, cut the same way."""
+    (keep_tips) of its own run in the same git bundle; only a hand-over fetches origin for its cut, an ordinary send is cut against the remotes
+    this side has."""
     files, listed = store_files(store)
     root = repo_of(store)
     head = git.out(root, 'rev-parse', 'HEAD') if root else None
@@ -238,7 +247,7 @@ def pack(store, path, sender, to, agents, text='', branches=False):
     }
     refs = {'head': head, **{f'wt{i}': t['commit'] for i, t in enumerate(trees)}}
     exclude = ('--remotes',)
-    keeps = keep_tips(root) if head else {}
+    keeps = keep_tips(root, local_pair(store).get('slug') or '') if head else {}
     if branches and head:
         tips = local_branches(root)
         manifest['git'].update(branches=tips)
@@ -246,7 +255,7 @@ def pack(store, path, sender, to, agents, text='', branches=False):
     if keeps:
         manifest['git'].update(keep=keeps)
         refs.update({f'keep/{name}': oid for name, oid in keeps.items()})
-    if head and (branches or keeps):
+    if head and branches:
         baseline = origin_baseline(root)
         manifest['git'].update(baseline=baseline)
         exclude = (baseline,) if baseline else ()
