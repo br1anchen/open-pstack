@@ -182,3 +182,7 @@
 2026-11-21T08:36:36Z	1795250196	master	queue	-	cleared
 2026-11-21T08:36:40Z	1795250200	master	reuse	024-verify-names-excluded-fix	sidekick: pstack, pstack-docs, context 38%
 2026-11-21T08:36:46Z	1795250206	master	send-brief	024-verify-names-excluded-fix	
+2026-11-21T08:36:58Z	1795250218	master	queue	006-land-check-gone-head	
+2026-11-21T08:37:07Z	1795250227	master	nest	-	T-01a1fd3f-ebac-7608-bdc5-8f869be75612 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T08:52:41Z	1795251161	master	queue	-	cleared
+2026-11-21T08:52:45Z	1795251165	master	reuse	006-land-check-gone-head	sidekick: pstack, pstack-docs, context 40%

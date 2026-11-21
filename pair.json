@@ -67,11 +67,12 @@
     "rotation_required": false,
     "delivered": {
       "generation": "12",
-      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
+      "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "032-master-bundle-branches-fix2",
+      "brief": "024-verify-names-excluded-fix",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/024-verify-names-excluded-fix.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
