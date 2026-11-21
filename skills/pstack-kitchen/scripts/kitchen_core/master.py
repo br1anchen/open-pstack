@@ -523,6 +523,56 @@ def snapshot_roster(store, next_gen):
     return rel
 
 
+def restore_roster(store):
+    """take-master on a thread hand-over: the roster the old master snapshotted is installed at this orb's roster path when nothing is there; a
+    file that is there stays, and is reported when it differs. Contents are never printed. A store from before snapshots gets a notice."""
+    previous = peek(peek(load(store), 'master'), 'previous')
+    out = sys.stdout
+    if 'roster' not in previous:
+        out.write('roster: none recorded by the previous master\n')
+        return
+    rel = text_at(previous, 'roster')
+    if not rel:
+        return
+    snapshot = f'{store}/{rel}'
+    try:
+        data = open(snapshot, 'rb').read()
+    except OSError as err:
+        raise Die(
+            f'take-master: cannot read the roster snapshot {snapshot}: {err.strerror}'
+        ) from None
+    target = kpy.kitchen_py.roster_path()
+    try:
+        held = target.read_bytes()
+    except FileNotFoundError:
+        held = None
+    except OSError as err:
+        raise Die(
+            f'take-master: cannot read the roster {target}: {err.strerror}'
+        ) from None
+    if held is None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp = target.with_name(f'.{target.name}.{os.getpid()}.tmp')
+        try:
+            with open(temp, 'wb') as f:
+                f.write(data)
+            try:
+                os.link(temp, target)
+            except FileExistsError:
+                held = target.read_bytes()
+            except OSError as err:
+                raise Die(
+                    f'take-master: cannot install the roster at {target}: {err.strerror}'
+                ) from None
+        finally:
+            temp.unlink(missing_ok=True)
+        if held is None:
+            out.write(f'roster: installed {target} from {snapshot}\n')
+            return
+    if held != data:
+        out.write(f'roster: kept {target}; it differs from {snapshot}\n')
+
+
 def hand_to_next_thread(ctx, store, handoff, model):
     """The rotation when every role is a thread of its own (Amp): the next master starts as a new thread, on --model or this thread's own
     mode, with the store's bundle and the master prompt; its take-master takes the run over there. The hand-over is recorded before the bundle
@@ -729,6 +779,8 @@ def take_master(ctx, args):
             f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}",
             5,
         )
+    if mux.get().master_threads:
+        restore_roster(store)
     prev_pane = read(store, 'master.previous.pane_id')
     deadline = int(time.time()) + env_int('KITCHEN_TAKEOVER_WAIT_S', 30)
     while agent_status(prev) == 'working' and int(time.time()) < deadline:

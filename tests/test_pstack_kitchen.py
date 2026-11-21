@@ -17581,6 +17581,103 @@ class AmpKitchenTests(KitchenScriptTests):
                 self.assertFalse(self.roster_snapshot().exists())
                 self.assertNotIn('previous', self.state()['master'])
 
+    def test_take_master_installs_the_snapshotted_roster_only_where_the_orb_has_none(
+        self,
+    ):
+        """The next master's orb has its own roster path (PSTACK_KITCHEN_ROSTER); the old master's file is never read there, and a file the orb
+        holds is never replaced."""
+        sender = Path(self.tmp.name) / 'host-roster.toml'
+        sender.write_text(self.ROSTER)
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(sender)
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        snapshot = self.roster_snapshot()
+        handed = (self.store / 'pair.json').read_text()
+        master2 = amp_thread(2)
+        orb = Path(self.tmp.name) / 'orb2'
+        orb.mkdir()
+        mine = orb / 'orb2-roster.toml'
+        other = '[consultant]\nkind = "codex"\n'
+
+        def take(receiver, snapshot_recorded=True):
+            """A fresh hand-over (pair.json as rotate-master left it) taken by the next master on an orb holding `receiver` (None: no roster)."""
+            doc = json.loads(handed)
+            if not snapshot_recorded:
+                del doc['master']['previous']['roster']
+            (self.store / 'pair.json').write_text(json.dumps(doc))
+            mine.unlink(missing_ok=True)
+            if receiver is not None:
+                mine.write_text(receiver)
+            return self.as_thread(
+                master2,
+                'take-master',
+                str(self.store),
+                cwd=orb,
+                env={'PSTACK_KITCHEN_ROSTER': str(mine)},
+            )
+
+        with self.subTest('absent'):
+            out = take(None)
+            self.assertIn(f'roster: installed {mine} from {snapshot}', out)
+            self.assertEqual(mine.read_bytes(), self.ROSTER.encode())
+            self.assertEqual(sorted(p.name for p in orb.iterdir()), [mine.name])
+        with self.subTest('identical'):
+            self.assertNotIn('roster:', take(self.ROSTER))
+            self.assertEqual(mine.read_text(), self.ROSTER)
+        with self.subTest('different'):
+            out = take(other)
+            self.assertIn(f'roster: kept {mine}; it differs from {snapshot}', out)
+            self.assertNotIn('codex', out)
+            self.assertEqual(mine.read_text(), other)
+        with self.subTest('no snapshot recorded'):
+            out = take(None, snapshot_recorded=False)
+            self.assertIn('roster: none recorded by the previous master', out)
+            self.assertFalse(mine.exists())
+        with self.subTest('unreadable'):
+            mine.unlink(missing_ok=True)
+            doc = json.loads(handed)
+            (self.store / 'pair.json').write_text(json.dumps(doc))
+            mine.mkdir()
+            out = self.as_thread(
+                master2,
+                'take-master',
+                str(self.store),
+                cwd=orb,
+                env={'PSTACK_KITCHEN_ROSTER': str(mine)},
+                code=1,
+            )
+            self.assertIn('take-master: cannot read the roster', out)
+            self.assertIn('previous', self.state()['master'])
+            mine.rmdir()
+        with self.subTest('a rerun keeps what it installed and the user then edited'):
+            take(None)
+            mine.write_text(other)
+            (self.store / 'pair.json').write_text(handed)
+            out = self.as_thread(
+                master2,
+                'take-master',
+                str(self.store),
+                cwd=orb,
+                env={'PSTACK_KITCHEN_ROSTER': str(mine)},
+            )
+            self.assertIn(f'roster: kept {mine}', out)
+            self.assertEqual(mine.read_text(), other)
+        self.assertEqual(sender.read_text(), self.ROSTER)
+
+    def test_take_master_without_a_roster_on_the_old_master_installs_nothing(self):
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(Path(self.tmp.name) / 'absent.toml')
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        mine = Path(self.tmp.name) / 'orb2-roster.toml'
+        out = self.as_thread(
+            amp_thread(2),
+            'take-master',
+            str(self.store),
+            env={'PSTACK_KITCHEN_ROSTER': str(mine)},
+        )
+        self.assertNotIn('roster:', out)
+        self.assertFalse(mine.exists())
+
     def test_the_old_masters_bundle_is_a_hand_over_at_the_first_sync_and_while_it_is_pending(
         self,
     ):
