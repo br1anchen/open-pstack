@@ -203,3 +203,7 @@
 2026-11-21T09:21:37Z	1795252897	master	wake	024-verify-names-excluded-fix	verify:clean
 2026-11-21T09:21:47Z	1795252907	master	log	-	review-024: 024 accepted: verifier clean; joo 2 lows (notice on landing packets) to followups
 2026-11-21T09:43:05Z	1795254185	master	send-verify	006-land-check-gone-head	amp:006
+2026-11-21T09:43:13Z	1795254193	master	nest-pending	-	T-01a1fd7d-083c-7599-9a8f-2ef012eadd66 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T09:43:21Z	1795254201	master	wake	006-land-check-gone-head	verify:progress
+2026-11-21T09:43:21Z	1795254201	master	queue	-	cleared
+2026-11-21T09:43:29Z	1795254209	master	rotate	-	generation:12
