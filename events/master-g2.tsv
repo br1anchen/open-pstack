@@ -38,3 +38,11 @@
 2026-11-21T01:49:02Z	1795225742	master	queue	025-reply-deletes-no-master-state	
 2026-11-21T01:51:54Z	1795225914	master	queue	-	cleared
 2026-11-21T01:52:00Z	1795225920	master	send-brief	028-dispatch-after-ready-sends-fix	
+2026-11-21T01:52:15Z	1795225935	master	queue	025-reply-deletes-no-master-state	
+2026-11-21T01:52:15Z	1795225935	master	log	-	incident: 028 blocked: 027's push to kitchen-code/.../sidekick-g6 overwrote 026's head; master pushed unit-026 and unit-027 refs and re-sent 028; 025 now starts from unit-028
+2026-11-21T02:04:02Z	1795226642	master	archive	-	verifier:T-01a1fbc3-6006-7651-af95-dff8edbf8a66
+2026-11-21T02:04:02Z	1795226642	master	log	-	archive: archive verifier T-01a1fbc3-6006-7651-af95-dff8edbf8a66
+2026-11-21T02:04:02Z	1795226642	master	verify	027-master-is-anchor	clean
+2026-11-21T02:04:02Z	1795226642	master	wake	027-master-is-anchor	verify:clean
+2026-11-21T02:04:53Z	1795226693	master	queue	029-master-is-anchor-fix	
+2026-11-21T02:08:48Z	1795226928	master	rotate	-	generation:7
