@@ -20988,6 +20988,23 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertEqual(self.git('rev-parse', 'refs/heads/feat/sender'), tip)
         self.assertEqual(self.git('rev-parse', 'HEAD'), self.base)
 
+    def test_a_checkout_kept_for_tracked_changes_on_the_senders_branch_still_names_the_branch_ref_once(
+        self,
+    ):
+        self.git('checkout', '-q', '-b', 'Y', self.base)
+        y_sent = self.commit('y-sent')
+        bundle = self.pack_and_prune()
+        self.git('reset', '-q', '--hard', self.base)
+        (self.repo / 'base.txt').write_text('edited here')
+        self.prune()
+        _, lines = self.bundle.apply(str(bundle))
+        text = '\n'.join(lines)
+        self.assertIn(f'checkout: kept {self.base[:9]}: tracked changes here', text)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.base)
+        self.assertEqual(text.count('/br/Y'), 1)
+        (branch_line,) = [line for line in lines if line.startswith('branch Y')]
+        self.assertIn(f'm is at {y_sent} (kept as refs/pstack/in/T-m/', branch_line)
+
     def other_branch_receiver(self, own_y=False):
         """The sender's checkout is on Y; this checkout is on X with a commit of its own, and on Y with another when own_y. (X's tip, the Y tip
         sent, Y's tip here or '', the bundle)."""

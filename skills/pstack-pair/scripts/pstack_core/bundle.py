@@ -607,7 +607,7 @@ def move_checkout(root, head, branch, sender, ref):
     if dirty is None or dirty:
         return (
             f'checkout: kept {local[:9]}: tracked changes here; {sender} is at {short}',
-            on if on == branch else '',
+            '',
         )
     elsewhere = bool(on) and branch != on
     own = bool(local) and own_commits(root, local, head)
