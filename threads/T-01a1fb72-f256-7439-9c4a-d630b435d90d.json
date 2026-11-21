@@ -1,4 +1,5 @@
 {
+ "archived": 1795271017,
  "args": [],
  "at": 1795271009,
  "generation": 2,
@@ -18,6 +19,6 @@
  "role": "master",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795219979,
- "state": "retired",
+ "state": "archived",
  "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d"
 }
