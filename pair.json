@@ -71,7 +71,8 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "029-master-is-anchor-fix",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/029-master-is-anchor-fix.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
