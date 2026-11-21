@@ -1,0 +1,19 @@
+{
+ "args": [
+  "--mode",
+  "claude-code",
+  "--features",
+  "model:claude-sonnet-5-5"
+ ],
+ "generation": 12,
+ "kind": "amp",
+ "name": "kitchen-followups-sidekick",
+ "pane": "amp:1",
+ "relays": [],
+ "requests": [],
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "started": 1795239095,
+ "state": "started",
+ "thread": "T-01a1fc96-a756-7134-b4a6-ebdd6834c821"
+}
