@@ -95,9 +95,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "026-dispatch-after-ready-sends-fix-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -231,44 +229,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/026-dispatch-after-ready-sends-fix-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/026-dispatch-after-ready-sends-fix-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/026-dispatch-after-ready-sends-fix.md",
-    "scratch": "026-dispatch-after-ready-sends-fix-verify",
-    "units": "023 026",
-    "risk": "routine",
-    "sample": 0.2,
-    "unit": "026-dispatch-after-ready-sends-fix",
-    "started": 1795222148,
-    "deadline": 1795224848,
-    "class": "routine",
-    "entry": {
-      "kind": "amp",
-      "args": [
-        "--mode",
-        "claude-code",
-        "--features",
-        "model:claude-sonnet-5-5"
-      ],
-      "source": "sidekick",
-      "fallback": {
-        "kind": "amp",
-        "args": [
-          "--model",
-          "openai/gpt-6.1-sol"
-        ]
-      }
-    },
-    "retried": false,
-    "argv": [
-      "026",
-      "--covers",
-      "023",
-      "--base",
-      "b1ca49f"
-    ],
-    "delivered": false
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
