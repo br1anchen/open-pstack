@@ -21412,7 +21412,9 @@ class BundleBranchApplyTests(BundleRepoCase):
         with tarfile.open(path, 'w:gz') as tar:
             self.bundle.add_bytes(tar, 'manifest.json', json.dumps(manifest).encode())
             self.bundle.add_bytes(tar, 'store/reports/001-new.md', b'from the sender\n')
-        _, lines = self.bundle.apply(str(path))
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            _, lines = self.bundle.apply(str(path))
         self.assertEqual(
             [line for line in lines if line.startswith('evidence:')],
             [
@@ -21420,6 +21422,7 @@ class BundleBranchApplyTests(BundleRepoCase):
                 f'run1/{oid}'
             ],
         )
+        self.assertEqual(errors.getvalue(), '')
         self.assertEqual(
             (self.store / 'reports' / '001-new.md').read_text(), 'from the sender\n'
         )
