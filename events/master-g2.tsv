@@ -177,3 +177,7 @@
 2026-11-21T08:04:16Z	1795248256	master	log	-	review-022: 022 accepted: verifier clean; joo 4 lows to followups; rotate advice ignored per standing order 20
 2026-11-21T08:24:31Z	1795249471	master	log	-	merge: PR #13 (027+029) merged to main by rebase at b681abc on Brian's explicit approval
 2026-11-21T08:36:20Z	1795250180	master	send-verify	032-master-bundle-branches-fix2	claude:031 004 032
+2026-11-21T08:36:29Z	1795250189	master	nest-pending	-	T-01a1fd3f-ebac-7608-bdc5-8f869be75612 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T08:36:36Z	1795250196	master	wake	032-master-bundle-branches-fix2	verify:progress
+2026-11-21T08:36:36Z	1795250196	master	queue	-	cleared
+2026-11-21T08:36:40Z	1795250200	master	reuse	024-verify-names-excluded-fix	sidekick: pstack, pstack-docs, context 38%
