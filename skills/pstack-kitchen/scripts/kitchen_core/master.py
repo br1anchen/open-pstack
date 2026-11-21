@@ -7,6 +7,7 @@ import shutil
 import sys
 import time
 import tomllib
+from pathlib import Path
 
 from pstack_core import gitstore, mux, procinfo, secrets
 from pstack_core.agents import mcp_args, permission_args
@@ -523,9 +524,27 @@ def snapshot_roster(store, next_gen):
     return rel
 
 
+def drop_snapshot(store, roster):
+    """Removes the roster snapshot of a rotation that did not happen; a file already gone is nothing to report, and must not hide the error that ended
+    the rotation."""
+    if roster:
+        Path(f'{store}/{roster}').unlink(missing_ok=True)
+
+
+def relay_roster(store, roster, thread):
+    """Under the git store the roster snapshot is a local-only file, so the old master uploads it to the next master's thread itself: the two lines
+    that say how, in the form steer's relay uses."""
+    path = os.path.abspath(f'{store}/{roster}')
+    sys.stdout.write(
+        f'relay: upload_thread_file path={path} destination={path} thread={thread}\n'
+        'relay: upload it before you end this turn; take-master on the next master waits for your turn to end\n'
+    )
+
+
 def restore_roster(store):
     """take-master on a thread hand-over: the roster the old master snapshotted is installed at this orb's roster path when nothing is there; a
-    file that is there stays, and is reported when it differs. Contents are never printed. A store from before snapshots gets a notice."""
+    file that is there stays, and is reported when it differs. Contents are never printed. A store from before snapshots gets a notice. Under the
+    git store the snapshot is uploaded by the old master and may not have arrived: the take-over goes on with this orb's own roster."""
     if not mux.get().master_threads:
         return
     previous = peek(peek(load(store), 'master'), 'previous')
@@ -538,43 +557,69 @@ def restore_roster(store):
         return
     snapshot = f'{store}/{rel}'
     try:
-        data = open(snapshot, 'rb').read()
+        data = Path(snapshot).read_bytes()
     except OSError as err:
+        if isinstance(err, FileNotFoundError) and gitstore.is_git(store):
+            out.write(
+                f'roster: {snapshot} did not arrive from the previous master; this orb keeps its own roster\n'
+            )
+            return
         raise ToolFailed(
             1,
             f'take-master: cannot read the roster snapshot {snapshot}: {err.strerror}',
         ) from None
     target = kpy.kitchen_py.roster_path()
-    try:
-        held = target.read_bytes()
-    except FileNotFoundError:
-        held = None
-    except OSError as err:
-        raise ToolFailed(
-            1, f'take-master: cannot read the roster {target}: {err.strerror}'
-        ) from None
+    held = held_roster(target)
     if held is None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temp = target.with_name(f'.{target.name}.{os.getpid()}.tmp')
-        try:
-            with open(temp, 'wb') as f:
-                f.write(data)
-            try:
-                os.link(temp, target)
-            except FileExistsError:
-                held = target.read_bytes()
-            except OSError as err:
-                raise ToolFailed(
-                    1,
-                    f'take-master: cannot install the roster at {target}: {err.strerror}',
-                ) from None
-        finally:
-            temp.unlink(missing_ok=True)
+        held = install_roster(target, data)
         if held is None:
             out.write(f'roster: installed {target} from {snapshot}\n')
             return
     if held != data:
         out.write(f'roster: kept {target}; it differs from {snapshot}\n')
+
+
+def held_roster(target):
+    """The bytes of the roster at target, None when nothing is there. A file that cannot be read, or a link to nothing, ends take-master."""
+    try:
+        return target.read_bytes()
+    except FileNotFoundError:
+        if os.path.islink(target):
+            raise ToolFailed(
+                1,
+                f'take-master: cannot read the roster {target}: a link to a file that is not there',
+            ) from None
+        return None
+    except OSError as err:
+        raise ToolFailed(
+            1, f'take-master: cannot read the roster {target}: {err.strerror}'
+        ) from None
+
+
+def install_roster(target, data):
+    """Installs data at target, which held nothing a moment ago, with a hard link from a temporary file, so a file created meanwhile is never
+    replaced: its bytes are returned then, else None."""
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as err:
+        raise ToolFailed(
+            1,
+            f'take-master: cannot create {target.parent} for the roster: {err.strerror}',
+        ) from None
+    temp = target.with_name(f'.{target.name}.{os.getpid()}.tmp')
+    try:
+        with open(temp, 'wb') as f:
+            f.write(data)
+        os.link(temp, target)
+    except FileExistsError:
+        return held_roster(target)
+    except OSError as err:
+        raise ToolFailed(
+            1, f'take-master: cannot install the roster at {target}: {err.strerror}'
+        ) from None
+    finally:
+        temp.unlink(missing_ok=True)
+    return None
 
 
 def hand_to_next_thread(ctx, store, handoff, model):
@@ -597,13 +642,17 @@ def hand_to_next_thread(ctx, store, handoff, model):
     next_gen = gen_n + 1
     temp = f'{read(store, "slug")}-master-g{next_gen}'
     roster = snapshot_roster(store, next_gen)
-    # The events this master wrote so far are in the file of its generation, which it may publish only until the hand-over changes it.
-    publish_master(store)
-    before = read_text(f'{store}/pair.json')
-    new_pane_id = m.new_master(temp)
-    copy = record_handover(
-        store, handoff, gen_n, '', (name, pane), (temp, new_pane_id), roster
-    )
+    try:
+        # The events this master wrote so far are in the file of its generation, which it may publish only until the hand-over changes it.
+        publish_master(store)
+        before = read_text(f'{store}/pair.json')
+        new_pane_id = m.new_master(temp)
+        copy = record_handover(
+            store, handoff, gen_n, '', (name, pane), (temp, new_pane_id), roster
+        )
+    except BaseException:
+        drop_snapshot(store, roster)
+        raise
     try:
         publish_master(store)
         as_file = m.mode_reads_skill_file(model or m.thread_mode())
@@ -614,8 +663,7 @@ def hand_to_next_thread(ctx, store, handoff, model):
         with open(f'{store}/pair.json', 'w') as f:
             f.write(before)
         event(store, 'master', 'rotate-failed', '-', f'generation:{next_gen}')
-        if roster:
-            os.unlink(f'{store}/{roster}')
+        drop_snapshot(store, roster)
         # The hand-over went out before the launch; the branch must not keep one that did not happen. A failed publish must not hide the launch error.
         try:
             publish_master(store)
@@ -636,6 +684,8 @@ def hand_to_next_thread(ctx, store, handoff, model):
     out.write(
         f'next master: {temp} (generation {next_gen}) in thread {thread}; it runs take-master there\n'
     )
+    if roster and gitstore.is_git(store):
+        relay_roster(store, roster, thread)
     out.write(
         f'next: end your turn now, with no further commands: generation {next_gen} owns the run, and a role reply that still reaches this '
         'thread names a sync that forwards it there\n'
@@ -761,9 +811,9 @@ def take_master(ctx, args):
             f"take-master runs from the new master's pane {pane}, not {here or 'an unknown pane'}",
             5,
         )
-    restore_roster(store)
     prev_pane = read(store, 'master.previous.pane_id')
     wait_for_old_master(prev)
+    restore_roster(store)
     # Close the pane only while it still holds the old master, or nothing.
     m = mux.get()
     hosted = m.agent(prev_pane)
