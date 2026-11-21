@@ -11,7 +11,7 @@
     "tab_id": "",
     "registered_at": "2026-11-21T00:12:48Z",
     "permission_mode": "auto",
-    "units_since_handoff": 5,
+    "units_since_handoff": 6,
     "generation": 2,
     "landed_since_handoff": false,
     "sessions": [
@@ -75,8 +75,8 @@
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:11",
-    "kind": "claude",
+    "pane_id": "amp:12",
+    "kind": "amp",
     "started_at": null
   },
   "consultant": {
@@ -95,7 +95,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "022-migrated-threads-archive-nest-verify"
+  ],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -249,5 +251,42 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/022-migrated-threads-archive-nest-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/022-migrated-threads-archive-nest-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/022-migrated-threads-archive-nest.md",
+    "scratch": "022-migrated-threads-archive-nest-verify",
+    "units": "022",
+    "risk": "routine",
+    "sample": 0.2,
+    "unit": "022-migrated-threads-archive-nest",
+    "started": 1795247146,
+    "deadline": 1795249846,
+    "class": "routine",
+    "entry": {
+      "kind": "amp",
+      "args": [
+        "--mode",
+        "claude-code",
+        "--features",
+        "model:claude-sonnet-5-5"
+      ],
+      "source": "sidekick",
+      "fallback": {
+        "kind": "amp",
+        "args": [
+          "--model",
+          "openai/gpt-6.1-sol"
+        ]
+      }
+    },
+    "retried": false,
+    "argv": [
+      "022",
+      "--base",
+      "6dcc8e3"
+    ],
+    "delivered": false
+  }
 }

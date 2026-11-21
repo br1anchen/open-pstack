@@ -71,3 +71,5 @@ ts	phase	decision	why	evidence	result
 2026-11-21T05:33:56Z	archive	archive sidekick T-01a1fc7b-eba5-73ef-8b67-a0a0fd74248b	no longer used by the store; a brief is being sent	amp threads archive T-01a1fc7b-eba5-73ef-8b67-a0a0fd74248b	archived
 2026-11-21T05:51:53Z	archive	archive verifier T-01a1fc96-4201-70d8-bc15-945d20a11366	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fc96-4201-70d8-bc15-945d20a11366	archived
 2026-11-21T05:52:18Z	review-030	005, 025, 030 accepted on clean verdict 030-v1; joo low (memo caches failed read) to followups; rotate advice ignored per standing order 20	verdict 030-v1; joo 5deffaa0	reviews/030	031 in progress, 022 queued
+2026-11-21T07:34:25Z	archive	archive verifier T-01a1fcea-2d0f-7099-89ef-9831dafddd9a	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fcea-2d0f-7099-89ef-9831dafddd9a	archived
+2026-11-21T07:35:16Z	review-031	031 revise: verifier clean; joo medium (legacy bundle ids make pruning delete the newest sets) + recipe/report lows; fix brief 032 on top of 022, queued ahead of 024	joo 3f3b8542; verdict 031-v1	reviews/031	006/010/024 now start from unit-032

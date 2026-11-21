@@ -9,3 +9,5 @@
 - 004 (joo, low/note): move_checkout could pass whether the target is checked out instead of asking git again in diverged and recovery_recipe; make `exclude` a required argument of git_bundle.
 
 - 030 (joo, low): the per-command context memo also caches a failed read; consider not caching a None so a transient amp failure does not blind later readers in the same command.
+
+- 031 (verifier/joo): a rejected hand-over leaves its import refs until the next apply prunes them; a timed-out fetch is SIGKILLed, which can leave ref locks and orphaned transports; on fetch failure the bundle is cut at a possibly stale tracking ref; the receiving side's fetches have no timeout; PSTACK_BUNDLE_FETCH_TIMEOUT_S and PSTACK_BUNDLE_KEEP are undocumented.

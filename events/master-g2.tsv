@@ -152,3 +152,12 @@
 2026-11-21T07:02:58Z	1795244578	master	queue	-	cleared
 2026-11-21T07:03:02Z	1795244582	master	reuse	022-migrated-threads-archive-nest	sidekick: pstack, pstack-docs, context 25%
 2026-11-21T07:03:07Z	1795244587	master	send-brief	022-migrated-threads-archive-nest	
+2026-11-21T07:03:22Z	1795244602	master	queue	024-verify-names-excluded-fix	
+2026-11-21T07:03:32Z	1795244612	master	nest	-	T-01a1fcea-2d0f-7099-89ef-9831dafddd9a under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T07:34:25Z	1795246465	master	archive	-	verifier:T-01a1fcea-2d0f-7099-89ef-9831dafddd9a
+2026-11-21T07:34:25Z	1795246465	master	log	-	archive: archive verifier T-01a1fcea-2d0f-7099-89ef-9831dafddd9a
+2026-11-21T07:34:25Z	1795246465	master	verify	031-master-bundle-branches-fix	clean
+2026-11-21T07:34:25Z	1795246465	master	wake	031-master-bundle-branches-fix	verify:clean
+2026-11-21T07:35:05Z	1795246505	master	queue	032-master-bundle-branches-fix2	
+2026-11-21T07:35:16Z	1795246516	master	log	-	review-031: 031 revise: verifier clean; joo medium (legacy bundle ids make pruning delete the newest sets) + recipe/report lows; fix brief 032 on top of 022, queued ahead of 024
+2026-11-21T07:45:46Z	1795247146	master	send-verify	022-migrated-threads-archive-nest	amp:022
