@@ -132,32 +132,19 @@ def take_anchor(store, thread):
     return title, warning
 
 
-def oldest_master(store):
-    """The oldest master thread the run knows: the lowest generation of `.master.sessions` that names a thread, else the earliest started master
-    threads.json holds for the run, else the current master's own thread. '' when none is known."""
-    from ..mux import amp
-
-    doc = load(store)
-    master = peek(doc, 'master')
-    sessions = sorted(
-        (
-            (int(e.get('generation') or 0), e['session'])
-            for e in listing(master, 'sessions')
-            if isinstance(e, dict) and str(e.get('session') or '').startswith('T-')
-        ),
-    )
-    if sessions:
-        return sessions[0][1]
-    path = os.path.realpath(store)
-    started = sorted(
-        (int(e.get('started') or 0), t)
-        for t, e in amp.load_json(amp.threads_path()).items()
-        if e.get('role') == 'master' and e.get('store') == path and e.get('started')
-    )
-    if started:
-        return started[0][1]
+def current_master(store):
+    """The current master's thread: its pane in pair.json when that is a thread's, else the newest generation of `.master.sessions` that names a
+    thread. '' when neither does."""
+    master = peek(load(store), 'master')
     pane = text_at(master, 'pane_id')
-    return pane[len('amp:') :] if pane.startswith('amp:T-') else ''
+    if pane.startswith('amp:T-'):
+        return pane[len('amp:') :]
+    sessions = sorted(
+        (int(e.get('generation') or 0), e['session'])
+        for e in listing(master, 'sessions')
+        if isinstance(e, dict) and str(e.get('session') or '').startswith('T-')
+    )
+    return sessions[-1][1] if sessions else ''
 
 
 def run_threads(store):
@@ -189,21 +176,24 @@ def run_threads(store):
 
 
 def discover(store):
-    """Records every thread the run knows (the same search `threads --discover` makes, then run_threads) that has no row yet as nest-pending, and sets
-    the anchor to the oldest master thread when pair.json has none. A second run records nothing."""
+    """Records every thread the run knows (the same search `threads --discover` makes, then run_threads) that has no row yet as nest-pending, and
+    sets the anchor to the current master, top-level, when pair.json has none. A master that is not the anchor is left out: a master is never nested
+    under another. A second run records nothing."""
     from ..mux import amp
 
     amp.Amp().discover(store)
     if not text_at(peek(load(store), 'anchor'), 'thread') and (
-        first := oldest_master(store)
+        first := current_master(store)
     ):
 
         def record(doc):
             member(doc, 'anchor').setdefault('thread', first)
 
         update(store, record)
+        add_pending(store, first, 'master', TOP_LEVEL)
     for thread, role in sorted(run_threads(store).items()):
-        record_pending(store, thread, role)
+        if role != 'master':
+            record_pending(store, thread, role)
 
 
 def stamp():

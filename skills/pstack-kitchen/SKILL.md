@@ -506,7 +506,9 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   `kitchen.sh nest <store> --discover` first records the run's threads that have
   no row (a run migrated or started before nesting: the search `threads --discover`
   makes plus the threads and sessions the store names) and, when pair.json has no
-  `.anchor`, sets it to the oldest master thread; a second run adds nothing.
+  `.anchor`, sets it to the current master (its pane's thread, else the newest
+  master session), recorded top-level; other master threads get no row. A
+  second run adds nothing.
   `status` prints `nest-pending: N threads` while any is pending. Setting
   `PSTACK_NEST_VIA=<thread-id>` (optional, unset by default) makes `nest` say
   to ask that thread to set the parents instead. Under Herdr, Rex and

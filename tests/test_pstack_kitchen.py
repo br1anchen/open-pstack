@@ -14764,12 +14764,22 @@ class AmpKitchenTests(KitchenScriptTests):
             ],
         )
 
-    def test_nest_discover_sets_the_oldest_master_as_anchor_and_records_the_threads_without_a_row_once(
+    def rotate_on_record(self, *sessions, pane_id):
+        """A run whose master rotated: `sessions` are the closed generations' threads, oldest first, and `pane_id` the current master's."""
+        doc = self.state()
+        doc['master']['pane_id'] = pane_id
+        doc['master']['sessions'] = [
+            {'generation': n, 'session': thread, 'handoff': '', 'at': ''}
+            for n, thread in enumerate(sessions, 1)
+        ]
+        self.edit_pair(master=doc['master'], anchor=None)
+
+    def test_nest_discover_sets_the_current_master_as_a_top_level_anchor_and_records_the_threads_without_a_row_once(
         self,
     ):
         old_master, sidekick, found = (amp_thread(n) for n in (41, 42, 43))
         (self.store / 'nest-pending.tsv').unlink(missing_ok=True)
-        self.edit_pair(anchor=None)
+        self.rotate_on_record(old_master, pane_id=f'amp:{AMP_MASTER}')
         here = os.path.realpath(self.store)
         self.write_threads(
             {
@@ -14779,24 +14789,25 @@ class AmpKitchenTests(KitchenScriptTests):
         )  # fmt: skip
         self.search_hits({'id': found, 'title': 'demo-consultant'})
         out = self.run_sh('nest', str(self.store), '--discover')
-        self.assertEqual(self.state()['anchor'], {'thread': old_master})
+        self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
         self.assertEqual(
             sorted(self.nest_rows()),
             sorted(
                 [
-                    (AMP_MASTER, 'master', old_master, 'pending'),
-                    (amp_thread(1), 'sidekick', old_master, 'pending'),  # setUp's
-                    (sidekick, 'sidekick', old_master, 'pending'),
-                    (found, 'consultant', old_master, 'pending'),
+                    (AMP_MASTER, 'master', '-', 'pending'),
+                    (amp_thread(1), 'sidekick', AMP_MASTER, 'pending'),  # setUp's
+                    (sidekick, 'sidekick', AMP_MASTER, 'pending'),
+                    (found, 'consultant', AMP_MASTER, 'pending'),
                 ]
             ),
         )
-        self.assertNotIn(f'nest-pending: {old_master}', out)
-        self.assertIn(f'nest-pending: {sidekick} (sidekick) under {old_master}', out)
+        self.assertIn(f'nest-pending: {AMP_MASTER} (master) top-level', out)
+        self.assertIn(f'nest-pending: {sidekick} (sidekick) under {AMP_MASTER}', out)
+        self.assertNotIn(old_master, out)
         rows = self.nest_rows()
         again = self.run_sh('nest', str(self.store), '--discover')
         self.assertEqual(self.nest_rows(), rows)
-        self.assertEqual(self.state()['anchor'], {'thread': old_master})
+        self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
         self.run_sh(
             'nest',
             str(self.store),
@@ -14810,7 +14821,18 @@ class AmpKitchenTests(KitchenScriptTests):
             self.run_sh('nest', str(self.store), '--discover'),
             'nest: nothing pending\n',
         )
-        self.assertIn(f'(consultant) under {old_master}', again)
+        self.assertIn(f'(consultant) under {AMP_MASTER}', again)
+
+    def test_nest_discover_takes_the_newest_master_session_when_the_pane_is_no_thread(
+        self,
+    ):
+        first, second = amp_thread(51), amp_thread(52)
+        (self.store / 'nest-pending.tsv').unlink(missing_ok=True)
+        self.rotate_on_record(first, second, pane_id='amp:1')
+        self.run_sh('nest', str(self.store), '--discover')
+        self.assertEqual(self.state()['anchor'], {'thread': second})
+        self.assertIn((second, 'master', '-', 'pending'), self.nest_rows())
+        self.assertNotIn(first, [row[0] for row in self.nest_rows()])
 
     def test_nest_asks_the_named_thread_when_nest_via_is_set(self):
         self.three_pending()
