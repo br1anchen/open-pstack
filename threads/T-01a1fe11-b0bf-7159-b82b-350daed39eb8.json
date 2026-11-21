@@ -1,4 +1,5 @@
 {
+ "archived": 1795268728,
  "args": [
   "--model",
   "openai/gpt-6.1-sol"
@@ -28,6 +29,6 @@
  "role": "sidekick",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795263943,
- "state": "retired",
+ "state": "archived",
  "thread": "T-01a1fe11-b0bf-7159-b82b-350daed39eb8"
 }
