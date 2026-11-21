@@ -176,7 +176,7 @@ def origin_baseline(root):
         '-q',
         'origin',
         timeout=env_int(FETCH_TIMEOUT_ENV, 30),
-        env={'GIT_TERMINAL_PROMPT': '0'},
+        env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'},
     )
     ref = git.out(root, 'symbolic-ref', '-q', 'refs/remotes/origin/HEAD')
     if not ref:

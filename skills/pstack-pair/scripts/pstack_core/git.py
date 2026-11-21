@@ -1,6 +1,5 @@
 """Every git call the cores make: `git -C root ...`, run once here with the stream and exit-code choices named."""
 
-import os
 import subprocess
 import sys
 
@@ -20,12 +19,11 @@ def run(
     stdout=PIPE,
     stderr=None,
     binary=False,
-    timeout=None,
-    env=None,
+    **popen,
 ):
     """The CompletedProcess of `git -C root args` (no -C for a root of None). stdout is captured unless the caller sends it elsewhere; stderr is
-    left on the terminal, dropped when quiet, or sent where the caller says. stdin and the captured output are text, or bytes with binary. A
-    call that outlives `timeout` seconds is killed and reports TIMED_OUT; `env` adds to the environment git runs in."""
+    left on the terminal, dropped when quiet, or sent where the caller says. stdin and the captured output are text, or bytes with binary. `popen`
+    (a timeout, an env) goes to subprocess.run; a call that outlives its timeout is killed and reports TIMED_OUT."""
     sys.stdout.flush()
     sys.stderr.flush()
     argv = ['git', *(['-C', root] if root is not None else []), *args]
@@ -36,20 +34,16 @@ def run(
             stdout=stdout,
             stderr=DEVNULL if quiet else stderr,
             check=False,
-            timeout=timeout,
-            env={**os.environ, **env} if env else None,
+            **popen,
             **({} if binary else TEXT),
         )
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(argv, TIMED_OUT, b'' if binary else '')
 
 
-def ok(root, *args, stdout=DEVNULL, timeout=None, env=None):
-    """Whether git succeeded, with stderr dropped and stdout dropped or sent to the open file the caller gives; timeout and env as in run."""
-    return (
-        run(root, *args, quiet=True, stdout=stdout, timeout=timeout, env=env).returncode
-        == 0
-    )
+def ok(root, *args, stdout=DEVNULL, **popen):
+    """Whether git succeeded, with stderr dropped and stdout dropped or sent to the open file the caller gives; popen as in run."""
+    return run(root, *args, quiet=True, stdout=stdout, **popen).returncode == 0
 
 
 def out(root, *args):
