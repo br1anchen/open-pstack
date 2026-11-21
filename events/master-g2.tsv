@@ -87,3 +87,7 @@
 2026-11-21T03:24:44Z	1795231484	master	wake	029-master-is-anchor-fix	verify:clean
 2026-11-21T03:25:40Z	1795231540	master	log	-	pr: 027+029 opened as PR #13 (branch master-is-anchor off origin/main); reply sent to T-01a1ea49
 2026-11-21T04:01:11Z	1795233671	master	send-verify	025-reply-deletes-no-master-state	claude:005 025
+2026-11-21T04:01:23Z	1795233683	master	nest-pending	-	T-01a1fc44-05ec-76fb-a9c3-5a42836ebb49 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T04:01:31Z	1795233691	master	wake	025-reply-deletes-no-master-state	verify:progress
+2026-11-21T04:01:38Z	1795233698	master	nest	-	T-01a1fc44-05ec-76fb-a9c3-5a42836ebb49 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T04:01:54Z	1795233714	master	rotate	-	generation:9
