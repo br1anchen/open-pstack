@@ -5,7 +5,15 @@
  "name": "kitchen-followups-verifier",
  "pane": "amp:19",
  "relays": [],
- "requests": [],
+ "requests": [
+  {
+   "at": 1795268595,
+   "hash": "709da828ea517f50be68e9299e9f1ff4936add3532837427b51b747965f54128",
+   "id": "84f72def17d0",
+   "seq": 71,
+   "state": "sent"
+  }
+ ],
  "role": "verifier",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795268601,
