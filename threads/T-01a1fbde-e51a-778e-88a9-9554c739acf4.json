@@ -1,10 +1,12 @@
 {
+ "archived": 1795227570,
  "args": [
   "--mode",
   "claude-code",
   "--features",
   "model:claude-sonnet-5-5"
  ],
+ "at": 1795227566,
  "generation": 0,
  "kind": "amp",
  "name": "kitchen-followups-verifier",
@@ -22,6 +24,6 @@
  "role": "verifier",
  "run": "d17083fa3bb140b0b098c7357d00d2b6",
  "started": 1795227054,
- "state": "started",
+ "state": "archived",
  "thread": "T-01a1fbde-e51a-778e-88a9-9554c739acf4"
 }

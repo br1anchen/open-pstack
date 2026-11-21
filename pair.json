@@ -66,10 +66,10 @@
     "closed": false,
     "rotation_required": false,
     "delivered": {
-      "generation": "7",
+      "generation": "8",
       "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "028-dispatch-after-ready-sends-fix",
+      "brief": "029-master-is-anchor-fix",
       "compactions": 0
     }
   },
@@ -95,9 +95,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "028-dispatch-after-ready-sends-fix-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -211,7 +209,8 @@
       "T-01a1fa73-ba4a-759f-a82d-fddaa66f726f",
       "T-01a1fb0e-2be9-74c4-a19a-7e5b11d8af62",
       "T-01a1fb29-d3a6-77ce-99fe-6741609db301",
-      "T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1"
+      "T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1",
+      "T-01a1fbdd-2049-7157-8e2a-33abfab79cff"
     ]
   },
   "consult": {
@@ -236,46 +235,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/028-dispatch-after-ready-sends-fix-v2.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/028-dispatch-after-ready-sends-fix-v2-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/028-dispatch-after-ready-sends-fix.md",
-    "scratch": "028-dispatch-after-ready-sends-fix-verify",
-    "units": "026 023 028",
-    "risk": "routine",
-    "sample": 0.2,
-    "unit": "028-dispatch-after-ready-sends-fix",
-    "started": 1795227044,
-    "deadline": 1795229744,
-    "class": "routine",
-    "entry": {
-      "kind": "amp",
-      "args": [
-        "--mode",
-        "claude-code",
-        "--features",
-        "model:claude-sonnet-5-5"
-      ],
-      "source": "sidekick",
-      "fallback": {
-        "kind": "amp",
-        "args": [
-          "--model",
-          "openai/gpt-6.1-sol"
-        ]
-      }
-    },
-    "retried": false,
-    "argv": [
-      "028",
-      "--covers",
-      "026",
-      "--covers",
-      "023",
-      "--base",
-      "b1ca49f"
-    ],
-    "delivered": true
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
