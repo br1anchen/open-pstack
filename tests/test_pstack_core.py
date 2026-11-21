@@ -21035,6 +21035,58 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertNotIn('reset --keep', text)
         self.assertNotIn(f'rev-parse HEAD)" = {x_tip}', text)
 
+    def unfetchable_origin_with_a_tracking_ref(self):
+        """A repo whose origin cannot be fetched and whose last fetch left origin/main at the base commit, with a branch commit past it: (that
+        commit, the base)."""
+        self.git('remote', 'add', 'origin', str(Path(self.tmp.name) / 'no-such-origin'))
+        self.git('update-ref', 'refs/remotes/origin/main', self.base)
+        self.git('checkout', '-q', '-b', 'feat/a', self.base)
+        return self.commit('past-the-base')
+
+    def hand_over(self):
+        """(manifest, the git.bundle header's lines) of a hand-over of this repo."""
+        path = Path(self.tmp.name) / 'handover.tgz'
+        manifest = self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': 'm', 'thread': 'T-m'},
+            {'name': 'm2', 'pane': 'amp:2'},
+            {},
+            branches=True,
+        )
+        header = self.bundle.read_bundle(str(path))[2].split(b'\n\n', 1)[0]
+        return manifest, header.decode().splitlines()
+
+    def test_a_hand_over_bundle_is_cut_at_the_tracking_ref_when_origin_cannot_be_fetched(
+        self,
+    ):
+        self.unfetchable_origin_with_a_tracking_ref()
+        manifest, header = self.hand_over()
+        self.assertEqual(manifest['git']['baseline'], self.base)
+        self.assertTrue(any(line.startswith(f'-{self.base}') for line in header))
+
+    def test_the_origin_fetch_of_a_hand_over_bundle_has_no_prompt_a_timeout_and_a_timed_out_one_falls_back_to_the_tracking_ref(
+        self,
+    ):
+        self.unfetchable_origin_with_a_tracking_ref()
+        real, seen = subprocess.run, []
+
+        def timing_out(argv, *args, **kwargs):
+            if 'fetch' in argv:
+                seen.append(kwargs)
+                raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+            return real(argv, *args, **kwargs)
+
+        with (
+            mock.patch.dict(os.environ, {'PSTACK_BUNDLE_FETCH_TIMEOUT_S': '7'}),
+            mock.patch.object(subprocess, 'run', timing_out),
+        ):
+            manifest, _ = self.hand_over()
+        self.assertEqual(manifest['git']['baseline'], self.base)
+        [fetch] = seen
+        self.assertEqual(fetch['timeout'], 7)
+        self.assertEqual(fetch['env']['GIT_TERMINAL_PROMPT'], '0')
+
 
 class BundleRebasedCheckoutTests(BundleRepoCase):
     """A role rebased the branch the master's checkout is on: the master's checkout and its branch stay where they are, and the output says how

@@ -25,6 +25,7 @@ import uuid
 from typing import NamedTuple
 
 from . import git
+from .numbers import env_int
 
 MANIFEST = 'manifest.json'
 GIT_BUNDLE = 'git.bundle'
@@ -33,6 +34,7 @@ MAX_FILE = 1 << 20
 LINK = b'symlink:'
 OUT = 'refs/pstack/out'
 MISSING = object()
+FETCH_TIMEOUT_ENV = 'PSTACK_BUNDLE_FETCH_TIMEOUT_S'
 # The one pair.json fact a role sets under the local store (commands/report.py record_rotation_required), and the append logs every role writes.
 SIDEKICK_FACT = 'rotation_required'
 SHARED_LOGS = ('events.tsv', 'gates.tsv')
@@ -165,10 +167,17 @@ def local_branches(root):
 
 
 def origin_baseline(root):
-    """The commit of origin's default branch as it stands after a fresh fetch, which the receiver can fetch too: the one thing a hand-over's
-    bundle may leave out. '' when origin cannot be fetched or names no default branch, and the bundle then carries everything."""
-    if not git.ok(root, 'fetch', '-q', 'origin'):
-        return ''
+    """The commit of origin's default branch that the receiver can fetch too: the one thing a hand-over's bundle may leave out. origin is fetched
+    first, without a prompt and for at most PSTACK_BUNDLE_FETCH_TIMEOUT_S (30) seconds; when that fails or times out, the tracking ref the last
+    fetch left (origin/HEAD, else origin/main, else origin/master) is the cut. '' when there is none, and the bundle then carries everything."""
+    git.ok(
+        root,
+        'fetch',
+        '-q',
+        'origin',
+        timeout=env_int(FETCH_TIMEOUT_ENV, 30),
+        env={'GIT_TERMINAL_PROMPT': '0'},
+    )
     ref = git.out(root, 'symbolic-ref', '-q', 'refs/remotes/origin/HEAD')
     if not ref:
         ref = next(
