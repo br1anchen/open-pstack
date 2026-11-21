@@ -130,3 +130,5 @@
 2026-11-21T05:31:20Z	1795239080	master	wake	030-reply-deletes-no-master-state-fix	verify:progress
 2026-11-21T05:31:20Z	1795239080	master	queue	-	cleared
 2026-11-21T05:31:26Z	1795239086	master	rotate	-	generation:11
+2026-11-21T05:31:35Z	1795239095	master	nest-pending	-	T-01a1fc96-a756-7134-b4a6-ebdd6834c821 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T05:31:42Z	1795239102	master	spawn	-	sidekick:amp:handed-off
