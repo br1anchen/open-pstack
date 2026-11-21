@@ -35,6 +35,7 @@ must not write:
 1. **The title is saved when the stored one is empty.** In `nest.anchor_title`, `doc['anchor'].setdefault('title', title)` keeps the `''` that `init` writes when export fails. That means the title is never saved and is re-read on every call. Assign it instead. Add a test: init with a fake export that has no title, then give the export a title, then run `take-master`. The fake must record the rename with that title, and `pair.json` `.anchor.title` must hold it.
 2. **No empty previous anchor.** In `nest.take_anchor`, append `old` to `.anchor.previous` only when it is non-empty and differs from `thread`. Guard against `doc['anchor']` being missing (create it). Restore the `pair.json` existence check in `mux/amp.py` `record_started` on the master branch before it calls `nest.anchor`, as `record_pending` has.
 3. **Say the truth when the rename fails.** When `take_anchor` returns a warning, take-master's `anchor:` line must not say the thread holds the title. Print `anchor: <T> is the run's top-level anchor; run kitchen.sh nest <store>` with no title, after the `warn:` line. Extend the existing failed-rename test to assert this.
+4. **Coverage joo asked for.** Extend the take-master test so a live consultant re-nests under the new master, as the sidekick already does. Add one test that runs `take-master` twice: the second run (no hand-over open) adds no nest rows and leaves `.anchor` unchanged.
 
 ## Context
 
