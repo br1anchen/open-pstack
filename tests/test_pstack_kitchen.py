@@ -17492,6 +17492,95 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(self.state()['master']['pane_id'], f'amp:{master2}')
         self.assertNotIn('previous', self.state()['master'])
 
+    ROSTER = textwrap.dedent(
+        """\
+        [[sidekick.alternate]]
+        kind = "amp"
+        args = ["--model", "zhipuai/glm-5.3"]
+        [[sidekick.alternate]]
+        kind = "amp"
+        args = ["--model", "anthropic/claude-sonnet-5-5"]
+        [verifier]
+        kind = "amp"
+        args = ["--model", "anthropic/claude-sonnet-5-5", "--orb-size", "a1.small"]
+        [[verifier.fallback]]
+        kind = "amp"
+        args = ["--model", "openai/gpt-6.1-sol"]
+        [[verifier.fallback]]
+        kind = "amp"
+        args = ["--model", "google-vertex/gemini-4-hydrogen"]
+        """
+    )
+
+    def roster_snapshot(self):
+        return self.store / 'sessions/master-g2-roster.toml'
+
+    def test_rotate_master_snapshots_the_roster_it_reads_into_the_store(self):
+        """The next master's orb may hold no roster: the old master keeps the TOML bytes of the one it reads (PSTACK_KITCHEN_ROSTER or the home
+        one) in the store, and the hand-over names the file."""
+        roster = Path(self.tmp.name) / 'host-roster.toml'
+        roster.write_text(self.ROSTER)
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        self.assertEqual(self.roster_snapshot().read_text(), self.ROSTER)
+        self.assertEqual(
+            self.state()['master']['previous']['roster'],
+            'sessions/master-g2-roster.toml',
+        )
+
+    def test_rotate_master_without_a_roster_records_that_there_is_none(self):
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(Path(self.tmp.name) / 'absent.toml')
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        self.assertFalse(self.roster_snapshot().exists())
+        self.assertEqual(self.state()['master']['previous']['roster'], '')
+
+    def test_rotate_master_refuses_a_roster_it_cannot_snapshot(self):
+        """Nothing is snapshotted and the hand-over is not opened; the refusal names the file and the kind, never the line."""
+        secret = 'xoxb-' + '1a2b3c4d5e' * 3
+        bad = Path(self.tmp.name) / 'bad-roster.toml'
+        for label, write, said in (
+            (
+                'parse',
+                lambda: bad.write_text('[sidekick\n'),
+                ['rotate-master: the roster', 'does not parse: '],
+            ),
+            (
+                'secret',
+                lambda: bad.write_text(f'[sidekick]\nSLACK_TOKEN = "{secret}"\n'),
+                [
+                    'rotate-master: the roster',
+                    'holds a credential-shaped line (env-secret, slack-token); nothing was snapshotted',
+                ],
+            ),
+            (
+                'binary',
+                lambda: bad.write_bytes(b'\xff\xfe'),
+                ['rotate-master: the roster', 'is not UTF-8 text'],
+            ),
+            ('unreadable', bad.mkdir, ['rotate-master: cannot read the roster']),
+        ):
+            with self.subTest(label):
+                shutil.rmtree(bad, ignore_errors=True)
+                bad.unlink(missing_ok=True)
+                write()
+                self.env['PSTACK_KITCHEN_ROSTER'] = str(bad)
+                self.filled_handoff()
+                out = self.run_sh(
+                    'rotate-master',
+                    str(self.store),
+                    '--model',
+                    'anthropic/claude-opus-5-5',
+                    code=5,
+                )
+                self.assertIn(str(bad), out)
+                for text in said:
+                    self.assertIn(text, out)
+                self.assertNotIn(secret, out)
+                self.assertFalse(self.roster_snapshot().exists())
+                self.assertNotIn('previous', self.state()['master'])
+
     def test_the_old_masters_bundle_is_a_hand_over_at_the_first_sync_and_while_it_is_pending(
         self,
     ):
