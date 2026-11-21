@@ -1,0 +1,17 @@
+{
+ "args": [
+  "--model",
+  "zhipuai/glm-5.3"
+ ],
+ "generation": 14,
+ "kind": "amp",
+ "name": "kitchen-followups-sidekick",
+ "pane": "amp:1",
+ "relays": [],
+ "requests": [],
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "started": 1795263687,
+ "state": "started",
+ "thread": "T-01a1fe0d-e142-76b9-80d7-26a5d769b602"
+}
