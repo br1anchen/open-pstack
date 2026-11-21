@@ -1,0 +1,2 @@
+1	e569c3d7ae81432e5b9a659ef573a0f6828f0403	1795267263		keep_evidence pins only entries whose commit is here; the step 2 test asserts stderr is empty
+2	84ea957f4c38312234be77534684fff3d7e8ff82	1795267906		bounded, prompt-free evidence fetch; exact land-check wording (can be shown to carry)

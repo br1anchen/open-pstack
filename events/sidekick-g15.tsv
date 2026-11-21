@@ -1,1 +1,7 @@
 2026-11-21T13:06:18Z	1795266378	sidekick	report	000-ready-g15	done
+2026-11-21T13:18:09Z	1795267089	sidekick	progress	036-land-check-gone-head-fix	
+2026-11-21T13:21:03Z	1795267263	sidekick	step	036-land-check-gone-head-fix	1:e569c3d7a
+2026-11-21T13:31:46Z	1795267906	sidekick	step	036-land-check-gone-head-fix	2:84ea957f4
+2026-11-21T13:42:29Z	1795268549	sidekick	finish-verify-pass	036-land-check-gone-head-fix	84ea957f4
+2026-11-21T13:42:29Z	1795268549	sidekick	rotation-required	036-land-check-gone-head-fix	generation:15 sha256:25b69856bc59
+2026-11-21T13:42:32Z	1795268552	sidekick	report	036-land-check-gone-head-fix	done
