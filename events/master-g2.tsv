@@ -140,3 +140,10 @@
 2026-11-21T05:33:56Z	1795239236	master	log	-	archive: archive sidekick T-01a1fc7b-eba5-73ef-8b67-a0a0fd74248b
 2026-11-21T05:34:00Z	1795239240	master	spawn	-	sidekick:amp:ready
 2026-11-21T05:34:00Z	1795239240	master	send-brief	031-master-bundle-branches-fix	
+2026-11-21T05:34:12Z	1795239252	master	queue	022-migrated-threads-archive-nest	
+2026-11-21T05:51:53Z	1795240313	master	archive	-	verifier:T-01a1fc96-4201-70d8-bc15-945d20a11366
+2026-11-21T05:51:53Z	1795240313	master	log	-	archive: archive verifier T-01a1fc96-4201-70d8-bc15-945d20a11366
+2026-11-21T05:51:53Z	1795240313	master	verify	030-reply-deletes-no-master-state-fix	clean
+2026-11-21T05:51:53Z	1795240313	master	wake	030-reply-deletes-no-master-state-fix	verify:clean
+2026-11-21T05:52:18Z	1795240338	master	log	-	review-030: 005, 025, 030 accepted on clean verdict 030-v1; joo low (memo caches failed read) to followups; rotate advice ignored per standing order 20
+2026-11-21T07:02:38Z	1795244558	master	send-verify	031-master-bundle-branches-fix	claude:004 031

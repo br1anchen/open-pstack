@@ -1,6 +1,6 @@
 # Review 025: reply-deletes-no-master-state
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/025-reply-deletes-no-master-state.md
 head: 6a83f500bc5d5ed07276c49035859a9b8322e879
 engine: joo 2026-11-21T04-01-13-643Z-e86be53c
@@ -19,3 +19,7 @@ none
 ## Next
 
 Fix brief 030 (escalated, plan 021). Verify it with `--covers 025`, which also covers 005.
+
+## Accepted
+
+verdicts/030-reply-deletes-no-master-state-fix-v1.md is clean and covers this unit. Fixes 025 and 030 resolved the findings above.

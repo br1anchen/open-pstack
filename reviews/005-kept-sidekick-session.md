@@ -1,6 +1,6 @@
 # Review 005: kept-sidekick-session
 
-verdict: revise
+verdict: accept
 report: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/005-kept-sidekick-session.md
 head: b1ca49f1426ba03ccb493f8b1756e9edd4959b7b
 engine: joo 2026-11-20T22-24-14-302Z-c2f8a713
@@ -30,3 +30,7 @@ none
 ## Next
 
 Brief 025, widened to these findings, verified with --covers 005.
+
+## Accepted
+
+verdicts/030-reply-deletes-no-master-state-fix-v1.md is clean and covers this unit. Fixes 025 and 030 resolved the findings above.
