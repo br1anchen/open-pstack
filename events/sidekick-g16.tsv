@@ -1,1 +1,8 @@
 2026-11-21T13:45:06Z	1795268706	sidekick	report	000-ready-g16	done
+2026-11-21T14:01:55Z	1795269715	sidekick	progress	010-roster-handoff	
+2026-11-21T14:02:09Z	1795269729	sidekick	step	010-roster-handoff	1:fd05036ee
+2026-11-21T14:15:11Z	1795270511	sidekick	gate-fail	010-roster-handoff	63ed7b849 /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/010-roster-handoff-63ed7b8494f2/out.1
+2026-11-21T14:27:24Z	1795271244	sidekick	step	010-roster-handoff	2:c40b7b0cd
+2026-11-21T14:28:05Z	1795271285	sidekick	finish-verify-pass	010-roster-handoff	c40b7b0cd
+2026-11-21T14:28:05Z	1795271285	sidekick	rotation-required	010-roster-handoff	generation:16 sha256:610b22417117
+2026-11-21T14:28:07Z	1795271287	sidekick	report	010-roster-handoff	done

@@ -1,0 +1,16 @@
+{
+ "code": [
+  "c40b7b0cd3989064a31295d45eb8cc880164f64e"
+ ],
+ "generation": 16,
+ "outputs": [
+  {
+   "path": "reports/010-roster-handoff.md",
+   "sha256": "610b224171179202ba0908a198d2845ba247dfccdbe053e1d40805332c83d189"
+  }
+ ],
+ "request": "5eaaef0f04c6",
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "thread": "T-01a1fe59-398e-71cb-8cac-577e8fe343df"
+}

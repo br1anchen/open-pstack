@@ -1,0 +1,2 @@
+1	fd05036ee7ef82b6ea9e0c92f05f90ce50a8c2cf	1795269729		rotate-master snapshots the roster into the store
+2	c40b7b0cd3989064a31295d45eb8cc880164f64e	1795271244		take-master installs the snapshotted roster where the orb has none
