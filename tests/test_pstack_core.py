@@ -21333,12 +21333,49 @@ class BundleBranchApplyTests(BundleRepoCase):
         self.assertNotIn('baseline', manifest['git'])
         self.assertEqual([argv for argv in calls if 'fetch' in argv], [])
 
-    def test_a_message_whose_evidence_cannot_be_imported_raises_and_keeps_nothing(self):
-        oid, path = self.send_evidence('ev-1')
-        manifest = self.bundle.read_bundle(str(path))[0]
+    def test_an_ordinary_message_whose_evidence_commit_is_missing_still_syncs_its_store_and_names_the_ref(
+        self,
+    ):
+        oid = self.commit('ev-1')
+        git.pin(str(self.repo), 'run1', oid)
+        self.git('reset', '-q', '--hard', self.base)
+        (self.store / 'reports').mkdir()
+        (self.store / 'reports' / '001-new.md').write_text('from the sender\n')
+        path = Path(self.tmp.name) / 'ev.tgz'
+        manifest = self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': 'm', 'thread': 'T-m'},
+            {'name': 'w', 'pane': 'amp:2'},
+            {},
+        )
         self.assertEqual(manifest['git']['keep'], {f'run1/{oid}': oid})
         self.fresh_receiver()
-        # The same message without its git part: the commit exists nowhere here.
+        (self.store / 'reports' / '001-new.md').unlink()
+        # The same message without its git part: the evidence commit exists nowhere here, HEAD does.
+        with tarfile.open(path, 'w:gz') as tar:
+            self.bundle.add_bytes(tar, 'manifest.json', json.dumps(manifest).encode())
+            self.bundle.add_bytes(tar, 'store/reports/001-new.md', b'from the sender\n')
+        _, lines = self.bundle.apply(str(path))
+        self.assertEqual(
+            [line for line in lines if line.startswith('evidence:')],
+            [
+                'evidence: not kept, the commit was not carried and origin lacks it: '
+                f'run1/{oid}'
+            ],
+        )
+        self.assertEqual(
+            (self.store / 'reports' / '001-new.md').read_text(), 'from the sender\n'
+        )
+        self.assertEqual(self.git('for-each-ref', 'refs/pstack/keep'), '')
+
+    def test_a_hand_over_whose_evidence_cannot_be_imported_raises_and_keeps_nothing(
+        self,
+    ):
+        oid, path = self.send_evidence('ev-1')
+        manifest = self.bundle.read_bundle(str(path))[0]
+        manifest['git']['branches'] = {'main': self.base}
+        self.fresh_receiver()
         with tarfile.open(path, 'w:gz') as tar:
             self.bundle.add_bytes(tar, 'manifest.json', json.dumps(manifest).encode())
         before = self.refs()

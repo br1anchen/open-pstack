@@ -773,8 +773,8 @@ def require_tips(root, tips):
 def import_git(manifest, gitdata):
     """The first half of taking a bundle's commits: brings them over and moves nothing (no branch, no checkout, no evidence ref, no store file), so
     a bundle that cannot be taken whole changes nothing. (ready, lines): ready says whether move_git has something to move. A hand-over
-    (git.branches) or a bundle that carries evidence (git.keep) raises ValueError when its git bundle did not apply or when HEAD, any branch tip or
-    any evidence commit it names is missing here and at origin."""
+    (git.branches) raises ValueError when its git bundle did not apply or when HEAD, any branch tip or any evidence commit it names is missing
+    here and at origin. An ordinary message never refuses: an evidence commit that is missing is named in one line and not kept."""
     info = manifest.get('git') if isinstance(manifest.get('git'), dict) else {}
     root, head = info.get('root') or '', info.get('head') or ''
     if not head:
@@ -785,7 +785,7 @@ def import_git(manifest, gitdata):
         ]
     branches = info.get('branches')
     keeps = evidence_of(root, info)
-    required = isinstance(branches, dict) or bool(keeps)
+    required = isinstance(branches, dict)
     lines = []
     if gitdata is not None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -811,9 +811,28 @@ def import_git(manifest, gitdata):
             (branches if isinstance(branches, dict) else {}).items()
         )
         if valid_tip(root, name, oid)
-    ] + [('evidence', oid) for _, oid in sorted(keeps.items())]
-    require_tips(root, tips)
+    ]
+    if required:
+        require_tips(
+            root, tips + [('evidence', oid) for _, oid in sorted(keeps.items())]
+        )
+    else:
+        lines += unkept_evidence(root, keeps)
     return True, lines
+
+
+def unkept_evidence(root, keeps):
+    """One line naming the evidence refs of an ordinary message whose commit is missing here once origin has been fetched (once), none when all
+    are here: keep_evidence leaves them out and the sync goes on."""
+    gone = [name for name, oid in sorted(keeps.items()) if not has_commit(root, oid)]
+    if gone:
+        git.ok(root, 'fetch', '-q', 'origin')
+        gone = [name for name in gone if not has_commit(root, keeps[name])]
+    if not gone:
+        return []
+    return [
+        f'evidence: not kept, the commit was not carried and origin lacks it: {", ".join(gone)}'
+    ]
 
 
 def keep_evidence(root, keeps):
