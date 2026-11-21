@@ -1,2 +1,6 @@
 2026-11-21T01:48:07Z	1795225687	sidekick	report	000-ready-g7	done
 2026-11-21T01:51:11Z	1795225871	sidekick	report	028-dispatch-after-ready-sends-fix	blocked
+2026-11-21T02:03:32Z	1795226612	sidekick	step	028-dispatch-after-ready-sends-fix	1:7a0a233bf
+2026-11-21T02:08:12Z	1795226892	sidekick	finish-verify-pass	028-dispatch-after-ready-sends-fix	7a0a233bf
+2026-11-21T02:08:12Z	1795226892	sidekick	rotation-required	028-dispatch-after-ready-sends-fix	generation:7 sha256:18fbdd4f6631
+2026-11-21T02:08:14Z	1795226894	sidekick	report	028-dispatch-after-ready-sends-fix	done
