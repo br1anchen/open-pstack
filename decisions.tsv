@@ -63,3 +63,5 @@ ts	phase	decision	why	evidence	result
 2026-11-21T03:24:44Z	archive	archive verifier T-01a1fc13-4107-71b9-96ce-31e3d28b00b8	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fc13-4107-71b9-96ce-31e3d28b00b8	archived
 2026-11-21T03:25:40Z	pr	027+029 opened as PR #13 (branch master-is-anchor off origin/main); reply sent to T-01a1ea49	Brian's request: stops at a PR	https://github.com/br1anchen/open-pstack/pull/13	Brian merges
 2026-11-21T04:03:55Z	archive	archive sidekick T-01a1fc13-c1f9-7664-b9b5-5b7a64516c97	no longer used by the store; a brief is being sent	amp threads archive T-01a1fc13-c1f9-7664-b9b5-5b7a64516c97	archived
+2026-11-21T04:24:39Z	archive	archive verifier T-01a1fc44-05ec-76fb-a9c3-5a42836ebb49	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fc44-05ec-76fb-a9c3-5a42836ebb49	archived
+2026-11-21T04:25:23Z	review-025	025 revise: verifier finds 3 context reads per dispatch (Acceptance said once); joo low on sync line wording; fix brief 030 queued ahead of 022	verdict 025-v1, joo e86be53c	reviews/025	030 next, then 022
