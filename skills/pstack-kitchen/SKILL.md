@@ -290,7 +290,7 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   the master's `.seen` markers in `progress/`) keeps this side's copy, with no
   update, no rollback and no deletion by omission; a file this side lacks is
   added (a master-owned one is not), and a sender the registry does not name
-  owns nothing, so it only adds. The sync line names each master file it kept;
+  owns nothing, so it only adds. The sync line names each file it kept, under the owner whose copy stayed (`kept the master's copy of: ...`, `kept sidekick's copy of: ...`);
   only the shared append logs `events.tsv` and `gates.tsv` take the union of
   their lines, and a reply that lacks one deletes nothing. A
   bundle from the master, or from the master it took over from, is merged as
