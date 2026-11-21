@@ -842,11 +842,16 @@ def unkept_evidence(root, keeps):
 
 def keep_evidence(root, keeps):
     """Takes the bundle's evidence into refs/pstack/keep under the names the sender gave it, create-only (an id already held is left alone and
-    nothing is ever deleted). A line saying how many were new, none when all were held."""
+    nothing is ever deleted). An entry whose commit is not here is left out, as unkept_evidence names it. A line saying how many were new, none when
+    all were held."""
     new = 0
     for name, oid in sorted(keeps.items()):
         have = git.out(root, 'rev-parse', '--verify', '-q', f'{git.KEEP}/{name}')
-        if have != oid and git.pin(root, name.rpartition('/')[0], oid):
+        if (
+            have != oid
+            and has_commit(root, oid)
+            and git.pin(root, name.rpartition('/')[0], oid)
+        ):
             new += 1
     return [f'evidence: {new} commits kept under {git.KEEP}'] if new else []
 
