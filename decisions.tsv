@@ -80,3 +80,4 @@ ts	phase	decision	why	evidence	result
 2026-11-21T09:11:57Z	review-032	032 revise: one low finding (diverged Y reported twice when checkout is on X) + joo dirty-tree low; fix 033 after 006; 024 verifying alone	verdict 032-v1; joo 4060cc7e	reviews/032	033 queued; 010 now starts from unit-033
 2026-11-21T09:21:37Z	archive	archive verifier T-01a1fd60-28b5-7761-814a-62effefad503	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fd60-28b5-7761-814a-62effefad503	archived
 2026-11-21T09:21:47Z	review-024	024 accepted: verifier clean; joo 2 lows (notice on landing packets) to followups	verdict 024-v1; joo 0f86254d	reviews/024	006 in progress, 033 queued
+2026-11-21T09:46:03Z	archive	archive sidekick T-01a1fc96-a756-7134-b4a6-ebdd6834c821	no longer used by the store; a brief is being sent	amp threads archive T-01a1fc96-a756-7134-b4a6-ebdd6834c821	archived

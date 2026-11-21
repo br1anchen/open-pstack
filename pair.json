@@ -61,7 +61,7 @@
       "model:claude-sonnet-5-5"
     ],
     "generation": 13,
-    "bootstrap_pending": true,
+    "bootstrap_pending": false,
     "permission_mode": "native-args",
     "closed": false,
     "rotation_required": false,
@@ -71,8 +71,7 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "024-verify-names-excluded-fix",
       "compactions": 0
-    },
-    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/006-land-check-gone-head.md"
+    }
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -154,21 +153,21 @@
   ],
   "placement": "split",
   "pending": [
-    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/006-land-check-gone-head.md"
+    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/033-master-bundle-branches-fix.md"
   ],
   "dispatch": {
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/006-land-check-gone-head.md",
-    "at": "2026-11-21T08:53:45Z",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/033-master-bundle-branches-fix.md",
+    "at": "2026-11-21T09:46:06Z",
     "head": "7218f3112db91d4448b20d708b5c92117b6543db",
-    "generation": 12,
+    "generation": 13,
     "sidekick": "amp claude-code claude-sonnet-5-5",
     "report_order": 0
   },
   "sent": {
-    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/006-land-check-gone-head.md",
+    "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/033-master-bundle-branches-fix.md",
     "kind": "BRIEF",
-    "at": "2026-11-21T08:53:45Z",
-    "epoch": 1795251225
+    "at": "2026-11-21T09:46:06Z",
+    "epoch": 1795254366
   },
   "heads": {
     "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
@@ -191,7 +190,8 @@
     "022-migrated-threads-archive-nest": "7218f3112db91d4448b20d708b5c92117b6543db",
     "032-master-bundle-branches-fix2": "7218f3112db91d4448b20d708b5c92117b6543db",
     "024-verify-names-excluded-fix": "7218f3112db91d4448b20d708b5c92117b6543db",
-    "006-land-check-gone-head": "7218f3112db91d4448b20d708b5c92117b6543db"
+    "006-land-check-gone-head": "7218f3112db91d4448b20d708b5c92117b6543db",
+    "033-master-bundle-branches-fix": "7218f3112db91d4448b20d708b5c92117b6543db"
   },
   "sidekick_models": {
     "001-swallowed-failures": "amp anthropic/claude-sonnet-5-5",
@@ -214,7 +214,8 @@
     "022-migrated-threads-archive-nest": "amp claude-code claude-sonnet-5-5",
     "032-master-bundle-branches-fix2": "amp claude-code claude-sonnet-5-5",
     "024-verify-names-excluded-fix": "amp claude-code claude-sonnet-5-5",
-    "006-land-check-gone-head": "amp claude-code claude-sonnet-5-5"
+    "006-land-check-gone-head": "amp claude-code claude-sonnet-5-5",
+    "033-master-bundle-branches-fix": "amp claude-code claude-sonnet-5-5"
   },
   "sidekick_threads": {
     "amp anthropic/claude-sonnet-5-5": [
