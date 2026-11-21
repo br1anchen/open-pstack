@@ -16714,46 +16714,24 @@ class AmpKitchenTests(KitchenScriptTests):
             if '\tmaster\trotate\t' in line
         ]
 
-    def test_every_rotation_under_amp_says_why_in_a_line_and_in_the_rotate_event(self):
-        context = lambda total, compactions: (
-            f'{{"totalTokens": {total}, "maxContextTokens": 100000, "compactionCount": {compactions}}}\n'
-        )
+    def set_context(self, text):
+        (self.fake / f'amp-context-{amp_thread(1)}').write_text(text)
 
-        def set_context(text):
-            (self.fake / f'amp-context-{amp_thread(1)}').write_text(text)
+    def previous_brief_header(self, old, new):
+        path = self.store / 'briefs/001-one.md'
+        path.write_text(path.read_text().replace(old, new))
 
-        def previous_brief_header(old, new):
-            path = self.store / 'briefs/001-one.md'
-            path.write_text(path.read_text().replace(old, new))
+    def previous_brief_gone(self):
+        (self.store / 'briefs/001-one.md').unlink()
 
-        def previous_brief_gone():
-            (self.store / 'briefs/001-one.md').unlink()
-
-        src = ['src/**', 'tests/**']
-        cases = [
-            ('profiles app vs docs', ['docs/**'], lambda: None),
-            ('context 50% >= 50%', src, lambda: set_context(context(50000, 0))),
-            ('compacted', src, lambda: set_context(context(1000, 1))),
-            ('context unreadable', src, lambda: set_context('not json\n')),
-            ('previous brief missing', src, previous_brief_gone),
-            (
-                'risk escalated/routine',
-                src,
-                lambda: previous_brief_header('risk: routine', 'risk: escalated'),
-            ),
-        ]
-        for reason, scope, setup in cases:
-            with self.subTest(reason):
-                self.setUp()
-                self.finish_unit('001', 'one', src, 'src/one.py')
-                setup()
-                b = self.brief('002', 'two', scope, verify=['python3 -c 1'])
-                out = self.run_sh('dispatch', str(self.store), str(b), code=4)
-                self.assertIn(f'rotate: {reason}\n', out)
-                self.assertLess(out.index('rotate: '), out.index('rotated: '))
-                self.assertEqual(
-                    self.rotate_events(), [f'generation:1 reason:{reason}']
-                )
+    def rotation_says_why(self, reason, scope, setup):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        setup(self)
+        b = self.brief('002', 'two', scope, verify=['python3 -c 1'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=4)
+        self.assertIn(f'rotate: {reason}\n', out)
+        self.assertLess(out.index('rotate: '), out.index('rotated: '))
+        self.assertEqual(self.rotate_events(), [f'generation:1 reason:{reason}'])
 
     def test_a_failed_over_sidekick_rotates_with_that_reason(self):
         self.sidekick_on_second_entry_with_a_unit_done()
@@ -17923,6 +17901,43 @@ class AmpKitchenTests(KitchenScriptTests):
             (self.fake / 'amp.log').read_text()
             + str(list((self.store / 'scratch').iterdir())),
         )
+
+
+def _context(total, compactions):
+    return f'{{"totalTokens": {total}, "maxContextTokens": 100000, "compactionCount": {compactions}}}\n'
+
+
+_ROTATION_SRC = ['src/**', 'tests/**']
+# (reason the dispatch says, the next brief's scope, what changes before it is dispatched); each row is its own generated test,
+# so tests/run.py runs it in a process of its own.
+ROTATION_REASON_CASES = [
+    ('profiles app vs docs', ['docs/**'], lambda t: None),
+    ('context 50% >= 50%', _ROTATION_SRC, lambda t: t.set_context(_context(50000, 0))),
+    ('compacted', _ROTATION_SRC, lambda t: t.set_context(_context(1000, 1))),
+    ('context unreadable', _ROTATION_SRC, lambda t: t.set_context('not json\n')),
+    ('previous brief missing', _ROTATION_SRC, lambda t: t.previous_brief_gone()),
+    (
+        'risk escalated/routine',
+        _ROTATION_SRC,
+        lambda t: t.previous_brief_header('risk: routine', 'risk: escalated'),
+    ),
+]
+
+
+def _rotation_reason_test(reason, scope, setup):
+    def test(self):
+        self.rotation_says_why(reason, scope, setup)
+
+    return test
+
+
+for _reason, _scope, _setup in ROTATION_REASON_CASES:
+    _slug = re.sub(r'\W+', '_', _reason).strip('_')
+    setattr(
+        AmpKitchenTests,
+        f'test_a_rotation_under_amp_says_why_in_a_line_and_in_the_rotate_event_{_slug}',
+        _rotation_reason_test(_reason, _scope, _setup),
+    )
 
 
 for _name in dir(KitchenScriptTests):
