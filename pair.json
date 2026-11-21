@@ -95,9 +95,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "033-master-bundle-branches-fix-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -262,42 +260,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/033-master-bundle-branches-fix-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/033-master-bundle-branches-fix-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/033-master-bundle-branches-fix.md",
-    "scratch": "033-master-bundle-branches-fix-verify",
-    "units": "032 031 004 033",
-    "risk": "escalated",
-    "sample": 1.0,
-    "unit": "033-master-bundle-branches-fix",
-    "started": 1795256393,
-    "deadline": 1795259093,
-    "class": "escalated",
-    "entry": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "claude-opus-5-5"
-      ],
-      "fallback": null,
-      "fallbacks": [],
-      "source": "default"
-    },
-    "retried": false,
-    "argv": [
-      "033",
-      "--covers",
-      "032",
-      "--covers",
-      "031",
-      "--covers",
-      "004",
-      "--base",
-      "6a83f50"
-    ],
-    "delivered": true,
-    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-033-master-bundle-branches-fix-verify/T-01a1fd9e-bdf0-70bb-8d74-2cd44eeab8fb.jsonl"
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
