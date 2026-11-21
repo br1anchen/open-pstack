@@ -446,6 +446,7 @@ def step(ctx, args):
     if not run.passed:
         report_failed_gates(store, unit, brief, full, job, summary)
     report_passed_gates(store, brief, job, run)
+    git.pin(root, read(store, 'slug'), full)
     return core_step.step(ctx, args)
 
 
@@ -550,6 +551,7 @@ def finish(ctx, args):
     root = read(store, 'git_root')
     follow_jj(root)
     head = require_head_checked_out(root, report, brief)
+    git.pin(root, read(store, 'slug'), head)
     unit = unit_name(brief)
     job = verify_job(ctx, store, brief, head)
     if (

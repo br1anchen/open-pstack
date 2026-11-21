@@ -8,7 +8,7 @@ import re
 import sys
 import time
 
-from pstack_core import mux
+from pstack_core import git, mux
 from pstack_core.agents import (
     current_no_mcp,
     has_mcp_arg,
@@ -54,6 +54,7 @@ from pstack_core.store import (
 
 from . import kpy
 from . import verify_state as vs
+from .units import NoBrief, RecordedUnit, unit_brief
 
 
 def shell_word(word):
@@ -320,11 +321,27 @@ def pick_entry(entry, kind):
     return entry, None
 
 
+def pin_evidence(v):
+    """Keeps every commit the packet was built from reachable before the verifier starts (git.pin): the range's base and head, and each named
+    unit's recorded head and dispatch base, which a later rewrite of the branch would otherwise leave to the garbage collector."""
+    root, run = read(v.store, 'git_root'), read(v.store, 'slug')
+    found = {v.base, v.head}
+    for unit in v.units:
+        try:
+            recorded = RecordedUnit(v.store, unit_brief(v.store, unit))
+        except NoBrief:
+            continue
+        found |= {recorded.head, recorded.base()}
+    for oid in sorted(found - {''}):
+        git.pin(root, run, oid)
+
+
 def launch_verifier(v):
     """The verifier's pane beside the sidekick (the master when it is gone) and its agent, started on the scratch. A start that fails closes the pane
     and the scratch and ends the command; a Prime verifier keeps both. (pane, whether the agent started)."""
     store = v.store
     require_kind_runs(v.kind)
+    pin_evidence(v)
     v.name = field(store, 'verifier', 'name')
     anchor = field(store, 'sidekick', 'pane_id')
     if not (anchor and mux.get().pane_exists(anchor)):
