@@ -263,3 +263,4 @@
 2026-11-21T12:23:30Z	1795263810	master	failover	-	verifier:amp zhipuai/glm-5.3:amp openai/gpt-6.1-sol
 2026-11-21T12:23:52Z	1795263832	master	log	-	incident: Amp credit balance low: GLM sidekick g14 errored on its first request, routine verifier chain (glm, gpt-6.1-sol) failed preflight; sidekick back to Sonnet (Claude subscription), 010 runs on Sonnet, GLM A/B ends at 002
 2026-11-21T12:24:19Z	1795263859	master	send-stop	-	sidekick
+2026-11-21T12:24:32Z	1795263872	master	send-stop	-	consultant
