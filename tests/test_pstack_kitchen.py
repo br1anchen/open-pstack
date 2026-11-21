@@ -14416,8 +14416,11 @@ class AmpKitchenTests(KitchenScriptTests):
         (store / 'reports/000-ready.md').write_text('status: done\n')
         return store
 
-    def test_init_records_the_masters_own_thread_as_the_runs_anchor(self):
-        self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
+    def test_init_records_the_masters_own_thread_and_its_title_as_the_runs_anchor(self):
+        self.assertEqual(
+            self.state()['anchor'],
+            {'thread': AMP_MASTER, 'title': f'fake title of {AMP_MASTER}'},
+        )
 
     def drop_anchor(self):
         """The store as an older build left it: no anchor in pair.json."""
@@ -14539,6 +14542,56 @@ class AmpKitchenTests(KitchenScriptTests):
             f'then kitchen.sh nest {self.store} --done <thread>...',
         )
 
+    def add_nest_row(self, thread, role, anchor, state='pending'):
+        with (self.store / 'nest-pending.tsv').open('a') as f:
+            f.write(f'2026-11-21T00:00:00Z\t{thread}\t{role}\t{anchor}\t{state}\n')
+
+    def test_nest_lists_a_top_level_row_with_a_null_parent_instruction_and_done_closes_it(
+        self,
+    ):
+        threads = self.three_pending()
+        self.add_nest_row('T-top', 'master', '-')
+        then = f'then kitchen.sh nest {self.store} --done <thread>...'
+        self.assertEqual(
+            self.run_sh('nest', str(self.store)).splitlines()[3:],
+            [
+                'nest-pending: T-top (master) top-level',
+                f'nest: call update_thread(thread=<T>, parent_thread=<anchor>) for each, {then}',
+                f'nest: call update_thread(thread=<T>, parent_thread=null) for each top-level row, {then}',
+            ],
+        )
+        self.run_sh('nest', str(self.store), '--done', *threads)
+        self.assertEqual(
+            self.run_sh('nest', str(self.store)).splitlines(),
+            [
+                'nest-pending: T-top (master) top-level',
+                f'nest: call update_thread(thread=<T>, parent_thread=null) for each top-level row, {then}',
+            ],
+        )
+        self.assertEqual(
+            self.run_sh('nest', str(self.store), '--done', 'T-top'),
+            'nested: T-top top-level\n',
+        )
+        self.assertEqual(
+            self.run_sh('nest', str(self.store)), 'nest: nothing pending\n'
+        )
+        events = (self.store / 'events.tsv').read_text()
+        self.assertIn('\tnest\t-\tT-top top-level\n', events)
+
+    def test_a_thread_nested_under_one_anchor_is_pending_again_under_the_next(self):
+        sidekick = self.three_pending()[0]
+        self.run_sh('nest', str(self.store), '--done', sidekick)
+        self.add_nest_row(sidekick, 'sidekick', 'T-next')
+        self.assertIn(
+            f'nest-pending: {sidekick} (sidekick) under T-next',
+            self.run_sh('nest', str(self.store)).splitlines(),
+        )
+        self.assertEqual(
+            self.run_sh('nest', str(self.store), '--done', sidekick),
+            f'nested: {sidekick} under T-next\n',
+        )
+        self.assertNotIn(sidekick, self.run_sh('nest', str(self.store)))
+
     def test_nest_done_on_two_of_three_leaves_one_and_status_counts_it(self):
         one, two, three = self.three_pending()
         self.assertIn(
@@ -14586,10 +14639,10 @@ class AmpKitchenTests(KitchenScriptTests):
     def test_a_rotation_keeps_the_anchor_through_every_generation(self):
         self.filled_handoff()
         self.run_sh('rotate-master', str(self.store))
-        self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
+        self.assertEqual(self.state()['anchor']['thread'], AMP_MASTER)
         self.as_thread(amp_thread(2), 'take-master', str(self.store), mux='amp')
         self.assertEqual(self.state()['master']['generation'], 2)
-        self.assertEqual(self.state()['anchor'], {'thread': AMP_MASTER})
+        self.assertEqual(self.state()['anchor']['thread'], AMP_MASTER)
 
     def test_failover_moves_an_amp_sidekick_to_another_model_and_names_both(self):
         store = self.spawn_amp_sidekick('fo', 'a/one', 'b/two')

@@ -246,9 +246,11 @@ def init_store(ctx, request, out=None):
             }
         if 'consultant' in doc:
             doc['scratch'] = []
-        # Under Amp threads the run's first master thread anchors the thread tree (nest).
+        # Under Amp threads the master thread anchors the thread tree (nest), with the title the anchor keeps through every rotation.
         if anchor := mux.get().own_thread():
-            doc['anchor'] = {'thread': anchor}
+            from ..mux import amp
+
+            doc['anchor'] = {'thread': anchor, 'title': amp.thread_title(anchor)}
         if on_git:
             doc['store_backend'] = {
                 'backend': 'git',
