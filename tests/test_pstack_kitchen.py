@@ -12828,6 +12828,109 @@ esac
         out = self.run_sh('land-check', str(self.store))
         self.assertRegex(out, r'covered: unit 001 \(rebased as [0-9a-f]{9}\)')
 
+    def unit_on_a_branch(self, n, base_ref):
+        """Unit 00n, dispatched and done on a branch of its own off `base_ref`, with an accepted review: its head."""
+        b = self.brief(f'00{n}', f'u{n}', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.git('checkout', '-q', '-b', f'ub{n}', base_ref)
+        self.write(f'src/mod{n}.py', f'X = {n}\n')
+        self.write(f'tests/test_mod{n}.py', f'x = {n}\n')
+        head = self.commit(f'u{n}')
+        self.done(b, head)
+        (self.store / f'reviews/00{n}-u{n}.md').write_text('verdict: accept\n')
+        self.git('checkout', '-q', base_ref)
+        return head
+
+    def dangling_commit(self, message):
+        """A commit no ref holds."""
+        return self.git('commit-tree', 'HEAD^{tree}', '-m', message)
+
+    def forget(self, *branches):
+        """Drops the branches, the reflog and every unreachable object: what a rewrite and a gc leave of a unit's old commits."""
+        for name in branches:
+            self.git('branch', '-D', name)
+        self.git('reflog', 'expire', '--expire=now', '--all')
+        self.git('gc', '-q', '--prune=now')
+
+    def test_land_check_says_which_evidence_of_an_unverified_unit_is_missing_and_how_to_prove_it_again(
+        self,
+    ):
+        init = self.git('rev-parse', 'HEAD')
+        base = self.git('rev-parse', '--abbrev-ref', 'HEAD')
+        gone_head = self.unit_on_a_branch(1, base)
+        self.unit_on_a_branch(2, base)
+        self.unit_on_a_branch(3, base)
+        gone_base = self.dangling_commit('old base')
+        gone_landing = self.dangling_commit('old landing head')
+        state = self.state()
+        state['heads']['002-u2'] = gone_base
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.forget('ub1')
+        self.assertNotEqual(
+            subprocess.run(
+                ['git', 'cat-file', '-e', gone_head],
+                cwd=self.repo,
+                check=False,
+                timeout=60,
+            ).returncode,
+            0,
+        )
+        store = self.store
+        prove = f'prove its Acceptance again with kitchen.sh verify {store}'
+        restore = 'restore it from the bundle that carried it, or'
+        cases = [
+            (
+                'the unit head is gone',
+                None,
+                f'unverified: unit 001: its evidence is missing (unit head: {gone_head}); {restore} {prove} 003 --covers 001 --base {init}\n',
+            ),
+            (
+                'the dispatch base is gone',
+                None,
+                f'unverified: unit 002: its evidence is missing (dispatch base: {gone_base}); {restore} {prove} 003 --covers 002 --base {init}\n',
+            ),
+            (
+                'the heads are there and nothing verified the unit',
+                None,
+                f'unverified: unit 003 has no clean verdict (kitchen.sh verify {store} 003)\n',
+            ),
+            (
+                'a clean landing verdict names a head that is gone',
+                f'status: clean\nunits: landing\nrange: {init}..{gone_landing}\n\n## Evidence\n\n```\n$ true\n```\n',
+                f'unverified: unit 003: its evidence is missing (landing verdict head: {gone_landing}); {restore} {prove} 002 --covers 003 --base <live-base>\n',
+            ),
+        ]
+        for label, landing, expected in cases:
+            with self.subTest(label):
+                if landing:
+                    verdicts = store / 'verdicts'
+                    verdicts.mkdir(exist_ok=True)
+                    (verdicts / 'landing-v1.md').write_text(f'# Verdict\n\n{landing}')
+                out = self.land_check(2)
+                self.assertIn(expected, out)
+                self.assertNotIn('land-check: pass', out)
+
+    def test_the_recovery_command_land_check_prints_proves_the_lost_unit_again_and_clears_it(
+        self,
+    ):
+        init = self.git('rev-parse', 'HEAD')
+        base = self.git('rev-parse', '--abbrev-ref', 'HEAD')
+        gone = self.unit_on_a_branch(1, base)
+        self.unit_on_a_branch(2, base)
+        self.forget('ub1')
+        out = self.land_check(2)
+        [line] = [l for l in out.splitlines() if l.startswith('unverified: unit 001')]
+        command = line.split('again with ')[1]
+        self.assertEqual(
+            command, f'kitchen.sh verify {self.store} 002 --covers 001 --base {init}'
+        )
+        self.assertIn(f'unit head: {gone}', line)
+        proved = self.run_sh(*command.split()[1:])
+        self.assertIn('status: clean', proved)
+        cleared = self.land_check(0)
+        self.assertIn('land-check: pass', cleared)
+        self.assertNotIn('unverified', cleared)
+
     def land_check(self, code):
         """land-check on this store, expecting exit status `code`. Returns the output."""
         return self.run_sh('land-check', str(self.store), code=code)

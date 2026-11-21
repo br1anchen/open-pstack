@@ -14,7 +14,9 @@ from pstack_core import git
 from pstack_core.errors import Die
 from pstack_core.numbers import int_or_none
 from pstack_core.review import trunk_ref
+from pstack_core.steplog import StepLog
 from pstack_core.store import (
+    expected_report,
     field,
     header_field,
     new_from_template,
@@ -513,6 +515,58 @@ def say_landing_verification(
         )
 
 
+def missing_evidence(store, root, brief):
+    """(which, sha) of the first thing a unit's proof rests on that no longer resolves in this checkout, None when all of it does: the head its
+    report or last step names, the base it was dispatched at, or the head of a clean landing verdict (which covers a unit by its range)."""
+    unit = RecordedUnit(store, brief)
+    if not unit.head:
+        report = expected_report(store, brief)
+        last = StepLog(store, brief).last()
+        named = (header_field(report, 'head') if os.path.isfile(report) else '') or (
+            last.sha if last else ''
+        )
+        if named:
+            return 'unit head', named
+    base = unit.base()
+    if base and not commit_of(root, base):
+        return 'dispatch base', base
+    for path in landing_verdicts(store):
+        found = Verdict.parse(path)
+        if found.status == 'clean' and not found.problem:
+            head = found.refs()[1]
+            if head and not commit_of(root, head):
+                return 'landing verdict head', head
+    return None
+
+
+def recovery_command(store, root, seq):
+    """The verify command that proves unit `seq` again at a live head: the newest other accepted unit whose head resolves carries it, on that unit's
+    dispatch base when that resolves. What cannot be filled in is left as <current-unit> or <live-base>."""
+    live = {
+        other: RecordedUnit(store, brief)
+        for _, other, brief in accepted_units(store)
+        if other != seq
+    }
+    live = {other: unit for other, unit in live.items() if unit.head}
+    current, base = '<current-unit>', '<live-base>'
+    if live:
+        current = max(live)
+        if live[current].base() and commit_of(root, live[current].base()):
+            base = live[current].base()
+    return f'kitchen.sh verify {store} {current} --covers {seq} --base {base}'
+
+
+def unverified_line(store, root, seq, brief):
+    """The problem line for a unit nothing covers: what evidence of it is gone and how to prove it again, else that it has no clean verdict."""
+    gone = missing_evidence(store, root, brief)
+    if not gone:
+        return f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n'
+    return (
+        f'unverified: unit {seq}: its evidence is missing ({gone[0]}: {gone[1]}); restore it from the bundle that carried it, or prove its '
+        f'Acceptance again with {recovery_command(store, root, seq)}\n'
+    )
+
+
 def land_check(store, say=out):
     """Says what it finds line by line and returns the problem lines, none when the stack may land. A unit with no clean verdict of its own is
     covered by the newest clean landing verdict whose range holds it (head contained, or rebased by patch-id with no revert after); the newest landing
@@ -558,9 +612,7 @@ def land_check(store, say=out):
                 say(f'covered: unit {seq} by its verified fix, unit {fix}\n')
                 covering = fix
         if not covering:
-            problems.append(
-                f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n'
-            )
+            problems.append(unverified_line(store, repo_root(store), seq, brief))
             say(problems[-1])
     say_landing_verification(
         store, root, verdict, landing_verdict, verdict_base_rev, verdict_head_rev, say
