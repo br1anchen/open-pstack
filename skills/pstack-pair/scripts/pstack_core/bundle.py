@@ -16,6 +16,7 @@ this side lacks is added (a master-owned one is not), and only the shared append
 import io
 import json
 import os
+import re
 import shutil
 import tarfile
 import tempfile
@@ -526,8 +527,74 @@ def move_checkout(root, head, branch, sender):
     return f'checkout: {branch or "detached HEAD"} at {short}, as {sender}'
 
 
+def checked_out(root):
+    """{branch name: path of the worktree} for every branch a worktree of this checkout has checked out."""
+    held, path = {}, ''
+    for line in (git.out(root, 'worktree', 'list', '--porcelain') or '').splitlines():
+        if line.startswith('worktree '):
+            path = line[len('worktree ') :]
+        elif line.startswith('branch refs/heads/'):
+            held[line[len('branch refs/heads/') :]] = path
+    return held
+
+
+def apply_branches(root, branches, side, current, sender):
+    """Takes the sender's local branches ({name: full commit id}, a master's hand-over) into this checkout without losing anything here: an
+    absent branch is created, one whose tip is an ancestor of the incoming tip is fast-forwarded, and every other (ahead, diverged, or checked
+    out in a worktree, which a ref update would leave with stale files) is kept and named with the incoming tip, which stays reachable under
+    `side`. The branch the sender's checkout is on (`current`) is move_checkout's. Raises ValueError for a tip that was not carried and that
+    origin lacks. Lines saying what happened."""
+    held, lines, fetched = checked_out(root), [], False
+    for name, oid in sorted(branches.items()):
+        if (
+            not (
+                isinstance(oid, str) and re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', oid)
+            )
+            or git.out(root, 'check-ref-format', '--branch', name) != name
+        ):
+            lines.append(f'branch {name}: not a valid branch name or commit; skipped')
+            continue
+        if not has_commit(root, oid) and not fetched:
+            git.ok(root, 'fetch', '-q', 'origin')
+            fetched = True
+        if not has_commit(root, oid):
+            raise ValueError(
+                f'branch {name}: {oid[:9]} was not carried and origin lacks it'
+            )
+        ref = f'refs/pstack/in/{side}/br/{name}'
+        git.ok(root, 'update-ref', ref, oid)
+        local = git.out(root, 'rev-parse', '--verify', '-q', f'refs/heads/{name}')
+        if name == current or local == oid:
+            continue
+        kept = f'branch {name}: kept {(local or "")[:9] or "(unborn)"}'
+        where = f'{sender} is at {oid} (kept as {ref})'
+        if name in held:
+            lines.append(f'{kept}: checked out in {held[name]}; {where}')
+        elif local is None:
+            moved = git.ok(root, 'update-ref', f'refs/heads/{name}', oid, '')
+            lines.append(
+                f'branch {name}: created at {oid[:9]}, as {sender}'
+                if moved
+                else f'{kept}: git could not create it; {where}'
+            )
+        elif git.ok(root, 'merge-base', '--is-ancestor', local, oid):
+            moved = git.ok(root, 'update-ref', f'refs/heads/{name}', oid, local)
+            lines.append(
+                f'branch {name}: fast-forwarded {local[:9]} to {oid[:9]}, as {sender}'
+                if moved
+                else f'{kept}: git could not move it; {where}'
+            )
+        elif git.ok(root, 'merge-base', '--is-ancestor', oid, local):
+            lines.append(f'{kept}, ahead of {sender} ({oid[:9]})')
+        else:
+            lines.append(f'{kept}: it diverged from {sender}; {where}')
+    return lines
+
+
 def apply_git(manifest, gitdata, sender):
-    """Lines saying how the sender's commits and scratch worktrees came over."""
+    """Lines saying how the sender's commits, local branches (a master's hand-over) and scratch worktrees came over. Each bundle's tips stay
+    under refs/pstack/in/<sender>/<bundle id>/, so a later send does not replace the only ref to a commit a recovery needs. A hand-over whose
+    commits cannot be imported raises ValueError, so its sync fails before the next master takes the run over."""
     info = manifest.get('git') if isinstance(manifest.get('git'), dict) else {}
     root, head = info.get('root') or '', info.get('head') or ''
     if not head:
@@ -536,19 +603,33 @@ def apply_git(manifest, gitdata, sender):
         return [
             f'checkout: {root or "no checkout"} is not on this machine; commits not applied'
         ]
+    branches = info.get('branches')
+    handover = isinstance(branches, dict)
+    side = (
+        f'{tag_of(manifest.get("from") or "")}/{tag_of(manifest.get("id") or "bundle")}'
+    )
     lines = []
     if gitdata is not None:
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, GIT_BUNDLE)
             with open(path, 'wb') as f:
                 f.write(gitdata)
-            if not fetch(root, path, tag_of(manifest.get('from') or '')):
+            if not fetch(root, path, side):
+                if handover:
+                    raise ValueError(
+                        'the git bundle did not apply: a commit it builds on is missing here and origin lacks it'
+                    )
                 lines.append('commits: the git bundle did not apply')
     if not has_commit(root, head):
         git.ok(root, 'fetch', '-q', 'origin')
     if not has_commit(root, head):
-        return [*lines, f'checkout: {head[:9]} was not carried and the remote lacks it']
+        lost = f'checkout: {head[:9]} was not carried and the remote lacks it'
+        if handover:
+            raise ValueError(lost)
+        return [*lines, lost]
     lines.append(move_checkout(root, head, info.get('branch') or '', sender))
+    if handover:
+        lines += apply_branches(root, branches, side, info.get('branch') or '', sender)
     for tree in info.get('worktrees') or []:
         path, commit = tree.get('path') or '', tree.get('commit') or ''
         if not path or os.path.exists(path):

@@ -18,6 +18,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -20733,6 +20734,193 @@ class BundleMergeTests(unittest.TestCase):
         self.bundle.apply(incoming, base)
         self.assertFalse((self.store / 'briefs.md').exists())
         self.assertEqual(self.read('reports/002-new.md'), 'mine\n')
+
+
+class BundleBranchApplyTests(unittest.TestCase):
+    """A master's hand-over carries every local branch; the receiver creates or fast-forwards them and keeps whatever it cannot move without
+    losing something. The receiver is the sender's own checkout with its objects pruned, as every orb has the checkout at the same path."""
+
+    def setUp(self):
+        from pstack_core import bundle
+
+        self.bundle = bundle
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.repo, self.store = root / 'repo', root / 'store'
+        self.repo.mkdir()
+        self.store.mkdir()
+        (self.store / 'pair.json').write_text(json.dumps({'git_root': str(self.repo)}))
+        self.env = {
+            **os.environ,
+            'GIT_AUTHOR_NAME': 't',
+            'GIT_AUTHOR_EMAIL': 't@t',
+            'GIT_COMMITTER_NAME': 't',
+            'GIT_COMMITTER_EMAIL': 't@t',
+        }
+        self.git('init', '-q', '-b', 'main')
+        self.base = self.commit('base')
+
+    def git(self, *args):
+        return subprocess.run(
+            ['git', *args],
+            cwd=self.repo,
+            env=self.env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout.strip()
+
+    def commit(self, name):
+        (self.repo / f'{name.replace("/", "-")}.txt').write_text(name)
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', name)
+        return self.git('rev-parse', 'HEAD')
+
+    def branch_at(self, name, start, message):
+        """A branch of its own, one commit past start; its tip. HEAD stays on main."""
+        self.git('checkout', '-q', '-B', name, start)
+        tip = self.commit(message)
+        self.git('checkout', '-q', 'main')
+        return tip
+
+    def refs(self):
+        return self.git(
+            'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'
+        )
+
+    def pack_and_prune(self):
+        """The sender's bundle of every local branch; then the receiver's state is built by the caller, and the objects only the bundle has
+        are pruned."""
+        path = Path(self.tmp.name) / 'handover.tgz'
+        self.bundle.pack(
+            str(self.store),
+            str(path),
+            {'name': 'm', 'thread': 'T-m'},
+            {'name': 'm2', 'pane': 'amp:2'},
+            {},
+            branches=True,
+        )
+        return path
+
+    def prune(self):
+        self.git('reflog', 'expire', '--expire=now', '--all')
+        self.git('gc', '-q', '--prune=now')
+
+    def test_each_kind_of_receiver_branch_of_a_hand_over_bundle_is_created_moved_or_kept_and_a_second_apply_changes_nothing(
+        self,
+    ):
+        sent = {
+            'feat/new': self.branch_at('feat/new', self.base, 'new'),
+            'plain': self.branch_at('plain', self.base, 'plain'),
+            'ahead': self.branch_at('ahead', self.base, 'ahead'),
+            'split': self.branch_at('split', self.base, 'split-theirs'),
+            'busy': self.branch_at('busy', self.base, 'busy'),
+            'same': self.branch_at('same', self.base, 'same'),
+        }
+        bundle = self.pack_and_prune()
+        # The receiver's own state: no feat/new; plain one commit behind; ahead one commit past the incoming tip; split on its own commit;
+        # busy behind and checked out in a second worktree; same already there.
+        self.git('branch', '-D', 'feat/new')
+        self.git('branch', '-f', 'plain', self.base)
+        self.git('branch', '-f', 'busy', self.base)
+        busy_tree = Path(self.tmp.name) / 'busy-tree'
+        self.git('worktree', 'add', '-q', str(busy_tree), 'busy')
+        self.git('checkout', '-q', 'ahead')
+        local_ahead = self.commit('ahead-mine')
+        self.git('checkout', '-q', '-B', 'split', self.base)
+        local_split = self.commit('split-mine')
+        self.git('checkout', '-q', 'main')
+        self.prune()
+        self.assertFalse(
+            subprocess.run(
+                ['git', 'cat-file', '-e', sent['feat/new']], cwd=self.repo, check=False
+            ).returncode
+            == 0
+        )
+        _, lines = self.bundle.apply(str(bundle))
+        text = '\n'.join(lines)
+        expected = {
+            'feat/new': sent['feat/new'],
+            'plain': sent['plain'],
+            'ahead': local_ahead,
+            'split': local_split,
+            'busy': self.base,
+            'same': sent['same'],
+        }
+        for name, tip in expected.items():
+            with self.subTest(name):
+                self.assertEqual(self.git('rev-parse', f'refs/heads/{name}'), tip)
+        self.assertIn(f'branch feat/new: created at {sent["feat/new"][:9]}', text)
+        self.assertIn(f'branch plain: fast-forwarded {self.base[:9]} to', text)
+        self.assertIn(f'branch ahead: kept {local_ahead[:9]}, ahead of m', text)
+        self.assertIn(f'branch split: kept {local_split[:9]}: it diverged from m', text)
+        self.assertIn(f'is at {sent["split"]} (kept as refs/pstack/in/T-m/', text)
+        self.assertIn(
+            f'branch busy: kept {self.base[:9]}: checked out in {busy_tree}', text
+        )
+        self.assertNotIn('branch same', text)
+        # The incoming tip of a kept branch is still reachable, and the checked-out branch's files and HEAD are what they were.
+        self.assertEqual(
+            self.git(
+                'rev-parse',
+                f'{self.git("for-each-ref", "--format=%(refname)", "refs/pstack/in/*/*/br/split")}',
+            ),
+            sent['split'],
+        )
+        self.assertEqual(
+            subprocess.run(
+                ['git', 'rev-parse', 'HEAD'],
+                cwd=busy_tree,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip(),
+            self.base,
+        )
+        after_first = self.refs()
+        _, again = self.bundle.apply(str(bundle))
+        self.assertEqual(self.refs(), after_first)
+        self.assertNotIn('created', '\n'.join(again))
+        self.assertNotIn('fast-forwarded', '\n'.join(again))
+
+    def test_a_bundle_branch_name_that_is_no_branch_is_skipped_and_never_becomes_a_ref(
+        self,
+    ):
+        bundle = self.pack_and_prune()
+        manifest, files, gitdata = self.bundle.read_bundle(str(bundle))
+        manifest['git']['branches'] = {'@{-1}': self.base, 'ok/name': self.base}
+        info = manifest['git']
+        lines = self.bundle.apply_git(manifest, gitdata, 'm')
+        self.assertIn('branch @{-1}: not a valid branch name or commit; skipped', lines)
+        self.assertEqual(self.git('rev-parse', 'refs/heads/ok/name'), self.base)
+        self.assertEqual(info['head'], self.git('rev-parse', 'HEAD'))
+
+    def test_a_hand_over_bundle_whose_commits_cannot_be_imported_raises_instead_of_reporting_a_partial_transfer(
+        self,
+    ):
+        tip = self.branch_at('lost', self.base, 'only-in-the-bundle')
+        bundle = self.pack_and_prune()
+        manifest, files, _ = self.bundle.read_bundle(str(bundle))
+        self.git('branch', '-D', 'lost')
+        self.prune()
+        # The same bundle without its git part: the commit exists nowhere here.
+        with tarfile.open(bundle, 'w:gz') as tar:
+            self.bundle.add_bytes(tar, 'manifest.json', json.dumps(manifest).encode())
+        with self.assertRaisesRegex(
+            ValueError, f'branch lost: {tip[:9]} was not carried'
+        ):
+            self.bundle.apply(str(bundle))
+        self.assertFalse(
+            subprocess.run(
+                ['git', 'rev-parse', '-q', '--verify', 'refs/heads/lost'],
+                cwd=self.repo,
+                check=False,
+                capture_output=True,
+            ).returncode
+            == 0
+        )
 
 
 class RoleReplyMergeTests(unittest.TestCase):

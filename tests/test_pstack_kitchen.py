@@ -17880,6 +17880,57 @@ class AmpKitchenTests(KitchenScriptTests):
             self.assertNotIn('branches', manifest['git'])
             self.assertEqual([r for r in refs if '/br/' in r], [])
 
+    def drop_branches(self, tips):
+        """The next master's orb never saw these branches: delete them and prune their objects."""
+        for name in tips:
+            self.git('branch', '-D', name)
+        self.git('reflog', 'expire', '--expire=now', '--all')
+        self.git('gc', '-q', '--prune=now')
+
+    def test_the_next_master_gets_every_local_branch_at_the_same_tip_after_sync_and_take_master(
+        self,
+    ):
+        tips = self.unpushed_branches()
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        [handover] = (self.fake / 'amp-threads' / master2).glob(
+            '*-pstack-demo-master-g2.tgz'
+        )
+        self.drop_branches(tips)
+        out = self.as_thread(master2, 'sync', str(handover))
+        for name, tip in tips.items():
+            self.assertEqual(self.git('rev-parse', f'refs/heads/{name}'), tip)
+            self.assertIn(f'branch {name}: created at {tip[:9]}', out)
+        self.as_thread(master2, 'take-master', str(self.store))
+        self.assertNotIn('previous', self.state()['master'])
+
+    def test_a_hand_over_bundle_whose_commits_cannot_be_imported_makes_sync_exit_non_zero(
+        self,
+    ):
+        tips = self.unpushed_branches()
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        [handover] = (self.fake / 'amp-threads' / master2).glob(
+            '*-pstack-demo-master-g2.tgz'
+        )
+        # The same hand-over with its git part removed: the commits are on no orb that can be reached.
+        stripped = Path(self.tmp.name) / 'stripped.tgz'
+        with (
+            tarfile.open(handover, 'r:gz') as src,
+            tarfile.open(stripped, 'w:gz') as dst,
+        ):
+            for member in src.getmembers():
+                if member.name != 'git.bundle':
+                    dst.addfile(
+                        member, src.extractfile(member) if member.isfile() else None
+                    )
+        self.drop_branches(tips)
+        out = self.as_thread(master2, 'sync', str(stripped), code=1)
+        self.assertIn('was not carried and origin lacks it', out)
+        self.assertIn('previous', self.state()['master'])
+
     def test_a_hand_over_bundle_is_cut_against_origins_default_branch_not_the_remotes_this_side_has(
         self,
     ):
