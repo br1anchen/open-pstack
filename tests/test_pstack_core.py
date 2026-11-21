@@ -21162,27 +21162,86 @@ class RotationReasonTests(unittest.TestCase):
             )
         )
         fake = mock.Mock(reuses_sessions=True)
-        fake.compacted.return_value = False
-        fake.context_used.return_value = 0.1
+        fake.context.return_value = (0.1, False)
         with mock.patch.object(rotate_commands.mux, 'get', return_value=fake):
             reasons = []
             kept = rotate_commands.keeps_session(
                 store, str(briefs / '002-b.md'), reasons
             )
             self.assertEqual((kept, reasons), ('app, context 10%', []))
-            fake.context_used.return_value = 0.5
+            fake.context.return_value = (0.5, False)
             self.assertEqual(
                 rotate_commands.keeps_session(store, str(briefs / '002-b.md'), reasons),
                 '',
             )
             self.assertEqual(reasons, ['context 50% >= 50%'])
-        self.assertEqual(fake.context_used.call_count, 2)
+        self.assertEqual(fake.context.call_count, 2)
+        self.assertEqual(fake.context_used.call_count, 0)
+        self.assertEqual(fake.compacted.call_count, 0)
+        fake.context.return_value = (0.0, True)
+        with mock.patch.object(rotate_commands.mux, 'get', return_value=fake):
+            self.assertEqual(
+                rotate_commands.session_decision(store, str(briefs / '002-b.md')),
+                ('', 'compacted'),
+            )
         fake.reuses_sessions = False
         with mock.patch.object(rotate_commands.mux, 'get', return_value=fake):
             self.assertEqual(
                 rotate_commands.session_decision(store, str(briefs / '002-b.md')),
                 ('', ''),
             )
+
+
+class AmpContextTests(unittest.TestCase):
+    """The Amp mux reads a thread's context with one `amp threads context` call, and context_used keeps its 0-to-1 answer."""
+
+    def amp_with(self, doc):
+        from pstack_core.mux import amp
+
+        mux_amp = amp.Amp()
+        entry = ('sk', {'thread': 'T-sk'})
+        with (
+            mock.patch.object(mux_amp, 'entry', return_value=entry),
+            mock.patch.object(amp, 'thread_context', return_value=doc) as read,
+        ):
+            return mux_amp.context('sk'), mux_amp.context_used('sk'), read.call_count
+
+    def test_one_call_gives_the_share_used_and_whether_it_compacted(self):
+        cases = [
+            (
+                {
+                    'totalTokens': 25000,
+                    'maxContextTokens': 100000,
+                    'compactionCount': 0,
+                },
+                ((0.25, False), 0.25, 2),
+            ),
+            (
+                {'totalTokens': 1000, 'maxContextTokens': 100000, 'compactionCount': 2},
+                ((1.0, True), 1.0, 2),
+            ),
+            ({'compactionCount': 1}, ((None, True), None, 2)),
+            ({}, ((None, False), None, 2)),
+            (None, ((None, False), None, 2)),
+        ]
+        for doc, expected in cases:
+            with self.subTest(doc=doc):
+                self.assertEqual(self.amp_with(doc), expected)
+
+    def test_context_reads_the_thread_once(self):
+        from pstack_core.mux import amp
+
+        mux_amp = amp.Amp()
+        with (
+            mock.patch.object(mux_amp, 'entry', return_value=('sk', {'thread': 'T'})),
+            mock.patch.object(
+                amp,
+                'thread_context',
+                return_value={'totalTokens': 1, 'maxContextTokens': 10},
+            ) as read,
+        ):
+            self.assertEqual(mux_amp.context('sk'), (0.1, False))
+        self.assertEqual(read.call_count, 1)
 
 
 class TrioAmpDiversityTests(unittest.TestCase):

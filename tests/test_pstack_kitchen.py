@@ -16584,6 +16584,12 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn('rotate: failed over\n', out)
         self.assertEqual(self.rotate_events(), ['generation:2 reason:failed over'])
 
+    def test_a_manual_rotate_says_it_is_manual_in_a_line_and_in_the_rotate_event(self):
+        self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
+        out = self.run_sh('rotate', str(self.store), code=None)
+        self.assertIn('rotate: manual\n', out)
+        self.assertEqual(self.rotate_events(), ['generation:1 reason:manual'])
+
     def test_a_kept_session_prints_no_rotate_line(self):
         self.finish_unit('001', 'one', ['src/**', 'tests/**'], 'src/one.py')
         out = self.finish_unit('002', 'two', ['src/**', 'tests/**'], 'src/two.py')

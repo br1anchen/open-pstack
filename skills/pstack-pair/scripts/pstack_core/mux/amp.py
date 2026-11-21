@@ -705,25 +705,21 @@ class Amp(Subagents):
     def path(self):
         return registry_path()
 
-    def context_used(self, name):
-        found = self.entry(name)
-        thread = found[1].get('thread') if found else ''
-        if not thread:
-            return None
-        doc = thread_context(thread)
-        if doc is None:
-            return None
-        used, limit = doc.get('totalTokens'), doc.get('maxContextTokens')
-        compacted = doc.get('compactionCount') or 0
-        if not (isinstance(used, int) and isinstance(limit, int) and limit > 0):
-            return None
-        return 1.0 if compacted else used / limit
-
-    def compacted(self, name):
+    def context(self, name):
+        """(context_used, compacted) from one `amp threads context` call."""
         found = self.entry(name)
         thread = found[1].get('thread') if found else ''
         doc = thread_context(thread) if thread else None
-        return bool(doc and doc.get('compactionCount'))
+        if doc is None:
+            return None, False
+        compacted = bool(doc.get('compactionCount'))
+        used, limit = doc.get('totalTokens'), doc.get('maxContextTokens')
+        if not (isinstance(used, int) and isinstance(limit, int) and limit > 0):
+            return None, compacted
+        return (1.0 if compacted else used / limit), compacted
+
+    def context_used(self, name):
+        return self.context(name)[0]
 
     def mode_reads_skill_file(self, mode):
         return mode == 'claude-code'
