@@ -70,11 +70,15 @@ KEEP = 'refs/pstack/keep'
 
 def pin(root, run, oid):
     """Keeps the commit `oid` (a full id) reachable under the immutable ref refs/pstack/keep/<run>/<oid>: created only, so a ref that holds the same
-    id is left as it is and the evidence of an earlier head is never replaced by a later one. Whether the ref holds oid afterwards."""
+    id is left as it is and the evidence of an earlier head is never replaced by a later one. Whether the ref holds oid afterwards; a ref that cannot
+    be made (a run name that is no ref, a commit that is not here) says so in one `warn:` line on stderr."""
     ref = f'{KEEP}/{run}/{oid}'
     if out(root, 'rev-parse', '--verify', '-q', ref) == oid:
         return True
-    return ok(root, 'update-ref', ref, oid, '')
+    if ok(root, 'update-ref', ref, oid, ''):
+        return True
+    sys.stderr.write(f'warn: could not keep {oid} under {ref}\n')
+    return False
 
 
 def toplevel(path=None):
