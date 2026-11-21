@@ -299,6 +299,7 @@
       "--base",
       "b681abc"
     ],
-    "delivered": false
+    "delivered": true,
+    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-000-landing-verify/T-01a1fe38-c47b-7197-94b5-e7f563ee97e1.jsonl"
   }
 }
