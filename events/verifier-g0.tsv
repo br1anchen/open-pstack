@@ -17,3 +17,4 @@
 2026-11-21T08:03:35Z	1795248215	verifier	report	022-migrated-threads-archive-nest-v1	clean
 2026-11-21T09:10:27Z	1795252227	verifier	report	032-master-bundle-branches-fix2-v1	reject
 2026-11-21T09:21:02Z	1795252862	verifier	report	024-verify-names-excluded-fix-v1	clean
+2026-11-21T10:13:56Z	1795256036	verifier	report	006-land-check-gone-head-v1	clean
