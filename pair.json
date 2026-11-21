@@ -71,7 +71,8 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "022-migrated-threads-archive-nest",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/022-migrated-threads-archive-nest.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -287,6 +288,6 @@
       "--base",
       "6dcc8e3"
     ],
-    "delivered": false
+    "delivered": true
   }
 }
