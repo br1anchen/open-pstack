@@ -91,6 +91,12 @@ RULES = (
         'gate and Verify job logs', r'steps/jobs(?:/.*)?', LOCAL, ignore=['steps/jobs/']
     ),
     _rule(
+        'roster snapshots of a master hand-over (the host roster stays on the host)',
+        r'sessions/master-g\d+-roster\.toml',
+        LOCAL,
+        ignore=['sessions/*-roster.toml'],
+    ),
+    _rule(
         'per-writer-generation append files',
         r'(?P<dir>events|gates|acks)/(?P<role>[a-z]+)-g(?P<gen>\d+)\.tsv',
         SHARED,

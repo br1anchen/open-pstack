@@ -22138,6 +22138,7 @@ class GitStoreTests(unittest.TestCase):
         'bundle.tgz',
         'scratch/001-x/f.txt',
         'steps/jobs/001-x-abc/out',
+        'sessions/master-g2-roster.toml',
     )
 
     def sh(self, *args, cwd=None):
@@ -22324,6 +22325,7 @@ class GitStoreTests(unittest.TestCase):
         self.assertIsNone(gitstore.classify('reports/a/b.md'))
 
     def test_gitstore_ignores_exactly_the_local_class(self):
+        self.assertIn('sessions/*-roster.toml', gitstore.gitignore_text().split())
         for rel in self.LOCAL_PATHS:
             with self.subTest(rel=rel):
                 self.assertEqual(gitstore.classify(rel).kind, gitstore.LOCAL)

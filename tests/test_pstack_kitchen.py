@@ -17013,6 +17013,14 @@ class AmpKitchenTests(KitchenScriptTests):
         self.filled_handoff()
         self.run_sh('rotate-master', str(self.store))
         self.assertEqual(self.roster_snapshot().read_text(), self.ROSTER)
+        # The hand-over bundle carries the snapshot to the next master's orb.
+        [bundle] = (self.fake / 'amp-threads' / amp_thread(2)).glob(
+            '1-pstack-demo-master-g2.tgz'
+        )
+        with tarfile.open(bundle) as tar:
+            member = tar.extractfile('store/sessions/master-g2-roster.toml')
+            assert member is not None
+            self.assertEqual(member.read().decode(), self.ROSTER)
         self.assertEqual(
             self.state()['master']['previous']['roster'],
             'sessions/master-g2-roster.toml',
@@ -18464,6 +18472,32 @@ class AmpGitKitchenTests(AmpKitchenTests):
     def branch_tree(self):
         return set(
             self.remote_git('ls-tree', '-r', '--name-only', 'kitchen/demo').split()
+        )
+
+    def test_the_host_roster_snapshot_stays_off_the_branch_and_the_branch_ignores_it(
+        self,
+    ):
+        """br1anchen/open-pstack is public and the host roster stays on the host: a rotate-master with a roster publishes the hand-over, never
+        the snapshot, in any commit of the branch."""
+        roster = Path(self.tmp.name) / 'host-roster.toml'
+        roster.write_text(self.ROSTER)
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        self.ready_path().unlink()
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        snapshot = 'sessions/master-g2-roster.toml'
+        self.assertEqual(self.roster_snapshot().read_text(), self.ROSTER)
+        self.assertIn('sessions/master-1-handoff.md', self.branch_tree())
+        self.assertNotIn(snapshot, self.branch_tree())
+        self.assertEqual(
+            self.remote_git(
+                'log', 'kitchen/demo', '--name-only', '--format=', '--', snapshot
+            ),
+            '',
+        )
+        self.assertIn(
+            'sessions/*-roster.toml',
+            self.remote_git('show', 'kitchen/demo:.gitignore').split(),
         )
 
     def test_a_role_publishes_its_report_before_the_message_and_a_secret_stops_both(
