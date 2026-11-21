@@ -633,6 +633,7 @@ def take_anchor(store):
     title, warning = nest.take_anchor(store, m.own_thread())
     if warning:
         sys.stderr.write(f'warn: {warning}\n')
+        return f"anchor: {m.own_thread()} is the run's top-level anchor; run kitchen.sh nest {store}\n"
     return f'anchor: {m.own_thread()} is the run\'s top-level anchor "{title}"; run kitchen.sh nest {store}\n'
 
 
