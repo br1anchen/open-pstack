@@ -230,6 +230,12 @@ def thread_title(thread):
     return title if isinstance(title, str) else ''
 
 
+def rename_thread(thread, title):
+    """(whether amp renamed the thread, the reason it did not)."""
+    r = run(['amp', 'threads', 'rename', thread, title])
+    return r.returncode == 0, (r.stderr or r.stdout or '').strip()
+
+
 def thread_state(doc):
     """(state, since) of an exported thread: its lastKnownAgentState and the epoch it took it; ('', 0) when the export has none."""
     meta = doc.get('meta') if isinstance(doc.get('meta'), dict) else {}

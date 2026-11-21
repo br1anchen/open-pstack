@@ -15958,6 +15958,47 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertEqual(archived.read_text(), f'{AMP_MASTER}\n')
         self.assertNotIn(master2, archived.read_text())
 
+    def take_master_after_rotation(self, **env):
+        """The next master's take-master after rotate-master; (its output, the new master's thread)."""
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        master2 = amp_thread(2)
+        self.set_state(AMP_MASTER, 'idle')
+        out = self.as_thread(master2, 'take-master', str(self.store), env=env)
+        return out, master2
+
+    def test_take_master_moves_the_anchor_to_the_new_master_and_renames_and_lists_it_top_level(
+        self,
+    ):
+        out, master2 = self.take_master_after_rotation()
+        title = f'fake title of {AMP_MASTER}'
+        anchor = self.state()['anchor']
+        self.assertEqual(anchor['thread'], master2)
+        self.assertEqual(anchor['previous'], [AMP_MASTER])
+        self.assertEqual(anchor['title'], title)
+        self.assertEqual(
+            (self.fake / 'amp-renamed').read_text(), f'{master2}\t{title}\n'
+        )
+        self.assertIn(
+            f'anchor: {master2} is the run\'s top-level anchor "{title}"; run kitchen.sh nest {self.store}',
+            out,
+        )
+        self.assertIn(f'archived {AMP_MASTER} (master): take-master has run', out)
+        listed = self.run_sh('nest', str(self.store)).splitlines()
+        self.assertIn(f'nest-pending: {master2} (master) top-level', listed)
+        self.assertIn(
+            f'nest-pending: {amp_thread(1)} (sidekick) under {master2}', listed
+        )
+        self.assertNotIn(f'under {AMP_MASTER}', '\n'.join(listed))
+        self.assertNotIn((master2, 'master', AMP_MASTER, 'pending'), self.nest_rows())
+
+    def test_take_master_whose_rename_fails_warns_and_still_takes_over(self):
+        (self.fake / 'amp-rename-fail').write_text('')
+        out, master2 = self.take_master_after_rotation()
+        self.assertIn(f'warn: amp threads rename {master2} failed', out)
+        self.assertEqual(self.state()['anchor']['thread'], master2)
+        self.assertEqual(self.state()['master']['generation'], 2)
+
     def test_close_archives_the_roles_that_pass_the_rule_and_says_why_it_kept_the_rest(
         self,
     ):
