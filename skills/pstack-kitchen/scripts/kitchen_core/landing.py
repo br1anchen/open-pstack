@@ -515,9 +515,22 @@ def say_landing_verification(
         )
 
 
+def packet_lists_unit(verdict_path, seq):
+    """Whether the packet of a landing verdict names the unit among the stack it was asked to prove (its `### Unit <seq>` goal): the one thing that
+    says a landing range held the unit once its head no longer resolves."""
+    packet = (
+        verdict_path[:-3] if verdict_path.endswith('.md') else verdict_path
+    ) + '-packet.md'
+    try:
+        return re.search(rf'^### Unit {seq} ', read_text(packet), re.M) is not None
+    except OSError:
+        return False
+
+
 def missing_evidence(store, root, brief):
     """(which, sha) of the first thing a unit's proof rests on that no longer resolves in this checkout, None when all of it does: the head its
-    report or last step names, the base it was dispatched at, or the head of a clean landing verdict (which covers a unit by its range)."""
+    report or last step names, the base it was dispatched at, or the head of a clean landing verdict whose packet lists the unit (which covers a
+    unit by its range; a landing verdict that never held the unit is not blamed for it)."""
     unit = RecordedUnit(store, brief)
     if not unit.head:
         report = expected_report(store, brief)
@@ -530,30 +543,53 @@ def missing_evidence(store, root, brief):
     base = unit.base()
     if base and not commit_of(root, base):
         return 'dispatch base', base
+    seq = os.path.basename(brief)[:3]
     for path in landing_verdicts(store):
         found = Verdict.parse(path)
         if found.status == 'clean' and not found.problem:
             head = found.refs()[1]
-            if head and not commit_of(root, head):
+            if head and not commit_of(root, head) and packet_lists_unit(path, seq):
                 return 'landing verdict head', head
     return None
 
 
+def carries_change(root, lost, other):
+    """Whether the head of unit `other` holds the change of the unit `lost` (both RecordedUnit): `lost`'s head is in it, or its commits were rebased
+    into the stack that ends at it. A lost unit whose head is gone is carried by nothing that can be shown."""
+    trunk = trunk_ref(root) or ''
+    base = (
+        git.run(root, 'merge-base', trunk, other.head, quiet=True).stdout.rstrip('\n')
+        if trunk
+        else ''
+    )
+    return inclusion(lost, StackIndex.build(root, base, other.head)).kind in (
+        'direct',
+        'ancestor',
+        'rebased',
+    )
+
+
 def recovery_command(store, root, seq):
-    """The verify command that proves unit `seq` again at a live head: the newest other accepted unit whose head resolves carries it, on that unit's
-    dispatch base when that resolves. What cannot be filled in is left as <current-unit> or <live-base>."""
-    live = {
-        other: RecordedUnit(store, brief)
-        for _, other, brief in accepted_units(store)
-        if other != seq
+    """(the verify command that proves unit `seq` again, whether a unit carries it): the newest other accepted unit whose head resolves and holds
+    the change of `seq` (carries_change), on that unit's dispatch base when that resolves. With none, what cannot be filled in is left as
+    <current-unit> or <live-base>."""
+    units = {
+        other: RecordedUnit(store, brief) for _, other, brief in accepted_units(store)
     }
-    live = {other: unit for other, unit in live.items() if unit.head}
+    lost = units.get(seq)
+    live = {
+        other: unit
+        for other, unit in units.items()
+        if other != seq and unit.head and lost and carries_change(root, lost, unit)
+    }
     current, base = '<current-unit>', '<live-base>'
     if live:
         current = max(live)
         if live[current].base() and commit_of(root, live[current].base()):
             base = live[current].base()
-    return f'kitchen.sh verify {store} {current} --covers {seq} --base {base}'
+    return f'kitchen.sh verify {store} {current} --covers {seq} --base {base}', bool(
+        live
+    )
 
 
 def unverified_line(store, root, seq, brief):
@@ -561,10 +597,16 @@ def unverified_line(store, root, seq, brief):
     gone = missing_evidence(store, root, brief)
     if not gone:
         return f'unverified: unit {seq} has no clean verdict (kitchen.sh verify {store} {seq})\n'
-    return (
-        f'unverified: unit {seq}: its evidence is missing ({gone[0]}: {gone[1]}); restore it from the bundle that carried it, or prove its '
-        f'Acceptance again with {recovery_command(store, root, seq)}\n'
+    command, carried = recovery_command(store, root, seq)
+    again = (
+        f'prove its Acceptance again with {command}'
+        if carried
+        else f"no other accepted unit's head carries its change; prove its Acceptance again with a unit that does: {command}"
     )
+    restore = 'restore it from the bundle that carried it' + (
+        ', or ' if carried else '; '
+    )
+    return f'unverified: unit {seq}: its evidence is missing ({gone[0]}: {gone[1]}); {restore}{again}\n'
 
 
 def land_check(store, say=out):

@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at c3bce56d by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 6598293c by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -392,7 +392,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 
 ## Store files and fields
 
-- `pair.json` written by master via `pair.sh`: agent names, pane ids, cwd, git root, the sidekick's fallback and failovers, pane placement (split or tab) — skills/pstack-pair/SKILL.md:59 — test_pstack_pair.PairScriptTests.test_trio (+183)
+- `pair.json` written by master via `pair.sh`: agent names, pane ids, cwd, git root, the sidekick's fallback and failovers, pane placement (split or tab) — skills/pstack-pair/SKILL.md:59 — test_pstack_pair.PairScriptTests.test_trio (+184)
 - `standing-orders.md` written by master: numbered constraints pasted by path into every brief — skills/pstack-pair/SKILL.md:60 — test_pstack_pair.PairScriptTests.test_trio (+21)
 - `plans/NNN-<slug>.md` written by master: one plan round, from [the plan template](references/plan-template.md) — skills/pstack-pair/SKILL.md:61 — test_pstack_pair.PairScriptTests.test_trio (+43)
 - `briefs/NNN-<slug>.md` written by master: one unit, from [the brief template](references/brief-template.md) — skills/pstack-pair/SKILL.md:62 — test_pstack_pair.PairScriptTests.test_trio (+130)
@@ -422,7 +422,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `verdicts/NNN-<slug>-v<k>-packet.md` written by `kitchen.sh verify`: what the verifier was given — skills/pstack-kitchen/SKILL.md:650 — test_pstack_pair.PairScriptTests.test_trio (+90)
 - `nest-pending.tsv` written by `kitchen.sh` starts, `kitchen.sh nest`: one row per thread waiting for its parent; a later `nested` row closes it — skills/pstack-kitchen/SKILL.md:659 — test_pstack_kitchen.KitchenScriptTests.test_nest_writes_nothing_outside_amp_threads (+1)
 - `drains/<role>-g<n>/<request>.json` written by a sidekick or consultant at `finish` or `notify`: the receipt for one request: thread, request, outputs with sha256, code heads — skills/pstack-kitchen/SKILL.md:667 — test_pstack_core.GitStoreTests.test_gitstore_ownership_table_classifies_every_path_of_a_real_store_layout (+6)
-- `code/<role>-g<n>.bundle` written by a role, when origin refuses its code ref: the commits of a report, in place of the push to `kitchen-code/<slug>/<role>-g<n>` — skills/pstack-kitchen/SKILL.md:668 — test_pstack_pair.PairScriptTests.test_trio (+368)
+- `code/<role>-g<n>.bundle` written by a role, when origin refuses its code ref: the commits of a report, in place of the push to `kitchen-code/<slug>/<role>-g<n>` — skills/pstack-kitchen/SKILL.md:668 — test_pstack_pair.PairScriptTests.test_trio (+367)
 - `threads/<thread-id>.json` written by master: which thread plays which role, and the requests and steer relays sent to it, so a master in a fresh clone rebu — skills/pstack-kitchen/SKILL.md:669 — test_pstack_pair.PairScriptTests.test_trio (+63)
 - `pair.json` `.consultant.failovers` — skills/pstack-kitchen/scripts/kitchen_core/setup.py:365 — test_pstack_core.CoreTests.test_consultant_behaviour (+10)
 - `pair.json` `.consultant.kind` — skills/pstack-pair/scripts/pstack_core/spawn.py:215 — test_pstack_pair.PairScriptTests.test_trio (+60)
