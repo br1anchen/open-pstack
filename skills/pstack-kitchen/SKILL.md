@@ -393,6 +393,12 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   content: in a public repository it publishes the run's briefs, reports, thread
   ids and decisions to anyone, so migrate or init under git only where that is
   acceptable.
+  It records the migration time as `.store_backend.migrated_at`: a sidekick or
+  consultant thread that began before it and has no request on the branch is
+  judged by the local-store checks (idle, pending relays, unsynced files, report
+  head) instead of being kept for a missing drain receipt, since the master's
+  earlier requests to it were never on the branch; a thread that began after the
+  migration keeps the drain-receipt rule.
 - A message sent by the CLI reaches a role's thread only after its current
   turn ends: `amp threads continue -ox` queues it, and the CLI has no way to
   steer a running turn. So a role whose thread is in a turn reads `working`
@@ -489,6 +495,10 @@ args = ["--model", "google-vertex/gemini-4-carbon", "--orb-size", "a1.large"]
   tool: `kitchen.sh nest <store>` lists the pending threads and prints the
   `update_thread(thread=<T>, parent_thread=<anchor>)` call to make for each,
   and `kitchen.sh nest <store> --done <thread>...` marks them nested.
+  `kitchen.sh nest <store> --discover` first records the run's threads that have
+  no row (a run migrated or started before nesting: the search `threads --discover`
+  makes plus the threads and sessions the store names) and, when pair.json has no
+  `.anchor`, sets it to the oldest master thread; a second run adds nothing.
   `status` prints `nest-pending: N threads` while any is pending. Setting
   `PSTACK_NEST_VIA=<thread-id>` (optional, unset by default) makes `nest` say
   to ask that thread to set the parents instead. Under Herdr, Rex and
@@ -652,7 +662,7 @@ The git store (Amp threads, `PSTACK_STORE=git`; opt-in) adds, on the branch `kit
 
 | Path | Writer | Content |
 | --- | --- | --- |
-| `pair.json` `.store_backend` | `init` or `kitchen.sh store-to-git`, `close` | `{backend: git, branch}`, and under `.close` the archive phases done so far |
+| `pair.json` `.store_backend` | `init` or `kitchen.sh store-to-git`, `close` | `{backend: git, branch, migrated_at}`, and under `.close` the archive phases done so far |
 | `events/<role>-g<n>.tsv`, `acks/<role>-g<n>.tsv` | the role generation `n` | its own events and its acknowledged notes; `events.tsv` is read as the union of every writer's file |
 | `drains/<role>-g<n>/<request>.json` | a sidekick or consultant at `finish` or `notify` | the receipt for one request: thread, request, outputs with sha256, code heads |
 | `code/<role>-g<n>.bundle` | a role, when origin refuses its code ref | the commits of a report, in place of the push to `kitchen-code/<slug>/<role>-g<n>` |
