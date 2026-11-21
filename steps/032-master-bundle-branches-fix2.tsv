@@ -1,0 +1,3 @@
+1	7f33eb23a8364cc617710ec4027fbd1b69701f60	1795248138		pruning keeps the newest bundle ref sets and the ones an apply names
+2	74e65ab995b0eb3c7f93cb5571a794ccdc66dba8	1795248761		a detached sender gets no reset recipe and a diverged branch line names the checkout's own
+3	08666a79896199e85d01238ecb5ce445d876b67a	1795249393		each hand-over branch is reported once and the bundle settings are checked first
