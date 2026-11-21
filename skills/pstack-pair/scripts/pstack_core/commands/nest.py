@@ -97,7 +97,7 @@ def anchor_title(store):
 
     title = amp.thread_title(thread)
     if title:
-        update(store, lambda doc: doc['anchor'].setdefault('title', title))
+        update(store, lambda doc: doc['anchor'].update(title=title))
     return title
 
 

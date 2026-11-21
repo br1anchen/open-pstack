@@ -15992,6 +15992,18 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertNotIn(f'under {AMP_MASTER}', '\n'.join(listed))
         self.assertNotIn((master2, 'master', AMP_MASTER, 'pending'), self.nest_rows())
 
+    def test_take_master_saves_the_anchor_title_init_could_not_read(self):
+        pair = self.state()
+        pair['anchor']['title'] = ''
+        (self.store / 'pair.json').write_text(json.dumps(pair))
+        (self.fake / f'amp-title-{AMP_MASTER}').write_text('Run anchor\n')
+        out, master2 = self.take_master_after_rotation()
+        self.assertEqual(self.state()['anchor']['title'], 'Run anchor')
+        self.assertEqual(
+            (self.fake / 'amp-renamed').read_text(), f'{master2}\tRun anchor\n'
+        )
+        self.assertIn('top-level anchor "Run anchor"', out)
+
     def test_take_master_whose_rename_fails_warns_and_still_takes_over(self):
         (self.fake / 'amp-rename-fail').write_text('')
         out, master2 = self.take_master_after_rotation()
