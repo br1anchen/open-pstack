@@ -93,9 +93,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "034-land-check-gone-head-fix-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -262,38 +260,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/034-land-check-gone-head-fix-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/034-land-check-gone-head-fix-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/034-land-check-gone-head-fix.md",
-    "scratch": "034-land-check-gone-head-fix-verify",
-    "units": "006 034",
-    "risk": "escalated",
-    "sample": 1.0,
-    "unit": "034-land-check-gone-head-fix",
-    "started": 1795262297,
-    "deadline": 1795264997,
-    "class": "escalated",
-    "entry": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "claude-opus-5-5"
-      ],
-      "fallback": null,
-      "fallbacks": [],
-      "source": "default"
-    },
-    "retried": false,
-    "argv": [
-      "034",
-      "--covers",
-      "006",
-      "--base",
-      "1e10578"
-    ],
-    "delivered": true,
-    "session": "/home/user/.claude/projects/-home-user--local-state-pstack-scratch-runs-kitchen-followups-034-land-check-gone-head-fix-verify/T-01a1fdf8-d3cd-7737-917d-61765eabcde7.jsonl"
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
