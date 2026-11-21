@@ -20750,7 +20750,9 @@ class BundleRepoCase(unittest.TestCase):
         self.repo, self.store = root / 'repo', root / 'store'
         self.repo.mkdir()
         self.store.mkdir()
-        (self.store / 'pair.json').write_text(json.dumps({'git_root': str(self.repo)}))
+        (self.store / 'pair.json').write_text(
+            json.dumps({'git_root': str(self.repo), 'slug': 'run1'})
+        )
         self.env = {
             **os.environ,
             'GIT_AUTHOR_NAME': 't',
@@ -21308,6 +21310,28 @@ class BundleBranchApplyTests(BundleRepoCase):
         for oid in (first, second):
             self.assertEqual(self.git('rev-parse', f'refs/pstack/keep/run1/{oid}'), oid)
             self.git('cat-file', '-e', f'{oid}^{{commit}}')
+
+    def test_an_ordinary_send_carries_only_its_own_runs_evidence_and_fetches_nothing(
+        self,
+    ):
+        mine, _ = self.send_evidence('ev-mine')
+        theirs = self.commit('ev-theirs')
+        git.pin(str(self.repo), 'other-run', theirs)
+        real, calls = subprocess.run, []
+
+        def recording(argv, *args, **kwargs):
+            calls.append(argv)
+            return real(argv, *args, **kwargs)
+
+        with mock.patch.object(subprocess, 'run', recording):
+            _, path = self.send_evidence('ev-mine-2')
+        manifest = self.bundle.read_bundle(str(path))[0]
+        self.assertEqual(
+            sorted(manifest['git']['keep']),
+            sorted(f'run1/{oid}' for oid in (mine, self.git('rev-parse', 'HEAD'))),
+        )
+        self.assertNotIn('baseline', manifest['git'])
+        self.assertEqual([argv for argv in calls if 'fetch' in argv], [])
 
     def test_a_message_whose_evidence_cannot_be_imported_raises_and_keeps_nothing(self):
         oid, path = self.send_evidence('ev-1')
