@@ -602,29 +602,25 @@ def checked_out(root):
     return held
 
 
+def valid_tip(root, name, oid):
+    """Whether a hand-over's branch entry names a real branch and a full commit id."""
+    return (
+        isinstance(oid, str)
+        and re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', oid) is not None
+        and git.out(root, 'check-ref-format', '--branch', name) == name
+    )
+
+
 def apply_branches(root, branches, side, current, sender):
-    """Takes the sender's local branches ({name: full commit id}, a master's hand-over) into this checkout without losing anything here: an
-    absent branch is created, one whose tip is an ancestor of the incoming tip is fast-forwarded, and every other (ahead, diverged, or checked
-    out in a worktree, which a ref update would leave with stale files) is kept and named with the incoming tip, which stays reachable under
-    `side`. The branch the sender's checkout is on (`current`) is move_checkout's. Raises ValueError for a tip that was not carried and that
-    origin lacks. Lines saying what happened."""
-    held, lines, fetched = checked_out(root), [], False
+    """Takes the sender's local branches ({name: full commit id}, a master's hand-over, every tip already resolved by import_git) into this
+    checkout without losing anything here: an absent branch is created, one whose tip is an ancestor of the incoming tip is fast-forwarded, and
+    every other (ahead, diverged, or checked out in a worktree, which a ref update would leave with stale files) is kept and named with the
+    incoming tip, which stays reachable under `side`. The branch the sender's checkout is on (`current`) is move_checkout's. Lines saying what happened."""
+    held, lines = checked_out(root), []
     for name, oid in sorted(branches.items()):
-        if (
-            not (
-                isinstance(oid, str) and re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', oid)
-            )
-            or git.out(root, 'check-ref-format', '--branch', name) != name
-        ):
+        if not valid_tip(root, name, oid):
             lines.append(f'branch {name}: not a valid branch name or commit; skipped')
             continue
-        if not has_commit(root, oid) and not fetched:
-            git.ok(root, 'fetch', '-q', 'origin')
-            fetched = True
-        if not has_commit(root, oid):
-            raise ValueError(
-                f'branch {name}: {oid[:9]} was not carried and origin lacks it'
-            )
         ref = f'refs/pstack/in/{side}/br/{name}'
         git.ok(root, 'update-ref', ref, oid)
         local = git.out(root, 'rev-parse', '--verify', '-q', f'refs/heads/{name}')
@@ -655,30 +651,34 @@ def apply_branches(root, branches, side, current, sender):
     return lines
 
 
-def apply_git(manifest, gitdata, sender):
-    """Lines saying how the sender's commits, local branches (a master's hand-over) and scratch worktrees came over. Each bundle's tips stay
-    under refs/pstack/in/<sender>/<bundle id>/, so a later send does not replace the only ref to a commit a recovery needs. A hand-over whose
-    commits cannot be imported raises ValueError, so its sync fails before the next master takes the run over."""
+def side_of(manifest):
+    """The directory under refs/pstack/in/ a bundle's refs go to: <sender>/<bundle id>."""
+    return (
+        f'{tag_of(manifest.get("from") or "")}/{tag_of(manifest.get("id") or "bundle")}'
+    )
+
+
+def import_git(manifest, gitdata):
+    """The first half of taking a bundle's commits: brings them over and moves nothing (no branch, no checkout, no store file), so a hand-over
+    that cannot be taken whole changes nothing. (ready, lines): ready says whether move_git has something to move. A hand-over (git.branches)
+    raises ValueError when its git bundle did not apply or when HEAD or any branch tip it names is missing here and at origin."""
     info = manifest.get('git') if isinstance(manifest.get('git'), dict) else {}
     root, head = info.get('root') or '', info.get('head') or ''
     if not head:
-        return []
+        return False, []
     if not os.path.isdir(root):
-        return [
+        return False, [
             f'checkout: {root or "no checkout"} is not on this machine; commits not applied'
         ]
     branches = info.get('branches')
     handover = isinstance(branches, dict)
-    side = (
-        f'{tag_of(manifest.get("from") or "")}/{tag_of(manifest.get("id") or "bundle")}'
-    )
     lines = []
     if gitdata is not None:
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, GIT_BUNDLE)
             with open(path, 'wb') as f:
                 f.write(gitdata)
-            if not fetch(root, path, side):
+            if not fetch(root, path, side_of(manifest)):
                 if handover:
                     raise ValueError(
                         'the git bundle did not apply: a commit it builds on is missing here and origin lacks it'
@@ -690,12 +690,36 @@ def apply_git(manifest, gitdata, sender):
         lost = f'checkout: {head[:9]} was not carried and the remote lacks it'
         if handover:
             raise ValueError(lost)
-        return [*lines, lost]
+        return False, [*lines, lost]
+    if handover:
+        fetched = False
+        for name, oid in sorted(branches.items()):
+            if not valid_tip(root, name, oid):
+                continue
+            if not has_commit(root, oid) and not fetched:
+                git.ok(root, 'fetch', '-q', 'origin')
+                fetched = True
+            if not has_commit(root, oid):
+                raise ValueError(
+                    f'branch {name}: {oid[:9]} was not carried and origin lacks it'
+                )
+    return True, lines
+
+
+def move_git(manifest, sender):
+    """The second half: lines saying how the sender's HEAD, local branches (a master's hand-over) and scratch worktrees came into this checkout.
+    Each bundle's tips stay under refs/pstack/in/<sender>/<bundle id>/, so a later send does not replace the only ref to a commit a recovery
+    needs."""
+    info = manifest['git']
+    root, head = info['root'], info['head']
+    side = side_of(manifest)
     ref = f'refs/pstack/in/{side}/head'
     git.ok(root, 'update-ref', ref, head)
-    lines.append(move_checkout(root, head, info.get('branch') or '', sender, ref))
-    if handover:
-        lines += apply_branches(root, branches, side, info.get('branch') or '', sender)
+    lines = [move_checkout(root, head, info.get('branch') or '', sender, ref)]
+    if isinstance(info.get('branches'), dict):
+        lines += apply_branches(
+            root, info['branches'], side, info.get('branch') or '', sender
+        )
     for tree in info.get('worktrees') or []:
         path, commit = tree.get('path') or '', tree.get('commit') or ''
         if not path or os.path.exists(path):
@@ -712,16 +736,20 @@ def apply_git(manifest, gitdata, sender):
 
 def apply(path, base=None, reply=None):
     """Merges the bundle at path into this machine, against the bundle this side last sent to its sender (base, a path or None), as a role's
-    reply to the master when `reply` (role_reply) says so. (manifest, lines to print)."""
+    reply to the master when `reply` (role_reply) says so. (manifest, lines to print). A hand-over's commits are imported before any store file or
+    ref changes, so one that cannot be taken raises ValueError with this machine as it was."""
     manifest, files, gitdata = read_bundle(path)
     base_files = read_bundle(base)[1] if base and os.path.isfile(base) else {}
     store = manifest.get('store') or ''
     if not os.path.isabs(store):
         raise ValueError(f'{path}: the manifest names no store')
+    ready, imported = import_git(manifest, gitdata)
     os.makedirs(store, exist_ok=True)
     sender = manifest.get('from_name') or manifest.get('from') or 'the sender'
     lines = merge_store(
         store, files, set(manifest.get('files') or ()), base_files, reply
     )
-    lines += apply_git(manifest, gitdata, sender)
+    lines += imported
+    if ready:
+        lines += move_git(manifest, sender)
     return manifest, lines
