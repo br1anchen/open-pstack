@@ -27,7 +27,7 @@
     "name": "kitchen-followups-sidekick",
     "pane_id": "amp:1",
     "kind": "amp",
-    "started_at": "2026-11-21T12:21:17Z",
+    "started_at": "2026-11-21T12:25:27Z",
     "fallback": {
       "kind": "amp",
       "args": [
@@ -53,16 +53,14 @@
         ]
       }
     ],
-    "chain_index": 0,
+    "chain_index": 1,
     "start_args": [
-      "--mode",
-      "claude-code",
-      "--features",
-      "model:claude-sonnet-5-5"
+      "--model",
+      "openai/gpt-6.1-sol"
     ],
-    "generation": 14,
+    "generation": 15,
     "bootstrap_pending": true,
-    "permission_mode": "native-args",
+    "permission_mode": "auto",
     "closed": false,
     "rotation_required": false,
     "delivered": {
@@ -71,7 +69,15 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "035-branch-ahead-not-diverged",
       "compactions": 0
-    }
+    },
+    "failovers": [
+      {
+        "from": "amp claude-code claude-sonnet-5-5",
+        "to": "amp openai/gpt-6.1-sol",
+        "reason": "Amp credit balance low: GLM sidekick g14 cannot run",
+        "at": "2026-11-21T12:25:27Z"
+      }
+    ]
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
