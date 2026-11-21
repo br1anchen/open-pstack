@@ -17,3 +17,5 @@
 - 032 (verifier/joo): prune_sets' "a set a line names stays" guard protects nothing reachable today (lines name only the set being applied); git.run's **extra with a hand-written TypeError could be named keyword parameters if the size guard allows; prune_sets' printed/keep parameters could be required; a 0 fetch timeout took two waits against a slow origin (untraced).
 
 - 024 (joo, low): print the excluded notice only for a covers packet, not a landing packet, and reuse the units_between result instead of recomputing it.
+
+- 006 (joo, note): keep refs under refs/pstack/keep are GC roots that nothing deletes; removal after a run closes needs a retention policy.

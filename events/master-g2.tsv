@@ -217,3 +217,11 @@
 2026-11-21T09:46:03Z	1795254363	master	log	-	archive: archive sidekick T-01a1fc96-a756-7134-b4a6-ebdd6834c821
 2026-11-21T09:46:05Z	1795254365	master	spawn	-	sidekick:amp:ready
 2026-11-21T09:46:06Z	1795254366	master	send-brief	033-master-bundle-branches-fix	
+2026-11-21T09:46:26Z	1795254386	master	queue	010-roster-handoff	
+2026-11-21T10:14:30Z	1795256070	master	archive	-	verifier:T-01a1fd7d-083c-7599-9a8f-2ef012eadd66
+2026-11-21T10:14:30Z	1795256070	master	log	-	archive: archive verifier T-01a1fd7d-083c-7599-9a8f-2ef012eadd66
+2026-11-21T10:14:30Z	1795256070	master	verify	006-land-check-gone-head	clean
+2026-11-21T10:14:30Z	1795256070	master	wake	006-land-check-gone-head	verify:clean
+2026-11-21T10:15:42Z	1795256142	master	queue	034-land-check-gone-head-fix	
+2026-11-21T10:15:42Z	1795256142	master	log	-	review-006: 006 revise: verifier clean; joo 5 mediums (fetch + all-runs refs on every send, all-or-nothing ordinary sync, land-check blames/credits wrong units) + lows; fix 034 after 033, ahead of 010
+2026-11-21T10:19:53Z	1795256393	master	send-verify	033-master-bundle-branches-fix	claude:032 031 004 033

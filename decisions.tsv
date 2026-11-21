@@ -81,3 +81,5 @@ ts	phase	decision	why	evidence	result
 2026-11-21T09:21:37Z	archive	archive verifier T-01a1fd60-28b5-7761-814a-62effefad503	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fd60-28b5-7761-814a-62effefad503	archived
 2026-11-21T09:21:47Z	review-024	024 accepted: verifier clean; joo 2 lows (notice on landing packets) to followups	verdict 024-v1; joo 0f86254d	reviews/024	006 in progress, 033 queued
 2026-11-21T09:46:03Z	archive	archive sidekick T-01a1fc96-a756-7134-b4a6-ebdd6834c821	no longer used by the store; a brief is being sent	amp threads archive T-01a1fc96-a756-7134-b4a6-ebdd6834c821	archived
+2026-11-21T10:14:30Z	archive	archive verifier T-01a1fd7d-083c-7599-9a8f-2ef012eadd66	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fd7d-083c-7599-9a8f-2ef012eadd66	archived
+2026-11-21T10:15:42Z	review-006	006 revise: verifier clean; joo 5 mediums (fetch + all-runs refs on every send, all-or-nothing ordinary sync, land-check blames/credits wrong units) + lows; fix 034 after 033, ahead of 010	joo 9a98e300; verdict 006-v1	reviews/006	034 queued; 010 now starts from unit-034
