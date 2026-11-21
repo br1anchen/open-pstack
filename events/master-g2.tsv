@@ -73,3 +73,5 @@
 2026-11-21T03:08:12Z	1795230492	master	wake	029-master-is-anchor-fix	verify:progress
 2026-11-21T03:08:19Z	1795230499	master	queue	-	cleared
 2026-11-21T03:08:27Z	1795230507	master	rotate	-	generation:8
+2026-11-21T03:08:38Z	1795230518	master	nest-pending	-	T-01a1fc13-c1f9-7664-b9b5-5b7a64516c97 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
+2026-11-21T03:08:44Z	1795230524	master	spawn	-	sidekick:amp:handed-off
