@@ -67,9 +67,9 @@
     "rotation_required": false,
     "delivered": {
       "generation": "12",
-      "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
+      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "022-migrated-threads-archive-nest",
+      "brief": "032-master-bundle-branches-fix2",
       "compactions": 0
     }
   },
@@ -95,9 +95,7 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [
-    "022-migrated-threads-archive-nest-verify"
-  ],
+  "scratch": [],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -253,42 +251,5 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
-  "verifying": {
-    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/022-migrated-threads-archive-nest-v1.md",
-    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/022-migrated-threads-archive-nest-v1-packet.md",
-    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/022-migrated-threads-archive-nest.md",
-    "scratch": "022-migrated-threads-archive-nest-verify",
-    "units": "022",
-    "risk": "routine",
-    "sample": 0.2,
-    "unit": "022-migrated-threads-archive-nest",
-    "started": 1795247146,
-    "deadline": 1795249846,
-    "class": "routine",
-    "entry": {
-      "kind": "amp",
-      "args": [
-        "--mode",
-        "claude-code",
-        "--features",
-        "model:claude-sonnet-5-5"
-      ],
-      "source": "sidekick",
-      "fallback": {
-        "kind": "amp",
-        "args": [
-          "--model",
-          "openai/gpt-6.1-sol"
-        ]
-      }
-    },
-    "retried": false,
-    "argv": [
-      "022",
-      "--base",
-      "6dcc8e3"
-    ],
-    "delivered": true
-  }
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
 }
