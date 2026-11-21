@@ -66,12 +66,13 @@
     "closed": false,
     "rotation_required": false,
     "delivered": {
-      "generation": "5",
-      "playbook": "52a36c8a280c4f040c8ec6fdb0c1c50b8b4530c76af1e5f49723acdfdfd81fd7",
+      "generation": "6",
+      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "023-dispatch-after-ready-sends",
+      "brief": "026-dispatch-after-ready-sends-fix",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/026-dispatch-after-ready-sends-fix.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
@@ -97,7 +98,11 @@
   },
   "scratch": [],
   "anchor": {
-    "thread": "T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce"
+    "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
+    "title": "kitchen-followups master",
+    "previous": [
+      "T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce"
+    ]
   },
   "skill_builds": [
     {
@@ -197,7 +202,8 @@
     "amp claude-code claude-sonnet-5-5": [
       "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602",
       "T-01a1fa73-ba4a-759f-a82d-fddaa66f726f",
-      "T-01a1fb0e-2be9-74c4-a19a-7e5b11d8af62"
+      "T-01a1fb0e-2be9-74c4-a19a-7e5b11d8af62",
+      "T-01a1fb29-d3a6-77ce-99fe-6741609db301"
     ]
   },
   "consult": {

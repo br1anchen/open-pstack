@@ -49,3 +49,5 @@ ts	phase	decision	why	evidence	result
 2026-11-20T23:11:34Z	review	023 revise: verdict reject (tests inherit the 60 s READY wait); fix brief 026 written	verdict 023-v1 finding 1	reviews/023	026 ready; dispatch held on master-rotation decision
 2026-11-21T00:11:22Z	decision	rotate master after compaction	Brian authorized rotation in thread	user message	new-handoff + rotate-master
 2026-11-21T00:20:06Z	archive	archive master T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce	no longer used by the store; take-master has run	amp threads archive T-01a1f946-a105-76cd-ad9b-cfd01bbf4cce	archived
+2026-11-21T00:31:54Z	anchor	master g2 is the anchor: top-level, titled 'kitchen-followups master'; sidekick g6 and consultant re-nested under it; old anchor g1 archived	Brian via T-01a1ea49 (ChenChess #1257)	pair.json .anchor	unit 027 makes the kitchen do it on rotation
+2026-11-21T00:33:11Z	order	027 master-is-anchor queued after 026, before 025: Brian's request via T-01a1ea49; ships as its own PR off origin/main	live masters vanish when their parent is archived	briefs/027-master-is-anchor.md	025 next after 027
