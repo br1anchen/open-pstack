@@ -68,3 +68,4 @@ ts	phase	decision	why	evidence	result
 2026-11-21T05:04:08Z	archive	archive sidekick T-01a1fc44-ad32-76a1-af3b-97fbbd6c4b49	no longer used by the store; a brief is being sent	amp threads archive T-01a1fc44-ad32-76a1-af3b-97fbbd6c4b49	archived
 2026-11-21T05:22:16Z	archive	archive verifier T-01a1fc7b-9233-7087-8395-5247ff7177e4	no longer used by the store; its verdict is recorded	amp threads archive T-01a1fc7b-9233-7087-8395-5247ff7177e4	archived
 2026-11-21T05:23:05Z	review-004	004 revise: verifier clean, joo 4 medium (partial hand-over, dropped current branch, recipe moves wrong branch, full-history bundle on fetch failure) + lows; fix brief 031 after 030, ahead of 022	joo 2c2b1e65; verdict 004-v1	reviews/004	031 queued; 006/010/022/024 now start from unit-031
+2026-11-21T05:33:56Z	archive	archive sidekick T-01a1fc7b-eba5-73ef-8b67-a0a0fd74248b	no longer used by the store; a brief is being sent	amp threads archive T-01a1fc7b-eba5-73ef-8b67-a0a0fd74248b	archived
