@@ -71,11 +71,12 @@
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
       "brief": "028-dispatch-after-ready-sends-fix",
       "compactions": 0
-    }
+    },
+    "rotation_cleared": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/028-dispatch-after-ready-sends-fix.md"
   },
   "verifier": {
     "name": "kitchen-followups-verifier",
-    "pane_id": "amp:4",
+    "pane_id": "amp:5",
     "kind": "amp",
     "started_at": null
   },
@@ -95,7 +96,9 @@
     "permission_mode": "auto",
     "closed": false
   },
-  "scratch": [],
+  "scratch": [
+    "028-dispatch-after-ready-sends-fix-verify"
+  ],
   "anchor": {
     "thread": "T-01a1fb72-f256-7439-9c4a-d630b435d90d",
     "title": "kitchen-followups master",
@@ -231,5 +234,46 @@
     "backend": "git",
     "branch": "kitchen/kitchen-followups"
   },
-  "run_id": "d17083fa3bb140b0b098c7357d00d2b6"
+  "run_id": "d17083fa3bb140b0b098c7357d00d2b6",
+  "verifying": {
+    "verdict": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/028-dispatch-after-ready-sends-fix-v1.md",
+    "packet": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/028-dispatch-after-ready-sends-fix-v1-packet.md",
+    "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/028-dispatch-after-ready-sends-fix.md",
+    "scratch": "028-dispatch-after-ready-sends-fix-verify",
+    "units": "026 023 028",
+    "risk": "routine",
+    "sample": 0.2,
+    "unit": "028-dispatch-after-ready-sends-fix",
+    "started": 1795226954,
+    "deadline": 1795229654,
+    "class": "routine",
+    "entry": {
+      "kind": "amp",
+      "args": [
+        "--mode",
+        "claude-code",
+        "--features",
+        "model:claude-sonnet-5-5"
+      ],
+      "source": "sidekick",
+      "fallback": {
+        "kind": "amp",
+        "args": [
+          "--model",
+          "openai/gpt-6.1-sol"
+        ]
+      }
+    },
+    "retried": false,
+    "argv": [
+      "028",
+      "--covers",
+      "026",
+      "--covers",
+      "023",
+      "--base",
+      "b1ca49f"
+    ],
+    "delivered": false
+  }
 }
