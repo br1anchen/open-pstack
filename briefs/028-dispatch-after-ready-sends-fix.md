@@ -32,7 +32,7 @@ must not write:
 
 ## Context
 
-- Before you start: `git fetch origin kitchen-code/kitchen-followups/sidekick-g6 && git checkout -B kitchen-followups FETCH_HEAD` (026's head b6b68a4). Do not rebase onto origin/main. Unit 027 is on its own branch (`master-is-anchor`). Commit it or leave it untouched, and switch back to it afterwards.
+- Before you start: `git fetch origin kitchen-code/kitchen-followups/unit-026 && git checkout -B kitchen-followups FETCH_HEAD` (026's head b6b68a4). Do not rebase onto origin/main. Unit 027 is on its own branch (`master-is-anchor`). Commit it or leave it untouched, and switch back to it afterwards.
 - The verifier's own numbers: 17.5 s alone, 24.0 s in the 4-job class run (verdict Evidence 1 to 3).
 - verdict: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/verdicts/026-dispatch-after-ready-sends-fix-v1.md
 - original brief: /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/026-dispatch-after-ready-sends-fix.md

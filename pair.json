@@ -66,10 +66,10 @@
     "closed": false,
     "rotation_required": false,
     "delivered": {
-      "generation": "6",
-      "playbook": "912e3f244dc4b91578a120c8f7e263d640196f894bbc18f1ba5c8689a327fbf5",
+      "generation": "7",
+      "playbook": "c2814894c8bd1ae245a4f778da84031314eff6b67bfbb2012e5a2e097a7c2fb0",
       "report": "298dbca533d080c837091849b8be45d1577b19a211d61f9c10c3d4f9351a8665",
-      "brief": "027-master-is-anchor",
+      "brief": "028-dispatch-after-ready-sends-fix",
       "compactions": 0
     }
   },
@@ -152,22 +152,21 @@
     }
   ],
   "placement": "split",
-  "pending": [
-    "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/028-dispatch-after-ready-sends-fix.md"
-  ],
+  "pending": [],
   "dispatch": {
     "brief": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/028-dispatch-after-ready-sends-fix.md",
-    "at": "2026-11-21T01:48:39Z",
+    "at": "2026-11-21T01:52:00Z",
     "head": "7218f3112db91d4448b20d708b5c92117b6543db",
     "generation": 7,
     "sidekick": "amp claude-code claude-sonnet-5-5",
-    "report_order": 0
+    "report_order": 174
   },
   "sent": {
     "file": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/briefs/028-dispatch-after-ready-sends-fix.md",
     "kind": "BRIEF",
-    "at": "2026-11-21T01:48:39Z",
-    "epoch": 1795225719
+    "at": "2026-11-21T01:52:00Z",
+    "epoch": 1795225920,
+    "seen": "/home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/reports/028-dispatch-after-ready-sends-fix.md:1795225872"
   },
   "heads": {
     "001-swallowed-failures": "a90bb4130393b864176dbeded9bb216fcb5f255c",
@@ -208,7 +207,8 @@
       "T-01a1fa04-0358-74ba-bf70-0d0d9db5a602",
       "T-01a1fa73-ba4a-759f-a82d-fddaa66f726f",
       "T-01a1fb0e-2be9-74c4-a19a-7e5b11d8af62",
-      "T-01a1fb29-d3a6-77ce-99fe-6741609db301"
+      "T-01a1fb29-d3a6-77ce-99fe-6741609db301",
+      "T-01a1fbc2-c8e7-71b4-b32c-ba105bf9a3d1"
     ]
   },
   "consult": {

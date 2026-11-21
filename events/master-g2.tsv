@@ -35,3 +35,6 @@
 2026-11-21T01:48:35Z	1795225715	master	log	-	archive: archive sidekick T-01a1fb29-d3a6-77ce-99fe-6741609db301
 2026-11-21T01:48:38Z	1795225718	master	spawn	-	sidekick:amp:ready
 2026-11-21T01:48:39Z	1795225719	master	send-brief	028-dispatch-after-ready-sends-fix	
+2026-11-21T01:49:02Z	1795225742	master	queue	025-reply-deletes-no-master-state	
+2026-11-21T01:51:54Z	1795225914	master	queue	-	cleared
+2026-11-21T01:52:00Z	1795225920	master	send-brief	028-dispatch-after-ready-sends-fix	
