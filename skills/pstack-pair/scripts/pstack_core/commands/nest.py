@@ -1,6 +1,7 @@
-"""Under Amp threads a run reads as one tree in the thread list: the run's first master thread is the anchor, and every role thread and later
-master generation is a child of it, never of the previous generation. The amp CLI cannot set a parent, so the kitchen records each thread it
-starts as nest-pending, and the master sets the parents with its own Amp thread tool (`nest`)."""
+"""Under Amp threads a run reads as one tree in the thread list: the current master thread is the anchor, a top-level thread that holds the
+anchor title, and every role thread of the run is its child. A rotation moves the anchor to the new master (take-master), which becomes top-level;
+a master is never nested under another master. The amp CLI cannot set a parent, so the kitchen records each thread it starts as nest-pending,
+and the master sets the parents with its own Amp thread tool (`nest`). A row whose anchor is `-` says the thread is to be top-level."""
 
 import os
 import sys
@@ -12,6 +13,7 @@ from ..store import event, load, pair_file, peek, text_at, update
 
 TSV = 'nest-pending.tsv'
 PENDING, NESTED = 'pending', 'nested'
+TOP_LEVEL = '-'
 # Set to a thread id, `nest` tells the master to ask that thread to set the parents instead of calling update_thread itself.
 VIA = 'PSTACK_NEST_VIA'
 
@@ -40,19 +42,22 @@ def rows(store):
 
 
 def pending(store):
-    """The rows still to nest, in the order they were recorded: a thread with a pending row and no nested one."""
+    """The rows still to nest, in the order they were recorded: a thread's newest pending row, unless a nested row for the same anchor follows
+    it. A thread that moved to a new anchor has a row for each, and only the newest counts."""
     every = rows(store)
-    nested = {r.thread for r in every if r.state == NESTED}
+    nested = {(r.thread, r.anchor) for r in every if r.state == NESTED}
     todo = {}
     for r in every:
-        if r.state == PENDING and r.thread not in nested:
-            todo.setdefault(r.thread, r)
-    return list(todo.values())
+        if r.state == PENDING:
+            todo.pop(r.thread, None)
+            todo[r.thread] = r
+    return [r for r in todo.values() if (r.thread, r.anchor) not in nested]
 
 
 def anchor(store, besides=''):
-    """The run's anchor thread, `pair.json` `.anchor.thread`, set once and never changed. `init` records the first master's own thread; a store from
-    before that takes the oldest master thread recorded for the run other than `besides`, else the master's own thread."""
+    """The run's anchor thread, `pair.json` `.anchor.thread`: the master that holds the run's top-level row. `init` records the first master's own
+    thread and its title; take-master moves it to the next master. A store from before that takes the oldest master thread recorded for the run
+    other than `besides`, else the master's own thread."""
     found = text_at(peek(load(store), 'anchor'), 'thread')
     if found:
         return found
@@ -90,11 +95,22 @@ def record_pending(store, thread, role):
     if not os.path.isfile(f'{store}/pair.json'):
         return
     here = anchor(store, thread)
-    if not here or thread == here or any(r.thread == thread for r in rows(store)):
+    if not here or thread == here:
+        return
+    add_pending(store, thread, role, here)
+
+
+def add_pending(store, thread, role, parent):
+    """A pending row for `thread` under `parent` (TOP_LEVEL for none), unless it has a row for that parent already."""
+    if any(r.thread == thread and r.anchor == parent for r in rows(store)):
         return
     with open(f'{store}/{TSV}', 'a', encoding='utf-8') as f:
-        f.write(f'{stamp()}\t{thread}\t{role}\t{here}\t{PENDING}\n')
-    event(store, 'master', 'nest-pending', '-', f'{thread} under {here}')
+        f.write(f'{stamp()}\t{thread}\t{role}\t{parent}\t{PENDING}\n')
+    event(store, 'master', 'nest-pending', '-', f'{thread} {under(parent)}')
+
+
+def under(parent):
+    return 'top-level' if parent == TOP_LEVEL else f'under {parent}'
 
 
 def status_line(store):
@@ -122,25 +138,30 @@ def nest(ctx, args):
         sys.stdout.write('nest: nothing pending\n')
         return 0
     for r in todo:
-        sys.stdout.write(f'nest-pending: {r.thread} ({r.role}) under {r.anchor}\n')
+        sys.stdout.write(f'nest-pending: {r.thread} ({r.role}) {under(r.anchor)}\n')
     who = f'ask {os.environ[VIA]} to ' if os.environ.get(VIA) else ''
-    sys.stdout.write(
-        f'nest: {who}call update_thread(thread=<T>, parent_thread=<anchor>) for each, then {ctx.prog} nest {store} --done <thread>...\n'
-    )
+    then = f'then {ctx.prog} nest {store} --done <thread>...'
+    if any(r.anchor != TOP_LEVEL for r in todo):
+        sys.stdout.write(
+            f'nest: {who}call update_thread(thread=<T>, parent_thread=<anchor>) for each, {then}\n'
+        )
+    if any(r.anchor == TOP_LEVEL for r in todo):
+        sys.stdout.write(
+            f'nest: {who}call update_thread(thread=<T>, parent_thread=null) for each top-level row, {then}\n'
+        )
     return 0
 
 
 def done(store, threads):
     """Marks each of threads (all recorded for the run) nested; one that is nested already is left as it is."""
-    known = {r.thread: r for r in rows(store)}
-    waiting = {r.thread for r in pending(store)}
+    waiting = {r.thread: r for r in pending(store)}
     for thread in dict.fromkeys(threads):
-        r = known[thread]
-        if thread not in waiting:
+        r = waiting.get(thread)
+        if r is None:
             sys.stdout.write(f'nested: {thread} (already)\n')
             continue
         with open(f'{store}/{TSV}', 'a', encoding='utf-8') as f:
             f.write(f'{stamp()}\t{thread}\t{r.role}\t{r.anchor}\t{NESTED}\n')
-        event(store, 'master', 'nest', '-', f'{thread} under {r.anchor}')
-        sys.stdout.write(f'nested: {thread} under {r.anchor}\n')
+        event(store, 'master', 'nest', '-', f'{thread} {under(r.anchor)}')
+        sys.stdout.write(f'nested: {thread} {under(r.anchor)}\n')
     return 0

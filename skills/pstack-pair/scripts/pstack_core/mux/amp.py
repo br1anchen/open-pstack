@@ -224,6 +224,12 @@ def export(thread):
     return doc if isinstance(doc, dict) else {}
 
 
+def thread_title(thread):
+    """The title of the thread, '' when amp cannot say."""
+    title = export(thread).get('title')
+    return title if isinstance(title, str) else ''
+
+
 def thread_state(doc):
     """(state, since) of an exported thread: its lastKnownAgentState and the epoch it took it; ('', 0) when the export has none."""
     meta = doc.get('meta') if isinstance(doc.get('meta'), dict) else {}

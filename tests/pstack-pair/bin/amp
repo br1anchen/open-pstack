@@ -5,7 +5,8 @@
 #   thread URL; the thread's messages go to $FAKE/amp-threads/<T>/<n>.txt and its attachments to <n>-<name> beside them. $FAKE/amp-ox-fail
 #   holds the error a thread that cannot start prints.
 # - `amp threads search --json -n N QUERY` ($FAKE/amp-search holds the threads a query can find).
-# - `amp threads archive T`, `amp threads export T` ($FAKE/amp-mode is the agentMode it reports) and `amp threads context T`
+# - `amp threads rename T TITLE` (appends `T<TAB>TITLE` to $FAKE/amp-renamed; fails when $FAKE/amp-rename-fail exists),
+#   `amp threads archive T`, `amp threads export T` ($FAKE/amp-mode is the agentMode it reports) and `amp threads context T`
 #   ($FAKE/amp-context-<T>, else $FAKE/amp-context, is the JSON it prints; by default 10% of the window used, no compaction) and `amp threads usage T`
 #   ($FAKE/amp-cost/T is the dollar figure it reports, $0.00 by default; `none` there prints no Cost line). The export reports
 #   $FAKE/amp-state/<T> as lastKnownAgentState (state and updatedAt on one line; none when absent) and the thread's delivered messages.
@@ -63,6 +64,9 @@ except OSError:
 print(json.dumps([{'id': h['id'], 'title': h.get('title', ''), 'updatedAt': '2026-01-01T00:00:00.000Z'} for h in hits if query in (h.get('title', '') + ' ' + h.get('text', '')).lower()]))
 PY
 	exit 0 ;;
+"threads rename")
+	[ -e "$FAKE/amp-rename-fail" ] && { echo 'Error: rename failed' >&2; exit 1; }
+	printf '%s\t%s\n' "$3" "$4" >>"$FAKE/amp-renamed"; exit 0 ;;
 "threads archive") printf '%s\n' "$3" >>"$FAKE/amp-archived"; exit 0 ;;
 "threads export")
 	python3 - "$FAKE" "$3" <<'PY'
@@ -81,7 +85,11 @@ try:
     mode = open(os.path.join(fake, 'amp-mode')).read().strip()
 except OSError:
     mode = ''
-print(json.dumps({'id': t, 'agentMode': mode, 'meta': meta, 'messages': msgs}))
+try:
+    title = open(os.path.join(fake, 'amp-title-' + t)).read().strip()
+except OSError:
+    title = 'fake title of ' + t
+print(json.dumps({'id': t, 'title': title, 'agentMode': mode, 'meta': meta, 'messages': msgs}))
 PY
 	exit 0 ;;
 esac
