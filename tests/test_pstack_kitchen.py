@@ -16033,6 +16033,11 @@ class AmpKitchenTests(KitchenScriptTests):
         (self.fake / 'amp-rename-fail').write_text('')
         out, master2 = self.take_master_after_rotation()
         self.assertIn(f'warn: amp threads rename {master2} failed', out)
+        self.assertIn(
+            f"anchor: {master2} is the run's top-level anchor; run kitchen.sh nest {self.store}\n",
+            out,
+        )
+        self.assertNotIn('top-level anchor "', out)
         self.assertEqual(self.state()['anchor']['thread'], master2)
         self.assertEqual(self.state()['master']['generation'], 2)
 

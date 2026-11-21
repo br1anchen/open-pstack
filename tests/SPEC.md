@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at 56c0896 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at 2b4bf50 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -280,7 +280,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 5 (wrong state): rotate-master: this thread is not the run's master (…); only the master rotates — skills/pstack-kitchen/scripts/kitchen_core/master.py:430 — test_pstack_kitchen.AmpKitchenTests.test_only_the_masters_own_thread_rotates_the_master
 - exit 5 (wrong state): every agent of the master chain failed its preflight (…); pass --model to start the next  — skills/pstack-kitchen/scripts/kitchen_core/master.py:470 — test_pstack_kitchen.AmpKitchenTests.test_rotate_master_whose_chain_all_fails_starts_nothing
 - exit 5 (wrong state): a hand-over is open: generation … has not taken over yet; its thread runs kitchen.sh take — skills/pstack-kitchen/scripts/kitchen_core/master.py:490 — test_pstack_kitchen.AmpKitchenTests.test_rotate_master_starts_the_next_master_as_a_thread_and_a_stale_reply_is_forwarded
-- exit 5 (wrong state): take-master runs from the new master's pane …, not … — skills/pstack-kitchen/scripts/kitchen_core/master.py:676 — test_pstack_core.CoreTests.test_take_master_behaviour (+3)
+- exit 5 (wrong state): take-master runs from the new master's pane …, not … — skills/pstack-kitchen/scripts/kitchen_core/master.py:677 — test_pstack_core.CoreTests.test_take_master_behaviour (+3)
 - exit 5 (wrong state): no verification is open; start one with kitchen.sh verify … <NNN> — skills/pstack-kitchen/scripts/kitchen_core/verify.py:356 — test_pstack_core.CoreTests.test_verify_wait_behaviour_for_the_wait_itself (+1)
 - exit 5 (wrong state): a verification is open (…); kitchen.sh verify … --wait — skills/pstack-kitchen/scripts/kitchen_core/verify.py:367 — test_pstack_core.CoreTests.test_close_behaviour (+1)
 - exit 5 (wrong state): every agent of the verifier chain failed its preflight (…) — skills/pstack-kitchen/scripts/kitchen_core/verify_launch.py:172 — test_pstack_kitchen.AmpKitchenTests.test_a_verifier_whose_whole_chain_fails_starts_nothing
