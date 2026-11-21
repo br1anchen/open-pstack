@@ -169,3 +169,11 @@
 2026-11-21T07:46:26Z	1795247186	master	nest	-	T-01a1fd11-a036-76c8-bd1d-aa7c3b06df12 under T-01a1fb72-f256-7439-9c4a-d630b435d90d
 2026-11-21T07:46:34Z	1795247194	master	queue	-	cleared
 2026-11-21T07:46:39Z	1795247199	master	send-brief	032-master-bundle-branches-fix2	
+2026-11-21T07:46:54Z	1795247214	master	queue	024-verify-names-excluded-fix	
+2026-11-21T08:04:02Z	1795248242	master	archive	-	verifier:T-01a1fd11-a036-76c8-bd1d-aa7c3b06df12
+2026-11-21T08:04:02Z	1795248242	master	log	-	archive: archive verifier T-01a1fd11-a036-76c8-bd1d-aa7c3b06df12
+2026-11-21T08:04:02Z	1795248242	master	verify	022-migrated-threads-archive-nest	clean
+2026-11-21T08:04:02Z	1795248242	master	wake	022-migrated-threads-archive-nest	verify:clean
+2026-11-21T08:04:16Z	1795248256	master	log	-	review-022: 022 accepted: verifier clean; joo 4 lows to followups; rotate advice ignored per standing order 20
+2026-11-21T08:24:31Z	1795249471	master	log	-	merge: PR #13 (027+029) merged to main by rebase at b681abc on Brian's explicit approval
+2026-11-21T08:36:20Z	1795250180	master	send-verify	032-master-bundle-branches-fix2	claude:031 004 032

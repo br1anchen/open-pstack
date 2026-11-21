@@ -11,3 +11,5 @@
 - 030 (joo, low): the per-command context memo also caches a failed read; consider not caching a None so a transient amp failure does not blind later readers in the same command.
 
 - 031 (verifier/joo): a rejected hand-over leaves its import refs until the next apply prunes them; a timed-out fetch is SIGKILLed, which can leave ref locks and orphaned transports; on fetch failure the bundle is cut at a possibly stale tracking ref; the receiving side's fetches have no timeout; PSTACK_BUNDLE_FETCH_TIMEOUT_S and PSTACK_BUNDLE_KEEP are undocumented.
+
+- 022 (joo, low): before_migration treats a retirement time `at` as a start time; filter archived threads after merging pair.json and registry names; share one run-thread-set helper with Amp.thread_rows; route nest --discover through mux.get(); nest --discover does not mark threads nested.
