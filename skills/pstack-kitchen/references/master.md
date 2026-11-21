@@ -84,8 +84,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    N threads` line in `kitchen.sh status` means threads wait for a parent under
    the run's anchor: run `kitchen.sh nest <store>`, call `update_thread` for
    each thread it lists (amp module, through code_exec, `{thread,
-   parent_thread: <anchor>}`), then `kitchen.sh nest <store> --done
-   <thread>...`. Under Amp threads a kept sidekick session
+   parent_thread: <anchor>}`; `parent_thread: null` for a row listed as
+   `top-level`), then `kitchen.sh nest <store> --done <thread>...`. Under Amp threads a kept sidekick session
    gets a brief's playbook and report sections as a pointer to the brief that
    carried them (`Unchanged from briefs/...`); there is nothing to do about it,
    and a rotation, a changed composition or a compaction brings them back in
@@ -304,7 +304,11 @@ and verifying fields), then `kitchen.sh status` (its `queued:` line shows
 `<store>/queue`), then the files the handoff points at, and
 continue from its Next section; run `wait` or `verify --wait` on open
 dispatches and verifications. Do not re-run `init` or `spawn`; the roles
-are live.
+are live. Under Amp threads `take-master` also makes you the run's anchor: it
+prints `anchor: <thread> is the run's top-level anchor "<title>"`. Run
+`kitchen.sh nest <store>` once, make the calls it lists (including
+`update_thread` with `parent_thread: null` for yourself, and the live role
+threads under you), then `kitchen.sh nest <store> --done <thread>...`.
 
 ## Delegation
 
