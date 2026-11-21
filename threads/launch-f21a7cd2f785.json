@@ -1,0 +1,24 @@
+{
+ "args": [
+  "--model",
+  "openai/gpt-6.1-sol"
+ ],
+ "generation": 15,
+ "kind": "amp",
+ "name": "kitchen-followups-sidekick",
+ "pane": "amp:1",
+ "relays": [],
+ "requests": [
+  {
+   "at": 1795263930,
+   "hash": "0e4bc6c2ae0a35cd269eab1194cf74548e19cc1e7fa0f5521e100208d205ac75",
+   "id": "f21a7cd2f785",
+   "seq": 68,
+   "state": "pending"
+  }
+ ],
+ "role": "sidekick",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "state": "started",
+ "thread": ""
+}
