@@ -12,3 +12,10 @@
 2026-11-21T07:01:48Z	1795244508	sidekick	finish-verify-pass	031-master-bundle-branches-fix	6dcc8e38a
 2026-11-21T07:01:48Z	1795244508	sidekick	rotation-required	031-master-bundle-branches-fix	generation:12 sha256:9cb786e6a6f3
 2026-11-21T07:01:51Z	1795244511	sidekick	report	031-master-bundle-branches-fix	done
+2026-11-21T07:06:16Z	1795244776	sidekick	progress	022-migrated-threads-archive-nest	
+2026-11-21T07:16:57Z	1795245417	sidekick	step	022-migrated-threads-archive-nest	1:28b1cb015
+2026-11-21T07:17:58Z	1795245478	sidekick	progress	022-migrated-threads-archive-nest	
+2026-11-21T07:18:36Z	1795245516	sidekick	gate-fail	022-migrated-threads-archive-nest	fe439aee0 /home/user/workspace/repo/.amp/in/orb-backup/pstack/pstack/kitchen/runs/kitchen-followups/steps/jobs/022-migrated-threads-archive-nest-fe439aee0ed0/out.1
+2026-11-21T07:31:10Z	1795246270	sidekick	step	022-migrated-threads-archive-nest	2:9ececb639
+2026-11-21T07:31:28Z	1795246288	sidekick	progress	022-migrated-threads-archive-nest	
+2026-11-21T07:41:54Z	1795246914	sidekick	step	022-migrated-threads-archive-nest	3:ece578550

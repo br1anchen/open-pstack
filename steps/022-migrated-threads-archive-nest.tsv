@@ -1,0 +1,3 @@
+1	28b1cb015009c4080662c718ac10a4f653059370	1795245417		a thread from before store-to-git archives by the local rule
+2	9ececb639d96c05c2bc40022ae51d70ea5b6233e	1795246270		nest --discover records a run's unnested threads and its anchor
+3	ece578550c5019b3e36b6d0b37a25039d12859b7	1795246914		document the migrated-thread archive rule and nest --discover
