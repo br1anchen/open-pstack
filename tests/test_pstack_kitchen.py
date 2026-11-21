@@ -17657,6 +17657,38 @@ class AmpKitchenTests(KitchenScriptTests):
             self.assertIn('take-master: cannot read the roster', out)
             self.assertIn('previous', self.state()['master'])
             mine.rmdir()
+        with self.subTest('a link to a roster that is not there'):
+            doc = json.loads(handed)
+            (self.store / 'pair.json').write_text(json.dumps(doc))
+            mine.unlink(missing_ok=True)
+            mine.symlink_to(orb / 'nowhere.toml')
+            out = self.as_thread(
+                master2,
+                'take-master',
+                str(self.store),
+                cwd=orb,
+                env={'PSTACK_KITCHEN_ROSTER': str(mine)},
+                code=1,
+            )
+            self.assertIn(f'take-master: cannot read the roster {mine}', out)
+            self.assertNotIn('Traceback', out)
+            self.assertIn('previous', self.state()['master'])
+            mine.unlink()
+        with self.subTest('a roster directory that cannot be made'):
+            (self.store / 'pair.json').write_text(handed)
+            (orb / 'linkdir').symlink_to(orb / 'nowhere')
+            out = self.as_thread(
+                master2,
+                'take-master',
+                str(self.store),
+                cwd=orb,
+                env={'PSTACK_KITCHEN_ROSTER': str(orb / 'linkdir/roster.toml')},
+                code=1,
+            )
+            self.assertIn(f'take-master: cannot create {orb / "linkdir"}', out)
+            self.assertNotIn('Traceback', out)
+            self.assertIn('previous', self.state()['master'])
+            (orb / 'linkdir').unlink()
         with self.subTest('a rerun keeps what it installed and the user then edited'):
             take(None)
             mine.write_text(other)
@@ -17671,6 +17703,61 @@ class AmpKitchenTests(KitchenScriptTests):
             self.assertIn(f'roster: kept {mine}', out)
             self.assertEqual(mine.read_text(), other)
         self.assertEqual(sender.read_text(), self.ROSTER)
+
+    def test_take_master_installs_a_snapshot_that_is_there_and_a_missing_one_ends_only_the_local_store(
+        self,
+    ):
+        """Under the git store the snapshot is a local-only file the old master uploads, so one that never arrived is no failure; under the local
+        store it travels in the bundle, so a missing one still is."""
+        sender = Path(self.tmp.name) / 'host-roster.toml'
+        sender.write_text(self.ROSTER)
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(sender)
+        git = self.env.get('PSTACK_STORE') == 'git'
+        if git:
+            self.ready_path().unlink()
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        snapshot = self.roster_snapshot()
+        kept = snapshot.read_bytes()
+        mine = Path(self.tmp.name) / 'orb2-roster.toml'
+        for label, there in (('present', True), ('missing', False)):
+            with self.subTest(label):
+                mine.unlink(missing_ok=True)
+                if there:
+                    snapshot.write_bytes(kept)
+                else:
+                    snapshot.unlink(missing_ok=True)
+                failing = not there and not git
+                out = self.as_thread(
+                    amp_thread(2),
+                    'take-master',
+                    str(self.store),
+                    env={'PSTACK_KITCHEN_ROSTER': str(mine)},
+                    code=1 if failing else 0,
+                )
+                if there:
+                    self.assertIn(f'roster: installed {mine} from {snapshot}', out)
+                    self.assertEqual(mine.read_bytes(), kept)
+                elif git:
+                    self.assertIn(
+                        f'roster: {snapshot} did not arrive from the previous master; this orb keeps its own roster',
+                        out,
+                    )
+                else:
+                    self.assertIn('take-master: cannot read the roster snapshot', out)
+                self.assertEqual(mine.exists(), there)
+                self.assertNotIn('Traceback', out)
+                self.assertEqual('previous' in self.state()['master'], failing)
+                if not failing:
+                    # the next case takes the same hand-over again
+                    doc = self.state()
+                    doc['master']['previous'] = {
+                        'name': 'demo-master',
+                        'pane_id': f'amp:{AMP_MASTER}',
+                        'session': '',
+                        'roster': 'sessions/master-g2-roster.toml',
+                    }
+                    self.edit_pair(master=doc['master'])
 
     def test_take_master_without_a_roster_on_the_old_master_installs_nothing(self):
         self.env['PSTACK_KITCHEN_ROSTER'] = str(Path(self.tmp.name) / 'absent.toml')
@@ -20270,6 +20357,40 @@ class AmpGitKitchenTests(AmpKitchenTests):
         )
         hook.chmod(0o755)
 
+    def test_a_publish_that_fails_after_the_snapshot_leaves_no_snapshot_behind(self):
+        roster = Path(self.tmp.name) / 'host-roster.toml'
+        roster.write_text(self.ROSTER)
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        self.ready_path().unlink()
+        self.filled_handoff()
+        self.refuse_master_pushes_where('true')
+        out = self.run_sh('rotate-master', str(self.store), code=None)
+        self.assertNotIn('Traceback', out)
+        self.assertNotIn('previous', self.state()['master'])
+        self.assertFalse(self.roster_snapshot().exists())
+
+    def test_a_launch_failure_with_the_snapshot_already_gone_keeps_the_launch_error(
+        self,
+    ):
+        roster = Path(self.tmp.name) / 'host-roster.toml'
+        roster.write_text(self.ROSTER)
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        self.ready_path().unlink()
+        self.filled_handoff()
+        (self.fake / 'amp-ox-fail').write_text('boom launch\n')
+        # The thread's start takes the snapshot with it, as a concurrent cleanup would.
+        wrap = Path(self.tmp.name) / 'wrap'
+        wrap.mkdir()
+        (wrap / 'amp').write_text(
+            f'#!/bin/sh\nrm -f "{self.roster_snapshot()}"\nexec "{root / "tests/pstack-pair/bin/amp"}" "$@"\n'
+        )
+        (wrap / 'amp').chmod(0o755)
+        self.env['PATH'] = f'{wrap}:{self.env["PATH"]}'
+        out = self.run_sh('rotate-master', str(self.store), code=None)
+        self.assertIn('the next master thread did not start: boom launch', out)
+        self.assertNotIn('Traceback', out)
+        self.assertNotIn('previous', self.state()['master'])
+
     def test_a_master_rollback_that_cannot_be_published_leaves_the_launch_error_standing(
         self,
     ):
@@ -20998,6 +21119,9 @@ class AmpGitKitchenTests(AmpKitchenTests):
         )
         self.as_orb(clone, 'finish', str(orb_store), str(report))
         self.assertEqual(len(self.sidekick_events()), 1)
+
+    # Both stores run the roster table: the local one fails on a snapshot that is gone, the git one goes on.
+    test_take_master_installs_a_snapshot_that_is_there_and_a_missing_one_ends_only_the_local_store = AmpKitchenTests.test_take_master_installs_a_snapshot_that_is_there_and_a_missing_one_ends_only_the_local_store
 
 
 for _name in dir(AmpKitchenTests):
