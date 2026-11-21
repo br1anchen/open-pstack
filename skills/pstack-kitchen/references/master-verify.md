@@ -107,7 +107,10 @@ The detail behind step 6 of [master.md](master.md).
      refused (`units NNN and MMM have no common order: pass --base REV`), and
      `--base` wins. The packet lists each unit inside the range that is not
      named under `## Context: units between`, with its review path and the
-     review's Amendments, for the verifier to read and not judge.
+     review's Amendments, for the verifier to read and not judge. A unit in
+     the range with no accepted review is left out of the proof: `verify` prints
+     `excluded: unit NNN (in the range, no accepted review)` for it, with the
+     two remedies (name it with `--covers`, or `verify --landing` covers it).
      A named unit's own section carries its review's Amendments too, after
      its Goal and Acceptance, under `Accepted by the master (reviews/<unit>.md)`;
      a unit with no review note, or Amendments `none`, gets no such block.
