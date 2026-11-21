@@ -129,8 +129,9 @@ def worktrees(store):
     return found
 
 
-def git_bundle(root, refs, path):
-    """Writes a git bundle of refs ({name: commit}) less what the remotes already hold; whether there was anything to carry."""
+def git_bundle(root, refs, path, exclude=('--remotes',)):
+    """Writes a git bundle of refs ({name: commit}) less what `exclude` (revision arguments after --not; none carries everything) already
+    holds, the remotes by default; whether there was anything to carry."""
     for name, commit in refs.items():
         git.ok(root, 'update-ref', f'{OUT}/{name}', commit)
     try:
@@ -141,17 +142,51 @@ def git_bundle(root, refs, path):
             '-q',
             path,
             *[f'{OUT}/{n}' for n in refs],
-            '--not',
-            '--remotes',
+            *(['--not', *exclude] if exclude else []),
         )
     finally:
         for name in refs:
             git.ok(root, 'update-ref', '-d', f'{OUT}/{name}')
 
 
-def pack(store, path, sender, to, agents, text=''):
+def local_branches(root):
+    """{name: full commit id} of every local branch (refs/heads/), those origin already holds too: a branch name is state the objects do not
+    carry."""
+    text = git.out(
+        root, 'for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/heads/'
+    )
+    found = {}
+    for line in (text or '').splitlines():
+        ref, _, oid = line.partition('\t')
+        found[ref[len('refs/heads/') :]] = oid
+    return found
+
+
+def origin_baseline(root):
+    """The commit of origin's default branch as it stands after a fresh fetch, which the receiver can fetch too: the one thing a hand-over's
+    bundle may leave out. '' when origin cannot be fetched or names no default branch, and the bundle then carries everything."""
+    if not git.ok(root, 'fetch', '-q', 'origin'):
+        return ''
+    ref = git.out(root, 'symbolic-ref', '-q', 'refs/remotes/origin/HEAD')
+    if not ref:
+        ref = next(
+            (
+                r
+                for r in ('refs/remotes/origin/main', 'refs/remotes/origin/master')
+                if git.ok(root, 'rev-parse', '--verify', '-q', r)
+            ),
+            '',
+        )
+    return (
+        git.out(root, 'rev-parse', '--verify', '-q', f'{ref}^{{commit}}') if ref else ''
+    ) or ''
+
+
+def pack(store, path, sender, to, agents, text='', branches=False):
     """Writes the bundle of store to path, from `sender` ({name, thread}) to the agent `to` ({name, pane}), carrying the agents this side
-    knows ({name: {pane, thread}}) and the text of the message it travels with. Returns its manifest."""
+    knows ({name: {pane, thread}}) and the text of the message it travels with. Returns its manifest. A master's hand-over (`branches`) also
+    carries every local branch: its name and tip in the manifest (git.branches), its commits in the same git bundle, cut only against
+    origin's default branch (git.baseline), never against the remotes this side happens to have."""
     files, listed = store_files(store)
     root = repo_of(store)
     head = git.out(root, 'rev-parse', 'HEAD') if root else None
@@ -175,11 +210,17 @@ def pack(store, path, sender, to, agents, text=''):
             'worktrees': trees,
         },
     }
+    refs = {'head': head, **{f'wt{i}': t['commit'] for i, t in enumerate(trees)}}
+    exclude = ('--remotes',)
+    if branches and head:
+        tips = local_branches(root)
+        baseline = origin_baseline(root)
+        manifest['git'].update(branches=tips, baseline=baseline)
+        refs.update({f'br/{name}': oid for name, oid in tips.items()})
+        exclude = (baseline,) if baseline else ()
     with tempfile.TemporaryDirectory() as tmp:
         carried = bool(head) and git_bundle(
-            root,
-            {'head': head, **{f'wt{i}': t['commit'] for i, t in enumerate(trees)}},
-            os.path.join(tmp, GIT_BUNDLE),
+            root, refs, os.path.join(tmp, GIT_BUNDLE), exclude
         )
         with tarfile.open(path, 'w:gz') as tar:
             add_bytes(tar, MANIFEST, json.dumps(manifest, indent=1).encode())

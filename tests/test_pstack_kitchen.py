@@ -17821,6 +17821,93 @@ class AmpKitchenTests(KitchenScriptTests):
         self.assertIn(f'at {head[:9]}, as demo-sidekick', out)
         self.assertEqual(self.git('rev-parse', 'HEAD'), head)
 
+    def unpushed_branches(self):
+        """Two local branches that are not HEAD's, one named with a slash, each with a commit of its own that no remote holds: {name: tip}."""
+        here = self.git('rev-parse', '--abbrev-ref', 'HEAD')
+        base = self.git('rev-parse', 'HEAD')
+        tips = {}
+        for name in ('feat/one', 'side'):
+            self.git('checkout', '-q', '-b', name, base)
+            self.write(f'{name.replace("/", "-")}.txt', f'{name}\n')
+            tips[name] = self.commit(f'work on {name}')
+        self.git('checkout', '-q', here)
+        return tips
+
+    def bundle_of(self, path):
+        """(manifest, refs the git bundle lists) of an attached bundle file."""
+        with tarfile.open(path, 'r:gz') as tar:
+            member = tar.extractfile('manifest.json')
+            assert member is not None
+            manifest = json.loads(member.read())
+            if 'git.bundle' not in tar.getnames():
+                return manifest, []
+            tar.extract('git.bundle', self.tmp.name, filter='data')
+        heads = self.git('bundle', 'list-heads', f'{self.tmp.name}/git.bundle')
+        os.unlink(f'{self.tmp.name}/git.bundle')
+        return manifest, [line.split(' ', 1)[1] for line in heads.splitlines()]
+
+    def test_a_hand_over_bundle_carries_every_local_branch_and_a_role_message_does_not(
+        self,
+    ):
+        tips = self.unpushed_branches()
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        [handover] = (self.fake / 'amp-threads' / amp_thread(2)).glob(
+            '*-pstack-demo-master-g2.tgz'
+        )
+        manifest, refs = self.bundle_of(handover)
+        self.assertEqual(
+            {
+                **tips,
+                self.git('rev-parse', '--abbrev-ref', 'HEAD'): self.git(
+                    'rev-parse', 'HEAD'
+                ),
+            },
+            manifest['git']['branches'],
+        )
+        for name in tips:
+            self.assertIn(f'refs/pstack/out/br/{name}', refs)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        to_sidekick = sorted(
+            (self.fake / 'amp-threads' / amp_thread(1)).glob(
+                '*-pstack-demo-sidekick.tgz'
+            )
+        )
+        self.assertTrue(to_sidekick)
+        for path in to_sidekick:
+            manifest, refs = self.bundle_of(path)
+            self.assertNotIn('branches', manifest['git'])
+            self.assertEqual([r for r in refs if '/br/' in r], [])
+
+    def test_a_hand_over_bundle_is_cut_against_origins_default_branch_not_the_remotes_this_side_has(
+        self,
+    ):
+        """A remote only the sender has must not empty the bundle: the receiver fetches origin, so origin's default branch is the one thing
+        the bundle may leave out."""
+        tips = self.unpushed_branches()
+        origin = Path(self.tmp.name) / 'origin.git'
+        sender_only = Path(self.tmp.name) / 'sender-only.git'
+        for bare in (origin, sender_only):
+            subprocess.run(
+                ['git', 'init', '-q', '--bare', str(bare)], check=True, timeout=60
+            )
+        here = self.git('rev-parse', '--abbrev-ref', 'HEAD')
+        self.git('remote', 'add', 'origin', str(origin))
+        self.git('remote', 'add', 'elsewhere', str(sender_only))
+        self.git('push', '-q', 'origin', f'{here}:{here}')
+        self.git('remote', 'set-head', 'origin', here)
+        self.git('push', '-q', 'elsewhere', *[f'{n}:{n}' for n in tips])
+        self.filled_handoff()
+        self.run_sh('rotate-master', str(self.store))
+        [handover] = (self.fake / 'amp-threads' / amp_thread(2)).glob(
+            '*-pstack-demo-master-g2.tgz'
+        )
+        manifest, refs = self.bundle_of(handover)
+        self.assertEqual(manifest['git']['baseline'], self.git('rev-parse', 'HEAD'))
+        for name in tips:
+            self.assertIn(f'refs/pstack/out/br/{name}', refs)
+
     def test_rotate_master_starts_the_next_master_as_a_thread_and_a_stale_reply_is_forwarded(
         self,
     ):
