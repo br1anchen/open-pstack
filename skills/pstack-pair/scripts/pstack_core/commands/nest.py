@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 
 from ..errors import Die
-from ..store import event, load, pair_file, peek, text_at, update
+from ..store import event, listing, load, member, pair_file, peek, text_at, update
 
 TSV = 'nest-pending.tsv'
 PENDING, NESTED = 'pending', 'nested'
@@ -81,6 +81,80 @@ def anchor(store, besides=''):
     return text_at(peek(load(store), 'anchor'), 'thread')
 
 
+def oldest_master(store):
+    """The oldest master thread the run knows: the lowest generation of `.master.sessions` that names a thread, else the earliest started master
+    threads.json holds for the run, else the current master's own thread. '' when none is known."""
+    from ..mux import amp
+
+    doc = load(store)
+    master = peek(doc, 'master')
+    sessions = sorted(
+        (
+            (int(e.get('generation') or 0), e['session'])
+            for e in listing(master, 'sessions')
+            if isinstance(e, dict) and str(e.get('session') or '').startswith('T-')
+        ),
+    )
+    if sessions:
+        return sessions[0][1]
+    path = os.path.realpath(store)
+    started = sorted(
+        (int(e.get('started') or 0), t)
+        for t, e in amp.load_json(amp.threads_path()).items()
+        if e.get('role') == 'master' and e.get('store') == path and e.get('started')
+    )
+    if started:
+        return started[0][1]
+    pane = text_at(master, 'pane_id')
+    return pane[len('amp:') :] if pane.startswith('amp:T-') else ''
+
+
+def run_threads(store):
+    """{thread: role} of every unarchived thread the run's records name: threads.json entries for this store, the sidekick threads and master
+    sessions of pair.json, and the registry's agents titled for the run."""
+    from ..mux import amp
+
+    doc = load(store)
+    path = os.path.realpath(store)
+    found = {
+        t: e.get('role') or amp.role_of(e.get('name') or '')
+        for t, e in amp.load_json(amp.threads_path()).items()
+        if e.get('store') == path and not e.get('archived')
+    }
+    for by_model in (peek(doc, 'sidekick_threads') or {}).values():
+        found.update({t: 'sidekick' for t in by_model if isinstance(t, str)})
+    master = peek(doc, 'master')
+    for e in listing(master, 'sessions'):
+        if isinstance(e, dict) and str(e.get('session') or '').startswith('T-'):
+            found.setdefault(e['session'], 'master')
+    pane = text_at(master, 'pane_id')
+    if pane.startswith('amp:T-'):
+        found.setdefault(pane[len('amp:') :], 'master')
+    ours = amp.run_titles(text_at(doc, 'slug'))
+    for name, e in amp.load(amp.Amp().path())['agents'].items():
+        if e.get('thread') and ours.fullmatch(name):
+            found.setdefault(e['thread'], amp.role_of(name))
+    return found
+
+
+def discover(store):
+    """Records every thread the run knows (the same search `threads --discover` makes, then run_threads) that has no row yet as nest-pending, and sets
+    the anchor to the oldest master thread when pair.json has none. A second run records nothing."""
+    from ..mux import amp
+
+    amp.Amp().discover(store)
+    if not text_at(peek(load(store), 'anchor'), 'thread') and (
+        first := oldest_master(store)
+    ):
+
+        def record(doc):
+            member(doc, 'anchor').setdefault('thread', first)
+
+        update(store, record)
+    for thread, role in sorted(run_threads(store).items()):
+        record_pending(store, thread, role)
+
+
 def stamp():
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
@@ -104,8 +178,9 @@ def status_line(store):
 
 
 def nest(ctx, args):
-    """nest <store> [--done <thread>...]: the threads waiting for a parent and how to set it; --done marks threads nested."""
-    usage = f'usage: {ctx.prog} nest <store> [--done <thread>...]'
+    """nest <store> [--discover | --done <thread>...]: the threads waiting for a parent and how to set it; --discover first records the run's
+    threads that have no row (a run migrated or started before nesting) and its anchor; --done marks threads nested."""
+    usage = f'usage: {ctx.prog} nest <store> [--discover | --done <thread>...]'
     if not args:
         raise Die(usage)
     store, rest = args[0], args[1:]
@@ -115,7 +190,9 @@ def nest(ctx, args):
         if unknown:
             raise Die(f'not recorded for nesting: {" ".join(unknown)}')
         return done(store, rest[1:])
-    if rest:
+    if rest == ['--discover']:
+        discover(store)
+    elif rest:
         raise Die(usage)
     todo = pending(store)
     if not todo:

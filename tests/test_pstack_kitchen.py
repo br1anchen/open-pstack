@@ -14600,6 +14600,54 @@ class AmpKitchenTests(KitchenScriptTests):
             ],
         )
 
+    def test_nest_discover_sets_the_oldest_master_as_anchor_and_records_the_threads_without_a_row_once(
+        self,
+    ):
+        old_master, sidekick, found = (amp_thread(n) for n in (41, 42, 43))
+        (self.store / 'nest-pending.tsv').unlink(missing_ok=True)
+        self.edit_pair(anchor=None)
+        here = os.path.realpath(self.store)
+        self.write_threads(
+            {
+                sidekick: {'name': 'demo-sidekick', 'role': 'sidekick', 'store': here, 'started': 20},
+                old_master: {'name': 'demo-master', 'role': 'master', 'store': here, 'started': 10},
+            }
+        )  # fmt: skip
+        self.search_hits({'id': found, 'title': 'demo-consultant'})
+        out = self.run_sh('nest', str(self.store), '--discover')
+        self.assertEqual(self.state()['anchor'], {'thread': old_master})
+        self.assertEqual(
+            sorted(self.nest_rows()),
+            sorted(
+                [
+                    (AMP_MASTER, 'master', old_master, 'pending'),
+                    (amp_thread(1), 'sidekick', old_master, 'pending'),  # setUp's
+                    (sidekick, 'sidekick', old_master, 'pending'),
+                    (found, 'consultant', old_master, 'pending'),
+                ]
+            ),
+        )
+        self.assertNotIn(f'nest-pending: {old_master}', out)
+        self.assertIn(f'nest-pending: {sidekick} (sidekick) under {old_master}', out)
+        rows = self.nest_rows()
+        again = self.run_sh('nest', str(self.store), '--discover')
+        self.assertEqual(self.nest_rows(), rows)
+        self.assertEqual(self.state()['anchor'], {'thread': old_master})
+        self.run_sh(
+            'nest',
+            str(self.store),
+            '--done',
+            AMP_MASTER,
+            amp_thread(1),
+            sidekick,
+            found,
+        )
+        self.assertEqual(
+            self.run_sh('nest', str(self.store), '--discover'),
+            'nest: nothing pending\n',
+        )
+        self.assertIn(f'(consultant) under {old_master}', again)
+
     def test_nest_asks_the_named_thread_when_nest_via_is_set(self):
         self.three_pending()
         self.env['PSTACK_NEST_VIA'] = 'T-via'
