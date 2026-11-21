@@ -1,0 +1,19 @@
+{
+ "args": [
+  "--mode",
+  "claude-code",
+  "--features",
+  "model:claude-sonnet-5-5"
+ ],
+ "generation": 0,
+ "kind": "amp",
+ "name": "kitchen-followups-verifier",
+ "pane": "amp:7",
+ "relays": [],
+ "requests": [],
+ "role": "verifier",
+ "run": "d17083fa3bb140b0b098c7357d00d2b6",
+ "started": 1795230484,
+ "state": "started",
+ "thread": "T-01a1fc13-4107-71b9-96ce-31e3d28b00b8"
+}
