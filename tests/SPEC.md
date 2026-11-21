@@ -1,7 +1,7 @@
 # Behaviour spec
 
 What an agent, a skill doc or a script depends on in pair.sh (pair, guided, trio) and kitchen.sh. Plan 043's contract: the golden
-transcripts plus this file; a behaviour no line names may change. Generated at cd4e197 by the commands below; regenerate with `python3 tests/spec_gen.py`.
+transcripts plus this file; a behaviour no line names may change. Generated at b6b68a4 by the commands below; regenerate with `python3 tests/spec_gen.py`.
 
 Line format: `- <behaviour> — <source file:line> — <test id | decided, U<n> | not a caller contract: reason>`.
 - A test id counts only when the test asserts the behaviour: the literal appears in an assert expression or in a string the test holds next to an assert, or the item is a command that a golden transcript runs (`$ pair.sh <command>`). `(+n)` says how many other tests also do.
@@ -249,7 +249,7 @@ Exit codes callers branch on: 0 ok; 1 usage or precondition; 2 herdr or gate fai
 - exit 2 (herdr or gate failure): prime-agent cannot run under …: it reports no Prime session to stop the role by; use anot — skills/pstack-pair/scripts/pstack_core/spawn.py:329 — test_pstack_core.RexMuxTests.test_a_prime_role_is_refused_where_no_session_is_tracked
 - exit 2 (herdr or gate failure): no fallback recorded for a failed …; pass --fallback KIND or fix the agent — skills/pstack-pair/scripts/pstack_core/spawn.py:484 — test_pstack_core.CoreTests.test_spawn_reports_the_failure_a_caller_branches_on
 - exit 2 (herdr or gate failure): every agent of the sidekick chain failed its preflight (…) — skills/pstack-pair/scripts/pstack_core/spawn.py:487 — test_pstack_kitchen.AmpKitchenTests.test_a_spawn_whose_whole_chain_fails_starts_nothing
-- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:97 — test_pstack_pair.PairScriptTests.test_trio (+494)
+- exit 2 (herdr or gate failure): read — skills/pstack-pair/scripts/pstack_core/steplog.py:97 — test_pstack_pair.PairScriptTests.test_trio (+493)
 - exit 2 (herdr or gate failure): the last step row does not start with a JSON step number: … — skills/pstack-pair/scripts/pstack_core/wait.py:235 — test_pstack_core.CoreTests.test_the_refusals_that_once_imitated_jq_grep_and_tee_say_what_failed_in_the_programs_own_words (+1)
 - exit 2 (herdr or gate failure): cannot read the master's agent kind from …; run pair.sh init first — skills/pstack-trio/scripts/variant.py:97 — test_pstack_core.CoreTests.test_trio_spawn_and_discuss_report_the_state_they_stop_on
 - exit 3 (agent blocked): sidekick … is …; resolve that before queueing — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:488 — test_pstack_core.CoreTests.test_queue_accepts_a_sidekick_idle_on_a_background_command_and_refuses_a_blocked_or_quiet_one (+2)
@@ -366,7 +366,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `steps:` (read by skills/pstack-kitchen/SKILL.md:616) — skills/pstack-kitchen/scripts/kitchen_core/classify.py:68 — test_pstack_pair.PairScriptTests.test_trio (+12)
 - `idle:` (read by skills/pstack-kitchen/references/master.md:103) — skills/pstack-pair/scripts/pstack_core/wait.py:248 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `queued:` (read by skills/pstack-kitchen/references/master.md:303) — skills/pstack-kitchen/scripts/kitchen_core/handoff.py:59 — test_pstack_pair.PairScriptTests.test_trio (+5)
-- `rotated:` (read by skills/pstack-kitchen/references/master.md:112) — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:409 — test_pstack_pair.PairScriptTests.test_trio (+20)
+- `rotated:` (read by skills/pstack-kitchen/references/master.md:112) — skills/pstack-pair/scripts/pstack_core/commands/rotate.py:409 — test_pstack_pair.PairScriptTests.test_trio (+19)
 - `report_status:` (read by skills/pstack-pair-guided/SKILL.md:154) — skills/pstack-pair/scripts/pstack_core/wait.py:199 — test_pstack_pair.PairScriptTests.test_trio (+18)
 - `review-delta:` (read by skills/pstack-pair-guided/references/master.md:102) — skills/pstack-pair/scripts/pstack_core/replies.py:217 — test_pstack_pair.PairScriptTests.test_trio (+3)
 - `provider_error:` (read by skills/pstack-pair/references/master.md:279) — skills/pstack-kitchen/scripts/kitchen_core/verify_wait.py:533 — test_pstack_core.CoreTests.test_a_provider_stop_with_a_fallback_but_no_retry_hook_ends_with_the_provider_error (+7)
@@ -395,7 +395,7 @@ Resolve each as a fixup commit, record it w — skills/pstack-pair/scripts/pstac
 - `pair.json` written by master via `pair.sh`: agent names, pane ids, cwd, git root, the sidekick's fallback and failovers, pane placement (split or tab) — skills/pstack-pair/SKILL.md:59 — test_pstack_pair.PairScriptTests.test_trio (+181)
 - `standing-orders.md` written by master: numbered constraints pasted by path into every brief — skills/pstack-pair/SKILL.md:60 — test_pstack_pair.PairScriptTests.test_trio (+21)
 - `plans/NNN-<slug>.md` written by master: one plan round, from [the plan template](references/plan-template.md) — skills/pstack-pair/SKILL.md:61 — test_pstack_pair.PairScriptTests.test_trio (+43)
-- `briefs/NNN-<slug>.md` written by master: one unit, from [the brief template](references/brief-template.md) — skills/pstack-pair/SKILL.md:62 — test_pstack_pair.PairScriptTests.test_trio (+130)
+- `briefs/NNN-<slug>.md` written by master: one unit, from [the brief template](references/brief-template.md) — skills/pstack-pair/SKILL.md:62 — test_pstack_pair.PairScriptTests.test_trio (+129)
 - `progress/NNN-<slug>.md` written by sidekick via `pair.sh progress`: one timestamped line per completed step or change of approach; a check-in shows only the lines the master has  — skills/pstack-pair/SKILL.md:63 — test_pstack_pair.PairScriptTests.test_trio (+22)
 - `steers/NNN-<slug>-s<k>.md` written by master: mid-brief direction k for unit NNN, from [the steer template](references/steer-template.md); `supersedes:` nam — skills/pstack-pair/SKILL.md:64 — test_pstack_pair.PairScriptTests.test_trio (+20)
 - `reports/NNN-<slug>-s<k>.md` written by sidekick: objection to steer k, from [the steer response template](references/steer-response-template.md) — skills/pstack-pair/SKILL.md:65 — test_pstack_pair.PairScriptTests.test_trio (+182)
